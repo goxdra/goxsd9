@@ -8,11 +8,16 @@ import (
 	"strings"
 )
 
+type commandExecutor func(dir string, input io.Reader, name string, args ...string) (string, error)
+
 func (a app) command(dir, name string, args ...string) (string, error) {
 	return a.commandInput(dir, nil, name, args...)
 }
 
 func (a app) commandInput(dir string, input io.Reader, name string, args ...string) (string, error) {
+	if a.executeCommand != nil {
+		return a.executeCommand(dir, input, name, args...)
+	}
 	// #nosec G204 -- callers select repository-owned commands and fixed arguments.
 	cmd := exec.CommandContext(a.ctx, name, args...)
 	cmd.Dir = dir

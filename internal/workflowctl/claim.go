@@ -86,13 +86,17 @@ func (a app) assertClaimable(root string, number int) error {
 	if err != nil {
 		return err
 	}
-	if item.Content.State != "OPEN" {
-		return stateError("issue #%d is %s", number, item.Content.State)
+	status, err := a.readIssueStatus(root, number)
+	if err != nil {
+		return err
+	}
+	if status.State != "OPEN" {
+		return stateError("issue #%d is %s", number, status.State)
 	}
 	if item.Status != "Ready" && item.Status != "Picked" {
 		return stateError("issue #%d is %s, not Ready", number, item.Status)
 	}
-	if hasLabel(item.Labels, "needs-human") {
+	if issueHasLabel(status, "needs-human") {
 		return stateError("issue #%d needs human attention", number)
 	}
 	return nil

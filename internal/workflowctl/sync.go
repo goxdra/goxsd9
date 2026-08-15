@@ -87,8 +87,8 @@ func (a app) desiredStatus(root string, item projectItem, claims map[int]bool) (
 }
 
 func (a app) readIssueStatus(root string, number int) (issueStatus, error) {
-	output, err := a.command(root, "gh", "issue", "view", strconv.Itoa(number), "--repo", repositoryKey,
-		"--json", "state,labels")
+	endpoint := "repos/" + repositoryKey + "/issues/" + strconv.Itoa(number)
+	output, err := a.command(root, "gh", "api", endpoint)
 	if err != nil {
 		return issueStatus{}, fmt.Errorf("read issue #%d: %w", number, err)
 	}
@@ -96,6 +96,7 @@ func (a app) readIssueStatus(root string, number int) (issueStatus, error) {
 	if err := json.Unmarshal([]byte(output), &status); err != nil {
 		return issueStatus{}, fmt.Errorf("decode issue #%d: %w", number, err)
 	}
+	status.State = strings.ToUpper(status.State)
 	return status, nil
 }
 

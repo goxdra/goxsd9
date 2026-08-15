@@ -301,11 +301,7 @@ func readEvaluationAttestation(path string) (evaluationAttestation, []byte, erro
 	if trailingErr := requireAttestationJSONEnd(decoder); trailingErr != nil {
 		return evaluationAttestation{}, nil, trailingErr
 	}
-	canonical, err := json.Marshal(attestation)
-	if err != nil {
-		return evaluationAttestation{}, nil, fmt.Errorf("encode Examiner attestation: %w", err)
-	}
-	return attestation, canonical, nil
+	return attestation, data, nil
 }
 
 func requireAttestationJSONEnd(decoder *json.Decoder) error {
@@ -345,6 +341,9 @@ func validateEvaluationAttestation(attestation evaluationAttestation, number int
 	for _, receipt := range receipts {
 		if receipt.Challenge == challenge.Challenge {
 			return errors.New("challenge was already used")
+		}
+		if receipt.EvaluatorRunID == attestation.RunID {
+			return errors.New("examiner run ID was already used")
 		}
 	}
 	return nil
@@ -597,12 +596,16 @@ func latestEvaluationPasses(view pullRequestView, number int) bool {
 		return false
 	}
 	uses := 0
+	runUses := 0
 	for _, receipt := range receipts {
 		if receipt.Challenge == latest.Challenge {
 			uses++
 		}
+		if receipt.EvaluatorRunID == latest.EvaluatorRunID {
+			runUses++
+		}
 	}
-	return uses == 1
+	return uses == 1 && runUses == 1
 }
 
 func evaluationReceiptMatches(comment pullRequestComment, receipt evaluationReceipt) bool {
@@ -647,11 +650,7 @@ func parseCommentAttestation(body string) (evaluationAttestation, []byte, bool) 
 	if err := json.Unmarshal(value, &attestation); err != nil {
 		return evaluationAttestation{}, nil, false
 	}
-	canonical, err := json.Marshal(attestation)
-	if err != nil {
-		return evaluationAttestation{}, nil, false
-	}
-	return attestation, canonical, true
+	return attestation, value, true
 }
 
 func (a app) escalateEvaluation(root string, number int) error {
