@@ -29,6 +29,8 @@ Complete one coherent work packet. Do not stop after planning or opening a PR.
    change may omit one or both; record the concrete exemption in the PR.
 5. Implement the smallest complete outcome. Follow every invariant in
    `AGENTS.md`. Mechanize a repeated or error-prone step and test the mechanism.
+   At an unfinished specification boundary, return an unsupported diagnostic
+   with stable feature ID, primary `Loc`, and versioned specification reference.
    Turn an independently actionable discovery into an issue; finish small
    necessary work in this packet.
 6. Renew the claim before and after long operations and before every push:
@@ -93,7 +95,8 @@ Complete one coherent work packet. Do not stop after planning or opening a PR.
     squash-merging through REST and synchronizing the Project. If GitHub cannot
     mark a draft ready, `workflowctl` closes it, opens an identical-head ready
     replacement through REST, and returns that PR number. Run steps 10–12 on
-    the replacement without changing the head.
+    the replacement without changing the head. Finish it only through the
+    SHA-bound REST squash merge; never make finalization depend on GraphQL.
 
 ## Failure behavior
 
