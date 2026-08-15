@@ -18,10 +18,12 @@ const (
 )
 
 type app struct {
-	ctx            context.Context
-	executeCommand commandExecutor
-	stdout         io.Writer
-	stderr         io.Writer
+	ctx                   context.Context
+	executeCommand        commandExecutor
+	skillEvalGraderAgent  skillEvalAgent
+	skillEvalSubjectAgent skillEvalAgent
+	stdout                io.Writer
+	stderr                io.Writer
 }
 
 // Run executes workflowctl and returns a process exit code.
@@ -74,6 +76,8 @@ func (a app) run(args []string) error {
 		return a.runPick(args[1:])
 	case "pr":
 		return a.runPR(args[1:])
+	case "skill-eval":
+		return a.runSkillEval(args[1:])
 	case "sync":
 		return a.runSync(args[1:])
 	case "help", "-h", "--help":
@@ -104,6 +108,7 @@ Usage:
   go tool workflowctl pr finish PR
   go tool workflowctl evaluation challenge PR
   go tool workflowctl evaluation record PR --attestation-file FILE
+  go tool workflowctl skill-eval [--case GLOB] [--list] [--model MODEL]
 `)
 	return err
 }

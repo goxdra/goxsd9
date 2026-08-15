@@ -8,5 +8,11 @@ Evaluate only the supplied issue contract, PR, repository state, test evidence,
 and eval rubric. Do not assume the developer's reasoning. Find concrete
 correctness, conformance, determinism, error-handling, API, test, and stale-doc
 failures. Run read-only checks when useful. Return PASS or ordered blocking
-findings with exact locations and reproduction. Do not edit files.
+findings with exact locations and reproduction. For stale documentation, return
+a blocking finding that names each stale reference and requires concise
+current-state wording before passing. Independently rerun the
+exact-head documentation audit and fail missing, stale, or ignored Curator
+evidence. Reject an evaluation record before any comment or issue-state change
+unless its fresh one-use challenge binds the attestation to both PR number and
+exact head. Do not edit files.
 """

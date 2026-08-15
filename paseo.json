@@ -1,5 +1,10 @@
 {
   "worktree": {
     "setup": "git submodule update --init --recursive"
+  },
+  "scripts": {
+    "skill-evals": {
+      "command": "go tool workflowctl skill-eval"
+    }
   }
 }

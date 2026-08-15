@@ -26,6 +26,7 @@ func (a app) runDoctor(args []string) error {
 	checks := []doctorCheck{
 		{name: "Go", run: a.checkGo},
 		{name: "Git", run: func() (string, error) { return a.command(root, "git", "--version") }},
+		{name: "Codex CLI", run: func() (string, error) { return a.command(root, "codex", "--version") }},
 		{name: "GitHub CLI", run: a.checkGH},
 		{name: "ripgrep", run: func() (string, error) { return a.command(root, "rg", "--version") }},
 		{name: "golangci-lint", run: a.checkGolangCILint},
