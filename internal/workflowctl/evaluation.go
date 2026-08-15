@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -15,10 +16,12 @@ import (
 )
 
 const (
-	evaluationAttestationMarker = "workflowctl-evaluation-attestation "
-	evaluationAttestationSchema = "goxsd9/examiner-attestation/v1"
-	evaluationChallengeMarker   = "workflowctl-evaluation-challenge "
-	evaluationMarker            = "workflowctl-evaluation "
+	evaluationAttestationBase64Marker = "workflowctl-evaluation-attestation-base64 "
+	evaluationAttestationMarker       = "workflowctl-evaluation-attestation "
+	evaluationAttestationSchema       = "goxsd9/examiner-attestation/v1"
+	evaluationChallengeMarker         = "workflowctl-evaluation-challenge "
+	evaluationMarker                  = "workflowctl-evaluation "
+	evaluationReceiptHeading          = "## Examiner evaluation — round receipt\n\n"
 )
 
 type pullRequestView struct {
@@ -198,7 +201,10 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 	if err != nil {
 		return err
 	}
-	receipts := evaluationReceipts(view.Comments)
+	receipts, receiptsErr := evaluationReceipts(view.Comments)
+	if receiptsErr != nil {
+		return stateError("PR #%d has invalid evaluation history: %v", number, receiptsErr)
+	}
 	failedRounds := evaluationFailureCount(receipts)
 	if failedRounds >= 3 {
 		return stateError("PR #%d already has three failed evaluation rounds", number)
@@ -301,11 +307,7 @@ func readEvaluationAttestation(path string) (evaluationAttestation, []byte, erro
 	if trailingErr := requireAttestationJSONEnd(decoder); trailingErr != nil {
 		return evaluationAttestation{}, nil, trailingErr
 	}
-	canonical, err := json.Marshal(attestation)
-	if err != nil {
-		return evaluationAttestation{}, nil, fmt.Errorf("encode Examiner attestation: %w", err)
-	}
-	return attestation, canonical, nil
+	return attestation, data, nil
 }
 
 func requireAttestationJSONEnd(decoder *json.Decoder) error {
@@ -345,6 +347,9 @@ func validateEvaluationAttestation(attestation evaluationAttestation, number int
 	for _, receipt := range receipts {
 		if receipt.Challenge == challenge.Challenge {
 			return errors.New("challenge was already used")
+		}
+		if receipt.EvaluatorRunID == attestation.RunID {
+			return errors.New("examiner run ID was already used")
 		}
 	}
 	return nil
@@ -439,11 +444,12 @@ func renderEvaluationReport(attestation evaluationAttestation) string {
 
 func evaluationComment(receiptMarker, attestationMarker []byte, report string) string {
 	if len(attestationMarker) == 0 {
-		return fmt.Sprintf("<!-- %s%s -->\n## Examiner evaluation — round receipt\n\n%s\n", evaluationMarker,
-			receiptMarker, strings.TrimSpace(report))
+		return fmt.Sprintf("<!-- %s%s -->\n%s%s\n", evaluationMarker, receiptMarker,
+			evaluationReceiptHeading, strings.TrimSpace(report))
 	}
-	return fmt.Sprintf("<!-- %s%s -->\n<!-- %s%s -->\n## Examiner evaluation — round receipt\n\n%s\n",
-		evaluationMarker, receiptMarker, evaluationAttestationMarker, attestationMarker, strings.TrimSpace(report))
+	encoded := base64.StdEncoding.EncodeToString(attestationMarker)
+	return fmt.Sprintf("<!-- %s%s -->\n<!-- %s%s -->\n%s%s\n", evaluationMarker, receiptMarker,
+		evaluationAttestationBase64Marker, encoded, evaluationReceiptHeading, strings.TrimSpace(report))
 }
 
 func (a app) postPullRequestComment(root string, number int, body string) error {
@@ -547,19 +553,26 @@ func containsNumber(numbers []int, target int) bool {
 	return false
 }
 
-func evaluationReceipts(comments []pullRequestComment) []evaluationReceipt {
+func evaluationReceipts(comments []pullRequestComment) ([]evaluationReceipt, error) {
 	var receipts []evaluationReceipt
 	for _, comment := range comments {
 		if comment.Author.Login != owner {
 			continue
 		}
-		receipt, ok := parseEvaluationReceipt(comment.Body)
-		if !ok || !evaluationReceiptMatches(comment, receipt) {
+		if !strings.Contains(comment.Body, "<!-- "+evaluationMarker) &&
+			!strings.Contains(comment.Body, evaluationReceiptHeading) {
 			continue
+		}
+		receipt, ok := parseEvaluationReceipt(comment.Body)
+		if !ok {
+			return nil, errors.New("owner-authored evaluation receipt marker is malformed")
+		}
+		if !evaluationReceiptMatches(comment, receipt) {
+			return nil, fmt.Errorf("evaluation round %d receipt failed integrity validation", receipt.Round)
 		}
 		receipts = append(receipts, receipt)
 	}
-	return receipts
+	return receipts, nil
 }
 
 func parseEvaluationReceipt(body string) (evaluationReceipt, bool) {
@@ -582,35 +595,41 @@ func parseEvaluationReceipt(body string) (evaluationReceipt, bool) {
 	return receipt, true
 }
 
-func latestEvaluationPasses(view pullRequestView, number int) bool {
-	receipts := evaluationReceipts(view.Comments)
+func latestEvaluationPasses(view pullRequestView, number int) (bool, error) {
+	receipts, err := evaluationReceipts(view.Comments)
+	if err != nil {
+		return false, err
+	}
 	if len(receipts) == 0 {
-		return false
+		return false, nil
 	}
 	latest := receipts[len(receipts)-1]
 	if latest.AttestationSHA256 == "" || latest.Head != view.HeadRefOID || latest.PR != number ||
 		latest.Verdict != "pass" {
-		return false
+		return false, nil
 	}
 	if _, ok := trustedEvaluationChallenge(view.Comments, latest.Challenge, number, view.HeadRefOID,
 		latest.RecordedAt); !ok {
-		return false
+		return false, nil
 	}
 	uses := 0
+	runUses := 0
 	for _, receipt := range receipts {
 		if receipt.Challenge == latest.Challenge {
 			uses++
 		}
+		if receipt.EvaluatorRunID == latest.EvaluatorRunID {
+			runUses++
+		}
 	}
-	return uses == 1
+	return uses == 1 && runUses == 1, nil
 }
 
 func evaluationReceiptMatches(comment pullRequestComment, receipt evaluationReceipt) bool {
 	if !commentTimeMatches(comment.CreatedAt, receipt.RecordedAt) {
 		return false
 	}
-	heading := "## Examiner evaluation — round receipt\n\n"
-	_, report, ok := strings.Cut(comment.Body, heading)
+	_, report, ok := strings.Cut(comment.Body, evaluationReceiptHeading)
 	if !ok {
 		return false
 	}
@@ -639,7 +658,17 @@ func evaluationReceiptMatches(comment pullRequestComment, receipt evaluationRece
 }
 
 func parseCommentAttestation(body string) (evaluationAttestation, []byte, bool) {
-	value, ok := markerJSON(body, evaluationAttestationMarker)
+	value, ok := markerJSON(body, evaluationAttestationBase64Marker)
+	if ok {
+		decoded, err := base64.StdEncoding.DecodeString(string(value))
+		if err != nil {
+			return evaluationAttestation{}, nil, false
+		}
+		value = decoded
+	}
+	if !ok {
+		value, ok = markerJSON(body, evaluationAttestationMarker)
+	}
 	if !ok {
 		return evaluationAttestation{}, nil, false
 	}
@@ -647,11 +676,7 @@ func parseCommentAttestation(body string) (evaluationAttestation, []byte, bool) 
 	if err := json.Unmarshal(value, &attestation); err != nil {
 		return evaluationAttestation{}, nil, false
 	}
-	canonical, err := json.Marshal(attestation)
-	if err != nil {
-		return evaluationAttestation{}, nil, false
-	}
-	return attestation, canonical, true
+	return attestation, value, true
 }
 
 func (a app) escalateEvaluation(root string, number int) error {

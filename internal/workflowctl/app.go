@@ -17,9 +17,10 @@ const (
 )
 
 type app struct {
-	ctx    context.Context
-	stdout io.Writer
-	stderr io.Writer
+	ctx            context.Context
+	executeCommand commandExecutor
+	stdout         io.Writer
+	stderr         io.Writer
 }
 
 // Run executes workflowctl and returns a process exit code.

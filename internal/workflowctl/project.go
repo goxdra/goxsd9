@@ -112,12 +112,3 @@ func findProjectIssue(list projectList, number int) (projectItem, error) {
 	}
 	return projectItem{}, fmt.Errorf("issue #%d is not in Project #%d", number, projectNumber)
 }
-
-func hasLabel(labels []string, target string) bool {
-	for _, label := range labels {
-		if label == target {
-			return true
-		}
-	}
-	return false
-}
