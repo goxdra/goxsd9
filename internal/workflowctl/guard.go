@@ -46,19 +46,32 @@ func guardFile(fset *token.FileSet, file *ast.File) error {
 		if violation != nil {
 			return false
 		}
-		switch value := node.(type) {
-		case *ast.ChanType:
-			violation = fmt.Errorf("%s: channels are forbidden", fset.Position(value.Pos()))
-		case *ast.GoStmt:
-			violation = fmt.Errorf("%s: goroutines are forbidden", fset.Position(value.Pos()))
-		case *ast.IfStmt:
-			if value.Else != nil {
-				violation = fmt.Errorf("%s: avoid else; use an early return", fset.Position(value.Else.Pos()))
-			}
-		}
+		violation = guardNode(fset, node)
 		return violation == nil
 	})
 	return violation
+}
+
+func guardNode(fset *token.FileSet, node ast.Node) error {
+	switch value := node.(type) {
+	case *ast.ChanType:
+		return fmt.Errorf("%s: channels are forbidden", fset.Position(value.Pos()))
+	case *ast.GoStmt:
+		return fmt.Errorf("%s: goroutines are forbidden", fset.Position(value.Pos()))
+	case *ast.SelectStmt:
+		return fmt.Errorf("%s: channel selection is forbidden", fset.Position(value.Pos()))
+	case *ast.SendStmt:
+		return fmt.Errorf("%s: channel sends are forbidden", fset.Position(value.Pos()))
+	case *ast.UnaryExpr:
+		if value.Op == token.ARROW {
+			return fmt.Errorf("%s: channel receives are forbidden", fset.Position(value.Pos()))
+		}
+	case *ast.IfStmt:
+		if value.Else != nil {
+			return fmt.Errorf("%s: avoid else; use an early return", fset.Position(value.Else.Pos()))
+		}
+	}
+	return nil
 }
 
 func goFiles(root string) ([]string, error) {

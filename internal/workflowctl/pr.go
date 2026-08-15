@@ -12,8 +12,13 @@ import (
 )
 
 type pullRequestCheck struct {
-	Name  string `json:"name"`
-	State string `json:"state"`
+	Conclusion string `json:"conclusion"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+}
+
+type checkRunsAPI struct {
+	CheckRuns []pullRequestCheck `json:"check_runs"`
 }
 
 type createPullRequestRequest struct {
@@ -164,13 +169,13 @@ func (a app) finishPullRequest(number int) error {
 	if view.HeadRefName != branch {
 		return stateError("PR #%d uses branch %s, not claim branch %s", number, view.HeadRefName, branch)
 	}
-	if !pullRequestCloses(view, claimedIssue) {
-		return stateError("PR #%d does not close claimed issue #%d", number, claimedIssue)
+	if err := a.validateClosingClaims(root, view, claimedIssue); err != nil {
+		return err
 	}
 	if !latestEvaluationPasses(view) {
 		return stateError("PR #%d has no passing evaluation for head %s", number, view.HeadRefOID)
 	}
-	if err := a.requirePassingChecks(root, number); err != nil {
+	if err := a.requirePassingChecks(root, number, view.HeadRefOID); err != nil {
 		return err
 	}
 	if view.IsDraft {
@@ -199,23 +204,73 @@ func pullRequestCloses(view pullRequestView, number int) bool {
 	return false
 }
 
-func (a app) requirePassingChecks(root string, number int) error {
-	output, err := a.command(root, "gh", "pr", "checks", strconv.Itoa(number), "--repo", repositoryKey,
-		"--json", "name,state")
+func (a app) validateClosingClaims(root string, view pullRequestView, primary int) error {
+	if !pullRequestCloses(view, primary) {
+		return stateError("PR does not close claimed issue #%d", primary)
+	}
+	if len(view.ClosingIssuesReferences) > 2 {
+		return stateError("PR closes %d issues; a work packet permits one primary and one companion",
+			len(view.ClosingIssuesReferences))
+	}
+	if len(view.ClosingIssuesReferences) == 1 {
+		return nil
+	}
+	claims, err := a.listRemoteClaims(root)
 	if err != nil {
-		return stateError("read PR #%d checks: %v", number, err)
+		return err
 	}
-	var checks []pullRequestCheck
-	if err := json.Unmarshal([]byte(output), &checks); err != nil {
-		return fmt.Errorf("decode PR #%d checks: %w", number, err)
-	}
-	if len(checks) == 0 {
-		return stateError("PR #%d has no reported checks", number)
-	}
-	for _, check := range checks {
-		if check.State != "SUCCESS" && check.State != "SKIPPED" && check.State != "NEUTRAL" {
-			return stateError("PR #%d check %q is %s", number, check.Name, check.State)
+	for _, issue := range view.ClosingIssuesReferences {
+		if issue.Number == primary {
+			continue
+		}
+		if err := a.validateCompanionClaim(root, issue.Number, view.HeadRefOID, claims); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func (a app) validateCompanionClaim(root string, number int, head string, claims []remoteClaim) error {
+	for _, claim := range claims {
+		if claim.number != number || !claim.active {
+			continue
+		}
+		if _, err := a.command(root, "git", "merge-base", "--is-ancestor", claim.sha, head); err != nil {
+			return stateError("companion issue #%d claim %s is not included in evaluated head %s", number,
+				claim.branch, head)
+		}
+		return nil
+	}
+	return stateError("companion issue #%d has no active claim", number)
+}
+
+func (a app) requirePassingChecks(root string, number int, head string) error {
+	endpoint := "repos/" + repositoryKey + "/commits/" + head + "/check-runs?per_page=100"
+	output, err := a.command(root, "gh", "api", "--paginate", "--slurp", endpoint)
+	if err != nil {
+		return stateError("read PR #%d checks: %v", number, err)
+	}
+	var pages []checkRunsAPI
+	if err := json.Unmarshal([]byte(output), &pages); err != nil {
+		return fmt.Errorf("decode PR #%d checks: %w", number, err)
+	}
+	if err := requireQualityCheck(pages); err != nil {
+		return stateError("PR #%d: %v", number, err)
+	}
+	return nil
+}
+
+func requireQualityCheck(pages []checkRunsAPI) error {
+	for _, page := range pages {
+		for _, check := range page.CheckRuns {
+			if check.Name != "quality" {
+				continue
+			}
+			if check.Status != "completed" || check.Conclusion != "success" {
+				return fmt.Errorf("required check %q is %s/%s", check.Name, check.Status, check.Conclusion)
+			}
+			return nil
+		}
+	}
+	return errors.New("required check \"quality\" is missing")
 }

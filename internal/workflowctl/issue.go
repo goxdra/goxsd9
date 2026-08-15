@@ -13,6 +13,14 @@ import (
 
 type intValues []int
 
+var (
+	validAreas    = []string{"codegen", "datatypes", "docs", "parser", "resolver", "schema", "specs", "validator", "workflow", "xpath"}
+	validTypes    = []string{"bug", "conformance", "docs", "feature", "refactor", "research", "tooling"}
+	validEfforts  = []string{"XS", "S", "M", "L", "XL"}
+	validPhases   = []string{"Bootstrap", "Vertical Slice", "Schema Model", "Validation", "Codegen", "Conformance", "XPath"}
+	validStatuses = []string{"Backlog", "Ready"}
+)
+
 func (values *intValues) String() string {
 	parts := make([]string, 0, len(*values))
 	for _, value := range *values {
@@ -95,13 +103,34 @@ func validateIssueInput(title, bodyFile, area, typeName, priority, effort, phase
 	if priorityRank(priority) > 4 {
 		return fmt.Errorf("invalid priority %q", priority)
 	}
+	if !containsString(validAreas, area) {
+		return fmt.Errorf("invalid area %q", area)
+	}
+	if !containsString(validTypes, typeName) {
+		return fmt.Errorf("invalid type %q", typeName)
+	}
+	if !containsString(validEfforts, effort) {
+		return fmt.Errorf("invalid effort %q", effort)
+	}
+	if !containsString(validPhases, phase) {
+		return fmt.Errorf("invalid phase %q", phase)
+	}
+	if !containsString(validStatuses, status) {
+		return fmt.Errorf("invalid status %q", status)
+	}
 	if effortRank(effort) > 2 && status == "Ready" {
 		return errors.New("ready issues must be XS, S, or M")
 	}
-	if phase == "" || (status != "Backlog" && status != "Ready") {
-		return errors.New("invalid phase or status")
-	}
 	return nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (a app) createGitHubIssue(root, title, bodyFile, area, typeName string) (string, error) {

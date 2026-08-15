@@ -34,6 +34,25 @@ type pullRequestComment struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+type pullRequestAPI struct {
+	Body  string `json:"body"`
+	Draft bool   `json:"draft"`
+	Head  struct {
+		Ref string `json:"ref"`
+		SHA string `json:"sha"`
+	} `json:"head"`
+	State string `json:"state"`
+	URL   string `json:"html_url"`
+}
+
+type issueCommentAPI struct {
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+	User      struct {
+		Login string `json:"login"`
+	} `json:"user"`
+}
+
 type evaluationReceipt struct {
 	Evaluator    string    `json:"evaluator"`
 	Head         string    `json:"head"`
@@ -84,8 +103,9 @@ func (a app) postEvaluation(number int, verdict, bodyFile string) error {
 		return err
 	}
 	receipts := evaluationReceipts(view.Comments)
-	if len(receipts) >= 3 {
-		return stateError("PR #%d already has three evaluation rounds", number)
+	failedRounds := evaluationFailureCount(receipts)
+	if failedRounds >= 3 {
+		return stateError("PR #%d already has three failed evaluation rounds", number)
 	}
 	// #nosec G304 -- bodyFile is an explicit operator-supplied input.
 	report, err := os.ReadFile(bodyFile)
@@ -105,16 +125,32 @@ func (a app) postEvaluation(number int, verdict, bodyFile string) error {
 		return fmt.Errorf("encode evaluation receipt: %w", err)
 	}
 	body := evaluationComment(marker, report)
-	if _, err := a.commandInput(root, strings.NewReader(body), "gh", "pr", "comment", strconv.Itoa(number),
-		"--repo", repositoryKey, "--body-file", "-"); err != nil {
+	payload, err := json.Marshal(struct {
+		Body string `json:"body"`
+	}{Body: body})
+	if err != nil {
+		return fmt.Errorf("encode evaluation comment: %w", err)
+	}
+	if _, err := a.commandInput(root, strings.NewReader(string(payload)), "gh", "api", "--method", "POST",
+		"repos/"+repositoryKey+"/issues/"+strconv.Itoa(number)+"/comments", "--input", "-"); err != nil {
 		return fmt.Errorf("record evaluation on PR #%d: %w", number, err)
 	}
-	if verdict == "fail" && receipt.Round == 3 {
+	if verdict == "fail" && failedRounds+1 == 3 {
 		if err := a.escalateEvaluation(root, view); err != nil {
 			return err
 		}
 	}
 	return writeLine(a.stdout, "PR #%d evaluation round %d: %s (%s)", number, receipt.Round, verdict, view.HeadRefOID)
+}
+
+func evaluationFailureCount(receipts []evaluationReceipt) int {
+	count := 0
+	for _, receipt := range receipts {
+		if receipt.Verdict == "fail" {
+			count++
+		}
+	}
+	return count
 }
 
 func evaluationComment(marker, report []byte) string {
@@ -123,16 +159,87 @@ func evaluationComment(marker, report []byte) string {
 }
 
 func (a app) readPullRequest(root string, number int) (pullRequestView, error) {
-	fields := "closingIssuesReferences,comments,headRefName,headRefOid,isDraft,state,url"
-	output, err := a.command(root, "gh", "pr", "view", strconv.Itoa(number), "--repo", repositoryKey, "--json", fields)
+	output, err := a.command(root, "gh", "api", "repos/"+repositoryKey+"/pulls/"+strconv.Itoa(number))
 	if err != nil {
 		return pullRequestView{}, fmt.Errorf("read PR #%d: %w", number, err)
 	}
-	var view pullRequestView
-	if err := json.Unmarshal([]byte(output), &view); err != nil {
-		return pullRequestView{}, fmt.Errorf("decode PR #%d: %w", number, err)
+	var response pullRequestAPI
+	if decodeErr := json.Unmarshal([]byte(output), &response); decodeErr != nil {
+		return pullRequestView{}, fmt.Errorf("decode PR #%d: %w", number, decodeErr)
+	}
+	comments, err := a.readPullRequestComments(root, number)
+	if err != nil {
+		return pullRequestView{}, err
+	}
+	view := pullRequestView{
+		Comments:    comments,
+		HeadRefName: response.Head.Ref,
+		HeadRefOID:  response.Head.SHA,
+		IsDraft:     response.Draft,
+		State:       strings.ToUpper(response.State),
+		URL:         response.URL,
+	}
+	for _, issue := range closingIssueNumbers(response.Body) {
+		view.ClosingIssuesReferences = append(view.ClosingIssuesReferences, struct {
+			Number int `json:"number"`
+		}{Number: issue})
 	}
 	return view, nil
+}
+
+func (a app) readPullRequestComments(root string, number int) ([]pullRequestComment, error) {
+	endpoint := "repos/" + repositoryKey + "/issues/" + strconv.Itoa(number) + "/comments?per_page=100"
+	output, err := a.command(root, "gh", "api", "--paginate", "--slurp", endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("read PR #%d comments: %w", number, err)
+	}
+	var pages [][]issueCommentAPI
+	if err := json.Unmarshal([]byte(output), &pages); err != nil {
+		return nil, fmt.Errorf("decode PR #%d comments: %w", number, err)
+	}
+	var comments []pullRequestComment
+	for _, page := range pages {
+		for _, response := range page {
+			comment := pullRequestComment{Body: response.Body, CreatedAt: response.CreatedAt}
+			comment.Author.Login = response.User.Login
+			comments = append(comments, comment)
+		}
+	}
+	return comments, nil
+}
+
+func closingIssueNumbers(body string) []int {
+	text := strings.ToLower(body)
+	const marker = "closes #"
+	var numbers []int
+	for {
+		index := strings.Index(text, marker)
+		if index < 0 {
+			return numbers
+		}
+		text = text[index+len(marker):]
+		end := 0
+		for end < len(text) && text[end] >= '0' && text[end] <= '9' {
+			end++
+		}
+		if end == 0 {
+			continue
+		}
+		number, err := strconv.Atoi(text[:end])
+		if err == nil && number > 0 && !containsNumber(numbers, number) {
+			numbers = append(numbers, number)
+		}
+		text = text[end:]
+	}
+}
+
+func containsNumber(numbers []int, target int) bool {
+	for _, number := range numbers {
+		if number == target {
+			return true
+		}
+	}
+	return false
 }
 
 func evaluationReceipts(comments []pullRequestComment) []evaluationReceipt {

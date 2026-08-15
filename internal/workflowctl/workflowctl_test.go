@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -83,6 +84,13 @@ func TestLatestEvaluationControlsHead(t *testing.T) {
 	}
 }
 
+func TestEvaluationFailureCountIgnoresPassingRounds(t *testing.T) {
+	receipts := []evaluationReceipt{{Verdict: "pass"}, {Verdict: "fail"}, {Verdict: "fail"}}
+	if got := evaluationFailureCount(receipts); got != 2 {
+		t.Fatalf("evaluationFailureCount = %d, want 2", got)
+	}
+}
+
 func testEvaluationComment(t *testing.T, head string, round int, verdict string) pullRequestComment {
 	t.Helper()
 	recorded := time.Date(2026, time.August, 15, 4, 0, round, 0, time.UTC)
@@ -141,6 +149,9 @@ func TestGuardRejectsConcurrencyAndElse(t *testing.T) {
 	tests := []string{
 		"package example\nfunc f() { go f() }\n",
 		"package example\nfunc f() chan int { return nil }\n",
+		"package example\nimport \"context\"\nfunc f() { <-context.Background().Done() }\n",
+		"package example\nfunc f(ch chan<- int) { ch <- 1 }\n",
+		"package example\nfunc f() { select {} }\n",
 		"package example\nfunc f(ok bool) { if ok { return } else { return } }\n",
 		"package example\nimport \"sync\"\nvar _ sync.Mutex\n",
 	}
@@ -152,6 +163,27 @@ func TestGuardRejectsConcurrencyAndElse(t *testing.T) {
 		}
 		if err := guardFile(files, file); err == nil {
 			t.Fatalf("guard accepted forbidden source %q", source)
+		}
+	}
+}
+
+func TestIssueInputRejectsUnknownProjectOptions(t *testing.T) {
+	bodyFile := t.TempDir() + "/issue.md"
+	if err := os.WriteFile(bodyFile, []byte("## Acceptance\n\nProof.\n"), 0o600); err != nil {
+		t.Fatalf("write issue body: %v", err)
+	}
+	tests := []struct {
+		name   string
+		effort string
+		phase  string
+	}{
+		{name: "effort", effort: "Huge", phase: "Bootstrap"},
+		{name: "phase", effort: "S", phase: "Eventually"},
+	}
+	for _, test := range tests {
+		if err := validateIssueInput("title", bodyFile, "workflow", "tooling", "P2", test.effort,
+			test.phase, "Backlog"); err == nil {
+			t.Fatalf("%s option unexpectedly accepted", test.name)
 		}
 	}
 }
@@ -202,5 +234,39 @@ func TestPullRequestMustCloseClaim(t *testing.T) {
 	}
 	if pullRequestCloses(view, 8) {
 		t.Fatal("unlinked issue was recognized as closing")
+	}
+}
+
+func TestRequiredQualityCheckMustSucceed(t *testing.T) {
+	tests := []struct {
+		name    string
+		checks  []pullRequestCheck
+		wantErr bool
+	}{
+		{name: "success", checks: []pullRequestCheck{{Name: "quality", Status: "completed", Conclusion: "success"}}},
+		{name: "unrelated", checks: []pullRequestCheck{{Name: "docs", Status: "completed", Conclusion: "success"}}, wantErr: true},
+		{name: "skipped", checks: []pullRequestCheck{{Name: "quality", Status: "completed", Conclusion: "skipped"}}, wantErr: true},
+		{name: "neutral", checks: []pullRequestCheck{{Name: "quality", Status: "completed", Conclusion: "neutral"}}, wantErr: true},
+		{name: "running", checks: []pullRequestCheck{{Name: "quality", Status: "in_progress"}}, wantErr: true},
+	}
+	for _, test := range tests {
+		pages := []checkRunsAPI{{CheckRuns: test.checks}}
+		err := requireQualityCheck(pages)
+		if (err != nil) != test.wantErr {
+			t.Fatalf("%s: requireQualityCheck error = %v, want error %t", test.name, err, test.wantErr)
+		}
+	}
+}
+
+func TestWorkPacketRejectsMoreThanOneCompanion(t *testing.T) {
+	view := pullRequestView{HeadRefOID: "head"}
+	for _, number := range []int{1, 2, 3} {
+		view.ClosingIssuesReferences = append(view.ClosingIssuesReferences, struct {
+			Number int `json:"number"`
+		}{Number: number})
+	}
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
+	if err := application.validateClosingClaims("", view, 1); err == nil {
+		t.Fatal("work packet with two companion issues was accepted")
 	}
 }
