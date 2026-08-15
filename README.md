@@ -35,8 +35,8 @@ tool.
 
 ## Project workflow
 
-Executable work lives in [GitHub Issues](https://github.com/kud360/goxsd9/issues)
-and the [goxsd9 Roadmap](https://github.com/users/kud360/projects/2). Agents use
+Executable work lives in [GitHub Issues](https://github.com/goxdra/goxsd9/issues)
+and the [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1). Agents use
 worktrees and atomic issue-branch claims. The checked-in `develop`, `backlog`,
 and `retro` skills define the autonomous lifecycle. See
 [scheduled operations](docs/operations.md) for Paseo prompts and timing.

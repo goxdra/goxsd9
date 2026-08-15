@@ -373,12 +373,12 @@ func (a app) validateCompanionClaim(root string, number int, head string, claims
 
 func (a app) requirePassingChecks(root string, number int, head string) error {
 	endpoint := "repos/" + repositoryKey + "/commits/" + head + "/check-runs?per_page=100"
-	output, err := a.command(root, "gh", "api", "--paginate", "--slurp", endpoint)
+	output, err := a.command(root, "gh", "api", "--paginate", endpoint)
 	if err != nil {
 		return stateError("read PR #%d checks: %v", number, err)
 	}
-	var pages []checkRunsAPI
-	if err := json.Unmarshal([]byte(output), &pages); err != nil {
+	pages, err := decodeJSONDocuments[checkRunsAPI](output)
+	if err != nil {
 		return fmt.Errorf("decode PR #%d checks: %w", number, err)
 	}
 	if err := requireQualityCheck(pages); err != nil {

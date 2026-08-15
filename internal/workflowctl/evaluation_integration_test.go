@@ -74,7 +74,7 @@ func reusedRunComments(t *testing.T, head, runID string) []issueCommentAPI {
 	challengeComment := issueCommentAPI{
 		Body: fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, challengeJSON), CreatedAt: now,
 	}
-	challengeComment.User.Login = owner
+	challengeComment.User.Login = trustedActor
 	attestation := evaluationAttestation{
 		Challenge: challenge.Challenge, Evaluator: "Examiner", Findings: evaluationFindings{}, Head: head, PR: 14,
 		RunID: runID, Schema: evaluationAttestationSchema, Summary: "No findings.", Verdict: "pass",
@@ -101,7 +101,7 @@ func reusedRunComments(t *testing.T, head, runID string) []issueCommentAPI {
 		t.Fatalf("encode reused-run receipt: %v", err)
 	}
 	receiptComment := issueCommentAPI{Body: evaluationComment(receiptJSON, attestationJSON, report), CreatedAt: now}
-	receiptComment.User.Login = owner
+	receiptComment.User.Login = trustedActor
 	return []issueCommentAPI{challengeComment, receiptComment}
 }
 
@@ -202,6 +202,11 @@ func checkRecordedAttestation(t *testing.T, comments []issueCommentAPI, attestat
 	if got, want := len(comments), 2; got != want {
 		t.Fatalf("comments = %d, want %d", got, want)
 	}
+	for index, comment := range comments {
+		if comment.User.Login != trustedActor {
+			t.Fatalf("comment %d author = %q, want %q", index, comment.User.Login, trustedActor)
+		}
+	}
 	_, recovered, ok := parseCommentAttestation(comments[1].Body)
 	if !ok || !bytes.Equal(recovered, attestationJSON) {
 		t.Fatal("recorded comment did not recover the exact Examiner attestation bytes")
@@ -257,7 +262,7 @@ func TestEvaluationAttestationRejectsReusedExaminerRun(t *testing.T) {
 		t.Fatalf("encode challenge: %v", err)
 	}
 	comment := pullRequestComment{Body: fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, marker), CreatedAt: now}
-	comment.Author.Login = owner
+	comment.Author.Login = trustedActor
 	view := pullRequestView{Comments: []pullRequestComment{comment}, HeadRefOID: "head"}
 	attestation := evaluationAttestation{
 		Challenge: challenge.Challenge, Evaluator: "Examiner", Findings: evaluationFindings{}, Head: "head", PR: 14,
@@ -277,10 +282,10 @@ func TestEvaluationChallengeRejectsStaleOrUntrustedComments(t *testing.T) {
 		created   time.Time
 		author    string
 	}{
-		{name: "stale", requested: now.Add(-leaseDuration - time.Second), created: now.Add(-leaseDuration), author: owner},
-		{name: "future", requested: now.Add(time.Second), created: now.Add(time.Second), author: owner},
+		{name: "stale", requested: now.Add(-leaseDuration - time.Second), created: now.Add(-leaseDuration), author: trustedActor},
+		{name: "future", requested: now.Add(time.Second), created: now.Add(time.Second), author: trustedActor},
 		{name: "untrusted", requested: now, created: now, author: "other-user"},
-		{name: "timestamp mismatch", requested: now, created: now.Add(6 * time.Minute), author: owner},
+		{name: "timestamp mismatch", requested: now, created: now.Add(6 * time.Minute), author: trustedActor},
 	}
 	for _, test := range tests {
 		challenge := evaluationChallenge{
@@ -324,9 +329,9 @@ func claimStateCommand(t *testing.T, issue string) commandExecutor {
 	return func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
 		switch command {
-		case "gh project item-list 2 --owner kud360 --format json --limit 500":
-			return `{"items":[{"content":{"number":13,"repository":"kud360/goxsd9"},"status":"Ready"}]}`, nil
-		case "gh api repos/kud360/goxsd9/issues/13":
+		case "gh project item-list 1 --owner goxdra --format json --limit 500":
+			return `{"items":[{"content":{"number":13,"repository":"goxdra/goxsd9"},"status":"Ready"}]}`, nil
+		case "gh api repos/goxdra/goxsd9/issues/13":
 			return issue, nil
 		default:
 			return "", fmt.Errorf("unexpected command: %s", command)
@@ -398,21 +403,22 @@ func (b *workflowBackend) executeGit(args []string) (string, error) {
 func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, error) {
 	joined := strings.Join(args, " ")
 	switch joined {
-	case "api repos/kud360/goxsd9/pulls/14":
+	case "api repos/goxdra/goxsd9/pulls/14":
 		return b.pullRequestJSON()
-	case "api --paginate --slurp repos/kud360/goxsd9/issues/14/comments?per_page=100":
+	case "api --paginate repos/goxdra/goxsd9/issues/14/comments?per_page=100":
 		return b.commentsJSON()
-	case "api --method POST repos/kud360/goxsd9/issues/14/comments --input -":
+	case "api --method POST repos/goxdra/goxsd9/issues/14/comments --input -":
 		return b.postComment(input)
-	case "api --paginate --slurp repos/kud360/goxsd9/commits/evaluated-head/check-runs?per_page=100":
-		return `[{"check_runs":[{"conclusion":"success","name":"quality","status":"completed"}]}]`, nil
-	case "api --method PUT repos/kud360/goxsd9/pulls/14/merge --input -":
+	case "api --paginate repos/goxdra/goxsd9/commits/evaluated-head/check-runs?per_page=100":
+		return "{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"docs\",\"status\":\"completed\"}]}" +
+			"{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"quality\",\"status\":\"completed\"}]}", nil
+	case "api --method PUT repos/goxdra/goxsd9/pulls/14/merge --input -":
 		return b.merge(input)
-	case "project item-list 2 --owner kud360 --format json --limit 500":
-		return `{"items":[{"content":{"number":13,"repository":"kud360/goxsd9"},"id":"item-13"}],"totalCount":1}`, nil
-	case "project field-list 2 --owner kud360 --format json":
+	case "project item-list 1 --owner goxdra --format json --limit 500":
+		return `{"items":[{"content":{"number":13,"repository":"goxdra/goxsd9"},"id":"item-13"}],"totalCount":1}`, nil
+	case "project field-list 1 --owner goxdra --format json":
 		return `{"fields":[{"id":"status-id","name":"Status","options":[{"id":"done-id","name":"Done"}]}]}`, nil
-	case "project item-edit --project-id PVT_kwHOABOZgs4BgaQE --id item-13 --field-id status-id --single-select-option-id done-id":
+	case "project item-edit --project-id PVT_kwDOEupz2s4Bgc9A --id item-13 --field-id status-id --single-select-option-id done-id":
 		b.projectDone = true
 		return "", nil
 	default:
@@ -425,12 +431,23 @@ func (b *workflowBackend) pullRequestJSON() (string, error) {
 	response.Base.Ref = "main"
 	response.Head.Ref = b.branch
 	response.Head.SHA = b.head
-	response.URL = "https://github.com/kud360/goxsd9/pull/14"
+	response.URL = "https://github.com/goxdra/goxsd9/pull/14"
 	return marshalTestResponse(response)
 }
 
 func (b *workflowBackend) commentsJSON() (string, error) {
-	return marshalTestResponse([][]issueCommentAPI{b.comments})
+	if len(b.comments) < 2 {
+		return marshalTestResponse(b.comments)
+	}
+	first, err := marshalTestResponse(b.comments[:1])
+	if err != nil {
+		return "", err
+	}
+	second, err := marshalTestResponse(b.comments[1:])
+	if err != nil {
+		return "", err
+	}
+	return first + second, nil
 }
 
 func (b *workflowBackend) postComment(data []byte) (string, error) {
@@ -441,7 +458,7 @@ func (b *workflowBackend) postComment(data []byte) (string, error) {
 		return "", fmt.Errorf("decode comment request: %w", err)
 	}
 	comment := issueCommentAPI{Body: request.Body, CreatedAt: time.Now().UTC().Truncate(time.Second)}
-	comment.User.Login = owner
+	comment.User.Login = trustedActor
 	b.comments = append(b.comments, comment)
 	return `{}`, nil
 }

@@ -9,11 +9,12 @@ import (
 )
 
 const (
-	owner         = "kud360"
+	owner         = "goxdra"
 	repository    = "goxsd9"
 	repositoryKey = owner + "/" + repository
-	projectID     = "PVT_kwHOABOZgs4BgaQE"
-	projectNumber = 2
+	trustedActor  = owner + "[bot]"
+	projectID     = "PVT_kwDOEupz2s4Bgc9A"
+	projectNumber = 1
 )
 
 type app struct {

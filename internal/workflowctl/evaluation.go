@@ -381,7 +381,7 @@ func trustedEvaluationChallenge(comments []pullRequestComment, challengeID strin
 	now time.Time) (evaluationChallenge, bool) {
 	for index := len(comments) - 1; index >= 0; index-- {
 		comment := comments[index]
-		if comment.Author.Login != owner {
+		if comment.Author.Login != trustedActor {
 			continue
 		}
 		challenge, ok := parseEvaluationChallenge(comment.Body)
@@ -500,12 +500,12 @@ func (a app) readPullRequest(root string, number int) (pullRequestView, error) {
 
 func (a app) readPullRequestComments(root string, number int) ([]pullRequestComment, error) {
 	endpoint := "repos/" + repositoryKey + "/issues/" + strconv.Itoa(number) + "/comments?per_page=100"
-	output, err := a.command(root, "gh", "api", "--paginate", "--slurp", endpoint)
+	output, err := a.command(root, "gh", "api", "--paginate", endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("read PR #%d comments: %w", number, err)
 	}
-	var pages [][]issueCommentAPI
-	if err := json.Unmarshal([]byte(output), &pages); err != nil {
+	pages, err := decodeJSONDocuments[[]issueCommentAPI](output)
+	if err != nil {
 		return nil, fmt.Errorf("decode PR #%d comments: %w", number, err)
 	}
 	var comments []pullRequestComment
@@ -517,6 +517,25 @@ func (a app) readPullRequestComments(root string, number int) ([]pullRequestComm
 		}
 	}
 	return comments, nil
+}
+
+func decodeJSONDocuments[T any](output string) ([]T, error) {
+	decoder := json.NewDecoder(strings.NewReader(output))
+	var documents []T
+	for {
+		var document T
+		err := decoder.Decode(&document)
+		if errors.Is(err, io.EOF) {
+			if len(documents) == 0 {
+				return nil, errors.New("no JSON documents")
+			}
+			return documents, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		documents = append(documents, document)
+	}
 }
 
 func closingIssueNumbers(body string) []int {
@@ -556,7 +575,7 @@ func containsNumber(numbers []int, target int) bool {
 func evaluationReceipts(comments []pullRequestComment) ([]evaluationReceipt, error) {
 	var receipts []evaluationReceipt
 	for _, comment := range comments {
-		if comment.Author.Login != owner {
+		if comment.Author.Login != trustedActor {
 			continue
 		}
 		if !strings.Contains(comment.Body, "<!-- "+evaluationMarker) &&
@@ -565,7 +584,7 @@ func evaluationReceipts(comments []pullRequestComment) ([]evaluationReceipt, err
 		}
 		receipt, ok := parseEvaluationReceipt(comment.Body)
 		if !ok {
-			return nil, errors.New("owner-authored evaluation receipt marker is malformed")
+			return nil, errors.New("trusted automation evaluation receipt marker is malformed")
 		}
 		if !evaluationReceiptMatches(comment, receipt) {
 			return nil, fmt.Errorf("evaluation round %d receipt failed integrity validation", receipt.Round)
