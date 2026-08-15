@@ -167,14 +167,42 @@ func validateSessionSummaryText(summary string) error {
 		return errors.New("PR session summary must not contain HTML comments")
 	}
 	for _, line := range strings.Split(summary, "\n") {
-		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "```") {
+		markdownLine := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, " "), " "), " ")
+		if strings.HasPrefix(markdownLine, "#") || strings.HasPrefix(markdownLine, "```") ||
+			strings.HasPrefix(markdownLine, "~~~") {
 			return errors.New("PR session summary must use plain text, not Markdown headings or fences")
+		}
+		if containsMarkdownLink(line) || isMarkdownTableDelimiter(line) {
+			return errors.New("PR session summary must use plain text, not Markdown links or tables")
 		}
 		if strings.TrimRight(line, " \t") != line {
 			return errors.New("PR session summary lines must not have trailing whitespace")
 		}
 	}
 	return nil
+}
+
+func containsMarkdownLink(line string) bool {
+	closingBracket := strings.Index(line, "](")
+	if closingBracket < 1 {
+		return false
+	}
+	return strings.LastIndex(line[:closingBracket], "[") >= 0
+}
+
+func isMarkdownTableDelimiter(line string) bool {
+	if !strings.Contains(line, "|") {
+		return false
+	}
+	line = strings.Trim(strings.TrimSpace(line), "|")
+	cells := strings.Split(line, "|")
+	for _, cell := range cells {
+		cell = strings.Trim(strings.TrimSpace(cell), ":")
+		if len(cell) < 3 || strings.Trim(cell, "-") != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (a app) createPullRequest(issue int, title, body string) error {

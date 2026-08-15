@@ -426,6 +426,11 @@ func TestPullRequestBodyRequiresOneNonemptySessionSummary(t *testing.T) {
 		{name: "comment only", body: "## Session summary\n\n<!-- Replace this. -->\n\nCloses #33\n"},
 		{name: "heading", body: "## Session summary\n\n### Work done\n\nExplain it.\n\nCloses #33\n"},
 		{name: "fence", body: "## Session summary\n\n```text\nExplain it.\n```\n\nCloses #33\n"},
+		{name: "indented heading", body: "## Session summary\n\n   ### Work done\n\nCloses #33\n"},
+		{name: "indented fence", body: "## Session summary\n\n   ```text\nEvidence.\n   ```\n\nCloses #33\n"},
+		{name: "tilde fence", body: "## Session summary\n\n~~~text\nEvidence.\n~~~\n\nCloses #33\n"},
+		{name: "formatted link", body: "## Session summary\n\nSee [the issue](https://example.com).\n\nCloses #33\n"},
+		{name: "table", body: "## Session summary\n\nChange | Reason\n--- | ---\nOne | Two\n\nCloses #33\n"},
 	}
 	for _, test := range tests {
 		path := filepath.Join(t.TempDir(), "pr.md")
@@ -440,19 +445,31 @@ func TestPullRequestBodyRequiresOneNonemptySessionSummary(t *testing.T) {
 }
 
 func TestPullRequestOpenRejectsInvalidSummaryBeforeMutation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "pr.md")
-	if err := os.WriteFile(path, []byte("## Work packet\n\nCloses #33\n"), 0o600); err != nil {
-		t.Fatalf("write PR body: %v", err)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "missing", body: "## Work packet\n\nCloses #33\n"},
+		{name: "indented fence", body: "## Session summary\n\n   ```text\nEvidence.\n   ```\n\nCloses #33\n"},
+		{name: "formatted link", body: "## Session summary\n\nSee [issue](https://example.com).\n\nCloses #33\n"},
+		{name: "table", body: "## Session summary\n\nA | B\n--- | ---\nC | D\n\nCloses #33\n"},
 	}
-	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
-		t.Fatalf("invalid PR body executed %s %v", name, args)
-		return "", nil
-	}}
-	err := application.openPullRequest([]string{
-		"33", "--title", "fix(workflow): summarize squash commits", "--body-file", path,
-	})
-	if err == nil || !strings.Contains(err.Error(), sessionSummaryHeading) {
-		t.Fatalf("invalid session summary error = %v", err)
+	for _, test := range tests {
+		path := filepath.Join(t.TempDir(), "pr.md")
+		if err := os.WriteFile(path, []byte(test.body), 0o600); err != nil {
+			t.Fatalf("%s: write PR body: %v", test.name, err)
+		}
+		application := app{executeCommand: func(_ string, _ io.Reader, name string,
+			args ...string,
+		) (string, error) {
+			t.Fatalf("%s: invalid PR body executed %s %v", test.name, name, args)
+			return "", nil
+		}}
+		if err := application.openPullRequest([]string{
+			"33", "--title", "fix(workflow): summarize squash commits", "--body-file", path,
+		}); err == nil {
+			t.Fatalf("%s: invalid session summary was accepted", test.name)
+		}
 	}
 }
 

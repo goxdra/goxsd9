@@ -39,7 +39,7 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	rejectLaterTamperedReceipt(t, &application, backend)
 	rejectInvalidPullRequestTitle(t, &application, backend)
 	rejectInvalidWorkCommitTitle(t, &application, backend)
-	rejectMissingSessionSummary(t, &application, backend)
+	rejectInvalidSessionSummaries(t, &application, backend)
 
 	commentCount := len(backend.comments)
 	backend.comments = append(backend.comments, reusedRunComments(t, backend.head, testExaminerRunID)...)
@@ -155,15 +155,26 @@ func rejectInvalidWorkCommitTitle(t *testing.T, application *app, backend *workf
 	backend.workCommitLog = original
 }
 
-func rejectMissingSessionSummary(t *testing.T, application *app, backend *workflowBackend) {
+func rejectInvalidSessionSummaries(t *testing.T, application *app, backend *workflowBackend) {
 	t.Helper()
 	original := backend.body
-	backend.body = "## Work packet\n\nCloses #13\n"
-	if err := application.runPR([]string{"finish", "14"}); err == nil {
-		t.Fatal("merge accepted a PR without a session summary")
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "missing", body: "## Work packet\n\nCloses #13\n"},
+		{name: "indented fence", body: "## Session summary\n\n   ```text\nEvidence.\n   ```\n\nCloses #13\n"},
+		{name: "formatted link", body: "## Session summary\n\nSee [issue](https://example.com).\n\nCloses #13\n"},
+		{name: "table", body: "## Session summary\n\nA | B\n--- | ---\nC | D\n\nCloses #13\n"},
 	}
-	if backend.merged {
-		t.Fatal("missing session summary reached the merge endpoint")
+	for _, test := range tests {
+		backend.body = test.body
+		if err := application.runPR([]string{"finish", "14"}); err == nil {
+			t.Fatalf("merge accepted %s session summary", test.name)
+		}
+		if backend.merged {
+			t.Fatalf("%s session summary reached the merge endpoint", test.name)
+		}
 	}
 	backend.body = original
 }
