@@ -12,6 +12,7 @@ const (
 	owner         = "goxdra"
 	repository    = "goxsd9"
 	repositoryKey = owner + "/" + repository
+	trustedActor  = owner + "[bot]"
 	projectID     = "PVT_kwDOEupz2s4Bgc9A"
 	projectNumber = 1
 )

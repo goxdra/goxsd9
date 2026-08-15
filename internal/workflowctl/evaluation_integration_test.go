@@ -74,7 +74,7 @@ func reusedRunComments(t *testing.T, head, runID string) []issueCommentAPI {
 	challengeComment := issueCommentAPI{
 		Body: fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, challengeJSON), CreatedAt: now,
 	}
-	challengeComment.User.Login = owner
+	challengeComment.User.Login = trustedActor
 	attestation := evaluationAttestation{
 		Challenge: challenge.Challenge, Evaluator: "Examiner", Findings: evaluationFindings{}, Head: head, PR: 14,
 		RunID: runID, Schema: evaluationAttestationSchema, Summary: "No findings.", Verdict: "pass",
@@ -101,7 +101,7 @@ func reusedRunComments(t *testing.T, head, runID string) []issueCommentAPI {
 		t.Fatalf("encode reused-run receipt: %v", err)
 	}
 	receiptComment := issueCommentAPI{Body: evaluationComment(receiptJSON, attestationJSON, report), CreatedAt: now}
-	receiptComment.User.Login = owner
+	receiptComment.User.Login = trustedActor
 	return []issueCommentAPI{challengeComment, receiptComment}
 }
 
@@ -202,6 +202,11 @@ func checkRecordedAttestation(t *testing.T, comments []issueCommentAPI, attestat
 	if got, want := len(comments), 2; got != want {
 		t.Fatalf("comments = %d, want %d", got, want)
 	}
+	for index, comment := range comments {
+		if comment.User.Login != trustedActor {
+			t.Fatalf("comment %d author = %q, want %q", index, comment.User.Login, trustedActor)
+		}
+	}
 	_, recovered, ok := parseCommentAttestation(comments[1].Body)
 	if !ok || !bytes.Equal(recovered, attestationJSON) {
 		t.Fatal("recorded comment did not recover the exact Examiner attestation bytes")
@@ -257,7 +262,7 @@ func TestEvaluationAttestationRejectsReusedExaminerRun(t *testing.T) {
 		t.Fatalf("encode challenge: %v", err)
 	}
 	comment := pullRequestComment{Body: fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, marker), CreatedAt: now}
-	comment.Author.Login = owner
+	comment.Author.Login = trustedActor
 	view := pullRequestView{Comments: []pullRequestComment{comment}, HeadRefOID: "head"}
 	attestation := evaluationAttestation{
 		Challenge: challenge.Challenge, Evaluator: "Examiner", Findings: evaluationFindings{}, Head: "head", PR: 14,
@@ -277,10 +282,10 @@ func TestEvaluationChallengeRejectsStaleOrUntrustedComments(t *testing.T) {
 		created   time.Time
 		author    string
 	}{
-		{name: "stale", requested: now.Add(-leaseDuration - time.Second), created: now.Add(-leaseDuration), author: owner},
-		{name: "future", requested: now.Add(time.Second), created: now.Add(time.Second), author: owner},
+		{name: "stale", requested: now.Add(-leaseDuration - time.Second), created: now.Add(-leaseDuration), author: trustedActor},
+		{name: "future", requested: now.Add(time.Second), created: now.Add(time.Second), author: trustedActor},
 		{name: "untrusted", requested: now, created: now, author: "other-user"},
-		{name: "timestamp mismatch", requested: now, created: now.Add(6 * time.Minute), author: owner},
+		{name: "timestamp mismatch", requested: now, created: now.Add(6 * time.Minute), author: trustedActor},
 	}
 	for _, test := range tests {
 		challenge := evaluationChallenge{
@@ -453,7 +458,7 @@ func (b *workflowBackend) postComment(data []byte) (string, error) {
 		return "", fmt.Errorf("decode comment request: %w", err)
 	}
 	comment := issueCommentAPI{Body: request.Body, CreatedAt: time.Now().UTC().Truncate(time.Second)}
-	comment.User.Login = owner
+	comment.User.Login = trustedActor
 	b.comments = append(b.comments, comment)
 	return `{}`, nil
 }

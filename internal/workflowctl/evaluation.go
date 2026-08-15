@@ -381,7 +381,7 @@ func trustedEvaluationChallenge(comments []pullRequestComment, challengeID strin
 	now time.Time) (evaluationChallenge, bool) {
 	for index := len(comments) - 1; index >= 0; index-- {
 		comment := comments[index]
-		if comment.Author.Login != owner {
+		if comment.Author.Login != trustedActor {
 			continue
 		}
 		challenge, ok := parseEvaluationChallenge(comment.Body)
@@ -575,7 +575,7 @@ func containsNumber(numbers []int, target int) bool {
 func evaluationReceipts(comments []pullRequestComment) ([]evaluationReceipt, error) {
 	var receipts []evaluationReceipt
 	for _, comment := range comments {
-		if comment.Author.Login != owner {
+		if comment.Author.Login != trustedActor {
 			continue
 		}
 		if !strings.Contains(comment.Body, "<!-- "+evaluationMarker) &&
@@ -584,7 +584,7 @@ func evaluationReceipts(comments []pullRequestComment) ([]evaluationReceipt, err
 		}
 		receipt, ok := parseEvaluationReceipt(comment.Body)
 		if !ok {
-			return nil, errors.New("owner-authored evaluation receipt marker is malformed")
+			return nil, errors.New("trusted automation evaluation receipt marker is malformed")
 		}
 		if !evaluationReceiptMatches(comment, receipt) {
 			return nil, fmt.Errorf("evaluation round %d receipt failed integrity validation", receipt.Round)

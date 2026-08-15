@@ -70,7 +70,7 @@ func TestEvaluationReceiptRoundTrip(t *testing.T) {
 		t.Fatalf("receipt = %#v", got)
 	}
 	comment := pullRequestComment{Body: body, CreatedAt: recorded}
-	comment.Author.Login = owner
+	comment.Author.Login = trustedActor
 	receipts, err := evaluationReceipts([]pullRequestComment{comment})
 	if err != nil {
 		t.Fatalf("evaluationReceipts: %v", err)
@@ -134,7 +134,7 @@ func TestLatestStructuredEvaluationPasses(t *testing.T) {
 		Body:      fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, challengeMarker),
 		CreatedAt: requested,
 	}
-	challengeComment.Author.Login = owner
+	challengeComment.Author.Login = trustedActor
 	attestation := evaluationAttestation{
 		Challenge: "run-challenge", Evaluator: "Examiner", Findings: []evaluationFinding{}, Head: "head", PR: 11,
 		RunID: "examiner-run", Schema: evaluationAttestationSchema, Summary: "No findings.", Verdict: "pass",
@@ -164,7 +164,7 @@ func TestLatestStructuredEvaluationPasses(t *testing.T) {
 		Body:      evaluationComment(receiptMarker, attestationMarker, report),
 		CreatedAt: recorded,
 	}
-	evaluationReceiptComment.Author.Login = owner
+	evaluationReceiptComment.Author.Login = trustedActor
 	view := pullRequestView{Comments: []pullRequestComment{challengeComment, evaluationReceiptComment}, HeadRefOID: "head"}
 	passes, err := latestEvaluationPasses(view, 11)
 	if err != nil || !passes {
@@ -173,6 +173,59 @@ func TestLatestStructuredEvaluationPasses(t *testing.T) {
 	view.Comments[1].Body = strings.Replace(view.Comments[1].Body, "No findings.", "Changed.", 1)
 	if _, err := latestEvaluationPasses(view, 11); err == nil {
 		t.Fatal("tampered structured evaluation did not invalidate history")
+	}
+}
+
+func TestLatestEvaluationRejectsBareOwnerReceipt(t *testing.T) {
+	requested := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	recorded := requested.Add(time.Minute)
+	challenge := evaluationChallenge{Challenge: "bot-challenge", Head: "head", PR: 11, RequestedAt: requested}
+	challengeMarker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode challenge: %v", err)
+	}
+	challengeComment := pullRequestComment{
+		Body:      fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, challengeMarker),
+		CreatedAt: requested,
+	}
+	challengeComment.Author.Login = trustedActor
+	attestation := evaluationAttestation{
+		Challenge: challenge.Challenge, Evaluator: "Examiner", Findings: []evaluationFinding{}, Head: "head", PR: 11,
+		RunID: "owner-receipt-run", Schema: evaluationAttestationSchema, Summary: "No findings.", Verdict: "pass",
+	}
+	attestationMarker, err := json.Marshal(attestation)
+	if err != nil {
+		t.Fatalf("encode attestation: %v", err)
+	}
+	report := renderEvaluationReport(attestation)
+	receipt := evaluationReceipt{
+		AttestationSHA256: fmt.Sprintf("%x", sha256.Sum256(attestationMarker)),
+		Challenge:         attestation.Challenge,
+		Evaluator:         attestation.Evaluator,
+		EvaluatorRunID:    attestation.RunID,
+		Head:              attestation.Head,
+		PR:                attestation.PR,
+		RecordedAt:        recorded,
+		ReportSHA256:      fmt.Sprintf("%x", sha256.Sum256([]byte(report))),
+		Round:             1,
+		Verdict:           attestation.Verdict,
+	}
+	receiptMarker, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode receipt: %v", err)
+	}
+	receiptComment := pullRequestComment{
+		Body:      evaluationComment(receiptMarker, attestationMarker, report),
+		CreatedAt: recorded,
+	}
+	receiptComment.Author.Login = owner
+	view := pullRequestView{Comments: []pullRequestComment{challengeComment, receiptComment}, HeadRefOID: "head"}
+	passes, err := latestEvaluationPasses(view, 11)
+	if err != nil {
+		t.Fatalf("latestEvaluationPasses: %v", err)
+	}
+	if passes {
+		t.Fatal("bare owner-authored receipt authorized the evaluated head")
 	}
 }
 
@@ -200,7 +253,7 @@ func testEvaluationComment(t *testing.T, head string, round int, verdict string)
 		t.Fatalf("encode receipt: %v", err)
 	}
 	comment := pullRequestComment{Body: evaluationComment(marker, nil, string(report)), CreatedAt: recorded}
-	comment.Author.Login = owner
+	comment.Author.Login = trustedActor
 	return comment
 }
 
@@ -382,7 +435,7 @@ func TestEvaluationAttestationIsBoundToChallengeAndHead(t *testing.T) {
 		Body:      fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, marker),
 		CreatedAt: now,
 	}
-	comment.Author.Login = owner
+	comment.Author.Login = trustedActor
 	view := pullRequestView{Comments: []pullRequestComment{comment}, HeadRefOID: "head"}
 	attestation := evaluationAttestation{
 		Challenge: "run-challenge",
@@ -404,6 +457,24 @@ func TestEvaluationAttestationIsBoundToChallengeAndHead(t *testing.T) {
 	}
 }
 
+func TestEvaluationChallengeRejectsBareOwnerActor(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	challenge := evaluationChallenge{Challenge: "bot-challenge", Head: "head", PR: 11, RequestedAt: now}
+	marker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode challenge: %v", err)
+	}
+	comment := pullRequestComment{
+		Body:      fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, marker),
+		CreatedAt: now,
+	}
+	comment.Author.Login = owner
+	if _, ok := trustedEvaluationChallenge([]pullRequestComment{comment}, challenge.Challenge, challenge.PR,
+		challenge.Head, now); ok {
+		t.Fatal("bare owner-authored challenge was trusted")
+	}
+}
+
 func TestEvaluationAttestationRejectsCallerVerdictAndReusedChallenge(t *testing.T) {
 	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
 	if err := application.recordEvaluation([]string{"11", "--verdict", "pass", "--body-file", "report"}); err == nil {
@@ -417,7 +488,7 @@ func TestEvaluationAttestationRejectsCallerVerdictAndReusedChallenge(t *testing.
 		t.Fatalf("encode challenge: %v", err)
 	}
 	comment := pullRequestComment{Body: fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, marker), CreatedAt: now}
-	comment.Author.Login = owner
+	comment.Author.Login = trustedActor
 	view := pullRequestView{Comments: []pullRequestComment{comment}, HeadRefOID: "head"}
 	attestation := evaluationAttestation{
 		Challenge: "run-used", Evaluator: "Examiner", Findings: []evaluationFinding{}, Head: "head", PR: 11,
