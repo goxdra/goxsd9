@@ -1,5 +1,6 @@
 ## Outcome
 
+<!-- Title: <type>(<optional-scope>): <lowercase imperative summary> -->
 <!-- Describe the observable result. -->
 
 ## Work packet

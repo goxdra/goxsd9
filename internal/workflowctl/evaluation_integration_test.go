@@ -37,6 +37,8 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	checkRecordedAttestation(t, backend.comments, attestationJSON)
 	rejectTamperedReceiptReuse(t, &application, backend, attestationFile)
 	rejectLaterTamperedReceipt(t, &application, backend)
+	rejectInvalidPullRequestTitle(t, &application, backend)
+	rejectInvalidWorkCommitTitle(t, &application, backend)
 
 	commentCount := len(backend.comments)
 	backend.comments = append(backend.comments, reusedRunComments(t, backend.head, testExaminerRunID)...)
@@ -125,6 +127,33 @@ func rejectLaterTamperedReceipt(t *testing.T, application *app, backend *workflo
 	backend.comments = backend.comments[:len(backend.comments)-1]
 }
 
+func rejectInvalidPullRequestTitle(t *testing.T, application *app, backend *workflowBackend) {
+	t.Helper()
+	original := backend.title
+	backend.title = "Invalid title"
+	if err := application.runPR([]string{"finish", "14"}); err == nil {
+		t.Fatal("merge accepted an invalid pull request title")
+	}
+	if backend.merged {
+		t.Fatal("invalid pull request title reached the merge endpoint")
+	}
+	backend.title = original
+}
+
+func rejectInvalidWorkCommitTitle(t *testing.T, application *app, backend *workflowBackend) {
+	t.Helper()
+	original := backend.workCommitLog
+	backend.workCommitLog = framedRawCommitLog(
+		"fix(parser): reject invalid XML\ncontinue\n", "chore(workflow): claim issue #13\n")
+	if err := application.runPR([]string{"finish", "14"}); err == nil {
+		t.Fatal("merge accepted a work commit added after PR creation with an invalid title")
+	}
+	if backend.merged {
+		t.Fatal("invalid work commit title reached the merge endpoint")
+	}
+	backend.workCommitLog = original
+}
+
 func requestTestChallenge(t *testing.T, application *app, stdout *bytes.Buffer) evaluationChallenge {
 	t.Helper()
 	if err := application.runEvaluation([]string{"challenge", "14"}); err != nil {
@@ -194,6 +223,9 @@ func checkMergeResult(t *testing.T, backend *workflowBackend) {
 	}
 	if backend.mergeRequest.SHA != backend.head || backend.mergeRequest.MergeMethod != "squash" {
 		t.Fatalf("merge request = %#v", backend.mergeRequest)
+	}
+	if backend.mergeRequest.CommitTitle != backend.title+" (#14)" {
+		t.Fatalf("merge commit title = %q", backend.mergeRequest.CommitTitle)
 	}
 }
 
@@ -303,20 +335,24 @@ func claimStateCommand(t *testing.T, issue string) commandExecutor {
 }
 
 type workflowBackend struct {
-	t            *testing.T
-	root         string
-	branch       string
-	head         string
-	comments     []issueCommentAPI
-	mergeRequest mergePullRequestRequest
-	merged       bool
-	projectDone  bool
+	t             *testing.T
+	root          string
+	branch        string
+	head          string
+	title         string
+	workCommitLog string
+	comments      []issueCommentAPI
+	mergeRequest  mergePullRequestRequest
+	merged        bool
+	projectDone   bool
 }
 
 func newWorkflowBackend(t *testing.T) *workflowBackend {
 	t.Helper()
 	return &workflowBackend{
 		t: t, root: "/repo", branch: "agent/issue-13", head: "evaluated-head",
+		title:         "test(workflow): exercise evaluation flow",
+		workCommitLog: framedCommitLog("test(workflow): exercise evaluation flow", "chore(workflow): claim issue #13"),
 	}
 }
 
@@ -352,6 +388,8 @@ func (b *workflowBackend) executeGit(args []string) (string, error) {
 	case "log -100 --format=%B":
 		lease := time.Now().UTC().Add(leaseDuration).Truncate(time.Second)
 		return claimMessage(13, "run-test", lease), nil
+	case "log --format=%x00%B%x00 origin/main.." + b.head:
+		return b.workCommitLog, nil
 	default:
 		return "", fmt.Errorf("unexpected git command: %s", strings.Join(args, " "))
 	}
@@ -383,7 +421,7 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 }
 
 func (b *workflowBackend) pullRequestJSON() (string, error) {
-	response := pullRequestAPI{Body: "Closes #13", Draft: false, State: "open", Title: "Test workflow"}
+	response := pullRequestAPI{Body: "Closes #13", Draft: false, State: "open", Title: b.title}
 	response.Base.Ref = "main"
 	response.Head.Ref = b.branch
 	response.Head.SHA = b.head

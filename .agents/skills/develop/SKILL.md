@@ -39,10 +39,12 @@ Complete one coherent work packet. Do not stop after planning or opening a PR.
 
 7. Run `go tool workflowctl check`. Fix every failure. Update current docs and
    comments affected by the change.
-8. Commit and push intentionally. Open a draft PR through `go tool workflowctl
-   pr open ISSUE --title TITLE --body-file FILE`. The body must describe the
-   outcome, consultations or exemptions, verification, conformance effect, and
-   close every issue in the packet.
+8. Commit and push intentionally using the title convention in `AGENTS.md`.
+   Open a draft PR through `go tool workflowctl pr open ISSUE --title TITLE
+   --body-file FILE`; its title must also follow that convention because it
+   becomes the squash commit. The body must describe the outcome, consultations
+   or exemptions, verification, conformance effect, and close every issue in
+   the packet.
 9. Run `go tool workflowctl evaluation challenge PR`, then spawn Examiner using
    Luna at maximum effort in a new read-only context with no development
    transcript. Give it only the returned challenge, issue contract, PR,

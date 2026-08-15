@@ -40,6 +40,9 @@ and the [goxsd9 Roadmap](https://github.com/users/kud360/projects/2). Agents use
 worktrees and atomic issue-branch claims. The checked-in `develop`, `backlog`,
 and `retro` skills define the autonomous lifecycle. See
 [scheduled operations](docs/operations.md) for Paseo prompts and timing.
+Commit subjects and PR titles follow the convention in [AGENTS.md](AGENTS.md);
+`workflowctl` validates branch commits before both PR creation and merge, along
+with the requested and final GitHub PR titles.
 
 ## Test data licensing
 
