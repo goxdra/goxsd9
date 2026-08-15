@@ -400,12 +400,13 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 	switch joined {
 	case "api repos/goxdra/goxsd9/pulls/14":
 		return b.pullRequestJSON()
-	case "api --paginate --slurp repos/goxdra/goxsd9/issues/14/comments?per_page=100":
+	case "api --paginate repos/goxdra/goxsd9/issues/14/comments?per_page=100":
 		return b.commentsJSON()
 	case "api --method POST repos/goxdra/goxsd9/issues/14/comments --input -":
 		return b.postComment(input)
-	case "api --paginate --slurp repos/goxdra/goxsd9/commits/evaluated-head/check-runs?per_page=100":
-		return `[{"check_runs":[{"conclusion":"success","name":"quality","status":"completed"}]}]`, nil
+	case "api --paginate repos/goxdra/goxsd9/commits/evaluated-head/check-runs?per_page=100":
+		return "{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"docs\",\"status\":\"completed\"}]}" +
+			"{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"quality\",\"status\":\"completed\"}]}", nil
 	case "api --method PUT repos/goxdra/goxsd9/pulls/14/merge --input -":
 		return b.merge(input)
 	case "project item-list 1 --owner goxdra --format json --limit 500":
@@ -430,7 +431,18 @@ func (b *workflowBackend) pullRequestJSON() (string, error) {
 }
 
 func (b *workflowBackend) commentsJSON() (string, error) {
-	return marshalTestResponse([][]issueCommentAPI{b.comments})
+	if len(b.comments) < 2 {
+		return marshalTestResponse(b.comments)
+	}
+	first, err := marshalTestResponse(b.comments[:1])
+	if err != nil {
+		return "", err
+	}
+	second, err := marshalTestResponse(b.comments[1:])
+	if err != nil {
+		return "", err
+	}
+	return first + second, nil
 }
 
 func (b *workflowBackend) postComment(data []byte) (string, error) {

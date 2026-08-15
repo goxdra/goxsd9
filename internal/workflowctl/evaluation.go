@@ -500,12 +500,12 @@ func (a app) readPullRequest(root string, number int) (pullRequestView, error) {
 
 func (a app) readPullRequestComments(root string, number int) ([]pullRequestComment, error) {
 	endpoint := "repos/" + repositoryKey + "/issues/" + strconv.Itoa(number) + "/comments?per_page=100"
-	output, err := a.command(root, "gh", "api", "--paginate", "--slurp", endpoint)
+	output, err := a.command(root, "gh", "api", "--paginate", endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("read PR #%d comments: %w", number, err)
 	}
-	var pages [][]issueCommentAPI
-	if err := json.Unmarshal([]byte(output), &pages); err != nil {
+	pages, err := decodeJSONDocuments[[]issueCommentAPI](output)
+	if err != nil {
 		return nil, fmt.Errorf("decode PR #%d comments: %w", number, err)
 	}
 	var comments []pullRequestComment
@@ -517,6 +517,25 @@ func (a app) readPullRequestComments(root string, number int) ([]pullRequestComm
 		}
 	}
 	return comments, nil
+}
+
+func decodeJSONDocuments[T any](output string) ([]T, error) {
+	decoder := json.NewDecoder(strings.NewReader(output))
+	var documents []T
+	for {
+		var document T
+		err := decoder.Decode(&document)
+		if errors.Is(err, io.EOF) {
+			if len(documents) == 0 {
+				return nil, errors.New("no JSON documents")
+			}
+			return documents, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		documents = append(documents, document)
+	}
 }
 
 func closingIssueNumbers(body string) []int {

@@ -9,6 +9,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -76,6 +77,35 @@ func TestEvaluationReceiptRoundTrip(t *testing.T) {
 	}
 	if len(receipts) != 1 {
 		t.Fatalf("trusted receipts = %d, want 1", len(receipts))
+	}
+}
+
+func TestDecodeJSONDocuments(t *testing.T) {
+	type document struct {
+		Page int `json:"page"`
+	}
+	tests := []struct {
+		name    string
+		input   string
+		want    []document
+		wantErr bool
+	}{
+		{name: "multiple documents", input: `{"page":1}{"page":2}`, want: []document{{Page: 1}, {Page: 2}}},
+		{name: "empty document stream", input: "\n\t", wantErr: true},
+		{name: "malformed document", input: `{"page":1}{"page":`, wantErr: true},
+		{name: "trailing non-json data", input: `{"page":1}trailing`, wantErr: true},
+	}
+	for _, test := range tests {
+		got, err := decodeJSONDocuments[document](test.input)
+		if (err != nil) != test.wantErr {
+			t.Fatalf("%s: decodeJSONDocuments error = %v, want error %t", test.name, err, test.wantErr)
+		}
+		if test.wantErr {
+			continue
+		}
+		if !reflect.DeepEqual(got, test.want) {
+			t.Fatalf("%s: decodeJSONDocuments = %#v, want %#v", test.name, got, test.want)
+		}
 	}
 }
 
