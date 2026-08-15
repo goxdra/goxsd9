@@ -22,6 +22,8 @@ const (
 )
 
 type pullRequestView struct {
+	BaseRefName             string `json:"baseRefName"`
+	Body                    string `json:"body"`
 	ClosingIssuesReferences []struct {
 		Number int `json:"number"`
 	} `json:"closingIssuesReferences"`
@@ -30,6 +32,7 @@ type pullRequestView struct {
 	HeadRefOID  string               `json:"headRefOid"`
 	IsDraft     bool                 `json:"isDraft"`
 	State       string               `json:"state"`
+	Title       string               `json:"title"`
 	URL         string               `json:"url"`
 }
 
@@ -42,6 +45,9 @@ type pullRequestComment struct {
 }
 
 type pullRequestAPI struct {
+	Base struct {
+		Ref string `json:"ref"`
+	} `json:"base"`
 	Body  string `json:"body"`
 	Draft bool   `json:"draft"`
 	Head  struct {
@@ -49,6 +55,7 @@ type pullRequestAPI struct {
 		SHA string `json:"sha"`
 	} `json:"head"`
 	State string `json:"state"`
+	Title string `json:"title"`
 	URL   string `json:"html_url"`
 }
 
@@ -86,16 +93,33 @@ type evaluationFinding struct {
 	RequiredCorrection string `json:"requiredCorrection"`
 }
 
+type evaluationFindings []evaluationFinding
+
+func (findings *evaluationFindings) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return errors.New("findings must be a JSON array, not null")
+	}
+	var values []evaluationFinding
+	if err := json.Unmarshal(data, &values); err != nil {
+		return err
+	}
+	if values == nil {
+		values = make([]evaluationFinding, 0)
+	}
+	*findings = values
+	return nil
+}
+
 type evaluationAttestation struct {
-	Challenge string              `json:"challenge"`
-	Evaluator string              `json:"evaluator"`
-	Findings  []evaluationFinding `json:"findings"`
-	Head      string              `json:"head"`
-	PR        int                 `json:"pullRequest"`
-	RunID     string              `json:"runID"`
-	Schema    string              `json:"schema"`
-	Summary   string              `json:"summary"`
-	Verdict   string              `json:"verdict"`
+	Challenge string             `json:"challenge"`
+	Evaluator string             `json:"evaluator"`
+	Findings  evaluationFindings `json:"findings"`
+	Head      string             `json:"head"`
+	PR        int                `json:"pullRequest"`
+	RunID     string             `json:"runID"`
+	Schema    string             `json:"schema"`
+	Summary   string             `json:"summary"`
+	Verdict   string             `json:"verdict"`
 }
 
 func (a app) runEvaluation(args []string) error {
@@ -327,6 +351,9 @@ func validateEvaluationAttestation(attestation evaluationAttestation, number int
 }
 
 func validateEvaluationFindings(attestation evaluationAttestation) error {
+	if attestation.Findings == nil {
+		return errors.New("findings must be present as a JSON array")
+	}
 	if attestation.Verdict != "pass" && attestation.Verdict != "fail" {
 		return fmt.Errorf("invalid verdict %q", attestation.Verdict)
 	}
@@ -447,11 +474,14 @@ func (a app) readPullRequest(root string, number int) (pullRequestView, error) {
 		return pullRequestView{}, err
 	}
 	view := pullRequestView{
+		BaseRefName: response.Base.Ref,
+		Body:        response.Body,
 		Comments:    comments,
 		HeadRefName: response.Head.Ref,
 		HeadRefOID:  response.Head.SHA,
 		IsDraft:     response.Draft,
 		State:       strings.ToUpper(response.State),
+		Title:       response.Title,
 		URL:         response.URL,
 	}
 	for _, issue := range closingIssueNumbers(response.Body) {

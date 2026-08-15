@@ -35,6 +35,13 @@ The scheduling agent supplies fresh-context separation. Personas share the
 repository owner's GitHub credential, so the receipt is process evidence, not
 a claim of cryptographic identity isolation between local agents.
 
+The guarded merge itself uses GitHub REST with the evaluated head SHA and
+squash method. If the GraphQL-only draft-to-ready transition is unavailable,
+`workflowctl` closes the preserved draft and creates an identical-head ready
+replacement through REST; that PR receives a new challenge and fresh Examiner
+before merge. A Project status update that is unavailable after the merge is
+reported and converges on the next `workflowctl sync` run.
+
 The GitHub issue, claim ref, PR checks, challenge, evaluation attestation and
 receipt, and merge commit are
 the communication record. Use Markdown body files for issue, handoff, and PR

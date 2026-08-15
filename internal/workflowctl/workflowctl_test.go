@@ -389,3 +389,51 @@ func TestEvaluationAttestationRejectsCallerVerdictAndReusedChallenge(t *testing.
 		t.Fatal("reused evaluation challenge was accepted")
 	}
 }
+
+func TestEvaluationFindingsMustBePresentArray(t *testing.T) {
+	tests := []struct {
+		name       string
+		json       string
+		decodeFail bool
+		valid      bool
+	}{
+		{name: "omitted", json: `{"verdict":"pass"}`},
+		{name: "null", json: `{"verdict":"pass","findings":null}`, decodeFail: true},
+		{name: "empty", json: `{"verdict":"pass","findings":[]}`, valid: true},
+	}
+	for _, test := range tests {
+		var attestation evaluationAttestation
+		err := json.Unmarshal([]byte(test.json), &attestation)
+		if test.decodeFail {
+			if err == nil {
+				t.Fatalf("%s findings decoded", test.name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s findings decode: %v", test.name, err)
+		}
+		err = validateEvaluationFindings(attestation)
+		if (err == nil) != test.valid {
+			t.Fatalf("%s findings validation error = %v, valid %t", test.name, err, test.valid)
+		}
+	}
+}
+
+func TestPullRequestFinishStrategyHasRESTFallback(t *testing.T) {
+	draft := pullRequestView{IsDraft: true}
+	if action := finishActionFor(draft, true); action != finishMergeREST {
+		t.Fatalf("ready transition action = %d, want REST merge", action)
+	}
+	if action := finishActionFor(draft, false); action != finishReplaceDraftREST {
+		t.Fatalf("failed ready transition action = %d, want REST replacement", action)
+	}
+	if action := finishActionFor(pullRequestView{}, false); action != finishMergeREST {
+		t.Fatalf("ready PR action = %d, want REST merge", action)
+	}
+	body := readyReplacementBody("Closes #1\n", 11, "abc123")
+	if !strings.Contains(body, "Closes #1") || !strings.Contains(body, "Replaces draft PR #11") ||
+		!strings.Contains(body, "abc123") {
+		t.Fatalf("replacement body lost work-packet or provenance data: %q", body)
+	}
+}

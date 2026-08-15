@@ -75,7 +75,10 @@ Complete one coherent work packet. Do not stop after planning or opening a PR.
     the evidence, and stop this packet.
 11. On a matching-head pass, run `go tool workflowctl pr finish PR`. It must
     verify the claim, required checks, evaluation receipt, and head SHA before
-    squash-merging and synchronizing the Project.
+    squash-merging through REST and synchronizing the Project. If GitHub cannot
+    mark a draft ready, `workflowctl` closes it, opens an identical-head ready
+    replacement through REST, and returns that PR number. Run steps 9–11 on
+    the replacement without changing the head.
 
 ## Failure behavior
 

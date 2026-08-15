@@ -30,8 +30,28 @@ type createPullRequestRequest struct {
 }
 
 type createPullRequestResponse struct {
-	URL string `json:"html_url"`
+	Number int    `json:"number"`
+	URL    string `json:"html_url"`
 }
+
+type mergePullRequestRequest struct {
+	CommitTitle string `json:"commit_title"`
+	MergeMethod string `json:"merge_method"`
+	SHA         string `json:"sha"`
+}
+
+type mergePullRequestResponse struct {
+	Merged  bool   `json:"merged"`
+	Message string `json:"message"`
+	SHA     string `json:"sha"`
+}
+
+type pullRequestFinishAction uint8
+
+const (
+	finishReplaceDraftREST pullRequestFinishAction = iota + 1
+	finishMergeREST
+)
 
 func (a app) runPR(args []string) error {
 	if len(args) == 0 {
@@ -132,23 +152,31 @@ func (a app) createDraftPullRequest(root, branch, title, bodyFile string) (strin
 		return "", fmt.Errorf("read PR body: %w", err)
 	}
 	request := createPullRequestRequest{Base: "main", Body: string(body), Draft: true, Head: branch, Title: title}
+	response, err := a.submitPullRequest(root, request)
+	if err != nil {
+		return "", fmt.Errorf("create draft PR: %w", err)
+	}
+	return response.URL, nil
+}
+
+func (a app) submitPullRequest(root string, request createPullRequestRequest) (createPullRequestResponse, error) {
 	input, err := json.Marshal(request)
 	if err != nil {
-		return "", fmt.Errorf("encode draft PR: %w", err)
+		return createPullRequestResponse{}, fmt.Errorf("encode PR: %w", err)
 	}
 	output, err := a.commandInput(root, strings.NewReader(string(input)), "gh", "api", "--method", "POST",
 		"repos/"+repositoryKey+"/pulls", "--input", "-")
 	if err != nil {
-		return "", fmt.Errorf("create draft PR: %w", err)
+		return createPullRequestResponse{}, fmt.Errorf("create PR: %w", err)
 	}
 	var response createPullRequestResponse
 	if err := json.Unmarshal([]byte(output), &response); err != nil {
-		return "", fmt.Errorf("decode draft PR: %w", err)
+		return createPullRequestResponse{}, fmt.Errorf("decode PR: %w", err)
 	}
-	if response.URL == "" {
-		return "", errors.New("draft PR response has no URL")
+	if response.URL == "" || response.Number < 1 {
+		return createPullRequestResponse{}, errors.New("PR response has no URL or number")
 	}
-	return response.URL, nil
+	return response, nil
 }
 
 func (a app) finishPullRequest(number int) error {
@@ -178,21 +206,104 @@ func (a app) finishPullRequest(number int) error {
 	if err := a.requirePassingChecks(root, number, view.HeadRefOID); err != nil {
 		return err
 	}
+	ready := !view.IsDraft
 	if view.IsDraft {
-		if _, err := a.command(root, "gh", "pr", "ready", strconv.Itoa(number), "--repo", repositoryKey); err != nil {
-			return fmt.Errorf("mark PR #%d ready: %w", number, err)
+		if _, readyErr := a.command(root, "gh", "pr", "ready", strconv.Itoa(number), "--repo", repositoryKey); readyErr == nil {
+			ready = true
 		}
 	}
-	if _, err := a.command(root, "gh", "pr", "merge", strconv.Itoa(number), "--repo", repositoryKey, "--squash",
-		"--match-head-commit", view.HeadRefOID); err != nil {
-		return fmt.Errorf("merge PR #%d: %w", number, err)
+	switch finishActionFor(view, ready) {
+	case finishReplaceDraftREST:
+		return a.replaceDraftPullRequest(root, number, view)
+	case finishMergeREST:
+		return a.mergeReadyPullRequest(root, number, view)
+	}
+	return stateError("PR #%d has an impossible finish action", number)
+}
+
+func finishActionFor(view pullRequestView, ready bool) pullRequestFinishAction {
+	if view.IsDraft && !ready {
+		return finishReplaceDraftREST
+	}
+	return finishMergeREST
+}
+
+func (a app) replaceDraftPullRequest(root string, number int, view pullRequestView) error {
+	if err := a.updatePullRequestState(root, number, "closed"); err != nil {
+		return err
+	}
+	request := createPullRequestRequest{
+		Base: view.BaseRefName, Body: readyReplacementBody(view.Body, number, view.HeadRefOID), Draft: false,
+		Head: view.HeadRefName, Title: view.Title,
+	}
+	replacement, err := a.submitPullRequest(root, request)
+	if err != nil {
+		if reopenErr := a.updatePullRequestState(root, number, "open"); reopenErr != nil {
+			return errors.Join(fmt.Errorf("create ready replacement: %w", err),
+				fmt.Errorf("reopen draft PR #%d: %w", number, reopenErr))
+		}
+		return fmt.Errorf("create ready replacement; draft PR #%d was reopened: %w", number, err)
+	}
+	body := fmt.Sprintf("Ready replacement: %s at evaluated head `%s`. It requires a fresh Examiner attestation.\n",
+		replacement.URL, view.HeadRefOID)
+	if err := a.postPullRequestComment(root, number, body); err != nil {
+		return fmt.Errorf("ready PR %s created, but recording replacement failed: %w", replacement.URL, err)
+	}
+	return stateError("draft PR #%d replaced by ready PR #%d at %s; evaluate the replacement, then finish it",
+		number, replacement.Number, replacement.URL)
+}
+
+func readyReplacementBody(body string, number int, head string) string {
+	return strings.TrimSpace(body) + fmt.Sprintf("\n\n## Ready replacement\n\nReplaces draft PR #%d at identical head `%s`. "+
+		"A fresh challenge-bound Examiner attestation is required before merge.\n", number, head)
+}
+
+func (a app) updatePullRequestState(root string, number int, state string) error {
+	payload, err := json.Marshal(struct {
+		State string `json:"state"`
+	}{State: state})
+	if err != nil {
+		return fmt.Errorf("encode PR #%d state: %w", number, err)
+	}
+	if _, err := a.commandInput(root, strings.NewReader(string(payload)), "gh", "api", "--method", "PATCH",
+		"repos/"+repositoryKey+"/pulls/"+strconv.Itoa(number), "--input", "-"); err != nil {
+		return fmt.Errorf("set PR #%d state to %s: %w", number, state, err)
+	}
+	return nil
+}
+
+func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView) error {
+	request := mergePullRequestRequest{
+		CommitTitle: view.Title + " (#" + strconv.Itoa(number) + ")",
+		MergeMethod: "squash",
+		SHA:         view.HeadRefOID,
+	}
+	input, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("encode PR #%d merge: %w", number, err)
+	}
+	output, err := a.commandInput(root, strings.NewReader(string(input)), "gh", "api", "--method", "PUT",
+		"repos/"+repositoryKey+"/pulls/"+strconv.Itoa(number)+"/merge", "--input", "-")
+	if err != nil {
+		return fmt.Errorf("merge PR #%d at %s: %w", number, view.HeadRefOID, err)
+	}
+	var response mergePullRequestResponse
+	if err := json.Unmarshal([]byte(output), &response); err != nil {
+		return fmt.Errorf("decode PR #%d merge: %w", number, err)
+	}
+	if !response.Merged || response.SHA == "" {
+		return stateError("PR #%d was not merged: %s", number, response.Message)
 	}
 	for _, issue := range view.ClosingIssuesReferences {
 		if err := a.setIssueProjectStatus(root, issue.Number, "Done"); err != nil {
-			return fmt.Errorf("PR merged but issue #%d Project update failed: %w", issue.Number, err)
+			if writeErr := writeLine(a.stderr, "PR #%d merged; issue #%d Project sync deferred: %v", number,
+				issue.Number, err); writeErr != nil {
+				return fmt.Errorf("PR merged; report deferred Project sync: %w", writeErr)
+			}
+			break
 		}
 	}
-	return writeLine(a.stdout, "PR #%d merged at evaluated head %s", number, view.HeadRefOID)
+	return writeLine(a.stdout, "PR #%d merged at evaluated head %s as %s", number, view.HeadRefOID, response.SHA)
 }
 
 func pullRequestCloses(view pullRequestView, number int) bool {
