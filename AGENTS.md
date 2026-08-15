@@ -105,8 +105,16 @@ These instructions apply to every file in this repository.
 - `README.md` is the concise user entrypoint.
 - `ARCHITECTURE.md` describes only current design.
 - `PLAN.md` describes phases and measurable outcomes, not individual tasks.
+- `docs/operations.md` is the scheduler and operator contract. Skills contain
+  executable procedures, and the PR template contains only evidence headings.
 - Decision records explain durable choices and link superseding decisions.
 - Git and GitHub preserve history. Do not add session transcripts, stale
   progress diaries, or duplicate issue lists.
+- After a draft PR exists, audit its final head with `workflowctl docs audit
+  --base origin/main`. Any managed-document change requires a fresh read-only
+  Curator review for placement, current relevance, duplication, history, and
+  replacement opportunities. Deletion alone does not prove improvement.
+- Examiner receives the exact audit and Curator result, independently checks
+  the documentation, and remains the only authenticated merge gate.
 - Envoy user evaluations may read library documentation and use public CLIs.
   They must not inspect source code.

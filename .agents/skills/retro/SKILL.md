@@ -23,15 +23,16 @@ do not add a prose diary to the repository.
    body file. Summarize outcomes, not session transcripts.
 3. Inspect merged packets, lead time, conformance delta, unsupported clusters,
    repeated Examiner findings, failed recovery, stale claims, documentation
-   churn, and ready-buffer health.
+   churn reported by `workflowctl history`, and ready-buffer health.
 4. For each repeated mistake, add or strengthen an agent regression scenario
    and mechanize the fragile step. Prefer changing tooling or skill constraints
    over adding reminders.
 5. Revisit blocked and `needs-human` work. Reorder dependencies, split scope, or
    create missing research issues when evidence supports it.
-6. Update `PLAN.md`, `ARCHITECTURE.md`, or a decision record only when current
-   reality changed. Repository edits require a normal claimed work packet and
-   evaluated PR.
+6. Create documentation cleanup work only when churn reveals an independently
+   actionable relevance or consolidation outcome. Update `PLAN.md`,
+   `ARCHITECTURE.md`, or a decision record only when current reality changed.
+   Repository edits require a normal claimed work packet and evaluated PR.
 7. Create and link actionable follow-up issues, synchronize the Project, then
    close the retrospective issue. Do not leave the retro issue as a second
    backlog.
