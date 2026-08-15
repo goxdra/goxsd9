@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -276,17 +278,41 @@ func TestCandidateOrdering(t *testing.T) {
 	}
 }
 
-func TestIssueRelationsDecodeGitHubConnection(t *testing.T) {
-	data := []byte(`{"blockedBy":{"nodes":[{"number":2,"state":"OPEN","title":"source"}],"totalCount":1},"blocking":{"nodes":[],"totalCount":0},"createdAt":"2026-08-15T00:00:00Z"}`)
-	var relations issueRelations
-	if err := json.Unmarshal(data, &relations); err != nil {
-		t.Fatalf("decode issue relations: %v", err)
+func TestIssueRelationsUsesGraphQL(t *testing.T) {
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		if name != "gh" {
+			t.Fatalf("command = %s, want gh", name)
+		}
+		want := []string{"api", "graphql", "-f", "query=" + issueRelationsQuery,
+			"-f", "owner=" + owner, "-f", "repository=" + repository, "-F", "number=25"}
+		if !reflect.DeepEqual(args, want) {
+			t.Fatalf("arguments = %#v, want %#v", args, want)
+		}
+		return `{"data":{"repository":{"issue":{"blockedBy":{"nodes":[{"number":2,"state":"OPEN","title":"source"}]},"blocking":{"nodes":[]},"createdAt":"2026-08-15T00:00:00Z"}}}}`, nil
+	}}
+	relations, err := application.issueRelations("/repo", 25)
+	if err != nil {
+		t.Fatalf("issueRelations: %v", err)
 	}
 	if got, want := len(relations.BlockedBy.Nodes), 1; got != want {
 		t.Fatalf("blockedBy length = %d, want %d", got, want)
 	}
 	if got, want := relations.BlockedBy.Nodes[0].Number, 2; got != want {
 		t.Fatalf("blockedBy issue = %d, want %d", got, want)
+	}
+}
+
+func TestIssueRelationsDecoratesGitHubFailure(t *testing.T) {
+	failure := errors.New("access denied")
+	application := app{executeCommand: func(_ string, _ io.Reader, _ string, _ ...string) (string, error) {
+		return "", failure
+	}}
+	_, err := application.issueRelations("/repo", 25)
+	if !errors.Is(err, failure) {
+		t.Fatalf("issueRelations error = %v, want wrapped command failure", err)
+	}
+	if !strings.Contains(err.Error(), "issue #25 dependencies") {
+		t.Fatalf("issueRelations error = %v, want issue context", err)
 	}
 }
 

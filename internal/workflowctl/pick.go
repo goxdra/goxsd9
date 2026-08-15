@@ -16,6 +16,14 @@ type issueRelations struct {
 	CreatedAt time.Time       `json:"createdAt"`
 }
 
+type issueRelationsResponse struct {
+	Data struct {
+		Repository struct {
+			Issue *issueRelations `json:"issue"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
 type issueConnection struct {
 	Nodes []relatedIssue `json:"nodes"`
 }
@@ -105,17 +113,42 @@ func (a app) pickCandidates(root string) ([]pickCandidate, error) {
 }
 
 func (a app) issueRelations(root string, number int) (issueRelations, error) {
-	output, err := a.command(root, "gh", "issue", "view", strconv.Itoa(number), "--repo", repositoryKey,
-		"--json", "blockedBy,blocking,createdAt")
+	output, err := a.command(root, "gh", "api", "graphql", "-f", "query="+issueRelationsQuery,
+		"-f", "owner="+owner, "-f", "repository="+repository, "-F", "number="+strconv.Itoa(number))
 	if err != nil {
 		return issueRelations{}, fmt.Errorf("read issue #%d dependencies: %w", number, err)
 	}
-	var relations issueRelations
-	if err := json.Unmarshal([]byte(output), &relations); err != nil {
+	var response issueRelationsResponse
+	if err := json.Unmarshal([]byte(output), &response); err != nil {
 		return issueRelations{}, fmt.Errorf("decode issue #%d dependencies: %w", number, err)
 	}
-	return relations, nil
+	if response.Data.Repository.Issue == nil {
+		return issueRelations{}, fmt.Errorf("read issue #%d dependencies: issue was not found", number)
+	}
+	return *response.Data.Repository.Issue, nil
 }
+
+const issueRelationsQuery = `query IssueRelations($owner: String!, $repository: String!, $number: Int!) {
+  repository(owner: $owner, name: $repository) {
+    issue(number: $number) {
+      blockedBy(first: 100) {
+        nodes {
+          number
+          state
+          title
+        }
+      }
+      blocking(first: 100) {
+        nodes {
+          number
+          state
+          title
+        }
+      }
+      createdAt
+    }
+  }
+}`
 
 func candidateLess(left, right pickCandidate) bool {
 	if priorityRank(left.Priority) != priorityRank(right.Priority) {
