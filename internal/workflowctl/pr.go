@@ -2,6 +2,7 @@ package workflowctl
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,6 +14,18 @@ import (
 type pullRequestCheck struct {
 	Name  string `json:"name"`
 	State string `json:"state"`
+}
+
+type createPullRequestRequest struct {
+	Base  string `json:"base"`
+	Body  string `json:"body"`
+	Draft bool   `json:"draft"`
+	Head  string `json:"head"`
+	Title string `json:"title"`
+}
+
+type createPullRequestResponse struct {
+	URL string `json:"html_url"`
 }
 
 func (a app) runPR(args []string) error {
@@ -100,12 +113,37 @@ func (a app) createPullRequest(issue int, title, bodyFile string) error {
 	if verifyErr := a.verifyClaim(); verifyErr != nil {
 		return verifyErr
 	}
-	output, err := a.command(root, "gh", "pr", "create", "--repo", repositoryKey, "--draft", "--base", "main",
-		"--head", branch, "--title", title, "--body-file", bodyFile)
+	url, err := a.createDraftPullRequest(root, branch, title, bodyFile)
 	if err != nil {
-		return fmt.Errorf("create draft PR: %w", err)
+		return err
 	}
-	return writeLine(a.stdout, "%s", firstLine(output))
+	return writeLine(a.stdout, "%s", url)
+}
+
+func (a app) createDraftPullRequest(root, branch, title, bodyFile string) (string, error) {
+	// #nosec G304 -- bodyFile is an explicit operator-supplied input.
+	body, err := os.ReadFile(bodyFile)
+	if err != nil {
+		return "", fmt.Errorf("read PR body: %w", err)
+	}
+	request := createPullRequestRequest{Base: "main", Body: string(body), Draft: true, Head: branch, Title: title}
+	input, err := json.Marshal(request)
+	if err != nil {
+		return "", fmt.Errorf("encode draft PR: %w", err)
+	}
+	output, err := a.commandInput(root, strings.NewReader(string(input)), "gh", "api", "--method", "POST",
+		"repos/"+repositoryKey+"/pulls", "--input", "-")
+	if err != nil {
+		return "", fmt.Errorf("create draft PR: %w", err)
+	}
+	var response createPullRequestResponse
+	if err := json.Unmarshal([]byte(output), &response); err != nil {
+		return "", fmt.Errorf("decode draft PR: %w", err)
+	}
+	if response.URL == "" {
+		return "", errors.New("draft PR response has no URL")
+	}
+	return response.URL, nil
 }
 
 func (a app) finishPullRequest(number int) error {
