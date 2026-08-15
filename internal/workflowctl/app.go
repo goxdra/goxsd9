@@ -89,6 +89,7 @@ Usage:
   go tool workflowctl doctor
   go tool workflowctl check [--skip-lint]
   go tool workflowctl docs check
+  go tool workflowctl docs audit --base REF
   go tool workflowctl history [--since 7d]
   go tool workflowctl sync
   go tool workflowctl pick [--json]

@@ -45,10 +45,23 @@ Complete one coherent work packet. Do not stop after planning or opening a PR.
    becomes the squash commit. The body must describe the outcome, consultations
    or exemptions, verification, conformance effect, and close every issue in
    the packet.
-9. Run `go tool workflowctl evaluation challenge PR`, then spawn Examiner using
+9. On the final pushed head, run `go tool workflowctl docs audit --base
+   origin/main`. If it reports a managed-document change, spawn Curator in a
+   fresh read-only context with the issue, exact audit, diff, changed documents,
+   and their charters. Curator judges placement, current relevance, duplication,
+   historical narration, and replacement; deletion alone is not improvement.
+   It returns only `{"runID":"...","head":"...","verdict":"pass",
+   "summary":"...","findings":[]}`. A `revise` finding has `path`, `reason`,
+   and `requiredChange`; a pass has no findings.
+   Fix every finding and repeat checks, push, audit, and Curator on the new head.
+   Record the final run ID, head, verdict, and concise outcome in the PR body;
+   record a managed-document-unchanged exemption when no review is required.
+10. Run `go tool workflowctl evaluation challenge PR`, then spawn Examiner using
    Luna at maximum effort in a new read-only context with no development
    transcript. Give it only the returned challenge, issue contract, PR,
-   repository state, test results, attestation shape below, and eval rubric.
+   repository state, test results, exact documentation audit, Curator result or
+   exemption, attestation shape below, and eval rubric. Examiner independently
+   reruns the audit and rejects missing, stale, or ignored Curator evidence.
    Examiner must inspect source, must not edit, and must return only its JSON
    attestation. `runID` identifies that fresh agent task. A pass has no findings;
    a failure has one object per blocking finding.
@@ -68,18 +81,18 @@ Complete one coherent work packet. Do not stop after planning or opening a PR.
    ```
 
    A failing finding contains `location`, `impact`, and `requiredCorrection`.
-10. Copy the Examiner's JSON byte-for-byte to a temporary file outside the
+11. Copy the Examiner's JSON byte-for-byte to a temporary file outside the
     repository and record it with `go tool workflowctl evaluation record PR
     --attestation-file FILE`. Never choose or alter the verdict in the Smith
     context. On
     failure, fix every finding, re-run checks, push, and spawn a brand-new
     Examiner. After three failed rounds, mark the issue `needs-human`, hand off
     the evidence, and stop this packet.
-11. On a matching-head pass, run `go tool workflowctl pr finish PR`. It must
+12. On a matching-head pass, run `go tool workflowctl pr finish PR`. It must
     verify the claim, required checks, evaluation receipt, and head SHA before
     squash-merging through REST and synchronizing the Project. If GitHub cannot
     mark a draft ready, `workflowctl` closes it, opens an identical-head ready
-    replacement through REST, and returns that PR number. Run steps 9–11 on
+    replacement through REST, and returns that PR number. Run steps 10–12 on
     the replacement without changing the head.
 
 ## Failure behavior

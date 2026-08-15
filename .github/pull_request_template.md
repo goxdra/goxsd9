@@ -10,6 +10,7 @@
 ## Consultation
 
 <!-- Summarize Scribe and Mason input, or justify a mechanical exemption. -->
+<!-- Add Curator run, head, verdict, and outcome when the documentation audit requires review. -->
 
 ## Verification
 
@@ -17,7 +18,7 @@
 
 ## Conformance and documentation
 
-<!-- Record affected feature IDs, tests unlocked, and current docs changed. -->
+<!-- Record affected feature IDs, tests unlocked, exact docs audit, and current docs changed. -->
 
 ## Evaluation
 

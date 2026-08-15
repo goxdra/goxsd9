@@ -52,6 +52,9 @@ func (a app) runHistory(args []string) error {
 	if err := a.writeGitHistory(root, since, *limit); err != nil {
 		return err
 	}
+	if err := a.writeDocumentationHistory(root, since); err != nil {
+		return err
+	}
 	if err := a.writePRHistory(root, since, *limit); err != nil {
 		return err
 	}

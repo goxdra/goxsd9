@@ -15,6 +15,14 @@ func (a app) command(dir, name string, args ...string) (string, error) {
 }
 
 func (a app) commandInput(dir string, input io.Reader, name string, args ...string) (string, error) {
+	return a.commandOutput(dir, input, true, name, args...)
+}
+
+func (a app) gitRaw(dir string, args ...string) (string, error) {
+	return a.commandOutput(dir, nil, false, "git", args...)
+}
+
+func (a app) commandOutput(dir string, input io.Reader, trim bool, name string, args ...string) (string, error) {
 	if a.executeCommand != nil {
 		return a.executeCommand(dir, input, name, args...)
 	}
@@ -27,10 +35,13 @@ func (a app) commandInput(dir string, input io.Reader, name string, args ...stri
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 	err := cmd.Run()
-	text := strings.TrimSpace(output.String())
 	if err == nil {
-		return text, nil
+		if trim {
+			return strings.TrimSpace(output.String()), nil
+		}
+		return output.String(), nil
 	}
+	text := strings.TrimSpace(output.String())
 	if text == "" {
 		return "", fmt.Errorf("run %s: %w", name, err)
 	}

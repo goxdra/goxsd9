@@ -15,7 +15,8 @@ Jobs are non-interactive. Develop selects one unblocked Ready issue, claims its
 canonical `agent/issue-N` branch, works in the generated worktree, opens a draft
 PR, obtains a fresh internal Examiner evaluation, and squash-merges only the
 evaluated head after checks pass. It may include at most one separately claimed
-companion issue.
+companion issue. A managed-document change receives a read-only Curator review
+at the final head before Examiner; Examiner remains the authenticated gate.
 
 Claims last two hours and are renewed at least every 30 minutes and before
 shared writes. If an expired claim has no open PR, `workflowctl` preserves its
