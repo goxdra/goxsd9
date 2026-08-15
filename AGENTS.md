@@ -103,7 +103,7 @@ These instructions apply to every file in this repository.
 ## Documentation
 
 - `README.md` is the concise user entrypoint.
-- `ARCHITECTURE.md` describes only current implemented design.
+- `ARCHITECTURE.md` describes only current design.
 - `PLAN.md` describes phases and measurable outcomes, not individual tasks.
 - `docs/operations.md` is the scheduler and operator contract. Skills contain
   executable procedures, and the PR template contains only evidence headings.
