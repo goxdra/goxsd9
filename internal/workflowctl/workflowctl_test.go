@@ -70,7 +70,11 @@ func TestEvaluationReceiptRoundTrip(t *testing.T) {
 	}
 	comment := pullRequestComment{Body: body, CreatedAt: recorded}
 	comment.Author.Login = owner
-	if receipts := evaluationReceipts([]pullRequestComment{comment}); len(receipts) != 1 {
+	receipts, err := evaluationReceipts([]pullRequestComment{comment})
+	if err != nil {
+		t.Fatalf("evaluationReceipts: %v", err)
+	}
+	if len(receipts) != 1 {
 		t.Fatalf("trusted receipts = %d, want 1", len(receipts))
 	}
 }
@@ -79,7 +83,11 @@ func TestLatestEvaluationControlsHead(t *testing.T) {
 	pass := testEvaluationComment(t, "head", 1, "pass")
 	fail := testEvaluationComment(t, "head", 2, "fail")
 	view := pullRequestView{Comments: []pullRequestComment{pass, fail}, HeadRefOID: "head"}
-	if latestEvaluationPasses(view, 11) {
+	passes, err := latestEvaluationPasses(view, 11)
+	if err != nil {
+		t.Fatalf("latestEvaluationPasses: %v", err)
+	}
+	if passes {
 		t.Fatal("an earlier pass overrode the latest failing evaluation")
 	}
 }
@@ -128,12 +136,13 @@ func TestLatestStructuredEvaluationPasses(t *testing.T) {
 	}
 	evaluationReceiptComment.Author.Login = owner
 	view := pullRequestView{Comments: []pullRequestComment{challengeComment, evaluationReceiptComment}, HeadRefOID: "head"}
-	if !latestEvaluationPasses(view, 11) {
+	passes, err := latestEvaluationPasses(view, 11)
+	if err != nil || !passes {
 		t.Fatal("valid structured evaluation did not pass")
 	}
 	view.Comments[1].Body = strings.Replace(view.Comments[1].Body, "No findings.", "Changed.", 1)
-	if latestEvaluationPasses(view, 11) {
-		t.Fatal("tampered structured evaluation passed")
+	if _, err := latestEvaluationPasses(view, 11); err == nil {
+		t.Fatal("tampered structured evaluation did not invalidate history")
 	}
 }
 

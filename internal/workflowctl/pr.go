@@ -200,7 +200,11 @@ func (a app) finishPullRequest(number int) error {
 	if err := a.validateClosingClaims(root, view, claimedIssue); err != nil {
 		return err
 	}
-	if !latestEvaluationPasses(view, number) {
+	passes, evaluationErr := latestEvaluationPasses(view, number)
+	if evaluationErr != nil {
+		return stateError("PR #%d has invalid evaluation history: %v", number, evaluationErr)
+	}
+	if !passes {
 		return stateError("PR #%d has no passing evaluation for head %s", number, view.HeadRefOID)
 	}
 	if err := a.requirePassingChecks(root, number, view.HeadRefOID); err != nil {

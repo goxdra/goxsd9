@@ -35,6 +35,8 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 		t.Fatalf("record evaluation: %v", err)
 	}
 	checkRecordedAttestation(t, backend.comments, attestationJSON)
+	rejectTamperedReceiptReuse(t, &application, backend, attestationFile)
+	rejectLaterTamperedReceipt(t, &application, backend)
 
 	commentCount := len(backend.comments)
 	backend.comments = append(backend.comments, reusedRunComments(t, backend.head, testExaminerRunID)...)
@@ -101,6 +103,28 @@ func reusedRunComments(t *testing.T, head, runID string) []issueCommentAPI {
 	return []issueCommentAPI{challengeComment, receiptComment}
 }
 
+func rejectTamperedReceiptReuse(t *testing.T, application *app, backend *workflowBackend, attestationFile string) {
+	t.Helper()
+	original := backend.comments[1].Body
+	backend.comments[1].Body = strings.Replace(original, "No blocking findings", "Changed findings", 1)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err == nil {
+		t.Fatal("tampered history allowed evaluation evidence reuse")
+	}
+	backend.comments[1].Body = original
+}
+
+func rejectLaterTamperedReceipt(t *testing.T, application *app, backend *workflowBackend) {
+	t.Helper()
+	tampered := backend.comments[1]
+	tampered.Body = strings.Replace(tampered.Body, "No blocking findings", "Changed findings", 1)
+	tampered.CreatedAt = time.Now().UTC().Truncate(time.Second)
+	backend.comments = append(backend.comments, tampered)
+	if err := application.runPR([]string{"finish", "14"}); err == nil {
+		t.Fatal("later tampered receipt fell back to an earlier pass")
+	}
+	backend.comments = backend.comments[:len(backend.comments)-1]
+}
+
 func requestTestChallenge(t *testing.T, application *app, stdout *bytes.Buffer) evaluationChallenge {
 	t.Helper()
 	if err := application.runEvaluation([]string{"challenge", "14"}); err != nil {
@@ -123,7 +147,7 @@ func writeTestAttestation(t *testing.T, head string, challenge evaluationChallen
 		PR:        14,
 		RunID:     testExaminerRunID,
 		Schema:    evaluationAttestationSchema,
-		Summary:   "No blocking findings.",
+		Summary:   "No blocking findings; delimiter --> remains data.",
 		Verdict:   "pass",
 	}
 	attestationJSON, err := json.MarshalIndent(attestation, "", "  ")
@@ -143,8 +167,9 @@ func checkRecordedAttestation(t *testing.T, comments []issueCommentAPI, attestat
 	if got, want := len(comments), 2; got != want {
 		t.Fatalf("comments = %d, want %d", got, want)
 	}
-	if !bytes.Contains([]byte(comments[1].Body), attestationJSON) {
-		t.Fatal("recorded comment did not preserve the Examiner attestation bytes")
+	_, recovered, ok := parseCommentAttestation(comments[1].Body)
+	if !ok || !bytes.Equal(recovered, attestationJSON) {
+		t.Fatal("recorded comment did not recover the exact Examiner attestation bytes")
 	}
 	receipt, ok := parseEvaluationReceipt(comments[1].Body)
 	if !ok {
