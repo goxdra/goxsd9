@@ -99,7 +99,38 @@ func (a app) checkProject(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s Roadmap (#%d)", repository, projectNumber), nil
+	items, err := a.projectItems(root)
+	if err != nil {
+		return "", err
+	}
+	fields, err := a.projectFields(root)
+	if err != nil {
+		return "", err
+	}
+	if err := verifyProjectFields(fields); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s Roadmap (#%d, %d items)", repository, projectNumber, items.TotalCount), nil
+}
+
+func verifyProjectFields(fields projectFieldList) error {
+	required := []struct {
+		field   string
+		options []string
+	}{
+		{field: "Status", options: []string{"Backlog", "Ready", "Picked", "Done"}},
+		{field: "Priority", options: []string{"P0", "P1", "P2", "P3", "P4"}},
+		{field: "Effort", options: []string{"XS", "S", "M", "L", "XL"}},
+		{field: "Phase", options: []string{"Bootstrap", "Vertical Slice", "Schema Model", "Validation", "Codegen", "Conformance", "XPath"}},
+	}
+	for _, requirement := range required {
+		for _, option := range requirement.options {
+			if _, _, err := fields.option(requirement.field, option); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (a app) checkSubmodule(root string) (string, error) {
