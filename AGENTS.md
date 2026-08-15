@@ -70,6 +70,16 @@ These instructions apply to every file in this repository.
 
 ## Workflow
 
+- Work commits and PR titles use `<type>(<scope>): <imperative summary>`.
+  Scope is optional and `!` may follow the type or scope for a breaking change.
+  Allowed types are `feat`, `fix`, `test`, `docs`, `refactor`, `perf`, `ci`,
+  and `chore`; scopes use the canonical suffixes from `area/*` labels. Start the summary with a
+  lowercase letter or digit, omit a trailing period, and keep the title within
+  72 characters. Explain why and affected invariants in the body when the
+  subject is insufficient. Generated `chore(workflow): claim issue #N` commits
+  retain their `Agent-*` trailers. `workflowctl pr open` validates branch-only
+  commit subjects and the requested PR title; `pr finish` revalidates the
+  actual GitHub title before merge.
 - One PR has one primary issue and may include only separately claimed, closely
   related issues.
 - The branch claim lease is two hours. Renew it at least every 30 minutes and

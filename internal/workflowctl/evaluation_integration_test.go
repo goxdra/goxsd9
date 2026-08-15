@@ -37,6 +37,7 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	checkRecordedAttestation(t, backend.comments, attestationJSON)
 	rejectTamperedReceiptReuse(t, &application, backend, attestationFile)
 	rejectLaterTamperedReceipt(t, &application, backend)
+	rejectInvalidPullRequestTitle(t, &application, backend)
 
 	commentCount := len(backend.comments)
 	backend.comments = append(backend.comments, reusedRunComments(t, backend.head, testExaminerRunID)...)
@@ -125,6 +126,19 @@ func rejectLaterTamperedReceipt(t *testing.T, application *app, backend *workflo
 	backend.comments = backend.comments[:len(backend.comments)-1]
 }
 
+func rejectInvalidPullRequestTitle(t *testing.T, application *app, backend *workflowBackend) {
+	t.Helper()
+	original := backend.title
+	backend.title = "Invalid title"
+	if err := application.runPR([]string{"finish", "14"}); err == nil {
+		t.Fatal("merge accepted an invalid pull request title")
+	}
+	if backend.merged {
+		t.Fatal("invalid pull request title reached the merge endpoint")
+	}
+	backend.title = original
+}
+
 func requestTestChallenge(t *testing.T, application *app, stdout *bytes.Buffer) evaluationChallenge {
 	t.Helper()
 	if err := application.runEvaluation([]string{"challenge", "14"}); err != nil {
@@ -194,6 +208,9 @@ func checkMergeResult(t *testing.T, backend *workflowBackend) {
 	}
 	if backend.mergeRequest.SHA != backend.head || backend.mergeRequest.MergeMethod != "squash" {
 		t.Fatalf("merge request = %#v", backend.mergeRequest)
+	}
+	if backend.mergeRequest.CommitTitle != backend.title+" (#14)" {
+		t.Fatalf("merge commit title = %q", backend.mergeRequest.CommitTitle)
 	}
 }
 
@@ -307,6 +324,7 @@ type workflowBackend struct {
 	root         string
 	branch       string
 	head         string
+	title        string
 	comments     []issueCommentAPI
 	mergeRequest mergePullRequestRequest
 	merged       bool
@@ -317,6 +335,7 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 	t.Helper()
 	return &workflowBackend{
 		t: t, root: "/repo", branch: "agent/issue-13", head: "evaluated-head",
+		title: "test(workflow): exercise evaluation flow",
 	}
 }
 
@@ -383,7 +402,7 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 }
 
 func (b *workflowBackend) pullRequestJSON() (string, error) {
-	response := pullRequestAPI{Body: "Closes #13", Draft: false, State: "open", Title: "Test workflow"}
+	response := pullRequestAPI{Body: "Closes #13", Draft: false, State: "open", Title: b.title}
 	response.Base.Ref = "main"
 	response.Head.Ref = b.branch
 	response.Head.SHA = b.head

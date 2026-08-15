@@ -92,6 +92,9 @@ func (a app) openPullRequest(args []string) error {
 	if flags.NArg() != 0 || strings.TrimSpace(*title) == "" || *bodyFile == "" {
 		return usageError("usage: workflowctl pr open ISSUE --title TITLE --body-file FILE")
 	}
+	if err := validateCommitTitle(*title); err != nil {
+		return usageError("pr open: invalid title: %v", err)
+	}
 	if err := validatePullRequestBody(*bodyFile, issue); err != nil {
 		return usageError("pr open: %v", err)
 	}
@@ -128,6 +131,9 @@ func (a app) createPullRequest(issue int, title, bodyFile string) error {
 	}
 	if clean != "" {
 		return stateError("worktree has uncommitted changes")
+	}
+	if titleErr := a.validateWorkCommitTitles(root); titleErr != nil {
+		return stateError("cannot open PR: %v", titleErr)
 	}
 	if verifyErr := a.verifyClaimForPush(root, branch, claimedIssue); verifyErr != nil {
 		return verifyErr
@@ -196,6 +202,9 @@ func (a app) finishPullRequest(number int) error {
 	}
 	if view.HeadRefName != branch {
 		return stateError("PR #%d uses branch %s, not claim branch %s", number, view.HeadRefName, branch)
+	}
+	if titleErr := validateCommitTitle(view.Title); titleErr != nil {
+		return stateError("PR #%d has invalid title %q: %v", number, view.Title, titleErr)
 	}
 	if err := a.validateClosingClaims(root, view, claimedIssue); err != nil {
 		return err

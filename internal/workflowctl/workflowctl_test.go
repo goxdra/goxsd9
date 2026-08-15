@@ -258,7 +258,7 @@ func TestDocumentedPositionalFlagOrderParses(t *testing.T) {
 	}{
 		{name: "handoff", run: func() error { return application.runHandoff([]string{"1", "--body-file", "missing"}) }},
 		{name: "pr open", run: func() error {
-			return application.openPullRequest([]string{"1", "--title", "title", "--body-file", "missing"})
+			return application.openPullRequest([]string{"1", "--title", "test(workflow): verify flags", "--body-file", "missing"})
 		}},
 		{name: "evaluation", run: func() error {
 			return application.recordEvaluation([]string{"1", "--attestation-file", "missing"})
