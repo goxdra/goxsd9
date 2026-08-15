@@ -5,7 +5,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/kud360/goxsd9/internal/workflowctl"
+	"github.com/goxdra/goxsd9/internal/workflowctl"
 )
 
 func main() {
