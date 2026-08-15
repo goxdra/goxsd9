@@ -169,10 +169,10 @@ func validateSessionSummaryText(summary string) error {
 	for _, line := range strings.Split(summary, "\n") {
 		markdownLine := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, " "), " "), " ")
 		if strings.HasPrefix(markdownLine, "#") || strings.HasPrefix(markdownLine, "```") ||
-			strings.HasPrefix(markdownLine, "~~~") {
+			strings.HasPrefix(markdownLine, "~~~") || isSetextHeading(line) {
 			return errors.New("PR session summary must use plain text, not Markdown headings or fences")
 		}
-		if containsMarkdownLink(line) || isMarkdownTableDelimiter(line) {
+		if containsMarkdownLink(line) || containsMarkdownAutolink(line) || isMarkdownTableDelimiter(line) {
 			return errors.New("PR session summary must use plain text, not Markdown links or tables")
 		}
 		if strings.TrimRight(line, " \t") != line {
@@ -183,11 +183,27 @@ func validateSessionSummaryText(summary string) error {
 }
 
 func containsMarkdownLink(line string) bool {
-	closingBracket := strings.Index(line, "](")
-	if closingBracket < 1 {
+	openingBracket := strings.IndexByte(line, '[')
+	if openingBracket < 0 {
 		return false
 	}
-	return strings.LastIndex(line[:closingBracket], "[") >= 0
+	return strings.IndexByte(line[openingBracket+1:], ']') >= 0
+}
+
+func containsMarkdownAutolink(line string) bool {
+	openingAngle := strings.IndexByte(line, '<')
+	if openingAngle < 0 {
+		return false
+	}
+	return strings.IndexByte(line[openingAngle+1:], '>') >= 0
+}
+
+func isSetextHeading(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" || line[0] != '=' && line[0] != '-' {
+		return false
+	}
+	return strings.Trim(line, string(line[0])) == ""
 }
 
 func isMarkdownTableDelimiter(line string) bool {
@@ -198,7 +214,7 @@ func isMarkdownTableDelimiter(line string) bool {
 	cells := strings.Split(line, "|")
 	for _, cell := range cells {
 		cell = strings.Trim(strings.TrimSpace(cell), ":")
-		if len(cell) < 3 || strings.Trim(cell, "-") != "" {
+		if cell == "" || strings.Trim(cell, "-") != "" {
 			return false
 		}
 	}

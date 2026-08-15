@@ -165,7 +165,10 @@ func rejectInvalidSessionSummaries(t *testing.T, application *app, backend *work
 		{name: "missing", body: "## Work packet\n\nCloses #13\n"},
 		{name: "indented fence", body: "## Session summary\n\n   ```text\nEvidence.\n   ```\n\nCloses #13\n"},
 		{name: "formatted link", body: "## Session summary\n\nSee [issue](https://example.com).\n\nCloses #13\n"},
-		{name: "table", body: "## Session summary\n\nA | B\n--- | ---\nC | D\n\nCloses #13\n"},
+		{name: "reference link", body: "## Session summary\n\nSee [issue][ref].\n\n[ref]: https://example.com\n\nCloses #13\n"},
+		{name: "autolink", body: "## Session summary\n\nSee <https://example.com>.\n\nCloses #13\n"},
+		{name: "setext heading", body: "## Session summary\n\nOutcome\n=======\n\nCloses #13\n"},
+		{name: "table", body: "## Session summary\n\nA | B\n-| :-\nC | D\n\nCloses #13\n"},
 	}
 	for _, test := range tests {
 		backend.body = test.body
