@@ -74,6 +74,35 @@ func TestPullRequestOpenRejectsInvalidTitleBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestPullRequestOpenRejectsMultilineCommitBeforePush(t *testing.T) {
+	mutated := false
+	application := app{ctx: context.Background(), executeCommand: func(_ string, _ io.Reader,
+		name string, args ...string,
+	) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		switch command {
+		case "git rev-parse --show-toplevel":
+			return "/repo", nil
+		case "git branch --show-current":
+			return "agent/issue-17", nil
+		case "git status --porcelain":
+			return "", nil
+		case "git log --format=%x00%B%x00 origin/main..HEAD":
+			return framedRawCommitLog("fix(parser): reject invalid XML\ncontinue\n"), nil
+		default:
+			mutated = name == "gh" || command == "git push origin HEAD:refs/heads/agent/issue-17"
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+	err := application.createPullRequest(17, "fix(parser): reject invalid XML", "unused")
+	if err == nil || !strings.Contains(err.Error(), "blank line") {
+		t.Fatalf("createPullRequest error = %v, want multiline title rejection", err)
+	}
+	if mutated {
+		t.Fatal("multiline commit title reached a push or GitHub mutation")
+	}
+}
+
 func TestWorkCommitTitlesAreValidatedBeforePush(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -82,19 +111,24 @@ func TestWorkCommitTitlesAreValidatedBeforePush(t *testing.T) {
 	}{
 		{name: "valid", log: framedCommitLog(
 			"fix(parser): reject invalid XML", "chore(workflow): claim issue #17")},
+		{name: "valid body", log: framedRawCommitLog(
+			"fix(parser): reject invalid XML\n\nExplain why.\n",
+			"chore(workflow): claim issue #17\n\nAgent-Run-ID: run-test\n")},
 		{name: "invalid", log: framedCommitLog(
 			"temporary checkpoint", "chore(workflow): claim issue #17"), wantErr: true},
 		{name: "leading whitespace in newest", log: framedCommitLog(
 			" fix(parser): reject invalid XML", "chore(workflow): claim issue #17"), wantErr: true},
 		{name: "trailing whitespace in oldest", log: framedCommitLog(
 			"fix(parser): reject invalid XML", "chore(workflow): claim issue #17 "), wantErr: true},
+		{name: "multiline subject", log: framedRawCommitLog(
+			"fix(parser): reject invalid XML\ncontinue\n", "chore(workflow): claim issue #17\n"), wantErr: true},
 		{name: "malformed record", log: "fix(parser): reject invalid XML", wantErr: true},
 		{name: "empty", wantErr: true},
 	}
 	for _, test := range tests {
 		application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 			got := name + " " + strings.Join(args, " ")
-			if got != "git log --format=workflowctl-title:%s:workflowctl-title origin/main..test-head" {
+			if got != "git log --format=%x00%B%x00 origin/main..test-head" {
 				return "", fmt.Errorf("unexpected command: %s", got)
 			}
 			return test.log, nil
@@ -107,11 +141,15 @@ func TestWorkCommitTitlesAreValidatedBeforePush(t *testing.T) {
 }
 
 func framedCommitLog(titles ...string) string {
-	records := make([]string, 0, len(titles))
+	messages := make([]string, 0, len(titles))
 	for _, title := range titles {
-		records = append(records, commitTitleRecordPrefix+title+commitTitleRecordSuffix)
+		messages = append(messages, title+"\n")
 	}
-	return strings.Join(records, "\n")
+	return framedRawCommitLog(messages...)
+}
+
+func framedRawCommitLog(messages ...string) string {
+	return commitMessageNUL + strings.Join(messages, commitMessageNUL+"\n"+commitMessageNUL) + commitMessageNUL
 }
 
 func TestClaimMessageKeepsConventionalSubjectAndTrailers(t *testing.T) {

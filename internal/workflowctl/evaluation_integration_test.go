@@ -143,7 +143,8 @@ func rejectInvalidPullRequestTitle(t *testing.T, application *app, backend *work
 func rejectInvalidWorkCommitTitle(t *testing.T, application *app, backend *workflowBackend) {
 	t.Helper()
 	original := backend.workCommitLog
-	backend.workCommitLog = framedCommitLog("temporary checkpoint", "chore(workflow): claim issue #13")
+	backend.workCommitLog = framedRawCommitLog(
+		"fix(parser): reject invalid XML\ncontinue\n", "chore(workflow): claim issue #13\n")
 	if err := application.runPR([]string{"finish", "14"}); err == nil {
 		t.Fatal("merge accepted a work commit added after PR creation with an invalid title")
 	}
@@ -387,7 +388,7 @@ func (b *workflowBackend) executeGit(args []string) (string, error) {
 	case "log -100 --format=%B":
 		lease := time.Now().UTC().Add(leaseDuration).Truncate(time.Second)
 		return claimMessage(13, "run-test", lease), nil
-	case "log --format=workflowctl-title:%s:workflowctl-title origin/main.." + b.head:
+	case "log --format=%x00%B%x00 origin/main.." + b.head:
 		return b.workCommitLog, nil
 	default:
 		return "", fmt.Errorf("unexpected git command: %s", strings.Join(args, " "))

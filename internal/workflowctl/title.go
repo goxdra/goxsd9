@@ -9,9 +9,8 @@ import (
 )
 
 const (
-	commitTitleLimit        = 72
-	commitTitleRecordPrefix = "workflowctl-title:"
-	commitTitleRecordSuffix = ":workflowctl-title"
+	commitTitleLimit = 72
+	commitMessageNUL = "\x00"
 )
 
 var commitTypes = []string{"feat", "fix", "test", "docs", "refactor", "perf", "ci", "chore"}
@@ -51,26 +50,42 @@ func validateCommitTitle(title string) error {
 }
 
 func (a app) validateWorkCommitTitles(root, head string) error {
-	format := "--format=" + commitTitleRecordPrefix + "%s" + commitTitleRecordSuffix
-	output, err := a.command(root, "git", "log", format, "origin/main.."+head)
+	output, err := a.command(root, "git", "log", "--format=%x00%B%x00", "origin/main.."+head)
 	if err != nil {
 		return fmt.Errorf("read work commit titles: %w", err)
 	}
 	if output == "" {
 		return errors.New("claim branch has no commits beyond origin/main")
 	}
-	for _, record := range strings.Split(output, "\n") {
-		if !strings.HasPrefix(record, commitTitleRecordPrefix) ||
-			!strings.HasSuffix(record, commitTitleRecordSuffix) {
-			return errors.New("git returned a malformed commit title record")
+	messages, err := parseCommitMessages(output)
+	if err != nil {
+		return err
+	}
+	for _, message := range messages {
+		title, rest, hasRest := strings.Cut(message, "\n")
+		if hasRest && rest != "" && !strings.HasPrefix(rest, "\n") {
+			return fmt.Errorf("commit title %q must be followed by a blank line before the body", title)
 		}
-		title := strings.TrimPrefix(record, commitTitleRecordPrefix)
-		title = strings.TrimSuffix(title, commitTitleRecordSuffix)
 		if err := validateCommitTitle(title); err != nil {
 			return fmt.Errorf("commit title %q is invalid: %w", title, err)
 		}
 	}
 	return nil
+}
+
+func parseCommitMessages(output string) ([]string, error) {
+	parts := strings.Split(output, commitMessageNUL)
+	if len(parts) < 3 || len(parts)%2 == 0 || parts[0] != "" || parts[len(parts)-1] != "" {
+		return nil, errors.New("git returned malformed commit message framing")
+	}
+	messages := make([]string, 0, len(parts)/2)
+	for index := 1; index < len(parts)-1; index += 2 {
+		messages = append(messages, parts[index])
+		if index+1 < len(parts)-1 && parts[index+1] != "\n" {
+			return nil, errors.New("git returned malformed commit message separation")
+		}
+	}
+	return messages, nil
 }
 
 func parseCommitPrefix(prefix string) (string, string, error) {
