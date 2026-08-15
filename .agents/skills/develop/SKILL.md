@@ -43,11 +43,33 @@ Complete one coherent work packet. Do not stop after planning or opening a PR.
    pr open ISSUE --title TITLE --body-file FILE`. The body must describe the
    outcome, consultations or exemptions, verification, conformance effect, and
    close every issue in the packet.
-9. Spawn Examiner using Luna at maximum effort in a new read-only context with
-   no development transcript. Give it only the issue contract, PR, repository
-   state, test results, and eval rubric. Examiner must inspect source and return
-   a structured pass or blocking findings; it must not edit.
-10. Record the verdict through `go tool workflowctl evaluation record`. On
+9. Run `go tool workflowctl evaluation challenge PR`, then spawn Examiner using
+   Luna at maximum effort in a new read-only context with no development
+   transcript. Give it only the returned challenge, issue contract, PR,
+   repository state, test results, attestation shape below, and eval rubric.
+   Examiner must inspect source, must not edit, and must return only its JSON
+   attestation. `runID` identifies that fresh agent task. A pass has no findings;
+   a failure has one object per blocking finding.
+
+   ```json
+   {
+     "schema": "goxsd9/examiner-attestation/v1",
+     "challenge": "run-...",
+     "evaluator": "Examiner",
+     "runID": "fresh-agent-task-id",
+     "pullRequest": 11,
+     "head": "exact-head-sha",
+     "verdict": "pass",
+     "summary": "No blocking findings.",
+     "findings": []
+   }
+   ```
+
+   A failing finding contains `location`, `impact`, and `requiredCorrection`.
+10. Copy the Examiner's JSON byte-for-byte to a temporary file outside the
+    repository and record it with `go tool workflowctl evaluation record PR
+    --attestation-file FILE`. Never choose or alter the verdict in the Smith
+    context. On
     failure, fix every finding, re-run checks, push, and spawn a brand-new
     Examiner. After three failed rounds, mark the issue `needs-human`, hand off
     the evidence, and stop this packet.

@@ -27,6 +27,15 @@ Three failed evaluation rounds add `needs-human` and return the issue to
 Backlog. Transient commands use bounded retries as directed by the skill;
 successful runs continue through merge rather than stopping for approval.
 
-The GitHub issue, claim ref, PR checks, evaluation receipt, and merge commit are
-the communication record. Use Markdown body files for issue, handoff, PR, and
-evaluation prose so line breaks remain intact.
+Before each fresh Examiner is spawned, `workflowctl evaluation challenge`
+records a one-use challenge bound to the current PR head. Examiner returns the
+versioned JSON attestation; `workflowctl` derives the verdict and prose from it
+and rejects wrong-head, stale, reused, malformed, or caller-selected verdicts.
+The scheduling agent supplies fresh-context separation. Personas share the
+repository owner's GitHub credential, so the receipt is process evidence, not
+a claim of cryptographic identity isolation between local agents.
+
+The GitHub issue, claim ref, PR checks, challenge, evaluation attestation and
+receipt, and merge commit are
+the communication record. Use Markdown body files for issue, handoff, and PR
+prose so line breaks remain intact.

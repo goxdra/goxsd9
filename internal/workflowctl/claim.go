@@ -253,8 +253,9 @@ func (a app) renewClaim() error {
 	if err != nil {
 		return stateError("claim #%d has no valid lease: %v", number, err)
 	}
-	if !lease.After(time.Now().UTC()) {
-		return stateError("claim #%d expired at %s", number, lease.Format(time.RFC3339))
+	now := time.Now().UTC()
+	if freshnessErr := validateLeaseFresh(number, lease, now); freshnessErr != nil {
+		return freshnessErr
 	}
 	commit, lease, _, err := a.newClaimCommit(root, number, "HEAD")
 	if err != nil {

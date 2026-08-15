@@ -79,6 +79,9 @@ These instructions apply to every file in this repository.
 - Every PR receives an Examiner review in a fresh, read-only context. Smith
   fixes findings and uses a new Examiner context for each round. Three failed
   rounds mark the work `needs-human`.
+- Create a head-bound `workflowctl evaluation challenge` before spawning each
+  Examiner. Record its returned JSON attestation unchanged; Smith never chooses
+  or rewrites the verdict.
 - Use body files for GitHub Markdown. Do not pass escaped newlines through
   command arguments.
 - A deferred item must become an issue only when it is independently actionable.

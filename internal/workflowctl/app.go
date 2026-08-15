@@ -99,7 +99,8 @@ Usage:
   go tool workflowctl handoff ISSUE --body-file FILE
   go tool workflowctl pr open ISSUE --title TITLE --body-file FILE
   go tool workflowctl pr finish PR
-  go tool workflowctl evaluation record PR --verdict pass|fail --body-file FILE
+  go tool workflowctl evaluation challenge PR
+  go tool workflowctl evaluation record PR --attestation-file FILE
 `)
 	return err
 }

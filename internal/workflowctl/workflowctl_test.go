@@ -60,7 +60,7 @@ func TestEvaluationReceiptRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode receipt: %v", err)
 	}
-	body := evaluationComment(marker, report)
+	body := evaluationComment(marker, nil, string(report))
 	got, ok := parseEvaluationReceipt(body)
 	if !ok {
 		t.Fatal("parseEvaluationReceipt rejected a generated marker")
@@ -79,8 +79,61 @@ func TestLatestEvaluationControlsHead(t *testing.T) {
 	pass := testEvaluationComment(t, "head", 1, "pass")
 	fail := testEvaluationComment(t, "head", 2, "fail")
 	view := pullRequestView{Comments: []pullRequestComment{pass, fail}, HeadRefOID: "head"}
-	if latestEvaluationPasses(view) {
+	if latestEvaluationPasses(view, 11) {
 		t.Fatal("an earlier pass overrode the latest failing evaluation")
+	}
+}
+
+func TestLatestStructuredEvaluationPasses(t *testing.T) {
+	requested := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	recorded := requested.Add(time.Minute)
+	challenge := evaluationChallenge{Challenge: "run-challenge", Head: "head", PR: 11, RequestedAt: requested}
+	challengeMarker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode challenge: %v", err)
+	}
+	challengeComment := pullRequestComment{
+		Body:      fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, challengeMarker),
+		CreatedAt: requested,
+	}
+	challengeComment.Author.Login = owner
+	attestation := evaluationAttestation{
+		Challenge: "run-challenge", Evaluator: "Examiner", Findings: []evaluationFinding{}, Head: "head", PR: 11,
+		RunID: "examiner-run", Schema: evaluationAttestationSchema, Summary: "No findings.", Verdict: "pass",
+	}
+	attestationMarker, err := json.Marshal(attestation)
+	if err != nil {
+		t.Fatalf("encode attestation: %v", err)
+	}
+	report := renderEvaluationReport(attestation)
+	receipt := evaluationReceipt{
+		AttestationSHA256: fmt.Sprintf("%x", sha256.Sum256(attestationMarker)),
+		Challenge:         attestation.Challenge,
+		Evaluator:         attestation.Evaluator,
+		EvaluatorRunID:    attestation.RunID,
+		Head:              attestation.Head,
+		PR:                attestation.PR,
+		RecordedAt:        recorded,
+		ReportSHA256:      fmt.Sprintf("%x", sha256.Sum256([]byte(report))),
+		Round:             3,
+		Verdict:           attestation.Verdict,
+	}
+	receiptMarker, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode receipt: %v", err)
+	}
+	evaluationReceiptComment := pullRequestComment{
+		Body:      evaluationComment(receiptMarker, attestationMarker, report),
+		CreatedAt: recorded,
+	}
+	evaluationReceiptComment.Author.Login = owner
+	view := pullRequestView{Comments: []pullRequestComment{challengeComment, evaluationReceiptComment}, HeadRefOID: "head"}
+	if !latestEvaluationPasses(view, 11) {
+		t.Fatal("valid structured evaluation did not pass")
+	}
+	view.Comments[1].Body = strings.Replace(view.Comments[1].Body, "No findings.", "Changed.", 1)
+	if latestEvaluationPasses(view, 11) {
+		t.Fatal("tampered structured evaluation passed")
 	}
 }
 
@@ -107,7 +160,7 @@ func testEvaluationComment(t *testing.T, head string, round int, verdict string)
 	if err != nil {
 		t.Fatalf("encode receipt: %v", err)
 	}
-	comment := pullRequestComment{Body: evaluationComment(marker, report), CreatedAt: recorded}
+	comment := pullRequestComment{Body: evaluationComment(marker, nil, string(report)), CreatedAt: recorded}
 	comment.Author.Login = owner
 	return comment
 }
@@ -199,7 +252,7 @@ func TestDocumentedPositionalFlagOrderParses(t *testing.T) {
 			return application.openPullRequest([]string{"1", "--title", "title", "--body-file", "missing"})
 		}},
 		{name: "evaluation", run: func() error {
-			return application.recordEvaluation([]string{"1", "--verdict", "pass", "--body-file", "missing"})
+			return application.recordEvaluation([]string{"1", "--attestation-file", "missing"})
 		}},
 	}
 	for _, test := range tests {
@@ -221,6 +274,14 @@ func TestLeaseFreshness(t *testing.T) {
 	}
 	if err := validateLeaseFresh(1, lease.Add(-time.Second), now); err == nil {
 		t.Fatal("stale renewal interval accepted")
+	}
+}
+
+func TestLateClaimRenewalIsRejected(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 4, 31, 0, 0, time.UTC)
+	lease := time.Date(2026, time.August, 15, 6, 0, 0, 0, time.UTC)
+	if err := validateLeaseFresh(1, lease, now); err == nil {
+		t.Fatal("claim missed its renewal heartbeat but was accepted")
 	}
 }
 
@@ -268,5 +329,63 @@ func TestWorkPacketRejectsMoreThanOneCompanion(t *testing.T) {
 	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
 	if err := application.validateClosingClaims("", view, 1); err == nil {
 		t.Fatal("work packet with two companion issues was accepted")
+	}
+}
+
+func TestEvaluationAttestationIsBoundToChallengeAndHead(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	challenge := evaluationChallenge{Challenge: "run-challenge", Head: "head", PR: 11, RequestedAt: now}
+	marker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode challenge: %v", err)
+	}
+	comment := pullRequestComment{
+		Body:      fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, marker),
+		CreatedAt: now,
+	}
+	comment.Author.Login = owner
+	view := pullRequestView{Comments: []pullRequestComment{comment}, HeadRefOID: "head"}
+	attestation := evaluationAttestation{
+		Challenge: "run-challenge",
+		Evaluator: "Examiner",
+		Findings:  []evaluationFinding{},
+		Head:      "head",
+		PR:        11,
+		RunID:     "examiner-fresh-context",
+		Schema:    evaluationAttestationSchema,
+		Summary:   "No blocking findings.",
+		Verdict:   "pass",
+	}
+	if err := validateEvaluationAttestation(attestation, 11, view, nil, now); err != nil {
+		t.Fatalf("valid attestation rejected: %v", err)
+	}
+	attestation.Head = "other"
+	if err := validateEvaluationAttestation(attestation, 11, view, nil, now); err == nil {
+		t.Fatal("wrong-head attestation accepted")
+	}
+}
+
+func TestEvaluationAttestationRejectsCallerVerdictAndReusedChallenge(t *testing.T) {
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
+	if err := application.recordEvaluation([]string{"11", "--verdict", "pass", "--body-file", "report"}); err == nil {
+		t.Fatal("caller-selected verdict flags were accepted")
+	}
+
+	now := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	challenge := evaluationChallenge{Challenge: "run-used", Head: "head", PR: 11, RequestedAt: now}
+	marker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode challenge: %v", err)
+	}
+	comment := pullRequestComment{Body: fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, marker), CreatedAt: now}
+	comment.Author.Login = owner
+	view := pullRequestView{Comments: []pullRequestComment{comment}, HeadRefOID: "head"}
+	attestation := evaluationAttestation{
+		Challenge: "run-used", Evaluator: "Examiner", Findings: []evaluationFinding{}, Head: "head", PR: 11,
+		RunID: "examiner-run", Schema: evaluationAttestationSchema, Summary: "No findings.", Verdict: "pass",
+	}
+	receipts := []evaluationReceipt{{Challenge: "run-used", Verdict: "fail"}}
+	if err := validateEvaluationAttestation(attestation, 11, view, receipts, now); err == nil {
+		t.Fatal("reused evaluation challenge was accepted")
 	}
 }

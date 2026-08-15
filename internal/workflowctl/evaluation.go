@@ -1,8 +1,10 @@
 package workflowctl
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -12,7 +14,12 @@ import (
 	"time"
 )
 
-const evaluationMarker = "workflowctl-evaluation "
+const (
+	evaluationAttestationMarker = "workflowctl-evaluation-attestation "
+	evaluationAttestationSchema = "goxsd9/examiner-attestation/v1"
+	evaluationChallengeMarker   = "workflowctl-evaluation-challenge "
+	evaluationMarker            = "workflowctl-evaluation "
+)
 
 type pullRequestView struct {
 	ClosingIssuesReferences []struct {
@@ -54,24 +61,67 @@ type issueCommentAPI struct {
 }
 
 type evaluationReceipt struct {
-	Evaluator    string    `json:"evaluator"`
-	Head         string    `json:"head"`
-	RecordedAt   time.Time `json:"recordedAt"`
-	ReportSHA256 string    `json:"reportSHA256"`
-	Round        int       `json:"round"`
-	Verdict      string    `json:"verdict"`
+	AttestationSHA256 string    `json:"attestationSHA256,omitempty"`
+	Challenge         string    `json:"challenge,omitempty"`
+	Evaluator         string    `json:"evaluator"`
+	EvaluatorRunID    string    `json:"evaluatorRunID,omitempty"`
+	Head              string    `json:"head"`
+	PR                int       `json:"pullRequest,omitempty"`
+	RecordedAt        time.Time `json:"recordedAt"`
+	ReportSHA256      string    `json:"reportSHA256"`
+	Round             int       `json:"round"`
+	Verdict           string    `json:"verdict"`
+}
+
+type evaluationChallenge struct {
+	Challenge   string    `json:"challenge"`
+	Head        string    `json:"head"`
+	PR          int       `json:"pullRequest"`
+	RequestedAt time.Time `json:"requestedAt"`
+}
+
+type evaluationFinding struct {
+	Impact             string `json:"impact"`
+	Location           string `json:"location"`
+	RequiredCorrection string `json:"requiredCorrection"`
+}
+
+type evaluationAttestation struct {
+	Challenge string              `json:"challenge"`
+	Evaluator string              `json:"evaluator"`
+	Findings  []evaluationFinding `json:"findings"`
+	Head      string              `json:"head"`
+	PR        int                 `json:"pullRequest"`
+	RunID     string              `json:"runID"`
+	Schema    string              `json:"schema"`
+	Summary   string              `json:"summary"`
+	Verdict   string              `json:"verdict"`
 }
 
 func (a app) runEvaluation(args []string) error {
-	if len(args) == 0 || args[0] != "record" {
-		return usageError("usage: workflowctl evaluation record PR --verdict pass|fail --body-file FILE")
+	if len(args) == 0 {
+		return usageError("usage: workflowctl evaluation challenge PR | record PR --attestation-file FILE")
 	}
-	return a.recordEvaluation(args[1:])
+	switch args[0] {
+	case "challenge":
+		if len(args) != 2 {
+			return usageError("usage: workflowctl evaluation challenge PR")
+		}
+		pr, err := positiveNumber(args[1])
+		if err != nil {
+			return usageError("evaluation challenge: %v", err)
+		}
+		return a.requestEvaluation(pr)
+	case "record":
+		return a.recordEvaluation(args[1:])
+	default:
+		return usageError("unknown evaluation command %q", args[0])
+	}
 }
 
 func (a app) recordEvaluation(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl evaluation record PR --verdict pass|fail --body-file FILE")
+		return usageError("usage: workflowctl evaluation record PR --attestation-file FILE")
 	}
 	pr, err := positiveNumber(args[0])
 	if err != nil {
@@ -79,26 +129,48 @@ func (a app) recordEvaluation(args []string) error {
 	}
 	flags := flag.NewFlagSet("evaluation record", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	verdict := flags.String("verdict", "", "pass or fail")
-	bodyFile := flags.String("body-file", "", "evaluation report")
+	attestationFile := flags.String("attestation-file", "", "structured Examiner attestation")
 	if parseErr := flags.Parse(args[1:]); parseErr != nil {
 		return usageError("evaluation record: %v", parseErr)
 	}
-	if flags.NArg() != 0 || (*verdict != "pass" && *verdict != "fail") || *bodyFile == "" {
-		return usageError("usage: workflowctl evaluation record PR --verdict pass|fail --body-file FILE")
+	if flags.NArg() != 0 || *attestationFile == "" {
+		return usageError("usage: workflowctl evaluation record PR --attestation-file FILE")
 	}
-	if err := requireRegularFile(*bodyFile); err != nil {
+	if err := requireRegularFile(*attestationFile); err != nil {
 		return err
 	}
-	return a.postEvaluation(pr, *verdict, *bodyFile)
+	return a.postEvaluation(pr, *attestationFile)
 }
 
-func (a app) postEvaluation(number int, verdict, bodyFile string) error {
-	root, err := a.root()
+func (a app) requestEvaluation(number int) error {
+	root, view, _, err := a.readEvaluationTarget(number)
 	if err != nil {
 		return err
 	}
-	view, err := a.readPullRequest(root, number)
+	challengeID, err := randomRunID()
+	if err != nil {
+		return err
+	}
+	challenge := evaluationChallenge{
+		Challenge:   challengeID,
+		Head:        view.HeadRefOID,
+		PR:          number,
+		RequestedAt: time.Now().UTC().Truncate(time.Second),
+	}
+	marker, err := json.Marshal(challenge)
+	if err != nil {
+		return fmt.Errorf("encode evaluation challenge: %w", err)
+	}
+	body := fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n", evaluationChallengeMarker, marker,
+		view.HeadRefOID)
+	if err := a.postPullRequestComment(root, number, body); err != nil {
+		return err
+	}
+	return writeLine(a.stdout, "%s", marker)
+}
+
+func (a app) postEvaluation(number int, attestationFile string) error {
+	root, view, primary, err := a.readEvaluationTarget(number)
 	if err != nil {
 		return err
 	}
@@ -107,40 +179,77 @@ func (a app) postEvaluation(number int, verdict, bodyFile string) error {
 	if failedRounds >= 3 {
 		return stateError("PR #%d already has three failed evaluation rounds", number)
 	}
-	// #nosec G304 -- bodyFile is an explicit operator-supplied input.
-	report, err := os.ReadFile(bodyFile)
+	attestation, attestationJSON, err := readEvaluationAttestation(attestationFile)
 	if err != nil {
-		return fmt.Errorf("read evaluation report: %w", err)
+		return err
 	}
+	if validationErr := validateEvaluationAttestation(attestation, number, view, receipts,
+		time.Now().UTC()); validationErr != nil {
+		return stateError("reject Examiner attestation: %v", validationErr)
+	}
+	report := renderEvaluationReport(attestation)
 	receipt := evaluationReceipt{
-		Evaluator:    "Examiner",
-		Head:         view.HeadRefOID,
-		RecordedAt:   time.Now().UTC().Truncate(time.Second),
-		ReportSHA256: fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(string(report))))),
-		Round:        len(receipts) + 1,
-		Verdict:      verdict,
+		AttestationSHA256: fmt.Sprintf("%x", sha256.Sum256(attestationJSON)),
+		Challenge:         attestation.Challenge,
+		Evaluator:         attestation.Evaluator,
+		EvaluatorRunID:    attestation.RunID,
+		Head:              attestation.Head,
+		PR:                attestation.PR,
+		RecordedAt:        time.Now().UTC().Truncate(time.Second),
+		ReportSHA256:      fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(report)))),
+		Round:             len(receipts) + 1,
+		Verdict:           attestation.Verdict,
 	}
 	marker, err := json.Marshal(receipt)
 	if err != nil {
 		return fmt.Errorf("encode evaluation receipt: %w", err)
 	}
-	body := evaluationComment(marker, report)
-	payload, err := json.Marshal(struct {
-		Body string `json:"body"`
-	}{Body: body})
-	if err != nil {
-		return fmt.Errorf("encode evaluation comment: %w", err)
+	body := evaluationComment(marker, attestationJSON, report)
+	if err := a.postPullRequestComment(root, number, body); err != nil {
+		return err
 	}
-	if _, err := a.commandInput(root, strings.NewReader(string(payload)), "gh", "api", "--method", "POST",
-		"repos/"+repositoryKey+"/issues/"+strconv.Itoa(number)+"/comments", "--input", "-"); err != nil {
-		return fmt.Errorf("record evaluation on PR #%d: %w", number, err)
-	}
-	if verdict == "fail" && failedRounds+1 == 3 {
-		if err := a.escalateEvaluation(root, view); err != nil {
+	if attestation.Verdict == "fail" && failedRounds+1 == 3 {
+		if err := a.escalateEvaluation(root, primary); err != nil {
 			return err
 		}
 	}
-	return writeLine(a.stdout, "PR #%d evaluation round %d: %s (%s)", number, receipt.Round, verdict, view.HeadRefOID)
+	return writeLine(a.stdout, "PR #%d evaluation round %d: %s (%s)", number, receipt.Round,
+		attestation.Verdict, view.HeadRefOID)
+}
+
+func (a app) readEvaluationTarget(number int) (string, pullRequestView, int, error) {
+	root, branch, primary, err := a.currentClaim()
+	if err != nil {
+		return "", pullRequestView{}, 0, err
+	}
+	quiet := a
+	quiet.stdout = io.Discard
+	if verifyErr := quiet.verifyClaim(); verifyErr != nil {
+		return "", pullRequestView{}, 0, verifyErr
+	}
+	view, err := a.readPullRequest(root, number)
+	if err != nil {
+		return "", pullRequestView{}, 0, err
+	}
+	if view.State != "OPEN" {
+		return "", pullRequestView{}, 0, stateError("PR #%d is %s", number, view.State)
+	}
+	if view.HeadRefName != branch {
+		return "", pullRequestView{}, 0, stateError("PR #%d uses branch %s, not claim branch %s", number,
+			view.HeadRefName, branch)
+	}
+	if closingErr := a.validateClosingClaims(root, view, primary); closingErr != nil {
+		return "", pullRequestView{}, 0, closingErr
+	}
+	local, err := a.command(root, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return "", pullRequestView{}, 0, fmt.Errorf("read evaluation head: %w", err)
+	}
+	if local != view.HeadRefOID {
+		return "", pullRequestView{}, 0, stateError("PR #%d head is %s, but claim worktree is %s", number,
+			view.HeadRefOID, local)
+	}
+	return root, view, primary, nil
 }
 
 func evaluationFailureCount(receipts []evaluationReceipt) int {
@@ -153,9 +262,175 @@ func evaluationFailureCount(receipts []evaluationReceipt) int {
 	return count
 }
 
-func evaluationComment(marker, report []byte) string {
-	text := strings.TrimSpace(string(report))
-	return fmt.Sprintf("<!-- %s%s -->\n## Examiner evaluation — round receipt\n\n%s\n", evaluationMarker, marker, text)
+func readEvaluationAttestation(path string) (evaluationAttestation, []byte, error) {
+	// #nosec G304 -- path is an explicit operator-supplied input.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return evaluationAttestation{}, nil, fmt.Errorf("read Examiner attestation: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var attestation evaluationAttestation
+	if decodeErr := decoder.Decode(&attestation); decodeErr != nil {
+		return evaluationAttestation{}, nil, fmt.Errorf("decode Examiner attestation: %w", decodeErr)
+	}
+	if trailingErr := requireAttestationJSONEnd(decoder); trailingErr != nil {
+		return evaluationAttestation{}, nil, trailingErr
+	}
+	canonical, err := json.Marshal(attestation)
+	if err != nil {
+		return evaluationAttestation{}, nil, fmt.Errorf("encode Examiner attestation: %w", err)
+	}
+	return attestation, canonical, nil
+}
+
+func requireAttestationJSONEnd(decoder *json.Decoder) error {
+	var extra any
+	err := decoder.Decode(&extra)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("decode Examiner attestation trailer: %w", err)
+	}
+	return errors.New("examiner attestation contains more than one JSON value")
+}
+
+func validateEvaluationAttestation(attestation evaluationAttestation, number int, view pullRequestView,
+	receipts []evaluationReceipt, now time.Time) error {
+	if attestation.Schema != evaluationAttestationSchema {
+		return fmt.Errorf("schema is %q, want %q", attestation.Schema, evaluationAttestationSchema)
+	}
+	if attestation.Evaluator != "Examiner" || strings.TrimSpace(attestation.RunID) == "" {
+		return errors.New("evaluator must be Examiner with a nonempty fresh-context run ID")
+	}
+	if attestation.PR != number || attestation.Head != view.HeadRefOID {
+		return fmt.Errorf("attestation targets PR #%d at %s, want PR #%d at %s", attestation.PR,
+			attestation.Head, number, view.HeadRefOID)
+	}
+	if strings.TrimSpace(attestation.Summary) == "" {
+		return errors.New("summary is empty")
+	}
+	if err := validateEvaluationFindings(attestation); err != nil {
+		return err
+	}
+	challenge, ok := trustedEvaluationChallenge(view.Comments, attestation.Challenge, number, view.HeadRefOID, now)
+	if !ok {
+		return errors.New("challenge is missing, stale, untrusted, or for another head")
+	}
+	for _, receipt := range receipts {
+		if receipt.Challenge == challenge.Challenge {
+			return errors.New("challenge was already used")
+		}
+	}
+	return nil
+}
+
+func validateEvaluationFindings(attestation evaluationAttestation) error {
+	if attestation.Verdict != "pass" && attestation.Verdict != "fail" {
+		return fmt.Errorf("invalid verdict %q", attestation.Verdict)
+	}
+	if attestation.Verdict == "pass" && len(attestation.Findings) != 0 {
+		return errors.New("passing attestation contains blocking findings")
+	}
+	if attestation.Verdict == "fail" && len(attestation.Findings) == 0 {
+		return errors.New("failing attestation has no blocking findings")
+	}
+	for index, finding := range attestation.Findings {
+		if strings.TrimSpace(finding.Location) == "" || strings.TrimSpace(finding.Impact) == "" ||
+			strings.TrimSpace(finding.RequiredCorrection) == "" {
+			return fmt.Errorf("finding %d is missing location, impact, or required correction", index+1)
+		}
+	}
+	return nil
+}
+
+func trustedEvaluationChallenge(comments []pullRequestComment, challengeID string, number int, head string,
+	now time.Time) (evaluationChallenge, bool) {
+	for index := len(comments) - 1; index >= 0; index-- {
+		comment := comments[index]
+		if comment.Author.Login != owner {
+			continue
+		}
+		challenge, ok := parseEvaluationChallenge(comment.Body)
+		if !ok || challenge.Challenge != challengeID || challenge.PR != number || challenge.Head != head {
+			continue
+		}
+		if !commentTimeMatches(comment.CreatedAt, challenge.RequestedAt) {
+			continue
+		}
+		if challenge.RequestedAt.After(now) || now.After(challenge.RequestedAt.Add(leaseDuration)) {
+			return evaluationChallenge{}, false
+		}
+		return challenge, true
+	}
+	return evaluationChallenge{}, false
+}
+
+func parseEvaluationChallenge(body string) (evaluationChallenge, bool) {
+	value, ok := markerJSON(body, evaluationChallengeMarker)
+	if !ok {
+		return evaluationChallenge{}, false
+	}
+	var challenge evaluationChallenge
+	if err := json.Unmarshal(value, &challenge); err != nil {
+		return evaluationChallenge{}, false
+	}
+	if challenge.Challenge == "" || challenge.Head == "" || challenge.PR < 1 || challenge.RequestedAt.IsZero() {
+		return evaluationChallenge{}, false
+	}
+	return challenge, true
+}
+
+func markerJSON(body, marker string) ([]byte, bool) {
+	start := strings.Index(body, "<!-- "+marker)
+	if start < 0 {
+		return nil, false
+	}
+	value := body[start+len("<!-- "+marker):]
+	end := strings.Index(value, " -->")
+	if end < 0 {
+		return nil, false
+	}
+	return []byte(value[:end]), true
+}
+
+func commentTimeMatches(commentTime, markerTime time.Time) bool {
+	return !commentTime.Before(markerTime.Add(-5*time.Minute)) && !commentTime.After(markerTime.Add(5*time.Minute))
+}
+
+func renderEvaluationReport(attestation evaluationAttestation) string {
+	parts := make([]string, 0, 1+len(attestation.Findings))
+	parts = append(parts, "**"+strings.ToUpper(attestation.Verdict)+"**\n\n"+strings.TrimSpace(attestation.Summary))
+	for index, finding := range attestation.Findings {
+		parts = append(parts, fmt.Sprintf("%d. `%s` — %s Required correction: %s", index+1,
+			strings.TrimSpace(finding.Location), strings.TrimSpace(finding.Impact),
+			strings.TrimSpace(finding.RequiredCorrection)))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func evaluationComment(receiptMarker, attestationMarker []byte, report string) string {
+	if len(attestationMarker) == 0 {
+		return fmt.Sprintf("<!-- %s%s -->\n## Examiner evaluation — round receipt\n\n%s\n", evaluationMarker,
+			receiptMarker, strings.TrimSpace(report))
+	}
+	return fmt.Sprintf("<!-- %s%s -->\n<!-- %s%s -->\n## Examiner evaluation — round receipt\n\n%s\n",
+		evaluationMarker, receiptMarker, evaluationAttestationMarker, attestationMarker, strings.TrimSpace(report))
+}
+
+func (a app) postPullRequestComment(root string, number int, body string) error {
+	payload, err := json.Marshal(struct {
+		Body string `json:"body"`
+	}{Body: body})
+	if err != nil {
+		return fmt.Errorf("encode PR #%d comment: %w", number, err)
+	}
+	if _, err := a.commandInput(root, strings.NewReader(string(payload)), "gh", "api", "--method", "POST",
+		"repos/"+repositoryKey+"/issues/"+strconv.Itoa(number)+"/comments", "--input", "-"); err != nil {
+		return fmt.Errorf("comment on PR #%d: %w", number, err)
+	}
+	return nil
 }
 
 func (a app) readPullRequest(root string, number int) (pullRequestView, error) {
@@ -258,38 +533,50 @@ func evaluationReceipts(comments []pullRequestComment) []evaluationReceipt {
 }
 
 func parseEvaluationReceipt(body string) (evaluationReceipt, bool) {
-	start := strings.Index(body, "<!-- "+evaluationMarker)
-	if start < 0 {
-		return evaluationReceipt{}, false
-	}
-	value := body[start+len("<!-- "+evaluationMarker):]
-	end := strings.Index(value, " -->")
-	if end < 0 {
+	value, ok := markerJSON(body, evaluationMarker)
+	if !ok {
 		return evaluationReceipt{}, false
 	}
 	var receipt evaluationReceipt
-	if err := json.Unmarshal([]byte(value[:end]), &receipt); err != nil {
+	if err := json.Unmarshal(value, &receipt); err != nil {
 		return evaluationReceipt{}, false
 	}
 	if receipt.Evaluator != "Examiner" || receipt.Round < 1 || receipt.RecordedAt.IsZero() ||
 		(receipt.Verdict != "pass" && receipt.Verdict != "fail") || receipt.Head == "" || len(receipt.ReportSHA256) != 64 {
 		return evaluationReceipt{}, false
 	}
+	if receipt.AttestationSHA256 != "" && (len(receipt.AttestationSHA256) != 64 || receipt.Challenge == "" ||
+		receipt.EvaluatorRunID == "" || receipt.PR < 1) {
+		return evaluationReceipt{}, false
+	}
 	return receipt, true
 }
 
-func latestEvaluationPasses(view pullRequestView) bool {
+func latestEvaluationPasses(view pullRequestView, number int) bool {
 	receipts := evaluationReceipts(view.Comments)
 	if len(receipts) == 0 {
 		return false
 	}
 	latest := receipts[len(receipts)-1]
-	return latest.Head == view.HeadRefOID && latest.Verdict == "pass"
+	if latest.AttestationSHA256 == "" || latest.Head != view.HeadRefOID || latest.PR != number ||
+		latest.Verdict != "pass" {
+		return false
+	}
+	if _, ok := trustedEvaluationChallenge(view.Comments, latest.Challenge, number, view.HeadRefOID,
+		latest.RecordedAt); !ok {
+		return false
+	}
+	uses := 0
+	for _, receipt := range receipts {
+		if receipt.Challenge == latest.Challenge {
+			uses++
+		}
+	}
+	return uses == 1
 }
 
 func evaluationReceiptMatches(comment pullRequestComment, receipt evaluationReceipt) bool {
-	if comment.CreatedAt.Before(receipt.RecordedAt.Add(-5*time.Minute)) ||
-		comment.CreatedAt.After(receipt.RecordedAt.Add(5*time.Minute)) {
+	if !commentTimeMatches(comment.CreatedAt, receipt.RecordedAt) {
 		return false
 	}
 	heading := "## Examiner evaluation — round receipt\n\n"
@@ -298,14 +585,46 @@ func evaluationReceiptMatches(comment pullRequestComment, receipt evaluationRece
 		return false
 	}
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(report))))
-	return digest == receipt.ReportSHA256
+	if digest != receipt.ReportSHA256 {
+		return false
+	}
+	if receipt.AttestationSHA256 == "" {
+		return true
+	}
+	attestation, canonical, ok := parseCommentAttestation(comment.Body)
+	if !ok {
+		return false
+	}
+	attestationDigest := fmt.Sprintf("%x", sha256.Sum256(canonical))
+	if attestationDigest != receipt.AttestationSHA256 || attestation.Challenge != receipt.Challenge ||
+		attestation.Evaluator != receipt.Evaluator || attestation.RunID != receipt.EvaluatorRunID ||
+		attestation.Head != receipt.Head || attestation.PR != receipt.PR || attestation.Verdict != receipt.Verdict ||
+		attestation.Schema != evaluationAttestationSchema || strings.TrimSpace(attestation.Summary) == "" {
+		return false
+	}
+	if err := validateEvaluationFindings(attestation); err != nil {
+		return false
+	}
+	return strings.TrimSpace(report) == strings.TrimSpace(renderEvaluationReport(attestation))
 }
 
-func (a app) escalateEvaluation(root string, view pullRequestView) error {
-	if len(view.ClosingIssuesReferences) == 0 {
-		return stateError("third evaluation failed, but no closing issue is linked; add needs-human manually")
+func parseCommentAttestation(body string) (evaluationAttestation, []byte, bool) {
+	value, ok := markerJSON(body, evaluationAttestationMarker)
+	if !ok {
+		return evaluationAttestation{}, nil, false
 	}
-	number := view.ClosingIssuesReferences[0].Number
+	var attestation evaluationAttestation
+	if err := json.Unmarshal(value, &attestation); err != nil {
+		return evaluationAttestation{}, nil, false
+	}
+	canonical, err := json.Marshal(attestation)
+	if err != nil {
+		return evaluationAttestation{}, nil, false
+	}
+	return attestation, canonical, true
+}
+
+func (a app) escalateEvaluation(root string, number int) error {
 	if _, err := a.command(root, "gh", "issue", "edit", strconv.Itoa(number), "--repo", repositoryKey,
 		"--add-label", "needs-human"); err != nil {
 		return fmt.Errorf("mark issue #%d needs-human: %w", number, err)
