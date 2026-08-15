@@ -150,11 +150,17 @@ func writeTestAttestation(t *testing.T, head string, challenge evaluationChallen
 		Summary:   "No blocking findings; delimiter --> remains data.",
 		Verdict:   "pass",
 	}
-	attestationJSON, err := json.MarshalIndent(attestation, "", "  ")
-	if err != nil {
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(attestation); err != nil {
 		t.Fatalf("encode attestation: %v", err)
 	}
-	attestationJSON = append(attestationJSON, '\n')
+	attestationJSON := encoded.Bytes()
+	if !bytes.Contains(attestationJSON, []byte(" -->")) {
+		t.Fatal("attestation fixture does not contain the literal comment delimiter")
+	}
 	path := filepath.Join(t.TempDir(), "attestation.json")
 	if err := os.WriteFile(path, attestationJSON, 0o600); err != nil {
 		t.Fatalf("write attestation: %v", err)
