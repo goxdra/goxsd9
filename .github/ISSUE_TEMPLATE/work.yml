@@ -1,0 +1,33 @@
+name: Work item
+description: Define one executable outcome
+title: ""
+labels: []
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: Describe the observable result, not an implementation task list.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Motivation and evidence
+      description: Link specifications, failures, user feedback, or conformance results.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance proof
+      description: State the deterministic tests or observations that prove completion.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: List blocking issues. Use native issue dependencies after creation.
+    validations:
+      required: false

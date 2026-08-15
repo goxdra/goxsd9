@@ -1,0 +1,6 @@
+interface:
+  display_name: "Develop"
+  short_description: "Complete one autonomous work packet"
+  default_prompt: "Use $develop to claim and complete one coherent work packet autonomously."
+policy:
+  allow_implicit_invocation: false

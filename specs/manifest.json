@@ -1,0 +1,208 @@
+{
+  "formatVersion": 1,
+  "specifications": [
+    {
+      "id": "xsd11-structures",
+      "title": "XML Schema Definition Language (XSD) 1.1 Part 1: Structures",
+      "url": "https://www.w3.org/TR/2012/REC-xmlschema11-1-20120405/",
+      "sha256": "5ffb773f81fb81cfc9ac54dfb871c333cefb12fbdffe4caeb28170054b21fc6a",
+      "xsdVersions": ["1.1"],
+      "dependencies": ["xsd11-datatypes", "xml10", "xml11", "xml-names", "xml-names11", "xml-infoset", "xpath20", "xpath-datamodel", "xpath-functions", "xslt20"]
+    },
+    {
+      "id": "xsd11-datatypes",
+      "title": "XML Schema Definition Language (XSD) 1.1 Part 2: Datatypes",
+      "url": "https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/",
+      "sha256": "cc2ae20cdeab02600c73fd13f1cc31dbbdd61f62aa455026fa84388b540443b8",
+      "xsdVersions": ["1.1"],
+      "dependencies": ["xsd11-structures", "xml10", "xml11", "xml-names", "xml-names11", "xpath20", "xpath-datamodel", "xpath-functions"]
+    },
+    {
+      "id": "xsd10-structures",
+      "title": "XML Schema Part 1: Structures Second Edition",
+      "url": "https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/",
+      "sha256": "92bfd116316332b1153941436430afbdb2040e036d5fb2d21d4c8fba36a7765a",
+      "xsdVersions": ["1.0"],
+      "dependencies": ["xsd10-datatypes", "xsd10-errata", "xml10-second", "xml-names-1999", "xml-infoset-2001", "xpath10", "xpointer-2001"]
+    },
+    {
+      "id": "xsd10-datatypes",
+      "title": "XML Schema Part 2: Datatypes Second Edition",
+      "url": "https://www.w3.org/TR/2004/REC-xmlschema-2-20041028/",
+      "sha256": "980de872aa2c50013d5202176eb85eef3f183a7df635fdcb6b4aa34c1c12eb72",
+      "xsdVersions": ["1.0"],
+      "dependencies": ["xsd10-structures", "xsd10-errata", "xml10-second", "xml-names-1999", "xml-base-2001", "xlink10"]
+    },
+    {
+      "id": "xml10-second",
+      "title": "Extensible Markup Language (XML) 1.0 Second Edition",
+      "url": "https://www.w3.org/TR/2000/REC-xml-20001006",
+      "sha256": "e5350fb462ada6babfc43d72263a955bddf78605180457c6e006886f60a89b67",
+      "xsdVersions": ["1.0"]
+    },
+    {
+      "id": "xml10",
+      "title": "Extensible Markup Language (XML) 1.0 Fifth Edition",
+      "url": "https://www.w3.org/TR/2008/REC-xml-20081126/",
+      "sha256": "f58a4b9e1e5b8bac13fb55c4e5c7c8c5e2c176aa45ee68e2f1ab2498511927ec",
+      "xsdVersions": ["1.1"]
+    },
+    {
+      "id": "xml11",
+      "title": "Extensible Markup Language (XML) 1.1 Second Edition",
+      "url": "https://www.w3.org/TR/2006/REC-xml11-20060816/",
+      "sha256": "f71e4b35bc21e61320a6e8ba4d8dc2f49a2e8eae8fa221b760d08f633c65847d",
+      "xsdVersions": ["1.1"]
+    },
+    {
+      "id": "xml-names-1999",
+      "title": "Namespaces in XML",
+      "url": "https://www.w3.org/TR/1999/REC-xml-names-19990114/",
+      "sha256": "3cfed2a7ea34bd5b45f4d88046928afc2efcd9e9fd3cf161313c7ab094e1c298",
+      "xsdVersions": ["1.0"]
+    },
+    {
+      "id": "xml-names",
+      "title": "Namespaces in XML 1.0 Third Edition",
+      "url": "https://www.w3.org/TR/2009/REC-xml-names-20091208/",
+      "sha256": "b4a649e5fdab9852d68eca21442481599164949bcdee5549f2ec7e38fb3cd3a8",
+      "xsdVersions": ["1.1"]
+    },
+    {
+      "id": "xml-names11",
+      "title": "Namespaces in XML 1.1 Second Edition",
+      "url": "https://www.w3.org/TR/2006/REC-xml-names11-20060816/",
+      "sha256": "55820875d7222b5bdb161795649b04afb1fb735eb29566bb7a517e94c7420d29",
+      "xsdVersions": ["1.1"]
+    },
+    {
+      "id": "xml-infoset-2001",
+      "title": "XML Information Set March 2001 Working Draft",
+      "url": "https://www.w3.org/TR/2001/WD-xml-infoset-20010316/",
+      "sha256": "a1cd003f9ad2ec79f393b7af9ea87164855513bb2e497123a178705c065f7b2e",
+      "xsdVersions": ["1.0"]
+    },
+    {
+      "id": "xml-infoset",
+      "title": "XML Information Set Second Edition",
+      "url": "https://www.w3.org/TR/2004/REC-xml-infoset-20040204/",
+      "sha256": "316b1b0df49a40dd4cab7ea403dd4f9e5f0d073803b2a7663ebddc33fffebc3e",
+      "xsdVersions": ["1.1"]
+    },
+    {
+      "id": "xml-base-2001",
+      "title": "XML Base",
+      "url": "https://www.w3.org/TR/2001/REC-xmlbase-20010627/",
+      "sha256": "ebd20c48e24921f44f1a72767c861c9902fe87b601f47ecf8fec2426896ab1e9",
+      "xsdVersions": ["1.0"]
+    },
+    {
+      "id": "xlink10",
+      "title": "XML Linking Language (XLink) Version 1.0",
+      "url": "https://www.w3.org/TR/2001/REC-xlink-20010627/",
+      "sha256": "7abd10b32c87e7c2d9312c9d0cbb4eb1b946898df72fd22b6eb5a2ffed3413e1",
+      "xsdVersions": ["1.0"]
+    },
+    {
+      "id": "xpath10",
+      "title": "XML Path Language (XPath) Version 1.0",
+      "url": "https://www.w3.org/TR/1999/REC-xpath-19991116/",
+      "sha256": "bf0d586e06b83cfcd60da4c6fe4c3841d3ecb10d3381e98b83b9e582cd0e9384",
+      "xsdVersions": ["1.0"]
+    },
+    {
+      "id": "xpointer-2001",
+      "title": "XML Pointer Language January 2001 Working Draft",
+      "url": "https://www.w3.org/TR/2001/WD-xptr-20010108/",
+      "sha256": "ba399be0b38bbcbca1f236631d1eed78510390a9e41e6b02693b0eb9d9e880ac",
+      "xsdVersions": ["1.0"]
+    },
+    {
+      "id": "xpath20",
+      "title": "XML Path Language (XPath) 2.0 Second Edition",
+      "url": "https://www.w3.org/TR/2010/REC-xpath20-20101214/",
+      "sha256": "8f570fb5f09ee66b5a645a7d7e3f185d6314379eb2c4d80ac944dc66d2fe8e0a",
+      "xsdVersions": ["1.1"]
+    },
+    {
+      "id": "xpath-datamodel",
+      "title": "XQuery 1.0 and XPath 2.0 Data Model Second Edition",
+      "url": "https://www.w3.org/TR/2010/REC-xpath-datamodel-20101214/",
+      "sha256": "fa4b37cca135eadc8ef8be46337c41aacb920eb58a91546d46285d397b14926d",
+      "xsdVersions": ["1.1"]
+    },
+    {
+      "id": "xpath-functions",
+      "title": "XQuery 1.0 and XPath 2.0 Functions and Operators Second Edition",
+      "url": "https://www.w3.org/TR/2010/REC-xpath-functions-20101214/",
+      "sha256": "6d85cf91b013989979335bb6c2d21f48ab193f8debe5ad67647bcbc6651d721f",
+      "xsdVersions": ["1.1"]
+    },
+    {
+      "id": "xslt20",
+      "title": "XSL Transformations (XSLT) Version 2.0",
+      "url": "https://www.w3.org/TR/2007/REC-xslt20-20070123/",
+      "sha256": "289532c74e6141ec84cefc5921f11180d6783eb59410d7bb50fc33555386f534",
+      "xsdVersions": ["1.1"]
+    }
+  ],
+  "errata": [
+    {
+      "id": "xsd10-errata",
+      "title": "XML Schema 1.0 Second Edition errata",
+      "url": "https://www.w3.org/2004/03/xmlschema-errata",
+      "sha256": "d07bc24a7e631afd518f8442071f563fdf853fcba33ab996323eaa6081222ceb",
+      "xsdVersions": ["1.0"]
+    }
+  ],
+  "bootstrapArtifacts": [
+    {
+      "id": "xsd10-schema-for-schemas",
+      "title": "XSD 1.0 schema for schema documents",
+      "url": "https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/XMLSchema.xsd",
+      "sha256": "710bb5f4bdaf945f84a7041d670b3c0e47bcf6d392fe61aff6ecf33a9b51ac88",
+      "xsdVersions": ["1.0"],
+      "representation": "xml",
+      "entry": true,
+      "dependencies": ["xsd10-datatypes-schema", "xml-schema"]
+    },
+    {
+      "id": "xsd10-datatypes-schema",
+      "title": "XSD 1.0 schema for datatype declarations",
+      "url": "https://www.w3.org/TR/2004/REC-xmlschema-2-20041028/datatypes.xsd",
+      "sha256": "9b7fa77be9372687f654f5013177e3f87db0ce598e43f534d6d7c1628d513b37",
+      "xsdVersions": ["1.0"],
+      "representation": "html-cdata-pre",
+      "entry": false
+    },
+    {
+      "id": "xsd11-schema-for-schemas",
+      "title": "XSD 1.1 schema for schema documents",
+      "url": "https://www.w3.org/TR/2012/REC-xmlschema11-1-20120405/XMLSchema.xsd",
+      "sha256": "047e652e9863065d297651c103e366daa24fb2c0933cebcf1982272cb80600f5",
+      "xsdVersions": ["1.1"],
+      "representation": "xml",
+      "entry": true,
+      "dependencies": ["xsd11-datatypes-schema", "xml-schema"]
+    },
+    {
+      "id": "xsd11-datatypes-schema",
+      "title": "XSD 1.1 schema for datatype declarations",
+      "url": "https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/datatypes.xsd",
+      "sha256": "21c9f4d7618d5ba46002df7dc602d4dec86e7009fc2594168e84916564912ed1",
+      "xsdVersions": ["1.1"],
+      "representation": "xml",
+      "entry": false
+    },
+    {
+      "id": "xml-schema",
+      "title": "Schema for the XML namespace",
+      "url": "https://www.w3.org/2001/xml.xsd",
+      "sha256": "61960fb3131e38022caad5360e2f33a3382578ab3c80cd58bd74320ede61b20c",
+      "xsdVersions": ["1.0", "1.1"],
+      "representation": "xml",
+      "aliases": ["http://www.w3.org/2001/xml.xsd"],
+      "entry": false
+    }
+  ]
+}
