@@ -10,7 +10,11 @@ func TestUnsupportedDiagnostic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewLoc: %v", err)
 	}
-	diagnostic := newUnsupported("xsd.assertion", "XSD1001", loc, "XSD 1.1 §3.13", "assertions are not implemented")
+	feature, ok := LookupUnsupportedFeature("xsd.assertion")
+	if !ok {
+		t.Fatal("xsd.assertion is not registered")
+	}
+	diagnostic := newUnsupported(feature, "XSD1001", loc, "assertions are not implemented")
 
 	if !errors.Is(diagnostic, ErrUnsupported) {
 		t.Fatal("unsupported diagnostic does not match ErrUnsupported")
@@ -20,6 +24,29 @@ func TestUnsupportedDiagnostic(t *testing.T) {
 	}
 	if got, want := diagnostic.Feature(), FeatureID("xsd.assertion"); got != want {
 		t.Fatalf("Feature() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.SpecRef(), "xsd11-structures#cAssertions"; got != want {
+		t.Fatalf("SpecRef() = %q, want %q", got, want)
+	}
+}
+
+func TestUnsupportedDiagnosticRejectsUnregisteredFeature(t *testing.T) {
+	diagnostic := newUnsupported(UnsupportedFeature{}, "XSD1001", Loc{}, "assertions are not implemented")
+	if diagnostic.Class() != FailureInternal {
+		t.Fatalf("Class() = %q, want %q", diagnostic.Class(), FailureInternal)
+	}
+	if diagnostic.Feature() != "" {
+		t.Fatalf("Feature() = %q, want an empty ID", diagnostic.Feature())
+	}
+}
+
+func TestGenericUnsupportedDiagnosticBecomesInternal(t *testing.T) {
+	diagnostic := newDiagnostic(FailureUnsupported, "XSD1001", Loc{}, "placeholder", nil)
+	if diagnostic.Class() != FailureInternal {
+		t.Fatalf("Class() = %q, want %q", diagnostic.Class(), FailureInternal)
+	}
+	if diagnostic.Feature() != "" {
+		t.Fatalf("Feature() = %q, want an empty ID", diagnostic.Feature())
 	}
 }
 

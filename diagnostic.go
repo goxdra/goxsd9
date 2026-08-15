@@ -22,9 +22,6 @@ const (
 // ErrUnsupported matches diagnostics for unfinished specification behavior.
 var ErrUnsupported = errors.New("unsupported specification behavior")
 
-// FeatureID is a stable identifier for a specification feature.
-type FeatureID string
-
 // Diagnostic is an immutable, located processing failure.
 type Diagnostic struct {
 	class   FailureClass
@@ -86,14 +83,31 @@ func (diagnostic Diagnostic) Is(target error) bool {
 }
 
 func newDiagnostic(class FailureClass, code string, loc Loc, message string, cause error) Diagnostic {
+	if class == FailureUnsupported {
+		return Diagnostic{
+			class:   FailureInternal,
+			code:    "GOXSD9001",
+			loc:     loc,
+			message: "unsupported diagnostics require a registered feature",
+			cause:   cause,
+		}
+	}
 	return Diagnostic{class: class, code: code, loc: loc, message: message, cause: cause}
 }
 
-func newUnsupported(feature FeatureID, code string, loc Loc, specRef, message string) Diagnostic {
-	diagnostic := newDiagnostic(FailureUnsupported, code, loc, message, nil)
-	diagnostic.feature = feature
-	diagnostic.specRef = specRef
-	return diagnostic
+func newUnsupported(feature UnsupportedFeature, code string, loc Loc, message string) Diagnostic {
+	if !feature.Registered() {
+		return newDiagnostic(FailureInternal, "GOXSD9002", loc,
+			fmt.Sprintf("unsupported diagnostic references unregistered feature %q", feature.ID()), nil)
+	}
+	return Diagnostic{
+		class:   FailureUnsupported,
+		code:    code,
+		feature: feature.ID(),
+		loc:     loc,
+		message: message,
+		specRef: feature.SpecRef(),
+	}
 }
 
 // Diagnostics is a deterministic aggregate in processing order.

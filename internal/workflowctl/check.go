@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/goxdra/goxsd9/internal/feature"
 )
 
 type qualityCheck struct {
@@ -43,6 +45,7 @@ func (a app) qualityChecks(root string, skipLint bool) []qualityCheck {
 	checks := make([]qualityCheck, 0, 10)
 	checks = append(checks,
 		qualityCheck{name: "documentation", run: func() error { return a.checkDocs(root, false) }},
+		qualityCheck{name: "unsupported feature registry", run: feature.ValidateRegistry},
 		qualityCheck{name: "specification manifest", run: func() error { return checkSpecManifest(root) }},
 		qualityCheck{name: "source guard", run: func() error { return guardSource(root) }},
 		qualityCheck{name: "gofmt", run: func() error { return a.checkGofmt(root) }},

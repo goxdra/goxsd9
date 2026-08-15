@@ -18,6 +18,16 @@ import (
 	"time"
 )
 
+func TestQualityChecksIncludeUnsupportedFeatureRegistry(t *testing.T) {
+	checks := (app{}).qualityChecks(t.TempDir(), true)
+	for _, check := range checks {
+		if check.name == "unsupported feature registry" {
+			return
+		}
+	}
+	t.Fatal("quality checks do not include unsupported feature registry")
+}
+
 func TestIssueFromBranch(t *testing.T) {
 	tests := []struct {
 		branch string
