@@ -1,0 +1,6 @@
+interface:
+  display_name: "Run Retrospective"
+  short_description: "Turn repository history into improvements"
+  default_prompt: "Use $retro to review the last week and mechanize concrete improvements."
+policy:
+  allow_implicit_invocation: false

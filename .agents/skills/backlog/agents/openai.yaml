@@ -1,0 +1,6 @@
+interface:
+  display_name: "Curate Backlog"
+  short_description: "Maintain a healthy ready-work buffer"
+  default_prompt: "Use $backlog to reconcile and curate the repository backlog autonomously."
+policy:
+  allow_implicit_invocation: false
