@@ -35,10 +35,13 @@ type createPullRequestResponse struct {
 }
 
 type mergePullRequestRequest struct {
-	CommitTitle string `json:"commit_title"`
-	MergeMethod string `json:"merge_method"`
-	SHA         string `json:"sha"`
+	CommitMessage string `json:"commit_message"`
+	CommitTitle   string `json:"commit_title"`
+	MergeMethod   string `json:"merge_method"`
+	SHA           string `json:"sha"`
 }
+
+const sessionSummaryHeading = "## Session summary"
 
 type mergePullRequestResponse struct {
 	Merged  bool   `json:"merged"`
@@ -92,32 +95,89 @@ func (a app) openPullRequest(args []string) error {
 	if flags.NArg() != 0 || strings.TrimSpace(*title) == "" || *bodyFile == "" {
 		return usageError("usage: workflowctl pr open ISSUE --title TITLE --body-file FILE")
 	}
-	if err := validateCommitTitle(*title); err != nil {
-		return usageError("pr open: invalid title: %v", err)
+	if titleErr := validateCommitTitle(*title); titleErr != nil {
+		return usageError("pr open: invalid title: %v", titleErr)
 	}
-	if err := validatePullRequestBody(*bodyFile, issue); err != nil {
+	body, err := readPullRequestBody(*bodyFile, issue)
+	if err != nil {
 		return usageError("pr open: %v", err)
 	}
-	return a.createPullRequest(issue, *title, *bodyFile)
+	return a.createPullRequest(issue, *title, body)
 }
 
-func validatePullRequestBody(path string, issue int) error {
+func readPullRequestBody(path string, issue int) (string, error) {
 	if err := requireRegularFile(path); err != nil {
-		return err
+		return "", err
 	}
 	// #nosec G304 -- path is an explicit operator-supplied input.
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read PR body: %w", err)
+		return "", fmt.Errorf("read PR body: %w", err)
 	}
 	needle := fmt.Sprintf("closes #%d", issue)
 	if !strings.Contains(strings.ToLower(string(body)), needle) {
-		return fmt.Errorf("PR body must contain %q", "Closes #"+strconv.Itoa(issue))
+		return "", fmt.Errorf("PR body must contain %q", "Closes #"+strconv.Itoa(issue))
+	}
+	if _, err := sessionSummary(string(body)); err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+func sessionSummary(body string) (string, error) {
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	lines := strings.Split(body, "\n")
+	start, end, err := sessionSummaryBounds(lines)
+	if err != nil {
+		return "", err
+	}
+	summary := strings.TrimSpace(strings.Join(lines[start:end], "\n"))
+	if err := validateSessionSummaryText(summary); err != nil {
+		return "", err
+	}
+	return summary, nil
+}
+
+func sessionSummaryBounds(lines []string) (int, int, error) {
+	start := -1
+	end := len(lines)
+	for index, line := range lines {
+		if line == sessionSummaryHeading {
+			if start >= 0 {
+				return 0, 0, fmt.Errorf("PR body contains more than one %q section", sessionSummaryHeading)
+			}
+			start = index + 1
+			continue
+		}
+		if start >= 0 && end == len(lines) && (strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## ")) {
+			end = index
+		}
+	}
+	if start < 0 {
+		return 0, 0, fmt.Errorf("PR body must contain %q", sessionSummaryHeading)
+	}
+	return start, end, nil
+}
+
+func validateSessionSummaryText(summary string) error {
+	if summary == "" {
+		return errors.New("PR session summary must not be empty")
+	}
+	if strings.Contains(summary, "<!--") || strings.Contains(summary, "-->") {
+		return errors.New("PR session summary must not contain HTML comments")
+	}
+	for _, line := range strings.Split(summary, "\n") {
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "```") {
+			return errors.New("PR session summary must use plain text, not Markdown headings or fences")
+		}
+		if strings.TrimRight(line, " \t") != line {
+			return errors.New("PR session summary lines must not have trailing whitespace")
+		}
 	}
 	return nil
 }
 
-func (a app) createPullRequest(issue int, title, bodyFile string) error {
+func (a app) createPullRequest(issue int, title, body string) error {
 	root, branch, claimedIssue, err := a.currentClaim()
 	if err != nil {
 		return err
@@ -144,20 +204,15 @@ func (a app) createPullRequest(issue int, title, bodyFile string) error {
 	if verifyErr := a.verifyClaim(); verifyErr != nil {
 		return verifyErr
 	}
-	url, err := a.createDraftPullRequest(root, branch, title, bodyFile)
+	url, err := a.createDraftPullRequest(root, branch, title, body)
 	if err != nil {
 		return err
 	}
 	return writeLine(a.stdout, "%s", url)
 }
 
-func (a app) createDraftPullRequest(root, branch, title, bodyFile string) (string, error) {
-	// #nosec G304 -- bodyFile is an explicit operator-supplied input.
-	body, err := os.ReadFile(bodyFile)
-	if err != nil {
-		return "", fmt.Errorf("read PR body: %w", err)
-	}
-	request := createPullRequestRequest{Base: "main", Body: string(body), Draft: true, Head: branch, Title: title}
+func (a app) createDraftPullRequest(root, branch, title, body string) (string, error) {
+	request := createPullRequestRequest{Base: "main", Body: body, Draft: true, Head: branch, Title: title}
 	response, err := a.submitPullRequest(root, request)
 	if err != nil {
 		return "", fmt.Errorf("create draft PR: %w", err)
@@ -203,8 +258,9 @@ func (a app) finishPullRequest(number int) error {
 	if view.HeadRefName != branch {
 		return stateError("PR #%d uses branch %s, not claim branch %s", number, view.HeadRefName, branch)
 	}
-	if titleErr := validateCommitTitle(view.Title); titleErr != nil {
-		return stateError("PR #%d has invalid title %q: %v", number, view.Title, titleErr)
+	summary, messageErr := validateSquashMessage(view, number)
+	if messageErr != nil {
+		return messageErr
 	}
 	if titleErr := a.validateWorkCommitTitles(root, view.HeadRefOID); titleErr != nil {
 		return stateError("PR #%d has invalid work commits: %v", number, titleErr)
@@ -232,9 +288,20 @@ func (a app) finishPullRequest(number int) error {
 	case finishReplaceDraftREST:
 		return a.replaceDraftPullRequest(root, number, view)
 	case finishMergeREST:
-		return a.mergeReadyPullRequest(root, number, view)
+		return a.mergeReadyPullRequest(root, number, view, summary)
 	}
 	return stateError("PR #%d has an impossible finish action", number)
+}
+
+func validateSquashMessage(view pullRequestView, number int) (string, error) {
+	if err := validateCommitTitle(view.Title); err != nil {
+		return "", stateError("PR #%d has invalid title %q: %v", number, view.Title, err)
+	}
+	summary, err := sessionSummary(view.Body)
+	if err != nil {
+		return "", stateError("PR #%d has invalid session summary: %v", number, err)
+	}
+	return summary, nil
 }
 
 func finishActionFor(view pullRequestView, ready bool) pullRequestFinishAction {
@@ -288,11 +355,12 @@ func (a app) updatePullRequestState(root string, number int, state string) error
 	return nil
 }
 
-func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView) error {
+func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView, summary string) error {
 	request := mergePullRequestRequest{
-		CommitTitle: view.Title + " (#" + strconv.Itoa(number) + ")",
-		MergeMethod: "squash",
-		SHA:         view.HeadRefOID,
+		CommitMessage: summary,
+		CommitTitle:   view.Title + " (#" + strconv.Itoa(number) + ")",
+		MergeMethod:   "squash",
+		SHA:           view.HeadRefOID,
 	}
 	input, err := json.Marshal(request)
 	if err != nil {

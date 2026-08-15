@@ -44,6 +44,10 @@ before merge. A Project status update that is unavailable after the merge is
 reported and converges on the next `workflowctl sync` run.
 
 The GitHub issue, claim ref, PR checks, challenge, evaluation attestation and
-receipt, and merge commit are
-the communication record. Use Markdown body files for issue, handoff, and PR
-prose so line breaks remain intact.
+receipt, and merge commit are the communication record. Each squash commit body
+is the PR's reviewed plain-text session summary: a durable account of the
+problem, outcome, rationale, important invariants, and actionable process
+learning. Later develop, backlog, and retro runs read those summaries through
+`workflowctl history`; transient claim and review metadata stays in the other
+records. Use Markdown body files for issue, handoff, and PR prose so line breaks
+remain intact.

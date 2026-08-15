@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -394,6 +395,90 @@ func TestDocumentedPositionalFlagOrderParses(t *testing.T) {
 	}
 }
 
+func TestSessionSummaryExtractsPlainTextSection(t *testing.T) {
+	body := "## Session summary\r\n\r\n" +
+		"The merge endpoint currently lets GitHub synthesize a noisy body.\r\n\r\n" +
+		"Send the reviewed handoff explicitly so later workflows retain why the\r\n" +
+		"change was made and which invariant they must preserve.\r\n\r\n" +
+		"## Work packet\r\n\r\nCloses #33\r\n"
+	want := "The merge endpoint currently lets GitHub synthesize a noisy body.\n\n" +
+		"Send the reviewed handoff explicitly so later workflows retain why the\n" +
+		"change was made and which invariant they must preserve."
+	got, err := sessionSummary(body)
+	if err != nil {
+		t.Fatalf("extract session summary: %v", err)
+	}
+	if got != want {
+		t.Fatalf("session summary = %q, want %q", got, want)
+	}
+}
+
+func TestPullRequestBodyRequiresOneNonemptySessionSummary(t *testing.T) {
+	tests := []struct {
+		name  string
+		body  string
+		valid bool
+	}{
+		{name: "valid", body: "## Session summary\n\nExplain the durable outcome.\n\n## Work packet\n\nCloses #33\n", valid: true},
+		{name: "missing", body: "## Work packet\n\nCloses #33\n"},
+		{name: "empty", body: "## Session summary\n\n## Work packet\n\nCloses #33\n"},
+		{name: "duplicate", body: "## Session summary\n\nFirst.\n\n## Session summary\n\nSecond.\n\nCloses #33\n"},
+		{name: "comment only", body: "## Session summary\n\n<!-- Replace this. -->\n\nCloses #33\n"},
+		{name: "heading", body: "## Session summary\n\n### Work done\n\nExplain it.\n\nCloses #33\n"},
+		{name: "fence", body: "## Session summary\n\n```text\nExplain it.\n```\n\nCloses #33\n"},
+	}
+	for _, test := range tests {
+		path := filepath.Join(t.TempDir(), "pr.md")
+		if err := os.WriteFile(path, []byte(test.body), 0o600); err != nil {
+			t.Fatalf("%s: write PR body: %v", test.name, err)
+		}
+		_, err := readPullRequestBody(path, 33)
+		if (err == nil) != test.valid {
+			t.Fatalf("%s: validation error = %v, valid %t", test.name, err, test.valid)
+		}
+	}
+}
+
+func TestPullRequestOpenRejectsInvalidSummaryBeforeMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pr.md")
+	if err := os.WriteFile(path, []byte("## Work packet\n\nCloses #33\n"), 0o600); err != nil {
+		t.Fatalf("write PR body: %v", err)
+	}
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		t.Fatalf("invalid PR body executed %s %v", name, args)
+		return "", nil
+	}}
+	err := application.openPullRequest([]string{
+		"33", "--title", "fix(workflow): summarize squash commits", "--body-file", path,
+	})
+	if err == nil || !strings.Contains(err.Error(), sessionSummaryHeading) {
+		t.Fatalf("invalid session summary error = %v", err)
+	}
+}
+
+func TestGitHistoryIncludesCommitBodiesForWorkflowReaders(t *testing.T) {
+	since := time.Date(2026, time.August, 8, 12, 0, 0, 0, time.UTC)
+	var stdout bytes.Buffer
+	application := app{stdout: &stdout, executeCommand: func(_ string, _ io.Reader, name string,
+		args ...string,
+	) (string, error) {
+		want := "git log --first-parent -n 3 --since=2026-08-08T12:00:00Z --date=short " +
+			"--pretty=format:- %h %ad %s%n%w(74,2,2)%b%w(0,0,0)"
+		got := name + " " + strings.Join(args, " ")
+		if got != want {
+			return "", fmt.Errorf("command = %q, want %q", got, want)
+		}
+		return "- abc123 2026-08-15 fix(workflow): summarize squash commits\n" +
+			"  Explain the problem and durable outcome.", nil
+	}}
+	if err := application.writeGitHistory("/repo", since, 3); err != nil {
+		t.Fatalf("write Git history: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Explain the problem and durable outcome.") {
+		t.Fatalf("history omitted commit body:\n%s", stdout.String())
+	}
+}
+
 func TestLeaseFreshness(t *testing.T) {
 	now := time.Date(2026, time.August, 15, 4, 30, 0, 0, time.UTC)
 	lease := now.Add(leaseDuration - renewalInterval)
@@ -577,9 +662,17 @@ func TestPullRequestFinishStrategyHasRESTFallback(t *testing.T) {
 	if action := finishActionFor(pullRequestView{}, false); action != finishMergeREST {
 		t.Fatalf("ready PR action = %d, want REST merge", action)
 	}
-	body := readyReplacementBody("Closes #1\n", 11, "abc123")
+	summary := "Explain the durable outcome and rationale."
+	body := readyReplacementBody("## Session summary\n\n"+summary+"\n\n## Work packet\n\nCloses #1\n", 11, "abc123")
 	if !strings.Contains(body, "Closes #1") || !strings.Contains(body, "Replaces draft PR #11") ||
 		!strings.Contains(body, "abc123") {
 		t.Fatalf("replacement body lost work-packet or provenance data: %q", body)
+	}
+	got, err := sessionSummary(body)
+	if err != nil {
+		t.Fatalf("extract replacement session summary: %v", err)
+	}
+	if got != summary {
+		t.Fatalf("replacement session summary = %q, want %q", got, summary)
 	}
 }

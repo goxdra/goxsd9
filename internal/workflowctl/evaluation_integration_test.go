@@ -39,6 +39,7 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	rejectLaterTamperedReceipt(t, &application, backend)
 	rejectInvalidPullRequestTitle(t, &application, backend)
 	rejectInvalidWorkCommitTitle(t, &application, backend)
+	rejectMissingSessionSummary(t, &application, backend)
 
 	commentCount := len(backend.comments)
 	backend.comments = append(backend.comments, reusedRunComments(t, backend.head, testExaminerRunID)...)
@@ -154,6 +155,19 @@ func rejectInvalidWorkCommitTitle(t *testing.T, application *app, backend *workf
 	backend.workCommitLog = original
 }
 
+func rejectMissingSessionSummary(t *testing.T, application *app, backend *workflowBackend) {
+	t.Helper()
+	original := backend.body
+	backend.body = "## Work packet\n\nCloses #13\n"
+	if err := application.runPR([]string{"finish", "14"}); err == nil {
+		t.Fatal("merge accepted a PR without a session summary")
+	}
+	if backend.merged {
+		t.Fatal("missing session summary reached the merge endpoint")
+	}
+	backend.body = original
+}
+
 func requestTestChallenge(t *testing.T, application *app, stdout *bytes.Buffer) evaluationChallenge {
 	t.Helper()
 	if err := application.runEvaluation([]string{"challenge", "14"}); err != nil {
@@ -231,6 +245,12 @@ func checkMergeResult(t *testing.T, backend *workflowBackend) {
 	}
 	if backend.mergeRequest.CommitTitle != backend.title+" (#14)" {
 		t.Fatalf("merge commit title = %q", backend.mergeRequest.CommitTitle)
+	}
+	if backend.mergeRequest.CommitMessage != backend.summary {
+		t.Fatalf("merge commit message = %q, want %q", backend.mergeRequest.CommitMessage, backend.summary)
+	}
+	if strings.Contains(backend.mergeRequest.CommitMessage, "Agent-Run-ID") {
+		t.Fatal("claim metadata leaked into the squash commit message")
 	}
 }
 
@@ -345,6 +365,8 @@ type workflowBackend struct {
 	branch        string
 	head          string
 	title         string
+	body          string
+	summary       string
 	workCommitLog string
 	comments      []issueCommentAPI
 	mergeRequest  mergePullRequestRequest
@@ -354,8 +376,13 @@ type workflowBackend struct {
 
 func newWorkflowBackend(t *testing.T) *workflowBackend {
 	t.Helper()
+	summary := "GitHub currently derives squash bodies from branch commits, so claim\n" +
+		"renewals obscure the implementation outcome. Send this reviewed summary\n" +
+		"explicitly so future workflow sessions receive the durable rationale."
 	return &workflowBackend{
 		t: t, root: "/repo", branch: "agent/issue-13", head: "evaluated-head",
+		body:          "## Session summary\n\n" + summary + "\n\n## Work packet\n\nCloses #13\n",
+		summary:       summary,
 		title:         "test(workflow): exercise evaluation flow",
 		workCommitLog: framedCommitLog("test(workflow): exercise evaluation flow", "chore(workflow): claim issue #13"),
 	}
@@ -427,7 +454,7 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 }
 
 func (b *workflowBackend) pullRequestJSON() (string, error) {
-	response := pullRequestAPI{Body: "Closes #13", Draft: false, State: "open", Title: b.title}
+	response := pullRequestAPI{Body: b.body, Draft: false, State: "open", Title: b.title}
 	response.Base.Ref = "main"
 	response.Head.Ref = b.branch
 	response.Head.SHA = b.head
