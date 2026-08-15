@@ -38,6 +38,7 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	rejectTamperedReceiptReuse(t, &application, backend, attestationFile)
 	rejectLaterTamperedReceipt(t, &application, backend)
 	rejectInvalidPullRequestTitle(t, &application, backend)
+	rejectInvalidWorkCommitTitle(t, &application, backend)
 
 	commentCount := len(backend.comments)
 	backend.comments = append(backend.comments, reusedRunComments(t, backend.head, testExaminerRunID)...)
@@ -137,6 +138,19 @@ func rejectInvalidPullRequestTitle(t *testing.T, application *app, backend *work
 		t.Fatal("invalid pull request title reached the merge endpoint")
 	}
 	backend.title = original
+}
+
+func rejectInvalidWorkCommitTitle(t *testing.T, application *app, backend *workflowBackend) {
+	t.Helper()
+	original := backend.workCommitLog
+	backend.workCommitLog = framedCommitLog("temporary checkpoint", "chore(workflow): claim issue #13")
+	if err := application.runPR([]string{"finish", "14"}); err == nil {
+		t.Fatal("merge accepted a work commit added after PR creation with an invalid title")
+	}
+	if backend.merged {
+		t.Fatal("invalid work commit title reached the merge endpoint")
+	}
+	backend.workCommitLog = original
 }
 
 func requestTestChallenge(t *testing.T, application *app, stdout *bytes.Buffer) evaluationChallenge {
@@ -320,22 +334,24 @@ func claimStateCommand(t *testing.T, issue string) commandExecutor {
 }
 
 type workflowBackend struct {
-	t            *testing.T
-	root         string
-	branch       string
-	head         string
-	title        string
-	comments     []issueCommentAPI
-	mergeRequest mergePullRequestRequest
-	merged       bool
-	projectDone  bool
+	t             *testing.T
+	root          string
+	branch        string
+	head          string
+	title         string
+	workCommitLog string
+	comments      []issueCommentAPI
+	mergeRequest  mergePullRequestRequest
+	merged        bool
+	projectDone   bool
 }
 
 func newWorkflowBackend(t *testing.T) *workflowBackend {
 	t.Helper()
 	return &workflowBackend{
 		t: t, root: "/repo", branch: "agent/issue-13", head: "evaluated-head",
-		title: "test(workflow): exercise evaluation flow",
+		title:         "test(workflow): exercise evaluation flow",
+		workCommitLog: framedCommitLog("test(workflow): exercise evaluation flow", "chore(workflow): claim issue #13"),
 	}
 }
 
@@ -371,6 +387,8 @@ func (b *workflowBackend) executeGit(args []string) (string, error) {
 	case "log -100 --format=%B":
 		lease := time.Now().UTC().Add(leaseDuration).Truncate(time.Second)
 		return claimMessage(13, "run-test", lease), nil
+	case "log --format=workflowctl-title:%s:workflowctl-title origin/main.." + b.head:
+		return b.workCommitLog, nil
 	default:
 		return "", fmt.Errorf("unexpected git command: %s", strings.Join(args, " "))
 	}

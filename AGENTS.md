@@ -79,7 +79,8 @@ These instructions apply to every file in this repository.
   the body when the subject is insufficient. Generated `chore(workflow): claim
   issue #N` commits retain their `Agent-*` trailers. `workflowctl pr open`
   validates branch-only commit subjects and the requested PR title; `pr finish`
-  revalidates the actual GitHub title before merge.
+  revalidates the subjects at the exact PR head and the actual GitHub title
+  before merge.
 - One PR has one primary issue and may include only separately claimed, closely
   related issues.
 - The branch claim lease is two hours. Renew it at least every 30 minutes and

@@ -80,23 +80,38 @@ func TestWorkCommitTitlesAreValidatedBeforePush(t *testing.T) {
 		log     string
 		wantErr bool
 	}{
-		{name: "valid", log: "fix(parser): reject invalid XML\nchore(workflow): claim issue #17"},
-		{name: "invalid", log: "temporary checkpoint\nchore(workflow): claim issue #17", wantErr: true},
+		{name: "valid", log: framedCommitLog(
+			"fix(parser): reject invalid XML", "chore(workflow): claim issue #17")},
+		{name: "invalid", log: framedCommitLog(
+			"temporary checkpoint", "chore(workflow): claim issue #17"), wantErr: true},
+		{name: "leading whitespace in newest", log: framedCommitLog(
+			" fix(parser): reject invalid XML", "chore(workflow): claim issue #17"), wantErr: true},
+		{name: "trailing whitespace in oldest", log: framedCommitLog(
+			"fix(parser): reject invalid XML", "chore(workflow): claim issue #17 "), wantErr: true},
+		{name: "malformed record", log: "fix(parser): reject invalid XML", wantErr: true},
 		{name: "empty", wantErr: true},
 	}
 	for _, test := range tests {
 		application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 			got := name + " " + strings.Join(args, " ")
-			if got != "git log --format=%s origin/main..HEAD" {
+			if got != "git log --format=workflowctl-title:%s:workflowctl-title origin/main..test-head" {
 				return "", fmt.Errorf("unexpected command: %s", got)
 			}
 			return test.log, nil
 		}}
-		err := application.validateWorkCommitTitles("/repo")
+		err := application.validateWorkCommitTitles("/repo", "test-head")
 		if (err != nil) != test.wantErr {
 			t.Fatalf("%s: validateWorkCommitTitles error = %v, want error %t", test.name, err, test.wantErr)
 		}
 	}
+}
+
+func framedCommitLog(titles ...string) string {
+	records := make([]string, 0, len(titles))
+	for _, title := range titles {
+		records = append(records, commitTitleRecordPrefix+title+commitTitleRecordSuffix)
+	}
+	return strings.Join(records, "\n")
 }
 
 func TestClaimMessageKeepsConventionalSubjectAndTrailers(t *testing.T) {

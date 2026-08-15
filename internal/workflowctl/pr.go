@@ -132,7 +132,7 @@ func (a app) createPullRequest(issue int, title, bodyFile string) error {
 	if clean != "" {
 		return stateError("worktree has uncommitted changes")
 	}
-	if titleErr := a.validateWorkCommitTitles(root); titleErr != nil {
+	if titleErr := a.validateWorkCommitTitles(root, "HEAD"); titleErr != nil {
 		return stateError("cannot open PR: %v", titleErr)
 	}
 	if verifyErr := a.verifyClaimForPush(root, branch, claimedIssue); verifyErr != nil {
@@ -205,6 +205,9 @@ func (a app) finishPullRequest(number int) error {
 	}
 	if titleErr := validateCommitTitle(view.Title); titleErr != nil {
 		return stateError("PR #%d has invalid title %q: %v", number, view.Title, titleErr)
+	}
+	if titleErr := a.validateWorkCommitTitles(root, view.HeadRefOID); titleErr != nil {
+		return stateError("PR #%d has invalid work commits: %v", number, titleErr)
 	}
 	if err := a.validateClosingClaims(root, view, claimedIssue); err != nil {
 		return err

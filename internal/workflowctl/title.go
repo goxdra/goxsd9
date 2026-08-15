@@ -8,7 +8,11 @@ import (
 	"unicode/utf8"
 )
 
-const commitTitleLimit = 72
+const (
+	commitTitleLimit        = 72
+	commitTitleRecordPrefix = "workflowctl-title:"
+	commitTitleRecordSuffix = ":workflowctl-title"
+)
 
 var commitTypes = []string{"feat", "fix", "test", "docs", "refactor", "perf", "ci", "chore"}
 
@@ -46,15 +50,22 @@ func validateCommitTitle(title string) error {
 	return nil
 }
 
-func (a app) validateWorkCommitTitles(root string) error {
-	output, err := a.command(root, "git", "log", "--format=%s", "origin/main..HEAD")
+func (a app) validateWorkCommitTitles(root, head string) error {
+	format := "--format=" + commitTitleRecordPrefix + "%s" + commitTitleRecordSuffix
+	output, err := a.command(root, "git", "log", format, "origin/main.."+head)
 	if err != nil {
 		return fmt.Errorf("read work commit titles: %w", err)
 	}
 	if output == "" {
 		return errors.New("claim branch has no commits beyond origin/main")
 	}
-	for _, title := range strings.Split(output, "\n") {
+	for _, record := range strings.Split(output, "\n") {
+		if !strings.HasPrefix(record, commitTitleRecordPrefix) ||
+			!strings.HasSuffix(record, commitTitleRecordSuffix) {
+			return errors.New("git returned a malformed commit title record")
+		}
+		title := strings.TrimPrefix(record, commitTitleRecordPrefix)
+		title = strings.TrimSuffix(title, commitTitleRecordSuffix)
 		if err := validateCommitTitle(title); err != nil {
 			return fmt.Errorf("commit title %q is invalid: %w", title, err)
 		}
