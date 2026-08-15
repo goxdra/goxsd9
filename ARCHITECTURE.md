@@ -114,10 +114,19 @@ formatted Go, uses type switches for choices, and never depends on map order.
 
 ## Conformance
 
-The W3C XSD test suite is pinned as a submodule. The harness reports pass,
-conformance failure, unsupported, resolution failure, internal failure, and
-queried or disputed results separately. Queried tests remain visible but do not
-affect the headline score or backlog unlock ranking.
+The W3C XSD test suite is pinned as a submodule. Catalog status is preserved
+independently from execution outcome: submitted, accepted, stable, queried,
+disputed-test, and disputed-spec are not collapsed. The harness separately
+reports pass, conformance failure, unsupported, resolution failure, and
+internal failure. Queried, disputed-test, and disputed-spec cases remain
+visible but affect neither the headline score nor backlog unlock ranking.
 
-Specifications are pinned through a manifest. Repository tooling will download,
-convert, index, and navigate them while preserving anchors and examples.
+Specifications and the distinct XSD 1.0 and 1.1 schema-for-schemas artifacts
+are pinned by URL and digest through a versioned manifest. Repository tooling
+will download, verify, convert, index, and navigate them while preserving
+anchors and examples. Digests cover raw responses. Artifact representations
+are explicit: `xml` is consumed as verified, while `html-cdata-pre` removes
+only the exact `<pre><![CDATA[` prefix and `]]></pre>` suffix after digest
+verification. Manifest aliases map lexical schema locations such as the HTTP
+`xml.xsd` import to their pinned HTTPS artifact without changing parser or
+resolver semantics.

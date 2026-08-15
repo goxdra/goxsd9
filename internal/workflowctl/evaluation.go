@@ -1,6 +1,7 @@
 package workflowctl
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,22 +18,29 @@ type pullRequestView struct {
 	ClosingIssuesReferences []struct {
 		Number int `json:"number"`
 	} `json:"closingIssuesReferences"`
-	Comments   []pullRequestComment `json:"comments"`
-	HeadRefOID string               `json:"headRefOid"`
-	IsDraft    bool                 `json:"isDraft"`
-	State      string               `json:"state"`
-	URL        string               `json:"url"`
+	Comments    []pullRequestComment `json:"comments"`
+	HeadRefName string               `json:"headRefName"`
+	HeadRefOID  string               `json:"headRefOid"`
+	IsDraft     bool                 `json:"isDraft"`
+	State       string               `json:"state"`
+	URL         string               `json:"url"`
 }
 
 type pullRequestComment struct {
+	Author struct {
+		Login string `json:"login"`
+	} `json:"author"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
 type evaluationReceipt struct {
-	Head    string `json:"head"`
-	Round   int    `json:"round"`
-	Verdict string `json:"verdict"`
+	Evaluator    string    `json:"evaluator"`
+	Head         string    `json:"head"`
+	RecordedAt   time.Time `json:"recordedAt"`
+	ReportSHA256 string    `json:"reportSHA256"`
+	Round        int       `json:"round"`
+	Verdict      string    `json:"verdict"`
 }
 
 func (a app) runEvaluation(args []string) error {
@@ -84,7 +92,14 @@ func (a app) postEvaluation(number int, verdict, bodyFile string) error {
 	if err != nil {
 		return fmt.Errorf("read evaluation report: %w", err)
 	}
-	receipt := evaluationReceipt{Head: view.HeadRefOID, Round: len(receipts) + 1, Verdict: verdict}
+	receipt := evaluationReceipt{
+		Evaluator:    "Examiner",
+		Head:         view.HeadRefOID,
+		RecordedAt:   time.Now().UTC().Truncate(time.Second),
+		ReportSHA256: fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(string(report))))),
+		Round:        len(receipts) + 1,
+		Verdict:      verdict,
+	}
 	marker, err := json.Marshal(receipt)
 	if err != nil {
 		return fmt.Errorf("encode evaluation receipt: %w", err)
@@ -108,7 +123,7 @@ func evaluationComment(marker, report []byte) string {
 }
 
 func (a app) readPullRequest(root string, number int) (pullRequestView, error) {
-	fields := "closingIssuesReferences,comments,headRefOid,isDraft,state,url"
+	fields := "closingIssuesReferences,comments,headRefName,headRefOid,isDraft,state,url"
 	output, err := a.command(root, "gh", "pr", "view", strconv.Itoa(number), "--repo", repositoryKey, "--json", fields)
 	if err != nil {
 		return pullRequestView{}, fmt.Errorf("read PR #%d: %w", number, err)
@@ -123,10 +138,14 @@ func (a app) readPullRequest(root string, number int) (pullRequestView, error) {
 func evaluationReceipts(comments []pullRequestComment) []evaluationReceipt {
 	var receipts []evaluationReceipt
 	for _, comment := range comments {
-		receipt, ok := parseEvaluationReceipt(comment.Body)
-		if ok {
-			receipts = append(receipts, receipt)
+		if comment.Author.Login != owner {
+			continue
 		}
+		receipt, ok := parseEvaluationReceipt(comment.Body)
+		if !ok || !evaluationReceiptMatches(comment, receipt) {
+			continue
+		}
+		receipts = append(receipts, receipt)
 	}
 	return receipts
 }
@@ -145,21 +164,34 @@ func parseEvaluationReceipt(body string) (evaluationReceipt, bool) {
 	if err := json.Unmarshal([]byte(value[:end]), &receipt); err != nil {
 		return evaluationReceipt{}, false
 	}
-	if receipt.Round < 1 || (receipt.Verdict != "pass" && receipt.Verdict != "fail") || receipt.Head == "" {
+	if receipt.Evaluator != "Examiner" || receipt.Round < 1 || receipt.RecordedAt.IsZero() ||
+		(receipt.Verdict != "pass" && receipt.Verdict != "fail") || receipt.Head == "" || len(receipt.ReportSHA256) != 64 {
 		return evaluationReceipt{}, false
 	}
 	return receipt, true
 }
 
-func latestPassingEvaluation(view pullRequestView) (evaluationReceipt, bool) {
+func latestEvaluationPasses(view pullRequestView) bool {
 	receipts := evaluationReceipts(view.Comments)
-	for index := len(receipts) - 1; index >= 0; index-- {
-		receipt := receipts[index]
-		if receipt.Head == view.HeadRefOID && receipt.Verdict == "pass" {
-			return receipt, true
-		}
+	if len(receipts) == 0 {
+		return false
 	}
-	return evaluationReceipt{}, false
+	latest := receipts[len(receipts)-1]
+	return latest.Head == view.HeadRefOID && latest.Verdict == "pass"
+}
+
+func evaluationReceiptMatches(comment pullRequestComment, receipt evaluationReceipt) bool {
+	if comment.CreatedAt.Before(receipt.RecordedAt.Add(-5*time.Minute)) ||
+		comment.CreatedAt.After(receipt.RecordedAt.Add(5*time.Minute)) {
+		return false
+	}
+	heading := "## Examiner evaluation — round receipt\n\n"
+	_, report, ok := strings.Cut(comment.Body, heading)
+	if !ok {
+		return false
+	}
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(report))))
+	return digest == receipt.ReportSHA256
 }
 
 func (a app) escalateEvaluation(root string, view pullRequestView) error {

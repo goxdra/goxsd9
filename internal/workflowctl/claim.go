@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-const leaseDuration = 2 * time.Hour
+const (
+	leaseDuration   = 2 * time.Hour
+	renewalInterval = 30 * time.Minute
+)
 
 func (a app) runClaim(args []string) error {
 	if len(args) == 0 {
@@ -121,7 +124,10 @@ func (a app) archiveStaleClaim(root string, claim remoteClaim) error {
 		return fmt.Errorf("check stale claim PRs: %w", err)
 	}
 	if open != "[]" {
-		return stateError("stale claim %s has an open PR and needs human attention", claim.branch)
+		if escalateErr := a.escalateStaleClaim(root, claim); escalateErr != nil {
+			return escalateErr
+		}
+		return stateError("stale claim %s has an open PR and was marked needs-human", claim.branch)
 	}
 	runID, err := randomRunID()
 	if err != nil {
@@ -141,6 +147,26 @@ func (a app) archiveStaleClaim(root string, claim remoteClaim) error {
 		return fmt.Errorf("record stale claim recovery: %w", err)
 	}
 	return nil
+}
+
+func (a app) escalateStaleClaim(root string, claim remoteClaim) error {
+	status, err := a.readIssueStatus(root, claim.number)
+	if err != nil {
+		return err
+	}
+	if !issueHasLabel(status, "needs-human") {
+		if _, err := a.command(root, "gh", "issue", "edit", strconv.Itoa(claim.number), "--repo", repositoryKey,
+			"--add-label", "needs-human"); err != nil {
+			return fmt.Errorf("mark stale claim issue #%d needs-human: %w", claim.number, err)
+		}
+		body := fmt.Sprintf("Claim `%s` expired with an open PR. The branch was preserved and this issue needs human review.\n",
+			claim.branch)
+		if _, err := a.commandInput(root, strings.NewReader(body), "gh", "issue", "comment", strconv.Itoa(claim.number),
+			"--repo", repositoryKey, "--body-file", "-"); err != nil {
+			return fmt.Errorf("record stale claim escalation: %w", err)
+		}
+	}
+	return a.setIssueProjectStatus(root, claim.number, "Backlog")
 }
 
 func (a app) fetchMain(root string) error {
@@ -223,6 +249,13 @@ func (a app) renewClaim() error {
 			return stateError("claim branch diverged; local=%s remote=%s", local, remote)
 		}
 	}
+	lease, err := a.readClaimLease(root)
+	if err != nil {
+		return stateError("claim #%d has no valid lease: %v", number, err)
+	}
+	if !lease.After(time.Now().UTC()) {
+		return stateError("claim #%d expired at %s", number, lease.Format(time.RFC3339))
+	}
 	commit, lease, _, err := a.newClaimCommit(root, number, "HEAD")
 	if err != nil {
 		return err
@@ -256,18 +289,53 @@ func (a app) verifyClaim() error {
 	if local != remote {
 		return stateError("claim branch moved remotely; local=%s remote=%s", local, remote)
 	}
-	text, err := a.command(root, "git", "log", "-100", "--format=%B")
-	if err != nil {
-		return fmt.Errorf("read claim lease: %w", err)
-	}
-	lease, err := trailerTime(text, "Agent-Lease-Until")
+	lease, err := a.readClaimLease(root)
 	if err != nil {
 		return stateError("claim #%d has no valid lease: %v", number, err)
 	}
-	if !lease.After(time.Now().UTC()) {
-		return stateError("claim #%d expired at %s", number, lease.Format(time.RFC3339))
+	if err := validateLeaseFresh(number, lease, time.Now().UTC()); err != nil {
+		return err
 	}
 	return writeLine(a.stdout, "claim #%d valid until %s", number, lease.Format(time.RFC3339))
+}
+
+func (a app) verifyClaimForPush(root, branch string, number int) error {
+	if err := a.fetchClaim(root, branch); err != nil {
+		return err
+	}
+	local, remote, err := a.claimHeads(root, branch)
+	if err != nil {
+		return err
+	}
+	if local != remote {
+		if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); ancestorErr != nil {
+			return stateError("claim branch diverged; local=%s remote=%s", local, remote)
+		}
+	}
+	lease, err := a.readClaimLease(root)
+	if err != nil {
+		return stateError("claim #%d has no valid lease: %v", number, err)
+	}
+	return validateLeaseFresh(number, lease, time.Now().UTC())
+}
+
+func (a app) readClaimLease(root string) (time.Time, error) {
+	text, err := a.command(root, "git", "log", "-100", "--format=%B")
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read claim lease: %w", err)
+	}
+	return trailerTime(text, "Agent-Lease-Until")
+}
+
+func validateLeaseFresh(number int, lease, now time.Time) error {
+	if !lease.After(now) {
+		return stateError("claim #%d expired at %s", number, lease.Format(time.RFC3339))
+	}
+	issued := lease.Add(-leaseDuration)
+	if now.After(issued.Add(renewalInterval)) {
+		return stateError("claim #%d was not renewed within %s", number, renewalInterval)
+	}
+	return nil
 }
 
 func (a app) currentClaim() (string, string, int, error) {

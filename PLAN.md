@@ -30,7 +30,11 @@ Exit measure: documented library and CLI examples complete end to end.
 ## 2. Schema model and bootstrap
 
 - Download and index the normative specification set.
-- Parse the schema-for-schemas using the minimal syntax kernel.
+- Parse the separately pinned XSD 1.0 and 1.1 `XMLSchema.xsd` and
+  `datatypes.xsd` graphs, including the explicit `xml.xsd` import policy, using
+  the minimal syntax kernel.
+- Verify raw artifact digests and apply only the representation conversion
+  declared by the manifest before parsing.
 - Generate the canonical schema syntax declarations.
 - Verify regeneration is byte-identical.
 - Complete references, derivation, substitution, and content-model invariants.
@@ -68,8 +72,10 @@ Exit measure: representative real-world schemas generate usable documented Go.
 
 - Close unsupported feature clusters by tests unlocked and user impact.
 - Exercise mixed XSD 1.0 and 1.1 document graphs.
-- Investigate queried or disputed tests with explicit specification evidence.
-- Publish reproducible conformance reports without counting disputed results.
+- Investigate queried, disputed-test, and disputed-spec cases with explicit
+  specification evidence.
+- Preserve catalog status independently from execution outcome and publish
+  reports that exclude all three classes from headline and unlock rankings.
 
 Exit measure: no known unsupported XSD parser or validator feature remains.
 

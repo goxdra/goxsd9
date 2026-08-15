@@ -91,6 +91,9 @@ func (a app) createPullRequest(issue int, title, bodyFile string) error {
 	if clean != "" {
 		return stateError("worktree has uncommitted changes")
 	}
+	if verifyErr := a.verifyClaimForPush(root, branch, claimedIssue); verifyErr != nil {
+		return verifyErr
+	}
 	if _, pushErr := a.command(root, "git", "push", "origin", "HEAD:refs/heads/"+branch); pushErr != nil {
 		return fmt.Errorf("push pull request branch: %w", pushErr)
 	}
@@ -106,7 +109,7 @@ func (a app) createPullRequest(issue int, title, bodyFile string) error {
 }
 
 func (a app) finishPullRequest(number int) error {
-	root, _, _, err := a.currentClaim()
+	root, branch, claimedIssue, err := a.currentClaim()
 	if err != nil {
 		return err
 	}
@@ -120,7 +123,13 @@ func (a app) finishPullRequest(number int) error {
 	if view.State != "OPEN" {
 		return stateError("PR #%d is %s", number, view.State)
 	}
-	if _, ok := latestPassingEvaluation(view); !ok {
+	if view.HeadRefName != branch {
+		return stateError("PR #%d uses branch %s, not claim branch %s", number, view.HeadRefName, branch)
+	}
+	if !pullRequestCloses(view, claimedIssue) {
+		return stateError("PR #%d does not close claimed issue #%d", number, claimedIssue)
+	}
+	if !latestEvaluationPasses(view) {
 		return stateError("PR #%d has no passing evaluation for head %s", number, view.HeadRefOID)
 	}
 	if err := a.requirePassingChecks(root, number); err != nil {
@@ -141,6 +150,15 @@ func (a app) finishPullRequest(number int) error {
 		}
 	}
 	return writeLine(a.stdout, "PR #%d merged at evaluated head %s", number, view.HeadRefOID)
+}
+
+func pullRequestCloses(view pullRequestView, number int) bool {
+	for _, issue := range view.ClosingIssuesReferences {
+		if issue.Number == number {
+			return true
+		}
+	}
+	return false
 }
 
 func (a app) requirePassingChecks(root string, number int) error {
