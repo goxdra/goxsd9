@@ -219,7 +219,9 @@ func (a app) renewClaim() error {
 		return err
 	}
 	if local != remote {
-		return stateError("claim branch moved remotely; local=%s remote=%s", local, remote)
+		if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); ancestorErr != nil {
+			return stateError("claim branch diverged; local=%s remote=%s", local, remote)
+		}
 	}
 	commit, lease, _, err := a.newClaimCommit(root, number, "HEAD")
 	if err != nil {
