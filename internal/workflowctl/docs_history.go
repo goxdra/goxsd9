@@ -15,22 +15,33 @@ type documentationChurn struct {
 }
 
 func (a app) writeDocumentationHistory(root string, since time.Time) error {
-	if err := writeLine(a.stdout, "\n## Documentation churn"); err != nil {
-		return err
-	}
 	totals, err := a.readDocumentationChurn(root, since)
 	if err != nil {
 		return err
 	}
-	if len(totals) == 0 {
-		return writeLine(a.stdout, "- None")
+	return renderDocumentationHistory(a.stdout, totals)
+}
+
+func (a app) readDocumentationChurnWindow(root string, since, until time.Time) ([]documentationChurn, error) {
+	output, err := a.command(root, "git", "rev-list", "--first-parent", "--since="+formatHistoryTime(since),
+		"--until="+formatHistoryTime(until), "HEAD")
+	if err != nil {
+		return nil, fmt.Errorf("read commits for documentation churn: %w", err)
 	}
-	for _, total := range totals {
-		if err := writeLine(a.stdout, "- %s: +%d -%d", strconv.Quote(total.path), total.additions, total.deletions); err != nil {
-			return err
+	if output == "" {
+		return nil, nil
+	}
+	totals := make([]documentationChurn, 0)
+	for index, commit := range strings.Split(output, "\n") {
+		if commit == "" {
+			return nil, fmt.Errorf("parse documentation commit list: empty commit at index %d", index)
+		}
+		if err := a.addCommitDocumentationChurn(root, commit, &totals); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	sort.Slice(totals, func(left, right int) bool { return totals[left].path < totals[right].path })
+	return totals, nil
 }
 
 func (a app) readDocumentationChurn(root string, since time.Time) ([]documentationChurn, error) {
