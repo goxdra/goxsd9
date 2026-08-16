@@ -19,8 +19,7 @@ are not ready for use.
 - No silent acceptance of unimplemented specification behavior.
 - Continuously measured conformance against the W3C test suite.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for current design and [PLAN.md](PLAN.md)
-for phased outcomes.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for current design and [PLAN.md](PLAN.md) for phased outcomes.
 
 ## Repository checks
 
@@ -29,9 +28,6 @@ git submodule update --init --recursive
 go tool workflowctl doctor
 go tool workflowctl check
 ```
-
-There is no Makefile. Repeated work belongs in `workflowctl` or a focused Go
-tool.
 
 ## Pinned specification corpus
 
@@ -42,22 +38,24 @@ go tool specs build -id xsd11-structures
 go tool specs search -id xsd11-structures -query "content model"
 ```
 
-`specs build` reads `specs/manifest.json`, verifies the raw HTTPS response
-against its SHA-256 digest, converts the declared representation, and writes
-the Markdown/XSD artifact and compact search index. Use `-root` outside the
-repository, `-output` for another generated directory, or `-index PATH` with
-`specs search` to search an existing index directly.
+`specs build` reads `specs/manifest.json`, verifies the raw HTTPS response against
+its SHA-256 digest, converts the declared representation, and writes Markdown/XSD
+and a compact index. Use `-root`, `-output`, or `-index PATH` for alternate locations.
 
 ## Project workflow
 
 Executable work lives in [GitHub Issues](https://github.com/goxdra/goxsd9/issues)
 and the [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1). Agents use
-worktrees and atomic issue-branch claims. The checked-in `develop`, `backlog`,
-and `retro` skills define the autonomous lifecycle. See
-[scheduled operations](docs/operations.md) for Paseo prompts and timing.
-Commit subjects and PR titles follow the convention in [AGENTS.md](AGENTS.md);
-`workflowctl` validates branch commits before both PR creation and merge, along
-with the requested and final GitHub PR titles.
+worktrees, atomic claims, and the checked-in `develop`, `backlog`, and `retro`
+skills. Develop must launch from the canonical primary on clean `main` equal to
+fresh `origin/main`, with recursive pins ready; `doctor` gates it and
+`base-sync` recovers it. See [scheduled operations](docs/operations.md).
+Commit subjects and PR titles follow [AGENTS.md](AGENTS.md); `workflowctl`
+validates them. `sync` is GitHub Project-only; `base-sync` fast-forwards clean
+canonical `main` without reset, rebase, stash, or discard. After squash merge,
+`pr finish` converges base and removes proof-backed claims; use `go tool
+workflowctl pr recover PR` for idempotent recovery or `claim prune ISSUE` only
+with merged proof.
 
 ## Test data licensing
 

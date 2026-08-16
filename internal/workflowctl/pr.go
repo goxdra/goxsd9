@@ -62,13 +62,17 @@ const (
 
 func (a app) runPR(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl pr open ISSUE [flags] | finish PR --summary-file FILE")
+		return usageError("usage: workflowctl pr open ISSUE [flags] | finish PR --summary-file FILE | recover PR")
 	}
 	switch args[0] {
 	case "open":
 		return a.openPullRequest(args[1:])
 	case "finish":
 		return a.finishPullRequestCommand(args[1:])
+	case "recover":
+		return a.recoverPullRequestCommand(args[1:])
+	case "prune":
+		return a.pruneHistoricalClaimsCommand(args[1:])
 	default:
 		return usageError("unknown pr command %q", args[0])
 	}
@@ -305,33 +309,8 @@ func (a app) finishPullRequest(number int, summary squashSummary) error {
 	if verifyErr := a.verifyClaim(); verifyErr != nil {
 		return verifyErr
 	}
-	view, err := a.readPullRequest(root, number)
+	view, err := a.validateFinishPullRequest(root, branch, claimedIssue, number)
 	if err != nil {
-		return err
-	}
-	if view.State != "OPEN" {
-		return stateError("PR #%d is %s", number, view.State)
-	}
-	if view.HeadRefName != branch {
-		return stateError("PR #%d uses branch %s, not claim branch %s", number, view.HeadRefName, branch)
-	}
-	if titleErr := validateCommitTitle(view.Title); titleErr != nil {
-		return stateError("PR #%d has invalid title %q: %v", number, view.Title, titleErr)
-	}
-	if titleErr := a.validateWorkCommitTitles(root, view.HeadRefOID); titleErr != nil {
-		return stateError("PR #%d has invalid work commits: %v", number, titleErr)
-	}
-	if err := a.validateClosingClaims(root, view, claimedIssue); err != nil {
-		return err
-	}
-	passes, evaluationErr := latestEvaluationPasses(view, number)
-	if evaluationErr != nil {
-		return stateError("PR #%d has invalid evaluation history: %v", number, evaluationErr)
-	}
-	if !passes {
-		return stateError("PR #%d has no passing evaluation for head %s", number, view.HeadRefOID)
-	}
-	if err := a.requirePassingChecks(root, number, view.HeadRefOID); err != nil {
 		return err
 	}
 	ready := !view.IsDraft
@@ -340,13 +319,58 @@ func (a app) finishPullRequest(number int, summary squashSummary) error {
 			ready = true
 		}
 	}
-	switch finishActionFor(view, ready) {
+	action := finishActionFor(view, ready)
+	switch action {
 	case finishReplaceDraftREST:
 		return a.replaceDraftPullRequest(root, number, view)
 	case finishMergeREST:
-		return a.mergeReadyPullRequest(root, number, view, summary)
+		layout, err := a.repositoryLayout(root)
+		if err != nil {
+			return err
+		}
+		plan, err := a.prepareCleanupPlan(root, layout, view, claimedIssue)
+		if err != nil {
+			return err
+		}
+		return a.mergeReadyPullRequest(root, number, view, summary, plan)
 	}
 	return stateError("PR #%d has an impossible finish action", number)
+}
+
+func (a app) validateFinishPullRequest(root, branch string, claimedIssue, number int) (pullRequestView, error) {
+	view, err := a.readPullRequest(root, number)
+	if err != nil {
+		return pullRequestView{}, err
+	}
+	if view.State != "OPEN" {
+		return pullRequestView{}, stateError("PR #%d is %s", number, view.State)
+	}
+	if view.HeadRefName != branch {
+		return pullRequestView{}, stateError("PR #%d uses branch %s, not claim branch %s", number, view.HeadRefName, branch)
+	}
+	if view.BaseRefName != "main" {
+		return pullRequestView{}, stateError("PR #%d targets base %q, not main", number, view.BaseRefName)
+	}
+	if titleErr := validateCommitTitle(view.Title); titleErr != nil {
+		return pullRequestView{}, stateError("PR #%d has invalid title %q: %v", number, view.Title, titleErr)
+	}
+	if titleErr := a.validateWorkCommitTitles(root, view.HeadRefOID); titleErr != nil {
+		return pullRequestView{}, stateError("PR #%d has invalid work commits: %v", number, titleErr)
+	}
+	if err := a.validateClosingClaims(root, view, claimedIssue); err != nil {
+		return pullRequestView{}, err
+	}
+	passes, evaluationErr := latestEvaluationPasses(view, number)
+	if evaluationErr != nil {
+		return pullRequestView{}, stateError("PR #%d has invalid evaluation history: %v", number, evaluationErr)
+	}
+	if !passes {
+		return pullRequestView{}, stateError("PR #%d has no passing evaluation for head %s", number, view.HeadRefOID)
+	}
+	if err := a.requirePassingChecks(root, number, view.HeadRefOID); err != nil {
+		return pullRequestView{}, err
+	}
+	return view, nil
 }
 
 func finishActionFor(view pullRequestView, ready bool) pullRequestFinishAction {
@@ -400,7 +424,7 @@ func (a app) updatePullRequestState(root string, number int, state string) error
 	return nil
 }
 
-func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView, summary squashSummary) error {
+func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView, summary squashSummary, plan cleanupPlan) error {
 	request := mergePullRequestRequest{
 		CommitMessage: string(summary),
 		CommitTitle:   view.Title + " (#" + strconv.Itoa(number) + ")",
@@ -432,7 +456,19 @@ func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView
 			break
 		}
 	}
+	base, syncErr := a.synchronizeBase(plan.layout, response.SHA)
+	if syncErr != nil {
+		return postMergeRecoveryError(number, response.SHA, "canonical Git base convergence", syncErr)
+	}
+	packet := mergedPacket{number: number, mergeSHA: response.SHA, plan: plan}
+	if cleanupErr := a.cleanupClaims(base, packet); cleanupErr != nil {
+		return postMergeRecoveryError(number, response.SHA, "claim cleanup", cleanupErr)
+	}
 	return writeLine(a.stdout, "PR #%d merged at evaluated head %s as %s", number, view.HeadRefOID, response.SHA)
+}
+
+func postMergeRecoveryError(number int, mergeSHA, phase string, cause error) error {
+	return stateError("PR #%d merged at %s; %s failed and recovery is needed: %w. Merge completed. Run `go tool workflowctl pr recover %d`", number, mergeSHA, phase, cause, number)
 }
 
 func pullRequestCloses(view pullRequestView, number int) bool {
@@ -471,15 +507,24 @@ func (a app) validateClosingClaims(root string, view pullRequestView, primary in
 }
 
 func (a app) validateCompanionClaim(root string, number int, head string, claims []remoteClaim) error {
+	candidates := make([]remoteClaim, 0, 1)
 	for _, claim := range claims {
 		if claim.number != number || !claim.active {
 			continue
 		}
 		if _, err := a.command(root, "git", "merge-base", "--is-ancestor", claim.sha, head); err != nil {
-			return stateError("companion issue #%d claim %s is not included in evaluated head %s", number,
-				claim.branch, head)
+			if isGitNonAncestor(err) {
+				continue
+			}
+			return fmt.Errorf("prove companion issue #%d claim %s is included in evaluated head: %w", number, claim.branch, err)
 		}
+		candidates = append(candidates, claim)
+	}
+	if len(candidates) == 1 {
 		return nil
+	}
+	if len(candidates) > 1 {
+		return stateError("companion issue #%d has ambiguous active claims in evaluated head %s", number, head)
 	}
 	return stateError("companion issue #%d has no active claim", number)
 }

@@ -59,6 +59,9 @@ func (a app) runPick(args []string) error {
 	if err != nil {
 		return err
 	}
+	if _, launchErr := a.checkDevelopLaunch(root); launchErr != nil {
+		return launchErr
+	}
 	candidates, err := a.pickCandidates(root)
 	if err != nil {
 		return err

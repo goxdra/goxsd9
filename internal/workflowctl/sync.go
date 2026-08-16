@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,9 @@ type issueStatus struct {
 func (a app) runSync(args []string) error {
 	if len(args) != 0 {
 		return usageError("sync takes no arguments")
+	}
+	if err := writeLine(a.stdout, "Project synchronization only; Git base synchronization is %s", baseSyncCommand); err != nil {
+		return fmt.Errorf("write Project synchronization notice: %w", err)
 	}
 	root, err := a.root()
 	if err != nil {
@@ -132,9 +136,27 @@ type remoteClaim struct {
 }
 
 func (a app) listRemoteClaims(root string) ([]remoteClaim, error) {
-	output, err := a.command(root, "git", "ls-remote", "--heads", "origin", "refs/heads/agent/issue-*")
+	claims, err := a.remoteClaimRefs(root)
 	if err != nil {
 		return nil, fmt.Errorf("list remote claims: %w", err)
+	}
+	for index := range claims {
+		claim, err := a.inspectRemoteClaim(root, claims[index].branch, claims[index].sha, claims[index].number)
+		if err != nil {
+			return nil, err
+		}
+		claims[index] = claim
+	}
+	sort.Slice(claims, func(left, right int) bool {
+		return claims[left].branch < claims[right].branch
+	})
+	return claims, nil
+}
+
+func (a app) remoteClaimRefs(root string) ([]remoteClaim, error) {
+	output, err := a.command(root, "git", "ls-remote", "--heads", "origin", "refs/heads/agent/issue-*")
+	if err != nil {
+		return nil, fmt.Errorf("list remote claim refs: %w", err)
 	}
 	var claims []remoteClaim
 	for _, line := range strings.Split(output, "\n") {
@@ -147,12 +169,11 @@ func (a app) listRemoteClaims(root string) ([]remoteClaim, error) {
 		if !ok {
 			continue
 		}
-		claim, err := a.inspectRemoteClaim(root, branch, fields[0], number)
-		if err != nil {
-			return nil, err
-		}
-		claims = append(claims, claim)
+		claims = append(claims, remoteClaim{branch: branch, number: number, sha: fields[0]})
 	}
+	sort.Slice(claims, func(left, right int) bool {
+		return claims[left].branch < claims[right].branch
+	})
 	return claims, nil
 }
 

@@ -31,13 +31,16 @@ type pullRequestView struct {
 	ClosingIssuesReferences []struct {
 		Number int `json:"number"`
 	} `json:"closingIssuesReferences"`
-	Comments    []pullRequestComment `json:"comments"`
-	HeadRefName string               `json:"headRefName"`
-	HeadRefOID  string               `json:"headRefOid"`
-	IsDraft     bool                 `json:"isDraft"`
-	State       string               `json:"state"`
-	Title       string               `json:"title"`
-	URL         string               `json:"url"`
+	Comments       []pullRequestComment `json:"comments"`
+	HeadRefName    string               `json:"headRefName"`
+	HeadRefOID     string               `json:"headRefOid"`
+	IsDraft        bool                 `json:"isDraft"`
+	Merged         bool                 `json:"merged"`
+	MergedAt       *time.Time           `json:"mergedAt"`
+	MergeCommitSHA string               `json:"mergeCommitSha"`
+	State          string               `json:"state"`
+	Title          string               `json:"title"`
+	URL            string               `json:"url"`
 }
 
 type pullRequestComment struct {
@@ -49,7 +52,10 @@ type pullRequestComment struct {
 }
 
 type pullRequestAPI struct {
-	Base struct {
+	Merged         bool       `json:"merged"`
+	MergedAt       *time.Time `json:"merged_at"`
+	MergeCommitSHA string     `json:"merge_commit_sha"`
+	Base           struct {
 		Ref string `json:"ref"`
 	} `json:"base"`
 	Body  string `json:"body"`
@@ -480,23 +486,43 @@ func (a app) readPullRequest(root string, number int) (pullRequestView, error) {
 	if err != nil {
 		return pullRequestView{}, err
 	}
+	view := pullRequestViewFromAPI(response)
+	view.Comments = comments
+	return view, nil
+}
+
+func (a app) readPullRequestMetadata(root string, number int) (pullRequestView, error) {
+	output, err := a.command(root, "gh", "api", "repos/"+repositoryKey+"/pulls/"+strconv.Itoa(number))
+	if err != nil {
+		return pullRequestView{}, fmt.Errorf("read PR #%d: %w", number, err)
+	}
+	var response pullRequestAPI
+	if decodeErr := json.Unmarshal([]byte(output), &response); decodeErr != nil {
+		return pullRequestView{}, fmt.Errorf("decode PR #%d: %w", number, decodeErr)
+	}
+	return pullRequestViewFromAPI(response), nil
+}
+
+func pullRequestViewFromAPI(response pullRequestAPI) pullRequestView {
 	view := pullRequestView{
-		BaseRefName: response.Base.Ref,
-		Body:        response.Body,
-		Comments:    comments,
-		HeadRefName: response.Head.Ref,
-		HeadRefOID:  response.Head.SHA,
-		IsDraft:     response.Draft,
-		State:       strings.ToUpper(response.State),
-		Title:       response.Title,
-		URL:         response.URL,
+		BaseRefName:    response.Base.Ref,
+		Body:           response.Body,
+		HeadRefName:    response.Head.Ref,
+		HeadRefOID:     response.Head.SHA,
+		IsDraft:        response.Draft,
+		Merged:         response.Merged || response.MergedAt != nil,
+		MergedAt:       response.MergedAt,
+		MergeCommitSHA: response.MergeCommitSHA,
+		State:          strings.ToUpper(response.State),
+		Title:          response.Title,
+		URL:            response.URL,
 	}
 	for _, issue := range closingIssueNumbers(response.Body) {
 		view.ClosingIssuesReferences = append(view.ClosingIssuesReferences, struct {
 			Number int `json:"number"`
 		}{Number: issue})
 	}
-	return view, nil
+	return view
 }
 
 func (a app) readPullRequestComments(root string, number int) ([]pullRequestComment, error) {

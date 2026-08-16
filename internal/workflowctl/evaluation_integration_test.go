@@ -406,7 +406,7 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 		t.Fatalf("write summary: %v", err)
 	}
 	return &workflowBackend{
-		t: t, root: "/repo", branch: "agent/issue-13", head: "evaluated-head",
+		t: t, root: "/primary-worktrees/issue-13", branch: "agent/issue-13", head: "evaluated-head",
 		body:          "## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n",
 		summary:       summary,
 		summaryFile:   summaryFile,
@@ -436,7 +436,7 @@ func (b *workflowBackend) execute(dir string, input io.Reader, name string, args
 		}
 	}
 	if name == "git" {
-		return b.executeGit(args)
+		return b.executeGit(dir, args)
 	}
 	if name == "gh" {
 		return b.executeGitHub(data, args)
@@ -444,12 +444,68 @@ func (b *workflowBackend) execute(dir string, input io.Reader, name string, args
 	return "", fmt.Errorf("unexpected command in %s: %s %s", dir, name, strings.Join(args, " "))
 }
 
-func (b *workflowBackend) executeGit(args []string) (string, error) {
-	switch strings.Join(args, " ") {
+func (b *workflowBackend) executeGit(dir string, args []string) (string, error) {
+	command := strings.Join(args, " ")
+	if output, ok := b.executeGitBase(dir, command); ok {
+		return output, nil
+	}
+	return b.executeGitClaim(dir, command)
+}
+
+func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
+	if dir == "/primary" && command == "rev-parse HEAD" {
+		return "merge-commit", true
+	}
+	switch command {
 	case "rev-parse --show-toplevel":
-		return b.root, nil
+		return b.root, true
+	case "rev-parse --path-format=absolute --git-common-dir":
+		return "/primary/.git", true
+	case "worktree list --porcelain":
+		return "worktree /primary\nHEAD merge-commit\nbranch refs/heads/main\n\n" +
+			"worktree /primary-worktrees/issue-13\nHEAD evaluated-head\nbranch refs/heads/agent/issue-13\n", true
+	case "-C /primary rev-parse --path-format=absolute --git-dir":
+		return "/primary/.git", true
+	case "-C /primary-worktrees/issue-13 rev-parse --path-format=absolute --git-dir":
+		return "/primary/.git/worktrees/issue-13", true
+	case "-C /primary-worktrees/issue-13 status --porcelain=v1 --untracked-files=all --ignore-submodules=none":
+		return "", true
+	case "status --porcelain=v1 --untracked-files=all --ignore-submodules=none":
+		return "", true
 	case "branch --show-current":
-		return b.branch, nil
+		if dir == "/primary" {
+			return "main", true
+		}
+		return b.branch, true
+	case "fetch origin main":
+		return "", true
+	case "rev-parse origin/main":
+		return "merge-commit", true
+	case "rev-list --left-right --count HEAD...origin/main":
+		return "0 0", true
+	case "merge-base --is-ancestor merge-commit merge-commit":
+		return "", true
+	case "submodule update --init --recursive", "submodule status --recursive", "submodule foreach --recursive --quiet git status --porcelain=v1 --untracked-files=all":
+		return "", true
+	case "merge --ff-only origin/main":
+		return "", true
+	case "worktree remove /primary-worktrees/issue-13":
+		return "", true
+	case "ls-remote --heads origin refs/heads/agent/issue-13":
+		return "evaluated-head refs/heads/agent/issue-13", true
+	case "push --force-with-lease=refs/heads/agent/issue-13:evaluated-head origin :refs/heads/agent/issue-13":
+		return "", true
+	case "for-each-ref --format=%(objectname) refs/remotes/origin/agent/issue-13", "for-each-ref --format=%(objectname) refs/heads/agent/issue-13":
+		return "evaluated-head", true
+	case "update-ref -d refs/remotes/origin/agent/issue-13 evaluated-head", "update-ref -d refs/heads/agent/issue-13 evaluated-head":
+		return "", true
+	default:
+		return "", false
+	}
+}
+
+func (b *workflowBackend) executeGitClaim(dir, command string) (string, error) {
+	switch command {
 	case "fetch origin refs/heads/agent/issue-13:refs/remotes/origin/agent/issue-13":
 		return "", nil
 	case "rev-parse HEAD", "rev-parse origin/agent/issue-13":
@@ -460,7 +516,7 @@ func (b *workflowBackend) executeGit(args []string) (string, error) {
 	case "log --format=%x00%B%x00 origin/main.." + b.head:
 		return b.workCommitLog, nil
 	default:
-		return "", fmt.Errorf("unexpected git command: %s", strings.Join(args, " "))
+		return "", fmt.Errorf("unexpected git command: %s in %s", command, dir)
 	}
 }
 

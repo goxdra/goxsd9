@@ -9,10 +9,9 @@ Complete packet; do not stop at planning/PR.
 
 ## Control plane
 
-Root owns claim/lease, decomposition/handoffs, push/audit/challenge/merge.
-It does not repeat delegated research/source inspection/implementation/test
-diagnosis. Branch/worktree, issue/PR, files, and handoffs are shared memory;
-transcript is not.
+Root owns claim/lease, decomposition/handoffs, push/audit/challenge/merge; it
+does not repeat delegated research/source/test work. Branch/worktree, issue/PR,
+files, and handoffs are shared memory; transcript is not.
 
 Every child uses its exact role from `.codex/agents/`, `fork_turns: "none"`,
 and task-local context. Scribe and Mason are the
@@ -22,14 +21,16 @@ routine tests and remediation. Root writing requires a narrow, demonstrably
 mechanical exemption recorded in the handoff. Curator is fresh per managed
 document head; Examiner is fresh and challenge-bound per review round.
 
-Every child handoff MUST be concise and state decisions, evidence locations, risks, required
-next actions; Smith names changed paths/tests. Preserve
-Curator/Examiner JSON byte-for-byte.
+Every child handoff MUST state decisions, evidence locations, risks, required next actions;
+Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
 
 ## Protocol
 
-1. From the coordination checkout, read `AGENTS.md`, then run `go tool
-   workflowctl doctor`, `go tool workflowctl sync`, and `go tool workflowctl pick`.
+1. From the coordination checkout, read `AGENTS.md`, then run `go tool workflowctl doctor`.
+   It requires this canonical primary on clean `main` equal to freshly fetched
+   `origin/main`, with recursive pins ready. For stale/noncanonical launch, run
+   `go tool workflowctl base-sync` there, rerun doctor, then `sync` (Project only)
+   and `pick`.
 2. Claim the issue with `go tool workflowctl claim acquire ISSUE`. If claim
    loses, no edit/push/reuse or Project status change; pick again; use worktree.
 3. Read the issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md`
@@ -53,56 +54,46 @@ Curator/Examiner JSON byte-for-byte.
    `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`; describe
    outcome, consultation, verification, conformance, and every packet issue.
 9. On every pushed head run `go tool workflowctl docs audit --base origin/main`.
-   For each managed-document head, give exact audit, diff, paths, charters,
-   and head to a fresh read-only Curator. It checks placement, relevance,
-   duplication, historical narration, and replacement; deletion is not
-   improvement. Preserve existing JSON contract (`runID`, `head`, `verdict`,
-   `summary`, `findings`); `revise` findings add `path`, `reason`, and
-   `requiredChange`. Repeat audit and Curator after every remediation push; a
-   managed-document head never qualifies for exemption.
-10. Run `go tool workflowctl evaluation challenge PR`. Give only its challenge,
-    issue/PR state, tests, exact audit, Curator result or
-    exemption, attestation shape, and eval rubric to a fresh read-only Examiner
-    using Luna at maximum effort. Examiner inspects source, reruns the audit,
-    rejects stale/missing Curator evidence, and returns the existing
+   Managed-document heads require a fresh read-only Curator with exact audit,
+   diff, paths, charters, and head. Curator checks placement, relevance,
+   duplication, history, and replacement; deletion is not improvement. Preserve
+   JSON (`runID`, `head`, `verdict`, `summary`, `findings`; revise adds path,
+   reason, requiredChange). Repeat after each remediation; no exemption.
+10. Run `go tool workflowctl evaluation challenge PR` and give its challenge,
+    PR state, tests, audit, Curator result/exemption, attestation shape, and
+    rubric to a fresh Examiner using Luna. Examiner inspects source, reruns the
+    audit, rejects stale/missing Curator evidence, and returns the existing
     `goxsd9/examiner-attestation/v1` JSON. Copy it byte-for-byte outside the
-    repository; pass: `{"schema":"goxsd9/examiner-attestation/v1","challenge":"run-...","evaluator":"Examiner","runID":"fresh-agent-task-id","pullRequest":11,"head":"exact-head-sha","verdict":"pass","summary":"No blocking findings.","findings":[]}`. Failure fields: location/impact/requiredCorrection. Record with `workflowctl evaluation record PR
-    --attestation-file FILE`; never choose
-    or rewrite verdict. On failure, Smith fixes every finding, then check,
-    push, then fresh Curator for managed changes, challenge, and spawn a
-    fresh Examiner. After three failed rounds,
-    mark issue `needs-human` and hand off evidence.
-11. On a matching-head pass, write a separate plain-text summary outside the
-    repository for future development, backlog, and retrospective workflows;
-    cover problem, outcome, rationale, and consequential decisions.
-    Keep workflow evidence/metadata in existing records; never copy/parse PR
-    Markdown into the squash body. Omit status, commands, and review metadata.
-    Run
-    `go tool workflowctl pr finish PR --summary-file FILE`, which verifies the
-    artifact, claim, checks, evaluation, and head before SHA-bound REST squash
-    merge. If draft-to-ready GraphQL fails, close preserved draft, make the
-    identical-head ready REST replacement, repeat challenge/Examiner, then SHA-bound REST squash-merge it.
+    repository and record it with `workflowctl evaluation record PR`; never
+    choose or rewrite the verdict. On failure, Smith fixes findings, checks,
+    pushes, and repeats Curator/challenge/Examiner. Three failed rounds mark
+    `needs-human` and hand off evidence.
+11. On a matching-head pass, write a plain-text summary outside the repository
+    covering problem, outcome, rationale, and decisions; keep metadata in records
+    and omit status, commands, and review metadata. `pr finish` verifies the
+    packet before SHA-bound squash, converges canonical base, and cleans only
+    exact proof-backed refs, clean claim worktrees, and expected-SHA branches.
+    If convergence or cleanup fails, the merge is complete: preserve artifacts
+    and run idempotent `go tool workflowctl pr recover PR`. Use `claim prune
+    ISSUE` only with merged proof. If draft replacement is needed, close the
+    draft, create its identical-head ready PR, and repeat challenge/Examiner.
 
 ## Waiting and pilot
 
-Waits are logical barriers. Poll/status timeouts are observational only: never
-narrow, interrupt, pressure, spawn a second writer, or duplicate work after
-polls. Keep waiting while child activity continues and its deadline permits
-renewal; do not wake or poll solely to renew. Follow up only for
-incomplete/ambiguous handoffs or explicit bounded input. Interrupt/recover only
-for explicit failure/cancellation, invalid scope, or inability to renew. Timing
-is guidance, not an OpenAI runtime guarantee.
+Waits are logical barriers; polls are observational: never narrow, interrupt,
+pressure, spawn a writer, or duplicate work. Keep waiting while child activity
+permits renewal; never wake solely to renew. Follow up only for incomplete or
+ambiguous handoffs or bounded input. Interrupt only for failure/cancellation,
+invalid scope, or inability to renew. Timing is guidance, not a runtime guarantee.
 
 For three packets (mechanical, specification-heavy, remediation), record
-aggregate root compactions, peak context, output volume, elapsed time, Examiner
-rounds/verdict, and quality for diagnostics, tests, docs, and review. Target
-zero normal-packet compactions and under 50% effective root context before review
-as optimization signals only; quality must not regress. Never require
-undocumented `~/.codex/sessions` or CI/merge telemetry.
-
+aggregate compactions, peak context, output, elapsed time, Examiner rounds/
+verdict, and quality for diagnostics, tests, docs, and review. Zero compactions
+and under 50% context are optimization signals; quality must not regress. Never
+require undocumented `~/.codex/sessions` or CI/merge telemetry.
 ## Failure behavior
 
-- Retry transient operations with bounded backoff. Three failed recoveries make
+- Retry transient operations with bounded backoff; three failed recoveries make
   a located, actionable `needs-human` handoff.
 - Leave incomplete branches/worktrees recoverable. Never force-push over an
   active claim or bypass a required check.

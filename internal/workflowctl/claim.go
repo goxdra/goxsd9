@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +15,7 @@ const (
 
 func (a app) runClaim(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl claim acquire ISSUE | renew | verify")
+		return usageError("usage: workflowctl claim acquire ISSUE | renew | verify | prune ISSUE")
 	}
 	switch args[0] {
 	case "acquire":
@@ -38,6 +37,8 @@ func (a app) runClaim(args []string) error {
 			return usageError("usage: workflowctl claim verify")
 		}
 		return a.verifyClaim()
+	case "prune":
+		return a.pruneHistoricalClaimsCommand(args[1:])
 	default:
 		return usageError("unknown claim command %q", args[0])
 	}
@@ -47,6 +48,9 @@ func (a app) acquireClaim(number int) error {
 	root, err := a.root()
 	if err != nil {
 		return err
+	}
+	if _, launchErr := a.checkDevelopLaunch(root); launchErr != nil {
+		return launchErr
 	}
 	if clearErr := a.clearStaleClaims(root, number); clearErr != nil {
 		return clearErr
@@ -211,14 +215,11 @@ func randomRunID() (string, error) {
 }
 
 func (a app) addClaimWorktree(root, branch string) (string, error) {
-	common, err := a.command(root, "git", "rev-parse", "--path-format=absolute", "--git-common-dir")
+	layout, err := a.repositoryLayout(root)
 	if err != nil {
-		return "", fmt.Errorf("find coordination checkout: %w", err)
+		return "", err
 	}
-	primary := filepath.Dir(common)
-	worktrees := primary + "-worktrees"
-	name := strings.ReplaceAll(strings.TrimPrefix(branch, "agent/"), "/", "-")
-	path := filepath.Join(worktrees, name)
+	path := claimWorktreePath(layout.primaryRoot, branch)
 	if _, err := a.command(root, "git", "worktree", "add", "-b", branch, path, "origin/"+branch); err != nil {
 		return "", fmt.Errorf("create claim worktree: %w", err)
 	}

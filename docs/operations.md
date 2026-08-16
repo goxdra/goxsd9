@@ -10,49 +10,50 @@ is the operator contract.
 | Backlog | 10:00 daily | Sol, maximum effort | `Run $backlog for this repository.` |
 | Retro | 12:00 Sunday | Sol, maximum effort | `Run $retro for this repository.` |
 
-Jobs are non-interactive. Develop claims one unblocked Ready issue on
-`agent/issue-N`, uses its worktree, opens a draft PR, and squash-merges only the
-evaluated head after checks pass. At most one claimed companion issue is allowed.
-Every pushed head containing a managed-document change receives the exact docs
-audit and a fresh read-only Curator review; repeat both after each remediation
-push. Examiner remains the authenticated gate.
+Jobs are non-interactive. Develop starts only from the canonical primary on a
+clean `main` exactly equal to freshly fetched `origin/main`, with recursive
+pinned submodules ready. `doctor` enforces this; stale/linked launches recover
+with `go tool workflowctl base-sync` there, then relaunch. Develop claims one
+Ready issue, uses its worktree, opens a draft PR, and squash-merges only the
+evaluated head; one companion is allowed. Managed-document pushes get the exact
+docs audit and fresh Curator review after every remediation; Examiner is the gate.
 
-Claims have a four-hour deadline after issuance. Renew at durable workflow
-boundaries when remaining time requires it, including before pushes; never
-wake or poll solely to renew. For an expired claim without an open PR,
-`workflowctl` archives its tip under `agent/archive/` before reassignment. Open
-PRs require a `needs-human` handoff.
+Claims have a four-hour deadline. Renew at durable boundaries, including before
+pushes; never wake solely to renew. Expired claims without open PRs are archived
+under `agent/archive/`; open PRs require a `needs-human` handoff.
 
-Three failed evaluation rounds add `needs-human` and return the issue to
-Backlog. Transient commands use bounded retries as directed by the skill;
-successful runs continue through merge rather than stopping for approval.
+Three failed evaluation rounds add `needs-human` and return the issue to Backlog.
+Transient commands use bounded retries; successful runs continue through merge.
 
-Before each fresh Examiner, `workflowctl evaluation challenge` records a one-use
-challenge bound to the PR head. Examiner returns a versioned JSON attestation;
-`workflowctl` derives its verdict and rejects wrong-head, stale, reused,
-malformed, or caller-selected results. The scheduler supplies fresh context.
-Shared GitHub credentials make the receipt process evidence, not identity proof.
+`go tool workflowctl sync` is GitHub Project-only. `base-sync` fetches
+`origin/main`, fast-forwards clean canonical `main`, and updates/checks
+recursive pins without reset, rebase, stash, or discard.
 
-The guarded squash merge uses GitHub REST with the evaluated head SHA. If
-draft-to-ready GraphQL is unavailable, `workflowctl` closes the draft and creates
-an identical-head ready PR through REST; it needs a new challenge and Examiner.
-Failed post-merge Project updates converge on the next `workflowctl sync`.
+Before each fresh Examiner, `evaluation challenge` records a one-use head-bound
+challenge. The Examiner returns versioned JSON; `workflowctl` rejects wrong-head,
+stale, reused, malformed, or caller-selected results. Fresh context is required;
+shared credentials make receipts evidence, not identity proof.
 
-The GitHub issue, claim ref, PR checks, challenge, evaluation attestation,
-receipt, and merge commit are the communication record. At finalization the
-agent writes a plain-text summary file outside the repository and passes it to
-`workflowctl pr finish PR --summary-file FILE`. It covers the problem, outcome,
-rationale, important invariants, and actionable process learning while omitting
-status, commands, and claim or review metadata. The command validates artifact
-hygiene and uses it as the squash body; the develop and evaluation procedures
-own semantic completeness.
-Later develop, backlog, and retro runs read it through `workflowctl history`. Use
-Markdown body files for issue, handoff, and PR evidence so line breaks remain intact.
+The guarded REST squash merge uses the evaluated head SHA. After GitHub returns
+the merge SHA, `pr finish` runs the same base-sync and removes only exact-head
+remote refs, clean uniquely registered claim worktrees, and expected-SHA local
+branches. Because squash drops topic ancestry, cleanup uses captured packet
+proof. Failure reports the completed merge, preserves artifacts, and names
+idempotent `go tool workflowctl pr recover PR`; `claim prune ISSUE` requires
+merged proof.
 
-The summary artifact contract is UTF-8 plain text in a regular file of at most
-8 KiB. LF is the only permitted line separator; one final LF is accepted and
-removed. Content must be non-empty, must not start or end with whitespace, and
-no line may have trailing Unicode whitespace. Control characters, Unicode format
-controls, Unicode line or paragraph separators, and generated `Agent-Persona:`,
-`Agent-Run-ID:`, `Agent-Lease-Until:`, or `Agent-Issue:` trailers are rejected.
-Markdown punctuation has no special meaning in this artifact.
+If draft-to-ready GraphQL is unavailable, close the draft and create an
+identical-head ready PR through REST, then obtain a new challenge and Examiner.
+Post-merge Project failures converge on the next `workflowctl sync`.
+
+The GitHub issue, claim ref, checks, challenge, attestation, receipt, and merge
+commit are the communication record. At finalization, pass a plain-text summary
+outside the repository to `workflowctl pr finish PR --summary-file FILE`; it covers
+problem, outcome, rationale, invariants, and process learning, omitting status,
+commands, and claim/review metadata. The command validates it as the squash body;
+later runs read it through `workflowctl history`. Use Markdown body files for evidence.
+
+The summary is UTF-8 plain text in a regular file of at most 8 KiB, LF-only (one
+final LF accepted), non-empty, and without leading/trailing or line-trailing
+whitespace. Control/format/line-separator characters and generated claim trailers
+are rejected; Markdown punctuation has no special meaning.
