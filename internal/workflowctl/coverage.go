@@ -169,8 +169,9 @@ func (a app) buildCoverageReport(root, baseRef string) (report coverageReport, e
 		err = joinCoverageErrors(err, cleanupErr)
 	}()
 
-	if err := a.addCoverageWorktree(root, baseRoot, base); err != nil {
-		return coverageReport{}, err
+	addErr := a.addCoverageWorktree(root, baseRoot, base)
+	if addErr != nil {
+		return coverageReport{}, addErr
 	}
 	worktreeAdded = true
 	baseSnapshot, err := a.coverageSnapshot(baseRoot, filepath.Join(temporaryRoot, "base.cover"), "base")
@@ -252,9 +253,10 @@ func (a app) coverageSnapshot(directory, profilePath, side string) (coverageSnap
 	if err != nil {
 		return coverageSnapshot{}, err
 	}
-	if _, err := a.commandWithEnv(directory, coverageGoEnvironment, "go", "test", "-count=1", "-covermode=set",
-		"-coverpkg=./...", "-coverprofile="+profilePath, "./..."); err != nil {
-		return coverageSnapshot{}, fmt.Errorf("run %s coverage tests: %w", side, err)
+	_, testErr := a.commandWithEnv(directory, coverageGoEnvironment, "go", "test", "-count=1", "-covermode=set",
+		"-coverpkg=./...", "-coverprofile="+profilePath, "./...")
+	if testErr != nil {
+		return coverageSnapshot{}, fmt.Errorf("run %s coverage tests: %w", side, testErr)
 	}
 	counts, err := readCoverageProfile(profilePath, packages.paths)
 	if err != nil {
@@ -268,34 +270,28 @@ func (a app) listCoveragePackages(directory, side string) (coverageSnapshot, err
 	if err != nil {
 		return coverageSnapshot{}, fmt.Errorf("list %s Go packages: %w", side, err)
 	}
+	return parseCoveragePackageList(output, directory, side)
+}
+
+func parseCoveragePackageList(output, directory, side string) (coverageSnapshot, error) {
 	decoder := json.NewDecoder(strings.NewReader(output))
 	packages := make(map[string]coverageGoPackage)
 	for {
-		var listed goListCoveragePackage
-		decodeErr := decoder.Decode(&listed)
-		if errors.Is(decodeErr, io.EOF) {
+		listed, done, decodeErr := decodeCoveragePackage(decoder)
+		if done {
 			break
 		}
 		if decodeErr != nil {
 			return coverageSnapshot{}, fmt.Errorf("decode %s Go package list: %w", side, decodeErr)
 		}
-		if listed.ImportPath == "" || listed.Dir == "" {
-			return coverageSnapshot{}, fmt.Errorf("decode %s Go package list: missing package path or directory", side)
+		packageInfo, packageErr := makeCoverageGoPackage(directory, side, listed)
+		if packageErr != nil {
+			return coverageSnapshot{}, packageErr
 		}
-		if _, exists := packages[listed.ImportPath]; exists {
-			return coverageSnapshot{}, fmt.Errorf("decode %s Go package list: duplicate package %q", side, listed.ImportPath)
+		if _, exists := packages[packageInfo.path]; exists {
+			return coverageSnapshot{}, fmt.Errorf("decode %s Go package list: duplicate package %q", side, packageInfo.path)
 		}
-		relativeDir, relErr := filepath.Rel(directory, listed.Dir)
-		if relErr != nil {
-			return coverageSnapshot{}, fmt.Errorf("resolve %s package %q directory: %w", side, listed.ImportPath, relErr)
-		}
-		if relativeDir == ".." || strings.HasPrefix(relativeDir, ".."+string(filepath.Separator)) {
-			return coverageSnapshot{}, fmt.Errorf("%s package %q is outside its checkout", side, listed.ImportPath)
-		}
-		packages[listed.ImportPath] = coverageGoPackage{
-			path: listed.ImportPath, relativeDir: filepath.ToSlash(relativeDir),
-			hasTests: len(listed.TestGoFiles) != 0 || len(listed.XTestGoFiles) != 0,
-		}
+		packages[packageInfo.path] = packageInfo
 	}
 	if len(packages) == 0 {
 		return coverageSnapshot{}, fmt.Errorf("list %s Go packages: no packages found", side)
@@ -308,7 +304,34 @@ func (a app) listCoveragePackages(directory, side string) (coverageSnapshot, err
 	return coverageSnapshot{packages: packages, paths: paths}, nil
 }
 
+func decodeCoveragePackage(decoder *json.Decoder) (goListCoveragePackage, bool, error) {
+	var listed goListCoveragePackage
+	err := decoder.Decode(&listed)
+	if errors.Is(err, io.EOF) {
+		return goListCoveragePackage{}, true, nil
+	}
+	return listed, false, err
+}
+
+func makeCoverageGoPackage(directory, side string, listed goListCoveragePackage) (coverageGoPackage, error) {
+	if listed.ImportPath == "" || listed.Dir == "" {
+		return coverageGoPackage{}, fmt.Errorf("decode %s Go package list: missing package path or directory", side)
+	}
+	relativeDir, err := filepath.Rel(directory, listed.Dir)
+	if err != nil {
+		return coverageGoPackage{}, fmt.Errorf("resolve %s package %q directory: %w", side, listed.ImportPath, err)
+	}
+	if relativeDir == ".." || strings.HasPrefix(relativeDir, ".."+string(filepath.Separator)) {
+		return coverageGoPackage{}, fmt.Errorf("%s package %q is outside its checkout", side, listed.ImportPath)
+	}
+	return coverageGoPackage{
+		path: listed.ImportPath, relativeDir: filepath.ToSlash(relativeDir),
+		hasTests: len(listed.TestGoFiles) != 0 || len(listed.XTestGoFiles) != 0,
+	}, nil
+}
+
 func readCoverageProfile(profilePath string, packagePaths []string) (counts map[string]coverageCounts, err error) {
+	// #nosec G304 -- profilePath is generated inside a private temporary directory.
 	file, err := os.Open(profilePath)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", profilePath, err)
@@ -318,62 +341,49 @@ func readCoverageProfile(profilePath string, packagePaths []string) (counts map[
 		err = joinCoverageErrors(err, closeErr)
 	}()
 
-	counts = make(map[string]coverageCounts)
-	seenBlocks := make(map[string]coverageBlock)
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	lineNumber := 0
+	if err := readCoverageHeader(scanner); err != nil {
+		return nil, err
+	}
+	return readCoverageBlocks(scanner, packagePaths)
+}
+
+func readCoverageHeader(scanner *bufio.Scanner) error {
 	if !scanner.Scan() {
-		if scanErr := scanner.Err(); scanErr != nil {
-			return nil, fmt.Errorf("scan profile: %w", scanErr)
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("scan profile: %w", err)
 		}
-		return nil, errors.New("coverage profile is empty")
+		return errors.New("coverage profile is empty")
 	}
-	lineNumber++
-	mode := strings.TrimSpace(strings.TrimPrefix(scanner.Text(), "mode:"))
-	if !strings.HasPrefix(scanner.Text(), "mode:") || mode == "" {
-		return nil, fmt.Errorf("line %d: missing coverage mode", lineNumber)
+	line := scanner.Text()
+	mode := strings.TrimSpace(strings.TrimPrefix(line, "mode:"))
+	if !strings.HasPrefix(line, "mode:") || mode == "" {
+		return errors.New("line 1: missing coverage mode")
 	}
+	return nil
+}
+
+func readCoverageBlocks(scanner *bufio.Scanner, packagePaths []string) (map[string]coverageCounts, error) {
+	counts := make(map[string]coverageCounts)
+	seenBlocks := make(map[string]coverageBlock)
+	lineNumber := 1
 	for scanner.Scan() {
 		lineNumber++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		packagePath, block, parseErr := parseCoverageBlock(line, packagePaths)
-		if parseErr != nil {
-			return nil, fmt.Errorf("line %d: %w", lineNumber, parseErr)
+		packagePath, block, err := parseCoverageBlock(line, packagePaths)
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", lineNumber, err)
 		}
-		previous, seen := seenBlocks[block.key]
-		if seen {
-			if previous.covered != 0 || block.covered == 0 {
-				continue
-			}
-			seenBlocks[block.key] = block
-			current := counts[packagePath]
-			if block.statements > maxCoverageInt()-current.covered {
-				return nil, fmt.Errorf("line %d: covered count overflows int", lineNumber)
-			}
-			current.covered += block.statements
-			counts[packagePath] = current
-			continue
+		if err := addCoverageBlock(counts, seenBlocks, packagePath, block, lineNumber); err != nil {
+			return nil, err
 		}
-		seenBlocks[block.key] = block
-		current := counts[packagePath]
-		if block.statements > maxCoverageInt()-current.statements {
-			return nil, fmt.Errorf("line %d: statement count overflows int", lineNumber)
-		}
-		current.statements += block.statements
-		if block.covered != 0 {
-			if block.statements > maxCoverageInt()-current.covered {
-				return nil, fmt.Errorf("line %d: covered count overflows int", lineNumber)
-			}
-			current.covered += block.statements
-		}
-		counts[packagePath] = current
 	}
-	if scanErr := scanner.Err(); scanErr != nil {
-		return nil, fmt.Errorf("scan profile: %w", scanErr)
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan profile: %w", err)
 	}
 	for _, packagePath := range packagePaths {
 		current := counts[packagePath]
@@ -382,6 +392,41 @@ func readCoverageProfile(profilePath string, packagePaths []string) (counts map[
 		}
 	}
 	return counts, nil
+}
+
+func addCoverageBlock(counts map[string]coverageCounts, seenBlocks map[string]coverageBlock,
+	packagePath string, block coverageBlock, lineNumber int,
+) error {
+	previous, seen := seenBlocks[block.key]
+	if seen {
+		if previous.covered != 0 || block.covered == 0 {
+			return nil
+		}
+		seenBlocks[block.key] = block
+		current := counts[packagePath]
+		if block.statements > maxCoverageInt()-current.covered {
+			return fmt.Errorf("line %d: covered count overflows int", lineNumber)
+		}
+		current.covered += block.statements
+		counts[packagePath] = current
+		return nil
+	}
+	seenBlocks[block.key] = block
+	current := counts[packagePath]
+	if block.statements > maxCoverageInt()-current.statements {
+		return fmt.Errorf("line %d: statement count overflows int", lineNumber)
+	}
+	current.statements += block.statements
+	if block.covered == 0 {
+		counts[packagePath] = current
+		return nil
+	}
+	if block.statements > maxCoverageInt()-current.covered {
+		return fmt.Errorf("line %d: covered count overflows int", lineNumber)
+	}
+	current.covered += block.statements
+	counts[packagePath] = current
+	return nil
 }
 
 type coverageBlock struct {

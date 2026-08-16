@@ -224,7 +224,7 @@ func TestRunCoverageReturnsTestAndCleanupFailures(t *testing.T) {
 				return "", fmt.Errorf("unexpected git command in %s: %s", dir, command)
 			}
 		},
-		executeCommandWithEnv: func(dir string, env []string, _ io.Reader, name string, args ...string) (string, error) {
+		executeCommandWithEnv: func(dir string, _ []string, _ io.Reader, name string, args ...string) (string, error) {
 			calls = append(calls, name+" "+strings.Join(args, " "))
 			if name != "go" || len(args) == 0 {
 				return "", fmt.Errorf("unexpected environment command %s", name)
