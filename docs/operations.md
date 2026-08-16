@@ -18,8 +18,8 @@ Ready issue, uses its worktree, opens a draft PR, and squash-merges only the
 evaluated head; one companion is allowed. Managed-document pushes get the exact
 docs audit and fresh Curator review after every remediation; Examiner is the gate.
 
-Claims have a four-hour deadline. Renew at durable boundaries, including before
-pushes; never wake solely to renew. Expired claims without open PRs are archived
+Claims have a four-hour deadline after issuance. Renew at durable boundaries,
+including before pushes; never wake solely to renew. Expired claims without open PRs are archived
 under `agent/archive/`; open PRs require a `needs-human` handoff.
 
 Three failed evaluation rounds add `needs-human` and return the issue to Backlog.

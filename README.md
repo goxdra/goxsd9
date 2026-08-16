@@ -40,22 +40,19 @@ go tool specs search -id xsd11-structures -query "content model"
 
 `specs build` reads `specs/manifest.json`, verifies the raw HTTPS response against
 its SHA-256 digest, converts the declared representation, and writes Markdown/XSD
-and a compact index. Use `-root`, `-output`, or `-index PATH` for alternate locations.
+and a compact index.
+Use `-root PATH` with either command to select a repository; `specs build` uses
+`-output PATH` for generated artifacts, while `specs search` uses `-index PATH`
+for an existing index.
 
 ## Project workflow
 
 Executable work lives in [GitHub Issues](https://github.com/goxdra/goxsd9/issues)
 and the [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1). Agents use
 worktrees, atomic claims, and the checked-in `develop`, `backlog`, and `retro`
-skills. Develop must launch from the canonical primary on clean `main` equal to
-fresh `origin/main`, with recursive pins ready; `doctor` gates it and
-`base-sync` recovers it. See [scheduled operations](docs/operations.md).
-Commit subjects and PR titles follow [AGENTS.md](AGENTS.md); `workflowctl`
-validates them. `sync` is GitHub Project-only; `base-sync` fast-forwards clean
-canonical `main` without reset, rebase, stash, or discard. After squash merge,
-`pr finish` converges base and removes proof-backed claims; use `go tool
-workflowctl pr recover PR` for idempotent recovery or `claim prune ISSUE` only
-with merged proof.
+skills. See [scheduled operations](docs/operations.md) for the workflowctl
+operator contract. Commit subjects and PR titles follow [AGENTS.md](AGENTS.md);
+`workflowctl` validates them.
 
 ## Test data licensing
 

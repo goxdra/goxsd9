@@ -10,8 +10,9 @@ Complete packet; do not stop at planning/PR.
 ## Control plane
 
 Root owns claim/lease, decomposition/handoffs, push/audit/challenge/merge; it
-does not repeat delegated research/source/test work. Branch/worktree, issue/PR,
-files, and handoffs are shared memory; transcript is not.
+does not repeat delegated research, source inspection, implementation, or test
+diagnosis. Branch/worktree, issue/PR, files, and handoffs are shared memory;
+transcript is not.
 
 Every child uses its exact role from `.codex/agents/`, `fork_turns: "none"`,
 and task-local context. Scribe and Mason are the
@@ -21,7 +22,7 @@ routine tests and remediation. Root writing requires a narrow, demonstrably
 mechanical exemption recorded in the handoff. Curator is fresh per managed
 document head; Examiner is fresh and challenge-bound per review round.
 
-Every child handoff MUST state decisions, evidence locations, risks, required next actions;
+Every child handoff MUST be concise and state decisions, evidence locations, risks, required next actions;
 Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
 
 ## Protocol
@@ -62,12 +63,15 @@ Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
 10. Run `go tool workflowctl evaluation challenge PR` and give its challenge,
     PR state, tests, audit, Curator result/exemption, attestation shape, and
     rubric to a fresh Examiner using Luna. Examiner inspects source, reruns the
-    audit, rejects stale/missing Curator evidence, and returns the existing
-    `goxsd9/examiner-attestation/v1` JSON. Copy it byte-for-byte outside the
-    repository and record it with `workflowctl evaluation record PR`; never
-    choose or rewrite the verdict. On failure, Smith fixes findings, checks,
-    pushes, and repeats Curator/challenge/Examiner. Three failed rounds mark
-    `needs-human` and hand off evidence.
+    audit, rejects stale/missing Curator evidence, and returns exact
+    `goxsd9/examiner-attestation/v1` JSON with `schema`, `challenge`, `evaluator`,
+    `runID`, `pullRequest`, `head`, `verdict`, `summary`, and `findings`; failure
+    findings require `location`, `impact`, and `requiredCorrection`. Copy it
+    byte-for-byte outside the repository and record it with `go tool workflowctl
+    evaluation record PR --attestation-file FILE`; never choose or rewrite the
+    verdict. On failure, Smith fixes findings, checks, pushes, and repeats
+    Curator/challenge/Examiner. Three failed rounds mark `needs-human` and hand
+    off evidence.
 11. On a matching-head pass, write a plain-text summary outside the repository
     covering problem, outcome, rationale, and decisions; keep metadata in records
     and omit status, commands, and review metadata. `pr finish` verifies the
