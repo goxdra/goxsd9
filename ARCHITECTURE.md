@@ -83,6 +83,18 @@ and identities. Walk methods guarantee document-discovery order followed by
 lexical declaration order; specification-defined unordered sets use documented
 stable sorting.
 
+The schema skeleton exposes `Schema`, `SchemaDocument`, `Component`,
+`ComponentID`, and expanded `QName` values. A schema stores documents in
+identity-discovery order (the root document first, followed by resolver queue
+order) and named schema-level declarations in lexical declaration order within
+each document. `Components`, `Documents`, `Find`, and `Walk` preserve that
+order; returned slices are copies. Component IDs combine a resolver source
+identity with a one-based declaration ordinal, while lookup maps are private
+indexes and never define observable order. Local particle components will be
+walked through a separate scoped model. The schema stores only component facts
+and lookup indexes, leaving validator and code-generator structures to be
+calculated on demand.
+
 The model stores fundamental facts, not redundant flags. For example, primitive
 status is derived from the type relation rather than stored separately.
 
