@@ -191,6 +191,36 @@ func TestXHTMLRenderingPreservesNavigationAndIndexesFragments(t *testing.T) {
 	}
 }
 
+func TestLegacyW3CHTMLRenderingRepairsVoidElementsAndEntities(t *testing.T) {
+	fixture := []byte(`<!doctype html public '-//W3C//DTD HTML 4.0 Transitional//EN' 'http://www.w3.org/TR/REC-html40-971218/loose.dtd'><HTML><HEAD><link rel='STYLESHEET' type='text/css' href='xml.css'><meta http-equiv='Content-Type' content='text/html; charset=ISO-8859-1'><TITLE>ignored</TITLE></HEAD><BODY><P>Gr&uuml;&szlig; &Eacute; &auml; &ccedil; &eacute; &euml; &uuml; &amp;<!-- comment with > --><BR>Next</P></BODY></HTML>`)
+	rendered, err := renderHTML("https://www.w3.org/TR/1999/REC-xml-names-19990114/", fixture)
+	if err != nil {
+		t.Fatalf("renderHTML() error = %v", err)
+	}
+	output := string(rendered.data)
+	if !strings.Contains(output, "Grüß É ä ç é ë ü &") {
+		t.Fatalf("rendered output lost legacy HTML entities: %s", output)
+	}
+	if !strings.Contains(output, "Next") {
+		t.Fatalf("rendered output lost content after a void element: %s", output)
+	}
+}
+
+func TestLegacyW3CHTMLRenderingRepairsLatin1AndMismatchedClosings(t *testing.T) {
+	fixture := []byte("<HTML><HEAD><meta http-equiv='Content-Type' content='text/html; charset=ISO-8859-1'></HEAD><BODY><DL><DT>Editors</DT><DD>caf\xe9</DL><P>After the list</P></BODY></HTML>")
+	rendered, err := renderHTML("https://www.w3.org/TR/2001/REC-xmlbase-20010627/", fixture)
+	if err != nil {
+		t.Fatalf("renderHTML() error = %v", err)
+	}
+	output := string(rendered.data)
+	if !strings.Contains(output, "café") {
+		t.Fatalf("rendered output lost ISO-8859-1 text: %s", output)
+	}
+	if !strings.Contains(output, "After the list") {
+		t.Fatalf("rendered output lost content after mismatched closing tags: %s", output)
+	}
+}
+
 func TestWritePublishesDeterministicArtifacts(t *testing.T) {
 	outputDir := t.TempDir()
 	document := Document{

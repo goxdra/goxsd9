@@ -681,7 +681,11 @@ func targetMarkup(node *htmlNode) string {
 }
 
 func parseHTML(data []byte) (*htmlNode, error) {
-	decoder := xmlDecoder(bytes.NewReader(data))
+	decoded, err := normalizeHTMLCharset(data)
+	if err != nil {
+		return nil, err
+	}
+	decoder := xmlDecoder(bytes.NewReader(repairHTMLTags(decoded)))
 	root := &htmlNode{name: "#root"}
 	stack := []*htmlNode{root}
 	for {
@@ -714,6 +718,172 @@ func parseHTML(data []byte) (*htmlNode, error) {
 	return root, nil
 }
 
+var htmlVoidElements = map[string]struct{}{
+	"area":   {},
+	"base":   {},
+	"br":     {},
+	"col":    {},
+	"embed":  {},
+	"hr":     {},
+	"img":    {},
+	"input":  {},
+	"link":   {},
+	"meta":   {},
+	"param":  {},
+	"source": {},
+	"track":  {},
+	"wbr":    {},
+}
+
+type htmlOpenElement struct {
+	name        string
+	closingName string
+}
+
+func repairHTMLTags(data []byte) []byte {
+	output := make([]byte, 0, len(data))
+	stack := make([]htmlOpenElement, 0)
+	for index := 0; index < len(data); {
+		if data[index] != '<' {
+			output = append(output, data[index])
+			index++
+			continue
+		}
+		if end, ok := specialHTMLTagEnd(data, index, "<!--", "-->"); ok {
+			output = append(output, data[index:end]...)
+			index = end
+			continue
+		}
+		if end, ok := specialHTMLTagEnd(data, index, "<![CDATA[", "]]>"); ok {
+			output = append(output, data[index:end]...)
+			index = end
+			continue
+		}
+		end, ok := htmlTagEnd(data, index+1)
+		if !ok {
+			output = append(output, data[index:]...)
+			break
+		}
+		name, closingName, closing, ok := htmlTagName(data, index, end)
+		if !ok {
+			output = append(output, data[index:end+1]...)
+			index = end + 1
+			continue
+		}
+		output = appendRepairedHTMLTag(output, data[index:end+1], name, closingName, closing, &stack)
+		index = end + 1
+	}
+	return appendHTMLClosingTags(output, stack)
+}
+
+func htmlTagName(data []byte, start, end int) (string, string, bool, bool) {
+	nameStart := start + 1
+	closing := false
+	if nameStart < end && data[nameStart] == '/' {
+		closing = true
+		nameStart++
+	}
+	nameEnd := nameStart
+	for nameEnd < end && isHTMLTagNameByte(data[nameEnd]) {
+		nameEnd++
+	}
+	if nameEnd == nameStart {
+		return "", "", false, false
+	}
+	closingName := string(data[nameStart:nameEnd])
+	return strings.ToLower(closingName), closingName, closing, true
+}
+
+func appendRepairedHTMLTag(output, raw []byte, name, closingName string, closing bool, stack *[]htmlOpenElement) []byte {
+	_, void := htmlVoidElements[name]
+	if void && closing {
+		return output
+	}
+	if !closing {
+		if void {
+			if hasXMLSelfClosingTag(raw) {
+				return append(output, raw...)
+			}
+			output = append(output, raw[:len(raw)-1]...)
+			return append(output, '/', '>')
+		}
+		if !hasXMLSelfClosingTag(raw) {
+			*stack = append(*stack, htmlOpenElement{name: name, closingName: closingName})
+		}
+		return append(output, raw...)
+	}
+	match := findHTMLOpenElement(*stack, name)
+	if match < 0 {
+		return output
+	}
+	for stackIndex := len(*stack) - 1; stackIndex > match; stackIndex-- {
+		output = append(output, "</"+(*stack)[stackIndex].closingName+">"...)
+	}
+	output = append(output, "</"+(*stack)[match].closingName+">"...)
+	*stack = (*stack)[:match]
+	return output
+}
+
+func findHTMLOpenElement(stack []htmlOpenElement, name string) int {
+	for index := len(stack) - 1; index >= 0; index-- {
+		if stack[index].name == name {
+			return index
+		}
+	}
+	return -1
+}
+
+func appendHTMLClosingTags(output []byte, stack []htmlOpenElement) []byte {
+	for stackIndex := len(stack) - 1; stackIndex >= 0; stackIndex-- {
+		output = append(output, "</"+stack[stackIndex].closingName+">"...)
+	}
+	return output
+}
+
+func specialHTMLTagEnd(data []byte, start int, prefix, suffix string) (int, bool) {
+	if start+len(prefix) > len(data) || !strings.EqualFold(string(data[start:start+len(prefix)]), prefix) {
+		return 0, false
+	}
+	end := bytes.Index(data[start+len(prefix):], []byte(suffix))
+	if end < 0 {
+		return 0, false
+	}
+	return start + len(prefix) + end + len(suffix), true
+}
+
+func htmlTagEnd(data []byte, start int) (int, bool) {
+	quote := byte(0)
+	for index := start; index < len(data); index++ {
+		if quote != 0 {
+			if data[index] == quote {
+				quote = 0
+			}
+			continue
+		}
+		if data[index] == '\'' || data[index] == '"' {
+			quote = data[index]
+			continue
+		}
+		if data[index] == '>' {
+			return index, true
+		}
+	}
+	return 0, false
+}
+
+func isHTMLTagNameByte(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' ||
+		value >= '0' && value <= '9' || value == '-' || value == '_' || value == ':'
+}
+
+func hasXMLSelfClosingTag(tag []byte) bool {
+	index := len(tag) - 2
+	for index >= 0 && (tag[index] == ' ' || tag[index] == '\t' || tag[index] == '\r' || tag[index] == '\n') {
+		index--
+	}
+	return index >= 0 && tag[index] == '/'
+}
+
 // These aliases keep parseHTML's token loop readable while retaining encoding/xml.
 type xmlDecoderType = xml.Decoder
 type xmlStartElement = xml.StartElement
@@ -725,21 +895,59 @@ type xmlProcInst = xml.ProcInst
 
 func xmlDecoder(reader io.Reader) *xmlDecoderType {
 	decoder := xml.NewDecoder(reader)
+	decoder.Strict = false
+	decoder.AutoClose = xml.HTMLAutoClose
 	decoder.CharsetReader = charsetReader
-	decoder.Entity = map[string]string{
-		"apos":   "'",
-		"nbsp":   "\u00a0",
-		"copy":   "\u00a9",
-		"hellip": "\u2026",
-		"mdash":  "\u2014",
-		"ndash":  "\u2013",
-		"para":   "\u00b6",
-		"quot":   "\"",
-		"reg":    "\u00ae",
-		"sect":   "\u00a7",
-		"times":  "\u00d7",
-	}
+	decoder.Entity = htmlEntityMap()
 	return decoder
+}
+
+func htmlEntityMap() map[string]string {
+	entities := make(map[string]string, len(xml.HTMLEntity)+1)
+	for name, value := range xml.HTMLEntity {
+		entities[name] = value
+	}
+	entities["apos"] = "'"
+	return entities
+}
+
+func normalizeHTMLCharset(data []byte) ([]byte, error) {
+	charset := declaredHTMLCharset(data)
+	if charset == "" {
+		return data, nil
+	}
+	if charset == "utf-8" || charset == "utf8" {
+		return data, nil
+	}
+	if charset == "iso-8859-1" || charset == "iso8859-1" || charset == "latin1" ||
+		charset == "windows-1252" || charset == "cp1252" {
+		if utf8.Valid(data) {
+			return data, nil
+		}
+		return decodeCharsetBytes(charset, data)
+	}
+	if charset == "us-ascii" || charset == "ascii" {
+		return decodeCharsetBytes(charset, data)
+	}
+	return nil, fmt.Errorf("unsupported HTML character encoding %q", charset)
+}
+
+func declaredHTMLCharset(data []byte) string {
+	lower := strings.ToLower(string(data))
+	marker := "charset="
+	index := strings.Index(lower, marker)
+	if index < 0 {
+		return ""
+	}
+	start := index + len(marker)
+	for start < len(lower) && (lower[start] == ' ' || lower[start] == '\t' || lower[start] == '\r' || lower[start] == '\n' || lower[start] == '\'' || lower[start] == '"') {
+		start++
+	}
+	end := start
+	for end < len(lower) && lower[end] != ' ' && lower[end] != '\t' && lower[end] != '\r' && lower[end] != '\n' && lower[end] != ';' && lower[end] != '\'' && lower[end] != '"' && lower[end] != '>' {
+		end++
+	}
+	return lower[start:end]
 }
 
 func charsetReader(name string, input io.Reader) (io.Reader, error) {
@@ -747,22 +955,33 @@ func charsetReader(name string, input io.Reader) (io.Reader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s input: %w", name, err)
 	}
+	decoded, err := decodeCharsetBytes(strings.ToLower(strings.TrimSpace(name)), data)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(decoded), nil
+}
+
+func decodeCharsetBytes(name string, data []byte) ([]byte, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "utf-8", "utf8":
-		return bytes.NewReader(data), nil
+		if !utf8.Valid(data) {
+			return nil, errors.New("invalid UTF-8 input")
+		}
+		return data, nil
 	case "us-ascii", "ascii":
 		for _, value := range data {
 			if value > 0x7f {
 				return nil, fmt.Errorf("non-ASCII byte 0x%x in us-ascii input", value)
 			}
 		}
-		return bytes.NewReader(data), nil
+		return data, nil
 	case "iso-8859-1", "latin1", "windows-1252":
 		converted := make([]byte, 0, len(data)*2)
 		for _, value := range data {
 			converted = utf8.AppendRune(converted, rune(value))
 		}
-		return bytes.NewReader(converted), nil
+		return converted, nil
 	default:
 		return nil, fmt.Errorf("unsupported character encoding %q", name)
 	}
