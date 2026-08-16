@@ -36,6 +36,12 @@ type historyWindow struct {
 	until time.Time
 }
 
+type gitHistoryCandidate struct {
+	id          string
+	committedAt time.Time
+	rendered    string
+}
+
 type historySnapshot struct {
 	window        historyWindow
 	commits       []string
@@ -93,11 +99,15 @@ func (a app) runHistory(args []string) error {
 }
 
 func (a app) collectHistory(root string, window historyWindow) (historySnapshot, error) {
-	commits, err := a.collectGitHistory(root, window)
+	candidates, err := a.collectGitCandidates(root, window)
 	if err != nil {
 		return historySnapshot{}, err
 	}
-	documentation, err := a.readDocumentationChurnWindow(root, window.since, window.until)
+	commits := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		commits = append(commits, candidate.rendered)
+	}
+	documentation, err := a.readDocumentationChurnCandidates(root, candidates)
 	if err != nil {
 		return historySnapshot{}, fmt.Errorf("collect documentation history: %w", err)
 	}
@@ -118,60 +128,63 @@ func (a app) collectHistory(root string, window historyWindow) (historySnapshot,
 	}, nil
 }
 
-func (a app) collectGitHistory(root string, window historyWindow) ([]string, error) {
-	output, err := a.command(root, "git", "log", "--first-parent",
-		"--since="+formatHistoryTime(window.since), "--until="+formatHistoryTime(window.until),
-		"--date=short", "--pretty=format:%x1e- %h %ad %s%n%w(74,2,2)%b%w(0,0,0)")
+func (a app) collectGitCandidates(root string, window historyWindow) ([]gitHistoryCandidate, error) {
+	output, err := a.command(root, "git", "log", "--first-parent", "--date=short",
+		"--pretty=format:%x1e%H%x00%cI%x00%h%x00%ad%x00%s%x00%b")
 	if err != nil {
-		return nil, fmt.Errorf("read git history: %w", err)
+		return nil, fmt.Errorf("read git history candidates: %w", err)
 	}
 	if output == "" {
 		return nil, nil
 	}
-	if !strings.Contains(output, "\x1e") {
-		return parseLegacyGitHistory(output)
-	}
 	records := strings.Split(output, "\x1e")
-	commits := make([]string, 0, len(records))
+	candidates := make([]gitHistoryCandidate, 0, len(records))
 	for index, record := range records {
 		record = strings.Trim(record, "\n")
 		if record == "" {
 			if index == 0 {
 				continue
 			}
-			return nil, fmt.Errorf("parse git history: empty record %d", index)
+			return nil, fmt.Errorf("parse git history candidates: empty record %d", index)
 		}
-		if !strings.HasPrefix(record, "- ") {
-			return nil, fmt.Errorf("parse git history: record %d does not start with a commit", index)
+		fields := strings.SplitN(record, "\x00", 6)
+		if len(fields) != 6 || fields[0] == "" || fields[1] == "" || fields[2] == "" || fields[3] == "" || fields[4] == "" {
+			return nil, fmt.Errorf("parse git history candidates: malformed record %d", index)
 		}
-		commits = append(commits, record)
+		committedAt, err := time.Parse(time.RFC3339Nano, fields[1])
+		if err != nil {
+			return nil, fmt.Errorf("parse git history candidates: record %d timestamp: %w", index, err)
+		}
+		committedAt = committedAt.UTC()
+		if !inHistoryWindow(committedAt, window) {
+			continue
+		}
+		candidates = append(candidates, gitHistoryCandidate{
+			id:          fields[0],
+			committedAt: committedAt,
+			rendered:    renderGitCandidate(fields[2], fields[3], fields[4], fields[5]),
+		})
 	}
-	return commits, nil
+	return candidates, nil
 }
 
-func parseLegacyGitHistory(output string) ([]string, error) {
-	lines := strings.Split(strings.Trim(output, "\n"), "\n")
-	commits := make([]string, 0)
-	var record strings.Builder
-	for _, line := range lines {
-		if strings.HasPrefix(line, "- ") && record.Len() != 0 {
-			commits = append(commits, record.String())
-			record.Reset()
-		}
-		if record.Len() != 0 {
-			record.WriteByte('\n')
-		}
-		record.WriteString(line)
+func renderGitCandidate(shortID, date, subject, body string) string {
+	var rendered strings.Builder
+	rendered.WriteString("- ")
+	rendered.WriteString(shortID)
+	rendered.WriteByte(' ')
+	rendered.WriteString(date)
+	rendered.WriteByte(' ')
+	rendered.WriteString(subject)
+	body = strings.TrimSuffix(body, "\n")
+	if body == "" {
+		return rendered.String()
 	}
-	if record.Len() != 0 {
-		commits = append(commits, record.String())
+	for _, line := range strings.Split(body, "\n") {
+		rendered.WriteString("\n  ")
+		rendered.WriteString(line)
 	}
-	for index, commit := range commits {
-		if !strings.HasPrefix(commit, "- ") {
-			return nil, fmt.Errorf("parse git history: legacy record %d does not start with a commit", index)
-		}
-	}
-	return commits, nil
+	return rendered.String()
 }
 
 func (a app) collectPRHistory(root string, window historyWindow) ([]pullRequestSummary, error) {

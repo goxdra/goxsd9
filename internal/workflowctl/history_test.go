@@ -42,6 +42,73 @@ func TestHistoryDoesNotWritePartialReportAfterLateError(t *testing.T) {
 	}
 }
 
+func TestGitHistoryFiltersSubsecondCommitterBounds(t *testing.T) {
+	window := historyWindow{
+		since: time.Date(2026, time.August, 16, 17, 59, 11, 1, time.UTC),
+		until: time.Date(2026, time.August, 16, 17, 59, 12, 0, time.UTC),
+	}
+	output := strings.Join([]string{
+		gitCandidateRecord("before", "2026-08-16T17:59:11Z", "before"),
+		gitCandidateRecord("exact", "2026-08-16T17:59:11.000000001Z", "exact"),
+		gitCandidateRecord("after", "2026-08-16T17:59:11.000000002Z", "after"),
+		gitCandidateRecord("upper", "2026-08-16T17:59:12.000000001Z", "upper"),
+	}, "")
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		if name == "git" && len(args) > 0 && args[0] == "log" {
+			return output, nil
+		}
+		return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+	}}
+	candidates, err := application.collectGitCandidates("/repo", window)
+	if err != nil {
+		t.Fatalf("collectGitCandidates: %v", err)
+	}
+	if got := len(candidates); got != 2 {
+		t.Fatalf("candidate count = %d, want 2", got)
+	}
+	if candidates[0].id != "exact" || candidates[1].id != "after" {
+		t.Fatalf("candidate IDs = [%s %s], want [exact after]", candidates[0].id, candidates[1].id)
+	}
+	if !strings.Contains(candidates[0].rendered, "  body for exact\n  second body line") {
+		t.Fatalf("rendered commit body missing:\n%s", candidates[0].rendered)
+	}
+}
+
+func TestDocumentationHistoryUsesExactSubsecondCommitterBounds(t *testing.T) {
+	window := historyWindow{
+		since: time.Date(2026, time.August, 16, 17, 59, 11, 1, time.UTC),
+		until: time.Date(2026, time.August, 16, 17, 59, 12, 0, time.UTC),
+	}
+	output := strings.Join([]string{
+		gitCandidateRecord("before", "2026-08-16T17:59:11Z", "before"),
+		gitCandidateRecord("exact", "2026-08-16T17:59:11.000000001Z", "exact"),
+		gitCandidateRecord("after", "2026-08-16T17:59:11.000000002Z", "after"),
+		gitCandidateRecord("upper", "2026-08-16T17:59:12.000000001Z", "upper"),
+	}, "")
+	seen := make([]string, 0, 2)
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		if name == "git" && len(args) > 0 && args[0] == "log" {
+			return output, nil
+		}
+		if name == "git" && len(args) > 0 && args[0] == "diff-tree" {
+			commit := args[len(args)-2]
+			seen = append(seen, commit)
+			return "1\t0\tREADME.md\x00", nil
+		}
+		return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+	}}
+	totals, err := application.readDocumentationChurnWindow("/repo", window.since, window.until)
+	if err != nil {
+		t.Fatalf("readDocumentationChurnWindow: %v", err)
+	}
+	if !equalStrings(seen, []string{"exact", "after"}) {
+		t.Fatalf("documentation candidates = %v, want [exact after]", seen)
+	}
+	if len(totals) != 1 || totals[0].path != "README.md" || totals[0].additions != 2 {
+		t.Fatalf("documentation totals = %#v, want README.md +2", totals)
+	}
+}
+
 func TestHistoryFiltersBoundsSortsAndLimitsAfterFiltering(t *testing.T) {
 	window := historyWindow{
 		since: time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC),
@@ -194,4 +261,21 @@ func equalInts(left, right []int) bool {
 		}
 	}
 	return true
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func gitCandidateRecord(id, committedAt, subject string) string {
+	body := "body for " + subject + "\nsecond body line"
+	return "\x1e" + strings.Join([]string{id, committedAt, id[:min(len(id), 7)], "2026-08-16", subject, body}, "\x00")
 }

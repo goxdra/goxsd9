@@ -23,20 +23,17 @@ func (a app) writeDocumentationHistory(root string, since time.Time) error {
 }
 
 func (a app) readDocumentationChurnWindow(root string, since, until time.Time) ([]documentationChurn, error) {
-	output, err := a.command(root, "git", "rev-list", "--first-parent", "--since="+formatHistoryTime(since),
-		"--until="+formatHistoryTime(until), "HEAD")
+	candidates, err := a.collectGitCandidates(root, historyWindow{since: since, until: until})
 	if err != nil {
 		return nil, fmt.Errorf("read commits for documentation churn: %w", err)
 	}
-	if output == "" {
-		return nil, nil
-	}
+	return a.readDocumentationChurnCandidates(root, candidates)
+}
+
+func (a app) readDocumentationChurnCandidates(root string, candidates []gitHistoryCandidate) ([]documentationChurn, error) {
 	totals := make([]documentationChurn, 0)
-	for index, commit := range strings.Split(output, "\n") {
-		if commit == "" {
-			return nil, fmt.Errorf("parse documentation commit list: empty commit at index %d", index)
-		}
-		if err := a.addCommitDocumentationChurn(root, commit, &totals); err != nil {
+	for _, candidate := range candidates {
+		if err := a.addCommitDocumentationChurn(root, candidate.id, &totals); err != nil {
 			return nil, err
 		}
 	}
