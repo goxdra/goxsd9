@@ -48,6 +48,15 @@ type runningSkillEvalSubject struct {
 	process  skillEvalProcess
 }
 
+type runningSkillEvalGrader struct {
+	index   int
+	process skillEvalProcess
+}
+
+type skillEvalActiveRun interface {
+	complete(*skillEvalScheduler)
+}
+
 type skillEvalCase struct {
 	expected string
 	path     string
@@ -291,7 +300,7 @@ type skillEvalScheduler struct {
 	model       string
 	next        int
 	results     []skillEvalCaseResult
-	running     []runningSkillEvalSubject
+	running     []skillEvalActiveRun
 	start       skillEvalProcessStarter
 }
 
@@ -309,7 +318,7 @@ func (a app) evaluateSkillCasesParallel(cases []skillEvalCase, model string, job
 		jobs:        jobs,
 		model:       model,
 		results:     make([]skillEvalCaseResult, len(cases)),
-		running:     make([]runningSkillEvalSubject, 0, min(jobs, len(cases))),
+		running:     make([]skillEvalActiveRun, 0, min(jobs, len(cases))),
 		start:       start,
 	}
 	for scheduler.hasWork() {
@@ -317,7 +326,9 @@ func (a app) evaluateSkillCasesParallel(cases []skillEvalCase, model string, job
 		if !scheduler.hasRunning() {
 			continue
 		}
-		scheduler.completeNext()
+		run := scheduler.running[0]
+		scheduler.running = scheduler.running[1:]
+		run.complete(&scheduler)
 	}
 	return scheduler.writeResults()
 }
@@ -356,43 +367,45 @@ func (scheduler *skillEvalScheduler) startSubject(index int) (skillEvalProcess, 
 	return startSkillEvalSubjectProcess(scheduler.start, scheduler.cases[index], scheduler.model)
 }
 
-func (scheduler *skillEvalScheduler) completeNext() {
-	subjectRun := scheduler.running[0]
-	scheduler.running = scheduler.running[1:]
-	output, err := subjectRun.process.wait()
+func (run runningSkillEvalSubject) complete(scheduler *skillEvalScheduler) {
+	output, err := run.process.wait()
 	if err != nil {
-		scheduler.setError(subjectRun.index, "run subject", err)
+		scheduler.setError(run.index, "run subject", err)
 		return
 	}
 	subject, err := decodeSkillEvalSubject(output)
 	if err != nil {
-		scheduler.setError(subjectRun.index, "decode subject result", err)
+		scheduler.setError(run.index, "decode subject result", err)
 		return
 	}
 	if contextErr := scheduler.application.skillEvalContextError(); contextErr != nil {
-		scheduler.setError(subjectRun.index, "start grader", contextErr)
+		scheduler.setError(run.index, "start grader", contextErr)
 		return
 	}
-	graderProcess, err := startSkillEvalGraderProcess(scheduler.start, subjectRun.evalCase, scheduler.model, subject)
+	graderProcess, err := startSkillEvalGraderProcess(scheduler.start, run.evalCase, scheduler.model, subject)
 	if err != nil {
-		scheduler.setError(subjectRun.index, "start grader", err)
+		scheduler.setError(run.index, "start grader", err)
 		return
 	}
 	if graderProcess == nil {
-		scheduler.setError(subjectRun.index, "start grader", errors.New("process is nil"))
+		scheduler.setError(run.index, "start grader", errors.New("process is nil"))
 		return
 	}
-	gradeJSON, err := graderProcess.wait()
+	scheduler.running = append(scheduler.running, runningSkillEvalGrader{index: run.index, process: graderProcess})
+}
+
+func (run runningSkillEvalGrader) complete(scheduler *skillEvalScheduler) {
+	gradeJSON, err := run.process.wait()
 	if err != nil {
-		scheduler.setError(subjectRun.index, "run grader", err)
+		scheduler.setError(run.index, "run grader", err)
 		return
 	}
 	grade, err := decodeSkillEvalGrade(gradeJSON)
 	if err != nil {
-		scheduler.setError(subjectRun.index, "decode grader result", err)
+		scheduler.setError(run.index, "decode grader result", err)
 		return
 	}
-	scheduler.results[subjectRun.index].grade = grade
+	scheduler.results[run.index].grade = grade
 }
 
 func (scheduler *skillEvalScheduler) setError(index int, phase string, err error) {
@@ -498,6 +511,7 @@ func (a app) startCodexSkillEvalProcess(role string, request skillEvalAgentReque
 	}
 	// #nosec G204 -- codex is the fixed evaluator executable; model and temporary paths are explicit arguments.
 	command := exec.CommandContext(ctx, "codex", skillEvalCodexArguments(schemaPath, request)...)
+	command.Dir = directory
 	command.Stdin = strings.NewReader(request.Prompt)
 	codexProcess := &skillEvalCommandProcess{
 		command:    command,

@@ -180,6 +180,9 @@ func TestEvaluateSkillCasesParallelBoundsWorkersAndPreservesResults(t *testing.T
 	if backend.invalidOrder {
 		t.Fatal("grader started before its subject completed")
 	}
+	if !backend.graderOverlap {
+		t.Fatal("independent graders did not overlap")
+	}
 	if maxActive != 2 {
 		t.Fatalf("maximum active workers = %d, want 2", maxActive)
 	}
@@ -287,6 +290,8 @@ func (process fakeSkillEvalProcess) wait() ([]byte, error) {
 type parallelSkillEvalBackend struct {
 	active           *int
 	cases            []skillEvalCase
+	graderActive     int
+	graderOverlap    bool
 	graderStarts     int
 	invalidOrder     bool
 	maxActive        *int
@@ -315,6 +320,14 @@ func (backend *parallelSkillEvalBackend) start(role string, request skillEvalAge
 		return process, nil
 	}
 	backend.graderStarts++
+	backend.graderActive++
+	if backend.graderActive > 1 {
+		backend.graderOverlap = true
+	}
+	process.onWait = func() {
+		backend.graderActive--
+		*backend.active--
+	}
 	if !slices.Contains(backend.subjectCompleted, evalCase.path) {
 		backend.invalidOrder = true
 	}

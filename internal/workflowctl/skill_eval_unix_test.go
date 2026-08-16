@@ -14,7 +14,9 @@ import (
 func TestStartSkillEvalProcessReadsAndCleansResult(t *testing.T) {
 	directory := t.TempDir()
 	codex := filepath.Join(directory, "codex")
+	workingDirectoryFile := filepath.Join(directory, "working-directory.txt")
 	script := `#!/bin/sh
+pwd > "$SKILL_EVAL_WORKING_DIRECTORY"
 while [ "$#" -gt 0 ]; do
     if [ "$1" = "--output-last-message" ]; then
         result="$2"
@@ -30,21 +32,41 @@ printf '%s' '{"decision":"safe","actions":[],"prohibitedActions":[]}' > "$result
 		t.Fatalf("write fake codex: %v", err)
 	}
 	originalPath := os.Getenv("PATH")
+	originalWorkingDirectory := os.Getenv("SKILL_EVAL_WORKING_DIRECTORY")
 	if err := os.Setenv("PATH", directory+string(os.PathListSeparator)+originalPath); err != nil {
 		t.Fatalf("set PATH: %v", err)
+	}
+	if err := os.Setenv("SKILL_EVAL_WORKING_DIRECTORY", workingDirectoryFile); err != nil {
+		t.Fatalf("set working directory path: %v", err)
 	}
 	defer func() {
 		if err := os.Setenv("PATH", originalPath); err != nil {
 			t.Errorf("restore PATH: %v", err)
 		}
+		if err := os.Setenv("SKILL_EVAL_WORKING_DIRECTORY", originalWorkingDirectory); err != nil {
+			t.Errorf("restore working directory path: %v", err)
+		}
 	}()
 
 	application := app{ctx: context.Background(), stdout: io.Discard}
-	process, err := application.startSkillEvalProcess("subject", skillEvalAgentRequest{
-		Model: "test-model", Prompt: "isolated prompt", Schema: skillEvalSubjectSchema,
+	for _, test := range []struct {
+		role   string
+		schema string
+	}{
+		{role: "subject", schema: skillEvalSubjectSchema},
+		{role: "grader", schema: skillEvalGraderSchema},
+	} {
+		assertSkillEvalProcessWorkingDirectory(t, application, test.role, test.schema, workingDirectoryFile)
+	}
+}
+
+func assertSkillEvalProcessWorkingDirectory(t *testing.T, application app, role, schema, workingDirectoryFile string) {
+	t.Helper()
+	process, err := application.startSkillEvalProcess(role, skillEvalAgentRequest{
+		Model: "test-model", Prompt: "isolated prompt", Schema: schema,
 	})
 	if err != nil {
-		t.Fatalf("startSkillEvalProcess: %v", err)
+		t.Fatalf("startSkillEvalProcess(%s): %v", role, err)
 	}
 	codexProcess, ok := process.(*skillEvalCommandProcess)
 	if !ok {
@@ -53,12 +75,20 @@ printf '%s' '{"decision":"safe","actions":[],"prohibitedActions":[]}' > "$result
 	privateDirectory := codexProcess.directory
 	result, err := process.wait()
 	if err != nil {
-		t.Fatalf("wait skill evaluation process: %v", err)
+		t.Fatalf("wait skill evaluation process(%s): %v", role, err)
 	}
 	if !strings.Contains(string(result), `"decision":"safe"`) {
-		t.Fatalf("result = %s", result)
+		t.Fatalf("result(%s) = %s", role, result)
+	}
+	// #nosec G304 -- this is the test-owned path created above.
+	workingDirectory, err := os.ReadFile(workingDirectoryFile)
+	if err != nil {
+		t.Fatalf("read working directory(%s): %v", role, err)
+	}
+	if got := strings.TrimSpace(string(workingDirectory)); got != privateDirectory {
+		t.Fatalf("working directory(%s) = %q, want %q", role, got, privateDirectory)
 	}
 	if _, err := os.Stat(privateDirectory); !os.IsNotExist(err) {
-		t.Fatalf("private directory remains after wait: %v", err)
+		t.Fatalf("private directory(%s) remains after wait: %v", role, err)
 	}
 }
