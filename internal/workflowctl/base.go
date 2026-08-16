@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -304,11 +305,7 @@ func (a app) synchronizeBase(layout repositoryLayout, requiredMerge string) (syn
 	if fastForwardErr := a.fastForwardBase(fetched); fastForwardErr != nil {
 		return synchronizedBase{}, fastForwardErr
 	}
-	after, err := a.readSynchronizedCommit(fetched)
-	if err != nil {
-		return synchronizedBase{}, err
-	}
-	return a.finishBaseSynchronization(fetched, after)
+	return a.finishBaseSynchronization(fetched, requiredMerge)
 }
 
 func (a app) requireMergeContainment(layout repositoryLayout, fetched fetchedBase, requiredMerge string) error {
@@ -338,42 +335,105 @@ func (a app) fastForwardBase(fetched fetchedBase) error {
 	return nil
 }
 
-func (a app) readSynchronizedCommit(fetched fetchedBase) (string, error) {
+func (a app) readSynchronizedCommit(fetched fetchedBase, requiredMerge string) (fetchedBase, string, error) {
 	after, err := a.command(fetched.primary.layout.primaryRoot, "git", "rev-parse", "HEAD")
 	if err != nil {
-		return "", fmt.Errorf("read synchronized canonical main: %w", err)
-	}
-	if after != fetched.origin {
-		return "", stateError("canonical main changed concurrently during base synchronization (after=%s, fetched origin/main=%s); run %s again", after, fetched.origin, baseSyncCommand)
+		return fetchedBase{}, "", fmt.Errorf("read synchronized canonical main: %w", err)
 	}
 	origin, err := a.command(fetched.primary.layout.primaryRoot, "git", "rev-parse", "origin/main")
 	if err != nil {
-		return "", fmt.Errorf("recheck fetched origin/main after base synchronization: %w", err)
+		return fetchedBase{}, "", fmt.Errorf("recheck fetched origin/main after base synchronization: %w", err)
 	}
-	if origin != fetched.origin {
-		return "", stateError("fetched origin/main changed concurrently during base synchronization (after=%s, fetched=%s); run %s again", origin, fetched.origin, baseSyncCommand)
+	if origin == fetched.origin {
+		if after != fetched.origin {
+			return fetchedBase{}, "", stateError("canonical main changed concurrently during base synchronization (after=%s, fetched origin/main=%s); run %s again", after, fetched.origin, baseSyncCommand)
+		}
+		if err := a.requireMergeAtTip(fetched.primary.layout.primaryRoot, requiredMerge, origin); err != nil {
+			return fetchedBase{}, "", err
+		}
+		return fetched, after, nil
 	}
-	return after, nil
+	return a.advanceSynchronizedOrigin(fetched, after, origin, requiredMerge)
 }
 
-func (a app) finishBaseSynchronization(fetched fetchedBase, after string) (synchronizedBase, error) {
-	if updateErr := a.updatePinnedSubmodules(fetched.primary.layout.primaryRoot); updateErr != nil {
-		return synchronizedBase{}, updateErr
+func (a app) advanceSynchronizedOrigin(fetched fetchedBase, after, origin, requiredMerge string) (fetchedBase, string, error) {
+	root := fetched.primary.layout.primaryRoot
+	if err := a.requireCommitContained(root, fetched.origin, origin); err != nil {
+		return fetchedBase{}, "", stateError("fetched origin/main changed incompatibly during base synchronization (before=%s, after=%s); run %s again: %v", fetched.origin, origin, baseSyncCommand, err)
 	}
-	current, err := a.command(fetched.primary.layout.primaryRoot, "git", "rev-parse", "HEAD")
+	if err := a.requireMergeAtTip(root, requiredMerge, origin); err != nil {
+		return fetchedBase{}, "", err
+	}
+	if after != fetched.origin && after != origin {
+		return fetchedBase{}, "", stateError("canonical main changed concurrently during base synchronization (after=%s, fetched origin/main=%s); run %s again", after, origin, baseSyncCommand)
+	}
+	if after != origin {
+		if _, mergeErr := a.command(root, "git", "merge", "--ff-only", "origin/main"); mergeErr != nil {
+			return fetchedBase{}, "", fmt.Errorf("fast-forward canonical main to concurrently advanced origin/main: %w", mergeErr)
+		}
+		var readErr error
+		after, readErr = a.command(root, "git", "rev-parse", "HEAD")
+		if readErr != nil {
+			return fetchedBase{}, "", fmt.Errorf("read canonical main after concurrently advanced fast-forward: %w", readErr)
+		}
+		if after != origin {
+			return fetchedBase{}, "", stateError("canonical main did not converge to concurrently advanced origin/main (after=%s, origin=%s); run %s again", after, origin, baseSyncCommand)
+		}
+	}
+	fetched.origin = origin
+	fetched.ahead = 0
+	fetched.behind = 0
+	return fetched, after, nil
+}
+
+func (a app) requireMergeAtTip(root, requiredMerge, tip string) error {
+	if requiredMerge == "" {
+		return nil
+	}
+	return a.requireCommitContained(root, requiredMerge, tip)
+}
+
+func (a app) finishBaseSynchronization(fetched fetchedBase, requiredMerge string) (synchronizedBase, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		result, retry, err := a.synchronizeBaseAttempt(fetched, requiredMerge)
+		if err != nil {
+			return synchronizedBase{}, err
+		}
+		if retry {
+			continue
+		}
+		return result, nil
+	}
+	return synchronizedBase{}, stateError("origin/main kept advancing during base synchronization; run %s again", baseSyncCommand)
+}
+
+func (a app) synchronizeBaseAttempt(fetched fetchedBase, requiredMerge string) (synchronizedBase, bool, error) {
+	fetched, after, err := a.readSynchronizedCommit(fetched, requiredMerge)
 	if err != nil {
-		return synchronizedBase{}, fmt.Errorf("recheck canonical primary after submodule update: %w", err)
+		return synchronizedBase{}, false, err
 	}
-	if current != after {
-		return synchronizedBase{}, stateError("canonical main changed concurrently during submodule update (after=%s, synchronized=%s); run %s again", current, after, baseSyncCommand)
-	}
-	origin, err := a.command(fetched.primary.layout.primaryRoot, "git", "rev-parse", "origin/main")
+	origin, err := a.updateAndCheckSubmodules(fetched, after)
 	if err != nil {
-		return synchronizedBase{}, fmt.Errorf("recheck fetched origin/main after submodule update: %w", err)
+		return synchronizedBase{}, false, err
 	}
 	if origin != fetched.origin {
-		return synchronizedBase{}, stateError("fetched origin/main changed concurrently during submodule update (after=%s, fetched=%s); run %s again", origin, fetched.origin, baseSyncCommand)
+		if advanceErr := a.requireSynchronizedOriginAdvance(fetched, origin, requiredMerge); advanceErr != nil {
+			return synchronizedBase{}, false, advanceErr
+		}
+		return synchronizedBase{}, true, nil
 	}
+	result, err := a.completeBaseSynchronization(fetched, after)
+	if err != nil {
+		return synchronizedBase{}, false, err
+	}
+	fetched, after, retry, err := a.finalizeBaseSnapshot(result.fetched, result.after, requiredMerge)
+	if err != nil {
+		return synchronizedBase{}, false, err
+	}
+	return synchronizedBase{fetched: fetched, after: after}, retry, nil
+}
+
+func (a app) completeBaseSynchronization(fetched fetchedBase, after string) (synchronizedBase, error) {
 	freshLayout, err := a.repositoryLayout(fetched.primary.layout.primaryRoot)
 	if err != nil {
 		return synchronizedBase{}, fmt.Errorf("refresh canonical primary after base synchronization: %w", err)
@@ -391,9 +451,145 @@ func (a app) finishBaseSynchronization(fetched fetchedBase, after string) (synch
 	return synchronizedBase{fetched: fetched, after: after}, nil
 }
 
+func (a app) finalizeBaseSnapshot(fetched fetchedBase, after, requiredMerge string) (fetchedBase, string, bool, error) {
+	root := fetched.primary.layout.primaryRoot
+	current, err := a.command(root, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return fetchedBase{}, "", false, fmt.Errorf("read final canonical primary commit after base synchronization: %w", err)
+	}
+	if current != after {
+		return fetchedBase{}, "", false, stateError("canonical main changed concurrently during final base synchronization snapshot (after=%s, synchronized=%s); run %s again", current, after, baseSyncCommand)
+	}
+	origin, err := a.command(root, "git", "rev-parse", "origin/main")
+	if err != nil {
+		return fetchedBase{}, "", false, fmt.Errorf("read final origin/main after base synchronization: %w", err)
+	}
+	if origin == fetched.origin {
+		if tipErr := a.requireMergeAtTip(root, requiredMerge, origin); tipErr != nil {
+			return fetchedBase{}, "", false, tipErr
+		}
+		return fetched, after, false, nil
+	}
+	if containErr := a.requireCommitContained(root, fetched.origin, origin); containErr != nil {
+		return fetchedBase{}, "", false, stateError("fetched origin/main changed incompatibly during final base synchronization snapshot (before=%s, after=%s); run %s again: %v", fetched.origin, origin, baseSyncCommand, containErr)
+	}
+	if tipErr := a.requireMergeAtTip(root, requiredMerge, origin); tipErr != nil {
+		return fetchedBase{}, "", false, tipErr
+	}
+	if _, mergeErr := a.command(root, "git", "merge", "--ff-only", "origin/main"); mergeErr != nil {
+		return fetchedBase{}, "", false, fmt.Errorf("fast-forward canonical main to final origin/main descendant: %w", mergeErr)
+	}
+	current, err = a.command(root, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return fetchedBase{}, "", false, fmt.Errorf("read canonical primary after final origin/main fast-forward: %w", err)
+	}
+	if current != origin {
+		return fetchedBase{}, "", false, stateError("canonical main did not converge to final origin/main descendant (after=%s, origin=%s); run %s again", current, origin, baseSyncCommand)
+	}
+	fetched.origin = origin
+	fetched.ahead = 0
+	fetched.behind = 0
+	return fetched, current, true, nil
+}
+
+func (a app) updateAndCheckSubmodules(fetched fetchedBase, after string) (string, error) {
+	root := fetched.primary.layout.primaryRoot
+	if err := a.updatePinnedSubmodules(root); err != nil {
+		return "", err
+	}
+	current, err := a.command(root, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("recheck canonical primary after submodule update: %w", err)
+	}
+	if current != after {
+		return "", stateError("canonical main changed concurrently during submodule update (after=%s, synchronized=%s); run %s again", current, after, baseSyncCommand)
+	}
+	if _, fetchErr := a.command(root, "git", "fetch", "origin", "main"); fetchErr != nil {
+		return "", fmt.Errorf("refresh origin/main after submodule update: %w", fetchErr)
+	}
+	current, err = a.command(root, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("recheck canonical primary after origin/main refresh: %w", err)
+	}
+	if current != after {
+		return "", stateError("canonical main changed concurrently during origin/main refresh (after=%s, synchronized=%s); run %s again", current, after, baseSyncCommand)
+	}
+	origin, err := a.command(root, "git", "rev-parse", "origin/main")
+	if err != nil {
+		return "", fmt.Errorf("recheck fetched origin/main after submodule update: %w", err)
+	}
+	return origin, nil
+}
+
+func (a app) requireSynchronizedOriginAdvance(fetched fetchedBase, origin, requiredMerge string) error {
+	if err := a.requireCommitContained(fetched.primary.layout.primaryRoot, fetched.origin, origin); err != nil {
+		return stateError("fetched origin/main changed incompatibly during submodule update (before=%s, after=%s); run %s again: %v", fetched.origin, origin, baseSyncCommand, err)
+	}
+	if requiredMerge != "" {
+		if err := a.requireCommitContained(fetched.primary.layout.primaryRoot, requiredMerge, origin); err != nil {
+			return err
+		}
+	}
+	if _, mergeErr := a.command(fetched.primary.layout.primaryRoot, "git", "merge", "--ff-only", "origin/main"); mergeErr != nil {
+		return fmt.Errorf("fast-forward canonical main to concurrently advanced origin/main: %w", mergeErr)
+	}
+	return nil
+}
+
 func (a app) updatePinnedSubmodules(root string) error {
+	if err := a.checkSubmoduleUpdatePolicy(root); err != nil {
+		return err
+	}
 	if _, err := a.command(root, "git", "submodule", "update", "--init", "--recursive"); err != nil {
 		return fmt.Errorf("update pinned recursive submodules: %w", err)
+	}
+	return nil
+}
+
+func (a app) checkSubmoduleUpdatePolicy(root string) error {
+	_, statErr := os.Stat(filepath.Join(root, ".gitmodules"))
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return fmt.Errorf("inspect recursive submodule configuration: %w", statErr)
+	}
+	queries := [][]string{{"config", "--get-regexp", `^submodule\..*\.update$`}}
+	if statErr == nil {
+		queries = append(queries, []string{"config", "--file", ".gitmodules", "--get-regexp", `^submodule\..*\.update$`})
+	}
+	for _, args := range queries {
+		output, found, err := a.readSubmoduleUpdatePolicy(root, args...)
+		if err != nil {
+			return err
+		}
+		if found && strings.TrimSpace(output) != "" {
+			if err := validateSubmoduleUpdatePolicy(output); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (a app) readSubmoduleUpdatePolicy(root string, args ...string) (string, bool, error) {
+	output, err := a.command(root, "git", args...)
+	if err == nil {
+		return output, true, nil
+	}
+	if isGitNonAncestor(err) {
+		return "", false, nil
+	}
+	return "", false, fmt.Errorf("read recursive submodule update policy: %w", err)
+}
+
+func validateSubmoduleUpdatePolicy(output string) error {
+	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return fmt.Errorf("recursive submodule update policy is malformed: %q", line)
+		}
+		policy := fields[len(fields)-1]
+		if policy != "checkout" {
+			return fmt.Errorf("recursive submodule update policy %q is unsupported; only checkout is allowed", policy)
+		}
 	}
 	return nil
 }

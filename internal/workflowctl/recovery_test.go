@@ -107,7 +107,7 @@ func TestRecoveryRejectsPassThenFailAtMergeBoundary(t *testing.T) {
 		recoveryEvaluationRound(t, 14, "evaluated-head", "pass-challenge", "pass-run", 1, "pass", mergedAt.Add(-3*time.Minute), mergedAt.Add(-3*time.Minute)),
 		recoveryEvaluationRound(t, 14, "evaluated-head", "fail-challenge", "fail-run", 2, "fail", mergedAt.Add(-time.Minute), mergedAt.Add(-time.Minute))...,
 	)
-	view := recoveryMergedView(mergedAt, "evaluated-head", comments)
+	view := recoveryMergedView(mergedAt, comments)
 	if _, err := mergeTimeEvaluationProof(view, 14); err == nil || !strings.Contains(err.Error(), "latest trusted evaluation receipt") {
 		t.Fatalf("mergeTimeEvaluationProof error = %v, want latest-failure refusal", err)
 	}
@@ -117,7 +117,7 @@ func TestRecoveryRejectsPostMergeReceiptTimestampSkew(t *testing.T) {
 	mergedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
 	comments := recoveryEvaluationRound(t, 14, "evaluated-head", "skew-challenge", "skew-run", 1, "pass",
 		mergedAt.Add(-time.Minute), mergedAt.Add(time.Minute))
-	view := recoveryMergedView(mergedAt, "evaluated-head", comments)
+	view := recoveryMergedView(mergedAt, comments)
 	if _, err := mergeTimeEvaluationProof(view, 14); err == nil || !strings.Contains(err.Error(), "created after the merge boundary") {
 		t.Fatalf("mergeTimeEvaluationProof error = %v, want post-merge timestamp refusal", err)
 	}
@@ -125,7 +125,7 @@ func TestRecoveryRejectsPostMergeReceiptTimestampSkew(t *testing.T) {
 
 func TestRecoveryRejectsPRBodyDrift(t *testing.T) {
 	mergedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
-	view := recoveryMergedView(mergedAt, "evaluated-head",
+	view := recoveryMergedView(mergedAt,
 		recoveryEvaluationHistory(t, 14, "evaluated-head", mergedAt.Add(-time.Minute)))
 	proof, err := mergeTimeEvaluationProof(view, 14)
 	if err != nil {
@@ -143,14 +143,78 @@ func TestRecoveryRejectsPRBodyDrift(t *testing.T) {
 	}
 }
 
+func TestLatestPassingEvaluationRejectsCurrentPRMetadataDrift(t *testing.T) {
+	recordedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+	base := recoveryMergedView(recordedAt.Add(time.Minute), recoveryEvaluationHistory(t, 14, "evaluated-head", recordedAt))
+	tests := []struct {
+		name   string
+		mutate func(*pullRequestView)
+		want   string
+	}{
+		{name: "base", mutate: func(view *pullRequestView) { view.BaseRefName = "develop" }, want: "current PR base"},
+		{name: "head ref", mutate: func(view *pullRequestView) { view.HeadRefName = "agent/issue-56" }, want: "current PR head ref"},
+		{name: "closure", mutate: func(view *pullRequestView) {
+			view.Body += "\nCloses #56\n"
+		}, want: "current PR closure"},
+		{name: "body", mutate: func(view *pullRequestView) {
+			view.Body += "\nAdditional reviewed context.\n"
+		}, want: "current PR body"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			view := base
+			test.mutate(&view)
+			if _, err := latestPassingEvaluationReceipt(view, 14); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("latestPassingEvaluationReceipt error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestRecoveryRequiresImmutableCompanionClaimProof(t *testing.T) {
+	proof := mergeEvaluationProof{
+		head:          "evaluated-head",
+		headRefName:   "agent/issue-55",
+		closingIssues: []int{55, 56},
+	}
+	if _, err := recoveryClaimProofs(proof, 55, 14); err == nil || !strings.Contains(err.Error(), "companion") {
+		t.Fatalf("recoveryClaimProofs error = %v, want missing companion proof", err)
+	}
+	proof.claimProofs = []evaluationClaimProof{
+		{Issue: 55, Branch: "agent/issue-55", SHA: "evaluated-head"},
+		{Issue: 56, Branch: "agent/issue-56", SHA: "companion-head"},
+	}
+	claims, err := recoveryClaimProofs(proof, 55, 14)
+	if err != nil || len(claims) != 2 {
+		t.Fatalf("recoveryClaimProofs valid proof = %#v, %v; want two claims", claims, err)
+	}
+	proof.claimProofs[1].SHA = ""
+	if _, err := recoveryClaimProofs(proof, 55, 14); err == nil || !strings.Contains(err.Error(), "malformed") {
+		t.Fatalf("recoveryClaimProofs malformed proof error = %v, want malformed refusal", err)
+	}
+}
+
+func TestClaimProofsOnlyReceiptIsNotCompleteMetadata(t *testing.T) {
+	receipt := evaluationReceipt{
+		ClaimProofs: []evaluationClaimProof{{Issue: 55, Branch: "agent/issue-55", SHA: "head"}},
+	}
+	if validEvaluationReceiptMetadata(receipt) {
+		t.Fatal("ClaimProofs-only receipt was accepted as complete metadata")
+	}
+	proof := mergeEvaluationProof{head: "head", headRefName: "agent/issue-55", closingIssues: []int{55}, claimProofs: []evaluationClaimProof{}}
+	if _, err := recoveryClaimProofs(proof, 55, 14); err == nil || !strings.Contains(err.Error(), "incomplete") {
+		t.Fatalf("non-nil empty claim proof = %v, want incomplete-proof refusal", err)
+	}
+}
+
 const recoveryBody = "Closes #55\n"
 
-func recoveryMergedView(mergedAt time.Time, head string, comments []pullRequestComment) pullRequestView {
+func recoveryMergedView(mergedAt time.Time, comments []pullRequestComment) pullRequestView {
 	view := pullRequestView{
 		BaseRefName:    "main",
 		Body:           recoveryBody,
 		HeadRefName:    "agent/issue-55",
-		HeadRefOID:     head,
+		HeadRefOID:     "evaluated-head",
 		Merged:         true,
 		MergedAt:       &mergedAt,
 		MergeCommitSHA: "merge-commit",

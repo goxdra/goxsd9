@@ -71,8 +71,6 @@ func (a app) runPR(args []string) error {
 		return a.finishPullRequestCommand(args[1:])
 	case "recover":
 		return a.recoverPullRequestCommand(args[1:])
-	case "prune":
-		return a.pruneHistoricalClaimsCommand(args[1:])
 	default:
 		return usageError("unknown pr command %q", args[0])
 	}
@@ -328,7 +326,7 @@ func (a app) finishPullRequest(number int, summary squashSummary) error {
 		if err != nil {
 			return err
 		}
-		plan, err := a.prepareCleanupPlan(root, layout, view, claimedIssue)
+		plan, err := a.prepareCleanupPlan(root, layout, view, claimedIssue, number)
 		if err != nil {
 			return err
 		}
@@ -366,6 +364,9 @@ func (a app) validateFinishPullRequest(root, branch string, claimedIssue, number
 	}
 	if !passes {
 		return pullRequestView{}, stateError("PR #%d has no passing evaluation for head %s", number, view.HeadRefOID)
+	}
+	if _, proofErr := latestPassingEvaluationReceipt(view, number); proofErr != nil {
+		return pullRequestView{}, stateError("PR #%d evaluation is not bound to current metadata: %v", number, proofErr)
 	}
 	if err := a.requirePassingChecks(root, number, view.HeadRefOID); err != nil {
 		return pullRequestView{}, err
@@ -458,7 +459,7 @@ func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView
 }
 
 func (a app) reconcileMergeOutcome(root string, number int, view pullRequestView, plan cleanupPlan, ambiguous error) error {
-	observed, err := a.readPullRequestMetadata(root, number)
+	observed, err := a.readPullRequest(root, number)
 	if err != nil {
 		return mergeOutcomeUnknownError(number, ambiguous, fmt.Errorf("reconcile PR metadata: %w", err))
 	}
@@ -469,7 +470,64 @@ func (a app) reconcileMergeOutcome(root string, number int, view pullRequestView
 	if observed.HeadRefOID != view.HeadRefOID {
 		return postMergeRecoveryError(number, mergeSHA, "post-merge claim proof reconciliation", stateError("PR current head %s differs from merge-time evaluated head %s; preserve claim artifacts", observed.HeadRefOID, view.HeadRefOID))
 	}
+	receipt, metadataErr := latestPassingEvaluationMatchesPR(observed, number)
+	if metadataErr != nil {
+		return postMergeRecoveryError(number, mergeSHA, "post-merge evaluation proof reconciliation", metadataErr)
+	}
+	if planErr := cleanupPlanMatchesReceipt(plan, receipt, number); planErr != nil {
+		return postMergeRecoveryError(number, mergeSHA, "post-merge claim proof reconciliation", planErr)
+	}
 	return a.finishMergedPullRequest(root, number, view, mergeSHA, plan)
+}
+
+func latestPassingEvaluationMatchesPR(view pullRequestView, number int) (evaluationReceipt, error) {
+	receipt, err := latestPassingEvaluationReceipt(view, number)
+	if err != nil {
+		return evaluationReceipt{}, fmt.Errorf("post-merge evaluation proof is not valid: %w", err)
+	}
+	return receipt, nil
+}
+
+func cleanupPlanMatchesReceipt(plan cleanupPlan, receipt evaluationReceipt, number int) error {
+	if !plan.validateArtifacts {
+		return stateError("PR #%d cleanup plan is not bound to immutable claim artifacts; preserve claim artifacts", number)
+	}
+	if plan.proofHead != receipt.Head {
+		return stateError("PR #%d cleanup plan head %q differs from immutable evaluation head %q; preserve claim artifacts", number, plan.proofHead, receipt.Head)
+	}
+	proof := mergeEvaluationProof{
+		claimProofs:   append([]evaluationClaimProof(nil), receipt.ClaimProofs...),
+		closingIssues: append([]int(nil), receipt.ClosingIssues...),
+		head:          receipt.Head,
+		headRefName:   receipt.HeadRefName,
+	}
+	primary, ok := issueFromBranch(receipt.HeadRefName)
+	if !ok {
+		return stateError("PR #%d immutable evaluation head ref %q is not an issue claim; preserve claim artifacts", number, receipt.HeadRefName)
+	}
+	if plan.primaryIssue != primary {
+		return stateError("PR #%d cleanup plan primary issue #%d differs from immutable evaluation primary issue #%d; preserve claim artifacts", number, plan.primaryIssue, primary)
+	}
+	claims, err := recoveryClaimProofs(proof, primary, number)
+	if err != nil {
+		return err
+	}
+	if len(claims) != len(plan.claims) {
+		return stateError("PR #%d cleanup plan no longer matches immutable claim proof; preserve claim artifacts", number)
+	}
+	for _, expected := range claims {
+		matched := false
+		for _, actual := range plan.claims {
+			if expected.Issue == actual.issue && expected.Branch == actual.branch && expected.SHA == actual.sha {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return stateError("PR #%d cleanup plan differs from immutable evaluation claim %s; preserve claim artifacts", number, expected.Branch)
+		}
+	}
+	return nil
 }
 
 func mergeOutcomeUnknownError(number int, ambiguous, reconciliation error) error {

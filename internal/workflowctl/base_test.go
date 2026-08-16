@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,6 +53,25 @@ func TestBaseSynchronizationConvergesCleanPrimary(t *testing.T) {
 	}
 	if result.fetched.primary.before != want || result.after != want {
 		t.Fatalf("idempotent sync result = %#v, want equal commit %s", result, want)
+	}
+}
+
+func TestBaseSynchronizationPublishesMergedInstructionBeforeLaunch(t *testing.T) {
+	fixture := newBaseRepositoryFixture(t, false)
+	writeFixtureFile(t, fixture.seed, "AGENTS.md", "canonical instruction from merged head\n")
+	runGitTest(t, fixture.seed, "add", "AGENTS.md")
+	runGitTest(t, fixture.seed, "commit", "--no-gpg-sign", "-m", "update launch instruction")
+	runGitTest(t, fixture.seed, "push", "origin", "main")
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}}
+	if err := application.synchronizeBaseMust(fixture.primary); err != nil {
+		t.Fatalf("synchronize merged instruction: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(fixture.primary, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read canonical merged instruction: %v", err)
+	}
+	if string(content) != "canonical instruction from merged head\n" {
+		t.Fatalf("canonical instruction = %q, want merged-head content", content)
 	}
 }
 
@@ -162,7 +182,7 @@ func TestDoctorLaunchRequiresCanonicalFreshBase(t *testing.T) {
 		!strings.Contains(err.Error(), "base-sync") || !strings.Contains(err.Error(), "behind") {
 		t.Fatalf("stale launch error = %v", err)
 	}
-	if _, err := application.synchronizeBaseMust(fixture.primary); err != nil {
+	if err := application.synchronizeBaseMust(fixture.primary); err != nil {
 		t.Fatalf("synchronize stale primary: %v", err)
 	}
 	if _, err := application.checkDevelopLaunch(fixture.primary); err != nil {
@@ -170,12 +190,41 @@ func TestDoctorLaunchRequiresCanonicalFreshBase(t *testing.T) {
 	}
 }
 
-func (a app) synchronizeBaseMust(root string) (synchronizedBase, error) {
+func TestDoctorFinalSnapshotRejectsRemoteAdvance(t *testing.T) {
+	fixture := newBaseRepositoryFixture(t, false)
+	fetches := 0
+	application := app{
+		ctx: context.Background(),
+		executeCommand: func(dir string, input io.Reader, name string, args ...string) (string, error) {
+			if name == "git" && strings.Join(args, " ") == "fetch origin main" {
+				fetches++
+				if fetches == 2 {
+					appendSeedCommit(t, fixture, "doctor race")
+				}
+			}
+			// #nosec G204 -- the test executor invokes fixed repository-local commands.
+			command := exec.CommandContext(context.Background(), name, args...)
+			command.Dir = dir
+			command.Stdin = input
+			output, err := command.CombinedOutput()
+			if err != nil {
+				return "", fmt.Errorf("run %s: %w: %s", name, err, strings.TrimSpace(string(output)))
+			}
+			return strings.TrimSpace(string(output)), nil
+		},
+	}
+	if _, err := application.checkDevelopLaunch(fixture.primary); err == nil || !strings.Contains(err.Error(), "changed after recursive submodule readiness") {
+		t.Fatalf("checkDevelopLaunch error = %v, want final-snapshot refusal", err)
+	}
+}
+
+func (a app) synchronizeBaseMust(root string) error {
 	layout, err := a.repositoryLayout(root)
 	if err != nil {
-		return synchronizedBase{}, err
+		return err
 	}
-	return a.synchronizeBase(layout, "")
+	_, err = a.synchronizeBase(layout, "")
+	return err
 }
 
 func newBaseRepositoryFixture(t *testing.T, withSubmodule bool) baseRepositoryFixture {
@@ -342,6 +391,8 @@ func TestBaseSynchronizationRefusesMoveDuringSubmoduleUpdate(t *testing.T) {
 				return "before", nil
 			}
 			return "0 0", nil
+		case "git config --get-regexp ^submodule\\..*\\.update$":
+			return "", errors.New("exit status 1")
 		case "git submodule update --init --recursive":
 			return "", nil
 		default:
@@ -352,6 +403,126 @@ func TestBaseSynchronizationRefusesMoveDuringSubmoduleUpdate(t *testing.T) {
 	_, err := application.synchronizeBase(layout, "")
 	if err == nil || !strings.Contains(err.Error(), "changed concurrently") {
 		t.Fatalf("synchronizeBase error = %v, want submodule-update concurrent refusal", err)
+	}
+}
+
+func TestFinalizeBaseSnapshotAcceptsDescendantContainingMerge(t *testing.T) {
+	headReads := 0
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		switch command {
+		case "git rev-parse HEAD":
+			headReads++
+			if headReads == 1 {
+				return "base", nil
+			}
+			return "descendant", nil
+		case "git rev-parse origin/main":
+			return "descendant", nil
+		case "git merge-base --is-ancestor base descendant", "git merge-base --is-ancestor merge descendant":
+			return "", nil
+		case "git merge --ff-only origin/main":
+			return "", nil
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+	fetched := fetchedBase{
+		primary: cleanPrimary{layout: repositoryLayout{primaryRoot: "/repo"}},
+		origin:  "base",
+	}
+	got, after, retry, err := application.finalizeBaseSnapshot(fetched, "base", "merge")
+	if err != nil {
+		t.Fatalf("finalizeBaseSnapshot: %v", err)
+	}
+	if !retry || after != "descendant" || got.origin != "descendant" {
+		t.Fatalf("final snapshot = %#v, %q, retry=%t; want descendant retry", got, after, retry)
+	}
+}
+
+func TestFinalizeBaseSnapshotRejectsDescendantWithoutMerge(t *testing.T) {
+	headReads := 0
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		switch command {
+		case "git rev-parse HEAD":
+			headReads++
+			return "base", nil
+		case "git rev-parse origin/main":
+			return "descendant", nil
+		case "git merge-base --is-ancestor base descendant":
+			return "", nil
+		case "git merge-base --is-ancestor merge descendant":
+			return "", errors.New("exit status 1")
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+	fetched := fetchedBase{
+		primary: cleanPrimary{layout: repositoryLayout{primaryRoot: "/repo"}},
+		origin:  "base",
+	}
+	_, _, _, err := application.finalizeBaseSnapshot(fetched, "base", "merge")
+	if err == nil || !strings.Contains(err.Error(), "does not contain completed merge") {
+		t.Fatalf("finalizeBaseSnapshot error = %v, want merge-containment refusal", err)
+	}
+}
+
+func TestSubmoduleRefreshObservesConcurrentOriginDescendant(t *testing.T) {
+	headReads := 0
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		switch command {
+		case "git config --get-regexp ^submodule\\..*\\.update$":
+			return "", errors.New("exit status 1")
+		case "git submodule update --init --recursive", "git fetch origin main":
+			return "", nil
+		case "git rev-parse HEAD":
+			headReads++
+			return "base", nil
+		case "git rev-parse origin/main":
+			return "descendant", nil
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+	fetched := fetchedBase{
+		primary: cleanPrimary{layout: repositoryLayout{primaryRoot: "/repo"}},
+		origin:  "base",
+	}
+	origin, err := application.updateAndCheckSubmodules(fetched, "base")
+	if err != nil {
+		t.Fatalf("updateAndCheckSubmodules: %v", err)
+	}
+	if origin != "descendant" || headReads != 2 {
+		t.Fatalf("refreshed origin = %q with %d HEAD reads, want descendant and two reads", origin, headReads)
+	}
+}
+
+func TestSubmoduleUpdatePolicyAllowsCheckoutOnly(t *testing.T) {
+	for _, policy := range []string{"submodule.foo.update checkout", "submodule.foo.update checkout\nsubmodule.bar.update checkout\n"} {
+		if err := validateSubmoduleUpdatePolicy(policy); err != nil {
+			t.Fatalf("validateSubmoduleUpdatePolicy(%q): %v", policy, err)
+		}
+	}
+	for _, policy := range []string{"merge", "rebase", "!custom command", "none"} {
+		if err := validateSubmoduleUpdatePolicy("submodule.foo.update " + policy); err == nil {
+			t.Fatalf("validateSubmoduleUpdatePolicy(%q) accepted unsupported policy", policy)
+		}
+	}
+}
+
+func TestSubmoduleUpdatePolicyChecksGitConfigWithoutGitmodules(t *testing.T) {
+	root := t.TempDir()
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if command == "git config --get-regexp ^submodule\\..*\\.update$" {
+			return "submodule.foo.update rebase", nil
+		}
+		return "", errors.New("exit status 1")
+	}}
+	if err := application.checkSubmoduleUpdatePolicy(root); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("checkSubmoduleUpdatePolicy error = %v, want unsupported-policy refusal", err)
 	}
 }
 

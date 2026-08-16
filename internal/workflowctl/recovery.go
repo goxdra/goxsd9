@@ -89,6 +89,7 @@ func mergedPullRequestSHA(view pullRequestView) (string, error) {
 type mergeEvaluationProof struct {
 	bodySHA256    string
 	baseRefName   string
+	claimProofs   []evaluationClaimProof
 	closingIssues []int
 	head          string
 	headRefName   string
@@ -122,6 +123,7 @@ func mergeTimeEvaluationProof(view pullRequestView, number int) (mergeEvaluation
 	return mergeEvaluationProof{
 		bodySHA256:    selected.receipt.BodySHA256,
 		baseRefName:   selected.receipt.BaseRefName,
+		claimProofs:   append([]evaluationClaimProof(nil), selected.receipt.ClaimProofs...),
 		closingIssues: append([]int(nil), selected.receipt.ClosingIssues...),
 		head:          selected.receipt.Head,
 		headRefName:   selected.receipt.HeadRefName,
@@ -169,6 +171,9 @@ func validateMergeBoundaryReceipt(receipt evaluationReceipt, number int) error {
 	if !validEvaluationReceiptMetadata(receipt) || !hasEvaluationReceiptMetadata(receipt) {
 		return errors.New("latest trusted evaluation receipt lacks immutable pull request metadata")
 	}
+	if len(receipt.ClosingIssues) > 1 && receipt.ClaimProofs == nil {
+		return errors.New("latest trusted evaluation receipt lacks immutable companion claim proof")
+	}
 	return nil
 }
 
@@ -189,7 +194,7 @@ func (a app) prepareRecoveryCleanupPlanWithProof(root string, layout repositoryL
 	if err != nil {
 		return cleanupPlan{}, err
 	}
-	claims, err := a.recoveryClaims(root, proof, primary, pullRequestNumber)
+	claims, err := a.recoveryClaims(proof, primary, pullRequestNumber)
 	if err != nil {
 		return cleanupPlan{}, err
 	}
@@ -197,13 +202,21 @@ func (a app) prepareRecoveryCleanupPlanWithProof(root string, layout repositoryL
 	if err != nil {
 		return cleanupPlan{}, err
 	}
+	if len(claims) > 1 {
+		if err := a.ensureRecoveryHead(root, pullRequestNumber, proof.head); err != nil {
+			return cleanupPlan{}, err
+		}
+		if err := a.validateClaimArtifacts(root, layout, claims, proof.head, primary, true); err != nil {
+			return cleanupPlan{}, err
+		}
+	}
 	sort.Slice(claims, func(left, right int) bool {
 		if claims[left].issue != claims[right].issue {
 			return claims[left].issue < claims[right].issue
 		}
 		return claims[left].branch < claims[right].branch
 	})
-	return cleanupPlan{layout: layout, callerRoot: root, claims: claims}, nil
+	return cleanupPlan{layout: layout, callerRoot: root, claims: claims, proofHead: proof.head, primaryIssue: primary, allowPrimaryMissing: true, validateArtifacts: true}, nil
 }
 
 func validateRecoveryMetadata(view pullRequestView, proof mergeEvaluationProof, pullRequestNumber int) error {
@@ -270,14 +283,14 @@ func sameIssueNumbers(left, right []int) bool {
 	return true
 }
 
-func (a app) recoveryClaims(root string, proof mergeEvaluationProof, primary, pullRequestNumber int) ([]claimArtifact, error) {
-	claims := []claimArtifact{{issue: primary, branch: proof.headRefName, sha: proof.head}}
-	if len(proof.closingIssues) > 1 {
-		companions, err := a.recoveryCompanionClaims(root, proof, primary, pullRequestNumber)
-		if err != nil {
-			return nil, err
-		}
-		claims = append(claims, companions...)
+func (a app) recoveryClaims(proof mergeEvaluationProof, primary, pullRequestNumber int) ([]claimArtifact, error) {
+	proofs, err := recoveryClaimProofs(proof, primary, pullRequestNumber)
+	if err != nil {
+		return nil, err
+	}
+	claims := make([]claimArtifact, 0, len(proofs))
+	for _, claim := range proofs {
+		claims = append(claims, claimArtifact{issue: claim.Issue, branch: claim.Branch, sha: claim.SHA})
 	}
 	if err := rejectDuplicateClaimArtifacts(claims); err != nil {
 		return nil, err
@@ -285,50 +298,56 @@ func (a app) recoveryClaims(root string, proof mergeEvaluationProof, primary, pu
 	return claims, nil
 }
 
-func (a app) recoveryCompanionClaims(root string, proof mergeEvaluationProof, primary, pullRequestNumber int) ([]claimArtifact, error) {
-	remoteClaims, err := a.remoteClaimRefs(root)
-	if err != nil {
+func recoveryClaimProofs(proof mergeEvaluationProof, primary, pullRequestNumber int) ([]evaluationClaimProof, error) {
+	if proof.claimProofs == nil {
+		if len(proof.closingIssues) > 1 {
+			return nil, stateError("merged PR #%d lacks immutable companion branch and SHA proof; preserve claim artifacts", pullRequestNumber)
+		}
+		return []evaluationClaimProof{{Issue: primary, Branch: proof.headRefName, SHA: proof.head}}, nil
+	}
+	if len(proof.claimProofs) != len(proof.closingIssues) {
+		return nil, stateError("merged PR #%d has incomplete immutable claim proof; preserve claim artifacts", pullRequestNumber)
+	}
+	if err := validateRecoveryClaimProofs(proof.claimProofs, proof.closingIssues, pullRequestNumber); err != nil {
 		return nil, err
 	}
-	localClaims, err := a.localClaimRefs(root)
-	if err != nil {
-		return nil, err
+	primaryClaim, ok := claimProofForIssue(proof.claimProofs, primary)
+	if !ok || primaryClaim.Branch != proof.headRefName || primaryClaim.SHA != proof.head {
+		return nil, stateError("merged PR #%d primary immutable claim proof changed; preserve claim artifacts", pullRequestNumber)
 	}
-	remoteClaims = appendClaimRefs(remoteClaims, localClaims)
-	if hasHistoricalCompanionCandidate(remoteClaims, proof.closingIssues, primary) {
-		if err := a.ensureRecoveryHead(root, pullRequestNumber, proof.head); err != nil {
-			return nil, err
-		}
-	}
-	companions := make([]claimArtifact, 0, 1)
-	for _, issue := range proof.closingIssues {
-		if issue == primary {
-			continue
-		}
-		candidate, found, err := a.historicalCompanionClaim(root, issue, proof.head, remoteClaims)
-		if err != nil {
-			return nil, err
-		}
-		if !found {
-			continue
-		}
-		companions = append(companions, claimArtifact{issue: issue, branch: candidate.branch, sha: candidate.sha})
-	}
-	return companions, nil
+	return append([]evaluationClaimProof(nil), proof.claimProofs...), nil
 }
 
-func hasHistoricalCompanionCandidate(claims []remoteClaim, closingIssues []int, primary int) bool {
-	for _, issue := range closingIssues {
-		if issue == primary {
-			continue
+func validateRecoveryClaimProofs(proofs []evaluationClaimProof, issues []int, pullRequestNumber int) error {
+	seen := make(map[int]struct{}, len(proofs))
+	for _, claim := range proofs {
+		if claim.Issue < 1 || claim.Branch == "" || claim.SHA == "" {
+			return stateError("merged PR #%d has malformed immutable claim proof; preserve claim artifacts", pullRequestNumber)
 		}
-		for _, claim := range claims {
-			if claim.number == issue {
-				return true
-			}
+		issue, ok := issueFromBranch(claim.Branch)
+		if !ok || issue != claim.Issue {
+			return stateError("merged PR #%d immutable claim proof branch %q does not match issue #%d; preserve claim artifacts", pullRequestNumber, claim.Branch, claim.Issue)
+		}
+		if _, ok := seen[claim.Issue]; ok {
+			return stateError("merged PR #%d has duplicate immutable claim proof for issue #%d; preserve claim artifacts", pullRequestNumber, claim.Issue)
+		}
+		seen[claim.Issue] = struct{}{}
+	}
+	for _, issue := range issues {
+		if _, ok := seen[issue]; !ok {
+			return stateError("merged PR #%d lacks immutable claim proof for issue #%d; preserve claim artifacts", pullRequestNumber, issue)
 		}
 	}
-	return false
+	return nil
+}
+
+func claimProofForIssue(proofs []evaluationClaimProof, issue int) (evaluationClaimProof, bool) {
+	for _, proof := range proofs {
+		if proof.Issue == issue {
+			return proof, true
+		}
+	}
+	return evaluationClaimProof{}, false
 }
 
 func (a app) ensureRecoveryHead(root string, pullRequestNumber int, head string) error {
@@ -343,48 +362,6 @@ func (a app) ensureRecoveryHead(root string, pullRequestNumber int, head string)
 		return fmt.Errorf("verify merged PR #%d head for companion proof: %w", pullRequestNumber, err)
 	}
 	return nil
-}
-
-func (a app) historicalCompanionClaim(root string, issue int, head string, remoteClaims []remoteClaim) (remoteClaim, bool, error) {
-	candidates := make([]remoteClaim, 0, 1)
-	for _, claim := range remoteClaims {
-		if claim.number != issue {
-			continue
-		}
-		included, err := a.historicalClaimIncluded(root, claim, head)
-		if err != nil {
-			return remoteClaim{}, false, err
-		}
-		if included {
-			candidates = append(candidates, claim)
-		}
-	}
-	if len(candidates) == 1 {
-		return candidates[0], true, nil
-	}
-	if len(candidates) > 1 {
-		return remoteClaim{}, false, stateError("historical companion issue #%d has ambiguous merged claim proof", issue)
-	}
-	return remoteClaim{}, false, nil
-}
-
-func (a app) historicalClaimIncluded(root string, claim remoteClaim, head string) (bool, error) {
-	remote, err := a.remoteClaimPresent(root, claim.branch)
-	if err != nil {
-		return false, err
-	}
-	if remote {
-		if _, err := a.command(root, "git", "fetch", "--no-tags", "origin", "refs/heads/"+claim.branch); err != nil {
-			return false, fmt.Errorf("fetch historical claim %s for proof: %w", claim.branch, err)
-		}
-	}
-	if _, err := a.command(root, "git", "merge-base", "--is-ancestor", claim.sha, head); err != nil {
-		if isGitNonAncestor(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("prove historical claim %s: %w", claim.branch, err)
-	}
-	return true, nil
 }
 
 func (a app) localClaimRefs(root string) ([]remoteClaim, error) {
@@ -409,35 +386,6 @@ func (a app) localClaimRefs(root string) ([]remoteClaim, error) {
 		return claims[left].branch < claims[right].branch
 	})
 	return claims, nil
-}
-
-func appendClaimRefs(primary, additional []remoteClaim) []remoteClaim {
-	result := append([]remoteClaim(nil), primary...)
-	for _, candidate := range additional {
-		found := false
-		for _, current := range result {
-			if current.branch == candidate.branch {
-				found = true
-				break
-			}
-		}
-		if !found {
-			result = append(result, candidate)
-		}
-	}
-	sort.Slice(result, func(left, right int) bool {
-		return result[left].branch < result[right].branch
-	})
-	return result
-}
-
-func (a app) remoteClaimPresent(root, branch string) (bool, error) {
-	output, err := a.command(root, "git", "ls-remote", "--heads", "origin", "refs/heads/"+branch)
-	if err != nil {
-		return false, fmt.Errorf("inspect remote historical claim %s: %w", branch, err)
-	}
-	_, present, err := exactRemoteRef(output, "refs/heads/"+branch)
-	return present, err
 }
 
 func (a app) pruneHistoricalClaimsCommand(args []string) error {

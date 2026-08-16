@@ -84,6 +84,34 @@ func TestFindClaimWorktreePreservesExternalPath(t *testing.T) {
 	}
 }
 
+func TestClaimArtifactValidationDistinguishesAbsentAndPartialProof(t *testing.T) {
+	claims := []claimArtifact{
+		{issue: 55, branch: "agent/issue-55", sha: "primary"},
+		{issue: 56, branch: "agent/issue-56", sha: "companion"},
+	}
+	if err := validateMissingClaimArtifacts(claims, map[string]bool{}, 55, true); err != nil {
+		t.Fatalf("all absent recovery artifacts = %v, want idempotent success", err)
+	}
+	if err := validateMissingClaimArtifacts(claims, map[string]bool{"agent/issue-56": true}, 55, true); err != nil {
+		t.Fatalf("fully removed primary with companion remaining = %v, want recoverable partial cleanup", err)
+	}
+	if err := validateMissingClaimArtifacts(claims, map[string]bool{"agent/issue-55": true}, 55, true); err == nil || !strings.Contains(err.Error(), "issue-56") {
+		t.Fatalf("missing companion proof = %v, want preservation refusal", err)
+	}
+}
+
+func TestClaimArtifactValidationRejectsUnprovenSameIssueRefs(t *testing.T) {
+	claims := []claimArtifact{{issue: 55, branch: "agent/issue-55", sha: "primary"}}
+	all := []remoteClaim{
+		{branch: "agent/issue-55", number: 55, sha: "primary"},
+		{branch: "agent/issue-55-old", number: 55, sha: "old"},
+		{branch: "origin/agent/issue-55", number: 55, sha: "tracking"},
+	}
+	if err := validateUnexpectedClaimRefs(all, map[string]claimArtifact{"agent/issue-55": claims[0]}, claims); err == nil || !strings.Contains(err.Error(), "leftover claim artifact") {
+		t.Fatalf("unproven same-issue refs = %v, want leftover refusal", err)
+	}
+}
+
 func configureTestIdentity(t *testing.T, root string) {
 	t.Helper()
 	runGitTest(t, root, "config", "user.name", "Workflow Test")

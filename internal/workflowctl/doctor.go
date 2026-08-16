@@ -124,10 +124,17 @@ func (a app) checkDevelopLaunch(callerRoot string) (string, error) {
 	if fetched.ahead != 0 || fetched.behind != 0 {
 		return "", stateError("canonical main %s fetched origin/main (local-only=%d, remote-only=%d); run %s before the next Develop launch", relationDescription(fetched.ahead, fetched.behind), fetched.ahead, fetched.behind, baseSyncCommand)
 	}
-	if err := a.checkPinnedSubmodules(layout.primaryRoot); err != nil {
-		return "", fmt.Errorf("canonical primary is not recursively pinned and ready: %w; run %s", err, baseSyncCommand)
+	if submoduleErr := a.checkPinnedSubmodules(layout.primaryRoot); submoduleErr != nil {
+		return "", fmt.Errorf("canonical primary is not recursively pinned and ready: %w; run %s", submoduleErr, baseSyncCommand)
 	}
-	return fmt.Sprintf("%s (main %s equals fetched origin/main; recursive submodules ready)", layout.primaryRoot, fetched.origin), nil
+	final, finalErr := a.fetchBase(primary)
+	if finalErr != nil {
+		return "", fmt.Errorf("recheck canonical base after recursive submodule readiness: %w; run %s", finalErr, baseSyncCommand)
+	}
+	if final.ahead != 0 || final.behind != 0 {
+		return "", stateError("canonical main changed after recursive submodule readiness (%s fetched origin/main, local-only=%d, remote-only=%d); run %s before the next Develop launch", relationDescription(final.ahead, final.behind), final.ahead, final.behind, baseSyncCommand)
+	}
+	return fmt.Sprintf("%s (main %s equals fetched origin/main; recursive submodules ready)", layout.primaryRoot, final.origin), nil
 }
 
 func relationDescription(ahead, behind int) string {

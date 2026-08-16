@@ -17,9 +17,13 @@ type claimArtifact struct {
 }
 
 type cleanupPlan struct {
-	layout     repositoryLayout
-	callerRoot string
-	claims     []claimArtifact
+	layout              repositoryLayout
+	callerRoot          string
+	claims              []claimArtifact
+	proofHead           string
+	primaryIssue        int
+	allowPrimaryMissing bool
+	validateArtifacts   bool
 }
 
 type mergedPacket struct {
@@ -28,8 +32,12 @@ type mergedPacket struct {
 	plan     cleanupPlan
 }
 
-func (a app) prepareCleanupPlan(root string, layout repositoryLayout, view pullRequestView, primary int) (cleanupPlan, error) {
-	claims, err := a.cleanupClaimsForView(root, view, primary)
+func (a app) prepareCleanupPlan(root string, layout repositoryLayout, view pullRequestView, primary int, pullRequestNumbers ...int) (cleanupPlan, error) {
+	pullRequestNumber := primary
+	if len(pullRequestNumbers) != 0 {
+		pullRequestNumber = pullRequestNumbers[0]
+	}
+	claims, proofHead, proofBound, err := a.cleanupClaimsForPlan(root, view, primary, pullRequestNumber)
 	if err != nil {
 		return cleanupPlan{}, err
 	}
@@ -37,16 +45,73 @@ func (a app) prepareCleanupPlan(root string, layout repositoryLayout, view pullR
 	if err != nil {
 		return cleanupPlan{}, err
 	}
+	if len(claims) > 1 {
+		proofBound = true
+	}
+	if proofBound {
+		if err := a.validateClaimArtifacts(root, layout, claims, proofHead, primary, false); err != nil {
+			return cleanupPlan{}, err
+		}
+	}
 	if !hasWorktreeForRoot(claims, root) {
 		return cleanupPlan{}, stateError("current claim worktree %q is not uniquely registered in Git worktree inventory; preserve claims and run go tool workflowctl pr recover %d", root, primary)
 	}
 	sort.Slice(claims, func(left, right int) bool {
+		leftCurrent := samePath(claims[left].worktreePath, root)
+		rightCurrent := samePath(claims[right].worktreePath, root)
+		if leftCurrent != rightCurrent {
+			return leftCurrent
+		}
 		if claims[left].issue != claims[right].issue {
 			return claims[left].issue < claims[right].issue
 		}
 		return claims[left].branch < claims[right].branch
 	})
-	return cleanupPlan{layout: layout, callerRoot: root, claims: claims}, nil
+	return cleanupPlan{layout: layout, callerRoot: root, claims: claims, proofHead: proofHead, primaryIssue: primary, validateArtifacts: proofBound}, nil
+}
+
+func (a app) cleanupClaimsForPlan(root string, view pullRequestView, primary, pullRequestNumber int) ([]claimArtifact, string, bool, error) {
+	if len(view.Comments) == 0 {
+		claims, err := a.cleanupClaimsForView(root, view, primary)
+		return claims, view.HeadRefOID, false, err
+	}
+	receipt, err := latestPassingEvaluationReceipt(view, pullRequestNumber)
+	if err != nil {
+		return nil, "", true, err
+	}
+	claims, err := a.cleanupClaimsForReceipt(root, view, primary, receipt)
+	return claims, receipt.Head, true, err
+}
+
+func (a app) cleanupClaimsForReceipt(root string, view pullRequestView, primary int, receipt evaluationReceipt) ([]claimArtifact, error) {
+	proof := mergeEvaluationProof{
+		claimProofs:   append([]evaluationClaimProof(nil), receipt.ClaimProofs...),
+		closingIssues: append([]int(nil), receipt.ClosingIssues...),
+		head:          receipt.Head,
+		headRefName:   receipt.HeadRefName,
+	}
+	claims, err := recoveryClaimProofs(proof, primary, receipt.PR)
+	if err != nil {
+		return nil, err
+	}
+	artifacts := make([]claimArtifact, 0, len(claims))
+	for _, claim := range claims {
+		artifacts = append(artifacts, claimArtifact{issue: claim.Issue, branch: claim.Branch, sha: claim.SHA})
+	}
+	localHead, err := a.command(root, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return nil, fmt.Errorf("read primary claim head before merge: %w", err)
+	}
+	if localHead != receipt.Head || view.HeadRefOID != receipt.Head {
+		return nil, stateError("PR evaluated head %s does not match immutable evaluation head %s; preserve claim artifacts", view.HeadRefOID, receipt.Head)
+	}
+	if view.HeadRefName != receipt.HeadRefName {
+		return nil, stateError("PR head ref %q does not match immutable evaluation head ref %q; preserve claim artifacts", view.HeadRefName, receipt.HeadRefName)
+	}
+	if !pullRequestCloses(view, primary) {
+		return nil, stateError("PR does not close claimed issue #%d", primary)
+	}
+	return artifacts, nil
 }
 
 func (a app) cleanupClaimsForView(root string, view pullRequestView, primary int) ([]claimArtifact, error) {
@@ -229,6 +294,11 @@ func (a app) cleanupClaims(base synchronizedBase, packet mergedPacket) error {
 	if err != nil {
 		return err
 	}
+	if plan.validateArtifacts || len(plan.claims) > 1 {
+		if err := a.validateClaimArtifacts(layout.primaryRoot, layout, plan.claims, plan.proofHead, plan.primaryIssue, plan.allowPrimaryMissing); err != nil {
+			return err
+		}
+	}
 	if err := a.validateClaimRefs(layout.primaryRoot, plan.claims); err != nil {
 		return err
 	}
@@ -239,6 +309,181 @@ func (a app) cleanupClaims(base synchronizedBase, packet mergedPacket) error {
 		return err
 	}
 	return a.removeClaimRefs(layout.primaryRoot, plan.claims)
+}
+
+func (a app) validateClaimArtifacts(root string, layout repositoryLayout, claims []claimArtifact, head string, primaryIssue int, allowPrimaryMissing bool) error {
+	remote, err := a.remoteClaimRefs(root)
+	if err != nil {
+		return err
+	}
+	local, err := a.localClaimRefs(root)
+	if err != nil {
+		return err
+	}
+	tracking, err := a.localTrackingClaimRefs(root)
+	if err != nil {
+		return err
+	}
+	all := append(append(append([]remoteClaim(nil), remote...), local...), tracking...)
+	claimBranches, err := claimBranchIndex(claims)
+	if err != nil {
+		return err
+	}
+	seenExpected, err := a.validateExpectedClaimArtifacts(root, layout, claims, all, head)
+	if err != nil {
+		return err
+	}
+	if err := validateMissingClaimArtifacts(claims, seenExpected, primaryIssue, allowPrimaryMissing); err != nil {
+		return err
+	}
+	if err := validateUnexpectedClaimRefs(all, claimBranches, claims); err != nil {
+		return err
+	}
+	return validateUnexpectedClaimWorktrees(layout, claimBranches, claims)
+}
+
+func claimBranchIndex(claims []claimArtifact) (map[string]claimArtifact, error) {
+	index := make(map[string]claimArtifact, len(claims))
+	for _, claim := range claims {
+		if _, exists := index[claim.branch]; exists {
+			return nil, stateError("claim cleanup has duplicate branch %q; preserve ambiguous state", claim.branch)
+		}
+		index[claim.branch] = claim
+	}
+	return index, nil
+}
+
+func (a app) validateExpectedClaimArtifacts(root string, layout repositoryLayout, claims []claimArtifact, all []remoteClaim, head string) (map[string]bool, error) {
+	seen := make(map[string]bool, len(claims))
+	for _, claim := range claims {
+		sha, found, err := exactClaimSHA(all, claim.branch)
+		if err != nil {
+			return nil, err
+		}
+		_, worktreeFound, err := findClaimWorktree(layout, claim.branch, claim.sha)
+		if err != nil {
+			return nil, err
+		}
+		if found && sha != claim.sha {
+			return nil, stateError("claim %s moved from immutable merge-time head %s to %s; preserve claim artifacts and run go tool workflowctl pr recover", claim.branch, claim.sha, sha)
+		}
+		if found || worktreeFound {
+			seen[claim.branch] = true
+		}
+		if err := a.validateClaimAncestor(root, claim, found || worktreeFound, head); err != nil {
+			return nil, err
+		}
+	}
+	return seen, nil
+}
+
+func (a app) validateClaimAncestor(root string, claim claimArtifact, present bool, head string) error {
+	if !present || head == "" {
+		return nil
+	}
+	_, err := a.command(root, "git", "merge-base", "--is-ancestor", claim.sha, head)
+	if err == nil {
+		return nil
+	}
+	if isGitNonAncestor(err) {
+		return stateError("claim %s at %s is not an ancestor of immutable evaluated head %s; preserve claim artifacts", claim.branch, claim.sha, head)
+	}
+	return fmt.Errorf("prove claim %s at %s is included in immutable evaluated head: %w", claim.branch, claim.sha, err)
+}
+
+func validateMissingClaimArtifacts(claims []claimArtifact, seen map[string]bool, primaryIssue int, allowPrimaryMissing bool) error {
+	if len(seen) == 0 {
+		return nil
+	}
+	for _, claim := range claims {
+		if !seen[claim.branch] {
+			if allowPrimaryMissing && claim.issue == primaryIssue {
+				continue
+			}
+			return stateError("immutable claim artifact %s is missing; preserve remaining claim artifacts and run go tool workflowctl pr recover", claim.branch)
+		}
+	}
+	return nil
+}
+
+func validateUnexpectedClaimRefs(all []remoteClaim, expected map[string]claimArtifact, claims []claimArtifact) error {
+	for _, artifact := range all {
+		claim, ok := expected[artifact.branch]
+		if ok {
+			if artifact.sha != claim.sha {
+				return stateError("claim %s has conflicting artifact heads %s and %s; preserve ambiguous claim state", artifact.branch, claim.sha, artifact.sha)
+			}
+			continue
+		}
+		if claimIssue, issueOK := issueFromBranch(artifact.branch); issueOK && hasClaimIssue(claims, claimIssue) {
+			return stateError("leftover claim artifact %s at %s has no immutable merge-time proof; preserve claim artifacts", artifact.branch, artifact.sha)
+		}
+	}
+	return nil
+}
+
+func validateUnexpectedClaimWorktrees(layout repositoryLayout, expected map[string]claimArtifact, claims []claimArtifact) error {
+	for _, worktree := range layout.worktrees {
+		branch := strings.TrimPrefix(worktree.branch, "refs/heads/")
+		issue, ok := issueFromBranch(branch)
+		if !ok || !hasClaimIssue(claims, issue) {
+			continue
+		}
+		if _, expected := expected[branch]; !expected {
+			return stateError("leftover claim worktree %q has no immutable merge-time proof; preserve claim artifacts", worktree.path)
+		}
+	}
+	return nil
+}
+
+func (a app) localTrackingClaimRefs(root string) ([]remoteClaim, error) {
+	output, err := a.command(root, "git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin/agent/issue-*")
+	if err != nil {
+		return nil, fmt.Errorf("list remote-tracking claim refs: %w", err)
+	}
+	var claims []remoteClaim
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		branch := strings.TrimPrefix(fields[0], "origin/")
+		number, ok := issueFromBranch(branch)
+		if !ok {
+			continue
+		}
+		claims = append(claims, remoteClaim{branch: branch, number: number, sha: fields[1]})
+	}
+	sort.Slice(claims, func(left, right int) bool {
+		return claims[left].branch < claims[right].branch
+	})
+	return claims, nil
+}
+
+func exactClaimSHA(claims []remoteClaim, branch string) (string, bool, error) {
+	var found string
+	for _, claim := range claims {
+		if claim.branch != branch {
+			continue
+		}
+		if found == "" {
+			found = claim.sha
+			continue
+		}
+		if found != claim.sha {
+			return "", false, stateError("claim %s has conflicting artifact heads %s and %s; preserve ambiguous claim state", branch, found, claim.sha)
+		}
+	}
+	return found, found != "", nil
+}
+
+func hasClaimIssue(claims []claimArtifact, issue int) bool {
+	for _, claim := range claims {
+		if claim.issue == issue {
+			return true
+		}
+	}
+	return false
 }
 
 func (a app) validateClaimRefs(root string, claims []claimArtifact) error {
