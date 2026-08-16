@@ -60,6 +60,7 @@ func TestRecoveryUsesImmutableEvaluatedHeadAndRefusesAdvancedPR(t *testing.T) {
 	recordedAt := mergedAt.Add(-time.Minute)
 	view := pullRequestView{
 		BaseRefName:    "main",
+		Body:           recoveryBody,
 		HeadRefName:    "agent/issue-55",
 		HeadRefOID:     "advanced-head",
 		Merged:         true,
@@ -71,12 +72,13 @@ func TestRecoveryUsesImmutableEvaluatedHeadAndRefusesAdvancedPR(t *testing.T) {
 		Number int `json:"number"`
 	}{Number: 55})
 
-	got, err := mergeTimeEvaluatedHead(view, 14)
+	proof, err := mergeTimeEvaluationProof(view, 14)
 	if err != nil {
-		t.Fatalf("mergeTimeEvaluatedHead error: %v", err)
+		t.Fatalf("mergeTimeEvaluationProof error: %v", err)
 	}
+	got := proof.head
 	if got != evaluatedHead {
-		t.Fatalf("mergeTimeEvaluatedHead = %q, want %q", got, evaluatedHead)
+		t.Fatalf("mergeTimeEvaluationProof head = %q, want %q", got, evaluatedHead)
 	}
 
 	application := app{}
@@ -94,15 +96,82 @@ func TestRecoveryRejectsReceiptOnlyEvaluationProof(t *testing.T) {
 		MergeCommitSHA: "merge-commit",
 		Comments:       []pullRequestComment{recoveryEvaluationReceipt(t, 14, "evaluated-head", mergedAt.Add(-time.Minute))},
 	}
-	if _, err := mergeTimeEvaluatedHead(view, 14); err == nil || !strings.Contains(err.Error(), "matching trusted challenges") {
-		t.Fatalf("mergeTimeEvaluatedHead error = %v, want receipt-only refusal", err)
+	if _, err := mergeTimeEvaluationProof(view, 14); err == nil || !strings.Contains(err.Error(), "matching trusted challenges") {
+		t.Fatalf("mergeTimeEvaluationProof error = %v, want receipt-only refusal", err)
 	}
+}
+
+func TestRecoveryRejectsPassThenFailAtMergeBoundary(t *testing.T) {
+	mergedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+	comments := append(
+		recoveryEvaluationRound(t, 14, "evaluated-head", "pass-challenge", "pass-run", 1, "pass", mergedAt.Add(-3*time.Minute), mergedAt.Add(-3*time.Minute)),
+		recoveryEvaluationRound(t, 14, "evaluated-head", "fail-challenge", "fail-run", 2, "fail", mergedAt.Add(-time.Minute), mergedAt.Add(-time.Minute))...,
+	)
+	view := recoveryMergedView(mergedAt, "evaluated-head", comments)
+	if _, err := mergeTimeEvaluationProof(view, 14); err == nil || !strings.Contains(err.Error(), "latest trusted evaluation receipt") {
+		t.Fatalf("mergeTimeEvaluationProof error = %v, want latest-failure refusal", err)
+	}
+}
+
+func TestRecoveryRejectsPostMergeReceiptTimestampSkew(t *testing.T) {
+	mergedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+	comments := recoveryEvaluationRound(t, 14, "evaluated-head", "skew-challenge", "skew-run", 1, "pass",
+		mergedAt.Add(-time.Minute), mergedAt.Add(time.Minute))
+	view := recoveryMergedView(mergedAt, "evaluated-head", comments)
+	if _, err := mergeTimeEvaluationProof(view, 14); err == nil || !strings.Contains(err.Error(), "created after the merge boundary") {
+		t.Fatalf("mergeTimeEvaluationProof error = %v, want post-merge timestamp refusal", err)
+	}
+}
+
+func TestRecoveryRejectsPRBodyDrift(t *testing.T) {
+	mergedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+	view := recoveryMergedView(mergedAt, "evaluated-head",
+		recoveryEvaluationHistory(t, 14, "evaluated-head", mergedAt.Add(-time.Minute)))
+	proof, err := mergeTimeEvaluationProof(view, 14)
+	if err != nil {
+		t.Fatalf("mergeTimeEvaluationProof error: %v", err)
+	}
+	view.Body += "\nCloses #56\n"
+	view.ClosingIssuesReferences = append(view.ClosingIssuesReferences, struct {
+		Number int `json:"number"`
+	}{Number: 56})
+
+	application := app{}
+	_, err = application.prepareRecoveryCleanupPlanWithProof("/repo", repositoryLayout{primaryRoot: "/repo"}, view, 14, proof)
+	if err == nil || !strings.Contains(err.Error(), "PR body differs") {
+		t.Fatalf("prepareRecoveryCleanupPlanWithProof error = %v, want body-drift refusal", err)
+	}
+}
+
+const recoveryBody = "Closes #55\n"
+
+func recoveryMergedView(mergedAt time.Time, head string, comments []pullRequestComment) pullRequestView {
+	view := pullRequestView{
+		BaseRefName:    "main",
+		Body:           recoveryBody,
+		HeadRefName:    "agent/issue-55",
+		HeadRefOID:     head,
+		Merged:         true,
+		MergedAt:       &mergedAt,
+		MergeCommitSHA: "merge-commit",
+		Comments:       comments,
+	}
+	view.ClosingIssuesReferences = append(view.ClosingIssuesReferences, struct {
+		Number int `json:"number"`
+	}{Number: 55})
+	return view
 }
 
 func recoveryEvaluationHistory(t *testing.T, number int, head string, recordedAt time.Time) []pullRequestComment {
 	t.Helper()
+	return recoveryEvaluationRound(t, number, head, "recovery-challenge", "recovery-examiner", 1, "pass", recordedAt, recordedAt)
+}
+
+func recoveryEvaluationRound(t *testing.T, number int, head, challengeID, runID string, round int, verdict string,
+	recordedAt, commentAt time.Time) []pullRequestComment {
+	t.Helper()
 	requestedAt := recordedAt.Add(-time.Minute)
-	challenge := evaluationChallenge{Challenge: "recovery-challenge", Head: head, PR: number, RequestedAt: requestedAt}
+	challenge := evaluationChallenge{Challenge: challengeID, Head: head, PR: number, RequestedAt: requestedAt}
 	marker, err := json.Marshal(challenge)
 	if err != nil {
 		t.Fatalf("marshal recovery challenge: %v", err)
@@ -112,7 +181,7 @@ func recoveryEvaluationHistory(t *testing.T, number int, head string, recordedAt
 		CreatedAt: requestedAt,
 	}
 	comment.Author.Login = trustedActor
-	return []pullRequestComment{comment, recoveryEvaluationReceipt(t, number, head, recordedAt)}
+	return []pullRequestComment{comment, recoveryEvaluationReceiptWithMetadata(t, number, head, challengeID, runID, round, verdict, recordedAt, commentAt)}
 }
 
 func recoveryEvaluationReceipt(t *testing.T, number int, head string, recordedAt time.Time) pullRequestComment {
@@ -152,6 +221,61 @@ func recoveryEvaluationReceipt(t *testing.T, number int, head string, recordedAt
 	comment := pullRequestComment{
 		Body:      evaluationComment(receiptJSON, attestationJSON, report),
 		CreatedAt: recordedAt,
+	}
+	comment.Author.Login = trustedActor
+	return comment
+}
+
+func recoveryEvaluationReceiptWithMetadata(t *testing.T, number int, head, challengeID, runID string, round int,
+	verdict string, recordedAt, commentAt time.Time) pullRequestComment {
+	t.Helper()
+	findings := evaluationFindings{}
+	if verdict == "fail" {
+		findings = evaluationFindings{{
+			Impact:             "The proof must reject a failing latest receipt.",
+			Location:           "internal/workflowctl/recovery.go:1",
+			RequiredCorrection: "Use the latest receipt at the merge boundary.",
+		}}
+	}
+	attestation := evaluationAttestation{
+		Challenge: challengeID,
+		Evaluator: "Examiner",
+		Findings:  findings,
+		Head:      head,
+		PR:        number,
+		RunID:     runID,
+		Schema:    evaluationAttestationSchema,
+		Summary:   "The merge-boundary proof is recorded.",
+		Verdict:   verdict,
+	}
+	attestationJSON, err := json.Marshal(attestation)
+	if err != nil {
+		t.Fatalf("marshal recovery attestation: %v", err)
+	}
+	report := renderEvaluationReport(attestation)
+	receipt := evaluationReceipt{
+		AttestationSHA256: fmt.Sprintf("%x", sha256.Sum256(attestationJSON)),
+		BaseRefName:       "main",
+		Challenge:         attestation.Challenge,
+		ClosingIssues:     []int{55},
+		Evaluator:         attestation.Evaluator,
+		EvaluatorRunID:    attestation.RunID,
+		Head:              head,
+		HeadRefName:       "agent/issue-55",
+		BodySHA256:        sha256Hex([]byte(recoveryBody)),
+		PR:                number,
+		RecordedAt:        recordedAt,
+		ReportSHA256:      fmt.Sprintf("%x", sha256.Sum256([]byte(report))),
+		Round:             round,
+		Verdict:           attestation.Verdict,
+	}
+	receiptJSON, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("marshal recovery receipt: %v", err)
+	}
+	comment := pullRequestComment{
+		Body:      evaluationComment(receiptJSON, attestationJSON, report),
+		CreatedAt: commentAt,
 	}
 	comment.Author.Login = trustedActor
 	return comment

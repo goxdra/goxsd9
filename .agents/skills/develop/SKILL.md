@@ -17,7 +17,7 @@ transcript is not.
 Every child uses its exact `.codex/agents/` role, `fork_turns: "none"`, and
 task-local context. Scribe and Mason are default fresh read-only consultations;
 omit only for a mechanical exemption recorded in PR. Smith solely owns
-source, tests, and remediation. Root writing needs a narrow mechanical
+source, tests, remediation. Root writing needs a mechanical
 handoff exemption. Curator is fresh per managed-document head; Examiner is fresh
 and challenge-bound each round.
 
@@ -76,7 +76,8 @@ Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
     `go tool workflowctl pr finish PR --summary-file FILE`, which verifies the
     packet before SHA-bound squash, converges canonical base, and cleans only
     exact refs, clean claim worktrees, and expected-SHA branches proven by
-    immutable pre-merge evaluation; recovery refuses state drift.
+    immutable pre-merge proof with base/head/closure/body metadata; recovery
+    refuses drift.
     If convergence or cleanup fails, the merge is complete: preserve artifacts
     and run idempotent `go tool workflowctl pr recover PR`. Use `claim prune
     ISSUE` only with merged proof. For draft replacement, close the draft,

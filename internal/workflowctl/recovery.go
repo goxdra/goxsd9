@@ -49,7 +49,7 @@ func (a app) recoverPullRequest(number int) error {
 	if err != nil {
 		return stateError("PR #%d is not proven merged; recovery will not remove claims: %v", number, err)
 	}
-	evaluatedHead, err := mergeTimeEvaluatedHead(view, number)
+	proof, err := mergeTimeEvaluationProof(view, number)
 	if err != nil {
 		return recoveryNeededError(number, mergeSHA, err)
 	}
@@ -61,7 +61,7 @@ func (a app) recoverPullRequest(number int) error {
 	if err != nil {
 		return recoveryNeededError(number, mergeSHA, err)
 	}
-	plan, err := a.prepareRecoveryCleanupPlan(root, layout, view, number, evaluatedHead)
+	plan, err := a.prepareRecoveryCleanupPlanWithProof(root, layout, view, number, proof)
 	if err != nil {
 		return recoveryNeededError(number, mergeSHA, err)
 	}
@@ -86,65 +86,110 @@ func mergedPullRequestSHA(view pullRequestView) (string, error) {
 	return view.MergeCommitSHA, nil
 }
 
-func mergeTimeEvaluatedHead(view pullRequestView, number int) (string, error) {
+type mergeEvaluationProof struct {
+	bodySHA256    string
+	baseRefName   string
+	closingIssues []int
+	head          string
+	headRefName   string
+}
+
+func mergeTimeEvaluationProof(view pullRequestView, number int) (mergeEvaluationProof, error) {
 	if view.MergedAt == nil {
-		return "", errors.New("github reported a merge without a merge timestamp for immutable evaluation proof")
+		return mergeEvaluationProof{}, errors.New("github reported a merge without a merge timestamp for immutable evaluation proof")
 	}
 	if err := rejectUntrustedEvaluationEvidence(view.Comments); err != nil {
-		return "", fmt.Errorf("validate immutable pre-merge evaluation proof: %w", err)
+		return mergeEvaluationProof{}, fmt.Errorf("validate immutable pre-merge evaluation proof: %w", err)
 	}
-	receipts, err := evaluationReceipts(view.Comments)
+	history, err := parseEvaluationHistory(view.Comments)
 	if err != nil {
-		return "", fmt.Errorf("read immutable pre-merge evaluation proof: %w", err)
+		return mergeEvaluationProof{}, fmt.Errorf("read immutable pre-merge evaluation proof: %w", err)
 	}
-	var selected evaluationReceipt
-	found := false
-	for _, receipt := range receipts {
-		if receipt.PR != number || receipt.Verdict != "pass" || receipt.AttestationSHA256 == "" || receipt.RecordedAt.After(*view.MergedAt) {
+	if historyErr := validateEvaluationHistory(history); historyErr != nil {
+		return mergeEvaluationProof{}, fmt.Errorf("read immutable pre-merge evaluation proof: %w", historyErr)
+	}
+	mergeAt := view.MergedAt.UTC()
+	if boundaryErr := validateMergeBoundaryHistory(history, mergeAt); boundaryErr != nil {
+		return mergeEvaluationProof{}, boundaryErr
+	}
+	selected, err := latestMergeBoundaryReceipt(history)
+	if err != nil {
+		return mergeEvaluationProof{}, err
+	}
+	if err := validateMergeBoundaryReceipt(selected.receipt, number); err != nil {
+		return mergeEvaluationProof{}, err
+	}
+	return mergeEvaluationProof{
+		bodySHA256:    selected.receipt.BodySHA256,
+		baseRefName:   selected.receipt.BaseRefName,
+		closingIssues: append([]int(nil), selected.receipt.ClosingIssues...),
+		head:          selected.receipt.Head,
+		headRefName:   selected.receipt.HeadRefName,
+	}, nil
+}
+
+func validateMergeBoundaryHistory(history evaluationHistory, mergeAt time.Time) error {
+	for _, challenge := range history.challenges {
+		if challenge.comment.CreatedAt.IsZero() || challenge.comment.CreatedAt.After(mergeAt) {
+			return errors.New("trusted evaluation challenge was created after the merge boundary")
+		}
+	}
+	for _, record := range history.receipts {
+		if record.comment.CreatedAt.IsZero() || record.comment.CreatedAt.After(mergeAt) {
+			return errors.New("trusted evaluation receipt was created after the merge boundary")
+		}
+		if record.receipt.RecordedAt.After(mergeAt) {
+			return errors.New("evaluation receipt record time is after the merge boundary")
+		}
+	}
+	return nil
+}
+
+func latestMergeBoundaryReceipt(history evaluationHistory) (evaluationReceiptRecord, error) {
+	if len(history.receipts) == 0 {
+		return evaluationReceiptRecord{}, errors.New("no trusted evaluation receipt proves an immutable pre-merge head")
+	}
+	selected := history.receipts[0]
+	for _, record := range history.receipts[1:] {
+		if record.comment.CreatedAt.After(selected.comment.CreatedAt) {
+			selected = record
 			continue
 		}
-		if !found || receipt.RecordedAt.After(selected.RecordedAt) {
-			selected = receipt
-			found = true
-			continue
-		}
-		if receipt.RecordedAt.Equal(selected.RecordedAt) && receipt.Head != selected.Head {
-			return "", errors.New("pre-merge evaluation proof has ambiguous heads at the merge boundary")
+		if record.comment.CreatedAt.Equal(selected.comment.CreatedAt) {
+			return evaluationReceiptRecord{}, errors.New("pre-merge evaluation proof has ambiguous receipts at the merge boundary")
 		}
 	}
-	if !found {
-		return "", errors.New("no trusted passing evaluation proves an immutable pre-merge head")
+	return selected, nil
+}
+
+func validateMergeBoundaryReceipt(receipt evaluationReceipt, number int) error {
+	if receipt.PR != number || receipt.Verdict != "pass" || receipt.AttestationSHA256 == "" {
+		return errors.New("latest trusted evaluation receipt at the merge boundary is not a passing proof")
 	}
-	return selected.Head, nil
+	if !validEvaluationReceiptMetadata(receipt) || !hasEvaluationReceiptMetadata(receipt) {
+		return errors.New("latest trusted evaluation receipt lacks immutable pull request metadata")
+	}
+	return nil
+}
+
+func hasEvaluationReceiptMetadata(receipt evaluationReceipt) bool {
+	return receipt.BaseRefName != "" && len(receipt.ClosingIssues) != 0 && receipt.HeadRefName != "" &&
+		receipt.BodySHA256 != ""
 }
 
 func (a app) prepareRecoveryCleanupPlan(root string, layout repositoryLayout, view pullRequestView, pullRequestNumber int, evaluatedHead string) (cleanupPlan, error) {
-	if view.HeadRefOID == "" || view.HeadRefName == "" {
-		return cleanupPlan{}, stateError("merged PR #%d has no claim head ref and SHA; preserve claim artifacts", pullRequestNumber)
+	return a.prepareRecoveryCleanupPlanWithProof(root, layout, view, pullRequestNumber, mergeEvaluationProof{head: evaluatedHead})
+}
+
+func (a app) prepareRecoveryCleanupPlanWithProof(root string, layout repositoryLayout, view pullRequestView, pullRequestNumber int, proof mergeEvaluationProof) (cleanupPlan, error) {
+	if err := validateRecoveryMetadata(view, proof, pullRequestNumber); err != nil {
+		return cleanupPlan{}, err
 	}
-	if evaluatedHead == "" {
-		return cleanupPlan{}, stateError("merged PR #%d has no immutable evaluated head proof; preserve claim artifacts", pullRequestNumber)
+	primary, err := recoveryPrimary(proof, pullRequestNumber)
+	if err != nil {
+		return cleanupPlan{}, err
 	}
-	if view.HeadRefOID != evaluatedHead {
-		return cleanupPlan{}, stateError("merged PR #%d current PR head %s differs from immutable merge-time evaluated head %s; preserve claim artifacts", pullRequestNumber, view.HeadRefOID, evaluatedHead)
-	}
-	if view.BaseRefName != "main" {
-		return cleanupPlan{}, stateError("merged PR #%d targets base %q, not main; preserve claim artifacts", pullRequestNumber, view.BaseRefName)
-	}
-	primary, ok := issueFromBranch(view.HeadRefName)
-	if !ok {
-		return cleanupPlan{}, stateError("merged PR #%d head branch %q is not an issue claim; preserve claim artifacts", pullRequestNumber, view.HeadRefName)
-	}
-	if len(view.ClosingIssuesReferences) == 0 {
-		return cleanupPlan{}, stateError("merged PR #%d has no closing issue proof; preserve claim artifacts", pullRequestNumber)
-	}
-	if len(view.ClosingIssuesReferences) > 2 {
-		return cleanupPlan{}, stateError("merged PR #%d closes %d issues; preserve ambiguous claim artifacts", pullRequestNumber, len(view.ClosingIssuesReferences))
-	}
-	if !pullRequestCloses(view, primary) {
-		return cleanupPlan{}, stateError("merged PR #%d does not close primary issue #%d; preserve claim artifacts", pullRequestNumber, primary)
-	}
-	claims, err := a.recoveryClaims(root, view, primary, pullRequestNumber, evaluatedHead)
+	claims, err := a.recoveryClaims(root, proof, primary, pullRequestNumber)
 	if err != nil {
 		return cleanupPlan{}, err
 	}
@@ -161,10 +206,74 @@ func (a app) prepareRecoveryCleanupPlan(root string, layout repositoryLayout, vi
 	return cleanupPlan{layout: layout, callerRoot: root, claims: claims}, nil
 }
 
-func (a app) recoveryClaims(root string, view pullRequestView, primary, pullRequestNumber int, evaluatedHead string) ([]claimArtifact, error) {
-	claims := []claimArtifact{{issue: primary, branch: view.HeadRefName, sha: evaluatedHead}}
-	if len(view.ClosingIssuesReferences) > 1 {
-		companions, err := a.recoveryCompanionClaims(root, view, primary, pullRequestNumber, evaluatedHead)
+func validateRecoveryMetadata(view pullRequestView, proof mergeEvaluationProof, pullRequestNumber int) error {
+	if view.HeadRefOID == "" || view.HeadRefName == "" {
+		return stateError("merged PR #%d has no claim head ref and SHA; preserve claim artifacts", pullRequestNumber)
+	}
+	if proof.head == "" {
+		return stateError("merged PR #%d has no immutable evaluated head proof; preserve claim artifacts", pullRequestNumber)
+	}
+	if view.HeadRefOID != proof.head {
+		return stateError("merged PR #%d current PR head %s differs from immutable merge-time evaluated head %s; preserve claim artifacts", pullRequestNumber, view.HeadRefOID, proof.head)
+	}
+	if !hasMergeEvaluationMetadata(proof) {
+		return stateError("merged PR #%d lacks immutable base, head-ref, closure, or PR-body proof; preserve claim artifacts", pullRequestNumber)
+	}
+	if view.HeadRefName != proof.headRefName {
+		return stateError("merged PR #%d current head ref %q differs from immutable merge-time head ref %q; preserve claim artifacts", pullRequestNumber, view.HeadRefName, proof.headRefName)
+	}
+	if view.BaseRefName != proof.baseRefName {
+		return stateError("merged PR #%d current base %q differs from immutable merge-time base %q; preserve claim artifacts", pullRequestNumber, view.BaseRefName, proof.baseRefName)
+	}
+	if proof.baseRefName != "main" {
+		return stateError("merged PR #%d targets base %q, not main; preserve claim artifacts", pullRequestNumber, proof.baseRefName)
+	}
+	if sha256Hex([]byte(view.Body)) != proof.bodySHA256 {
+		return stateError("merged PR #%d PR body differs from immutable merge-time body proof; preserve claim artifacts", pullRequestNumber)
+	}
+	if !sameIssueNumbers(closingIssueNumbers(view.Body), proof.closingIssues) {
+		return stateError("merged PR #%d closure references differ from immutable merge-time proof; preserve claim artifacts", pullRequestNumber)
+	}
+	return nil
+}
+
+func recoveryPrimary(proof mergeEvaluationProof, pullRequestNumber int) (int, error) {
+	primary, ok := issueFromBranch(proof.headRefName)
+	if !ok {
+		return 0, stateError("merged PR #%d head branch %q is not an issue claim; preserve claim artifacts", pullRequestNumber, proof.headRefName)
+	}
+	if len(proof.closingIssues) == 0 {
+		return 0, stateError("merged PR #%d has no closing issue proof; preserve claim artifacts", pullRequestNumber)
+	}
+	if len(proof.closingIssues) > 2 {
+		return 0, stateError("merged PR #%d closes %d issues; preserve ambiguous claim artifacts", pullRequestNumber, len(proof.closingIssues))
+	}
+	if !containsNumber(proof.closingIssues, primary) {
+		return 0, stateError("merged PR #%d does not close primary issue #%d; preserve claim artifacts", pullRequestNumber, primary)
+	}
+	return primary, nil
+}
+
+func hasMergeEvaluationMetadata(proof mergeEvaluationProof) bool {
+	return proof.baseRefName != "" && proof.headRefName != "" && proof.bodySHA256 != "" && len(proof.closingIssues) != 0
+}
+
+func sameIssueNumbers(left, right []int) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func (a app) recoveryClaims(root string, proof mergeEvaluationProof, primary, pullRequestNumber int) ([]claimArtifact, error) {
+	claims := []claimArtifact{{issue: primary, branch: proof.headRefName, sha: proof.head}}
+	if len(proof.closingIssues) > 1 {
+		companions, err := a.recoveryCompanionClaims(root, proof, primary, pullRequestNumber)
 		if err != nil {
 			return nil, err
 		}
@@ -176,7 +285,7 @@ func (a app) recoveryClaims(root string, view pullRequestView, primary, pullRequ
 	return claims, nil
 }
 
-func (a app) recoveryCompanionClaims(root string, view pullRequestView, primary, pullRequestNumber int, evaluatedHead string) ([]claimArtifact, error) {
+func (a app) recoveryCompanionClaims(root string, proof mergeEvaluationProof, primary, pullRequestNumber int) ([]claimArtifact, error) {
 	remoteClaims, err := a.remoteClaimRefs(root)
 	if err != nil {
 		return nil, err
@@ -186,35 +295,35 @@ func (a app) recoveryCompanionClaims(root string, view pullRequestView, primary,
 		return nil, err
 	}
 	remoteClaims = appendClaimRefs(remoteClaims, localClaims)
-	if hasHistoricalCompanionCandidate(remoteClaims, view, primary) {
-		if err := a.ensureRecoveryHead(root, pullRequestNumber, evaluatedHead); err != nil {
+	if hasHistoricalCompanionCandidate(remoteClaims, proof.closingIssues, primary) {
+		if err := a.ensureRecoveryHead(root, pullRequestNumber, proof.head); err != nil {
 			return nil, err
 		}
 	}
 	companions := make([]claimArtifact, 0, 1)
-	for _, issue := range view.ClosingIssuesReferences {
-		if issue.Number == primary {
+	for _, issue := range proof.closingIssues {
+		if issue == primary {
 			continue
 		}
-		candidate, found, err := a.historicalCompanionClaim(root, issue.Number, evaluatedHead, remoteClaims)
+		candidate, found, err := a.historicalCompanionClaim(root, issue, proof.head, remoteClaims)
 		if err != nil {
 			return nil, err
 		}
 		if !found {
 			continue
 		}
-		companions = append(companions, claimArtifact{issue: issue.Number, branch: candidate.branch, sha: candidate.sha})
+		companions = append(companions, claimArtifact{issue: issue, branch: candidate.branch, sha: candidate.sha})
 	}
 	return companions, nil
 }
 
-func hasHistoricalCompanionCandidate(claims []remoteClaim, view pullRequestView, primary int) bool {
-	for _, issue := range view.ClosingIssuesReferences {
-		if issue.Number == primary {
+func hasHistoricalCompanionCandidate(claims []remoteClaim, closingIssues []int, primary int) bool {
+	for _, issue := range closingIssues {
+		if issue == primary {
 			continue
 		}
 		for _, claim := range claims {
-			if claim.number == issue.Number {
+			if claim.number == issue {
 				return true
 			}
 		}

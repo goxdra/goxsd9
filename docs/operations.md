@@ -37,10 +37,10 @@ shared credentials make receipts evidence, not identity proof.
 REST squash merge is SHA-bound. After GitHub returns the merge SHA, `pr finish`
 runs base-sync and removes only exact-head remote refs, clean uniquely registered
 claim worktrees, and expected-SHA local branches. Squash drops topic ancestry, so
-cleanup and recovery use immutable pre-merge evaluated-head proof and refuse current
-PR, local, remote, or worktree drift. Failure reports completed merge, preserves
-artifacts, and names idempotent `go tool workflowctl pr recover PR`; `claim prune
-ISSUE` requires merged proof.
+cleanup/recovery use latest trusted pre-merge proof with immutable
+base/head/closure/body metadata; refuse receipt or PR/local/remote/worktree drift.
+Failures report completed merge, preserve artifacts, and name idempotent `go tool
+workflowctl pr recover PR`; `claim prune ISSUE` requires merged proof.
 
 If draft-to-ready GraphQL is unavailable, close the draft and create an
 identical-head ready PR through REST, then obtain a new challenge and Examiner.

@@ -98,10 +98,14 @@ type issueCommentAPI struct {
 
 type evaluationReceipt struct {
 	AttestationSHA256 string    `json:"attestationSHA256,omitempty"`
+	BaseRefName       string    `json:"baseRefName,omitempty"`
 	Challenge         string    `json:"challenge,omitempty"`
+	ClosingIssues     []int     `json:"closingIssues,omitempty"`
 	Evaluator         string    `json:"evaluator"`
 	EvaluatorRunID    string    `json:"evaluatorRunID,omitempty"`
 	Head              string    `json:"head"`
+	HeadRefName       string    `json:"headRefName,omitempty"`
+	BodySHA256        string    `json:"bodySHA256,omitempty"`
 	PR                int       `json:"pullRequest,omitempty"`
 	RecordedAt        time.Time `json:"recordedAt"`
 	ReportSHA256      string    `json:"reportSHA256"`
@@ -432,10 +436,14 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 	canonicalReport := canonicalEvaluationReport(report)
 	receipt := evaluationReceipt{
 		AttestationSHA256: sha256Hex(attestationJSON),
+		BaseRefName:       view.BaseRefName,
 		Challenge:         attestation.Challenge,
+		ClosingIssues:     closingIssueNumbers(view.Body),
 		Evaluator:         attestation.Evaluator,
 		EvaluatorRunID:    attestation.RunID,
 		Head:              attestation.Head,
+		HeadRefName:       view.HeadRefName,
+		BodySHA256:        sha256Hex([]byte(view.Body)),
 		PR:                attestation.PR,
 		RecordedAt:        time.Now().UTC().Truncate(time.Second),
 		ReportSHA256:      sha256Hex(canonicalReport),
@@ -1158,7 +1166,33 @@ func parseEvaluationReceipt(body string) (evaluationReceipt, bool) {
 		receipt.EvaluatorRunID == "" || receipt.PR < 1) {
 		return evaluationReceipt{}, false
 	}
+	if !validEvaluationReceiptMetadata(receipt) {
+		return evaluationReceipt{}, false
+	}
 	return receipt, true
+}
+
+func validEvaluationReceiptMetadata(receipt evaluationReceipt) bool {
+	hasMetadata := receipt.BaseRefName != "" || len(receipt.ClosingIssues) != 0 || receipt.HeadRefName != "" ||
+		receipt.BodySHA256 != ""
+	if !hasMetadata {
+		return true
+	}
+	if receipt.BaseRefName == "" || receipt.HeadRefName == "" || !validSHA256(receipt.BodySHA256) ||
+		len(receipt.ClosingIssues) == 0 {
+		return false
+	}
+	seen := make(map[int]struct{}, len(receipt.ClosingIssues))
+	for _, issue := range receipt.ClosingIssues {
+		if issue < 1 {
+			return false
+		}
+		if _, ok := seen[issue]; ok {
+			return false
+		}
+		seen[issue] = struct{}{}
+	}
+	return true
 }
 
 func parseEvaluationRepair(body string) (evaluationRepair, bool) {
