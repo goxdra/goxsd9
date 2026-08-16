@@ -241,16 +241,9 @@ func skillEvalSuiteName(filePath string) (string, error) {
 }
 
 func loadSkillEvalPolicy(root, suite string) (string, error) {
-	var files []string
-	switch suite {
-	case "curator":
-		files = []string{"AGENTS.md", ".codex/agents/curator.toml"}
-	case "develop":
-		files = []string{"AGENTS.md", ".agents/skills/develop/SKILL.md", ".codex/agents/smith.toml"}
-	case "review":
-		files = []string{"AGENTS.md", ".codex/agents/examiner.toml"}
-	default:
-		return "", fmt.Errorf("unsupported evaluation suite %q", suite)
+	files, err := skillEvalPolicyFiles(suite)
+	if err != nil {
+		return "", err
 	}
 	var policy strings.Builder
 	for _, filePath := range files {
@@ -264,6 +257,27 @@ func loadSkillEvalPolicy(root, suite string) (string, error) {
 		}
 	}
 	return strings.TrimSpace(policy.String()), nil
+}
+
+func skillEvalPolicyFiles(suite string) ([]string, error) {
+	switch suite {
+	case "curator":
+		return []string{"AGENTS.md", ".codex/agents/curator.toml"}, nil
+	case "develop":
+		return []string{
+			"AGENTS.md",
+			".agents/skills/develop/SKILL.md",
+			".codex/agents/scribe.toml",
+			".codex/agents/mason.toml",
+			".codex/agents/smith.toml",
+			".codex/agents/curator.toml",
+			".codex/agents/examiner.toml",
+		}, nil
+	case "review":
+		return []string{"AGENTS.md", ".codex/agents/examiner.toml"}, nil
+	default:
+		return nil, fmt.Errorf("unsupported evaluation suite %q", suite)
+	}
 }
 
 func parseSkillEvalCase(filePath string, suite *skillEvalSuite, content string) (skillEvalCase, error) {

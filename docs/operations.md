@@ -13,8 +13,9 @@ is the operator contract.
 Jobs are non-interactive. Develop claims one unblocked Ready issue on
 `agent/issue-N`, uses its worktree, opens a draft PR, and squash-merges only the
 evaluated head after checks pass. At most one claimed companion issue is allowed.
-Managed-document changes receive a read-only Curator review at the final head;
-Examiner remains the authenticated gate.
+Every pushed head containing a managed-document change receives the exact docs
+audit and a fresh read-only Curator review; repeat both after each remediation
+push. Examiner remains the authenticated gate.
 
 Claims last two hours and renew every 30 minutes and before shared writes. For
 an expired claim without an open PR, `workflowctl` archives its tip under

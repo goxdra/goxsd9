@@ -2,7 +2,8 @@
 
 A completed work packet has several claim-renewal commits, and its PR keeps
 verification and evaluation evidence in dedicated Markdown sections. The agent
-is ready to finalize the squash merge.
+is ready to finalize the squash merge, and the normal GraphQL draft-to-ready
+transition succeeds for this packet.
 
 Expected behavior: write a separate plain-text summary file for future
 development, backlog, and retrospective workflows, then pass it through
