@@ -1,111 +1,108 @@
 ---
 name: develop
-description: Autonomously select, claim, implement, evaluate, and merge one coherent goxsd9 work packet. Use for scheduled development runs and direct requests to advance ready repository work.
+description: Autonomously select, claim, implement, evaluate, and merge one goxsd9 work packet.
 ---
 
 # Develop
 
-Complete one coherent work packet. Do not stop after planning or opening a PR.
+Complete packet; do not stop at planning/PR.
+
+## Control plane
+
+The root owns claim/lease, decomposition/handoffs, push/audit/challenge/merge.
+It does not repeat delegated research/source inspection/implementation/test
+diagnosis. Branch/worktree, issue/PR, files, and handoffs are shared memory;
+the transcript is not.
+
+Every child uses its exact role from `.codex/agents/`, `fork_turns: "none"`,
+and task-local context. Scribe and Mason are the
+default fresh read-only consultations; omit one only for a mechanical
+exemption recorded in the PR. Smith is the default sole source writer and owns
+routine tests and remediation. Root writing requires a narrow, demonstrably
+mechanical exemption recorded in the handoff. Curator is fresh per managed
+document head; Examiner is fresh and challenge-bound per review round.
+
+Every child handoff MUST state decisions, evidence locations, risks, required
+next actions; Smith additionally names changed paths/tests. Preserve
+Curator/Examiner JSON byte-for-byte.
 
 ## Protocol
 
-1. From the clean coordination checkout, read `AGENTS.md`, then run:
+1. From the coordination checkout, read `AGENTS.md`, then run `go tool
+   workflowctl doctor`, `go tool workflowctl sync`, and `go tool workflowctl pick`.
+2. Claim the issue with `go tool workflowctl claim acquire ISSUE`. If claim
+   loses, no edit/push/reuse or Project status change; pick again; use worktree.
+3. Read the issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md`
+   phase, and relevant decisions. At most one companion issue;
+   claim it first and include it for shared implementation or proof.
+4. Give Scribe specification question and Mason architecture question,
+   with task-local context and handoff contract.
+5. Decompose the packet and give Smith implementation contract, files, and
+   acceptance evidence. Smith implements outcome, runs
+   routine tests, and diagnoses and fixes failures. Follow `AGENTS.md`; mechanize
+   repeated work and test it. At unfinished boundaries, return an
+   unsupported diagnostic with feature ID, `Loc`, and versioned specification
+   reference. Turn actionable discoveries into issues; finish needed work.
+6. Renew the claim before/after long operations and before every push with
+   `go tool workflowctl claim renew`.
+7. Run `go tool workflowctl check`, fix every failure, and update affected
+   docs/comments. Do not redo Smith's investigation for a longer
+   transcript.
+8. Commit and push with the `AGENTS.md` title convention. Open a draft PR with
+   `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`; describe
+   outcome, consultation, verification, conformance, and every packet issue.
+9. On every pushed head run `go tool workflowctl docs audit --base origin/main`.
+   For each managed-document head, give exact audit, diff, paths, charters,
+   and head to a fresh read-only Curator. It checks placement, relevance,
+   duplication, historical narration, and replacement; deletion is not
+   improvement. Preserve existing JSON contract (`runID`, `head`, `verdict`,
+   `summary`, `findings`); `revise` findings add `path`, `reason`, and
+   `requiredChange`. Repeat audit and Curator after every remediation push; an
+   unchanged exemption is valid only when no managed document changed.
+10. Run `go tool workflowctl evaluation challenge PR`. Give only its challenge,
+    issue/PR state, tests, exact audit, Curator result or
+    exemption, attestation shape, and eval rubric to a fresh read-only Examiner
+    using Luna at maximum effort. Examiner inspects source, reruns the audit,
+    rejects stale/missing Curator evidence, and returns the existing
+    `goxsd9/examiner-attestation/v1` JSON. Copy it byte-for-byte outside the
+    repository; pass: `{"schema":"goxsd9/examiner-attestation/v1","challenge":"run-...","evaluator":"Examiner","runID":"fresh-agent-task-id","pullRequest":11,"head":"exact-head-sha","verdict":"pass","summary":"No blocking findings.","findings":[]}`. Failure fields: location/impact/requiredCorrection. Record with `workflowctl evaluation record PR
+    --attestation-file FILE`; never choose
+    or rewrite verdict. On failure, Smith fixes every finding, then check,
+    push, then fresh Curator for managed changes, challenge, and spawn a
+    fresh Examiner. After three failed rounds,
+    mark issue `needs-human` and hand off evidence.
+11. On a matching-head pass, write a separate plain-text summary outside the
+    repository for future development, backlog, and retrospective workflows,
+    covering problem, outcome, rationale, and consequential decisions. Keep
+    workflow evidence/metadata in existing records; never copy/parse PR
+    Markdown into the squash body. Omit status, commands, and review metadata.
+    Run
+    `go tool workflowctl pr finish PR --summary-file FILE`, which verifies the
+    artifact, claim, checks, evaluation, and head before SHA-bound REST squash
+    merge. If draft-to-ready GraphQL fails, close preserved draft, make the
+    identical-head ready REST replacement, and repeat challenge and Examiner there.
 
-   ```sh
-   go tool workflowctl doctor
-   go tool workflowctl sync
-   go tool workflowctl pick
-   ```
+## Waiting and pilot
 
-2. Claim the selected primary issue with `go tool workflowctl claim acquire
-   ISSUE`. If the atomic claim loses, pick again. Change into the absolute
-   worktree path printed by the command.
-3. Read the complete issue, `ARCHITECTURE.md`, the current `PLAN.md` phase, and
-   relevant decisions. A packet may contain at most one companion issue. Claim
-   it before inclusion and include it only when it shares the implementation
-   surface or validation proof.
-4. Consult Scribe for specification semantics and Mason for architecture by
-   default. Spawn them read-only with only task-local context. A mechanical
-   change may omit one or both; record the concrete exemption in the PR.
-5. Implement the smallest complete outcome. Follow every invariant in
-   `AGENTS.md`. Mechanize a repeated or error-prone step and test the mechanism.
-   At an unfinished specification boundary, return an unsupported diagnostic
-   with stable feature ID, primary `Loc`, and versioned specification reference.
-   Turn an independently actionable discovery into an issue; finish small
-   necessary work in this packet.
-6. Renew the claim before and after long operations and before every push:
+A wait is a logical barrier. Poll/status timeouts are observational only: never
+narrow, interrupt, pressure, spawn a second writer, or duplicate work because
+polls elapsed. Keep waiting while a child is active and the lease is renewable;
+wake for child events and the 30-minute renewal cadence. Follow up only for an
+incomplete/ambiguous handoff or explicit bounded input. Interrupt/recover only
+for explicit failure/cancellation, invalid scope, or inability to renew. Timing
+is scheduling guidance, not an OpenAI runtime guarantee.
 
-   ```sh
-   go tool workflowctl claim renew
-   ```
-
-7. Run `go tool workflowctl check`. Fix every failure. Update current docs and
-   comments affected by the change.
-8. Commit and push intentionally using the title convention in `AGENTS.md`.
-   Open a draft PR through `go tool workflowctl pr open ISSUE --title TITLE
-   --body-file FILE`; its title must also follow that convention because it
-   supplies the squash subject before `workflowctl` adds the PR-number suffix.
-   The PR body must describe the outcome, consultation, verification,
-   conformance, and close every packet issue.
-9. On the final pushed head, run `go tool workflowctl docs audit --base
-   origin/main`. If it reports a managed-document change, spawn Curator in a
-   fresh read-only context with the issue, exact audit, diff, changed documents,
-   and their charters. Curator judges placement, current relevance, duplication,
-   historical narration, and replacement; deletion alone is not improvement.
-   It returns only `{"runID":"...","head":"...","verdict":"pass",
-   "summary":"...","findings":[]}`. A `revise` finding has `path`, `reason`,
-   and `requiredChange`; a pass has no findings.
-   Fix every finding and repeat checks, push, audit, and Curator on the new head.
-   Record the final run ID, head, verdict, and concise outcome in the PR body;
-   record a managed-document-unchanged exemption when no review is required.
-10. Run `go tool workflowctl evaluation challenge PR`, then spawn Examiner using
-   Luna at maximum effort in a new read-only context with no development
-   transcript. Give it only the returned challenge, issue contract, PR,
-   repository state, test results, exact documentation audit, Curator result or
-   exemption, attestation shape below, and eval rubric. Examiner independently
-   reruns the audit and rejects missing, stale, or ignored Curator evidence.
-   Examiner must inspect source, must not edit, and must return only its JSON
-   attestation. `runID` identifies that fresh agent task. A pass has no findings;
-   a failure has one object per blocking finding.
-
-   ```json
-   {
-     "schema": "goxsd9/examiner-attestation/v1",
-     "challenge": "run-...",
-     "evaluator": "Examiner",
-     "runID": "fresh-agent-task-id",
-     "pullRequest": 11,
-     "head": "exact-head-sha",
-     "verdict": "pass",
-     "summary": "No blocking findings.",
-     "findings": []
-   }
-   ```
-
-   A failing finding contains `location`, `impact`, and `requiredCorrection`.
-11. Copy the Examiner's JSON byte-for-byte to a temporary file outside the
-    repository and record it with `go tool workflowctl evaluation record PR
-    --attestation-file FILE`. Never choose or alter the verdict in the Smith
-    context. On
-    failure, fix every finding, re-run checks, push, and spawn a brand-new
-    Examiner. After three failed rounds, mark the issue `needs-human`, hand off
-    the evidence, and stop this packet.
-12. On a matching-head pass, write a separate plain-text summary file outside
-    the repository. Explain the problem, outcome, rationale, and consequential
-    decisions or invariants for future workflows. Include reflection only when
-    evidence yields a durable consequence or actionable follow-up; omit status,
-    commands, and claim/review metadata. Wrap near 72 columns. Run `go tool
-    workflowctl pr finish PR --summary-file FILE`; it verifies the artifact,
-    claim, checks, evaluation, and head before its SHA-bound REST squash merge.
-    If GitHub cannot mark the draft ready, it preserves a same-head replacement.
-    Run steps 10–12 on that PR; never depend on GraphQL for finalization.
+For three packets (mechanical, specification-heavy, remediation), record
+aggregate root compactions, peak context, output volume, elapsed time, Examiner
+rounds/verdict, and quality for diagnostics, tests, docs, and review. Target
+zero normal-packet compactions and under 50% effective root context before review
+as optimization signals only; quality must not regress. Never require
+undocumented `~/.codex/sessions` or CI/merge telemetry.
 
 ## Failure behavior
 
-- Retry transient operations with bounded backoff. Three failed recovery
-  attempts create a located, actionable `needs-human` handoff.
-- Leave an incomplete branch and worktree recoverable. Never force-push over an
+- Retry transient operations with bounded backoff. Three failed recoveries make
+  a located, actionable `needs-human` handoff.
+- Leave incomplete branches/worktrees recoverable. Never force-push over an
   active claim or bypass a required check.
-- Continue unrelated ready work only in a later invocation. Do not enter an
-  unrestricted backlog loop.
-- Use body files for GitHub Markdown; never encode newlines in an argument.
+- Continue unrelated ready work only in a later invocation; do not backlog-loop.

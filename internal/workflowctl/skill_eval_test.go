@@ -22,8 +22,12 @@ func TestLoadSkillEvalCasesSortsAndSeparatesExpectedBehavior(t *testing.T) {
 	writeSkillEvalTestFile(t, root, "AGENTS.md", "repository policy")
 	writeSkillEvalTestFile(t, root, ".codex/agents/curator.toml", "curator policy")
 	writeSkillEvalTestFile(t, root, ".agents/skills/develop/SKILL.md", "develop policy")
+	writeSkillEvalTestFile(t, root, ".codex/agents/scribe.toml", "scribe policy")
+	writeSkillEvalTestFile(t, root, ".codex/agents/mason.toml", "mason policy")
 	writeSkillEvalTestFile(t, root, ".codex/agents/smith.toml", "smith policy")
 	writeSkillEvalTestFile(t, root, ".codex/agents/examiner.toml", "examiner policy")
+	writeSkillEvalTestFile(t, root, ".codex/agents/envoy.toml", "irrelevant envoy policy")
+	writeSkillEvalTestFile(t, root, ".codex/agents/steward.toml", "irrelevant steward policy")
 	writeSkillEvalTestFile(t, root, "evals/agent/develop/z-last.md", `# Last case
 
 Scenario: last input marker.
@@ -62,8 +66,21 @@ Expected behavior: nested expected marker.
 	if !strings.Contains(cases[0].suite.policy, "curator policy") {
 		t.Fatal("curator case did not receive Curator policy")
 	}
-	if !strings.Contains(cases[1].suite.policy, "develop policy") || !strings.Contains(cases[1].suite.policy, "smith policy") {
-		t.Fatal("develop case did not receive skill and Smith policies")
+	for _, marker := range []string{"develop policy", "scribe policy", "mason policy", "smith policy", "curator policy", "examiner policy"} {
+		if !strings.Contains(cases[1].suite.policy, marker) {
+			t.Fatalf("develop case did not receive %q", marker)
+		}
+	}
+	for _, marker := range []string{"irrelevant envoy policy", "irrelevant steward policy"} {
+		if strings.Contains(cases[1].suite.policy, marker) {
+			t.Fatalf("develop case received irrelevant %q", marker)
+		}
+	}
+	if strings.Index(cases[1].suite.policy, "scribe policy") > strings.Index(cases[1].suite.policy, "mason policy") ||
+		strings.Index(cases[1].suite.policy, "mason policy") > strings.Index(cases[1].suite.policy, "smith policy") ||
+		strings.Index(cases[1].suite.policy, "smith policy") > strings.Index(cases[1].suite.policy, "curator policy") ||
+		strings.Index(cases[1].suite.policy, "curator policy") > strings.Index(cases[1].suite.policy, "examiner policy") {
+		t.Fatal("develop policy files were not loaded in configured order")
 	}
 	if cases[0].suite == cases[1].suite {
 		t.Fatal("different suites shared one policy representation")
@@ -82,6 +99,47 @@ func TestLoadSkillEvalCasesRejectsMalformedCorpusBeforeEvaluation(t *testing.T) 
 	_, err := loadSkillEvalCases(root, "")
 	if err == nil || !strings.Contains(err.Error(), "Expected behavior") {
 		t.Fatalf("loadSkillEvalCases error = %v, want expected-behavior error", err)
+	}
+}
+
+func TestLoadSkillEvalPolicyReportsMissingDevelopRole(t *testing.T) {
+	root := t.TempDir()
+	writeSkillEvalTestFile(t, root, "AGENTS.md", "repository policy")
+	writeSkillEvalTestFile(t, root, ".agents/skills/develop/SKILL.md", "develop policy")
+	for _, role := range []string{"scribe", "smith", "curator", "examiner"} {
+		writeSkillEvalTestFile(t, root, ".codex/agents/"+role+".toml", role+" policy")
+	}
+
+	_, err := loadSkillEvalPolicy(root, "develop")
+	if err == nil || !strings.Contains(err.Error(), ".codex/agents/mason.toml") {
+		t.Fatalf("loadSkillEvalPolicy error = %v, want missing Mason definition", err)
+	}
+}
+
+func TestSkillEvalPolicyFilesUseDeterministicSuiteRoles(t *testing.T) {
+	tests := []struct {
+		suite string
+		want  []string
+	}{
+		{suite: "curator", want: []string{"AGENTS.md", ".codex/agents/curator.toml"}},
+		{suite: "develop", want: []string{
+			"AGENTS.md", ".agents/skills/develop/SKILL.md", ".codex/agents/scribe.toml",
+			".codex/agents/mason.toml", ".codex/agents/smith.toml", ".codex/agents/curator.toml",
+			".codex/agents/examiner.toml",
+		}},
+		{suite: "review", want: []string{"AGENTS.md", ".codex/agents/examiner.toml"}},
+	}
+	for _, test := range tests {
+		got, err := skillEvalPolicyFiles(test.suite)
+		if err != nil {
+			t.Fatalf("skillEvalPolicyFiles(%q): %v", test.suite, err)
+		}
+		if !slices.Equal(got, test.want) {
+			t.Fatalf("skillEvalPolicyFiles(%q) = %#v, want %#v", test.suite, got, test.want)
+		}
+	}
+	if _, err := skillEvalPolicyFiles("unknown"); err == nil {
+		t.Fatal("skillEvalPolicyFiles accepted unknown suite")
 	}
 }
 
