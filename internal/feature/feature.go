@@ -105,6 +105,14 @@ var registry = []definition{
 			{version: "1.1", source: "xsd-precisionDecimal#precisionDecimal"},
 		},
 	},
+	{
+		id:    "xsd.schema.syntax",
+		title: "XSD schema syntax outside the bootstrap kernel",
+		references: []Reference{
+			{version: "1.0", source: "xsd10-structures#schema-document"},
+			{version: "1.1", source: "xsd11-structures#cSchemaDocument"},
+		},
+	},
 }
 
 // All returns registered features in their canonical order.
