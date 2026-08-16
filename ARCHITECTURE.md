@@ -96,10 +96,12 @@ Lexical parsing and value representation are separate. Context-sensitive
 lexical values such as QName carry the namespace context needed to construct a
 value.
 
-The strict datatype library is the default and implements XSD value spaces,
-facets, arbitrary-precision integers and decimals, precision decimal, temporal
-distinctions, and canonical forms without loss. The idiomatic library favors Go
-types such as `int`, `time.Time`, and `time.Duration`, with documented range or
+The strict datatype library is the default target. Its current foundation
+implements XSD integer and decimal lexical/value mapping with arbitrary
+precision and lossless canonical forms. Facets, precision decimal, temporal
+distinctions, and the broader value spaces remain staged capabilities and report
+unsupported behavior until implemented. The idiomatic library favors Go types
+such as `int`, `time.Time`, and `time.Duration`, with documented range or
 semantic tradeoffs. Users can supply the same datatype-library interface.
 
 ## Validation and code generation

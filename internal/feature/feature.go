@@ -90,6 +90,21 @@ var registry = []definition{
 			{version: "1.1", source: "xsd11-structures#cAssertions"},
 		},
 	},
+	{
+		id:    "xsd.datatype.facets",
+		title: "XSD datatype facets",
+		references: []Reference{
+			{version: "1.0", source: "xsd10-datatypes#decimal"},
+			{version: "1.1", source: "xsd11-datatypes#decimal"},
+		},
+	},
+	{
+		id:    "xsd.datatype.precision-decimal",
+		title: "XSD precisionDecimal",
+		references: []Reference{
+			{version: "1.1", source: "xsd-precisionDecimal#precisionDecimal"},
+		},
+	},
 }
 
 // All returns registered features in their canonical order.

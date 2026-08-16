@@ -10,6 +10,13 @@ import (
 // FeatureID is a stable identifier for a specification feature.
 type FeatureID = feature.ID
 
+const (
+	// FeatureDatatypeFacets identifies the not-yet-implemented datatype facet set.
+	FeatureDatatypeFacets FeatureID = "xsd.datatype.facets"
+	// FeaturePrecisionDecimal identifies the not-yet-implemented XSD 1.1 type.
+	FeaturePrecisionDecimal FeatureID = "xsd.datatype.precision-decimal"
+)
+
 // UnsupportedFeature is an opaque handle to a registered unsupported
 // specification capability.
 type UnsupportedFeature = feature.Feature
