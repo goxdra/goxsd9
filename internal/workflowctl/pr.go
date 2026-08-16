@@ -206,6 +206,13 @@ func (a app) finishPullRequestCommand(args []string) error {
 }
 
 func readSessionSummary(path string) (squashSummary, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("inspect summary path: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("summary file must be a regular file")
+	}
 	// #nosec G304 -- path is an explicit operator-supplied input.
 	file, err := os.Open(path)
 	if err != nil {
