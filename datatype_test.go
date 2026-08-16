@@ -163,28 +163,37 @@ func TestStrictDecimalCanonicalVersionPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseStrictDecimal(integer): %v", err)
 	}
-	if got, want := integer.Canonical(XSDVersion10), "12.0"; got != want {
-		t.Fatalf("XSD 1.0 Canonical() = %q, want %q", got, want)
+	canonical10, versionErr := integer.CanonicalFor(XSDVersion10)
+	if versionErr != nil {
+		t.Fatalf("CanonicalFor(XSD 1.0): %v", versionErr)
 	}
-	if got, want := integer.Canonical(XSDVersion11), "12"; got != want {
-		t.Fatalf("XSD 1.1 Canonical() = %q, want %q", got, want)
+	if got, want := canonical10, "12.0"; got != want {
+		t.Fatalf("XSD 1.0 CanonicalFor() = %q, want %q", got, want)
+	}
+	canonical11, versionErr := integer.CanonicalFor(XSDVersion11)
+	if versionErr != nil {
+		t.Fatalf("CanonicalFor(XSD 1.1): %v", versionErr)
+	}
+	if got, want := canonical11, "12"; got != want {
+		t.Fatalf("XSD 1.1 CanonicalFor() = %q, want %q", got, want)
 	}
 	if got, want := integer.String(), "12.0"; got != want {
 		t.Fatalf("String() = %q, want %q", got, want)
 	}
-	if _, versionErr := integer.CanonicalFor("2.0"); versionErr == nil {
+	if _, invalidVersionErr := integer.CanonicalFor("2.0"); invalidVersionErr == nil {
 		t.Fatal("CanonicalFor accepted an unsupported XSD version")
-	}
-	if got := integer.Canonical("2.0"); got != "" {
-		t.Fatalf("Canonical(unsupported version) = %q, want empty result", got)
 	}
 
 	fraction, err := ParseStrictDecimal("12.50", Loc{})
 	if err != nil {
 		t.Fatalf("ParseStrictDecimal(fraction): %v", err)
 	}
-	if got, want := fraction.Canonical(XSDVersion11), "12.5"; got != want {
-		t.Fatalf("XSD 1.1 fractional Canonical() = %q, want %q", got, want)
+	canonical11, versionErr = fraction.CanonicalFor(XSDVersion11)
+	if versionErr != nil {
+		t.Fatalf("CanonicalFor(XSD 1.1 fraction): %v", versionErr)
+	}
+	if got, want := canonical11, "12.5"; got != want {
+		t.Fatalf("XSD 1.1 fractional CanonicalFor() = %q, want %q", got, want)
 	}
 }
 

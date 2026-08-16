@@ -229,21 +229,9 @@ func (value StrictDecimal) String() string {
 	return value.Canonical()
 }
 
-// Canonical returns the canonical XSD representation of the decimal.
-// With no argument it uses the XSD 1.0 mapping for compatibility. XSD 1.1
-// omits the decimal point when the value is an integer.
-func (value StrictDecimal) Canonical(versions ...XSDVersion) string {
-	version := XSDVersion10
-	if len(versions) > 0 {
-		version = versions[0]
-	}
-	if len(versions) > 1 || (version != XSDVersion10 && version != XSDVersion11) {
-		return ""
-	}
-	if version == XSDVersion11 && value.Scale() == 0 {
-		coefficient := value.coefficientCopy().String()
-		return signedDecimal(value.negative, coefficient)
-	}
+// Canonical returns the canonical XSD 1.0 representation of the decimal.
+// This mapping is also a valid lexical representation under XSD 1.1.
+func (value StrictDecimal) Canonical() string {
 	return value.canonicalXSD10()
 }
 
@@ -253,7 +241,11 @@ func (value StrictDecimal) CanonicalFor(version XSDVersion) (string, error) {
 	if version != XSDVersion10 && version != XSDVersion11 {
 		return "", fmt.Errorf("unsupported XSD version %q", version)
 	}
-	return value.Canonical(version), nil
+	if version == XSDVersion11 && value.Scale() == 0 {
+		coefficient := value.coefficientCopy().String()
+		return signedDecimal(value.negative, coefficient), nil
+	}
+	return value.canonicalXSD10(), nil
 }
 
 func (value StrictDecimal) canonicalXSD10() string {
