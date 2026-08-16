@@ -81,6 +81,32 @@ func TestEvaluationRepairPreservesFailedRound(t *testing.T) {
 	recordSecondEvaluation(t, application, backend, stdout)
 }
 
+func TestEvaluationRepairAllowsPriorHead(t *testing.T) {
+	backend, application, stdout := newRepairFixture(t)
+	priorHead := backend.head
+	backend.comments[1].Body = legacyTransportMismatch(t, backend.comments[1].Body)
+	backend.head = "remediated-head"
+
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"repair", "14", "--round", "1"}); err != nil {
+		t.Fatalf("repair prior-head evaluation: %v", err)
+	}
+	repair, ok := parseEvaluationRepair(backend.comments[2].Body)
+	if !ok {
+		t.Fatal("prior-head repair marker was not parseable")
+	}
+	if repair.Head != priorHead {
+		t.Fatalf("repair head = %q, want prior head %q", repair.Head, priorHead)
+	}
+	receipts, err := evaluationReceipts(pullRequestCommentsFromAPI(t, backend.comments))
+	if err != nil {
+		t.Fatalf("read prior-head repaired evaluation history: %v", err)
+	}
+	if len(receipts) != 1 || receipts[0].Head != priorHead || receipts[0].Round != 1 || receipts[0].Verdict != "fail" {
+		t.Fatalf("prior-head repaired receipts = %#v", receipts)
+	}
+}
+
 func assertRepairedFailure(t *testing.T, backend *workflowBackend) {
 	t.Helper()
 	if got, want := len(backend.comments), 3; got != want {

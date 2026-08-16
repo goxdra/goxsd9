@@ -313,9 +313,8 @@ func repairCandidate(history evaluationHistory, round int) (evaluationReceiptRec
 func validateRepairCandidate(number int, view pullRequestView, candidate evaluationReceiptRecord) (
 	evaluationAttestation, []byte, []byte, error) {
 	receipt := candidate.receipt
-	if receipt.PR != number || receipt.Head != view.HeadRefOID {
-		return evaluationAttestation{}, nil, nil, fmt.Errorf("targets PR #%d at %s, want PR #%d at %s",
-			receipt.PR, receipt.Head, number, view.HeadRefOID)
+	if receipt.PR != number {
+		return evaluationAttestation{}, nil, nil, fmt.Errorf("targets PR #%d, want PR #%d", receipt.PR, number)
 	}
 	if !commentTimeMatches(candidate.comment.CreatedAt, receipt.RecordedAt) {
 		return evaluationAttestation{}, nil, nil, errors.New("receipt timestamp does not match its comment")
@@ -328,7 +327,7 @@ func validateRepairCandidate(number int, view pullRequestView, candidate evaluat
 		return evaluationAttestation{}, nil, nil, errors.New("missing or invalid raw attestation evidence")
 	}
 	if _, challengeOK := trustedEvaluationChallenge(view.Comments, receipt.Challenge, number,
-		view.HeadRefOID, receipt.RecordedAt); !challengeOK {
+		receipt.Head, receipt.RecordedAt); !challengeOK {
 		return evaluationAttestation{}, nil, nil, errors.New("challenge is untrusted or mismatched")
 	}
 	visibleReport, reportOK := visibleEvaluationReport(candidate.comment.Body)
