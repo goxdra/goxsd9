@@ -403,7 +403,7 @@ func parseCoverageBlock(line string, packagePaths []string) (string, coverageBlo
 		return "", coverageBlock{}, err
 	}
 	statements, err := strconv.Atoi(fields[1])
-	if err != nil || statements < 1 {
+	if err != nil || statements < 0 {
 		return "", coverageBlock{}, fmt.Errorf("invalid statement count %q", fields[1])
 	}
 	executions, err := strconv.Atoi(fields[2])
