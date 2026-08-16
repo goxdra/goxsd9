@@ -15,8 +15,9 @@ clean `main` exactly equal to freshly fetched `origin/main`, with recursive
 pinned submodules ready. `doctor` enforces this; stale/linked launches recover
 with `go tool workflowctl base-sync` there, then relaunch. Develop claims one
 Ready issue, uses its worktree, opens a draft PR, and squash-merges only the
-evaluated head; one companion is allowed. Managed-document pushes get the exact
-docs audit and fresh Curator review after every remediation; Examiner is the gate.
+evaluated head; one companion is allowed. Every pushed head containing a
+managed-document change receives the exact docs audit and a fresh read-only
+Curator review; repeat both after each remediation push. Examiner is the gate.
 
 Claims have a four-hour deadline after issuance. Renew at durable boundaries,
 including before pushes; never wake solely to renew. Expired claims without open PRs are archived

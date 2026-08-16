@@ -14,13 +14,12 @@ does not repeat delegated research, source inspection, implementation, or test
 diagnosis. Branch/worktree, issue/PR, files, and handoffs are shared memory;
 transcript is not.
 
-Every child uses its exact role from `.codex/agents/`, `fork_turns: "none"`,
-and task-local context. Scribe and Mason are the
-default fresh read-only consultations; omit one only for a mechanical
-exemption recorded in the PR. Smith is the default sole source writer and owns
-routine tests and remediation. Root writing requires a narrow, demonstrably
-mechanical exemption recorded in the handoff. Curator is fresh per managed
-document head; Examiner is fresh and challenge-bound per review round.
+Every child uses its exact `.codex/agents/` role, `fork_turns: "none"`, and
+task-local context. Scribe and Mason are default fresh read-only consultations;
+omit one only for a mechanical exemption recorded in PR. Smith is sole source
+writer and owns routine tests/remediation. Root writing requires a narrow
+mechanical exemption recorded in handoff. Curator is fresh per managed-document
+head; Examiner is fresh and challenge-bound per review round.
 
 Every child handoff MUST be concise and state decisions, evidence locations, risks, required next actions;
 Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
@@ -62,8 +61,8 @@ Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
    reason, requiredChange). Repeat after each remediation; no exemption.
 10. Run `go tool workflowctl evaluation challenge PR` and give its challenge,
     PR state, tests, audit, Curator result/exemption, attestation shape, and
-    rubric to a fresh Examiner using Luna. Examiner inspects source, reruns the
-    audit, rejects stale/missing Curator evidence, and returns exact
+    rubric to a fresh read-only Examiner context with Luna. Examiner inspects
+    source, reruns the audit, rejects stale/missing Curator evidence, and returns exact
     `goxsd9/examiner-attestation/v1` JSON with `schema`, `challenge`, `evaluator`,
     `runID`, `pullRequest`, `head`, `verdict`, `summary`, and `findings`; failure
     findings require `location`, `impact`, and `requiredCorrection`. Copy it
@@ -73,28 +72,31 @@ Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
     Curator/challenge/Examiner. Three failed rounds mark `needs-human` and hand
     off evidence.
 11. On a matching-head pass, write a plain-text summary outside the repository
-    covering problem, outcome, rationale, and decisions; keep metadata in records
-    and omit status, commands, and review metadata. `pr finish` verifies the
+    covering problem, outcome, rationale, and decisions; omit status, commands,
+    review metadata; keep workflow metadata in records. Pass it to
+    `go tool workflowctl pr finish PR --summary-file FILE`, which verifies the
     packet before SHA-bound squash, converges canonical base, and cleans only
     exact proof-backed refs, clean claim worktrees, and expected-SHA branches.
     If convergence or cleanup fails, the merge is complete: preserve artifacts
     and run idempotent `go tool workflowctl pr recover PR`. Use `claim prune
-    ISSUE` only with merged proof. If draft replacement is needed, close the
-    draft, create its identical-head ready PR, and repeat challenge/Examiner.
+    ISSUE` only with merged proof. For draft replacement, close the draft,
+    create an identical-head ready PR through REST, then obtain a new challenge
+    and fresh Examiner.
 
 ## Waiting and pilot
 
-Waits are logical barriers; polls are observational: never narrow, interrupt,
-pressure, spawn a writer, or duplicate work. Keep waiting while child activity
-permits renewal; never wake solely to renew. Follow up only for incomplete or
-ambiguous handoffs or bounded input. Interrupt only for failure/cancellation,
-invalid scope, or inability to renew. Timing is guidance, not a runtime guarantee.
+Waits are logical barriers. Poll/status timeouts are observational: continue
+while healthy child work and lease renewal permit; never narrow, pressure, spawn
+a writer, or duplicate work. Interrupt/recover only for explicit failure or
+cancellation, invalid scope, or inability to renew; never wake solely to renew.
+Follow up only for incomplete/ambiguous handoffs or bounded input. Timing is
+guidance, not a runtime guarantee.
 
 For three packets (mechanical, specification-heavy, remediation), record
-aggregate compactions, peak context, output, elapsed time, Examiner rounds/
-verdict, and quality for diagnostics, tests, docs, and review. Zero compactions
-and under 50% context are optimization signals; quality must not regress. Never
-require undocumented `~/.codex/sessions` or CI/merge telemetry.
+compactions, peak context, output, elapsed time,
+Examiner rounds/verdict, and quality across diagnostics, tests, docs, and review.
+Zero compactions and under 50% context are optimization signals; quality must not
+regress. Never require undocumented `~/.codex/sessions` or CI/merge telemetry.
 ## Failure behavior
 
 - Retry transient operations with bounded backoff; three failed recoveries make
