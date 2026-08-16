@@ -20,28 +20,27 @@ managed-document change receives the exact docs audit and a fresh read-only
 Curator review; repeat both after each remediation push. Examiner is the gate.
 
 Claims have a four-hour deadline after issuance. Renew at durable boundaries,
-including before pushes; never wake solely to renew. Expired claims without open PRs are archived
-under `agent/archive/`; open PRs require a `needs-human` handoff.
+including before pushes; never wake solely to renew. Expired claims without open PRs are archived under `agent/archive/`; open PRs require a `needs-human` handoff.
 
-Three failed evaluation rounds add `needs-human` and return the issue to Backlog.
-Transient commands use bounded retries; successful runs continue through merge.
+Three failed evaluation rounds add `needs-human` and return issue to Backlog;
+bounded transient retries continue successful runs.
 
-`go tool workflowctl sync` is GitHub Project-only. `base-sync` fetches
-`origin/main`, fast-forwards clean canonical `main`, and updates/checks
-recursive pins without reset, rebase, stash, or discard.
+`go tool workflowctl sync` updates Project status and fetches claim refs for lease classification; it does not sync canonical `main` or recursive submodules.
+`base-sync` fetches `origin/main`, fast-forwards clean canonical `main`, and
+checks/updates recursive pins; no reset/rebase/stash/discard.
 
 Before each fresh Examiner, `evaluation challenge` records a one-use head-bound
 challenge. The Examiner returns versioned JSON; `workflowctl` rejects wrong-head,
 stale, reused, malformed, or caller-selected results. Fresh context is required;
 shared credentials make receipts evidence, not identity proof.
 
-The guarded REST squash merge uses the evaluated head SHA. After GitHub returns
-the merge SHA, `pr finish` runs the same base-sync and removes only exact-head
-remote refs, clean uniquely registered claim worktrees, and expected-SHA local
-branches. Because squash drops topic ancestry, cleanup uses captured packet
-proof. Failure reports the completed merge, preserves artifacts, and names
-idempotent `go tool workflowctl pr recover PR`; `claim prune ISSUE` requires
-merged proof.
+REST squash merge is SHA-bound. After GitHub returns the merge SHA, `pr finish`
+runs base-sync and removes only exact-head remote refs, clean uniquely registered
+claim worktrees, and expected-SHA local branches. Squash drops topic ancestry, so
+cleanup and recovery use immutable pre-merge evaluated-head proof and refuse current
+PR, local, remote, or worktree drift. Failure reports completed merge, preserves
+artifacts, and names idempotent `go tool workflowctl pr recover PR`; `claim prune
+ISSUE` requires merged proof.
 
 If draft-to-ready GraphQL is unavailable, close the draft and create an
 identical-head ready PR through REST, then obtain a new challenge and Examiner.

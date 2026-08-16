@@ -20,7 +20,7 @@ func (a app) runSync(args []string) error {
 	if len(args) != 0 {
 		return usageError("sync takes no arguments")
 	}
-	if err := writeLine(a.stdout, "Project synchronization only; Git base synchronization is %s", baseSyncCommand); err != nil {
+	if err := writeLine(a.stdout, "Project status synchronization plus claim-ref fetches; canonical Git base synchronization is %s", baseSyncCommand); err != nil {
 		return fmt.Errorf("write Project synchronization notice: %w", err)
 	}
 	root, err := a.root()
@@ -47,7 +47,7 @@ func (a app) runSync(args []string) error {
 		}
 		changes += changed
 	}
-	return writeLine(a.stdout, "Project synchronization: %d change(s)", changes)
+	return writeLine(a.stdout, "Project status synchronization: %d change(s); claim refs fetched for lease classification", changes)
 }
 
 func (a app) syncProjectItem(root string, fields projectFieldList, item projectItem, claims map[int]bool) (int, error) {

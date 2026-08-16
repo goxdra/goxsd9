@@ -438,15 +438,45 @@ func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView
 	output, err := a.commandInput(root, strings.NewReader(string(input)), "gh", "api", "--method", "PUT",
 		"repos/"+repositoryKey+"/pulls/"+strconv.Itoa(number)+"/merge", "--input", "-")
 	if err != nil {
-		return fmt.Errorf("merge PR #%d at %s: %w", number, view.HeadRefOID, err)
+		return a.reconcileMergeOutcome(root, number, view, plan,
+			fmt.Errorf("merge PR #%d at %s: %w", number, view.HeadRefOID, err))
 	}
 	var response mergePullRequestResponse
 	if err := json.Unmarshal([]byte(output), &response); err != nil {
-		return fmt.Errorf("decode PR #%d merge: %w", number, err)
+		return a.reconcileMergeOutcome(root, number, view, plan,
+			fmt.Errorf("decode PR #%d merge: %w", number, err))
 	}
-	if !response.Merged || response.SHA == "" {
+	if !response.Merged {
 		return stateError("PR #%d was not merged: %s", number, response.Message)
 	}
+	response.SHA = strings.TrimSpace(response.SHA)
+	if response.SHA == "" {
+		return a.reconcileMergeOutcome(root, number, view, plan,
+			stateError("PR #%d merge response reported merged without a merge SHA", number))
+	}
+	return a.finishMergedPullRequest(root, number, view, response.SHA, plan)
+}
+
+func (a app) reconcileMergeOutcome(root string, number int, view pullRequestView, plan cleanupPlan, ambiguous error) error {
+	observed, err := a.readPullRequestMetadata(root, number)
+	if err != nil {
+		return mergeOutcomeUnknownError(number, ambiguous, fmt.Errorf("reconcile PR metadata: %w", err))
+	}
+	mergeSHA, err := mergedPullRequestSHA(observed)
+	if err != nil {
+		return mergeOutcomeUnknownError(number, ambiguous, err)
+	}
+	if observed.HeadRefOID != view.HeadRefOID {
+		return postMergeRecoveryError(number, mergeSHA, "post-merge claim proof reconciliation", stateError("PR current head %s differs from merge-time evaluated head %s; preserve claim artifacts", observed.HeadRefOID, view.HeadRefOID))
+	}
+	return a.finishMergedPullRequest(root, number, view, mergeSHA, plan)
+}
+
+func mergeOutcomeUnknownError(number int, ambiguous, reconciliation error) error {
+	return stateError("PR #%d merge state is unknown after an ambiguous merge response: %w. Do not retry blindly; run `go tool workflowctl pr recover %d` to reconcile it", number, errors.Join(ambiguous, reconciliation), number)
+}
+
+func (a app) finishMergedPullRequest(root string, number int, view pullRequestView, mergeSHA string, plan cleanupPlan) error {
 	for _, issue := range view.ClosingIssuesReferences {
 		if err := a.setIssueProjectStatus(root, issue.Number, "Done"); err != nil {
 			if writeErr := writeLine(a.stderr, "PR #%d merged; issue #%d Project sync deferred: %v", number,
@@ -456,15 +486,15 @@ func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView
 			break
 		}
 	}
-	base, syncErr := a.synchronizeBase(plan.layout, response.SHA)
+	base, syncErr := a.synchronizeBase(plan.layout, mergeSHA)
 	if syncErr != nil {
-		return postMergeRecoveryError(number, response.SHA, "canonical Git base convergence", syncErr)
+		return postMergeRecoveryError(number, mergeSHA, "canonical Git base convergence", syncErr)
 	}
-	packet := mergedPacket{number: number, mergeSHA: response.SHA, plan: plan}
+	packet := mergedPacket{number: number, mergeSHA: mergeSHA, plan: plan}
 	if cleanupErr := a.cleanupClaims(base, packet); cleanupErr != nil {
-		return postMergeRecoveryError(number, response.SHA, "claim cleanup", cleanupErr)
+		return postMergeRecoveryError(number, mergeSHA, "claim cleanup", cleanupErr)
 	}
-	return writeLine(a.stdout, "PR #%d merged at evaluated head %s as %s", number, view.HeadRefOID, response.SHA)
+	return writeLine(a.stdout, "PR #%d merged at evaluated head %s as %s", number, view.HeadRefOID, mergeSHA)
 }
 
 func postMergeRecoveryError(number int, mergeSHA, phase string, cause error) error {

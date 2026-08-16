@@ -41,13 +41,17 @@ func (a app) recoverPullRequest(number int) error {
 	if err != nil {
 		return err
 	}
-	view, err := a.readPullRequestMetadata(root, number)
+	view, err := a.readPullRequest(root, number)
 	if err != nil {
 		return err
 	}
 	mergeSHA, err := mergedPullRequestSHA(view)
 	if err != nil {
 		return stateError("PR #%d is not proven merged; recovery will not remove claims: %v", number, err)
+	}
+	evaluatedHead, err := mergeTimeEvaluatedHead(view, number)
+	if err != nil {
+		return recoveryNeededError(number, mergeSHA, err)
 	}
 	layout, err := a.repositoryLayout(root)
 	if err != nil {
@@ -57,7 +61,7 @@ func (a app) recoverPullRequest(number int) error {
 	if err != nil {
 		return recoveryNeededError(number, mergeSHA, err)
 	}
-	plan, err := a.prepareRecoveryCleanupPlan(root, layout, view, number)
+	plan, err := a.prepareRecoveryCleanupPlan(root, layout, view, number, evaluatedHead)
 	if err != nil {
 		return recoveryNeededError(number, mergeSHA, err)
 	}
@@ -82,9 +86,44 @@ func mergedPullRequestSHA(view pullRequestView) (string, error) {
 	return view.MergeCommitSHA, nil
 }
 
-func (a app) prepareRecoveryCleanupPlan(root string, layout repositoryLayout, view pullRequestView, pullRequestNumber int) (cleanupPlan, error) {
+func mergeTimeEvaluatedHead(view pullRequestView, number int) (string, error) {
+	if view.MergedAt == nil {
+		return "", errors.New("github reported a merge without a merge timestamp for immutable evaluation proof")
+	}
+	receipts, err := evaluationReceipts(view.Comments)
+	if err != nil {
+		return "", fmt.Errorf("read immutable pre-merge evaluation proof: %w", err)
+	}
+	var selected evaluationReceipt
+	found := false
+	for _, receipt := range receipts {
+		if receipt.PR != number || receipt.Verdict != "pass" || receipt.AttestationSHA256 == "" || receipt.RecordedAt.After(*view.MergedAt) {
+			continue
+		}
+		if !found || receipt.RecordedAt.After(selected.RecordedAt) {
+			selected = receipt
+			found = true
+			continue
+		}
+		if receipt.RecordedAt.Equal(selected.RecordedAt) && receipt.Head != selected.Head {
+			return "", errors.New("pre-merge evaluation proof has ambiguous heads at the merge boundary")
+		}
+	}
+	if !found {
+		return "", errors.New("no trusted passing evaluation proves an immutable pre-merge head")
+	}
+	return selected.Head, nil
+}
+
+func (a app) prepareRecoveryCleanupPlan(root string, layout repositoryLayout, view pullRequestView, pullRequestNumber int, evaluatedHead string) (cleanupPlan, error) {
 	if view.HeadRefOID == "" || view.HeadRefName == "" {
 		return cleanupPlan{}, stateError("merged PR #%d has no claim head ref and SHA; preserve claim artifacts", pullRequestNumber)
+	}
+	if evaluatedHead == "" {
+		return cleanupPlan{}, stateError("merged PR #%d has no immutable evaluated head proof; preserve claim artifacts", pullRequestNumber)
+	}
+	if view.HeadRefOID != evaluatedHead {
+		return cleanupPlan{}, stateError("merged PR #%d current PR head %s differs from immutable merge-time evaluated head %s; preserve claim artifacts", pullRequestNumber, view.HeadRefOID, evaluatedHead)
 	}
 	if view.BaseRefName != "main" {
 		return cleanupPlan{}, stateError("merged PR #%d targets base %q, not main; preserve claim artifacts", pullRequestNumber, view.BaseRefName)
@@ -102,7 +141,7 @@ func (a app) prepareRecoveryCleanupPlan(root string, layout repositoryLayout, vi
 	if !pullRequestCloses(view, primary) {
 		return cleanupPlan{}, stateError("merged PR #%d does not close primary issue #%d; preserve claim artifacts", pullRequestNumber, primary)
 	}
-	claims, err := a.recoveryClaims(root, view, primary, pullRequestNumber)
+	claims, err := a.recoveryClaims(root, view, primary, pullRequestNumber, evaluatedHead)
 	if err != nil {
 		return cleanupPlan{}, err
 	}
@@ -119,10 +158,10 @@ func (a app) prepareRecoveryCleanupPlan(root string, layout repositoryLayout, vi
 	return cleanupPlan{layout: layout, callerRoot: root, claims: claims}, nil
 }
 
-func (a app) recoveryClaims(root string, view pullRequestView, primary, pullRequestNumber int) ([]claimArtifact, error) {
-	claims := []claimArtifact{{issue: primary, branch: view.HeadRefName, sha: view.HeadRefOID}}
+func (a app) recoveryClaims(root string, view pullRequestView, primary, pullRequestNumber int, evaluatedHead string) ([]claimArtifact, error) {
+	claims := []claimArtifact{{issue: primary, branch: view.HeadRefName, sha: evaluatedHead}}
 	if len(view.ClosingIssuesReferences) > 1 {
-		companions, err := a.recoveryCompanionClaims(root, view, primary, pullRequestNumber)
+		companions, err := a.recoveryCompanionClaims(root, view, primary, pullRequestNumber, evaluatedHead)
 		if err != nil {
 			return nil, err
 		}
@@ -134,7 +173,7 @@ func (a app) recoveryClaims(root string, view pullRequestView, primary, pullRequ
 	return claims, nil
 }
 
-func (a app) recoveryCompanionClaims(root string, view pullRequestView, primary, pullRequestNumber int) ([]claimArtifact, error) {
+func (a app) recoveryCompanionClaims(root string, view pullRequestView, primary, pullRequestNumber int, evaluatedHead string) ([]claimArtifact, error) {
 	remoteClaims, err := a.remoteClaimRefs(root)
 	if err != nil {
 		return nil, err
@@ -145,7 +184,7 @@ func (a app) recoveryCompanionClaims(root string, view pullRequestView, primary,
 	}
 	remoteClaims = appendClaimRefs(remoteClaims, localClaims)
 	if hasHistoricalCompanionCandidate(remoteClaims, view, primary) {
-		if err := a.ensureRecoveryHead(root, pullRequestNumber, view.HeadRefOID); err != nil {
+		if err := a.ensureRecoveryHead(root, pullRequestNumber, evaluatedHead); err != nil {
 			return nil, err
 		}
 	}
@@ -154,7 +193,7 @@ func (a app) recoveryCompanionClaims(root string, view pullRequestView, primary,
 		if issue.Number == primary {
 			continue
 		}
-		candidate, found, err := a.historicalCompanionClaim(root, issue.Number, view.HeadRefOID, remoteClaims)
+		candidate, found, err := a.historicalCompanionClaim(root, issue.Number, evaluatedHead, remoteClaims)
 		if err != nil {
 			return nil, err
 		}

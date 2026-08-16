@@ -103,7 +103,7 @@ Usage:
   go tool workflowctl docs audit --base REF
   go tool workflowctl history [--since 7d]
   go tool workflowctl base-sync
-  go tool workflowctl sync              # GitHub Project only; does not sync Git
+  go tool workflowctl sync              # Project status + claim-ref fetches; no base sync
   go tool workflowctl pick [--json]
   go tool workflowctl claim acquire ISSUE
   go tool workflowctl claim renew

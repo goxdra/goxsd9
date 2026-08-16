@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -62,6 +63,56 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 		t.Fatalf("finish evaluated PR: %v", err)
 	}
 	checkMergeResult(t, backend)
+}
+
+func TestAmbiguousMergeResponsesReconcile(t *testing.T) {
+	tests := []struct {
+		name string
+		mode string
+	}{
+		{name: "transport loss", mode: "transport"},
+		{name: "malformed JSON", mode: "malformed"},
+		{name: "missing SHA", mode: "missing-sha"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			backend.mergeResponseMode = test.mode
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			application := app{
+				ctx:            context.Background(),
+				executeCommand: backend.execute,
+				stdout:         &stdout,
+				stderr:         &stderr,
+			}
+			challenge := requestTestChallenge(t, &application, &stdout)
+			_, attestationFile := writeTestAttestation(t, backend.head, challenge)
+			if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+				t.Fatalf("record evaluation: %v", err)
+			}
+			stdout.Reset()
+			if err := application.runPR(backend.finishArgs()); err != nil {
+				t.Fatalf("finish %s merge response: %v", test.mode, err)
+			}
+			checkMergeResult(t, backend)
+			if !strings.Contains(stdout.String(), "merged at evaluated head evaluated-head as merge-commit") {
+				t.Fatalf("finish output = %q, want reconciled merge", stdout.String())
+			}
+		})
+	}
+}
+
+func TestUnknownMergeOutcomeGuidesRecovery(t *testing.T) {
+	ambiguous := errors.New("merge endpoint transport failed")
+	reconciliation := errors.New("PR is still open")
+	err := mergeOutcomeUnknownError(14, ambiguous, reconciliation)
+	if !strings.Contains(err.Error(), "merge state is unknown") || !strings.Contains(err.Error(), "go tool workflowctl pr recover 14") {
+		t.Fatalf("mergeOutcomeUnknownError = %v, want recovery guidance", err)
+	}
+	if !errors.Is(err, ambiguous) || !errors.Is(err, reconciliation) {
+		t.Fatalf("mergeOutcomeUnknownError = %v, want both causes", err)
+	}
 }
 
 func reusedRunComments(t *testing.T, head, runID string) []issueCommentAPI {
@@ -393,6 +444,9 @@ type workflowBackend struct {
 	mergeRequest               mergePullRequestRequest
 	merged                     bool
 	projectDone                bool
+	mergeResponseMode          string
+	mergeSHA                   string
+	mergedAt                   time.Time
 	removeSummaryOnNextCommand bool
 }
 
@@ -412,6 +466,7 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 		summaryFile:   summaryFile,
 		title:         "test(workflow): exercise evaluation flow",
 		workCommitLog: framedCommitLog("test(workflow): exercise evaluation flow", "chore(workflow): claim issue #13"),
+		mergeSHA:      "merge-commit",
 	}
 }
 
@@ -454,7 +509,7 @@ func (b *workflowBackend) executeGit(dir string, args []string) (string, error) 
 
 func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
 	if dir == "/primary" && command == "rev-parse HEAD" {
-		return "merge-commit", true
+		return b.mergeSHA, true
 	}
 	switch command {
 	case "rev-parse --show-toplevel":
@@ -480,7 +535,7 @@ func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
 	case "fetch origin main":
 		return "", true
 	case "rev-parse origin/main":
-		return "merge-commit", true
+		return b.mergeSHA, true
 	case "rev-list --left-right --count HEAD...origin/main":
 		return "0 0", true
 	case "merge-base --is-ancestor merge-commit merge-commit":
@@ -548,6 +603,12 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 
 func (b *workflowBackend) pullRequestJSON() (string, error) {
 	response := pullRequestAPI{Body: b.body, Draft: false, State: "open", Title: b.title}
+	if b.merged {
+		response.Merged = true
+		response.MergedAt = &b.mergedAt
+		response.MergeCommitSHA = b.mergeSHA
+		response.State = "closed"
+	}
 	response.Base.Ref = "main"
 	response.Head.Ref = b.branch
 	response.Head.SHA = b.head
@@ -588,7 +649,17 @@ func (b *workflowBackend) merge(data []byte) (string, error) {
 		return "", fmt.Errorf("decode merge request: %w", err)
 	}
 	b.merged = true
-	return `{"merged":true,"sha":"merge-commit"}`, nil
+	b.mergedAt = time.Now().UTC().Truncate(time.Second)
+	switch b.mergeResponseMode {
+	case "transport":
+		return "", errors.New("simulated lost merge response")
+	case "malformed":
+		return `{"merged":`, nil
+	case "missing-sha":
+		return `{"merged":true}`, nil
+	default:
+		return fmt.Sprintf(`{"merged":true,"sha":%q}`, b.mergeSHA), nil
+	}
 }
 
 func marshalTestResponse(value any) (string, error) {

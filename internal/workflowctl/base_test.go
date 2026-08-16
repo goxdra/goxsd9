@@ -361,7 +361,7 @@ func TestWorkflowHelpExposesBaseSyncRecovery(t *testing.T) {
 	if err := application.usage(); err != nil {
 		t.Fatalf("usage: %v", err)
 	}
-	for _, text := range []string{"workflowctl base-sync", "sync              # GitHub Project only", "workflowctl pr recover PR"} {
+	for _, text := range []string{"workflowctl base-sync", "sync              # Project status + claim-ref fetches; no base sync", "workflowctl pr recover PR"} {
 		if !strings.Contains(output.String(), text) {
 			t.Fatalf("usage omits %q:\n%s", text, output.String())
 		}
