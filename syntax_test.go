@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"testing"
 )
 
@@ -205,18 +206,68 @@ func FuzzDecodeSyntax(f *testing.F) {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, input string) {
-		reader := &trackingSource{data: []byte(input)}
-		document, err := decodeResolvedSyntax(newTestSource(t, reader))
-		if err != nil {
-			_ = err.Error()
-		}
-		if document != nil && err != nil {
-			t.Fatalf("decoder returned a document with an error: %v", err)
-		}
-		if !reader.closed {
-			t.Fatal("decoder did not close fuzz source")
+		first := fuzzDecodeRun(t, input)
+		second := fuzzDecodeRun(t, input)
+		if !reflect.DeepEqual(first, second) {
+			t.Fatalf("decoder result is not deterministic:\nfirst=%#v\nsecond=%#v", first, second)
 		}
 	})
+}
+
+type fuzzDecodeResult struct {
+	document     *syntaxDocument
+	diagnostics  []fuzzDiagnostic
+	closed       bool
+	consumedByte int
+}
+
+type fuzzDiagnostic struct {
+	class   FailureClass
+	code    string
+	feature FeatureID
+	loc     Loc
+	message string
+	specRef string
+}
+
+func fuzzDecodeRun(t *testing.T, input string) fuzzDecodeResult {
+	t.Helper()
+	reader := &trackingSource{data: []byte(input)}
+	document, err := decodeResolvedSyntax(newTestSource(t, reader))
+	if document != nil && err != nil {
+		t.Fatalf("decoder returned a document with an error: %v", err)
+	}
+	if document == nil && err == nil {
+		t.Fatal("decoder returned neither a document nor an error")
+	}
+	if !reader.closed {
+		t.Fatal("decoder did not close fuzz source")
+	}
+	if reader.offset != len(reader.data) {
+		t.Fatalf("decoder did not drain fuzz source: consumed %d of %d bytes", reader.offset, len(reader.data))
+	}
+	result := fuzzDecodeResult{
+		document:     document,
+		closed:       reader.closed,
+		consumedByte: reader.offset,
+	}
+	if err == nil {
+		return result
+	}
+	for _, diagnostic := range syntaxDiagnostics(err) {
+		result.diagnostics = append(result.diagnostics, fuzzDiagnostic{
+			class:   diagnostic.Class(),
+			code:    diagnostic.Code(),
+			feature: diagnostic.Feature(),
+			loc:     diagnostic.Loc(),
+			message: diagnostic.Error(),
+			specRef: diagnostic.SpecRef(),
+		})
+	}
+	if len(result.diagnostics) == 0 {
+		t.Fatalf("decoder returned an error without diagnostics: %v", err)
+	}
+	return result
 }
 
 func decodeTestSource(t *testing.T, reader *trackingSource) *syntaxDocument {
