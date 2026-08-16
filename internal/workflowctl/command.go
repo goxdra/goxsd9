@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 )
 
 type commandExecutor func(dir string, input io.Reader, name string, args ...string) (string, error)
+type commandEnvironmentExecutor func(dir string, env []string, input io.Reader, name string, args ...string) (string, error)
 
 func (a app) command(dir, name string, args ...string) (string, error) {
 	return a.commandInput(dir, nil, name, args...)
@@ -23,6 +25,17 @@ func (a app) gitRaw(dir string, args ...string) (string, error) {
 }
 
 func (a app) commandOutput(dir string, input io.Reader, trim bool, name string, args ...string) (string, error) {
+	return a.commandOutputWithEnv(dir, nil, input, trim, name, args...)
+}
+
+func (a app) commandWithEnv(dir string, env []string, name string, args ...string) (string, error) {
+	return a.commandOutputWithEnv(dir, env, nil, true, name, args...)
+}
+
+func (a app) commandOutputWithEnv(dir string, env []string, input io.Reader, trim bool, name string, args ...string) (string, error) {
+	if len(env) != 0 && a.executeCommandWithEnv != nil {
+		return a.executeCommandWithEnv(dir, env, input, name, args...)
+	}
 	if a.executeCommand != nil {
 		return a.executeCommand(dir, input, name, args...)
 	}
@@ -30,6 +43,9 @@ func (a app) commandOutput(dir string, input io.Reader, trim bool, name string, 
 	cmd := exec.CommandContext(a.ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Stdin = input
+	if len(env) != 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 
 	var output bytes.Buffer
 	cmd.Stdout = &output
