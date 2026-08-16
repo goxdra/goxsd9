@@ -83,8 +83,9 @@ These instructions apply to every file in this repository.
   before merge.
 - One PR has one primary issue and may include only separately claimed, closely
   related issues.
-- The branch claim lease is two hours. Renew it at least every 30 minutes and
-  before each shared mutation.
+- The branch claim deadline is four hours after issuance. Renew it at durable
+  workflow boundaries when the remaining time requires it, including before
+  pushes; never wake or poll solely to renew.
 - Scribe and Mason consultation is the default. Record a concise exemption only
   for demonstrably mechanical work.
 - Every PR receives an Examiner review in a fresh, read-only context. Smith

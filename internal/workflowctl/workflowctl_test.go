@@ -494,22 +494,62 @@ func TestGitHistoryIncludesCommitBodiesForWorkflowReaders(t *testing.T) {
 	}
 }
 
-func TestLeaseFreshness(t *testing.T) {
-	now := time.Date(2026, time.August, 15, 4, 30, 0, 0, time.UTC)
-	lease := now.Add(leaseDuration - renewalInterval)
-	if err := validateLeaseFresh(1, lease, now); err != nil {
-		t.Fatalf("fresh lease rejected: %v", err)
+func TestClaimDeadline(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 1, 0, 0, 0, time.UTC)
+	oldIssueDeadline := time.Date(2026, time.August, 15, 2, 0, 0, 0, time.UTC)
+	if err := validateClaimDeadline(1, oldIssueDeadline, now); err != nil {
+		t.Fatalf("future deadline rejected after old issuance interval: %v", err)
 	}
-	if err := validateLeaseFresh(1, lease.Add(-time.Second), now); err == nil {
-		t.Fatal("stale renewal interval accepted")
+
+	tests := []struct {
+		name string
+		now  time.Time
+		want bool
+	}{
+		{name: "just before deadline", now: oldIssueDeadline.Add(-time.Nanosecond), want: true},
+		{name: "at deadline", now: oldIssueDeadline, want: false},
+		{name: "after deadline", now: oldIssueDeadline.Add(time.Nanosecond), want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateClaimDeadline(1, oldIssueDeadline, test.now)
+			if (err == nil) != test.want {
+				t.Fatalf("validateClaimDeadline error = %v, want valid %t", err, test.want)
+			}
+		})
 	}
 }
 
-func TestLateClaimRenewalIsRejected(t *testing.T) {
-	now := time.Date(2026, time.August, 15, 4, 31, 0, 0, time.UTC)
-	lease := time.Date(2026, time.August, 15, 6, 0, 0, 0, time.UTC)
-	if err := validateLeaseFresh(1, lease, now); err == nil {
-		t.Fatal("claim missed its renewal heartbeat but was accepted")
+func TestNewClaimCommitUsesClaimDuration(t *testing.T) {
+	start := time.Now().UTC()
+	var message string
+	application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		switch command {
+		case "git rev-parse HEAD^{tree}":
+			return "tree", nil
+		case "git commit-tree tree -p HEAD":
+			data, err := io.ReadAll(input)
+			if err != nil {
+				return "", err
+			}
+			message = string(data)
+			return "commit", nil
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+	_, deadline, _, err := application.newClaimCommit("/repo", 1, "HEAD")
+	if err != nil {
+		t.Fatalf("newClaimCommit: %v", err)
+	}
+	end := time.Now().UTC()
+	if deadline.Before(start.Add(claimDuration-time.Second)) || deadline.After(end.Add(claimDuration)) {
+		t.Fatalf("claim deadline = %s, want about %s after issuance", deadline, claimDuration)
+	}
+	wireTrailer := "Agent-Lease-Until: " + deadline.Format(time.RFC3339)
+	if !strings.Contains(message, wireTrailer) {
+		t.Fatalf("claim message lacks deadline trailer %q: %s", wireTrailer, message)
 	}
 }
 

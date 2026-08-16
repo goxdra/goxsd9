@@ -11,8 +11,7 @@ import (
 )
 
 const (
-	leaseDuration   = 2 * time.Hour
-	renewalInterval = 30 * time.Minute
+	claimDuration = 4 * time.Hour
 )
 
 func (a app) runClaim(args []string) error {
@@ -189,7 +188,7 @@ func (a app) newClaimCommit(root string, number int, parent string) (string, tim
 	if err != nil {
 		return "", time.Time{}, "", err
 	}
-	lease := time.Now().UTC().Add(leaseDuration).Truncate(time.Second)
+	lease := time.Now().UTC().Add(claimDuration).Truncate(time.Second)
 	message := claimMessage(number, runID, lease)
 	commit, err := a.commandInput(root, strings.NewReader(message), "git", "commit-tree", tree, "-p", parent)
 	if err != nil {
@@ -258,7 +257,7 @@ func (a app) renewClaim() error {
 		return stateError("claim #%d has no valid lease: %v", number, err)
 	}
 	now := time.Now().UTC()
-	if freshnessErr := validateLeaseFresh(number, lease, now); freshnessErr != nil {
+	if freshnessErr := validateClaimDeadline(number, lease, now); freshnessErr != nil {
 		return freshnessErr
 	}
 	commit, lease, _, err := a.newClaimCommit(root, number, "HEAD")
@@ -298,7 +297,7 @@ func (a app) verifyClaim() error {
 	if err != nil {
 		return stateError("claim #%d has no valid lease: %v", number, err)
 	}
-	if err := validateLeaseFresh(number, lease, time.Now().UTC()); err != nil {
+	if err := validateClaimDeadline(number, lease, time.Now().UTC()); err != nil {
 		return err
 	}
 	return writeLine(a.stdout, "claim #%d valid until %s", number, lease.Format(time.RFC3339))
@@ -321,7 +320,7 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 	if err != nil {
 		return stateError("claim #%d has no valid lease: %v", number, err)
 	}
-	return validateLeaseFresh(number, lease, time.Now().UTC())
+	return validateClaimDeadline(number, lease, time.Now().UTC())
 }
 
 func (a app) readClaimLease(root string) (time.Time, error) {
@@ -332,15 +331,11 @@ func (a app) readClaimLease(root string) (time.Time, error) {
 	return trailerTime(text, "Agent-Lease-Until")
 }
 
-func validateLeaseFresh(number int, lease, now time.Time) error {
-	if !lease.After(now) {
-		return stateError("claim #%d expired at %s", number, lease.Format(time.RFC3339))
+func validateClaimDeadline(number int, deadline, now time.Time) error {
+	if deadline.After(now) {
+		return nil
 	}
-	issued := lease.Add(-leaseDuration)
-	if now.After(issued.Add(renewalInterval)) {
-		return stateError("claim #%d was not renewed within %s", number, renewalInterval)
-	}
-	return nil
+	return stateError("claim #%d expired at %s", number, deadline.Format(time.RFC3339))
 }
 
 func (a app) currentClaim() (string, string, int, error) {

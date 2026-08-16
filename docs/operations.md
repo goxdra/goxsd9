@@ -17,9 +17,11 @@ Every pushed head containing a managed-document change receives the exact docs
 audit and a fresh read-only Curator review; repeat both after each remediation
 push. Examiner remains the authenticated gate.
 
-Claims last two hours and renew every 30 minutes and before shared writes. For
-an expired claim without an open PR, `workflowctl` archives its tip under
-`agent/archive/` before reassignment. An open PR requires a `needs-human` handoff.
+Claims have a four-hour deadline after issuance. Renew at durable workflow
+boundaries when remaining time requires it, including before pushes; never
+wake or poll solely to renew. For an expired claim without an open PR,
+`workflowctl` archives its tip under `agent/archive/` before reassignment. Open
+PRs require a `needs-human` handoff.
 
 Three failed evaluation rounds add `needs-human` and return the issue to
 Backlog. Transient commands use bounded retries as directed by the skill;

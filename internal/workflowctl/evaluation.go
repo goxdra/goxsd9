@@ -20,6 +20,7 @@ const (
 	evaluationAttestationMarker       = "workflowctl-evaluation-attestation "
 	evaluationAttestationSchema       = "goxsd9/examiner-attestation/v1"
 	evaluationChallengeMarker         = "workflowctl-evaluation-challenge "
+	evaluationChallengeDuration       = 2 * time.Hour
 	evaluationMarker                  = "workflowctl-evaluation "
 	evaluationReceiptHeading          = "## Examiner evaluation — round receipt\n\n"
 )
@@ -391,7 +392,7 @@ func trustedEvaluationChallenge(comments []pullRequestComment, challengeID strin
 		if !commentTimeMatches(comment.CreatedAt, challenge.RequestedAt) {
 			continue
 		}
-		if challenge.RequestedAt.After(now) || now.After(challenge.RequestedAt.Add(leaseDuration)) {
+		if challenge.RequestedAt.After(now) || !now.Before(challenge.RequestedAt.Add(evaluationChallengeDuration)) {
 			return evaluationChallenge{}, false
 		}
 		return challenge, true
