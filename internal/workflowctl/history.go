@@ -129,26 +129,19 @@ func (a app) collectHistory(root string, window historyWindow) (historySnapshot,
 }
 
 func (a app) collectGitCandidates(root string, window historyWindow) ([]gitHistoryCandidate, error) {
-	output, err := a.command(root, "git", "log", "--first-parent", "--date=short",
-		"--pretty=format:%x1e%H%x00%cI%x00%h%x00%ad%x00%s%x00%b")
+	output, err := a.command(root, "git", "log", "--first-parent",
+		"--pretty=format:%H%x00%cI")
 	if err != nil {
 		return nil, fmt.Errorf("read git history candidates: %w", err)
 	}
 	if output == "" {
 		return nil, nil
 	}
-	records := strings.Split(output, "\x1e")
+	records := strings.Split(strings.TrimSpace(output), "\n")
 	candidates := make([]gitHistoryCandidate, 0, len(records))
 	for index, record := range records {
-		record = strings.Trim(record, "\n")
-		if record == "" {
-			if index == 0 {
-				continue
-			}
-			return nil, fmt.Errorf("parse git history candidates: empty record %d", index)
-		}
-		fields := strings.SplitN(record, "\x00", 6)
-		if len(fields) != 6 || fields[0] == "" || fields[1] == "" || fields[2] == "" || fields[3] == "" || fields[4] == "" {
+		fields := strings.Split(record, "\x00")
+		if len(fields) != 2 || fields[0] == "" || fields[1] == "" {
 			return nil, fmt.Errorf("parse git history candidates: malformed record %d", index)
 		}
 		committedAt, err := time.Parse(time.RFC3339Nano, fields[1])
@@ -159,32 +152,29 @@ func (a app) collectGitCandidates(root string, window historyWindow) ([]gitHisto
 		if !inHistoryWindow(committedAt, window) {
 			continue
 		}
+		rendered, err := a.renderGitCandidate(root, fields[0])
+		if err != nil {
+			return nil, err
+		}
 		candidates = append(candidates, gitHistoryCandidate{
 			id:          fields[0],
 			committedAt: committedAt,
-			rendered:    renderGitCandidate(fields[2], fields[3], fields[4], fields[5]),
+			rendered:    rendered,
 		})
 	}
 	return candidates, nil
 }
 
-func renderGitCandidate(shortID, date, subject, body string) string {
-	var rendered strings.Builder
-	rendered.WriteString("- ")
-	rendered.WriteString(shortID)
-	rendered.WriteByte(' ')
-	rendered.WriteString(date)
-	rendered.WriteByte(' ')
-	rendered.WriteString(subject)
-	body = strings.TrimSuffix(body, "\n")
-	if body == "" {
-		return rendered.String()
+func (a app) renderGitCandidate(root, id string) (string, error) {
+	output, err := a.command(root, "git", "show", "-s", "--date=short",
+		"--format=- %h %ad %s%n%w(74,2,2)%b%w(0,0,0)", id, "--")
+	if err != nil {
+		return "", fmt.Errorf("read git commit %s: %w", id, err)
 	}
-	for _, line := range strings.Split(body, "\n") {
-		rendered.WriteString("\n  ")
-		rendered.WriteString(line)
+	if output == "" {
+		return "", fmt.Errorf("read git commit %s: empty output", id)
 	}
-	return rendered.String()
+	return output, nil
 }
 
 func (a app) collectPRHistory(root string, window historyWindow) ([]pullRequestSummary, error) {

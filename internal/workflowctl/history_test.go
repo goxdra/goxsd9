@@ -2,8 +2,12 @@ package workflowctl
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -48,14 +52,17 @@ func TestGitHistoryFiltersSubsecondCommitterBounds(t *testing.T) {
 		until: time.Date(2026, time.August, 16, 17, 59, 12, 0, time.UTC),
 	}
 	output := strings.Join([]string{
-		gitCandidateRecord("before", "2026-08-16T17:59:11Z", "before"),
-		gitCandidateRecord("exact", "2026-08-16T17:59:11.000000001Z", "exact"),
-		gitCandidateRecord("after", "2026-08-16T17:59:11.000000002Z", "after"),
-		gitCandidateRecord("upper", "2026-08-16T17:59:12.000000001Z", "upper"),
-	}, "")
+		gitMetadataRecord("before", "2026-08-16T17:59:11Z"),
+		gitMetadataRecord("exact", "2026-08-16T17:59:11.000000001Z"),
+		gitMetadataRecord("after", "2026-08-16T17:59:11.000000002Z"),
+		gitMetadataRecord("upper", "2026-08-16T17:59:12.000000001Z"),
+	}, "\n")
 	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 		if name == "git" && len(args) > 0 && args[0] == "log" {
 			return output, nil
+		}
+		if name == "git" && len(args) > 0 && args[0] == "show" {
+			return gitRenderedCandidate(args[len(args)-2]), nil
 		}
 		return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
 	}}
@@ -80,15 +87,18 @@ func TestDocumentationHistoryUsesExactSubsecondCommitterBounds(t *testing.T) {
 		until: time.Date(2026, time.August, 16, 17, 59, 12, 0, time.UTC),
 	}
 	output := strings.Join([]string{
-		gitCandidateRecord("before", "2026-08-16T17:59:11Z", "before"),
-		gitCandidateRecord("exact", "2026-08-16T17:59:11.000000001Z", "exact"),
-		gitCandidateRecord("after", "2026-08-16T17:59:11.000000002Z", "after"),
-		gitCandidateRecord("upper", "2026-08-16T17:59:12.000000001Z", "upper"),
-	}, "")
+		gitMetadataRecord("before", "2026-08-16T17:59:11Z"),
+		gitMetadataRecord("exact", "2026-08-16T17:59:11.000000001Z"),
+		gitMetadataRecord("after", "2026-08-16T17:59:11.000000002Z"),
+		gitMetadataRecord("upper", "2026-08-16T17:59:12.000000001Z"),
+	}, "\n")
 	seen := make([]string, 0, 2)
 	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 		if name == "git" && len(args) > 0 && args[0] == "log" {
 			return output, nil
+		}
+		if name == "git" && len(args) > 0 && args[0] == "show" {
+			return gitRenderedCandidate(args[len(args)-2]), nil
 		}
 		if name == "git" && len(args) > 0 && args[0] == "diff-tree" {
 			commit := args[len(args)-2]
@@ -106,6 +116,62 @@ func TestDocumentationHistoryUsesExactSubsecondCommitterBounds(t *testing.T) {
 	}
 	if len(totals) != 1 || totals[0].path != "README.md" || totals[0].additions != 2 {
 		t.Fatalf("documentation totals = %#v, want README.md +2", totals)
+	}
+}
+
+func TestGitHistoryPreservesRecordSeparatorsInMessages(t *testing.T) {
+	root := t.TempDir()
+	runGitTest(t, root, "init", "-b", "main")
+	runGitTest(t, root, "config", "user.name", "Workflow Test")
+	runGitTest(t, root, "config", "user.email", "workflow@example.test")
+	writeTestDocument(t, root, "README.md", "base\n")
+	runGitTest(t, root, "add", "README.md")
+	runGitTestWithDates(t, root, "2026-08-15T12:00:00Z", "commit", "--no-gpg-sign", "-m", "base")
+
+	messagePath := filepath.Join(root, "message.txt")
+	message := []byte("included\x1esubject\n\nbody before\x1ebody after\n")
+	if err := os.WriteFile(messagePath, message, 0o600); err != nil {
+		t.Fatalf("write included commit message: %v", err)
+	}
+	writeTestDocument(t, root, "README.md", "included\n")
+	runGitTest(t, root, "add", "README.md")
+	runGitTestWithDates(t, root, "2026-08-16T12:00:00Z", "commit", "--no-gpg-sign", "-F", messagePath)
+	includedID := runGitTest(t, root, "rev-parse", "HEAD")
+
+	message = []byte("out\x1esubject\n\nbody out before\x1ebody out after\n")
+	if err := os.WriteFile(messagePath, message, 0o600); err != nil {
+		t.Fatalf("write out-of-window commit message: %v", err)
+	}
+	writeTestDocument(t, root, "README.md", "out\n")
+	runGitTest(t, root, "add", "README.md")
+	runGitTestWithDates(t, root, "2026-08-17T12:00:00Z", "commit", "--no-gpg-sign", "-F", messagePath)
+
+	window := historyWindow{
+		since: time.Date(2026, time.August, 16, 0, 0, 0, 0, time.UTC),
+		until: time.Date(2026, time.August, 16, 23, 59, 59, 0, time.UTC),
+	}
+	application := app{ctx: context.Background()}
+	candidates, err := application.collectGitCandidates(root, window)
+	if err != nil {
+		t.Fatalf("collectGitCandidates: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].id != includedID {
+		t.Fatalf("candidates = %#v, want only included commit %s", candidates, includedID)
+	}
+	if !strings.Contains(candidates[0].rendered, "included\x1esubject") ||
+		!strings.Contains(candidates[0].rendered, "body before\x1ebody after") {
+		t.Fatalf("included record separators were not preserved:\n%s", candidates[0].rendered)
+	}
+	if strings.Contains(candidates[0].rendered, "out\x1esubject") {
+		t.Fatalf("out-of-window commit was rendered:\n%s", candidates[0].rendered)
+	}
+
+	totals, err := application.readDocumentationChurnCandidates(root, candidates)
+	if err != nil {
+		t.Fatalf("readDocumentationChurnCandidates: %v", err)
+	}
+	if len(totals) != 1 || totals[0].path != "README.md" {
+		t.Fatalf("documentation totals = %#v, want included README.md change", totals)
 	}
 }
 
@@ -275,7 +341,22 @@ func equalStrings(left, right []string) bool {
 	return true
 }
 
-func gitCandidateRecord(id, committedAt, subject string) string {
-	body := "body for " + subject + "\nsecond body line"
-	return "\x1e" + strings.Join([]string{id, committedAt, id[:min(len(id), 7)], "2026-08-16", subject, body}, "\x00")
+func gitMetadataRecord(id, committedAt string) string {
+	return id + "\x00" + committedAt
+}
+
+func gitRenderedCandidate(id string) string {
+	return "- " + id + " 2026-08-16 " + id + "\n  body for " + id + "\n  second body line"
+}
+
+func runGitTestWithDates(t *testing.T, root, date string, args ...string) {
+	t.Helper()
+	// #nosec G204 -- each test supplies repository-local Git arguments without user input.
+	cmd := exec.CommandContext(context.Background(), "git", args...)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, output)
+	}
 }
