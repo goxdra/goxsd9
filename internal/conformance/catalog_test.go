@@ -82,11 +82,11 @@ func TestPinnedCatalogBaseline(t *testing.T) {
 	for _, want := range []string{
 		"queried: 57",
 		"disputed: 6",
-		"unusable: 246",
-		"1.0 schema 14412 11047 3352 13 23 1 0 16 28 14360",
-		"1.0 instance 25091 14051 11036 4 34 0 5 124 128 24924",
-		"1.1 schema 15398 11785 3602 11 23 1 0 17 28 15346",
-		"1.1 instance 26352 14691 11658 3 34 0 0 138 141 26177",
+		"unusable: 211",
+		"1.0 schema 14431 11054 3354 23 23 1 0 15 37 14370",
+		"1.0 instance 25126 14069 11045 12 34 0 5 124 136 24951",
+		"1.1 schema 15418 11793 3604 21 23 1 0 17 38 15356",
+		"1.1 instance 26389 14709 11667 13 34 0 0 138 151 26204",
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("pinned inventory output missing %q", want)
@@ -152,6 +152,76 @@ func TestReadRejectsChangedStructureAndMissingTestSet(t *testing.T) {
 			}
 			if catalogErr.Code != test.code {
 				t.Fatalf("CatalogError.Code = %q, want %q", catalogErr.Code, test.code)
+			}
+		})
+	}
+}
+
+func TestReadRejectsCatalogOrderChanges(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(fstest.MapFS)
+	}{
+		{
+			name: "suite annotation after reference",
+			mutate: func(files fstest.MapFS) {
+				files["suite.xml"] = &fstest.MapFile{Data: []byte(strings.Replace(
+					fixtureSuite,
+					"  <ts:testSetRef xlink:href=\"sets/one.testSet\"/>\n",
+					"  <ts:testSetRef xlink:href=\"sets/one.testSet\"/>\n  <ts:annotation/>\n",
+					1))}
+			},
+		},
+		{
+			name: "test set annotation after group",
+			mutate: func(files fstest.MapFS) {
+				files["sets/one.testSet"] = &fstest.MapFile{Data: []byte(strings.Replace(
+					fixtureTestSet, "  </testGroup>\n", "  </testGroup>\n  <annotation/>\n", 1))}
+			},
+		},
+		{
+			name: "case expected after current",
+			mutate: func(files fstest.MapFS) {
+				files["sets/one.testSet"] = &fstest.MapFile{Data: []byte(strings.Replace(
+					fixtureTestSet,
+					"      <current status=\"accepted\" date=\"2026-01-01\"/>\n",
+					"      <current status=\"accepted\" date=\"2026-01-01\"/>\n      <expected validity=\"valid\"/>\n",
+					1))}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			files := fixtureFS(t)
+			test.mutate(files)
+			_, err := Read(files)
+			var catalogErr *CatalogError
+			if !errors.As(err, &catalogErr) {
+				t.Fatalf("Read error = %v, want CatalogError", err)
+			}
+			if catalogErr.Code != "catalog.structure" {
+				t.Fatalf("CatalogError.Code = %q, want catalog.structure", catalogErr.Code)
+			}
+		})
+	}
+}
+
+func TestVersionApplicabilitySeparatesParentAndExpected(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		got  bool
+		want bool
+	}{
+		{name: "unscoped parent 1.0", got: parentApplies(nil, "1.0"), want: true},
+		{name: "one version parent excludes other", got: parentApplies([]string{"1.0"}, "1.1"), want: false},
+		{name: "feature parent remains conditional", got: parentApplies([]string{"Unicode_4.0.0"}, "1.0"), want: true},
+		{name: "expected inherits parent", got: expectedApplies(expectation{}, []string{"1.0"}, "1.0"), want: true},
+		{name: "expected does not escape parent", got: expectedApplies(expectation{explicit: true, versions: []string{"1.0"}}, []string{"1.1"}, "1.0"), want: false},
+		{name: "expected feature conjunction is conditional", got: expectedApplies(expectation{explicit: true, versions: []string{"1.0", "1.0-1e"}}, nil, "1.0"), want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.got != test.want {
+				t.Fatalf("got %t, want %t", test.got, test.want)
 			}
 		})
 	}

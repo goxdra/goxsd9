@@ -146,16 +146,16 @@ type testSetDocument struct {
 }
 
 type catalogCase struct {
-	setPath       string
-	setName       string
-	groupName     string
-	name          string
-	kind          caseKind
-	versions      []string
-	documents     []string
-	expectations  []expectation
-	status        catalogStatus
-	usableReasons []string
+	setPath        string
+	setName        string
+	groupName      string
+	name           string
+	kind           caseKind
+	parentVersions []string
+	documents      []string
+	expectations   []expectation
+	status         catalogStatus
+	usableReasons  []string
 }
 
 type expectation struct {
@@ -249,12 +249,13 @@ func (parser *xmlParser) parseSuite() (suiteDocument, error) {
 		return suiteDocument{}, parser.structure("testSuite: %v", err)
 	}
 	suite := suiteDocument{versions: attributeTokens(start, "version")}
+	state := suiteState{}
 	for {
 		token, err := parser.token()
 		if err != nil {
 			return suiteDocument{}, err
 		}
-		done, err := parser.suiteToken(token, start, &suite)
+		done, err := parser.suiteToken(token, start, &suite, &state)
 		if err != nil {
 			return suiteDocument{}, err
 		}
@@ -268,10 +269,16 @@ func (parser *xmlParser) parseSuite() (suiteDocument, error) {
 	}
 }
 
-func (parser *xmlParser) suiteToken(token xml.Token, start xml.StartElement, suite *suiteDocument) (bool, error) {
+type suiteState struct {
+	refsStarted bool
+}
+
+func (parser *xmlParser) suiteToken(token xml.Token, start xml.StartElement, suite *suiteDocument,
+	state *suiteState,
+) (bool, error) {
 	switch value := token.(type) {
 	case xml.StartElement:
-		return false, parser.suiteChild(value, suite)
+		return false, parser.suiteChild(value, suite, state)
 	case xml.EndElement:
 		if value.Name != start.Name {
 			return false, parser.structure("unexpected closing element %s", elementName(value.Name))
@@ -288,8 +295,11 @@ func (parser *xmlParser) suiteToken(token xml.Token, start xml.StartElement, sui
 	return false, nil
 }
 
-func (parser *xmlParser) suiteChild(start xml.StartElement, suite *suiteDocument) error {
+func (parser *xmlParser) suiteChild(start xml.StartElement, suite *suiteDocument, state *suiteState) error {
 	if isElement(start, "annotation") {
+		if state.refsStarted {
+			return parser.structure("testSuite places annotation after testSetRef")
+		}
 		return parser.skip()
 	}
 	if !isElement(start, "testSetRef") {
@@ -300,6 +310,7 @@ func (parser *xmlParser) suiteChild(start xml.StartElement, suite *suiteDocument
 		return err
 	}
 	suite.refs = append(suite.refs, ref)
+	state.refsStarted = true
 	return nil
 }
 
@@ -321,12 +332,13 @@ func (parser *xmlParser) parseTestSet(inheritedVersions []string) (testSetDocume
 	versions := chooseVersions(start, inheritedVersions)
 	set := testSetDocument{name: name}
 	seenGroups := make(map[string]struct{})
+	state := testSetState{}
 	for {
 		token, err := parser.token()
 		if err != nil {
 			return testSetDocument{}, err
 		}
-		done, err := parser.testSetToken(token, start, &set, seenGroups, versions)
+		done, err := parser.testSetToken(token, start, &set, seenGroups, versions, &state)
 		if err != nil {
 			return testSetDocument{}, err
 		}
@@ -340,26 +352,16 @@ func (parser *xmlParser) parseTestSet(inheritedVersions []string) (testSetDocume
 	}
 }
 
+type testSetState struct {
+	groupsStarted bool
+}
+
 func (parser *xmlParser) testSetToken(token xml.Token, start xml.StartElement, set *testSetDocument,
-	seenGroups map[string]struct{}, versions []string,
+	seenGroups map[string]struct{}, versions []string, state *testSetState,
 ) (bool, error) {
 	switch value := token.(type) {
 	case xml.StartElement:
-		if isElement(value, "annotation") {
-			return false, parser.skip()
-		}
-		if !isElement(value, "testGroup") {
-			return false, parser.structure("unexpected testSet child %s", elementName(value.Name))
-		}
-		group, err := parser.parseTestGroup(value, parser.path, set.name, versions)
-		if err != nil {
-			return false, err
-		}
-		if _, ok := seenGroups[group.name]; ok {
-			return false, parser.structure("testSet repeats testGroup %q", group.name)
-		}
-		seenGroups[group.name] = struct{}{}
-		set.cases = append(set.cases, group.cases...)
+		return false, parser.testSetChild(value, set, seenGroups, versions, state)
 	case xml.EndElement:
 		if value.Name != start.Name {
 			return false, parser.structure("unexpected closing element %s", elementName(value.Name))
@@ -374,6 +376,31 @@ func (parser *xmlParser) testSetToken(token xml.Token, start xml.StartElement, s
 		return false, parser.structure("unexpected token in testSet")
 	}
 	return false, nil
+}
+
+func (parser *xmlParser) testSetChild(start xml.StartElement, set *testSetDocument,
+	seenGroups map[string]struct{}, versions []string, state *testSetState,
+) error {
+	if isElement(start, "annotation") {
+		if state.groupsStarted {
+			return parser.structure("testSet places annotation after testGroup")
+		}
+		return parser.skip()
+	}
+	if !isElement(start, "testGroup") {
+		return parser.structure("unexpected testSet child %s", elementName(start.Name))
+	}
+	group, err := parser.parseTestGroup(start, parser.path, set.name, versions)
+	if err != nil {
+		return err
+	}
+	if _, ok := seenGroups[group.name]; ok {
+		return parser.structure("testSet repeats testGroup %q", group.name)
+	}
+	seenGroups[group.name] = struct{}{}
+	set.cases = append(set.cases, group.cases...)
+	state.groupsStarted = true
+	return nil
 }
 
 type testGroupDocument struct {
@@ -407,8 +434,10 @@ func (parser *xmlParser) parseTestGroup(start xml.StartElement, setPath, setName
 }
 
 type testGroupState struct {
-	seenTests  map[string]struct{}
-	schemaSeen bool
+	seenTests            map[string]struct{}
+	documentationStarted bool
+	schemaSeen           bool
+	instanceSeen         bool
 }
 
 func (parser *xmlParser) testGroupToken(token xml.Token, start xml.StartElement, group *testGroupDocument,
@@ -436,28 +465,59 @@ func (parser *xmlParser) testGroupToken(token xml.Token, start xml.StartElement,
 func (parser *xmlParser) testGroupChild(start xml.StartElement, group *testGroupDocument,
 	setPath, setName string, versions []string, state *testGroupState,
 ) error {
-	if isElement(start, "annotation") || isElement(start, "documentationReference") {
-		return parser.skip()
+	if isElement(start, "annotation") {
+		return parser.groupAnnotation(group, state)
+	}
+	if isElement(start, "documentationReference") {
+		return parser.groupDocumentationReference(group, state)
 	}
 	if isElement(start, "schemaTest") {
-		if state.schemaSeen {
-			return parser.structure("testGroup %q repeats schemaTest", group.name)
-		}
-		caseValue, err := parser.parseCase(start, setPath, setName, group.name, schemaKind, versions)
-		if err != nil {
-			return err
-		}
-		state.schemaSeen = true
-		return parser.addGroupCase(group, caseValue, state.seenTests)
+		return parser.groupSchemaTest(start, group, setPath, setName, versions, state)
 	}
 	if isElement(start, "instanceTest") {
-		caseValue, err := parser.parseCase(start, setPath, setName, group.name, instanceKind, versions)
-		if err != nil {
-			return err
-		}
-		return parser.addGroupCase(group, caseValue, state.seenTests)
+		return parser.groupInstanceTest(start, group, setPath, setName, versions, state)
 	}
 	return parser.structure("unexpected testGroup child %s", elementName(start.Name))
+}
+
+func (parser *xmlParser) groupAnnotation(group *testGroupDocument, state *testGroupState) error {
+	if state.documentationStarted || state.schemaSeen || state.instanceSeen {
+		return parser.structure("testGroup %q places annotation after test metadata", group.name)
+	}
+	return parser.skip()
+}
+
+func (parser *xmlParser) groupDocumentationReference(group *testGroupDocument, state *testGroupState) error {
+	if state.schemaSeen || state.instanceSeen {
+		return parser.structure("testGroup %q places documentationReference after test", group.name)
+	}
+	state.documentationStarted = true
+	return parser.skip()
+}
+
+func (parser *xmlParser) groupSchemaTest(start xml.StartElement, group *testGroupDocument,
+	setPath, setName string, versions []string, state *testGroupState,
+) error {
+	if state.schemaSeen || state.instanceSeen {
+		return parser.structure("testGroup %q repeats schemaTest", group.name)
+	}
+	caseValue, err := parser.parseCase(start, setPath, setName, group.name, schemaKind, versions)
+	if err != nil {
+		return err
+	}
+	state.schemaSeen = true
+	return parser.addGroupCase(group, caseValue, state.seenTests)
+}
+
+func (parser *xmlParser) groupInstanceTest(start xml.StartElement, group *testGroupDocument,
+	setPath, setName string, versions []string, state *testGroupState,
+) error {
+	state.instanceSeen = true
+	caseValue, err := parser.parseCase(start, setPath, setName, group.name, instanceKind, versions)
+	if err != nil {
+		return err
+	}
+	return parser.addGroupCase(group, caseValue, state.seenTests)
 }
 
 func (parser *xmlParser) addGroupCase(group *testGroupDocument, caseValue catalogCase,
@@ -479,13 +539,13 @@ func (parser *xmlParser) parseCase(start xml.StartElement, setPath, setName, gro
 		return catalogCase{}, parser.structure("%s test: %v", kind, err)
 	}
 	caseValue := catalogCase{
-		setPath:   setPath,
-		setName:   setName,
-		groupName: groupName,
-		name:      name,
-		kind:      kind,
-		versions:  chooseVersions(start, inheritedVersions),
-		status:    statusMissing,
+		setPath:        setPath,
+		setName:        setName,
+		groupName:      groupName,
+		name:           name,
+		kind:           kind,
+		parentVersions: chooseVersions(start, inheritedVersions),
+		status:         statusMissing,
 	}
 	state := caseState{}
 	for {
@@ -510,7 +570,17 @@ type caseState struct {
 	seenDocument bool
 	seenExpected bool
 	seenCurrent  bool
+	phase        casePhase
 }
+
+type casePhase uint8
+
+const (
+	caseDocuments casePhase = iota
+	caseExpected
+	caseCurrent
+	casePrior
+)
 
 func (parser *xmlParser) caseToken(token xml.Token, start xml.StartElement, caseValue *catalogCase,
 	name string, kind caseKind, setPath string, state *caseState,
@@ -538,6 +608,9 @@ func (parser *xmlParser) caseChild(start xml.StartElement, caseValue *catalogCas
 	kind caseKind, setPath string, state *caseState,
 ) error {
 	if isElement(start, "annotation") {
+		if state.phase != caseDocuments || state.seenDocument {
+			return parser.structure("%sTest %q places annotation after documents", kind, name)
+		}
 		return parser.skip()
 	}
 	if isElement(start, "schemaDocument") {
@@ -567,7 +640,7 @@ func (parser *xmlParser) caseChild(start xml.StartElement, caseValue *catalogCas
 func (parser *xmlParser) caseDocument(start xml.StartElement, caseValue *catalogCase, name string,
 	kind caseKind, setPath string, state *caseState,
 ) error {
-	if state.seenExpected || state.seenCurrent || (kind == instanceKind && state.seenDocument) {
+	if state.phase != caseDocuments || (kind == instanceKind && state.seenDocument) {
 		return parser.structure("%sTest %q has an invalid document position", kind, name)
 	}
 	document, err := parser.reference(start)
@@ -593,22 +666,23 @@ func (parser *xmlParser) caseDocument(start xml.StartElement, caseValue *catalog
 func (parser *xmlParser) caseExpected(start xml.StartElement, caseValue *catalogCase, name string,
 	kind caseKind, state *caseState,
 ) error {
-	if !state.seenDocument {
+	if !state.seenDocument || state.phase > caseExpected {
 		return parser.structure("%sTest %q has expected before document", kind, name)
 	}
-	parsed, err := parser.expected(start, caseValue.versions)
+	parsed, err := parser.expected(start)
 	if err != nil {
 		return err
 	}
 	caseValue.expectations = append(caseValue.expectations, parsed)
 	state.seenExpected = true
+	state.phase = caseExpected
 	return nil
 }
 
 func (parser *xmlParser) caseCurrent(start xml.StartElement, caseValue *catalogCase, name string,
 	kind caseKind, state *caseState,
 ) error {
-	if !state.seenExpected || state.seenCurrent {
+	if !state.seenDocument || state.phase > caseCurrent || state.seenCurrent {
 		return parser.structure("%sTest %q has invalid current position", kind, name)
 	}
 	status, err := parser.current(start)
@@ -617,14 +691,19 @@ func (parser *xmlParser) caseCurrent(start xml.StartElement, caseValue *catalogC
 	}
 	caseValue.status = status
 	state.seenCurrent = true
+	state.phase = caseCurrent
 	return nil
 }
 
 func (parser *xmlParser) casePrior(start xml.StartElement, name string, kind caseKind, state *caseState) error {
-	if !state.seenExpected {
-		return parser.structure("%sTest %q has prior before expected", kind, name)
+	if !state.seenDocument {
+		return parser.structure("%sTest %q has prior before document", kind, name)
 	}
-	return parser.statusHistory(start)
+	if err := parser.statusHistory(start); err != nil {
+		return err
+	}
+	state.phase = casePrior
+	return nil
 }
 
 func (state caseState) finish(parser *xmlParser, caseValue *catalogCase, name string, kind caseKind) error {
@@ -649,17 +728,13 @@ func (caseValue *catalogCase) addOutcomeReasons() {
 	}
 }
 
-func (parser *xmlParser) expected(start xml.StartElement, inheritedVersions []string) (expectation, error) {
+func (parser *xmlParser) expected(start xml.StartElement) (expectation, error) {
 	validity, err := requiredAttribute(start, "validity")
 	if err != nil {
 		return expectation{}, parser.structure("expected: %v", err)
 	}
 	explicitVersions := attributeTokens(start, "version")
-	expectationValue := expectation{
-		validity: validity,
-		versions: chooseVersions(start, inheritedVersions),
-		explicit: len(explicitVersions) != 0,
-	}
+	expectationValue := expectation{validity: validity, versions: explicitVersions, explicit: len(explicitVersions) != 0}
 	if err := parser.emptyMetadata(start, "expected"); err != nil {
 		return expectation{}, err
 	}
@@ -964,7 +1039,7 @@ func (row *inventoryRow) addOutcome(outcome string) {
 func (caseValue catalogCase) outcome(version string) (string, bool) {
 	var outcome string
 	for _, expected := range caseValue.expectations {
-		if !expectedApplies(expected, caseValue.versions, version) {
+		if !expectedApplies(expected, caseValue.parentVersions, version) {
 			continue
 		}
 		if outcome != "" {
@@ -1010,26 +1085,29 @@ func (caseValue catalogCase) isHeadline(version, outcome string) bool {
 }
 
 func caseApplies(caseValue catalogCase, version string) bool {
-	for _, expected := range caseValue.expectations {
-		if expectedApplies(expected, caseValue.versions, version) {
+	return parentApplies(caseValue.parentVersions, version)
+}
+
+func expectedApplies(expected expectation, parentVersions []string, version string) bool {
+	if !parentApplies(parentVersions, version) {
+		return false
+	}
+	if !expected.explicit {
+		return true
+	}
+	return len(expected.versions) == 1 && expected.versions[0] == version
+}
+
+func parentApplies(parentVersions []string, version string) bool {
+	if len(parentVersions) == 0 {
+		return true
+	}
+	for _, token := range parentVersions {
+		if token == version || (token != "1.0" && token != "1.1") {
 			return true
 		}
 	}
 	return false
-}
-
-func expectedApplies(expected expectation, inheritedVersions []string, version string) bool {
-	versions := expected.versions
-	if len(versions) == 0 {
-		versions = inheritedVersions
-	}
-	if len(versions) == 0 {
-		return true
-	}
-	if expected.explicit && contains(versions, "1.0") && contains(versions, "1.1") {
-		return false
-	}
-	return contains(versions, version)
 }
 
 func chooseVersions(start xml.StartElement, inherited []string) []string {
@@ -1108,15 +1186,6 @@ func elementName(name xml.Name) string {
 
 func isWhitespace(data []byte) bool {
 	return strings.TrimSpace(string(data)) == ""
-}
-
-func contains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func isKnownOutcome(value string) bool {
