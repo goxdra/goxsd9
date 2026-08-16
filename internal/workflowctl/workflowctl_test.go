@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -183,9 +184,79 @@ func TestLatestStructuredEvaluationPasses(t *testing.T) {
 	if err != nil || !passes {
 		t.Fatal("valid structured evaluation did not pass")
 	}
-	view.Comments[1].Body = strings.Replace(view.Comments[1].Body, "No findings.", "Changed.", 1)
+	encodedReport := base64.StdEncoding.EncodeToString([]byte(report))
+	changedReport := base64.StdEncoding.EncodeToString([]byte("Changed."))
+	view.Comments[1].Body = strings.Replace(view.Comments[1].Body, encodedReport, changedReport, 1)
 	if _, err := latestEvaluationPasses(view, 11); err == nil {
 		t.Fatal("tampered structured evaluation did not invalidate history")
+	}
+}
+
+func TestVersionedEvaluationReportSurvivesVisibleRewrite(t *testing.T) {
+	requested := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	recorded := requested.Add(time.Minute)
+	challenge := evaluationChallenge{Challenge: "lossless-report", Head: "head", PR: 11, RequestedAt: requested}
+	challengeMarker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode challenge: %v", err)
+	}
+	challengeComment := pullRequestComment{
+		Body:      fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, challengeMarker),
+		CreatedAt: requested,
+	}
+	challengeComment.Author.Login = trustedActor
+	attestation := evaluationAttestation{
+		Challenge: challenge.Challenge, Evaluator: "Examiner", Findings: evaluationFindings{}, Head: "head", PR: 11,
+		RunID: "lossless-report-run", Schema: evaluationAttestationSchema,
+		Summary: "No findings; literal \\u001e remains data.", Verdict: "pass",
+	}
+	attestationMarker, err := json.Marshal(attestation)
+	if err != nil {
+		t.Fatalf("encode attestation: %v", err)
+	}
+	report := renderEvaluationReport(attestation)
+	canonicalReport := canonicalEvaluationReport(report)
+	receipt := evaluationReceipt{
+		AttestationSHA256: sha256Hex(attestationMarker),
+		Challenge:         attestation.Challenge,
+		Evaluator:         attestation.Evaluator,
+		EvaluatorRunID:    attestation.RunID,
+		Head:              attestation.Head,
+		PR:                attestation.PR,
+		RecordedAt:        recorded,
+		ReportSHA256:      sha256Hex(canonicalReport),
+		ReportTransport:   evaluationReportTransportV1,
+		Round:             1,
+		Verdict:           attestation.Verdict,
+	}
+	receiptMarker, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode receipt: %v", err)
+	}
+	receiptComment := pullRequestComment{
+		Body:      evaluationComment(receiptMarker, attestationMarker, report),
+		CreatedAt: recorded,
+	}
+	receiptComment.Author.Login = trustedActor
+	view := pullRequestView{Comments: []pullRequestComment{challengeComment, receiptComment}, HeadRefOID: "head"}
+
+	rewritten := receiptComment
+	rewritten.Body = strings.Replace(rewritten.Body, `\u001e`, `\^^`, 1)
+	if rewritten.Body == receiptComment.Body {
+		t.Fatal("visible report fixture did not contain the rewritten escape")
+	}
+	view.Comments[1] = rewritten
+	passes, err := latestEvaluationPasses(view, 11)
+	if err != nil || !passes {
+		t.Fatalf("visible report rewrite invalidated canonical evaluation: passes=%t err=%v", passes, err)
+	}
+
+	encodedReport := base64.StdEncoding.EncodeToString(canonicalReport)
+	tampered := strings.Replace(receiptComment.Body, encodedReport,
+		base64.StdEncoding.EncodeToString([]byte("tampered report")), 1)
+	view.Comments[1].Body = tampered
+	if _, err := latestEvaluationPasses(view, 11); err == nil {
+		t.Fatal("tampered encoded report marker was accepted")
 	}
 }
 
