@@ -374,8 +374,11 @@ func (parser *syntaxDecoder) endElement(token xml.EndElement, loc Loc) error {
 
 func (parser *syntaxDecoder) characterData(data xml.CharData, loc Loc) error {
 	if len(parser.stack) == 0 {
-		if parser.root == nil && !parser.seenToken && bytes.Equal(data, []byte{0xef, 0xbb, 0xbf}) {
-			return nil
+		if parser.root == nil && !parser.seenToken && bytes.HasPrefix(data, []byte{0xef, 0xbb, 0xbf}) {
+			data = data[3:]
+			if len(data) == 0 {
+				return nil
+			}
 		}
 		if xmlWhitespace(data) {
 			parser.seenToken = true
@@ -702,6 +705,7 @@ type syntaxPositionReader struct {
 	line             int
 	column           int
 	utf8Continuation int
+	previousCR       bool
 	pending          error
 	lastReadError    error
 	emptyReads       int
@@ -832,6 +836,7 @@ func (position *syntaxPositionReader) removeUTF8BOM() {
 	position.line = 1
 	position.column = 1
 	position.utf8Continuation = 0
+	position.previousCR = false
 	for index := range position.history {
 		if position.history[index].offset <= position.offset {
 			position.history[index].loc = position.currentLoc()
@@ -840,12 +845,24 @@ func (position *syntaxPositionReader) removeUTF8BOM() {
 }
 
 func (position *syntaxPositionReader) advance(value byte) {
+	if value == '\r' {
+		position.line++
+		position.column = 1
+		position.utf8Continuation = 0
+		position.previousCR = true
+		return
+	}
 	if value == '\n' {
+		if position.previousCR {
+			position.previousCR = false
+			return
+		}
 		position.line++
 		position.column = 1
 		position.utf8Continuation = 0
 		return
 	}
+	position.previousCR = false
 	if position.utf8Continuation > 0 {
 		if value&0xc0 == 0x80 {
 			position.utf8Continuation--

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -73,6 +74,26 @@ func TestDecodeSyntaxCountsUnicodeCodePointColumns(t *testing.T) {
 	if !reader.closed || reader.offset != len(reader.data) {
 		t.Fatalf("unsupported decode did not drain and close source: closed=%t offset=%d want=%d", reader.closed, reader.offset, len(reader.data))
 	}
+}
+
+func TestDecodeSyntaxNormalizesXMLLineEndings(t *testing.T) {
+	for _, separator := range []string{"\r", "\r\n"} {
+		t.Run(strings.ReplaceAll(separator, "\r", "CR"), func(t *testing.T) {
+			input := "<xs:schema xmlns:xs=\"" + testXSDNamespace + "\">" + separator +
+				"😀<xs:assertion/></xs:schema>"
+			reader := &trackingSource{data: []byte(input)}
+			_, err := decodeResolvedSyntax(newTestSource(t, reader))
+			diagnostic := requireDiagnostic(t, err)
+			assertLoc(t, diagnostic.Loc(), 2, 2)
+		})
+	}
+}
+
+func TestDecodeSyntaxAcceptsUTF8BOMBeforeWhitespace(t *testing.T) {
+	input := "\ufeff \r\n<xs:schema xmlns:xs=\"" + testXSDNamespace + "\"/>"
+	reader := &trackingSource{data: []byte(input)}
+	document := decodeTestSource(t, reader)
+	assertLoc(t, document.root.loc, 2, 1)
 }
 
 func TestDecodeSyntaxClassifiesMalformedXMLAndWrongRoots(t *testing.T) {
