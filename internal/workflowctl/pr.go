@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type pullRequestCheck struct {
@@ -41,7 +43,7 @@ type mergePullRequestRequest struct {
 	SHA           string `json:"sha"`
 }
 
-const sessionSummaryHeading = "## Session summary"
+const sessionSummaryLimit = 8 * 1024
 
 type mergePullRequestResponse struct {
 	Merged  bool   `json:"merged"`
@@ -51,6 +53,8 @@ type mergePullRequestResponse struct {
 
 type pullRequestFinishAction uint8
 
+type squashSummary string
+
 const (
 	finishReplaceDraftREST pullRequestFinishAction = iota + 1
 	finishMergeREST
@@ -58,20 +62,13 @@ const (
 
 func (a app) runPR(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl pr open ISSUE [flags] | finish PR")
+		return usageError("usage: workflowctl pr open ISSUE [flags] | finish PR --summary-file FILE")
 	}
 	switch args[0] {
 	case "open":
 		return a.openPullRequest(args[1:])
 	case "finish":
-		if len(args) != 2 {
-			return usageError("usage: workflowctl pr finish PR")
-		}
-		number, err := positiveNumber(args[1])
-		if err != nil {
-			return usageError("pr finish: %v", err)
-		}
-		return a.finishPullRequest(number)
+		return a.finishPullRequestCommand(args[1:])
 	default:
 		return usageError("unknown pr command %q", args[0])
 	}
@@ -118,107 +115,7 @@ func readPullRequestBody(path string, issue int) (string, error) {
 	if !strings.Contains(strings.ToLower(string(body)), needle) {
 		return "", fmt.Errorf("PR body must contain %q", "Closes #"+strconv.Itoa(issue))
 	}
-	if _, err := sessionSummary(string(body)); err != nil {
-		return "", err
-	}
 	return string(body), nil
-}
-
-func sessionSummary(body string) (string, error) {
-	body = strings.ReplaceAll(body, "\r\n", "\n")
-	lines := strings.Split(body, "\n")
-	start, end, err := sessionSummaryBounds(lines)
-	if err != nil {
-		return "", err
-	}
-	summary := strings.TrimSpace(strings.Join(lines[start:end], "\n"))
-	if err := validateSessionSummaryText(summary); err != nil {
-		return "", err
-	}
-	return summary, nil
-}
-
-func sessionSummaryBounds(lines []string) (int, int, error) {
-	start := -1
-	end := len(lines)
-	for index, line := range lines {
-		if line == sessionSummaryHeading {
-			if start >= 0 {
-				return 0, 0, fmt.Errorf("PR body contains more than one %q section", sessionSummaryHeading)
-			}
-			start = index + 1
-			continue
-		}
-		if start >= 0 && end == len(lines) && (strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## ")) {
-			end = index
-		}
-	}
-	if start < 0 {
-		return 0, 0, fmt.Errorf("PR body must contain %q", sessionSummaryHeading)
-	}
-	return start, end, nil
-}
-
-func validateSessionSummaryText(summary string) error {
-	if summary == "" {
-		return errors.New("PR session summary must not be empty")
-	}
-	if strings.Contains(summary, "<!--") || strings.Contains(summary, "-->") {
-		return errors.New("PR session summary must not contain HTML comments")
-	}
-	for _, line := range strings.Split(summary, "\n") {
-		markdownLine := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, " "), " "), " ")
-		if strings.HasPrefix(markdownLine, "#") || strings.HasPrefix(markdownLine, "```") ||
-			strings.HasPrefix(markdownLine, "~~~") || isSetextHeading(line) {
-			return errors.New("PR session summary must use plain text, not Markdown headings or fences")
-		}
-		if containsMarkdownLink(line) || containsMarkdownAutolink(line) || isMarkdownTableDelimiter(line) {
-			return errors.New("PR session summary must use plain text, not Markdown links or tables")
-		}
-		if strings.TrimRight(line, " \t") != line {
-			return errors.New("PR session summary lines must not have trailing whitespace")
-		}
-	}
-	return nil
-}
-
-func containsMarkdownLink(line string) bool {
-	openingBracket := strings.IndexByte(line, '[')
-	if openingBracket < 0 {
-		return false
-	}
-	return strings.IndexByte(line[openingBracket+1:], ']') >= 0
-}
-
-func containsMarkdownAutolink(line string) bool {
-	openingAngle := strings.IndexByte(line, '<')
-	if openingAngle < 0 {
-		return false
-	}
-	return strings.IndexByte(line[openingAngle+1:], '>') >= 0
-}
-
-func isSetextHeading(line string) bool {
-	line = strings.TrimSpace(line)
-	if line == "" || line[0] != '=' && line[0] != '-' {
-		return false
-	}
-	return strings.Trim(line, string(line[0])) == ""
-}
-
-func isMarkdownTableDelimiter(line string) bool {
-	if !strings.Contains(line, "|") {
-		return false
-	}
-	line = strings.Trim(strings.TrimSpace(line), "|")
-	cells := strings.Split(line, "|")
-	for _, cell := range cells {
-		cell = strings.Trim(strings.TrimSpace(cell), ":")
-		if cell == "" || strings.Trim(cell, "-") != "" {
-			return false
-		}
-	}
-	return true
 }
 
 func (a app) createPullRequest(issue int, title, body string) error {
@@ -284,7 +181,116 @@ func (a app) submitPullRequest(root string, request createPullRequestRequest) (c
 	return response, nil
 }
 
-func (a app) finishPullRequest(number int) error {
+func (a app) finishPullRequestCommand(args []string) error {
+	if len(args) == 0 {
+		return usageError("usage: workflowctl pr finish PR --summary-file FILE")
+	}
+	number, err := positiveNumber(args[0])
+	if err != nil {
+		return usageError("pr finish: %v", err)
+	}
+	flags := flag.NewFlagSet("pr finish", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	summaryFile := flags.String("summary-file", "", "plain-text squash summary")
+	if parseErr := flags.Parse(args[1:]); parseErr != nil {
+		return usageError("pr finish: %v", parseErr)
+	}
+	if flags.NArg() != 0 || *summaryFile == "" {
+		return usageError("usage: workflowctl pr finish PR --summary-file FILE")
+	}
+	summary, err := readSessionSummary(*summaryFile)
+	if err != nil {
+		return usageError("pr finish: %v", err)
+	}
+	return a.finishPullRequest(number, summary)
+}
+
+func readSessionSummary(path string) (squashSummary, error) {
+	// #nosec G304 -- path is an explicit operator-supplied input.
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open summary: %w", err)
+	}
+	content, readErr := readBoundedRegularSummary(file)
+	closeErr := file.Close()
+	if readErr != nil {
+		return "", errors.Join(readErr, closeErr)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("close summary: %w", closeErr)
+	}
+	return validateSessionSummary(content)
+}
+
+func readBoundedRegularSummary(file *os.File) ([]byte, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("inspect summary: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("summary file must be a regular file")
+	}
+	content, err := io.ReadAll(io.LimitReader(file, sessionSummaryLimit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read summary: %w", err)
+	}
+	return content, nil
+}
+
+func validateSessionSummary(content []byte) (squashSummary, error) {
+	if len(content) == 0 {
+		return "", errors.New("summary file must not be empty")
+	}
+	if len(content) > sessionSummaryLimit {
+		return "", fmt.Errorf("summary file exceeds %d bytes", sessionSummaryLimit)
+	}
+	if !utf8.Valid(content) {
+		return "", errors.New("summary file must be valid UTF-8")
+	}
+	summary := strings.TrimSuffix(string(content), "\n")
+	if summary == "" {
+		return "", errors.New("summary file must not be empty")
+	}
+	if strings.TrimSpace(summary) != summary {
+		return "", errors.New("summary file must not start or end with whitespace")
+	}
+	for _, value := range summary {
+		if isDisallowedSummaryRune(value) {
+			return "", errors.New("summary file must contain plain text with Unix line endings")
+		}
+	}
+	if err := validateSummaryLines(summary); err != nil {
+		return "", err
+	}
+	return squashSummary(summary), nil
+}
+
+func isDisallowedSummaryRune(value rune) bool {
+	if value == '\n' {
+		return false
+	}
+	return unicode.IsControl(value) || unicode.In(value, unicode.Cf, unicode.Zl, unicode.Zp)
+}
+
+func validateSummaryLines(summary string) error {
+	for _, line := range strings.Split(summary, "\n") {
+		if strings.TrimRightFunc(line, unicode.IsSpace) != line {
+			return errors.New("summary lines must not have trailing whitespace")
+		}
+		if isClaimMetadata(line) {
+			return errors.New("summary must not contain claim metadata")
+		}
+	}
+	return nil
+}
+
+func isClaimMetadata(line string) bool {
+	line = strings.TrimLeftFunc(line, unicode.IsSpace)
+	return strings.HasPrefix(line, "Agent-Persona:") || strings.HasPrefix(line, "Agent-Run-ID:") ||
+		strings.HasPrefix(line, "Agent-Lease-Until:") || strings.HasPrefix(line, "Agent-Issue:")
+}
+
+func (a app) finishPullRequest(number int, summary squashSummary) error {
 	root, branch, claimedIssue, err := a.currentClaim()
 	if err != nil {
 		return err
@@ -302,9 +308,8 @@ func (a app) finishPullRequest(number int) error {
 	if view.HeadRefName != branch {
 		return stateError("PR #%d uses branch %s, not claim branch %s", number, view.HeadRefName, branch)
 	}
-	summary, messageErr := validateSquashMessage(view, number)
-	if messageErr != nil {
-		return messageErr
+	if titleErr := validateCommitTitle(view.Title); titleErr != nil {
+		return stateError("PR #%d has invalid title %q: %v", number, view.Title, titleErr)
 	}
 	if titleErr := a.validateWorkCommitTitles(root, view.HeadRefOID); titleErr != nil {
 		return stateError("PR #%d has invalid work commits: %v", number, titleErr)
@@ -335,17 +340,6 @@ func (a app) finishPullRequest(number int) error {
 		return a.mergeReadyPullRequest(root, number, view, summary)
 	}
 	return stateError("PR #%d has an impossible finish action", number)
-}
-
-func validateSquashMessage(view pullRequestView, number int) (string, error) {
-	if err := validateCommitTitle(view.Title); err != nil {
-		return "", stateError("PR #%d has invalid title %q: %v", number, view.Title, err)
-	}
-	summary, err := sessionSummary(view.Body)
-	if err != nil {
-		return "", stateError("PR #%d has invalid session summary: %v", number, err)
-	}
-	return summary, nil
 }
 
 func finishActionFor(view pullRequestView, ready bool) pullRequestFinishAction {
@@ -399,9 +393,9 @@ func (a app) updatePullRequestState(root string, number int, state string) error
 	return nil
 }
 
-func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView, summary string) error {
+func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView, summary squashSummary) error {
 	request := mergePullRequestRequest{
-		CommitMessage: summary,
+		CommitMessage: string(summary),
 		CommitTitle:   view.Title + " (#" + strconv.Itoa(number) + ")",
 		MergeMethod:   "squash",
 		SHA:           view.HeadRefOID,

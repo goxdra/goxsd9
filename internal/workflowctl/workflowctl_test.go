@@ -380,6 +380,9 @@ func TestDocumentedPositionalFlagOrderParses(t *testing.T) {
 		{name: "pr open", run: func() error {
 			return application.openPullRequest([]string{"1", "--title", "test(workflow): verify flags", "--body-file", "missing"})
 		}},
+		{name: "pr finish", run: func() error {
+			return application.runPR([]string{"finish", "1", "--summary-file", "missing"})
+		}},
 		{name: "evaluation", run: func() error {
 			return application.recordEvaluation([]string{"1", "--attestation-file", "missing"})
 		}},
@@ -395,88 +398,76 @@ func TestDocumentedPositionalFlagOrderParses(t *testing.T) {
 	}
 }
 
-func TestSessionSummaryExtractsPlainTextSection(t *testing.T) {
-	body := "## Session summary\r\n\r\n" +
-		"The merge endpoint currently lets GitHub synthesize a noisy body.\r\n\r\n" +
-		"Send the reviewed handoff explicitly so later workflows retain why the\r\n" +
-		"change was made and which invariant they must preserve.\r\n\r\n" +
-		"## Work packet\r\n\r\nCloses #33\r\n"
-	want := "The merge endpoint currently lets GitHub synthesize a noisy body.\n\n" +
-		"Send the reviewed handoff explicitly so later workflows retain why the\n" +
-		"change was made and which invariant they must preserve."
-	got, err := sessionSummary(body)
+func TestPullRequestBodyRemainsMarkdownEvidence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pr.md")
+	body := "## Outcome\n\nUse [Markdown](https://example.com).\n\n## Work packet\n\nCloses #33\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write PR body: %v", err)
+	}
+	got, err := readPullRequestBody(path, 33)
 	if err != nil {
-		t.Fatalf("extract session summary: %v", err)
+		t.Fatalf("read PR body: %v", err)
 	}
-	if got != want {
-		t.Fatalf("session summary = %q, want %q", got, want)
-	}
-}
-
-func TestPullRequestBodyRequiresOneNonemptySessionSummary(t *testing.T) {
-	tests := []struct {
-		name  string
-		body  string
-		valid bool
-	}{
-		{name: "valid", body: "## Session summary\n\nExplain the durable outcome.\n\n## Work packet\n\nCloses #33\n", valid: true},
-		{name: "missing", body: "## Work packet\n\nCloses #33\n"},
-		{name: "empty", body: "## Session summary\n\n## Work packet\n\nCloses #33\n"},
-		{name: "duplicate", body: "## Session summary\n\nFirst.\n\n## Session summary\n\nSecond.\n\nCloses #33\n"},
-		{name: "comment only", body: "## Session summary\n\n<!-- Replace this. -->\n\nCloses #33\n"},
-		{name: "heading", body: "## Session summary\n\n### Work done\n\nExplain it.\n\nCloses #33\n"},
-		{name: "fence", body: "## Session summary\n\n```text\nExplain it.\n```\n\nCloses #33\n"},
-		{name: "indented heading", body: "## Session summary\n\n   ### Work done\n\nCloses #33\n"},
-		{name: "indented fence", body: "## Session summary\n\n   ```text\nEvidence.\n   ```\n\nCloses #33\n"},
-		{name: "tilde fence", body: "## Session summary\n\n~~~text\nEvidence.\n~~~\n\nCloses #33\n"},
-		{name: "formatted link", body: "## Session summary\n\nSee [the issue](https://example.com).\n\nCloses #33\n"},
-		{name: "reference link", body: "## Session summary\n\nSee [the issue][ref].\n\n[ref]: https://example.com\n\nCloses #33\n"},
-		{name: "autolink", body: "## Session summary\n\nSee <https://example.com>.\n\nCloses #33\n"},
-		{name: "setext heading", body: "## Session summary\n\nOutcome\n=======\n\nCloses #33\n"},
-		{name: "table", body: "## Session summary\n\nChange | Reason\n--- | ---\nOne | Two\n\nCloses #33\n"},
-		{name: "short table delimiter", body: "## Session summary\n\nChange | Reason\n-| :-\nOne | Two\n\nCloses #33\n"},
-	}
-	for _, test := range tests {
-		path := filepath.Join(t.TempDir(), "pr.md")
-		if err := os.WriteFile(path, []byte(test.body), 0o600); err != nil {
-			t.Fatalf("%s: write PR body: %v", test.name, err)
-		}
-		_, err := readPullRequestBody(path, 33)
-		if (err == nil) != test.valid {
-			t.Fatalf("%s: validation error = %v, valid %t", test.name, err, test.valid)
-		}
+	if got != body {
+		t.Fatalf("PR body = %q, want %q", got, body)
 	}
 }
 
-func TestPullRequestOpenRejectsInvalidSummaryBeforeMutation(t *testing.T) {
+func TestSessionSummaryFileIsIndependentFromPRMarkdown(t *testing.T) {
 	tests := []struct {
-		name string
-		body string
+		name    string
+		content []byte
+		want    string
 	}{
-		{name: "missing", body: "## Work packet\n\nCloses #33\n"},
-		{name: "indented fence", body: "## Session summary\n\n   ```text\nEvidence.\n   ```\n\nCloses #33\n"},
-		{name: "formatted link", body: "## Session summary\n\nSee [issue](https://example.com).\n\nCloses #33\n"},
-		{name: "reference link", body: "## Session summary\n\nSee [issue][ref].\n\n[ref]: https://example.com\n\nCloses #33\n"},
-		{name: "autolink", body: "## Session summary\n\nSee <https://example.com>.\n\nCloses #33\n"},
-		{name: "setext heading", body: "## Session summary\n\nOutcome\n=======\n\nCloses #33\n"},
-		{name: "table", body: "## Session summary\n\nA | B\n-| :-\nC | D\n\nCloses #33\n"},
+		{name: "plain text", content: []byte("Explain the outcome and rationale.\n"), want: "Explain the outcome and rationale."},
+		{name: "Markdown characters are data", content: []byte("A [link](https://example.com) and # marker."), want: "A [link](https://example.com) and # marker."},
+		{name: "empty"},
+		{name: "only newline", content: []byte("\n")},
+		{name: "leading whitespace", content: []byte(" Explain the outcome.")},
+		{name: "extra final newline", content: []byte("Explain the outcome.\n\n")},
+		{name: "CRLF", content: []byte("Explain the outcome.\r\n")},
+		{name: "trailing spaces", content: []byte("Explain the outcome. \n")},
+		{name: "interior Unicode trailing whitespace", content: []byte("Outcome.\u2003\nRationale.")},
+		{name: "Unicode line separator", content: []byte("Outcome.\u2028Rationale.")},
+		{name: "Unicode format control", content: []byte("Outcome.\u202eRationale.")},
+		{name: "claim metadata", content: []byte("Outcome.\nAgent-Run-ID: run-secret")},
+		{name: "indented claim metadata", content: []byte("Outcome.\n  Agent-Issue: 33")},
+		{name: "invalid UTF-8", content: []byte{0xff}},
+		{name: "too large", content: bytes.Repeat([]byte("x"), sessionSummaryLimit+1)},
+		{name: "Agent prose is allowed", content: []byte("Agent-based design keeps the boundary explicit."), want: "Agent-based design keeps the boundary explicit."},
 	}
 	for _, test := range tests {
-		path := filepath.Join(t.TempDir(), "pr.md")
-		if err := os.WriteFile(path, []byte(test.body), 0o600); err != nil {
-			t.Fatalf("%s: write PR body: %v", test.name, err)
+		path := filepath.Join(t.TempDir(), "summary.txt")
+		if err := os.WriteFile(path, test.content, 0o600); err != nil {
+			t.Fatalf("%s: write summary: %v", test.name, err)
 		}
-		application := app{executeCommand: func(_ string, _ io.Reader, name string,
-			args ...string,
-		) (string, error) {
-			t.Fatalf("%s: invalid PR body executed %s %v", test.name, name, args)
-			return "", nil
-		}}
-		if err := application.openPullRequest([]string{
-			"33", "--title", "fix(workflow): summarize squash commits", "--body-file", path,
-		}); err == nil {
-			t.Fatalf("%s: invalid session summary was accepted", test.name)
+		got, err := readSessionSummary(path)
+		if test.want == "" {
+			if err == nil {
+				t.Fatalf("%s: invalid summary was accepted", test.name)
+			}
+			continue
 		}
+		if err != nil {
+			t.Fatalf("%s: read summary: %v", test.name, err)
+		}
+		if string(got) != test.want {
+			t.Fatalf("%s: summary = %q, want %q", test.name, got, test.want)
+		}
+	}
+}
+
+func TestFinishRejectsInvalidSummaryBeforeMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "summary.txt")
+	if err := os.WriteFile(path, []byte("Agent-Run-ID: run-secret\n"), 0o600); err != nil {
+		t.Fatalf("write summary: %v", err)
+	}
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		t.Fatalf("invalid summary executed %s %v", name, args)
+		return "", nil
+	}}
+	if err := application.runPR([]string{"finish", "34", "--summary-file", path}); err == nil {
+		t.Fatal("invalid summary was accepted")
 	}
 }
 
@@ -686,17 +677,23 @@ func TestPullRequestFinishStrategyHasRESTFallback(t *testing.T) {
 	if action := finishActionFor(pullRequestView{}, false); action != finishMergeREST {
 		t.Fatalf("ready PR action = %d, want REST merge", action)
 	}
-	summary := "Explain the durable outcome and rationale."
-	body := readyReplacementBody("## Session summary\n\n"+summary+"\n\n## Work packet\n\nCloses #1\n", 11, "abc123")
+	body := readyReplacementBody("## Outcome\n\nExplain the result.\n\nCloses #1\n", 11, "abc123")
 	if !strings.Contains(body, "Closes #1") || !strings.Contains(body, "Replaces draft PR #11") ||
 		!strings.Contains(body, "abc123") {
 		t.Fatalf("replacement body lost work-packet or provenance data: %q", body)
 	}
-	got, err := sessionSummary(body)
-	if err != nil {
-		t.Fatalf("extract replacement session summary: %v", err)
+}
+
+func TestReadyReplacementStillRequiresSummaryArtifact(t *testing.T) {
+	body := readyReplacementBody("## Outcome\n\nExplain the result.\n\nCloses #1\n", 11, "abc123")
+	if !strings.Contains(body, "Closes #1") {
+		t.Fatalf("replacement body lost work-packet evidence: %q", body)
 	}
-	if got != summary {
-		t.Fatalf("replacement session summary = %q, want %q", got, summary)
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		t.Fatalf("missing replacement summary executed %s %v", name, args)
+		return "", nil
+	}}
+	if err := application.runPR([]string{"finish", "12"}); err == nil {
+		t.Fatal("replacement finish accepted no summary artifact")
 	}
 }

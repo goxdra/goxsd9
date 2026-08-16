@@ -1,16 +1,9 @@
 <!-- Title: <type>(<optional-scope>): <lowercase imperative summary> -->
+<!-- This Markdown body is review evidence. Write the squash summary separately at finalization. -->
 
-## Session summary
+## Outcome
 
-<!--
-Remove this comment before opening the PR. This section becomes the plain-text
-squash commit body and is read by future development, backlog, and retrospective
-sessions. Wrap prose near 72 columns. Explain the problem, delivered outcome,
-why this approach is better, and consequential decisions or invariants. Add a
-concise "Reflection:" paragraph only for evidence-backed process learning with
-a durable consequence or follow-up. Do not use Markdown headings, fences,
-formatted links, tables, hidden comments, or transient claim/review metadata.
--->
+<!-- Describe the observable result. -->
 
 ## Work packet
 

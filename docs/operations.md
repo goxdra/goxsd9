@@ -1,9 +1,8 @@
 # Scheduled operations
 
-Paseo owns scheduling outside this repository. Each job starts from the clean
-coordination checkout, uses America/New_York time, and sends one direct prompt.
-The checked-in skill is the executable procedure; this page records only the
-schedule and operator contract.
+Paseo schedules outside this repository. Jobs start from the clean coordination
+checkout in America/New_York time. Skills are executable procedures; this page
+is the operator contract.
 
 | Job | Schedule | Agent | Prompt |
 | --- | --- | --- | --- |
@@ -11,43 +10,46 @@ schedule and operator contract.
 | Backlog | 10:00 daily | Sol, maximum effort | `Run $backlog for this repository.` |
 | Retro | 12:00 Sunday | Sol, maximum effort | `Run $retro for this repository.` |
 
-Jobs are non-interactive. Develop selects one unblocked Ready issue, claims its
-canonical `agent/issue-N` branch, works in the generated worktree, opens a draft
-PR, obtains a fresh internal Examiner evaluation, and squash-merges only the
-evaluated head after checks pass. It may include at most one separately claimed
-companion issue. A managed-document change receives a read-only Curator review
-at the final head before Examiner; Examiner remains the authenticated gate.
+Jobs are non-interactive. Develop claims one unblocked Ready issue on
+`agent/issue-N`, uses its worktree, opens a draft PR, and squash-merges only the
+evaluated head after checks pass. At most one claimed companion issue is allowed.
+Managed-document changes receive a read-only Curator review at the final head;
+Examiner remains the authenticated gate.
 
-Claims last two hours and are renewed at least every 30 minutes and before
-shared writes. If an expired claim has no open PR, `workflowctl` preserves its
-tip under `agent/archive/` before allowing reassignment. An expired claim with
-an open PR requires a `needs-human` handoff so unfinished reviewed work is not
-silently replaced.
+Claims last two hours and renew every 30 minutes and before shared writes. For
+an expired claim without an open PR, `workflowctl` archives its tip under
+`agent/archive/` before reassignment. An open PR requires a `needs-human` handoff.
 
 Three failed evaluation rounds add `needs-human` and return the issue to
 Backlog. Transient commands use bounded retries as directed by the skill;
 successful runs continue through merge rather than stopping for approval.
 
-Before each fresh Examiner is spawned, `workflowctl evaluation challenge`
-records a one-use challenge bound to the current PR head. Examiner returns the
-versioned JSON attestation; `workflowctl` derives the verdict and prose from it
-and rejects wrong-head, stale, reused, malformed, or caller-selected verdicts.
-The scheduling agent supplies fresh-context separation. Personas share the
-repository owner's GitHub credential, so the receipt is process evidence, not
-a claim of cryptographic identity isolation between local agents.
+Before each fresh Examiner, `workflowctl evaluation challenge` records a one-use
+challenge bound to the PR head. Examiner returns a versioned JSON attestation;
+`workflowctl` derives its verdict and rejects wrong-head, stale, reused,
+malformed, or caller-selected results. The scheduler supplies fresh context.
+Shared GitHub credentials make the receipt process evidence, not identity proof.
 
-The guarded merge itself uses GitHub REST with the evaluated head SHA and
-squash method. If the GraphQL-only draft-to-ready transition is unavailable,
-`workflowctl` closes the preserved draft and creates an identical-head ready
-replacement through REST; that PR receives a new challenge and fresh Examiner
-before merge. A Project status update that is unavailable after the merge is
-reported and converges on the next `workflowctl sync` run.
+The guarded squash merge uses GitHub REST with the evaluated head SHA. If
+draft-to-ready GraphQL is unavailable, `workflowctl` closes the draft and creates
+an identical-head ready PR through REST; it needs a new challenge and Examiner.
+Failed post-merge Project updates converge on the next `workflowctl sync`.
 
-The GitHub issue, claim ref, PR checks, challenge, evaluation attestation and
-receipt, and merge commit are the communication record. Each squash commit body
-is the PR's reviewed plain-text session summary: a durable account of the
-problem, outcome, rationale, important invariants, and actionable process
-learning. Later develop, backlog, and retro runs read those summaries through
-`workflowctl history`; transient claim and review metadata stays in the other
-records. Use Markdown body files for issue, handoff, and PR prose so line breaks
-remain intact.
+The GitHub issue, claim ref, PR checks, challenge, evaluation attestation,
+receipt, and merge commit are the communication record. At finalization the
+agent writes a plain-text summary file outside the repository and passes it to
+`workflowctl pr finish PR --summary-file FILE`. It covers the problem, outcome,
+rationale, important invariants, and actionable process learning while omitting
+status, commands, and claim or review metadata. The command validates artifact
+hygiene and uses it as the squash body; the develop and evaluation procedures
+own semantic completeness.
+Later develop, backlog, and retro runs read it through `workflowctl history`. Use
+Markdown body files for issue, handoff, and PR evidence so line breaks remain intact.
+
+The summary artifact contract is UTF-8 plain text in a regular file of at most
+8 KiB. LF is the only permitted line separator; one final LF is accepted and
+removed. Content must be non-empty, must not start or end with whitespace, and
+no line may have trailing Unicode whitespace. Control characters, Unicode format
+controls, Unicode line or paragraph separators, and generated `Agent-Persona:`,
+`Agent-Run-ID:`, `Agent-Lease-Until:`, or `Agent-Issue:` trailers are rejected.
+Markdown punctuation has no special meaning in this artifact.
