@@ -289,7 +289,7 @@ func TestEvaluationChallengeRejectsStaleOrUntrustedComments(t *testing.T) {
 		created   time.Time
 		author    string
 	}{
-		{name: "stale", requested: now.Add(-leaseDuration - time.Second), created: now.Add(-leaseDuration), author: trustedActor},
+		{name: "stale", requested: now.Add(-evaluationChallengeDuration - time.Second), created: now.Add(-evaluationChallengeDuration), author: trustedActor},
 		{name: "future", requested: now.Add(time.Second), created: now.Add(time.Second), author: trustedActor},
 		{name: "untrusted", requested: now, created: now, author: "other-user"},
 		{name: "timestamp mismatch", requested: now, created: now.Add(6 * time.Minute), author: trustedActor},
@@ -309,6 +309,39 @@ func TestEvaluationChallengeRejectsStaleOrUntrustedComments(t *testing.T) {
 		if _, ok := trustedEvaluationChallenge([]pullRequestComment{comment}, "challenge", 14, "head", now); ok {
 			t.Fatalf("%s challenge was trusted", test.name)
 		}
+	}
+}
+
+func TestEvaluationChallengeExpiryBoundary(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 6, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		requested time.Time
+		want      bool
+	}{
+		{name: "just before expiry", requested: now.Add(-evaluationChallengeDuration + time.Nanosecond), want: true},
+		{name: "at expiry", requested: now.Add(-evaluationChallengeDuration), want: false},
+		{name: "after expiry", requested: now.Add(-evaluationChallengeDuration - time.Nanosecond), want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			challenge := evaluationChallenge{
+				Challenge: "boundary-challenge", Head: "head", PR: 14, RequestedAt: test.requested,
+			}
+			marker, err := json.Marshal(challenge)
+			if err != nil {
+				t.Fatalf("encode challenge: %v", err)
+			}
+			comment := pullRequestComment{
+				Body: fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, marker), CreatedAt: test.requested,
+			}
+			comment.Author.Login = trustedActor
+			_, ok := trustedEvaluationChallenge([]pullRequestComment{comment}, challenge.Challenge, challenge.PR,
+				challenge.Head, now)
+			if ok != test.want {
+				t.Fatalf("challenge trusted = %t, want %t", ok, test.want)
+			}
+		})
 	}
 }
 
@@ -422,7 +455,7 @@ func (b *workflowBackend) executeGit(args []string) (string, error) {
 	case "rev-parse HEAD", "rev-parse origin/agent/issue-13":
 		return b.head, nil
 	case "log -100 --format=%B":
-		lease := time.Now().UTC().Add(leaseDuration).Truncate(time.Second)
+		lease := time.Now().UTC().Add(claimDuration).Truncate(time.Second)
 		return claimMessage(13, "run-test", lease), nil
 	case "log --format=%x00%B%x00 origin/main.." + b.head:
 		return b.workCommitLog, nil

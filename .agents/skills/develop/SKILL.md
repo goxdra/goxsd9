@@ -22,8 +22,8 @@ routine tests and remediation. Root writing requires a narrow, demonstrably
 mechanical exemption recorded in the handoff. Curator is fresh per managed
 document head; Examiner is fresh and challenge-bound per review round.
 
-Every child handoff MUST be concise and state decisions, evidence locations, risks, required
-next actions; Smith names changed paths/tests. Preserve
+Every child handoff MUST state decisions, evidence, risks, and next
+actions; Smith names paths/tests. Preserve
 Curator/Examiner JSON byte-for-byte.
 
 ## Protocol
@@ -43,8 +43,9 @@ Curator/Examiner JSON byte-for-byte.
    repeated work and test it. At unfinished boundaries, return an
    unsupported diagnostic with feature ID, `Loc`, and versioned specification
    reference. Turn actionable discoveries into issues; finish needed work.
-6. Renew the claim before/after long operations and before every push with
-   `go tool workflowctl claim renew`.
+6. Renew the claim before pushes and at durable workflow boundaries when the
+   deadline requires it with `go tool workflowctl claim renew`; never wake or
+   poll solely to renew.
 7. Run `go tool workflowctl check`, fix every failure, and update affected
    docs/comments. Do not redo Smith's investigation for a longer
    transcript.
@@ -84,13 +85,13 @@ Curator/Examiner JSON byte-for-byte.
 
 ## Waiting and pilot
 
-A wait is a logical barrier. Poll/status timeouts are observational only: never
+A wait is a logical barrier. Poll/status timeouts are observational: never
 narrow, interrupt, pressure, spawn a second writer, or duplicate work because
-polls elapsed. Keep waiting while a child is active and the lease is renewable;
-wake for child events and the 30-minute renewal cadence. Follow up only for an
-incomplete/ambiguous handoff or explicit bounded input. Interrupt/recover only
-for explicit failure/cancellation, invalid scope, or inability to renew. Timing
-is scheduling guidance, not an OpenAI runtime guarantee.
+polls elapsed. Keep waiting while a child is active and its claim deadline is
+renewable; do not wake or poll solely to renew. Follow up for incomplete
+handoffs or explicit bounded input. Interrupt/recover for failure,
+cancellation, invalid scope, or inability to renew. Timing is scheduling
+guidance, not an OpenAI guarantee.
 
 For three packets (mechanical, specification-heavy, remediation), record
 aggregate root compactions, peak context, output volume, elapsed time, Examiner
