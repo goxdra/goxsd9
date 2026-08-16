@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -134,7 +135,7 @@ func TestEvaluateSkillCasesUsesFreshSubjectAndGraderRequests(t *testing.T) {
 		stdout: &output,
 	}
 
-	if err := application.evaluateSkillCases(cases, "test-model"); err != nil {
+	if err := application.evaluateSkillCasesParallel(cases, "test-model", 1); err != nil {
 		t.Fatalf("evaluateSkillCases: %v", err)
 	}
 	if len(requests) != 4 {
@@ -145,6 +146,203 @@ func TestEvaluateSkillCasesUsesFreshSubjectAndGraderRequests(t *testing.T) {
 	}
 	if got := output.String(); strings.Index(got, cases[0].path) >= strings.Index(got, cases[1].path) {
 		t.Fatalf("results are not in input order:\n%s", got)
+	}
+}
+
+func TestEvaluateSkillCasesParallelBoundsWorkersAndPreservesResults(t *testing.T) {
+	suite := &skillEvalSuite{name: "test", policy: "policy"}
+	cases := []skillEvalCase{
+		{path: "evals/agent/a.md", scenario: "scenario-a", expected: "expected-a", suite: suite, title: "A"},
+		{path: "evals/agent/b.md", scenario: "scenario-b", expected: "expected-b", suite: suite, title: "B"},
+		{path: "evals/agent/c.md", scenario: "scenario-c", expected: "expected-c", suite: suite, title: "C"},
+		{path: "evals/agent/d.md", scenario: "scenario-d", expected: "expected-d", suite: suite, title: "D"},
+	}
+	active := 0
+	maxActive := 0
+	var output strings.Builder
+	backend := &parallelSkillEvalBackend{cases: cases, active: &active, maxActive: &maxActive}
+	application := app{
+		ctx:                   context.Background(),
+		stdout:                &output,
+		skillEvalProcessStart: backend.start,
+	}
+
+	err := application.evaluateSkillCasesParallel(cases, "test-model", 2)
+	if err == nil || !strings.Contains(err.Error(), "2 of 4") {
+		t.Fatalf("evaluateSkillCasesParallel error = %v, want two-case aggregate failure", err)
+	}
+	if backend.subjectStarts != len(cases) {
+		t.Fatalf("subject starts = %d, want %d", backend.subjectStarts, len(cases))
+	}
+	if backend.graderStarts != len(cases)-1 {
+		t.Fatalf("grader starts = %d, want %d after subject failure", backend.graderStarts, len(cases)-1)
+	}
+	if backend.invalidOrder {
+		t.Fatal("grader started before its subject completed")
+	}
+	if maxActive != 2 {
+		t.Fatalf("maximum active workers = %d, want 2", maxActive)
+	}
+	if active != 0 {
+		t.Fatalf("active workers = %d, want 0", active)
+	}
+	got := output.String()
+	previous := -1
+	for _, evalCase := range cases {
+		current := strings.Index(got, evalCase.path)
+		if current < 0 || current <= previous {
+			t.Fatalf("results are not in case order:\n%s", got)
+		}
+		previous = current
+	}
+	if !strings.Contains(got, "[error] "+cases[1].path) || !strings.Contains(got, "[pass] "+cases[3].path) {
+		t.Fatalf("output omitted worker failure or later completed result:\n%s", got)
+	}
+}
+
+func TestRunSkillEvalUsesDefaultAndExplicitWorkerCounts(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		jobs int
+	}{
+		{name: "default", jobs: defaultSkillEvalJobs},
+		{name: "one", args: []string{"--jobs", "1"}, jobs: 1},
+		{name: "explicit", args: []string{"--jobs", "2"}, jobs: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runSkillEvalWorkerCountTest(t, test.args, test.jobs)
+		})
+	}
+}
+
+func runSkillEvalWorkerCountTest(t *testing.T, args []string, wantJobs int) {
+	t.Helper()
+	root := t.TempDir()
+	writeSkillEvalCorpus(t, root, 7)
+	active := 0
+	maxActive := 0
+	var output strings.Builder
+	application := app{
+		ctx:    context.Background(),
+		stdout: &output,
+		executeCommand: func(_ string, _ io.Reader, name string, _ ...string) (string, error) {
+			if name != "git" {
+				t.Fatalf("root command = %q, want git", name)
+			}
+			return root, nil
+		},
+		skillEvalProcessStart: func(role string, _ skillEvalAgentRequest) (skillEvalProcess, error) {
+			active++
+			if active > maxActive {
+				maxActive = active
+			}
+			result := []byte(`{"verdict":"pass","summary":"matches","findings":[]}`)
+			if role == "subject" {
+				result = []byte(`{"decision":"safe","actions":[],"prohibitedActions":[]}`)
+			}
+			return fakeSkillEvalProcess{output: result, onWait: func() { active-- }}, nil
+		},
+	}
+	if err := application.runSkillEval(args); err != nil {
+		t.Fatalf("runSkillEval: %v", err)
+	}
+	if maxActive != wantJobs {
+		t.Fatalf("maximum active workers = %d, want %d", maxActive, wantJobs)
+	}
+	if active != 0 {
+		t.Fatalf("active workers = %d, want 0", active)
+	}
+}
+
+func TestRunSkillEvalRejectsNonPositiveWorkerCount(t *testing.T) {
+	called := false
+	application := app{executeCommand: func(_ string, _ io.Reader, _ string, _ ...string) (string, error) {
+		called = true
+		return "", nil
+	}}
+	err := application.runSkillEval([]string{"--jobs", "0"})
+	if err == nil || !strings.Contains(err.Error(), "at least 1") {
+		t.Fatalf("runSkillEval error = %v, want non-positive jobs error", err)
+	}
+	if called {
+		t.Fatal("runSkillEval inspected the repository after rejecting worker count")
+	}
+}
+
+type fakeSkillEvalProcess struct {
+	err    error
+	onWait func()
+	output []byte
+}
+
+func (process fakeSkillEvalProcess) wait() ([]byte, error) {
+	if process.onWait != nil {
+		process.onWait()
+	}
+	return process.output, process.err
+}
+
+type parallelSkillEvalBackend struct {
+	active           *int
+	cases            []skillEvalCase
+	graderStarts     int
+	invalidOrder     bool
+	maxActive        *int
+	subjectCompleted []string
+	subjectStarts    int
+}
+
+func (backend *parallelSkillEvalBackend) start(role string, request skillEvalAgentRequest) (skillEvalProcess, error) {
+	*backend.active++
+	if *backend.active > *backend.maxActive {
+		*backend.maxActive = *backend.active
+	}
+	evalCase := backend.caseForPrompt(request.Prompt)
+	process := fakeSkillEvalProcess{onWait: func() { *backend.active-- }}
+	if role == "subject" {
+		backend.subjectStarts++
+		process.onWait = func() {
+			backend.subjectCompleted = append(backend.subjectCompleted, evalCase.path)
+			*backend.active--
+		}
+		if strings.Contains(request.Prompt, backend.cases[1].scenario) {
+			process.err = errors.New("worker unavailable")
+			return process, nil
+		}
+		process.output = []byte(`{"decision":"safe","actions":[],"prohibitedActions":[]}`)
+		return process, nil
+	}
+	backend.graderStarts++
+	if !slices.Contains(backend.subjectCompleted, evalCase.path) {
+		backend.invalidOrder = true
+	}
+	if strings.Contains(request.Prompt, backend.cases[2].scenario) {
+		process.output = []byte(`{"verdict":"fail","summary":"mismatch","findings":[{"expected":"expected","observed":"observed"}]}`)
+		return process, nil
+	}
+	process.output = []byte(`{"verdict":"pass","summary":"matches","findings":[]}`)
+	return process, nil
+}
+
+func (backend *parallelSkillEvalBackend) caseForPrompt(prompt string) skillEvalCase {
+	for _, evalCase := range backend.cases {
+		if strings.Contains(prompt, evalCase.scenario) {
+			return evalCase
+		}
+	}
+	return skillEvalCase{}
+}
+
+func writeSkillEvalCorpus(t *testing.T, root string, count int) {
+	t.Helper()
+	writeSkillEvalTestFile(t, root, "AGENTS.md", "repository policy")
+	writeSkillEvalTestFile(t, root, ".codex/agents/examiner.toml", "examiner policy")
+	for index := 0; index < count; index++ {
+		name := fmt.Sprintf("evals/agent/review/%02d.md", index)
+		content := fmt.Sprintf("# Case %02d\n\nScenario %02d.\n\nExpected behavior: expected %02d.\n", index, index, index)
+		writeSkillEvalTestFile(t, root, name, content)
 	}
 }
 
@@ -168,7 +366,7 @@ func TestEvaluateSkillCasesRejectsInconsistentGrade(t *testing.T) {
 		stdout: &output,
 	}
 
-	err := application.evaluateSkillCases([]skillEvalCase{evalCase}, "test-model")
+	err := application.evaluateSkillCasesParallel([]skillEvalCase{evalCase}, "test-model", 1)
 	if err == nil || !strings.Contains(err.Error(), "1 of 1") {
 		t.Fatalf("evaluateSkillCases error = %v, want aggregate failure", err)
 	}
@@ -199,7 +397,7 @@ func TestEvaluateSkillCasesRejectsNullSubjectArrays(t *testing.T) {
 		stdout: &output,
 	}
 
-	err := application.evaluateSkillCases([]skillEvalCase{evalCase}, "test-model")
+	err := application.evaluateSkillCasesParallel([]skillEvalCase{evalCase}, "test-model", 1)
 	if err == nil || !strings.Contains(output.String(), "actions is null") {
 		t.Fatalf("evaluateSkillCases error = %v, output = %q", err, output.String())
 	}
@@ -255,7 +453,7 @@ func TestEvaluateSkillCasesContinuesAfterBackendError(t *testing.T) {
 		stdout: &output,
 	}
 
-	err := application.evaluateSkillCases(cases, "test-model")
+	err := application.evaluateSkillCasesParallel(cases, "test-model", 1)
 	if err == nil || !strings.Contains(err.Error(), "1 of 2") {
 		t.Fatalf("evaluateSkillCases error = %v, want one aggregate failure", err)
 	}

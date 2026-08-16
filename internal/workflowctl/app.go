@@ -21,6 +21,7 @@ type app struct {
 	ctx                   context.Context
 	executeCommand        commandExecutor
 	skillEvalGraderAgent  skillEvalAgent
+	skillEvalProcessStart skillEvalProcessStarter
 	skillEvalSubjectAgent skillEvalAgent
 	stdout                io.Writer
 	stderr                io.Writer
@@ -108,7 +109,7 @@ Usage:
   go tool workflowctl pr finish PR --summary-file FILE
   go tool workflowctl evaluation challenge PR
   go tool workflowctl evaluation record PR --attestation-file FILE
-  go tool workflowctl skill-eval [--case GLOB] [--list] [--model MODEL]
+  go tool workflowctl skill-eval [--case GLOB] [--jobs JOBS] [--list] [--model MODEL]
 `)
 	return err
 }
