@@ -44,9 +44,9 @@ Complete one coherent work packet. Do not stop after planning or opening a PR.
 8. Commit and push intentionally using the title convention in `AGENTS.md`.
    Open a draft PR through `go tool workflowctl pr open ISSUE --title TITLE
    --body-file FILE`; its title must also follow that convention because it
-   becomes the squash commit. The body must describe the outcome, consultations
-   or exemptions, verification, conformance effect, and close every issue in
-   the packet.
+   supplies the squash subject before `workflowctl` adds the PR-number suffix.
+   The PR body must describe the outcome, consultation, verification,
+   conformance, and close every packet issue.
 9. On the final pushed head, run `go tool workflowctl docs audit --base
    origin/main`. If it reports a managed-document change, spawn Curator in a
    fresh read-only context with the issue, exact audit, diff, changed documents,
@@ -90,13 +90,15 @@ Complete one coherent work packet. Do not stop after planning or opening a PR.
     failure, fix every finding, re-run checks, push, and spawn a brand-new
     Examiner. After three failed rounds, mark the issue `needs-human`, hand off
     the evidence, and stop this packet.
-12. On a matching-head pass, run `go tool workflowctl pr finish PR`. It must
-    verify the claim, required checks, evaluation receipt, and head SHA before
-    squash-merging through REST and synchronizing the Project. If GitHub cannot
-    mark a draft ready, `workflowctl` closes it, opens an identical-head ready
-    replacement through REST, and returns that PR number. Run steps 10–12 on
-    the replacement without changing the head. Finish it only through the
-    SHA-bound REST squash merge; never make finalization depend on GraphQL.
+12. On a matching-head pass, write a separate plain-text summary file outside
+    the repository. Explain the problem, outcome, rationale, and consequential
+    decisions or invariants for future workflows. Include reflection only when
+    evidence yields a durable consequence or actionable follow-up; omit status,
+    commands, and claim/review metadata. Wrap near 72 columns. Run `go tool
+    workflowctl pr finish PR --summary-file FILE`; it verifies the artifact,
+    claim, checks, evaluation, and head before its SHA-bound REST squash merge.
+    If GitHub cannot mark the draft ready, it preserves a same-head replacement.
+    Run steps 10–12 on that PR; never depend on GraphQL for finalization.
 
 ## Failure behavior
 

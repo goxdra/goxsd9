@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type pullRequestCheck struct {
@@ -35,10 +37,13 @@ type createPullRequestResponse struct {
 }
 
 type mergePullRequestRequest struct {
-	CommitTitle string `json:"commit_title"`
-	MergeMethod string `json:"merge_method"`
-	SHA         string `json:"sha"`
+	CommitMessage string `json:"commit_message"`
+	CommitTitle   string `json:"commit_title"`
+	MergeMethod   string `json:"merge_method"`
+	SHA           string `json:"sha"`
 }
+
+const sessionSummaryLimit = 8 * 1024
 
 type mergePullRequestResponse struct {
 	Merged  bool   `json:"merged"`
@@ -48,6 +53,8 @@ type mergePullRequestResponse struct {
 
 type pullRequestFinishAction uint8
 
+type squashSummary string
+
 const (
 	finishReplaceDraftREST pullRequestFinishAction = iota + 1
 	finishMergeREST
@@ -55,20 +62,13 @@ const (
 
 func (a app) runPR(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl pr open ISSUE [flags] | finish PR")
+		return usageError("usage: workflowctl pr open ISSUE [flags] | finish PR --summary-file FILE")
 	}
 	switch args[0] {
 	case "open":
 		return a.openPullRequest(args[1:])
 	case "finish":
-		if len(args) != 2 {
-			return usageError("usage: workflowctl pr finish PR")
-		}
-		number, err := positiveNumber(args[1])
-		if err != nil {
-			return usageError("pr finish: %v", err)
-		}
-		return a.finishPullRequest(number)
+		return a.finishPullRequestCommand(args[1:])
 	default:
 		return usageError("unknown pr command %q", args[0])
 	}
@@ -92,32 +92,33 @@ func (a app) openPullRequest(args []string) error {
 	if flags.NArg() != 0 || strings.TrimSpace(*title) == "" || *bodyFile == "" {
 		return usageError("usage: workflowctl pr open ISSUE --title TITLE --body-file FILE")
 	}
-	if err := validateCommitTitle(*title); err != nil {
-		return usageError("pr open: invalid title: %v", err)
+	if titleErr := validateCommitTitle(*title); titleErr != nil {
+		return usageError("pr open: invalid title: %v", titleErr)
 	}
-	if err := validatePullRequestBody(*bodyFile, issue); err != nil {
+	body, err := readPullRequestBody(*bodyFile, issue)
+	if err != nil {
 		return usageError("pr open: %v", err)
 	}
-	return a.createPullRequest(issue, *title, *bodyFile)
+	return a.createPullRequest(issue, *title, body)
 }
 
-func validatePullRequestBody(path string, issue int) error {
+func readPullRequestBody(path string, issue int) (string, error) {
 	if err := requireRegularFile(path); err != nil {
-		return err
+		return "", err
 	}
 	// #nosec G304 -- path is an explicit operator-supplied input.
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read PR body: %w", err)
+		return "", fmt.Errorf("read PR body: %w", err)
 	}
 	needle := fmt.Sprintf("closes #%d", issue)
 	if !strings.Contains(strings.ToLower(string(body)), needle) {
-		return fmt.Errorf("PR body must contain %q", "Closes #"+strconv.Itoa(issue))
+		return "", fmt.Errorf("PR body must contain %q", "Closes #"+strconv.Itoa(issue))
 	}
-	return nil
+	return string(body), nil
 }
 
-func (a app) createPullRequest(issue int, title, bodyFile string) error {
+func (a app) createPullRequest(issue int, title, body string) error {
 	root, branch, claimedIssue, err := a.currentClaim()
 	if err != nil {
 		return err
@@ -144,20 +145,15 @@ func (a app) createPullRequest(issue int, title, bodyFile string) error {
 	if verifyErr := a.verifyClaim(); verifyErr != nil {
 		return verifyErr
 	}
-	url, err := a.createDraftPullRequest(root, branch, title, bodyFile)
+	url, err := a.createDraftPullRequest(root, branch, title, body)
 	if err != nil {
 		return err
 	}
 	return writeLine(a.stdout, "%s", url)
 }
 
-func (a app) createDraftPullRequest(root, branch, title, bodyFile string) (string, error) {
-	// #nosec G304 -- bodyFile is an explicit operator-supplied input.
-	body, err := os.ReadFile(bodyFile)
-	if err != nil {
-		return "", fmt.Errorf("read PR body: %w", err)
-	}
-	request := createPullRequestRequest{Base: "main", Body: string(body), Draft: true, Head: branch, Title: title}
+func (a app) createDraftPullRequest(root, branch, title, body string) (string, error) {
+	request := createPullRequestRequest{Base: "main", Body: body, Draft: true, Head: branch, Title: title}
 	response, err := a.submitPullRequest(root, request)
 	if err != nil {
 		return "", fmt.Errorf("create draft PR: %w", err)
@@ -185,7 +181,123 @@ func (a app) submitPullRequest(root string, request createPullRequestRequest) (c
 	return response, nil
 }
 
-func (a app) finishPullRequest(number int) error {
+func (a app) finishPullRequestCommand(args []string) error {
+	if len(args) == 0 {
+		return usageError("usage: workflowctl pr finish PR --summary-file FILE")
+	}
+	number, err := positiveNumber(args[0])
+	if err != nil {
+		return usageError("pr finish: %v", err)
+	}
+	flags := flag.NewFlagSet("pr finish", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	summaryFile := flags.String("summary-file", "", "plain-text squash summary")
+	if parseErr := flags.Parse(args[1:]); parseErr != nil {
+		return usageError("pr finish: %v", parseErr)
+	}
+	if flags.NArg() != 0 || *summaryFile == "" {
+		return usageError("usage: workflowctl pr finish PR --summary-file FILE")
+	}
+	summary, err := readSessionSummary(*summaryFile)
+	if err != nil {
+		return usageError("pr finish: %v", err)
+	}
+	return a.finishPullRequest(number, summary)
+}
+
+func readSessionSummary(path string) (squashSummary, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("inspect summary path: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("summary file must be a regular file")
+	}
+	// #nosec G304 -- path is an explicit operator-supplied input.
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open summary: %w", err)
+	}
+	content, readErr := readBoundedRegularSummary(file)
+	closeErr := file.Close()
+	if readErr != nil {
+		return "", errors.Join(readErr, closeErr)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("close summary: %w", closeErr)
+	}
+	return validateSessionSummary(content)
+}
+
+func readBoundedRegularSummary(file *os.File) ([]byte, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("inspect summary: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("summary file must be a regular file")
+	}
+	content, err := io.ReadAll(io.LimitReader(file, sessionSummaryLimit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read summary: %w", err)
+	}
+	return content, nil
+}
+
+func validateSessionSummary(content []byte) (squashSummary, error) {
+	if len(content) == 0 {
+		return "", errors.New("summary file must not be empty")
+	}
+	if len(content) > sessionSummaryLimit {
+		return "", fmt.Errorf("summary file exceeds %d bytes", sessionSummaryLimit)
+	}
+	if !utf8.Valid(content) {
+		return "", errors.New("summary file must be valid UTF-8")
+	}
+	summary := strings.TrimSuffix(string(content), "\n")
+	if summary == "" {
+		return "", errors.New("summary file must not be empty")
+	}
+	if strings.TrimSpace(summary) != summary {
+		return "", errors.New("summary file must not start or end with whitespace")
+	}
+	for _, value := range summary {
+		if isDisallowedSummaryRune(value) {
+			return "", errors.New("summary file must contain plain text with Unix line endings")
+		}
+	}
+	if err := validateSummaryLines(summary); err != nil {
+		return "", err
+	}
+	return squashSummary(summary), nil
+}
+
+func isDisallowedSummaryRune(value rune) bool {
+	if value == '\n' {
+		return false
+	}
+	return unicode.IsControl(value) || unicode.In(value, unicode.Cf, unicode.Zl, unicode.Zp)
+}
+
+func validateSummaryLines(summary string) error {
+	for _, line := range strings.Split(summary, "\n") {
+		if strings.TrimRightFunc(line, unicode.IsSpace) != line {
+			return errors.New("summary lines must not have trailing whitespace")
+		}
+		if isClaimMetadata(line) {
+			return errors.New("summary must not contain claim metadata")
+		}
+	}
+	return nil
+}
+
+func isClaimMetadata(line string) bool {
+	line = strings.TrimLeftFunc(line, unicode.IsSpace)
+	return strings.HasPrefix(line, "Agent-Persona:") || strings.HasPrefix(line, "Agent-Run-ID:") ||
+		strings.HasPrefix(line, "Agent-Lease-Until:") || strings.HasPrefix(line, "Agent-Issue:")
+}
+
+func (a app) finishPullRequest(number int, summary squashSummary) error {
 	root, branch, claimedIssue, err := a.currentClaim()
 	if err != nil {
 		return err
@@ -232,7 +344,7 @@ func (a app) finishPullRequest(number int) error {
 	case finishReplaceDraftREST:
 		return a.replaceDraftPullRequest(root, number, view)
 	case finishMergeREST:
-		return a.mergeReadyPullRequest(root, number, view)
+		return a.mergeReadyPullRequest(root, number, view, summary)
 	}
 	return stateError("PR #%d has an impossible finish action", number)
 }
@@ -288,11 +400,12 @@ func (a app) updatePullRequestState(root string, number int, state string) error
 	return nil
 }
 
-func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView) error {
+func (a app) mergeReadyPullRequest(root string, number int, view pullRequestView, summary squashSummary) error {
 	request := mergePullRequestRequest{
-		CommitTitle: view.Title + " (#" + strconv.Itoa(number) + ")",
-		MergeMethod: "squash",
-		SHA:         view.HeadRefOID,
+		CommitMessage: string(summary),
+		CommitTitle:   view.Title + " (#" + strconv.Itoa(number) + ")",
+		MergeMethod:   "squash",
+		SHA:           view.HeadRefOID,
 	}
 	input, err := json.Marshal(request)
 	if err != nil {

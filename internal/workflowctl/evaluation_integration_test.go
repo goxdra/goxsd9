@@ -42,13 +42,13 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 
 	commentCount := len(backend.comments)
 	backend.comments = append(backend.comments, reusedRunComments(t, backend.head, testExaminerRunID)...)
-	if err := application.runPR([]string{"finish", "14"}); err == nil {
+	if err := application.runPR(backend.finishArgs()); err == nil {
 		t.Fatal("merge accepted a reused Examiner run ID")
 	}
 	backend.comments = backend.comments[:commentCount]
 
 	backend.head = "unevaluated-head"
-	if err := application.runPR([]string{"finish", "14"}); err == nil {
+	if err := application.runPR(backend.finishArgs()); err == nil {
 		t.Fatal("merge accepted an evaluation for an earlier head")
 	}
 	if backend.merged {
@@ -57,7 +57,8 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	backend.head = "evaluated-head"
 
 	stdout.Reset()
-	if err := application.runPR([]string{"finish", "14"}); err != nil {
+	backend.removeSummaryOnNextCommand = true
+	if err := application.runPR(backend.finishArgs()); err != nil {
 		t.Fatalf("finish evaluated PR: %v", err)
 	}
 	checkMergeResult(t, backend)
@@ -121,7 +122,7 @@ func rejectLaterTamperedReceipt(t *testing.T, application *app, backend *workflo
 	tampered.Body = strings.Replace(tampered.Body, "No blocking findings", "Changed findings", 1)
 	tampered.CreatedAt = time.Now().UTC().Truncate(time.Second)
 	backend.comments = append(backend.comments, tampered)
-	if err := application.runPR([]string{"finish", "14"}); err == nil {
+	if err := application.runPR(backend.finishArgs()); err == nil {
 		t.Fatal("later tampered receipt fell back to an earlier pass")
 	}
 	backend.comments = backend.comments[:len(backend.comments)-1]
@@ -131,7 +132,7 @@ func rejectInvalidPullRequestTitle(t *testing.T, application *app, backend *work
 	t.Helper()
 	original := backend.title
 	backend.title = "Invalid title"
-	if err := application.runPR([]string{"finish", "14"}); err == nil {
+	if err := application.runPR(backend.finishArgs()); err == nil {
 		t.Fatal("merge accepted an invalid pull request title")
 	}
 	if backend.merged {
@@ -145,7 +146,7 @@ func rejectInvalidWorkCommitTitle(t *testing.T, application *app, backend *workf
 	original := backend.workCommitLog
 	backend.workCommitLog = framedRawCommitLog(
 		"fix(parser): reject invalid XML\ncontinue\n", "chore(workflow): claim issue #13\n")
-	if err := application.runPR([]string{"finish", "14"}); err == nil {
+	if err := application.runPR(backend.finishArgs()); err == nil {
 		t.Fatal("merge accepted a work commit added after PR creation with an invalid title")
 	}
 	if backend.merged {
@@ -231,6 +232,12 @@ func checkMergeResult(t *testing.T, backend *workflowBackend) {
 	}
 	if backend.mergeRequest.CommitTitle != backend.title+" (#14)" {
 		t.Fatalf("merge commit title = %q", backend.mergeRequest.CommitTitle)
+	}
+	if backend.mergeRequest.CommitMessage != backend.summary {
+		t.Fatalf("merge commit message = %q, want %q", backend.mergeRequest.CommitMessage, backend.summary)
+	}
+	if strings.Contains(backend.mergeRequest.CommitMessage, "Agent-Run-ID") {
+		t.Fatal("claim metadata leaked into the squash commit message")
 	}
 }
 
@@ -340,29 +347,53 @@ func claimStateCommand(t *testing.T, issue string) commandExecutor {
 }
 
 type workflowBackend struct {
-	t             *testing.T
-	root          string
-	branch        string
-	head          string
-	title         string
-	workCommitLog string
-	comments      []issueCommentAPI
-	mergeRequest  mergePullRequestRequest
-	merged        bool
-	projectDone   bool
+	t                          *testing.T
+	root                       string
+	branch                     string
+	head                       string
+	title                      string
+	body                       string
+	summary                    string
+	summaryFile                string
+	workCommitLog              string
+	comments                   []issueCommentAPI
+	mergeRequest               mergePullRequestRequest
+	merged                     bool
+	projectDone                bool
+	removeSummaryOnNextCommand bool
 }
 
 func newWorkflowBackend(t *testing.T) *workflowBackend {
 	t.Helper()
+	summary := "GitHub currently derives squash bodies from branch commits, so claim\n" +
+		"renewals obscure the implementation outcome. Send this reviewed summary\n" +
+		"explicitly so future workflow sessions receive the durable rationale."
+	summaryFile := filepath.Join(t.TempDir(), "summary.txt")
+	if err := os.WriteFile(summaryFile, []byte(summary+"\n"), 0o600); err != nil {
+		t.Fatalf("write summary: %v", err)
+	}
 	return &workflowBackend{
 		t: t, root: "/repo", branch: "agent/issue-13", head: "evaluated-head",
+		body:          "## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n",
+		summary:       summary,
+		summaryFile:   summaryFile,
 		title:         "test(workflow): exercise evaluation flow",
 		workCommitLog: framedCommitLog("test(workflow): exercise evaluation flow", "chore(workflow): claim issue #13"),
 	}
 }
 
+func (b *workflowBackend) finishArgs() []string {
+	return []string{"finish", "14", "--summary-file", b.summaryFile}
+}
+
 func (b *workflowBackend) execute(dir string, input io.Reader, name string, args ...string) (string, error) {
 	b.t.Helper()
+	if b.removeSummaryOnNextCommand {
+		if err := os.Remove(b.summaryFile); err != nil {
+			return "", fmt.Errorf("remove summary after validation: %w", err)
+		}
+		b.removeSummaryOnNextCommand = false
+	}
 	var data []byte
 	if input != nil {
 		var err error
@@ -427,7 +458,7 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 }
 
 func (b *workflowBackend) pullRequestJSON() (string, error) {
-	response := pullRequestAPI{Body: "Closes #13", Draft: false, State: "open", Title: b.title}
+	response := pullRequestAPI{Body: b.body, Draft: false, State: "open", Title: b.title}
 	response.Base.Ref = "main"
 	response.Head.Ref = b.branch
 	response.Head.SHA = b.head

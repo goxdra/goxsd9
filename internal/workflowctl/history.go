@@ -66,7 +66,8 @@ func (a app) writeGitHistory(root string, since time.Time, limit int) error {
 		return err
 	}
 	output, err := a.command(root, "git", "log", "--first-parent", "-n", strconv.Itoa(limit),
-		"--since="+since.Format(time.RFC3339), "--date=short", "--pretty=format:- %h %ad %s")
+		"--since="+since.Format(time.RFC3339), "--date=short",
+		"--pretty=format:- %h %ad %s%n%w(74,2,2)%b%w(0,0,0)")
 	if err != nil {
 		return fmt.Errorf("read git history: %w", err)
 	}
