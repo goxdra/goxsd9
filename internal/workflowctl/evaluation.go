@@ -161,6 +161,12 @@ type evaluationAttestation struct {
 	Verdict   string             `json:"verdict"`
 }
 
+type evaluationChallengeRecord struct {
+	comment      pullRequestComment
+	commentIndex int
+	challenge    evaluationChallenge
+}
+
 type evaluationReceiptRecord struct {
 	comment      pullRequestComment
 	commentIndex int
@@ -175,8 +181,9 @@ type evaluationRepairRecord struct {
 }
 
 type evaluationHistory struct {
-	receipts []evaluationReceiptRecord
-	repairs  []evaluationRepairRecord
+	challenges []evaluationChallengeRecord
+	receipts   []evaluationReceiptRecord
+	repairs    []evaluationRepairRecord
 }
 
 func (a app) runEvaluation(args []string) error {
@@ -262,7 +269,7 @@ func (a app) repairEvaluationReceipt(number, round int) error {
 		return stateError("PR #%d round %d: %v", number, round, candidateErr)
 	}
 	attestation, rawAttestation, canonicalReport, candidateErr :=
-		validateRepairCandidate(number, view, candidate)
+		validateRepairCandidate(number, history, candidate)
 	if candidateErr != nil {
 		return stateError("PR #%d round %d: %v", number, round, candidateErr)
 	}
@@ -323,7 +330,7 @@ func repairCandidate(history evaluationHistory, round int) (evaluationReceiptRec
 	return candidate, nil
 }
 
-func validateRepairCandidate(number int, view pullRequestView, candidate evaluationReceiptRecord) (
+func validateRepairCandidate(number int, history evaluationHistory, candidate evaluationReceiptRecord) (
 	evaluationAttestation, []byte, []byte, error) {
 	receipt := candidate.receipt
 	if receipt.PR != number {
@@ -339,9 +346,8 @@ func validateRepairCandidate(number int, view pullRequestView, candidate evaluat
 	if !ok {
 		return evaluationAttestation{}, nil, nil, errors.New("missing or invalid raw attestation evidence")
 	}
-	if _, challengeOK := trustedEvaluationChallenge(view.Comments, receipt.Challenge, number,
-		receipt.Head, receipt.RecordedAt); !challengeOK {
-		return evaluationAttestation{}, nil, nil, errors.New("challenge is untrusted or mismatched")
+	if challengeErr := validateEvaluationReceiptChallenge(history, candidate); challengeErr != nil {
+		return evaluationAttestation{}, nil, nil, challengeErr
 	}
 	visibleReport, reportOK := visibleEvaluationReport(candidate.comment.Body)
 	if !reportOK {
@@ -608,8 +614,9 @@ func validateEvaluationFindings(attestation evaluationAttestation) error {
 
 func trustedEvaluationChallenge(comments []pullRequestComment, challengeID string, number int, head string,
 	now time.Time) (evaluationChallenge, bool) {
-	for index := len(comments) - 1; index >= 0; index-- {
-		comment := comments[index]
+	var trusted evaluationChallenge
+	matches := 0
+	for index, comment := range comments {
 		if comment.Author.Login != trustedActor {
 			continue
 		}
@@ -617,15 +624,18 @@ func trustedEvaluationChallenge(comments []pullRequestComment, challengeID strin
 		if !ok || challenge.Challenge != challengeID || challenge.PR != number || challenge.Head != head {
 			continue
 		}
-		if !commentTimeMatches(comment.CreatedAt, challenge.RequestedAt) {
-			continue
+		matches++
+		record := evaluationChallengeRecord{
+			comment:      comment,
+			commentIndex: index,
+			challenge:    challenge,
 		}
-		if challenge.RequestedAt.After(now) || !now.Before(challenge.RequestedAt.Add(evaluationChallengeDuration)) {
+		if !evaluationChallengeRecordValidAt(record, now) {
 			return evaluationChallenge{}, false
 		}
-		return challenge, true
+		trusted = challenge
 	}
-	return evaluationChallenge{}, false
+	return trusted, matches == 1
 }
 
 func parseEvaluationChallenge(body string) (evaluationChallenge, bool) {
@@ -633,8 +643,13 @@ func parseEvaluationChallenge(body string) (evaluationChallenge, bool) {
 	if !ok {
 		return evaluationChallenge{}, false
 	}
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.DisallowUnknownFields()
 	var challenge evaluationChallenge
-	if err := json.Unmarshal(value, &challenge); err != nil {
+	if err := decoder.Decode(&challenge); err != nil {
+		return evaluationChallenge{}, false
+	}
+	if err := requireJSONEnd(decoder); err != nil {
 		return evaluationChallenge{}, false
 	}
 	if challenge.Challenge == "" || challenge.Head == "" || challenge.PR < 1 || challenge.RequestedAt.IsZero() {
@@ -854,22 +869,65 @@ func evaluationReceipts(comments []pullRequestComment) ([]evaluationReceipt, err
 func parseEvaluationHistory(comments []pullRequestComment) (evaluationHistory, error) {
 	var history evaluationHistory
 	for commentIndex, comment := range comments {
-		if comment.Author.Login != trustedActor {
-			continue
-		}
-		receipt, repair, err := parseTrustedEvaluationComment(comment, commentIndex)
-		if err != nil {
+		if err := appendEvaluationHistoryComment(&history, comment, commentIndex); err != nil {
 			return evaluationHistory{}, err
-		}
-		if receipt != nil {
-			history.receipts = append(history.receipts, *receipt)
-			continue
-		}
-		if repair != nil {
-			history.repairs = append(history.repairs, *repair)
 		}
 	}
 	return history, nil
+}
+
+func appendEvaluationHistoryComment(history *evaluationHistory, comment pullRequestComment, commentIndex int) error {
+	if comment.Author.Login != trustedActor {
+		if hasMarker(comment.Body, evaluationChallengeMarker) {
+			return errors.New("evaluation challenge marker has an untrusted author")
+		}
+		return nil
+	}
+	challenge, found, err := parseEvaluationChallengeRecord(comment, commentIndex)
+	if err != nil {
+		return err
+	}
+	if found {
+		history.challenges = append(history.challenges, *challenge)
+		return nil
+	}
+	receipt, repair, err := parseTrustedEvaluationComment(comment, commentIndex)
+	if err != nil {
+		return err
+	}
+	if receipt != nil {
+		history.receipts = append(history.receipts, *receipt)
+		return nil
+	}
+	if repair != nil {
+		history.repairs = append(history.repairs, *repair)
+	}
+	return nil
+}
+
+func parseEvaluationChallengeRecord(comment pullRequestComment, commentIndex int) (
+	*evaluationChallengeRecord, bool, error) {
+	if !hasMarker(comment.Body, evaluationChallengeMarker) {
+		return nil, false, nil
+	}
+	if evaluationChallengeContainsReceiptEvidence(comment.Body) {
+		return nil, false, errors.New("trusted evaluation challenge also contains receipt evidence")
+	}
+	challenge, ok := parseEvaluationChallenge(comment.Body)
+	if !ok {
+		return nil, false, errors.New("trusted evaluation challenge marker is malformed")
+	}
+	return &evaluationChallengeRecord{
+		comment:      comment,
+		commentIndex: commentIndex,
+		challenge:    challenge,
+	}, true, nil
+}
+
+func evaluationChallengeContainsReceiptEvidence(body string) bool {
+	return hasMarker(body, evaluationRepairMarker) || hasMarker(body, evaluationMarker) ||
+		strings.Contains(body, evaluationReceiptHeading) || hasMarker(body, evaluationReportBase64Marker) ||
+		hasMarker(body, evaluationAttestationBase64Marker) || hasMarker(body, evaluationAttestationMarker)
 }
 
 func parseTrustedEvaluationComment(comment pullRequestComment, commentIndex int) (*evaluationReceiptRecord, *evaluationRepairRecord, error) {
@@ -918,8 +976,9 @@ func rejectUntrustedEvaluationEvidence(comments []pullRequestComment) error {
 			hasMarker(comment.Body, evaluationRepairMarker) ||
 			hasMarker(comment.Body, evaluationReportBase64Marker) ||
 			hasMarker(comment.Body, evaluationAttestationBase64Marker) ||
-			hasMarker(comment.Body, evaluationAttestationMarker) {
-			return errors.New("structured receipt, report, attestation, or repair marker has an untrusted author")
+			hasMarker(comment.Body, evaluationAttestationMarker) ||
+			hasMarker(comment.Body, evaluationChallengeMarker) {
+			return errors.New("structured receipt, report, attestation, repair, or challenge marker has an untrusted author")
 		}
 	}
 	return nil
@@ -967,6 +1026,9 @@ func validateEvaluationReceiptsExcept(history evaluationHistory, exceptRound int
 		if err := recordEvaluationIdentifier(seenRunIDs, "examiner run ID", receipt.EvaluatorRunID); err != nil {
 			return err
 		}
+		if err := validateEvaluationReceiptChallenge(history, record); err != nil {
+			return err
+		}
 		if receipt.Round == exceptRound {
 			continue
 		}
@@ -986,6 +1048,44 @@ func recordEvaluationIdentifier(seen map[string]struct{}, label, value string) e
 	}
 	seen[value] = struct{}{}
 	return nil
+}
+
+func validateEvaluationReceiptChallenge(history evaluationHistory, record evaluationReceiptRecord) error {
+	if record.receipt.AttestationSHA256 == "" {
+		return nil
+	}
+	matches := 0
+	for _, challenge := range history.challenges {
+		if evaluationChallengeMatchesReceipt(challenge, record) {
+			matches++
+		}
+	}
+	if matches != 1 {
+		return fmt.Errorf("evaluation round %d has %d matching trusted challenges", record.receipt.Round, matches)
+	}
+	return nil
+}
+
+func evaluationChallengeMatchesReceipt(challenge evaluationChallengeRecord, receipt evaluationReceiptRecord) bool {
+	if challenge.challenge.Challenge != receipt.receipt.Challenge ||
+		challenge.challenge.PR != receipt.receipt.PR || challenge.challenge.Head != receipt.receipt.Head {
+		return false
+	}
+	if challenge.commentIndex >= receipt.commentIndex ||
+		challenge.comment.CreatedAt.After(receipt.comment.CreatedAt) {
+		return false
+	}
+	return evaluationChallengeRecordValidAt(challenge, receipt.receipt.RecordedAt)
+}
+
+func evaluationChallengeRecordValidAt(record evaluationChallengeRecord, at time.Time) bool {
+	challenge := record.challenge
+	if record.comment.CreatedAt.IsZero() || record.comment.CreatedAt.After(at) ||
+		!commentTimeMatches(record.comment.CreatedAt, challenge.RequestedAt) ||
+		challenge.RequestedAt.After(at) || !at.Before(challenge.RequestedAt.Add(evaluationChallengeDuration)) {
+		return false
+	}
+	return true
 }
 
 func validateEvaluationRepairs(history evaluationHistory) error {
@@ -1182,25 +1282,25 @@ func validSHA256(value string) bool {
 }
 
 func latestEvaluationPasses(view pullRequestView, number int) (bool, error) {
-	receipts, err := evaluationReceipts(view.Comments)
+	history, err := parseEvaluationHistory(view.Comments)
 	if err != nil {
 		return false, err
 	}
-	if len(receipts) == 0 {
+	if err := validateEvaluationHistory(history); err != nil {
+		return false, err
+	}
+	if len(history.receipts) == 0 {
 		return false, nil
 	}
-	latest := receipts[len(receipts)-1]
+	latest := history.receipts[len(history.receipts)-1].receipt
 	if latest.AttestationSHA256 == "" || latest.Head != view.HeadRefOID || latest.PR != number ||
 		latest.Verdict != "pass" {
 		return false, nil
 	}
-	if _, ok := trustedEvaluationChallenge(view.Comments, latest.Challenge, number, view.HeadRefOID,
-		latest.RecordedAt); !ok {
-		return false, nil
-	}
 	uses := 0
 	runUses := 0
-	for _, receipt := range receipts {
+	for _, record := range history.receipts {
+		receipt := record.receipt
 		if receipt.Challenge == latest.Challenge {
 			uses++
 		}

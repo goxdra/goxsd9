@@ -192,6 +192,116 @@ func TestLatestStructuredEvaluationPasses(t *testing.T) {
 	}
 }
 
+func TestLatestEvaluationRejectsOrphanHistoricalReceipt(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	orphan := evaluationChallenge{Challenge: "orphan-challenge", Head: "head", PR: 11, RequestedAt: now}
+	current := evaluationChallenge{
+		Challenge:   "current-challenge",
+		Head:        "head",
+		PR:          11,
+		RequestedAt: now.Add(4 * time.Minute),
+	}
+	comments := []pullRequestComment{
+		structuredEvaluationComment(t, orphan, "orphan-run", 1, now.Add(time.Minute)),
+		testEvaluationChallengeComment(t, current),
+		structuredEvaluationComment(t, current, "current-run", 2, now.Add(5*time.Minute)),
+	}
+
+	passes, err := latestEvaluationPasses(pullRequestView{Comments: comments, HeadRefOID: "head"}, 11)
+	if err == nil {
+		t.Fatalf("orphan historical receipt was accepted, passes=%t", passes)
+	}
+}
+
+func TestEvaluationHistoryRequiresExactlyOneMatchingChallenge(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	tests := []struct {
+		name               string
+		challenges         []evaluationChallenge
+		receiptHead        string
+		receiptPR          int
+		receiptAt          time.Time
+		receiptFirst       bool
+		untrustedChallenge bool
+	}{
+		{
+			name: "duplicate",
+			challenges: []evaluationChallenge{{
+				Challenge: "duplicate-challenge", Head: "head", PR: 11, RequestedAt: now,
+			}, {
+				Challenge: "duplicate-challenge", Head: "head", PR: 11, RequestedAt: now.Add(time.Second),
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(2 * time.Minute),
+		},
+		{
+			name: "wrong head",
+			challenges: []evaluationChallenge{{
+				Challenge: "wrong-head-challenge", Head: "other-head", PR: 11, RequestedAt: now,
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(time.Minute),
+		},
+		{
+			name: "wrong PR",
+			challenges: []evaluationChallenge{{
+				Challenge: "wrong-pr-challenge", Head: "head", PR: 12, RequestedAt: now,
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(time.Minute),
+		},
+		{
+			name: "future",
+			challenges: []evaluationChallenge{{
+				Challenge: "future-challenge", Head: "head", PR: 11, RequestedAt: now.Add(2 * time.Minute),
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(time.Minute),
+		},
+		{
+			name: "posted after receipt",
+			challenges: []evaluationChallenge{{
+				Challenge: "after-challenge", Head: "head", PR: 11, RequestedAt: now,
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(time.Minute), receiptFirst: true,
+		},
+		{
+			name: "untrusted",
+			challenges: []evaluationChallenge{{
+				Challenge: "untrusted-challenge", Head: "head", PR: 11, RequestedAt: now,
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(time.Minute), untrustedChallenge: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertInvalidEvaluationChallengeHistory(t, test.challenges, test.receiptHead, test.receiptPR,
+				test.receiptAt, test.receiptFirst, test.untrustedChallenge)
+		})
+	}
+}
+
+func assertInvalidEvaluationChallengeHistory(t *testing.T, challenges []evaluationChallenge, receiptHead string,
+	receiptPR int, receiptAt time.Time, receiptFirst, untrustedChallenge bool) {
+	t.Helper()
+	var comments []pullRequestComment
+	receipt := structuredEvaluationCommentForTarget(t, challenges[0], receiptHead, receiptPR,
+		"challenge-test-run", 1, receiptAt)
+	if receiptFirst {
+		comments = append(comments, receipt)
+	}
+	for index, challenge := range challenges {
+		comment := testEvaluationChallengeComment(t, challenge)
+		if untrustedChallenge && index == 0 {
+			comment.Author.Login = owner
+		}
+		comments = append(comments, comment)
+	}
+	if !receiptFirst {
+		comments = append(comments, receipt)
+	}
+
+	if _, err := evaluationReceipts(comments); err == nil {
+		t.Fatal("evaluation history accepted an invalid challenge binding")
+	}
+}
+
 func TestLatestEvaluationRejectsHistoricalIdentifierReuse(t *testing.T) {
 	now := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
 	tests := []struct {
@@ -280,12 +390,18 @@ func testEvaluationChallengeComment(t *testing.T, challenge evaluationChallenge)
 func structuredEvaluationComment(t *testing.T, challenge evaluationChallenge, runID string, round int,
 	recordedAt time.Time) pullRequestComment {
 	t.Helper()
+	return structuredEvaluationCommentForTarget(t, challenge, challenge.Head, challenge.PR, runID, round, recordedAt)
+}
+
+func structuredEvaluationCommentForTarget(t *testing.T, challenge evaluationChallenge, head string, pr int,
+	runID string, round int, recordedAt time.Time) pullRequestComment {
+	t.Helper()
 	attestation := evaluationAttestation{
 		Challenge: challenge.Challenge,
 		Evaluator: "Examiner",
 		Findings:  evaluationFindings{},
-		Head:      challenge.Head,
-		PR:        challenge.PR,
+		Head:      head,
+		PR:        pr,
 		RunID:     runID,
 		Schema:    evaluationAttestationSchema,
 		Summary:   "No findings.",
