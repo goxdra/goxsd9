@@ -9,10 +9,10 @@ Complete packet; do not stop at planning/PR.
 
 ## Control plane
 
-The root owns claim/lease, decomposition/handoffs, push/audit/challenge/merge.
+Root owns claim/lease, decomposition/handoffs, push/audit/challenge/merge.
 It does not repeat delegated research/source inspection/implementation/test
 diagnosis. Branch/worktree, issue/PR, files, and handoffs are shared memory;
-the transcript is not.
+transcript is not.
 
 Every child uses its exact role from `.codex/agents/`, `fork_turns: "none"`,
 and task-local context. Scribe and Mason are the
@@ -22,8 +22,8 @@ routine tests and remediation. Root writing requires a narrow, demonstrably
 mechanical exemption recorded in the handoff. Curator is fresh per managed
 document head; Examiner is fresh and challenge-bound per review round.
 
-Every child handoff MUST state decisions, evidence locations, risks, required
-next actions; Smith additionally names changed paths/tests. Preserve
+Every child handoff MUST be concise and state decisions, evidence locations, risks, required
+next actions; Smith names changed paths/tests. Preserve
 Curator/Examiner JSON byte-for-byte.
 
 ## Protocol
@@ -57,8 +57,8 @@ Curator/Examiner JSON byte-for-byte.
    duplication, historical narration, and replacement; deletion is not
    improvement. Preserve existing JSON contract (`runID`, `head`, `verdict`,
    `summary`, `findings`); `revise` findings add `path`, `reason`, and
-   `requiredChange`. Repeat audit and Curator after every remediation push; an
-   unchanged exemption is valid only when no managed document changed.
+   `requiredChange`. Repeat audit and Curator after every remediation push; a
+   managed-document head never qualifies for exemption.
 10. Run `go tool workflowctl evaluation challenge PR`. Give only its challenge,
     issue/PR state, tests, exact audit, Curator result or
     exemption, attestation shape, and eval rubric to a fresh read-only Examiner
@@ -72,15 +72,15 @@ Curator/Examiner JSON byte-for-byte.
     fresh Examiner. After three failed rounds,
     mark issue `needs-human` and hand off evidence.
 11. On a matching-head pass, write a separate plain-text summary outside the
-    repository for future development, backlog, and retrospective workflows,
-    covering problem, outcome, rationale, and consequential decisions. Keep
-    workflow evidence/metadata in existing records; never copy/parse PR
+    repository whose purpose is future development, backlog, and retrospective
+    workflows; cover problem, outcome, rationale, and consequential decisions.
+    Keep workflow evidence/metadata in existing records; never copy/parse PR
     Markdown into the squash body. Omit status, commands, and review metadata.
     Run
     `go tool workflowctl pr finish PR --summary-file FILE`, which verifies the
     artifact, claim, checks, evaluation, and head before SHA-bound REST squash
     merge. If draft-to-ready GraphQL fails, close preserved draft, make the
-    identical-head ready REST replacement, and repeat challenge and Examiner there.
+    identical-head ready REST replacement, repeat challenge/Examiner, then SHA-bound REST squash-merge it.
 
 ## Waiting and pilot
 
