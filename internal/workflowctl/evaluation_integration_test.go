@@ -65,6 +65,85 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	checkMergeResult(t, backend)
 }
 
+func TestEvaluationRecordRejectsReservedAttestationSequences(t *testing.T) {
+	fields := []struct {
+		name  string
+		apply func(*evaluationAttestation, string)
+	}{
+		{name: "summary", apply: func(attestation *evaluationAttestation, value string) {
+			attestation.Summary = value
+		}},
+		{name: "finding location", apply: func(attestation *evaluationAttestation, value string) {
+			attestation.Findings[0].Location = value
+		}},
+		{name: "finding impact", apply: func(attestation *evaluationAttestation, value string) {
+			attestation.Findings[0].Impact = value
+		}},
+		{name: "finding required correction", apply: func(attestation *evaluationAttestation, value string) {
+			attestation.Findings[0].RequiredCorrection = value
+		}},
+	}
+	for _, field := range fields {
+		for _, sequence := range evaluationReservedTextSequences {
+			t.Run(field.name+"/"+sequence.name, func(t *testing.T) {
+				testReservedAttestationSequence(t, field, sequence)
+			})
+		}
+	}
+}
+
+func testReservedAttestationSequence(t *testing.T, field struct {
+	name  string
+	apply func(*evaluationAttestation, string)
+}, sequence struct {
+	name  string
+	value string
+}) {
+	t.Helper()
+	backend := newWorkflowBackend(t)
+	stdout := new(bytes.Buffer)
+	application := &app{
+		ctx:            context.Background(),
+		executeCommand: backend.execute,
+		stdout:         stdout,
+		stderr:         new(bytes.Buffer),
+	}
+	challenge := requestTestChallenge(t, application, stdout)
+	attestation := evaluationAttestation{
+		Challenge: challenge.Challenge,
+		Evaluator: "Examiner",
+		Findings: evaluationFindings{{
+			Impact:             "The reserved sequence would corrupt the report.",
+			Location:           "internal/workflowctl/evaluation.go:1",
+			RequiredCorrection: "Reject the reserved sequence before posting.",
+		}},
+		Head:    backend.head,
+		PR:      14,
+		RunID:   "reserved-sequence-test",
+		Schema:  evaluationAttestationSchema,
+		Summary: "The summary remains data; delimiter --> remains data.",
+		Verdict: "fail",
+	}
+	if field.name == "summary" {
+		attestation.Findings = evaluationFindings{}
+		attestation.Verdict = "pass"
+	}
+	field.apply(&attestation, sequence.value+"payload --> remains data.")
+	_, attestationFile := writeTestAttestationValue(t, attestation)
+
+	commentCount := len(backend.comments)
+	err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+	if err == nil {
+		t.Fatal("attestation containing a reserved sequence was accepted")
+	}
+	if !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("reserved-sequence error = %v", err)
+	}
+	if len(backend.comments) != commentCount {
+		t.Fatal("rejected attestation appended a comment")
+	}
+}
+
 func TestEvaluationRepairPreservesFailedRound(t *testing.T) {
 	backend, application, stdout := newRepairFixture(t)
 	originalBody := backend.comments[1].Body

@@ -31,6 +31,19 @@ const (
 	evaluationRepairHeading           = "## Examiner evaluation transport repair\n\n"
 )
 
+var evaluationReservedTextSequences = [...]struct {
+	name  string
+	value string
+}{
+	{name: "receipt marker", value: "<!-- " + evaluationMarker},
+	{name: "base64 attestation marker", value: "<!-- " + evaluationAttestationBase64Marker},
+	{name: "plain attestation marker", value: "<!-- " + evaluationAttestationMarker},
+	{name: "report marker", value: "<!-- " + evaluationReportBase64Marker},
+	{name: "repair marker", value: "<!-- " + evaluationRepairMarker},
+	{name: "challenge marker", value: "<!-- " + evaluationChallengeMarker},
+	{name: "receipt heading", value: evaluationReceiptHeading},
+}
+
 type pullRequestView struct {
 	BaseRefName             string `json:"baseRefName"`
 	Body                    string `json:"body"`
@@ -528,6 +541,9 @@ func validateEvaluationAttestation(attestation evaluationAttestation, number int
 	if err := validateEvaluationFindings(attestation); err != nil {
 		return err
 	}
+	if err := validateEvaluationAttestationText(attestation); err != nil {
+		return err
+	}
 	challenge, ok := trustedEvaluationChallenge(view.Comments, attestation.Challenge, number, view.HeadRefOID, now)
 	if !ok {
 		return errors.New("challenge is missing, stale, untrusted, or for another head")
@@ -538,6 +554,31 @@ func validateEvaluationAttestation(attestation evaluationAttestation, number int
 		}
 		if receipt.EvaluatorRunID == attestation.RunID {
 			return errors.New("examiner run ID was already used")
+		}
+	}
+	return nil
+}
+
+func validateEvaluationAttestationText(attestation evaluationAttestation) error {
+	type evaluationTextField struct {
+		name  string
+		value string
+	}
+	fields := make([]evaluationTextField, 1, 1+3*len(attestation.Findings))
+	fields[0] = evaluationTextField{name: "summary", value: attestation.Summary}
+	for index, finding := range attestation.Findings {
+		fields = append(fields,
+			evaluationTextField{name: fmt.Sprintf("finding %d location", index+1), value: finding.Location},
+			evaluationTextField{name: fmt.Sprintf("finding %d impact", index+1), value: finding.Impact},
+			evaluationTextField{name: fmt.Sprintf("finding %d required correction", index+1),
+				value: finding.RequiredCorrection},
+		)
+	}
+	for _, field := range fields {
+		for _, sequence := range evaluationReservedTextSequences {
+			if strings.Contains(field.value, sequence.value) {
+				return fmt.Errorf("%s contains reserved %s", field.name, sequence.name)
+			}
 		}
 	}
 	return nil
@@ -912,18 +953,38 @@ func validateEvaluationHistoryExcept(history evaluationHistory, exceptRound int)
 
 func validateEvaluationReceiptsExcept(history evaluationHistory, exceptRound int) error {
 	seenRounds := make(map[int]struct{}, len(history.receipts))
+	seenChallenges := make(map[string]struct{}, len(history.receipts))
+	seenRunIDs := make(map[string]struct{}, len(history.receipts))
 	for _, record := range history.receipts {
-		if _, seen := seenRounds[record.receipt.Round]; seen {
+		receipt := record.receipt
+		if _, seen := seenRounds[receipt.Round]; seen {
 			return fmt.Errorf("evaluation round %d has duplicate trusted receipts", record.receipt.Round)
 		}
-		seenRounds[record.receipt.Round] = struct{}{}
-		if record.receipt.Round == exceptRound {
+		seenRounds[receipt.Round] = struct{}{}
+		if err := recordEvaluationIdentifier(seenChallenges, "challenge", receipt.Challenge); err != nil {
+			return err
+		}
+		if err := recordEvaluationIdentifier(seenRunIDs, "examiner run ID", receipt.EvaluatorRunID); err != nil {
+			return err
+		}
+		if receipt.Round == exceptRound {
 			continue
 		}
 		if !evaluationReceiptMatchesRecord(record, history.repairs) {
 			return fmt.Errorf("evaluation round %d receipt failed integrity validation", record.receipt.Round)
 		}
 	}
+	return nil
+}
+
+func recordEvaluationIdentifier(seen map[string]struct{}, label, value string) error {
+	if value == "" {
+		return nil
+	}
+	if _, ok := seen[value]; ok {
+		return fmt.Errorf("evaluation %s %q has duplicate trusted receipts", label, value)
+	}
+	seen[value] = struct{}{}
 	return nil
 }
 
