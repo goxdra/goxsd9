@@ -526,7 +526,7 @@ func coverageDelta(base, head coverageSideReport) coverageDeltaReport {
 	return coverageDeltaReport{
 		Statements: head.Statements - base.Statements,
 		Covered:    head.Covered - base.Covered,
-		Percent:    coveragePercent(head.Covered, head.Statements) - coveragePercent(base.Covered, base.Statements),
+		Percent:    coveragePercentDelta(head.Percent, base.Percent),
 	}
 }
 
@@ -538,7 +538,7 @@ func coverageTotals(packages []coveragePackageReport, affectedOnly bool) coverag
 		Delta: coverageAggregateDelta{Packages: head.Packages - base.Packages,
 			TestedPackages: head.TestedPackages - base.TestedPackages,
 			Statements:     head.Statements - base.Statements, Covered: head.Covered - base.Covered,
-			Percent: coveragePercent(head.Covered, head.Statements) - coveragePercent(base.Covered, base.Statements)},
+			Percent: coveragePercentDelta(head.Percent, base.Percent)},
 	}
 }
 
@@ -571,6 +571,10 @@ func coveragePercent(covered, statements int) float64 {
 		return 0
 	}
 	return math.Round(float64(covered)*1000/float64(statements)) / 10
+}
+
+func coveragePercentDelta(head, base float64) float64 {
+	return math.Round((head-base)*10) / 10
 }
 
 func (a app) writeCoverageJSON(report coverageReport) error {
