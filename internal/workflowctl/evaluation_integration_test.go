@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,6 +103,263 @@ func TestAmbiguousMergeResponsesReconcile(t *testing.T) {
 		})
 	}
 }
+func TestEvaluationRecordRejectsReservedAttestationSequences(t *testing.T) {
+	fields := []struct {
+		name  string
+		apply func(*evaluationAttestation, string)
+	}{
+		{name: "summary", apply: func(attestation *evaluationAttestation, value string) {
+			attestation.Summary = value
+		}},
+		{name: "finding location", apply: func(attestation *evaluationAttestation, value string) {
+			attestation.Findings[0].Location = value
+		}},
+		{name: "finding impact", apply: func(attestation *evaluationAttestation, value string) {
+			attestation.Findings[0].Impact = value
+		}},
+		{name: "finding required correction", apply: func(attestation *evaluationAttestation, value string) {
+			attestation.Findings[0].RequiredCorrection = value
+		}},
+	}
+	for _, field := range fields {
+		for _, sequence := range evaluationReservedTextSequences {
+			t.Run(field.name+"/"+sequence.name, func(t *testing.T) {
+				testReservedAttestationSequence(t, field, sequence)
+			})
+		}
+	}
+}
+
+func testReservedAttestationSequence(t *testing.T, field struct {
+	name  string
+	apply func(*evaluationAttestation, string)
+}, sequence struct {
+	name  string
+	value string
+}) {
+	t.Helper()
+	backend := newWorkflowBackend(t)
+	stdout := new(bytes.Buffer)
+	application := &app{
+		ctx:            context.Background(),
+		executeCommand: backend.execute,
+		stdout:         stdout,
+		stderr:         new(bytes.Buffer),
+	}
+	challenge := requestTestChallenge(t, application, stdout)
+	attestation := evaluationAttestation{
+		Challenge: challenge.Challenge,
+		Evaluator: "Examiner",
+		Findings: evaluationFindings{{
+			Impact:             "The reserved sequence would corrupt the report.",
+			Location:           "internal/workflowctl/evaluation.go:1",
+			RequiredCorrection: "Reject the reserved sequence before posting.",
+		}},
+		Head:    backend.head,
+		PR:      14,
+		RunID:   "reserved-sequence-test",
+		Schema:  evaluationAttestationSchema,
+		Summary: "The summary remains data; delimiter --> remains data.",
+		Verdict: "fail",
+	}
+	if field.name == "summary" {
+		attestation.Findings = evaluationFindings{}
+		attestation.Verdict = "pass"
+	}
+	field.apply(&attestation, sequence.value+"payload --> remains data.")
+	_, attestationFile := writeTestAttestationValue(t, attestation)
+
+	commentCount := len(backend.comments)
+	err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+	if err == nil {
+		t.Fatal("attestation containing a reserved sequence was accepted")
+	}
+	if !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("reserved-sequence error = %v", err)
+	}
+	if len(backend.comments) != commentCount {
+		t.Fatal("rejected attestation appended a comment")
+	}
+}
+
+func TestEvaluationRepairPreservesFailedRound(t *testing.T) {
+	backend, application, stdout := newRepairFixture(t)
+	originalBody := backend.comments[1].Body
+	backend.comments[1].Body = legacyTransportMismatch(t, originalBody)
+	if backend.comments[1].Body == originalBody {
+		t.Fatal("repair fixture did not create a visible transport mismatch")
+	}
+
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"repair", "14", "--round", "1"}); err != nil {
+		t.Fatalf("repair evaluation: %v", err)
+	}
+	assertRepairedFailure(t, backend)
+	recordSecondEvaluation(t, application, backend, stdout)
+}
+
+func TestEvaluationRepairAllowsPriorHead(t *testing.T) {
+	backend, application, stdout := newRepairFixture(t)
+	priorHead := backend.head
+	backend.comments[1].Body = legacyTransportMismatch(t, backend.comments[1].Body)
+	backend.head = "remediated-head"
+
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"repair", "14", "--round", "1"}); err != nil {
+		t.Fatalf("repair prior-head evaluation: %v", err)
+	}
+	repair, ok := parseEvaluationRepair(backend.comments[2].Body)
+	if !ok {
+		t.Fatal("prior-head repair marker was not parseable")
+	}
+	if repair.Head != priorHead {
+		t.Fatalf("repair head = %q, want prior head %q", repair.Head, priorHead)
+	}
+	receipts, err := evaluationReceipts(pullRequestCommentsFromAPI(t, backend.comments))
+	if err != nil {
+		t.Fatalf("read prior-head repaired evaluation history: %v", err)
+	}
+	if len(receipts) != 1 || receipts[0].Head != priorHead || receipts[0].Round != 1 || receipts[0].Verdict != "fail" {
+		t.Fatalf("prior-head repaired receipts = %#v", receipts)
+	}
+}
+
+func assertRepairedFailure(t *testing.T, backend *workflowBackend) {
+	t.Helper()
+	if got, want := len(backend.comments), 3; got != want {
+		t.Fatalf("comments after repair = %d, want %d", got, want)
+	}
+	receipts := pullRequestCommentsFromAPI(t, backend.comments)
+	parsedReceipts, err := evaluationReceipts(receipts)
+	if err != nil {
+		t.Fatalf("read repaired evaluation history: %v", err)
+	}
+	if got, want := len(parsedReceipts), 1; got != want {
+		t.Fatalf("repaired receipts = %d, want %d", got, want)
+	}
+	if parsedReceipts[0].Round != 1 || parsedReceipts[0].Verdict != "fail" {
+		t.Fatalf("repaired receipt = %#v, want failed round 1", parsedReceipts[0])
+	}
+	if got, want := evaluationFailureCount(parsedReceipts), 1; got != want {
+		t.Fatalf("failed-round count = %d, want %d", got, want)
+	}
+	repair, ok := parseEvaluationRepair(backend.comments[2].Body)
+	if !ok {
+		t.Fatal("generated repair marker was not parseable")
+	}
+	receiptMarker, ok := markerBytes(backend.comments[1].Body, evaluationMarker)
+	if !ok {
+		t.Fatal("repaired receipt marker was not parseable")
+	}
+	_, rawAttestation, canonicalReport, ok := parseRepairEvidence(t, backend.comments[1].Body)
+	if !ok {
+		t.Fatal("repaired attestation evidence was not parseable")
+	}
+	if repair.OriginalCommentSHA256 != sha256Hex([]byte(backend.comments[1].Body)) ||
+		repair.ReceiptMarkerSHA256 != sha256Hex(receiptMarker) ||
+		repair.AttestationSHA256 != sha256Hex(rawAttestation) ||
+		repair.ReportSHA256 != sha256Hex(canonicalReport) ||
+		repair.PR != 14 || repair.Head != backend.head || repair.Round != 1 || repair.Verdict != "fail" {
+		t.Fatalf("repair bindings = %#v", repair)
+	}
+}
+
+func recordSecondEvaluation(t *testing.T, application *app, backend *workflowBackend, stdout *bytes.Buffer) {
+	t.Helper()
+	stdout.Reset()
+	secondChallenge := requestTestChallenge(t, application, stdout)
+	_, secondAttestationFile := writeTestAttestationRun(t, backend.head, secondChallenge, "examiner-second-round")
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", secondAttestationFile}); err != nil {
+		t.Fatalf("record evaluation after repair: %v", err)
+	}
+	secondReceipt, ok := parseEvaluationReceipt(backend.comments[len(backend.comments)-1].Body)
+	if !ok {
+		t.Fatal("second evaluation receipt was not parseable")
+	}
+	if secondReceipt.Round != 2 {
+		t.Fatalf("second evaluation round = %d, want 2 after repaired round 1", secondReceipt.Round)
+	}
+}
+
+func TestEvaluationRepairRejectsUnsafeEvidence(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(t *testing.T, backend *workflowBackend)
+	}{
+		{name: "intact", mutate: func(_ *testing.T, _ *workflowBackend) {}},
+		{name: "malformed receipt marker", mutate: func(_ *testing.T, backend *workflowBackend) {
+			body := backend.comments[1].Body
+			body = strings.Replace(body, " -->", " --x>", 1)
+			backend.comments[1].Body = body
+		}},
+		{name: "tampered attestation", mutate: func(t *testing.T, backend *workflowBackend) {
+			body := backend.comments[1].Body
+			value, ok := markerBytes(body, evaluationAttestationBase64Marker)
+			if !ok {
+				t.Fatal("attestation marker missing")
+			}
+			body = strings.Replace(body, string(value), base64.StdEncoding.EncodeToString([]byte("{}")), 1)
+			backend.comments[1].Body = body
+		}},
+		{name: "tampered receipt", mutate: func(t *testing.T, backend *workflowBackend) {
+			backend.comments[1].Body = replaceTestReceipt(t, backend.comments[1].Body, func(receipt *evaluationReceipt) {
+				receipt.ReportSHA256 = strings.Repeat("0", sha256.Size*2)
+			})
+		}},
+		{name: "wrong head", mutate: func(t *testing.T, backend *workflowBackend) {
+			backend.comments[1].Body = replaceTestReceipt(t, backend.comments[1].Body, func(receipt *evaluationReceipt) {
+				receipt.Head = "another-head"
+			})
+		}},
+		{name: "wrong PR", mutate: func(t *testing.T, backend *workflowBackend) {
+			backend.comments[1].Body = replaceTestReceipt(t, backend.comments[1].Body, func(receipt *evaluationReceipt) {
+				receipt.PR = 99
+			})
+		}},
+		{name: "duplicate receipt", mutate: func(_ *testing.T, backend *workflowBackend) {
+			backend.comments = append(backend.comments, backend.comments[1])
+		}},
+		{name: "untrusted receipt", mutate: func(_ *testing.T, backend *workflowBackend) {
+			backend.comments[1].User.Login = owner
+		}},
+		{name: "orphan repair", mutate: func(t *testing.T, backend *workflowBackend) {
+			orphan := testRepairComment(t, backend.comments[1].Body, func(repair *evaluationRepair) {
+				repair.Round = 99
+			})
+			backend.comments = append(backend.comments, orphan)
+		}},
+		{name: "repair before receipt", mutate: func(t *testing.T, backend *workflowBackend) {
+			backend.comments[1].Body = legacyTransportMismatch(t, backend.comments[1].Body)
+			repair := testRepairComment(t, backend.comments[1].Body, nil)
+			repair.CreatedAt = backend.comments[1].CreatedAt.Add(-time.Second)
+			backend.comments = append(backend.comments, repair)
+		}},
+		{name: "wrong repair binding", mutate: func(t *testing.T, backend *workflowBackend) {
+			wrong := testRepairComment(t, backend.comments[1].Body, func(repair *evaluationRepair) {
+				repair.OriginalCommentSHA256 = strings.Repeat("f", sha256.Size*2)
+			})
+			backend.comments = append(backend.comments, wrong)
+		}},
+		{name: "duplicate repair", mutate: func(t *testing.T, backend *workflowBackend) {
+			backend.comments[1].Body = legacyTransportMismatch(t, backend.comments[1].Body)
+			repair := testRepairComment(t, backend.comments[1].Body, nil)
+			backend.comments = append(backend.comments, repair, repair)
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend, application, _ := newRepairFixture(t)
+			test.mutate(t, backend)
+			commentCount := len(backend.comments)
+			if err := application.runEvaluation([]string{"repair", "14", "--round", "1"}); err == nil {
+				t.Fatal("unsafe evaluation evidence was accepted")
+			}
+			if len(backend.comments) != commentCount {
+				t.Fatal("rejected repair appended a comment")
+			}
+		})
+	}
+}
 
 func TestUnknownMergeOutcomeGuidesRecovery(t *testing.T) {
 	ambiguous := errors.New("merge endpoint transport failed")
@@ -113,6 +371,133 @@ func TestUnknownMergeOutcomeGuidesRecovery(t *testing.T) {
 	if !errors.Is(err, ambiguous) || !errors.Is(err, reconciliation) {
 		t.Fatalf("mergeOutcomeUnknownError = %v, want both causes", err)
 	}
+}
+
+func newRepairFixture(t *testing.T) (*workflowBackend, *app, *bytes.Buffer) {
+	t.Helper()
+	backend := newWorkflowBackend(t)
+	stdout := new(bytes.Buffer)
+	application := &app{
+		ctx:            context.Background(),
+		executeCommand: backend.execute,
+		stdout:         stdout,
+		stderr:         new(bytes.Buffer),
+	}
+	challenge := requestTestChallenge(t, application, stdout)
+	_, attestationFile := writeTestFailureAttestation(t, backend.head, challenge)
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record repair fixture evaluation: %v", err)
+	}
+	return backend, application, stdout
+}
+
+func legacyTransportMismatch(t *testing.T, body string) string {
+	t.Helper()
+	receiptMarker, ok := markerBytes(body, evaluationMarker)
+	if !ok {
+		t.Fatal("repair fixture receipt marker missing")
+	}
+	var receipt evaluationReceipt
+	if err := json.Unmarshal(receiptMarker, &receipt); err != nil {
+		t.Fatalf("decode repair fixture receipt: %v", err)
+	}
+	receipt.ReportTransport = ""
+	legacyReceiptMarker, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode legacy repair fixture receipt: %v", err)
+	}
+	body = strings.Replace(body, string(receiptMarker), string(legacyReceiptMarker), 1)
+	reportMarker, ok := markerBytes(body, evaluationReportBase64Marker)
+	if !ok {
+		t.Fatal("repair fixture report marker missing")
+	}
+	reportComment := fmt.Sprintf("<!-- %s%s -->\n", evaluationReportBase64Marker, reportMarker)
+	body = strings.Replace(body, reportComment, "", 1)
+	body = strings.Replace(body, `\u001e`, `\^^`, 1)
+	return body
+}
+
+func replaceTestReceipt(t *testing.T, body string, mutate func(*evaluationReceipt)) string {
+	t.Helper()
+	value, ok := markerBytes(body, evaluationMarker)
+	if !ok {
+		t.Fatal("receipt marker missing")
+	}
+	var receipt evaluationReceipt
+	if err := json.Unmarshal(value, &receipt); err != nil {
+		t.Fatalf("decode receipt: %v", err)
+	}
+	mutate(&receipt)
+	replacement, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode receipt: %v", err)
+	}
+	return strings.Replace(body, string(value), string(replacement), 1)
+}
+
+func testRepairComment(t *testing.T, body string, mutate func(*evaluationRepair)) issueCommentAPI {
+	t.Helper()
+	receiptMarker, ok := markerBytes(body, evaluationMarker)
+	if !ok {
+		t.Fatal("repair test receipt marker missing")
+	}
+	var receipt evaluationReceipt
+	if err := json.Unmarshal(receiptMarker, &receipt); err != nil {
+		t.Fatalf("decode repair test receipt: %v", err)
+	}
+	attestation, rawAttestation, canonicalReport, ok := parseRepairEvidence(t, body)
+	if !ok {
+		t.Fatal("decode repair test attestation")
+	}
+	if attestation.PR != receipt.PR || attestation.Head != receipt.Head ||
+		attestation.Verdict != receipt.Verdict {
+		t.Fatal("repair test attestation does not match receipt")
+	}
+	repair := evaluationRepair{
+		AttestationSHA256:     sha256Hex(rawAttestation),
+		Challenge:             receipt.Challenge,
+		Evaluator:             receipt.Evaluator,
+		EvaluatorRunID:        receipt.EvaluatorRunID,
+		Head:                  receipt.Head,
+		OriginalCommentSHA256: sha256Hex([]byte(body)),
+		ReceiptMarkerSHA256:   sha256Hex(receiptMarker),
+		PR:                    receipt.PR,
+		ReportSHA256:          sha256Hex(canonicalReport),
+		Round:                 receipt.Round,
+		Schema:                evaluationRepairSchema,
+		Verdict:               receipt.Verdict,
+	}
+	if mutate != nil {
+		mutate(&repair)
+	}
+	marker, err := json.Marshal(repair)
+	if err != nil {
+		t.Fatalf("encode repair test marker: %v", err)
+	}
+	comment := issueCommentAPI{Body: evaluationRepairComment(marker, repair.Round), CreatedAt: time.Now().UTC()}
+	comment.User.Login = trustedActor
+	return comment
+}
+
+func parseRepairEvidence(t *testing.T, body string) (evaluationAttestation, []byte, []byte, bool) {
+	t.Helper()
+	attestation, rawAttestation, ok := parseCommentAttestation(body)
+	if !ok {
+		return evaluationAttestation{}, nil, nil, false
+	}
+	return attestation, rawAttestation, canonicalEvaluationReport(renderEvaluationReport(attestation)), true
+}
+
+func pullRequestCommentsFromAPI(t *testing.T, comments []issueCommentAPI) []pullRequestComment {
+	t.Helper()
+	converted := make([]pullRequestComment, 0, len(comments))
+	for _, comment := range comments {
+		convertedComment := pullRequestComment{Body: comment.Body, CreatedAt: comment.CreatedAt}
+		convertedComment.Author.Login = comment.User.Login
+		converted = append(converted, convertedComment)
+	}
+	return converted
 }
 
 func reusedRunComments(t *testing.T, head, runID string) []issueCommentAPI {
@@ -152,7 +537,14 @@ func reusedRunComments(t *testing.T, head, runID string) []issueCommentAPI {
 	if err != nil {
 		t.Fatalf("encode reused-run receipt: %v", err)
 	}
-	receiptComment := issueCommentAPI{Body: evaluationComment(receiptJSON, attestationJSON, report), CreatedAt: now}
+	body := evaluationComment(receiptJSON, attestationJSON, report)
+	reportMarker, ok := markerBytes(body, evaluationReportBase64Marker)
+	if !ok {
+		t.Fatal("legacy evaluation fixture report marker missing")
+	}
+	reportComment := fmt.Sprintf("<!-- %s%s -->\n", evaluationReportBase64Marker, reportMarker)
+	body = strings.Replace(body, reportComment, "", 1)
+	receiptComment := issueCommentAPI{Body: body, CreatedAt: now}
 	receiptComment.User.Login = trustedActor
 	return []issueCommentAPI{challengeComment, receiptComment}
 }
@@ -220,7 +612,7 @@ func requestTestChallenge(t *testing.T, application *app, stdout *bytes.Buffer) 
 
 func writeTestAttestation(t *testing.T, head string, challenge evaluationChallenge) ([]byte, string) {
 	t.Helper()
-	attestation := evaluationAttestation{
+	return writeTestAttestationValue(t, evaluationAttestation{
 		Challenge: challenge.Challenge,
 		Evaluator: "Examiner",
 		Findings:  evaluationFindings{},
@@ -230,7 +622,45 @@ func writeTestAttestation(t *testing.T, head string, challenge evaluationChallen
 		Schema:    evaluationAttestationSchema,
 		Summary:   "No blocking findings; delimiter --> remains data.",
 		Verdict:   "pass",
-	}
+	})
+}
+
+func writeTestFailureAttestation(t *testing.T, head string, challenge evaluationChallenge) ([]byte, string) {
+	t.Helper()
+	return writeTestAttestationValue(t, evaluationAttestation{
+		Challenge: challenge.Challenge,
+		Evaluator: "Examiner",
+		Findings: evaluationFindings{{
+			Impact:             "The transport projection changed.",
+			Location:           "internal/workflowctl/evaluation.go:1",
+			RequiredCorrection: "Preserve the canonical report marker.",
+		}},
+		Head:    head,
+		PR:      14,
+		RunID:   "examiner-failed-round",
+		Schema:  evaluationAttestationSchema,
+		Summary: "Blocking finding; literal \\u001e; delimiter --> remains data.",
+		Verdict: "fail",
+	})
+}
+
+func writeTestAttestationRun(t *testing.T, head string, challenge evaluationChallenge, runID string) ([]byte, string) {
+	t.Helper()
+	return writeTestAttestationValue(t, evaluationAttestation{
+		Challenge: challenge.Challenge,
+		Evaluator: "Examiner",
+		Findings:  evaluationFindings{},
+		Head:      head,
+		PR:        14,
+		RunID:     runID,
+		Schema:    evaluationAttestationSchema,
+		Summary:   "No blocking findings; delimiter --> remains data.",
+		Verdict:   "pass",
+	})
+}
+
+func writeTestAttestationValue(t *testing.T, attestation evaluationAttestation) ([]byte, string) {
+	t.Helper()
 	var encoded bytes.Buffer
 	encoder := json.NewEncoder(&encoded)
 	encoder.SetEscapeHTML(false)

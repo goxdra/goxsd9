@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -183,9 +184,324 @@ func TestLatestStructuredEvaluationPasses(t *testing.T) {
 	if err != nil || !passes {
 		t.Fatal("valid structured evaluation did not pass")
 	}
-	view.Comments[1].Body = strings.Replace(view.Comments[1].Body, "No findings.", "Changed.", 1)
+	encodedReport := base64.StdEncoding.EncodeToString([]byte(report))
+	changedReport := base64.StdEncoding.EncodeToString([]byte("Changed."))
+	view.Comments[1].Body = strings.Replace(view.Comments[1].Body, encodedReport, changedReport, 1)
 	if _, err := latestEvaluationPasses(view, 11); err == nil {
 		t.Fatal("tampered structured evaluation did not invalidate history")
+	}
+}
+
+func TestLatestEvaluationRejectsOrphanHistoricalReceipt(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	orphan := evaluationChallenge{Challenge: "orphan-challenge", Head: "head", PR: 11, RequestedAt: now}
+	current := evaluationChallenge{
+		Challenge:   "current-challenge",
+		Head:        "head",
+		PR:          11,
+		RequestedAt: now.Add(4 * time.Minute),
+	}
+	comments := []pullRequestComment{
+		structuredEvaluationComment(t, orphan, "orphan-run", 1, now.Add(time.Minute)),
+		testEvaluationChallengeComment(t, current),
+		structuredEvaluationComment(t, current, "current-run", 2, now.Add(5*time.Minute)),
+	}
+
+	passes, err := latestEvaluationPasses(pullRequestView{Comments: comments, HeadRefOID: "head"}, 11)
+	if err == nil {
+		t.Fatalf("orphan historical receipt was accepted, passes=%t", passes)
+	}
+}
+
+func TestEvaluationHistoryRequiresExactlyOneMatchingChallenge(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	tests := []struct {
+		name               string
+		challenges         []evaluationChallenge
+		receiptHead        string
+		receiptPR          int
+		receiptAt          time.Time
+		receiptFirst       bool
+		untrustedChallenge bool
+	}{
+		{
+			name: "duplicate",
+			challenges: []evaluationChallenge{{
+				Challenge: "duplicate-challenge", Head: "head", PR: 11, RequestedAt: now,
+			}, {
+				Challenge: "duplicate-challenge", Head: "head", PR: 11, RequestedAt: now.Add(time.Second),
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(2 * time.Minute),
+		},
+		{
+			name: "wrong head",
+			challenges: []evaluationChallenge{{
+				Challenge: "wrong-head-challenge", Head: "other-head", PR: 11, RequestedAt: now,
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(time.Minute),
+		},
+		{
+			name: "wrong PR",
+			challenges: []evaluationChallenge{{
+				Challenge: "wrong-pr-challenge", Head: "head", PR: 12, RequestedAt: now,
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(time.Minute),
+		},
+		{
+			name: "future",
+			challenges: []evaluationChallenge{{
+				Challenge: "future-challenge", Head: "head", PR: 11, RequestedAt: now.Add(2 * time.Minute),
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(time.Minute),
+		},
+		{
+			name: "posted after receipt",
+			challenges: []evaluationChallenge{{
+				Challenge: "after-challenge", Head: "head", PR: 11, RequestedAt: now,
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(time.Minute), receiptFirst: true,
+		},
+		{
+			name: "untrusted",
+			challenges: []evaluationChallenge{{
+				Challenge: "untrusted-challenge", Head: "head", PR: 11, RequestedAt: now,
+			}},
+			receiptHead: "head", receiptPR: 11, receiptAt: now.Add(time.Minute), untrustedChallenge: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertInvalidEvaluationChallengeHistory(t, test.challenges, test.receiptHead, test.receiptPR,
+				test.receiptAt, test.receiptFirst, test.untrustedChallenge)
+		})
+	}
+}
+
+func assertInvalidEvaluationChallengeHistory(t *testing.T, challenges []evaluationChallenge, receiptHead string,
+	receiptPR int, receiptAt time.Time, receiptFirst, untrustedChallenge bool) {
+	t.Helper()
+	var comments []pullRequestComment
+	receipt := structuredEvaluationCommentForTarget(t, challenges[0], receiptHead, receiptPR,
+		"challenge-test-run", 1, receiptAt)
+	if receiptFirst {
+		comments = append(comments, receipt)
+	}
+	for index, challenge := range challenges {
+		comment := testEvaluationChallengeComment(t, challenge)
+		if untrustedChallenge && index == 0 {
+			comment.Author.Login = owner
+		}
+		comments = append(comments, comment)
+	}
+	if !receiptFirst {
+		comments = append(comments, receipt)
+	}
+
+	if _, err := evaluationReceipts(comments); err == nil {
+		t.Fatal("evaluation history accepted an invalid challenge binding")
+	}
+}
+
+func TestLatestEvaluationRejectsHistoricalIdentifierReuse(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	tests := []struct {
+		name               string
+		firstChallenge     string
+		duplicateChallenge string
+		firstRunID         string
+		duplicateRunID     string
+		latestChallenge    string
+		latestRunID        string
+	}{
+		{
+			name:               "challenge",
+			firstChallenge:     "reused-challenge",
+			duplicateChallenge: "reused-challenge",
+			firstRunID:         "first-run",
+			duplicateRunID:     "duplicate-run",
+			latestChallenge:    "fresh-challenge",
+			latestRunID:        "fresh-run",
+		},
+		{
+			name:               "Examiner run ID",
+			firstChallenge:     "first-challenge",
+			duplicateChallenge: "duplicate-challenge",
+			firstRunID:         "reused-run",
+			duplicateRunID:     "reused-run",
+			latestChallenge:    "fresh-challenge",
+			latestRunID:        "fresh-run",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			first := evaluationChallenge{
+				Challenge:   test.firstChallenge,
+				Head:        "head",
+				PR:          11,
+				RequestedAt: now,
+			}
+			duplicate := evaluationChallenge{
+				Challenge:   test.duplicateChallenge,
+				Head:        "head",
+				PR:          11,
+				RequestedAt: now.Add(2 * time.Minute),
+			}
+			latest := evaluationChallenge{
+				Challenge:   test.latestChallenge,
+				Head:        "head",
+				PR:          11,
+				RequestedAt: now.Add(4 * time.Minute),
+			}
+			comments := []pullRequestComment{
+				testEvaluationChallengeComment(t, first),
+				structuredEvaluationComment(t, first, test.firstRunID, 1, now.Add(time.Minute)),
+			}
+			if duplicate.Challenge != first.Challenge {
+				comments = append(comments, testEvaluationChallengeComment(t, duplicate))
+			}
+			comments = append(comments,
+				structuredEvaluationComment(t, duplicate, test.duplicateRunID, 2, now.Add(3*time.Minute)),
+				testEvaluationChallengeComment(t, latest),
+				structuredEvaluationComment(t, latest, test.latestRunID, 3, now.Add(5*time.Minute)),
+			)
+
+			passes, err := latestEvaluationPasses(pullRequestView{Comments: comments, HeadRefOID: "head"}, 11)
+			if err == nil {
+				t.Fatalf("historical %s reuse returned no error, passes=%t", test.name, passes)
+			}
+		})
+	}
+}
+
+func testEvaluationChallengeComment(t *testing.T, challenge evaluationChallenge) pullRequestComment {
+	t.Helper()
+	marker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode evaluation challenge: %v", err)
+	}
+	comment := pullRequestComment{
+		Body:      fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, marker),
+		CreatedAt: challenge.RequestedAt,
+	}
+	comment.Author.Login = trustedActor
+	return comment
+}
+
+func structuredEvaluationComment(t *testing.T, challenge evaluationChallenge, runID string, round int,
+	recordedAt time.Time) pullRequestComment {
+	t.Helper()
+	return structuredEvaluationCommentForTarget(t, challenge, challenge.Head, challenge.PR, runID, round, recordedAt)
+}
+
+func structuredEvaluationCommentForTarget(t *testing.T, challenge evaluationChallenge, head string, pr int,
+	runID string, round int, recordedAt time.Time) pullRequestComment {
+	t.Helper()
+	attestation := evaluationAttestation{
+		Challenge: challenge.Challenge,
+		Evaluator: "Examiner",
+		Findings:  evaluationFindings{},
+		Head:      head,
+		PR:        pr,
+		RunID:     runID,
+		Schema:    evaluationAttestationSchema,
+		Summary:   "No findings.",
+		Verdict:   "pass",
+	}
+	attestationMarker, err := json.Marshal(attestation)
+	if err != nil {
+		t.Fatalf("encode evaluation attestation: %v", err)
+	}
+	report := renderEvaluationReport(attestation)
+	receipt := evaluationReceipt{
+		AttestationSHA256: sha256Hex(attestationMarker),
+		Challenge:         attestation.Challenge,
+		Evaluator:         attestation.Evaluator,
+		EvaluatorRunID:    attestation.RunID,
+		Head:              attestation.Head,
+		PR:                attestation.PR,
+		RecordedAt:        recordedAt,
+		ReportSHA256:      sha256Hex(canonicalEvaluationReport(report)),
+		ReportTransport:   evaluationReportTransportV1,
+		Round:             round,
+		Verdict:           attestation.Verdict,
+	}
+	receiptMarker, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode evaluation receipt: %v", err)
+	}
+	comment := pullRequestComment{
+		Body:      evaluationComment(receiptMarker, attestationMarker, report),
+		CreatedAt: recordedAt,
+	}
+	comment.Author.Login = trustedActor
+	return comment
+}
+
+func TestVersionedEvaluationReportSurvivesVisibleRewrite(t *testing.T) {
+	requested := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	recorded := requested.Add(time.Minute)
+	challenge := evaluationChallenge{Challenge: "lossless-report", Head: "head", PR: 11, RequestedAt: requested}
+	challengeMarker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode challenge: %v", err)
+	}
+	challengeComment := pullRequestComment{
+		Body:      fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, challengeMarker),
+		CreatedAt: requested,
+	}
+	challengeComment.Author.Login = trustedActor
+	attestation := evaluationAttestation{
+		Challenge: challenge.Challenge, Evaluator: "Examiner", Findings: evaluationFindings{}, Head: "head", PR: 11,
+		RunID: "lossless-report-run", Schema: evaluationAttestationSchema,
+		Summary: "No findings; literal \\u001e remains data.", Verdict: "pass",
+	}
+	attestationMarker, err := json.Marshal(attestation)
+	if err != nil {
+		t.Fatalf("encode attestation: %v", err)
+	}
+	report := renderEvaluationReport(attestation)
+	canonicalReport := canonicalEvaluationReport(report)
+	receipt := evaluationReceipt{
+		AttestationSHA256: sha256Hex(attestationMarker),
+		Challenge:         attestation.Challenge,
+		Evaluator:         attestation.Evaluator,
+		EvaluatorRunID:    attestation.RunID,
+		Head:              attestation.Head,
+		PR:                attestation.PR,
+		RecordedAt:        recorded,
+		ReportSHA256:      sha256Hex(canonicalReport),
+		ReportTransport:   evaluationReportTransportV1,
+		Round:             1,
+		Verdict:           attestation.Verdict,
+	}
+	receiptMarker, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode receipt: %v", err)
+	}
+	receiptComment := pullRequestComment{
+		Body:      evaluationComment(receiptMarker, attestationMarker, report),
+		CreatedAt: recorded,
+	}
+	receiptComment.Author.Login = trustedActor
+	view := pullRequestView{Comments: []pullRequestComment{challengeComment, receiptComment}, HeadRefOID: "head"}
+
+	rewritten := receiptComment
+	rewritten.Body = strings.Replace(rewritten.Body, `\u001e`, `\^^`, 1)
+	if rewritten.Body == receiptComment.Body {
+		t.Fatal("visible report fixture did not contain the rewritten escape")
+	}
+	view.Comments[1] = rewritten
+	passes, err := latestEvaluationPasses(view, 11)
+	if err != nil || !passes {
+		t.Fatalf("visible report rewrite invalidated canonical evaluation: passes=%t err=%v", passes, err)
+	}
+
+	encodedReport := base64.StdEncoding.EncodeToString(canonicalReport)
+	tampered := strings.Replace(receiptComment.Body, encodedReport,
+		base64.StdEncoding.EncodeToString([]byte("tampered report")), 1)
+	view.Comments[1].Body = tampered
+	if _, err := latestEvaluationPasses(view, 11); err == nil {
+		t.Fatal("tampered encoded report marker was accepted")
 	}
 }
 

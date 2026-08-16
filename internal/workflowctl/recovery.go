@@ -90,6 +90,9 @@ func mergeTimeEvaluatedHead(view pullRequestView, number int) (string, error) {
 	if view.MergedAt == nil {
 		return "", errors.New("github reported a merge without a merge timestamp for immutable evaluation proof")
 	}
+	if err := rejectUntrustedEvaluationEvidence(view.Comments); err != nil {
+		return "", fmt.Errorf("validate immutable pre-merge evaluation proof: %w", err)
+	}
 	receipts, err := evaluationReceipts(view.Comments)
 	if err != nil {
 		return "", fmt.Errorf("read immutable pre-merge evaluation proof: %w", err)

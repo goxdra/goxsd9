@@ -57,6 +57,7 @@ func TestRecoveryCleanupPlanRequiresClaimProof(t *testing.T) {
 func TestRecoveryUsesImmutableEvaluatedHeadAndRefusesAdvancedPR(t *testing.T) {
 	mergedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
 	const evaluatedHead = "evaluated-head"
+	recordedAt := mergedAt.Add(-time.Minute)
 	view := pullRequestView{
 		BaseRefName:    "main",
 		HeadRefName:    "agent/issue-55",
@@ -64,7 +65,7 @@ func TestRecoveryUsesImmutableEvaluatedHeadAndRefusesAdvancedPR(t *testing.T) {
 		Merged:         true,
 		MergedAt:       &mergedAt,
 		MergeCommitSHA: "merge-commit",
-		Comments:       []pullRequestComment{recoveryEvaluationReceipt(t, 14, evaluatedHead, mergedAt.Add(-time.Minute))},
+		Comments:       recoveryEvaluationHistory(t, 14, evaluatedHead, recordedAt),
 	}
 	view.ClosingIssuesReferences = append(view.ClosingIssuesReferences, struct {
 		Number int `json:"number"`
@@ -83,6 +84,35 @@ func TestRecoveryUsesImmutableEvaluatedHeadAndRefusesAdvancedPR(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "differs from immutable merge-time evaluated head") {
 		t.Fatalf("prepareRecoveryCleanupPlan error = %v, want advanced-head refusal", err)
 	}
+}
+
+func TestRecoveryRejectsReceiptOnlyEvaluationProof(t *testing.T) {
+	mergedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+	view := pullRequestView{
+		Merged:         true,
+		MergedAt:       &mergedAt,
+		MergeCommitSHA: "merge-commit",
+		Comments:       []pullRequestComment{recoveryEvaluationReceipt(t, 14, "evaluated-head", mergedAt.Add(-time.Minute))},
+	}
+	if _, err := mergeTimeEvaluatedHead(view, 14); err == nil || !strings.Contains(err.Error(), "matching trusted challenges") {
+		t.Fatalf("mergeTimeEvaluatedHead error = %v, want receipt-only refusal", err)
+	}
+}
+
+func recoveryEvaluationHistory(t *testing.T, number int, head string, recordedAt time.Time) []pullRequestComment {
+	t.Helper()
+	requestedAt := recordedAt.Add(-time.Minute)
+	challenge := evaluationChallenge{Challenge: "recovery-challenge", Head: head, PR: number, RequestedAt: requestedAt}
+	marker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("marshal recovery challenge: %v", err)
+	}
+	comment := pullRequestComment{
+		Body:      fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n", evaluationChallengeMarker, marker, head),
+		CreatedAt: requestedAt,
+	}
+	comment.Author.Login = trustedActor
+	return []pullRequestComment{comment, recoveryEvaluationReceipt(t, number, head, recordedAt)}
 }
 
 func recoveryEvaluationReceipt(t *testing.T, number int, head string, recordedAt time.Time) pullRequestComment {

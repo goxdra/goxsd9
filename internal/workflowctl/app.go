@@ -101,7 +101,7 @@ Usage:
   go tool workflowctl check [--skip-lint]
   go tool workflowctl docs check
   go tool workflowctl docs audit --base REF
-  go tool workflowctl history [--since 7d]
+  go tool workflowctl history [--since 7d] [--until RFC3339Nano] [--limit 30]
   go tool workflowctl base-sync
   go tool workflowctl sync              # Project status + claim-ref fetches; no base sync
   go tool workflowctl pick [--json]
@@ -118,6 +118,7 @@ Usage:
   go tool workflowctl claim prune ISSUE
   go tool workflowctl evaluation challenge PR
   go tool workflowctl evaluation record PR --attestation-file FILE
+  go tool workflowctl evaluation repair PR --round ROUND
   go tool workflowctl skill-eval [--case GLOB] [--jobs JOBS] [--list] [--model MODEL]
 `)
 	return err
