@@ -18,6 +18,14 @@
       "dependencies": ["xsd11-structures", "xml10", "xml11", "xml-names", "xml-names11", "xpath20", "xpath-datamodel", "xpath-functions"]
     },
     {
+      "id": "xsd-precisionDecimal",
+      "title": "An XSD datatype for IEEE floating-point decimal",
+      "url": "https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/",
+      "sha256": "e4dd98b3e61c48932243b0ad432d4d8640e8b5caa0d222c9650f7cc39a5b0060",
+      "xsdVersions": ["1.1"],
+      "dependencies": ["xsd11-datatypes"]
+    },
+    {
       "id": "xsd10-structures",
       "title": "XML Schema Part 1: Structures Second Edition",
       "url": "https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/",
