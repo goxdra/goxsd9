@@ -33,6 +33,21 @@ go tool workflowctl check
 There is no Makefile. Repeated work belongs in `workflowctl` or a focused Go
 tool.
 
+## Pinned specification corpus
+
+Build one manifest entry into verified, navigable artifacts under ignored `.cache`:
+
+```sh
+go tool specs build -id xsd11-structures
+go tool specs search -id xsd11-structures -query "content model"
+```
+
+`specs build` reads `specs/manifest.json`, verifies the raw HTTPS response
+against its SHA-256 digest, converts the declared representation, and writes
+the Markdown/XSD artifact and compact search index. Use `-root` outside the
+repository, `-output` for another generated directory, or `-index PATH` with
+`specs search` to search an existing index directly.
+
 ## Project workflow
 
 Executable work lives in [GitHub Issues](https://github.com/goxdra/goxsd9/issues)
