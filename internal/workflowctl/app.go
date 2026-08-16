@@ -20,6 +20,7 @@ const (
 type app struct {
 	ctx                   context.Context
 	executeCommand        commandExecutor
+	executeCommandWithEnv commandEnvironmentExecutor
 	skillEvalGraderAgent  skillEvalAgent
 	skillEvalProcessStart skillEvalProcessStarter
 	skillEvalSubjectAgent skillEvalAgent
@@ -61,6 +62,8 @@ func (a app) run(args []string) error {
 		return a.runCheck(args[1:])
 	case "claim":
 		return a.runClaim(args[1:])
+	case "coverage":
+		return a.runCoverage(args[1:])
 	case "docs":
 		return a.runDocs(args[1:])
 	case "doctor":
@@ -102,6 +105,7 @@ Usage:
   go tool workflowctl claim acquire ISSUE
   go tool workflowctl claim renew
   go tool workflowctl claim verify
+  go tool workflowctl coverage --base REF [--format text|json]
   go tool workflowctl backlog health
   go tool workflowctl issue create [flags]
   go tool workflowctl handoff ISSUE --body-file FILE
