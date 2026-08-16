@@ -1,0 +1,308 @@
+package specs
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestFetchVerifiesStatusAndChecksum(t *testing.T) {
+	body := []byte("pinned response")
+	cases := []fetchVerificationCase{
+		{
+			name:     "success",
+			status:   http.StatusOK,
+			digest:   testDigest(body),
+			wantData: body,
+		},
+		{
+			name:     "status",
+			status:   http.StatusNotFound,
+			digest:   testDigest(body),
+			wantCode: "specs.network.status",
+		},
+		{
+			name:     "checksum",
+			status:   http.StatusOK,
+			digest:   strings.Repeat("0", 64),
+			wantCode: "specs.provenance.digest",
+		},
+	}
+	for _, test := range cases {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			assertFetchVerification(t, test, body)
+		})
+	}
+}
+
+type fetchVerificationCase struct {
+	name     string
+	status   int
+	digest   string
+	wantCode string
+	wantData []byte
+}
+
+func assertFetchVerification(t *testing.T, test fetchVerificationCase, body []byte) {
+	t.Helper()
+	entry := testEntry("xml", test.digest)
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return testResponse(test.status, body), nil
+	})}
+	data, err := Fetch(context.Background(), client, entry)
+	if test.wantCode == "" {
+		if err != nil {
+			t.Fatalf("Fetch() error = %v", err)
+		}
+		if !bytes.Equal(data, test.wantData) {
+			t.Fatalf("Fetch() data = %q, want %q", data, test.wantData)
+		}
+		return
+	}
+	if err == nil {
+		t.Fatal("Fetch() error = nil")
+	}
+	assertErrorCode(t, err, test.wantCode)
+}
+
+func TestFetchPreservesReadAndCloseCauses(t *testing.T) {
+	readCause := errors.New("read cause")
+	closeCause := errors.New("close cause")
+	entry := testEntry("xml", strings.Repeat("0", 64))
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       errorBody{readErr: readCause, closeErr: closeCause},
+		}, nil
+	})}
+	_, err := Fetch(context.Background(), client, entry)
+	if err == nil {
+		t.Fatal("Fetch() error = nil")
+	}
+	assertErrorCode(t, err, "specs.network.read")
+	if !errors.Is(err, readCause) || !errors.Is(err, closeCause) {
+		t.Fatalf("Fetch() error = %v, want both read and close causes", err)
+	}
+}
+
+func TestRepresentationConversionRequiresPinnedWrapper(t *testing.T) {
+	content := []byte("<xs:schema>\n</xs:schema>\n")
+	raw := append([]byte(cdataPrefix), content...)
+	raw = append(raw, []byte(cdataSuffix+"\n")...)
+	entry := testEntry("html-cdata-pre", testDigest(raw))
+	converted, err := convert(entry, raw)
+	if err != nil {
+		t.Fatalf("convert() error = %v", err)
+	}
+	if !bytes.Equal(converted, content) {
+		t.Fatalf("convert() = %q, want %q", converted, content)
+	}
+
+	for _, malformed := range [][]byte{
+		append([]byte("<pre>"), []byte("body"+cdataSuffix+"\n")...),
+		append([]byte(cdataPrefix), []byte("body"+cdataSuffix+"\n\n")...),
+	} {
+		entry.SHA256 = testDigest(malformed)
+		_, generateErr := Generate(context.Background(), responseClient(http.StatusOK, malformed), entry)
+		if generateErr == nil {
+			t.Fatal("Generate() error = nil for malformed html-cdata-pre response")
+		}
+		assertErrorCode(t, generateErr, "specs.conversion.representation")
+	}
+	unsupported := testEntry("yaml", testDigest([]byte("body")))
+	_, err = convert(unsupported, []byte("body"))
+	if err == nil {
+		t.Fatal("convert() error = nil for unsupported representation")
+	}
+	assertErrorCode(t, err, "specs.conversion.representation")
+}
+
+func TestXHTMLRenderingPreservesNavigationAndIndexesFragments(t *testing.T) {
+	fixture := []byte(`<html>
+  <head><title>ignored</title><style>.ignored { color: red }</style></head>
+  <body>
+    <h1 id="intro">Introduction</h1>
+    <div>1 <a href="#intro">Introduction link</a></div>
+    <p id="paragraph">Read <a href="guide/next.html#details">the <code>example</code></a> and <a name="repeat"></a>the repeated target.</p>
+    <h2><a name="repeat" id="details"></a>Details</h2>
+    <pre id="sample"><![CDATA[<xs:element name="item"/>
+  value
+]]></pre>
+    <h3>No explicit target</h3>
+  </body>
+</html>`)
+	first, err := renderHTML("https://www.w3.org/TR/2020/demo/", fixture)
+	if err != nil {
+		t.Fatalf("renderHTML() error = %v", err)
+	}
+	second, err := renderHTML("https://www.w3.org/TR/2020/demo/", fixture)
+	if err != nil {
+		t.Fatalf("renderHTML() second error = %v", err)
+	}
+	if !bytes.Equal(first.data, second.data) {
+		t.Fatal("renderHTML() output changed between identical runs")
+	}
+	if !equalIndex(first.entries, second.entries) {
+		t.Fatal("renderHTML() index changed between identical runs")
+	}
+
+	output := string(first.data)
+	contains := []string{
+		`<a id="intro"></a>`,
+		"# Introduction",
+		"1 [Introduction link](#intro)",
+		`<a id="paragraph"></a>`,
+		`[the ` + "`example`" + `](https://www.w3.org/TR/2020/demo/guide/next.html#details)`,
+		`<a name="repeat"></a>the repeated target.`,
+		`<a name="repeat" id="details"></a>`,
+		"```\n<xs:element name=\"item\"/>\n  value\n```",
+		"### No explicit target",
+	}
+	for _, want := range contains {
+		if !strings.Contains(output, want) {
+			t.Fatalf("rendered output does not contain %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "ignored") || strings.Contains(output, "color: red") {
+		t.Fatalf("rendered output retained head content:\n%s", output)
+	}
+
+	wantIndex := []IndexEntry{
+		{Anchor: "intro", Level: 1, Occurrence: 1, Title: "Introduction"},
+		{Anchor: "paragraph", Level: 1, Occurrence: 1, Title: "Introduction"},
+		{Anchor: "repeat", Level: 1, Occurrence: 1, Title: "Introduction"},
+		{Anchor: "repeat", Level: 2, Occurrence: 2, Title: "Details"},
+		{Anchor: "details", Level: 2, Occurrence: 1, Title: "Details"},
+		{Anchor: "sample", Level: 2, Occurrence: 1, Title: "Details"},
+	}
+	if !equalIndex(first.entries, wantIndex) {
+		t.Fatalf("rendered index = %#v, want %#v", first.entries, wantIndex)
+	}
+}
+
+func TestWritePublishesDeterministicArtifacts(t *testing.T) {
+	outputDir := t.TempDir()
+	document := Document{
+		Entry: Entry{ID: "demo", Representation: "html"},
+		Data:  []byte("# Demo\n"),
+		Index: []IndexEntry{{Anchor: "demo", Level: 1, Occurrence: 1, Title: "Demo"}},
+	}
+	paths, err := Write(outputDir, document)
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if len(paths) != 2 {
+		t.Fatalf("Write() paths = %#v, want two artifacts", paths)
+	}
+	dataPath := filepath.Join(outputDir, "demo.md")
+	indexPath := filepath.Join(outputDir, "demo.index")
+	// #nosec G304 -- dataPath is constructed below t.TempDir().
+	data, err := os.ReadFile(dataPath)
+	if err != nil {
+		t.Fatalf("ReadFile(data) error = %v", err)
+	}
+	if string(data) != "# Demo\n" {
+		t.Fatalf("data artifact = %q", data)
+	}
+	writeErr := os.WriteFile(dataPath, []byte("old\n"), 0o600)
+	if writeErr != nil {
+		t.Fatalf("WriteFile(old) error = %v", writeErr)
+	}
+	document.Data = []byte("# Replaced\n")
+	_, replaceErr := Write(outputDir, document)
+	if replaceErr != nil {
+		t.Fatalf("Write() replacement error = %v", replaceErr)
+	}
+	// #nosec G304 -- dataPath is constructed below t.TempDir().
+	replaced, err := os.ReadFile(dataPath)
+	if err != nil {
+		t.Fatalf("ReadFile(replaced) error = %v", err)
+	}
+	if string(replaced) != "# Replaced\n" {
+		t.Fatalf("replaced artifact = %q", replaced)
+	}
+	_, statErr := os.Stat(indexPath)
+	if statErr != nil {
+		t.Fatalf("index artifact missing: %v", statErr)
+	}
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".goxsd9-specs-") {
+			t.Fatalf("temporary artifact left behind: %s", entry.Name())
+		}
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
+type errorBody struct {
+	readErr  error
+	closeErr error
+}
+
+func (body errorBody) Read([]byte) (int, error) {
+	return 0, body.readErr
+}
+
+func (body errorBody) Close() error {
+	return body.closeErr
+}
+
+func testEntry(representation, digest string) Entry {
+	return Entry{
+		ID:             "demo",
+		Representation: representation,
+		SHA256:         digest,
+		URL:            "https://www.w3.org/TR/2020/demo/",
+	}
+}
+
+func testResponse(status int, body []byte) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Status:     fmt.Sprintf("%d test status", status),
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+}
+
+func responseClient(status int, body []byte) *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return testResponse(status, body), nil
+	})}
+}
+
+func testDigest(data []byte) string {
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
+}
+
+func equalIndex(left, right []IndexEntry) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
