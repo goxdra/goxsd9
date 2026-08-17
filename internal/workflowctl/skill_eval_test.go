@@ -28,6 +28,7 @@ func TestLoadSkillEvalCasesSortsAndSeparatesExpectedBehavior(t *testing.T) {
 	writeSkillEvalTestFile(t, root, ".codex/agents/examiner.toml", "examiner policy")
 	writeSkillEvalTestFile(t, root, ".codex/agents/envoy.toml", "irrelevant envoy policy")
 	writeSkillEvalTestFile(t, root, ".codex/agents/steward.toml", "irrelevant steward policy")
+	writeSkillEvalTestFile(t, root, ".agents/skills/retro/SKILL.md", "retro policy")
 	writeSkillEvalTestFile(t, root, "evals/agent/develop/z-last.md", `# Last case
 
 Scenario: last input marker.
@@ -46,15 +47,22 @@ Scenario: nested input marker.
 
 Expected behavior: nested expected marker.
 `)
+	writeSkillEvalTestFile(t, root, "evals/agent/retro/catalog-vs-execution.md", `# Catalog versus execution
+
+Scenario: retro input marker.
+
+Expected behavior: retro expected marker.
+`)
 
 	cases, err := loadSkillEvalCases(root, "")
 	if err != nil {
 		t.Fatalf("loadSkillEvalCases: %v", err)
 	}
-	paths := []string{cases[0].path, cases[1].path, cases[2].path}
+	paths := []string{cases[0].path, cases[1].path, cases[2].path, cases[3].path}
 	want := []string{
 		"evals/agent/curator/a-first.md",
 		"evals/agent/develop/z-last.md",
+		"evals/agent/retro/catalog-vs-execution.md",
 		"evals/agent/review/nested/middle.md",
 	}
 	if !slices.Equal(paths, want) {
@@ -63,30 +71,27 @@ Expected behavior: nested expected marker.
 	if strings.Contains(cases[0].scenario, cases[0].expected) {
 		t.Fatal("scenario leaked expected behavior")
 	}
-	if !strings.Contains(cases[0].suite.policy, "curator policy") {
-		t.Fatal("curator case did not receive Curator policy")
+	if got, want := cases[0].suite.policy,
+		"--- AGENTS.md ---\nrepository policy\n--- .codex/agents/curator.toml ---\ncurator policy"; got != want {
+		t.Fatalf("curator policy = %q, want %q", got, want)
 	}
-	for _, marker := range []string{"develop policy", "scribe policy", "mason policy", "smith policy", "curator policy", "examiner policy"} {
-		if !strings.Contains(cases[1].suite.policy, marker) {
-			t.Fatalf("develop case did not receive %q", marker)
-		}
+	if got, want := cases[1].suite.policy,
+		"--- AGENTS.md ---\nrepository policy\n--- .agents/skills/develop/SKILL.md ---\ndevelop policy\n--- .codex/agents/scribe.toml ---\nscribe policy\n--- .codex/agents/mason.toml ---\nmason policy\n--- .codex/agents/smith.toml ---\nsmith policy\n--- .codex/agents/curator.toml ---\ncurator policy\n--- .codex/agents/examiner.toml ---\nexaminer policy"; got != want {
+		t.Fatalf("develop policy = %q, want %q", got, want)
 	}
-	for _, marker := range []string{"irrelevant envoy policy", "irrelevant steward policy"} {
-		if strings.Contains(cases[1].suite.policy, marker) {
-			t.Fatalf("develop case received irrelevant %q", marker)
-		}
-	}
-	if strings.Index(cases[1].suite.policy, "scribe policy") > strings.Index(cases[1].suite.policy, "mason policy") ||
-		strings.Index(cases[1].suite.policy, "mason policy") > strings.Index(cases[1].suite.policy, "smith policy") ||
-		strings.Index(cases[1].suite.policy, "smith policy") > strings.Index(cases[1].suite.policy, "curator policy") ||
-		strings.Index(cases[1].suite.policy, "curator policy") > strings.Index(cases[1].suite.policy, "examiner policy") {
-		t.Fatal("develop policy files were not loaded in configured order")
+	if got, want := cases[2].suite.policy,
+		"--- AGENTS.md ---\nrepository policy\n--- .agents/skills/retro/SKILL.md ---\nretro policy\n--- .codex/agents/steward.toml ---\nirrelevant steward policy"; got != want {
+		t.Fatalf("retro policy = %q, want %q", got, want)
 	}
 	if cases[0].suite == cases[1].suite {
 		t.Fatal("different suites shared one policy representation")
 	}
-	if cases[2].suite.name != "review" || !strings.Contains(cases[2].suite.policy, "examiner policy") {
-		t.Fatal("nested review case did not resolve the top-level review suite")
+	if cases[3].suite.name != "review" {
+		t.Fatalf("nested review suite = %q, want review", cases[3].suite.name)
+	}
+	if got, want := cases[3].suite.policy,
+		"--- AGENTS.md ---\nrepository policy\n--- .codex/agents/examiner.toml ---\nexaminer policy"; got != want {
+		t.Fatalf("review policy = %q, want %q", got, want)
 	}
 }
 
@@ -116,6 +121,17 @@ func TestLoadSkillEvalPolicyReportsMissingDevelopRole(t *testing.T) {
 	}
 }
 
+func TestLoadSkillEvalPolicyReportsMissingRetroSteward(t *testing.T) {
+	root := t.TempDir()
+	writeSkillEvalTestFile(t, root, "AGENTS.md", "repository policy")
+	writeSkillEvalTestFile(t, root, ".agents/skills/retro/SKILL.md", "retro policy")
+
+	_, err := loadSkillEvalPolicy(root, "retro")
+	if err == nil || !strings.Contains(err.Error(), ".codex/agents/steward.toml") {
+		t.Fatalf("loadSkillEvalPolicy error = %v, want missing Steward definition", err)
+	}
+}
+
 func TestSkillEvalPolicyFilesUseDeterministicSuiteRoles(t *testing.T) {
 	tests := []struct {
 		suite string
@@ -128,6 +144,9 @@ func TestSkillEvalPolicyFilesUseDeterministicSuiteRoles(t *testing.T) {
 			".codex/agents/examiner.toml",
 		}},
 		{suite: "review", want: []string{"AGENTS.md", ".codex/agents/examiner.toml"}},
+		{suite: "retro", want: []string{
+			"AGENTS.md", ".agents/skills/retro/SKILL.md", ".codex/agents/steward.toml",
+		}},
 	}
 	for _, test := range tests {
 		got, err := skillEvalPolicyFiles(test.suite)
