@@ -25,6 +25,23 @@ const (
 // The scenario byte is opaque corpus metadata and never supplies expected behavior.
 const evaluationEvidenceScenarioCount = 10
 
+type evaluationEvidenceReservedSequence struct {
+	value           string
+	receiptEvidence bool
+}
+
+// These literals intentionally mirror the production wire format without
+// sharing its validation implementation or sequence table.
+var evaluationEvidenceReservedSequences = [...]evaluationEvidenceReservedSequence{
+	{value: "<!-- workflowctl-evaluation ", receiptEvidence: true},
+	{value: "<!-- workflowctl-evaluation-attestation-base64 ", receiptEvidence: true},
+	{value: "<!-- workflowctl-evaluation-attestation ", receiptEvidence: true},
+	{value: "<!-- workflowctl-evaluation-report-base64-v1 ", receiptEvidence: true},
+	{value: "<!-- workflowctl-evaluation-repair-v1 ", receiptEvidence: true},
+	{value: "<!-- workflowctl-evaluation-challenge ", receiptEvidence: false},
+	{value: "## Examiner evaluation — round receipt\n\n", receiptEvidence: true},
+}
+
 type evaluationEvidenceFrame struct {
 	timestamp  time.Time
 	authorTags []byte
@@ -183,9 +200,6 @@ func independentlyValidateEvaluationEvidence(frame evaluationEvidenceFrame) (eva
 func expectedEvaluationEvidenceCommentSemantics(frame evaluationEvidenceFrame, index int) (
 	evaluationEvidenceCommentSemantics, bool) {
 	body := frame.bodies[index]
-	if expectedEvaluationEvidenceHasMarker(body, evaluationRepairMarker) {
-		return evaluationEvidenceCommentSemantics{}, false
-	}
 	if expectedEvaluationEvidenceHasMarker(body, evaluationChallengeMarker) {
 		if expectedEvaluationEvidenceHasReceiptEvidence(body) {
 			return evaluationEvidenceCommentSemantics{
@@ -205,6 +219,9 @@ func expectedEvaluationEvidenceCommentSemantics(frame evaluationEvidenceFrame, i
 				challenge:    challenge,
 			},
 		}, true
+	}
+	if expectedEvaluationEvidenceHasMarker(body, evaluationRepairMarker) {
+		return evaluationEvidenceCommentSemantics{}, false
 	}
 	if !expectedEvaluationEvidenceHasReceiptEvidence(body) {
 		if expectedEvaluationEvidenceHasAttestationEvidence(body) {
@@ -304,8 +321,15 @@ func expectedEvaluationEvidenceHasMarker(body []byte, marker string) bool {
 }
 
 func expectedEvaluationEvidenceHasReceiptEvidence(body []byte) bool {
-	return expectedEvaluationEvidenceHasMarker(body, evaluationMarker) ||
-		bytes.Contains(body, []byte(evaluationReceiptHeading))
+	for _, sequence := range evaluationEvidenceReservedSequences {
+		if !sequence.receiptEvidence {
+			continue
+		}
+		if bytes.Contains(body, []byte(sequence.value)) {
+			return true
+		}
+	}
+	return false
 }
 
 func expectedEvaluationEvidenceHasAttestationEvidence(body []byte) bool {
@@ -454,17 +478,16 @@ func expectedEvaluationEvidenceFindingsValid(attestation evaluationAttestation) 
 }
 
 func expectedEvaluationEvidenceAttestationTextValid(attestation evaluationAttestation) bool {
-	for _, sequence := range []string{
-		"<!-- " + evaluationMarker,
-		"<!-- " + evaluationAttestationBase64Marker,
-		"<!-- " + evaluationAttestationMarker,
-		"<!-- " + evaluationReportBase64Marker,
-		"<!-- " + evaluationRepairMarker,
-		"<!-- " + evaluationChallengeMarker,
-		evaluationReceiptHeading,
-	} {
-		if strings.Contains(attestation.Summary, sequence) {
-			return false
+	fields := make([]string, 0, 1+3*len(attestation.Findings))
+	fields = append(fields, attestation.Summary)
+	for _, finding := range attestation.Findings {
+		fields = append(fields, finding.Location, finding.Impact, finding.RequiredCorrection)
+	}
+	for _, field := range fields {
+		for _, sequence := range evaluationEvidenceReservedSequences {
+			if strings.Contains(field, sequence.value) {
+				return false
+			}
 		}
 	}
 	return true
