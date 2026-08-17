@@ -2,6 +2,7 @@ package workflowctl
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 type commandExecutor func(dir string, input io.Reader, name string, args ...string) (string, error)
 type commandEnvironmentExecutor func(dir string, env []string, input io.Reader, name string, args ...string) (string, error)
+type commandContextEnvironmentExecutor func(ctx context.Context, dir string, env []string, input io.Reader, name string, args ...string) (string, error)
 
 func (a app) command(dir, name string, args ...string) (string, error) {
 	return a.commandInput(dir, nil, name, args...)
@@ -30,6 +32,36 @@ func (a app) commandOutput(dir string, input io.Reader, trim bool, name string, 
 
 func (a app) commandWithEnv(dir string, env []string, name string, args ...string) (string, error) {
 	return a.commandOutputWithEnv(dir, env, nil, true, name, args...)
+}
+
+func (a app) commandOutputWithContextAndEnv(ctx context.Context, dir string, env []string, input io.Reader,
+	name string, args ...string,
+) (string, error) {
+	if a.executeCommandWithContextAndEnv != nil {
+		return a.executeCommandWithContextAndEnv(ctx, dir, env, input, name, args...)
+	}
+	if len(env) != 0 && a.executeCommandWithEnv != nil {
+		return a.executeCommandWithEnv(dir, env, input, name, args...)
+	}
+	if a.executeCommand != nil {
+		return a.executeCommand(dir, input, name, args...)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// #nosec G204 -- callers select repository-owned commands and fixed arguments.
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	cmd.Stdin = input
+	if len(env) != 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	err := cmd.Run()
+	return output.String(), err
 }
 
 func (a app) commandOutputWithEnv(dir string, env []string, input io.Reader, trim bool, name string, args ...string) (string, error) {
