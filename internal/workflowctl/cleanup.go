@@ -535,7 +535,7 @@ func (a app) validateClaimWorktrees(root string, worktrees []gitWorktree) error 
 
 func (a app) removeClaimWorktrees(root string, worktrees []gitWorktree) error {
 	for _, worktree := range worktrees {
-		if _, err := a.command(root, "git", "worktree", "remove", worktree.path); err != nil {
+		if _, err := a.command(root, "git", "worktree", "remove", "--force", worktree.path); err != nil {
 			return fmt.Errorf("remove clean claim worktree %q: %w", worktree.path, err)
 		}
 	}
