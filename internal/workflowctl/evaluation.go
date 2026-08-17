@@ -577,6 +577,9 @@ func readEvaluationAttestation(path string) (evaluationAttestation, []byte, erro
 		return evaluationAttestation{}, nil, fmt.Errorf("read Examiner attestation: %w", err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
+	if duplicateErr := rejectDuplicateJSONKeys(data); duplicateErr != nil {
+		return evaluationAttestation{}, nil, fmt.Errorf("decode Examiner attestation: %w", duplicateErr)
+	}
 	decoder.DisallowUnknownFields()
 	var attestation evaluationAttestation
 	if decodeErr := decoder.Decode(&attestation); decodeErr != nil {
@@ -715,6 +718,9 @@ func parseEvaluationChallenge(body string) (evaluationChallenge, bool) {
 		return evaluationChallenge{}, false
 	}
 	decoder := json.NewDecoder(bytes.NewReader(value))
+	if rejectDuplicateJSONKeys(value) != nil {
+		return evaluationChallenge{}, false
+	}
 	decoder.DisallowUnknownFields()
 	var challenge evaluationChallenge
 	if err := decoder.Decode(&challenge); err != nil {
@@ -1191,6 +1197,9 @@ func parseEvaluationReceipt(body string) (evaluationReceipt, bool) {
 		return evaluationReceipt{}, false
 	}
 	decoder := json.NewDecoder(bytes.NewReader(value))
+	if rejectDuplicateJSONKeys(value) != nil {
+		return evaluationReceipt{}, false
+	}
 	decoder.DisallowUnknownFields()
 	var receipt evaluationReceipt
 	if err := decoder.Decode(&receipt); err != nil {
@@ -1282,6 +1291,9 @@ func parseEvaluationRepair(body string) (evaluationRepair, bool) {
 		return evaluationRepair{}, false
 	}
 	decoder := json.NewDecoder(bytes.NewReader(value))
+	if rejectDuplicateJSONKeys(value) != nil {
+		return evaluationRepair{}, false
+	}
 	decoder.DisallowUnknownFields()
 	var repair evaluationRepair
 	if err := decoder.Decode(&repair); err != nil {
@@ -1318,6 +1330,9 @@ func receiptAttestation(record evaluationReceiptRecord) (evaluationAttestation, 
 		return evaluationAttestation{}, nil, nil, false
 	}
 	if err := validateEvaluationFindings(attestation); err != nil {
+		return evaluationAttestation{}, nil, nil, false
+	}
+	if err := validateEvaluationAttestationText(attestation); err != nil {
 		return evaluationAttestation{}, nil, nil, false
 	}
 	return attestation, raw, canonicalEvaluationReport(renderEvaluationReport(attestation)), true
@@ -1407,6 +1422,91 @@ func requireJSONEnd(decoder *json.Decoder) error {
 		return err
 	}
 	return errors.New("JSON marker contains more than one value")
+}
+
+func rejectDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := scanEvaluationJSONValue(decoder); err != nil {
+		return fmt.Errorf("scan evaluation JSON: %w", err)
+	}
+	if err := requireJSONEnd(decoder); err != nil {
+		return fmt.Errorf("scan evaluation JSON trailer: %w", err)
+	}
+	return nil
+}
+
+func scanEvaluationJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		return scanEvaluationJSONObject(decoder)
+	case '[':
+		return scanEvaluationJSONArray(decoder)
+	default:
+		return fmt.Errorf("unexpected evaluation JSON delimiter %q", delimiter)
+	}
+}
+
+func scanEvaluationJSONObject(decoder *json.Decoder) error {
+	var keys []string
+	for decoder.More() {
+		key, err := scanEvaluationJSONKey(decoder)
+		if err != nil {
+			return err
+		}
+		for _, seen := range keys {
+			if seen == key {
+				return fmt.Errorf("evaluation JSON object key %q is duplicated", key)
+			}
+		}
+		keys = append(keys, key)
+		if err := scanEvaluationJSONValue(decoder); err != nil {
+			return err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if closing != json.Delim('}') {
+		return errors.New("evaluation JSON object is not closed")
+	}
+	return nil
+}
+
+func scanEvaluationJSONArray(decoder *json.Decoder) error {
+	for decoder.More() {
+		if err := scanEvaluationJSONValue(decoder); err != nil {
+			return err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if closing != json.Delim(']') {
+		return errors.New("evaluation JSON array is not closed")
+	}
+	return nil
+}
+
+func scanEvaluationJSONKey(decoder *json.Decoder) (string, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return "", err
+	}
+	key, ok := token.(string)
+	if !ok {
+		return "", errors.New("evaluation JSON object key is not a string")
+	}
+	return key, nil
 }
 
 func sha256Hex(data []byte) string {
@@ -1582,6 +1682,9 @@ func parseCommentAttestation(body string) (evaluationAttestation, []byte, bool) 
 		value = decoded
 	}
 	decoder := json.NewDecoder(bytes.NewReader(value))
+	if rejectDuplicateJSONKeys(value) != nil {
+		return evaluationAttestation{}, nil, false
+	}
 	decoder.DisallowUnknownFields()
 	var attestation evaluationAttestation
 	if err := decoder.Decode(&attestation); err != nil {
