@@ -58,6 +58,8 @@ func (a app) run(args []string) error {
 	switch args[0] {
 	case "backlog":
 		return a.runBacklog(args[1:])
+	case "base-sync":
+		return a.runBaseSync(args[1:])
 	case "check":
 		return a.runCheck(args[1:])
 	case "claim":
@@ -99,8 +101,9 @@ Usage:
   go tool workflowctl check [--skip-lint]
   go tool workflowctl docs check
   go tool workflowctl docs audit --base REF
-  go tool workflowctl history [--since 7d] [--until RFC3339] [--limit 30]
-  go tool workflowctl sync
+  go tool workflowctl history [--since 7d] [--until RFC3339Nano] [--limit 30]
+  go tool workflowctl base-sync
+  go tool workflowctl sync              # Project status + claim-ref fetches; no base sync
   go tool workflowctl pick [--json]
   go tool workflowctl claim acquire ISSUE
   go tool workflowctl claim renew
@@ -111,6 +114,8 @@ Usage:
   go tool workflowctl handoff ISSUE --body-file FILE
   go tool workflowctl pr open ISSUE --title TITLE --body-file FILE
   go tool workflowctl pr finish PR --summary-file FILE
+  go tool workflowctl pr recover PR
+  go tool workflowctl claim prune ISSUE
   go tool workflowctl evaluation challenge PR
   go tool workflowctl evaluation record PR --attestation-file FILE
   go tool workflowctl evaluation repair PR --round ROUND

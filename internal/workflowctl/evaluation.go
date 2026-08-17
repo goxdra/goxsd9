@@ -50,13 +50,16 @@ type pullRequestView struct {
 	ClosingIssuesReferences []struct {
 		Number int `json:"number"`
 	} `json:"closingIssuesReferences"`
-	Comments    []pullRequestComment `json:"comments"`
-	HeadRefName string               `json:"headRefName"`
-	HeadRefOID  string               `json:"headRefOid"`
-	IsDraft     bool                 `json:"isDraft"`
-	State       string               `json:"state"`
-	Title       string               `json:"title"`
-	URL         string               `json:"url"`
+	Comments       []pullRequestComment `json:"comments"`
+	HeadRefName    string               `json:"headRefName"`
+	HeadRefOID     string               `json:"headRefOid"`
+	IsDraft        bool                 `json:"isDraft"`
+	Merged         bool                 `json:"merged"`
+	MergedAt       *time.Time           `json:"mergedAt"`
+	MergeCommitSHA string               `json:"mergeCommitSha"`
+	State          string               `json:"state"`
+	Title          string               `json:"title"`
+	URL            string               `json:"url"`
 }
 
 type pullRequestComment struct {
@@ -68,7 +71,10 @@ type pullRequestComment struct {
 }
 
 type pullRequestAPI struct {
-	Base struct {
+	Merged         bool       `json:"merged"`
+	MergedAt       *time.Time `json:"merged_at"`
+	MergeCommitSHA string     `json:"merge_commit_sha"`
+	Base           struct {
 		Ref string `json:"ref"`
 	} `json:"base"`
 	Body  string `json:"body"`
@@ -91,17 +97,28 @@ type issueCommentAPI struct {
 }
 
 type evaluationReceipt struct {
-	AttestationSHA256 string    `json:"attestationSHA256,omitempty"`
-	Challenge         string    `json:"challenge,omitempty"`
-	Evaluator         string    `json:"evaluator"`
-	EvaluatorRunID    string    `json:"evaluatorRunID,omitempty"`
-	Head              string    `json:"head"`
-	PR                int       `json:"pullRequest,omitempty"`
-	RecordedAt        time.Time `json:"recordedAt"`
-	ReportSHA256      string    `json:"reportSHA256"`
-	ReportTransport   string    `json:"reportTransport,omitempty"`
-	Round             int       `json:"round"`
-	Verdict           string    `json:"verdict"`
+	AttestationSHA256 string                 `json:"attestationSHA256,omitempty"`
+	BaseRefName       string                 `json:"baseRefName,omitempty"`
+	Challenge         string                 `json:"challenge,omitempty"`
+	ClaimProofs       []evaluationClaimProof `json:"claimProofs,omitempty"`
+	ClosingIssues     []int                  `json:"closingIssues,omitempty"`
+	Evaluator         string                 `json:"evaluator"`
+	EvaluatorRunID    string                 `json:"evaluatorRunID,omitempty"`
+	Head              string                 `json:"head"`
+	HeadRefName       string                 `json:"headRefName,omitempty"`
+	BodySHA256        string                 `json:"bodySHA256,omitempty"`
+	PR                int                    `json:"pullRequest,omitempty"`
+	RecordedAt        time.Time              `json:"recordedAt"`
+	ReportSHA256      string                 `json:"reportSHA256"`
+	ReportTransport   string                 `json:"reportTransport,omitempty"`
+	Round             int                    `json:"round"`
+	Verdict           string                 `json:"verdict"`
+}
+
+type evaluationClaimProof struct {
+	Issue  int    `json:"issue"`
+	Branch string `json:"branch"`
+	SHA    string `json:"sha"`
 }
 
 type evaluationRepair struct {
@@ -422,14 +439,23 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 		time.Now().UTC()); validationErr != nil {
 		return stateError("reject Examiner attestation: %v", validationErr)
 	}
+	claimProofs, err := a.evaluationClaimProofs(root, view, primary)
+	if err != nil {
+		return err
+	}
 	report := renderEvaluationReport(attestation)
 	canonicalReport := canonicalEvaluationReport(report)
 	receipt := evaluationReceipt{
 		AttestationSHA256: sha256Hex(attestationJSON),
+		BaseRefName:       view.BaseRefName,
 		Challenge:         attestation.Challenge,
+		ClaimProofs:       claimProofs,
+		ClosingIssues:     closingIssueNumbers(view.Body),
 		Evaluator:         attestation.Evaluator,
 		EvaluatorRunID:    attestation.RunID,
 		Head:              attestation.Head,
+		HeadRefName:       view.HeadRefName,
+		BodySHA256:        sha256Hex([]byte(view.Body)),
 		PR:                attestation.PR,
 		RecordedAt:        time.Now().UTC().Truncate(time.Second),
 		ReportSHA256:      sha256Hex(canonicalReport),
@@ -452,6 +478,51 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 	}
 	return writeLine(a.stdout, "PR #%d evaluation round %d: %s (%s)", number, receipt.Round,
 		attestation.Verdict, view.HeadRefOID)
+}
+
+func (a app) evaluationClaimProofs(root string, view pullRequestView, primary int) ([]evaluationClaimProof, error) {
+	proofs := []evaluationClaimProof{{Issue: primary, Branch: view.HeadRefName, SHA: view.HeadRefOID}}
+	if len(view.ClosingIssuesReferences) < 2 {
+		return proofs, nil
+	}
+	claims, err := a.listRemoteClaims(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, issue := range view.ClosingIssuesReferences {
+		if issue.Number == primary {
+			continue
+		}
+		claim, err := a.findActiveCompanionClaim(root, issue.Number, view.HeadRefOID, claims)
+		if err != nil {
+			return nil, err
+		}
+		proofs = append(proofs, evaluationClaimProof{Issue: issue.Number, Branch: claim.branch, SHA: claim.sha})
+	}
+	return proofs, nil
+}
+
+func (a app) findActiveCompanionClaim(root string, issue int, head string, claims []remoteClaim) (remoteClaim, error) {
+	candidates := make([]remoteClaim, 0, 1)
+	for _, claim := range claims {
+		if claim.number != issue || !claim.active {
+			continue
+		}
+		if _, err := a.command(root, "git", "merge-base", "--is-ancestor", claim.sha, head); err != nil {
+			if isGitNonAncestor(err) {
+				continue
+			}
+			return remoteClaim{}, fmt.Errorf("prove companion issue #%d claim %s is included in evaluated head: %w", issue, claim.branch, err)
+		}
+		candidates = append(candidates, claim)
+	}
+	if len(candidates) == 1 {
+		return candidates[0], nil
+	}
+	if len(candidates) > 1 {
+		return remoteClaim{}, stateError("companion issue #%d has ambiguous active claims in evaluated head %s", issue, head)
+	}
+	return remoteClaim{}, stateError("companion issue #%d has no active claim", issue)
 }
 
 func (a app) readEvaluationTarget(number int) (string, pullRequestView, int, error) {
@@ -758,23 +829,31 @@ func (a app) readPullRequest(root string, number int) (pullRequestView, error) {
 	if err != nil {
 		return pullRequestView{}, err
 	}
+	view := pullRequestViewFromAPI(response)
+	view.Comments = comments
+	return view, nil
+}
+
+func pullRequestViewFromAPI(response pullRequestAPI) pullRequestView {
 	view := pullRequestView{
-		BaseRefName: response.Base.Ref,
-		Body:        response.Body,
-		Comments:    comments,
-		HeadRefName: response.Head.Ref,
-		HeadRefOID:  response.Head.SHA,
-		IsDraft:     response.Draft,
-		State:       strings.ToUpper(response.State),
-		Title:       response.Title,
-		URL:         response.URL,
+		BaseRefName:    response.Base.Ref,
+		Body:           response.Body,
+		HeadRefName:    response.Head.Ref,
+		HeadRefOID:     response.Head.SHA,
+		IsDraft:        response.Draft,
+		Merged:         response.Merged || response.MergedAt != nil,
+		MergedAt:       response.MergedAt,
+		MergeCommitSHA: response.MergeCommitSHA,
+		State:          strings.ToUpper(response.State),
+		Title:          response.Title,
+		URL:            response.URL,
 	}
 	for _, issue := range closingIssueNumbers(response.Body) {
 		view.ClosingIssuesReferences = append(view.ClosingIssuesReferences, struct {
 			Number int `json:"number"`
 		}{Number: issue})
 	}
-	return view, nil
+	return view
 }
 
 func (a app) readPullRequestComments(root string, number int) ([]pullRequestComment, error) {
@@ -1132,7 +1211,69 @@ func parseEvaluationReceipt(body string) (evaluationReceipt, bool) {
 		receipt.EvaluatorRunID == "" || receipt.PR < 1) {
 		return evaluationReceipt{}, false
 	}
+	if !validEvaluationReceiptMetadata(receipt) {
+		return evaluationReceipt{}, false
+	}
 	return receipt, true
+}
+
+func validEvaluationReceiptMetadata(receipt evaluationReceipt) bool {
+	hasMetadata := receipt.BaseRefName != "" || len(receipt.ClosingIssues) != 0 || receipt.HeadRefName != "" ||
+		receipt.BodySHA256 != "" || receipt.ClaimProofs != nil
+	if !hasMetadata {
+		return true
+	}
+	if receipt.BaseRefName == "" || receipt.HeadRefName == "" || !validSHA256(receipt.BodySHA256) ||
+		len(receipt.ClosingIssues) == 0 {
+		return false
+	}
+	if !validEvaluationIssueList(receipt.ClosingIssues) {
+		return false
+	}
+	if receipt.ClaimProofs == nil {
+		return len(receipt.ClosingIssues) == 1
+	}
+	return validEvaluationClaimProofs(receipt.ClosingIssues, receipt.ClaimProofs)
+}
+
+func validEvaluationIssueList(issues []int) bool {
+	seen := make(map[int]struct{}, len(issues))
+	for _, issue := range issues {
+		if issue < 1 {
+			return false
+		}
+		if _, ok := seen[issue]; ok {
+			return false
+		}
+		seen[issue] = struct{}{}
+	}
+	return true
+}
+
+func validEvaluationClaimProofs(issues []int, proofs []evaluationClaimProof) bool {
+	if len(proofs) != len(issues) {
+		return false
+	}
+	seen := make(map[int]struct{}, len(proofs))
+	for _, proof := range proofs {
+		if proof.Issue < 1 || proof.Branch == "" || proof.SHA == "" {
+			return false
+		}
+		issue, ok := issueFromBranch(proof.Branch)
+		if !ok || issue != proof.Issue {
+			return false
+		}
+		if _, ok := seen[proof.Issue]; ok {
+			return false
+		}
+		seen[proof.Issue] = struct{}{}
+	}
+	for _, issue := range issues {
+		if _, ok := seen[issue]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func parseEvaluationRepair(body string) (evaluationRepair, bool) {
@@ -1297,6 +1438,9 @@ func latestEvaluationPasses(view pullRequestView, number int) (bool, error) {
 		latest.Verdict != "pass" {
 		return false, nil
 	}
+	if err := evaluationReceiptMatchesCurrentPR(latest, view); err != nil {
+		return false, err
+	}
 	uses := 0
 	runUses := 0
 	for _, record := range history.receipts {
@@ -1309,6 +1453,52 @@ func latestEvaluationPasses(view pullRequestView, number int) (bool, error) {
 		}
 	}
 	return uses == 1 && runUses == 1, nil
+}
+
+func latestPassingEvaluationReceipt(view pullRequestView, number int) (evaluationReceipt, error) {
+	history, err := parseEvaluationHistory(view.Comments)
+	if err != nil {
+		return evaluationReceipt{}, err
+	}
+	if err := validateEvaluationHistory(history); err != nil {
+		return evaluationReceipt{}, err
+	}
+	if len(history.receipts) == 0 {
+		return evaluationReceipt{}, errors.New("no trusted evaluation receipt")
+	}
+	latest := history.receipts[len(history.receipts)-1].receipt
+	if latest.AttestationSHA256 == "" || latest.Head != view.HeadRefOID || latest.PR != number || latest.Verdict != "pass" {
+		return evaluationReceipt{}, fmt.Errorf("latest trusted evaluation receipt is not a passing proof for the current head (receipt head=%q PR=%d verdict=%q, current head=%q PR=%d)", latest.Head, latest.PR, latest.Verdict, view.HeadRefOID, number)
+	}
+	if !hasEvaluationReceiptMetadata(latest) {
+		return evaluationReceipt{}, errors.New("latest passing evaluation lacks immutable PR metadata; request a fresh challenge-bound Examiner attestation")
+	}
+	if len(latest.ClosingIssues) > 1 && latest.ClaimProofs == nil {
+		return evaluationReceipt{}, errors.New("latest passing evaluation lacks immutable companion claim proof; request a fresh challenge-bound Examiner attestation")
+	}
+	if err := evaluationReceiptMatchesCurrentPR(latest, view); err != nil {
+		return evaluationReceipt{}, err
+	}
+	return latest, nil
+}
+
+func evaluationReceiptMatchesCurrentPR(receipt evaluationReceipt, view pullRequestView) error {
+	if !hasEvaluationReceiptMetadata(receipt) {
+		return nil
+	}
+	if receipt.BaseRefName != view.BaseRefName {
+		return errors.New("latest passing evaluation does not match current PR base; request a fresh challenge-bound Examiner attestation")
+	}
+	if receipt.HeadRefName != view.HeadRefName {
+		return errors.New("latest passing evaluation does not match current PR head ref; request a fresh challenge-bound Examiner attestation")
+	}
+	if !sameIssueNumbers(receipt.ClosingIssues, closingIssueNumbers(view.Body)) {
+		return errors.New("latest passing evaluation does not match current PR closure; request a fresh challenge-bound Examiner attestation")
+	}
+	if receipt.BodySHA256 != sha256Hex([]byte(view.Body)) {
+		return errors.New("latest passing evaluation does not match current PR body; request a fresh challenge-bound Examiner attestation")
+	}
+	return nil
 }
 
 func evaluationReceiptMatchesRecord(record evaluationReceiptRecord, repairs []evaluationRepairRecord) bool {

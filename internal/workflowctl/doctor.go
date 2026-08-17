@@ -22,6 +22,16 @@ func (a app) runDoctor(args []string) error {
 	if err != nil {
 		return err
 	}
+	baseDetail, baseErr := a.checkDevelopLaunch(root)
+	if baseErr != nil {
+		if err := writeLine(a.stdout, "[fail] Git base: %v", baseErr); err != nil {
+			return fmt.Errorf("write doctor result: %w", err)
+		}
+		return stateError("doctor found 1 environment failure(s)")
+	}
+	if err := writeLine(a.stdout, "[ok] Git base: %s", firstLine(baseDetail)); err != nil {
+		return fmt.Errorf("write doctor result: %w", err)
+	}
 
 	checks := []doctorCheck{
 		{name: "Go", run: a.checkGo},
@@ -93,6 +103,51 @@ func (a app) checkOrigin(root string) (string, error) {
 		return "", fmt.Errorf("origin %q is not %s", remote, repositoryKey)
 	}
 	return remote, nil
+}
+
+func (a app) checkDevelopLaunch(callerRoot string) (string, error) {
+	layout, err := a.repositoryLayout(callerRoot)
+	if err != nil {
+		return "", err
+	}
+	if !samePath(callerRoot, layout.primaryRoot) {
+		return "", stateError("scheduled Develop must launch from canonical primary checkout %q, not linked or nested checkout %q; run %s in the primary, then relaunch", layout.primaryRoot, callerRoot, baseSyncCommand)
+	}
+	primary, err := a.cleanPrimary(layout)
+	if err != nil {
+		return "", err
+	}
+	fetched, err := a.fetchBase(primary)
+	if err != nil {
+		return "", err
+	}
+	if fetched.ahead != 0 || fetched.behind != 0 {
+		return "", stateError("canonical main %s fetched origin/main (local-only=%d, remote-only=%d); run %s before the next Develop launch", relationDescription(fetched.ahead, fetched.behind), fetched.ahead, fetched.behind, baseSyncCommand)
+	}
+	if submoduleErr := a.checkPinnedSubmodules(layout.primaryRoot); submoduleErr != nil {
+		return "", fmt.Errorf("canonical primary is not recursively pinned and ready: %w; run %s", submoduleErr, baseSyncCommand)
+	}
+	final, finalErr := a.fetchBase(primary)
+	if finalErr != nil {
+		return "", fmt.Errorf("recheck canonical base after recursive submodule readiness: %w; run %s", finalErr, baseSyncCommand)
+	}
+	if final.ahead != 0 || final.behind != 0 {
+		return "", stateError("canonical main changed after recursive submodule readiness (%s fetched origin/main, local-only=%d, remote-only=%d); run %s before the next Develop launch", relationDescription(final.ahead, final.behind), final.ahead, final.behind, baseSyncCommand)
+	}
+	return fmt.Sprintf("%s (main %s equals fetched origin/main; recursive submodules ready)", layout.primaryRoot, final.origin), nil
+}
+
+func relationDescription(ahead, behind int) string {
+	if ahead == 0 && behind == 0 {
+		return "equals"
+	}
+	if ahead == 0 {
+		return "is behind"
+	}
+	if behind == 0 {
+		return "is ahead of"
+	}
+	return "diverges from"
 }
 
 func (a app) checkProject(root string) (string, error) {

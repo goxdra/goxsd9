@@ -54,7 +54,7 @@ func (a app) runHistory(args []string) error {
 	flags := flag.NewFlagSet("history", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	sinceText := flags.String("since", "7d", "inclusive history-window start")
-	untilText := flags.String("until", "", "inclusive history-window end (date or RFC3339)")
+	untilText := flags.String("until", "", "inclusive history-window end (date or RFC3339Nano)")
 	limit := flags.Int("limit", 30, "maximum entries per section")
 	if err := flags.Parse(args); err != nil {
 		return usageError("history: %v", err)

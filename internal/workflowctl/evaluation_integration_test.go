@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -65,6 +66,91 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	checkMergeResult(t, backend)
 }
 
+func TestFinishRejectsEvaluationMetadataDrift(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	var stdout bytes.Buffer
+	application := app{
+		ctx:            context.Background(),
+		executeCommand: backend.execute,
+		stdout:         &stdout,
+		stderr:         new(bytes.Buffer),
+	}
+	challenge := requestTestChallenge(t, &application, &stdout)
+	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record evaluation: %v", err)
+	}
+	backend.body += "\nReviewed metadata drift.\n"
+	if err := application.runPR(backend.finishArgs()); err == nil || !strings.Contains(err.Error(), "evaluation") {
+		t.Fatalf("finish with body drift error = %v, want metadata-bound refusal", err)
+	}
+	if backend.merged {
+		t.Fatal("metadata drift reached the merge endpoint")
+	}
+}
+
+func TestAmbiguousMergeResponsesReconcile(t *testing.T) {
+	tests := []struct {
+		name string
+		mode string
+	}{
+		{name: "transport loss", mode: "transport"},
+		{name: "malformed JSON", mode: "malformed"},
+		{name: "missing SHA", mode: "missing-sha"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			backend.mergeResponseMode = test.mode
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			application := app{
+				ctx:            context.Background(),
+				executeCommand: backend.execute,
+				stdout:         &stdout,
+				stderr:         &stderr,
+			}
+			challenge := requestTestChallenge(t, &application, &stdout)
+			_, attestationFile := writeTestAttestation(t, backend.head, challenge)
+			if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+				t.Fatalf("record evaluation: %v", err)
+			}
+			stdout.Reset()
+			if err := application.runPR(backend.finishArgs()); err != nil {
+				t.Fatalf("finish %s merge response: %v", test.mode, err)
+			}
+			checkMergeResult(t, backend)
+			if !strings.Contains(stdout.String(), "merged at evaluated head evaluated-head as merge-commit") {
+				t.Fatalf("finish output = %q, want reconciled merge", stdout.String())
+			}
+		})
+	}
+}
+
+func TestAmbiguousMergeResponseRejectsPostMergeMetadataDrift(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	backend.mergeResponseMode = "transport"
+	backend.mutatePRBodyAfterMerge = true
+	var stdout bytes.Buffer
+	application := app{
+		ctx:            context.Background(),
+		executeCommand: backend.execute,
+		stdout:         &stdout,
+		stderr:         new(bytes.Buffer),
+	}
+	challenge := requestTestChallenge(t, &application, &stdout)
+	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record evaluation: %v", err)
+	}
+	err := application.runPR(backend.finishArgs())
+	if err == nil || !strings.Contains(err.Error(), "body") || !strings.Contains(err.Error(), "pr recover 14") {
+		t.Fatalf("ambiguous drift error = %v, want body-drift recovery refusal", err)
+	}
+	if !backend.merged {
+		t.Fatal("ambiguous merge response did not record completed merge")
+	}
+}
 func TestEvaluationRecordRejectsReservedAttestationSequences(t *testing.T) {
 	fields := []struct {
 		name  string
@@ -320,6 +406,18 @@ func TestEvaluationRepairRejectsUnsafeEvidence(t *testing.T) {
 				t.Fatal("rejected repair appended a comment")
 			}
 		})
+	}
+}
+
+func TestUnknownMergeOutcomeGuidesRecovery(t *testing.T) {
+	ambiguous := errors.New("merge endpoint transport failed")
+	reconciliation := errors.New("PR is still open")
+	err := mergeOutcomeUnknownError(14, ambiguous, reconciliation)
+	if !strings.Contains(err.Error(), "merge state is unknown") || !strings.Contains(err.Error(), "go tool workflowctl pr recover 14") {
+		t.Fatalf("mergeOutcomeUnknownError = %v, want recovery guidance", err)
+	}
+	if !errors.Is(err, ambiguous) || !errors.Is(err, reconciliation) {
+		t.Fatalf("mergeOutcomeUnknownError = %v, want both causes", err)
 	}
 }
 
@@ -824,6 +922,10 @@ type workflowBackend struct {
 	mergeRequest               mergePullRequestRequest
 	merged                     bool
 	projectDone                bool
+	mergeResponseMode          string
+	mutatePRBodyAfterMerge     bool
+	mergeSHA                   string
+	mergedAt                   time.Time
 	removeSummaryOnNextCommand bool
 }
 
@@ -837,12 +939,13 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 		t.Fatalf("write summary: %v", err)
 	}
 	return &workflowBackend{
-		t: t, root: "/repo", branch: "agent/issue-13", head: "evaluated-head",
+		t: t, root: "/primary-worktrees/issue-13", branch: "agent/issue-13", head: "evaluated-head",
 		body:          "## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n",
 		summary:       summary,
 		summaryFile:   summaryFile,
 		title:         "test(workflow): exercise evaluation flow",
 		workCommitLog: framedCommitLog("test(workflow): exercise evaluation flow", "chore(workflow): claim issue #13"),
+		mergeSHA:      "merge-commit",
 	}
 }
 
@@ -867,7 +970,7 @@ func (b *workflowBackend) execute(dir string, input io.Reader, name string, args
 		}
 	}
 	if name == "git" {
-		return b.executeGit(args)
+		return b.executeGit(dir, args)
 	}
 	if name == "gh" {
 		return b.executeGitHub(data, args)
@@ -875,12 +978,88 @@ func (b *workflowBackend) execute(dir string, input io.Reader, name string, args
 	return "", fmt.Errorf("unexpected command in %s: %s %s", dir, name, strings.Join(args, " "))
 }
 
-func (b *workflowBackend) executeGit(args []string) (string, error) {
-	switch strings.Join(args, " ") {
+func (b *workflowBackend) executeGit(dir string, args []string) (string, error) {
+	command := strings.Join(args, " ")
+	if output, ok := b.executeGitBase(dir, command); ok {
+		return output, nil
+	}
+	return b.executeGitClaim(dir, command)
+}
+
+func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
+	if output, ok := b.executeGitArtifact(command); ok {
+		return output, true
+	}
+	if dir == "/primary" && command == "rev-parse HEAD" {
+		return b.mergeSHA, true
+	}
+	switch command {
 	case "rev-parse --show-toplevel":
-		return b.root, nil
+		return b.root, true
+	case "rev-parse --path-format=absolute --git-common-dir":
+		return "/primary/.git", true
+	case "worktree list --porcelain":
+		return "worktree /primary\nHEAD merge-commit\nbranch refs/heads/main\n\n" +
+			"worktree /primary-worktrees/issue-13\nHEAD evaluated-head\nbranch refs/heads/agent/issue-13\n", true
+	case "-C /primary rev-parse --path-format=absolute --git-dir":
+		return "/primary/.git", true
+	case "-C /primary-worktrees/issue-13 rev-parse --path-format=absolute --git-dir":
+		return "/primary/.git/worktrees/issue-13", true
+	case "-C /primary-worktrees/issue-13 status --porcelain=v1 --untracked-files=all --ignore-submodules=none":
+		return "", true
+	case "status --porcelain=v1 --untracked-files=all --ignore-submodules=none":
+		return "", true
 	case "branch --show-current":
-		return b.branch, nil
+		if dir == "/primary" {
+			return "main", true
+		}
+		return b.branch, true
+	case "fetch origin main":
+		return "", true
+	case "rev-parse origin/main":
+		return b.mergeSHA, true
+	case "rev-list --left-right --count HEAD...origin/main":
+		return "0 0", true
+	case "config --get-regexp ^submodule\\..*\\.update$":
+		return "", true
+	case "merge-base --is-ancestor merge-commit merge-commit":
+		return "", true
+	case "submodule update --init --recursive", "submodule status --recursive", "submodule foreach --recursive --quiet git status --porcelain=v1 --untracked-files=all":
+		return "", true
+	case "merge --ff-only origin/main":
+		return "", true
+	case "worktree remove /primary-worktrees/issue-13":
+		return "", true
+	case "ls-remote --heads origin refs/heads/agent/issue-13":
+		return "evaluated-head refs/heads/agent/issue-13", true
+	case "push --force-with-lease=refs/heads/agent/issue-13:evaluated-head origin :refs/heads/agent/issue-13":
+		return "", true
+	case "for-each-ref --format=%(objectname) refs/remotes/origin/agent/issue-13", "for-each-ref --format=%(objectname) refs/heads/agent/issue-13":
+		return "evaluated-head", true
+	case "update-ref -d refs/remotes/origin/agent/issue-13 evaluated-head", "update-ref -d refs/heads/agent/issue-13 evaluated-head":
+		return "", true
+	default:
+		return "", false
+	}
+}
+
+func (b *workflowBackend) executeGitArtifact(command string) (string, bool) {
+	switch command {
+	case "merge-base --is-ancestor evaluated-head evaluated-head":
+		return "", true
+	case "ls-remote --heads origin refs/heads/agent/issue-*":
+		return "evaluated-head refs/heads/agent/issue-13", true
+	case "for-each-ref --format=%(refname:short) %(objectname) refs/remotes/origin/agent/issue-*":
+		return "origin/agent/issue-13 evaluated-head", true
+	case "for-each-ref --format=%(refname:short) %(objectname) refs/heads/agent/issue-*":
+		return "agent/issue-13 evaluated-head", true
+	default:
+		return "", false
+	}
+}
+
+func (b *workflowBackend) executeGitClaim(dir, command string) (string, error) {
+	switch command {
 	case "fetch origin refs/heads/agent/issue-13:refs/remotes/origin/agent/issue-13":
 		return "", nil
 	case "rev-parse HEAD", "rev-parse origin/agent/issue-13":
@@ -891,7 +1070,7 @@ func (b *workflowBackend) executeGit(args []string) (string, error) {
 	case "log --format=%x00%B%x00 origin/main.." + b.head:
 		return b.workCommitLog, nil
 	default:
-		return "", fmt.Errorf("unexpected git command: %s", strings.Join(args, " "))
+		return "", fmt.Errorf("unexpected git command: %s in %s", command, dir)
 	}
 }
 
@@ -923,6 +1102,12 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 
 func (b *workflowBackend) pullRequestJSON() (string, error) {
 	response := pullRequestAPI{Body: b.body, Draft: false, State: "open", Title: b.title}
+	if b.merged {
+		response.Merged = true
+		response.MergedAt = &b.mergedAt
+		response.MergeCommitSHA = b.mergeSHA
+		response.State = "closed"
+	}
 	response.Base.Ref = "main"
 	response.Head.Ref = b.branch
 	response.Head.SHA = b.head
@@ -963,7 +1148,20 @@ func (b *workflowBackend) merge(data []byte) (string, error) {
 		return "", fmt.Errorf("decode merge request: %w", err)
 	}
 	b.merged = true
-	return `{"merged":true,"sha":"merge-commit"}`, nil
+	b.mergedAt = time.Now().UTC().Truncate(time.Second)
+	if b.mutatePRBodyAfterMerge {
+		b.body += "\nReviewed metadata drift.\n"
+	}
+	switch b.mergeResponseMode {
+	case "transport":
+		return "", errors.New("simulated lost merge response")
+	case "malformed":
+		return `{"merged":`, nil
+	case "missing-sha":
+		return `{"merged":true}`, nil
+	default:
+		return fmt.Sprintf(`{"merged":true,"sha":%q}`, b.mergeSHA), nil
+	}
 }
 
 func marshalTestResponse(value any) (string, error) {
