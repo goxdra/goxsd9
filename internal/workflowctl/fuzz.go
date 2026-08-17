@@ -43,6 +43,7 @@ func fuzzGoEnvironment() []string {
 		"GOPROXY=off",
 		"GOSUMDB=off",
 		"GOVCS=*:off",
+		"GOWORK=off",
 	}
 }
 
@@ -73,10 +74,12 @@ type fuzzRun struct {
 }
 
 type fuzzSandbox struct {
-	root   string
-	source string
-	cache  string
-	tmp    string
+	root         string
+	source       string
+	cache        string
+	tmp          string
+	moduleCache  string
+	corpusBefore []string
 }
 
 type fuzzDiagnostic struct {
@@ -429,12 +432,25 @@ func (run fuzzRun) ordinaryReplayCommand(corpusName string) string {
 	return "go test " + run.packageName + " -count=1 -run=" + shellQuote(pattern)
 }
 
+func (run fuzzRun) fuzzReplayCommand() string {
+	return "go test " + run.packageName + " -run=" + shellQuote("^$") +
+		" -fuzz=" + shellQuote(run.fuzzPattern()) +
+		" -fuzztime=" + run.duration.String() + " -parallel=1 -p=1"
+}
+
+func (run fuzzRun) failureReplayCommand(corpusName string) string {
+	if corpusName != "" {
+		return run.ordinaryReplayCommand(corpusName)
+	}
+	return "no deterministic corpus replay available; rerun fuzz: " + run.fuzzReplayCommand()
+}
+
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func (a app) executeFuzzRun(root string, run fuzzRun) error {
-	sandbox, err := a.prepareFuzzSandbox(root)
+	sandbox, err := a.prepareFuzzSandbox(root, run)
 	if err != nil {
 		if sandbox.root != "" {
 			cleanupErr := a.cleanupFuzzSandbox(sandbox.root)
@@ -455,9 +471,9 @@ func (a app) finishFuzzFailure(sandbox fuzzSandbox, run fuzzRun, contextErr erro
 	output string,
 ) error {
 	outcome := classifyFuzzProcess(contextErr, processErr, output, run)
-	corpusName, evidenceErr := fuzzReplayCorpus(sandbox.source, run.target, output)
-	replay := run.ordinaryReplayCommand(corpusName)
-	evidencePath := sandbox.root
+	corpusName, evidenceErr := fuzzReplayCorpusSince(sandbox.source, run.target, output, sandbox.corpusBefore)
+	replay := run.failureReplayCommand(corpusName)
+	evidencePath := sandbox.source
 	result := outcome.diagnostic
 	if evidenceErr != nil {
 		result = errors.Join(result, newFuzzDiagnostic(fuzzEvidenceCode, evidenceErr, "inspect retained fuzz evidence"))
@@ -472,7 +488,7 @@ func (a app) finishFuzzSuccess(sandbox fuzzSandbox, run fuzzRun) error {
 	cleanupErr := a.cleanupFuzzSandbox(sandbox.root)
 	if cleanupErr != nil {
 		replay := run.ordinaryReplayCommand("")
-		reportErr := a.writeFuzzReport(run, "cleanup-failure", replay, sandbox.root)
+		reportErr := a.writeFuzzReport(run, "cleanup-failure", replay, sandbox.source)
 		if reportErr != nil {
 			return errors.Join(cleanupErr, reportErr)
 		}
@@ -484,9 +500,13 @@ func (a app) finishFuzzSuccess(sandbox fuzzSandbox, run fuzzRun) error {
 	return nil
 }
 
-func (a app) prepareFuzzSandbox(root string) (fuzzSandbox, error) {
+func (a app) prepareFuzzSandbox(root string, run fuzzRun) (fuzzSandbox, error) {
 	makeTempDir := a.fuzzMakeTempDir
 	if makeTempDir == nil {
+		temporaryDirectoryErr := validateFuzzSandboxRoot(root, os.TempDir())
+		if temporaryDirectoryErr != nil {
+			return fuzzSandbox{}, newFuzzDiagnostic(fuzzSandboxCode, temporaryDirectoryErr, "validate fuzz temporary directory")
+		}
 		makeTempDir = func(pattern string) (string, error) {
 			return os.MkdirTemp("", pattern)
 		}
@@ -495,37 +515,132 @@ func (a app) prepareFuzzSandbox(root string) (fuzzSandbox, error) {
 	if err != nil {
 		return fuzzSandbox{}, newFuzzDiagnostic(fuzzSandboxCode, err, "create fuzz sandbox")
 	}
-	if !filepath.IsAbs(runRoot) {
-		cleanupErr := a.cleanupFuzzSandbox(runRoot)
-		setupErr := newFuzzDiagnostic(fuzzSandboxCode, nil, "fuzz sandbox path %q is not absolute", runRoot)
+	sandboxLocationErr := validateFuzzSandboxRoot(root, runRoot)
+	if sandboxLocationErr != nil {
+		setupErr := newFuzzDiagnostic(fuzzSandboxCode, sandboxLocationErr, "validate fuzz sandbox location")
+		cleanupErr := a.cleanupRejectedFuzzSandbox(root, runRoot)
 		if cleanupErr != nil {
 			return fuzzSandbox{}, errors.Join(setupErr, cleanupErr)
 		}
 		return fuzzSandbox{}, setupErr
 	}
 	sandbox := fuzzSandbox{
-		root:   runRoot,
-		source: filepath.Join(runRoot, "source"),
-		cache:  filepath.Join(runRoot, "cache"),
-		tmp:    filepath.Join(runRoot, "tmp"),
+		root:        runRoot,
+		source:      filepath.Join(runRoot, "source"),
+		cache:       filepath.Join(runRoot, "cache"),
+		tmp:         filepath.Join(runRoot, "tmp"),
+		moduleCache: filepath.Join(runRoot, "module-cache"),
 	}
-	if err := os.MkdirAll(sandbox.source, 0o700); err != nil {
-		return sandbox, newFuzzDiagnostic(fuzzSandboxCode, err, "create fuzz source directory")
+	sourceDirectoryErr := os.MkdirAll(sandbox.source, 0o700)
+	if sourceDirectoryErr != nil {
+		return sandbox, newFuzzDiagnostic(fuzzSandboxCode, sourceDirectoryErr, "create fuzz source directory")
 	}
-	if err := os.MkdirAll(sandbox.cache, 0o700); err != nil {
-		return sandbox, newFuzzDiagnostic(fuzzSandboxCode, err, "create fuzz cache directory")
+	cacheDirectoryErr := os.MkdirAll(sandbox.cache, 0o700)
+	if cacheDirectoryErr != nil {
+		return sandbox, newFuzzDiagnostic(fuzzSandboxCode, cacheDirectoryErr, "create fuzz cache directory")
 	}
-	if err := os.MkdirAll(sandbox.tmp, 0o700); err != nil {
-		return sandbox, newFuzzDiagnostic(fuzzSandboxCode, err, "create fuzz temporary directory")
+	temporaryDirectoryErr := os.MkdirAll(sandbox.tmp, 0o700)
+	if temporaryDirectoryErr != nil {
+		return sandbox, newFuzzDiagnostic(fuzzSandboxCode, temporaryDirectoryErr, "create fuzz temporary directory")
+	}
+	moduleCacheDirectoryErr := os.MkdirAll(sandbox.moduleCache, 0o700)
+	if moduleCacheDirectoryErr != nil {
+		return sandbox, newFuzzDiagnostic(fuzzSandboxCode, moduleCacheDirectoryErr, "create fuzz module cache directory")
 	}
 	copyWorktree := a.fuzzCopyWorktree
 	if copyWorktree == nil {
 		copyWorktree = copyFuzzWorktree
 	}
-	if err := copyWorktree(root, sandbox.source); err != nil {
-		return sandbox, newFuzzDiagnostic(fuzzSandboxCode, err, "copy repository into fuzz sandbox")
+	copyErr := copyWorktree(root, sandbox.source)
+	if copyErr != nil {
+		return sandbox, newFuzzDiagnostic(fuzzSandboxCode, copyErr, "copy repository into fuzz sandbox")
 	}
+	corpusBefore, err := fuzzCorpusNames(filepath.Join(sandbox.source, "testdata", "fuzz", run.target))
+	if err != nil {
+		return sandbox, newFuzzDiagnostic(fuzzSandboxCode, err, "snapshot checked-in fuzz corpus")
+	}
+	sandbox.corpusBefore = corpusBefore
 	return sandbox, nil
+}
+
+func validateFuzzSandboxRoot(repositoryRoot, sandboxRoot string) error {
+	if !filepath.IsAbs(sandboxRoot) {
+		return fmt.Errorf("fuzz sandbox path %q is not absolute", sandboxRoot)
+	}
+	repositoryPath, err := fuzzResolvedAbsolutePath(repositoryRoot)
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	sandboxPath, err := fuzzResolvedAbsolutePath(sandboxRoot)
+	if err != nil {
+		return fmt.Errorf("resolve fuzz sandbox path: %w", err)
+	}
+	inside, err := fuzzPathSameOrBelow(repositoryPath, sandboxPath)
+	if err != nil {
+		return fmt.Errorf("compare repository and fuzz sandbox paths: %w", err)
+	}
+	if inside {
+		return fmt.Errorf("fuzz sandbox path %q is equal to or inside repository root %q", sandboxRoot, repositoryRoot)
+	}
+	return nil
+}
+
+func fuzzResolvedAbsolutePath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func fuzzPathSameOrBelow(base, candidate string) (bool, error) {
+	relative, err := filepath.Rel(base, candidate)
+	if err != nil {
+		return false, err
+	}
+	if relative == "." {
+		return true, nil
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return false, nil
+	}
+	return !filepath.IsAbs(relative), nil
+}
+
+func (a app) cleanupRejectedFuzzSandbox(repositoryRoot, sandboxRoot string) error {
+	if !filepath.IsAbs(sandboxRoot) {
+		return nil
+	}
+	repositoryPath, repositoryPathErr := fuzzResolvedAbsolutePath(repositoryRoot)
+	if repositoryPathErr != nil {
+		return newFuzzDiagnostic(fuzzCleanupCode, repositoryPathErr, "resolve repository root for fuzz cleanup")
+	}
+	sandboxPath, sandboxPathErr := fuzzResolvedAbsolutePath(sandboxRoot)
+	if errors.Is(sandboxPathErr, os.ErrNotExist) {
+		return nil
+	}
+	if sandboxPathErr != nil {
+		return newFuzzDiagnostic(fuzzCleanupCode, sandboxPathErr, "resolve fuzz sandbox path for cleanup")
+	}
+	inside, compareErr := fuzzPathSameOrBelow(repositoryPath, sandboxPath)
+	if compareErr != nil {
+		return newFuzzDiagnostic(fuzzCleanupCode, compareErr, "compare fuzz cleanup paths")
+	}
+	if !inside || sandboxPath == repositoryPath {
+		return nil
+	}
+	entries, readErr := os.ReadDir(sandboxRoot)
+	if errors.Is(readErr, os.ErrNotExist) || len(entries) != 0 {
+		return nil
+	}
+	if readErr != nil {
+		return newFuzzDiagnostic(fuzzCleanupCode, readErr, "inspect rejected fuzz sandbox")
+	}
+	return a.cleanupFuzzSandbox(sandboxRoot)
 }
 
 func (a app) cleanupFuzzSandbox(directory string) error {
@@ -548,7 +663,11 @@ func (a app) runFuzzCommand(sandbox fuzzSandbox, run fuzzRun) (string, error, er
 	commandContext, cancel := context.WithTimeout(parent, fuzzProcessDuration(run.duration))
 	defer cancel()
 	environment := fuzzGoEnvironment()
-	environment = append(environment, "GOCACHE="+sandbox.cache, "GOTMPDIR="+sandbox.tmp)
+	environment = append(environment,
+		"GOCACHE="+sandbox.cache,
+		"GOTMPDIR="+sandbox.tmp,
+		"GOMODCACHE="+sandbox.moduleCache,
+	)
 	output, err := a.commandOutputWithContextAndEnv(commandContext, sandbox.source, environment, nil,
 		"go", run.fuzzArguments()...)
 	contextErr := commandContext.Err()
@@ -658,27 +777,26 @@ func (a app) writeFuzzReport(run fuzzRun, result, replay, evidence string) error
 	return nil
 }
 
-func fuzzReplayCorpus(source, target, output string) (string, error) {
+func fuzzReplayCorpusSince(source, target, output string, before []string) (string, error) {
 	corpusDirectory := filepath.Join(source, "testdata", "fuzz", target)
-	names, err := fuzzCorpusNames(corpusDirectory)
+	after, err := fuzzCorpusNames(corpusDirectory)
 	if err != nil {
 		return "", err
 	}
-	if len(names) == 0 {
+	outputName := fuzzCorpusNameFromOutput(output, target)
+	if outputName == "" || !fuzzCorpusContains(after, outputName) || fuzzCorpusContains(before, outputName) {
 		return "", nil
 	}
-	outputName := fuzzCorpusNameFromOutput(output, target)
-	if outputName != "" {
-		for _, name := range names {
-			if name == outputName {
-				return name, nil
-			}
+	return outputName, nil
+}
+
+func fuzzCorpusContains(names []string, candidate string) bool {
+	for _, name := range names {
+		if name == candidate {
+			return true
 		}
 	}
-	if len(names) == 1 {
-		return names[0], nil
-	}
-	return names[len(names)-1], nil
+	return false
 }
 
 func fuzzCorpusNames(directory string) ([]string, error) {

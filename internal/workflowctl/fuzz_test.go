@@ -70,7 +70,11 @@ func captureFuzzCommand(t *testing.T, capture *fuzzCommandCapture) commandContex
 		capture.directory = directory
 		capture.environment = append([]string(nil), environment...)
 		capture.arguments = append([]string(nil), args...)
-		for _, temporaryDirectory := range []string{filepath.Join(filepath.Dir(directory), "cache"), filepath.Join(filepath.Dir(directory), "tmp")} {
+		for _, temporaryDirectory := range []string{
+			filepath.Join(filepath.Dir(directory), "cache"),
+			filepath.Join(filepath.Dir(directory), "tmp"),
+			filepath.Join(filepath.Dir(directory), "module-cache"),
+		} {
 			if _, err := os.Stat(temporaryDirectory); err != nil {
 				t.Fatalf("campaign directory %q was not created: %v", temporaryDirectory, err)
 			}
@@ -93,6 +97,7 @@ func assertFuzzCommandCapture(t *testing.T, capture fuzzCommandCapture, root str
 	wantEnvironment := append(fuzzGoEnvironment(),
 		"GOCACHE="+filepath.Join(filepath.Dir(capture.directory), "cache"),
 		"GOTMPDIR="+filepath.Join(filepath.Dir(capture.directory), "tmp"),
+		"GOMODCACHE="+filepath.Join(filepath.Dir(capture.directory), "module-cache"),
 	)
 	if !reflect.DeepEqual(capture.environment, wantEnvironment) {
 		t.Fatalf("campaign environment = %#v, want %#v", capture.environment, wantEnvironment)
@@ -223,6 +228,55 @@ func FuzzWrong(value string) {}
 	}
 }
 
+func TestRunFuzzRejectsRepositoryTMPDIRBeforeCopy(t *testing.T) {
+	root := newFuzzFixture(t)
+	runFuzzRepositoryTMPDIRCase(t, root, root)
+
+	linkParent := t.TempDir()
+	linkedRoot := filepath.Join(linkParent, "repository")
+	if err := os.Symlink(root, linkedRoot); err != nil {
+		t.Logf("symlink setup unavailable: %v", err)
+		return
+	}
+	runFuzzRepositoryTMPDIRCase(t, root, linkedRoot)
+}
+
+func runFuzzRepositoryTMPDIRCase(t *testing.T, root, temporaryDirectory string) {
+	t.Helper()
+	t.Run(filepath.Base(temporaryDirectory), func(t *testing.T) {
+		t.Setenv("TMPDIR", temporaryDirectory)
+		application := fuzzTestApplication(t, root, io.Discard)
+		application.fuzzCopyWorktree = func(string, string) error {
+			t.Fatal("repository-local fuzz sandbox reached worktree copy")
+			return nil
+		}
+		application.executeCommandWithContextAndEnv = func(_ context.Context, _ string, _ []string,
+			_ io.Reader, _ string, _ ...string,
+		) (string, error) {
+			t.Fatal("repository-local fuzz sandbox reached campaign process")
+			return "", nil
+		}
+		err := application.runFuzz([]string{
+			"--package", ".", "--target", "FuzzFixture", "--duration", "1s",
+		})
+		if err == nil || !strings.Contains(err.Error(), fuzzSandboxCode) {
+			t.Fatalf("runFuzz error = %v, want sandbox diagnostic", err)
+		}
+		if got := readFuzzFixtureSentinel(t, root); got != "sentinel" {
+			t.Fatalf("repository sentinel = %q, want unchanged sentinel", got)
+		}
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			t.Fatalf("read fixture root: %v", err)
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), "goxsd9-fuzz-") {
+				t.Fatalf("repository-local fuzz sandbox remained: %s", entry.Name())
+			}
+		}
+	})
+}
+
 func TestRunFuzzFailureRetainsEvidenceAndStableReplay(t *testing.T) {
 	root := newFuzzFixture(t)
 	replayReports := make([]string, 0, 2)
@@ -238,7 +292,7 @@ func runFuzzFailureIteration(t *testing.T, root string) string {
 	t.Helper()
 	const corpusName = "hash123"
 	var output bytes.Buffer
-	var evidenceRoot string
+	var evidenceSource string
 	application := fuzzTestApplication(t, root, &output)
 	application.executeCommandWithContextAndEnv = func(_ context.Context, directory string, _ []string,
 		_ io.Reader, name string, _ ...string,
@@ -246,7 +300,7 @@ func runFuzzFailureIteration(t *testing.T, root string) string {
 		if name != "go" {
 			t.Fatalf("campaign command = %q, want go", name)
 		}
-		evidenceRoot = filepath.Dir(directory)
+		evidenceSource = directory
 		corpusDirectory := filepath.Join(directory, "testdata", "fuzz", "FuzzFixture")
 		if err := os.MkdirAll(corpusDirectory, 0o700); err != nil {
 			t.Fatalf("create fake corpus: %v", err)
@@ -264,17 +318,18 @@ func runFuzzFailureIteration(t *testing.T, root string) string {
 	if !strings.Contains(output.String(), "replay command: go test . -count=1 -run='^FuzzFixture/hash123$'") {
 		t.Fatalf("failure report omitted stable corpus replay:\n%s", output.String())
 	}
-	if evidenceRoot == "" {
-		t.Fatal("failure did not report an evidence root")
+	reportedSource := assertFuzzEvidenceSource(t, output.String())
+	if reportedSource != evidenceSource {
+		t.Fatalf("reported evidence source = %q, want %q", reportedSource, evidenceSource)
 	}
-	if _, err := os.Stat(filepath.Join(evidenceRoot, "source", "testdata", "fuzz", "FuzzFixture", corpusName)); err != nil {
+	if _, err := os.Stat(filepath.Join(reportedSource, "testdata", "fuzz", "FuzzFixture", corpusName)); err != nil {
 		t.Fatalf("retained corpus stat: %v", err)
 	}
 	if got := readFuzzFixtureSentinel(t, root); got != "sentinel" {
 		t.Fatalf("repository sentinel = %q, want unchanged sentinel", got)
 	}
 	replay := fuzzReportLine(output.String(), "replay command:")
-	if err := os.RemoveAll(evidenceRoot); err != nil {
+	if err := os.RemoveAll(filepath.Dir(reportedSource)); err != nil {
 		t.Fatalf("remove test evidence: %v", err)
 	}
 	return replay
@@ -321,7 +376,10 @@ func runFuzzProcessFailureCase(t *testing.T, test struct {
 	wantResult string
 }) {
 	t.Helper()
-	root := newFuzzFixture(t)
+	root := newFuzzFixtureWithFiles(t, []fuzzFixtureFile{{
+		name:    "testdata/fuzz/FuzzFixture/seed",
+		content: "checked-in seed",
+	}})
 	var output bytes.Buffer
 	var evidenceRoot string
 	application := fuzzTestApplication(t, root, &output)
@@ -340,12 +398,17 @@ func runFuzzProcessFailureCase(t *testing.T, test struct {
 	if !strings.Contains(output.String(), test.wantResult) {
 		t.Fatalf("report = %q, want %q", output.String(), test.wantResult)
 	}
+	if !strings.Contains(output.String(), "replay command: no deterministic corpus replay available; rerun fuzz: "+
+		"go test . -run='^$' -fuzz='^FuzzFixture$' -fuzztime=1s -parallel=1 -p=1") {
+		t.Fatalf("failure report offered a pre-existing corpus as replay:\n%s", output.String())
+	}
 	if !strings.Contains(err.Error(), "fake child output") {
 		t.Fatalf("diagnostic omitted child output: %v", err)
 	}
 	if evidenceRoot == "" {
 		t.Fatal("failure did not retain an evidence root")
 	}
+	assertFuzzEvidenceSource(t, output.String())
 	if err := os.RemoveAll(evidenceRoot); err != nil {
 		t.Fatalf("remove test evidence: %v", err)
 	}
@@ -406,7 +469,8 @@ func TestRunFuzzReportsCleanupFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), fuzzCleanupCode) || !errors.Is(err, cleanupFailure) {
 		t.Fatalf("runFuzz error = %v, want cleanup diagnostic preserving cause", err)
 	}
-	if !strings.Contains(output.String(), "result: cleanup-failure") || !strings.Contains(output.String(), "evidence path: "+sandbox) {
+	if !strings.Contains(output.String(), "result: cleanup-failure") ||
+		!strings.Contains(output.String(), "evidence path: "+filepath.Join(sandbox, "source")) {
 		t.Fatalf("cleanup report = %q", output.String())
 	}
 	if _, err := os.Stat(sandbox); err != nil {
@@ -504,6 +568,41 @@ func readFuzzFixtureSentinel(t *testing.T, root string) string {
 		t.Fatalf("read fixture sentinel: %v", err)
 	}
 	return string(content)
+}
+
+func assertFuzzEvidenceSource(t *testing.T, report string) string {
+	t.Helper()
+	const prefix = "evidence path: "
+	line := fuzzReportLine(report, prefix)
+	if line == "" {
+		t.Fatalf("fuzz report omitted evidence path: %q", report)
+	}
+	source := strings.TrimPrefix(line, prefix)
+	if source == "" {
+		t.Fatal("fuzz report has an empty evidence path")
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		t.Fatalf("stat reported evidence source: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("reported evidence source %q is not a directory", source)
+	}
+	if _, modErr := os.Stat(filepath.Join(source, "go.mod")); modErr != nil {
+		t.Fatalf("reported evidence source has no go.mod: %v", modErr)
+	}
+	// #nosec G204 -- this test executes the fixed go env command in test-owned evidence.
+	command := exec.CommandContext(context.Background(), "go", "env", "GOMOD")
+	command.Dir = source
+	command.Env = append(os.Environ(), "GOWORK=off")
+	modPath, err := command.Output()
+	if err != nil {
+		t.Fatalf("reach reported evidence source with go env: %v", err)
+	}
+	if got := filepath.Clean(strings.TrimSpace(string(modPath))); got != filepath.Join(source, "go.mod") {
+		t.Fatalf("go env GOMOD from reported source = %q, want %q", got, filepath.Join(source, "go.mod"))
+	}
+	return source
 }
 
 func fuzzReportLine(report, prefix string) string {
