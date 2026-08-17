@@ -192,6 +192,14 @@ func TestLatestStructuredEvaluationPasses(t *testing.T) {
 	}
 }
 
+func TestEvaluationEvidenceRejectsDuplicateJSONKeys(t *testing.T) {
+	raw := []byte(`{"schema":"goxsd9/examiner-attestation/v1","findings":[],"verdict":"fail","verdict":"pass"}`)
+	body := fmt.Sprintf("<!-- %s%s -->", evaluationAttestationMarker, raw)
+	if _, _, ok := parseCommentAttestation(body); ok {
+		t.Fatal("duplicate JSON keys were accepted in an Examiner attestation")
+	}
+}
+
 func TestLatestEvaluationRejectsOrphanHistoricalReceipt(t *testing.T) {
 	now := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
 	orphan := evaluationChallenge{Challenge: "orphan-challenge", Head: "head", PR: 11, RequestedAt: now}
