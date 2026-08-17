@@ -280,6 +280,14 @@ func addFixtureSubmodule(t *testing.T, fixture baseRepositoryFixture) {
 	runGitTest(t, fixture.seed, "commit", "--no-gpg-sign", "-m", "add submodule")
 }
 
+func initializeFixtureSubmodule(t *testing.T, root string) {
+	t.Helper()
+	runGitTest(t, root, "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive")
+	if status := runGitTest(t, root, "submodule", "status", "--recursive"); strings.HasPrefix(status, "-") {
+		t.Fatalf("submodule is not pinned in %s: %q", root, status)
+	}
+}
+
 func appendSeedCommit(t *testing.T, fixture baseRepositoryFixture, message string) {
 	t.Helper()
 	name := strings.ReplaceAll(strings.ToLower(message), " ", "-")

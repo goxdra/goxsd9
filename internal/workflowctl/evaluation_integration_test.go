@@ -1028,7 +1028,7 @@ func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
 		return "", true
 	case "merge --ff-only origin/main":
 		return "", true
-	case "worktree remove /primary-worktrees/issue-13":
+	case "worktree remove --force /primary-worktrees/issue-13":
 		return "", true
 	case "ls-remote --heads origin refs/heads/agent/issue-13":
 		return "evaluated-head refs/heads/agent/issue-13", true
