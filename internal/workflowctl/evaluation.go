@@ -1462,7 +1462,7 @@ func scanEvaluationJSONObject(decoder *json.Decoder) error {
 			return err
 		}
 		for _, seen := range keys {
-			if seen == key {
+			if strings.EqualFold(seen, key) {
 				return fmt.Errorf("evaluation JSON object key %q is duplicated", key)
 			}
 		}

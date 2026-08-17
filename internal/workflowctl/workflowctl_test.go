@@ -200,6 +200,55 @@ func TestEvaluationEvidenceRejectsDuplicateJSONKeys(t *testing.T) {
 	}
 }
 
+func TestEvaluationEvidenceRejectsConflictingCaseVariantKeys(t *testing.T) {
+	requested := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
+	recorded := requested.Add(time.Minute)
+	challenge := evaluationChallenge{Challenge: "case-variant-challenge", Head: "head", PR: 11, RequestedAt: requested}
+	challengeComment := testEvaluationChallengeComment(t, challenge)
+	raw := []byte(`{"challenge":"case-variant-challenge","evaluator":"Examiner","findings":[],"head":"head","pullRequest":11,"runID":"case-variant-run","schema":"goxsd9/examiner-attestation/v1","summary":"No findings.","verdict":"fail","Verdict":"pass"}`)
+	attestation := evaluationAttestation{
+		Challenge: challenge.Challenge,
+		Evaluator: "Examiner",
+		Findings:  evaluationFindings{},
+		Head:      challenge.Head,
+		PR:        challenge.PR,
+		RunID:     "case-variant-run",
+		Schema:    evaluationAttestationSchema,
+		Summary:   "No findings.",
+		Verdict:   "pass",
+	}
+	report := renderEvaluationReport(attestation)
+	receipt := evaluationReceipt{
+		AttestationSHA256: sha256Hex(raw),
+		Challenge:         challenge.Challenge,
+		Evaluator:         "Examiner",
+		EvaluatorRunID:    attestation.RunID,
+		Head:              challenge.Head,
+		PR:                challenge.PR,
+		RecordedAt:        recorded,
+		ReportSHA256:      sha256Hex(canonicalEvaluationReport(report)),
+		ReportTransport:   evaluationReportTransportV1,
+		Round:             1,
+		Verdict:           "pass",
+	}
+	receiptMarker, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode receipt: %v", err)
+	}
+	receiptComment := pullRequestComment{
+		Body:      evaluationComment(receiptMarker, raw, report),
+		CreatedAt: recorded,
+	}
+	receiptComment.Author.Login = trustedActor
+	passes, err := latestEvaluationPasses(pullRequestView{
+		Comments:   []pullRequestComment{challengeComment, receiptComment},
+		HeadRefOID: "head",
+	}, 11)
+	if err == nil || passes {
+		t.Fatalf("conflicting case-variant attestation authorized: passes=%t err=%v", passes, err)
+	}
+}
+
 func TestLatestEvaluationRejectsOrphanHistoricalReceipt(t *testing.T) {
 	now := time.Date(2026, time.August, 15, 5, 30, 0, 0, time.UTC)
 	orphan := evaluationChallenge{Challenge: "orphan-challenge", Head: "head", PR: 11, RequestedAt: now}
