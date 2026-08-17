@@ -275,6 +275,12 @@ func skillEvalPolicyFiles(suite string) ([]string, error) {
 		}, nil
 	case "review":
 		return []string{"AGENTS.md", ".codex/agents/examiner.toml"}, nil
+	case "retro":
+		return []string{
+			"AGENTS.md",
+			".agents/skills/retro/SKILL.md",
+			".codex/agents/steward.toml",
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported evaluation suite %q", suite)
 	}
