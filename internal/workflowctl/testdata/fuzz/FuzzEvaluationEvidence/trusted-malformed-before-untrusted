@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("WFE!1032026-08-15T05:30:00ZT00142<!-- workflowctl-evaluation-challenge {\"challenge\":\"valid-challenge\",\"head\":\"head\",\"pullRequest\":47,\"requestedAt\":\"2026-08-15T05:30:00Z\"} -->\nT00035<!-- workflowctl-evaluation {} -->\nU00035<!-- workflowctl-evaluation {} -->\n")

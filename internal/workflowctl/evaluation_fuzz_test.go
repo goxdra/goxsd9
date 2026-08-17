@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +42,11 @@ var evaluationEvidenceReservedSequences = [...]evaluationEvidenceReservedSequenc
 	{value: "<!-- workflowctl-evaluation-challenge ", receiptEvidence: false},
 	{value: "## Examiner evaluation — round receipt\n\n", receiptEvidence: true},
 }
+
+const (
+	evaluationEvidenceReceiptHeading = "## Examiner evaluation — round receipt\n\n"
+	evaluationEvidenceRepairHeading  = "## Examiner evaluation transport repair\n\n"
+)
 
 type evaluationEvidenceFrame struct {
 	timestamp  time.Time
@@ -76,19 +82,105 @@ type evaluationEvidenceExpectation struct {
 
 type evaluationEvidenceSemantics struct {
 	expectation evaluationEvidenceExpectation
-	recoverRaw  bool
+}
+
+type evaluationEvidenceClaimProofFixture struct {
+	Issue  int    `json:"issue"`
+	Branch string `json:"branch"`
+	SHA    string `json:"sha"`
+}
+
+type evaluationEvidenceReceiptFixture struct {
+	AttestationSHA256 string                                `json:"attestationSHA256,omitempty"`
+	BaseRefName       string                                `json:"baseRefName,omitempty"`
+	Challenge         string                                `json:"challenge,omitempty"`
+	ClaimProofs       []evaluationEvidenceClaimProofFixture `json:"claimProofs,omitempty"`
+	ClosingIssues     []int                                 `json:"closingIssues,omitempty"`
+	Evaluator         string                                `json:"evaluator"`
+	EvaluatorRunID    string                                `json:"evaluatorRunID,omitempty"`
+	Head              string                                `json:"head"`
+	HeadRefName       string                                `json:"headRefName,omitempty"`
+	BodySHA256        string                                `json:"bodySHA256,omitempty"`
+	PR                int                                   `json:"pullRequest,omitempty"`
+	RecordedAt        time.Time                             `json:"recordedAt"`
+	ReportSHA256      string                                `json:"reportSHA256"`
+	ReportTransport   string                                `json:"reportTransport,omitempty"`
+	Round             int                                   `json:"round"`
+	Verdict           string                                `json:"verdict"`
+}
+
+type evaluationEvidenceReceiptFormat byte
+
+const (
+	evaluationEvidenceLegacyReceipt evaluationEvidenceReceiptFormat = iota
+	evaluationEvidenceCurrentReceipt
+)
+
+type evaluationEvidenceRepairFixture struct {
+	AttestationSHA256     string `json:"attestationSHA256"`
+	Challenge             string `json:"challenge"`
+	Evaluator             string `json:"evaluator"`
+	EvaluatorRunID        string `json:"evaluatorRunID"`
+	Head                  string `json:"head"`
+	OriginalCommentSHA256 string `json:"originalCommentSHA256"`
+	ReceiptMarkerSHA256   string `json:"receiptMarkerSHA256"`
+	PR                    int    `json:"pullRequest"`
+	ReportSHA256          string `json:"reportSHA256"`
+	Round                 int    `json:"round"`
+	Schema                string `json:"schema"`
+	Verdict               string `json:"verdict"`
+}
+
+type evaluationEvidenceChallengeFixture struct {
+	Challenge   string    `json:"challenge"`
+	Head        string    `json:"head"`
+	PR          int       `json:"pullRequest"`
+	RequestedAt time.Time `json:"requestedAt"`
+}
+
+type evaluationEvidenceFindingFixture struct {
+	Impact             string `json:"impact"`
+	Location           string `json:"location"`
+	RequiredCorrection string `json:"requiredCorrection"`
+}
+
+type evaluationEvidenceAttestationFixture struct {
+	Challenge string                             `json:"challenge"`
+	Evaluator string                             `json:"evaluator"`
+	Findings  []evaluationEvidenceFindingFixture `json:"findings"`
+	Head      string                             `json:"head"`
+	PR        int                                `json:"pullRequest"`
+	RunID     string                             `json:"runID"`
+	Schema    string                             `json:"schema"`
+	Summary   string                             `json:"summary"`
+	Verdict   string                             `json:"verdict"`
+}
+
+type evaluationEvidenceChallengeRecord struct {
+	comment      pullRequestComment
+	commentIndex int
+	challenge    evaluationEvidenceChallengeFixture
+}
+
+type evaluationEvidenceRepairRecord struct {
+	comment      pullRequestComment
+	commentIndex int
+	repair       evaluationEvidenceRepairFixture
 }
 
 type evaluationEvidenceReceipt struct {
 	commentIndex int
 	commentTime  time.Time
-	receipt      evaluationReceipt
-	reportValid  bool
+	commentBody  string
+	marker       []byte
+	format       evaluationEvidenceReceiptFormat
+	receipt      evaluationEvidenceReceiptFixture
 }
 
 type evaluationEvidenceCommentSemantics struct {
-	challenge      *evaluationChallengeRecord
+	challenge      *evaluationEvidenceChallengeRecord
 	receipt        *evaluationEvidenceReceipt
+	repair         *evaluationEvidenceRepairRecord
 	classification evaluationEvidenceClassification
 }
 
@@ -126,38 +218,79 @@ func expectedEvaluationEvidence(input []byte) (evaluationEvidenceExpectation, bo
 		}
 		return evaluationEvidenceExpectation{classification: evaluationEvidenceFrameRejected}, true
 	}
-	semantics, ok := independentlyValidateEvaluationEvidence(frame)
-	if !ok {
-		return evaluationEvidenceExpectation{}, false
-	}
-	if semantics.recoverRaw {
-		recovered, rawOK := expectedEvaluationEvidenceRaw(input)
-		if !rawOK {
-			return evaluationEvidenceExpectation{}, false
-		}
-		semantics.expectation.recovered = recovered
-	}
+	semantics := independentlyValidateEvaluationEvidence(frame)
 	return semantics.expectation, true
 }
 
-func independentlyValidateEvaluationEvidence(frame evaluationEvidenceFrame) (evaluationEvidenceSemantics, bool) {
-	if classification, found := expectedEvaluationEvidenceUntrustedClassification(frame); found {
+func independentlyValidateEvaluationEvidence(frame evaluationEvidenceFrame) evaluationEvidenceSemantics {
+	challenges, receipts, repairs, classification := expectedEvaluationEvidenceRecords(frame)
+	if classification != 0 {
 		return evaluationEvidenceSemantics{
 			expectation: evaluationEvidenceExpectation{classification: classification},
-		}, true
+		}
 	}
 
-	var challenges []evaluationChallengeRecord
-	var receipts []evaluationEvidenceReceipt
-	for index := range frame.bodies {
-		comment, ok := expectedEvaluationEvidenceCommentSemantics(frame, index)
-		if !ok {
-			return evaluationEvidenceSemantics{}, false
+	recovered, recoveryValid := expectedEvaluationEvidenceRecovery(receipts)
+	if !recoveryValid {
+		return evaluationEvidenceSemantics{
+			expectation: evaluationEvidenceExpectation{
+				classification: evaluationEvidenceAttestationRejected,
+				recovered:      recovered,
+			},
 		}
+	}
+
+	if !expectedEvaluationEvidenceHistoryValid(challenges, receipts, repairs) {
+		return evaluationEvidenceSemantics{
+			expectation: evaluationEvidenceExpectation{
+				classification: evaluationEvidenceHistoryRejected,
+				recovered:      recovered,
+			},
+		}
+	}
+
+	if len(receipts) == 0 {
+		return evaluationEvidenceSemantics{
+			expectation: evaluationEvidenceExpectation{classification: evaluationEvidenceUnauthorized},
+		}
+	}
+
+	latest := receipts[len(receipts)-1].receipt
+	if latest.AttestationSHA256 == "" || latest.Head != "head" || latest.PR != 47 || latest.Verdict != "pass" {
+		return evaluationEvidenceSemantics{
+			expectation: evaluationEvidenceExpectation{
+				classification: evaluationEvidenceUnauthorized,
+				recovered:      recovered,
+			},
+		}
+	}
+	if expectedEvaluationEvidenceReceiptHasMetadata(latest) {
+		return evaluationEvidenceSemantics{
+			expectation: evaluationEvidenceExpectation{
+				classification: evaluationEvidenceLatestRejected,
+				recovered:      recovered,
+			},
+		}
+	}
+	return evaluationEvidenceSemantics{
+		expectation: evaluationEvidenceExpectation{
+			classification: evaluationEvidenceAuthorized,
+			authorized:     true,
+			recovered:      recovered,
+		},
+	}
+}
+
+func expectedEvaluationEvidenceRecords(frame evaluationEvidenceFrame) (
+	[]evaluationEvidenceChallengeRecord, []evaluationEvidenceReceipt, []evaluationEvidenceRepairRecord,
+	evaluationEvidenceClassification) {
+	var challenges []evaluationEvidenceChallengeRecord
+	var receipts []evaluationEvidenceReceipt
+	var repairs []evaluationEvidenceRepairRecord
+	for index := range frame.bodies {
+		comment := expectedEvaluationEvidenceCommentSemantics(frame, index)
 		if comment.classification != 0 {
-			return evaluationEvidenceSemantics{
-				expectation: evaluationEvidenceExpectation{classification: comment.classification},
-			}, true
+			return challenges, receipts, repairs, comment.classification
 		}
 		if comment.challenge != nil {
 			challenges = append(challenges, *comment.challenge)
@@ -165,159 +298,94 @@ func independentlyValidateEvaluationEvidence(frame evaluationEvidenceFrame) (eva
 		if comment.receipt != nil {
 			receipts = append(receipts, *comment.receipt)
 		}
+		if comment.repair != nil {
+			repairs = append(repairs, *comment.repair)
+		}
 	}
-
-	if len(receipts) == 0 {
-		return evaluationEvidenceSemantics{
-			expectation: evaluationEvidenceExpectation{classification: evaluationEvidenceUnauthorized},
-		}, true
-	}
-
-	historyValid := expectedEvaluationEvidenceHistoryValid(challenges, receipts)
-	if !historyValid {
-		return evaluationEvidenceSemantics{
-			expectation: evaluationEvidenceExpectation{classification: evaluationEvidenceHistoryRejected},
-			recoverRaw:  true,
-		}, true
-	}
-
-	latest := receipts[len(receipts)-1].receipt
-	if latest.Head != "head" || latest.PR != 47 || latest.Verdict != "pass" {
-		return evaluationEvidenceSemantics{
-			expectation: evaluationEvidenceExpectation{classification: evaluationEvidenceUnauthorized},
-			recoverRaw:  true,
-		}, true
-	}
-	return evaluationEvidenceSemantics{
-		expectation: evaluationEvidenceExpectation{
-			classification: evaluationEvidenceAuthorized,
-			authorized:     true,
-		},
-		recoverRaw: true,
-	}, true
+	return challenges, receipts, repairs, 0
 }
 
-func expectedEvaluationEvidenceCommentSemantics(frame evaluationEvidenceFrame, index int) (
-	evaluationEvidenceCommentSemantics, bool) {
+func expectedEvaluationEvidenceCommentSemantics(frame evaluationEvidenceFrame, index int) evaluationEvidenceCommentSemantics {
 	body := frame.bodies[index]
+	if frame.authorTags[index] != 'T' {
+		return expectedEvaluationEvidenceUntrustedCommentSemantics(body)
+	}
 	if expectedEvaluationEvidenceHasMarker(body, evaluationChallengeMarker) {
-		if expectedEvaluationEvidenceHasReceiptEvidence(body) {
-			return evaluationEvidenceCommentSemantics{
-				classification: evaluationEvidenceMarkerRejected,
-			}, true
-		}
-		challenge, ok := expectedEvaluationEvidenceChallenge(body)
-		if !ok {
-			return evaluationEvidenceCommentSemantics{
-				classification: evaluationEvidenceMarkerRejected,
-			}, true
-		}
-		return evaluationEvidenceCommentSemantics{
-			challenge: &evaluationChallengeRecord{
-				comment:      evaluationEvidenceComment(frame, index),
-				commentIndex: index,
-				challenge:    challenge,
-			},
-		}, true
+		return expectedEvaluationEvidenceChallengeSemantics(frame, index)
 	}
 	if expectedEvaluationEvidenceHasMarker(body, evaluationRepairMarker) {
-		return evaluationEvidenceCommentSemantics{}, false
+		return expectedEvaluationEvidenceRepairSemantics(frame, index)
 	}
-	if !expectedEvaluationEvidenceHasReceiptEvidence(body) {
+	return expectedEvaluationEvidenceTrustedCommentSemantics(frame, index)
+}
+
+func expectedEvaluationEvidenceUntrustedCommentSemantics(body []byte) evaluationEvidenceCommentSemantics {
+	if expectedEvaluationEvidenceHasMarker(body, evaluationChallengeMarker) {
+		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
+	}
+	return evaluationEvidenceCommentSemantics{}
+}
+
+func expectedEvaluationEvidenceChallengeSemantics(frame evaluationEvidenceFrame, index int) evaluationEvidenceCommentSemantics {
+	body := frame.bodies[index]
+	if expectedEvaluationEvidenceHasReceiptEvidence(body) {
+		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
+	}
+	challenge, ok := expectedEvaluationEvidenceChallenge(body)
+	if !ok {
+		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
+	}
+	return evaluationEvidenceCommentSemantics{
+		challenge: &evaluationEvidenceChallengeRecord{
+			comment:      evaluationEvidenceComment(frame, index),
+			commentIndex: index,
+			challenge:    challenge,
+		},
+	}
+}
+
+func expectedEvaluationEvidenceRepairSemantics(frame evaluationEvidenceFrame, index int) evaluationEvidenceCommentSemantics {
+	body := frame.bodies[index]
+	if expectedEvaluationEvidenceHasReceipt(body) ||
+		expectedEvaluationEvidenceHasAttestationEvidence(body) ||
+		expectedEvaluationEvidenceHasMarker(body, evaluationChallengeMarker) {
+		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
+	}
+	repair, ok := expectedEvaluationEvidenceRepair(body)
+	if !ok {
+		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
+	}
+	return evaluationEvidenceCommentSemantics{
+		repair: &evaluationEvidenceRepairRecord{
+			comment:      evaluationEvidenceComment(frame, index),
+			commentIndex: index,
+			repair:       repair,
+		},
+	}
+}
+
+func expectedEvaluationEvidenceTrustedCommentSemantics(frame evaluationEvidenceFrame, index int) evaluationEvidenceCommentSemantics {
+	body := frame.bodies[index]
+	if !expectedEvaluationEvidenceHasReceipt(body) {
 		if expectedEvaluationEvidenceHasAttestationEvidence(body) {
-			return evaluationEvidenceCommentSemantics{
-				classification: evaluationEvidenceMarkerRejected,
-			}, true
+			return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
 		}
-		return evaluationEvidenceCommentSemantics{}, true
+		return evaluationEvidenceCommentSemantics{}
 	}
-
-	receipt, classification, ok := expectedEvaluationEvidenceReceipt(frame, index)
-	if !ok {
-		return evaluationEvidenceCommentSemantics{}, false
-	}
+	receipt, classification := expectedEvaluationEvidenceReceipt(frame, index)
 	if classification != 0 {
-		return evaluationEvidenceCommentSemantics{classification: classification}, true
+		return evaluationEvidenceCommentSemantics{classification: classification}
 	}
-	return evaluationEvidenceCommentSemantics{receipt: &receipt}, true
-}
-
-func expectedEvaluationEvidenceUntrustedClassification(frame evaluationEvidenceFrame) (
-	evaluationEvidenceClassification, bool) {
-	for index, authorTag := range frame.authorTags {
-		if authorTag == 'T' {
-			continue
-		}
-		if expectedEvaluationEvidenceHasMarker(frame.bodies[index], evaluationChallengeMarker) {
-			return evaluationEvidenceMarkerRejected, true
-		}
-		if expectedEvaluationEvidenceHasStructuredMarker(frame.bodies[index]) ||
-			bytes.Contains(frame.bodies[index], []byte(evaluationReceiptHeading)) {
-			return evaluationEvidenceUnauthorized, true
-		}
-	}
-	return 0, false
-}
-
-func expectedEvaluationEvidenceRaw(input []byte) ([][]byte, bool) {
-	commentCount, _, ok := decodeEvaluationEvidenceHeader(input)
-	if !ok {
-		return nil, false
-	}
-	var recovered [][]byte
-	offset := evaluationEvidenceHeaderSize
-	for index := 0; index < commentCount; index++ {
-		authorTag, body, nextOffset, ok := expectedEvaluationEvidenceEntry(input, offset)
-		if !ok {
-			return nil, false
-		}
-		offset = nextOffset
-		raw, found, valid := expectedEvaluationEvidenceRawEntry(body, authorTag)
-		if !valid {
-			return nil, false
-		}
-		if found {
-			recovered = append(recovered, raw)
-		}
-	}
-	if offset != len(input) {
-		return nil, false
-	}
-	if len(recovered) == 0 {
-		return nil, false
-	}
-	return recovered, true
-}
-
-func expectedEvaluationEvidenceRawEntry(body []byte, authorTag byte) ([]byte, bool, bool) {
-	if authorTag != 'T' {
-		return nil, false, true
-	}
-	_, hasReceipt, valid := expectedEvaluationEvidenceMarker(body, evaluationMarker)
-	if !valid || !hasReceipt {
-		return nil, false, valid
-	}
-	return expectedEvaluationEvidenceAttestation(body)
-}
-
-func expectedEvaluationEvidenceHasStructuredMarker(body []byte) bool {
-	for _, marker := range []string{
-		evaluationMarker,
-		evaluationChallengeMarker,
-		evaluationRepairMarker,
-		evaluationReportBase64Marker,
-		evaluationAttestationBase64Marker,
-		evaluationAttestationMarker,
-	} {
-		if expectedEvaluationEvidenceHasMarker(body, marker) {
-			return true
-		}
-	}
-	return false
+	return evaluationEvidenceCommentSemantics{receipt: &receipt}
 }
 
 func expectedEvaluationEvidenceHasMarker(body []byte, marker string) bool {
 	return bytes.Contains(body, []byte("<!-- "+marker))
+}
+
+func expectedEvaluationEvidenceHasReceipt(body []byte) bool {
+	return expectedEvaluationEvidenceHasMarker(body, evaluationMarker) ||
+		bytes.Contains(body, []byte(evaluationEvidenceReceiptHeading))
 }
 
 func expectedEvaluationEvidenceHasReceiptEvidence(body []byte) bool {
@@ -338,6 +406,11 @@ func expectedEvaluationEvidenceHasAttestationEvidence(body []byte) bool {
 		expectedEvaluationEvidenceHasMarker(body, evaluationAttestationMarker)
 }
 
+func expectedEvaluationEvidenceHasRawAttestation(body []byte) bool {
+	return expectedEvaluationEvidenceHasMarker(body, evaluationAttestationBase64Marker) ||
+		expectedEvaluationEvidenceHasMarker(body, evaluationAttestationMarker)
+}
+
 func evaluationEvidenceComment(frame evaluationEvidenceFrame, index int) pullRequestComment {
 	comment := pullRequestComment{
 		Body:      string(frame.bodies[index]),
@@ -347,121 +420,194 @@ func evaluationEvidenceComment(frame evaluationEvidenceFrame, index int) pullReq
 	return comment
 }
 
-func expectedEvaluationEvidenceChallenge(body []byte) (evaluationChallenge, bool) {
+func expectedEvaluationEvidenceChallenge(body []byte) (evaluationEvidenceChallengeFixture, bool) {
 	value, found, valid := expectedEvaluationEvidenceMarker(body, evaluationChallengeMarker)
 	if !valid || !found {
-		return evaluationChallenge{}, false
+		return evaluationEvidenceChallengeFixture{}, false
 	}
-	var challenge evaluationChallenge
+	var challenge evaluationEvidenceChallengeFixture
 	if !expectedEvaluationEvidenceJSON(value, &challenge,
 		[]string{"challenge", "head", "pullRequest", "requestedAt"}, nil) {
-		return evaluationChallenge{}, false
+		return evaluationEvidenceChallengeFixture{}, false
 	}
 	if challenge.Challenge == "" || challenge.Head == "" || challenge.PR < 1 || challenge.RequestedAt.IsZero() {
-		return evaluationChallenge{}, false
+		return evaluationEvidenceChallengeFixture{}, false
 	}
 	return challenge, true
 }
 
 func expectedEvaluationEvidenceReceipt(frame evaluationEvidenceFrame, index int) (
-	evaluationEvidenceReceipt, evaluationEvidenceClassification, bool) {
+	evaluationEvidenceReceipt, evaluationEvidenceClassification) {
 	body := frame.bodies[index]
 	receiptMarker, found, valid := expectedEvaluationEvidenceMarker(body, evaluationMarker)
 	if !valid || !found {
-		return evaluationEvidenceReceipt{}, evaluationEvidenceMarkerRejected, true
+		return evaluationEvidenceReceipt{}, evaluationEvidenceMarkerRejected
 	}
-	var receipt evaluationReceipt
+	var receipt evaluationEvidenceReceiptFixture
 	if !expectedEvaluationEvidenceJSON(receiptMarker, &receipt, []string{
-		"attestationSHA256", "challenge", "evaluator", "evaluatorRunID", "head", "pullRequest",
-		"recordedAt", "reportSHA256", "reportTransport", "round", "verdict",
+		"attestationSHA256", "baseRefName", "challenge", "claimProofs", "closingIssues", "evaluator",
+		"evaluatorRunID", "head", "headRefName", "bodySHA256", "pullRequest", "recordedAt", "reportSHA256",
+		"reportTransport", "round", "verdict",
 	}, nil) || !expectedEvaluationEvidenceReceiptFieldsValid(receipt) {
-		return evaluationEvidenceReceipt{}, evaluationEvidenceMarkerRejected, true
-	}
-	if receipt.ReportTransport != evaluationReportTransportV1 {
-		return evaluationEvidenceReceipt{}, 0, false
-	}
-	if receipt.AttestationSHA256 == "" {
-		if expectedEvaluationEvidenceHasAttestationEvidence(body) {
-			return evaluationEvidenceReceipt{}, evaluationEvidenceAttestationRejected, true
-		}
-		return evaluationEvidenceReceipt{}, 0, false
-	}
-
-	attestation, raw, ok := expectedEvaluationEvidenceValidatedAttestation(body)
-	if !ok {
-		return evaluationEvidenceReceipt{}, evaluationEvidenceAttestationRejected, true
-	}
-	if !expectedEvaluationEvidenceAttestationMatches(receipt, attestation, raw) {
-		return evaluationEvidenceReceipt{}, evaluationEvidenceAttestationRejected, true
-	}
-	canonicalReport := expectedEvaluationEvidenceReport(attestation)
-	reportMarker, reportFound, reportValid := expectedEvaluationEvidenceMarker(body, evaluationReportBase64Marker)
-	if !reportFound || !reportValid {
-		return evaluationEvidenceReceipt{
-			commentIndex: index,
-			commentTime:  frame.timestamp.Add(time.Duration(index) * time.Minute),
-			receipt:      receipt,
-			reportValid:  false,
-		}, 0, true
-	}
-	report, ok := decodeEvaluationEvidenceBase64(reportMarker)
-	if !ok {
-		return evaluationEvidenceReceipt{
-			commentIndex: index,
-			commentTime:  frame.timestamp.Add(time.Duration(index) * time.Minute),
-			receipt:      receipt,
-			reportValid:  false,
-		}, 0, true
+		return evaluationEvidenceReceipt{}, evaluationEvidenceMarkerRejected
 	}
 	return evaluationEvidenceReceipt{
 		commentIndex: index,
 		commentTime:  frame.timestamp.Add(time.Duration(index) * time.Minute),
+		commentBody:  string(body),
+		marker:       append([]byte(nil), receiptMarker...),
+		format:       expectedEvaluationEvidenceReceiptFormat(receipt),
 		receipt:      receipt,
-		reportValid:  bytes.Equal(report, canonicalReport) && expectedEvaluationEvidenceSHA256(report) == receipt.ReportSHA256,
-	}, 0, true
+	}, 0
 }
 
-func expectedEvaluationEvidenceReceiptFieldsValid(receipt evaluationReceipt) bool {
+func expectedEvaluationEvidenceReceiptFormat(receipt evaluationEvidenceReceiptFixture) evaluationEvidenceReceiptFormat {
+	if receipt.ReportTransport == "base64-v1" {
+		return evaluationEvidenceCurrentReceipt
+	}
+	return evaluationEvidenceLegacyReceipt
+}
+
+func expectedEvaluationEvidenceReceiptFieldsValid(receipt evaluationEvidenceReceiptFixture) bool {
 	if receipt.Evaluator != "Examiner" || receipt.Round < 1 || receipt.RecordedAt.IsZero() ||
 		(receipt.Verdict != "pass" && receipt.Verdict != "fail") || receipt.Head == "" ||
 		!expectedEvaluationEvidenceValidSHA256(receipt.ReportSHA256) {
 		return false
 	}
+	if receipt.ReportTransport != "" && receipt.ReportTransport != "base64-v1" {
+		return false
+	}
 	if receipt.AttestationSHA256 == "" {
-		return true
+		return expectedEvaluationEvidenceReceiptMetadataValid(receipt)
 	}
 	return expectedEvaluationEvidenceValidSHA256(receipt.AttestationSHA256) && receipt.Challenge != "" &&
-		receipt.EvaluatorRunID != "" && receipt.PR >= 1
+		receipt.EvaluatorRunID != "" && receipt.PR >= 1 && expectedEvaluationEvidenceReceiptMetadataValid(receipt)
 }
 
-func expectedEvaluationEvidenceValidatedAttestation(body []byte) (evaluationAttestation, []byte, bool) {
+func expectedEvaluationEvidenceReceiptHasMetadata(receipt evaluationEvidenceReceiptFixture) bool {
+	return receipt.BaseRefName != "" || len(receipt.ClosingIssues) != 0 || receipt.HeadRefName != "" ||
+		receipt.BodySHA256 != "" || receipt.ClaimProofs != nil
+}
+
+func expectedEvaluationEvidenceReceiptMetadataValid(receipt evaluationEvidenceReceiptFixture) bool {
+	if !expectedEvaluationEvidenceReceiptHasMetadata(receipt) {
+		return true
+	}
+	if receipt.BaseRefName == "" || receipt.HeadRefName == "" ||
+		!expectedEvaluationEvidenceValidSHA256(receipt.BodySHA256) || len(receipt.ClosingIssues) == 0 {
+		return false
+	}
+	if !expectedEvaluationEvidenceIssueListValid(receipt.ClosingIssues) {
+		return false
+	}
+	if receipt.ClaimProofs == nil {
+		return len(receipt.ClosingIssues) == 1
+	}
+	return expectedEvaluationEvidenceClaimProofsValid(receipt.ClosingIssues, receipt.ClaimProofs)
+}
+
+func expectedEvaluationEvidenceIssueListValid(issues []int) bool {
+	for index, issue := range issues {
+		if issue < 1 {
+			return false
+		}
+		for prior := 0; prior < index; prior++ {
+			if issues[prior] == issue {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func expectedEvaluationEvidenceClaimProofsValid(issues []int,
+	proofs []evaluationEvidenceClaimProofFixture) bool {
+	if len(proofs) != len(issues) {
+		return false
+	}
+	if !expectedEvaluationEvidenceClaimProofValuesValid(proofs) {
+		return false
+	}
+	return expectedEvaluationEvidenceClaimProofsCoverIssues(issues, proofs)
+}
+
+func expectedEvaluationEvidenceClaimProofValuesValid(proofs []evaluationEvidenceClaimProofFixture) bool {
+	for index, proof := range proofs {
+		if proof.Issue < 1 || proof.Branch == "" || proof.SHA == "" {
+			return false
+		}
+		branchIssue, ok := expectedEvaluationEvidenceIssueFromBranch(proof.Branch)
+		if !ok || branchIssue != proof.Issue {
+			return false
+		}
+		for prior := 0; prior < index; prior++ {
+			if proofs[prior].Issue == proof.Issue {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func expectedEvaluationEvidenceClaimProofsCoverIssues(issues []int,
+	proofs []evaluationEvidenceClaimProofFixture) bool {
+	for _, issue := range issues {
+		found := false
+		for _, proof := range proofs {
+			if proof.Issue == issue {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func expectedEvaluationEvidenceIssueFromBranch(branch string) (int, bool) {
+	value := strings.TrimPrefix(branch, "agent/issue-")
+	if value == branch || value == "" {
+		return 0, false
+	}
+	if separator := strings.IndexByte(value, '-'); separator >= 0 {
+		value = value[:separator]
+	}
+	issue, err := strconv.Atoi(value)
+	return issue, err == nil && issue > 0
+}
+
+func expectedEvaluationEvidenceValidatedAttestation(body []byte) (
+	evaluationEvidenceAttestationFixture, []byte, bool) {
 	raw, found, valid := expectedEvaluationEvidenceAttestation(body)
 	if !valid || !found {
-		return evaluationAttestation{}, nil, false
+		return evaluationEvidenceAttestationFixture{}, nil, false
 	}
 	value := raw
-	var attestation evaluationAttestation
+	var attestation evaluationEvidenceAttestationFixture
 	if !expectedEvaluationEvidenceJSON(value, &attestation, []string{
 		"challenge", "evaluator", "findings", "head", "pullRequest", "runID", "schema", "summary", "verdict",
 	}, []string{"location", "impact", "requiredCorrection"}) {
-		return evaluationAttestation{}, nil, false
+		return evaluationEvidenceAttestationFixture{}, nil, false
 	}
 	if !expectedEvaluationEvidenceAttestationFieldsValid(attestation) ||
 		!expectedEvaluationEvidenceFindingsValid(attestation) ||
 		!expectedEvaluationEvidenceAttestationTextValid(attestation) {
-		return evaluationAttestation{}, nil, false
+		return evaluationEvidenceAttestationFixture{}, nil, false
 	}
 	return attestation, raw, true
 }
 
-func expectedEvaluationEvidenceAttestationFieldsValid(attestation evaluationAttestation) bool {
+func expectedEvaluationEvidenceAttestationFieldsValid(attestation evaluationEvidenceAttestationFixture) bool {
 	return attestation.Evaluator == "Examiner" && attestation.Challenge != "" && attestation.Head != "" &&
-		attestation.PR >= 1 && attestation.RunID != "" && attestation.Schema == evaluationAttestationSchema &&
+		attestation.PR >= 1 && attestation.RunID != "" &&
+		attestation.Schema == "goxsd9/examiner-attestation/v1" &&
 		strings.TrimSpace(attestation.Summary) != "" &&
 		(attestation.Verdict == "pass" || attestation.Verdict == "fail") && attestation.Findings != nil
 }
 
-func expectedEvaluationEvidenceFindingsValid(attestation evaluationAttestation) bool {
+func expectedEvaluationEvidenceFindingsValid(attestation evaluationEvidenceAttestationFixture) bool {
 	if attestation.Verdict == "pass" && len(attestation.Findings) != 0 {
 		return false
 	}
@@ -477,7 +623,7 @@ func expectedEvaluationEvidenceFindingsValid(attestation evaluationAttestation) 
 	return true
 }
 
-func expectedEvaluationEvidenceAttestationTextValid(attestation evaluationAttestation) bool {
+func expectedEvaluationEvidenceAttestationTextValid(attestation evaluationEvidenceAttestationFixture) bool {
 	fields := make([]string, 0, 1+3*len(attestation.Findings))
 	fields = append(fields, attestation.Summary)
 	for _, finding := range attestation.Findings {
@@ -493,15 +639,15 @@ func expectedEvaluationEvidenceAttestationTextValid(attestation evaluationAttest
 	return true
 }
 
-func expectedEvaluationEvidenceAttestationMatches(receipt evaluationReceipt, attestation evaluationAttestation,
-	raw []byte) bool {
+func expectedEvaluationEvidenceAttestationMatches(receipt evaluationEvidenceReceiptFixture,
+	attestation evaluationEvidenceAttestationFixture, raw []byte) bool {
 	return expectedEvaluationEvidenceSHA256(raw) == receipt.AttestationSHA256 &&
 		attestation.Challenge == receipt.Challenge && attestation.Evaluator == receipt.Evaluator &&
 		attestation.RunID == receipt.EvaluatorRunID && attestation.Head == receipt.Head &&
 		attestation.PR == receipt.PR && attestation.Verdict == receipt.Verdict
 }
 
-func expectedEvaluationEvidenceReport(attestation evaluationAttestation) []byte {
+func expectedEvaluationEvidenceReport(attestation evaluationEvidenceAttestationFixture) []byte {
 	parts := make([]string, 0, 1+len(attestation.Findings))
 	parts = append(parts, "**"+strings.ToUpper(attestation.Verdict)+"**\n\n"+strings.TrimSpace(attestation.Summary))
 	for index, finding := range attestation.Findings {
@@ -512,12 +658,81 @@ func expectedEvaluationEvidenceReport(attestation evaluationAttestation) []byte 
 	return []byte(strings.Join(parts, "\n\n"))
 }
 
-func expectedEvaluationEvidenceHistoryValid(challenges []evaluationChallengeRecord,
-	receipts []evaluationEvidenceReceipt) bool {
+func expectedEvaluationEvidenceRepair(body []byte) (evaluationEvidenceRepairFixture, bool) {
+	value, found, valid := expectedEvaluationEvidenceMarker(body, evaluationRepairMarker)
+	if !valid || !found {
+		return evaluationEvidenceRepairFixture{}, false
+	}
+	var repair evaluationEvidenceRepairFixture
+	if !expectedEvaluationEvidenceJSON(value, &repair, []string{
+		"attestationSHA256", "challenge", "evaluator", "evaluatorRunID", "head", "originalCommentSHA256",
+		"receiptMarkerSHA256", "pullRequest", "reportSHA256", "round", "schema", "verdict",
+	}, nil) {
+		return evaluationEvidenceRepairFixture{}, false
+	}
+	if repair.Schema != "goxsd9/examiner-evaluation-repair/v1" || repair.Evaluator != "Examiner" ||
+		repair.PR < 1 || repair.Round < 1 || repair.Head == "" || repair.Challenge == "" ||
+		repair.EvaluatorRunID == "" || (repair.Verdict != "pass" && repair.Verdict != "fail") ||
+		!expectedEvaluationEvidenceValidSHA256(repair.AttestationSHA256) ||
+		!expectedEvaluationEvidenceValidSHA256(repair.OriginalCommentSHA256) ||
+		!expectedEvaluationEvidenceValidSHA256(repair.ReceiptMarkerSHA256) ||
+		!expectedEvaluationEvidenceValidSHA256(repair.ReportSHA256) {
+		return evaluationEvidenceRepairFixture{}, false
+	}
+	return repair, true
+}
+
+func expectedEvaluationEvidenceRecovery(receipts []evaluationEvidenceReceipt) ([][]byte, bool) {
+	var recovered [][]byte
+	for _, record := range receipts {
+		if record.receipt.AttestationSHA256 == "" {
+			continue
+		}
+		attestation, raw, ok := expectedEvaluationEvidenceValidatedAttestation([]byte(record.commentBody))
+		if !ok || !expectedEvaluationEvidenceAttestationMatches(record.receipt, attestation, raw) {
+			return recovered, false
+		}
+		recovered = append(recovered, append([]byte(nil), raw...))
+	}
+	return recovered, true
+}
+
+func expectedEvaluationEvidenceHistoryValid(challenges []evaluationEvidenceChallengeRecord,
+	receipts []evaluationEvidenceReceipt, repairs []evaluationEvidenceRepairRecord) bool {
+	if !expectedEvaluationEvidenceReceiptsValid(challenges, receipts, repairs) {
+		return false
+	}
+	return expectedEvaluationEvidenceRepairsValid(receipts, repairs)
+}
+
+func expectedEvaluationEvidenceReceiptsValid(challenges []evaluationEvidenceChallengeRecord,
+	receipts []evaluationEvidenceReceipt, repairs []evaluationEvidenceRepairRecord) bool {
 	for index, record := range receipts {
 		if !expectedEvaluationEvidenceReceiptIdentifiersUnique(receipts, index) ||
-			!expectedEvaluationEvidenceReceiptProjectionValid(record) ||
+			!expectedEvaluationEvidenceReceiptMatchesRecord(record, repairs) {
+			return false
+		}
+		if record.receipt.AttestationSHA256 != "" &&
 			expectedEvaluationEvidenceMatchingChallenges(challenges, record) != 1 {
+			return false
+		}
+	}
+	return true
+}
+
+func expectedEvaluationEvidenceRepairsValid(receipts []evaluationEvidenceReceipt,
+	repairs []evaluationEvidenceRepairRecord) bool {
+	for _, repair := range repairs {
+		if !expectedEvaluationEvidenceRepairCommentIsValid(repair) {
+			return false
+		}
+		matches := 0
+		for _, record := range receipts {
+			if expectedEvaluationEvidenceRepairMatchesRecord(record, repair) {
+				matches++
+			}
+		}
+		if matches != 1 {
 			return false
 		}
 	}
@@ -536,12 +751,172 @@ func expectedEvaluationEvidenceReceiptIdentifiersUnique(receipts []evaluationEvi
 	return true
 }
 
-func expectedEvaluationEvidenceReceiptProjectionValid(record evaluationEvidenceReceipt) bool {
-	return expectedEvaluationEvidenceCommentTimeMatches(record.commentTime, record.receipt.RecordedAt) &&
-		record.reportValid
+func expectedEvaluationEvidenceReceiptMatchesRecord(record evaluationEvidenceReceipt,
+	repairs []evaluationEvidenceRepairRecord) bool {
+	if !expectedEvaluationEvidenceCommentTimeMatches(record.commentTime, record.receipt.RecordedAt) {
+		return false
+	}
+	_, _, canonicalReport, attestationOK := expectedEvaluationEvidenceReceiptAttestation(record)
+	if !attestationOK {
+		return false
+	}
+	reportMarker, hasReportMarker, reportMarkerOK := expectedEvaluationEvidenceReportMarker(record.commentBody)
+	if hasReportMarker && !reportMarkerOK {
+		return false
+	}
+	if hasReportMarker {
+		return expectedEvaluationEvidenceReportMatchesRecord(record, nil, canonicalReport, reportMarker,
+			hasReportMarker, reportMarkerOK, repairs)
+	}
+	visibleReport, reportOK := expectedEvaluationEvidenceVisibleReport(record.commentBody)
+	if !reportOK {
+		return false
+	}
+	return expectedEvaluationEvidenceReportMatchesRecord(record, visibleReport, canonicalReport, nil,
+		hasReportMarker, reportMarkerOK, repairs)
 }
 
-func expectedEvaluationEvidenceMatchingChallenges(challenges []evaluationChallengeRecord,
+func expectedEvaluationEvidenceReceiptAttestation(record evaluationEvidenceReceipt) (
+	evaluationEvidenceAttestationFixture, []byte, []byte, bool) {
+	if record.receipt.AttestationSHA256 == "" {
+		if expectedEvaluationEvidenceHasRawAttestation([]byte(record.commentBody)) {
+			return evaluationEvidenceAttestationFixture{}, nil, nil, false
+		}
+		return evaluationEvidenceAttestationFixture{}, nil, nil, true
+	}
+	attestation, raw, ok := expectedEvaluationEvidenceValidatedAttestation([]byte(record.commentBody))
+	if !ok || !expectedEvaluationEvidenceAttestationMatches(record.receipt, attestation, raw) {
+		return evaluationEvidenceAttestationFixture{}, nil, nil, false
+	}
+	return attestation, raw, expectedEvaluationEvidenceReport(attestation), true
+}
+
+func expectedEvaluationEvidenceReportMatchesRecord(record evaluationEvidenceReceipt, visibleReport,
+	canonicalReport, reportMarker []byte, hasReportMarker, reportMarkerOK bool,
+	repairs []evaluationEvidenceRepairRecord) bool {
+	if record.format == evaluationEvidenceCurrentReceipt {
+		return expectedEvaluationEvidenceCurrentReportMatches(record, canonicalReport, reportMarker,
+			hasReportMarker, reportMarkerOK)
+	}
+	return expectedEvaluationEvidenceLegacyReportMatches(record, visibleReport, canonicalReport, reportMarker,
+		hasReportMarker, reportMarkerOK, repairs)
+}
+
+func expectedEvaluationEvidenceCurrentReportMatches(record evaluationEvidenceReceipt, canonicalReport,
+	reportMarker []byte, hasReportMarker, reportMarkerOK bool) bool {
+	if !hasReportMarker || !reportMarkerOK || expectedEvaluationEvidenceSHA256(reportMarker) != record.receipt.ReportSHA256 {
+		return false
+	}
+	return record.receipt.AttestationSHA256 == "" || bytes.Equal(reportMarker, canonicalReport)
+}
+
+func expectedEvaluationEvidenceLegacyReportMatches(record evaluationEvidenceReceipt, visibleReport,
+	canonicalReport, reportMarker []byte, hasReportMarker, reportMarkerOK bool,
+	repairs []evaluationEvidenceRepairRecord) bool {
+	receipt := record.receipt
+	if hasReportMarker {
+		if !reportMarkerOK || expectedEvaluationEvidenceSHA256(reportMarker) != receipt.ReportSHA256 {
+			return false
+		}
+		return receipt.AttestationSHA256 == "" || bytes.Equal(reportMarker, canonicalReport)
+	}
+	if expectedEvaluationEvidenceSHA256(visibleReport) == receipt.ReportSHA256 {
+		return receipt.AttestationSHA256 == "" || bytes.Equal(visibleReport, canonicalReport)
+	}
+	if receipt.AttestationSHA256 == "" || expectedEvaluationEvidenceSHA256(canonicalReport) != receipt.ReportSHA256 {
+		return false
+	}
+	if len(repairs) == 0 {
+		return false
+	}
+	matches := 0
+	for _, repair := range repairs {
+		if expectedEvaluationEvidenceRepairMatchesRecord(record, repair) {
+			matches++
+		}
+	}
+	return matches == 1
+}
+
+func expectedEvaluationEvidenceRepairCommentIsValid(record evaluationEvidenceRepairRecord) bool {
+	marker, found, valid := expectedEvaluationEvidenceMarker([]byte(record.comment.Body), evaluationRepairMarker)
+	if !valid || !found {
+		return false
+	}
+	expected := fmt.Sprintf("<!-- workflowctl-evaluation-repair-v1 %s -->\n%sRound %d is superseded only for its visible report projection; the original receipt and Examiner evidence remain authoritative.\n",
+		marker, evaluationEvidenceRepairHeading, record.repair.Round)
+	return record.comment.Body == expected
+}
+
+func expectedEvaluationEvidenceRepairMatchesRecord(record evaluationEvidenceReceipt,
+	repair evaluationEvidenceRepairRecord) bool {
+	repairValue := repair.repair
+	if record.format != evaluationEvidenceLegacyReceipt || record.receipt.AttestationSHA256 == "" ||
+		expectedEvaluationEvidenceHasMarker([]byte(record.commentBody), evaluationReportBase64Marker) {
+		return false
+	}
+	if !expectedEvaluationEvidenceRepairFollowsReceipt(record, repair) {
+		return false
+	}
+	attestation, rawAttestation, canonicalReport, ok := expectedEvaluationEvidenceReceiptAttestation(record)
+	if !ok {
+		return false
+	}
+	visibleReport, reportOK := expectedEvaluationEvidenceVisibleReport(record.commentBody)
+	if !reportOK || bytes.Equal(visibleReport, canonicalReport) ||
+		expectedEvaluationEvidenceSHA256(canonicalReport) != record.receipt.ReportSHA256 {
+		return false
+	}
+	receipt := record.receipt
+	return repairValue.AttestationSHA256 == expectedEvaluationEvidenceSHA256(rawAttestation) &&
+		repairValue.Challenge == receipt.Challenge && repairValue.Evaluator == receipt.Evaluator &&
+		repairValue.EvaluatorRunID == receipt.EvaluatorRunID && repairValue.Head == receipt.Head &&
+		repairValue.PR == receipt.PR && repairValue.ReportSHA256 == expectedEvaluationEvidenceSHA256(canonicalReport) &&
+		repairValue.Round == receipt.Round && repairValue.Verdict == receipt.Verdict &&
+		repairValue.OriginalCommentSHA256 == expectedEvaluationEvidenceSHA256([]byte(record.commentBody)) &&
+		repairValue.ReceiptMarkerSHA256 == expectedEvaluationEvidenceSHA256(record.marker) &&
+		attestation.PR == repairValue.PR && attestation.Head == repairValue.Head
+}
+
+func expectedEvaluationEvidenceRepairFollowsReceipt(record evaluationEvidenceReceipt,
+	repair evaluationEvidenceRepairRecord) bool {
+	if repair.commentIndex <= record.commentIndex {
+		if repair.commentIndex != 0 || record.commentIndex != 0 {
+			return false
+		}
+		return repair.comment.CreatedAt.After(record.commentTime)
+	}
+	return !repair.comment.CreatedAt.Before(record.commentTime)
+}
+
+func expectedEvaluationEvidenceReportMarker(body string) ([]byte, bool, bool) {
+	if !expectedEvaluationEvidenceHasMarker([]byte(body), evaluationReportBase64Marker) {
+		return nil, false, false
+	}
+	value, found, valid := expectedEvaluationEvidenceMarker([]byte(body), evaluationReportBase64Marker)
+	if !found || !valid {
+		return nil, true, false
+	}
+	report, ok := decodeEvaluationEvidenceBase64(value)
+	if !ok {
+		return nil, true, false
+	}
+	return report, true, true
+}
+
+func expectedEvaluationEvidenceVisibleReport(body string) ([]byte, bool) {
+	_, report, found := strings.Cut(body, evaluationEvidenceReceiptHeading)
+	if !found {
+		return nil, false
+	}
+	report = strings.TrimSpace(report)
+	if report == "" {
+		return nil, false
+	}
+	return []byte(report), true
+}
+
+func expectedEvaluationEvidenceMatchingChallenges(challenges []evaluationEvidenceChallengeRecord,
 	receipt evaluationEvidenceReceipt) int {
 	matches := 0
 	for _, challenge := range challenges {
@@ -623,6 +998,26 @@ func expectedEvaluationEvidenceJSONArray(decoder *json.Decoder, fields []string)
 	return expectedEvaluationEvidenceJSONClosing(decoder, json.Delim(']'))
 }
 
+func expectedEvaluationEvidenceNullableJSONArray(decoder *json.Decoder, fields []string) bool {
+	token, err := decoder.Token()
+	if err != nil {
+		return false
+	}
+	if token == nil {
+		return true
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok || delimiter != json.Delim('[') {
+		return false
+	}
+	for decoder.More() {
+		if !expectedEvaluationEvidenceJSONObject(decoder, fields, nil) {
+			return false
+		}
+	}
+	return expectedEvaluationEvidenceJSONClosing(decoder, json.Delim(']'))
+}
+
 func expectedEvaluationEvidenceJSONValue(decoder *json.Decoder) bool {
 	token, err := decoder.Token()
 	if err != nil {
@@ -663,6 +1058,9 @@ func expectedEvaluationEvidenceJSONKeyUnique(keys []string, key string) bool {
 func expectedEvaluationEvidenceJSONObjectField(decoder *json.Decoder, key string, findingFields []string) bool {
 	if key == "findings" && findingFields != nil {
 		return expectedEvaluationEvidenceJSONArray(decoder, findingFields)
+	}
+	if key == "claimProofs" {
+		return expectedEvaluationEvidenceNullableJSONArray(decoder, []string{"issue", "branch", "sha"})
 	}
 	return expectedEvaluationEvidenceJSONValue(decoder)
 }
@@ -709,29 +1107,6 @@ func decodeEvaluationEvidenceBase64(value []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return decoded, true
-}
-
-func expectedEvaluationEvidenceEntry(input []byte, offset int) (byte, []byte, int, bool) {
-	if offset < 0 || offset > len(input) || len(input)-offset < evaluationEvidenceEntryHeader {
-		return 0, nil, 0, false
-	}
-	authorTag := input[offset]
-	if !evaluationEvidenceAuthorTagKnown(authorTag) {
-		return 0, nil, 0, false
-	}
-	bodyLength := 0
-	for _, digit := range input[offset+1 : offset+evaluationEvidenceEntryHeader] {
-		if digit < '0' || digit > '9' {
-			return 0, nil, 0, false
-		}
-		bodyLength = bodyLength*10 + int(digit-'0')
-	}
-	bodyStart := offset + evaluationEvidenceEntryHeader
-	if bodyLength > evaluationEvidenceMaxFrameSize || bodyLength > len(input)-bodyStart {
-		return 0, nil, 0, false
-	}
-	bodyEnd := bodyStart + bodyLength
-	return authorTag, input[bodyStart:bodyEnd], bodyEnd, true
 }
 
 func expectedEvaluationEvidenceAttestation(body []byte) ([]byte, bool, bool) {

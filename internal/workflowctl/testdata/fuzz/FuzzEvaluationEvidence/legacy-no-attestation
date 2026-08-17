@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("WFE!1412026-08-15T05:30:00ZT00290<!-- workflowctl-evaluation {\"evaluator\":\"Examiner\",\"head\":\"head\",\"pullRequest\":47,\"recordedAt\":\"2026-08-15T05:31:00Z\",\"reportSHA256\":\"04b78003f77096dc215745495368a01bc69f2a37a4d99e1b602093c75cd7bab0\",\"round\":1,\"verdict\":\"pass\"} -->\n## Examiner evaluation \u2014 round receipt\n\nLegacy report.\n")
