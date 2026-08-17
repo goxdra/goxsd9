@@ -1,4 +1,5 @@
-// Command conformance inventories the pinned W3C XML Schema test catalogs.
+// Command conformance inventories metadata from the pinned W3C XML Schema
+// test catalogs; it does not execute schema or instance tests.
 package main
 
 import (
@@ -86,7 +87,7 @@ func requireCatalogRoot(root string) error {
 }
 
 func usage(stderr io.Writer, format string, args ...any) int {
-	if _, err := fmt.Fprintf(stderr, "conformance: "+format+"\n\nUsage:\n  go tool conformance inventory [-root REPOSITORY]\n", args...); err != nil {
+	if _, err := fmt.Fprintf(stderr, "conformance: "+format+"\n\nUsage:\n  go tool conformance inventory [-root REPOSITORY]\n\nThe inventory command reports catalog metadata only; it does not execute schema or instance tests.\n", args...); err != nil {
 		return 1
 	}
 	return 2

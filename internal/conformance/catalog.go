@@ -68,6 +68,7 @@ func (inventory Inventory) Write(w io.Writer) error {
 
 	rows := inventory.rows()
 	queried, disputed, unusable := inventory.summary()
+	mainCases, auxiliaryCases := inventory.originCaseCounts()
 	if _, err := fmt.Fprintln(w, "W3C XML Schema test catalog inventory"); err != nil {
 		return fmt.Errorf("write inventory heading: %w", err)
 	}
@@ -77,27 +78,33 @@ func (inventory Inventory) Write(w io.Writer) error {
 	if _, err := fmt.Fprintf(w, "cases: %d\n", len(inventory.cases)); err != nil {
 		return fmt.Errorf("write case count: %w", err)
 	}
+	if _, err := fmt.Fprintf(w, "main-cases: %d\nauxiliary-cases: %d\n", mainCases, auxiliaryCases); err != nil {
+		return fmt.Errorf("write origin case counts: %w", err)
+	}
 	if _, err := fmt.Fprintf(w, "queried: %d\ndisputed: %d\nunusable: %d\n", queried, disputed, unusable); err != nil {
 		return fmt.Errorf("write catalog summary: %w", err)
 	}
 	if _, err := fmt.Fprintln(w, ""); err != nil {
 		return fmt.Errorf("write inventory separator: %w", err)
 	}
-	if _, err := fmt.Fprintln(w, "version kind cases valid invalid other queried disputed-test disputed-spec status-missing unusable headline"); err != nil {
+	if _, err := fmt.Fprintln(w, "origin version kind cases valid invalid other submitted accepted stable queried disputed-test disputed-spec status-missing unusable headline"); err != nil {
 		return fmt.Errorf("write inventory columns: %w", err)
 	}
 	for _, row := range rows {
-		if _, err := fmt.Fprintf(w, "%s %s %d %d %d %d %d %d %d %d %d %d\n",
-			row.version, row.kind, row.cases, row.valid, row.invalid, row.other,
-			row.queried, row.disputedTest, row.disputedSpec, row.statusMissing,
-			row.unusable, row.headline); err != nil {
-			return fmt.Errorf("write %s %s inventory row: %w", row.version, row.kind, err)
+		if _, err := fmt.Fprintf(w, "%s %s %s %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
+			row.origin, row.version, row.kind, row.cases, row.valid, row.invalid, row.other,
+			row.submitted, row.accepted, row.stable, row.queried, row.disputedTest,
+			row.disputedSpec, row.statusMissing, row.unusable, row.headline); err != nil {
+			return fmt.Errorf("write %s %s %s inventory row: %w", row.origin, row.version, row.kind, err)
 		}
 	}
 	if _, err := fmt.Fprintln(w, ""); err != nil {
 		return fmt.Errorf("write status heading separator: %w", err)
 	}
-	if _, err := fmt.Fprintln(w, "# Outcome and status columns are independent; headline excludes queried, disputed, and unusable cases."); err != nil {
+	if _, err := fmt.Fprintln(w, "# Catalog metadata only; no schema or instance tests are executed."); err != nil {
+		return fmt.Errorf("write execution note: %w", err)
+	}
+	if _, err := fmt.Fprintln(w, "# Outcome, status, usability, and origin columns are independent; headline excludes queried, disputed, unusable, and all auxiliary cases."); err != nil {
 		return fmt.Errorf("write inventory note: %w", err)
 	}
 	return nil
@@ -109,30 +116,68 @@ type catalogReader struct {
 
 func (reader catalogReader) read() (Inventory, error) {
 	inventory := Inventory{}
-	seen := make(map[string]struct{})
-	for _, root := range []string{"suite.xml", "extra-suite.xml"} {
-		suite, err := reader.readSuite(root)
+	candidates := make([]testSetCandidate, 0)
+	for _, root := range catalogRoots() {
+		suite, err := reader.readSuite(root.path)
 		if err != nil {
 			return Inventory{}, err
 		}
 		for _, ref := range suite.refs {
-			setPath, err := resolveReference(root, ref)
+			setPath, err := resolveReference(root.path, ref)
 			if err != nil {
-				return Inventory{}, catalogError("catalog.reference", root, err)
+				return Inventory{}, catalogError("catalog.reference", root.path, err)
 			}
-			if _, ok := seen[setPath]; ok {
-				continue
-			}
-			seen[setPath] = struct{}{}
-			set, err := reader.readTestSet(setPath, suite.versions)
-			if err != nil {
-				return Inventory{}, err
-			}
-			inventory.setPaths = append(inventory.setPaths, setPath)
-			inventory.cases = append(inventory.cases, set.cases...)
+			candidates = append(candidates, testSetCandidate{
+				path:     setPath,
+				versions: suite.versions,
+				origin:   root.origin,
+			})
 		}
 	}
+	for _, candidate := range deduplicateCandidates(candidates) {
+		set, err := reader.readTestSet(candidate.path, candidate.versions, candidate.origin)
+		if err != nil {
+			return Inventory{}, err
+		}
+		inventory.setPaths = append(inventory.setPaths, candidate.path)
+		inventory.cases = append(inventory.cases, set.cases...)
+	}
 	return inventory, nil
+}
+
+type catalogRoot struct {
+	path   string
+	origin catalogOrigin
+}
+
+type testSetCandidate struct {
+	path     string
+	versions []string
+	origin   catalogOrigin
+}
+
+func catalogRoots() []catalogRoot {
+	return []catalogRoot{
+		{path: "suite.xml", origin: originMain},
+		{path: "extra-suite.xml", origin: originAuxiliary},
+	}
+}
+
+func deduplicateCandidates(candidates []testSetCandidate) []testSetCandidate {
+	unique := make([]testSetCandidate, 0, len(candidates))
+	indexes := make(map[string]int, len(candidates))
+	for _, candidate := range candidates {
+		index, ok := indexes[candidate.path]
+		if !ok {
+			indexes[candidate.path] = len(unique)
+			unique = append(unique, candidate)
+			continue
+		}
+		if candidate.origin == originMain && unique[index].origin == originAuxiliary {
+			unique[index] = candidate
+		}
+	}
+	return unique
 }
 
 type suiteDocument struct {
@@ -151,6 +196,7 @@ type catalogCase struct {
 	groupName      string
 	name           string
 	kind           caseKind
+	origin         catalogOrigin
 	parentVersions []string
 	documents      []string
 	expectations   []expectation
@@ -169,6 +215,13 @@ type caseKind string
 const (
 	schemaKind   caseKind = "schema"
 	instanceKind caseKind = "instance"
+)
+
+type catalogOrigin string
+
+const (
+	originMain      catalogOrigin = "main"
+	originAuxiliary catalogOrigin = "auxiliary"
 )
 
 type catalogStatus string
@@ -204,12 +257,19 @@ func (reader catalogReader) readSuite(documentPath string) (suiteDocument, error
 	return parsed, nil
 }
 
-func (reader catalogReader) readTestSet(documentPath string, inheritedVersions []string) (testSetDocument, error) {
+func (reader catalogReader) readTestSet(documentPath string, inheritedVersions []string,
+	origin catalogOrigin,
+) (testSetDocument, error) {
 	file, err := reader.fsys.Open(documentPath)
 	if err != nil {
 		return testSetDocument{}, catalogError("catalog.read", documentPath, err)
 	}
-	parser := xmlParser{decoder: xml.NewDecoder(file), path: documentPath, fsys: reader.fsys}
+	parser := xmlParser{
+		decoder: xml.NewDecoder(file),
+		path:    documentPath,
+		fsys:    reader.fsys,
+		origin:  origin,
+	}
 	parsed, parseErr := parser.parseTestSet(inheritedVersions)
 	closeErr := file.Close()
 	if parseErr != nil {
@@ -229,6 +289,7 @@ type xmlParser struct {
 	decoder *xml.Decoder
 	path    string
 	fsys    fs.FS
+	origin  catalogOrigin
 }
 
 func (parser *xmlParser) parseSuite() (suiteDocument, error) {
@@ -544,6 +605,7 @@ func (parser *xmlParser) parseCase(start xml.StartElement, setPath, setName, gro
 		groupName:      groupName,
 		name:           name,
 		kind:           kind,
+		origin:         parser.origin,
 		parentVersions: chooseVersions(start, inheritedVersions),
 		status:         statusMissing,
 	}
@@ -943,19 +1005,21 @@ func catalogError(code, documentPath string, err error) error {
 }
 
 func (inventory Inventory) rows() []inventoryRow {
-	rows := make([]inventoryRow, 0, 4)
-	for _, version := range []string{"1.0", "1.1"} {
-		for _, kind := range []caseKind{schemaKind, instanceKind} {
-			rows = append(rows, inventory.row(version, kind))
+	rows := make([]inventoryRow, 0, 8)
+	for _, root := range catalogRoots() {
+		for _, version := range []string{"1.0", "1.1"} {
+			for _, kind := range []caseKind{schemaKind, instanceKind} {
+				rows = append(rows, inventory.row(root.origin, version, kind))
+			}
 		}
 	}
 	return rows
 }
 
-func (inventory Inventory) row(version string, kind caseKind) inventoryRow {
-	row := inventoryRow{version: version, kind: kind}
+func (inventory Inventory) row(origin catalogOrigin, version string, kind caseKind) inventoryRow {
+	row := inventoryRow{origin: origin, version: version, kind: kind}
 	for _, caseValue := range inventory.cases {
-		if caseValue.kind != kind || !caseApplies(caseValue, version) {
+		if caseValue.origin != origin || caseValue.kind != kind || !caseApplies(caseValue, version) {
 			continue
 		}
 		row.addCase(caseValue, version)
@@ -979,13 +1043,29 @@ func (inventory Inventory) summary() (queried, disputed, unusable int) {
 	return queried, disputed, unusable
 }
 
+func (inventory Inventory) originCaseCounts() (main, auxiliary int) {
+	for _, caseValue := range inventory.cases {
+		switch caseValue.origin {
+		case originMain:
+			main++
+		case originAuxiliary:
+			auxiliary++
+		}
+	}
+	return main, auxiliary
+}
+
 type inventoryRow struct {
+	origin        catalogOrigin
 	version       string
 	kind          caseKind
 	cases         int
 	valid         int
 	invalid       int
 	other         int
+	submitted     int
+	accepted      int
+	stable        int
 	queried       int
 	disputedTest  int
 	disputedSpec  int
@@ -996,7 +1076,12 @@ type inventoryRow struct {
 
 func (row *inventoryRow) addStatus(status catalogStatus) {
 	switch status {
-	case statusSubmitted, statusAccepted, statusStable:
+	case statusSubmitted:
+		row.submitted++
+	case statusAccepted:
+		row.accepted++
+	case statusStable:
+		row.stable++
 	case statusQueried:
 		row.queried++
 	case statusDisputedTest:
@@ -1074,6 +1159,9 @@ func (caseValue catalogCase) isGloballyUnusable() bool {
 }
 
 func (caseValue catalogCase) isHeadline(version, outcome string) bool {
+	if caseValue.origin != originMain {
+		return false
+	}
 	if caseValue.status == statusQueried || caseValue.status == statusDisputedTest ||
 		caseValue.status == statusDisputedSpec || caseValue.status == statusMissing {
 		return false
