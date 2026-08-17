@@ -18,14 +18,18 @@ const (
 )
 
 type app struct {
-	ctx                   context.Context
-	executeCommand        commandExecutor
-	executeCommandWithEnv commandEnvironmentExecutor
-	skillEvalGraderAgent  skillEvalAgent
-	skillEvalProcessStart skillEvalProcessStarter
-	skillEvalSubjectAgent skillEvalAgent
-	stdout                io.Writer
-	stderr                io.Writer
+	ctx                             context.Context
+	executeCommand                  commandExecutor
+	executeCommandWithEnv           commandEnvironmentExecutor
+	executeCommandWithContextAndEnv commandContextEnvironmentExecutor
+	fuzzMakeTempDir                 func(pattern string) (string, error)
+	fuzzCopyWorktree                func(source, destination string) error
+	fuzzRemoveAll                   func(path string) error
+	skillEvalGraderAgent            skillEvalAgent
+	skillEvalProcessStart           skillEvalProcessStarter
+	skillEvalSubjectAgent           skillEvalAgent
+	stdout                          io.Writer
+	stderr                          io.Writer
 }
 
 // Run executes workflowctl and returns a process exit code.
@@ -72,6 +76,8 @@ func (a app) run(args []string) error {
 		return a.runDoctor(args[1:])
 	case "evaluation":
 		return a.runEvaluation(args[1:])
+	case "fuzz":
+		return a.runFuzz(args[1:])
 	case "handoff":
 		return a.runHandoff(args[1:])
 	case "history":
@@ -120,6 +126,7 @@ Usage:
   go tool workflowctl evaluation record PR --attestation-file FILE
   go tool workflowctl evaluation repair PR --round ROUND
   go tool workflowctl skill-eval [--case GLOB] [--jobs JOBS] [--list] [--model MODEL]
+  go tool workflowctl fuzz --package PACKAGE --target FUZZ_TARGET --duration DURATION
 `)
 	return err
 }
