@@ -191,14 +191,11 @@ func validateSchemaImport(
 	parent schemaTargetNamespace,
 	child schemaTargetNamespace,
 ) error {
-	if !parent.present {
-		return newSchemaCompositionDiagnostic(edge.loc, "schema import requires an importing target namespace")
-	}
 	if edge.hasNamespace {
 		if edge.namespaceURN == "" {
 			return newSchemaCompositionDiagnostic(edge.loc, "schema import namespace cannot be empty when present")
 		}
-		if edge.namespaceURN == parent.value {
+		if parent.present && edge.namespaceURN == parent.value {
 			return newSchemaCompositionDiagnostic(edge.loc, "schema import namespace must differ from the importing target namespace")
 		}
 		if !child.present || child.value != edge.namespaceURN {
@@ -208,6 +205,9 @@ func validateSchemaImport(
 			)
 		}
 		return nil
+	}
+	if !parent.present {
+		return newSchemaCompositionDiagnostic(edge.loc, "schema import without a namespace requires an importing target namespace")
 	}
 	if child.present {
 		return newSchemaCompositionDiagnostic(edge.loc, "schema import without a namespace requires a no-namespace document")
@@ -253,7 +253,11 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string) (schemaC
 	}
 	kind, named := schemaDeclarationKind(element.name.local)
 	if !named {
-		if schemaRootChildIgnored(element.name.local) {
+		ignored, err := schemaRootChildIgnored(element)
+		if err != nil {
+			return schemaComponentInput{}, false, err
+		}
+		if ignored {
 			return schemaComponentInput{}, false, nil
 		}
 		return schemaComponentInput{}, false, newSchemaSyntaxUnsupported(
@@ -276,12 +280,22 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string) (schemaC
 	}, true, nil
 }
 
-func schemaRootChildIgnored(local string) bool {
-	switch local {
-	case "annotation", "include", "import":
-		return true
+func schemaRootChildIgnored(element *syntaxElement) (bool, error) {
+	switch element.name.local {
+	case "annotation":
+		return true, nil
+	case "include":
+		if err := validateSchemaReferenceElement(element, syntaxReferenceInclude); err != nil {
+			return false, err
+		}
+		return true, nil
+	case "import":
+		if err := validateSchemaReferenceElement(element, syntaxReferenceImport); err != nil {
+			return false, err
+		}
+		return true, nil
 	default:
-		return false
+		return false, nil
 	}
 }
 

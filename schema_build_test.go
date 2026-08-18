@@ -245,6 +245,104 @@ func TestSchemaBridgeAcceptsNoNamespaceComposition(t *testing.T) {
 	}
 }
 
+func TestSchemaBridgeAcceptsExplicitImportFromNoNamespaceParent(t *testing.T) {
+	rootContents := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:import namespace="urn:child" schemaLocation="child.xsd"/><xs:element name="root"/></xs:schema>`
+	schema, err := discoverTestSchema(t, rootContents, map[string]discoveryFixture{
+		"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:child"><xs:element name="child"/></xs:schema>`},
+	})
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	documents := schema.Documents()
+	if got, want := len(documents), 2; got != want {
+		t.Fatalf("document count = %d, want %d", got, want)
+	}
+	if got := documents[0].TargetNamespace(); got != "" {
+		t.Fatalf("root target namespace = %q, want no namespace", got)
+	}
+	if got, want := documents[1].TargetNamespace(), "urn:child"; got != want {
+		t.Fatalf("child target namespace = %q, want %q", got, want)
+	}
+	components := schema.Components()
+	if got, want := len(components), 2; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+	for index, want := range []struct {
+		source  SourceID
+		name    QName
+		ordinal uint64
+	}{
+		{source: "root.xsd", name: mustTestQName(t, "", "root"), ordinal: 1},
+		{source: "child.xsd", name: mustTestQName(t, "urn:child", "child"), ordinal: 1},
+	} {
+		component := components[index]
+		if component.Document() != want.source {
+			t.Errorf("component %d source = %q, want %q", index, component.Document(), want.source)
+		}
+		if component.Name() != want.name {
+			t.Errorf("component %d name = %q, want %q", index, component.Name(), want.name)
+		}
+		if component.ID().Ordinal() != want.ordinal {
+			t.Errorf("component %d ordinal = %d, want %d", index, component.ID().Ordinal(), want.ordinal)
+		}
+	}
+}
+
+func TestSchemaBridgeAcceptsCompositionAnnotation(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include id="include1" schemaLocation="child.xsd"><xs:annotation><xs:documentation>included schema</xs:documentation><xs:appinfo>metadata</xs:appinfo></xs:annotation></xs:include></xs:schema>`
+	schema, err := discoverTestSchema(t, root, map[string]discoveryFixture{
+		"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:element name="child"/></xs:schema>`},
+	})
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	if got, want := len(schema.Components()), 1; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+}
+
+func TestSchemaBridgeRejectsUnvalidatedCompositionNodeContent(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+	}{
+		{
+			name: "nested include declaration",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd"><xs:element name="nested"/></xs:include></xs:schema>`,
+		},
+		{
+			name: "unqualified include namespace",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd" namespace="urn:root"/></xs:schema>`,
+		},
+		{
+			name: "unknown import attribute",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:import namespace="urn:child" schemaLocation="child.xsd" unexpected="true"/></xs:schema>`,
+		},
+		{
+			name: "nested annotation construct",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd"><xs:annotation><xs:element name="nested"/></xs:annotation></xs:include></xs:schema>`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted invalid composition node content")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+				t.Fatalf("diagnostic = %s, want invalid schema composition", diagnostic)
+			}
+			if diagnostic.Loc().Source() != "root.xsd" {
+				t.Fatalf("diagnostic source = %q, want root.xsd", diagnostic.Loc().Source())
+			}
+		})
+	}
+}
+
 //nolint:gocognit,funlen // The table covers each composition distinction and its diagnostic contract.
 func TestSchemaBridgeRejectsCompositionWithoutPartialSchema(t *testing.T) {
 	tests := []struct {
@@ -289,15 +387,6 @@ func TestSchemaBridgeRejectsCompositionWithoutPartialSchema(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name: "import without parent namespace",
-			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:import schemaLocation="child.xsd"/></xs:schema>`,
-			fixtures: map[string]discoveryFixture{
-				"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"/>`},
-			},
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
-		},
-		{
 			name: "import same namespace",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:import namespace="urn:root" schemaLocation="child.xsd"/></xs:schema>`,
 			fixtures: map[string]discoveryFixture{
@@ -311,6 +400,15 @@ func TestSchemaBridgeRejectsCompositionWithoutPartialSchema(t *testing.T) {
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:import namespace="urn:child" schemaLocation="child.xsd"/></xs:schema>`,
 			fixtures: map[string]discoveryFixture{
 				"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"/>`},
+			},
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name: "omitted import namespace without parent namespace",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:import schemaLocation="child.xsd"/></xs:schema>`,
+			fixtures: map[string]discoveryFixture{
+				"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"/>`},
 			},
 			class: FailureInvalid,
 			code:  invalidSchemaCompositionCode,
