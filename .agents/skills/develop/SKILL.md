@@ -10,15 +10,15 @@ Complete packet.
 ## Control plane
 
 Root owns claim, decomposition, lifecycle; avoids repeating delegated
-work. Branch, files, handoffs are shared memory; transcript is not.
+work. Branch/files/handoffs are shared memory; transcript is not.
 
 Children use exact configured roles, `fork_turns: "none"`, and task-local context.
 Scribe/Mason default to fresh read-only consultations; omit only with a PR
-exemption. Smith is the sole source/test writer and owns remediation; root writes
+exemption. Smith alone writes source/tests and owns remediation; root writes
 require a recorded narrow mechanical exemption. Curator is fresh per head;
-Examiner is fresh, challenge-bound.
+Examiner fresh, challenge-bound.
 
-Handoffs MUST state decisions, evidence locations, risks, and next actions; Smith
+Handoffs MUST state decisions, evidence locations, risks, next actions; Smith
 names changed paths/tests. Preserve Curator/Examiner JSON.
 
 ## Protocol
@@ -27,32 +27,34 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    It requires canonical clean `main` equal to fetched `origin/main`, with
    recursive pins ready. Repair stale launches with `base-sync`; rerun doctor,
    `sync`, `pick`.
-2. Claim the issue with `go tool workflowctl claim acquire ISSUE`. If claim
-   loses, no edit/push/reuse or Project status change; ask workflowctl for
-   another eligible issue; use its worktree.
-3. Read the issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md`
+2. Claim the issue with `go tool workflowctl claim acquire ISSUE`. On claim
+   loss, preserve state: no edit/push/reuse or Project-status change; defer
+   unrelated ready work to a later invocation; never backlog-loop or widen
+   scope. Only in that later invocation ask workflowctl for another eligible
+   issue and use its worktree.
+3. Read issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md`
    phase, relevant decisions. Claim at most one companion first
-   for shared implementation or proof.
+   for shared implementation/proof.
 4. Give Scribe specification question and Mason architecture question,
    with context and handoff contract.
-5. Decompose packet; give Smith contract, files, and evidence. Smith
+5. Decompose packet; give Smith contract, files, evidence. Smith
    implements, tests, fixes failures. Follow `AGENTS.md`; mechanize.
    Unfinished boundaries need unsupported diagnostics with feature ID, `Loc`,
-   and versioned specification reference. Do not add untracked TODOs; turn
+   versioned specification reference. Do not add untracked TODOs; turn
    actionable discoveries into issues.
 6. Renew before pushes and required durable boundaries with `go tool
    workflowctl claim renew`; never wake or poll solely
    to renew.
-7. Run `go tool workflowctl check`, fix every failure, and update affected
+7. Run `go tool workflowctl check`, fix every failure, update affected
    docs/comments. Do not redo Smith's investigation.
    For `syntax.go` or `datatype.go` changes, run
    `go tool workflowctl develop-signals --base BASE_SHA`; it replays checked-in
-   corpora and runs targets for the bounded offline single-worker duration.
+   corpora and runs targets for bounded offline single-worker duration.
    Text reports coverage/fuzz status, target names, and
    `no-relevant-target`, not exact values or corpus names. Use `--format json`
    for exact computed affected-package/repository deltas or selected-target
    evidence; request replay evidence separately. Regressions require a
-   JSON explanation containing package, reason, and computed base/head;
+   JSON explanation containing package, reason, computed base/head;
    repository total is context.
    Coverage/fuzz health never represent XSD conformance, catalog inventory,
    or evaluation fuzz excluded from these signals.
@@ -61,16 +63,16 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    outcome, consultation, verification, conformance, packet issues.
 9. On every pushed head run `go tool workflowctl docs audit --base origin/main`.
    Managed documents require a fresh read-only Curator with audit, diff, paths,
-   charters, and head. Curator checks placement, relevance, duplication,
+   charters, head. Curator checks placement, relevance, duplication,
    history, replacement. Preserve Curator JSON; repeat after remediation.
 10. Run `go tool workflowctl evaluation challenge PR`; for every
-    managed-document review head, a fresh read-only Curator review/result is
+    managed-document review head, fresh read-only Curator review/result is
     mandatory. Give challenge, PR state, tests, audit, Curator result,
-    attestation shape, and rubric to a fresh read-only Examiner context,
+    attestation shape, rubric to a fresh read-only Examiner context,
     challenge-bound. Examiner inspects
     source, reruns audit, rejects stale/missing Curator evidence, returns exact
     `goxsd9/examiner-attestation/v1` JSON with `schema`, `challenge`, `evaluator`,
-    `runID`, `pullRequest`, `head`, `verdict`, `summary`, and `findings`; failure
+    `runID`, `pullRequest`, `head`, `verdict`, `summary`, findings; failure
     findings require `location`, `impact`, and `requiredCorrection`. Copy it
     byte-for-byte outside repository; record it with `go tool workflowctl
     evaluation record PR --attestation-file FILE`; never choose or rewrite
@@ -79,9 +81,10 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
     evidence.
 11. On matching-head pass, write plain-text summary outside repository
     covering problem, outcome, rationale, and consequential decisions
-    or invariants; omit metadata. Separate summary is for future development,
-    backlog, and retrospective workflows; do not copy or parse any PR Markdown
-    into the squash body. Keep workflow metadata in records. Pass it to
+    or invariants; omit metadata. Separate plain-text summary is intended
+    for future development, backlog, and retrospective workflows; do not copy
+    or parse any PR Markdown into the squash body. Keep workflow metadata in
+    records. Pass it to
     `go tool workflowctl pr finish PR --summary-file FILE`, which verifies
     packet before SHA-bound REST, GraphQL-independent squash merge, converges
     canonical base, cleans only exact refs, clean-claim worktrees, expected-SHA
@@ -98,13 +101,13 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
 Waits are logical barriers. Continue while healthy work and lease renewal
 permit; never narrow, pressure, spawn a writer, or duplicate work. Interrupt
 only for explicit failure, cancellation, invalid scope, or lost lease. Follow up
-only for incomplete handoffs or bounded input; timing is guidance, not an
+only for incomplete handoffs or bounded input; timing guides, not an
 OpenAI runtime guarantee.
 
 For three packets (mechanical, specification-heavy, remediation), record
-aggregate root compactions, peak context, output volume, elapsed time, Examiner
-rounds and verdict, and quality across
-diagnostics, tests, docs, and review. Zero normal-packet root compactions and
+aggregate root compactions, peak context, output volume, elapsed time,
+Examiner rounds/verdict, and quality across diagnostics, tests, docs, review.
+Zero normal-packet root compactions and
 under 50% effective root context before review are
 optimization signals; quality must not regress. Never require sessions or
 telemetry.
