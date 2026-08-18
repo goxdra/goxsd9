@@ -124,7 +124,7 @@ func decodeSyntax(reader io.ReadCloser, config syntaxDecodeConfig) (document *sy
 	if reader == nil {
 		return nil, newDiagnostic(
 			FailureInternal,
-			"GOXSD9006",
+			diagnosticSyntaxNoReaderCode,
 			Loc{},
 			"schema source has no reader",
 			nil,
@@ -191,7 +191,7 @@ func (parser *syntaxDecoder) decode() (*syntaxDocument, error) {
 		if token == nil {
 			return nil, newDiagnostic(
 				FailureInternal,
-				"GOXSD9007",
+				diagnosticSyntaxEmptyTokenCode,
 				loc,
 				"XML decoder returned an empty token",
 				nil,
@@ -219,7 +219,7 @@ func (parser *syntaxDecoder) handleToken(token xml.Token, loc Loc) error {
 	default:
 		return newDiagnostic(
 			FailureInternal,
-			"GOXSD9008",
+			diagnosticSyntaxUnsupportedTokenCode,
 			loc,
 			fmt.Sprintf("XML decoder returned unsupported token %T", token),
 			nil,
@@ -443,7 +443,7 @@ func (parser *syntaxDecoder) checkSupportedElement(name syntaxName, loc Loc) err
 		if !ok {
 			return newDiagnostic(
 				FailureInternal,
-				"GOXSD9009",
+				diagnosticSyntaxAssertionFeatureCode,
 				loc,
 				"XSD assertion feature is not registered",
 				nil,
@@ -462,7 +462,7 @@ func newUnsupportedSyntax(name syntaxName, loc Loc) Diagnostic {
 	if !ok {
 		return newDiagnostic(
 			FailureInternal,
-			"GOXSD9010",
+			diagnosticSyntaxFeatureCode,
 			loc,
 			"schema syntax feature is not registered",
 			nil,
@@ -681,7 +681,7 @@ func syntaxDiagnostics(err error) []Diagnostic {
 	}
 	return []Diagnostic{newDiagnostic(
 		FailureInternal,
-		"GOXSD9011",
+		diagnosticSyntaxUnclassifiedErrorCode,
 		Loc{},
 		"syntax decoder returned an unclassified error",
 		err,

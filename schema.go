@@ -295,7 +295,7 @@ func newSchema(inputs []schemaDocumentInput) (Schema, error) {
 		if input.source == "" {
 			return Schema{}, newDiagnostic(
 				FailureInternal,
-				"GOXSD9012",
+				diagnosticSchemaEmptySourceCode,
 				Loc{},
 				"schema document has an empty source identity",
 				nil,
@@ -304,7 +304,7 @@ func newSchema(inputs []schemaDocumentInput) (Schema, error) {
 		if _, exists := seenSources[input.source]; exists {
 			return Schema{}, newDiagnostic(
 				FailureInternal,
-				"GOXSD9013",
+				diagnosticSchemaRepeatedSourceCode,
 				Loc{},
 				fmt.Sprintf("schema document source %q is repeated", input.source),
 				nil,
@@ -317,7 +317,7 @@ func newSchema(inputs []schemaDocumentInput) (Schema, error) {
 			if declaration.kind == "" {
 				return Schema{}, newDiagnostic(
 					FailureInternal,
-					"GOXSD9014",
+					diagnosticSchemaEmptyKindCode,
 					declaration.loc,
 					"schema component has an empty kind",
 					nil,
@@ -326,7 +326,7 @@ func newSchema(inputs []schemaDocumentInput) (Schema, error) {
 			if declaration.name.IsZero() {
 				return Schema{}, newDiagnostic(
 					FailureInternal,
-					"GOXSD9015",
+					diagnosticSchemaEmptyNameCode,
 					declaration.loc,
 					"schema component has an empty name",
 					nil,

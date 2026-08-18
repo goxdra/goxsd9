@@ -168,7 +168,7 @@ func syntaxDocumentReferences(document *syntaxDocument) ([]syntaxReference, erro
 	if document == nil || document.root == nil {
 		return nil, newDiagnostic(
 			FailureInternal,
-			"GOXSD9016",
+			diagnosticSyntaxDocumentNoRootCode,
 			Loc{},
 			"syntax document has no root element",
 			nil,

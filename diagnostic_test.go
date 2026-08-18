@@ -5,6 +5,61 @@ import (
 	"testing"
 )
 
+func TestDiagnosticCodesAreUnique(t *testing.T) {
+	definitions := []struct {
+		name string
+		code string
+	}{
+		{name: "InvalidIntegerLexicalCode", code: InvalidIntegerLexicalCode},
+		{name: "InvalidDecimalLexicalCode", code: InvalidDecimalLexicalCode},
+		{name: "InvalidXSDVersionCode", code: InvalidXSDVersionCode},
+		{name: "InvalidTotalDigitsCode", code: InvalidTotalDigitsCode},
+		{name: "InvalidFractionDigitsCode", code: InvalidFractionDigitsCode},
+		{name: "InvalidDigitFacetCombinationCode", code: InvalidDigitFacetCombinationCode},
+		{name: "InvalidDigitFacetRestrictionCode", code: InvalidDigitFacetRestrictionCode},
+		{name: "DigitFacetValueViolationCode", code: DigitFacetValueViolationCode},
+		{name: "InvalidDigitDatatypeCode", code: InvalidDigitDatatypeCode},
+		{name: "InvalidXMLSyntaxCode", code: InvalidXMLSyntaxCode},
+		{name: "InvalidSchemaRootCode", code: InvalidSchemaRootCode},
+		{name: "UnsupportedSchemaSyntaxCode", code: UnsupportedSchemaSyntaxCode},
+		{name: "SourceReadCode", code: SourceReadCode},
+		{name: "SourceCloseCode", code: SourceCloseCode},
+		{name: "SourceResolveCode", code: SourceResolveCode},
+		{name: "SourceInvalidCode", code: SourceInvalidCode},
+		{name: "MissingSchemaLocationCode", code: MissingSchemaLocationCode},
+		{name: "diagnosticUnsupportedWithoutFeatureCode", code: diagnosticUnsupportedWithoutFeatureCode},
+		{name: "diagnosticUnregisteredFeatureCode", code: diagnosticUnregisteredFeatureCode},
+		{name: "diagnosticIntegerConstructionCode", code: diagnosticIntegerConstructionCode},
+		{name: "diagnosticDecimalConstructionCode", code: diagnosticDecimalConstructionCode},
+		{name: "diagnosticSyntaxNoReaderCode", code: diagnosticSyntaxNoReaderCode},
+		{name: "diagnosticSyntaxEmptyTokenCode", code: diagnosticSyntaxEmptyTokenCode},
+		{name: "diagnosticSyntaxUnsupportedTokenCode", code: diagnosticSyntaxUnsupportedTokenCode},
+		{name: "diagnosticSyntaxAssertionFeatureCode", code: diagnosticSyntaxAssertionFeatureCode},
+		{name: "diagnosticSyntaxFeatureCode", code: diagnosticSyntaxFeatureCode},
+		{name: "diagnosticSyntaxUnclassifiedErrorCode", code: diagnosticSyntaxUnclassifiedErrorCode},
+		{name: "diagnosticSchemaEmptySourceCode", code: diagnosticSchemaEmptySourceCode},
+		{name: "diagnosticSchemaRepeatedSourceCode", code: diagnosticSchemaRepeatedSourceCode},
+		{name: "diagnosticSchemaEmptyKindCode", code: diagnosticSchemaEmptyKindCode},
+		{name: "diagnosticSchemaEmptyNameCode", code: diagnosticSchemaEmptyNameCode},
+		{name: "diagnosticSyntaxDocumentNoRootCode", code: diagnosticSyntaxDocumentNoRootCode},
+		{name: "diagnosticDigitRestrictionKindCode", code: diagnosticDigitRestrictionKindCode},
+		{name: "diagnosticDigitRestrictionVersionCode", code: diagnosticDigitRestrictionVersionCode},
+		{name: "diagnosticDigitTotalStateCode", code: diagnosticDigitTotalStateCode},
+		{name: "diagnosticDigitFractionStateCode", code: diagnosticDigitFractionStateCode},
+		{name: "diagnosticDigitValueConstructionCode", code: diagnosticDigitValueConstructionCode},
+		{name: "diagnosticDigitEffectiveKindCode", code: diagnosticDigitEffectiveKindCode},
+		{name: "diagnosticDigitEffectiveVersionCode", code: diagnosticDigitEffectiveVersionCode},
+		{name: "diagnosticDigitIntegerFractionCode", code: diagnosticDigitIntegerFractionCode},
+	}
+	seen := make(map[string]string, len(definitions))
+	for _, definition := range definitions {
+		if previous, exists := seen[definition.code]; exists {
+			t.Fatalf("diagnostic code %q is assigned to %s and %s", definition.code, previous, definition.name)
+		}
+		seen[definition.code] = definition.name
+	}
+}
+
 func TestUnsupportedDiagnostic(t *testing.T) {
 	loc, err := NewLoc("schema.xsd", 3, 7)
 	if err != nil {
