@@ -68,7 +68,7 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 
 func TestEvaluationAcceptsRunSpecificLocalBranchForFixedPRHead(t *testing.T) {
 	backend := newWorkflowBackend(t)
-	backend.localBranch = "agent/issue-13-run-test"
+	backend.localBranch = claimLocalBranch(13, "run-test")
 	var stdout bytes.Buffer
 	application := app{
 		ctx:            context.Background(),
@@ -79,6 +79,17 @@ func TestEvaluationAcceptsRunSpecificLocalBranchForFixedPRHead(t *testing.T) {
 	challenge := requestTestChallenge(t, &application, &stdout)
 	if challenge.Head != backend.head {
 		t.Fatalf("challenge head = %q, want fixed PR head %q", challenge.Head, backend.head)
+	}
+	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record evaluation from run-local worktree: %v", err)
+	}
+	receipt, ok := parseEvaluationReceipt(backend.comments[len(backend.comments)-1].Body)
+	if !ok {
+		t.Fatal("run-local evaluation receipt was not parseable")
+	}
+	if receipt.HeadRefName != backend.branch {
+		t.Fatalf("receipt head branch = %q, want published claim branch %q", receipt.HeadRefName, backend.branch)
 	}
 }
 
@@ -440,6 +451,7 @@ func TestUnknownMergeOutcomeGuidesRecovery(t *testing.T) {
 func newRepairFixture(t *testing.T) (*workflowBackend, *app, *bytes.Buffer) {
 	t.Helper()
 	backend := newWorkflowBackend(t)
+	backend.localBranch = claimLocalBranch(13, "run-test")
 	stdout := new(bytes.Buffer)
 	application := &app{
 		ctx:            context.Background(),
