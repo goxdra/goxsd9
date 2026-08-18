@@ -24,20 +24,27 @@ const (
 	// InvalidPrecisionDecimalDisallowedFacetCode identifies a facet that is not
 	// allowed for precisionDecimal declarations in this layer.
 	InvalidPrecisionDecimalDisallowedFacetCode = "XSD2016"
+	// UnsupportedPrecisionDecimalFacetCode identifies an applicable
+	// precisionDecimal facet that is not implemented in this layer.
+	UnsupportedPrecisionDecimalFacetCode = "XSD2017"
+	// InvalidPrecisionDecimalUnknownFacetCode identifies an unknown
+	// precisionDecimal facet name.
+	InvalidPrecisionDecimalUnknownFacetCode = "XSD2018"
 )
 
 const (
-	precisionDecimalFacetSetSpecRef               = "xsd-precisionDecimal#facets"
-	precisionDecimalTotalDigitsValueSpecRef       = "xsd-precisionDecimal#f-td-value"
-	precisionDecimalTotalDigitsFixedSpecRef       = "xsd-precisionDecimal#f-td-fixed"
-	precisionDecimalTotalDigitsRestrictionSpecRef = "xsd-precisionDecimal#totalDigits-valid-restriction"
-	precisionDecimalMinScaleValueSpecRef          = "xsd-precisionDecimal#f-mns-value"
-	precisionDecimalMinScaleFixedSpecRef          = "xsd-precisionDecimal#f-mns-fixed"
-	precisionDecimalMinScaleRestrictionSpecRef    = "xsd-precisionDecimal#minScale-valid-restriction"
-	precisionDecimalMaxScaleValueSpecRef          = "xsd-precisionDecimal#f-ms-value"
-	precisionDecimalMaxScaleFixedSpecRef          = "xsd-precisionDecimal#f-ms-fixed"
-	precisionDecimalMaxScaleRestrictionSpecRef    = "xsd-precisionDecimal#maxScale-valid-restriction"
-	precisionDecimalScaleCombinationSpecRef       = "xsd-precisionDecimal#minScale-totalDigits"
+	precisionDecimalFacetSetSpecRef            = "xsd-precisionDecimal#facets"
+	precisionDecimalTotalDigitsSpecRef         = "xsd-precisionDecimal#rf-totalDigits"
+	xsd11TotalDigitsValueSpecRef               = "xsd11-datatypes#f-td-value"
+	xsd11TotalDigitsFixedSpecRef               = "xsd11-datatypes#f-td-fixed"
+	xsd11TotalDigitsRestrictionSpecRef         = "xsd11-datatypes#totalDigits-valid-restriction"
+	precisionDecimalMinScaleValueSpecRef       = "xsd-precisionDecimal#f-mns-value"
+	precisionDecimalMinScaleFixedSpecRef       = "xsd-precisionDecimal#f-mns-fixed"
+	precisionDecimalMinScaleRestrictionSpecRef = "xsd-precisionDecimal#minScale-valid-restriction"
+	precisionDecimalMaxScaleValueSpecRef       = "xsd-precisionDecimal#f-ms-value"
+	precisionDecimalMaxScaleFixedSpecRef       = "xsd-precisionDecimal#f-ms-fixed"
+	precisionDecimalMaxScaleRestrictionSpecRef = "xsd-precisionDecimal#maxScale-valid-restriction"
+	precisionDecimalScaleCombinationSpecRef    = "xsd-precisionDecimal#minScale-totalDigits"
 )
 
 var (
@@ -47,6 +54,7 @@ var (
 	errInvalidPrecisionDecimalFacetRestriction = errors.New("invalid precisionDecimal facet restriction")
 	errInvalidPrecisionDecimalScaleCombination = errors.New("invalid precisionDecimal scale bounds")
 	errInvalidPrecisionDecimalDisallowedFacet  = errors.New("disallowed precisionDecimal facet")
+	errInvalidPrecisionDecimalUnknownFacet     = errors.New("unknown precisionDecimal facet")
 	errInvalidPrecisionDecimalFacetState       = errors.New("invalid completed precisionDecimal facet state")
 )
 
@@ -395,22 +403,52 @@ func (facets PrecisionDecimalFacets) MaxScaleFixed() (bool, bool) {
 	return facets.maxScale.Fixed(), true
 }
 
-// ValidatePrecisionDecimalFacetName rejects facet names that are not part of
-// this declaration layer. In particular, fractionDigits is not represented.
+// ValidatePrecisionDecimalFacetName classifies a precisionDecimal facet name
+// for this declaration layer. Inapplicable facets are invalid; applicable
+// facets outside this layer are reported as unsupported. In particular,
+// fractionDigits is not represented.
 func ValidatePrecisionDecimalFacetName(name string, loc Loc) error {
 	switch name {
 	case "totalDigits", "minScale", "maxScale":
 		return nil
+	case "pattern", "enumeration", "minInclusive", "minExclusive", "maxInclusive", "maxExclusive", "assertions", "whiteSpace":
+		feature, ok := LookupUnsupportedFeature(FeaturePrecisionDecimal)
+		if !ok {
+			return newDiagnostic(
+				FailureInternal,
+				diagnosticUnregisteredFeatureCode,
+				loc,
+				"precisionDecimal feature is not registered",
+				fmt.Errorf("%w: precisionDecimal feature", errInvalidPrecisionDecimalFacetState),
+			)
+		}
+		return newUnsupported(
+			feature,
+			UnsupportedPrecisionDecimalFacetCode,
+			loc,
+			fmt.Sprintf("precisionDecimal facet %q is not implemented", name),
+		)
+	case "fractionDigits", "length", "minLength", "maxLength":
+		return newPrecisionDecimalFacetDiagnostic(
+			FailureInvalid,
+			InvalidPrecisionDecimalDisallowedFacetCode,
+			loc,
+			precisionDecimalFacetSetSpecRef,
+			fmt.Sprintf("facet %q is not allowed for precisionDecimal declarations", name),
+			nil,
+			fmt.Errorf("%w: %q", errInvalidPrecisionDecimalDisallowedFacet, name),
+		)
+	default:
+		return newPrecisionDecimalFacetDiagnostic(
+			FailureInvalid,
+			InvalidPrecisionDecimalUnknownFacetCode,
+			loc,
+			precisionDecimalFacetSetSpecRef,
+			fmt.Sprintf("unknown precisionDecimal facet %q", name),
+			nil,
+			fmt.Errorf("%w: %q", errInvalidPrecisionDecimalUnknownFacet, name),
+		)
 	}
-	return newPrecisionDecimalFacetDiagnostic(
-		FailureInvalid,
-		InvalidPrecisionDecimalDisallowedFacetCode,
-		loc,
-		precisionDecimalFacetSetSpecRef,
-		fmt.Sprintf("facet %q is not allowed for precisionDecimal declarations", name),
-		nil,
-		fmt.Errorf("%w: %q", errInvalidPrecisionDecimalDisallowedFacet, name),
-	)
 }
 
 func parsePrecisionDecimalTotalDigitsFacet(lexical string, loc Loc, fixed bool) (PrecisionDecimalTotalDigitsFacet, error) {
@@ -533,7 +571,7 @@ func applyPrecisionDecimalTotalDigits(effective *PrecisionDecimalFacets, base Pr
 			base.totalDigits.Value(),
 			base.totalDigits.Loc(),
 			base.totalDigits.Fixed(),
-			precisionDecimalTotalDigitsRestrictionSpecRef,
+			xsd11TotalDigitsRestrictionSpecRef,
 			local.Value().Compare(base.totalDigits.Value()) > 0,
 		); err != nil {
 			return err
@@ -692,7 +730,7 @@ func validatePrecisionDecimalTotalDigitsState(facet PrecisionDecimalTotalDigitsF
 		FailureInternal,
 		InvalidPrecisionDecimalTotalDigitsCode,
 		facet.Loc(),
-		precisionDecimalTotalDigitsValueSpecRef,
+		xsd11TotalDigitsValueSpecRef,
 		"completed precisionDecimal totalDigits is not positive",
 		nil,
 		errInvalidPrecisionDecimalFacetState,
@@ -771,7 +809,7 @@ func precisionDecimalFacetValueCode(kind precisionDecimalFacetKind) string {
 func precisionDecimalFacetValueSpecRef(kind precisionDecimalFacetKind) string {
 	switch kind {
 	case precisionDecimalTotalDigitsKind:
-		return precisionDecimalTotalDigitsValueSpecRef
+		return precisionDecimalTotalDigitsSpecRef
 	case precisionDecimalMinScaleKind:
 		return precisionDecimalMinScaleValueSpecRef
 	case precisionDecimalMaxScaleKind:
@@ -784,7 +822,7 @@ func precisionDecimalFacetValueSpecRef(kind precisionDecimalFacetKind) string {
 func precisionDecimalFixedSpecRef(kind precisionDecimalFacetKind) string {
 	switch kind {
 	case precisionDecimalTotalDigitsKind:
-		return precisionDecimalTotalDigitsFixedSpecRef
+		return xsd11TotalDigitsFixedSpecRef
 	case precisionDecimalMinScaleKind:
 		return precisionDecimalMinScaleFixedSpecRef
 	case precisionDecimalMaxScaleKind:

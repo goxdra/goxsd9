@@ -75,13 +75,13 @@ func assertPrecisionDecimalInvalidIntegerDomains(t *testing.T, totalLoc, minLoc,
 		loc     Loc
 		parse   func(string, Loc) (StrictInteger, error)
 	}{
-		{name: "total empty", lexical: "", code: InvalidPrecisionDecimalTotalDigitsCode, ref: precisionDecimalTotalDigitsValueSpecRef, cause: errInvalidPrecisionDecimalTotalDigitsValue, loc: totalLoc, parse: ParsePrecisionDecimalTotalDigits},
-		{name: "total zero", lexical: "0", code: InvalidPrecisionDecimalTotalDigitsCode, ref: precisionDecimalTotalDigitsValueSpecRef, cause: errInvalidPrecisionDecimalTotalDigitsValue, loc: totalLoc, parse: ParsePrecisionDecimalTotalDigits},
-		{name: "total negative", lexical: "-1", code: InvalidPrecisionDecimalTotalDigitsCode, ref: precisionDecimalTotalDigitsValueSpecRef, cause: errInvalidPrecisionDecimalTotalDigitsValue, loc: totalLoc, parse: ParsePrecisionDecimalTotalDigits},
-		{name: "total signed zero", lexical: "-0", code: InvalidPrecisionDecimalTotalDigitsCode, ref: precisionDecimalTotalDigitsValueSpecRef, cause: errInvalidPrecisionDecimalTotalDigitsValue, loc: totalLoc, parse: ParsePrecisionDecimalTotalDigits},
-		{name: "total non-integer", lexical: "1.0", code: InvalidPrecisionDecimalTotalDigitsCode, ref: precisionDecimalTotalDigitsValueSpecRef, cause: errInvalidPrecisionDecimalTotalDigitsValue, loc: totalLoc, parse: ParsePrecisionDecimalTotalDigits},
-		{name: "min malformed", lexical: "1.0", code: InvalidPrecisionDecimalMinScaleCode, ref: precisionDecimalMinScaleValueSpecRef, cause: errInvalidPrecisionDecimalMinScaleValue, loc: minLoc, parse: ParsePrecisionDecimalMinScale},
-		{name: "max malformed", lexical: "1.0", code: InvalidPrecisionDecimalMaxScaleCode, ref: precisionDecimalMaxScaleValueSpecRef, cause: errInvalidPrecisionDecimalMaxScaleValue, loc: maxLoc, parse: ParsePrecisionDecimalMaxScale},
+		{name: "total empty", lexical: "", code: InvalidPrecisionDecimalTotalDigitsCode, ref: "xsd-precisionDecimal#rf-totalDigits", cause: errInvalidPrecisionDecimalTotalDigitsValue, loc: totalLoc, parse: ParsePrecisionDecimalTotalDigits},
+		{name: "total zero", lexical: "0", code: InvalidPrecisionDecimalTotalDigitsCode, ref: "xsd-precisionDecimal#rf-totalDigits", cause: errInvalidPrecisionDecimalTotalDigitsValue, loc: totalLoc, parse: ParsePrecisionDecimalTotalDigits},
+		{name: "total negative", lexical: "-1", code: InvalidPrecisionDecimalTotalDigitsCode, ref: "xsd-precisionDecimal#rf-totalDigits", cause: errInvalidPrecisionDecimalTotalDigitsValue, loc: totalLoc, parse: ParsePrecisionDecimalTotalDigits},
+		{name: "total signed zero", lexical: "-0", code: InvalidPrecisionDecimalTotalDigitsCode, ref: "xsd-precisionDecimal#rf-totalDigits", cause: errInvalidPrecisionDecimalTotalDigitsValue, loc: totalLoc, parse: ParsePrecisionDecimalTotalDigits},
+		{name: "total non-integer", lexical: "1.0", code: InvalidPrecisionDecimalTotalDigitsCode, ref: "xsd-precisionDecimal#rf-totalDigits", cause: errInvalidPrecisionDecimalTotalDigitsValue, loc: totalLoc, parse: ParsePrecisionDecimalTotalDigits},
+		{name: "min malformed", lexical: "1.0", code: InvalidPrecisionDecimalMinScaleCode, ref: "xsd-precisionDecimal#f-mns-value", cause: errInvalidPrecisionDecimalMinScaleValue, loc: minLoc, parse: ParsePrecisionDecimalMinScale},
+		{name: "max malformed", lexical: "1.0", code: InvalidPrecisionDecimalMaxScaleCode, ref: "xsd-precisionDecimal#f-ms-value", cause: errInvalidPrecisionDecimalMaxScaleValue, loc: maxLoc, parse: ParsePrecisionDecimalMaxScale},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, parseErr := test.parse(test.lexical, test.loc)
@@ -183,7 +183,7 @@ func TestPrecisionDecimalFacetRestrictionsAreMonotonicAndLocated(t *testing.T) {
 
 	tooBroadTotal := mustPrecisionDecimalTotalFacet(t, "11", childTotalLoc, false)
 	_, err = RestrictPrecisionDecimalFacets(base, NewPrecisionDecimalFacetDeclarations(tooBroadTotal, nil, nil))
-	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalFacetRestrictionCode, childTotalLoc, precisionDecimalTotalDigitsRestrictionSpecRef)
+	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalFacetRestrictionCode, childTotalLoc, "xsd11-datatypes#totalDigits-valid-restriction")
 	assertPrecisionDecimalRelated(t, err, baseTotalLoc)
 	if !errors.Is(err, errInvalidPrecisionDecimalFacetRestriction) {
 		t.Fatalf("totalDigits restriction does not preserve cause: %v", err)
@@ -191,12 +191,12 @@ func TestPrecisionDecimalFacetRestrictionsAreMonotonicAndLocated(t *testing.T) {
 
 	tooBroadMin := mustPrecisionDecimalMinFacet(t, "-6", childMinLoc, false)
 	_, err = RestrictPrecisionDecimalFacets(base, NewPrecisionDecimalFacetDeclarations(nil, tooBroadMin, nil))
-	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalFacetRestrictionCode, childMinLoc, precisionDecimalMinScaleRestrictionSpecRef)
+	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalFacetRestrictionCode, childMinLoc, "xsd-precisionDecimal#minScale-valid-restriction")
 	assertPrecisionDecimalRelated(t, err, baseMinLoc)
 
 	tooBroadMax := mustPrecisionDecimalMaxFacet(t, "9", childMaxLoc, false)
 	_, err = RestrictPrecisionDecimalFacets(base, NewPrecisionDecimalFacetDeclarations(nil, nil, tooBroadMax))
-	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalFacetRestrictionCode, childMaxLoc, precisionDecimalMaxScaleRestrictionSpecRef)
+	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalFacetRestrictionCode, childMaxLoc, "xsd-precisionDecimal#maxScale-valid-restriction")
 	assertPrecisionDecimalRelated(t, err, baseMaxLoc)
 }
 
@@ -241,17 +241,17 @@ func TestPrecisionDecimalFacetFixedValuesSurviveInheritance(t *testing.T) {
 		{
 			name:  "totalDigits",
 			local: NewPrecisionDecimalFacetDeclarations(mustPrecisionDecimalTotalFacet(t, "9", childTotalLoc, false), nil, nil),
-			loc:   childTotalLoc, baseLoc: baseTotalLoc, fixedRef: precisionDecimalTotalDigitsFixedSpecRef,
+			loc:   childTotalLoc, baseLoc: baseTotalLoc, fixedRef: "xsd11-datatypes#f-td-fixed",
 		},
 		{
 			name:  "minScale",
 			local: NewPrecisionDecimalFacetDeclarations(nil, mustPrecisionDecimalMinFacet(t, "-4", childMinLoc, false), nil),
-			loc:   childMinLoc, baseLoc: baseMinLoc, fixedRef: precisionDecimalMinScaleFixedSpecRef,
+			loc:   childMinLoc, baseLoc: baseMinLoc, fixedRef: "xsd-precisionDecimal#f-mns-fixed",
 		},
 		{
 			name:  "maxScale",
 			local: NewPrecisionDecimalFacetDeclarations(nil, nil, mustPrecisionDecimalMaxFacet(t, "7", childMaxLoc, false)),
-			loc:   childMaxLoc, baseLoc: baseMaxLoc, fixedRef: precisionDecimalMaxScaleFixedSpecRef,
+			loc:   childMaxLoc, baseLoc: baseMaxLoc, fixedRef: "xsd-precisionDecimal#f-ms-fixed",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -293,7 +293,7 @@ func TestPrecisionDecimalFacetScaleBoundsUseEffectiveOverlayOnly(t *testing.T) {
 
 	localMin := mustPrecisionDecimalMinFacet(t, "11", childMinLoc, false)
 	_, err = RestrictPrecisionDecimalFacets(base, NewPrecisionDecimalFacetDeclarations(nil, localMin, nil))
-	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalScaleCombinationCode, childMinLoc, precisionDecimalScaleCombinationSpecRef)
+	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalScaleCombinationCode, childMinLoc, "xsd-precisionDecimal#minScale-totalDigits")
 	assertPrecisionDecimalRelated(t, err, baseMaxLoc)
 	if !errors.Is(err, errInvalidPrecisionDecimalScaleCombination) {
 		t.Fatalf("inherited maxScale contradiction does not preserve cause: %v", err)
@@ -301,13 +301,13 @@ func TestPrecisionDecimalFacetScaleBoundsUseEffectiveOverlayOnly(t *testing.T) {
 
 	localMax := mustPrecisionDecimalMaxFacet(t, "-11", childMaxLoc, false)
 	_, err = RestrictPrecisionDecimalFacets(base, NewPrecisionDecimalFacetDeclarations(nil, nil, localMax))
-	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalScaleCombinationCode, childMaxLoc, precisionDecimalScaleCombinationSpecRef)
+	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalScaleCombinationCode, childMaxLoc, "xsd-precisionDecimal#minScale-totalDigits")
 	assertPrecisionDecimalRelated(t, err, baseMinLoc)
 
 	localMin = mustPrecisionDecimalMinFacet(t, "-2", childMinLoc, false)
 	localMax = mustPrecisionDecimalMaxFacet(t, "-3", childMaxLoc, false)
 	_, err = NewPrecisionDecimalFacets(nil, localMin, localMax)
-	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalScaleCombinationCode, childMinLoc, precisionDecimalScaleCombinationSpecRef)
+	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalScaleCombinationCode, childMinLoc, "xsd-precisionDecimal#minScale-totalDigits")
 	assertPrecisionDecimalRelated(t, err, childMaxLoc)
 }
 
@@ -381,22 +381,87 @@ func TestPrecisionDecimalFacetValuesAreCopiedAtEveryBoundary(t *testing.T) {
 	}
 }
 
-func TestPrecisionDecimalFacetLayerRejectsDisallowedFacets(t *testing.T) {
-	loc := mustPrecisionDecimalFacetLoc(t, "disallowed.xsd", 80, 2)
-	for _, name := range []string{"fractionDigits", "length", "minLength", "maxLength", "pattern"} {
-		t.Run(name, func(t *testing.T) {
+func TestPrecisionDecimalFacetLayerRejectsInapplicableFacets(t *testing.T) {
+	loc := mustPrecisionDecimalFacetLoc(t, "facet-name.xsd", 80, 2)
+	for _, name := range []string{"fractionDigits", "length", "minLength", "maxLength"} {
+		t.Run("inapplicable "+name, func(t *testing.T) {
 			err := ValidatePrecisionDecimalFacetName(name, loc)
-			assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalDisallowedFacetCode, loc, precisionDecimalFacetSetSpecRef)
+			assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalDisallowedFacetCode, loc, "xsd-precisionDecimal#facets")
+			if errors.Is(err, ErrUnsupported) {
+				t.Fatalf("inapplicable facet was classified as unsupported: %v", err)
+			}
 			if !errors.Is(err, errInvalidPrecisionDecimalDisallowedFacet) {
-				t.Fatalf("disallowed facet does not preserve cause: %v", err)
+				t.Fatalf("inapplicable facet does not preserve cause: %v", err)
 			}
 		})
 	}
+}
+
+func TestPrecisionDecimalFacetLayerReportsApplicableFacetsUnsupported(t *testing.T) {
+	loc := mustPrecisionDecimalFacetLoc(t, "facet-name.xsd", 80, 2)
+	for _, name := range []string{"pattern", "enumeration", "minInclusive", "minExclusive", "maxInclusive", "maxExclusive", "assertions", "whiteSpace"} {
+		t.Run("applicable but unimplemented "+name, func(t *testing.T) {
+			err := ValidatePrecisionDecimalFacetName(name, loc)
+			assertPrecisionDecimalUnsupportedFacet(t, err, loc)
+		})
+	}
+}
+
+func TestPrecisionDecimalFacetLayerRejectsUnknownFacets(t *testing.T) {
+	loc := mustPrecisionDecimalFacetLoc(t, "facet-name.xsd", 80, 2)
+	for _, name := range []string{"unknown", ""} {
+		t.Run("unknown "+name, func(t *testing.T) {
+			err := ValidatePrecisionDecimalFacetName(name, loc)
+			assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalUnknownFacetCode, loc, "xsd-precisionDecimal#facets")
+			if errors.Is(err, ErrUnsupported) {
+				t.Fatalf("unknown facet was classified as unsupported: %v", err)
+			}
+			if !errors.Is(err, errInvalidPrecisionDecimalUnknownFacet) {
+				t.Fatalf("unknown facet does not preserve cause: %v", err)
+			}
+		})
+	}
+}
+
+func TestPrecisionDecimalFacetLayerAllowsDeclaredFacets(t *testing.T) {
+	loc := mustPrecisionDecimalFacetLoc(t, "facet-name.xsd", 80, 2)
 	if err := ValidatePrecisionDecimalFacetName("totalDigits", loc); err != nil {
 		t.Fatalf("allowed totalDigits rejected: %v", err)
 	}
+	if err := ValidatePrecisionDecimalFacetName("minScale", loc); err != nil {
+		t.Fatalf("allowed minScale rejected: %v", err)
+	}
+	if err := ValidatePrecisionDecimalFacetName("maxScale", loc); err != nil {
+		t.Fatalf("allowed maxScale rejected: %v", err)
+	}
 	if _, ok := reflect.TypeOf(PrecisionDecimalFacetDeclarations{}).FieldByName("FractionDigits"); ok {
 		t.Fatal("precisionDecimal declarations represent fractionDigits")
+	}
+}
+
+func assertPrecisionDecimalUnsupportedFacet(t *testing.T, err error, loc Loc) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("applicable but unimplemented facet was accepted")
+	}
+	diagnostic := mustDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported {
+		t.Fatalf("Class() = %q, want %q", diagnostic.Class(), FailureUnsupported)
+	}
+	if diagnostic.Code() != UnsupportedPrecisionDecimalFacetCode {
+		t.Fatalf("Code() = %q, want %q", diagnostic.Code(), UnsupportedPrecisionDecimalFacetCode)
+	}
+	if diagnostic.Loc() != loc {
+		t.Fatalf("Loc() = %v, want %v", diagnostic.Loc(), loc)
+	}
+	if diagnostic.Feature() != FeaturePrecisionDecimal {
+		t.Fatalf("Feature() = %q, want %q", diagnostic.Feature(), FeaturePrecisionDecimal)
+	}
+	if diagnostic.SpecRef() != "xsd-precisionDecimal#precisionDecimal" {
+		t.Fatalf("SpecRef() = %q, want %q", diagnostic.SpecRef(), "xsd-precisionDecimal#precisionDecimal")
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unsupported facet does not match ErrUnsupported: %v", err)
 	}
 }
 
