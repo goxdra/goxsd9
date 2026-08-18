@@ -24,12 +24,13 @@ retries continue successful runs.
 not sync canonical `main` or recursive submodules.
 `base-sync` fetches `origin/main`, fast-forwards clean canonical `main`, and
 checks/updates recursive pins; no reset/rebase/stash/discard.
-Packets run `go tool workflowctl develop-signals --base BASE_SHA`. It reports
+For packets with parser/datatype boundary changes, run
+`go tool workflowctl develop-signals --base BASE_SHA`. It reports
 affected/repository deltas and, for parser/datatype changes, checked-in corpora
 through bounded offline single-worker fuzz. Affected regressions require
 versioned JSON with exact base/head values and a reason; totals are context.
 Signals are separate from catalog inventory and XSD conformance;
-`no-relevant-target` succeeds. #47 remains excluded pending human remediation.
+`no-relevant-target` succeeds. Evaluation fuzz is excluded from these signals.
 Before each fresh Examiner, `evaluation challenge` records a one-use head-bound
 challenge. The Examiner returns versioned JSON; `workflowctl` rejects wrong-head,
 stale, reused, malformed, or caller-selected results. Fresh context is required;

@@ -53,8 +53,9 @@ actions; Smith names changed paths/tests. Preserve Curator/Examiner JSON.
    health, and `no-relevant-target`. Affected-package
    regressions require a JSON explanation file containing the
    package, concrete reason, and the command-computed base/head values; the
-   repository total is context only. Coverage and fuzz health never represent
-   XSD conformance, catalog inventory, or the excluded #47 evaluation fuzz.
+   repository total is context. Coverage and fuzz health never represent
+   XSD conformance, catalog inventory, or evaluation fuzz excluded from
+   these signals.
 8. Commit/push with the `AGENTS.md` title convention. Open a draft PR with
    `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`; include
    outcome, consultation, verification, conformance, and packet issues.
