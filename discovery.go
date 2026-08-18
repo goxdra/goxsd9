@@ -269,6 +269,9 @@ func syntaxReferenceFromElement(element *syntaxElement) (syntaxReference, bool, 
 			return syntaxReference{}, false, err
 		}
 		namespaceURN, hasNamespace := syntaxAttributeValue(element, "namespace")
+		if hasNamespace {
+			namespaceURN = collapseSchemaWhitespace(namespaceURN)
+		}
 		return syntaxReference{
 			kind:           syntaxReferenceImport,
 			namespaceURN:   namespaceURN,
@@ -311,7 +314,7 @@ func validateSchemaReferenceAttribute(attribute syntaxAttribute, kind syntaxRefe
 		return nil
 	}
 	if attribute.name.local == "id" {
-		if !validNCName(attribute.value) {
+		if !validNCName(collapseSchemaWhitespace(attribute.value)) {
 			return newSchemaCompositionDiagnostic(attribute.loc, "schema composition id must be a valid NCName")
 		}
 		return nil
@@ -391,54 +394,155 @@ func validateSchemaReferenceChild(node syntaxNode, annotationSeen bool) (bool, e
 }
 
 func validateSchemaAnnotationElement(element *syntaxElement) error {
+	if err := validateSchemaAnnotationAttributes(element); err != nil {
+		return err
+	}
 	for _, node := range element.children {
-		textNode, ok := node.(syntaxText)
-		if ok {
-			if !xmlWhitespace([]byte(textNode.data)) {
-				return newSchemaCompositionDiagnostic(textNode.loc, "schema annotation contains non-whitespace character data")
-			}
-			continue
-		}
-		child, ok := node.(*syntaxElement)
-		if !ok {
-			return newSchemaBridgeInvariant(Loc{}, "schema annotation contains an unknown syntax node")
-		}
-		if child.name.namespace != xsdNamespaceURI {
-			return newSchemaSyntaxUnsupported(child.loc, "schema annotation contains an unsupported non-XSD child")
-		}
-		switch child.name.local {
-		case "appinfo", "documentation":
-			if err := validateSchemaAnnotationItem(child); err != nil {
-				return err
-			}
-		default:
-			return newSchemaCompositionDiagnostic(
-				child.loc,
-				fmt.Sprintf("schema annotation contains forbidden XSD construct <%s>", child.name.local),
-			)
+		if err := validateSchemaAnnotationChild(node); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func validateSchemaAnnotationItem(element *syntaxElement) error {
-	for _, node := range element.children {
-		child, ok := node.(*syntaxElement)
-		if !ok {
-			if _, text := node.(syntaxText); text {
-				continue
-			}
-			return newSchemaBridgeInvariant(Loc{}, "schema annotation item contains an unknown syntax node")
+func validateSchemaAnnotationChild(node syntaxNode) error {
+	textNode, ok := node.(syntaxText)
+	if ok {
+		if !xmlWhitespace([]byte(textNode.data)) {
+			return newSchemaCompositionDiagnostic(textNode.loc, "schema annotation contains non-whitespace character data")
 		}
-		if child.name.namespace != xsdNamespaceURI {
-			return newSchemaSyntaxUnsupported(child.loc, "schema annotation item contains an unsupported non-XSD child")
-		}
+		return nil
+	}
+	child, ok := node.(*syntaxElement)
+	if !ok {
+		return newSchemaBridgeInvariant(Loc{}, "schema annotation contains an unknown syntax node")
+	}
+	if child.name.namespace != xsdNamespaceURI {
+		return newSchemaSyntaxUnsupported(child.loc, "schema annotation contains an unsupported non-XSD child")
+	}
+	switch child.name.local {
+	case "appinfo", "documentation":
+		return validateSchemaAnnotationItem(child)
+	default:
 		return newSchemaCompositionDiagnostic(
 			child.loc,
-			fmt.Sprintf("schema annotation item contains forbidden XSD construct <%s>", child.name.local),
+			fmt.Sprintf("schema annotation contains forbidden XSD construct <%s>", child.name.local),
 		)
 	}
+}
+
+func validateSchemaAnnotationItem(element *syntaxElement) error {
+	if err := validateSchemaAnnotationAttributes(element); err != nil {
+		return err
+	}
+	for _, node := range element.children {
+		if err := validateSchemaAnnotationItemChild(node); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateSchemaAnnotationItemChild(node syntaxNode) error {
+	child, ok := node.(*syntaxElement)
+	if !ok {
+		if _, text := node.(syntaxText); text {
+			return nil
+		}
+		return newSchemaBridgeInvariant(Loc{}, "schema annotation item contains an unknown syntax node")
+	}
+	if child.name.namespace != xsdNamespaceURI {
+		return newSchemaSyntaxUnsupported(child.loc, "schema annotation item contains an unsupported non-XSD child")
+	}
+	switch child.name.local {
+	case "annotation":
+		return validateSchemaAnnotationElement(child)
+	case "appinfo", "documentation":
+		return validateSchemaAnnotationItem(child)
+	default:
+		return validateSchemaAnnotationDescendants(child)
+	}
+}
+
+func validateSchemaAnnotationAttributes(element *syntaxElement) error {
+	for _, attribute := range element.attrs {
+		if err := validateSchemaAnnotationAttribute(element.name.local, attribute); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSchemaAnnotationAttribute(element string, attribute syntaxAttribute) error {
+	if attribute.name.namespace == xsdVersioningNamespaceURI {
+		if validSchemaVersioningAttribute(attribute.name.local) {
+			return nil
+		}
+		return newSchemaCompositionDiagnostic(
+			attribute.loc,
+			fmt.Sprintf("schema annotation has unsupported versioning attribute %q", attribute.name.local),
+		)
+	}
+	if attribute.name.namespace != "" {
+		if attribute.name.namespace == xsdNamespaceURI {
+			return newSchemaCompositionDiagnostic(
+				attribute.loc,
+				fmt.Sprintf("schema annotation has forbidden XSD attribute %q", attribute.name.local),
+			)
+		}
+		return nil
+	}
+	if !annotationAttributeAllowed(element, attribute.name.local) {
+		return newSchemaCompositionDiagnostic(
+			attribute.loc,
+			fmt.Sprintf("schema %s has forbidden unqualified attribute %q", element, attribute.name.local),
+		)
+	}
+	if attribute.name.local == "id" && !validNCName(collapseSchemaWhitespace(attribute.value)) {
+		return newSchemaCompositionDiagnostic(attribute.loc, "schema annotation id must be a valid NCName")
+	}
+	return nil
+}
+
+func annotationAttributeAllowed(element, attribute string) bool {
+	switch element {
+	case "annotation":
+		return attribute == "id"
+	case "appinfo", "documentation":
+		return attribute == "source"
+	default:
+		return false
+	}
+}
+
+func validateSchemaAnnotationDescendants(element *syntaxElement) error {
+	for _, node := range element.children {
+		if err := validateSchemaAnnotationDescendant(node); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSchemaAnnotationDescendant(node syntaxNode) error {
+	child, ok := node.(*syntaxElement)
+	if !ok {
+		if _, text := node.(syntaxText); text {
+			return nil
+		}
+		return newSchemaBridgeInvariant(Loc{}, "schema annotation content contains an unknown syntax node")
+	}
+	if child.name.namespace != xsdNamespaceURI {
+		return newSchemaSyntaxUnsupported(child.loc, "schema annotation content contains an unsupported non-XSD child")
+	}
+	switch child.name.local {
+	case "annotation":
+		return validateSchemaAnnotationElement(child)
+	case "appinfo", "documentation":
+		return validateSchemaAnnotationItem(child)
+	default:
+		return validateSchemaAnnotationDescendants(child)
+	}
 }
 
 func syntaxReferenceIsConditional(element *syntaxElement) bool {

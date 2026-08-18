@@ -2,6 +2,7 @@ package goxsd9
 
 import (
 	"fmt"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -106,7 +107,8 @@ func syntaxDocumentTargetNamespace(document *syntaxDocument) (schemaTargetNamesp
 		)
 	}
 	attribute := attributes[0]
-	if attribute.value == "" {
+	value := collapseSchemaWhitespace(attribute.value)
+	if value == "" {
 		return schemaTargetNamespace{}, newDiagnostic(
 			FailureInvalid,
 			invalidSchemaTargetNamespaceCode,
@@ -116,7 +118,7 @@ func syntaxDocumentTargetNamespace(document *syntaxDocument) (schemaTargetNamesp
 		)
 	}
 	return schemaTargetNamespace{
-		value:   attribute.value,
+		value:   value,
 		present: true,
 	}, nil
 }
@@ -283,6 +285,9 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string) (schemaC
 func schemaRootChildIgnored(element *syntaxElement) (bool, error) {
 	switch element.name.local {
 	case "annotation":
+		if err := validateSchemaAnnotationElement(element); err != nil {
+			return false, err
+		}
 		return true, nil
 	case "include":
 		if err := validateSchemaReferenceElement(element, syntaxReferenceInclude); err != nil {
@@ -309,6 +314,9 @@ func rejectNestedSchemaConstructs(element *syntaxElement) error {
 			return newSchemaSyntaxUnsupported(nested.loc, "nested schema syntax is not implemented")
 		}
 		if nested.name.local == "annotation" {
+			if err := validateSchemaAnnotationElement(nested); err != nil {
+				return err
+			}
 			continue
 		}
 		if nestedSchemaConstruct(nested.name.local) {
@@ -365,7 +373,8 @@ func schemaDeclarationName(element *syntaxElement, targetNamespace string) (QNam
 			nil,
 		)
 	}
-	if len(attributes) != 1 || attributes[0].name.namespace != "" || !validNCName(attributes[0].value) {
+	value := collapseSchemaWhitespace(attributes[0].value)
+	if len(attributes) != 1 || attributes[0].name.namespace != "" || !validNCName(value) {
 		return QName{}, newDiagnostic(
 			FailureInvalid,
 			invalidSchemaDeclarationNameCode,
@@ -374,7 +383,7 @@ func schemaDeclarationName(element *syntaxElement, targetNamespace string) (QNam
 			nil,
 		)
 	}
-	name, err := NewQName(targetNamespace, attributes[0].value)
+	name, err := NewQName(targetNamespace, value)
 	if err != nil {
 		return QName{}, newDiagnostic(
 			FailureInternal,
@@ -415,6 +424,27 @@ func validNCName(value string) bool {
 		}
 	}
 	return !first
+}
+
+func collapseSchemaWhitespace(value string) string {
+	var result strings.Builder
+	result.Grow(len(value))
+	pendingSpace := false
+	for index := 0; index < len(value); index++ {
+		switch value[index] {
+		case ' ', '\t', '\r', '\n':
+			if result.Len() > 0 {
+				pendingSpace = true
+			}
+			continue
+		}
+		if pendingSpace {
+			result.WriteByte(' ')
+			pendingSpace = false
+		}
+		result.WriteByte(value[index])
+	}
+	return result.String()
 }
 
 type ncNameRange struct {
