@@ -30,6 +30,7 @@ var documentRules = []documentRule{
 	{path: "PLAN.md", charter: "phased outcomes and exit measures", maxLines: 110, maxWords: 650},
 	{path: "README.md", charter: "concise user entrypoint", maxLines: 70, maxWords: 375},
 	{path: "docs/decisions/0001-foundations.md", charter: "durable rationale and supersession", maxLines: 40, maxWords: 250},
+	{path: "docs/decisions/0002-precision-decimal.md", charter: "precisionDecimal semantic and representation contract", maxLines: 140, maxWords: 1050},
 	{path: "docs/operations.md", charter: "scheduler and operator contract", maxLines: 60, maxWords: 525},
 }
 
