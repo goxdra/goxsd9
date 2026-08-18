@@ -14,12 +14,12 @@ work. Branch, files, handoffs are shared memory; transcript is not.
 
 Children use exact configured roles, `fork_turns: "none"`, and task-local context.
 Scribe/Mason default to fresh read-only consultations; omit only with a PR
-exemption. Smith owns source, tests, remediation. Curator is fresh per head;
+exemption. Smith is the sole source/test writer and owns remediation; root writes
+require a recorded narrow mechanical exemption. Curator is fresh per head;
 Examiner is fresh, challenge-bound.
 
-Every handoff MUST state decisions, evidence locations, risks, and required next
-actions; Smith additionally names changed paths and tests. Preserve
-Curator/Examiner JSON.
+Handoffs MUST state decisions, evidence locations, risks, and next actions; Smith
+names changed paths/tests. Preserve Curator/Examiner JSON.
 
 ## Protocol
 
@@ -31,14 +31,14 @@ Curator/Examiner JSON.
    loses, no edit/push/reuse or Project status change; ask workflowctl for
    another eligible issue; use its worktree.
 3. Read the issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md`
-   phase, relevant decisions. One companion at most; claim it first
+   phase, relevant decisions. Claim at most one companion first
    for shared implementation or proof.
 4. Give Scribe specification question and Mason architecture question,
    with context and handoff contract.
 5. Decompose packet; give Smith contract, files, and evidence. Smith
    implements, tests, fixes failures. Follow `AGENTS.md`; mechanize.
    Unfinished boundaries need unsupported diagnostics with feature ID, `Loc`,
-   and versioned specification reference. Do not add an untracked TODO. Turn
+   and versioned specification reference. Do not add untracked TODOs; turn
    actionable discoveries into issues.
 6. Renew before pushes and required durable boundaries with `go tool
    workflowctl claim renew`; never wake or poll solely
@@ -54,7 +54,7 @@ Curator/Examiner JSON.
    evidence; request replay evidence separately. Regressions require a
    JSON explanation containing package, reason, and computed base/head;
    repository total is context.
-   Coverage and fuzz health never represent XSD conformance, catalog inventory,
+   Coverage/fuzz health never represent XSD conformance, catalog inventory,
    or evaluation fuzz excluded from these signals.
 8. Commit/push with the `AGENTS.md` title convention. Open a draft PR with
    `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`; include
@@ -78,7 +78,7 @@ Curator/Examiner JSON.
     Curator/challenge/Examiner. Three failed rounds mark `needs-human`; hand off
     evidence.
 11. On matching-head pass, write plain-text summary outside repository
-    covering problem, delivered outcome, rationale, and consequential decisions
+    covering problem, outcome, rationale, and consequential decisions
     or invariants; omit metadata. Separate summary is for future development,
     backlog, and retrospective workflows; do not copy or parse any PR Markdown
     into the squash body. Keep workflow metadata in records. Pass it to
@@ -98,7 +98,7 @@ Curator/Examiner JSON.
 Waits are logical barriers. Continue while healthy work and lease renewal
 permit; never narrow, pressure, spawn a writer, or duplicate work. Interrupt
 only for explicit failure, cancellation, invalid scope, or lost lease. Follow up
-only for incomplete handoffs or bounded input; timing is guidance and is not an
+only for incomplete handoffs or bounded input; timing is guidance, not an
 OpenAI runtime guarantee.
 
 For three packets (mechanical, specification-heavy, remediation), record
