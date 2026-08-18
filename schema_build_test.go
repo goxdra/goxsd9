@@ -289,7 +289,7 @@ func TestSchemaBridgeAcceptsExplicitImportFromNoNamespaceParent(t *testing.T) {
 }
 
 func TestSchemaBridgeAcceptsCompositionAnnotation(t *testing.T) {
-	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include id="include1" schemaLocation="child.xsd"><xs:annotation><xs:documentation>included schema</xs:documentation><xs:appinfo>metadata</xs:appinfo></xs:annotation></xs:include></xs:schema>`
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include id=" include1 " schemaLocation="child.xsd"><xs:annotation id=" annotation1 "><xs:documentation source=" docs " xml:lang="en">included schema</xs:documentation><xs:appinfo source=" appinfo ">metadata</xs:appinfo></xs:annotation></xs:include></xs:schema>`
 	schema, err := discoverTestSchema(t, root, map[string]discoveryFixture{
 		"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:element name="child"/></xs:schema>`},
 	})
@@ -298,6 +298,114 @@ func TestSchemaBridgeAcceptsCompositionAnnotation(t *testing.T) {
 	}
 	if got, want := len(schema.Components()), 1; got != want {
 		t.Fatalf("component count = %d, want %d", got, want)
+	}
+}
+
+func TestSchemaBridgeAcceptsRootAndDeclarationAnnotations(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:annotation id=" rootAnnotation "><xs:documentation>schema documentation</xs:documentation><xs:appinfo>schema metadata</xs:appinfo></xs:annotation><xs:element name="item"><xs:annotation id=" declarationAnnotation "><xs:documentation>element documentation</xs:documentation></xs:annotation></xs:element></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	if got, want := len(components), 1; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+	if got, want := components[0].Name(), mustTestQName(t, "urn:root", "item"); got != want {
+		t.Fatalf("component name = %q, want %q", got, want)
+	}
+}
+
+func TestSchemaBridgeRejectsAnnotationAttributesWithoutPartialSchema(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+	}{
+		{
+			name: "composition annotation unknown attribute",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd"><xs:annotation bogus="1"/></xs:include></xs:schema>`,
+		},
+		{
+			name: "root annotation unknown attribute",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:annotation bogus="1"/></xs:schema>`,
+		},
+		{
+			name: "declaration annotation unknown attribute",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item"><xs:annotation bogus="1"/></xs:element></xs:schema>`,
+		},
+		{
+			name: "appinfo unknown attribute",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:annotation><xs:appinfo bogus="1"/></xs:annotation></xs:schema>`,
+		},
+		{
+			name: "documentation unknown attribute",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:annotation><xs:documentation bogus="1"/></xs:annotation></xs:schema>`,
+		},
+		{
+			name: "annotation malformed id",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:annotation id=" bad:id "/></xs:schema>`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted invalid annotation attributes")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+				t.Fatalf("diagnostic = %s, want invalid schema composition", diagnostic)
+			}
+			if diagnostic.Loc().Source() != "root.xsd" {
+				t.Fatalf("diagnostic source = %q, want root.xsd", diagnostic.Loc().Source())
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeCollapsesSchemaValueWhitespace(t *testing.T) {
+	rootContents := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="  urn:root  "><xs:import namespace="  urn:child  " schemaLocation=" child.xsd "/><xs:element name="  item  "/></xs:schema>`
+	root, err := NewResolvedSource(context.Background(), "root.xsd", &discoveryReader{data: []byte(rootContents)})
+	if err != nil {
+		t.Fatalf("NewResolvedSource: %v", err)
+	}
+	resolver := &discoveryResolver{fixtures: map[string]discoveryFixture{
+		" child.xsd ": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="  urn:child  "><xs:element name="  child  "/></xs:schema>`},
+	}}
+	schema, err := discoverSchema(root, resolver)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	if got, want := len(resolver.calls), 1; got != want {
+		t.Fatalf("resolver calls = %d, want %d", got, want)
+	}
+	if got, want := resolver.calls[0].namespaceURN, "urn:child"; got != want {
+		t.Fatalf("resolver namespace = %q, want %q", got, want)
+	}
+	if got, want := resolver.calls[0].location, " child.xsd "; got != want {
+		t.Fatalf("resolver schemaLocation = %q, want raw %q", got, want)
+	}
+	documents := schema.Documents()
+	if got, want := documents[0].TargetNamespace(), "urn:root"; got != want {
+		t.Fatalf("root target namespace = %q, want %q", got, want)
+	}
+	if got, want := documents[1].TargetNamespace(), "urn:child"; got != want {
+		t.Fatalf("child target namespace = %q, want %q", got, want)
+	}
+	components := schema.Components()
+	if got, want := len(components), 2; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+	for index, want := range []QName{
+		mustTestQName(t, "urn:root", "item"),
+		mustTestQName(t, "urn:child", "child"),
+	} {
+		if got := components[index].Name(); got != want {
+			t.Errorf("component %d name = %q, want %q", index, got, want)
+		}
 	}
 }
 
