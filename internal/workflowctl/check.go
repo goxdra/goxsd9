@@ -48,6 +48,7 @@ func (a app) qualityChecks(root string, skipLint bool) []qualityCheck {
 		qualityCheck{name: "unsupported feature registry", run: feature.ValidateRegistry},
 		qualityCheck{name: "specification manifest", run: func() error { return checkSpecManifest(root) }},
 		qualityCheck{name: "source guard", run: func() error { return guardSource(root) }},
+		qualityCheck{name: "Envoy surface", run: func() error { return a.checkEnvoySurface(root) }},
 		qualityCheck{name: "gofmt", run: func() error { return a.checkGofmt(root) }},
 		qualityCheck{name: "git whitespace", run: func() error { return a.runQuiet(root, "git", "diff", "--check") }},
 		qualityCheck{name: "module tidy", run: func() error { return a.runQuiet(root, "go", "mod", "tidy", "-diff") }},
