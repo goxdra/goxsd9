@@ -58,7 +58,7 @@ func ParseStrictInteger(lexical string, loc Loc) (StrictInteger, error) {
 	if !ok {
 		return StrictInteger{}, newDiagnostic(
 			FailureInternal,
-			"GOXSD9003",
+			diagnosticIntegerConstructionCode,
 			loc,
 			"valid integer lexical representation could not be constructed",
 			nil,
@@ -205,7 +205,7 @@ func parseStrictDecimal(lexical string, loc Loc, version XSDVersion) (StrictDeci
 	if !ok {
 		return StrictDecimal{}, newDiagnostic(
 			FailureInternal,
-			"GOXSD9004",
+			diagnosticDecimalConstructionCode,
 			loc,
 			"valid decimal lexical representation could not be constructed",
 			nil,

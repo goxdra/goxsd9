@@ -5,6 +5,32 @@ import (
 	"fmt"
 )
 
+const (
+	diagnosticUnsupportedWithoutFeatureCode = "GOXSD9001"
+	diagnosticUnregisteredFeatureCode       = "GOXSD9002"
+	diagnosticIntegerConstructionCode       = "GOXSD9003"
+	diagnosticDecimalConstructionCode       = "GOXSD9004"
+	diagnosticSyntaxNoReaderCode            = "GOXSD9006"
+	diagnosticSyntaxEmptyTokenCode          = "GOXSD9007"
+	diagnosticSyntaxUnsupportedTokenCode    = "GOXSD9008"
+	diagnosticSyntaxAssertionFeatureCode    = "GOXSD9009"
+	diagnosticSyntaxFeatureCode             = "GOXSD9010"
+	diagnosticSyntaxUnclassifiedErrorCode   = "GOXSD9011"
+	diagnosticSchemaEmptySourceCode         = "GOXSD9012"
+	diagnosticSchemaRepeatedSourceCode      = "GOXSD9013"
+	diagnosticSchemaEmptyKindCode           = "GOXSD9014"
+	diagnosticSchemaEmptyNameCode           = "GOXSD9015"
+	diagnosticSyntaxDocumentNoRootCode      = "GOXSD9016"
+	diagnosticDigitRestrictionKindCode      = "GOXSD9017"
+	diagnosticDigitRestrictionVersionCode   = "GOXSD9018"
+	diagnosticDigitTotalStateCode           = "GOXSD9019"
+	diagnosticDigitFractionStateCode        = "GOXSD9020"
+	diagnosticDigitValueConstructionCode    = "GOXSD9021"
+	diagnosticDigitEffectiveKindCode        = "GOXSD9022"
+	diagnosticDigitEffectiveVersionCode     = "GOXSD9023"
+	diagnosticDigitIntegerFractionCode      = "GOXSD9024"
+)
+
 // FailureClass identifies the boundary at which processing failed.
 type FailureClass string
 
@@ -86,7 +112,7 @@ func newDiagnostic(class FailureClass, code string, loc Loc, message string, cau
 	if class == FailureUnsupported {
 		return Diagnostic{
 			class:   FailureInternal,
-			code:    "GOXSD9001",
+			code:    diagnosticUnsupportedWithoutFeatureCode,
 			loc:     loc,
 			message: "unsupported diagnostics require a registered feature",
 			cause:   cause,
@@ -97,7 +123,7 @@ func newDiagnostic(class FailureClass, code string, loc Loc, message string, cau
 
 func newUnsupported(feature UnsupportedFeature, code string, loc Loc, message string) Diagnostic {
 	if !feature.Registered() {
-		return newDiagnostic(FailureInternal, "GOXSD9002", loc,
+		return newDiagnostic(FailureInternal, diagnosticUnregisteredFeatureCode, loc,
 			fmt.Sprintf("unsupported diagnostic references unregistered feature %q", feature.ID()), nil)
 	}
 	return Diagnostic{

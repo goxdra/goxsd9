@@ -182,10 +182,10 @@ func TestSchemaRejectsInvalidConstructionAndPreservesWalkErrors(t *testing.T) {
 		input []schemaDocumentInput
 		code  string
 	}{
-		{name: "empty source", input: []schemaDocumentInput{{source: ""}}, code: "GOXSD9012"},
-		{name: "repeated source", input: []schemaDocumentInput{{source: "same"}, {source: "same"}}, code: "GOXSD9013"},
-		{name: "empty kind", input: []schemaDocumentInput{{source: "schema", declarations: []schemaComponentInput{{name: name}}}}, code: "GOXSD9014"},
-		{name: "empty name", input: []schemaDocumentInput{{source: "schema", declarations: []schemaComponentInput{{kind: ComponentKindElementDeclaration}}}}, code: "GOXSD9015"},
+		{name: "empty source", input: []schemaDocumentInput{{source: ""}}, code: diagnosticSchemaEmptySourceCode},
+		{name: "repeated source", input: []schemaDocumentInput{{source: "same"}, {source: "same"}}, code: diagnosticSchemaRepeatedSourceCode},
+		{name: "empty kind", input: []schemaDocumentInput{{source: "schema", declarations: []schemaComponentInput{{name: name}}}}, code: diagnosticSchemaEmptyKindCode},
+		{name: "empty name", input: []schemaDocumentInput{{source: "schema", declarations: []schemaComponentInput{{kind: ComponentKindElementDeclaration}}}}, code: diagnosticSchemaEmptyNameCode},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, constructionErr := newSchema(test.input)

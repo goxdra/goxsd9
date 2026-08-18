@@ -2,6 +2,8 @@ package goxsd9
 
 import (
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -323,6 +325,51 @@ func TestDigitFacetConstructionRejectsFractionTotalAndHonorsFixed(t *testing.T) 
 	assertFacetDiagnostic(t, err, InvalidDigitFacetRestrictionCode, fractionLoc, "xsd11-datatypes#f-td-fixed")
 }
 
+func TestNewDigitFacetsRejectsUnknownAndExcludedDatatypes(t *testing.T) {
+	totalLoc := mustFacetTestLoc(t, "unknown-kind.xsd", 4, 2)
+	fractionLoc := mustFacetTestLoc(t, "excluded-kind.xsd", 5, 2)
+	total := mustTotalFacet(t, "4", totalLoc)
+	fraction := mustFractionFacet(t, "2", fractionLoc)
+	for _, test := range []struct {
+		name     string
+		kind     DigitDatatype
+		total    *TotalDigitsFacet
+		fraction *FractionDigitsFacet
+		loc      Loc
+		specRef  string
+	}{
+		{
+			name:    "unknown",
+			kind:    DigitDatatype("bogus"),
+			total:   &total,
+			loc:     totalLoc,
+			specRef: "xsd11-datatypes#rf-totalDigits",
+		},
+		{
+			name:     "excluded precisionDecimal",
+			kind:     DigitDatatype("precisionDecimal"),
+			fraction: &fraction,
+			loc:      fractionLoc,
+			specRef:  "xsd11-datatypes#rf-fractionDigits",
+		},
+		{
+			name:    "excluded double",
+			kind:    DigitDatatype("double"),
+			total:   &total,
+			loc:     totalLoc,
+			specRef: "xsd11-datatypes#rf-totalDigits",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := NewDigitFacets(test.kind, test.total, test.fraction)
+			assertFacetDiagnostic(t, err, InvalidDigitDatatypeCode, test.loc, test.specRef)
+			if !errors.Is(err, errInvalidDigitDatatype) {
+				t.Fatalf("error does not preserve invalid datatype cause: %v", err)
+			}
+		})
+	}
+}
+
 func TestIntegerFractionDigitsIsFixedAtZero(t *testing.T) {
 	totalLoc := mustFacetTestLoc(t, "integer-base.xsd", 8, 2)
 	fractionLoc := mustFacetTestLoc(t, "integer-child.xsd", 14, 3)
@@ -409,65 +456,181 @@ func TestDigitFacetValueViolationPreservesCause(t *testing.T) {
 	}
 }
 
+type digitFacetFuzzDiagnostic struct {
+	class     FailureClass
+	code      string
+	feature   FeatureID
+	loc       Loc
+	message   string
+	related   []Loc
+	specRef   string
+	causeType string
+	cause     string
+}
+
+type digitFacetFuzzOutcome struct {
+	accepted    bool
+	diagnostics []digitFacetFuzzDiagnostic
+}
+
+func digitFacetFuzzOutcomeFromErrors(errs ...error) digitFacetFuzzOutcome {
+	diagnostics := make([]digitFacetFuzzDiagnostic, 0)
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		for _, diagnostic := range syntaxDiagnostics(err) {
+			cause := diagnostic.Unwrap()
+			causeType := ""
+			causeText := ""
+			if cause != nil {
+				causeType = fmt.Sprintf("%T", cause)
+				causeText = cause.Error()
+			}
+			diagnostics = append(diagnostics, digitFacetFuzzDiagnostic{
+				class:     diagnostic.Class(),
+				code:      diagnostic.Code(),
+				feature:   diagnostic.Feature(),
+				loc:       diagnostic.Loc(),
+				message:   diagnostic.message,
+				related:   append([]Loc(nil), diagnostic.Related()...),
+				specRef:   diagnostic.SpecRef(),
+				causeType: causeType,
+				cause:     causeText,
+			})
+		}
+	}
+	return digitFacetFuzzOutcome{
+		accepted:    len(diagnostics) == 0,
+		diagnostics: diagnostics,
+	}
+}
+
+func assertDigitFacetFuzzOutcome(t testing.TB, outcome digitFacetFuzzOutcome) {
+	t.Helper()
+	if outcome.accepted {
+		if len(outcome.diagnostics) != 0 {
+			t.Fatalf("accepted outcome contains diagnostics: %#v", outcome.diagnostics)
+		}
+		return
+	}
+	if len(outcome.diagnostics) == 0 {
+		t.Fatal("rejected outcome has no diagnostics")
+	}
+	for index, diagnostic := range outcome.diagnostics {
+		if diagnostic.code == "" {
+			t.Fatalf("diagnostic %d has no stable code", index)
+		}
+	}
+}
+
+func assertDigitFacetFuzzDeterministic(t *testing.T, first, second digitFacetFuzzOutcome) {
+	t.Helper()
+	if first.accepted != second.accepted {
+		t.Fatalf("acceptance changed between repeated evaluations: first=%t second=%t", first.accepted, second.accepted)
+	}
+	if !reflect.DeepEqual(first.diagnostics, second.diagnostics) {
+		t.Fatalf("diagnostics changed between repeated evaluations:\nfirst=%#v\nsecond=%#v", first.diagnostics, second.diagnostics)
+	}
+	assertDigitFacetFuzzOutcome(t, first)
+}
+
+func evaluateDecimalDigitFacetFuzzCase(totalLexical, fractionLexical, valueLexical string) digitFacetFuzzOutcome {
+	loc := Loc{}
+	total, totalErr := ParseTotalDigits(totalLexical, loc)
+	fraction, fractionErr := ParseFractionDigits(fractionLexical, loc)
+	value, valueErr := ParseStrictDecimal(valueLexical, loc)
+	outcome := digitFacetFuzzOutcomeFromErrors(totalErr, fractionErr, valueErr)
+	if !outcome.accepted {
+		return outcome
+	}
+
+	totalFacet, totalFacetErr := NewTotalDigitsFacet(total, loc, false)
+	fractionFacet, fractionFacetErr := NewFractionDigitsFacet(fraction, loc, false)
+	outcome = digitFacetFuzzOutcomeFromErrors(totalFacetErr, fractionFacetErr)
+	if !outcome.accepted {
+		return outcome
+	}
+
+	facets, err := NewDecimalDigitFacets(&totalFacet, &fractionFacet)
+	outcome = digitFacetFuzzOutcomeFromErrors(err)
+	if !outcome.accepted {
+		return outcome
+	}
+	return digitFacetFuzzOutcomeFromErrors(facets.ValidateDecimal(value, loc))
+}
+
+func evaluateIntegerDigitFacetFuzzCase(lexical string) digitFacetFuzzOutcome {
+	value, err := ParseStrictInteger(lexical, Loc{})
+	outcome := digitFacetFuzzOutcomeFromErrors(err)
+	if !outcome.accepted {
+		return outcome
+	}
+
+	limit, err := ParseTotalDigitsFacet(strings.Repeat("9", len(lexical)+1), Loc{})
+	outcome = digitFacetFuzzOutcomeFromErrors(err)
+	if !outcome.accepted {
+		return outcome
+	}
+
+	facets, err := NewIntegerDigitFacets(&limit)
+	outcome = digitFacetFuzzOutcomeFromErrors(err)
+	if !outcome.accepted {
+		return outcome
+	}
+	return digitFacetFuzzOutcomeFromErrors(facets.ValidateInteger(value, Loc{}))
+}
+
 func FuzzDigitFacetBoundariesDoNotPanicOrRound(f *testing.F) {
 	for _, seed := range []struct {
-		total    string
-		fraction string
-		value    string
+		total        string
+		fraction     string
+		value        string
+		wantAccepted bool
 	}{
-		{total: "1", fraction: "0", value: "0"},
-		{total: "+0005", fraction: "0002", value: "123.45"},
-		{total: strings.Repeat("9", 128), fraction: strings.Repeat("8", 127), value: "0." + strings.Repeat("1", 127)},
-		{total: "-0", fraction: "-0", value: "-0.000"},
+		{total: "1", fraction: "0", value: "0", wantAccepted: true},
+		{total: "+0005", fraction: "0002", value: "123.45", wantAccepted: true},
+		{total: strings.Repeat("9", 128), fraction: strings.Repeat("8", 127), value: "0." + strings.Repeat("1", 127), wantAccepted: true},
+		{total: "-0", fraction: "-0", value: "-0.000", wantAccepted: false},
 	} {
 		f.Add(seed.total, seed.fraction, seed.value)
+		outcome := evaluateDecimalDigitFacetFuzzCase(seed.total, seed.fraction, seed.value)
+		if outcome.accepted != seed.wantAccepted {
+			f.Fatalf("seed outcome acceptance = %t, want %t", outcome.accepted, seed.wantAccepted)
+		}
+		assertDigitFacetFuzzOutcome(f, outcome)
 	}
-	f.Fuzz(func(_ *testing.T, totalLexical, fractionLexical, valueLexical string) {
-		loc := Loc{}
-		total, totalErr := ParseTotalDigits(totalLexical, loc)
-		fraction, fractionErr := ParseFractionDigits(fractionLexical, loc)
-		value, valueErr := ParseStrictDecimal(valueLexical, loc)
-		if totalErr != nil || fractionErr != nil || valueErr != nil {
-			return
-		}
-		totalFacet, err := NewTotalDigitsFacet(total, loc, false)
-		if err != nil {
-			return
-		}
-		fractionFacet, err := NewFractionDigitsFacet(fraction, loc, false)
-		if err != nil {
-			return
-		}
-		facets, err := NewDecimalDigitFacets(&totalFacet, &fractionFacet)
-		if err != nil {
-			return
-		}
-		if err := facets.ValidateDecimal(value, loc); err != nil {
-			return
-		}
+	f.Fuzz(func(t *testing.T, totalLexical, fractionLexical, valueLexical string) {
+		first := evaluateDecimalDigitFacetFuzzCase(totalLexical, fractionLexical, valueLexical)
+		second := evaluateDecimalDigitFacetFuzzCase(totalLexical, fractionLexical, valueLexical)
+		assertDigitFacetFuzzDeterministic(t, first, second)
 	})
 }
 
 func FuzzIntegerDigitFacetBoundariesDoNotPanicOrRound(f *testing.F) {
-	for _, lexical := range []string{"0", "-000", "+0012", "-9999", strings.Repeat("7", 128), "1e2", "-"} {
-		f.Add(lexical)
+	for _, seed := range []struct {
+		lexical      string
+		wantAccepted bool
+	}{
+		{lexical: "0", wantAccepted: true},
+		{lexical: "-000", wantAccepted: true},
+		{lexical: "+0012", wantAccepted: true},
+		{lexical: "-9999", wantAccepted: true},
+		{lexical: strings.Repeat("7", 128), wantAccepted: true},
+		{lexical: "1e2", wantAccepted: false},
+		{lexical: "-", wantAccepted: false},
+	} {
+		f.Add(seed.lexical)
+		outcome := evaluateIntegerDigitFacetFuzzCase(seed.lexical)
+		if outcome.accepted != seed.wantAccepted {
+			f.Fatalf("seed %q outcome acceptance = %t, want %t", seed.lexical, outcome.accepted, seed.wantAccepted)
+		}
+		assertDigitFacetFuzzOutcome(f, outcome)
 	}
-	f.Fuzz(func(_ *testing.T, lexical string) {
-		value, err := ParseStrictInteger(lexical, Loc{})
-		if err != nil {
-			return
-		}
-		limit, err := ParseTotalDigitsFacet(strings.Repeat("9", len(lexical)+1), Loc{})
-		if err != nil {
-			return
-		}
-		facets, err := NewIntegerDigitFacets(&limit)
-		if err != nil {
-			return
-		}
-		if err := facets.ValidateInteger(value, Loc{}); err != nil {
-			return
-		}
+	f.Fuzz(func(t *testing.T, lexical string) {
+		first := evaluateIntegerDigitFacetFuzzCase(lexical)
+		second := evaluateIntegerDigitFacetFuzzCase(lexical)
+		assertDigitFacetFuzzDeterministic(t, first, second)
 	})
 }
 

@@ -17,6 +17,8 @@ const (
 	InvalidDigitFacetRestrictionCode = "XSD2007"
 	// DigitFacetValueViolationCode identifies a value that violates a digit facet.
 	DigitFacetValueViolationCode = "XSD2008"
+	// InvalidDigitDatatypeCode identifies a datatype excluded from digit facets.
+	InvalidDigitDatatypeCode = "XSD2009"
 )
 
 var (
@@ -27,6 +29,7 @@ var (
 	errDigitFacetValueViolation     = errors.New("digit facet value violation")
 	errInvalidDigitFacetState       = errors.New("invalid completed digit facet state")
 	errInvalidDigitFacetVersion     = errors.New("incompatible XSD version policy for digit facets")
+	errInvalidDigitDatatype         = errors.New("invalid digit datatype")
 )
 
 type digitFacetKind uint8
@@ -281,7 +284,7 @@ func parseDigitLimit(kind digitFacetKind, lexical string, loc Loc, version XSDVe
 	if !ok {
 		return StrictInteger{}, newDigitFacetDiagnostic(
 			FailureInternal,
-			"GOXSD9012",
+			diagnosticDigitValueConstructionCode,
 			loc,
 			digitFacetSpecRef(version, kind, digitFacetDefinitionRule),
 			"valid digit facet value could not be constructed",
@@ -351,13 +354,13 @@ func NewDigitFacets(kind DigitDatatype, totalDigits *TotalDigitsFacet, fractionD
 	}
 	if kind != DigitDatatypeDecimal && kind != DigitDatatypeInteger {
 		return DigitFacets{}, newDigitFacetDiagnostic(
-			FailureInternal,
-			"GOXSD9013",
-			Loc{},
-			"",
-			"unknown exact numeric datatype for digit facets",
+			FailureInvalid,
+			InvalidDigitDatatypeCode,
+			digitFacetVersionErrorLoc(totalDigits, fractionDigits),
+			digitDatatypeSpecRef(version, totalDigits, fractionDigits),
+			fmt.Sprintf("digit facets do not support datatype %q", kind),
 			nil,
-			fmt.Errorf("%w: %q", errInvalidDigitFacetState, kind),
+			fmt.Errorf("%w: %q", errInvalidDigitDatatype, kind),
 		)
 	}
 	base := DigitFacets{kind: kind, version: version}
@@ -491,7 +494,7 @@ func (facets DigitFacets) validate() error {
 	if facets.kind != DigitDatatypeDecimal && facets.kind != DigitDatatypeInteger {
 		return newDigitFacetDiagnostic(
 			FailureInternal,
-			"GOXSD9014",
+			diagnosticDigitEffectiveKindCode,
 			Loc{},
 			"",
 			"completed digit facets have an unknown datatype",
@@ -502,7 +505,7 @@ func (facets DigitFacets) validate() error {
 	if facets.version != XSDVersion10 && facets.version != XSDVersion11 {
 		return newDigitFacetDiagnostic(
 			FailureInternal,
-			"GOXSD9015",
+			diagnosticDigitEffectiveVersionCode,
 			Loc{},
 			"",
 			"completed digit facets have an unknown XSD version",
@@ -523,7 +526,7 @@ func (facets DigitFacets) validate() error {
 	if facets.kind == DigitDatatypeInteger && facets.fractionDigits == nil {
 		return newDigitFacetDiagnostic(
 			FailureInternal,
-			"GOXSD9016",
+			diagnosticDigitIntegerFractionCode,
 			Loc{},
 			digitFacetSpecRef(facets.version, fractionDigitsKind, digitFacetIntegerRule),
 			"integer digit facets do not contain their fixed fractionDigits facet",
@@ -647,7 +650,7 @@ func (facets DigitFacets) validateForConstruction() error {
 	if facets.kind != DigitDatatypeDecimal && facets.kind != DigitDatatypeInteger {
 		return newDigitFacetDiagnostic(
 			FailureInternal,
-			"GOXSD9017",
+			diagnosticDigitRestrictionKindCode,
 			Loc{},
 			"",
 			"cannot construct a digit restriction from an unknown datatype",
@@ -658,7 +661,7 @@ func (facets DigitFacets) validateForConstruction() error {
 	if facets.version != XSDVersion10 && facets.version != XSDVersion11 {
 		return newDigitFacetDiagnostic(
 			FailureInternal,
-			"GOXSD9018",
+			diagnosticDigitRestrictionVersionCode,
 			Loc{},
 			"",
 			"cannot construct a digit restriction from an unknown XSD version",
@@ -709,7 +712,7 @@ func validateTotalDigitsFacet(facet TotalDigitsFacet, version XSDVersion) error 
 	if facet.Version() != version || facet.value.Sign() <= 0 {
 		return newDigitFacetDiagnostic(
 			FailureInternal,
-			"GOXSD9019",
+			diagnosticDigitTotalStateCode,
 			facet.Loc(),
 			digitFacetSpecRef(version, totalDigitsKind, digitFacetDefinitionRule),
 			"completed totalDigits facet is not a positiveInteger in the selected version",
@@ -724,7 +727,7 @@ func validateFractionDigitsFacet(facet FractionDigitsFacet, version XSDVersion) 
 	if facet.Version() != version || facet.value.Sign() < 0 {
 		return newDigitFacetDiagnostic(
 			FailureInternal,
-			"GOXSD9020",
+			diagnosticDigitFractionStateCode,
 			facet.Loc(),
 			digitFacetSpecRef(version, fractionDigitsKind, digitFacetDefinitionRule),
 			"completed fractionDigits facet is not a nonNegativeInteger in the selected version",
@@ -885,6 +888,16 @@ func digitFacetVersionErrorLoc(total *TotalDigitsFacet, fraction *FractionDigits
 		return fraction.Loc()
 	}
 	return Loc{}
+}
+
+func digitDatatypeSpecRef(version XSDVersion, total *TotalDigitsFacet, fraction *FractionDigitsFacet) string {
+	if total != nil {
+		return digitFacetSpecRef(version, totalDigitsKind, digitFacetDefinitionRule)
+	}
+	if fraction != nil {
+		return digitFacetSpecRef(version, fractionDigitsKind, digitFacetDefinitionRule)
+	}
+	return ""
 }
 
 func digitFacetValueCause(kind digitFacetKind) error {
