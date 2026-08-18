@@ -15,6 +15,8 @@ func TestDiagnosticCodesAreUnique(t *testing.T) {
 		{name: "InvalidXSDVersionCode", code: InvalidXSDVersionCode},
 		{name: "InvalidTotalDigitsCode", code: InvalidTotalDigitsCode},
 		{name: "InvalidFractionDigitsCode", code: InvalidFractionDigitsCode},
+		{name: "diagnosticPrecisionDecimalLexicalCode", code: diagnosticPrecisionDecimalLexicalCode},
+		{name: "diagnosticPrecisionDecimalConstructionCode", code: diagnosticPrecisionDecimalConstructionCode},
 		{name: "InvalidDigitFacetCombinationCode", code: InvalidDigitFacetCombinationCode},
 		{name: "InvalidDigitFacetRestrictionCode", code: InvalidDigitFacetRestrictionCode},
 		{name: "DigitFacetValueViolationCode", code: DigitFacetValueViolationCode},
