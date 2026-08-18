@@ -66,6 +66,22 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	checkMergeResult(t, backend)
 }
 
+func TestEvaluationAcceptsRunSpecificLocalBranchForFixedPRHead(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	backend.localBranch = "agent/issue-13-run-test"
+	var stdout bytes.Buffer
+	application := app{
+		ctx:            context.Background(),
+		executeCommand: backend.execute,
+		stdout:         &stdout,
+		stderr:         new(bytes.Buffer),
+	}
+	challenge := requestTestChallenge(t, &application, &stdout)
+	if challenge.Head != backend.head {
+		t.Fatalf("challenge head = %q, want fixed PR head %q", challenge.Head, backend.head)
+	}
+}
+
 func TestFinishRejectsEvaluationMetadataDrift(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer
@@ -912,6 +928,7 @@ type workflowBackend struct {
 	t                          *testing.T
 	root                       string
 	branch                     string
+	localBranch                string
 	head                       string
 	title                      string
 	body                       string
@@ -939,7 +956,7 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 		t.Fatalf("write summary: %v", err)
 	}
 	return &workflowBackend{
-		t: t, root: "/primary-worktrees/issue-13", branch: "agent/issue-13", head: "evaluated-head",
+		t: t, root: "/primary-worktrees/issue-13", branch: "agent/issue-13", localBranch: "agent/issue-13", head: "evaluated-head",
 		body:          "## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n",
 		summary:       summary,
 		summaryFile:   summaryFile,
@@ -1013,7 +1030,7 @@ func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
 		if dir == "/primary" {
 			return "main", true
 		}
-		return b.branch, true
+		return b.localBranch, true
 	case "fetch origin main":
 		return "", true
 	case "rev-parse origin/main":
