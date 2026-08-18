@@ -79,11 +79,11 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
     verdict. On failure, Smith fixes findings, checks, pushes, repeats
     Curator/challenge/Examiner. Three failed rounds mark `needs-human`; hand off
     evidence.
-11. On matching-head pass, write a separate plain-text summary file outside
-    repository for future development, backlog, and retrospective workflows;
-    cover the problem, outcome, rationale, and consequential decisions or
+11. On matching-head pass, write the separate plain-text summary file, which must
+    support future development, backlog, and retrospective workflows, outside
+    repository; cover problem, outcome, rationale, and consequential decisions or
     invariants; omit metadata. Do not copy or parse PR Markdown into squash body.
-    Keep workflow metadata in records. Use
+    Keep metadata in records. Use
     `go tool workflowctl pr finish PR --summary-file FILE`, which verifies
     packet before SHA-bound REST, GraphQL-independent squash merge, converges
     canonical base, cleans only exact refs, clean-claim worktrees, expected-SHA
