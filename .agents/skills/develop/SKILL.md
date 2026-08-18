@@ -77,21 +77,21 @@ Curator/Examiner JSON.
     verdict. On failure, Smith fixes findings, checks, pushes, repeats
     Curator/challenge/Examiner. Three failed rounds mark `needs-human`; hand off
     evidence.
-11. On a matching-head pass, write a plain-text summary outside the repository
-    covering problem, outcome, rationale, and decisions; omit metadata;
-    keep workflow metadata in records. Pass it to
-    `go tool workflowctl pr finish PR --summary-file FILE`, which verifies the
-    packet before a SHA-bound REST squash merge independent of GraphQL,
-    converges canonical base, and cleans only
-    exact refs, clean claim worktrees, and expected-SHA branches proven by
-    immutable pre-merge proof with base/head/closure/body metadata; recovery
-    refuses drift.
-    If convergence or cleanup fails, merge is complete: preserve artifacts
-    and run idempotent `go tool workflowctl pr recover PR`; recovery also
-    requires this SHA-bound REST merge and remains GraphQL-independent. Use `claim prune
-    ISSUE` only with merged proof. For draft replacement, close the draft,
-    create an identical-head ready PR through REST, then obtain a new challenge
-    and fresh Examiner.
+11. On matching-head pass, write plain-text summary outside repository
+    covering problem, delivered outcome, rationale, and consequential decisions
+    or invariants; omit metadata. Separate summary is for future development,
+    backlog, and retrospective workflows; do not copy or parse any PR Markdown
+    into the squash body. Keep workflow metadata in records. Pass it to
+    `go tool workflowctl pr finish PR --summary-file FILE`, which verifies
+    packet before SHA-bound REST, GraphQL-independent squash merge, converges
+    canonical base, cleans only exact refs, clean-claim worktrees, expected-SHA
+    branches proven by immutable pre-merge proof: base/head/closure/body
+    metadata; recovery refuses drift.
+    Convergence/cleanup failure: merge complete; preserve artifacts; run
+    idempotent `go tool workflowctl pr recover PR`; recovery requires
+    SHA-bound REST merge; remains GraphQL-independent. Use `claim prune ISSUE`
+    only with merged proof. Draft replacement: close draft; create
+    identical-head ready PR via REST; obtain new challenge, fresh Examiner.
 
 ## Waiting and pilot
 
