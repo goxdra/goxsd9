@@ -20,11 +20,11 @@
 
 ### Development signals
 
-<!-- For parser/datatype boundary changes, include develop-signals output:
-     affected-package and repository coverage deltas, selected checked-in
-     corpus targets, bounded fuzz results, or no-relevant-target. These are
-     engineering-health signals, not XSD conformance. Explain every affected
-     package regression with exact computed base/head evidence. -->
+<!-- For parser/datatype changes, include develop-signals --format json evidence for exact computed
+     affected/repository deltas and bounded fuzz results.
+     Request selected targets and checked-in corpus replay evidence separately,
+     or record no-relevant-target. These are engineering-health signals, not
+     XSD conformance. Explain affected package regressions with exact computed base/head evidence. -->
 
 ## Conformance and documentation
 

@@ -43,17 +43,17 @@ paths/tests. Preserve Curator/Examiner JSON.
    to renew.
 7. Run `go tool workflowctl check`, fix every failure, and update affected
    docs/comments. Do not redo Smith's investigation.
-   When the packet changes `syntax.go` or `datatype.go`, run
-   `go tool workflowctl develop-signals --base BASE_SHA --format text`; this
-   replays checked-in parser/datatype corpora and runs each selected
-   target for the bounded default duration, offline and with one worker. The
-   reports affected-package and repository coverage deltas, fuzz
-   health, and `no-relevant-target`. Affected-package
-   regressions require a JSON explanation file containing the
-   package, concrete reason, and the command-computed base/head values; the
-   repository total is context. Coverage and fuzz health never represent
-   XSD conformance, catalog inventory, or evaluation fuzz excluded from
-   these signals.
+   For `syntax.go` or `datatype.go` changes, run
+   `go tool workflowctl develop-signals --base BASE_SHA`; it replays checked-in
+   corpora and runs targets for the bounded offline single-worker duration.
+   Text reports coverage/fuzz status, target names, and
+   `no-relevant-target`, not exact values or corpus names. Use `--format json`
+   for exact computed affected-package/repository deltas or selected-target
+   evidence; request replay evidence separately. Regressions require a
+   JSON explanation containing package, reason, and computed base/head;
+   repository total is context.
+   Coverage and fuzz health never represent XSD conformance, catalog inventory,
+   or evaluation fuzz excluded from these signals.
 8. Commit/push with the `AGENTS.md` title convention. Open a draft PR with
    `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`; include
    outcome, consultation, verification, conformance, and packet issues.
