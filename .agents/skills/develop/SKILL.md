@@ -9,28 +9,24 @@ Complete packet; do not stop at planning/PR.
 
 ## Control plane
 
-Root owns claim/lease, decomposition/handoffs, push/audit/challenge/merge; it
-does not repeat delegated research, source inspection, implementation, or test
-diagnosis. Branch/worktree, issue/PR, files, and handoffs are shared memory;
-transcript is not.
+Root owns claim/lease, decomposition, and lifecycle; it does not repeat
+delegated work. Branch/worktree, issue/PR, files, and handoffs are shared
+memory; transcript is not.
 
-Every child uses its exact `.codex/agents/` role, `fork_turns: "none"`, and
-task-local context. Scribe and Mason are default fresh read-only consultations;
-omit only for a mechanical exemption recorded in PR. Smith solely owns
-source, tests, remediation. Root writing needs a mechanical
-handoff exemption. Curator is fresh per managed-document head; Examiner is fresh
-and challenge-bound each round.
+Every child uses its exact role, `fork_turns: "none"`, and local context.
+Scribe/Mason are default fresh read-only consultations; omit only with a PR
+exemption. Smith owns source, tests, and remediation. Curator is fresh per
+document head; Examiner is fresh and challenge-bound.
 
-Every child handoff MUST be concise and state decisions, evidence locations, risks, required next actions;
-Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
+Every child handoff MUST state decisions, evidence locations, risks, and next
+actions; Smith names changed paths/tests. Preserve Curator/Examiner JSON.
 
 ## Protocol
 
-1. From the coordination checkout, read `AGENTS.md`, then run `go tool workflowctl doctor`.
-   It requires this canonical primary on clean `main` equal to freshly fetched
-   `origin/main`, with recursive pins ready. For stale/noncanonical launch, run
-   `go tool workflowctl base-sync` there, rerun doctor, then `sync` for Project
-   status and claim-ref fetches (not canonical base/submodules), then `pick`.
+1. From coordination, read `AGENTS.md`, then run `go tool workflowctl doctor`.
+   It requires canonical clean `main` equal to fetched `origin/main`, with
+   recursive pins ready. Repair stale launches with `base-sync`, rerun doctor,
+   then `sync` and `pick`.
 2. Claim the issue with `go tool workflowctl claim acquire ISSUE`. If claim
    loses, no edit/push/reuse or Project status change; pick again; use worktree.
 3. Read the issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md`
@@ -38,9 +34,9 @@ Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
    claim it first and include it for shared implementation or proof.
 4. Give Scribe specification question and Mason architecture question,
    with task-local context and handoff contract.
-5. Decompose the packet and give Smith implementation contract, files, and
-   acceptance evidence. Smith implements, runs routine tests, and diagnoses/fixes
-   failures. Follow `AGENTS.md`; mechanize repetition; test it. At unfinished boundaries, return an
+5. Decompose the packet and give Smith the contract, files, and evidence. Smith
+   implements, tests, and fixes failures. Follow `AGENTS.md`; mechanize repetition.
+   At unfinished boundaries, return an
    unsupported diagnostic with feature ID, `Loc`, and versioned specification
    reference. Turn actionable discoveries into issues; finish needed work.
 6. Renew before pushes and at durable workflow boundaries when remaining time
@@ -49,15 +45,23 @@ Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
 7. Run `go tool workflowctl check`, fix every failure, and update affected
    docs/comments. Do not redo Smith's investigation for a longer
    transcript.
-8. Commit and push with the `AGENTS.md` title convention. Open a draft PR with
-   `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`; describe
-   outcome, consultation, verification, conformance, and every packet issue.
+   When the packet changes `syntax.go` or `datatype.go`, run
+   `go tool workflowctl develop-signals --base BASE_SHA --format text`; this
+   replays checked-in parser/datatype corpora and runs each selected
+   target for the bounded default duration, offline and with one worker. The
+   reports affected-package and repository coverage deltas, fuzz
+   health, and `no-relevant-target`. Affected-package
+   regressions require a JSON explanation file containing the
+   package, concrete reason, and the command-computed base/head values; the
+   repository total is context only. Coverage and fuzz health never represent
+   XSD conformance, catalog inventory, or the excluded #47 evaluation fuzz.
+8. Commit/push with the `AGENTS.md` title convention. Open a draft PR with
+   `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`; include
+   outcome, consultation, verification, conformance, and packet issues.
 9. On every pushed head run `go tool workflowctl docs audit --base origin/main`.
-   Managed-document heads require a fresh read-only Curator with exact audit,
-   diff, paths, charters, and head. Curator checks placement, relevance,
-   duplication, history, and replacement; deletion is not improvement. Preserve
-   JSON (`runID`, `head`, `verdict`, `summary`, `findings`; revise adds path,
-   reason, requiredChange). Repeat after each remediation; no exemption.
+   Managed documents require a fresh read-only Curator with audit, diff, paths,
+   charters, and head. Curator checks placement, relevance, duplication,
+   history, and replacement. Preserve its JSON and repeat after remediation.
 10. Run `go tool workflowctl evaluation challenge PR` and give its challenge,
     PR state, tests, audit, Curator result/exemption, attestation shape, and
     rubric to a fresh read-only Examiner context with Luna. Examiner inspects
@@ -70,8 +74,8 @@ Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
     verdict. On failure, Smith fixes findings, checks, pushes, and repeats
     Curator/challenge/Examiner. Three failed rounds mark `needs-human` and hand
     off evidence.
-11. On a matching-head pass, write plain-text summary outside repository covering
-    problem, outcome, rationale, and decisions; omit status, commands, review metadata;
+11. On a matching-head pass, write a plain-text summary outside the repository
+    covering problem, outcome, rationale, and decisions; omit metadata;
     keep workflow metadata in records. Pass it to
     `go tool workflowctl pr finish PR --summary-file FILE`, which verifies the
     packet before SHA-bound squash, converges canonical base, and cleans only
@@ -86,18 +90,16 @@ Smith names changed paths/tests. Preserve Curator/Examiner JSON byte-for-byte.
 
 ## Waiting and pilot
 
-Waits are logical barriers. Poll/status timeouts are observational: continue
-while healthy child work and lease renewal permit; never narrow, pressure, spawn
-a writer, or duplicate work. Interrupt/recover only for explicit failure or
-cancellation, invalid scope, or inability to renew; never wake solely to renew.
-Follow up only for incomplete/ambiguous handoffs or bounded input. Timing is
-guidance, not a runtime guarantee.
+Waits are logical barriers. Continue while healthy work and lease renewal
+permit; never narrow, pressure, spawn a writer, or duplicate work. Interrupt
+only for explicit failure, cancellation, invalid scope, or lost lease. Follow up
+only for incomplete handoffs or bounded input; timing is guidance.
 
 For three packets (mechanical, specification-heavy, remediation), record
-compactions, peak context, output, elapsed time,
-Examiner rounds/verdict, and quality across diagnostics, tests, docs, and review.
-Zero compactions and under 50% context are optimization signals; quality must not
-regress. Never require undocumented `~/.codex/sessions` or CI/merge telemetry.
+compactions, context, output, elapsed time, Examiner verdict, and quality across
+diagnostics, tests, docs, and review. Zero compactions and under 50% context are
+optimization signals; quality must not regress. Never require undocumented
+sessions or telemetry.
 ## Failure behavior
 
 - Retry transient operations with bounded backoff; three failed recoveries make

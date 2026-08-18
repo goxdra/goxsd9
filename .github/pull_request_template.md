@@ -18,6 +18,14 @@
 
 <!-- List exact deterministic commands and results. -->
 
+### Development signals
+
+<!-- For parser/datatype boundary changes, include develop-signals output:
+     affected-package and repository coverage deltas, selected checked-in
+     corpus targets, bounded fuzz results, or no-relevant-target. These are
+     engineering-health signals, not XSD conformance. Explain every affected
+     package regression with exact computed base/head evidence. -->
+
 ## Conformance and documentation
 
 <!-- Record affected feature IDs, tests unlocked, exact docs audit, and current docs changed. -->
