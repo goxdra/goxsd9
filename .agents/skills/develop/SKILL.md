@@ -1,6 +1,6 @@
 ---
 name: develop
-description: Autonomously select, claim, implement, evaluate, and merge one goxsd9 work packet.
+description: Autonomously select, claim, implement, evaluate, and merge one goxsd9 packet.
 ---
 
 # Develop
@@ -9,23 +9,23 @@ Complete packet.
 
 ## Control plane
 
-Root owns claim, decomposition, and lifecycle; it does not repeat delegated
-work. Branch, files, and handoffs are shared memory; transcript is not.
+Root owns claim, decomposition, lifecycle; it does not repeat delegated
+work. Branch, files, handoffs are shared memory; transcript is not.
 
-Children use exact roles, `fork_turns: "none"`, and local context.
-Scribe/Mason are default fresh read-only consultations; omit only with a PR
+Children use exact configured roles, `fork_turns: "none"`, and task-local context.
+Scribe/Mason default to fresh read-only consultations; omit only with a PR
 exemption. Smith owns source, tests, remediation. Curator is fresh per head;
 Examiner is fresh, challenge-bound.
 
-Handoffs MUST state decisions, evidence, risks, and next actions; Smith names
+Handoffs MUST state decisions, evidence locations, risks, and next actions; Smith names
 paths/tests. Preserve Curator/Examiner JSON.
 
 ## Protocol
 
 1. From coordination, read `AGENTS.md`, then run `go tool workflowctl doctor`.
    It requires canonical clean `main` equal to fetched `origin/main`, with
-   recursive pins ready. Repair stale launches with `base-sync`, rerun doctor,
-   then `sync` and `pick`.
+   recursive pins ready. Repair stale launches with `base-sync`; rerun doctor,
+   `sync`, and `pick`.
 2. Claim the issue with `go tool workflowctl claim acquire ISSUE`. If claim
    loses, no edit/push/reuse or Project status change; pick again; use worktree.
 3. Read the issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md`
@@ -33,12 +33,12 @@ paths/tests. Preserve Curator/Examiner JSON.
    for shared implementation or proof.
 4. Give Scribe specification question and Mason architecture question,
    with context and handoff contract.
-5. Decompose the packet and give Smith the contract, files, and evidence. Smith
-   implements, tests, and fixes failures. Follow `AGENTS.md`; mechanize.
+5. Decompose the packet; give Smith its contract, files, and evidence. Smith
+   implements, tests, fixes failures. Follow `AGENTS.md`; mechanize.
    Unfinished boundaries need unsupported diagnostics with feature ID, `Loc`,
-   and versioned specification reference. Turn actionable discoveries into
-   issues.
-6. Renew before pushes and durable boundaries when required with `go tool
+   and versioned specification reference. Do not add an untracked TODO. Turn
+   actionable discoveries into issues.
+6. Renew before pushes and required durable boundaries with `go tool
    workflowctl claim renew`; never wake or poll solely
    to renew.
 7. Run `go tool workflowctl check`, fix every failure, and update affected
@@ -63,7 +63,7 @@ paths/tests. Preserve Curator/Examiner JSON.
    history, and replacement. Preserve its JSON and repeat after remediation.
 10. Run `go tool workflowctl evaluation challenge PR` and give its challenge,
     PR state, tests, audit, Curator result/exemption, attestation shape, and
-    rubric to a fresh read-only Examiner context with Luna. Examiner inspects
+    rubric to a fresh read-only Examiner context, challenge-bound. Examiner inspects
     source, reruns the audit, rejects stale/missing Curator evidence, and returns exact
     `goxsd9/examiner-attestation/v1` JSON with `schema`, `challenge`, `evaluator`,
     `runID`, `pullRequest`, `head`, `verdict`, `summary`, and `findings`; failure
