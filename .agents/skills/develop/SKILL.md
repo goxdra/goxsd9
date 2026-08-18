@@ -5,21 +5,20 @@ description: Autonomously select, claim, implement, evaluate, and merge one goxs
 
 # Develop
 
-Complete packet; do not stop at planning/PR.
+Complete packet.
 
 ## Control plane
 
-Root owns claim/lease, decomposition, and lifecycle; it does not repeat
-delegated work. Branch/worktree, issue/PR, files, and handoffs are shared
-memory; transcript is not.
+Root owns claim, decomposition, and lifecycle; it does not repeat delegated
+work. Branch, files, and handoffs are shared memory; transcript is not.
 
-Every child uses its exact role, `fork_turns: "none"`, and local context.
+Children use exact roles, `fork_turns: "none"`, and local context.
 Scribe/Mason are default fresh read-only consultations; omit only with a PR
-exemption. Smith owns source, tests, and remediation. Curator is fresh per
-document head; Examiner is fresh and challenge-bound.
+exemption. Smith owns source, tests, remediation. Curator is fresh per head;
+Examiner is fresh, challenge-bound.
 
-Every child handoff MUST state decisions, evidence locations, risks, and next
-actions; Smith names changed paths/tests. Preserve Curator/Examiner JSON.
+Handoffs MUST state decisions, evidence, risks, and next actions; Smith names
+paths/tests. Preserve Curator/Examiner JSON.
 
 ## Protocol
 
@@ -30,21 +29,20 @@ actions; Smith names changed paths/tests. Preserve Curator/Examiner JSON.
 2. Claim the issue with `go tool workflowctl claim acquire ISSUE`. If claim
    loses, no edit/push/reuse or Project status change; pick again; use worktree.
 3. Read the issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md`
-   phase, and relevant decisions. At most one companion issue;
-   claim it first and include it for shared implementation or proof.
+   phase, and relevant decisions. One companion issue at most; claim it first
+   for shared implementation or proof.
 4. Give Scribe specification question and Mason architecture question,
-   with task-local context and handoff contract.
+   with context and handoff contract.
 5. Decompose the packet and give Smith the contract, files, and evidence. Smith
-   implements, tests, and fixes failures. Follow `AGENTS.md`; mechanize repetition.
-   At unfinished boundaries, return an
-   unsupported diagnostic with feature ID, `Loc`, and versioned specification
-   reference. Turn actionable discoveries into issues; finish needed work.
-6. Renew before pushes and at durable workflow boundaries when remaining time
-   requires it with `go tool workflowctl claim renew`; never wake or poll solely
+   implements, tests, and fixes failures. Follow `AGENTS.md`; mechanize.
+   Unfinished boundaries need unsupported diagnostics with feature ID, `Loc`,
+   and versioned specification reference. Turn actionable discoveries into
+   issues.
+6. Renew before pushes and durable boundaries when required with `go tool
+   workflowctl claim renew`; never wake or poll solely
    to renew.
 7. Run `go tool workflowctl check`, fix every failure, and update affected
-   docs/comments. Do not redo Smith's investigation for a longer
-   transcript.
+   docs/comments. Do not redo Smith's investigation.
    When the packet changes `syntax.go` or `datatype.go`, run
    `go tool workflowctl develop-signals --base BASE_SHA --format text`; this
    replays checked-in parser/datatype corpora and runs each selected
@@ -79,12 +77,14 @@ actions; Smith names changed paths/tests. Preserve Curator/Examiner JSON.
     covering problem, outcome, rationale, and decisions; omit metadata;
     keep workflow metadata in records. Pass it to
     `go tool workflowctl pr finish PR --summary-file FILE`, which verifies the
-    packet before SHA-bound squash, converges canonical base, and cleans only
+    packet before a SHA-bound REST squash merge independent of GraphQL,
+    converges canonical base, and cleans only
     exact refs, clean claim worktrees, and expected-SHA branches proven by
     immutable pre-merge proof with base/head/closure/body metadata; recovery
     refuses drift.
     If convergence or cleanup fails, the merge is complete: preserve artifacts
-    and run idempotent `go tool workflowctl pr recover PR`. Use `claim prune
+    and run idempotent `go tool workflowctl pr recover PR`; recovery also
+    requires this SHA-bound REST merge and remains GraphQL-independent. Use `claim prune
     ISSUE` only with merged proof. For draft replacement, close the draft,
     create an identical-head ready PR through REST, then obtain a new challenge
     and fresh Examiner.
@@ -94,13 +94,16 @@ actions; Smith names changed paths/tests. Preserve Curator/Examiner JSON.
 Waits are logical barriers. Continue while healthy work and lease renewal
 permit; never narrow, pressure, spawn a writer, or duplicate work. Interrupt
 only for explicit failure, cancellation, invalid scope, or lost lease. Follow up
-only for incomplete handoffs or bounded input; timing is guidance.
+only for incomplete handoffs or bounded input; timing is guidance and is not an
+OpenAI runtime guarantee.
 
 For three packets (mechanical, specification-heavy, remediation), record
-compactions, context, output, elapsed time, Examiner verdict, and quality across
-diagnostics, tests, docs, and review. Zero compactions and under 50% context are
-optimization signals; quality must not regress. Never require undocumented
-sessions or telemetry.
+aggregate root compactions, peak context, output volume, elapsed time, Examiner
+rounds and verdict, and quality across
+diagnostics, tests, docs, and review. Zero normal-packet root compactions and
+under 50% effective root context before review are
+optimization signals; quality must not regress. Never require sessions or
+telemetry.
 ## Failure behavior
 
 - Retry transient operations with bounded backoff; three failed recoveries make

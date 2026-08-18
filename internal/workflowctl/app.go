@@ -25,6 +25,8 @@ type app struct {
 	fuzzMakeTempDir                 func(pattern string) (string, error)
 	fuzzCopyWorktree                func(source, destination string) error
 	fuzzRemoveAll                   func(path string) error
+	buildCoverageReport             func(root, base string) (coverageReport, error)
+	coverageChangedPaths            func(root, base, head string) (map[string]bool, error)
 	skillEvalGraderAgent            skillEvalAgent
 	skillEvalProcessStart           skillEvalProcessStarter
 	skillEvalSubjectAgent           skillEvalAgent

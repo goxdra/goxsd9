@@ -123,7 +123,7 @@ func (a app) runCoverage(args []string) error {
 	if err != nil {
 		return err
 	}
-	report, err := a.buildCoverageReport(root, *base)
+	report, err := a.buildCoverageReportFromRepository(root, *base)
 	if err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func (a app) runCoverage(args []string) error {
 	return a.writeCoverageText(report)
 }
 
-func (a app) buildCoverageReport(root, baseRef string) (report coverageReport, err error) {
+func (a app) buildCoverageReportFromRepository(root, baseRef string) (report coverageReport, err error) {
 	clean, err := a.command(root, "git", "status", "--porcelain")
 	if err != nil {
 		return coverageReport{}, fmt.Errorf("read coverage worktree status: %w", err)
@@ -149,7 +149,7 @@ func (a app) buildCoverageReport(root, baseRef string) (report coverageReport, e
 	if err != nil {
 		return coverageReport{}, fmt.Errorf("resolve coverage head: %w", err)
 	}
-	changed, err := a.coverageChangedPaths(root, base, head)
+	changed, err := a.coverageChangedPathsFromRepository(root, base, head)
 	if err != nil {
 		return coverageReport{}, err
 	}
@@ -219,7 +219,7 @@ func (a app) removeCoverageWorktree(root, directory string) error {
 	return nil
 }
 
-func (a app) coverageChangedPaths(root, base, head string) (map[string]bool, error) {
+func (a app) coverageChangedPathsFromRepository(root, base, head string) (map[string]bool, error) {
 	output, err := a.gitRaw(root, "diff", "--name-only", "-z", "--no-renames", base, head, "--")
 	if err != nil {
 		return nil, fmt.Errorf("read coverage changed paths: %w", err)

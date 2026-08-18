@@ -28,7 +28,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          go test ./internal/workflowctl -run 'TestCheckCoveragePolicy'
+          go test ./internal/workflowctl -run 'Test(CheckCoveragePolicy|DevelopSignalsCommand|RunFuzzUsesOfflineSingleWorkerAndCleansSuccessfulSandbox)'
           if git diff --quiet "$BASE_SHA" HEAD -- syntax.go datatype.go; then
             echo "No parser/datatype boundary changes; development signals not required"
             exit 0

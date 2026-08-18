@@ -74,7 +74,11 @@ func (a app) runDevelopmentSignals(args []string) error { //nolint:gocognit // o
 	if err != nil {
 		return err
 	}
-	coverage, err := a.buildCoverageReport(root, *base)
+	buildCoverageReport := a.buildCoverageReport
+	if buildCoverageReport == nil {
+		buildCoverageReport = a.buildCoverageReportFromRepository
+	}
+	coverage, err := buildCoverageReport(root, *base)
 	if err != nil {
 		return fmt.Errorf("build development coverage signal: %w", err)
 	}
@@ -85,7 +89,11 @@ func (a app) runDevelopmentSignals(args []string) error { //nolint:gocognit // o
 	if policyErr := checkCoveragePolicy(coverage, explanations); policyErr != nil {
 		return stateError("development coverage gate: %v", policyErr)
 	}
-	changed, err := a.coverageChangedPaths(root, coverage.Base, coverage.Head)
+	coverageChangedPaths := a.coverageChangedPaths
+	if coverageChangedPaths == nil {
+		coverageChangedPaths = a.coverageChangedPathsFromRepository
+	}
+	changed, err := coverageChangedPaths(root, coverage.Base, coverage.Head)
 	if err != nil {
 		return fmt.Errorf("select development fuzz targets: %w", err)
 	}
@@ -203,10 +211,7 @@ func rejectUnusedCoverageExplanations(report coverageReport, explanations []cove
 }
 
 func coveragePackageRegressed(packageReport coveragePackageReport) bool {
-	if !packageReport.Base.Present || !packageReport.Head.Present {
-		return true
-	}
-	return packageReport.Delta.Percent < 0
+	return packageReport.Base.Present && packageReport.Head.Present && packageReport.Delta.Percent < 0
 }
 
 func writeDevelopmentSignalsJSON(output io.Writer, report developmentSignalsReport) error {
