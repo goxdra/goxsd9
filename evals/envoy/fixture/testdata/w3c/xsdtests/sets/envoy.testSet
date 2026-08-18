@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<testSet xmlns="http://www.w3.org/XML/2004/xml-schema-test-suite/" xmlns:xlink="http://www.w3.org/1999/xlink" name="envoy-set" contributor="goxsd9">
+  <testGroup name="catalog-only">
+    <schemaTest name="fixture-schema">
+      <schemaDocument xlink:href="envoy.xsd"/>
+      <expected validity="valid"/>
+      <current status="accepted" date="2026-08-18"/>
+    </schemaTest>
+  </testGroup>
+</testSet>

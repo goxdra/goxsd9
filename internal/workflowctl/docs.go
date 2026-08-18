@@ -136,7 +136,7 @@ func isDurableMarkdown(path string) bool {
 	if !isMarkdownPath(path) {
 		return false
 	}
-	if strings.HasPrefix(path, "evals/agent/") {
+	if strings.HasPrefix(path, "evals/agent/") || strings.HasPrefix(path, "evals/envoy/") {
 		return false
 	}
 	return !strings.HasPrefix(path, "testdata/w3c/xsdtests/")
