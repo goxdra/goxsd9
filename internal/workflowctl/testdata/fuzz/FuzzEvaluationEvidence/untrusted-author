@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("WFE!1112026-08-15T05:30:00ZO00034<!-- workflowctl-evaluation {} -->")
