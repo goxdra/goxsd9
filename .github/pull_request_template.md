@@ -21,8 +21,8 @@
 ### Development signals
 
 <!-- For parser/datatype changes, include develop-signals --format json evidence for exact computed
-     affected/repository deltas and bounded fuzz results.
-     Request selected targets and checked-in corpus replay evidence separately,
+     affected/repository deltas, selected-target evidence, and bounded fuzz results.
+     Request checked-in corpus replay evidence separately,
      or record no-relevant-target. These are engineering-health signals, not
      XSD conformance. Explain affected package regressions with exact computed base/head evidence. -->
 
