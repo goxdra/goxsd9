@@ -79,12 +79,11 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
     verdict. On failure, Smith fixes findings, checks, pushes, repeats
     Curator/challenge/Examiner. Three failed rounds mark `needs-human`; hand off
     evidence.
-11. On matching-head pass, write plain-text summary outside repository
-    covering problem, outcome, rationale, and consequential decisions
-    or invariants; omit metadata. Separate plain-text summary is intended
-    for future development, backlog, and retrospective workflows; do not copy
-    or parse any PR Markdown into the squash body. Keep workflow metadata in
-    records. Pass it to
+11. On matching-head pass, write a separate plain-text summary file outside
+    repository for future development, backlog, and retrospective workflows;
+    cover the problem, outcome, rationale, and consequential decisions or
+    invariants; omit metadata. Do not copy or parse PR Markdown into squash body.
+    Keep workflow metadata in records. Use
     `go tool workflowctl pr finish PR --summary-file FILE`, which verifies
     packet before SHA-bound REST, GraphQL-independent squash merge, converges
     canonical base, cleans only exact refs, clean-claim worktrees, expected-SHA
@@ -101,8 +100,8 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
 Waits are logical barriers. Continue while healthy work and lease renewal
 permit; never narrow, pressure, spawn a writer, or duplicate work. Interrupt
 only for explicit failure, cancellation, invalid scope, or lost lease. Follow up
-only for incomplete handoffs or bounded input; timing guides, not an
-OpenAI runtime guarantee.
+only for incomplete handoffs or bounded input; timing is guidance; do not
+present timing as an OpenAI runtime guarantee.
 
 For three packets (mechanical, specification-heavy, remediation), record
 aggregate root compactions, peak context, output volume, elapsed time,
