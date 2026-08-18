@@ -24,9 +24,10 @@ const (
 )
 
 const (
-	xsdNamespaceURI   = "http://www.w3.org/2001/XMLSchema"
-	xmlNamespaceURI   = "http://www.w3.org/XML/1998/namespace"
-	xmlnsNamespaceURI = "http://www.w3.org/2000/xmlns/"
+	xsdNamespaceURI           = "http://www.w3.org/2001/XMLSchema"
+	xsdVersioningNamespaceURI = "http://www.w3.org/2007/XMLSchema-versioning"
+	xmlNamespaceURI           = "http://www.w3.org/XML/1998/namespace"
+	xmlnsNamespaceURI         = "http://www.w3.org/2000/xmlns/"
 )
 
 // syntaxDocument is the raw, internal result of decoding one schema source.

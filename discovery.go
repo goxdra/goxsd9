@@ -15,9 +15,34 @@ const (
 )
 
 type syntaxReference struct {
+	kind           syntaxReferenceKind
 	namespaceURN   string
+	hasNamespace   bool
 	schemaLocation string
+	conditional    bool
 	loc            Loc
+}
+
+type syntaxReferenceKind uint8
+
+const (
+	syntaxReferenceInclude syntaxReferenceKind = iota + 1
+	syntaxReferenceImport
+)
+
+type syntaxDocumentEdge struct {
+	source       SourceID
+	target       SourceID
+	kind         syntaxReferenceKind
+	namespaceURN string
+	hasNamespace bool
+	conditional  bool
+	loc          Loc
+}
+
+type syntaxDiscoveryResult struct {
+	documents []*syntaxDocument
+	edges     []syntaxDocumentEdge
 }
 
 type syntaxDiscoveryQueueItem struct {
@@ -30,6 +55,7 @@ type syntaxDiscovery struct {
 	seen      map[SourceID]struct{}
 	queue     []syntaxDiscoveryQueueItem
 	documents []*syntaxDocument
+	edges     []syntaxDocumentEdge
 }
 
 // discoverSyntaxDocuments resolves the direct include and import references
@@ -37,8 +63,16 @@ type syntaxDiscovery struct {
 // this package: locations are passed through unchanged and only resolver
 // identities are used for cycle detection.
 func discoverSyntaxDocuments(root ResolvedSource, resolver Resolver) ([]*syntaxDocument, error) {
+	result, err := discoverSyntax(root, resolver)
+	if err != nil {
+		return nil, err
+	}
+	return result.documents, nil
+}
+
+func discoverSyntax(root ResolvedSource, resolver Resolver) (syntaxDiscoveryResult, error) {
 	if err := validateDiscoverySource(root, Loc{}, FailureInternal); err != nil {
-		return nil, closeDiscoverySourceOnError(root, Loc{}, err)
+		return syntaxDiscoveryResult{}, closeDiscoverySourceOnError(root, Loc{}, err)
 	}
 
 	discovery := syntaxDiscovery{
@@ -46,6 +80,7 @@ func discoverSyntaxDocuments(root ResolvedSource, resolver Resolver) ([]*syntaxD
 		seen:      map[SourceID]struct{}{root.SourceID(): {}},
 		queue:     []syntaxDiscoveryQueueItem{{source: root}},
 		documents: make([]*syntaxDocument, 0, 1),
+		edges:     make([]syntaxDocumentEdge, 0),
 	}
 	for len(discovery.queue) > 0 {
 		item := discovery.queue[0]
@@ -53,24 +88,27 @@ func discoverSyntaxDocuments(root ResolvedSource, resolver Resolver) ([]*syntaxD
 
 		document, err := decodeResolvedSyntax(item.source)
 		if err != nil {
-			return nil, discovery.finish(err)
+			return syntaxDiscoveryResult{}, discovery.finish(err)
 		}
 		discovery.documents = append(discovery.documents, document)
 
 		references, err := syntaxDocumentReferences(document)
 		if err != nil {
-			return nil, discovery.finish(err)
+			return syntaxDiscoveryResult{}, discovery.finish(err)
 		}
 		for _, reference := range references {
-			if err := discovery.enqueue(item.source.Context(), reference); err != nil {
-				return nil, discovery.finish(err)
+			if err := discovery.enqueue(item.source.Context(), item.source.SourceID(), reference); err != nil {
+				return syntaxDiscoveryResult{}, discovery.finish(err)
 			}
 		}
 	}
-	return discovery.documents, nil
+	return syntaxDiscoveryResult{
+		documents: discovery.documents,
+		edges:     discovery.edges,
+	}, nil
 }
 
-func (discovery *syntaxDiscovery) enqueue(ctx context.Context, reference syntaxReference) error {
+func (discovery *syntaxDiscovery) enqueue(ctx context.Context, sourceID SourceID, reference syntaxReference) error {
 	if discovery.resolver == nil {
 		return newDiagnostic(
 			FailureResolution,
@@ -95,6 +133,15 @@ func (discovery *syntaxDiscovery) enqueue(ctx context.Context, reference syntaxR
 	if err := validateDiscoverySource(source, reference.loc, FailureResolution); err != nil {
 		return closeDiscoverySourceOnError(source, reference.loc, err)
 	}
+	discovery.edges = append(discovery.edges, syntaxDocumentEdge{
+		source:       sourceID,
+		target:       source.SourceID(),
+		kind:         reference.kind,
+		namespaceURN: reference.namespaceURN,
+		hasNamespace: reference.hasNamespace,
+		conditional:  reference.conditional,
+		loc:          reference.loc,
+	})
 	if _, ok := discovery.seen[source.SourceID()]; ok {
 		return closeDiscoverySource(source, reference.loc)
 	}
@@ -194,20 +241,35 @@ func syntaxDocumentReferences(document *syntaxDocument) ([]syntaxReference, erro
 				)
 			}
 			references = append(references, syntaxReference{
+				kind:           syntaxReferenceInclude,
 				namespaceURN:   "",
+				hasNamespace:   false,
 				schemaLocation: schemaLocation,
+				conditional:    syntaxReferenceIsConditional(element),
 				loc:            element.loc,
 			})
 		case "import":
-			namespaceURN, _ := syntaxAttributeValue(element, "namespace")
+			namespaceURN, hasNamespace := syntaxAttributeValue(element, "namespace")
 			references = append(references, syntaxReference{
+				kind:           syntaxReferenceImport,
 				namespaceURN:   namespaceURN,
+				hasNamespace:   hasNamespace,
 				schemaLocation: schemaLocation,
+				conditional:    syntaxReferenceIsConditional(element),
 				loc:            element.loc,
 			})
 		}
 	}
 	return references, nil
+}
+
+func syntaxReferenceIsConditional(element *syntaxElement) bool {
+	for _, attribute := range element.attrs {
+		if attribute.name.namespace == xsdVersioningNamespaceURI {
+			return true
+		}
+	}
+	return false
 }
 
 func syntaxAttributeValue(element *syntaxElement, local string) (string, bool) {
