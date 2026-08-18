@@ -174,6 +174,9 @@ func (a app) buildCoverageReport(root, baseRef string) (report coverageReport, e
 		return coverageReport{}, addErr
 	}
 	worktreeAdded = true
+	if initializeErr := a.initializeCoverageWorktree(baseRoot); initializeErr != nil {
+		return coverageReport{}, initializeErr
+	}
 	baseSnapshot, err := a.coverageSnapshot(baseRoot, filepath.Join(temporaryRoot, "base.cover"), "base")
 	if err != nil {
 		return coverageReport{}, err
@@ -198,6 +201,13 @@ func joinCoverageErrors(current, cleanup error) error {
 func (a app) addCoverageWorktree(root, directory, revision string) error {
 	if _, err := a.command(root, "git", "worktree", "add", "--detach", "--quiet", directory, revision); err != nil {
 		return fmt.Errorf("create coverage base worktree: %w", err)
+	}
+	return nil
+}
+
+func (a app) initializeCoverageWorktree(directory string) error {
+	if _, err := a.command(directory, "git", "submodule", "update", "--init", "--recursive"); err != nil {
+		return fmt.Errorf("initialize coverage base submodules: %w", err)
 	}
 	return nil
 }

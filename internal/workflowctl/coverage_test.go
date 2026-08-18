@@ -218,6 +218,8 @@ func TestRunCoverageReturnsTestAndCleanupFailures(t *testing.T) {
 				return "", nil
 			case strings.HasPrefix(command, "git worktree add "):
 				return "", nil
+			case command == "git submodule update --init --recursive":
+				return "", nil
 			case strings.HasPrefix(command, "git worktree remove "):
 				return "", errors.New("cleanup failed")
 			default:
@@ -248,6 +250,63 @@ func TestRunCoverageReturnsTestAndCleanupFailures(t *testing.T) {
 	if !containsCoverageCall(calls, "git worktree remove") {
 		t.Fatalf("cleanup was not attempted: %#v", calls)
 	}
+}
+
+func TestRunCoverageInitializesBaseSubmodulesBeforeTests(t *testing.T) {
+	var calls []string
+	application := app{
+		ctx: context.Background(),
+		executeCommand: func(dir string, _ io.Reader, name string, args ...string) (string, error) {
+			command := name + " " + strings.Join(args, " ")
+			calls = append(calls, command)
+			switch {
+			case command == "git rev-parse --show-toplevel":
+				return "/repo", nil
+			case command == "git status --porcelain":
+				return "", nil
+			case command == "git rev-parse --verify --end-of-options base^{commit}":
+				return "base-sha", nil
+			case command == "git rev-parse --verify --end-of-options HEAD^{commit}":
+				return "head-sha", nil
+			case strings.HasPrefix(command, "git diff --name-only"):
+				return "", nil
+			case strings.HasPrefix(command, "git worktree add "):
+				return "", nil
+			case command == "git submodule update --init --recursive":
+				return "", nil
+			case strings.HasPrefix(command, "git worktree remove "):
+				return "", nil
+			default:
+				return "", fmt.Errorf("unexpected git command in %s: %s", dir, command)
+			}
+		},
+		executeCommandWithEnv: func(dir string, _ []string, _ io.Reader, name string, args ...string) (string, error) {
+			calls = append(calls, name+" "+strings.Join(args, " "))
+			if len(args) == 0 || args[0] != "list" {
+				return "", fmt.Errorf("unexpected Go command: %s", strings.Join(args, " "))
+			}
+			return fmt.Sprintf("{\"Dir\":%q,\"ImportPath\":\"example.com/mod\"}\n", dir), nil
+		},
+	}
+	if err := application.runCoverage([]string{"--base", "base"}); err == nil {
+		t.Fatal("coverage unexpectedly succeeded without a coverage profile")
+	}
+
+	addIndex := coverageCallIndex(calls, "git worktree add ")
+	updateIndex := coverageCallIndex(calls, "git submodule update --init --recursive")
+	removeIndex := coverageCallIndex(calls, "git worktree remove ")
+	if addIndex < 0 || updateIndex < 0 || removeIndex < 0 || addIndex >= updateIndex || updateIndex >= removeIndex {
+		t.Fatalf("base worktree lifecycle = %#v", calls)
+	}
+}
+
+func coverageCallIndex(calls []string, prefix string) int {
+	for index, call := range calls {
+		if strings.HasPrefix(call, prefix) {
+			return index
+		}
+	}
+	return -1
 }
 
 func containsCoverageCall(calls []string, prefix string) bool {
