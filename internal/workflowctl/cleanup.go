@@ -13,6 +13,7 @@ type claimArtifact struct {
 	issue        int
 	branch       string
 	sha          string
+	localBranch  string
 	worktreePath string
 }
 
@@ -172,6 +173,7 @@ func attachClaimWorktrees(layout repositoryLayout, claims []claimArtifact) ([]cl
 			return nil, err
 		}
 		if ok {
+			claims[index].localBranch = strings.TrimPrefix(worktree.branch, "refs/heads/")
 			claims[index].worktreePath = worktree.path
 		}
 	}
@@ -228,40 +230,57 @@ func rejectDuplicateClaimArtifacts(claims []claimArtifact) error {
 
 func findClaimWorktree(layout repositoryLayout, branch, sha string) (gitWorktree, bool, error) {
 	expectedPath := claimWorktreePath(layout.primaryRoot, branch)
-	var expected gitWorktree
-	expectedCount := 0
+	var legacyMismatch gitWorktree
+	legacyMismatchCount := 0
 	var found gitWorktree
 	count := 0
 	for _, worktree := range layout.worktrees {
-		if samePath(worktree.path, expectedPath) {
-			expected = worktree
-			expectedCount++
-		}
-		if worktree.branch != "refs/heads/"+branch {
+		candidate, exact, mismatch := claimWorktreeCandidate(layout, worktree, branch, sha)
+		if mismatch {
+			legacyMismatch = worktree
+			legacyMismatchCount++
 			continue
 		}
-		found = worktree
+		if !exact {
+			continue
+		}
+		found = candidate
 		count++
-	}
-	if expectedCount > 1 {
-		return gitWorktree{}, false, stateError("claim worktree path %q is ambiguously registered; preserve claim state", expectedPath)
-	}
-	if expectedCount == 1 && (expected.branch != "refs/heads/"+branch || expected.head != sha) {
-		return gitWorktree{}, false, stateError("claim worktree %q changed branch or head (branch=%q, head=%s); preserve it and run go tool workflowctl pr recover %d", expectedPath, expected.branch, expected.head, issueFromBranchValue(branch))
 	}
 	if count > 1 {
 		return gitWorktree{}, false, stateError("claim branch %q is registered by multiple worktrees; preserve ambiguous state", branch)
 	}
 	if count == 0 {
+		if legacyMismatchCount > 1 {
+			return gitWorktree{}, false, stateError("claim worktree path %q is ambiguously registered; preserve claim state", expectedPath)
+		}
+		if legacyMismatchCount == 1 {
+			return gitWorktree{}, false, stateError("claim worktree %q moved from expected head %s to %s; preserve it and run go tool workflowctl pr recover %d", expectedPath, sha, legacyMismatch.head, issueFromBranchValue(branch))
+		}
 		return gitWorktree{}, false, nil
 	}
-	if !samePath(found.path, expectedPath) {
-		return gitWorktree{}, false, stateError("claim worktree %q is external to workflow path %q; preserve it and run go tool workflowctl pr recover %d", found.path, expectedPath, issueFromBranchValue(branch))
-	}
-	if found.head != sha {
-		return gitWorktree{}, false, stateError("claim worktree %q moved from expected head %s to %s; preserve it and run go tool workflowctl pr recover %d", found.path, sha, found.head, issueFromBranchValue(branch))
+	localBranch := strings.TrimPrefix(found.branch, "refs/heads/")
+	expected := claimWorktreePath(layout.primaryRoot, localBranch)
+	if !samePath(found.path, expected) {
+		return gitWorktree{}, false, stateError("claim worktree %q is external to workflow path %q; preserve it and run go tool workflowctl pr recover %d", found.path, expected, issueFromBranchValue(branch))
 	}
 	return found, true, nil
+}
+
+func claimWorktreeCandidate(layout repositoryLayout, worktree gitWorktree, branch, sha string) (gitWorktree, bool, bool) {
+	localBranch := strings.TrimPrefix(worktree.branch, "refs/heads/")
+	if !claimLocalBranchMatches(branch, localBranch) {
+		return gitWorktree{}, false, false
+	}
+	if worktree.head == sha {
+		return worktree, true, false
+	}
+	expectedPath := claimWorktreePath(layout.primaryRoot, branch)
+	return gitWorktree{}, false, localBranch == branch && samePath(worktree.path, expectedPath)
+}
+
+func claimLocalBranchMatches(branch, localBranch string) bool {
+	return localBranch == branch || strings.HasPrefix(localBranch, branch+"-")
 }
 
 func issueFromBranchValue(branch string) int {
@@ -325,6 +344,9 @@ func (a app) validateClaimArtifacts(root string, layout repositoryLayout, claims
 		return err
 	}
 	all := append(append(append([]remoteClaim(nil), remote...), local...), tracking...)
+	if inferErr := inferClaimLocalBranches(claims, all); inferErr != nil {
+		return inferErr
+	}
 	claimBranches, err := claimBranchIndex(claims)
 	if err != nil {
 		return err
@@ -343,12 +365,19 @@ func (a app) validateClaimArtifacts(root string, layout repositoryLayout, claims
 }
 
 func claimBranchIndex(claims []claimArtifact) (map[string]claimArtifact, error) {
-	index := make(map[string]claimArtifact, len(claims))
+	index := make(map[string]claimArtifact, len(claims)*2)
 	for _, claim := range claims {
 		if _, exists := index[claim.branch]; exists {
 			return nil, stateError("claim cleanup has duplicate branch %q; preserve ambiguous state", claim.branch)
 		}
 		index[claim.branch] = claim
+		if claim.localBranch == "" || claim.localBranch == claim.branch {
+			continue
+		}
+		if _, exists := index[claim.localBranch]; exists {
+			return nil, stateError("claim cleanup has duplicate local branch %q; preserve ambiguous state", claim.localBranch)
+		}
+		index[claim.localBranch] = claim
 	}
 	return index, nil
 }
@@ -356,25 +385,75 @@ func claimBranchIndex(claims []claimArtifact) (map[string]claimArtifact, error) 
 func (a app) validateExpectedClaimArtifacts(root string, layout repositoryLayout, claims []claimArtifact, all []remoteClaim, head string) (map[string]bool, error) {
 	seen := make(map[string]bool, len(claims))
 	for _, claim := range claims {
-		sha, found, err := exactClaimSHA(all, claim.branch)
+		present, err := a.validateExpectedClaimArtifact(root, layout, claim, all, head)
 		if err != nil {
 			return nil, err
 		}
-		_, worktreeFound, err := findClaimWorktree(layout, claim.branch, claim.sha)
-		if err != nil {
-			return nil, err
-		}
-		if found && sha != claim.sha {
-			return nil, stateError("claim %s moved from immutable merge-time head %s to %s; preserve claim artifacts and run go tool workflowctl pr recover", claim.branch, claim.sha, sha)
-		}
-		if found || worktreeFound {
+		if present {
 			seen[claim.branch] = true
-		}
-		if err := a.validateClaimAncestor(root, claim, found || worktreeFound, head); err != nil {
-			return nil, err
 		}
 	}
 	return seen, nil
+}
+
+func (a app) validateExpectedClaimArtifact(root string, layout repositoryLayout, claim claimArtifact, all []remoteClaim, head string) (bool, error) {
+	sha, found, err := exactClaimSHAFromSources(all, claim.branch, claimRefRemote, claimRefTracking)
+	if err != nil {
+		return false, err
+	}
+	if found && sha != claim.sha {
+		return false, stateError("claim %s moved from immutable merge-time head %s to %s; preserve claim artifacts and run go tool workflowctl pr recover", claim.branch, claim.sha, sha)
+	}
+	localFound, err := validateExpectedLocalClaim(all, claim)
+	if err != nil {
+		return false, err
+	}
+	_, worktreeFound, err := findClaimWorktree(layout, claim.branch, claim.sha)
+	if err != nil {
+		return false, err
+	}
+	present := found || localFound || worktreeFound
+	if err := a.validateClaimAncestor(root, claim, present, head); err != nil {
+		return false, err
+	}
+	return present, nil
+}
+
+func validateExpectedLocalClaim(all []remoteClaim, claim claimArtifact) (bool, error) {
+	if claim.localBranch == "" {
+		return false, nil
+	}
+	localSHA, found, err := exactClaimSHAFromSources(all, claim.localBranch, claimRefLocal)
+	if err != nil {
+		return false, err
+	}
+	if found && localSHA != claim.sha {
+		return false, stateError("local claim %s moved from immutable merge-time head %s to %s; preserve claim artifacts and run go tool workflowctl pr recover", claim.localBranch, claim.sha, localSHA)
+	}
+	return found, nil
+}
+
+func inferClaimLocalBranches(claims []claimArtifact, all []remoteClaim) error {
+	for index := range claims {
+		if claims[index].localBranch != "" {
+			continue
+		}
+		var candidate string
+		for _, artifact := range all {
+			if artifact.source != claimRefLocal || artifact.sha != claims[index].sha ||
+				!claimLocalBranchMatches(claims[index].branch, artifact.branch) {
+				continue
+			}
+			if candidate != "" && candidate != artifact.branch {
+				return stateError("claim %s has ambiguous local branches %q and %q at immutable head %s; preserve claim artifacts", claims[index].branch, candidate, artifact.branch, claims[index].sha)
+			}
+			candidate = artifact.branch
+		}
+		if candidate != "" {
+			claims[index].localBranch = candidate
+		}
+	}
+	return nil
 }
 
 func (a app) validateClaimAncestor(root string, claim claimArtifact, present bool, head string) error {
@@ -410,6 +489,9 @@ func validateUnexpectedClaimRefs(all []remoteClaim, expected map[string]claimArt
 	for _, artifact := range all {
 		claim, ok := expected[artifact.branch]
 		if ok {
+			if artifact.source == claimRefLocal && artifact.branch == claim.branch && claim.localBranch != artifact.branch {
+				continue
+			}
 			if artifact.sha != claim.sha {
 				return stateError("claim %s has conflicting artifact heads %s and %s; preserve ambiguous claim state", artifact.branch, claim.sha, artifact.sha)
 			}
@@ -452,7 +534,7 @@ func (a app) localTrackingClaimRefs(root string) ([]remoteClaim, error) {
 		if !ok {
 			continue
 		}
-		claims = append(claims, remoteClaim{branch: branch, number: number, sha: fields[1]})
+		claims = append(claims, remoteClaim{branch: branch, number: number, sha: fields[1], source: claimRefTracking})
 	}
 	sort.Slice(claims, func(left, right int) bool {
 		return claims[left].branch < claims[right].branch
@@ -460,10 +542,10 @@ func (a app) localTrackingClaimRefs(root string) ([]remoteClaim, error) {
 	return claims, nil
 }
 
-func exactClaimSHA(claims []remoteClaim, branch string) (string, bool, error) {
+func exactClaimSHAFromSources(claims []remoteClaim, branch string, sources ...claimRefSource) (string, bool, error) {
 	var found string
 	for _, claim := range claims {
-		if claim.branch != branch {
+		if claim.branch != branch || !claimRefSourceAllowed(claim.source, sources) {
 			continue
 		}
 		if found == "" {
@@ -475,6 +557,18 @@ func exactClaimSHA(claims []remoteClaim, branch string) (string, bool, error) {
 		}
 	}
 	return found, found != "", nil
+}
+
+func claimRefSourceAllowed(source claimRefSource, allowed []claimRefSource) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, candidate := range allowed {
+		if source == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func hasClaimIssue(claims []claimArtifact, issue int) bool {
@@ -494,7 +588,11 @@ func (a app) validateClaimRefs(root string, claims []claimArtifact) error {
 		if err := a.validateRefExact(root, "refs/remotes/origin/"+claim.branch, claim.sha, "remote-tracking claim "+claim.branch); err != nil {
 			return err
 		}
-		if err := a.validateRefExact(root, "refs/heads/"+claim.branch, claim.sha, "local claim "+claim.branch); err != nil {
+		localBranch := claim.localBranch
+		if localBranch == "" {
+			localBranch = claim.branch
+		}
+		if err := a.validateRefExact(root, "refs/heads/"+localBranch, claim.sha, "local claim "+localBranch); err != nil {
 			return err
 		}
 	}
@@ -637,7 +735,11 @@ func exactRemoteRef(output, ref string) (string, bool, error) {
 }
 
 func (a app) deleteLocalClaim(root string, claim claimArtifact) error {
-	return a.deleteRefIfExact(root, "refs/heads/"+claim.branch, claim.sha, "local claim "+claim.branch)
+	branch := claim.localBranch
+	if branch == "" {
+		branch = claim.branch
+	}
+	return a.deleteRefIfExact(root, "refs/heads/"+branch, claim.sha, "local claim "+branch)
 }
 
 func (a app) deleteRefIfExact(root, ref, expected, description string) error {

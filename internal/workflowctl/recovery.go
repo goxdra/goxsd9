@@ -380,7 +380,7 @@ func (a app) localClaimRefs(root string) ([]remoteClaim, error) {
 		if !ok {
 			continue
 		}
-		claims = append(claims, remoteClaim{branch: branch, number: number, sha: fields[1]})
+		claims = append(claims, remoteClaim{branch: branch, number: number, sha: fields[1], source: claimRefLocal})
 	}
 	sort.Slice(claims, func(left, right int) bool {
 		return claims[left].branch < claims[right].branch

@@ -133,7 +133,16 @@ type remoteClaim struct {
 	lease  time.Time
 	number int
 	sha    string
+	source claimRefSource
 }
+
+type claimRefSource uint8
+
+const (
+	claimRefRemote claimRefSource = iota + 1
+	claimRefLocal
+	claimRefTracking
+)
 
 func (a app) listRemoteClaims(root string) ([]remoteClaim, error) {
 	claims, err := a.remoteClaimRefs(root)
@@ -166,10 +175,10 @@ func (a app) remoteClaimRefs(root string) ([]remoteClaim, error) {
 		}
 		branch := strings.TrimPrefix(fields[1], "refs/heads/")
 		number, ok := issueFromBranch(branch)
-		if !ok {
+		if !ok || branch != claimBranch(number) {
 			continue
 		}
-		claims = append(claims, remoteClaim{branch: branch, number: number, sha: fields[0]})
+		claims = append(claims, remoteClaim{branch: branch, number: number, sha: fields[0], source: claimRefRemote})
 	}
 	sort.Slice(claims, func(left, right int) bool {
 		return claims[left].branch < claims[right].branch
@@ -185,13 +194,14 @@ func (a app) inspectRemoteClaim(root, branch, sha string, number int) (remoteCla
 	if err != nil {
 		return remoteClaim{}, fmt.Errorf("read claim %s: %w", branch, err)
 	}
-	lease, leaseErr := trailerTime(message, "Agent-Lease-Until")
+	lease, leaseErr := trailerTime(message)
 	return remoteClaim{
 		active: leaseErr == nil && lease.After(time.Now().UTC()),
 		branch: branch,
 		lease:  lease,
 		number: number,
 		sha:    sha,
+		source: claimRefRemote,
 	}, nil
 }
 
