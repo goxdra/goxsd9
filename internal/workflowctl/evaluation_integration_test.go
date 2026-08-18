@@ -66,6 +66,33 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	checkMergeResult(t, backend)
 }
 
+func TestEvaluationAcceptsRunSpecificLocalBranchForFixedPRHead(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	backend.localBranch = claimLocalBranch(13, "run-test")
+	var stdout bytes.Buffer
+	application := app{
+		ctx:            context.Background(),
+		executeCommand: backend.execute,
+		stdout:         &stdout,
+		stderr:         new(bytes.Buffer),
+	}
+	challenge := requestTestChallenge(t, &application, &stdout)
+	if challenge.Head != backend.head {
+		t.Fatalf("challenge head = %q, want fixed PR head %q", challenge.Head, backend.head)
+	}
+	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record evaluation from run-local worktree: %v", err)
+	}
+	receipt, ok := parseEvaluationReceipt(backend.comments[len(backend.comments)-1].Body)
+	if !ok {
+		t.Fatal("run-local evaluation receipt was not parseable")
+	}
+	if receipt.HeadRefName != backend.branch {
+		t.Fatalf("receipt head branch = %q, want published claim branch %q", receipt.HeadRefName, backend.branch)
+	}
+}
+
 func TestFinishRejectsEvaluationMetadataDrift(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer
@@ -424,6 +451,7 @@ func TestUnknownMergeOutcomeGuidesRecovery(t *testing.T) {
 func newRepairFixture(t *testing.T) (*workflowBackend, *app, *bytes.Buffer) {
 	t.Helper()
 	backend := newWorkflowBackend(t)
+	backend.localBranch = claimLocalBranch(13, "run-test")
 	stdout := new(bytes.Buffer)
 	application := &app{
 		ctx:            context.Background(),
@@ -912,6 +940,7 @@ type workflowBackend struct {
 	t                          *testing.T
 	root                       string
 	branch                     string
+	localBranch                string
 	head                       string
 	title                      string
 	body                       string
@@ -939,7 +968,7 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 		t.Fatalf("write summary: %v", err)
 	}
 	return &workflowBackend{
-		t: t, root: "/primary-worktrees/issue-13", branch: "agent/issue-13", head: "evaluated-head",
+		t: t, root: "/primary-worktrees/issue-13", branch: "agent/issue-13", localBranch: "agent/issue-13", head: "evaluated-head",
 		body:          "## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n",
 		summary:       summary,
 		summaryFile:   summaryFile,
@@ -1013,7 +1042,7 @@ func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
 		if dir == "/primary" {
 			return "main", true
 		}
-		return b.branch, true
+		return b.localBranch, true
 	case "fetch origin main":
 		return "", true
 	case "rev-parse origin/main":

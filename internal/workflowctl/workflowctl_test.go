@@ -51,7 +51,7 @@ func TestIssueFromBranch(t *testing.T) {
 
 func TestTrailerTime(t *testing.T) {
 	want := time.Date(2026, time.August, 15, 6, 0, 0, 0, time.UTC)
-	got, err := trailerTime("subject\n\nAgent-Lease-Until: 2026-08-15T06:00:00Z\n", "Agent-Lease-Until")
+	got, err := trailerTime("subject\n\nAgent-Lease-Until: 2026-08-15T06:00:00Z\n")
 	if err != nil {
 		t.Fatalf("trailerTime: %v", err)
 	}

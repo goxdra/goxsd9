@@ -121,12 +121,13 @@ func readPullRequestBody(path string, issue int) (string, error) {
 }
 
 func (a app) createPullRequest(issue int, title, body string) error {
-	root, branch, claimedIssue, err := a.currentClaim()
+	root, localBranch, claimedIssue, err := a.currentClaim()
 	if err != nil {
 		return err
 	}
+	branch := claimBranch(claimedIssue)
 	if claimedIssue != issue {
-		return stateError("branch %s claims issue #%d, not #%d", branch, claimedIssue, issue)
+		return stateError("branch %s claims issue #%d, not #%d", localBranch, claimedIssue, issue)
 	}
 	clean, err := a.command(root, "git", "status", "--porcelain")
 	if err != nil {
@@ -138,7 +139,7 @@ func (a app) createPullRequest(issue int, title, body string) error {
 	if titleErr := a.validateWorkCommitTitles(root, "HEAD"); titleErr != nil {
 		return stateError("cannot open PR: %v", titleErr)
 	}
-	if verifyErr := a.verifyClaimForPush(root, branch, claimedIssue); verifyErr != nil {
+	if verifyErr := a.verifyClaimForPush(root, localBranch, claimedIssue); verifyErr != nil {
 		return verifyErr
 	}
 	if _, pushErr := a.command(root, "git", "push", "origin", "HEAD:refs/heads/"+branch); pushErr != nil {
@@ -300,10 +301,11 @@ func isClaimMetadata(line string) bool {
 }
 
 func (a app) finishPullRequest(number int, summary squashSummary) error {
-	root, branch, claimedIssue, err := a.currentClaim()
+	root, _, claimedIssue, err := a.currentClaim()
 	if err != nil {
 		return err
 	}
+	branch := claimBranch(claimedIssue)
 	if verifyErr := a.verifyClaim(); verifyErr != nil {
 		return verifyErr
 	}

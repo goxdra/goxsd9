@@ -526,10 +526,11 @@ func (a app) findActiveCompanionClaim(root string, issue int, head string, claim
 }
 
 func (a app) readEvaluationTarget(number int) (string, pullRequestView, int, error) {
-	root, branch, primary, err := a.currentClaim()
+	root, _, primary, err := a.currentClaim()
 	if err != nil {
 		return "", pullRequestView{}, 0, err
 	}
+	branch := claimBranch(primary)
 	quiet := a
 	quiet.stdout = io.Discard
 	if verifyErr := quiet.verifyClaim(); verifyErr != nil {

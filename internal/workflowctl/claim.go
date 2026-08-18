@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -70,11 +71,12 @@ func (a app) acquireClaim(number int) error {
 	if _, pushErr := a.command(root, "git", "push", "origin", refspec); pushErr != nil {
 		return stateError("issue #%d is already claimed or the atomic claim push failed: %v", number, pushErr)
 	}
-	worktree, err := a.addClaimWorktree(root, branch)
+	localBranch := claimLocalBranch(number, runID)
+	worktree, err := a.addClaimWorktree(root, branch, localBranch)
 	if err != nil {
 		return err
 	}
-	if err := a.recordClaim(root, number, branch, worktree, runID, lease); err != nil {
+	if err := a.recordClaim(root, number, branch, localBranch, worktree, runID, lease); err != nil {
 		return err
 	}
 	return writeLine(a.stdout, "%s", worktree)
@@ -184,13 +186,20 @@ func (a app) fetchMain(root string) error {
 }
 
 func (a app) newClaimCommit(root string, number int, parent string) (string, time.Time, string, error) {
+	runID, err := randomRunID()
+	if err != nil {
+		return "", time.Time{}, "", err
+	}
+	return a.newClaimCommitWithRunID(root, number, parent, runID)
+}
+
+func (a app) newClaimCommitWithRunID(root string, number int, parent, runID string) (string, time.Time, string, error) {
 	tree, err := a.command(root, "git", "rev-parse", parent+"^{tree}")
 	if err != nil {
 		return "", time.Time{}, "", fmt.Errorf("read claim tree: %w", err)
 	}
-	runID, err := randomRunID()
-	if err != nil {
-		return "", time.Time{}, "", err
+	if strings.TrimSpace(runID) == "" {
+		return "", time.Time{}, "", errors.New("claim run ID must not be empty")
 	}
 	lease := time.Now().UTC().Add(claimDuration).Truncate(time.Second)
 	message := claimMessage(number, runID, lease)
@@ -214,21 +223,21 @@ func randomRunID() (string, error) {
 	return "run-" + hex.EncodeToString(value[:]), nil
 }
 
-func (a app) addClaimWorktree(root, branch string) (string, error) {
+func (a app) addClaimWorktree(root, branch, localBranch string) (string, error) {
 	layout, err := a.repositoryLayout(root)
 	if err != nil {
 		return "", err
 	}
-	path := claimWorktreePath(layout.primaryRoot, branch)
-	if _, err := a.command(root, "git", "worktree", "add", "-b", branch, path, "origin/"+branch); err != nil {
+	path := claimWorktreePath(layout.primaryRoot, localBranch)
+	if _, err := a.command(root, "git", "worktree", "add", "-b", localBranch, path, "origin/"+branch); err != nil {
 		return "", fmt.Errorf("create claim worktree: %w", err)
 	}
 	return path, nil
 }
 
-func (a app) recordClaim(root string, number int, branch, worktree, runID string, lease time.Time) error {
-	body := fmt.Sprintf("Claim acquired.\n\n- Branch: `%s`\n- Worktree: `%s`\n- Run: `%s`\n- Lease until: `%s`\n",
-		branch, worktree, runID, lease.Format(time.RFC3339))
+func (a app) recordClaim(root string, number int, branch, localBranch, worktree, runID string, lease time.Time) error {
+	body := fmt.Sprintf("Claim acquired.\n\n- Branch: `%s`\n- Local branch: `%s`\n- Worktree: `%s`\n- Run: `%s`\n- Lease until: `%s`\n",
+		branch, localBranch, worktree, runID, lease.Format(time.RFC3339))
 	if _, err := a.commandInput(root, strings.NewReader(body), "gh", "issue", "comment", strconv.Itoa(number),
 		"--repo", repositoryKey, "--body-file", "-"); err != nil {
 		return fmt.Errorf("record claim on issue #%d: %w", number, err)
@@ -237,10 +246,11 @@ func (a app) recordClaim(root string, number int, branch, worktree, runID string
 }
 
 func (a app) renewClaim() error {
-	root, branch, number, err := a.currentClaim()
+	root, localBranch, number, err := a.currentClaim()
 	if err != nil {
 		return err
 	}
+	branch := claimBranch(number)
 	if fetchErr := a.fetchClaim(root, branch); fetchErr != nil {
 		return fetchErr
 	}
@@ -253,24 +263,27 @@ func (a app) renewClaim() error {
 			return stateError("claim branch diverged; local=%s remote=%s", local, remote)
 		}
 	}
-	lease, err := a.readClaimLease(root)
+	lease, runID, err := a.readClaimMetadata(root)
 	if err != nil {
 		return stateError("claim #%d has no valid lease: %v", number, err)
+	}
+	if identityErr := validateClaimLocalBranch(localBranch, number, runID); identityErr != nil {
+		return identityErr
 	}
 	now := time.Now().UTC()
 	if freshnessErr := validateClaimDeadline(number, lease, now); freshnessErr != nil {
 		return freshnessErr
 	}
-	commit, lease, _, err := a.newClaimCommit(root, number, "HEAD")
+	commit, lease, _, err := a.newClaimCommitWithRunID(root, number, "HEAD", runID)
 	if err != nil {
 		return err
 	}
-	if _, err := a.command(root, "git", "update-ref", "refs/heads/"+branch, commit, local); err != nil {
+	if _, err := a.command(root, "git", "update-ref", "refs/heads/"+localBranch, commit, local); err != nil {
 		return fmt.Errorf("advance local claim: %w", err)
 	}
 	refspec := commit + ":refs/heads/" + branch
 	if _, err := a.command(root, "git", "push", "origin", refspec); err != nil {
-		_, restoreErr := a.command(root, "git", "update-ref", "refs/heads/"+branch, local, commit)
+		_, restoreErr := a.command(root, "git", "update-ref", "refs/heads/"+localBranch, local, commit)
 		if restoreErr != nil {
 			return fmt.Errorf("renew claim: %w; restore local ref: %w", err, restoreErr)
 		}
@@ -280,10 +293,11 @@ func (a app) renewClaim() error {
 }
 
 func (a app) verifyClaim() error {
-	root, branch, number, err := a.currentClaim()
+	root, localBranch, number, err := a.currentClaim()
 	if err != nil {
 		return err
 	}
+	branch := claimBranch(number)
 	if fetchErr := a.fetchClaim(root, branch); fetchErr != nil {
 		return fetchErr
 	}
@@ -294,9 +308,12 @@ func (a app) verifyClaim() error {
 	if local != remote {
 		return stateError("claim branch moved remotely; local=%s remote=%s", local, remote)
 	}
-	lease, err := a.readClaimLease(root)
+	lease, runID, err := a.readClaimMetadata(root)
 	if err != nil {
 		return stateError("claim #%d has no valid lease: %v", number, err)
+	}
+	if identityErr := validateClaimLocalBranch(localBranch, number, runID); identityErr != nil {
+		return identityErr
 	}
 	if err := validateClaimDeadline(number, lease, time.Now().UTC()); err != nil {
 		return err
@@ -305,10 +322,11 @@ func (a app) verifyClaim() error {
 }
 
 func (a app) verifyClaimForPush(root, branch string, number int) error {
-	if err := a.fetchClaim(root, branch); err != nil {
+	remoteBranch := claimBranch(number)
+	if err := a.fetchClaim(root, remoteBranch); err != nil {
 		return err
 	}
-	local, remote, err := a.claimHeads(root, branch)
+	local, remote, err := a.claimHeads(root, remoteBranch)
 	if err != nil {
 		return err
 	}
@@ -317,19 +335,30 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 			return stateError("claim branch diverged; local=%s remote=%s", local, remote)
 		}
 	}
-	lease, err := a.readClaimLease(root)
+	lease, runID, err := a.readClaimMetadata(root)
 	if err != nil {
 		return stateError("claim #%d has no valid lease: %v", number, err)
+	}
+	if identityErr := validateClaimLocalBranch(branch, number, runID); identityErr != nil {
+		return identityErr
 	}
 	return validateClaimDeadline(number, lease, time.Now().UTC())
 }
 
-func (a app) readClaimLease(root string) (time.Time, error) {
+func (a app) readClaimMetadata(root string) (time.Time, string, error) {
 	text, err := a.command(root, "git", "log", "-100", "--format=%B")
 	if err != nil {
-		return time.Time{}, fmt.Errorf("read claim lease: %w", err)
+		return time.Time{}, "", fmt.Errorf("read claim metadata: %w", err)
 	}
-	return trailerTime(text, "Agent-Lease-Until")
+	lease, err := trailerTime(text)
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	runID, err := trailerValue(text, "Agent-Run-ID")
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	return lease, runID, nil
 }
 
 func validateClaimDeadline(number int, deadline, now time.Time) error {
@@ -353,6 +382,25 @@ func (a app) currentClaim() (string, string, int, error) {
 		return "", "", 0, stateError("branch %q is not an issue claim", branch)
 	}
 	return root, branch, number, nil
+}
+
+func claimBranch(number int) string {
+	return fmt.Sprintf("agent/issue-%d", number)
+}
+
+func claimLocalBranch(number int, runID string) string {
+	return claimBranch(number) + "-" + runID
+}
+
+func validateClaimLocalBranch(branch string, number int, runID string) error {
+	if branch == claimBranch(number) {
+		return nil
+	}
+	expected := claimLocalBranch(number, runID)
+	if branch != expected {
+		return stateError("local claim branch %q does not match Agent-Run-ID %q; expected %q", branch, runID, expected)
+	}
+	return nil
 }
 
 func (a app) fetchClaim(root, branch string) error {
@@ -388,20 +436,31 @@ func issueFromBranch(branch string) (int, bool) {
 	return number, err == nil && number > 0
 }
 
-func trailerTime(message, name string) (time.Time, error) {
+func trailerTime(message string) (time.Time, error) {
+	value, err := trailerValue(message, "Agent-Lease-Until")
+	if err != nil {
+		return time.Time{}, err
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse Agent-Lease-Until: %w", err)
+	}
+	return parsed, nil
+}
+
+func trailerValue(message, name string) (string, error) {
 	prefix := name + ":"
 	for _, line := range strings.Split(message, "\n") {
 		if !strings.HasPrefix(line, prefix) {
 			continue
 		}
 		value := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-		parsed, err := time.Parse(time.RFC3339, value)
-		if err != nil {
-			return time.Time{}, fmt.Errorf("parse %s: %w", name, err)
+		if value == "" {
+			return "", fmt.Errorf("empty %s trailer", name)
 		}
-		return parsed, nil
+		return value, nil
 	}
-	return time.Time{}, fmt.Errorf("missing %s trailer", name)
+	return "", fmt.Errorf("missing %s trailer", name)
 }
 
 func positiveNumber(text string) (int, error) {
