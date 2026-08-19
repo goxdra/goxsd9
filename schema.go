@@ -3,6 +3,7 @@ package goxsd9
 import (
 	"errors"
 	"fmt"
+	"strconv"
 )
 
 // ComponentKind identifies the kind of schema component represented by a
@@ -95,10 +96,11 @@ func (id ComponentID) IsZero() bool {
 // Component is an immutable schema component identity and its fundamental
 // source facts. Derived validator and code-generator state is not stored here.
 type Component struct {
-	id   ComponentID
-	kind ComponentKind
-	name QName
-	loc  Loc
+	id         ComponentID
+	kind       ComponentKind
+	name       QName
+	loc        Loc
+	simpleType *schemaSimpleTypeComponent
 }
 
 // ID returns the stable identity of the component.
@@ -124,6 +126,84 @@ func (component Component) Loc() Loc {
 // Document returns the source identity of the declaring document.
 func (component Component) Document() SourceID {
 	return component.id.Source()
+}
+
+// SimpleType returns the immutable simple-type view for a supported named
+// simple type definition.
+func (component Component) SimpleType() (SimpleTypeDefinition, bool) {
+	if component.simpleType == nil {
+		return SimpleTypeDefinition{}, false
+	}
+	return SimpleTypeDefinition{
+		component: component,
+		facts:     component.simpleType,
+	}, true
+}
+
+// SimpleTypeDefinition returns the immutable simple-type view for a supported
+// named simple type definition.
+func (component Component) SimpleTypeDefinition() (SimpleTypeDefinition, bool) {
+	return component.SimpleType()
+}
+
+// SimpleTypeDefinition is the immutable type-specific view of a supported
+// named simple type restriction.
+type SimpleTypeDefinition struct {
+	component Component
+	facts     *schemaSimpleTypeComponent
+}
+
+// Component returns the generic component represented by the view.
+func (definition SimpleTypeDefinition) Component() Component {
+	return definition.component
+}
+
+// ID returns the stable identity of the simple type definition.
+func (definition SimpleTypeDefinition) ID() ComponentID {
+	return definition.component.ID()
+}
+
+// Name returns the expanded name of the simple type definition.
+func (definition SimpleTypeDefinition) Name() QName {
+	return definition.component.Name()
+}
+
+// Loc returns the declaration location of the simple type definition.
+func (definition SimpleTypeDefinition) Loc() Loc {
+	return definition.component.Loc()
+}
+
+// Base returns the expanded name written in the restriction's base attribute.
+func (definition SimpleTypeDefinition) Base() QName {
+	if definition.facts == nil {
+		return QName{}
+	}
+	return definition.facts.base
+}
+
+// BaseLoc returns the location of the restriction's base attribute.
+func (definition SimpleTypeDefinition) BaseLoc() Loc {
+	if definition.facts == nil {
+		return Loc{}
+	}
+	return definition.facts.baseLoc
+}
+
+// BaseID returns the identity of a named base type, when the base is not a
+// built-in datatype descriptor.
+func (definition SimpleTypeDefinition) BaseID() (ComponentID, bool) {
+	if definition.facts == nil || !definition.facts.hasBaseID {
+		return ComponentID{}, false
+	}
+	return definition.facts.baseID, true
+}
+
+// DigitFacets returns the effective totalDigits and fractionDigits facets.
+func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
+	if definition.facts == nil {
+		return DigitFacets{}
+	}
+	return definition.facts.digitFacets
 }
 
 // SchemaDocument is an immutable document in a Schema's discovery order.
@@ -275,9 +355,40 @@ type schemaDocumentInput struct {
 }
 
 type schemaComponentInput struct {
-	kind ComponentKind
-	name QName
-	loc  Loc
+	kind       ComponentKind
+	name       QName
+	loc        Loc
+	simpleType *schemaSimpleTypeInput
+}
+
+type schemaSimpleTypeInput struct {
+	base           QName
+	baseLoc        Loc
+	version        XSDVersion
+	totalDigits    *schemaFacetInput
+	fractionDigits *schemaFacetInput
+}
+
+type schemaFacetInput struct {
+	lexical string
+	loc     Loc
+	fixed   bool
+}
+
+type schemaSimpleTypeComponent struct {
+	base        QName
+	baseLoc     Loc
+	baseID      ComponentID
+	hasBaseID   bool
+	digitFacets DigitFacets
+}
+
+type schemaComponentRecord struct {
+	id         ComponentID
+	kind       ComponentKind
+	name       QName
+	loc        Loc
+	simpleType *schemaSimpleTypeInput
 }
 
 // newSchema completes the ordered component representation after discovery
@@ -285,76 +396,15 @@ type schemaComponentInput struct {
 // Input slices are consumed only for construction; the returned schema owns
 // its ordered storage.
 func newSchema(inputs []schemaDocumentInput) (Schema, error) {
-	documents := make([]SchemaDocument, 0, len(inputs))
-	components := make([]Component, 0)
-	byID := make(map[ComponentID]int)
-	byName := make(map[QName][]int)
-	seenSources := make(map[SourceID]struct{}, len(inputs))
-
-	for _, input := range inputs {
-		if input.source == "" {
-			return Schema{}, newDiagnostic(
-				FailureInternal,
-				diagnosticSchemaEmptySourceCode,
-				Loc{},
-				"schema document has an empty source identity",
-				nil,
-			)
-		}
-		if _, exists := seenSources[input.source]; exists {
-			return Schema{}, newDiagnostic(
-				FailureInternal,
-				diagnosticSchemaRepeatedSourceCode,
-				Loc{},
-				fmt.Sprintf("schema document source %q is repeated", input.source),
-				nil,
-			)
-		}
-		seenSources[input.source] = struct{}{}
-
-		documentStart := len(components)
-		for declarationIndex, declaration := range input.declarations {
-			if declaration.kind == "" {
-				return Schema{}, newDiagnostic(
-					FailureInternal,
-					diagnosticSchemaEmptyKindCode,
-					declaration.loc,
-					"schema component has an empty kind",
-					nil,
-				)
-			}
-			if declaration.name.IsZero() {
-				return Schema{}, newDiagnostic(
-					FailureInternal,
-					diagnosticSchemaEmptyNameCode,
-					declaration.loc,
-					"schema component has an empty name",
-					nil,
-				)
-			}
-
-			id := ComponentID{
-				source:  input.source,
-				ordinal: uint64(declarationIndex + 1),
-			}
-			component := Component{
-				id:   id,
-				kind: declaration.kind,
-				name: declaration.name,
-				loc:  declaration.loc,
-			}
-			byID[id] = len(components)
-			byName[component.name] = append(byName[component.name], len(components))
-			components = append(components, component)
-		}
-
-		documents = append(documents, SchemaDocument{
-			source:          input.source,
-			targetNamespace: input.targetNamespace,
-			start:           documentStart,
-			count:           len(components) - documentStart,
-		})
+	documents, records, byName, err := allocateSchemaRecords(inputs)
+	if err != nil {
+		return Schema{}, err
 	}
+	resolved, err := resolveSchemaSimpleTypes(records, byName)
+	if err != nil {
+		return Schema{}, err
+	}
+	components, byID := completeSchemaComponents(records, resolved)
 	storage := &schemaStorage{
 		components: components,
 		byID:       byID,
@@ -368,4 +418,137 @@ func newSchema(inputs []schemaDocumentInput) (Schema, error) {
 		documents: documents,
 		storage:   storage,
 	}, nil
+}
+
+func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []schemaComponentRecord, map[QName][]int, error) {
+	documents := make([]SchemaDocument, 0, len(inputs))
+	records := make([]schemaComponentRecord, 0)
+	byName := make(map[QName][]int)
+	seenSources := make(map[SourceID]struct{}, len(inputs))
+
+	for _, input := range inputs {
+		if err := validateSchemaDocumentInput(input, seenSources); err != nil {
+			return nil, nil, nil, err
+		}
+		seenSources[input.source] = struct{}{}
+
+		documentStart := len(records)
+		for declarationIndex, declaration := range input.declarations {
+			record, err := newSchemaComponentRecord(input.source, declarationIndex, declaration)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			byName[record.name] = append(byName[record.name], len(records))
+			records = append(records, record)
+		}
+
+		documents = append(documents, SchemaDocument{
+			source:          input.source,
+			targetNamespace: input.targetNamespace,
+			start:           documentStart,
+			count:           len(records) - documentStart,
+		})
+	}
+	return documents, records, byName, nil
+}
+
+func validateSchemaDocumentInput(input schemaDocumentInput, seenSources map[SourceID]struct{}) error {
+	if input.source == "" {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaEmptySourceCode,
+			Loc{},
+			"schema document has an empty source identity",
+			nil,
+		)
+	}
+	if _, exists := seenSources[input.source]; exists {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaRepeatedSourceCode,
+			Loc{},
+			fmt.Sprintf("schema document source %q is repeated", input.source),
+			nil,
+		)
+	}
+	return nil
+}
+
+func newSchemaComponentRecord(source SourceID, declarationIndex int, declaration schemaComponentInput) (schemaComponentRecord, error) {
+	if declaration.kind == "" {
+		return schemaComponentRecord{}, newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaEmptyKindCode,
+			declaration.loc,
+			"schema component has an empty kind",
+			nil,
+		)
+	}
+	if declaration.name.IsZero() {
+		return schemaComponentRecord{}, newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaEmptyNameCode,
+			declaration.loc,
+			"schema component has an empty name",
+			nil,
+		)
+	}
+	ordinal, err := schemaComponentOrdinal(declarationIndex, declaration.loc)
+	if err != nil {
+		return schemaComponentRecord{}, err
+	}
+	return schemaComponentRecord{
+		id: ComponentID{
+			source:  source,
+			ordinal: ordinal,
+		},
+		kind:       declaration.kind,
+		name:       declaration.name,
+		loc:        declaration.loc,
+		simpleType: declaration.simpleType,
+	}, nil
+}
+
+func schemaComponentOrdinal(declarationIndex int, loc Loc) (uint64, error) {
+	if declarationIndex < 0 {
+		return 0, newSchemaBridgeInvariant(loc, "schema component ordinal index is negative")
+	}
+	ordinal, err := strconv.ParseUint(strconv.Itoa(declarationIndex), 10, 64)
+	if err != nil {
+		return 0, newSchemaBridgeInvariant(loc, "schema component ordinal index overflows uint64")
+	}
+	if ordinal == ^uint64(0) {
+		return 0, newSchemaBridgeInvariant(loc, "schema component ordinal overflows uint64")
+	}
+	return ordinal + 1, nil
+}
+
+func completeSchemaComponents(records []schemaComponentRecord, resolved []schemaSimpleTypeResult) ([]Component, map[ComponentID]int) {
+	components := make([]Component, 0, len(records))
+	byID := make(map[ComponentID]int, len(records))
+	for index, record := range records {
+		component := completeSchemaComponent(record, resolved[index])
+		byID[record.id] = len(components)
+		components = append(components, component)
+	}
+	return components, byID
+}
+
+func completeSchemaComponent(record schemaComponentRecord, resolved schemaSimpleTypeResult) Component {
+	component := Component{
+		id:   record.id,
+		kind: record.kind,
+		name: record.name,
+		loc:  record.loc,
+	}
+	if resolved.present {
+		component.simpleType = &schemaSimpleTypeComponent{
+			base:        resolved.base,
+			baseLoc:     resolved.baseLoc,
+			baseID:      resolved.baseID,
+			hasBaseID:   resolved.hasBaseID,
+			digitFacets: resolved.digitFacets,
+		}
+	}
+	return component
 }

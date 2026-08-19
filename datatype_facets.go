@@ -19,6 +19,9 @@ const (
 	DigitFacetValueViolationCode = "XSD2008"
 	// InvalidDigitDatatypeCode identifies a datatype excluded from digit facets.
 	InvalidDigitDatatypeCode = "XSD2009"
+	// UnsupportedDatatypeFacetCode identifies a datatype facet outside this
+	// layer's supported facet subset.
+	UnsupportedDatatypeFacetCode = "XSD2019"
 )
 
 var (
@@ -385,6 +388,23 @@ func RestrictDigitFacets(base DigitFacets, local DigitFacetDeclarations) (DigitF
 		return DigitFacets{}, err
 	}
 	return completeDigitFacets(base, NewDigitFacetDeclarations(local.TotalDigits, local.FractionDigits), true)
+}
+
+// reversionDigitFacets applies a document's compatible version policy without
+// changing any effective value, fixedness, or source location.
+func reversionDigitFacets(facets DigitFacets, version XSDVersion) (DigitFacets, error) {
+	if err := facets.validate(); err != nil {
+		return DigitFacets{}, err
+	}
+	totalDigits := cloneTotalDigitsFacet(facets.totalDigits)
+	if totalDigits != nil {
+		totalDigits.version = version
+	}
+	fractionDigits := cloneFractionDigitsFacet(facets.fractionDigits)
+	if fractionDigits != nil {
+		fractionDigits.version = version
+	}
+	return NewDigitFacets(facets.kind, totalDigits, fractionDigits, version)
 }
 
 // ConstructDigitFacets is the phase-oriented name for RestrictDigitFacets.

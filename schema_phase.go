@@ -273,25 +273,33 @@ func validateSyntaxDocumentStructure(document *syntaxDocument) error {
 			nil,
 		)
 	}
+	return validateSchemaRootContents(document)
+}
+
+func validateSchemaRootContents(document *syntaxDocument) error {
+	root := document.root
 	unsupportedRootAttribute, unsupportedRootAttributeLoc, err := validateSchemaRootAttributes(root)
 	if err != nil {
 		return err
 	}
+	version, err := syntaxDocumentVersion(document)
+	if err != nil {
+		return err
+	}
+	return validateSchemaRootChildren(root, version, unsupportedRootAttributeLoc, unsupportedRootAttribute)
+}
 
+func validateSchemaRootChildren(root *syntaxElement, version XSDVersion, unsupportedRootAttributeLoc Loc, unsupportedRootAttribute string) error {
 	phase := schemaGrammarMetadata
 	for _, node := range root.children {
-		textNode, ok := node.(syntaxText)
-		if ok {
-			if xmlWhitespace([]byte(textNode.data)) {
-				continue
-			}
-			return newSchemaCompositionDiagnostic(textNode.loc, "schema root contains non-whitespace character data")
+		child, err := schemaRootChildElement(node)
+		if err != nil {
+			return err
 		}
-		child, ok := node.(*syntaxElement)
-		if !ok {
-			return newSchemaBridgeInvariant(Loc{}, "schema root contains an unknown syntax node")
+		if child == nil {
+			continue
 		}
-		nextPhase, err := validateSchemaRootChild(child, phase)
+		nextPhase, err := validateSchemaRootChild(child, phase, version)
 		if err != nil {
 			return preferSchemaUnsupported(err, unsupportedRootAttributeLoc, unsupportedRootAttribute)
 		}
@@ -303,7 +311,22 @@ func validateSyntaxDocumentStructure(document *syntaxDocument) error {
 	return nil
 }
 
-func validateSchemaRootChild(child *syntaxElement, phase schemaGrammarPhase) (schemaGrammarPhase, error) {
+func schemaRootChildElement(node syntaxNode) (*syntaxElement, error) {
+	textNode, ok := node.(syntaxText)
+	if ok {
+		if xmlWhitespace([]byte(textNode.data)) {
+			return nil, nil
+		}
+		return nil, newSchemaCompositionDiagnostic(textNode.loc, "schema root contains non-whitespace character data")
+	}
+	child, ok := node.(*syntaxElement)
+	if !ok {
+		return nil, newSchemaBridgeInvariant(Loc{}, "schema root contains an unknown syntax node")
+	}
+	return child, nil
+}
+
+func validateSchemaRootChild(child *syntaxElement, phase schemaGrammarPhase, version XSDVersion) (schemaGrammarPhase, error) {
 	if child.name.namespace != xsdNamespaceURI {
 		return phase, newSchemaCompositionDiagnostic(child.loc, "schema root contains a forbidden non-XSD construct")
 	}
@@ -313,7 +336,7 @@ func validateSchemaRootChild(child *syntaxElement, phase schemaGrammarPhase) (sc
 	case "include", "import":
 		return validateSchemaRootComposition(child, phase)
 	case "element", "attribute", "simpleType", "complexType", "group", "attributeGroup", "notation":
-		return validateSchemaRootDeclaration(child)
+		return validateSchemaRootDeclaration(child, version)
 	case "redefine", "override":
 		if phase == schemaGrammarDefaultOpenContent || phase == schemaGrammarDeclarations {
 			return phase, newSchemaCompositionDiagnostic(child.loc, fmt.Sprintf("schema child <%s> follows global declarations", child.name.local))
@@ -345,8 +368,8 @@ func validateSchemaRootComposition(child *syntaxElement, phase schemaGrammarPhas
 	return schemaGrammarComposition, nil
 }
 
-func validateSchemaRootDeclaration(child *syntaxElement) (schemaGrammarPhase, error) {
-	if err := validateGlobalSchemaDeclaration(child); err != nil {
+func validateSchemaRootDeclaration(child *syntaxElement, version XSDVersion) (schemaGrammarPhase, error) {
+	if err := validateGlobalSchemaDeclaration(child, version); err != nil {
 		return schemaGrammarDeclarations, err
 	}
 	return schemaGrammarDeclarations, nil
@@ -542,7 +565,7 @@ const (
 	schemaAttributeForbidden
 )
 
-func validateGlobalSchemaDeclaration(element *syntaxElement) error {
+func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion) error {
 	kind, ok := schemaDeclarationKind(element.name.local)
 	if !ok {
 		return newSchemaBridgeInvariant(element.loc, "global declaration has an unknown kind")
@@ -565,7 +588,7 @@ func validateGlobalSchemaDeclaration(element *syntaxElement) error {
 	if err := validateGlobalSchemaAttributeCooccurrence(element); err != nil {
 		return err
 	}
-	if err := validateGlobalSchemaChildren(element); err != nil {
+	if err := validateGlobalSchemaChildren(element, version); err != nil {
 		return preferSchemaUnsupported(err, unsupportedLoc, unsupportedMessage)
 	}
 	if unsupportedMessage != "" {
@@ -755,7 +778,7 @@ func validateConditionalQNameForSchema(element *syntaxElement, attribute syntaxA
 	return nil
 }
 
-func validateGlobalSchemaChildren(element *syntaxElement) error {
+func validateGlobalSchemaChildren(element *syntaxElement, version XSDVersion) error {
 	children, err := collectGlobalSchemaChildren(element)
 	if err != nil {
 		return err
@@ -766,7 +789,7 @@ func validateGlobalSchemaChildren(element *syntaxElement) error {
 	case "attribute":
 		return validateAttributeGlobalChildren(element, children, len(syntaxAttributesByLocal(element, "type")) > 0)
 	case "simpleType":
-		return validateSimpleTypeGlobalChildren(element, children)
+		return validateSimpleTypeGlobalChildren(element, children, version)
 	case "complexType":
 		return validateComplexTypeGlobalChildren(element, children)
 	case "group":
@@ -933,7 +956,7 @@ func validateAttributeGlobalChildren(parent *syntaxElement, children []*syntaxEl
 	return candidate.err()
 }
 
-func validateSimpleTypeGlobalChildren(parent *syntaxElement, children []*syntaxElement) error {
+func validateSimpleTypeGlobalChildren(parent *syntaxElement, children []*syntaxElement, version XSDVersion) error {
 	annotationSeen := false
 	contentSeen := false
 	modelSeen := false
@@ -946,24 +969,287 @@ func validateSimpleTypeGlobalChildren(parent *syntaxElement, children []*syntaxE
 		if handled {
 			continue
 		}
-		switch child.name.local {
-		case "restriction", "list", "union":
-			if modelSeen {
-				return newSchemaCompositionDiagnostic(child.loc, "simpleType requires exactly one model child")
-			}
-			modelSeen = true
-			candidate.consider(child, parent.name.local)
-		default:
-			if err := forbiddenGlobalSchemaChild(parent.name.local, child); err != nil {
-				return err
-			}
-			candidate.consider(child, parent.name.local)
+		if err := validateSimpleTypeGlobalModelChild(parent, child, &modelSeen, &candidate, version); err != nil {
+			return err
 		}
 	}
 	if !modelSeen {
 		return newSchemaCompositionDiagnostic(parent.loc, "simpleType requires one restriction, list, or union child")
 	}
 	return candidate.err()
+}
+
+func validateSimpleTypeGlobalModelChild(parent, child *syntaxElement, modelSeen *bool, candidate *schemaChildUnsupportedCandidate, version XSDVersion) error {
+	switch child.name.local {
+	case "restriction":
+		if *modelSeen {
+			return newSchemaCompositionDiagnostic(child.loc, "simpleType requires exactly one model child")
+		}
+		*modelSeen = true
+		return validateSimpleTypeRestriction(child, version)
+	case "list", "union":
+		if *modelSeen {
+			return newSchemaCompositionDiagnostic(child.loc, "simpleType requires exactly one model child")
+		}
+		*modelSeen = true
+		candidate.consider(child, parent.name.local)
+		return nil
+	default:
+		if err := forbiddenGlobalSchemaChild(parent.name.local, child); err != nil {
+			return err
+		}
+		candidate.consider(child, parent.name.local)
+		return nil
+	}
+}
+
+func validateSimpleTypeRestriction(element *syntaxElement, version XSDVersion) error {
+	if err := validateSimpleTypeRestrictionAttributes(element); err != nil {
+		return err
+	}
+	return validateSimpleTypeRestrictionChildren(element, version)
+}
+
+func validateSimpleTypeRestrictionAttributes(element *syntaxElement) error {
+	baseAttributes := syntaxAttributesByLocal(element, "base")
+	if len(baseAttributes) == 0 {
+		if inline := inlineSimpleTypeChild(element); inline != nil {
+			return newSchemaSyntaxUnsupported(inline.loc, "inline anonymous simple types in restrictions are not implemented")
+		}
+		return newSchemaCompositionDiagnostic(element.loc, "simple type restriction requires a base attribute")
+	}
+	if len(baseAttributes) != 1 {
+		return newSchemaCompositionDiagnostic(element.loc, "simple type restriction base attribute must be unique")
+	}
+	for _, attribute := range element.attrs {
+		if err := validateSimpleTypeRestrictionAttribute(element, attribute); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func inlineSimpleTypeChild(element *syntaxElement) *syntaxElement {
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if child.name.namespace == xsdNamespaceURI && child.name.local == "simpleType" {
+			return child
+		}
+	}
+	return nil
+}
+
+func validateSimpleTypeRestrictionAttribute(element *syntaxElement, attribute syntaxAttribute) error {
+	if attribute.name.namespace == xsdVersioningNamespaceURI {
+		return nil
+	}
+	if attribute.name.namespace != "" {
+		if attribute.name.namespace == xsdNamespaceURI {
+			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("simple type restriction has forbidden attribute %q", attribute.name.local))
+		}
+		if attribute.name.namespace == xmlNamespaceURI {
+			return validateSchemaXMLAttribute(attribute)
+		}
+		return nil
+	}
+	switch attribute.name.local {
+	case "base":
+		return validateConditionalQNameForSchema(element, attribute)
+	case "id":
+		if validNCName(collapseXMLWhitespace(attribute.value)) {
+			return nil
+		}
+		return newSchemaCompositionDiagnostic(attribute.loc, "simple type restriction id must be a valid NCName")
+	default:
+		return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("simple type restriction has forbidden attribute %q", attribute.name.local))
+	}
+}
+
+func validateSimpleTypeRestrictionChildren(element *syntaxElement, version XSDVersion) error {
+	children, err := collectSimpleTypeChildren(element, element.name.local+" facet")
+	if err != nil {
+		return err
+	}
+	annotationSeen := false
+	contentSeen := false
+	totalSeen := false
+	fractionSeen := false
+	for _, child := range children {
+		if err := validateSimpleTypeRestrictionChild(child, &annotationSeen, &contentSeen, &totalSeen, &fractionSeen, version); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSimpleTypeRestrictionChild(child *syntaxElement, annotationSeen, contentSeen, totalSeen, fractionSeen *bool, version XSDVersion) error {
+	if child.name.local == "annotation" {
+		if *annotationSeen || *contentSeen {
+			return newSchemaCompositionDiagnostic(child.loc, "simple type restriction annotation must be first and unique")
+		}
+		*annotationSeen = true
+		return nil
+	}
+	*contentSeen = true
+	return validateSimpleTypeRestrictionFacet(child, totalSeen, fractionSeen, version)
+}
+
+func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractionSeen *bool, version XSDVersion) error {
+	switch child.name.local {
+	case "totalDigits":
+		if *totalSeen {
+			return newSchemaCompositionDiagnostic(child.loc, "simple type restriction totalDigits facet must be unique")
+		}
+		*totalSeen = true
+		return validateSimpleTypeDigitFacet(child)
+	case "fractionDigits":
+		if *fractionSeen {
+			return newSchemaCompositionDiagnostic(child.loc, "simple type restriction fractionDigits facet must be unique")
+		}
+		*fractionSeen = true
+		return validateSimpleTypeDigitFacet(child)
+	default:
+		return unsupportedSimpleTypeRestrictionChild(child, version)
+	}
+}
+
+func unsupportedSimpleTypeRestrictionChild(child *syntaxElement, version XSDVersion) error {
+	if isUnsupportedSimpleTypeFacet(child.name.local) {
+		feature, ok := LookupUnsupportedFeature(FeatureDatatypeFacets)
+		if !ok {
+			return newDiagnostic(
+				FailureInternal,
+				diagnosticUnregisteredFeatureCode,
+				child.loc,
+				"datatype facet feature is not registered",
+				nil,
+			)
+		}
+		return newUnsupportedForVersion(
+			feature,
+			UnsupportedDatatypeFacetCode,
+			child.loc,
+			fmt.Sprintf("simple type restriction facet <%s> is not implemented", child.name.local),
+			version,
+		)
+	}
+	if isKnownSchemaElement(child.name.local) {
+		return newSchemaCompositionDiagnostic(child.loc, fmt.Sprintf("simple type restriction contains forbidden child <%s>", child.name.local))
+	}
+	return newSchemaSyntaxUnsupported(child.loc, fmt.Sprintf("simple type restriction child <%s> is not implemented", child.name.local))
+}
+
+func validateSimpleTypeDigitFacet(element *syntaxElement) error {
+	if err := validateSimpleTypeDigitFacetAttributes(element); err != nil {
+		return err
+	}
+	return validateSimpleTypeDigitFacetChildren(element)
+}
+
+func validateSimpleTypeDigitFacetAttributes(element *syntaxElement) error {
+	valueAttributes := syntaxAttributesByLocal(element, "value")
+	if len(valueAttributes) == 0 {
+		return newSchemaCompositionDiagnostic(element.loc, element.name.local+" facet requires a value attribute")
+	}
+	if len(valueAttributes) != 1 {
+		return newSchemaCompositionDiagnostic(element.loc, element.name.local+" facet value attribute must be unique")
+	}
+	fixedAttributes := syntaxAttributesByLocal(element, "fixed")
+	if len(fixedAttributes) > 1 {
+		return newSchemaCompositionDiagnostic(element.loc, element.name.local+" facet fixed attribute must be unique")
+	}
+	for _, attribute := range element.attrs {
+		if err := validateSimpleTypeDigitFacetAttribute(element, attribute); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSimpleTypeDigitFacetAttribute(element *syntaxElement, attribute syntaxAttribute) error {
+	if attribute.name.namespace == xsdVersioningNamespaceURI {
+		return nil
+	}
+	if attribute.name.namespace != "" {
+		if attribute.name.namespace == xsdNamespaceURI {
+			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("%s facet has forbidden attribute %q", element.name.local, attribute.name.local))
+		}
+		if attribute.name.namespace == xmlNamespaceURI {
+			return validateSchemaXMLAttribute(attribute)
+		}
+		return nil
+	}
+	switch attribute.name.local {
+	case "value":
+		return nil
+	case "fixed":
+		return validateSchemaBoolean(attribute)
+	case "id":
+		if validNCName(collapseXMLWhitespace(attribute.value)) {
+			return nil
+		}
+		return newSchemaCompositionDiagnostic(attribute.loc, element.name.local+" facet id must be a valid NCName")
+	default:
+		return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("%s facet has forbidden attribute %q", element.name.local, attribute.name.local))
+	}
+}
+
+func validateSimpleTypeDigitFacetChildren(element *syntaxElement) error {
+	children, err := collectSimpleTypeChildren(element, element.name.local+" facet")
+	if err != nil {
+		return err
+	}
+	annotationSeen := false
+	for _, child := range children {
+		if child.name.local == "annotation" {
+			if annotationSeen {
+				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" facet annotation must be first and unique")
+			}
+			annotationSeen = true
+			continue
+		}
+		return newSchemaSyntaxUnsupported(child.loc, element.name.local+" facet child <"+child.name.local+"> is not implemented")
+	}
+	return nil
+}
+
+func collectSimpleTypeChildren(element *syntaxElement, owner string) ([]*syntaxElement, error) {
+	children := make([]*syntaxElement, 0, len(element.children))
+	for _, node := range element.children {
+		textNode, ok := node.(syntaxText)
+		if ok {
+			if xmlWhitespace([]byte(textNode.data)) {
+				continue
+			}
+			return nil, newSchemaCompositionDiagnostic(textNode.loc, owner+" contains non-whitespace character data")
+		}
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			return nil, newSchemaBridgeInvariant(Loc{}, owner+" contains an unknown syntax node")
+		}
+		if child.name.namespace != xsdNamespaceURI {
+			return nil, newSchemaSyntaxUnsupported(child.loc, fmt.Sprintf("%s contains an unsupported foreign child <%s>", owner, child.name.local))
+		}
+		if child.name.local == "annotation" {
+			if err := validateSchemaAnnotationElement(child); err != nil {
+				return nil, err
+			}
+		}
+		children = append(children, child)
+	}
+	return children, nil
+}
+
+func isUnsupportedSimpleTypeFacet(local string) bool {
+	switch local {
+	case "assertion", "assertions", "enumeration", "explicitTimezone", "length", "maxExclusive", "maxInclusive", "maxLength", "maxScale", "minExclusive", "minInclusive", "minLength", "minScale", "pattern", "precision", "whiteSpace":
+		return true
+	default:
+		return false
+	}
 }
 
 //nolint:gocognit,funlen // Keep mutually-exclusive complexType grammar branches explicit.
@@ -1123,7 +1409,7 @@ func validateNotationGlobalChildren(parent *syntaxElement, children []*syntaxEle
 
 func isKnownSchemaElement(local string) bool {
 	switch local {
-	case "all", "annotation", "any", "anyAttribute", "appinfo", "assert", "assertion", "alternative", "attribute", "attributeGroup", "choice", "complexContent", "complexType", "defaultOpenContent", "documentation", "element", "extension", "field", "group", "import", "include", "key", "keyref", "list", "notation", "openContent", "override", "redefine", "restriction", "schema", "selector", "sequence", "simpleContent", "simpleType", "union", "unique":
+	case "all", "annotation", "any", "anyAttribute", "appinfo", "assert", "assertion", "assertions", "alternative", "attribute", "attributeGroup", "choice", "complexContent", "complexType", "defaultOpenContent", "documentation", "element", "enumeration", "explicitTimezone", "extension", "field", "fractionDigits", "group", "import", "include", "key", "keyref", "length", "maxExclusive", "maxInclusive", "maxLength", "maxScale", "minExclusive", "minInclusive", "minLength", "minScale", "list", "notation", "openContent", "override", "pattern", "precision", "redefine", "restriction", "schema", "selector", "sequence", "simpleContent", "simpleType", "totalDigits", "union", "unique", "whiteSpace":
 		return true
 	default:
 		return false
