@@ -4,8 +4,8 @@ goxsd9 is a Go implementation of an XSD 1.1 and XSD 1.0 parser, XML instance
 validator, and Go code generator. The project prioritizes a useful vertical
 slice, then expands measured conformance without hiding unsupported behavior.
 
-The repository is currently in bootstrap. Public parsing and validation APIs
-are not ready for use.
+The repository is in the vertical-slice phase. Public parsing and validation
+APIs remain unavailable.
 
 ## Design goals
 
