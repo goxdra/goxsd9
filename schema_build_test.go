@@ -405,6 +405,54 @@ func TestSchemaBridgeCollapsesSchemaValueWhitespace(t *testing.T) {
 	}
 }
 
+func TestSchemaBridgeValidatesCompositionAndAnnotationURIs(t *testing.T) {
+	tests := []schemaBridgeDiagnosticCase{
+		{
+			name:  "include schemaLocation is an anyURI",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:include schemaLocation="%ZZ"/></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "import schemaLocation is an anyURI",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:import schemaLocation="%ZZ"/></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "import namespace is an anyURI",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:import namespace="%ZZ" schemaLocation="child.xsd"/></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "documentation source is an anyURI",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:annotation><xs:documentation source="%ZZ"/></xs:annotation></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "appinfo source is an anyURI",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:annotation><xs:appinfo source="%ZZ"/></xs:annotation></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "composition xml base is an anyURI",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:include xml:base="%ZZ" schemaLocation="child.xsd"/></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "annotation xml base is an anyURI",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:annotation xml:base="%ZZ"/></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+	}
+	assertSchemaBridgeDiagnosticCases(t, tests)
+}
+
 func TestSchemaBridgeRejectsUnvalidatedCompositionNodeContent(t *testing.T) {
 	tests := []struct {
 		name string
@@ -678,6 +726,65 @@ func TestSchemaBridgeConditionalInclusionFiltersBeforeGrammarAndResolution(t *te
 				t.Fatalf("resolver call count = %d, want %d", got, test.calls)
 			}
 		})
+	}
+}
+
+func TestSchemaBridgeConditionalExclusionPrecedesAvailabilityUnsupported(t *testing.T) {
+	tests := []struct {
+		name       string
+		root       string
+		components int
+		targetNS   string
+	}{
+		{
+			name:       "max version excludes available type",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `" xmlns:ext="urn:ext"><xs:element name="gone" vc:maxVersion="1.1" vc:typeAvailable="ext:Type"/></xs:schema>`,
+			components: 0,
+		},
+		{
+			name:       "min version excludes available facet",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `" xmlns:ext="urn:ext"><xs:element name="gone" vc:minVersion="1.2" vc:facetAvailable="ext:Facet"/></xs:schema>`,
+			components: 0,
+		},
+		{
+			name:       "max version excludes unavailable type",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `" xmlns:ext="urn:ext"><xs:element name="gone" vc:maxVersion="1.1" vc:typeUnavailable="ext:Type"/></xs:schema>`,
+			components: 0,
+		},
+		{
+			name:       "empty unavailable excludes available type",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `" xmlns:ext="urn:ext"><xs:element name="gone" vc:typeUnavailable="" vc:typeAvailable="ext:Type"/></xs:schema>`,
+			components: 0,
+		},
+		{
+			name:       "root exclusion retains target namespace",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `" xmlns:ext="urn:ext" targetNamespace="urn:root" vc:maxVersion="1.1" vc:typeAvailable="ext:Type"><xs:alternative/></xs:schema>`,
+			components: 0,
+			targetNS:   "urn:root",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+			if got := len(schema.Components()); got != test.components {
+				t.Fatalf("component count = %d, want %d", got, test.components)
+			}
+			if test.targetNS != "" && schema.Documents()[0].TargetNamespace() != test.targetNS {
+				t.Fatalf("target namespace = %q, want %q", schema.Documents()[0].TargetNamespace(), test.targetNS)
+			}
+		})
+	}
+
+	_, err := discoverTestSchema(t, `<xs:schema xmlns:xs="`+testXSDNamespace+`" xmlns:vc="`+xsdVersioningNamespaceURI+`" vc:maxVersion="1.1" vc:typeAvailable="bad:prefix:extra"/>`, nil)
+	if err == nil {
+		t.Fatal("discoverSchema accepted malformed availability despite exclusion")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaConditionalCode {
+		t.Fatalf("diagnostic = %s, want invalid conditional lexical diagnostic", diagnostic)
 	}
 }
 
@@ -972,7 +1079,6 @@ func TestSchemaBridgeAcceptsInertRootMetadata(t *testing.T) {
 	}
 }
 
-//nolint:dupl // Distinct lexical and child grammar matrices intentionally use the same table shape.
 func TestSchemaBridgeRejectsRootAndGlobalLexicalBoundaries(t *testing.T) {
 	tests := []schemaBridgeDiagnosticCase{
 		{
@@ -1057,6 +1163,28 @@ func TestSchemaBridgeIgnoresForeignLocalNameCollisions(t *testing.T) {
 	}
 }
 
+func TestSchemaBridgeRejectsXMLNamespaceAliases(t *testing.T) {
+	for _, declaration := range []string{
+		`xmlns:xmlish="` + xmlNamespaceURI + `"`,
+		`xmlns="` + xmlNamespaceURI + `"`,
+	} {
+		t.Run(declaration, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" ` + declaration + `/>`
+			schema, err := discoverTestSchema(t, root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted an XML namespace alias")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != InvalidXMLSyntaxCode {
+				t.Fatalf("diagnostic = %s, want invalid XML syntax", diagnostic)
+			}
+		})
+	}
+}
+
 func TestSchemaBridgeRejectsRootConstructsAfterDeclarations(t *testing.T) {
 	for _, child := range []string{"redefine", "override", "defaultOpenContent"} {
 		t.Run(child, func(t *testing.T) {
@@ -1088,7 +1216,6 @@ func TestSchemaBridgeRejectsRootConstructsAfterDeclarations(t *testing.T) {
 	}
 }
 
-//nolint:dupl // Distinct lexical and child grammar matrices intentionally use the same table shape.
 func TestSchemaBridgeEnforcesGlobalChildModels(t *testing.T) {
 	tests := []schemaBridgeDiagnosticCase{
 		{
@@ -1119,6 +1246,26 @@ func TestSchemaBridgeEnforcesGlobalChildModels(t *testing.T) {
 		{
 			name:  "complex content alternatives are exclusive",
 			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item"><xs:simpleContent/><xs:sequence/></xs:complexType></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "complex attributes precede no later model",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item"><xs:attribute name="nested"/><xs:sequence/></xs:complexType></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "complex attributes precede no later simple content",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item"><xs:attribute name="nested"/><xs:simpleContent/></xs:complexType></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "complex attribute group precedes no later complex content",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item"><xs:attributeGroup/><xs:complexContent/></xs:complexType></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "complex attributes precede no later open content",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item"><xs:attribute name="nested"/><xs:openContent/></xs:complexType></xs:schema>`,
 			class: FailureInvalid,
 		},
 		{

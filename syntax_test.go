@@ -163,6 +163,31 @@ func TestDecodeSyntaxRejectsUnboundNamespacesAndDuplicateAttributes(t *testing.T
 	}
 }
 
+func TestDecodeSyntaxRejectsXMLNamespaceAliases(t *testing.T) {
+	tests := []string{
+		"<xs:schema xmlns:xs=\"" + testXSDNamespace + "\" xmlns:xmlish=\"" + xmlNamespaceURI + "\"/>",
+		"<xs:schema xmlns:xs=\"" + testXSDNamespace + "\" xmlns=\"" + xmlNamespaceURI + "\"/>",
+		"<xs:schema xmlns:xs=\"" + testXSDNamespace + "\" xmlns:xml=\"urn:not-xml\"/>",
+	}
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			_, err := decodeResolvedSyntax(newTestSource(t, &trackingSource{data: []byte(input)}))
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid {
+				t.Fatalf("diagnostic class = %q, want %q", diagnostic.Class(), FailureInvalid)
+			}
+			if diagnostic.Code() != InvalidXMLSyntaxCode {
+				t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code(), InvalidXMLSyntaxCode)
+			}
+		})
+	}
+
+	valid := "<xs:schema xmlns:xs=\"" + testXSDNamespace + "\" xmlns:xml=\"" + xmlNamespaceURI + "\"/>"
+	if _, err := decodeResolvedSyntax(newTestSource(t, &trackingSource{data: []byte(valid)})); err != nil {
+		t.Fatalf("decodeResolvedSyntax rejected the canonical xml binding: %v", err)
+	}
+}
+
 func TestDecodeSyntaxReportsGenericUnsupportedSyntax(t *testing.T) {
 	input := "<xs:schema xmlns:xs=\"" + testXSDNamespace + "\"><xs:alternative/></xs:schema>"
 	reader := &trackingSource{data: []byte(input)}
