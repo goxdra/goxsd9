@@ -803,15 +803,46 @@ func TestSchemaBridgeAcceptsForeignRootAndGlobalAttributes(t *testing.T) {
 	}
 }
 
-//nolint:gocognit,funlen // Keep the direct grammar and attribute matrix explicit.
+type schemaBridgeDiagnosticCase struct {
+	name    string
+	root    string
+	class   FailureClass
+	feature FeatureID
+	code    string
+}
+
+//nolint:gocognit // Check every diagnostic dimension consistently for each case.
+func assertSchemaBridgeDiagnosticCases(t *testing.T, tests []schemaBridgeDiagnosticCase) {
+	t.Helper()
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted invalid or unsupported syntax")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class {
+				t.Fatalf("diagnostic class = %q, want %q", diagnostic.Class(), test.class)
+			}
+			if test.feature != "" && diagnostic.Feature() != test.feature {
+				t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), test.feature)
+			}
+			if test.code != "" && diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code(), test.code)
+			}
+			if diagnostic.Loc().Source() != "root.xsd" {
+				t.Fatalf("diagnostic source = %q, want root.xsd", diagnostic.Loc().Source())
+			}
+		})
+	}
+}
+
+//nolint:funlen // Keep the direct grammar and attribute matrix explicit.
 func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
-	tests := []struct {
-		name    string
-		root    string
-		class   FailureClass
-		feature FeatureID
-		code    string
-	}{
+	tests := []schemaBridgeDiagnosticCase{
 		{
 			name:    "unknown XSD root child is unsupported",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:unknown/></xs:schema>`,
@@ -927,30 +958,7 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			schema, err := discoverTestSchema(t, test.root, nil)
-			if err == nil {
-				t.Fatal("discoverSchema accepted invalid or unsupported direct syntax")
-			}
-			if schema.storage != nil {
-				t.Fatal("discoverSchema returned a partial schema")
-			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != test.class {
-				t.Fatalf("diagnostic class = %q, want %q", diagnostic.Class(), test.class)
-			}
-			if test.feature != "" && diagnostic.Feature() != test.feature {
-				t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), test.feature)
-			}
-			if test.code != "" && diagnostic.Code() != test.code {
-				t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code(), test.code)
-			}
-			if diagnostic.Loc().Source() != "root.xsd" {
-				t.Fatalf("diagnostic source = %q, want root.xsd", diagnostic.Loc().Source())
-			}
-		})
-	}
+	assertSchemaBridgeDiagnosticCases(t, tests)
 }
 
 func TestSchemaBridgeAcceptsInertRootMetadata(t *testing.T) {
@@ -964,12 +972,9 @@ func TestSchemaBridgeAcceptsInertRootMetadata(t *testing.T) {
 	}
 }
 
+//nolint:dupl // Distinct lexical and child grammar matrices intentionally use the same table shape.
 func TestSchemaBridgeRejectsRootAndGlobalLexicalBoundaries(t *testing.T) {
-	tests := []struct {
-		name  string
-		root  string
-		class FailureClass
-	}{
+	tests := []schemaBridgeDiagnosticCase{
 		{
 			name:  "root name is not an attribute",
 			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" name="schema-name"/>`,
@@ -1026,24 +1031,7 @@ func TestSchemaBridgeRejectsRootAndGlobalLexicalBoundaries(t *testing.T) {
 			class: FailureUnsupported,
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			schema, err := discoverTestSchema(t, test.root, nil)
-			if err == nil {
-				t.Fatal("discoverSchema accepted invalid or unsupported lexical syntax")
-			}
-			if schema.storage != nil {
-				t.Fatal("discoverSchema returned a partial schema")
-			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != test.class {
-				t.Fatalf("diagnostic class = %q, want %q", diagnostic.Class(), test.class)
-			}
-			if diagnostic.Loc().Source() != "root.xsd" {
-				t.Fatalf("diagnostic source = %q, want root.xsd", diagnostic.Loc().Source())
-			}
-		})
-	}
+	assertSchemaBridgeDiagnosticCases(t, tests)
 }
 
 func TestSchemaBridgeIgnoresForeignLocalNameCollisions(t *testing.T) {
@@ -1100,12 +1088,9 @@ func TestSchemaBridgeRejectsRootConstructsAfterDeclarations(t *testing.T) {
 	}
 }
 
+//nolint:dupl // Distinct lexical and child grammar matrices intentionally use the same table shape.
 func TestSchemaBridgeEnforcesGlobalChildModels(t *testing.T) {
-	tests := []struct {
-		name  string
-		root  string
-		class FailureClass
-	}{
+	tests := []schemaBridgeDiagnosticCase{
 		{
 			name:  "empty simple type",
 			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"/></xs:schema>`,
@@ -1162,21 +1147,7 @@ func TestSchemaBridgeEnforcesGlobalChildModels(t *testing.T) {
 			class: FailureUnsupported,
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			schema, err := discoverTestSchema(t, test.root, nil)
-			if err == nil {
-				t.Fatal("discoverSchema accepted invalid or unsupported global child model")
-			}
-			if schema.storage != nil {
-				t.Fatal("discoverSchema returned a partial schema")
-			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != test.class {
-				t.Fatalf("diagnostic class = %q, want %q", diagnostic.Class(), test.class)
-			}
-		})
-	}
+	assertSchemaBridgeDiagnosticCases(t, tests)
 }
 
 func discoverTestSchema(t *testing.T, rootContents string, fixtures map[string]discoveryFixture) (Schema, error) {
