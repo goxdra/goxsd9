@@ -166,7 +166,12 @@ func orderBootstrapArtifacts(artifacts []BootstrapArtifact, indegree []int, depe
 	for len(ordered) < len(artifacts) {
 		next := nextBootstrapArtifact(completed, indegree)
 		if next < 0 {
-			return nil, bootstrapCycleError(artifacts[0],
+			cycleMember := findBootstrapCycleMember(completed, dependents)
+			if cycleMember < 0 {
+				return nil, corpusError(bootstrapCycleCode, "", "",
+					errors.New("bootstrap artifact dependencies contain an unlocated cycle"))
+			}
+			return nil, bootstrapCycleError(artifacts[cycleMember],
 				errors.New("bootstrap artifact dependencies contain a cycle"))
 		}
 
@@ -177,6 +182,50 @@ func orderBootstrapArtifacts(artifacts []BootstrapArtifact, indegree []int, depe
 		}
 	}
 	return ordered, nil
+}
+
+func findBootstrapCycleMember(completed []bool, dependents [][]int) int {
+	const (
+		bootstrapUnvisited uint8 = iota
+		bootstrapVisiting
+		bootstrapVisited
+	)
+	state := make([]uint8, len(completed))
+	for start := range completed {
+		if completed[start] || state[start] != bootstrapUnvisited {
+			continue
+		}
+		state[start] = bootstrapVisiting
+		stack := []bootstrapDFSFrame{{node: start}}
+		for len(stack) > 0 {
+			frameIndex := len(stack) - 1
+			frame := &stack[frameIndex]
+			if frame.next >= len(dependents[frame.node]) {
+				state[frame.node] = bootstrapVisited
+				stack = stack[:frameIndex]
+				continue
+			}
+
+			dependent := dependents[frame.node][frame.next]
+			frame.next++
+			if completed[dependent] {
+				continue
+			}
+			switch state[dependent] {
+			case bootstrapUnvisited:
+				state[dependent] = bootstrapVisiting
+				stack = append(stack, bootstrapDFSFrame{node: dependent})
+			case bootstrapVisiting:
+				return dependent
+			}
+		}
+	}
+	return -1
+}
+
+type bootstrapDFSFrame struct {
+	node int
+	next int
 }
 
 func nextBootstrapArtifact(completed []bool, indegree []int) int {

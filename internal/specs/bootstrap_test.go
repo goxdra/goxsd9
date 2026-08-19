@@ -111,6 +111,27 @@ func TestBootstrapPlanRejectsInvalidVersionAndGraph(t *testing.T) {
 	}
 }
 
+func TestBootstrapPlanCycleDiagnosticNamesCycleMember(t *testing.T) {
+	unrelated := bootstrapArtifact("unrelated", []string{"1.0"}, false, nil)
+	root := bootstrapArtifact("root", []string{"1.0"}, true, []string{"cycle-a"})
+	cycleA := bootstrapArtifact("cycle-a", []string{"1.0"}, false, []string{"cycle-b"})
+	cycleB := bootstrapArtifact("cycle-b", []string{"1.0"}, false, []string{"cycle-a"})
+	manifest := Manifest{BootstrapArtifacts: []BootstrapArtifact{unrelated, root, cycleA, cycleB}}
+
+	_, err := manifest.BootstrapPlan("1.0")
+	if err == nil {
+		t.Fatal("BootstrapPlan() error = nil")
+	}
+	assertErrorCode(t, err, bootstrapCycleCode)
+	var corpusErr *Error
+	if !errors.As(err, &corpusErr) {
+		t.Fatalf("BootstrapPlan() error = %v, want *Error", err)
+	}
+	if corpusErr.ID != cycleA.ID || corpusErr.URL != cycleA.URL {
+		t.Fatalf("cycle diagnostic identifies %q at %q, want %q at %q", corpusErr.ID, corpusErr.URL, cycleA.ID, cycleA.URL)
+	}
+}
+
 func TestBootstrapPlanReturnsIndependentEntryCopies(t *testing.T) {
 	manifest := bootstrapPlanFixture()
 	plan, err := manifest.BootstrapPlan("1.0")
