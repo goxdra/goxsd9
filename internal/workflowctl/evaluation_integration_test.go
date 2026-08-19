@@ -1076,7 +1076,7 @@ func (b *workflowBackend) executeGitArtifact(command string) (string, bool) {
 	switch command {
 	case "merge-base --is-ancestor evaluated-head evaluated-head":
 		return "", true
-	case "ls-remote --heads origin refs/heads/agent/issue-*":
+	case "ls-remote --heads origin refs/heads/agent/*":
 		return "evaluated-head refs/heads/agent/issue-13", true
 	case "for-each-ref --format=%(refname:short) %(objectname) refs/remotes/origin/agent/issue-*":
 		return "origin/agent/issue-13 evaluated-head", true

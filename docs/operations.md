@@ -16,12 +16,13 @@ evaluated head; one companion is allowed. Managed-document heads receive the
 exact docs audit and fresh Curator review after each remediation. Examiner is
 the gate.
 Claims have a four-hour deadline. Renew at durable boundaries, including before
-pushes; never wake solely to renew. Expired claims without open PRs are archived
-under `agent/archive/`; open PRs require a `needs-human` handoff.
-Three failed rounds add `needs-human` and return the issue to Backlog; transient
-retries continue successful runs.
+pushes; never wake solely to renew. Expired claims without open PRs are archived;
+open PRs require `needs-human`.
+Three failed rounds return issues to Backlog with `needs-human`; transient retries
+continue.
 `go tool workflowctl sync` updates Project status and fetches claim refs; it does
 not sync canonical `main` or recursive submodules.
+Run-local `agent/issue-N-run-ID` refs are inventory-only: shared `pr finish`, `pr recover`, and `claim prune` delete them only after exact issue/run/SHA/evaluated-head/merge/current-value proof with leased exact deletion; archive and unrelated refs are preserved.
 `base-sync` fetches `origin/main`, fast-forwards clean canonical `main`, and
 checks/updates recursive pins; no reset/rebase/stash/discard.
 For parser/datatype changes, run
@@ -37,11 +38,9 @@ Before each fresh Examiner, `evaluation challenge` records a one-use head-bound
 challenge. The Examiner returns versioned JSON; `workflowctl` rejects wrong-head,
 stale, reused, malformed, or caller-selected results. Fresh context is required;
 shared credentials make receipts evidence, not identity proof.
-REST squash merge is SHA-bound. Afterward `pr finish` runs base-sync and removes
-only exact-head refs, clean claim worktrees, and expected-SHA branches. Cleanup
-uses immutable pre-merge proof and refuses drift. Failures preserve artifacts and
-name idempotent `go tool workflowctl pr recover PR`; `claim prune ISSUE` requires
-merged proof.
+`pr finish` runs base-sync and removes claim worktrees and expected-SHA branches;
+drift preserves artifacts, `pr recover PR` is idempotent, and `claim prune`
+requires merged proof.
 
 If draft-to-ready GraphQL is unavailable, close the draft and create an
 identical-head ready PR via REST, then require a new challenge and fresh

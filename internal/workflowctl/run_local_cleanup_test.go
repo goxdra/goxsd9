@@ -1,0 +1,507 @@
+package workflowctl
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"os/exec"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestRemoteAgentRefInventorySeparatesAndSortsRefs(t *testing.T) {
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		if name != "git" || strings.Join(args, " ") != "ls-remote --heads origin refs/heads/agent/*" {
+			return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+		}
+		return "sha-z refs/heads/agent/issue-12-run-z\n" +
+			"sha-a refs/heads/agent/archive/issue-12-old\n" +
+			"sha-fixed refs/heads/agent/issue-12\n" +
+			"sha-b refs/heads/agent/issue-12-run-a\n" +
+			"sha-leading refs/heads/agent/issue-01\n" +
+			"sha-leading-run refs/heads/agent/issue-01-run-good\n" +
+			"sha-empty-suffix refs/heads/agent/issue-12-\n" +
+			"sha-bad refs/heads/agent/issue-12-old\n" +
+			"sha-unrelated refs/heads/agent/other\n" +
+			"sha-malformed refs/heads/agent/issue-no\n", nil
+	}}
+	inventory, err := application.remoteAgentRefInventory("/repo")
+	if err != nil {
+		t.Fatalf("remoteAgentRefInventory: %v", err)
+	}
+	if len(inventory.claims) != 1 || inventory.claims[0].branch != "agent/issue-12" {
+		t.Fatalf("fixed claims = %#v, want only fixed claim", inventory.claims)
+	}
+	if len(inventory.runLocals) != 2 || inventory.runLocals[0].branch != "agent/issue-12-run-a" || inventory.runLocals[1].branch != "agent/issue-12-run-z" {
+		t.Fatalf("run-local refs = %#v, want deterministic run-a/run-z order", inventory.runLocals)
+	}
+	if len(inventory.archives) != 1 || inventory.archives[0].branch != "agent/archive/issue-12-old" {
+		t.Fatalf("archives = %#v, want historical archive only", inventory.archives)
+	}
+	if len(inventory.malformed) != 5 || inventory.malformed[0].branch != "agent/issue-01" || inventory.malformed[1].branch != "agent/issue-01-run-good" || inventory.malformed[2].branch != "agent/issue-12-" || inventory.malformed[3].branch != "agent/issue-12-old" || inventory.malformed[4].branch != "agent/issue-no" {
+		t.Fatalf("malformed refs = %#v, want deterministic malformed order", inventory.malformed)
+	}
+	if len(inventory.unrelated) != 1 || inventory.unrelated[0].branch != "agent/other" {
+		t.Fatalf("unrelated refs = %#v, want unrelated ref only", inventory.unrelated)
+	}
+}
+
+func TestClassifyAgentRefRequiresCanonicalFixedAndRunLocalGrammar(t *testing.T) {
+	tests := []struct {
+		branch string
+		kind   agentRefKind
+		number int
+		runID  string
+	}{
+		{branch: "agent/issue-12", kind: agentRefClaim, number: 12},
+		{branch: "agent/issue-12-run-good", kind: agentRefRunLocal, number: 12, runID: "run-good"},
+		{branch: "agent/issue-01", kind: agentRefMalformed},
+		{branch: "agent/issue-12-", kind: agentRefMalformed, number: 12},
+		{branch: "agent/issue-12-run-", kind: agentRefMalformed, number: 12},
+		{branch: "agent/issue-12-run-a--b", kind: agentRefMalformed, number: 12},
+		{branch: "agent/archive/issue-12-old", kind: agentRefArchive},
+		{branch: "agent/other", kind: agentRefUnrelated},
+	}
+	for _, test := range tests {
+		kind, number, runID := classifyAgentRef(test.branch)
+		if kind != test.kind || number != test.number || runID != test.runID {
+			t.Errorf("classifyAgentRef(%q) = (%d, %d, %q), want (%d, %d, %q)", test.branch, kind, number, runID, test.kind, test.number, test.runID)
+		}
+	}
+}
+
+func TestSyncAndPickIgnoreRunLocalRefs(t *testing.T) {
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		switch command {
+		case "git ls-remote --heads origin refs/heads/agent/*":
+			return "head refs/heads/agent/issue-55-run-test", nil
+		case "gh api repos/goxdra/goxsd9/issues/55":
+			return `{"state":"OPEN","labels":[]}`, nil
+		case "gh project item-list 1 --owner goxdra --format json --limit 500":
+			return `{"items":[{"content":{"number":55,"repository":"goxdra/goxsd9","type":"Issue","url":"https://example.test/55"},"status":"Ready","title":"ready"}]}`, nil
+		case "gh api graphql -f query=" + issueRelationsQuery + " -f owner=goxdra -f repository=goxsd9 -F number=55":
+			return `{"data":{"repository":{"issue":{"createdAt":"2026-08-19T00:00:00Z","blockedBy":{"nodes":[]},"blocking":{"nodes":[]}}}}}`, nil
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+	claims, err := application.remoteClaims("/repo")
+	if err != nil {
+		t.Fatalf("remoteClaims: %v", err)
+	}
+	if len(claims) != 0 {
+		t.Fatalf("run-local refs became active claims: %#v", claims)
+	}
+	item := projectItem{Content: projectContent{Number: 55, Repository: repositoryKey, Type: "Issue"}, Status: "Picked"}
+	desired, err := application.desiredStatus("/repo", item, claims)
+	if err != nil {
+		t.Fatalf("desiredStatus: %v", err)
+	}
+	if desired != "Ready" {
+		t.Fatalf("desired status = %q, want Ready when only run-local ref exists", desired)
+	}
+	candidates, err := application.pickCandidates("/repo")
+	if err != nil {
+		t.Fatalf("pickCandidates: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].Number != 55 {
+		t.Fatalf("pick candidates = %#v, want Ready issue #55", candidates)
+	}
+}
+
+func TestRunLocalCleanupAcceptanceMatrixPreservesBeforeMutation(t *testing.T) {
+	const (
+		issue       = 55
+		fixedBranch = "agent/issue-55"
+		goodBranch  = "agent/issue-55-run-good"
+		goodSHA     = "evaluated-head"
+	)
+	matrix := []struct {
+		name        string
+		inventory   string
+		currentSHA  string
+		openPR      bool
+		localBranch string
+		want        string
+	}{
+		{name: "moved", inventory: goodSHA + " refs/heads/" + goodBranch, currentSHA: "moved-head", want: "found moved"},
+		{name: "open PR", inventory: goodSHA + " refs/heads/" + goodBranch, currentSHA: goodSHA, openPR: true, want: "open PR"},
+		{name: "wrong issue", inventory: goodSHA + " refs/heads/agent/issue-56-run-good", currentSHA: goodSHA, want: "differs from immutable claim issue"},
+		{name: "wrong run", inventory: goodSHA + " refs/heads/agent/issue-55-run-other", currentSHA: goodSHA, want: "differs from evaluated-head claim run"},
+		{name: "wrong SHA", inventory: "unrelated-head refs/heads/" + goodBranch, currentSHA: "unrelated-head", want: "immutable claim head"},
+		{name: "malformed", inventory: "bad refs/heads/agent/issue-55-run-", currentSHA: "bad", want: "malformed run-local"},
+		{name: "ambiguous", inventory: goodSHA + " refs/heads/agent/issue-55-run-a\n" + goodSHA + " refs/heads/agent/issue-55-run-b", currentSHA: goodSHA, want: "ambiguous run-local"},
+		{name: "unrelated commit", inventory: "unrelated-head refs/heads/" + goodBranch, currentSHA: "unrelated-head", want: "immutable claim head"},
+	}
+	for _, test := range matrix {
+		t.Run(test.name, func(t *testing.T) {
+			commands := []string{}
+			application := scriptedRunLocalApplication(test.inventory, test.currentSHA, test.openPR, &commands)
+			packet := mergedPacket{
+				number:   issue,
+				mergeSHA: "merge-proof",
+				plan: cleanupPlan{
+					claims:            []claimArtifact{{issue: issue, branch: fixedBranch, sha: goodSHA, localBranch: test.localBranch}},
+					proofHead:         goodSHA,
+					primaryIssue:      issue,
+					validateArtifacts: true,
+				},
+			}
+			_, err := application.prepareRunLocalCleanup("/repo", packet)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("prepareRunLocalCleanup error = %v, want %q", err, test.want)
+			}
+			if containsRunLocalDelete(commands) {
+				t.Fatalf("validation attempted deletion commands: %v", commands)
+			}
+		})
+	}
+}
+
+func TestRunLocalCandidatePreservesOpenPRWithoutRemoteRef(t *testing.T) {
+	const (
+		branch = "agent/issue-55-run-good"
+		sha    = "evaluated-head"
+	)
+	for _, test := range []struct {
+		name     string
+		local    bool
+		tracking bool
+	}{
+		{name: "local-only", local: true},
+		{name: "tracking-only", tracking: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			commands := []string{}
+			application := app{executeCommand: openPRRunLocalCandidateExecutor(test.local, test.tracking, &commands)}
+			candidate := runLocalRefCandidate{branch: branch, sha: sha, localPresent: test.local, trackingPresent: test.tracking}
+			packet := mergedPacket{plan: cleanupPlan{
+				claims:            []claimArtifact{{issue: 55, branch: "agent/issue-55", sha: sha}},
+				proofHead:         sha,
+				validateArtifacts: true,
+			}}
+			_, found, err := application.validateRunLocalCandidate("/repo", packet, candidate)
+			if err == nil || !strings.Contains(err.Error(), "open PR") {
+				t.Fatalf("open PR validation = (%t, %v), want preservation refusal", found, err)
+			}
+			if !containsCommand(commands, "gh pr list --repo "+repositoryKey+" --head "+branch+" --state open --json number") {
+				t.Fatalf("open PR query missing for %s candidate: %v", test.name, commands)
+			}
+		})
+	}
+}
+
+func openPRRunLocalCandidateExecutor(local, tracking bool, commands *[]string) commandExecutor {
+	const (
+		branch = "agent/issue-55-run-good"
+		sha    = "evaluated-head"
+	)
+	localSHA := ""
+	if local {
+		localSHA = sha
+	}
+	trackingSHA := ""
+	if tracking {
+		trackingSHA = sha
+	}
+	return func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		*commands = append(*commands, command)
+		switch {
+		case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
+			return "evaluated-commit\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+		case command == "git ls-remote --heads origin refs/heads/"+branch:
+			return "", nil
+		case command == "git for-each-ref --format=%(objectname) refs/heads/"+branch:
+			return localSHA, nil
+		case command == "git for-each-ref --format=%(objectname) refs/remotes/origin/"+branch:
+			return trackingSHA, nil
+		case strings.HasPrefix(command, "gh pr list "):
+			return `[{"number":123}]`, nil
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}
+}
+
+func TestUnexpectedRunLocalRefRequiresValidatedTarget(t *testing.T) {
+	claims := []claimArtifact{{issue: 86, branch: "agent/issue-86", sha: "evaluated-head"}}
+	all := []remoteClaim{{branch: "agent/issue-86-run-good", number: 86, sha: "evaluated-head", source: claimRefRemote}}
+	expected := map[string]claimArtifact{"agent/issue-86": claims[0]}
+	if err := validateUnexpectedClaimRefs(all, expected, claims); err == nil || !strings.Contains(err.Error(), "no immutable evaluated-head proof") {
+		t.Fatalf("unvalidated run-local ref = %v, want preservation refusal", err)
+	}
+	target := []provenRunLocalRef{{branch: "agent/issue-86-run-good", sha: "evaluated-head", remotePresent: true}}
+	if err := validateUnexpectedClaimRefs(all, expected, claims, target); err != nil {
+		t.Fatalf("validated run-local ref = %v, want accepted target", err)
+	}
+}
+
+func TestPreMergeRunLocalWorktreeAllowanceRejectsExtraWorktree(t *testing.T) {
+	claims := []claimArtifact{{issue: 86, branch: "agent/issue-86", sha: "claim-head", localBranch: "agent/issue-86-run-good"}}
+	expected, err := claimBranchIndex(claims)
+	if err != nil {
+		t.Fatalf("claimBranchIndex: %v", err)
+	}
+	layout := repositoryLayout{worktrees: []gitWorktree{
+		{path: "/good", head: "claim-head", branch: "refs/heads/agent/issue-86-run-good"},
+		{path: "/extra", head: "claim-head", branch: "refs/heads/agent/issue-86-run-other"},
+	}}
+	if err := validateUnexpectedClaimWorktrees(layout, expected, claims); err == nil || !strings.Contains(err.Error(), "leftover run-local claim worktree") {
+		t.Fatalf("extra pre-merge run-local worktree = %v, want preservation refusal", err)
+	}
+}
+
+func TestRunLocalHistoryPreservesConflictingIdentities(t *testing.T) {
+	history := "tip\x00work\x00claim-a\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		"claim-b\x00" + claimMessage(86, "run-other", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00"
+	identities, err := parseRunLocalHistory(history, "agent/issue-86-run-good")
+	if err != nil {
+		t.Fatalf("parseRunLocalHistory: %v", err)
+	}
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		if name != "git" || name+" "+strings.Join(args, " ") != "git log --format=%H%x00%B%x00 evaluated-head" {
+			return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+		}
+		return history, nil
+	}}
+	ref := runLocalRefCandidate{branch: "agent/issue-86-run-good", sha: "evaluated-head"}
+	err = application.validateRunLocalProof("/repo", ref, claimArtifact{issue: 86, sha: "evaluated-head"}, "evaluated-head")
+	if err == nil || !strings.Contains(err.Error(), "conflicting runs") {
+		t.Fatalf("conflicting history proof = %v, want preservation refusal; identities=%#v", err, identities)
+	}
+}
+
+func TestCleanupRemovesOnlyProvenRunLocalDuplicateFromFourRefShape(t *testing.T) {
+	fixture := newIssue86FourRefFixture(t)
+
+	commands := []string{}
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, executeCommand: realGitWithOpenPRExecutor(t, false, &commands)}
+	layout, err := application.repositoryLayout(fixture.repository.linked)
+	if err != nil {
+		t.Fatalf("repositoryLayout: %v", err)
+	}
+	plan := cleanupPlan{
+		layout:            layout,
+		callerRoot:        fixture.repository.linked,
+		claims:            []claimArtifact{{issue: fixture.issue, branch: fixture.fixedBranch, sha: fixture.sha, localBranch: fixture.runBranch, worktreePath: fixture.runWorktree}},
+		proofHead:         fixture.sha,
+		primaryIssue:      fixture.issue,
+		validateArtifacts: true,
+	}
+	base := synchronizedBase{fetched: fetchedBase{primary: cleanPrimary{layout: layout}}}
+	packet := mergedPacket{number: fixture.issue, mergeSHA: "merge-proof", plan: plan}
+	if err := application.cleanupClaims(base, packet); err != nil {
+		t.Fatalf("cleanupClaims: %v", err)
+	}
+	if err := application.cleanupClaims(base, packet); err != nil {
+		t.Fatalf("idempotent cleanupClaims: %v", err)
+	}
+	assertIssue86FourRefCleanup(t, fixture, commands)
+}
+
+func TestCleanupRemoteOnlyRunLocalProofDoesNotLeaveTrackingRef(t *testing.T) {
+	repository := newBaseRepositoryFixture(t, false)
+	remoteClone := repository.root + "/remote-only"
+	runGitTest(t, repository.root, "clone", repository.origin, remoteClone)
+	configureTestIdentity(t, remoteClone)
+	runGitTest(t, remoteClone, "switch", "-c", "agent/issue-86-run-good", "origin/main")
+	writeFixtureFile(t, remoteClone, "claim", "claim\n")
+	runGitTest(t, remoteClone, "add", "claim")
+	runGitTest(t, remoteClone, "commit", "--no-gpg-sign", "-m", claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)))
+	head := runGitTest(t, remoteClone, "rev-parse", "HEAD")
+	runGitTest(t, remoteClone, "push", "origin", "HEAD:refs/heads/agent/issue-86")
+	runGitTest(t, remoteClone, "push", "origin", "HEAD:refs/heads/agent/issue-86-run-good")
+
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}}
+	layout, err := application.repositoryLayout(repository.primary)
+	if err != nil {
+		t.Fatalf("repositoryLayout: %v", err)
+	}
+	plan := cleanupPlan{
+		layout:            layout,
+		callerRoot:        repository.primary,
+		claims:            []claimArtifact{{issue: 86, branch: "agent/issue-86", sha: head}},
+		proofHead:         head,
+		primaryIssue:      86,
+		validateArtifacts: true,
+	}
+	base := synchronizedBase{fetched: fetchedBase{primary: cleanPrimary{layout: layout}}}
+	commands := []string{}
+	application.executeCommand = realGitWithOpenPRExecutor(t, false, &commands)
+	packet := mergedPacket{number: 86, mergeSHA: "merge-proof", plan: plan}
+	if err := application.cleanupClaims(base, packet); err != nil {
+		t.Fatalf("cleanupClaims: %v", err)
+	}
+
+	runBranch := "agent/issue-86-run-good"
+	for _, ref := range []string{
+		"refs/heads/agent/issue-86",
+		"refs/heads/" + runBranch,
+		"refs/remotes/origin/" + runBranch,
+		"refs/workflowctl/run-local-proof/" + runBranch,
+	} {
+		if output := runGitAllowFailure(t, repository.primary, "show-ref", "--verify", ref); output != "" {
+			t.Fatalf("temporary or proven ref %s remains: %s", ref, output)
+		}
+	}
+	fetchCommand := "git fetch --no-tags --no-write-fetch-head origin refs/heads/" + runBranch + ":refs/workflowctl/run-local-proof/" + runBranch
+	if !containsCommand(commands, fetchCommand) {
+		t.Fatalf("explicit temporary proof fetch = %v, want %q", commands, fetchCommand)
+	}
+	trackingDelete := "git update-ref -d refs/remotes/origin/" + runBranch + " " + head
+	if containsCommand(commands, trackingDelete) {
+		t.Fatalf("remote-only proof unexpectedly deleted tracking ref: %v", commands)
+	}
+}
+
+type issue86FourRefFixture struct {
+	repository  baseRepositoryFixture
+	issue       int
+	sha         string
+	fixedBranch string
+	runBranch   string
+	runWorktree string
+	archive     string
+	unrelated   string
+}
+
+func newIssue86FourRefFixture(t *testing.T) issue86FourRefFixture {
+	t.Helper()
+	repository := newBaseRepositoryFixture(t, false)
+	configureTestIdentity(t, repository.linked)
+	const issue = 86
+	commitMessage := claimMessage(issue, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC))
+	writeFixtureFile(t, repository.linked, "claim", "claim\n")
+	runGitTest(t, repository.linked, "add", "claim")
+	runGitTest(t, repository.linked, "commit", "--no-gpg-sign", "-m", commitMessage)
+	claimSHA := runGitTest(t, repository.linked, "rev-parse", "HEAD")
+	writeFixtureFile(t, repository.linked, "work", "evaluated work\n")
+	runGitTest(t, repository.linked, "add", "work")
+	runGitTest(t, repository.linked, "commit", "--no-gpg-sign", "-m", "feat: evaluated work")
+	sha := runGitTest(t, repository.linked, "rev-parse", "HEAD")
+	if sha == claimSHA {
+		t.Fatal("evaluated head did not advance beyond claim metadata commit")
+	}
+	fixedBranch := "agent/issue-86"
+	runBranch := "agent/issue-86-run-good"
+	runWorktree := claimWorktreePath(repository.primary, runBranch)
+	runGitTest(t, repository.primary, "worktree", "add", "-b", runBranch, runWorktree, sha)
+	archive := "agent/archive/issue-86-old"
+	unrelated := "agent/other"
+	for _, branch := range []string{fixedBranch, runBranch, archive, unrelated} {
+		runGitTest(t, repository.linked, "push", "origin", "HEAD:refs/heads/"+branch)
+	}
+	runGitTest(t, repository.primary, "fetch", "origin", "refs/heads/"+runBranch+":refs/remotes/origin/"+runBranch)
+	return issue86FourRefFixture{
+		repository:  repository,
+		issue:       issue,
+		sha:         sha,
+		fixedBranch: fixedBranch,
+		runBranch:   runBranch,
+		runWorktree: runWorktree,
+		archive:     archive,
+		unrelated:   unrelated,
+	}
+}
+
+func assertIssue86FourRefCleanup(t *testing.T, fixture issue86FourRefFixture, commands []string) {
+	t.Helper()
+	for _, branch := range []string{fixture.fixedBranch, fixture.runBranch} {
+		if output := runGitAllowFailure(t, fixture.repository.primary, "ls-remote", "--heads", "origin", "refs/heads/"+branch); output != "" {
+			t.Fatalf("proven claim ref %s remains: %s", branch, output)
+		}
+	}
+	for _, branch := range []string{fixture.archive, fixture.unrelated} {
+		if output := runGitAllowFailure(t, fixture.repository.primary, "ls-remote", "--heads", "origin", "refs/heads/"+branch); output == "" {
+			t.Fatalf("preserved ref %s was removed", branch)
+		}
+	}
+	if output := runGitAllowFailure(t, fixture.repository.primary, "show-ref", "--verify", "refs/remotes/origin/"+fixture.runBranch); output != "" {
+		t.Fatalf("matching run-local tracking ref remains: %s", output)
+	}
+	if output := runGitAllowFailure(t, fixture.repository.primary, "show-ref", "--verify", "refs/heads/"+fixture.runBranch); output != "" {
+		t.Fatalf("matching local run-local ref remains: %s", output)
+	}
+	if inventory := runGitTest(t, fixture.repository.primary, "worktree", "list", "--porcelain"); strings.Contains(inventory, fixture.runWorktree) {
+		t.Fatalf("matching local run-local worktree remains:\n%s", inventory)
+	}
+	wantLeaseDelete := "git push --force-with-lease=refs/heads/" + fixture.runBranch + ":" + fixture.sha + " origin :refs/heads/" + fixture.runBranch
+	if !containsCommand(commands, wantLeaseDelete) {
+		t.Fatalf("exact run-local lease deletion = %v, want %q", commands, wantLeaseDelete)
+	}
+	wantLocalDelete := "git update-ref -d refs/heads/" + fixture.runBranch + " " + fixture.sha
+	if !containsCommand(commands, wantLocalDelete) {
+		t.Fatalf("exact local run-local deletion = %v, want %q", commands, wantLocalDelete)
+	}
+	for _, command := range commands {
+		if strings.Contains(command, ":refs/heads/agent/*") {
+			t.Fatalf("wildcard ref deletion was attempted: %q", command)
+		}
+	}
+}
+
+func scriptedRunLocalApplication(inventory, currentSHA string, openPR bool, commands *[]string) app {
+	return app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		*commands = append(*commands, command)
+		switch {
+		case command == "git ls-remote --heads origin refs/heads/agent/*":
+			return inventory, nil
+		case command == "git for-each-ref --format=%(refname:short) %(objectname) refs/heads/agent/issue-*":
+			return "", nil
+		case command == "git for-each-ref --format=%(refname:short) %(objectname) refs/remotes/origin/agent/issue-*":
+			return "", nil
+		case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
+			return "evaluated-commit\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+		case strings.HasPrefix(command, "git ls-remote --heads origin refs/heads/"):
+			branch := strings.TrimPrefix(command, "git ls-remote --heads origin refs/heads/")
+			return currentSHA + " refs/heads/" + branch, nil
+		case strings.HasPrefix(command, "gh pr list "):
+			if openPR {
+				return `[{"number":99}]`, nil
+			}
+			return "[]", nil
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+}
+
+func realGitWithOpenPRExecutor(t *testing.T, openPR bool, commands *[]string) commandExecutor {
+	t.Helper()
+	return func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		if commands != nil {
+			*commands = append(*commands, name+" "+strings.Join(args, " "))
+		}
+		if name == "gh" {
+			if openPR {
+				return `[{"number":99}]`, nil
+			}
+			return "[]", nil
+		}
+		// #nosec G204 -- this test executor invokes fixed Git commands in temporary repositories.
+		command := exec.CommandContext(context.Background(), name, args...)
+		command.Dir = dir
+		command.Stdin = input
+		output, err := command.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("run %s: %w: %s", name, err, strings.TrimSpace(string(output)))
+		}
+		return strings.TrimSpace(string(output)), nil
+	}
+}
+
+func containsRunLocalDelete(commands []string) bool {
+	for _, command := range commands {
+		if strings.Contains(command, "push --force-with-lease=refs/heads/agent/") ||
+			strings.Contains(command, "update-ref -d refs/remotes/origin/agent/") ||
+			strings.Contains(command, "update-ref -d refs/heads/agent/") {
+			return true
+		}
+	}
+	return false
+}
