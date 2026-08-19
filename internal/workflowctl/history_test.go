@@ -3,6 +3,8 @@ package workflowctl
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -315,6 +317,419 @@ func TestHistoryRenderingIsByteIdentical(t *testing.T) {
 	if first != second {
 		t.Fatalf("repeated history render changed bytes:\nfirst:\n%s\nsecond:\n%s", first, second)
 	}
+}
+
+func TestHistoryEvaluationMetricsUseValidatedReceiptsAndStableOrder(t *testing.T) {
+	base := time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
+	firstChallenge := historyTestChallenge(t, "pr42-round1", 42, "head-42", base.Add(time.Hour), trustedActor)
+	firstReceipt := historyTestEvaluation(t, firstChallenge, "run-42-1", 1, "fail", 2,
+		historyTestCurrentBase64, trustedActor, base.Add(2*time.Hour))
+	firstReceipt.Body = legacyTransportMismatch(t, firstReceipt.Body)
+	repair := historyTestRepair(t, firstReceipt.Body, base.Add(3*time.Hour))
+	secondChallenge := historyTestChallenge(t, "pr42-round2", 42, "head-42", base.Add(4*time.Hour), trustedActor)
+	secondReceipt := historyTestEvaluation(t, secondChallenge, "run-42-2", 2, "pass", 0,
+		historyTestLegacyRaw, trustedActor, base.Add(5*time.Hour))
+	untrustedChallenge := historyTestChallenge(t, "untrusted", 42, "head-42", base.Add(6*time.Hour), owner)
+	pr42Comments := []pullRequestComment{secondChallenge, secondReceipt, firstChallenge, firstReceipt, repair, untrustedChallenge}
+
+	pr43Challenge := historyTestChallenge(t, "pr43-round1", 43, "head-43", base.Add(time.Hour), historyLegacyTrustedActor)
+	pr43Receipt := historyTestEvaluation(t, pr43Challenge, "run-43-1", 1, "pass", 0,
+		historyTestLegacyBase64, historyLegacyTrustedActor, base.Add(2*time.Hour))
+	pr43Comments := []pullRequestComment{pr43Challenge, pr43Receipt}
+
+	pr42JSON := historyTestCommentJSON(t, pr42Comments)
+	pr43JSON := historyTestCommentJSON(t, pr43Comments)
+	seenCommands := make([]string, 0, 2)
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		seenCommands = append(seenCommands, command)
+		if command == fmt.Sprintf("gh api --paginate repos/%s/issues/42/comments?per_page=100", repositoryKey) {
+			return pr42JSON, nil
+		}
+		if command == fmt.Sprintf("gh api --paginate repos/%s/issues/43/comments?per_page=100", repositoryKey) {
+			return pr43JSON, nil
+		}
+		return "", fmt.Errorf("unexpected command: %s", command)
+	}}
+	pullRequests := []pullRequestSummary{
+		{Number: 42, CreatedAt: base, MergedAt: base.Add(10 * time.Hour)},
+		{Number: 43, CreatedAt: base, MergedAt: base.Add(9 * time.Hour)},
+	}
+	packets, err := application.collectHistoryEvaluations("/repo", pullRequests)
+	if err != nil {
+		t.Fatalf("collectHistoryEvaluations: %v", err)
+	}
+	if got, want := len(packets), 2; got != want {
+		t.Fatalf("evaluated packet count = %d, want %d", got, want)
+	}
+	metrics := historyEvaluationMetricsFor(packets)
+	wantMetrics := historyEvaluationMetrics{
+		evaluatedPackets: 2, firstPassPackets: 2, remediatedPackets: 0, finalPasses: 1,
+		totalRounds: 3, failedRounds: 1, blockingFindings: 2,
+	}
+	if metrics != wantMetrics {
+		t.Fatalf("evaluation metrics = %#v, want %#v", metrics, wantMetrics)
+	}
+	if got, want := []int{packets[0].rounds[0].round, packets[0].rounds[1].round}, []int{2, 1}; !equalInts(got, want) {
+		t.Fatalf("PR #42 validated receipt order = %v, want %v", got, want)
+	}
+	var rendered bytes.Buffer
+	if err := renderEvaluationHistory(&rendered, packets, 1); err != nil {
+		t.Fatalf("renderEvaluationHistory: %v", err)
+	}
+	output := rendered.String()
+	for _, want := range []string{
+		"Evaluated packets: 2",
+		"First-pass packets: 2",
+		"Remediated packets: 0",
+		"Final passes: 1",
+		"Total rounds: 3",
+		"Failed rounds: 1",
+		"Blocking findings: 2",
+		"#42: round 1 fail (2 blocking findings); round 2 pass",
+		"Omitted: 1 evaluated packet(s) beyond --limit 1",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("evaluation report missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "#43:") {
+		t.Fatalf("post-limit detail included PR #43:\n%s", output)
+	}
+	if len(seenCommands) != 2 {
+		t.Fatalf("history evaluation commands = %v, want two read-only comment reads", seenCommands)
+	}
+}
+
+func TestHistoryExcludesReceiptRecordedAfterMerge(t *testing.T) {
+	base := time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
+	mergedAt := base.Add(2 * time.Hour)
+	preMergeChallenge := historyTestChallenge(t, "pre-merge", 44, "head-44", base, trustedActor)
+	preMergeReceipt := historyTestEvaluation(t, preMergeChallenge, "pre-merge-run", 1, "pass", 0,
+		historyTestCurrentBase64, trustedActor, base.Add(time.Hour))
+	lateChallenge := historyTestChallenge(t, "recorded-late", 44, "head-44", base.Add(118*time.Minute), trustedActor)
+	lateReceipt := historyTestEvaluation(t, lateChallenge, "recorded-late-run", 2, "fail", 1,
+		historyTestCurrentBase64, trustedActor, base.Add(119*time.Minute))
+	lateReceipt.Body = replaceTestReceipt(t, lateReceipt.Body, func(receipt *evaluationReceipt) {
+		receipt.RecordedAt = mergedAt.Add(time.Minute)
+	})
+	history, err := parseEvaluationHistory([]pullRequestComment{
+		preMergeChallenge, preMergeReceipt, lateChallenge, lateReceipt,
+	})
+	if err != nil {
+		t.Fatalf("parse merge-boundary history: %v", err)
+	}
+	if validationErr := validateEvaluationHistory(history); validationErr != nil {
+		t.Fatalf("validate merge-boundary history: %v", validationErr)
+	}
+	packet, err := historyEvaluationPacketForPR(
+		pullRequestSummary{Number: 44, MergedAt: mergedAt}, history)
+	if err != nil {
+		t.Fatalf("historyEvaluationPacketForPR: %v", err)
+	}
+	if len(packet.rounds) != 1 || packet.rounds[0].round != 1 {
+		t.Fatalf("pre-merge rounds = %#v, want only round 1", packet.rounds)
+	}
+	metrics := historyEvaluationMetricsFor([]historyEvaluationPacket{packet})
+	if metrics.totalRounds != 1 || metrics.failedRounds != 0 || metrics.blockingFindings != 0 {
+		t.Fatalf("merge-boundary metrics = %#v, want only the valid pre-merge pass", metrics)
+	}
+}
+
+func TestHistoryIgnoresUntrustedEvaluationLookalikes(t *testing.T) {
+	requested := time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
+	trustedChallenge := historyTestChallenge(t, "trusted", 50, "head", requested, trustedActor)
+	trustedReceipt := historyTestEvaluation(t, trustedChallenge, "trusted-run", 1, "pass", 0,
+		historyTestCurrentBase64, trustedActor, requested.Add(time.Minute))
+	lookalikeChallenge := historyTestChallenge(t, "lookalike", 50, "head", requested.Add(2*time.Minute), owner)
+	lookalikeReceipt := historyTestEvaluation(t, lookalikeChallenge, "lookalike-run", 2, "fail", 3,
+		historyTestCurrentBase64, owner, requested.Add(3*time.Minute))
+	comments := historyTrustedComments([]pullRequestComment{
+		lookalikeChallenge, lookalikeReceipt, trustedChallenge, trustedReceipt,
+	})
+	if len(comments) != 2 {
+		t.Fatalf("trusted history comment count = %d, want 2", len(comments))
+	}
+	history, err := parseEvaluationHistory(comments)
+	if err != nil {
+		t.Fatalf("parse filtered history: %v", err)
+	}
+	if err := validateEvaluationHistory(history); err != nil {
+		t.Fatalf("validate filtered history: %v", err)
+	}
+	if len(history.receipts) != 1 || history.receipts[0].receipt.Round != 1 {
+		t.Fatalf("filtered receipts = %#v, want only trusted round 1", history.receipts)
+	}
+}
+
+func TestHistoryHistoricalActorDoesNotAuthorizeMergePass(t *testing.T) {
+	requested := time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
+	challenge := historyTestChallenge(t, "historical", 51, "head", requested, historyLegacyTrustedActor)
+	receipt := historyTestEvaluation(t, challenge, "historical-run", 1, "pass", 0,
+		historyTestCurrentBase64, historyLegacyTrustedActor, requested.Add(time.Minute))
+	passes, err := latestEvaluationPasses(pullRequestView{
+		Comments:   []pullRequestComment{challenge, receipt},
+		HeadRefOID: "head",
+	}, 51)
+	if err == nil && passes {
+		t.Fatal("historical actor receipt authorized a merge pass")
+	}
+}
+
+func TestHistoryLegacyReceiptWithoutAttestationDoesNotClaimFindings(t *testing.T) {
+	base := time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
+	challenge := historyTestChallenge(t, "legacy-no-attestation", 52, "head", base, trustedActor)
+	receipt := historyTestNoAttestation(t, challenge, 1, "fail", base.Add(time.Minute), trustedActor)
+	history, err := parseEvaluationHistory([]pullRequestComment{challenge, receipt})
+	if err != nil {
+		t.Fatalf("parse legacy no-attestation history: %v", err)
+	}
+	if validationErr := validateEvaluationHistory(history); validationErr != nil {
+		t.Fatalf("validate legacy no-attestation history: %v", validationErr)
+	}
+	packet, err := historyEvaluationPacketForPR(
+		pullRequestSummary{Number: 52, MergedAt: base.Add(time.Hour)}, history)
+	if err != nil {
+		t.Fatalf("historyEvaluationPacketForPR: %v", err)
+	}
+	metrics := historyEvaluationMetricsFor([]historyEvaluationPacket{packet})
+	if metrics.blockingFindings != 0 || metrics.missingFindingEvidenceRounds != 1 {
+		t.Fatalf("legacy no-attestation metrics = %#v, want unknown findings", metrics)
+	}
+	var report bytes.Buffer
+	if err := renderEvaluationHistory(&report, []historyEvaluationPacket{packet}, 1); err != nil {
+		t.Fatalf("render legacy no-attestation history: %v", err)
+	}
+	if !strings.Contains(report.String(), "Blocking findings: unavailable") ||
+		strings.Contains(report.String(), "Blocking findings: 0") {
+		t.Fatalf("legacy no-attestation report claimed zero findings:\n%s", report.String())
+	}
+}
+
+func TestHistoryNoEvaluationWindowStatesAbsence(t *testing.T) {
+	window := historyWindow{
+		since: time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC),
+		until: time.Date(2026, time.August, 11, 0, 0, 0, 0, time.UTC),
+	}
+	withMergedPR := historySnapshot{
+		window: window,
+		pullRequests: []pullRequestSummary{{
+			Number: 53, CreatedAt: window.since, MergedAt: window.since.Add(time.Hour), Title: "merged",
+		}},
+	}
+	report, err := renderHistory(withMergedPR, 1)
+	if err != nil {
+		t.Fatalf("render no-evaluation merged window: %v", err)
+	}
+	if !strings.Contains(report, "- #53 merged") ||
+		!strings.Contains(report, "No validated pre-merge Examiner evaluations in this history window") {
+		t.Fatalf("no-evaluation merged window was not explicit:\n%s", report)
+	}
+	withoutMergedPR := historySnapshot{window: window}
+	report, err = renderHistory(withoutMergedPR, 1)
+	if err != nil {
+		t.Fatalf("render no-merged-PR window: %v", err)
+	}
+	if !strings.Contains(report, "## Merged pull requests\n- None") ||
+		!strings.Contains(report, "No validated pre-merge Examiner evaluations in this history window") {
+		t.Fatalf("no-merged-PR window did not distinguish evaluation absence:\n%s", report)
+	}
+}
+
+func TestHistoryRejectsMalformedTrustedLateEvidenceWithoutPartialReport(t *testing.T) {
+	base := time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
+	firstChallenge := historyTestChallenge(t, "late-round1", 54, "head", base, trustedActor)
+	firstReceipt := historyTestEvaluation(t, firstChallenge, "late-run1", 1, "pass", 0,
+		historyTestCurrentBase64, trustedActor, base.Add(time.Minute))
+	lateChallenge := historyTestChallenge(t, "late-round2", 54, "head", base.Add(2*time.Minute), trustedActor)
+	lateReceipt := historyTestEvaluation(t, lateChallenge, "late-run2", 2, "pass", 0,
+		historyTestCurrentBase64, trustedActor, base.Add(3*time.Minute))
+	lateReceipt.Body = replaceTestReceipt(t, lateReceipt.Body, func(receipt *evaluationReceipt) {
+		receipt.ReportSHA256 = strings.Repeat("0", 64)
+	})
+	comments := historyTestCommentJSON(t, []pullRequestComment{firstChallenge, firstReceipt, lateChallenge, lateReceipt})
+	var stdout bytes.Buffer
+	application := app{stdout: &stdout, executeCommand: func(_ string, _ io.Reader, name string,
+		args ...string,
+	) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		switch {
+		case command == "git rev-parse --show-toplevel":
+			return "/repo", nil
+		case strings.HasPrefix(command, "git log "):
+			return "", nil
+		case strings.HasPrefix(command, "gh pr list "):
+			return `[{
+  "number":54,
+  "title":"late evidence",
+  "createdAt":"2026-08-10T00:00:00Z",
+  "mergedAt":"2026-08-10T01:00:00Z",
+  "url":"https://example.test/54"
+}]`, nil
+		case strings.HasPrefix(command, "gh api --paginate repos/goxdra/goxsd9/issues/54/comments?per_page=100"):
+			return comments, nil
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+	err := application.runHistory([]string{
+		"--since", "2026-08-10T00:00:00Z",
+		"--until", "2026-08-11T00:00:00Z",
+		"--limit", "1",
+	})
+	if err == nil || !strings.Contains(err.Error(), "PR #54") || !strings.Contains(err.Error(), "round 2") {
+		t.Fatalf("malformed late evidence error = %v, want PR and round context", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("history wrote partial output after malformed trusted evidence:\n%s", stdout.String())
+	}
+}
+
+const (
+	historyTestCurrentBase64 = "current-base64"
+	historyTestLegacyRaw     = "legacy-raw"
+	historyTestLegacyBase64  = "legacy-base64"
+)
+
+func historyTestChallenge(t *testing.T, id string, number int, head string, requestedAt time.Time, actor string) pullRequestComment {
+	t.Helper()
+	challenge := evaluationChallenge{Challenge: id, Head: head, PR: number, RequestedAt: requestedAt}
+	marker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode history challenge: %v", err)
+	}
+	comment := pullRequestComment{
+		Body:      fmt.Sprintf("<!-- %s%s -->\n", evaluationChallengeMarker, marker),
+		CreatedAt: requestedAt,
+	}
+	comment.Author.Login = actor
+	return comment
+}
+
+func historyTestEvaluation(t *testing.T, challenge pullRequestComment, runID string, round int, verdict string,
+	findingCount int, format, actor string, recordedAt time.Time) pullRequestComment {
+	t.Helper()
+	parsedChallenge, ok := parseEvaluationChallenge(challenge.Body)
+	if !ok {
+		t.Fatal("history challenge fixture was not parseable")
+	}
+	findings := make(evaluationFindings, findingCount)
+	for index := range findings {
+		findings[index] = evaluationFinding{
+			Impact:             fmt.Sprintf("History impact %d", index+1),
+			Location:           fmt.Sprintf("history/location/%d", index+1),
+			RequiredCorrection: fmt.Sprintf("History correction %d", index+1),
+		}
+	}
+	attestation := evaluationAttestation{
+		Challenge: parsedChallenge.Challenge,
+		Evaluator: "Examiner",
+		Findings:  findings,
+		Head:      parsedChallenge.Head,
+		PR:        parsedChallenge.PR,
+		RunID:     runID,
+		Schema:    evaluationAttestationSchema,
+		Summary:   fmt.Sprintf("History %s round %d \\u001e.", verdict, round),
+		Verdict:   verdict,
+	}
+	attestationJSON, err := json.Marshal(attestation)
+	if err != nil {
+		t.Fatalf("encode history attestation: %v", err)
+	}
+	report := canonicalEvaluationReport(renderEvaluationReport(attestation))
+	receipt := evaluationReceipt{
+		AttestationSHA256: sha256Hex(attestationJSON),
+		Challenge:         attestation.Challenge,
+		Evaluator:         attestation.Evaluator,
+		EvaluatorRunID:    attestation.RunID,
+		Head:              attestation.Head,
+		PR:                attestation.PR,
+		RecordedAt:        recordedAt,
+		ReportSHA256:      sha256Hex(report),
+		Round:             round,
+		Verdict:           verdict,
+	}
+	if format == historyTestCurrentBase64 {
+		receipt.ReportTransport = evaluationReportTransportV1
+	}
+	receiptJSON, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode history receipt: %v", err)
+	}
+	body := historyTestEvaluationBody(t, receiptJSON, attestationJSON, report, format)
+	comment := pullRequestComment{Body: body, CreatedAt: recordedAt}
+	comment.Author.Login = actor
+	return comment
+}
+
+func historyTestEvaluationBody(t *testing.T, receiptJSON, attestationJSON, report []byte, format string) string {
+	t.Helper()
+	receiptMarker := fmt.Sprintf("<!-- %s%s -->\n", evaluationMarker, receiptJSON)
+	reportText := fmt.Sprintf("%s%s\n", evaluationReceiptHeading, report)
+	switch format {
+	case historyTestCurrentBase64:
+		return evaluationComment(receiptJSON, attestationJSON, string(report))
+	case historyTestLegacyRaw:
+		return receiptMarker + fmt.Sprintf("<!-- %s%s -->\n", evaluationAttestationMarker, attestationJSON) + reportText
+	case historyTestLegacyBase64:
+		encoded := base64.StdEncoding.EncodeToString(attestationJSON)
+		return receiptMarker + fmt.Sprintf("<!-- %s%s -->\n", evaluationAttestationBase64Marker, encoded) + reportText
+	default:
+		t.Fatalf("unknown history evaluation fixture format %q", format)
+		return ""
+	}
+}
+
+func historyTestNoAttestation(t *testing.T, challenge pullRequestComment, round int, verdict string,
+	recordedAt time.Time, actor string) pullRequestComment {
+	t.Helper()
+	parsedChallenge, ok := parseEvaluationChallenge(challenge.Body)
+	if !ok {
+		t.Fatal("history no-attestation challenge fixture was not parseable")
+	}
+	report := canonicalEvaluationReport(strings.ToUpper(verdict) + " legacy report")
+	receipt := evaluationReceipt{
+		Evaluator:    "Examiner",
+		Head:         parsedChallenge.Head,
+		RecordedAt:   recordedAt,
+		ReportSHA256: sha256Hex(report),
+		Round:        round,
+		Verdict:      verdict,
+	}
+	receiptJSON, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode history no-attestation receipt: %v", err)
+	}
+	body := fmt.Sprintf("<!-- %s%s -->\n%s%s\n", evaluationMarker, receiptJSON, evaluationReceiptHeading, report)
+	comment := pullRequestComment{Body: body, CreatedAt: recordedAt}
+	comment.Author.Login = actor
+	return comment
+}
+
+func historyTestRepair(t *testing.T, body string, createdAt time.Time) pullRequestComment {
+	t.Helper()
+	apiComment := testRepairComment(t, body, nil)
+	comment := pullRequestComment{
+		Body:      apiComment.Body,
+		CreatedAt: createdAt,
+	}
+	comment.Author.Login = apiComment.User.Login
+	return comment
+}
+
+func historyTestCommentJSON(t *testing.T, comments []pullRequestComment) string {
+	t.Helper()
+	responses := make([]issueCommentAPI, 0, len(comments))
+	for _, comment := range comments {
+		response := issueCommentAPI{Body: comment.Body, CreatedAt: comment.CreatedAt}
+		response.User.Login = comment.Author.Login
+		responses = append(responses, response)
+	}
+	data, err := json.Marshal(responses)
+	if err != nil {
+		t.Fatalf("encode history comments: %v", err)
+	}
+	return string(data)
 }
 
 func equalInts(left, right []int) bool {
