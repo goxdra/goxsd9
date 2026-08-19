@@ -555,7 +555,8 @@ func makeSyntaxBinding(prefix, namespace string, bindings []syntaxBinding, loc L
 			)
 		}
 	}
-	if prefix == "xmlns" || (prefix == "xml" && namespace != xmlNamespaceURI) {
+	if prefix == "xmlns" || (prefix == "xml" && namespace != xmlNamespaceURI) ||
+		(namespace == xmlNamespaceURI && prefix != "xml") {
 		return syntaxBinding{}, newDiagnostic(
 			FailureInvalid,
 			InvalidXMLSyntaxCode,

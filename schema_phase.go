@@ -83,6 +83,9 @@ func evaluateSchemaConditional(element *syntaxElement) (schemaConditionalState, 
 	if err := applySchemaConditionalVersion(element, &evaluation); err != nil {
 		return schemaConditionalState{}, err
 	}
+	if !evaluation.include {
+		return evaluation.schemaConditionalState, nil
+	}
 	if evaluation.unsupported {
 		return schemaConditionalAvailabilityUnsupported(evaluation.unsupportedAt)
 	}
@@ -386,10 +389,21 @@ func validateSchemaQualifiedAttribute(attribute syntaxAttribute, owner string) e
 	if attribute.name.namespace == xsdNamespaceURI {
 		return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("%s has forbidden attribute %q", owner, attribute.name.local))
 	}
-	if attribute.name.namespace == xmlNamespaceURI && attribute.name.local == "lang" {
-		return validateXMLLanguage(attribute)
+	if attribute.name.namespace == xmlNamespaceURI {
+		return validateSchemaXMLAttribute(attribute)
 	}
 	return nil
+}
+
+func validateSchemaXMLAttribute(attribute syntaxAttribute) error {
+	switch attribute.name.local {
+	case "lang":
+		return validateXMLLanguage(attribute)
+	case "base":
+		return validateSchemaAnyURI(attribute)
+	default:
+		return nil
+	}
 }
 
 //nolint:gocognit // Root attributes have distinct lexical and support outcomes.
@@ -602,8 +616,8 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		if attribute.name.namespace == xsdNamespaceURI {
 			return "", newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("global declaration has forbidden attribute %q", attribute.name.local))
 		}
-		if attribute.name.namespace == xmlNamespaceURI && attribute.name.local == "lang" {
-			return "", validateXMLLanguage(attribute)
+		if attribute.name.namespace == xmlNamespaceURI {
+			return "", validateSchemaXMLAttribute(attribute)
 		}
 		return "", nil
 	}
@@ -952,13 +966,14 @@ func validateSimpleTypeGlobalChildren(parent *syntaxElement, children []*syntaxE
 	return candidate.err()
 }
 
-//nolint:gocognit // Keep mutually-exclusive complexType grammar branches explicit.
+//nolint:gocognit,funlen // Keep mutually-exclusive complexType grammar branches explicit.
 func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntaxElement) error {
 	annotationSeen := false
 	contentSeen := false
 	specialSeen := false
 	openContentSeen := false
 	modelSeen := false
+	attributesSeen := false
 	anyAttributeSeen := false
 	assertSeen := false
 	var candidate schemaChildUnsupportedCandidate
@@ -972,19 +987,19 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 		}
 		switch child.name.local {
 		case "simpleContent", "complexContent":
-			if specialSeen || openContentSeen || modelSeen || anyAttributeSeen || assertSeen {
+			if specialSeen || openContentSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "complexType content model is mutually exclusive")
 			}
 			specialSeen = true
 			candidate.consider(child, parent.name.local)
 		case "openContent":
-			if specialSeen || openContentSeen || modelSeen || anyAttributeSeen || assertSeen {
+			if specialSeen || openContentSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "complexType openContent must precede the model and attributes")
 			}
 			openContentSeen = true
 			candidate.consider(child, parent.name.local)
 		case "group", "all", "choice", "sequence":
-			if specialSeen || modelSeen || anyAttributeSeen || assertSeen {
+			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
 			}
 			modelSeen = true
@@ -993,6 +1008,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			if specialSeen || anyAttributeSeen || assertSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "complexType attributes must follow the model and precede anyAttribute/assert")
 			}
+			attributesSeen = true
 			candidate.consider(child, parent.name.local)
 		case "anyAttribute":
 			if specialSeen || anyAttributeSeen || assertSeen {

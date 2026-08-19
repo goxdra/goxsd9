@@ -311,8 +311,8 @@ func validateSchemaReferenceAttribute(attribute syntaxAttribute, kind syntaxRefe
 				fmt.Sprintf("schema composition has forbidden XSD attribute %q", attribute.name.local),
 			)
 		}
-		if attribute.name.namespace == xmlNamespaceURI && attribute.name.local == "lang" {
-			return validateXMLLanguage(attribute)
+		if attribute.name.namespace == xmlNamespaceURI {
+			return validateSchemaXMLAttribute(attribute)
 		}
 		return nil
 	}
@@ -323,10 +323,10 @@ func validateSchemaReferenceAttribute(attribute syntaxAttribute, kind syntaxRefe
 		return nil
 	}
 	if attribute.name.local == "schemaLocation" {
-		return nil
+		return validateSchemaAnyURI(attribute)
 	}
 	if attribute.name.local == "namespace" && kind == syntaxReferenceImport {
-		return nil
+		return validateSchemaAnyURI(attribute)
 	}
 	return newSchemaCompositionDiagnostic(
 		attribute.loc,
@@ -455,8 +455,8 @@ func validateSchemaAnnotationAttribute(element string, attribute syntaxAttribute
 				fmt.Sprintf("schema annotation has forbidden XSD attribute %q", attribute.name.local),
 			)
 		}
-		if attribute.name.namespace == xmlNamespaceURI && attribute.name.local == "lang" {
-			return validateXMLLanguage(attribute)
+		if attribute.name.namespace == xmlNamespaceURI {
+			return validateSchemaXMLAttribute(attribute)
 		}
 		return nil
 	}
@@ -465,6 +465,9 @@ func validateSchemaAnnotationAttribute(element string, attribute syntaxAttribute
 			attribute.loc,
 			fmt.Sprintf("schema %s has forbidden unqualified attribute %q", element, attribute.name.local),
 		)
+	}
+	if attribute.name.local == "source" {
+		return validateSchemaAnyURI(attribute)
 	}
 	if attribute.name.local == "id" && !validNCName(collapseXMLWhitespace(attribute.value)) {
 		return newSchemaCompositionDiagnostic(attribute.loc, "schema annotation id must be a valid NCName")
