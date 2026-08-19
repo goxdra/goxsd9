@@ -15,6 +15,8 @@ import (
 
 const historyCollectionLimit = 1000
 
+const historyLegacyTrustedActor = "kud360"
+
 type pullRequestSummary struct {
 	CreatedAt time.Time `json:"createdAt"`
 	MergedAt  time.Time `json:"mergedAt"`
@@ -47,7 +49,31 @@ type historySnapshot struct {
 	commits       []string
 	documentation []documentationChurn
 	pullRequests  []pullRequestSummary
+	evaluations   []historyEvaluationPacket
 	issues        []issueSummary
+}
+
+type historyEvaluationPacket struct {
+	number int
+	rounds []historyEvaluationRound
+}
+
+type historyEvaluationRound struct {
+	round            int
+	verdict          string
+	blockingFindings int
+	findingEvidence  bool
+}
+
+type historyEvaluationMetrics struct {
+	evaluatedPackets             int
+	firstPassPackets             int
+	remediatedPackets            int
+	finalPasses                  int
+	totalRounds                  int
+	failedRounds                 int
+	blockingFindings             int
+	missingFindingEvidenceRounds int
 }
 
 func (a app) runHistory(args []string) error {
@@ -115,6 +141,10 @@ func (a app) collectHistory(root string, window historyWindow) (historySnapshot,
 	if err != nil {
 		return historySnapshot{}, err
 	}
+	evaluations, err := a.collectHistoryEvaluations(root, pullRequests)
+	if err != nil {
+		return historySnapshot{}, fmt.Errorf("collect Examiner evaluation history: %w", err)
+	}
 	issues, err := a.collectIssueHistory(root, window)
 	if err != nil {
 		return historySnapshot{}, err
@@ -124,8 +154,164 @@ func (a app) collectHistory(root string, window historyWindow) (historySnapshot,
 		commits:       commits,
 		documentation: documentation,
 		pullRequests:  pullRequests,
+		evaluations:   evaluations,
 		issues:        issues,
 	}, nil
+}
+
+func (a app) collectHistoryEvaluations(root string, pullRequests []pullRequestSummary) ([]historyEvaluationPacket, error) {
+	packets := make([]historyEvaluationPacket, 0, len(pullRequests))
+	for _, pullRequest := range pullRequests {
+		comments, err := a.readPullRequestComments(root, pullRequest.Number)
+		if err != nil {
+			return nil, fmt.Errorf("PR #%d: %w", pullRequest.Number, err)
+		}
+		history, err := parseEvaluationHistory(historyTrustedComments(comments))
+		if err != nil {
+			return nil, decorateHistoryEvaluationParseError(pullRequest.Number, err)
+		}
+		if validationErr := validateEvaluationHistory(history); validationErr != nil {
+			return nil, decorateHistoryEvaluationValidationError(pullRequest.Number, history, validationErr)
+		}
+		packet, err := historyEvaluationPacketForPR(pullRequest, history)
+		if err != nil {
+			return nil, err
+		}
+		if len(packet.rounds) == 0 {
+			continue
+		}
+		packets = append(packets, packet)
+	}
+	return packets, nil
+}
+
+func historyTrustedComments(comments []pullRequestComment) []pullRequestComment {
+	trusted := make([]pullRequestComment, 0, len(comments))
+	for _, comment := range comments {
+		if comment.Author.Login == trustedActor {
+			trusted = append(trusted, comment)
+			continue
+		}
+		if comment.Author.Login != historyLegacyTrustedActor {
+			continue
+		}
+		comment.Author.Login = trustedActor
+		trusted = append(trusted, comment)
+	}
+	return trusted
+}
+
+func decorateHistoryEvaluationParseError(number int, err error) error {
+	return fmt.Errorf("PR #%d evaluation history (round unavailable): %w", number, err)
+}
+
+func decorateHistoryEvaluationValidationError(number int, history evaluationHistory, err error) error {
+	if round, found := invalidHistoryEvaluationRound(history); found {
+		return fmt.Errorf("PR #%d evaluation round %d: %w", number, round, err)
+	}
+	return fmt.Errorf("PR #%d evaluation history (round unavailable): %w", number, err)
+}
+
+func invalidHistoryEvaluationRound(history evaluationHistory) (int, bool) {
+	seenRounds := make(map[int]struct{}, len(history.receipts))
+	seenChallenges := make(map[string]struct{}, len(history.receipts))
+	seenRunIDs := make(map[string]struct{}, len(history.receipts))
+	for _, record := range history.receipts {
+		if round, found := invalidHistoryReceiptRound(history, record, seenRounds, seenChallenges, seenRunIDs); found {
+			return round, true
+		}
+	}
+	for _, repair := range history.repairs {
+		if round, found := invalidHistoryRepairRound(history, repair); found {
+			return round, true
+		}
+	}
+	return 0, false
+}
+
+func invalidHistoryReceiptRound(history evaluationHistory, record evaluationReceiptRecord,
+	seenRounds map[int]struct{}, seenChallenges, seenRunIDs map[string]struct{}) (int, bool) {
+	receipt := record.receipt
+	if _, seen := seenRounds[receipt.Round]; seen {
+		return receipt.Round, true
+	}
+	seenRounds[receipt.Round] = struct{}{}
+	if err := recordEvaluationIdentifier(seenChallenges, "challenge", receipt.Challenge); err != nil {
+		return receipt.Round, true
+	}
+	if err := recordEvaluationIdentifier(seenRunIDs, "examiner run ID", receipt.EvaluatorRunID); err != nil {
+		return receipt.Round, true
+	}
+	if err := validateEvaluationReceiptChallenge(history, record); err != nil {
+		return receipt.Round, true
+	}
+	if !evaluationReceiptMatchesRecord(record, history.repairs) {
+		return receipt.Round, true
+	}
+	return 0, false
+}
+
+func invalidHistoryRepairRound(history evaluationHistory, repair evaluationRepairRecord) (int, bool) {
+	if !evaluationRepairCommentIsValid(repair.comment) {
+		return repair.repair.Round, true
+	}
+	matches := 0
+	for _, record := range history.receipts {
+		if evaluationRepairMatchesRecord(record, repair) {
+			matches++
+		}
+	}
+	if matches != 1 {
+		return repair.repair.Round, true
+	}
+	return 0, false
+}
+
+func historyEvaluationPacketForPR(pullRequest pullRequestSummary, history evaluationHistory) (historyEvaluationPacket, error) {
+	packet := historyEvaluationPacket{number: pullRequest.Number}
+	for _, record := range history.receipts {
+		round, include, err := historyEvaluationRoundForPR(pullRequest, record)
+		if err != nil {
+			return historyEvaluationPacket{}, err
+		}
+		if !include {
+			continue
+		}
+		packet.rounds = append(packet.rounds, round)
+	}
+	return packet, nil
+}
+
+func historyEvaluationRoundForPR(pullRequest pullRequestSummary, record evaluationReceiptRecord) (
+	historyEvaluationRound, bool, error) {
+	if record.comment.CreatedAt.IsZero() {
+		return historyEvaluationRound{}, false, fmt.Errorf("PR #%d evaluation round %d has missing comment timestamp",
+			pullRequest.Number, record.receipt.Round)
+	}
+	if record.comment.CreatedAt.After(pullRequest.MergedAt) {
+		return historyEvaluationRound{}, false, nil
+	}
+	if record.receipt.RecordedAt.After(pullRequest.MergedAt) {
+		return historyEvaluationRound{}, false, nil
+	}
+	if record.receipt.PR != 0 && record.receipt.PR != pullRequest.Number {
+		return historyEvaluationRound{}, false, fmt.Errorf("PR #%d evaluation round %d targets PR #%d",
+			pullRequest.Number, record.receipt.Round, record.receipt.PR)
+	}
+	round := historyEvaluationRound{round: record.receipt.Round, verdict: record.receipt.Verdict}
+	if record.receipt.AttestationSHA256 == "" {
+		return round, true, nil
+	}
+	attestation, _, _, ok := receiptAttestation(record)
+	if !ok {
+		return historyEvaluationRound{}, false, fmt.Errorf("PR #%d evaluation round %d has invalid attestation evidence",
+			pullRequest.Number, record.receipt.Round)
+	}
+	round.findingEvidence = true
+	if record.receipt.Verdict == "fail" {
+		round.blockingFindings = len(attestation.Findings)
+	}
+	return round, true, nil
 }
 
 func (a app) collectGitCandidates(root string, window historyWindow) ([]gitHistoryCandidate, error) {
@@ -305,6 +491,9 @@ func renderHistory(snapshot historySnapshot, limit int) (string, error) {
 	if err := renderPRHistory(&report, snapshot.pullRequests, limit); err != nil {
 		return "", fmt.Errorf("render pull request history: %w", err)
 	}
+	if err := renderEvaluationHistory(&report, snapshot.evaluations, limit); err != nil {
+		return "", fmt.Errorf("render Examiner evaluation history: %w", err)
+	}
 	if err := renderIssueHistory(&report, snapshot.issues, limit); err != nil {
 		return "", fmt.Errorf("render issue history: %w", err)
 	}
@@ -361,6 +550,133 @@ func renderLeadTime(w io.Writer, items []pullRequestSummary) error {
 	}
 	return writeLine(w, "Lead time (PR open to merge): count=%d median=%s; even counts use the arithmetic mean of the two middle durations, truncated to nanoseconds.",
 		len(items), median)
+}
+
+func renderEvaluationHistory(w io.Writer, packets []historyEvaluationPacket, limit int) error {
+	if err := writeLine(w, "\n## Examiner evaluations"); err != nil {
+		return err
+	}
+	if len(packets) == 0 {
+		return writeLine(w, "- No validated pre-merge Examiner evaluations in this history window")
+	}
+	metrics := historyEvaluationMetricsFor(packets)
+	if err := renderHistoryEvaluationMetrics(w, metrics); err != nil {
+		return err
+	}
+	return renderHistoryEvaluationDetails(w, packets, limit)
+}
+
+func renderHistoryEvaluationMetrics(w io.Writer, metrics historyEvaluationMetrics) error {
+	if err := writeLine(w, "- Evaluated packets: %d", metrics.evaluatedPackets); err != nil {
+		return err
+	}
+	if err := writeLine(w, "- First-pass packets: %d", metrics.firstPassPackets); err != nil {
+		return err
+	}
+	if err := writeLine(w, "- Remediated packets: %d", metrics.remediatedPackets); err != nil {
+		return err
+	}
+	if err := writeLine(w, "- Final passes: %d", metrics.finalPasses); err != nil {
+		return err
+	}
+	if err := writeLine(w, "- Total rounds: %d", metrics.totalRounds); err != nil {
+		return err
+	}
+	if err := writeLine(w, "- Failed rounds: %d", metrics.failedRounds); err != nil {
+		return err
+	}
+	return renderHistoryEvaluationFindings(w, metrics)
+}
+
+func renderHistoryEvaluationFindings(w io.Writer, metrics historyEvaluationMetrics) error {
+	if metrics.missingFindingEvidenceRounds == 0 {
+		return writeLine(w, "- Blocking findings: %d", metrics.blockingFindings)
+	}
+	return writeLine(w, "- Blocking findings: unavailable (validated attested findings=%d; %d receipt(s) have no attestation findings payload)",
+		metrics.blockingFindings, metrics.missingFindingEvidenceRounds)
+}
+
+func renderHistoryEvaluationDetails(w io.Writer, packets []historyEvaluationPacket, limit int) error {
+	if err := writeLine(w, "- Detail:"); err != nil {
+		return err
+	}
+	count := minHistoryEntries(len(packets), limit)
+	for _, packet := range packets[:count] {
+		rounds := append([]historyEvaluationRound(nil), packet.rounds...)
+		sort.Slice(rounds, func(left, right int) bool {
+			return rounds[left].round < rounds[right].round
+		})
+		parts := make([]string, 0, len(rounds))
+		for _, round := range rounds {
+			parts = append(parts, formatHistoryEvaluationRound(round))
+		}
+		if err := writeLine(w, "  - #%d: %s", packet.number, strings.Join(parts, "; ")); err != nil {
+			return err
+		}
+	}
+	return renderOmitted(w, len(packets)-count, "evaluated packet", limit)
+}
+
+func historyEvaluationMetricsFor(packets []historyEvaluationPacket) historyEvaluationMetrics {
+	var metrics historyEvaluationMetrics
+	for _, packet := range packets {
+		packetMetrics := historyEvaluationMetricsForPacket(packet)
+		metrics.evaluatedPackets += packetMetrics.evaluatedPackets
+		metrics.firstPassPackets += packetMetrics.firstPassPackets
+		metrics.remediatedPackets += packetMetrics.remediatedPackets
+		metrics.finalPasses += packetMetrics.finalPasses
+		metrics.totalRounds += packetMetrics.totalRounds
+		metrics.failedRounds += packetMetrics.failedRounds
+		metrics.blockingFindings += packetMetrics.blockingFindings
+		metrics.missingFindingEvidenceRounds += packetMetrics.missingFindingEvidenceRounds
+	}
+	return metrics
+}
+
+func historyEvaluationMetricsForPacket(packet historyEvaluationPacket) historyEvaluationMetrics {
+	if len(packet.rounds) == 0 {
+		return historyEvaluationMetrics{}
+	}
+	metrics := historyEvaluationMetrics{evaluatedPackets: 1}
+	first := packet.rounds[0]
+	if first.verdict == "pass" {
+		metrics.firstPassPackets = 1
+	}
+	latest := packet.rounds[len(packet.rounds)-1]
+	if latest.verdict == "pass" {
+		metrics.finalPasses = 1
+	}
+	failedBeforeFinal := false
+	for index, round := range packet.rounds {
+		metrics.totalRounds++
+		if !round.findingEvidence {
+			metrics.missingFindingEvidenceRounds++
+		}
+		if round.verdict != "fail" {
+			continue
+		}
+		metrics.failedRounds++
+		if round.findingEvidence {
+			metrics.blockingFindings += round.blockingFindings
+		}
+		if index < len(packet.rounds)-1 {
+			failedBeforeFinal = true
+		}
+	}
+	if latest.verdict == "pass" && failedBeforeFinal {
+		metrics.remediatedPackets = 1
+	}
+	return metrics
+}
+
+func formatHistoryEvaluationRound(round historyEvaluationRound) string {
+	if round.verdict == "fail" {
+		if round.findingEvidence {
+			return fmt.Sprintf("round %d fail (%d blocking findings)", round.round, round.blockingFindings)
+		}
+		return fmt.Sprintf("round %d fail (findings unavailable)", round.round)
+	}
+	return fmt.Sprintf("round %d %s", round.round, round.verdict)
 }
 
 func medianLeadTime(items []pullRequestSummary) (time.Duration, bool) {
