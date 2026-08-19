@@ -51,29 +51,15 @@ The IDs, URLs, SHA-256 digests, versions, dependencies, representations, and
 alias above are pinned in [`specs/manifest.json`](../../specs/manifest.json);
 the plan tests assert the real graph and order from that file.
 
-## Minimal kernel and phases
+## Kernel boundary
 
-The current kernel is the deliberately narrow implementation already present
-in [`syntax.go`](../../syntax.go), [`discovery.go`](../../discovery.go),
-[`schema_phase.go`](../../schema_phase.go), [`schema_build.go`](../../schema_build.go),
-and [`schema.go`](../../schema.go):
-
-- namespace-aware XML syntax nodes retain lexical order, QName namespace
-  scopes, and source locations;
-- schema roots, includes/imports, annotations, documentation/appinfo, and the
-  global declaration vocabulary (element, attribute, simpleType, complexType,
-  group, attributeGroup, and notation) have explicit syntax or phase
-  representations;
-- sequential discovery validates composition edges, and the declaration
-  phase allocates ordered immutable schema components with copied observable
-  slices.
-
-The syntax table recognizes additional XSD names so unsupported constructs can
-receive located diagnostics, but recognition is not implementation. In
-particular, the current code does not claim complete support for XSD 1.0 or
-1.1 schema-for-schemas documents, including XSD 1.1 assertions, override,
-default open content, and related content-model behavior. Completed schema
-components remain immutable; this packet adds no mutation or backpatching.
+The syntax, discovery, declaration, location, ordering, and immutable-component
+invariants are canonical in [ARCHITECTURE.md](../../ARCHITECTURE.md). This
+decision does not duplicate those implementation details or add syntax-phase
+support. [`BootstrapPlan`](../../internal/specs/bootstrap.go) operates on
+manifest records and verified corpus representations; it does not mutate or
+backpatch completed schema components. [`GenerateBootstrap`](../../internal/specs/bootstrap.go)
+does not claim complete parsing of either schema-for-schemas document.
 
 ## Regeneration boundary and deferred breadth
 
@@ -91,16 +77,16 @@ The reproducible path is:
    regenerates both version fixtures twice, checks every generated data slice
    byte-for-byte, and exercises both XML and `html-cdata-pre` input.
 
-Evidence-backed in this packet: manifest selection, prerequisite closure,
-cycle/missing/out-of-version diagnostics, copied plan entries, raw digest and
-representation handling through the existing generator, no-partial-output
-failure behavior, and byte-identical repeated fixture generation.
+The implementation and focused tests support manifest selection, prerequisite
+closure, cycle/missing/out-of-version diagnostics, copied plan entries, raw
+digest and representation handling through the existing generator, no-partial-
+output failure behavior, and byte-identical repeated fixture generation.
 
 Explicit prerequisites are the two version-specific datatype artifacts and
 the shared `xml-schema` artifact listed by each entry in the manifest. The
-datatype prerequisite is a manifest planning dependency; it is not invented
-as an XML include/import edge. Deferred conformance work includes parsing the
-full pinned documents, QName/reference resolution, derivation, substitution,
-assertions, override/default-open-content semantics, complete particles and
-content models, and full XSD 1.0/1.1 conformance. Those remain explicit future
-work rather than silently accepted behavior.
+datatype prerequisite is a manifest planning dependency; it is not an XML
+include/import edge. Outside this boundary are parsing the full pinned
+documents, QName/reference resolution, derivation, substitution, assertions,
+override/default-open-content semantics, complete particles and content
+models, and full XSD 1.0/1.1 conformance. The implementation does not silently
+accept those behaviors as supported.
