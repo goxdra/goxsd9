@@ -1152,6 +1152,11 @@ func TestSchemaBridgeEnforcesGlobalChildModels(t *testing.T) {
 			class: FailureUnsupported,
 		},
 		{
+			name:  "simple type name is required before unsupported child",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
 			name:  "group model is unsupported after grammar validation",
 			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:group name="item"><xs:sequence/></xs:group></xs:schema>`,
 			class: FailureUnsupported,
