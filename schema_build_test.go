@@ -807,6 +807,167 @@ func TestSchemaBridgeAcceptsForeignRootAndGlobalAttributes(t *testing.T) {
 	}
 }
 
+//nolint:gocognit,funlen // Keep the direct grammar and attribute matrix explicit.
+func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
+	tests := []struct {
+		name    string
+		root    string
+		class   FailureClass
+		feature FeatureID
+		code    string
+	}{
+		{
+			name:    "unknown XSD root child is unsupported",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:unknown/></xs:schema>`,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "known forbidden root child is invalid",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:sequence/></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "empty target namespace is located",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace=" 	"/>`,
+			class: FailureInvalid,
+			code:  invalidSchemaTargetNamespaceCode,
+		},
+		{
+			name:  "invalid root name is rejected",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" name="bad:name"/>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "invalid root id is rejected",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" id="bad:id"/>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "recognized root attribute is unsupported",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" attributeFormDefault="qualified"/>`,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "default open content is unsupported",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:defaultOpenContent/></xs:schema>`,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "attribute default is unsupported",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="item" default="value"/></xs:schema>`,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "attribute unknown is invalid",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="item" bogus="value"/></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "simple type final is unsupported",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item" final="#all"/></xs:schema>`,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "complex type mixed is unsupported",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item" mixed="true"/></xs:schema>`,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "complex type unknown is invalid",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item" bogus="true"/></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "group reference is structurally forbidden",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:group name="item" ref="xs:group"/></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "attribute group reference is structurally forbidden",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attributeGroup name="item" ref="xs:group"/></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "notation public is unsupported",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item" public="public"/></xs:schema>`,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "element sequence is structurally forbidden",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item"><xs:sequence/></xs:element></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "complex type sequence is unsupported",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item"><xs:sequence/></xs:complexType></xs:schema>`,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "unknown global child is unsupported",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item"><xs:unknown/></xs:element></xs:schema>`,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "notation element is structurally forbidden",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item"><xs:element/></xs:notation></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted invalid or unsupported direct syntax")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class {
+				t.Fatalf("diagnostic class = %q, want %q", diagnostic.Class(), test.class)
+			}
+			if test.feature != "" && diagnostic.Feature() != test.feature {
+				t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), test.feature)
+			}
+			if test.code != "" && diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code(), test.code)
+			}
+			if diagnostic.Loc().Source() != "root.xsd" {
+				t.Fatalf("diagnostic source = %q, want root.xsd", diagnostic.Loc().Source())
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeAcceptsInertRootMetadata(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" id="schema-id" name="schema-name" version="" xml:lang="en-419"/>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	if got := len(schema.Components()); got != 0 {
+		t.Fatalf("component count = %d, want 0", got)
+	}
+}
+
 func discoverTestSchema(t *testing.T, rootContents string, fixtures map[string]discoveryFixture) (Schema, error) {
 	t.Helper()
 	root, err := NewResolvedSource(context.Background(), "root.xsd", &discoveryReader{data: []byte(rootContents)})
