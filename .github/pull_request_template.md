@@ -18,6 +18,14 @@
 
 <!-- List exact deterministic commands and results. -->
 
+### Development signals
+
+<!-- For parser/datatype changes, include `go tool workflowctl develop-signals --base BASE_SHA --format json` evidence for exact computed
+     affected/repository deltas, selected-target evidence, and bounded fuzz results.
+     Request checked-in corpus replay evidence separately,
+     or record no-relevant-target. These are engineering-health signals, not
+     XSD conformance. Explain affected package regressions with exact computed base/head evidence. -->
+
 ## Conformance and documentation
 
 <!-- Record affected feature IDs, tests unlocked, exact docs audit, and current docs changed. -->

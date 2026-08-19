@@ -25,6 +25,8 @@ type app struct {
 	fuzzMakeTempDir                 func(pattern string) (string, error)
 	fuzzCopyWorktree                func(source, destination string) error
 	fuzzRemoveAll                   func(path string) error
+	buildCoverageReport             func(root, base string) (coverageReport, error)
+	coverageChangedPaths            func(root, base, head string) (map[string]bool, error)
 	skillEvalGraderAgent            skillEvalAgent
 	skillEvalProcessStart           skillEvalProcessStarter
 	skillEvalSubjectAgent           skillEvalAgent
@@ -70,6 +72,8 @@ func (a app) run(args []string) error {
 		return a.runClaim(args[1:])
 	case "coverage":
 		return a.runCoverage(args[1:])
+	case "develop-signals":
+		return a.runDevelopmentSignals(args[1:])
 	case "docs":
 		return a.runDocs(args[1:])
 	case "doctor":
@@ -115,6 +119,7 @@ Usage:
   go tool workflowctl claim renew
   go tool workflowctl claim verify
   go tool workflowctl coverage --base REF [--format text|json]
+  go tool workflowctl develop-signals --base REF [--duration DURATION] [--coverage-explanation-file FILE] [--format text|json]
   go tool workflowctl backlog health
   go tool workflowctl issue create [flags]
   go tool workflowctl handoff ISSUE --body-file FILE

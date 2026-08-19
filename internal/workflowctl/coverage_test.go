@@ -199,6 +199,7 @@ func TestRunCoverageRejectsInvalidBaseBeforeTests(t *testing.T) {
 func TestRunCoverageReturnsTestAndCleanupFailures(t *testing.T) {
 	var calls []string
 	var stdout bytes.Buffer
+	var baseRoot string
 	application := app{
 		ctx:    context.Background(),
 		stdout: &stdout,
@@ -217,7 +218,12 @@ func TestRunCoverageReturnsTestAndCleanupFailures(t *testing.T) {
 			case strings.HasPrefix(command, "git diff --name-only"):
 				return "", nil
 			case strings.HasPrefix(command, "git worktree add "):
+				baseRoot = strings.Fields(command)[5]
 				return "", nil
+			case command == "git submodule update --init --recursive":
+				return "", nil
+			case command == "git worktree list --porcelain":
+				return fmt.Sprintf("worktree %s\nHEAD base-sha\n", baseRoot), nil
 			case strings.HasPrefix(command, "git worktree remove "):
 				return "", errors.New("cleanup failed")
 			default:
@@ -248,6 +254,226 @@ func TestRunCoverageReturnsTestAndCleanupFailures(t *testing.T) {
 	if !containsCoverageCall(calls, "git worktree remove") {
 		t.Fatalf("cleanup was not attempted: %#v", calls)
 	}
+}
+
+func TestRunCoverageInitializesBaseSubmodulesBeforeTests(t *testing.T) {
+	var calls []string
+	var baseRoot string
+	application := app{
+		ctx: context.Background(),
+		executeCommand: func(dir string, _ io.Reader, name string, args ...string) (string, error) {
+			command := name + " " + strings.Join(args, " ")
+			calls = append(calls, command)
+			switch {
+			case command == "git rev-parse --show-toplevel":
+				return "/repo", nil
+			case command == "git status --porcelain":
+				return "", nil
+			case command == "git rev-parse --verify --end-of-options base^{commit}":
+				return "base-sha", nil
+			case command == "git rev-parse --verify --end-of-options HEAD^{commit}":
+				return "head-sha", nil
+			case strings.HasPrefix(command, "git diff --name-only"):
+				return "", nil
+			case strings.HasPrefix(command, "git worktree add "):
+				baseRoot = strings.Fields(command)[5]
+				return "", nil
+			case command == "git submodule update --init --recursive":
+				return "", nil
+			case command == "git worktree list --porcelain":
+				return fmt.Sprintf("worktree %s\nHEAD base-sha\n", baseRoot), nil
+			case strings.HasPrefix(command, "git worktree remove "):
+				return "", nil
+			default:
+				return "", fmt.Errorf("unexpected git command in %s: %s", dir, command)
+			}
+		},
+		executeCommandWithEnv: func(dir string, _ []string, _ io.Reader, name string, args ...string) (string, error) {
+			calls = append(calls, name+" "+strings.Join(args, " "))
+			if len(args) == 0 || args[0] != "list" {
+				return "", fmt.Errorf("unexpected Go command: %s", strings.Join(args, " "))
+			}
+			return fmt.Sprintf("{\"Dir\":%q,\"ImportPath\":\"example.com/mod\"}\n", dir), nil
+		},
+	}
+	if err := application.runCoverage([]string{"--base", "base"}); err == nil {
+		t.Fatal("coverage unexpectedly succeeded without a coverage profile")
+	}
+
+	addIndex := coverageCallIndex(calls, "git worktree add ")
+	updateIndex := coverageCallIndex(calls, "git submodule update --init --recursive")
+	removeIndex := coverageCallIndex(calls, "git worktree remove ")
+	if addIndex < 0 || updateIndex < 0 || removeIndex < 0 || addIndex >= updateIndex || updateIndex >= removeIndex {
+		t.Fatalf("base worktree lifecycle = %#v", calls)
+	}
+}
+
+type partialCoverageCase struct {
+	name       string
+	inventory  func(string) string
+	removeErr  error
+	wantRemove bool
+}
+
+func TestRunCoverageCleansPartialAddRegistration(t *testing.T) {
+	cleanupFailure := errors.New("partial cleanup failed")
+	tests := []partialCoverageCase{
+		{
+			name: "exact registration cleanup succeeds",
+			inventory: func(path string) string {
+				return fmt.Sprintf("worktree %s%c.\nHEAD base-sha\nprunable stale registration\n", path, filepath.Separator)
+			},
+			wantRemove: true,
+		},
+		{
+			name: "exact registration cleanup preserves failure",
+			inventory: func(path string) string {
+				return fmt.Sprintf("worktree %s%c.\nHEAD base-sha\nprunable stale registration\n", path, filepath.Separator)
+			},
+			removeErr:  cleanupFailure,
+			wantRemove: true,
+		},
+		{
+			name: "unregistered similar paths stay untouched",
+			inventory: func(path string) string {
+				return fmt.Sprintf("worktree %s-similar\nHEAD similar-sha\n\nworktree %s-unrelated\nHEAD unrelated-sha\n", path, path)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertPartialCoverageCleanup(t, test)
+		})
+	}
+}
+
+func assertPartialCoverageCleanup(t *testing.T, test partialCoverageCase) {
+	t.Helper()
+	result := runCoverageWithPartialAdd(t, test.inventory, test.removeErr)
+	if result.err == nil || !errors.Is(result.err, result.setupErr) {
+		t.Fatalf("partial add error = %v, want setup cause %v", result.err, result.setupErr)
+	}
+	if test.removeErr != nil && !errors.Is(result.err, test.removeErr) {
+		t.Fatalf("partial cleanup error = %v, want cleanup cause %v", result.err, test.removeErr)
+	}
+	if strings.Contains(result.stdout, "Coverage delta") {
+		t.Fatal("failed coverage emitted a partial report")
+	}
+	if !test.wantRemove {
+		if len(result.removedPaths) != 0 {
+			t.Fatalf("unregistered worktree cleanup removed paths %#v", result.removedPaths)
+		}
+		return
+	}
+	if len(result.removedPaths) != 1 {
+		t.Fatalf("partial worktree cleanup paths %#v, want one exact removal", result.removedPaths)
+	}
+	if !samePath(result.removedPaths[0], result.baseRoot) {
+		t.Fatalf("partial worktree cleanup path %q was not normalized", result.removedPaths[0])
+	}
+}
+
+type partialCoverageResult struct {
+	err          error
+	setupErr     error
+	stdout       string
+	baseRoot     string
+	removedPaths []string
+}
+
+func runCoverageWithPartialAdd(t *testing.T, inventory func(string) string, removeErr error) partialCoverageResult {
+	t.Helper()
+	var calls []string
+	var baseRoot string
+	var removedPaths []string
+	setupErr := errors.New("partial add failed")
+	var stdout bytes.Buffer
+	application := app{
+		ctx:    context.Background(),
+		stdout: &stdout,
+		executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+			command := name + " " + strings.Join(args, " ")
+			calls = append(calls, command)
+			switch {
+			case command == "git rev-parse --show-toplevel":
+				return "/repo", nil
+			case command == "git status --porcelain":
+				return "", nil
+			case command == "git rev-parse --verify --end-of-options base^{commit}":
+				return "base-sha", nil
+			case command == "git rev-parse --verify --end-of-options HEAD^{commit}":
+				return "head-sha", nil
+			case strings.HasPrefix(command, "git diff --name-only"):
+				return "", nil
+			case name == "git" && len(args) == 6 && args[0] == "worktree" && args[1] == "add":
+				baseRoot = args[4]
+				return "", setupErr
+			case command == "git worktree list --porcelain":
+				return inventory(baseRoot), nil
+			case name == "git" && len(args) == 4 && args[0] == "worktree" && args[1] == "remove":
+				removedPaths = append(removedPaths, args[3])
+				return "", removeErr
+			default:
+				return "", fmt.Errorf("unexpected command: %s", command)
+			}
+		},
+	}
+	err := application.runCoverage([]string{"--base", "base"})
+	if len(calls) == 0 {
+		t.Fatal("partial coverage did not execute commands")
+	}
+	return partialCoverageResult{
+		err: err, setupErr: setupErr, stdout: stdout.String(), baseRoot: baseRoot, removedPaths: removedPaths,
+	}
+}
+
+func TestRemoveCoverageWorktreeIfRegisteredHandlesPrunableRegistration(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "repo")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create Git repository directory: %v", err)
+	}
+	runGitTest(t, root, "init", "--initial-branch=main")
+	runGitTest(t, root, "config", "user.name", "Workflow Test")
+	runGitTest(t, root, "config", "user.email", "workflow@example.test")
+	runGitTest(t, root, "commit", "--allow-empty", "--no-gpg-sign", "-m", "base")
+	exactPath := filepath.Join(parent, "coverage-base")
+	unrelatedPath := filepath.Join(parent, "coverage-base-similar")
+	runGitTest(t, root, "worktree", "add", "--detach", exactPath, "HEAD")
+	runGitTest(t, root, "worktree", "add", "--detach", unrelatedPath, "HEAD")
+	if err := os.RemoveAll(exactPath); err != nil {
+		t.Fatalf("remove exact worktree directory: %v", err)
+	}
+
+	application := app{ctx: context.Background()}
+	if err := application.removeCoverageWorktreeIfRegistered(root, exactPath); err != nil {
+		t.Fatalf("remove prunable exact coverage worktree: %v", err)
+	}
+	worktrees, err := application.readWorktreeInventory(root)
+	if err != nil {
+		t.Fatalf("read worktree inventory after cleanup: %v", err)
+	}
+	foundUnrelated := false
+	for _, worktree := range worktrees {
+		if samePath(worktree.path, exactPath) {
+			t.Fatalf("prunable exact worktree registration remains: %#v", worktrees)
+		}
+		if samePath(worktree.path, unrelatedPath) {
+			foundUnrelated = true
+		}
+	}
+	if !foundUnrelated {
+		t.Fatalf("similarly named unrelated worktree registration was removed: %#v", worktrees)
+	}
+}
+
+func coverageCallIndex(calls []string, prefix string) int {
+	for index, call := range calls {
+		if strings.HasPrefix(call, prefix) {
+			return index
+		}
+	}
+	return -1
 }
 
 func containsCoverageCall(calls []string, prefix string) bool {

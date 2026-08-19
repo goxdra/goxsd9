@@ -15,6 +15,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           submodules: recursive
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -23,6 +24,23 @@ jobs:
           cache: true
       - name: Run repository checks
         run: go tool workflowctl check --skip-lint
+      - name: Run development signals
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags origin "refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+            BASE_SHA="$(git merge-base HEAD "refs/remotes/origin/$BASE_REF")"
+          else
+            BASE_SHA="$PUSH_BASE_SHA"
+          fi
+          go test ./internal/workflowctl -run 'Test(CheckCoveragePolicy|DevelopSignalsCommand|RunFuzzUsesOfflineSingleWorkerAndCleansSuccessfulSandbox)'
+          if git diff --quiet "$BASE_SHA" HEAD -- syntax.go datatype.go; then
+            echo "No parser/datatype boundary changes; development signals not required"
+            exit 0
+          fi
+          go tool workflowctl develop-signals --base "$BASE_SHA" --format text
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
