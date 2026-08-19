@@ -387,6 +387,23 @@ func RestrictDigitFacets(base DigitFacets, local DigitFacetDeclarations) (DigitF
 	return completeDigitFacets(base, NewDigitFacetDeclarations(local.TotalDigits, local.FractionDigits), true)
 }
 
+// reversionDigitFacets applies a document's compatible version policy without
+// changing any effective value, fixedness, or source location.
+func reversionDigitFacets(facets DigitFacets, version XSDVersion) (DigitFacets, error) {
+	if err := facets.validate(); err != nil {
+		return DigitFacets{}, err
+	}
+	totalDigits := cloneTotalDigitsFacet(facets.totalDigits)
+	if totalDigits != nil {
+		totalDigits.version = version
+	}
+	fractionDigits := cloneFractionDigitsFacet(facets.fractionDigits)
+	if fractionDigits != nil {
+		fractionDigits.version = version
+	}
+	return NewDigitFacets(facets.kind, totalDigits, fractionDigits, version)
+}
+
 // ConstructDigitFacets is the phase-oriented name for RestrictDigitFacets.
 func ConstructDigitFacets(base DigitFacets, local DigitFacetDeclarations) (DigitFacets, error) {
 	return RestrictDigitFacets(base, local)

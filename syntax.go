@@ -521,6 +521,8 @@ var supportedSyntaxElements = map[string]struct{}{
 	"sequence":       {},
 	"simpleContent":  {},
 	"simpleType":     {},
+	"totalDigits":    {},
+	"fractionDigits": {},
 	"unique":         {},
 }
 

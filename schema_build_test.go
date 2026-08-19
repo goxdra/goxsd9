@@ -3,6 +3,7 @@ package goxsd9
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -1305,4 +1306,383 @@ func discoverTestSchema(t *testing.T, rootContents string, fixtures map[string]d
 	}
 	resolver := &discoveryResolver{fixtures: fixtures}
 	return discoverSchema(root, resolver)
+}
+
+func TestSchemaBridgeBuildsImmutableIntegerAndDecimalSimpleTypes(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
+  <xs:simpleType name="derived"><xs:restriction base="t:base"><xs:fractionDigits value="2"/><xs:totalDigits value="7"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="base"><xs:restriction base="xs:decimal"><xs:totalDigits value="7" fixed="true"/><xs:fractionDigits value="4"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="whole"><xs:restriction base="xs:integer"><xs:totalDigits value="3"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	if got, want := len(components), 3; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+	assertSimpleTypeViewFacts(t, components)
+	assertDerivedSimpleType(t, components, mustTestQName(t, "urn:test", "base"))
+	assertDecimalSimpleType(t, components[1])
+	assertIntegerSimpleType(t, components[2])
+}
+
+func assertSimpleTypeViewFacts(t *testing.T, components []Component) {
+	t.Helper()
+	for index, component := range components {
+		if component.Kind() != ComponentKindSimpleTypeDefinition {
+			t.Fatalf("component %d kind = %q, want simple type", index, component.Kind())
+		}
+		definition, definitionOK := component.SimpleType()
+		if !definitionOK {
+			t.Fatalf("component %d has no simple type view", index)
+		}
+		if definition.ID() != component.ID() || definition.Name() != component.Name() || definition.Loc() != component.Loc() {
+			t.Fatalf("component %d type view does not preserve generic facts", index)
+		}
+		if definition.BaseLoc().IsZero() {
+			t.Fatalf("component %d base location is zero", index)
+		}
+	}
+}
+
+func assertDerivedSimpleType(t *testing.T, components []Component, baseName QName) {
+	t.Helper()
+	derived, derivedOK := components[0].SimpleTypeDefinition()
+	if !derivedOK {
+		t.Fatal("derived simple type view is missing")
+	}
+	if got, want := derived.Base(), baseName; got != want {
+		t.Fatalf("derived base = %q, want %q", got, want)
+	}
+	baseID, hasBaseID := derived.BaseID()
+	if !hasBaseID || baseID != components[1].ID() {
+		t.Fatalf("derived base ID = (%v, %t), want (%v, true)", baseID, hasBaseID, components[1].ID())
+	}
+	derivedFacets := derived.DigitFacets()
+	derivedTotal, derivedTotalPresent := derivedFacets.TotalDigits()
+	assertSchemaFacetValue(t, derivedTotal, derivedTotalPresent, "7", "derived totalDigits")
+	derivedFraction, derivedFractionPresent := derivedFacets.FractionDigits()
+	assertSchemaFacetValue(t, derivedFraction, derivedFractionPresent, "2", "derived fractionDigits")
+	derivedTotalLoc, derivedTotalLocPresent := derivedFacets.TotalDigitsLoc()
+	if !derivedTotalLocPresent || derivedTotalLoc.IsZero() || derivedTotalLoc.Source() != "root.xsd" {
+		t.Fatalf("derived totalDigits location = (%v, %t), want a root.xsd location", derivedTotalLoc, derivedTotalLocPresent)
+	}
+}
+
+func assertDecimalSimpleType(t *testing.T, component Component) {
+	t.Helper()
+	base, baseOK := component.SimpleType()
+	if !baseOK {
+		t.Fatal("base simple type view is missing")
+	}
+	if got, want := base.Base(), mustTestQName(t, testXSDNamespace, "decimal"); got != want {
+		t.Fatalf("base built-in QName = %q, want %q", got, want)
+	}
+	if baseID, hasBaseID := base.BaseID(); hasBaseID || !baseID.IsZero() {
+		t.Fatalf("base built-in ID = (%v, %t), want zero,false", baseID, hasBaseID)
+	}
+	baseFacets := base.DigitFacets()
+	baseTotal, baseTotalPresent := baseFacets.TotalDigits()
+	assertSchemaFacetValue(t, baseTotal, baseTotalPresent, "7", "base totalDigits")
+	baseFraction, baseFractionPresent := baseFacets.FractionDigits()
+	assertSchemaFacetValue(t, baseFraction, baseFractionPresent, "4", "base fractionDigits")
+	if fixed, hasFixed := baseFacets.TotalDigitsFixed(); !hasFixed || !fixed {
+		t.Fatalf("base totalDigits fixed = (%t, %t), want true,true", fixed, hasFixed)
+	}
+}
+
+func assertIntegerSimpleType(t *testing.T, component Component) {
+	t.Helper()
+	whole, wholeOK := component.SimpleType()
+	if !wholeOK {
+		t.Fatal("integer simple type view is missing")
+	}
+	wholeFacets := whole.DigitFacets()
+	wholeTotal, wholeTotalPresent := wholeFacets.TotalDigits()
+	assertSchemaFacetValue(t, wholeTotal, wholeTotalPresent, "3", "integer totalDigits")
+	wholeFraction, wholeFractionPresent := wholeFacets.FractionDigits()
+	assertSchemaFacetValue(t, wholeFraction, wholeFractionPresent, "0", "integer fractionDigits")
+	if fixed, hasFixed := wholeFacets.FractionDigitsFixed(); !hasFixed || !fixed {
+		t.Fatalf("integer fractionDigits fixed = (%t, %t), want true,true", fixed, hasFixed)
+	}
+	if wholeFractionLoc, ok := wholeFacets.FractionDigitsLoc(); !ok || !wholeFractionLoc.IsZero() {
+		t.Fatalf("integer inherited fractionDigits location = (%v, %t), want zero,true", wholeFractionLoc, ok)
+	}
+}
+
+func TestSchemaBridgeResolvesForwardCrossDocumentSimpleTypeBases(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:o="urn:other" targetNamespace="urn:root" version="1.0">
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:simpleType name="rootType"><xs:restriction base="o:otherType"><xs:totalDigits value="4"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, map[string]discoveryFixture{
+		"other.xsd": {
+			id:       "other.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="1.1"><xs:simpleType name="otherType"><xs:restriction base="xs:integer"><xs:totalDigits value="8"/></xs:restriction></xs:simpleType></xs:schema>`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	if got, want := len(components), 2; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+	rootType, ok := components[0].SimpleType()
+	if !ok {
+		t.Fatal("root simple type view is missing")
+	}
+	baseID, ok := rootType.BaseID()
+	if !ok || baseID.Source() != "other.xsd" || baseID.Ordinal() != 1 {
+		t.Fatalf("cross-document base ID = (%v, %t), want other.xsd:1", baseID, ok)
+	}
+	rootTotal, rootTotalPresent := rootType.DigitFacets().TotalDigits()
+	assertSchemaFacetValue(t, rootTotal, rootTotalPresent, "4", "cross-document totalDigits")
+	rootFraction, rootFractionPresent := rootType.DigitFacets().FractionDigits()
+	assertSchemaFacetValue(t, rootFraction, rootFractionPresent, "0", "inherited integer fractionDigits")
+	if got, want := rootType.DigitFacets().Version(), XSDVersion10; got != want {
+		t.Fatalf("cross-document facet version = %q, want %q", got, want)
+	}
+	baseType, ok := components[1].SimpleType()
+	if !ok {
+		t.Fatal("imported simple type view is missing")
+	}
+	if got, want := baseType.DigitFacets().Version(), XSDVersion11; got != want {
+		t.Fatalf("imported facet version = %q, want %q", got, want)
+	}
+}
+
+func TestSchemaBridgeUsesRestrictionNamespaceContextAndVersion(t *testing.T) {
+	for _, version := range []XSDVersion{XSDVersion10, XSDVersion11} {
+		t.Run(string(version), func(t *testing.T) {
+			assertRestrictionNamespaceContextAndVersion(t, version)
+		})
+	}
+}
+
+func assertRestrictionNamespaceContextAndVersion(t *testing.T, version XSDVersion) {
+	t.Helper()
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:d="urn:not-the-datatype-namespace" targetNamespace="urn:test" version="` + string(version) + `">
+  <xs:simpleType name="item"><xs:restriction xmlns:d="` + testXSDNamespace + `" base="d:decimal"><xs:totalDigits value="3"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	definition, definitionOK := schema.Components()[0].SimpleType()
+	if !definitionOK {
+		t.Fatal("simple type view is missing")
+	}
+	if got, want := definition.Base(), mustTestQName(t, testXSDNamespace, "decimal"); got != want {
+		t.Fatalf("base QName = %q, want %q", got, want)
+	}
+	if got, want := definition.DigitFacets().Version(), version; got != want {
+		t.Fatalf("facet version = %q, want %q", got, want)
+	}
+	if loc := definition.BaseLoc(); loc.IsZero() || loc.Source() != "root.xsd" {
+		t.Fatalf("base location = %v, want root.xsd location", loc)
+	}
+}
+
+type schemaSimpleTypeBaseFailureCase struct {
+	name       string
+	root       string
+	fixtures   map[string]discoveryFixture
+	class      FailureClass
+	code       string
+	cause      error
+	feature    FeatureID
+	relatedMin int
+}
+
+func TestSchemaBridgeRejectsSimpleTypeBaseFailuresWithoutSchema(t *testing.T) {
+	tests := []schemaSimpleTypeBaseFailureCase{
+		{
+			name:  "unresolved",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:m="urn:missing"><xs:simpleType name="item"><xs:restriction base="m:missing"/></xs:simpleType></xs:schema>`,
+			class: FailureResolution,
+			code:  diagnosticSchemaSimpleTypeUnresolvedCode,
+			cause: errSchemaSimpleTypeBaseUnresolved,
+		},
+		{
+			name:  "malformed base QName",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="bad:base:QName"/></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaConditionalCode,
+		},
+		{
+			name:       "wrong kind",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item"/><xs:simpleType name="derived"><xs:restriction base="item"/></xs:simpleType></xs:schema>`,
+			class:      FailureInvalid,
+			code:       diagnosticSchemaSimpleTypeWrongKindCode,
+			cause:      errSchemaSimpleTypeBaseWrongKind,
+			relatedMin: 1,
+		},
+		{
+			name:       "ambiguous",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:integer"/></xs:simpleType><xs:simpleType name="item"><xs:restriction base="xs:integer"/></xs:simpleType><xs:simpleType name="derived"><xs:restriction base="item"/></xs:simpleType></xs:schema>`,
+			class:      FailureInvalid,
+			code:       diagnosticSchemaSimpleTypeAmbiguousCode,
+			cause:      errSchemaSimpleTypeBaseAmbiguous,
+			relatedMin: 2,
+		},
+		{
+			name:       "cyclic",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="one"><xs:restriction base="two"/></xs:simpleType><xs:simpleType name="two"><xs:restriction base="one"/></xs:simpleType></xs:schema>`,
+			class:      FailureInvalid,
+			code:       diagnosticSchemaSimpleTypeCycleCode,
+			cause:      errSchemaSimpleTypeBaseCycle,
+			relatedMin: 1,
+		},
+		{
+			name:    "precision decimal unsupported",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:precisionDecimal"/></xs:simpleType></xs:schema>`,
+			class:   FailureUnsupported,
+			code:    diagnosticSchemaSimpleTypeBaseCode,
+			feature: FeaturePrecisionDecimal,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertSimpleTypeBaseFailure(t, test)
+		})
+	}
+}
+
+func assertSimpleTypeBaseFailure(t *testing.T, test schemaSimpleTypeBaseFailureCase) {
+	t.Helper()
+	schema, err := discoverTestSchema(t, test.root, test.fixtures)
+	if err == nil {
+		t.Fatal("discoverSchema accepted an invalid or unsupported base")
+	}
+	if schema.storage != nil {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != test.class || diagnostic.Code() != test.code {
+		t.Fatalf("diagnostic = %s, want %s/%s", diagnostic, test.class, test.code)
+	}
+	if test.cause != nil && !errors.Is(err, test.cause) {
+		t.Fatalf("diagnostic does not preserve cause %v: %v", test.cause, err)
+	}
+	if test.feature != "" && diagnostic.Feature() != test.feature {
+		t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), test.feature)
+	}
+	if len(diagnostic.Related()) < test.relatedMin {
+		t.Fatalf("related locations = %v, want at least %d", diagnostic.Related(), test.relatedMin)
+	}
+}
+
+func TestSchemaBridgeReusesDigitFacetRestrictionDiagnostics(t *testing.T) {
+	tests := []struct {
+		name  string
+		root  string
+		class FailureClass
+		code  string
+	}{
+		{
+			name:  "non monotonic totalDigits",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="base"><xs:restriction base="xs:decimal"><xs:totalDigits value="5"/></xs:restriction></xs:simpleType><xs:simpleType name="derived"><xs:restriction base="base"><xs:totalDigits value="6"/></xs:restriction></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  InvalidDigitFacetRestrictionCode,
+		},
+		{
+			name:  "fixed totalDigits",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="base"><xs:restriction base="xs:decimal"><xs:totalDigits value="5" fixed="true"/></xs:restriction></xs:simpleType><xs:simpleType name="derived"><xs:restriction base="base"><xs:totalDigits value="4"/></xs:restriction></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  InvalidDigitFacetRestrictionCode,
+		},
+		{
+			name:  "cross facet",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:totalDigits value="2"/><xs:fractionDigits value="3"/></xs:restriction></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  InvalidDigitFacetCombinationCode,
+		},
+		{
+			name:  "integer fractionDigits",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:integer"><xs:fractionDigits value="1"/></xs:restriction></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  InvalidDigitFacetRestrictionCode,
+		},
+		{
+			name:  "invalid totalDigits value",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:totalDigits value="0"/></xs:restriction></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  InvalidTotalDigitsCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted an invalid digit restriction")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class || diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic = %s, want %s/%s", diagnostic, test.class, test.code)
+			}
+			if diagnostic.Loc().IsZero() {
+				t.Fatal("digit diagnostic lost its primary location")
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeReportsUnsupportedSimpleTypeFeatures(t *testing.T) {
+	tests := []string{
+		`<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:list itemType="xs:integer"/></xs:simpleType></xs:schema>`,
+		`<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:union memberTypes="xs:integer xs:decimal"/></xs:simpleType></xs:schema>`,
+		`<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:pattern value="[0-9]+"/></xs:restriction></xs:simpleType></xs:schema>`,
+		`<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:f="urn:foreign"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><f:pattern/></xs:restriction></xs:simpleType></xs:schema>`,
+	}
+	for index, root := range tests {
+		t.Run(fmt.Sprintf("case-%d", index), func(t *testing.T) {
+			schema, err := discoverTestSchema(t, root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted unsupported simple type behavior")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			if diagnostic := requireDiagnostic(t, err); diagnostic.Class() != FailureUnsupported {
+				t.Fatalf("diagnostic class = %q, want unsupported", diagnostic.Class())
+			}
+			if !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeRejectsInlineSimpleTypeRestrictionAsUnsupported(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:restriction></xs:simpleType></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err == nil {
+		t.Fatal("discoverSchema accepted an unsupported inline simple type restriction")
+	}
+	if schema.storage != nil {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("diagnostic = %s (%q), want unsupported schema syntax", diagnostic, diagnostic.Feature())
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+	}
+}
+
+func assertSchemaFacetValue(t *testing.T, value StrictInteger, present bool, want, label string) {
+	t.Helper()
+	if !present {
+		t.Fatalf("%s is absent", label)
+	}
+	if got := value.Canonical(); got != want {
+		t.Fatalf("%s = %q, want %q", label, got, want)
+	}
 }
