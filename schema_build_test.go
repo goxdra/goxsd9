@@ -6,16 +6,14 @@ import (
 	"testing"
 )
 
-//nolint:gocognit,funlen // Keep the complete ordered component contract in one regression test.
+//nolint:gocognit // Keep the complete ordered component contract in one regression test.
 func TestDiscoverSchemaBuildsOrderedImmutableDeclarations(t *testing.T) {
 	rootContents := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root">
 	  <xs:include schemaLocation="child.xsd"/>
 	<xs:import namespace="urn:other" schemaLocation="other.xsd"/>
-	  <xs:element name="rootElement"/>
+  <xs:element name="rootElement"/>
   <xs:attribute name="rootAttribute"/>
-  <xs:simpleType name="rootSimple"/>
   <xs:complexType name="rootComplex"/>
-  <xs:group name="rootGroup"/>
   <xs:attributeGroup name="rootAttributes"/>
 	  <xs:notation name="rootNotation"/>
 </xs:schema>`
@@ -33,7 +31,7 @@ func TestDiscoverSchemaBuildsOrderedImmutableDeclarations(t *testing.T) {
 		"other.xsd": {
 			id: "other.xsd",
 			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other">
-  <xs:simpleType name="otherSimple"/>
+  <xs:complexType name="otherComplex"/>
 </xs:schema>`,
 		},
 	}}
@@ -69,15 +67,13 @@ func TestDiscoverSchemaBuildsOrderedImmutableDeclarations(t *testing.T) {
 		name    QName
 		loc     Loc
 	}{
-		{source: "root.xsd", ordinal: 1, kind: ComponentKindElementDeclaration, name: mustTestQName(t, "urn:root", "rootElement"), loc: mustTestLoc(t, "root.xsd", 4, 4)},
+		{source: "root.xsd", ordinal: 1, kind: ComponentKindElementDeclaration, name: mustTestQName(t, "urn:root", "rootElement"), loc: mustTestLoc(t, "root.xsd", 4, 3)},
 		{source: "root.xsd", ordinal: 2, kind: ComponentKindAttributeDeclaration, name: mustTestQName(t, "urn:root", "rootAttribute"), loc: mustTestLoc(t, "root.xsd", 5, 3)},
-		{source: "root.xsd", ordinal: 3, kind: ComponentKindSimpleTypeDefinition, name: mustTestQName(t, "urn:root", "rootSimple"), loc: mustTestLoc(t, "root.xsd", 6, 3)},
-		{source: "root.xsd", ordinal: 4, kind: ComponentKindComplexTypeDefinition, name: mustTestQName(t, "urn:root", "rootComplex"), loc: mustTestLoc(t, "root.xsd", 7, 3)},
-		{source: "root.xsd", ordinal: 5, kind: ComponentKindModelGroupDefinition, name: mustTestQName(t, "urn:root", "rootGroup"), loc: mustTestLoc(t, "root.xsd", 8, 3)},
-		{source: "root.xsd", ordinal: 6, kind: ComponentKindAttributeGroupDefinition, name: mustTestQName(t, "urn:root", "rootAttributes"), loc: mustTestLoc(t, "root.xsd", 9, 3)},
-		{source: "root.xsd", ordinal: 7, kind: ComponentKindNotationDeclaration, name: mustTestQName(t, "urn:root", "rootNotation"), loc: mustTestLoc(t, "root.xsd", 10, 4)},
+		{source: "root.xsd", ordinal: 3, kind: ComponentKindComplexTypeDefinition, name: mustTestQName(t, "urn:root", "rootComplex"), loc: mustTestLoc(t, "root.xsd", 6, 3)},
+		{source: "root.xsd", ordinal: 4, kind: ComponentKindAttributeGroupDefinition, name: mustTestQName(t, "urn:root", "rootAttributes"), loc: mustTestLoc(t, "root.xsd", 7, 3)},
+		{source: "root.xsd", ordinal: 5, kind: ComponentKindNotationDeclaration, name: mustTestQName(t, "urn:root", "rootNotation"), loc: mustTestLoc(t, "root.xsd", 8, 4)},
 		{source: "child.xsd", ordinal: 1, kind: ComponentKindElementDeclaration, name: mustTestQName(t, "urn:root", "childElement"), loc: mustTestLoc(t, "child.xsd", 2, 3)},
-		{source: "other.xsd", ordinal: 1, kind: ComponentKindSimpleTypeDefinition, name: mustTestQName(t, "urn:other", "otherSimple"), loc: mustTestLoc(t, "other.xsd", 2, 3)},
+		{source: "other.xsd", ordinal: 1, kind: ComponentKindComplexTypeDefinition, name: mustTestQName(t, "urn:other", "otherComplex"), loc: mustTestLoc(t, "other.xsd", 2, 3)},
 	}
 	components := schema.Components()
 	if got, want := len(components), len(wantComponents); got != want {
@@ -872,7 +868,7 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 		},
 		{
 			name:    "simple type final is unsupported",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item" final="#all"/></xs:schema>`,
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item" final="#all"><xs:restriction base="xs:string"/></xs:simpleType></xs:schema>`,
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
 		},
@@ -958,13 +954,223 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 }
 
 func TestSchemaBridgeAcceptsInertRootMetadata(t *testing.T) {
-	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" id="schema-id" name="schema-name" version="" xml:lang="en-419"/>`
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" id="schema-id" version="" xml:lang="en-419"/>`
 	schema, err := discoverTestSchema(t, root, nil)
 	if err != nil {
 		t.Fatalf("discoverSchema: %v", err)
 	}
 	if got := len(schema.Components()); got != 0 {
 		t.Fatalf("component count = %d, want 0", got)
+	}
+}
+
+func TestSchemaBridgeRejectsRootAndGlobalLexicalBoundaries(t *testing.T) {
+	tests := []struct {
+		name  string
+		root  string
+		class FailureClass
+	}{
+		{
+			name:  "root name is not an attribute",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" name="schema-name"/>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "root defaultAttributesApply is not an attribute",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" defaultAttributesApply="true"/>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "root blockDefault validates before unsupported",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" blockDefault="bogus"/>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "root defaultAttributes validates QName",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" defaultAttributes="missing:Defaults"/>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "root xpathDefaultNamespace validates URI",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" xpathDefaultNamespace="%ZZ"/>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "element abstract validates boolean",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" abstract="maybe"/></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "element block validates list",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" block="bogus"/></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "element default and fixed are exclusive",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" default="one" fixed="two"/></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "complex type defaultAttributesApply validates boolean",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item" defaultAttributesApply="maybe"/></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "notation system validates URI",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item" system="http://[bad"/></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "valid unimplemented boolean remains unsupported",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" abstract="true"/></xs:schema>`,
+			class: FailureUnsupported,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted invalid or unsupported lexical syntax")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class {
+				t.Fatalf("diagnostic class = %q, want %q", diagnostic.Class(), test.class)
+			}
+			if diagnostic.Loc().Source() != "root.xsd" {
+				t.Fatalf("diagnostic source = %q, want root.xsd", diagnostic.Loc().Source())
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeIgnoresForeignLocalNameCollisions(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="urn:foreign" p:targetNamespace="urn:wrong" p:name="wrong"><xs:element name="item" p:name="foreign-name"/></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	if got := schema.Documents()[0].TargetNamespace(); got != "" {
+		t.Fatalf("target namespace = %q, want empty namespace", got)
+	}
+	if got := len(schema.Components()); got != 1 {
+		t.Fatalf("component count = %d, want 1", got)
+	}
+
+	_, err = discoverTestSchema(t, `<xs:schema xmlns:xs="`+testXSDNamespace+`" xmlns:p="urn:foreign"><xs:element p:name="foreign-only"/></xs:schema>`, nil)
+	if err == nil {
+		t.Fatal("discoverSchema accepted a declaration without an unqualified name")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaDeclarationNameCode {
+		t.Fatalf("diagnostic = %s, want invalid declaration name", diagnostic)
+	}
+}
+
+func TestSchemaBridgeRejectsRootConstructsAfterDeclarations(t *testing.T) {
+	for _, child := range []string{"redefine", "override", "defaultOpenContent"} {
+		t.Run(child, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item"/><xs:` + child + `/></xs:schema>`
+			schema, err := discoverTestSchema(t, root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted an out-of-order schema child")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+				t.Fatalf("diagnostic = %s, want invalid composition", diagnostic)
+			}
+		})
+	}
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" blockDefault="extension"><xs:element name="item"/><xs:redefine/></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err == nil {
+		t.Fatal("discoverSchema accepted an out-of-order child with unsupported root metadata")
+	}
+	if schema.storage != nil {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+		t.Fatalf("diagnostic = %s, want invalid composition before unsupported metadata", diagnostic)
+	}
+}
+
+func TestSchemaBridgeEnforcesGlobalChildModels(t *testing.T) {
+	tests := []struct {
+		name  string
+		root  string
+		class FailureClass
+	}{
+		{
+			name:  "empty simple type",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"/></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "simple type unsupported attribute does not hide missing child",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item" final="#all"/></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "empty group",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:group name="item"/></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "element simple and complex types are exclusive",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item"><xs:simpleType/><xs:complexType/></xs:element></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "attribute simple type is unique",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="item"><xs:simpleType/><xs:simpleType/></xs:attribute></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "complex content alternatives are exclusive",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item"><xs:simpleContent/><xs:sequence/></xs:complexType></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "group model is unique",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:group name="item"><xs:sequence/><xs:choice/></xs:group></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "attribute group anyAttribute is last",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attributeGroup name="item"><xs:anyAttribute/><xs:attribute name="nested"/></xs:attributeGroup></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "simple type model is unsupported after grammar validation",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:string"/></xs:simpleType></xs:schema>`,
+			class: FailureUnsupported,
+		},
+		{
+			name:  "group model is unsupported after grammar validation",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:group name="item"><xs:sequence/></xs:group></xs:schema>`,
+			class: FailureUnsupported,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted invalid or unsupported global child model")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class {
+				t.Fatalf("diagnostic class = %q, want %q", diagnostic.Class(), test.class)
+			}
+		})
 	}
 }
 
