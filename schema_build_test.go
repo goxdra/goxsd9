@@ -1297,6 +1297,84 @@ func TestSchemaBridgeEnforcesGlobalChildModels(t *testing.T) {
 	assertSchemaBridgeDiagnosticCases(t, tests)
 }
 
+func TestSchemaBridgeValidatesSimpleTypeRestrictionDiagnostics(t *testing.T) {
+	tests := []schemaBridgeDiagnosticCase{
+		{
+			name:  "restriction requires a base",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction/></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "restriction id is an NCName",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal" id="bad:id"/></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "restriction rejects XSD attributes",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal" xs:unknown="value"/></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "restriction annotation follows facets",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:totalDigits value="2"/><xs:annotation/></xs:restriction></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "restriction totalDigits is unique",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:totalDigits value="2"/><xs:totalDigits value="3"/></xs:restriction></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "totalDigits requires a value",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:totalDigits/></xs:restriction></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "totalDigits fixed is boolean",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:totalDigits value="2" fixed="maybe"/></xs:restriction></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "totalDigits id is an NCName",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:totalDigits value="2" id="bad:id"/></xs:restriction></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "restriction rejects a list child",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:list/></xs:restriction></xs:simpleType></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+	}
+	assertSchemaBridgeDiagnosticCases(t, tests)
+}
+
+func TestSchemaBridgePreservesSimpleTypeFacetResolutionDiagnostics(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.0"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:fractionDigits value="-1"/></xs:restriction></xs:simpleType></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err == nil {
+		t.Fatal("discoverSchema accepted an invalid fractionDigits value")
+	}
+	if schema.storage != nil {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != InvalidFractionDigitsCode {
+		t.Fatalf("diagnostic = %s, want invalid fractionDigits diagnostic", diagnostic)
+	}
+	if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
+		t.Fatalf("diagnostic location = %v, want root.xsd location", diagnostic.Loc())
+	}
+}
+
 func discoverTestSchema(t *testing.T, rootContents string, fixtures map[string]discoveryFixture) (Schema, error) {
 	t.Helper()
 	root, err := NewResolvedSource(context.Background(), "root.xsd", &discoveryReader{data: []byte(rootContents)})
