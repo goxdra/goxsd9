@@ -104,9 +104,10 @@ type syntaxFrame struct {
 }
 
 type syntaxDecoder struct {
-	source    SourceID
-	decoder   *xml.Decoder
-	positions *syntaxPositionReader
+	source           SourceID
+	decoder          *xml.Decoder
+	positions        *syntaxPositionReader
+	deferUnsupported bool
 
 	root       *syntaxElement
 	stack      []syntaxFrame
@@ -116,7 +117,8 @@ type syntaxDecoder struct {
 }
 
 type syntaxDecodeConfig struct {
-	sourceID SourceID
+	sourceID         SourceID
+	deferUnsupported bool
 }
 
 // decodeSyntax drains and closes source, returning a raw syntax document only
@@ -136,9 +138,10 @@ func decodeSyntax(reader io.ReadCloser, config syntaxDecodeConfig) (document *sy
 	decoder := xml.NewDecoder(positions)
 	decoder.Strict = true
 	parser := syntaxDecoder{
-		source:    config.sourceID,
-		decoder:   decoder,
-		positions: positions,
+		source:           config.sourceID,
+		decoder:          decoder,
+		positions:        positions,
+		deferUnsupported: config.deferUnsupported,
 	}
 
 	defer func() {
@@ -179,6 +182,13 @@ func decodeSyntax(reader io.ReadCloser, config syntaxDecodeConfig) (document *sy
 
 func decodeResolvedSyntax(source ResolvedSource) (*syntaxDocument, error) {
 	return decodeSyntax(source.stream(), syntaxDecodeConfig{sourceID: source.SourceID()})
+}
+
+func decodeResolvedSyntaxForDiscovery(source ResolvedSource) (*syntaxDocument, error) {
+	return decodeSyntax(source.stream(), syntaxDecodeConfig{
+		sourceID:         source.SourceID(),
+		deferUnsupported: true,
+	})
 }
 
 func (parser *syntaxDecoder) decode() (*syntaxDocument, error) {
@@ -309,8 +319,9 @@ func (parser *syntaxDecoder) startElement(token xml.StartElement, loc Loc) error
 				nil,
 			)
 		}
-		if supportErr := parser.checkSupportedElement(name, loc); supportErr != nil {
-			return supportErr
+		err = parser.validateNestedElementSupport(name, loc)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -340,6 +351,13 @@ func (parser *syntaxDecoder) startElement(token xml.StartElement, loc Loc) error
 	})
 	parser.seenToken = true
 	return nil
+}
+
+func (parser *syntaxDecoder) validateNestedElementSupport(name syntaxName, loc Loc) error {
+	if parser.deferUnsupported {
+		return nil
+	}
+	return parser.checkSupportedElement(name, loc)
 }
 
 func (parser *syntaxDecoder) endElement(token xml.EndElement, loc Loc) error {

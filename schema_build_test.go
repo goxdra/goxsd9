@@ -9,15 +9,15 @@ import (
 //nolint:gocognit,funlen // Keep the complete ordered component contract in one regression test.
 func TestDiscoverSchemaBuildsOrderedImmutableDeclarations(t *testing.T) {
 	rootContents := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root">
-  <xs:element name="rootElement"/>
-  <xs:include schemaLocation="child.xsd"/>
+	  <xs:include schemaLocation="child.xsd"/>
+	<xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+	  <xs:element name="rootElement"/>
   <xs:attribute name="rootAttribute"/>
   <xs:simpleType name="rootSimple"/>
   <xs:complexType name="rootComplex"/>
   <xs:group name="rootGroup"/>
   <xs:attributeGroup name="rootAttributes"/>
-  <xs:notation name="rootNotation"/>
-  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+	  <xs:notation name="rootNotation"/>
 </xs:schema>`
 	root, err := NewResolvedSource(context.Background(), "root.xsd", &discoveryReader{data: []byte(rootContents)})
 	if err != nil {
@@ -69,13 +69,13 @@ func TestDiscoverSchemaBuildsOrderedImmutableDeclarations(t *testing.T) {
 		name    QName
 		loc     Loc
 	}{
-		{source: "root.xsd", ordinal: 1, kind: ComponentKindElementDeclaration, name: mustTestQName(t, "urn:root", "rootElement"), loc: mustTestLoc(t, "root.xsd", 2, 3)},
-		{source: "root.xsd", ordinal: 2, kind: ComponentKindAttributeDeclaration, name: mustTestQName(t, "urn:root", "rootAttribute"), loc: mustTestLoc(t, "root.xsd", 4, 3)},
-		{source: "root.xsd", ordinal: 3, kind: ComponentKindSimpleTypeDefinition, name: mustTestQName(t, "urn:root", "rootSimple"), loc: mustTestLoc(t, "root.xsd", 5, 3)},
-		{source: "root.xsd", ordinal: 4, kind: ComponentKindComplexTypeDefinition, name: mustTestQName(t, "urn:root", "rootComplex"), loc: mustTestLoc(t, "root.xsd", 6, 3)},
-		{source: "root.xsd", ordinal: 5, kind: ComponentKindModelGroupDefinition, name: mustTestQName(t, "urn:root", "rootGroup"), loc: mustTestLoc(t, "root.xsd", 7, 3)},
-		{source: "root.xsd", ordinal: 6, kind: ComponentKindAttributeGroupDefinition, name: mustTestQName(t, "urn:root", "rootAttributes"), loc: mustTestLoc(t, "root.xsd", 8, 3)},
-		{source: "root.xsd", ordinal: 7, kind: ComponentKindNotationDeclaration, name: mustTestQName(t, "urn:root", "rootNotation"), loc: mustTestLoc(t, "root.xsd", 9, 3)},
+		{source: "root.xsd", ordinal: 1, kind: ComponentKindElementDeclaration, name: mustTestQName(t, "urn:root", "rootElement"), loc: mustTestLoc(t, "root.xsd", 4, 4)},
+		{source: "root.xsd", ordinal: 2, kind: ComponentKindAttributeDeclaration, name: mustTestQName(t, "urn:root", "rootAttribute"), loc: mustTestLoc(t, "root.xsd", 5, 3)},
+		{source: "root.xsd", ordinal: 3, kind: ComponentKindSimpleTypeDefinition, name: mustTestQName(t, "urn:root", "rootSimple"), loc: mustTestLoc(t, "root.xsd", 6, 3)},
+		{source: "root.xsd", ordinal: 4, kind: ComponentKindComplexTypeDefinition, name: mustTestQName(t, "urn:root", "rootComplex"), loc: mustTestLoc(t, "root.xsd", 7, 3)},
+		{source: "root.xsd", ordinal: 5, kind: ComponentKindModelGroupDefinition, name: mustTestQName(t, "urn:root", "rootGroup"), loc: mustTestLoc(t, "root.xsd", 8, 3)},
+		{source: "root.xsd", ordinal: 6, kind: ComponentKindAttributeGroupDefinition, name: mustTestQName(t, "urn:root", "rootAttributes"), loc: mustTestLoc(t, "root.xsd", 9, 3)},
+		{source: "root.xsd", ordinal: 7, kind: ComponentKindNotationDeclaration, name: mustTestQName(t, "urn:root", "rootNotation"), loc: mustTestLoc(t, "root.xsd", 10, 4)},
 		{source: "child.xsd", ordinal: 1, kind: ComponentKindElementDeclaration, name: mustTestQName(t, "urn:root", "childElement"), loc: mustTestLoc(t, "child.xsd", 2, 3)},
 		{source: "other.xsd", ordinal: 1, kind: ComponentKindSimpleTypeDefinition, name: mustTestQName(t, "urn:other", "otherSimple"), loc: mustTestLoc(t, "other.xsd", 2, 3)},
 	}
@@ -617,23 +617,193 @@ func TestSchemaBridgeRejectsNestedLocalDeclarationsAsUnsupported(t *testing.T) {
 	}
 }
 
-func TestSchemaBridgeRejectsConditionalCompositionAsUnsupported(t *testing.T) {
+func TestSchemaBridgeAcceptsActiveConditionalComposition(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd" vc:minVersion="1.1"/></xs:schema>`
 	schema, err := discoverTestSchema(t, root, map[string]discoveryFixture{
 		"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"/>`},
 	})
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	if got, want := len(schema.Components()), 0; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+}
+
+func TestSchemaBridgeConditionalInclusionFiltersBeforeGrammarAndResolution(t *testing.T) {
+	tests := []struct {
+		name       string
+		root       string
+		fixtures   map[string]discoveryFixture
+		components int
+		calls      int
+	}{
+		{
+			name:       "max boundary filters declaration",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `"><xs:element name="kept"/><xs:element name="gone" vc:maxVersion="1.1"><xs:alternative/></xs:element></xs:schema>`,
+			components: 1,
+		},
+		{
+			name:       "max boundary filters reference",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `"><xs:include schemaLocation="missing.xsd" vc:maxVersion="1.1"/></xs:schema>`,
+			components: 0,
+		},
+		{
+			name:       "empty unavailable filters",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `"><xs:element name="gone" vc:typeUnavailable=""/></xs:schema>`,
+			components: 0,
+		},
+		{
+			name:       "empty available keeps",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `"><xs:element name="kept" vc:typeAvailable=""/></xs:schema>`,
+			components: 1,
+		},
+		{
+			name:       "root exclusion keeps namespace facts",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `" targetNamespace="urn:root" vc:maxVersion="1.1"><xs:alternative/></xs:schema>`,
+			components: 0,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root, err := NewResolvedSource(context.Background(), "root.xsd", &discoveryReader{data: []byte(test.root)})
+			if err != nil {
+				t.Fatalf("NewResolvedSource: %v", err)
+			}
+			resolver := &discoveryResolver{fixtures: test.fixtures}
+			schema, err := discoverSchema(root, resolver)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+			if got := len(schema.Components()); got != test.components {
+				t.Fatalf("component count = %d, want %d", got, test.components)
+			}
+			if got := len(resolver.calls); got != test.calls {
+				t.Fatalf("resolver call count = %d, want %d", got, test.calls)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeConditionalInclusionValidatesDecimalAndQNameLexicals(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+	}{
+		{
+			name: "malformed decimal",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `"><xs:element name="item" vc:minVersion="nope"/></xs:schema>`,
+		},
+		{
+			name: "malformed QName",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `"><xs:element name="item" vc:typeAvailable="prefix:item:extra"/></xs:schema>`,
+		},
+		{
+			name: "unbound QName prefix",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `"><xs:element name="item" vc:facetUnavailable="missing:item"/></xs:schema>`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted malformed conditional lexical form")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Loc().Source() != "root.xsd" {
+				t.Fatalf("diagnostic = %s, want located invalid diagnostic", diagnostic)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeConditionalAvailabilityIsExplicitlyUnsupported(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `"><xs:element name="item" vc:typeAvailable="xs:string"/></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
 	if err == nil {
-		t.Fatal("discoverSchema accepted conditional composition")
+		t.Fatal("discoverSchema accepted nonempty type availability")
 	}
 	if schema.storage != nil {
 		t.Fatal("discoverSchema returned a partial schema")
 	}
 	diagnostic := requireDiagnostic(t, err)
 	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
-		t.Fatalf("conditional composition diagnostic = %s, want schema syntax unsupported", diagnostic)
+		t.Fatalf("diagnostic = %s, want schema syntax unsupported", diagnostic)
 	}
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatal("conditional composition diagnostic does not match ErrUnsupported")
+}
+
+func TestSchemaBridgeAcceptsAnnotationForeignPayload(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:annotation><xs:documentation xml:lang="en"><foreign:payload xmlns:foreign="urn:payload"><xs:element bogus="kept-as-payload"/></foreign:payload></xs:documentation><xs:appinfo><foreign:metadata xmlns:foreign="urn:payload">text</foreign:metadata></xs:appinfo></xs:annotation><xs:element name="item"><xs:annotation><xs:documentation><foreign:payload xmlns:foreign="urn:payload"/></xs:documentation></xs:annotation></xs:element></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	if got, want := len(schema.Components()), 1; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+}
+
+func TestSchemaBridgeAcceptsRootAnnotationsAfterCompositionAndGlobals(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd"><xs:annotation/></xs:include><xs:annotation><xs:documentation>before globals</xs:documentation></xs:annotation><xs:element name="item"/><xs:annotation><xs:appinfo>after global</xs:appinfo></xs:annotation></xs:schema>`
+	schema, err := discoverTestSchema(t, root, map[string]discoveryFixture{
+		"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"/>`},
+	})
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	if got, want := len(schema.Components()), 1; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+}
+
+func TestSchemaBridgeRejectsActiveTextAndAttributesWithoutPartialSchema(t *testing.T) {
+	tests := []string{
+		`<xs:schema xmlns:xs="` + testXSDNamespace + `">garbage</xs:schema>`,
+		`<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item">garbage</xs:element></xs:schema>`,
+		`<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" bogus="1"/></xs:schema>`,
+		`<xs:schema xmlns:xs="` + testXSDNamespace + `" xs:bogus="1"/>`,
+	}
+	for _, root := range tests {
+		schema, err := discoverTestSchema(t, root, nil)
+		if err == nil {
+			t.Fatal("discoverSchema accepted invalid active syntax")
+		}
+		if schema.storage != nil {
+			t.Fatal("discoverSchema returned a partial schema")
+		}
+		diagnostic := requireDiagnostic(t, err)
+		if diagnostic.Class() != FailureInvalid || diagnostic.Loc().Source() != "root.xsd" {
+			t.Fatalf("diagnostic = %s, want located invalid diagnostic", diagnostic)
+		}
+	}
+}
+
+func TestSchemaBridgeRecognizedGlobalAttributeIsUnsupported(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" type="xs:string"/></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err == nil {
+		t.Fatal("discoverSchema accepted an unimplemented global attribute")
+	}
+	if schema.storage != nil {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("diagnostic = %s, want schema syntax unsupported", diagnostic)
+	}
+}
+
+func TestSchemaBridgeAcceptsForeignRootAndGlobalAttributes(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:foreign="urn:foreign" foreign:root="ok" xml:space="preserve"><xs:element name="item" foreign:global="ok" xml:lang="en-419"/></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	if got, want := len(schema.Components()), 1; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
 	}
 }
 

@@ -2,7 +2,6 @@ package goxsd9
 
 import (
 	"fmt"
-	"strings"
 	"unicode/utf8"
 )
 
@@ -29,60 +28,19 @@ func discoverSchema(root ResolvedSource, resolver Resolver) (Schema, error) {
 }
 
 func newSchemaFromDiscovery(discovery syntaxDiscoveryResult) (Schema, error) {
-	namespaces := make([]schemaTargetNamespace, len(discovery.documents))
-	sourceIndices := make(map[SourceID]int, len(discovery.documents))
-	for index, document := range discovery.documents {
-		if document == nil || document.root == nil {
-			return Schema{}, newDiagnostic(
-				FailureInternal,
-				diagnosticSyntaxDocumentNoRootCode,
-				Loc{},
-				"schema discovery result contains a document without a root",
-				nil,
-			)
-		}
-		if document.source == "" {
-			return Schema{}, newDiagnostic(
-				FailureInternal,
-				diagnosticSchemaEmptySourceCode,
-				document.root.loc,
-				"schema discovery result contains an empty source identity",
-				nil,
-			)
-		}
-		if _, exists := sourceIndices[document.source]; exists {
-			return Schema{}, newDiagnostic(
-				FailureInternal,
-				diagnosticSchemaRepeatedSourceCode,
-				document.root.loc,
-				fmt.Sprintf("schema discovery result repeats source %q", document.source),
-				nil,
-			)
-		}
-
-		namespace, err := syntaxDocumentTargetNamespace(document)
-		if err != nil {
-			return Schema{}, err
-		}
-		sourceIndices[document.source] = index
-		namespaces[index] = namespace
-	}
-
-	if err := validateSchemaComposition(discovery.edges, sourceIndices, namespaces); err != nil {
+	namespaces, sourceIndices, err := schemaDiscoveryNamespaces(discovery.documents)
+	if err != nil {
 		return Schema{}, err
 	}
 
-	inputs := make([]schemaDocumentInput, 0, len(discovery.documents))
-	for index, document := range discovery.documents {
-		declarations, err := schemaDocumentDeclarations(document, namespaces[index].value)
-		if err != nil {
-			return Schema{}, err
-		}
-		inputs = append(inputs, schemaDocumentInput{
-			source:          document.source,
-			targetNamespace: namespaces[index].value,
-			declarations:    declarations,
-		})
+	err = validateSchemaComposition(discovery.edges, sourceIndices, namespaces)
+	if err != nil {
+		return Schema{}, err
+	}
+
+	inputs, err := schemaDocumentInputs(discovery.documents, namespaces)
+	if err != nil {
+		return Schema{}, err
 	}
 
 	schema, err := newSchema(inputs)
@@ -90,6 +48,70 @@ func newSchemaFromDiscovery(discovery syntaxDiscoveryResult) (Schema, error) {
 		return Schema{}, err
 	}
 	return schema, nil
+}
+
+func schemaDiscoveryNamespaces(documents []*syntaxDocument) ([]schemaTargetNamespace, map[SourceID]int, error) {
+	namespaces := make([]schemaTargetNamespace, len(documents))
+	sourceIndices := make(map[SourceID]int, len(documents))
+	for index, document := range documents {
+		if err := validateDiscoveredDocument(document, sourceIndices); err != nil {
+			return nil, nil, err
+		}
+		namespace, err := syntaxDocumentTargetNamespace(document)
+		if err != nil {
+			return nil, nil, err
+		}
+		sourceIndices[document.source] = index
+		namespaces[index] = namespace
+	}
+	return namespaces, sourceIndices, nil
+}
+
+func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[SourceID]int) error {
+	if document == nil || document.root == nil {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSyntaxDocumentNoRootCode,
+			Loc{},
+			"schema discovery result contains a document without a root",
+			nil,
+		)
+	}
+	if document.source == "" {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaEmptySourceCode,
+			document.root.loc,
+			"schema discovery result contains an empty source identity",
+			nil,
+		)
+	}
+	if _, exists := sourceIndices[document.source]; exists {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaRepeatedSourceCode,
+			document.root.loc,
+			fmt.Sprintf("schema discovery result repeats source %q", document.source),
+			nil,
+		)
+	}
+	return validateSyntaxDocumentStructure(document)
+}
+
+func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTargetNamespace) ([]schemaDocumentInput, error) {
+	inputs := make([]schemaDocumentInput, 0, len(documents))
+	for index, document := range documents {
+		declarations, err := schemaDocumentDeclarations(document, namespaces[index].value)
+		if err != nil {
+			return nil, err
+		}
+		inputs = append(inputs, schemaDocumentInput{
+			source:          document.source,
+			targetNamespace: namespaces[index].value,
+			declarations:    declarations,
+		})
+	}
+	return inputs, nil
 }
 
 func syntaxDocumentTargetNamespace(document *syntaxDocument) (schemaTargetNamespace, error) {
@@ -107,12 +129,12 @@ func syntaxDocumentTargetNamespace(document *syntaxDocument) (schemaTargetNamesp
 		)
 	}
 	attribute := attributes[0]
-	value := collapseSchemaWhitespace(attribute.value)
+	value := collapseXMLWhitespace(attribute.value)
 	if value == "" {
 		return schemaTargetNamespace{}, newDiagnostic(
 			FailureInvalid,
 			invalidSchemaTargetNamespaceCode,
-			document.root.loc,
+			attribute.loc,
 			"schema targetNamespace cannot be empty when present",
 			nil,
 		)
@@ -152,10 +174,6 @@ func validateSchemaCompositionEdge(
 	if sourceIndex < 0 || targetIndex < 0 || sourceIndex >= len(namespaces) || targetIndex >= len(namespaces) {
 		return newSchemaBridgeInvariant(edge.loc, "schema edge points outside the namespace table")
 	}
-	if edge.conditional {
-		return newSchemaSyntaxUnsupported(edge.loc, "conditional schema composition is not implemented")
-	}
-
 	parent := namespaces[sourceIndex]
 	child := namespaces[targetIndex]
 	switch edge.kind {
@@ -272,9 +290,6 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string) (schemaC
 	if err != nil {
 		return schemaComponentInput{}, false, err
 	}
-	if err := rejectNestedSchemaConstructs(element); err != nil {
-		return schemaComponentInput{}, false, err
-	}
 	return schemaComponentInput{
 		kind: kind,
 		name: name,
@@ -301,43 +316,6 @@ func schemaRootChildIgnored(element *syntaxElement) (bool, error) {
 		return true, nil
 	default:
 		return false, nil
-	}
-}
-
-func rejectNestedSchemaConstructs(element *syntaxElement) error {
-	for _, node := range element.children {
-		nested, ok := node.(*syntaxElement)
-		if !ok {
-			continue
-		}
-		if nested.name.namespace != xsdNamespaceURI {
-			return newSchemaSyntaxUnsupported(nested.loc, "nested schema syntax is not implemented")
-		}
-		if nested.name.local == "annotation" {
-			if err := validateSchemaAnnotationElement(nested); err != nil {
-				return err
-			}
-			continue
-		}
-		if nestedSchemaConstruct(nested.name.local) {
-			return newSchemaSyntaxUnsupported(
-				nested.loc,
-				fmt.Sprintf("nested XSD construct <%s> is not implemented", nested.name.local),
-			)
-		}
-		if err := rejectNestedSchemaConstructs(nested); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func nestedSchemaConstruct(local string) bool {
-	switch local {
-	case "all", "attribute", "attributeGroup", "choice", "complexType", "element", "group", "simpleType", "sequence":
-		return true
-	default:
-		return false
 	}
 }
 
@@ -373,7 +351,7 @@ func schemaDeclarationName(element *syntaxElement, targetNamespace string) (QNam
 			nil,
 		)
 	}
-	value := collapseSchemaWhitespace(attributes[0].value)
+	value := collapseXMLWhitespace(attributes[0].value)
 	if len(attributes) != 1 || attributes[0].name.namespace != "" || !validNCName(value) {
 		return QName{}, newDiagnostic(
 			FailureInvalid,
@@ -424,27 +402,6 @@ func validNCName(value string) bool {
 		}
 	}
 	return !first
-}
-
-func collapseSchemaWhitespace(value string) string {
-	var result strings.Builder
-	result.Grow(len(value))
-	pendingSpace := false
-	for index := 0; index < len(value); index++ {
-		switch value[index] {
-		case ' ', '\t', '\r', '\n':
-			if result.Len() > 0 {
-				pendingSpace = true
-			}
-			continue
-		}
-		if pendingSpace {
-			result.WriteByte(' ')
-			pendingSpace = false
-		}
-		result.WriteByte(value[index])
-	}
-	return result.String()
 }
 
 type ncNameRange struct {
