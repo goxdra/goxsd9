@@ -21,6 +21,7 @@ func TestDiagnosticCodesAreUnique(t *testing.T) {
 		{name: "InvalidDigitFacetRestrictionCode", code: InvalidDigitFacetRestrictionCode},
 		{name: "DigitFacetValueViolationCode", code: DigitFacetValueViolationCode},
 		{name: "InvalidDigitDatatypeCode", code: InvalidDigitDatatypeCode},
+		{name: "UnsupportedDatatypeFacetCode", code: UnsupportedDatatypeFacetCode},
 		{name: "InvalidXMLSyntaxCode", code: InvalidXMLSyntaxCode},
 		{name: "InvalidSchemaRootCode", code: InvalidSchemaRootCode},
 		{name: "UnsupportedSchemaSyntaxCode", code: UnsupportedSchemaSyntaxCode},

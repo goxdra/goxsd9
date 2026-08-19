@@ -18,6 +18,11 @@ const (
 	diagnosticSchemaBridgeInvariantCode      = "GOXSD9025"
 )
 
+const (
+	schemaSimpleTypeXSD10SpecRef = "xsd10-structures#Simple_Type_Definitions"
+	schemaSimpleTypeXSD11SpecRef = "xsd11-structures#Simple_Type_Definition"
+)
+
 var (
 	errSchemaSimpleTypeBaseUnresolved = errors.New("simple type base is unresolved")
 	errSchemaSimpleTypeBaseWrongKind  = errors.New("simple type base has the wrong kind")
@@ -812,33 +817,33 @@ func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeBase(input
 
 func unresolvedSchemaSimpleTypeBase(input *schemaSimpleTypeInput) (schemaSimpleTypeBase, error) {
 	return schemaSimpleTypeBase{}, newSchemaSimpleTypeDiagnostic(
-		FailureResolution,
 		diagnosticSchemaSimpleTypeUnresolvedCode,
 		input.baseLoc,
 		fmt.Sprintf("simple type restriction base %q cannot be resolved", input.base),
 		nil,
+		input.version,
 		errSchemaSimpleTypeBaseUnresolved,
 	)
 }
 
 func wrongKindSchemaSimpleTypeBase(input *schemaSimpleTypeInput, related []Loc) (schemaSimpleTypeBase, error) {
 	return schemaSimpleTypeBase{}, newSchemaSimpleTypeDiagnostic(
-		FailureInvalid,
 		diagnosticSchemaSimpleTypeWrongKindCode,
 		input.baseLoc,
 		fmt.Sprintf("simple type restriction base %q does not name a simple type", input.base),
 		related,
+		input.version,
 		fmt.Errorf("%w: %q", errSchemaSimpleTypeBaseWrongKind, input.base),
 	)
 }
 
 func ambiguousSchemaSimpleTypeBase(input *schemaSimpleTypeInput, related []Loc) (schemaSimpleTypeBase, error) {
 	return schemaSimpleTypeBase{}, newSchemaSimpleTypeDiagnostic(
-		FailureInvalid,
 		diagnosticSchemaSimpleTypeAmbiguousCode,
 		input.baseLoc,
 		fmt.Sprintf("simple type restriction base %q is ambiguous", input.base),
 		related,
+		input.version,
 		fmt.Errorf("%w: %q", errSchemaSimpleTypeBaseAmbiguous, input.base),
 	)
 }
@@ -875,8 +880,11 @@ func schemaDigitFacetDeclarations(input *schemaSimpleTypeInput) (DigitFacetDecla
 
 func (resolver *schemaSimpleTypeResolver) cycleDiagnostic(index int) error {
 	loc := resolver.records[index].loc
-	if resolver.records[index].simpleType != nil {
-		loc = resolver.records[index].simpleType.baseLoc
+	version := XSDVersion11
+	input := resolver.records[index].simpleType
+	if input != nil {
+		loc = input.baseLoc
+		version = input.version
 	}
 	start := 0
 	for position, current := range resolver.stack {
@@ -897,11 +905,11 @@ func (resolver *schemaSimpleTypeResolver) cycleDiagnostic(index int) error {
 		related = append(related, currentLoc)
 	}
 	return newSchemaSimpleTypeDiagnostic(
-		FailureInvalid,
 		diagnosticSchemaSimpleTypeCycleCode,
 		loc,
 		"simple type restriction bases form a cycle",
 		related,
+		version,
 		fmt.Errorf("%w: component %s", errSchemaSimpleTypeBaseCycle, resolver.records[index].id.Source()),
 	)
 }
@@ -917,15 +925,23 @@ func schemaComponentLocations(records []schemaComponentRecord, indices []int) []
 	return locations
 }
 
-func newSchemaSimpleTypeDiagnostic(class FailureClass, code string, loc Loc, message string, related []Loc, cause error) Diagnostic {
+func newSchemaSimpleTypeDiagnostic(code string, loc Loc, message string, related []Loc, version XSDVersion, cause error) Diagnostic {
 	return Diagnostic{
-		class:   class,
+		class:   FailureInvalid,
 		code:    code,
 		loc:     loc,
 		message: message,
 		related: append([]Loc(nil), related...),
+		specRef: schemaSimpleTypeSpecRef(version),
 		cause:   cause,
 	}
+}
+
+func schemaSimpleTypeSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaSimpleTypeXSD10SpecRef
+	}
+	return schemaSimpleTypeXSD11SpecRef
 }
 
 func unsupportedSchemaSimpleTypeBase(loc Loc, name QName) error {

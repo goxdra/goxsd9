@@ -19,6 +19,9 @@ const (
 	DigitFacetValueViolationCode = "XSD2008"
 	// InvalidDigitDatatypeCode identifies a datatype excluded from digit facets.
 	InvalidDigitDatatypeCode = "XSD2009"
+	// UnsupportedDatatypeFacetCode identifies a datatype facet outside this
+	// layer's supported facet subset.
+	UnsupportedDatatypeFacetCode = "XSD2019"
 )
 
 var (

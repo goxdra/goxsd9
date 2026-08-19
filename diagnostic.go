@@ -136,6 +136,21 @@ func newUnsupported(feature UnsupportedFeature, code string, loc Loc, message st
 	}
 }
 
+func newUnsupportedForVersion(feature UnsupportedFeature, code string, loc Loc, message string, version XSDVersion) Diagnostic {
+	diagnostic := newUnsupported(feature, code, loc, message)
+	if diagnostic.Class() != FailureUnsupported {
+		return diagnostic
+	}
+	for _, reference := range feature.References() {
+		if reference.XSDVersion() != string(version) {
+			continue
+		}
+		diagnostic.specRef = reference.Source()
+		break
+	}
+	return diagnostic
+}
+
 // Diagnostics is a deterministic aggregate in processing order.
 type Diagnostics struct {
 	items []Diagnostic

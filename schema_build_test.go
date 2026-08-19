@@ -3,7 +3,6 @@ package goxsd9
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 )
 
@@ -1494,17 +1493,19 @@ type schemaSimpleTypeBaseFailureCase struct {
 	code       string
 	cause      error
 	feature    FeatureID
+	specRef    string
 	relatedMin int
 }
 
 func TestSchemaBridgeRejectsSimpleTypeBaseFailuresWithoutSchema(t *testing.T) {
 	tests := []schemaSimpleTypeBaseFailureCase{
 		{
-			name:  "unresolved",
-			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:m="urn:missing"><xs:simpleType name="item"><xs:restriction base="m:missing"/></xs:simpleType></xs:schema>`,
-			class: FailureResolution,
-			code:  diagnosticSchemaSimpleTypeUnresolvedCode,
-			cause: errSchemaSimpleTypeBaseUnresolved,
+			name:    "unresolved",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:m="urn:missing" version="1.0"><xs:simpleType name="item"><xs:restriction base="m:missing"/></xs:simpleType></xs:schema>`,
+			class:   FailureInvalid,
+			code:    diagnosticSchemaSimpleTypeUnresolvedCode,
+			cause:   errSchemaSimpleTypeBaseUnresolved,
+			specRef: "xsd10-structures#Simple_Type_Definitions",
 		},
 		{
 			name:  "malformed base QName",
@@ -1518,6 +1519,7 @@ func TestSchemaBridgeRejectsSimpleTypeBaseFailuresWithoutSchema(t *testing.T) {
 			class:      FailureInvalid,
 			code:       diagnosticSchemaSimpleTypeWrongKindCode,
 			cause:      errSchemaSimpleTypeBaseWrongKind,
+			specRef:    "xsd11-structures#Simple_Type_Definition",
 			relatedMin: 1,
 		},
 		{
@@ -1526,6 +1528,7 @@ func TestSchemaBridgeRejectsSimpleTypeBaseFailuresWithoutSchema(t *testing.T) {
 			class:      FailureInvalid,
 			code:       diagnosticSchemaSimpleTypeAmbiguousCode,
 			cause:      errSchemaSimpleTypeBaseAmbiguous,
+			specRef:    "xsd11-structures#Simple_Type_Definition",
 			relatedMin: 2,
 		},
 		{
@@ -1534,6 +1537,7 @@ func TestSchemaBridgeRejectsSimpleTypeBaseFailuresWithoutSchema(t *testing.T) {
 			class:      FailureInvalid,
 			code:       diagnosticSchemaSimpleTypeCycleCode,
 			cause:      errSchemaSimpleTypeBaseCycle,
+			specRef:    "xsd11-structures#Simple_Type_Definition",
 			relatedMin: 1,
 		},
 		{
@@ -1569,6 +1573,9 @@ func assertSimpleTypeBaseFailure(t *testing.T, test schemaSimpleTypeBaseFailureC
 	}
 	if test.feature != "" && diagnostic.Feature() != test.feature {
 		t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), test.feature)
+	}
+	if test.specRef != "" && diagnostic.SpecRef() != test.specRef {
+		t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), test.specRef)
 	}
 	if len(diagnostic.Related()) < test.relatedMin {
 		t.Fatalf("related locations = %v, want at least %d", diagnostic.Related(), test.relatedMin)
@@ -1634,28 +1641,74 @@ func TestSchemaBridgeReusesDigitFacetRestrictionDiagnostics(t *testing.T) {
 }
 
 func TestSchemaBridgeReportsUnsupportedSimpleTypeFeatures(t *testing.T) {
-	tests := []string{
-		`<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:list itemType="xs:integer"/></xs:simpleType></xs:schema>`,
-		`<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:union memberTypes="xs:integer xs:decimal"/></xs:simpleType></xs:schema>`,
-		`<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:pattern value="[0-9]+"/></xs:restriction></xs:simpleType></xs:schema>`,
-		`<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:f="urn:foreign"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><f:pattern/></xs:restriction></xs:simpleType></xs:schema>`,
+	tests := []struct {
+		name    string
+		root    string
+		feature FeatureID
+		code    string
+		specRef string
+	}{
+		{
+			name:    "list remains schema syntax",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:list itemType="xs:integer"/></xs:simpleType></xs:schema>`,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "union remains schema syntax",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:union memberTypes="xs:integer xs:decimal"/></xs:simpleType></xs:schema>`,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "XSD 1.0 datatype facet",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.0"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:pattern value="[0-9]+"/></xs:restriction></xs:simpleType></xs:schema>`,
+			feature: FeatureDatatypeFacets,
+			code:    UnsupportedDatatypeFacetCode,
+			specRef: "xsd10-datatypes#decimal",
+		},
+		{
+			name:    "XSD 1.1 datatype facet",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.1"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:pattern value="[0-9]+"/></xs:restriction></xs:simpleType></xs:schema>`,
+			feature: FeatureDatatypeFacets,
+			code:    UnsupportedDatatypeFacetCode,
+			specRef: "xsd11-datatypes#decimal",
+		},
+		{
+			name:    "foreign facet remains schema syntax",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:f="urn:foreign"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><f:pattern/></xs:restriction></xs:simpleType></xs:schema>`,
+			feature: FeatureSchemaSyntax,
+		},
 	}
-	for index, root := range tests {
-		t.Run(fmt.Sprintf("case-%d", index), func(t *testing.T) {
-			schema, err := discoverTestSchema(t, root, nil)
-			if err == nil {
-				t.Fatal("discoverSchema accepted unsupported simple type behavior")
-			}
-			if schema.storage != nil {
-				t.Fatal("discoverSchema returned a partial schema")
-			}
-			if diagnostic := requireDiagnostic(t, err); diagnostic.Class() != FailureUnsupported {
-				t.Fatalf("diagnostic class = %q, want unsupported", diagnostic.Class())
-			}
-			if !errors.Is(err, ErrUnsupported) {
-				t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
-			}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertUnsupportedSimpleTypeFeature(t, test.root, test.feature, test.code, test.specRef)
 		})
+	}
+}
+
+func assertUnsupportedSimpleTypeFeature(t *testing.T, root string, feature FeatureID, code, specRef string) {
+	t.Helper()
+	schema, err := discoverTestSchema(t, root, nil)
+	if err == nil {
+		t.Fatal("discoverSchema accepted unsupported simple type behavior")
+	}
+	if schema.storage != nil {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported {
+		t.Fatalf("diagnostic class = %q, want unsupported", diagnostic.Class())
+	}
+	if diagnostic.Feature() != feature {
+		t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), feature)
+	}
+	if code != "" && diagnostic.Code() != code {
+		t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code(), code)
+	}
+	if specRef != "" && diagnostic.SpecRef() != specRef {
+		t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), specRef)
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
 	}
 }
 
