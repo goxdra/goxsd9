@@ -1,6 +1,6 @@
 # Plan
 
-Current phase: **Bootstrap**
+Current phase: **Vertical Slice**
 
 The project delivers a useful vertical slice before broadening to full measured
 conformance. GitHub Issues contain executable work; this file contains outcomes
