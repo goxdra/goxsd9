@@ -289,6 +289,11 @@ func validateSyntaxDocumentStructure(document *syntaxDocument) error {
 		}
 		nextPhase, err := validateSchemaRootChild(child, phase)
 		if err != nil {
+			if unsupportedRootAttribute != "" {
+				if diagnostic, ok := err.(Diagnostic); ok && diagnostic.Class() == FailureUnsupported {
+					return newSchemaSyntaxUnsupported(unsupportedRootAttributeLoc, unsupportedRootAttribute)
+				}
+			}
 			return err
 		}
 		phase = nextPhase
@@ -548,6 +553,11 @@ func validateGlobalSchemaDeclaration(element *syntaxElement) error {
 		return err
 	}
 	if err := validateGlobalSchemaChildren(element); err != nil {
+		if unsupportedMessage != "" {
+			if diagnostic, ok := err.(Diagnostic); ok && diagnostic.Class() == FailureUnsupported {
+				return newSchemaSyntaxUnsupported(unsupportedLoc, unsupportedMessage)
+			}
+		}
 		return err
 	}
 	if unsupportedMessage != "" {
