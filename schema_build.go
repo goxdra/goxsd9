@@ -377,7 +377,7 @@ func schemaDeclarationName(element *syntaxElement, targetNamespace string) (QNam
 func syntaxAttributesByLocal(element *syntaxElement, local string) []syntaxAttribute {
 	attributes := make([]syntaxAttribute, 0, 1)
 	for _, attribute := range element.attrs {
-		if attribute.name.local == local {
+		if attribute.name.namespace == "" && attribute.name.local == local {
 			attributes = append(attributes, attribute)
 		}
 	}
