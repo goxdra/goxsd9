@@ -23,11 +23,16 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for current design and [PLAN.md](PLAN.md)
 
 ## Repository checks
 
+Fresh checkout: initialize pinned submodule:
+
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
 go tool workflowctl check
+go tool conformance inventory
 ```
+
+Rows group `origin` × XSD `version` × `kind` (`schema`/`instance`); `valid`/`invalid`/`other` are catalog expectations, not processor results. Status counts: submitted/accepted/stable/queried/disputed-test/disputed-spec/status-missing; `unusable` is independent metadata. Queried/disputed-test/disputed-spec/unusable stay visible; `headline` counts usable main valid/invalid, excluding queried/disputed-test/disputed-spec/unusable/status-missing/auxiliary. Metadata only; no tests run.
 
 ## Pinned specification corpus
 
