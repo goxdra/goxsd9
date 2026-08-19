@@ -545,6 +545,9 @@ func validateGlobalSchemaDeclaration(element *syntaxElement) error {
 			unsupportedLoc = attribute.loc
 		}
 	}
+	if err := validateGlobalSchemaNamePresence(element); err != nil {
+		return err
+	}
 	if err := validateGlobalSchemaAttributeCooccurrence(element); err != nil {
 		return err
 	}
@@ -553,6 +556,17 @@ func validateGlobalSchemaDeclaration(element *syntaxElement) error {
 	}
 	if unsupportedMessage != "" {
 		return newSchemaSyntaxUnsupported(unsupportedLoc, unsupportedMessage)
+	}
+	return nil
+}
+
+func validateGlobalSchemaNamePresence(element *syntaxElement) error {
+	attributes := syntaxAttributesByLocal(element, "name")
+	if len(attributes) == 0 {
+		return newDiagnostic(FailureInvalid, invalidSchemaDeclarationNameCode, element.loc, "schema declaration has no name attribute", nil)
+	}
+	if len(attributes) != 1 {
+		return newDiagnostic(FailureInvalid, invalidSchemaDeclarationNameCode, element.loc, "schema declaration name must be unique", nil)
 	}
 	return nil
 }
