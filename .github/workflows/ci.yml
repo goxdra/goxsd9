@@ -26,8 +26,15 @@ jobs:
         run: go tool workflowctl check --skip-lint
       - name: Run development signals
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
         run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags origin "refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+            BASE_SHA="$(git merge-base HEAD "refs/remotes/origin/$BASE_REF")"
+          else
+            BASE_SHA="$PUSH_BASE_SHA"
+          fi
           go test ./internal/workflowctl -run 'Test(CheckCoveragePolicy|DevelopSignalsCommand|RunFuzzUsesOfflineSingleWorkerAndCleansSuccessfulSandbox)'
           if git diff --quiet "$BASE_SHA" HEAD -- syntax.go datatype.go; then
             echo "No parser/datatype boundary changes; development signals not required"

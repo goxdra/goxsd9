@@ -159,13 +159,10 @@ func (a app) buildCoverageReportFromRepository(root, baseRef string) (report cov
 		return coverageReport{}, fmt.Errorf("create coverage temporary directory: %w", err)
 	}
 	baseRoot := filepath.Join(temporaryRoot, "base")
-	worktreeAdded := false
 	defer func() {
-		if worktreeAdded {
-			cleanupErr := a.removeCoverageWorktree(root, baseRoot)
-			err = joinCoverageErrors(err, cleanupErr)
-		}
-		cleanupErr := os.RemoveAll(temporaryRoot)
+		cleanupErr := a.removeCoverageWorktreeIfRegistered(root, baseRoot)
+		err = joinCoverageErrors(err, cleanupErr)
+		cleanupErr = os.RemoveAll(temporaryRoot)
 		err = joinCoverageErrors(err, cleanupErr)
 	}()
 
@@ -173,7 +170,6 @@ func (a app) buildCoverageReportFromRepository(root, baseRef string) (report cov
 	if addErr != nil {
 		return coverageReport{}, addErr
 	}
-	worktreeAdded = true
 	if initializeErr := a.initializeCoverageWorktree(baseRoot); initializeErr != nil {
 		return coverageReport{}, initializeErr
 	}
@@ -215,6 +211,24 @@ func (a app) initializeCoverageWorktree(directory string) error {
 func (a app) removeCoverageWorktree(root, directory string) error {
 	if _, err := a.command(root, "git", "worktree", "remove", "--force", directory); err != nil {
 		return fmt.Errorf("remove coverage base worktree: %w", err)
+	}
+	return nil
+}
+
+func (a app) removeCoverageWorktreeIfRegistered(root, directory string) error {
+	normalizedDirectory, err := absoluteCleanPath(directory)
+	if err != nil {
+		return fmt.Errorf("resolve coverage base worktree for cleanup: %w", err)
+	}
+	worktrees, err := a.readWorktreeInventory(root)
+	if err != nil {
+		return fmt.Errorf("inspect coverage worktree inventory for cleanup: %w", err)
+	}
+	for _, worktree := range worktrees {
+		if !samePath(worktree.path, normalizedDirectory) {
+			continue
+		}
+		return a.removeCoverageWorktree(root, normalizedDirectory)
 	}
 	return nil
 }

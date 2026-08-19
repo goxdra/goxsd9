@@ -28,10 +28,9 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    recursive pins ready. Repair stale launches with `base-sync`; rerun doctor,
    `sync`, `pick`.
 2. Claim the issue with `go tool workflowctl claim acquire ISSUE`. On claim
-   loss, preserve state: no edit/push/reuse or Project-status change; defer
-   unrelated ready work to a later invocation; never backlog-loop or widen
-   scope. Only in that later invocation ask workflowctl for another eligible
-   issue and use its worktree.
+   loss, preserve state: no edit/push/reuse or Project-status change; immediately
+   ask workflowctl for at most one other eligible issue and use its worktree.
+   Never backlog-loop or widen scope.
 3. Read issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md`
    phase, relevant decisions. Claim at most one companion first
    for shared implementation/proof.
@@ -85,10 +84,10 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
     invariants; omit metadata. Do not copy or parse PR Markdown into squash body.
     Keep metadata in records. Use
     `go tool workflowctl pr finish PR --summary-file FILE`, which verifies
-    packet before SHA-bound REST, GraphQL-independent squash merge, converges
-    canonical base, cleans only exact refs, clean-claim worktrees, expected-SHA
-    branches proven by immutable pre-merge proof: base/head/closure/body
-    metadata; recovery refuses drift.
+    packet before finishing. Finishing uses a SHA-bound REST squash merge
+    and does not depend on GraphQL. It converges canonical base, cleans only exact
+    refs, clean-claim worktrees, expected-SHA branches proven by immutable
+    pre-merge proof: base/head/closure/body metadata; recovery refuses drift.
     Convergence/cleanup failure: merge complete; preserve artifacts; run
     idempotent `go tool workflowctl pr recover PR`; recovery requires
     SHA-bound REST merge; remains GraphQL-independent. Use `claim prune ISSUE`
@@ -116,4 +115,4 @@ telemetry.
   a located, actionable `needs-human` handoff.
 - Leave incomplete branches/worktrees recoverable. Never force-push over active
   claim or bypass required check.
-- Continue unrelated ready work only in a later invocation; do not backlog-loop.
+- After one bounded reselection, do not backlog-loop or widen scope.
