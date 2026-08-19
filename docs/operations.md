@@ -5,9 +5,9 @@ checkout in America/New_York time. Skills are executable procedures; this page
 is the operator contract.
 | Job | Schedule | Agent | Prompt |
 | --- | --- | --- | --- |
-| Develop | 02:00, 08:00, 14:00, 20:00 daily | Luna, maximum effort | `Run $develop for this repository.` |
-| Backlog | 10:00 daily | Sol, maximum effort | `Run $backlog for this repository.` |
-| Retro | 12:00 Sunday | Sol, maximum effort | `Run $retro for this repository.` |
+| Develop | 00:00, then every 3 hours | Luna, maximum effort | `Run $develop for this repository.` |
+| Backlog | 10:30 daily | Sol, maximum effort | `Run $backlog for this repository.` |
+| Retro | 13:30 Sunday | Sol, maximum effort | `Run $retro for this repository.` |
 Jobs are non-interactive. Develop starts only from canonical clean `main`, equal
 to fetched `origin/main`, with recursive pins ready. `doctor` enforces this;
 stale launches recover with `base-sync`, then relaunch. Develop claims one
