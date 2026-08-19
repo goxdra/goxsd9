@@ -44,8 +44,8 @@ name idempotent `go tool workflowctl pr recover PR`; `claim prune ISSUE` require
 merged proof.
 
 If draft-to-ready GraphQL is unavailable, close the draft and create an
-identical-head ready PR through REST, then obtain a new challenge. Post-merge
-Project failures converge on the next `workflowctl sync`.
+identical-head ready PR via REST, then require a new challenge and fresh
+Examiner. Post-merge Project failures converge on `workflowctl sync`.
 
 The GitHub issue, claim ref, checks, challenge, attestation, receipt, and merge
 commit are the communication record. At finalization, pass a plain-text summary
@@ -54,6 +54,6 @@ problem, outcome, rationale, invariants, and process learning, omitting status,
 commands, and claim/review metadata. The command validates it as the squash body;
 later runs read it through `workflowctl history`. Use Markdown body files for evidence.
 
-The summary is UTF-8 plain text in a regular file of at most 8 KiB, LF-only,
-non-empty, and without surrounding or line-trailing whitespace. Control,
-format, line-separator characters, and generated claim trailers are rejected.
+Summary is non-empty UTF-8 text in a file of at most 8 KiB, LF-only; one final LF
+is accepted. Surrounding/line-trailing whitespace, control, format, other
+line-separator characters, and generated claim trailers are rejected.

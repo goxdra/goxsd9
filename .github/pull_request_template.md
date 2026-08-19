@@ -20,7 +20,7 @@
 
 ### Development signals
 
-<!-- For parser/datatype changes, include develop-signals --format json evidence for exact computed
+<!-- For parser/datatype changes, include `go tool workflowctl develop-signals --base BASE_SHA --format json` evidence for exact computed
      affected/repository deltas, selected-target evidence, and bounded fuzz results.
      Request checked-in corpus replay evidence separately,
      or record no-relevant-target. These are engineering-health signals, not
