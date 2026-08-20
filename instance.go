@@ -25,8 +25,10 @@ const (
 
 const (
 	instanceXMLWellFormedSpecRef   = "xml10#sec-well-formed"
+	instanceXMLDTDSpecRef          = "xml10#sec-prolog-dtd"
 	instanceXMLStartTagsSpecRef    = "xml10#sec-starttags"
 	instanceXMLNamespacesSpecRef   = "xml-names#scoping-defaulting"
+	instanceXMLEncodingSpecRef     = "xml10#charencoding"
 	diagnosticInstanceNoReaderCode = "XML3004"
 	diagnosticInstanceFeatureCode  = "XML3006"
 )
@@ -386,7 +388,7 @@ func (parser *instanceDecoder) handleTokenError(err error, loc Loc, rawToken []b
 		if declarationErr := parser.validateUnsupportedEncodingDeclaration(rawToken, loc); declarationErr != nil {
 			return nil, declarationErr
 		}
-		return nil, newInstanceUnsupported(
+		return nil, newInstanceEncodingUnsupported(
 			loc,
 			"non-UTF-8 instance encodings are not supported",
 			err,
@@ -402,7 +404,7 @@ func (parser *instanceDecoder) handleTokenError(err error, loc Loc, rawToken []b
 		)
 	}
 	if parser.positions.hasNonUTF8BOM() {
-		return nil, newInstanceUnsupported(
+		return nil, newInstanceEncodingUnsupported(
 			loc,
 			"non-UTF-8 instance encodings are not supported",
 			err,
@@ -566,6 +568,7 @@ func validateInstanceDoctype(raw []byte, loc Loc) error {
 		if !externalOK {
 			return invalidInstanceDoctype(loc, "invalid DTD external identifier")
 		}
+		consumeInstanceDoctypeSpace(body, &index)
 		if index == len(body) {
 			return nil
 		}
@@ -615,7 +618,6 @@ func consumeInstanceDoctypeExternalID(body []byte, index int) (int, bool) {
 	if keyword == "PUBLIC" && (!consumeInstanceDoctypeSpace(body, &index) || !consumeInstanceDoctypeLiteral(body, &index, false)) {
 		return 0, false
 	}
-	consumeInstanceDoctypeSpace(body, &index)
 	return index, true
 }
 
@@ -1137,7 +1139,9 @@ func consumeInstanceDoctypeEntity(body []byte, index int) (int, bool) {
 
 func consumeInstanceDoctypeExternalEntityEnd(body []byte, index int) (int, bool) {
 	declarationStart := index
-	consumeInstanceDoctypeSpace(body, &index)
+	if !consumeInstanceDoctypeSpace(body, &index) {
+		return consumeInstanceDoctypeMarkupEnd(body, declarationStart)
+	}
 	if !consumeInstanceDoctypeWord(body, &index, "NDATA") {
 		return consumeInstanceDoctypeMarkupEnd(body, declarationStart)
 	}
@@ -1156,10 +1160,13 @@ func consumeInstanceDoctypeNotation(body []byte, index int) (int, bool) {
 			return 0, false
 		}
 		publicEnd := index
-		consumeInstanceDoctypeSpace(body, &index)
+		hasSpace := consumeInstanceDoctypeSpace(body, &index)
 		if index >= len(body) || (body[index] != '\'' && body[index] != '"') {
 			index = publicEnd
 			return consumeInstanceDoctypeMarkupEnd(body, index)
+		}
+		if !hasSpace {
+			return 0, false
 		}
 		if !consumeInstanceDoctypeLiteral(body, &index, false) {
 			return 0, false
@@ -1660,7 +1667,7 @@ func (parser *instanceDecoder) processingInstruction(token xml.ProcInst, loc Loc
 			return err
 		}
 		if encoding := instanceXMLDeclarationEncoding(token.Inst); encoding != "" && !strings.EqualFold(encoding, "UTF-8") {
-			return newInstanceUnsupported(
+			return newInstanceEncodingUnsupported(
 				loc,
 				"non-UTF-8 instance encodings are not supported",
 				fmt.Errorf("%w: %s", errInstanceUnsupportedEncoding, encoding),
@@ -2051,6 +2058,14 @@ func newInstanceInvalid(code string, loc Loc, message, specRef string, cause err
 }
 
 func newInstanceUnsupported(loc Loc, message string, cause error) error {
+	return newInstanceUnsupportedWithSpecRef(loc, message, cause, "")
+}
+
+func newInstanceEncodingUnsupported(loc Loc, message string, cause error) error {
+	return newInstanceUnsupportedWithSpecRef(loc, message, cause, instanceXMLEncodingSpecRef)
+}
+
+func newInstanceUnsupportedWithSpecRef(loc Loc, message string, cause error, specRef string) error {
 	feature, ok := LookupUnsupportedFeature(FeatureInstanceSyntax)
 	if !ok {
 		return newDiagnostic(
@@ -2062,6 +2077,9 @@ func newInstanceUnsupported(loc Loc, message string, cause error) error {
 		)
 	}
 	diagnostic := newUnsupported(feature, UnsupportedInstanceSyntaxCode, loc, message)
+	if specRef != "" && diagnostic.Class() == FailureUnsupported {
+		diagnostic.specRef = specRef
+	}
 	diagnostic.cause = cause
 	return diagnostic
 }

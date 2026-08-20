@@ -183,6 +183,9 @@ func TestDecodeInstanceDefersWhitespaceSeparatedNonUTF8Encoding(t *testing.T) {
 			if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
 				t.Fatalf("Code() = %q, want %q", got, want)
 			}
+			if got, want := diagnostic.SpecRef(), instanceXMLEncodingSpecRef; got != want {
+				t.Fatalf("SpecRef() = %q, want %q", got, want)
+			}
 		})
 	}
 }
@@ -332,6 +335,9 @@ func TestDecodeInstanceDefersWellFormedDTDUnsupported(t *testing.T) { //nolint:g
 			if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
 				t.Fatalf("Code() = %q, want %q", got, want)
 			}
+			if got, want := diagnostic.SpecRef(), instanceXMLDTDSpecRef; got != want {
+				t.Fatalf("SpecRef() = %q, want %q", got, want)
+			}
 			if got, want := diagnostic.Loc(), test.loc; got != want {
 				t.Fatalf("Loc() = %v, want %v", got, want)
 			}
@@ -372,6 +378,9 @@ func TestDecodeInstanceAcceptsBoundedDTDSubsetItems(t *testing.T) {
 	if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
 		t.Fatalf("Code() = %q, want %q", got, want)
 	}
+	if got, want := diagnostic.SpecRef(), instanceXMLDTDSpecRef; got != want {
+		t.Fatalf("SpecRef() = %q, want %q", got, want)
+	}
 }
 
 func TestDecodeInstanceAcceptsDTDGrammarVariants(t *testing.T) {
@@ -380,6 +389,7 @@ func TestDecodeInstanceAcceptsDTDGrammarVariants(t *testing.T) {
 		`<!DOCTYPE root [<!ELEMENT root (a?,b+,c*)>]><root/>`,
 		`<!DOCTYPE root [<!ATTLIST root format NOTATION (gif | jpg) #IMPLIED>]><root/>`,
 		`<!DOCTYPE root [<!ATTLIST root format NOTATION (gif|jpg) #IMPLIED>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY image SYSTEM "image.bin" NDATA image>]><root/>`,
 		`<!DOCTYPE root [<!NOTATION image PUBLIC "pubid" "image.bin">]><root/>`,
 	} {
 		t.Run(strconv.Quote(input), func(t *testing.T) {
@@ -525,6 +535,8 @@ func TestDecodeInstanceDTDStructuralErrorsRemainInvalid(t *testing.T) {
 		{name: "ATTLIST missing type", input: "<!DOCTYPE root [<!ATTLIST root id>]><root/>", code: InvalidInstanceXMLCode},
 		{name: "ENTITY missing definition", input: "<!DOCTYPE root [<!ENTITY root>]><root/>", code: InvalidInstanceXMLCode},
 		{name: "NOTATION missing identifier", input: "<!DOCTYPE root [<!NOTATION image>]><root/>", code: InvalidInstanceXMLCode},
+		{name: "ENTITY NDATA missing space", input: "<!DOCTYPE root [<!ENTITY image SYSTEM \"image.bin\"NDATA image>]><root/>", code: InvalidInstanceXMLCode},
+		{name: "NOTATION system literal missing space", input: "<!DOCTYPE root [<!NOTATION image PUBLIC \"pubid\"\"image.bin\">]><root/>", code: InvalidInstanceXMLCode},
 		{name: "DTD PI question boundary", input: "<!DOCTYPE root [<?foo?x?>]><root/>", code: InvalidInstanceXMLCode},
 		{name: "NUL in system literal", input: "<!DOCTYPE root SYSTEM \"\x00\"><root/>", code: InvalidInstanceXMLCode},
 		{name: "NUL in DTD comment", input: "<!DOCTYPE root [<!--\x00-->]><root/>", code: InvalidInstanceXMLCode},
@@ -796,6 +808,9 @@ func TestDecodeInstanceRejectsUTF16BOM(t *testing.T) {
 	}
 	if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
 		t.Fatalf("Code() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.SpecRef(), instanceXMLEncodingSpecRef; got != want {
+		t.Fatalf("SpecRef() = %q, want %q", got, want)
 	}
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("unsupported diagnostic does not match ErrUnsupported: %v", err)
