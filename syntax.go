@@ -17,9 +17,9 @@ const (
 	// UnsupportedSchemaSyntaxCode identifies well-formed XSD syntax outside the
 	// syntax kernel.
 	UnsupportedSchemaSyntaxCode = "XSD3003"
-	// SourceReadCode identifies a failure while draining a schema source.
+	// SourceReadCode identifies a failure while reading or draining a source.
 	SourceReadCode = "XSD3004"
-	// SourceCloseCode identifies a failure while closing a schema source.
+	// SourceCloseCode identifies a failure while closing a source.
 	SourceCloseCode = "XSD3005"
 )
 
@@ -527,13 +527,21 @@ var supportedSyntaxElements = map[string]struct{}{
 }
 
 func childSyntaxScope(parent *syntaxScope, attrs []xml.Attr, loc Loc) (*syntaxScope, error) {
+	return childSyntaxScopeWithLocations(parent, attrs, loc, nil)
+}
+
+func childSyntaxScopeWithLocations(parent *syntaxScope, attrs []xml.Attr, loc Loc, attributeLocs []Loc) (*syntaxScope, error) {
 	bindings := make([]syntaxBinding, 0)
-	for _, attr := range attrs {
+	for attrIndex, attr := range attrs {
 		prefix, ok := namespaceDeclaration(attr)
 		if !ok {
 			continue
 		}
-		binding, err := makeSyntaxBinding(prefix, attr.Value, bindings, loc)
+		attributeLoc := loc
+		if attrIndex < len(attributeLocs) && !attributeLocs[attrIndex].IsZero() {
+			attributeLoc = attributeLocs[attrIndex]
+		}
+		binding, err := makeSyntaxBinding(prefix, attr.Value, bindings, attributeLoc)
 		if err != nil {
 			return nil, err
 		}
@@ -741,7 +749,7 @@ func newSyntaxPositionReader(source SourceID, reader io.Reader) *syntaxPositionR
 		source: source,
 		line:   1,
 		column: 1,
-		prefix: make([]byte, 0, 3),
+		prefix: make([]byte, 0, 4),
 	}
 	position.history = append(position.history, syntaxPositionSample{
 		offset: 0,
@@ -761,7 +769,7 @@ func (position *syntaxPositionReader) ReadByte() (byte, error) {
 	for {
 		n, err := position.reader.Read(one[:])
 		if n < 0 || n > len(one) {
-			readErr := fmt.Errorf("schema source returned invalid byte count %d", n)
+			readErr := fmt.Errorf("source returned invalid byte count %d", n)
 			position.lastReadError = readErr
 			return 0, readErr
 		}
@@ -815,7 +823,7 @@ func (position *syntaxPositionReader) Read(buffer []byte) (int, error) {
 func (position *syntaxPositionReader) readBuffer(buffer []byte) (int, error) {
 	n, err := position.reader.Read(buffer)
 	if n < 0 || n > len(buffer) {
-		readErr := fmt.Errorf("schema source returned invalid byte count %d", n)
+		readErr := fmt.Errorf("source returned invalid byte count %d", n)
 		position.lastReadError = readErr
 		return 0, readErr
 	}
@@ -844,7 +852,7 @@ func (position *syntaxPositionReader) recordByte(value byte) {
 		position.history = position.history[1:]
 	}
 	position.offset++
-	if len(position.prefix) < 3 {
+	if len(position.prefix) < 4 {
 		position.prefix = append(position.prefix, value)
 		if len(position.prefix) == 3 && bytes.Equal(position.prefix, []byte{0xef, 0xbb, 0xbf}) {
 			position.removeUTF8BOM()
@@ -852,6 +860,13 @@ func (position *syntaxPositionReader) recordByte(value byte) {
 		}
 	}
 	position.advance(value)
+}
+
+func (position *syntaxPositionReader) hasNonUTF8BOM() bool {
+	return bytes.HasPrefix(position.prefix, []byte{0xff, 0xfe}) ||
+		bytes.HasPrefix(position.prefix, []byte{0xfe, 0xff}) ||
+		bytes.HasPrefix(position.prefix, []byte{0x00, 0x00, 0xfe, 0xff}) ||
+		bytes.HasPrefix(position.prefix, []byte{0xff, 0xfe, 0x00, 0x00})
 }
 
 func (position *syntaxPositionReader) removeUTF8BOM() {

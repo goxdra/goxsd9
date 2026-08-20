@@ -11,15 +11,23 @@ import (
 // ID identifies a specification capability in the repository registry.
 type ID string
 
-// Reference identifies the pinned specification section for one XSD version.
+// Reference identifies the pinned specification section for one specification
+// version.
 type Reference struct {
 	version string
 	source  string
 }
 
-// XSDVersion returns the XSD version to which the reference applies.
-func (reference Reference) XSDVersion() string {
+// Version returns the specification version to which the reference applies.
+func (reference Reference) Version() string {
 	return reference.version
+}
+
+// XSDVersion returns the specification version to which the reference applies.
+//
+// Deprecated: use Version.
+func (reference Reference) XSDVersion() string {
+	return reference.Version()
 }
 
 // Source returns the pinned specification ID and section anchor.
@@ -103,6 +111,13 @@ var registry = []definition{
 		title: "XSD precisionDecimal",
 		references: []Reference{
 			{version: "1.1", source: "xsd-precisionDecimal#precisionDecimal"},
+		},
+	},
+	{
+		id:    "xsd.instance.syntax",
+		title: "XML instance syntax outside the first decoder slice",
+		references: []Reference{
+			{version: "1.0", source: "xml10#sec-prolog-dtd"},
 		},
 	},
 	{
@@ -215,10 +230,10 @@ func validateReferences(id ID, references []Reference) error {
 	seenVersions := make(map[string]struct{}, len(references))
 	for index, reference := range references {
 		if reference.version != "1.0" && reference.version != "1.1" {
-			return fmt.Errorf("feature %q has invalid XSD version %q", id, reference.version)
+			return fmt.Errorf("feature %q has invalid specification version %q", id, reference.version)
 		}
 		if _, ok := seenVersions[reference.version]; ok {
-			return fmt.Errorf("feature %q repeats XSD version %q", id, reference.version)
+			return fmt.Errorf("feature %q repeats specification version %q", id, reference.version)
 		}
 		seenVersions[reference.version] = struct{}{}
 		if index > 0 && references[index-1].version >= reference.version {

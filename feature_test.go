@@ -19,7 +19,7 @@ func TestFeatureRegistryValidationAndLookup(t *testing.T) {
 	if _, ok := LookupUnsupportedFeature("xsd.unknown"); ok {
 		t.Fatal("LookupUnsupportedFeature accepted an unknown ID")
 	}
-	for _, id := range []FeatureID{FeatureDatatypeFacets, FeaturePrecisionDecimal} {
+	for _, id := range []FeatureID{FeatureDatatypeFacets, FeatureInstanceSyntax, FeaturePrecisionDecimal} {
 		if _, ok := LookupUnsupportedFeature(id); !ok {
 			t.Fatalf("LookupUnsupportedFeature did not find %q", id)
 		}
