@@ -209,6 +209,7 @@ func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 // SchemaDocument is an immutable document in a Schema's discovery order.
 type SchemaDocument struct {
 	source          SourceID
+	rootLoc         Loc
 	targetNamespace string
 	storage         *schemaStorage
 	start           int
@@ -218,6 +219,11 @@ type SchemaDocument struct {
 // Source returns the resolver-provided identity of the document.
 func (document SchemaDocument) Source() SourceID {
 	return document.source
+}
+
+// RootLoc returns the lexical location of the document's root element.
+func (document SchemaDocument) RootLoc() Loc {
+	return document.rootLoc
 }
 
 // TargetNamespace returns the document's target namespace URI.
@@ -255,6 +261,7 @@ func (schema Schema) Documents() []SchemaDocument {
 	for _, document := range schema.documents {
 		documents = append(documents, SchemaDocument{
 			source:          document.source,
+			rootLoc:         document.rootLoc,
 			targetNamespace: document.targetNamespace,
 			storage:         document.storage,
 			start:           document.start,
@@ -348,6 +355,7 @@ func (schema Schema) componentsAt(indices []int) []Component {
 
 type schemaDocumentInput struct {
 	source          SourceID
+	rootLoc         Loc
 	targetNamespace string
 	// declarations contains the named schema-level declarations in lexical
 	// order. Local particle components will use a separate scoped model.
@@ -444,6 +452,7 @@ func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []sc
 
 		documents = append(documents, SchemaDocument{
 			source:          input.source,
+			rootLoc:         input.rootLoc,
 			targetNamespace: input.targetNamespace,
 			start:           documentStart,
 			count:           len(records) - documentStart,
@@ -469,6 +478,18 @@ func validateSchemaDocumentInput(input schemaDocumentInput, seenSources map[Sour
 			Loc{},
 			fmt.Sprintf("schema document source %q is repeated", input.source),
 			nil,
+		)
+	}
+	if input.rootLoc.IsZero() {
+		return newSchemaBridgeInvariant(Loc{}, "schema document has no root location")
+	}
+	if input.rootLoc.Line() <= 0 || input.rootLoc.Column() <= 0 {
+		return newSchemaBridgeInvariant(input.rootLoc, "schema document root location has non-positive coordinates")
+	}
+	if input.rootLoc.Source() != input.source {
+		return newSchemaBridgeInvariant(
+			input.rootLoc,
+			fmt.Sprintf("schema document root location source %q does not match source %q", input.rootLoc.Source(), input.source),
 		)
 	}
 	return nil

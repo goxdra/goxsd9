@@ -144,6 +144,11 @@ func assertParseTestDocuments(t *testing.T, schema goxsd9.Schema) {
 	t.Helper()
 	wantSources := []goxsd9.SourceID{"opaque-root", "opaque-a", "opaque-b"}
 	wantNamespaces := []string{"urn:root", "urn:root", "urn:b"}
+	wantRootLocs := []goxsd9.Loc{
+		parseTestLoc(t, "opaque-root", 1, 1),
+		parseTestLoc(t, "opaque-a", 1, 1),
+		parseTestLoc(t, "opaque-b", 1, 1),
+	}
 	documents := schema.Documents()
 	if len(documents) != len(wantSources) {
 		t.Fatalf("document count = %d, want %d", len(documents), len(wantSources))
@@ -155,6 +160,31 @@ func assertParseTestDocuments(t *testing.T, schema goxsd9.Schema) {
 		if got := documents[index].TargetNamespace(); got != wantNamespaces[index] {
 			t.Errorf("document %d target namespace = %q, want %q", index, got, wantNamespaces[index])
 		}
+		if got := documents[index].RootLoc(); got != wantRootLocs[index] {
+			t.Errorf("document %d root location = %s, want %s", index, got, wantRootLocs[index])
+		}
+	}
+}
+
+func TestParseSchemaExposesUnicodeRootLocation(t *testing.T) {
+	rootContents := "\n  <!-- λβ --> <xs:schema xmlns:xs=\"" + parseTestXSDNamespace + "\"/>"
+	rootReader := newParseTestReader(rootContents)
+	root, err := goxsd9.NewResolvedSource(context.Background(), "unicode-root", rootReader)
+	if err != nil {
+		t.Fatalf("NewResolvedSource: %v", err)
+	}
+
+	schema, err := goxsd9.ParseSchema(root, nil)
+	if err != nil {
+		t.Fatalf("ParseSchema: %v", err)
+	}
+	documents := schema.Documents()
+	if got, want := len(documents), 1; got != want {
+		t.Fatalf("document count = %d, want %d", got, want)
+	}
+	wantLoc := parseTestLoc(t, "unicode-root", 2, 15)
+	if got := documents[0].RootLoc(); got != wantLoc {
+		t.Fatalf("root location = %s, want %s", got, wantLoc)
 	}
 }
 
@@ -285,6 +315,9 @@ func assertParseTestCopies(t *testing.T, schema goxsd9.Schema) {
 	if got := schema.Documents()[0].Source(); got != "opaque-root" {
 		t.Fatalf("mutating Documents changed source to %q", got)
 	}
+	if got := schema.Documents()[0].RootLoc(); got != parseTestLoc(t, "opaque-root", 1, 1) {
+		t.Fatalf("mutating Documents changed root location to %s", got)
+	}
 	documentComponents := schema.Documents()[0].Components()
 	documentComponents[0] = goxsd9.Component{}
 	if got := schema.Documents()[0].Components()[0].Name(); got != rootName {
@@ -412,6 +445,15 @@ func parseTestQName(t *testing.T, namespace, local string) goxsd9.QName {
 		t.Fatalf("NewQName: %v", err)
 	}
 	return name
+}
+
+func parseTestLoc(t *testing.T, source goxsd9.SourceID, line, column int) goxsd9.Loc {
+	t.Helper()
+	loc, err := goxsd9.NewLoc(source, line, column)
+	if err != nil {
+		t.Fatalf("NewLoc: %v", err)
+	}
+	return loc
 }
 
 var _ io.ReadCloser = (*parseTestReader)(nil)
