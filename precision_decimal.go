@@ -1,15 +1,22 @@
 package goxsd9
 
 import (
+	"errors"
 	"math/big"
 	"strings"
 )
 
 const (
-	diagnosticPrecisionDecimalLexicalCode      = "XSD2010"
-	diagnosticPrecisionDecimalConstructionCode = "GOXSD9005"
-	precisionDecimalLexicalSpecRef             = "xsd-precisionDecimal#f-precDecLexmap"
+	diagnosticPrecisionDecimalLexicalCode        = "XSD2010"
+	diagnosticPrecisionDecimalConstructionCode   = "GOXSD9005"
+	diagnosticPrecisionDecimalCanonicalLimitCode = "GOXSD9026"
+	precisionDecimalLexicalSpecRef               = "xsd-precisionDecimal#f-precDecLexmap"
+	precisionDecimalCanonicalLimitSpecRef        = "xsd-precisionDecimal#implementation-limits"
 )
+
+// ErrPrecisionDecimalCanonicalOutputLimit reports a canonical output that
+// exceeds its per-call byte budget.
+var ErrPrecisionDecimalCanonicalOutputLimit = errors.New("precisionDecimal canonical output exceeds byte budget")
 
 // precisionDecimalValue is the sealed value space for the lexical/value core.
 type precisionDecimalValue interface {
@@ -283,6 +290,474 @@ func reversePrecisionDecimalOrder(order precisionDecimalOrder) precisionDecimalO
 	default:
 		panic("precisionDecimal comparison: invalid finite magnitude order")
 	}
+}
+
+type precisionDecimalCanonicalForm uint8
+
+const (
+	precisionDecimalCanonicalZero precisionDecimalCanonicalForm = iota + 1
+	precisionDecimalCanonicalNoDecimal
+	precisionDecimalCanonicalDecimal
+	precisionDecimalCanonicalScientific
+	precisionDecimalCanonicalPositiveInfinity
+	precisionDecimalCanonicalNegativeInfinity
+	precisionDecimalCanonicalNaN
+)
+
+type precisionDecimalCanonicalPlan struct {
+	form        precisionDecimalCanonicalForm
+	length      uint64
+	negative    bool
+	coefficient *big.Int
+	scale       *big.Int
+	exponent    *big.Int
+}
+
+// canonicalPrecisionDecimal returns a complete canonical lexical form when
+// its exact ASCII-byte length fits budget. It never stores the result on the
+// value.
+func canonicalPrecisionDecimal(value precisionDecimalValue, budget uint64, loc Loc) (string, error) {
+	validatePrecisionDecimalValue(value)
+	limit := precisionDecimalCanonicalLengthLimit(budget)
+	if limit == 0 {
+		return "", newPrecisionDecimalCanonicalLimitDiagnostic(loc)
+	}
+
+	plan, ok := planPrecisionDecimalCanonical(value, limit)
+	if !ok {
+		return "", newPrecisionDecimalCanonicalLimitDiagnostic(loc)
+	}
+	return materializePrecisionDecimalCanonical(plan, loc)
+}
+
+func precisionDecimalCanonicalLengthLimit(budget uint64) uint64 {
+	maxInt := uint64(^uint(0) >> 1)
+	if budget < maxInt {
+		return budget
+	}
+	return maxInt
+}
+
+func newPrecisionDecimalCanonicalLimitDiagnostic(loc Loc) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticPrecisionDecimalCanonicalLimitCode,
+		loc:     loc,
+		message: "precisionDecimal canonical output exceeds its byte budget",
+		specRef: precisionDecimalCanonicalLimitSpecRef,
+		cause:   ErrPrecisionDecimalCanonicalOutputLimit,
+	}
+}
+
+func planPrecisionDecimalCanonical(value precisionDecimalValue, limit uint64) (precisionDecimalCanonicalPlan, bool) {
+	switch typed := value.(type) {
+	case precisionDecimalFinite:
+		return planPrecisionDecimalFiniteCanonical(typed, limit)
+	case precisionDecimalPositiveInfinity:
+		return planPrecisionDecimalFixedCanonical(precisionDecimalCanonicalPositiveInfinity, 3, limit)
+	case precisionDecimalNegativeInfinity:
+		return planPrecisionDecimalFixedCanonical(precisionDecimalCanonicalNegativeInfinity, 4, limit)
+	case precisionDecimalNaN:
+		return planPrecisionDecimalFixedCanonical(precisionDecimalCanonicalNaN, 3, limit)
+	default:
+		panic("precisionDecimal canonicalization: invalid value variant")
+	}
+}
+
+func planPrecisionDecimalFixedCanonical(form precisionDecimalCanonicalForm, length uint64, limit uint64) (precisionDecimalCanonicalPlan, bool) {
+	if length > limit {
+		return precisionDecimalCanonicalPlan{}, false
+	}
+	return precisionDecimalCanonicalPlan{form: form, length: length}, true
+}
+
+func planPrecisionDecimalFiniteCanonical(value precisionDecimalFinite, limit uint64) (precisionDecimalCanonicalPlan, bool) {
+	if value.coefficient.Sign() == 0 {
+		length := uint64(5)
+		if value.sign == precisionDecimalSignNegative {
+			length++
+		}
+		if length > limit {
+			return precisionDecimalCanonicalPlan{}, false
+		}
+		return precisionDecimalCanonicalPlan{
+			form:     precisionDecimalCanonicalZero,
+			length:   length,
+			negative: value.sign == precisionDecimalSignNegative,
+		}, true
+	}
+
+	digitCount, ok := precisionDecimalDecimalDigitCountAtMost(value.coefficient, limit)
+	if !ok {
+		return precisionDecimalCanonicalPlan{}, false
+	}
+	adjustedExponent := new(big.Int).SetUint64(digitCount - 1)
+	adjustedExponent.Sub(adjustedExponent, value.scale)
+	inRange := precisionDecimalMagnitudeInCanonicalRange(adjustedExponent, value.coefficient)
+	negative := value.sign == precisionDecimalSignNegative
+
+	if value.scale.Sign() == 0 && inRange {
+		length, fits := precisionDecimalCanonicalAddLength(precisionDecimalSignLength(negative), digitCount, limit)
+		if !fits {
+			return precisionDecimalCanonicalPlan{}, false
+		}
+		return precisionDecimalCanonicalPlan{
+			form:        precisionDecimalCanonicalNoDecimal,
+			length:      length,
+			negative:    negative,
+			coefficient: value.coefficient,
+		}, true
+	}
+	if value.scale.Sign() > 0 && inRange {
+		length, fits := precisionDecimalCanonicalDecimalLength(negative, value.scale, digitCount, limit)
+		if !fits {
+			return precisionDecimalCanonicalPlan{}, false
+		}
+		return precisionDecimalCanonicalPlan{
+			form:        precisionDecimalCanonicalDecimal,
+			length:      length,
+			negative:    negative,
+			coefficient: value.coefficient,
+			scale:       value.scale,
+		}, true
+	}
+
+	length, fits := precisionDecimalCanonicalScientificLength(negative, adjustedExponent, digitCount, limit)
+	if !fits {
+		return precisionDecimalCanonicalPlan{}, false
+	}
+	return precisionDecimalCanonicalPlan{
+		form:        precisionDecimalCanonicalScientific,
+		length:      length,
+		negative:    negative,
+		coefficient: value.coefficient,
+		exponent:    adjustedExponent,
+	}, true
+}
+
+func precisionDecimalSignLength(negative bool) uint64 {
+	if negative {
+		return 1
+	}
+	return 0
+}
+
+func precisionDecimalCanonicalAddLength(length, addition, limit uint64) (uint64, bool) {
+	if length > limit || addition > limit-length {
+		return 0, false
+	}
+	return length + addition, true
+}
+
+func precisionDecimalCanonicalDecimalLength(negative bool, scale *big.Int, digits uint64, limit uint64) (uint64, bool) {
+	length := precisionDecimalSignLength(negative)
+	digitCount := new(big.Int).SetUint64(digits)
+	if scale.Cmp(digitCount) < 0 {
+		return precisionDecimalCanonicalAddLength(length, digits+1, limit)
+	}
+
+	var ok bool
+	length, ok = precisionDecimalCanonicalAddLength(length, 2, limit)
+	if !ok {
+		return 0, false
+	}
+	return precisionDecimalCanonicalAddBigLength(length, scale, limit)
+}
+
+func precisionDecimalCanonicalAddBigLength(length uint64, addition *big.Int, limit uint64) (uint64, bool) {
+	if addition.Sign() < 0 {
+		panic("precisionDecimal canonicalization: negative length addition")
+	}
+	if length > limit {
+		return 0, false
+	}
+	remaining := new(big.Int).SetUint64(limit - length)
+	if addition.Cmp(remaining) > 0 {
+		return 0, false
+	}
+
+	result := length
+	count := new(big.Int).Set(addition)
+	one := big.NewInt(1)
+	for count.Sign() > 0 {
+		result++
+		count.Sub(count, one)
+	}
+	return result, true
+}
+
+func precisionDecimalCanonicalScientificLength(negative bool, exponent *big.Int, digits uint64, limit uint64) (uint64, bool) {
+	length := precisionDecimalSignLength(negative)
+	mantissaLength := digits
+	if digits > 1 {
+		mantissaLength++
+	}
+	var ok bool
+	length, ok = precisionDecimalCanonicalAddLength(length, mantissaLength, limit)
+	if !ok {
+		return 0, false
+	}
+	length, ok = precisionDecimalCanonicalAddLength(length, 1, limit)
+	if !ok {
+		return 0, false
+	}
+	if exponent.Sign() < 0 {
+		length, ok = precisionDecimalCanonicalAddLength(length, 1, limit)
+		if !ok {
+			return 0, false
+		}
+	}
+
+	exponentDigits := new(big.Int).Set(exponent)
+	if exponentDigits.Sign() < 0 {
+		exponentDigits.Neg(exponentDigits)
+	}
+	if exponentDigits.Sign() == 0 {
+		return precisionDecimalCanonicalAddLength(length, 1, limit)
+	}
+	remaining := limit - length
+	digitCount, ok := precisionDecimalDecimalDigitCountAtMost(exponentDigits, remaining)
+	if !ok {
+		return 0, false
+	}
+	return precisionDecimalCanonicalAddLength(length, digitCount, limit)
+}
+
+func precisionDecimalMagnitudeInCanonicalRange(adjustedExponent, coefficient *big.Int) bool {
+	if adjustedExponent.Cmp(big.NewInt(-6)) < 0 {
+		return false
+	}
+	if adjustedExponent.Cmp(big.NewInt(6)) < 0 {
+		return true
+	}
+	if adjustedExponent.Cmp(big.NewInt(6)) > 0 {
+		return false
+	}
+	return precisionDecimalIsPowerOfTen(coefficient)
+}
+
+func precisionDecimalIsPowerOfTen(value *big.Int) bool {
+	if value.Sign() <= 0 {
+		return false
+	}
+
+	quotient := new(big.Int).Set(value)
+	remainder := new(big.Int)
+	base := big.NewInt(1_000_000_000)
+	for quotient.Cmp(base) >= 0 {
+		quotient.QuoRem(quotient, base, remainder)
+		if remainder.Sign() != 0 {
+			return false
+		}
+	}
+
+	small := quotient.Uint64()
+	if small == 0 {
+		return false
+	}
+	for small%10 == 0 {
+		small /= 10
+	}
+	return small == 1
+}
+
+func precisionDecimalDecimalDigitCountAtMost(value *big.Int, limit uint64) (uint64, bool) {
+	if value == nil || value.Sign() <= 0 {
+		panic("precisionDecimal canonicalization: digit count requires a positive value")
+	}
+	if limit == 0 {
+		return 0, false
+	}
+
+	quotient := new(big.Int).Set(value)
+	base := big.NewInt(1_000_000_000)
+	remainder := new(big.Int)
+	var chunks uint64
+	for quotient.Cmp(base) >= 0 {
+		if limit < 10 || chunks > (limit-10)/9 {
+			return 0, false
+		}
+		quotient.QuoRem(quotient, base, remainder)
+		chunks++
+	}
+
+	tail := precisionDecimalSmallDecimalDigitCount(quotient.Uint64())
+	if tail > limit {
+		return 0, false
+	}
+	if chunks > (limit-tail)/9 {
+		return 0, false
+	}
+	return chunks*9 + tail, true
+}
+
+func precisionDecimalSmallDecimalDigitCount(value uint64) uint64 {
+	switch {
+	case value >= 100_000_000:
+		return 9
+	case value >= 10_000_000:
+		return 8
+	case value >= 1_000_000:
+		return 7
+	case value >= 100_000:
+		return 6
+	case value >= 10_000:
+		return 5
+	case value >= 1_000:
+		return 4
+	case value >= 100:
+		return 3
+	case value >= 10:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func materializePrecisionDecimalCanonical(plan precisionDecimalCanonicalPlan, loc Loc) (string, error) {
+	switch plan.form {
+	case precisionDecimalCanonicalPositiveInfinity:
+		return "INF", nil
+	case precisionDecimalCanonicalNegativeInfinity:
+		return "-INF", nil
+	case precisionDecimalCanonicalNaN:
+		return "NaN", nil
+	case precisionDecimalCanonicalZero:
+		if plan.negative {
+			return "-0.0E0", nil
+		}
+		return "0.0E0", nil
+	case precisionDecimalCanonicalNoDecimal, precisionDecimalCanonicalDecimal, precisionDecimalCanonicalScientific:
+		// These forms are materialized below.
+	default:
+		panic("precisionDecimal canonicalization: invalid planned form")
+	}
+
+	var writer precisionDecimalCanonicalWriter
+	writer.builder.Grow(precisionDecimalCanonicalLengthAsInt(plan.length))
+	digits := plan.coefficient.String()
+	if plan.negative {
+		writer.writeByte('-')
+	}
+	switch plan.form {
+	case precisionDecimalCanonicalNoDecimal:
+		writer.writeString(digits)
+	case precisionDecimalCanonicalDecimal:
+		writePrecisionDecimalCanonicalDecimal(&writer, plan.scale, digits)
+	case precisionDecimalCanonicalScientific:
+		writePrecisionDecimalCanonicalScientific(&writer, plan.exponent, digits)
+	case precisionDecimalCanonicalZero, precisionDecimalCanonicalPositiveInfinity, precisionDecimalCanonicalNegativeInfinity, precisionDecimalCanonicalNaN:
+		panic("precisionDecimal canonicalization: special form reached materialization")
+	default:
+		panic("precisionDecimal canonicalization: invalid materialization form")
+	}
+	if writer.err != nil {
+		return "", newDiagnostic(
+			FailureInternal,
+			diagnosticPrecisionDecimalConstructionCode,
+			loc,
+			"precisionDecimal canonical output could not be materialized",
+			writer.err,
+		)
+	}
+	result := writer.builder.String()
+	if uint64(len(result)) != plan.length {
+		return "", newDiagnostic(
+			FailureInternal,
+			diagnosticPrecisionDecimalConstructionCode,
+			loc,
+			"precisionDecimal canonical output length plan was inconsistent",
+			nil,
+		)
+	}
+	return result, nil
+}
+
+func precisionDecimalCanonicalLengthAsInt(length uint64) int {
+	maxInt := uint64(^uint(0) >> 1)
+	if length > maxInt {
+		panic("precisionDecimal canonicalization: planned length does not fit int")
+	}
+	// The range check above proves this conversion is representable.
+	return int(length) // #nosec G115 -- length is checked against maxInt
+}
+
+type precisionDecimalCanonicalWriter struct {
+	builder strings.Builder
+	err     error
+}
+
+func (writer *precisionDecimalCanonicalWriter) writeByte(value byte) {
+	if writer.err != nil {
+		return
+	}
+	writer.err = writer.builder.WriteByte(value)
+}
+
+func (writer *precisionDecimalCanonicalWriter) writeString(value string) {
+	if writer.err != nil {
+		return
+	}
+	_, writer.err = writer.builder.WriteString(value)
+}
+
+func (writer *precisionDecimalCanonicalWriter) writeZeroes(count *big.Int) {
+	remaining := new(big.Int).Set(count)
+	one := big.NewInt(1)
+	for remaining.Sign() > 0 {
+		writer.writeByte('0')
+		if writer.err != nil {
+			return
+		}
+		remaining.Sub(remaining, one)
+	}
+}
+
+func writePrecisionDecimalCanonicalDecimal(writer *precisionDecimalCanonicalWriter, scale *big.Int, digits string) {
+	digitCount := big.NewInt(int64(len(digits)))
+	if scale.Cmp(digitCount) < 0 {
+		integerDigits := precisionDecimalDecimalPointIndex(scale, len(digits))
+		writer.writeString(digits[:integerDigits])
+		writer.writeByte('.')
+		writer.writeString(digits[integerDigits:])
+		return
+	}
+
+	writer.writeString("0.")
+	padding := new(big.Int).Sub(scale, digitCount)
+	writer.writeZeroes(padding)
+	writer.writeString(digits)
+}
+
+func precisionDecimalDecimalPointIndex(scale *big.Int, digits int) int {
+	index := digits
+	remaining := new(big.Int).Set(scale)
+	one := big.NewInt(1)
+	for remaining.Sign() > 0 {
+		index--
+		remaining.Sub(remaining, one)
+	}
+	return index
+}
+
+func writePrecisionDecimalCanonicalScientific(writer *precisionDecimalCanonicalWriter, exponent *big.Int, digits string) {
+	if len(digits) == 1 {
+		writer.writeString(digits)
+	}
+	if len(digits) > 1 {
+		writer.writeByte(digits[0])
+		writer.writeByte('.')
+		writer.writeString(digits[1:])
+	}
+	writer.writeByte('E')
+	if exponent.Sign() < 0 {
+		writer.writeByte('-')
+	}
+	exponentDigits := new(big.Int).Set(exponent)
+	if exponentDigits.Sign() < 0 {
+		exponentDigits.Neg(exponentDigits)
+	}
+	writer.writeString(exponentDigits.String())
 }
 
 func (value precisionDecimalFinite) coefficientCopy() *big.Int {
