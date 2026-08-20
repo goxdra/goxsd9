@@ -18,9 +18,16 @@ type Reference struct {
 	source  string
 }
 
-// XSDVersion returns the specification version to which the reference applies.
-func (reference Reference) XSDVersion() string {
+// Version returns the specification version to which the reference applies.
+func (reference Reference) Version() string {
 	return reference.version
+}
+
+// XSDVersion returns the specification version to which the reference applies.
+//
+// Deprecated: use Version.
+func (reference Reference) XSDVersion() string {
+	return reference.Version()
 }
 
 // Source returns the pinned specification ID and section anchor.
