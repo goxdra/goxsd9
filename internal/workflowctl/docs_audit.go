@@ -1,6 +1,7 @@
 package workflowctl
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -39,6 +40,10 @@ type documentationRange struct {
 }
 
 func (a app) auditDocs(root, baseRef string) error {
+	return a.auditDocsWithFormat(root, baseRef, "text")
+}
+
+func (a app) auditDocsWithFormat(root, baseRef, format string) error {
 	if err := validateDocumentRegistry(); err != nil {
 		return err
 	}
@@ -50,7 +55,35 @@ func (a app) auditDocs(root, baseRef string) error {
 	if err != nil {
 		return err
 	}
+	if format == "json" {
+		return a.writeDocumentationAuditJSON(documentationAuditReportFrom(rangeValue, changes, fixtures))
+	}
 	return a.writeDocumentationAudit(rangeValue, changes, fixtures)
+}
+
+func (a app) documentationAuditReportForCommits(root, base, head string) (documentationAuditReport, error) {
+	clean, err := a.command(root, "git", "status", "--porcelain")
+	if err != nil {
+		return documentationAuditReport{}, fmt.Errorf("read documentation audit worktree status: %w", err)
+	}
+	if clean != "" {
+		return documentationAuditReport{}, stateError("documentation audit requires a clean worktree")
+	}
+	if strings.TrimSpace(base) == "" || strings.TrimSpace(head) == "" {
+		return documentationAuditReport{}, errors.New("documentation audit commits must not be empty")
+	}
+	mergeBase, err := a.command(root, "git", "merge-base", base, head)
+	if err != nil || strings.TrimSpace(mergeBase) == "" {
+		if err == nil {
+			err = errors.New("no merge base")
+		}
+		return documentationAuditReport{}, fmt.Errorf("find documentation audit merge base: %w", err)
+	}
+	changes, fixtures, err := a.documentationChanges(root, strings.TrimSpace(mergeBase), head)
+	if err != nil {
+		return documentationAuditReport{}, err
+	}
+	return documentationAuditReportFrom(documentationRange{base: base, head: head, mergeBase: strings.TrimSpace(mergeBase)}, changes, fixtures), nil
 }
 
 func (a app) documentationAuditRange(root, baseRef string) (documentationRange, error) {
@@ -106,6 +139,15 @@ func (a app) writeDocumentationAudit(rangeValue documentationRange, changes []do
 		review = "required"
 	}
 	return writeLine(a.stdout, "\nCurator review: %s", review)
+}
+
+func (a app) writeDocumentationAuditJSON(report documentationAuditReport) error {
+	encoder := json.NewEncoder(a.stdout)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(report); err != nil {
+		return fmt.Errorf("encode documentation audit: %w", err)
+	}
+	return nil
 }
 
 func (a app) writeDocumentationChanges(changes []documentationChange) error {

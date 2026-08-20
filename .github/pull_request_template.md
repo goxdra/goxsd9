@@ -20,11 +20,11 @@
 
 ### Development signals
 
-<!-- For parser/datatype changes, include `go tool workflowctl develop-signals --base BASE_SHA --format json` evidence for exact computed
-     affected/repository deltas, selected-target evidence, and bounded fuzz results.
-     Request checked-in corpus replay evidence separately,
-     or record no-relevant-target. These are engineering-health signals, not
-     XSD conformance. Explain affected package regressions with exact computed base/head evidence. -->
+<!-- Generate exact evidence with develop-signals/docs audit JSON, then
+     `pr evidence update PR --signals-file FILE --docs-audit-file FILE
+     [--curator-file FILE]`. The command owns one goxsd9/pr-evidence/v1 block.
+     Coverage, fuzz, catalog, XSD feature support, and executable conformance
+     stay distinct; no-relevant-target and no-managed-document-change are explicit. -->
 
 ## Conformance and documentation
 

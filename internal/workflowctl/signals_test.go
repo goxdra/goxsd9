@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"reflect"
 	"strings"
@@ -166,6 +167,31 @@ func TestWriteDevelopmentSignalsSeparatesFuzzCoverageAndConformance(t *testing.T
 		if !strings.Contains(text, phrase) {
 			t.Fatalf("signals omitted %q: %s", phrase, text)
 		}
+	}
+}
+
+func TestDevelopmentSignalsJSONMakesNoTargetAndUnmeasuredClaimsExplicit(t *testing.T) {
+	packages := []coveragePackageReport{}
+	report := developmentSignalsReport{
+		Schema: developmentSignalsSchema, Base: "base", Head: "head",
+		Coverage: coverageReport{
+			Base: "base", Head: "head", Packages: packages,
+			Affected: coverageTotals(packages, true), Repository: coverageTotals(packages, false),
+		},
+		Fuzz: []signalFuzzReport{}, Selection: "no-relevant-target",
+		Catalog: noMeasuredDevelopmentSignal, XSDFeatureSupport: noMeasuredDevelopmentSignal,
+		ExecutableConformance: noMeasuredDevelopmentSignal,
+	}
+	var output bytes.Buffer
+	if err := writeDevelopmentSignalsJSON(&output, report); err != nil {
+		t.Fatalf("write development signals JSON: %v", err)
+	}
+	var got developmentSignalsReport
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("decode development signals JSON: %v", err)
+	}
+	if err := validateDevelopmentSignals(got, "base", "head"); err != nil {
+		t.Fatalf("validate development signals: %v", err)
 	}
 }
 

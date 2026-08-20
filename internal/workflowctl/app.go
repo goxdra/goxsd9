@@ -110,7 +110,7 @@ Usage:
   go tool workflowctl doctor
   go tool workflowctl check [--skip-lint]
   go tool workflowctl docs check
-  go tool workflowctl docs audit --base REF
+  go tool workflowctl docs audit --base REF [--format text|json]
   go tool workflowctl history [--since 7d] [--until RFC3339Nano] [--limit 30]
   go tool workflowctl base-sync
   go tool workflowctl sync              # Project status + claim-ref fetches; no base sync
@@ -124,6 +124,7 @@ Usage:
   go tool workflowctl issue create [flags]
   go tool workflowctl handoff ISSUE --body-file FILE
   go tool workflowctl pr open ISSUE --title TITLE --body-file FILE
+  go tool workflowctl pr evidence update PR --signals-file FILE --docs-audit-file FILE [--curator-file FILE]
   go tool workflowctl pr finish PR --summary-file FILE
   go tool workflowctl pr recover PR
   go tool workflowctl claim prune ISSUE

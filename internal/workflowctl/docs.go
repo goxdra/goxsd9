@@ -49,17 +49,18 @@ func (a app) runDocs(args []string) error {
 	flags := flag.NewFlagSet("docs audit", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	base := flags.String("base", "", "Git base reference")
+	format := flags.String("format", "text", "output format: text or json")
 	if err := flags.Parse(args[1:]); err != nil {
 		return usageError("docs audit: %v", err)
 	}
-	if flags.NArg() != 0 || strings.TrimSpace(*base) == "" {
-		return usageError("usage: workflowctl docs audit --base REF")
+	if flags.NArg() != 0 || strings.TrimSpace(*base) == "" || (*format != "text" && *format != "json") {
+		return usageError("usage: workflowctl docs audit --base REF [--format text|json]")
 	}
 	root, err := a.root()
 	if err != nil {
 		return err
 	}
-	return a.auditDocs(root, *base)
+	return a.auditDocsWithFormat(root, *base, *format)
 }
 
 func (a app) checkDocs(root string, report bool) error {

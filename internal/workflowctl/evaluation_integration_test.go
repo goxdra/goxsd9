@@ -953,6 +953,7 @@ type workflowBackend struct {
 	projectDone                bool
 	mergeResponseMode          string
 	mutatePRBodyAfterMerge     bool
+	bodyPatchCount             int
 	mergeSHA                   string
 	mergedAt                   time.Time
 	removeSummaryOnNextCommand bool
@@ -967,14 +968,43 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 	if err := os.WriteFile(summaryFile, []byte(summary+"\n"), 0o600); err != nil {
 		t.Fatalf("write summary: %v", err)
 	}
+	body := "## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n"
+	evidence := testWorkflowPREvidence("base-sha", "evaluated-head")
+	block, err := renderPREvidenceBlock(evidence)
+	if err != nil {
+		t.Fatalf("render workflow PR evidence: %v", err)
+	}
+	body += "\n" + string(block)
 	return &workflowBackend{
 		t: t, root: "/primary-worktrees/issue-13", branch: "agent/issue-13", localBranch: "agent/issue-13", head: "evaluated-head",
-		body:          "## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n",
+		body:          body,
 		summary:       summary,
 		summaryFile:   summaryFile,
 		title:         "test(workflow): exercise evaluation flow",
 		workCommitLog: framedCommitLog("test(workflow): exercise evaluation flow", "chore(workflow): claim issue #13"),
 		mergeSHA:      "merge-commit",
+	}
+}
+
+func testWorkflowPREvidence(base, head string) prEvidence {
+	packages := []coveragePackageReport{}
+	coverage := coverageReport{
+		Base: base, Head: head, Packages: packages,
+		Affected: coverageTotals(packages, true), Repository: coverageTotals(packages, false),
+	}
+	return prEvidence{
+		Schema: prEvidenceSchema, Base: base, Head: head,
+		DevelopmentSignals: developmentSignalsReport{
+			Schema: developmentSignalsSchema, Base: base, Head: head, Coverage: coverage,
+			Fuzz: []signalFuzzReport{}, Selection: "no-relevant-target",
+			Catalog: noMeasuredDevelopmentSignal, XSDFeatureSupport: noMeasuredDevelopmentSignal,
+			ExecutableConformance: noMeasuredDevelopmentSignal,
+		},
+		DocumentationAudit: documentationAuditReport{
+			Schema: documentationAuditSchema, Base: base, Head: head, MergeBase: "merge-sha",
+			ManagedChanges: []documentationChangeReport{}, EvaluationFixtures: []string{},
+		},
+		Curator: noCuratorResult(head),
 	}
 }
 
@@ -1074,7 +1104,13 @@ func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
 
 func (b *workflowBackend) executeGitArtifact(command string) (string, bool) {
 	switch command {
+	case "status --porcelain":
+		return "", true
 	case "merge-base --is-ancestor evaluated-head evaluated-head":
+		return "", true
+	case "merge-base base-sha evaluated-head":
+		return "merge-sha", true
+	case "diff --name-status -z --no-renames merge-sha evaluated-head --", "diff --numstat -z --no-renames merge-sha evaluated-head --":
 		return "", true
 	case "ls-remote --heads origin refs/heads/agent/*":
 		return "evaluated-head refs/heads/agent/issue-13", true
@@ -1112,6 +1148,16 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 		return b.commentsJSON()
 	case "api --method POST repos/goxdra/goxsd9/issues/14/comments --input -":
 		return b.postComment(input)
+	case "api --method PATCH repos/goxdra/goxsd9/pulls/14 --input -":
+		var request struct {
+			Body string `json:"body"`
+		}
+		if err := json.Unmarshal(input, &request); err != nil {
+			return "", fmt.Errorf("decode body update request: %w", err)
+		}
+		b.body = request.Body
+		b.bodyPatchCount++
+		return `{}`, nil
 	case "api --paginate repos/goxdra/goxsd9/commits/evaluated-head/check-runs?per_page=100":
 		return "{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"docs\",\"status\":\"completed\"}]}" +
 			"{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"quality\",\"status\":\"completed\"}]}", nil
@@ -1138,6 +1184,7 @@ func (b *workflowBackend) pullRequestJSON() (string, error) {
 		response.State = "closed"
 	}
 	response.Base.Ref = "main"
+	response.Base.SHA = "base-sha"
 	response.Head.Ref = b.branch
 	response.Head.SHA = b.head
 	response.URL = "https://github.com/goxdra/goxsd9/pull/14"

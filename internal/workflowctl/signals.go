@@ -15,6 +15,7 @@ const (
 	defaultSignalFuzzDuration = 250 * time.Millisecond
 	maxSignalFuzzDuration     = time.Second
 	coverageExplanationSchema = "goxsd9/coverage-explanation/v1"
+	developmentSignalsSchema  = "goxsd9/development-signals/v1"
 )
 
 type signalFuzzTarget struct {
@@ -42,11 +43,15 @@ type signalFuzzReport struct {
 }
 
 type developmentSignalsReport struct {
-	Base      string             `json:"base"`
-	Head      string             `json:"head"`
-	Coverage  coverageReport     `json:"coverage"`
-	Fuzz      []signalFuzzReport `json:"fuzz"`
-	Selection string             `json:"selection"`
+	Schema                string             `json:"schema"`
+	Base                  string             `json:"base"`
+	Head                  string             `json:"head"`
+	Coverage              coverageReport     `json:"coverage"`
+	Fuzz                  []signalFuzzReport `json:"fuzz"`
+	Selection             string             `json:"selection"`
+	Catalog               string             `json:"catalog"`
+	XSDFeatureSupport     string             `json:"xsdFeatureSupport"`
+	ExecutableConformance string             `json:"executableConformance"`
 }
 
 type coverageExplanation struct {
@@ -99,9 +104,10 @@ func (a app) runDevelopmentSignals(args []string) error { //nolint:gocognit // o
 	}
 	targets := selectSignalFuzzTargets(changed)
 	report := developmentSignalsReport{
-		Base: coverage.Base, Head: coverage.Head, Coverage: coverage,
-		Selection: "no-relevant-target",
-		Fuzz:      make([]signalFuzzReport, 0, len(targets)),
+		Schema: developmentSignalsSchema, Base: coverage.Base, Head: coverage.Head, Coverage: coverage,
+		Selection: "no-relevant-target", Catalog: noMeasuredDevelopmentSignal,
+		XSDFeatureSupport: noMeasuredDevelopmentSignal, ExecutableConformance: noMeasuredDevelopmentSignal,
+		Fuzz: make([]signalFuzzReport, 0, len(targets)),
 	}
 	if len(targets) != 0 {
 		report.Selection = "selected"
@@ -237,6 +243,15 @@ func writeDevelopmentSignalsText(output io.Writer, report developmentSignalsRepo
 		if err := writeLine(output, "fuzz: %s %s %s workers=%d offline=%t", fuzz.Boundary, fuzz.Target, fuzz.Result, fuzz.Workers, fuzz.Offline); err != nil {
 			return err
 		}
+	}
+	if err := writeLine(output, "catalog: %s", report.Catalog); err != nil {
+		return err
+	}
+	if err := writeLine(output, "XSD feature support: %s", report.XSDFeatureSupport); err != nil {
+		return err
+	}
+	if err := writeLine(output, "executable conformance: %s", report.ExecutableConformance); err != nil {
+		return err
 	}
 	return writeLine(output, "conformance: not measured by these signals")
 }

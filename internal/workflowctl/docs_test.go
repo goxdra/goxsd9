@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -127,6 +128,32 @@ func TestDocumentationAuditStableReport(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("audit output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestDocumentationAuditJSONSeparatesDiffAndFixtures(t *testing.T) {
+	root := t.TempDir()
+	writeTestDocument(t, root, "README.md", "# Project\n\nCurrent entrypoint.\n")
+	writeTestDocument(t, root, "AGENTS.md", "# Rules\n\nCurrent invariant.\n")
+	var output bytes.Buffer
+	application, _ := testAuditApplication(t,
+		"M\x00README.md\x00A\x00evals/agent/curator/accretion.md\x00M\x00AGENTS.md\x00",
+		"3\t1\tREADME.md\x001\t0\tevals/agent/curator/accretion.md\x002\t2\tAGENTS.md\x00")
+	application.stdout = &output
+	if err := application.auditDocsWithFormat(root, "base-ref", "json"); err != nil {
+		t.Fatalf("auditDocsWithFormat: %v", err)
+	}
+	var report documentationAuditReport
+	if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+		t.Fatalf("decode JSON audit: %v\n%s", err, output.String())
+	}
+	if report.Schema != documentationAuditSchema || report.Base != "base-sha" || report.Head != "head-sha" ||
+		report.MergeBase != "merge-sha" || len(report.ManagedChanges) != 2 || len(report.EvaluationFixtures) != 1 {
+		t.Fatalf("audit report = %#v", report)
+	}
+	if report.ManagedChanges[0].Path != "AGENTS.md" || report.ManagedChanges[1].Path != "README.md" ||
+		report.EvaluationFixtures[0] != "evals/agent/curator/accretion.md" {
+		t.Fatalf("audit ordering = %#v / %#v", report.ManagedChanges, report.EvaluationFixtures)
 	}
 }
 

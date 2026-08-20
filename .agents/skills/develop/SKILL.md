@@ -60,10 +60,11 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
 8. Commit/push with the `AGENTS.md` title convention. Open a draft PR with
    `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`; include
    outcome, consultation, verification, conformance, packet issues.
-9. On every pushed head run `go tool workflowctl docs audit --base origin/main`.
-   Managed documents require a fresh read-only Curator with audit, diff, paths,
-   charters, head. Curator checks placement, relevance, duplication,
-   history, replacement. Preserve Curator JSON; repeat after remediation.
+9. Pushed heads need `docs audit --base origin/main --format json` and
+   `pr evidence update` from exact signals/audit/Curator JSON. Managed documents
+   need a Curator with audit, diff, paths, charters, head; check placement,
+   relevance, duplication, history, replacement. Preserve JSON; repeat after
+   remediation.
 10. Run `go tool workflowctl evaluation challenge PR`; for every
     managed-document review head, fresh read-only Curator review/result is
     mandatory. Give challenge, PR state, tests, audit, Curator result,
