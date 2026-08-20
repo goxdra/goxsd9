@@ -8,7 +8,7 @@ package goxsd9
 // the legacy XSD 1.1 path, and arbitrary labels are rejected as unsupported.
 // Normatively, schema/@version is an inert optional xs:token label; the
 // accepted graph-wide Compatibility (default), Strict10, and Strict11 policy
-// is future work and is not implemented by this PR.
+// is future work and is absent from the current parser.
 //
 // root must be created with NewResolvedSource. The caller supplies that root;
 // resolver supplies referenced sources. Parsing drains and closes root and

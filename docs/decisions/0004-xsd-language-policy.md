@@ -177,7 +177,7 @@ per-document behavior: absent or empty `schema/@version` defaults to XSD 1.1,
 `"1.0"` selects the current legacy XSD 1.0 path, `"1.1"` selects the current
 legacy XSD 1.1 path, and arbitrary labels are rejected as unsupported. The
 accepted graph-wide `Compatibility`, `Strict10`, and `Strict11` policy is
-future work, not current runtime behavior, and is not implemented by this PR.
+future work, not current runtime behavior.
 
 The implementation boundary is limited to constructing and validating the
 policy, propagating it through the schema graph, deriving version-sensitive

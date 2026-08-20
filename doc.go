@@ -10,7 +10,7 @@
 // XSD 1.1 path, and arbitrary labels are rejected as unsupported. Normatively,
 // schema/@version is an inert optional xs:token label; the accepted graph-wide
 // Compatibility (default), Strict10, and Strict11 policy is future work and is
-// not implemented by this PR. Chameleon includes, redefine/override/defaultOpenContent,
+// absent from the current parser. Chameleon includes, redefine/override/defaultOpenContent,
 // assertions, and unsupported datatype facets return explicit unsupported
 // diagnostics. Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
