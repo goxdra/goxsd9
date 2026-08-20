@@ -11,7 +11,8 @@ import (
 // ID identifies a specification capability in the repository registry.
 type ID string
 
-// Reference identifies the pinned specification section for one XSD version.
+// Reference identifies the pinned specification section for one specification
+// version.
 type Reference struct {
 	version string
 	source  string
@@ -103,6 +104,13 @@ var registry = []definition{
 		title: "XSD precisionDecimal",
 		references: []Reference{
 			{version: "1.1", source: "xsd-precisionDecimal#precisionDecimal"},
+		},
+	},
+	{
+		id:    "xsd.instance.syntax",
+		title: "XML instance syntax outside the first decoder slice",
+		references: []Reference{
+			{version: "1.0", source: "xml10#sec-prolog-dtd"},
 		},
 	},
 	{
