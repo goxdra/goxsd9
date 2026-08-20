@@ -7,13 +7,13 @@ unsupported behavior.
 ## Schema parsing
 
 `ParseSchema` exposes schema discovery and immutable components. Callers create a
-root `ResolvedSource`; a `Resolver` supplies includes/imports and policy. Calls are
+root `ResolvedSource`; `Resolver` supplies referenced sources and resolution policy. Calls are
 sequential; contexts and locations stay opaque, and paths/URLs stay unopened.
 Parsing closes streams and decodes only unseen identities; repeated and cyclic
 identities close without decoding.
 
-Mixed XSD 1.0/1.1 graphs, declarations, and simple-type restrictions are supported. Chameleon includes, redefine/override/defaultOpenContent, assertions, and datatype facets remain unimplemented.
-The current two-argument parser retains legacy per-document handling: absent or empty `schema/@version` defaults to XSD 1.1, `"1.0"` selects the legacy XSD 1.0 path, `"1.1"` selects the legacy XSD 1.1 path, and arbitrary labels are rejected as unsupported.
+Mixed XSD 1.0/1.1 graphs, declarations, and simple-type restrictions are supported. Chameleon includes, redefine/override/defaultOpenContent, assertions, and broader datatype facets remain unsupported; totalDigits/fractionDigits are implemented.
+The two-argument parser retains per-document handling: absent or empty `schema/@version` defaults to XSD 1.1, `"1.0"` selects the legacy XSD 1.0 path, `"1.1"` selects the legacy XSD 1.1 path, and arbitrary labels are unsupported.
 Normatively, `schema/@version` is an inert optional `xs:token` label; the accepted graph-wide `Compatibility` (default), `Strict10`, and `Strict11` policy is future work and absent from the current parser.
 Unsupported behavior and invalid input return located diagnostics; errors return no schema. XML validation and Go generation remain under construction.
 
