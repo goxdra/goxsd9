@@ -130,6 +130,7 @@ func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTarget
 		}
 		inputs = append(inputs, schemaDocumentInput{
 			source:          document.source,
+			rootLoc:         document.root.loc,
 			targetNamespace: namespaces[index].value,
 			declarations:    declarations,
 		})

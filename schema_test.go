@@ -10,12 +10,15 @@ func TestSchemaPreservesDiscoveryAndLexicalWalkOrder(t *testing.T) {
 	first := mustTestQName(t, "urn:first", "shared")
 	second := mustTestQName(t, "urn:second", "shared")
 	last := mustTestQName(t, "urn:second", "last")
+	firstRootLoc := mustTestLoc(t, "first.xsd", 1, 1)
+	secondRootLoc := mustTestLoc(t, "second.xsd", 1, 1)
 	firstLoc := mustTestLoc(t, "first.xsd", 2, 3)
 	secondLoc := mustTestLoc(t, "second.xsd", 4, 5)
 
 	schema := mustTestSchema(t, []schemaDocumentInput{
 		{
 			source:          "first.xsd",
+			rootLoc:         firstRootLoc,
 			targetNamespace: "urn:first",
 			declarations: []schemaComponentInput{
 				{kind: ComponentKindElementDeclaration, name: first, loc: firstLoc},
@@ -23,6 +26,7 @@ func TestSchemaPreservesDiscoveryAndLexicalWalkOrder(t *testing.T) {
 		},
 		{
 			source:          "second.xsd",
+			rootLoc:         secondRootLoc,
 			targetNamespace: "urn:second",
 			declarations: []schemaComponentInput{
 				{kind: ComponentKindElementDeclaration, name: second, loc: secondLoc},
@@ -76,9 +80,12 @@ func TestSchemaQueryAndCollectionsOwnTheirReturnedValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewQName: %v", err)
 	}
+	rootLoc := mustTestLoc(t, "schema.xsd", 1, 1)
+	mutableRootLoc := mustTestLoc(t, "mutable-input.xsd", 1, 1)
 	schema, err := newSchema([]schemaDocumentInput{
 		{
-			source: "schema.xsd",
+			source:  "schema.xsd",
+			rootLoc: rootLoc,
 			declarations: []schemaComponentInput{
 				{kind: ComponentKindElementDeclaration, name: name},
 				{kind: ComponentKindAttributeDeclaration, name: name},
@@ -89,7 +96,8 @@ func TestSchemaQueryAndCollectionsOwnTheirReturnedValues(t *testing.T) {
 		t.Fatalf("newSchema: %v", err)
 	}
 	inputs := []schemaDocumentInput{{
-		source: "mutable-input.xsd",
+		source:  "mutable-input.xsd",
+		rootLoc: mutableRootLoc,
 		declarations: []schemaComponentInput{{
 			kind: ComponentKindElementDeclaration,
 			name: name,
@@ -142,15 +150,19 @@ func TestSchemaDuplicateNamesRemainInWalkOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewQName: %v", err)
 	}
+	oneRootLoc := mustTestLoc(t, "one.xsd", 1, 1)
+	twoRootLoc := mustTestLoc(t, "two.xsd", 1, 1)
 	schema, err := newSchema([]schemaDocumentInput{
 		{
-			source: "one.xsd",
+			source:  "one.xsd",
+			rootLoc: oneRootLoc,
 			declarations: []schemaComponentInput{
 				{kind: ComponentKindElementDeclaration, name: name},
 			},
 		},
 		{
-			source: "two.xsd",
+			source:  "two.xsd",
+			rootLoc: twoRootLoc,
 			declarations: []schemaComponentInput{
 				{kind: ComponentKindElementDeclaration, name: name},
 			},
@@ -177,15 +189,17 @@ func TestSchemaRejectsInvalidConstructionAndPreservesWalkErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewQName: %v", err)
 	}
+	sameRootLoc := mustTestLoc(t, "same", 1, 1)
+	schemaRootLoc := mustTestLoc(t, "schema", 1, 1)
 	for _, test := range []struct {
 		name  string
 		input []schemaDocumentInput
 		code  string
 	}{
 		{name: "empty source", input: []schemaDocumentInput{{source: ""}}, code: diagnosticSchemaEmptySourceCode},
-		{name: "repeated source", input: []schemaDocumentInput{{source: "same"}, {source: "same"}}, code: diagnosticSchemaRepeatedSourceCode},
-		{name: "empty kind", input: []schemaDocumentInput{{source: "schema", declarations: []schemaComponentInput{{name: name}}}}, code: diagnosticSchemaEmptyKindCode},
-		{name: "empty name", input: []schemaDocumentInput{{source: "schema", declarations: []schemaComponentInput{{kind: ComponentKindElementDeclaration}}}}, code: diagnosticSchemaEmptyNameCode},
+		{name: "repeated source", input: []schemaDocumentInput{{source: "same", rootLoc: sameRootLoc}, {source: "same"}}, code: diagnosticSchemaRepeatedSourceCode},
+		{name: "empty kind", input: []schemaDocumentInput{{source: "schema", rootLoc: schemaRootLoc, declarations: []schemaComponentInput{{name: name}}}}, code: diagnosticSchemaEmptyKindCode},
+		{name: "empty name", input: []schemaDocumentInput{{source: "schema", rootLoc: schemaRootLoc, declarations: []schemaComponentInput{{kind: ComponentKindElementDeclaration}}}}, code: diagnosticSchemaEmptyNameCode},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, constructionErr := newSchema(test.input)
@@ -203,7 +217,8 @@ func TestSchemaRejectsInvalidConstructionAndPreservesWalkErrors(t *testing.T) {
 	}
 
 	schema, err := newSchema([]schemaDocumentInput{{
-		source: "schema",
+		source:  "schema",
+		rootLoc: schemaRootLoc,
 		declarations: []schemaComponentInput{{
 			kind: ComponentKindElementDeclaration,
 			name: name,
@@ -219,6 +234,51 @@ func TestSchemaRejectsInvalidConstructionAndPreservesWalkErrors(t *testing.T) {
 	}
 	if err := schema.Walk(nil); err == nil {
 		t.Fatal("Walk accepted a nil visitor")
+	}
+}
+
+func TestSchemaRejectsMissingMalformedOrMismatchedRootLocation(t *testing.T) {
+	mismatchedRootLoc := mustTestLoc(t, "other", 2, 3)
+	zeroLineRootLoc := Loc{source: "schema", line: 0, column: 1}
+	negativeLineRootLoc := Loc{source: "schema", line: -1, column: 1}
+	zeroColumnRootLoc := Loc{source: "schema", line: 1, column: 0}
+	negativeColumnRootLoc := Loc{source: "schema", line: 1, column: -1}
+	for _, test := range []struct {
+		name    string
+		input   schemaDocumentInput
+		wantLoc Loc
+	}{
+		{name: "missing", input: schemaDocumentInput{source: "schema"}},
+		{name: "zero line", input: schemaDocumentInput{source: "schema", rootLoc: zeroLineRootLoc}, wantLoc: zeroLineRootLoc},
+		{name: "negative line", input: schemaDocumentInput{source: "schema", rootLoc: negativeLineRootLoc}, wantLoc: negativeLineRootLoc},
+		{name: "zero column", input: schemaDocumentInput{source: "schema", rootLoc: zeroColumnRootLoc}, wantLoc: zeroColumnRootLoc},
+		{name: "negative column", input: schemaDocumentInput{source: "schema", rootLoc: negativeColumnRootLoc}, wantLoc: negativeColumnRootLoc},
+		{name: "mismatched source", input: schemaDocumentInput{source: "schema", rootLoc: mismatchedRootLoc}, wantLoc: mismatchedRootLoc},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertSchemaRootLocationRejected(t, test.input, test.wantLoc)
+		})
+	}
+}
+
+func assertSchemaRootLocationRejected(t *testing.T, input schemaDocumentInput, wantLoc Loc) {
+	t.Helper()
+	schema, err := newSchema([]schemaDocumentInput{input})
+	if err == nil {
+		t.Fatal("newSchema accepted an invalid root location")
+	}
+	if schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+		t.Fatal("newSchema returned a partial schema after an invariant failure")
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		t.Fatalf("error %T is not a Diagnostic: %v", err, err)
+	}
+	if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticSchemaBridgeInvariantCode {
+		t.Fatalf("diagnostic = %s, want internal %s invariant", diagnostic, diagnosticSchemaBridgeInvariantCode)
+	}
+	if diagnostic.Loc() != wantLoc {
+		t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
 	}
 }
 
