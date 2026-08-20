@@ -8,16 +8,16 @@ is the operator contract.
 | Develop | 00:00, then every 3 hours | Luna, maximum effort | `Run $develop for this repository.` |
 | Backlog | 10:30 daily | Sol, maximum effort | `Run $backlog for this repository.` |
 | Retro | 13:30 Sunday | Sol, maximum effort | `Run $retro for this repository.` |
-Jobs are non-interactive. Develop starts from canonical clean `main`, equal
-to fetched `origin/main`, with recursive pins. `doctor` enforces;
-stale launches use `base-sync`. Develop claims one Ready issue, uses its
-worktree, opens draft PR, and squash-merges evaluated head; one
-companion allowed. Managed-document heads receive exact docs audit and fresh
-Curator review after remediation; Examiner gates.
+Jobs are non-interactive. Develop starts from clean canonical `main` matching
+fetched `origin/main` with recursive pins; `doctor` enforces; stale launches:
+`base-sync`. Develop claims one Ready issue, uses worktree, opens draft PR,
+squash-merges evaluated head; one companion. All managed-document heads: exact
+audit + fresh read-only Curator review; repeat after each remediation push;
+preserve review records in PR evidence; Examiner gates.
 Claims have a four-hour deadline. Renew at durable boundaries, including before
 pushes; never wake solely to renew. Expired claims without open PRs are archived
 under `agent/archive/`; open PRs require `needs-human`.
-Three failed rounds add `needs-human` and return issue to Backlog;
+Three failed rounds add `needs-human`; return issue to Backlog;
 retries continue.
 `go tool workflowctl sync` updates Project status and fetches claim refs; it does
 not sync canonical `main` or recursive submodules.
@@ -36,9 +36,9 @@ PR evidence is versioned JSON between owned body markers; `pr evidence update`
 uses exact signal/audit JSON, preserves other body bytes, and is idempotent.
 Challenge/finish require exact REST base/head, audit, and Curator/no-doc result;
 challenges bind body/evidence digests. Before each Examiner, `evaluation challenge`
-records a one-use head-bound challenge. Examiner JSON is versioned;
+records one-use head-bound challenge. Examiner JSON is versioned;
 `workflowctl` rejects wrong-head, stale, reused, malformed, or caller-selected
-results. Fresh context is required; receipts are evidence, not identity proof.
+results. Fresh context required; receipts are evidence, not identity proof.
 REST squash merge is SHA-bound; `pr finish` base-syncs, removing exact-head refs/clean claim worktrees/expected-SHA branches. Cleanup requires immutable pre-merge proof/drift preservation, exact issue/run/SHA/evaluated-head/merge/current-value proof/leased-exact deletion, idempotent `pr recover`, merged-proof `claim prune`; archive/unrelated refs remain.
 
 If draft-to-ready GraphQL is unavailable, close the draft and create an
