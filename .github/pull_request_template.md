@@ -20,11 +20,8 @@
 
 ### Development signals
 
-<!-- Generate exact evidence with develop-signals/docs audit JSON, then
-     `pr evidence update PR --signals-file FILE --docs-audit-file FILE
-     [--curator-file FILE]`. The command owns one goxsd9/pr-evidence/v1 block.
-     Coverage, fuzz, catalog, XSD feature support, and executable conformance
-     stay distinct; no-relevant-target and no-managed-document-change are explicit. -->
+<!-- Record development-signals results and keep coverage, fuzz, catalog, XSD
+     feature support, and executable conformance distinct. -->
 
 ## Conformance and documentation
 
