@@ -112,6 +112,9 @@ derived from that policy and is not an independent selector.
 
 ## Examples
 
+These examples describe the accepted future policy contract; they do not
+describe current two-argument `ParseSchema` runtime behavior.
+
 The following examples make the label and policy boundaries observable. A
 schema label is retained only as input to the schema representation rules; it
 never selects a policy and never mismatches a policy by itself.
@@ -169,7 +172,12 @@ The XSD `schema/@version` token is an inert user label: the specifications
 assign it no language-edition semantics. Language selection therefore belongs
 to an explicit, immutable graph policy rather than to a schema document or a
 resolver-provided label. This decision records that policy boundary and does
-not change current behavior.
+not change current behavior. The current two-argument parser still has legacy
+per-document behavior: absent or empty `schema/@version` defaults to XSD 1.1,
+`"1.0"` selects the current legacy XSD 1.0 path, `"1.1"` selects the current
+legacy XSD 1.1 path, and arbitrary labels are rejected as unsupported. The
+accepted graph-wide `Compatibility`, `Strict10`, and `Strict11` policy is
+future work, not current runtime behavior, and is not implemented by this PR.
 
 The implementation boundary is limited to constructing and validating the
 policy, propagating it through the schema graph, deriving version-sensitive
