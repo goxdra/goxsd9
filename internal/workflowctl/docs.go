@@ -44,7 +44,7 @@ func (a app) runDocs(args []string) error {
 		return a.checkDocs(root, true)
 	}
 	if len(args) == 0 || args[0] != "audit" {
-		return usageError("usage: workflowctl docs check | docs audit --base REF")
+		return usageError("usage: workflowctl docs check | docs audit --base REF [--format text|json]")
 	}
 	flags := flag.NewFlagSet("docs audit", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)

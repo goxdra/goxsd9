@@ -93,6 +93,99 @@ func TestEvaluationAcceptsRunSpecificLocalBranchForFixedPRHead(t *testing.T) {
 	}
 }
 
+func TestManagedDocumentCuratorValidationPrecedesChallengeAndFinishMutation(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		curator func(string) curatorResult
+		want    string
+	}{
+		{
+			name: "challenge missing Curator", command: "challenge",
+			curator: noCuratorResult,
+			want:    "managed-document changes require",
+		},
+		{
+			name: "challenge mismatched Curator", command: "challenge",
+			curator: func(_ string) curatorResult { return testPassingCurator("mismatched-head") },
+			want:    "exact PR head",
+		},
+		{
+			name: "finish missing Curator", command: "finish",
+			curator: noCuratorResult,
+			want:    "managed-document changes require",
+		},
+		{
+			name: "finish mismatched Curator", command: "finish",
+			curator: func(_ string) curatorResult { return testPassingCurator("mismatched-head") },
+			want:    "exact PR head",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			configureManagedDocumentEvidence(t, backend, test.curator(backend.head))
+			var stdout bytes.Buffer
+			application := app{
+				ctx:            context.Background(),
+				executeCommand: backend.execute,
+				stdout:         &stdout,
+				stderr:         new(bytes.Buffer),
+			}
+
+			var err error
+			switch test.command {
+			case "challenge":
+				err = application.runEvaluation([]string{"challenge", "14"})
+			case "finish":
+				err = application.runPR(backend.finishArgs())
+			default:
+				t.Fatalf("unknown command %q", test.command)
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("%s error = %v, want %q", test.command, err, test.want)
+			}
+			if len(backend.comments) != 0 || backend.bodyPatchCount != 0 || backend.merged || backend.projectDone {
+				t.Fatalf("rejected %s mutated GitHub state: comments=%d bodyPatches=%d merged=%t projectDone=%t",
+					test.command, len(backend.comments), backend.bodyPatchCount, backend.merged, backend.projectDone)
+			}
+		})
+	}
+}
+
+func configureManagedDocumentEvidence(t *testing.T, backend *workflowBackend, curator curatorResult) {
+	t.Helper()
+	parsed, err := parsePREvidenceBody(backend.body)
+	if err != nil {
+		t.Fatalf("parse workflow PR evidence: %v", err)
+	}
+	managedChange := testManagedChange()
+	managedChange.Status = "D"
+	managedChange.Additions = 0
+	managedChange.Deletions = 1
+	managedChange.Lines = 0
+	managedChange.Words = 0
+	parsed.evidence.DocumentationAudit.ManagedChanges = []documentationChangeReport{managedChange}
+	parsed.evidence.Curator = curator
+	block, err := renderPREvidenceBlock(parsed.evidence)
+	if err != nil {
+		t.Fatalf("render managed-document PR evidence: %v", err)
+	}
+	updated, err := replacePREvidenceBlock(backend.body, block)
+	if err != nil {
+		t.Fatalf("replace managed-document PR evidence: %v", err)
+	}
+	backend.body = updated
+	backend.managedDocumentChange = true
+}
+
+func testPassingCurator(head string) curatorResult {
+	return curatorResult{
+		Schema: curatorResultSchema, RunID: "curator-command-flow", Head: head, Verdict: "pass",
+		Summary: "Every managed change is in its canonical home.", Findings: []curatorFinding{},
+	}
+}
+
 func TestFinishRejectsEvaluationMetadataDrift(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer
@@ -953,6 +1046,7 @@ type workflowBackend struct {
 	projectDone                bool
 	mergeResponseMode          string
 	mutatePRBodyAfterMerge     bool
+	managedDocumentChange      bool
 	bodyPatchCount             int
 	mergeSHA                   string
 	mergedAt                   time.Time
@@ -1110,7 +1204,15 @@ func (b *workflowBackend) executeGitArtifact(command string) (string, bool) {
 		return "", true
 	case "merge-base base-sha evaluated-head":
 		return "merge-sha", true
-	case "diff --name-status -z --no-renames merge-sha evaluated-head --", "diff --numstat -z --no-renames merge-sha evaluated-head --":
+	case "diff --name-status -z --no-renames merge-sha evaluated-head --":
+		if b.managedDocumentChange {
+			return "D\x00README.md\x00", true
+		}
+		return "", true
+	case "diff --numstat -z --no-renames merge-sha evaluated-head --":
+		if b.managedDocumentChange {
+			return "0\t1\tREADME.md\x00", true
+		}
 		return "", true
 	case "ls-remote --heads origin refs/heads/agent/*":
 		return "evaluated-head refs/heads/agent/issue-13", true
