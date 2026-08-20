@@ -362,6 +362,7 @@ func (parser *instanceDecoder) handleToken(token xml.Token, loc Loc, rawToken []
 				return err
 			}
 			parser.unsupported = newInstanceUnsupported(loc, "DTD declarations are not supported", nil)
+			parser.decoder.Strict = false
 			parser.seenToken = true
 			return nil
 		}
@@ -400,6 +401,9 @@ func instanceIsDoctype(directive xml.Directive) bool {
 }
 
 func validateInstanceDoctype(raw []byte, loc Loc) error {
+	if !validInstanceXMLCharacters(raw) {
+		return invalidInstanceDoctype(loc, "invalid character in DTD declaration")
+	}
 	body, ok := instanceDoctypeBody(raw)
 	if !ok {
 		return invalidInstanceDoctype(loc, "invalid DTD declaration")
@@ -528,7 +532,19 @@ func consumeInstanceDoctypePI(body []byte, index int) (int, bool) {
 	if nameStart == nameEnd || !validInstanceXMLNameToken(string(body[nameStart:nameEnd])) || strings.EqualFold(string(body[nameStart:nameEnd]), "xml") {
 		return 0, false
 	}
-	if nameEnd < len(body) && body[nameEnd] != '?' && !isInstanceXMLSpace(body[nameEnd]) {
+	if nameEnd == len(body) {
+		return 0, false
+	}
+	if body[nameEnd] == '?' {
+		if nameEnd+1 >= len(body) || body[nameEnd+1] != '>' {
+			return 0, false
+		}
+		return nameEnd + 2, true
+	}
+	if body[nameEnd] == '>' {
+		return 0, false
+	}
+	if !isInstanceXMLSpace(body[nameEnd]) {
 		return 0, false
 	}
 	end := bytes.Index(body[nameEnd:], []byte("?>"))
@@ -552,55 +568,528 @@ func consumeInstanceDoctypePEReference(body []byte, index int) (int, bool) {
 }
 
 func consumeInstanceDoctypeMarkup(body []byte, index int) (int, bool) {
-	keyword, ok := instanceDoctypeMarkupKeyword(body, index)
+	if !bytes.HasPrefix(body[index:], []byte("<!")) {
+		return 0, false
+	}
+	index += len("<!")
+	keywordStart := index
+	for index < len(body) && body[index] >= 'A' && body[index] <= 'Z' {
+		index++
+	}
+	keyword := string(body[keywordStart:index])
+	if keyword == "" || !consumeInstanceDoctypeSpace(body, &index) {
+		return 0, false
+	}
+	switch keyword {
+	case "ELEMENT":
+		return consumeInstanceDoctypeElement(body, index)
+	case "ATTLIST":
+		return consumeInstanceDoctypeAttlist(body, index)
+	case "ENTITY":
+		return consumeInstanceDoctypeEntity(body, index)
+	case "NOTATION":
+		return consumeInstanceDoctypeNotation(body, index)
+	default:
+		return 0, false
+	}
+}
+
+func consumeInstanceDoctypeElement(body []byte, index int) (int, bool) {
+	if !consumeInstanceDoctypeName(body, &index) || !consumeInstanceDoctypeSpace(body, &index) {
+		return 0, false
+	}
+	if !consumeInstanceDoctypeContentSpec(body, &index) {
+		return 0, false
+	}
+	return consumeInstanceDoctypeMarkupEnd(body, index)
+}
+
+func consumeInstanceDoctypeContentSpec(body []byte, index *int) bool {
+	for _, keyword := range []string{"EMPTY", "ANY"} {
+		if bytes.HasPrefix(body[*index:], []byte(keyword)) {
+			end := *index + len(keyword)
+			if end == len(body) || isInstanceXMLSpace(body[end]) || body[end] == '>' {
+				*index = end
+				return true
+			}
+			return false
+		}
+	}
+	if *index >= len(body) || body[*index] != '(' {
+		return false
+	}
+	return consumeInstanceDoctypeModel(body, index)
+}
+
+func consumeInstanceDoctypeModel(body []byte, index *int) bool {
+	(*index)++
+	consumeInstanceDoctypeSpace(body, index)
+	if bytes.HasPrefix(body[*index:], []byte("#PCDATA")) {
+		return consumeInstanceDoctypeMixedModel(body, index)
+	}
+	return consumeInstanceDoctypeChildrenModel(body, index)
+}
+
+func consumeInstanceDoctypeMixedModel(body []byte, index *int) bool {
+	end := *index + len("#PCDATA")
+	if end < len(body) && !isInstanceDoctypeDelimiter(body[end]) {
+		return false
+	}
+	*index = end
+	consumeInstanceDoctypeSpace(body, index)
+	nameCount := 0
+	for *index < len(body) && body[*index] == '|' {
+		(*index)++
+		consumeInstanceDoctypeSpace(body, index)
+		if !consumeInstanceDoctypeName(body, index) {
+			return false
+		}
+		nameCount++
+		consumeInstanceDoctypeSpace(body, index)
+	}
+	if *index >= len(body) || body[*index] != ')' {
+		return false
+	}
+	(*index)++
+	if nameCount > 0 && (*index >= len(body) || body[*index] != '*') {
+		return false
+	}
+	if *index < len(body) && body[*index] == '*' {
+		(*index)++
+	}
+	return true
+}
+
+func consumeInstanceDoctypeChildrenModel(body []byte, index *int) bool {
+	if !consumeInstanceDoctypeContentParticle(body, index) {
+		return false
+	}
+	if !consumeInstanceDoctypeModelMembers(body, index) {
+		return false
+	}
+	if *index >= len(body) || body[*index] != ')' {
+		return false
+	}
+	(*index)++
+	if *index < len(body) && (body[*index] == '?' || body[*index] == '*' || body[*index] == '+') {
+		(*index)++
+	}
+	return true
+}
+
+func consumeInstanceDoctypeModelMembers(body []byte, index *int) bool {
+	separator := byte(0)
+	for {
+		consumeInstanceDoctypeSpace(body, index)
+		if *index >= len(body) || body[*index] == ')' {
+			return true
+		}
+		if body[*index] != ',' && body[*index] != '|' {
+			return false
+		}
+		if separator == 0 {
+			separator = body[*index]
+		}
+		if body[*index] != separator {
+			return false
+		}
+		(*index)++
+		consumeInstanceDoctypeSpace(body, index)
+		if !consumeInstanceDoctypeContentParticle(body, index) {
+			return false
+		}
+	}
+}
+
+func consumeInstanceDoctypeContentParticle(body []byte, index *int) bool {
+	if *index < len(body) && body[*index] == '(' {
+		return consumeInstanceDoctypeModel(body, index)
+	}
+	return consumeInstanceDoctypeName(body, index)
+}
+
+func consumeInstanceDoctypeAttlist(body []byte, index int) (int, bool) {
+	if !consumeInstanceDoctypeName(body, &index) {
+		return 0, false
+	}
+	for {
+		if !consumeInstanceDoctypeSpace(body, &index) {
+			return consumeInstanceDoctypeMarkupEnd(body, index)
+		}
+		if index >= len(body) || body[index] == '>' {
+			return consumeInstanceDoctypeMarkupEnd(body, index)
+		}
+		if !consumeInstanceDoctypeName(body, &index) || !consumeInstanceDoctypeSpace(body, &index) {
+			return 0, false
+		}
+		if !consumeInstanceDoctypeAttType(body, &index) || !consumeInstanceDoctypeSpace(body, &index) {
+			return 0, false
+		}
+		if !consumeInstanceDoctypeDefaultDecl(body, &index) {
+			return 0, false
+		}
+	}
+}
+
+func consumeInstanceDoctypeAttType(body []byte, index *int) bool {
+	for _, keyword := range []string{"CDATA", "ID", "IDREF", "IDREFS", "ENTITY", "ENTITIES", "NMTOKEN", "NMTOKENS"} {
+		if bytes.HasPrefix(body[*index:], []byte(keyword)) {
+			end := *index + len(keyword)
+			if end == len(body) || isInstanceXMLSpace(body[end]) || body[end] == '>' {
+				*index = end
+				return true
+			}
+			continue
+		}
+	}
+	if bytes.HasPrefix(body[*index:], []byte("NOTATION")) {
+		*index += len("NOTATION")
+		if !consumeInstanceDoctypeSpace(body, index) {
+			return false
+		}
+		return consumeInstanceDoctypeNameList(body, index)
+	}
+	return consumeInstanceDoctypeEnumeration(body, index)
+}
+
+func consumeInstanceDoctypeNameList(body []byte, index *int) bool {
+	if *index >= len(body) || body[*index] != '(' {
+		return false
+	}
+	(*index)++
+	consumeInstanceDoctypeSpace(body, index)
+	if !consumeInstanceDoctypeName(body, index) {
+		return false
+	}
+	for consumeInstanceDoctypeSpace(body, index) {
+		if *index >= len(body) || body[*index] == ')' {
+			break
+		}
+		if !consumeInstanceDoctypeName(body, index) {
+			return false
+		}
+	}
+	if *index >= len(body) || body[*index] != ')' {
+		return false
+	}
+	(*index)++
+	return true
+}
+
+func consumeInstanceDoctypeEnumeration(body []byte, index *int) bool {
+	if *index >= len(body) || body[*index] != '(' {
+		return false
+	}
+	(*index)++
+	consumeInstanceDoctypeSpace(body, index)
+	if !consumeInstanceDoctypeNmtoken(body, index) {
+		return false
+	}
+	for {
+		consumeInstanceDoctypeSpace(body, index)
+		if *index >= len(body) || body[*index] == ')' {
+			break
+		}
+		if body[*index] != '|' {
+			return false
+		}
+		(*index)++
+		consumeInstanceDoctypeSpace(body, index)
+		if !consumeInstanceDoctypeNmtoken(body, index) {
+			return false
+		}
+	}
+	if *index >= len(body) || body[*index] != ')' {
+		return false
+	}
+	(*index)++
+	return true
+}
+
+func consumeInstanceDoctypeDefaultDecl(body []byte, index *int) bool {
+	if *index >= len(body) {
+		return false
+	}
+	if body[*index] != '#' {
+		return consumeInstanceDoctypeAttributeValue(body, index)
+	}
+	for _, keyword := range []string{"#REQUIRED", "#IMPLIED"} {
+		if bytes.HasPrefix(body[*index:], []byte(keyword)) {
+			end := *index + len(keyword)
+			if end == len(body) || isInstanceXMLSpace(body[end]) || body[end] == '>' {
+				*index = end
+				return true
+			}
+			return false
+		}
+	}
+	if !bytes.HasPrefix(body[*index:], []byte("#FIXED")) {
+		return false
+	}
+	*index += len("#FIXED")
+	if !consumeInstanceDoctypeSpace(body, index) {
+		return false
+	}
+	return consumeInstanceDoctypeAttributeValue(body, index)
+}
+
+func consumeInstanceDoctypeEntity(body []byte, index int) (int, bool) {
+	parameter := false
+	if index < len(body) && body[index] == '%' {
+		parameter = true
+		index++
+		if !consumeInstanceDoctypeSpace(body, &index) {
+			return 0, false
+		}
+	}
+	if !consumeInstanceDoctypeName(body, &index) || !consumeInstanceDoctypeSpace(body, &index) {
+		return 0, false
+	}
+	literal := index < len(body) && (body[index] == '\'' || body[index] == '"')
+	if literal {
+		if !consumeInstanceDoctypeEntityValue(body, &index) {
+			return 0, false
+		}
+		return consumeInstanceDoctypeMarkupEnd(body, index)
+	}
+	var ok bool
+	index, ok = consumeInstanceDoctypeExternalID(body, index)
 	if !ok {
 		return 0, false
 	}
-	return consumeInstanceDoctypeMarkupBody(body, index+len("<!")+len(keyword))
-}
-
-func instanceDoctypeMarkupKeyword(body []byte, index int) (string, bool) {
-	keywords := [...]string{"ELEMENT", "ATTLIST", "ENTITY", "NOTATION"}
-	for _, keyword := range keywords {
-		prefix := "<!" + keyword
-		if !bytes.HasPrefix(body[index:], []byte(prefix)) {
-			continue
-		}
-		end := index + len(prefix)
-		if end == len(body) || !isInstanceXMLSpace(body[end]) {
-			return "", false
-		}
-		return keyword, true
+	if parameter {
+		return consumeInstanceDoctypeMarkupEnd(body, index)
 	}
-	return "", false
+	return consumeInstanceDoctypeExternalEntityEnd(body, index)
 }
 
-func consumeInstanceDoctypeMarkupBody(body []byte, index int) (int, bool) {
+func consumeInstanceDoctypeExternalEntityEnd(body []byte, index int) (int, bool) {
+	declarationStart := index
 	consumeInstanceDoctypeSpace(body, &index)
-	contentStart := index
-	var quote byte
-	for index < len(body) {
-		if quote != 0 {
-			if body[index] == quote {
-				quote = 0
+	if !consumeInstanceDoctypeWord(body, &index, "NDATA") {
+		return consumeInstanceDoctypeMarkupEnd(body, declarationStart)
+	}
+	if !consumeInstanceDoctypeSpace(body, &index) || !consumeInstanceDoctypeName(body, &index) {
+		return 0, false
+	}
+	return consumeInstanceDoctypeMarkupEnd(body, index)
+}
+
+func consumeInstanceDoctypeNotation(body []byte, index int) (int, bool) {
+	if !consumeInstanceDoctypeName(body, &index) || !consumeInstanceDoctypeSpace(body, &index) {
+		return 0, false
+	}
+	if consumeInstanceDoctypeWord(body, &index, "PUBLIC") {
+		if !consumeInstanceDoctypeSpace(body, &index) || !consumeInstanceDoctypeLiteral(body, &index, true) {
+			return 0, false
+		}
+		return consumeInstanceDoctypeMarkupEnd(body, index)
+	}
+	var ok bool
+	index, ok = consumeInstanceDoctypeExternalID(body, index)
+	if !ok {
+		return 0, false
+	}
+	return consumeInstanceDoctypeMarkupEnd(body, index)
+}
+
+func consumeInstanceDoctypeMarkupEnd(body []byte, index int) (int, bool) {
+	consumeInstanceDoctypeSpace(body, &index)
+	if index >= len(body) || body[index] != '>' {
+		return 0, false
+	}
+	return index + 1, true
+}
+
+func consumeInstanceDoctypeWord(body []byte, index *int, word string) bool {
+	if !bytes.HasPrefix(body[*index:], []byte(word)) {
+		return false
+	}
+	end := *index + len(word)
+	if end < len(body) && !isInstanceDoctypeDelimiter(body[end]) {
+		return false
+	}
+	*index = end
+	return true
+}
+
+func isInstanceDoctypeDelimiter(value byte) bool {
+	return isInstanceXMLSpace(value) || value == '>' || value == ')' || value == '|' || value == ',' || value == '*'
+}
+
+func consumeInstanceDoctypeName(body []byte, index *int) bool {
+	start := *index
+	for *index < len(body) {
+		character, size := utf8.DecodeRune(body[*index:])
+		if character == utf8.RuneError && size == 1 {
+			return false
+		}
+		if character != ':' && !validNCNameChar(character) {
+			break
+		}
+		*index += size
+	}
+	if start == *index {
+		return false
+	}
+	return validInstanceXMLNameToken(string(body[start:*index]))
+}
+
+func consumeInstanceDoctypeNmtoken(body []byte, index *int) bool {
+	start := *index
+	for *index < len(body) {
+		character, size := utf8.DecodeRune(body[*index:])
+		if character == utf8.RuneError && size == 1 {
+			return false
+		}
+		if character != ':' && !validNCNameChar(character) {
+			break
+		}
+		*index += size
+	}
+	return start != *index
+}
+
+func consumeInstanceDoctypeEntityValue(body []byte, index *int) bool {
+	if *index >= len(body) || (body[*index] != '\'' && body[*index] != '"') {
+		return false
+	}
+	quote := body[*index]
+	(*index)++
+	return consumeInstanceDoctypeEntityValueContent(body, index, quote)
+}
+
+func consumeInstanceDoctypeEntityValueContent(body []byte, index *int, quote byte) bool {
+	for *index < len(body) {
+		if body[*index] == quote {
+			(*index)++
+			return true
+		}
+		if body[*index] == '&' {
+			if !consumeInstanceDoctypeReference(body, index) {
+				return false
 			}
-			index++
 			continue
 		}
-		switch body[index] {
-		case '\'', '"':
-			quote = body[index]
-		case '<', '[', ']':
-			return 0, false
-		case '>':
-			if index == contentStart {
-				return 0, false
+		if body[*index] == '%' {
+			next, ok := consumeInstanceDoctypePEReference(body, *index)
+			if !ok {
+				return false
 			}
-			return index + 1, true
+			*index = next
+			continue
 		}
-		index++
+		(*index)++
 	}
-	return 0, false
+	return false
+}
+
+func consumeInstanceDoctypeAttributeValue(body []byte, index *int) bool {
+	if *index >= len(body) || (body[*index] != '\'' && body[*index] != '"') {
+		return false
+	}
+	quote := body[*index]
+	(*index)++
+	for *index < len(body) {
+		if body[*index] == quote {
+			(*index)++
+			return true
+		}
+		if body[*index] == '<' || body[*index] == '&' && !consumeInstanceDoctypeReference(body, index) {
+			return false
+		}
+		if body[*index] != '&' {
+			(*index)++
+		}
+	}
+	return false
+}
+
+func consumeInstanceDoctypeReference(body []byte, index *int) bool {
+	if *index >= len(body) || body[*index] != '&' {
+		return false
+	}
+	(*index)++
+	if *index < len(body) && body[*index] == '#' {
+		return consumeInstanceDoctypeCharReference(body, index)
+	}
+	if !consumeInstanceDoctypeName(body, index) || *index >= len(body) || body[*index] != ';' {
+		return false
+	}
+	(*index)++
+	return true
+}
+
+func consumeInstanceDoctypeCharReference(body []byte, index *int) bool {
+	(*index)++
+	hexadecimal := false
+	if *index < len(body) && body[*index] == 'x' {
+		hexadecimal = true
+		(*index)++
+	}
+	digitStart := *index
+	for *index < len(body) && isInstanceReferenceDigit(body[*index], hexadecimal) {
+		(*index)++
+	}
+	if digitStart == *index || *index >= len(body) || body[*index] != ';' {
+		return false
+	}
+	digits := string(body[digitStart:*index])
+	base := 10
+	if hexadecimal {
+		base = 16
+	}
+	codePoint, err := strconv.ParseUint(digits, base, 32)
+	if err != nil || codePoint > 0x10ffff {
+		return false
+	}
+	if !validInstanceXMLCharacter(rune(codePoint)) {
+		return false
+	}
+	(*index)++
+	return true
+}
+
+func isInstanceReferenceDigit(value byte, hexadecimal bool) bool {
+	if value >= '0' && value <= '9' {
+		return true
+	}
+	if !hexadecimal {
+		return false
+	}
+	return value >= 'a' && value <= 'f' || value >= 'A' && value <= 'F'
+}
+
+func validateInstanceDocumentReferences(data []byte, loc Loc) error {
+	if !validInstanceXMLCharacters(data) {
+		return newInstanceInvalid(
+			InvalidInstanceXMLCode,
+			loc,
+			"invalid XML character in instance source",
+			instanceXMLWellFormedSpecRef,
+			nil,
+		)
+	}
+	if bytes.HasPrefix(data, []byte("<![CDATA[")) {
+		return nil
+	}
+	for index := 0; index < len(data); index++ {
+		if data[index] != '&' {
+			continue
+		}
+		next := index
+		if !consumeInstanceDoctypeReference(data, &next) {
+			return newInstanceInvalid(
+				InvalidInstanceXMLCode,
+				loc,
+				"invalid XML character reference",
+				instanceXMLWellFormedSpecRef,
+				nil,
+			)
+		}
+		index = next - 1
+	}
+	return nil
 }
 
 func consumeInstanceDoctypeSpace(data []byte, index *int) bool {
@@ -696,6 +1185,20 @@ func (parser *instanceDecoder) startElement(token xml.StartElement, loc Loc, raw
 		)
 	}
 	rawAttributes, rawAttributesOK := instanceRawStartTagAttributes(rawToken, loc)
+	if !rawAttributesOK {
+		return newInstanceInvalid(
+			InvalidInstanceXMLCode,
+			loc,
+			"malformed XML start tag",
+			instanceXMLWellFormedSpecRef,
+			nil,
+		)
+	}
+	if parser.unsupported != nil {
+		if err := validateInstanceDocumentReferences(rawToken, loc); err != nil {
+			return err
+		}
+	}
 	scope, err := instanceChildScope(parser.currentScope(), token.Attr, rawAttributes, loc)
 	if err != nil {
 		return err
@@ -764,6 +1267,11 @@ func (parser *instanceDecoder) endElement(token xml.EndElement, loc Loc) error {
 }
 
 func (parser *instanceDecoder) characterData(data xml.CharData, loc Loc, rawToken []byte) error {
+	if parser.unsupported != nil {
+		if err := validateInstanceDocumentReferences(rawToken, loc); err != nil {
+			return err
+		}
+	}
 	if len(parser.stack) == 0 {
 		return parser.characterDataOutside(data, rawToken, loc)
 	}
@@ -849,6 +1357,13 @@ func (parser *instanceDecoder) processingInstruction(token xml.ProcInst, loc Loc
 		if err := validateInstanceXMLDeclaration(token.Inst, loc); err != nil {
 			return err
 		}
+		if encoding := instanceXMLDeclarationEncoding(token.Inst); encoding != "" && !strings.EqualFold(encoding, "UTF-8") {
+			return newInstanceUnsupported(
+				loc,
+				"non-UTF-8 instance encodings are not supported",
+				fmt.Errorf("%w: %s", errInstanceUnsupportedEncoding, encoding),
+			)
+		}
 		parser.seenXML = true
 	}
 	parser.seenToken = true
@@ -879,7 +1394,11 @@ func instanceChildScope(parent *syntaxScope, attrs []xml.Attr, rawAttributes []i
 		}
 	}
 	normalized := normalizeInstanceXMLAttributes(attrs, rawAttributes)
-	scope, err := childSyntaxScope(parent, normalized, loc)
+	attributeLocs := make([]Loc, len(rawAttributes))
+	for index := range rawAttributes {
+		attributeLocs[index] = rawAttributes[index].loc
+	}
+	scope, err := childSyntaxScopeWithLocations(parent, normalized, loc, attributeLocs)
 	if err == nil {
 		return scope, nil
 	}
@@ -1198,7 +1717,9 @@ func instanceNamespaceError(err error, loc Loc) error {
 		return err
 	}
 	diagnostic.code = InvalidInstanceNamespaceCode
-	diagnostic.loc = loc
+	if diagnostic.loc.IsZero() {
+		diagnostic.loc = loc
+	}
 	diagnostic.specRef = instanceXMLNamespacesSpecRef
 	return diagnostic
 }
@@ -1299,6 +1820,33 @@ func instanceXMLDeclarationData(rawToken []byte) ([]byte, bool) {
 		data = data[1:]
 	}
 	return data, true
+}
+
+func instanceXMLDeclarationEncoding(data []byte) string {
+	index := 0
+	field := 0
+	for index < len(data) {
+		if field > 0 {
+			consumeInstanceXMLSpace(data, &index)
+		}
+		nameStart := index
+		for index < len(data) && isInstanceXMLDeclarationNameByte(data[index]) {
+			index++
+		}
+		if nameStart == index {
+			return ""
+		}
+		name := string(data[nameStart:index])
+		value, ok := readInstanceXMLDeclarationValue(data, &index)
+		if !ok {
+			return ""
+		}
+		if name == "encoding" {
+			return value
+		}
+		field++
+	}
+	return ""
 }
 
 func readInstanceXMLDeclarationField(data []byte, index *int, field int, loc Loc) error {
