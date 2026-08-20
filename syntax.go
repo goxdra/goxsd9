@@ -17,7 +17,7 @@ const (
 	// UnsupportedSchemaSyntaxCode identifies well-formed XSD syntax outside the
 	// syntax kernel.
 	UnsupportedSchemaSyntaxCode = "XSD3003"
-	// SourceReadCode identifies a failure while draining a source.
+	// SourceReadCode identifies a failure while reading or draining a source.
 	SourceReadCode = "XSD3004"
 	// SourceCloseCode identifies a failure while closing a source.
 	SourceCloseCode = "XSD3005"
@@ -527,13 +527,21 @@ var supportedSyntaxElements = map[string]struct{}{
 }
 
 func childSyntaxScope(parent *syntaxScope, attrs []xml.Attr, loc Loc) (*syntaxScope, error) {
+	return childSyntaxScopeWithLocations(parent, attrs, loc, nil)
+}
+
+func childSyntaxScopeWithLocations(parent *syntaxScope, attrs []xml.Attr, loc Loc, attributeLocs []Loc) (*syntaxScope, error) {
 	bindings := make([]syntaxBinding, 0)
-	for _, attr := range attrs {
+	for attrIndex, attr := range attrs {
 		prefix, ok := namespaceDeclaration(attr)
 		if !ok {
 			continue
 		}
-		binding, err := makeSyntaxBinding(prefix, attr.Value, bindings, loc)
+		attributeLoc := loc
+		if attrIndex < len(attributeLocs) && !attributeLocs[attrIndex].IsZero() {
+			attributeLoc = attributeLocs[attrIndex]
+		}
+		binding, err := makeSyntaxBinding(prefix, attr.Value, bindings, attributeLoc)
 		if err != nil {
 			return nil, err
 		}
