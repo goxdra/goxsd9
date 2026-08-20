@@ -8,11 +8,14 @@ import (
 
 // Resolver obtains a referenced schema without interpreting its location.
 // Implementations may use typed context values to carry private base state.
+// The parser calls Resolve sequentially and consumes and closes each returned
+// source.
 type Resolver interface {
 	Resolve(ctx context.Context, namespaceURN, schemaLocation string) (ResolvedSource, error)
 }
 
-// ResolvedSource is one resolver-owned schema byte stream and its child context.
+// ResolvedSource carries a caller- or resolver-supplied schema byte stream and
+// its child context. ParseSchema consumes and closes the stream.
 type ResolvedSource struct {
 	ctx    context.Context
 	id     SourceID
