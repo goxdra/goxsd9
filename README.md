@@ -6,28 +6,27 @@ unsupported behavior.
 
 ## Schema parsing
 
-`ParseSchema` exposes the supported schema discovery and immutable-component
-pipeline. The caller creates the root `ResolvedSource`; a `Resolver` supplies
-include/import streams and resolution policy. Calls are sequential, locations
-and contexts remain opaque, and paths or URLs are never opened by the package.
-Parsing closes every stream; it drains and decodes only unseen identities.
-Repeated or cyclic identities are closed without decoding.
+`ParseSchema` exposes schema discovery and immutable components. Callers create a
+root `ResolvedSource`; `Resolver` supplies referenced sources and resolution policy. Calls are
+sequential; contexts and locations stay opaque, and paths/URLs stay unopened.
+Parsing closes streams and decodes only unseen identities; repeated and cyclic
+identities close without decoding.
 
-The subset supports mixed XSD 1.0/1.1 graphs, schema-level declarations, and
-simple-type restrictions. It does not implement chameleon includes,
-redefine/override/defaultOpenContent, assertions, or unsupported datatype facets.
-Absent version defaults to XSD 1.1; unsupported behavior and invalid input return explicit located diagnostics, and errors return no schema. XML validation and Go code generation remain under construction.
+Mixed XSD 1.0/1.1 graphs, declarations, and simple-type restrictions are supported. Chameleon includes, redefine/override/defaultOpenContent, assertions, and broader datatype facets remain unsupported; totalDigits/fractionDigits are implemented.
+The two-argument parser retains per-document handling: absent or empty `schema/@version` defaults to XSD 1.1, `"1.0"` selects the legacy XSD 1.0 path, `"1.1"` selects the legacy XSD 1.1 path, and arbitrary labels are unsupported.
+Normatively, `schema/@version` is an inert optional `xs:token` label; the accepted graph-wide `Compatibility` (default), `Strict10`, and `Strict11` policy is future work and absent from the current parser.
+Unsupported behavior and invalid input return located diagnostics; errors return no schema. XML validation and Go generation remain under construction.
 
 ## Design goals
 
-- Exact value spaces and facets, with an optional idiomatic Go datatype profile.
-- Streaming input through caller-provided resolvers.
-- Immutable components with deterministic query and walk APIs.
-- Located diagnostics and no silent acceptance of unsupported behavior.
-- No goroutines, locks, or output derived from map iteration.
-- Measured conformance against the W3C test suite.
+- Exact value spaces and facets.
+- Streaming input through caller resolvers.
+- Immutable, deterministic query and walk APIs.
+- Located diagnostics without silent unsupported behavior.
+- No goroutines, locks, or map-order output.
+- Measured W3C conformance.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for current design and [PLAN.md](PLAN.md) for phased outcomes.
+See [ARCHITECTURE.md](ARCHITECTURE.md) and [PLAN.md](PLAN.md) for design and phased outcomes.
 
 ## Repository checks
 
@@ -53,11 +52,10 @@ Use `-root PATH`, `-output PATH`, and `-index PATH` as needed; see the [schema b
 
 ## Project workflow
 
-Executable work lives in [GitHub Issues](https://github.com/goxdra/goxsd9/issues)
-and the [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1). Agents use
-worktrees, atomic claims, and the checked-in `develop`, `backlog`, and `retro`
-skills. See [scheduled operations](docs/operations.md); [AGENTS.md](AGENTS.md)
-defines commit and PR subjects, which `workflowctl` validates.
+Work lives in [GitHub Issues](https://github.com/goxdra/goxsd9/issues) and the
+[goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1). Agents use worktrees
+and workflow skills. See [scheduled operations](docs/operations.md) and
+[AGENTS.md](AGENTS.md) for workflowctl rules.
 
 ## Test data licensing
 
