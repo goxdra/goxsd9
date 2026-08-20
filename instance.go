@@ -791,7 +791,7 @@ func consumeInstanceDoctypePI(body []byte, index int) (int, bool) {
 	for nameEnd < len(body) && !isInstanceXMLSpace(body[nameEnd]) && body[nameEnd] != '?' && body[nameEnd] != '>' {
 		nameEnd++
 	}
-	if nameStart == nameEnd || !validInstanceXMLNameToken(string(body[nameStart:nameEnd])) || strings.EqualFold(string(body[nameStart:nameEnd]), "xml") {
+	if nameStart == nameEnd || !validNCName(string(body[nameStart:nameEnd])) || strings.EqualFold(string(body[nameStart:nameEnd]), "xml") {
 		return 0, false
 	}
 	if nameEnd == len(body) {
@@ -823,7 +823,7 @@ func consumeInstanceDoctypePEReference(body []byte, index int) (int, bool) {
 		return 0, false
 	}
 	nameEnd += nameStart
-	if !validInstanceXMLNameToken(string(body[nameStart:nameEnd])) {
+	if !validNCName(string(body[nameStart:nameEnd])) {
 		return 0, false
 	}
 	return nameEnd + 1, true
@@ -1207,7 +1207,7 @@ func isInstanceDoctypeDelimiter(value byte) bool {
 
 func consumeInstanceDoctypeName(body []byte, index *int) bool {
 	value, ok := consumeInstanceDoctypeNameToken(body, index)
-	return ok && validInstanceXMLNameToken(value)
+	return ok && validNCName(value)
 }
 
 func consumeInstanceDoctypeQName(body []byte, index *int) bool {
@@ -1270,12 +1270,7 @@ func consumeInstanceDoctypeEntityValueContent(body []byte, index *int, quote byt
 			continue
 		}
 		if body[*index] == '%' {
-			next, ok := consumeInstanceDoctypePEReference(body, *index)
-			if !ok {
-				return false
-			}
-			*index = next
-			continue
+			return false
 		}
 		(*index)++
 	}
@@ -1427,26 +1422,6 @@ func validInstanceXMLName(value string) bool {
 		return false
 	}
 	return validNCName(value[:separator]) && validNCName(value[separator+1:])
-}
-
-func validInstanceXMLNameToken(value string) bool {
-	if value == "" || !utf8.ValidString(value) {
-		return false
-	}
-	first := true
-	for _, character := range value {
-		if first {
-			if character != ':' && !validNCNameStart(character) {
-				return false
-			}
-			first = false
-			continue
-		}
-		if character != ':' && !validNCNameChar(character) {
-			return false
-		}
-	}
-	return !first
 }
 
 func validInstancePubid(value []byte) bool {

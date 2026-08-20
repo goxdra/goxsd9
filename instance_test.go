@@ -604,6 +604,83 @@ func TestDecodeInstanceDefersDTDNamedEntityReferences(t *testing.T) {
 	}
 }
 
+func TestDecodeInstanceDTDBoundaryMatrix(t *testing.T) { //nolint:gocognit // table cases assert the DTD boundary contract.
+	tests := []struct {
+		name      string
+		input     string
+		wantClass FailureClass
+		wantCode  string
+		wantSpec  string
+		wantLoc   Loc
+		wantDoc   bool
+	}{
+		{name: "basic DTD", input: `<!DOCTYPE root><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "top-level PE alone", input: `<!DOCTYPE root [%p;]><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "top-level PE adjacent declaration", input: `<!DOCTYPE root [%p;<!ELEMENT root EMPTY>]><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "top-level PE garbage", input: `<!DOCTYPE root [%p; garbage]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "top-level malformed PE", input: `<!DOCTYPE root [%p]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "top-level bare percent", input: `<!DOCTYPE root [%]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "legal parameter entity declaration marker", input: `<!DOCTYPE root [<!ENTITY % p "x">]><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "general entity value PE", input: `<!DOCTYPE root [<!ENTITY e "%p;">]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "parameter entity value PE", input: `<!DOCTYPE root [<!ENTITY % p "%q;">]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "general entity value bare percent", input: `<!DOCTYPE root [<!ENTITY e "%">]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "parameter entity value malformed PE", input: `<!DOCTYPE root [<!ENTITY % p "%q">]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "direct PE in ELEMENT", input: `<!DOCTYPE root [<!ELEMENT %p; EMPTY>]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "direct PE in ATTLIST", input: `<!DOCTYPE root [<!ATTLIST %p; id CDATA #IMPLIED>]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "direct PE in NOTATION", input: `<!DOCTYPE root [<!NOTATION %p; SYSTEM "image/gif">]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "percent in system literal", input: `<!DOCTYPE root SYSTEM "%p;"><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "percent in public literal", input: `<!DOCTYPE root PUBLIC "%p;" "root.dtd"><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "percent in ATTLIST AttValue", input: `<!DOCTYPE root [<!ATTLIST root a CDATA "%p;">]><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "percent in comment", input: `<!DOCTYPE root [<!-- %p; -->]><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "percent in PI", input: `<!DOCTYPE root [<?p %p;?>]><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "percent in entity CharRef", input: `<!DOCTYPE root [<!ENTITY e "&#37;p;">]><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "percent in entity hexadecimal CharRef", input: `<!DOCTYPE root [<!ENTITY e "&#x25;p;">]><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "percent in document text", input: `<root>%p;</root>`, wantDoc: true},
+		{name: "colon-bearing PE reference", input: `<!DOCTYPE root [%p:q;]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "colon-bearing PE declaration name", input: `<!DOCTYPE root [<!ENTITY % p:q "x">]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "colon-bearing entity declaration name", input: `<!DOCTYPE root [<!ENTITY p:q "x">]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "colon-bearing entity reference name", input: `<!DOCTYPE root [<!ENTITY e "x">]><root>&p:q;</root>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 40}},
+		{name: "colon-bearing NDATA notation name", input: `<!DOCTYPE root [<!ENTITY e SYSTEM "image.bin" NDATA p:q>]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "colon-bearing notation declaration name", input: `<!DOCTYPE root [<!NOTATION p:q SYSTEM "image/gif">]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "external DTD", input: `<!DOCTYPE root SYSTEM "root.dtd"><root/>`, wantClass: FailureUnsupported, wantCode: UnsupportedInstanceSyntaxCode, wantSpec: instanceXMLDTDSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "internal PE with external ID", input: `<!DOCTYPE root SYSTEM "root.dtd" [<!ENTITY e "%p;">]><root/>`, wantClass: FailureInvalid, wantCode: InvalidInstanceXMLCode, wantSpec: instanceXMLWellFormedSpecRef, wantLoc: Loc{source: "instance.xml", line: 1, column: 1}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &instanceTrackingSource{data: []byte(test.input)}
+			document, err := decodeInstance(reader, instanceDecodeConfig{sourceID: "instance.xml"})
+			if test.wantDoc {
+				if err != nil || document == nil {
+					t.Fatalf("valid instance = document %#v, err %v", document, err)
+				}
+				if !reader.closed || reader.offset != len(reader.data) || reader.closeCalls != 1 {
+					t.Fatalf("stream lifecycle = closed %t, offset %d, close calls %d", reader.closed, reader.offset, reader.closeCalls)
+				}
+				return
+			}
+			if document != nil {
+				t.Fatal("invalid or unsupported DTD returned a document")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if got, want := diagnostic.Class(), test.wantClass; got != want {
+				t.Fatalf("Class() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Code(), test.wantCode; got != want {
+				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.SpecRef(), test.wantSpec; got != want {
+				t.Fatalf("SpecRef() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Loc(), test.wantLoc; got != want {
+				t.Fatalf("Loc() = %v, want %v", got, want)
+			}
+			if !reader.closed || reader.offset != len(reader.data) || reader.closeCalls != 1 {
+				t.Fatalf("stream lifecycle = closed %t, offset %d, close calls %d", reader.closed, reader.offset, reader.closeCalls)
+			}
+		})
+	}
+}
+
 func TestDecodeInstanceDTDNamedEntityStructuralErrorsRemainPrimary(t *testing.T) {
 	for _, input := range []string{
 		`<!DOCTYPE root [<!ENTITY e "text">]><root>&e;`,
