@@ -110,6 +110,22 @@ func TestDecodeInstanceAppliesNamespaceContextsAndAttributeWhitespace(t *testing
 	}
 }
 
+func TestDecodeInstanceRecordsAttributeLocations(t *testing.T) {
+	document, _ := decodeInstanceTestInput(t, `<root a="1" b="2"/>`)
+	if len(document.root.attrs) != 2 {
+		t.Fatalf("root attribute count = %d, want 2", len(document.root.attrs))
+	}
+	assertLoc(t, document.root.attrs[0].loc, 1, 7)
+	assertLoc(t, document.root.attrs[1].loc, 1, 13)
+
+	document, _ = decodeInstanceTestInput(t, "<root\r\n  α=\"1\"\r\n  b=\"2\"/>")
+	if len(document.root.attrs) != 2 {
+		t.Fatalf("multiline root attribute count = %d, want 2", len(document.root.attrs))
+	}
+	assertLoc(t, document.root.attrs[0].loc, 2, 3)
+	assertLoc(t, document.root.attrs[1].loc, 3, 3)
+}
+
 func TestDecodeInstanceAcceptsXMLDeclarationAndAttributeReferences(t *testing.T) {
 	input := `<?xml version = "1.0" encoding = 'UTF-8' standalone = "yes"?><root refs="&lt;&gt;&amp;&apos;&quot;&#65;&#x42;"/>`
 	document, reader := decodeInstanceTestInput(t, input)
@@ -191,7 +207,7 @@ func TestDecodeInstanceRejectsInvalidNamespacesAndDuplicateExpandedAttributes(t 
 }
 
 func TestDecodeInstanceRejectsMalformedPrologRootsCommentsAndPIs(t *testing.T) { //nolint:gocognit // table cases assert each diagnostic contract explicitly.
-	valid := " \n<!--before--><?note data?><root/> \n<!--after--><?tail?>"
+	valid := " \n<!--before--><?note data?><?p:target?><root/> \n<!--after--><?tail?>"
 	if document, reader := decodeInstanceTestInput(t, valid); document == nil || !reader.closed {
 		t.Fatalf("valid surrounding markup rejected: document=%#v reader=%#v", document, reader)
 	}
@@ -213,13 +229,15 @@ func TestDecodeInstanceRejectsMalformedPrologRootsCommentsAndPIs(t *testing.T) {
 		{name: "invalid declaration", input: "<?xml standalone=\"yes\"?><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "invalid declaration value", input: "<?xml version=\"1.0\" standalone=\"maybe\"?><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "invalid declaration field", input: "<?xml version=\"1.0\" extra=\"value\"?><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
-		{name: "colon PI target", input: "<?p:target?><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "bad comment", input: "<root><!--bad--x--></root>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "unknown directive", input: "<!bogus><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "unclosed element", input: "<root><child/></root", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "DTD unsupported", input: "<!DOCTYPE root><root/>", class: FailureUnsupported, code: UnsupportedInstanceSyntaxCode},
 		{name: "DTD after root", input: "<root/><!DOCTYPE root>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "DTD inside root", input: "<root><!DOCTYPE root></root>", class: FailureInvalid, code: InvalidInstanceXMLCode},
+		{name: "non-UTF-8 encoding without version", input: "<?xml encoding=\"UTF-16\"?><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
+		{name: "non-UTF-8 encoding after root", input: "<root/><?xml version=\"1.0\" encoding=\"UTF-16\"?>", class: FailureInvalid, code: InvalidInstanceXMLCode},
+		{name: "malformed non-UTF-8 encoding", input: "<?xml version=\"1.0\" encoding=\"UTF 16\"?><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "non-UTF-8 encoding unsupported", input: "<?xml version=\"1.0\" encoding=\"UTF-16\"?><root/>", class: FailureUnsupported, code: UnsupportedInstanceSyntaxCode},
 	}
 	for _, test := range tests {

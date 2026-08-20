@@ -142,7 +142,7 @@ func newUnsupportedForVersion(feature UnsupportedFeature, code string, loc Loc, 
 		return diagnostic
 	}
 	for _, reference := range feature.References() {
-		if reference.XSDVersion() != string(version) {
+		if reference.Version() != string(version) {
 			continue
 		}
 		diagnostic.specRef = reference.Source()
