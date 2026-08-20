@@ -43,7 +43,7 @@ type issueBlockedByNode struct {
 }
 
 type issueBlockedByPageInfo struct {
-	HasNextPage bool `json:"hasNextPage"`
+	HasNextPage *bool `json:"hasNextPage"`
 }
 
 type issueBlockedByConnection struct {
@@ -271,12 +271,9 @@ func (a app) configureNewIssueResolved(root, url string, number int, priority, e
 	if err := validateResolvedBlockers(number, blockedBy, blockerIdentities); err != nil {
 		return err
 	}
-	target, err := a.resolveIssueIdentity(root, number)
+	target, err := a.resolveTargetForDependencies(root, number, blockedBy, blockerIdentities)
 	if err != nil {
-		return fmt.Errorf("issue phase: resolve created issue #%d node: %w", number, err)
-	}
-	if targetErr := validateTargetBlockers(target, blockedBy, blockerIdentities); targetErr != nil {
-		return targetErr
+		return err
 	}
 	output, err := a.command(root, "gh", "project", "item-add", strconv.Itoa(projectNumber), "--owner", owner,
 		"--url", url, "--format", "json")
@@ -311,6 +308,22 @@ func (a app) configureNewIssueResolved(root, url string, number int, priority, e
 		}
 	}
 	return nil
+}
+
+func (a app) resolveTargetForDependencies(root string, number int, blockedBy []int,
+	blockerIdentities []issueNodeIdentity,
+) (issueNodeIdentity, error) {
+	if len(blockedBy) == 0 {
+		return issueNodeIdentity{}, nil
+	}
+	target, err := a.resolveIssueIdentity(root, number)
+	if err != nil {
+		return issueNodeIdentity{}, fmt.Errorf("issue phase: resolve created issue #%d node: %w", number, err)
+	}
+	if targetErr := validateTargetBlockers(target, blockedBy, blockerIdentities); targetErr != nil {
+		return issueNodeIdentity{}, targetErr
+	}
+	return target, nil
 }
 
 func validateResolvedBlockers(number int, blockedBy []int, identities []issueNodeIdentity) error {
@@ -507,16 +520,16 @@ func validateIssueBlockedByTarget(response issueBlockedByResponse, target issueN
 }
 
 func issueBlockedByIDs(number int, connection *issueBlockedByConnection) ([]string, error) {
-	if connection.TotalCount == nil || connection.PageInfo == nil {
+	if connection.TotalCount == nil || connection.PageInfo == nil || connection.PageInfo.HasNextPage == nil {
 		return nil, fmt.Errorf("read issue #%d blocked-by IDs omitted pagination proof", number)
 	}
 	if *connection.TotalCount < 0 || *connection.TotalCount > issueDependencyLimit {
 		return nil, fmt.Errorf("read issue #%d blocked-by IDs reported unsupported relationship count %d (limit %d)",
 			number, *connection.TotalCount, issueDependencyLimit)
 	}
-	if connection.PageInfo.HasNextPage || *connection.TotalCount != len(connection.Nodes) {
+	if *connection.PageInfo.HasNextPage || *connection.TotalCount != len(connection.Nodes) {
 		return nil, fmt.Errorf("read issue #%d blocked-by IDs was incomplete: total %d, returned %d, hasNextPage=%t",
-			number, *connection.TotalCount, len(connection.Nodes), connection.PageInfo.HasNextPage)
+			number, *connection.TotalCount, len(connection.Nodes), *connection.PageInfo.HasNextPage)
 	}
 	ids := make([]string, 0, len(connection.Nodes))
 	for index, node := range connection.Nodes {

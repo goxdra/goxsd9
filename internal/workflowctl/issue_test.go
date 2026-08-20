@@ -209,6 +209,31 @@ func TestCreateIssueUsesNativeGraphQLDependenciesInFlagOrder(t *testing.T) {
 	}
 }
 
+func TestCreateIssueWithoutBlockersSkipsGraphQLTargetResolution(t *testing.T) {
+	bodyFile := filepath.Join(t.TempDir(), "issue.md")
+	writeIssueTestBody(t, bodyFile)
+	fixture := &issueCreateFixture{bodyPath: bodyFile}
+	graphqlCalls := 0
+	var stdout bytes.Buffer
+	application := app{stdout: &stdout, executeCommand: func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		if name == "gh" && len(args) >= 2 && args[0] == "api" && args[1] == "graphql" {
+			graphqlCalls++
+			return "", errors.New("GraphQL should not be called without blockers")
+		}
+		return fixture.execute(dir, input, name, args...)
+	}}
+	if err := application.createIssue(issueCreateArgs(bodyFile)); err != nil {
+		t.Fatalf("createIssue without blockers: %v", err)
+	}
+	if graphqlCalls != 0 {
+		t.Fatalf("no-blocker creation invoked GraphQL %d time(s)", graphqlCalls)
+	}
+	if got, want := stdout.String(), "https://github.com/goxdra/goxsd9/issues/101\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	assertProjectOrder(t, fixture.commands)
+}
+
 func runNativeIssueCreateFixture(t *testing.T, blockers []issueTestBlocker, ordered []int) {
 	t.Helper()
 	bodyFile := filepath.Join(t.TempDir(), "issue.md")
@@ -455,6 +480,60 @@ func TestEnsureIssueDependencyIsIdempotent(t *testing.T) {
 	}
 	if fixture.blockedReads != 2 || fixture.mutations != 1 {
 		t.Fatalf("blocked reads = %d, mutations = %d, want 2 and 1", fixture.blockedReads, fixture.mutations)
+	}
+}
+
+type incompletePaginationFixture struct {
+	body      string
+	mutations int
+}
+
+func (f *incompletePaginationFixture) execute(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	if name != "gh" || len(args) < 3 || args[0] != "api" || args[1] != "graphql" {
+		return "", fmt.Errorf("unexpected command %s %v", name, args)
+	}
+	switch issueTestFlagValue(args, "query=") {
+	case issueBlockedByQuery:
+		return f.body, nil
+	case addBlockedByMutation:
+		f.mutations++
+		return `{"data":{"addBlockedBy":{"issue":{"id":"target-id"},"blockingIssue":{"id":"blocker-id"}}}}`, nil
+	default:
+		return "", fmt.Errorf("unexpected GraphQL query %q", issueTestFlagValue(args, "query="))
+	}
+}
+
+func TestEnsureIssueDependencyRejectsMissingPaginationBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "omitted hasNextPage",
+			body: `{"data":{"repository":{"id":"repo-id","issue":{"id":"target-id","number":101,"blockedBy":{"nodes":[],"totalCount":0,"pageInfo":{}}}}}}`,
+		},
+		{
+			name: "null hasNextPage",
+			body: `{"data":{"repository":{"id":"repo-id","issue":{"id":"target-id","number":101,"blockedBy":{"nodes":[],"totalCount":0,"pageInfo":{"hasNextPage":null}}}}}}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) { runMissingPaginationFixture(t, test.body) })
+	}
+}
+
+func runMissingPaginationFixture(t *testing.T, body string) {
+	t.Helper()
+	target := issueNodeIdentity{repositoryID: "repo-id", issueID: "target-id", number: 101}
+	blocker := issueNodeIdentity{repositoryID: "repo-id", issueID: "blocker-id", number: 7}
+	fixture := &incompletePaginationFixture{body: body}
+	application := app{executeCommand: fixture.execute}
+	err := application.ensureIssueDependency("/repo", target, blocker)
+	if err == nil || !strings.Contains(err.Error(), "omitted pagination proof") {
+		t.Fatalf("ensureIssueDependency error = %v, want missing pagination proof", err)
+	}
+	if fixture.mutations != 0 {
+		t.Fatalf("incomplete pagination reached addBlockedBy %d time(s)", fixture.mutations)
 	}
 }
 
