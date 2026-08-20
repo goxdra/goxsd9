@@ -269,6 +269,7 @@ func TestDecodeInstanceDefersWellFormedDTDUnsupported(t *testing.T) { //nolint:g
 		{name: "simple", input: "<!DOCTYPE root><root/>", loc: Loc{source: "instance.xml", line: 1, column: 1}},
 		{name: "internal subset", input: "\n  <!DOCTYPE root [<!ELEMENT root EMPTY>]><root/>", loc: Loc{source: "instance.xml", line: 2, column: 3}},
 		{name: "system identifier", input: "<!DOCTYPE root SYSTEM \"root.dtd\"><root/>", loc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "public identifier", input: "<!DOCTYPE root PUBLIC \"-//Example//DTD Root 1.0//EN\" \"root.dtd\"><root/>", loc: Loc{source: "instance.xml", line: 1, column: 1}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -297,6 +298,29 @@ func TestDecodeInstanceDefersWellFormedDTDUnsupported(t *testing.T) { //nolint:g
 	}
 }
 
+func TestDecodeInstanceAcceptsBoundedDTDSubsetItems(t *testing.T) {
+	input := `<!DOCTYPE p:root [
+<!-- a DTD comment -->
+<?dtd instruction?>
+%decl;
+<!ELEMENT p:root (child)>
+<!ATTLIST p:root id CDATA #IMPLIED>
+<!ENTITY literal "[value]">
+<!NOTATION image SYSTEM "image/gif">
+]><p:root xmlns:p="urn:p"/>`
+	document, err := decodeInstanceFailureInput(t, input)
+	if document != nil {
+		t.Fatal("unsupported DTD returned a document")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if got, want := diagnostic.Class(), FailureUnsupported; got != want {
+		t.Fatalf("Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
+		t.Fatalf("Code() = %q, want %q", got, want)
+	}
+}
+
 func TestDecodeInstanceDTDStructuralErrorsRemainInvalid(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -313,6 +337,15 @@ func TestDecodeInstanceDTDStructuralErrorsRemainInvalid(t *testing.T) {
 		{name: "unterminated system literal", input: "<!DOCTYPE root SYSTEM \"root.dtd><root/>", code: InvalidInstanceXMLCode},
 		{name: "invalid internal subset suffix", input: "<!DOCTYPE root [] extra><root/>", code: InvalidInstanceXMLCode},
 		{name: "malformed internal comment", input: "<!DOCTYPE root [<!--bad--x-->]><root/>", code: InvalidInstanceXMLCode},
+		{name: "arbitrary internal text", input: "<!DOCTYPE root [garbage]><root/>", code: InvalidInstanceXMLCode},
+		{name: "malformed parameter entity", input: "<!DOCTYPE root [%decl]><root/>", code: InvalidInstanceXMLCode},
+		{name: "malformed declaration boundary", input: "<!DOCTYPE root [<!ELEMENT root EMPTY]]><root/>", code: InvalidInstanceXMLCode},
+		{name: "conditional section", input: "<!DOCTYPE root [<![INCLUDE[<!ELEMENT root EMPTY>]]>]><root/>", code: InvalidInstanceXMLCode},
+		{name: "nested internal bracket", input: "<!DOCTYPE root [[literal]]><root/>", code: InvalidInstanceXMLCode},
+		{name: "invalid DTD QName prefix", input: "<!DOCTYPE :root><root/>", code: InvalidInstanceXMLCode},
+		{name: "invalid DTD QName local", input: "<!DOCTYPE root:><root/>", code: InvalidInstanceXMLCode},
+		{name: "multiple DTD QName separators", input: "<!DOCTYPE a:b:c><root/>", code: InvalidInstanceXMLCode},
+		{name: "invalid PUBLIC literal", input: "<!DOCTYPE root PUBLIC \"-//Example<DTD\" \"root.dtd\"><root/>", code: InvalidInstanceXMLCode},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -333,6 +366,20 @@ func TestDecodeInstanceDTDStructuralErrorsRemainInvalid(t *testing.T) {
 
 func TestDecodeInstanceDTDRootNameMismatchRemainsUnsupported(t *testing.T) {
 	document, err := decodeInstanceFailureInput(t, "<!DOCTYPE declared><actual/>")
+	if document != nil {
+		t.Fatal("DTD root-name mismatch returned a document")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if got, want := diagnostic.Class(), FailureUnsupported; got != want {
+		t.Fatalf("Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
+		t.Fatalf("Code() = %q, want %q", got, want)
+	}
+}
+
+func TestDecodeInstanceAcceptsPrefixedDTDNameWithoutMatching(t *testing.T) {
+	document, err := decodeInstanceFailureInput(t, `<!DOCTYPE p:declared><p:actual xmlns:p="urn:p"/>`)
 	if document != nil {
 		t.Fatal("DTD root-name mismatch returned a document")
 	}
