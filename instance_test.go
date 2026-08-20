@@ -257,7 +257,7 @@ func TestDecodeInstanceRejectsInvalidNamespacesAndDuplicateExpandedAttributes(t 
 }
 
 func TestDecodeInstanceRejectsMalformedPrologRootsCommentsAndPIs(t *testing.T) { //nolint:gocognit // table cases assert each diagnostic contract explicitly.
-	valid := " \n<!--before--><?note data?><?p:target?><root/> \n<!--after--><?tail?>"
+	valid := " \n<!--before--><?note data?><?π data?><root/> \n<!--after--><?tail?>"
 	if document, reader := decodeInstanceTestInput(t, valid); document == nil || !reader.closed {
 		t.Fatalf("valid surrounding markup rejected: document=%#v reader=%#v", document, reader)
 	}
@@ -307,6 +307,140 @@ func TestDecodeInstanceRejectsMalformedPrologRootsCommentsAndPIs(t *testing.T) {
 				t.Fatalf("unsupported diagnostic does not match ErrUnsupported: %v", err)
 			}
 		})
+	}
+}
+
+func TestDecodeInstanceRejectsNamespaceInvalidProcessingInstructionTargets(t *testing.T) { //nolint:gocognit // table cases assert each PI diagnostic contract explicitly.
+	for _, test := range []struct {
+		name  string
+		input string
+		code  string
+		ref   string
+	}{
+		{name: "colon target", input: "<?p:target?><root/>", code: InvalidInstanceNamespaceCode, ref: instanceXMLNamespacesSpecRef},
+		{name: "reserved uppercase XML target", input: "<?XML?><root/>", code: InvalidInstanceXMLCode, ref: instanceXMLWellFormedSpecRef},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &instanceTrackingSource{data: []byte(test.input)}
+			document, err := decodeInstance(reader, instanceDecodeConfig{sourceID: "instance.xml"})
+			if document != nil {
+				t.Fatal("invalid processing instruction returned a document")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if got, want := diagnostic.Class(), FailureInvalid; got != want {
+				t.Fatalf("Class() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Code(), test.code; got != want {
+				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.SpecRef(), test.ref; got != want {
+				t.Fatalf("SpecRef() = %q, want %q", got, want)
+			}
+			assertLoc(t, diagnostic.Loc(), 1, 1)
+			if !reader.closed || reader.offset != len(reader.data) || reader.closeCalls != 1 {
+				t.Fatalf("stream lifecycle = closed %t, offset %d, close calls %d", reader.closed, reader.offset, reader.closeCalls)
+			}
+		})
+	}
+}
+
+func TestDecodeInstanceClassifiesRawMultiColonNames(t *testing.T) { //nolint:gocognit // table cases assert each raw-name diagnostic contract explicitly.
+	tests := []struct {
+		name   string
+		input  string
+		line   int
+		column int
+	}{
+		{name: "start element", input: `<p:q:r/>`, line: 1, column: 2},
+		{name: "end element", input: `<root></p:q:r>`, line: 1, column: 9},
+		{name: "ordinary attribute", input: `<root p:q:r="x"/>`, line: 1, column: 7},
+		{name: "namespace declaration", input: `<root xmlns:p:q="u"/>`, line: 1, column: 7},
+		{name: "unicode before attribute", input: "<root\n  α=\"😀\" p:q:r=\"v\"/>", line: 2, column: 9},
+		{name: "DTD deferred precedence", input: `<!DOCTYPE root><p:q:r/>`, line: 1, column: 17},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &instanceTrackingSource{data: []byte(test.input)}
+			document, err := decodeInstance(reader, instanceDecodeConfig{sourceID: "instance.xml"})
+			if document != nil {
+				t.Fatal("multi-colon XML name returned a document")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if got, want := diagnostic.Class(), FailureInvalid; got != want {
+				t.Fatalf("Class() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Code(), InvalidInstanceNamespaceCode; got != want {
+				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.SpecRef(), instanceXMLNamespacesSpecRef; got != want {
+				t.Fatalf("SpecRef() = %q, want %q", got, want)
+			}
+			assertLoc(t, diagnostic.Loc(), test.line, test.column)
+			if !reader.closed || reader.offset != len(reader.data) || reader.closeCalls != 1 {
+				t.Fatalf("stream lifecycle = closed %t, offset %d, close calls %d", reader.closed, reader.offset, reader.closeCalls)
+			}
+		})
+	}
+}
+
+func TestDecodeInstanceDoesNotReclassifyColonsOutsideXMLNames(t *testing.T) { //nolint:gocognit // assertions cover valid literals and malformed-value precedence.
+	for _, test := range []struct {
+		name  string
+		input string
+	}{
+		{name: "attribute value", input: `<root a="p:q:r"/>`},
+		{name: "comment", input: `<!-- p:q:r --><root/>`},
+		{name: "processing instruction data", input: `<?note p:q:r?><root/>`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			document, reader := decodeInstanceTestInput(t, test.input)
+			if document == nil || !reader.closed {
+				t.Fatalf("valid colon-bearing non-name input = document %#v, reader %#v", document, reader)
+			}
+		})
+	}
+
+	reader := &instanceTrackingSource{data: []byte(`<root a="p:q:r>`)}
+	document, err := decodeInstance(reader, instanceDecodeConfig{sourceID: "instance.xml"})
+	if document != nil {
+		t.Fatal("malformed quoted value returned a document")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if got, want := diagnostic.Class(), FailureInvalid; got != want {
+		t.Fatalf("Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), InvalidInstanceXMLCode; got != want {
+		t.Fatalf("Code() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.SpecRef(), instanceXMLWellFormedSpecRef; got != want {
+		t.Fatalf("SpecRef() = %q, want %q", got, want)
+	}
+	assertLoc(t, diagnostic.Loc(), 1, 1)
+	if !reader.closed || reader.offset != len(reader.data) || reader.closeCalls != 1 {
+		t.Fatalf("malformed value stream lifecycle = closed %t, offset %d, close calls %d", reader.closed, reader.offset, reader.closeCalls)
+	}
+
+	reader = &instanceTrackingSource{data: []byte(`<!DOCTYPE root [<!ENTITY value "p:q:r">]><root/>`)}
+	document, err = decodeInstance(reader, instanceDecodeConfig{sourceID: "instance.xml"})
+	if document != nil {
+		t.Fatal("DTD literal returned a document")
+	}
+	diagnostic = requireDiagnostic(t, err)
+	if got, want := diagnostic.Class(), FailureUnsupported; got != want {
+		t.Fatalf("DTD literal Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
+		t.Fatalf("DTD literal Code() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.SpecRef(), instanceXMLDTDSpecRef; got != want {
+		t.Fatalf("DTD literal SpecRef() = %q, want %q", got, want)
+	}
+	assertLoc(t, diagnostic.Loc(), 1, 1)
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("DTD literal error does not match ErrUnsupported: %v", err)
+	}
+	if !reader.closed || reader.offset != len(reader.data) || reader.closeCalls != 1 {
+		t.Fatalf("DTD literal stream lifecycle = closed %t, offset %d, close calls %d", reader.closed, reader.offset, reader.closeCalls)
 	}
 }
 
@@ -403,6 +537,39 @@ func TestDecodeInstanceAcceptsDTDGrammarVariants(t *testing.T) {
 			}
 			if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
 				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// XML 1.0 Fifth Edition production [51] permits both (#PCDATA) and (#PCDATA)*.
+func TestDecodeInstanceDefersBareAndStarredPCDATAMixedModels(t *testing.T) { //nolint:gocognit // table cases assert deferred DTD diagnostics and lifecycle.
+	for _, input := range []string{
+		`<!DOCTYPE root [<!ELEMENT root (#PCDATA)>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root (#PCDATA)*>]><root/>`,
+	} {
+		t.Run(strconv.Quote(input), func(t *testing.T) {
+			reader := &instanceTrackingSource{data: []byte(input)}
+			document, err := decodeInstance(reader, instanceDecodeConfig{sourceID: "instance.xml"})
+			if document != nil {
+				t.Fatal("PCDATA DTD model returned a document")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if got, want := diagnostic.Class(), FailureUnsupported; got != want {
+				t.Fatalf("Class() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
+				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.SpecRef(), instanceXMLDTDSpecRef; got != want {
+				t.Fatalf("SpecRef() = %q, want %q", got, want)
+			}
+			assertLoc(t, diagnostic.Loc(), 1, 1)
+			if !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("PCDATA DTD error does not match ErrUnsupported: %v", err)
+			}
+			if !reader.closed || reader.offset != len(reader.data) || reader.closeCalls != 1 {
+				t.Fatalf("PCDATA DTD stream lifecycle = closed %t, offset %d, close calls %d", reader.closed, reader.offset, reader.closeCalls)
 			}
 		})
 	}
@@ -929,6 +1096,35 @@ func TestDecodeInstancePreservesReadAndCloseCausesInOrder(t *testing.T) {
 	}
 }
 
+func TestDecodeInstanceReportsGenericInvalidByteCountAndLifecycle(t *testing.T) {
+	readErr := errors.New("instance drain read failed")
+	closeErr := errors.New("instance drain close failed")
+	reader := &instanceInvalidByteCountSource{readErr: readErr, closeErr: closeErr}
+	document, err := decodeInstance(reader, instanceDecodeConfig{sourceID: "invalid-count.xml"})
+	if document != nil || err == nil {
+		t.Fatalf("invalid byte-count decode = document %#v, err %v", document, err)
+	}
+	if !errors.Is(err, readErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("combined error lost drain or close cause: %v", err)
+	}
+	diagnostics := syntaxDiagnostics(err)
+	if got, want := len(diagnostics), 3; got != want {
+		t.Fatalf("diagnostic count = %d, want %d: %#v", got, want, diagnostics)
+	}
+	if diagnostics[0].Class() != FailureResolution || diagnostics[0].Code() != SourceReadCode {
+		t.Fatalf("primary diagnostic = %#v, want resolution SourceRead", diagnostics[0])
+	}
+	if cause := diagnostics[0].Unwrap(); cause == nil || cause.Error() != fmt.Sprintf("source returned invalid byte count %d", reader.invalidCount) {
+		t.Fatalf("primary cause = %v, want generic invalid-count cause", cause)
+	}
+	if diagnostics[1].Code() != SourceReadCode || diagnostics[2].Code() != SourceCloseCode {
+		t.Fatalf("diagnostic order = %#v, want read, read, close", diagnostics)
+	}
+	if !reader.closed || reader.closeCalls != 1 {
+		t.Fatalf("invalid-count stream lifecycle = closed %t, close calls %d", reader.closed, reader.closeCalls)
+	}
+}
+
 func TestDecodeInstanceCloseFailureReturnsNoDocument(t *testing.T) {
 	closeErr := errors.New("close failed")
 	reader := &instanceTrackingSource{data: []byte(`<root/>`), closeErr: closeErr}
@@ -1119,6 +1315,30 @@ type instanceTrackingSource struct {
 	closeErr   error
 	closed     bool
 	closeCalls int
+}
+
+type instanceInvalidByteCountSource struct {
+	readErr      error
+	closeErr     error
+	invalidRead  bool
+	invalidCount int
+	closed       bool
+	closeCalls   int
+}
+
+func (source *instanceInvalidByteCountSource) Read(buffer []byte) (int, error) {
+	if !source.invalidRead {
+		source.invalidRead = true
+		source.invalidCount = len(buffer) + 1
+		return source.invalidCount, nil
+	}
+	return 0, source.readErr
+}
+
+func (source *instanceInvalidByteCountSource) Close() error {
+	source.closed = true
+	source.closeCalls++
+	return source.closeErr
 }
 
 func (source *instanceTrackingSource) Read(buffer []byte) (int, error) {

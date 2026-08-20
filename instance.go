@@ -410,6 +410,9 @@ func (parser *instanceDecoder) handleTokenError(err error, loc Loc, rawToken []b
 			err,
 		)
 	}
+	if diagnostic, ok := instanceRawMultiColonNameDiagnostic(rawToken, loc); ok {
+		return nil, diagnostic
+	}
 	return nil, newInstanceInvalid(
 		InvalidInstanceXMLCode,
 		loc,
@@ -417,6 +420,117 @@ func (parser *instanceDecoder) handleTokenError(err error, loc Loc, rawToken []b
 		instanceXMLWellFormedSpecRef,
 		err,
 	)
+}
+
+func instanceRawMultiColonNameDiagnostic(raw []byte, start Loc) (Diagnostic, bool) {
+	if len(raw) < 2 || raw[0] != '<' {
+		return Diagnostic{}, false
+	}
+	if raw[1] == '/' {
+		return instanceRawMultiColonNameAt(raw, 2, start)
+	}
+	if raw[1] == '?' || raw[1] == '!' {
+		return Diagnostic{}, false
+	}
+	return instanceRawStartTagMultiColonName(raw, start)
+}
+
+func instanceRawStartTagMultiColonName(raw []byte, start Loc) (Diagnostic, bool) {
+	nameEnd, ok := consumeInstanceRawXMLName(raw, 1)
+	if !ok {
+		return Diagnostic{}, false
+	}
+	if diagnostic, found := instanceRawMultiColonNameAt(raw, 1, start); found {
+		return diagnostic, true
+	}
+	return instanceRawAttributeMultiColonName(raw, nameEnd, start)
+}
+
+func instanceRawAttributeMultiColonName(raw []byte, index int, start Loc) (Diagnostic, bool) {
+	for {
+		if !skipInstanceRawSpace(raw, &index) {
+			return Diagnostic{}, false
+		}
+		if instanceRawTagEnd(raw, index) {
+			return Diagnostic{}, false
+		}
+		nameStart := index
+		nameEnd, ok := consumeInstanceRawXMLName(raw, index)
+		if !ok {
+			return Diagnostic{}, false
+		}
+		if diagnostic, found := instanceRawMultiColonNameAt(raw, nameStart, start); found {
+			return diagnostic, true
+		}
+		index, ok = consumeInstanceRawAttributeValue(raw, nameEnd)
+		if !ok {
+			return Diagnostic{}, false
+		}
+	}
+}
+
+func instanceRawTagEnd(raw []byte, index int) bool {
+	if index >= len(raw) || raw[index] == '>' {
+		return true
+	}
+	return raw[index] == '/' && index+1 < len(raw) && raw[index+1] == '>'
+}
+
+func consumeInstanceRawAttributeValue(raw []byte, index int) (int, bool) {
+	skipInstanceRawSpace(raw, &index)
+	if index >= len(raw) || raw[index] != '=' {
+		return 0, false
+	}
+	index++
+	skipInstanceRawSpace(raw, &index)
+	if index >= len(raw) || raw[index] != '\'' && raw[index] != '"' {
+		return 0, false
+	}
+	quote := raw[index]
+	index++
+	for index < len(raw) && raw[index] != quote {
+		index++
+	}
+	if index >= len(raw) {
+		return 0, false
+	}
+	return index + 1, true
+}
+
+func instanceRawMultiColonNameAt(raw []byte, nameStart int, start Loc) (Diagnostic, bool) {
+	nameEnd, ok := consumeInstanceRawXMLName(raw, nameStart)
+	if !ok || bytes.Count(raw[nameStart:nameEnd], []byte{':'}) < 2 {
+		return Diagnostic{}, false
+	}
+	return newInstanceInvalid(
+		InvalidInstanceNamespaceCode,
+		instanceRawAttributeLoc(start, raw, nameStart),
+		fmt.Sprintf("invalid XML namespace name %q", string(raw[nameStart:nameEnd])),
+		instanceXMLNamespacesSpecRef,
+		nil,
+	), true
+}
+
+func consumeInstanceRawXMLName(raw []byte, index int) (int, bool) {
+	start := index
+	for index < len(raw) {
+		character, size := utf8.DecodeRune(raw[index:])
+		if character == utf8.RuneError && size == 1 {
+			return 0, false
+		}
+		if index == start {
+			if character != ':' && !validNCNameStart(character) {
+				return 0, false
+			}
+			index += size
+			continue
+		}
+		if character != ':' && !validNCNameChar(character) {
+			break
+		}
+		index += size
+	}
+	return index, index != start
 }
 
 func (parser *instanceDecoder) validateUnsupportedEncodingDeclaration(rawToken []byte, loc Loc) error {
@@ -1619,6 +1733,15 @@ func instanceLiteralWhitespace(data xml.CharData, rawToken []byte) bool {
 }
 
 func (parser *instanceDecoder) processingInstruction(token xml.ProcInst, loc Loc) error {
+	if !validNCName(token.Target) {
+		return newInstanceInvalid(
+			InvalidInstanceNamespaceCode,
+			loc,
+			fmt.Sprintf("invalid XML namespace name %q", token.Target),
+			instanceXMLNamespacesSpecRef,
+			nil,
+		)
+	}
 	if !validInstanceXMLCharacters(token.Inst) {
 		return newInstanceInvalid(
 			InvalidInstanceXMLCode,

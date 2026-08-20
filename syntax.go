@@ -769,7 +769,7 @@ func (position *syntaxPositionReader) ReadByte() (byte, error) {
 	for {
 		n, err := position.reader.Read(one[:])
 		if n < 0 || n > len(one) {
-			readErr := fmt.Errorf("schema source returned invalid byte count %d", n)
+			readErr := fmt.Errorf("source returned invalid byte count %d", n)
 			position.lastReadError = readErr
 			return 0, readErr
 		}
@@ -823,7 +823,7 @@ func (position *syntaxPositionReader) Read(buffer []byte) (int, error) {
 func (position *syntaxPositionReader) readBuffer(buffer []byte) (int, error) {
 	n, err := position.reader.Read(buffer)
 	if n < 0 || n > len(buffer) {
-		readErr := fmt.Errorf("schema source returned invalid byte count %d", n)
+		readErr := fmt.Errorf("source returned invalid byte count %d", n)
 		position.lastReadError = readErr
 		return 0, readErr
 	}
