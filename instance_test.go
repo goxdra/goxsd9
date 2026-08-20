@@ -312,6 +312,7 @@ func TestDecodeInstanceDTDStructuralErrorsRemainInvalid(t *testing.T) {
 		{name: "unterminated internal subset", input: "<!DOCTYPE root [<!ELEMENT root EMPTY>><root/>", code: InvalidInstanceXMLCode},
 		{name: "unterminated system literal", input: "<!DOCTYPE root SYSTEM \"root.dtd><root/>", code: InvalidInstanceXMLCode},
 		{name: "invalid internal subset suffix", input: "<!DOCTYPE root [] extra><root/>", code: InvalidInstanceXMLCode},
+		{name: "malformed internal comment", input: "<!DOCTYPE root [<!--bad--x-->]><root/>", code: InvalidInstanceXMLCode},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
