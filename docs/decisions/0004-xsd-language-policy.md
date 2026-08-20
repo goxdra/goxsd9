@@ -165,50 +165,33 @@ into a source error merely to obtain a location.
 
 ## Current gap and non-goals
 
-The current implementation demonstrates why this decision must precede code
-changes:
+The XSD `schema/@version` token is an inert user label: the specifications
+assign it no language-edition semantics. Language selection therefore belongs
+to an explicit, immutable graph policy rather than to a schema document or a
+resolver-provided label. This decision records that policy boundary and does
+not change current behavior.
 
-- [`schema_build.go`](../../schema_build.go) has the schema-document-version
-  helper (`syntaxDocumentVersion`, the `schemaDocumentVersion` gap named by
-  this issue) that defaults an absent label to XSD 1.1, maps `"1.0"` and
-  `"1.1"` to different behavior, and rejects arbitrary labels. Its
-  `schemaTargetNamespace` record stores that version per document and passes it
-  into declarations.
-- [`schema_phase.go`](../../schema_phase.go) reads the document label during
-  root validation and hard-codes `"1.1"` in
-  `applySchemaConditionalVersion`, so conditional inclusion is not supplied by
-  an independent graph policy.
-- [`schema_build.go`](../../schema_build.go) calls
-  `reversionDigitFacets` in [`datatype_facets.go`](../../datatype_facets.go)
-  to retag inherited digit facets with the child document’s version. This is
-  source-specific facet state, not a graph-wide policy.
-- [`schema_build_test.go`](../../schema_build_test.go) and
-  [`schema_parse_test.go`](../../schema_parse_test.go) assert different
-  `DigitFacets().Version()` values for documents labelled 1.0 and 1.1. Those
-  tests are evidence of the current gap and must not become the future policy
-  contract merely by being retained.
-
-This research packet changes none of those paths, the current `ParseSchema`
-behavior, README, ARCHITECTURE, PLAN, source code, or tests. It makes no new
-XSD feature, lexical, facet, or conformance claim. The existing public
-documentation remains the contract until an implementation packet is accepted
-and completed.
+The implementation boundary is limited to constructing and validating the
+policy, propagating it through the schema graph, deriving version-sensitive
+capabilities from it, and applying the compatibility or strict rules defined
+above. Manifest or catalog edition metadata may construct a strict policy for
+a conformance run, but no schema label becomes an edition selector. This
+decision does not broaden the supported XSD feature set or make a conformance
+claim for current behavior. Detailed implementation and test evidence belongs
+in the corresponding issue and pull request records.
 
 ## Implementation decomposition
 
-Exactly three bounded implementation packets follow this decision. They share
-one policy source of truth and must be delivered in dependency order.
+Exactly three bounded implementation packets follow this decision and are
+delivered in dependency order. They share one immutable policy source of
+truth: no packet may introduce another edition selector, and manifest or
+catalog metadata may only construct a strict policy for a conformance run.
 
-| Packet | Size and dependency | Changed responsibilities | Tests and evidence |
-| --- | --- | --- | --- |
-| XS: policy value and preflight | XS; blocked until [#113](https://github.com/goxdra/goxsd9/issues/113) is accepted | Define the immutable `LanguagePolicy`/`SchemaLanguagePolicy` values and validation, reserve the parser-policy diagnostic contract, validate before discovery, close a valid root once on invalid configuration, and keep the current two-argument behavior unchanged. | Unit tests for all three profiles, invalid values, `FailureInvalid`, `XSD3013`, zero `Loc`, preserved cause, zero resolver calls, exactly-once root close, and zero schema. Evidence: this decision’s lifecycle invariants. |
-| S: graph propagation and capability | S; depends on XS | Carry one selected policy through root, includes, imports, cycles, and repeated identities without putting it in `ResolvedSource`, `Resolver`, context, location, or source identity. Derive conditional-inclusion capability (`V = 1.0` or `V = 1.1`) from the policy, keep calls sequential, and provide any reviewed explicit-policy entrypoint plus one-way Compatibility wrapper. | Mixed-label and mixed-edition resolver graphs; conditional inclusion for each profile; cycle/repeat closure; opaque context/namespace/location assertions; no partial result after errors; labels alone never mismatch. Evidence: `discovery.go`, `schema_phase.go`, `README.md`, and the XSD `key-schemaDoc`/conditional-inclusion rules. |
-| M: strict rules and conformance integration | M; depends on S | Apply exact Strict10/Strict11 lexical, value, facet, and registered-feature diagnostics; apply Compatibility’s supported union and common facet rules; remove source-label selection and facet reversion; select strict policy from catalog/manifest edition metadata. | Paired decimal lexical anchors; paired `totalDigits`/`fractionDigits` value-space tests; strict feature mismatch `Loc`/code/feature/`SpecRef`; catalog-selected strict runs; mixed Compatibility graphs; full stream lifecycle and no-schema-after-error evidence. Evidence: `specs/manifest.json`, `0001-foundations.md`, `0003-schema-bootstrap.md`, and the paired XSD specifications. |
-
-No GitHub issues are created by this record. The implementation packets must
-not add another edition selector: the immutable graph policy is the single
-source of truth, while manifest/catalog metadata is only the authority that
-constructs a strict policy for a conformance run.
+| Packet | Size and dependency | Durable responsibility boundary |
+| --- | --- | --- |
+| XS: policy value and preflight | XS; follows this decision | Define and validate the immutable policy values and establish policy preflight while preserving the existing behavior boundary. |
+| S: graph propagation and capability | S; depends on XS | Propagate one selected policy across the schema graph and derive conditional-inclusion capability from it while keeping source and resolver metadata opaque. |
+| M: strict rules and conformance integration | M; depends on S | Apply the profile-specific compatibility and strict rules and integrate strict-policy selection from manifest or catalog edition metadata. |
 
 ## Consequences
 
