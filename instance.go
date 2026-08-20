@@ -94,10 +94,9 @@ type instanceDecodeConfig struct {
 }
 
 type instanceLexicalReader struct {
-	positions       *syntaxPositionReader
-	capture         []byte
-	captureStart    int64
-	captureDisabled bool
+	positions    *syntaxPositionReader
+	capture      []byte
+	captureStart int64
 }
 
 func (reader *instanceLexicalReader) ReadByte() (byte, error) {
@@ -120,7 +119,6 @@ func (reader *instanceLexicalReader) Read(buffer []byte) (int, error) {
 func (reader *instanceLexicalReader) beginCapture(logicalOffset int64) {
 	reader.capture = reader.capture[:0]
 	reader.captureStart = logicalOffset
-	reader.captureDisabled = false
 	missing := reader.positions.offset - logicalOffset
 	if missing == 1 {
 		reader.capture = append(reader.capture, '<')
@@ -128,24 +126,13 @@ func (reader *instanceLexicalReader) beginCapture(logicalOffset int64) {
 }
 
 func (reader *instanceLexicalReader) captureByte(value byte) {
-	if reader.captureDisabled {
-		return
-	}
-	if len(reader.capture) == 0 && value != '<' {
-		reader.captureDisabled = true
-		return
-	}
 	reader.capture = append(reader.capture, value)
 }
 
 func (reader *instanceLexicalReader) endCapture(logicalOffset int64) []byte {
 	defer func() {
 		reader.capture = nil
-		reader.captureDisabled = false
 	}()
-	if reader.captureDisabled {
-		return nil
-	}
 	length := logicalOffset - reader.captureStart
 	if length < 0 || length > int64(len(reader.capture)) {
 		return nil
@@ -261,6 +248,13 @@ func (parser *instanceDecoder) handleTokenError(err error, loc Loc) (*instanceDo
 			err,
 		)
 	}
+	if parser.positions.hasNonUTF8BOM() {
+		return nil, newInstanceUnsupported(
+			loc,
+			"non-UTF-8 instance encodings are not supported",
+			err,
+		)
+	}
 	return nil, newInstanceInvalid(
 		InvalidInstanceXMLCode,
 		loc,
@@ -300,7 +294,7 @@ func (parser *instanceDecoder) handleToken(token xml.Token, loc Loc, rawToken []
 	case xml.EndElement:
 		return parser.endElement(value, loc)
 	case xml.CharData:
-		return parser.characterData(value, loc)
+		return parser.characterData(value, loc, rawToken)
 	case xml.Comment:
 		if err := validateInstanceComment(value, loc); err != nil {
 			return err
@@ -311,6 +305,15 @@ func (parser *instanceDecoder) handleToken(token xml.Token, loc Loc, rawToken []
 		return parser.processingInstruction(value, loc)
 	case xml.Directive:
 		if instanceIsDoctype(value) {
+			if parser.root != nil || len(parser.stack) > 0 || parser.rootClosed {
+				return newInstanceInvalid(
+					InvalidInstanceXMLCode,
+					loc,
+					"DTD declaration is not allowed after the instance prolog",
+					instanceXMLWellFormedSpecRef,
+					nil,
+				)
+			}
 			return newInstanceUnsupported(loc, "DTD declarations are not supported", nil)
 		}
 		return newInstanceInvalid(
@@ -425,35 +428,44 @@ func (parser *instanceDecoder) endElement(token xml.EndElement, loc Loc) error {
 	return nil
 }
 
-func (parser *instanceDecoder) characterData(data xml.CharData, loc Loc) error {
+func (parser *instanceDecoder) characterData(data xml.CharData, loc Loc, rawToken []byte) error {
 	if len(parser.stack) == 0 {
-		if parser.root == nil && !parser.seenToken && bytes.HasPrefix(data, instanceUTF8BOM) {
-			data = data[len(instanceUTF8BOM):]
-			if len(data) == 0 {
-				return nil
-			}
-		}
-		if xmlWhitespace(data) {
-			parser.seenToken = true
+		return parser.characterDataOutside(data, rawToken, loc)
+	}
+	return parser.characterDataInside(data, loc)
+}
+
+func (parser *instanceDecoder) characterDataOutside(data xml.CharData, rawToken []byte, loc Loc) error {
+	if parser.root == nil && !parser.seenToken {
+		var bomOnly bool
+		data, rawToken, bomOnly = stripInstanceLeadingBOM(data, rawToken)
+		if bomOnly {
 			return nil
 		}
-		if parser.rootClosed {
-			return newInstanceInvalid(
-				InvalidInstanceXMLCode,
-				loc,
-				"character data follows the instance root",
-				instanceXMLWellFormedSpecRef,
-				nil,
-			)
-		}
+	}
+	if instanceLiteralWhitespace(data, rawToken) {
+		parser.seenToken = true
+		return nil
+	}
+	if parser.rootClosed {
 		return newInstanceInvalid(
 			InvalidInstanceXMLCode,
 			loc,
-			"character data is outside the instance root",
+			"character data follows the instance root",
 			instanceXMLWellFormedSpecRef,
 			nil,
 		)
 	}
+	return newInstanceInvalid(
+		InvalidInstanceXMLCode,
+		loc,
+		"character data is outside the instance root",
+		instanceXMLWellFormedSpecRef,
+		nil,
+	)
+}
+
+func (parser *instanceDecoder) characterDataInside(data xml.CharData, loc Loc) error {
 	if len(data) == 0 {
 		return nil
 	}
@@ -464,6 +476,19 @@ func (parser *instanceDecoder) characterData(data xml.CharData, loc Loc) error {
 	})
 	parser.seenToken = true
 	return nil
+}
+
+func stripInstanceLeadingBOM(data xml.CharData, rawToken []byte) (xml.CharData, []byte, bool) {
+	if !bytes.HasPrefix(data, instanceUTF8BOM) {
+		return data, rawToken, false
+	}
+	data = bytes.TrimPrefix(data, instanceUTF8BOM)
+	rawToken = bytes.TrimPrefix(rawToken, instanceUTF8BOM)
+	return data, rawToken, len(data) == 0
+}
+
+func instanceLiteralWhitespace(data xml.CharData, rawToken []byte) bool {
+	return xmlWhitespace(data) && len(rawToken) > 0 && xmlWhitespace(rawToken)
 }
 
 func (parser *instanceDecoder) processingInstruction(token xml.ProcInst, loc Loc) error {
@@ -503,6 +528,17 @@ func (parser *instanceDecoder) currentScope() *syntaxScope {
 }
 
 func instanceChildScope(parent *syntaxScope, attrs []xml.Attr, rawValues []string, loc Loc) (*syntaxScope, error) {
+	for _, attr := range attrs {
+		if attr.Name.Space != "" && !validNCName(attr.Name.Space) || !validNCName(attr.Name.Local) {
+			return nil, newInstanceInvalid(
+				InvalidInstanceNamespaceCode,
+				loc,
+				fmt.Sprintf("invalid XML namespace name %q", instanceLexicalName(attr.Name)),
+				instanceXMLNamespacesSpecRef,
+				nil,
+			)
+		}
+	}
 	normalized := normalizeInstanceXMLAttributes(attrs, rawValues)
 	scope, err := childSyntaxScope(parent, normalized, loc)
 	if err == nil {
@@ -512,6 +548,15 @@ func instanceChildScope(parent *syntaxScope, attrs []xml.Attr, rawValues []strin
 }
 
 func resolveInstanceName(name xml.Name, scope *syntaxScope, element bool, loc Loc) (syntaxName, error) {
+	if name.Space != "" && !validNCName(name.Space) || !validNCName(name.Local) {
+		return syntaxName{}, newInstanceInvalid(
+			InvalidInstanceNamespaceCode,
+			loc,
+			fmt.Sprintf("invalid XML namespace name %q", instanceLexicalName(name)),
+			instanceXMLNamespacesSpecRef,
+			nil,
+		)
+	}
 	prefix := name.Space
 	if prefix == "xmlns" {
 		return syntaxName{}, newInstanceInvalid(
@@ -539,6 +584,13 @@ func resolveInstanceName(name xml.Name, scope *syntaxScope, element bool, loc Lo
 		)
 	}
 	return syntaxName{namespace: namespace, local: name.Local}, nil
+}
+
+func instanceLexicalName(name xml.Name) string {
+	if name.Space == "" {
+		return name.Local
+	}
+	return name.Space + ":" + name.Local
 }
 
 func instanceAttributes(attrs []xml.Attr, scope *syntaxScope, rawValues []string, rawValuesOK bool, loc Loc) ([]instanceAttribute, error) {
