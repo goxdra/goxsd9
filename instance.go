@@ -505,6 +505,10 @@ func consumeInstanceDoctypeSubsetToken(body []byte, index int, depth *int, quote
 		if commentEnd < 0 {
 			return index, false, false
 		}
+		comment := body[index+4 : index+4+commentEnd]
+		if bytes.Contains(comment, []byte("--")) || bytes.HasSuffix(comment, []byte{'-'}) {
+			return index, false, false
+		}
 		return index + 4 + commentEnd + len("-->"), false, true
 	}
 	switch body[index] {
