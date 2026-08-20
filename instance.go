@@ -460,10 +460,10 @@ func consumeInstanceDoctypeExternalID(body []byte, index int) (int, bool) {
 	if keyword != "SYSTEM" && keyword != "PUBLIC" {
 		return 0, false
 	}
-	if !consumeInstanceDoctypeSpace(body, &index) || !consumeInstanceDoctypeLiteral(body, &index) {
+	if !consumeInstanceDoctypeSpace(body, &index) || !consumeInstanceDoctypeLiteral(body, &index, keyword == "PUBLIC") {
 		return 0, false
 	}
-	if keyword == "PUBLIC" && (!consumeInstanceDoctypeSpace(body, &index) || !consumeInstanceDoctypeLiteral(body, &index)) {
+	if keyword == "PUBLIC" && (!consumeInstanceDoctypeSpace(body, &index) || !consumeInstanceDoctypeLiteral(body, &index, false)) {
 		return 0, false
 	}
 	consumeInstanceDoctypeSpace(body, &index)
@@ -471,61 +471,136 @@ func consumeInstanceDoctypeExternalID(body []byte, index int) (int, bool) {
 }
 
 func validateInstanceDoctypeSubset(body []byte, index int, loc Loc) error {
-	depth := 0
-	var quote byte
+	if index >= len(body) || body[index] != '[' {
+		return invalidInstanceDoctype(loc, "invalid DTD internal subset")
+	}
+	index++
 	for index < len(body) {
-		var closed, ok bool
-		index, closed, ok = consumeInstanceDoctypeSubsetToken(body, index, &depth, &quote)
-		if !ok {
-			return invalidInstanceDoctype(loc, "invalid DTD internal subset")
+		if consumeInstanceDoctypeSpace(body, &index) {
+			continue
 		}
-		if closed {
+		if body[index] == ']' {
+			index++
 			consumeInstanceDoctypeSpace(body, &index)
 			if index != len(body) {
 				return invalidInstanceDoctype(loc, "invalid DTD internal subset")
 			}
 			return nil
 		}
-	}
-	if quote != 0 {
-		return invalidInstanceDoctype(loc, "unterminated DTD literal")
+		var next int
+		var ok bool
+		switch {
+		case bytes.HasPrefix(body[index:], []byte("<!--")):
+			next, ok = consumeInstanceDoctypeComment(body, index)
+		case bytes.HasPrefix(body[index:], []byte("<?")):
+			next, ok = consumeInstanceDoctypePI(body, index)
+		case body[index] == '%':
+			next, ok = consumeInstanceDoctypePEReference(body, index)
+		case bytes.HasPrefix(body[index:], []byte("<!")):
+			next, ok = consumeInstanceDoctypeMarkup(body, index)
+		}
+		if !ok {
+			return invalidInstanceDoctype(loc, "invalid DTD internal subset")
+		}
+		index = next
 	}
 	return invalidInstanceDoctype(loc, "unterminated DTD internal subset")
 }
 
-func consumeInstanceDoctypeSubsetToken(body []byte, index int, depth *int, quote *byte) (int, bool, bool) {
-	if *quote != 0 {
-		if body[index] == *quote {
-			*quote = 0
-		}
-		return index + 1, false, true
+func consumeInstanceDoctypeComment(body []byte, index int) (int, bool) {
+	commentEnd := bytes.Index(body[index+4:], []byte("-->"))
+	if commentEnd < 0 {
+		return 0, false
 	}
-	if bytes.HasPrefix(body[index:], []byte("<!--")) {
-		commentEnd := bytes.Index(body[index+4:], []byte("-->"))
-		if commentEnd < 0 {
-			return index, false, false
-		}
-		comment := body[index+4 : index+4+commentEnd]
-		if bytes.Contains(comment, []byte("--")) || bytes.HasSuffix(comment, []byte{'-'}) {
-			return index, false, false
-		}
-		return index + 4 + commentEnd + len("-->"), false, true
+	comment := body[index+4 : index+4+commentEnd]
+	if bytes.Contains(comment, []byte("--")) || bytes.HasSuffix(comment, []byte{'-'}) {
+		return 0, false
 	}
-	switch body[index] {
-	case '\'', '"':
-		*quote = body[index]
-	case '[':
-		(*depth)++
-	case ']':
-		(*depth)--
-		if *depth < 0 {
-			return index, false, false
-		}
-		if *depth == 0 {
-			return index + 1, true, true
-		}
+	return index + 4 + commentEnd + len("-->"), true
+}
+
+func consumeInstanceDoctypePI(body []byte, index int) (int, bool) {
+	nameStart := index + len("<?")
+	nameEnd := nameStart
+	for nameEnd < len(body) && !isInstanceXMLSpace(body[nameEnd]) && body[nameEnd] != '?' && body[nameEnd] != '>' {
+		nameEnd++
 	}
-	return index + 1, false, true
+	if nameStart == nameEnd || !validInstanceXMLNameToken(string(body[nameStart:nameEnd])) || strings.EqualFold(string(body[nameStart:nameEnd]), "xml") {
+		return 0, false
+	}
+	if nameEnd < len(body) && body[nameEnd] != '?' && !isInstanceXMLSpace(body[nameEnd]) {
+		return 0, false
+	}
+	end := bytes.Index(body[nameEnd:], []byte("?>"))
+	if end < 0 {
+		return 0, false
+	}
+	return nameEnd + end + len("?>"), true
+}
+
+func consumeInstanceDoctypePEReference(body []byte, index int) (int, bool) {
+	nameStart := index + 1
+	nameEnd := bytes.IndexByte(body[nameStart:], ';')
+	if nameEnd < 0 {
+		return 0, false
+	}
+	nameEnd += nameStart
+	if !validInstanceXMLNameToken(string(body[nameStart:nameEnd])) {
+		return 0, false
+	}
+	return nameEnd + 1, true
+}
+
+func consumeInstanceDoctypeMarkup(body []byte, index int) (int, bool) {
+	keyword, ok := instanceDoctypeMarkupKeyword(body, index)
+	if !ok {
+		return 0, false
+	}
+	return consumeInstanceDoctypeMarkupBody(body, index+len("<!")+len(keyword))
+}
+
+func instanceDoctypeMarkupKeyword(body []byte, index int) (string, bool) {
+	keywords := [...]string{"ELEMENT", "ATTLIST", "ENTITY", "NOTATION"}
+	for _, keyword := range keywords {
+		prefix := "<!" + keyword
+		if !bytes.HasPrefix(body[index:], []byte(prefix)) {
+			continue
+		}
+		end := index + len(prefix)
+		if end == len(body) || !isInstanceXMLSpace(body[end]) {
+			return "", false
+		}
+		return keyword, true
+	}
+	return "", false
+}
+
+func consumeInstanceDoctypeMarkupBody(body []byte, index int) (int, bool) {
+	consumeInstanceDoctypeSpace(body, &index)
+	contentStart := index
+	var quote byte
+	for index < len(body) {
+		if quote != 0 {
+			if body[index] == quote {
+				quote = 0
+			}
+			index++
+			continue
+		}
+		switch body[index] {
+		case '\'', '"':
+			quote = body[index]
+		case '<', '[', ']':
+			return 0, false
+		case '>':
+			if index == contentStart {
+				return 0, false
+			}
+			return index + 1, true
+		}
+		index++
+	}
+	return 0, false
 }
 
 func consumeInstanceDoctypeSpace(data []byte, index *int) bool {
@@ -536,11 +611,12 @@ func consumeInstanceDoctypeSpace(data []byte, index *int) bool {
 	return *index != start
 }
 
-func consumeInstanceDoctypeLiteral(data []byte, index *int) bool {
+func consumeInstanceDoctypeLiteral(data []byte, index *int, pubid bool) bool {
 	if *index >= len(data) || (data[*index] != '\'' && data[*index] != '"') {
 		return false
 	}
 	quote := data[*index]
+	valueStart := *index + 1
 	*index++
 	for *index < len(data) && data[*index] != quote {
 		(*index)++
@@ -548,11 +624,25 @@ func consumeInstanceDoctypeLiteral(data []byte, index *int) bool {
 	if *index == len(data) {
 		return false
 	}
+	if pubid && !validInstancePubid(data[valueStart:*index]) {
+		return false
+	}
 	(*index)++
 	return true
 }
 
 func validInstanceXMLName(value string) bool {
+	separator := strings.IndexByte(value, ':')
+	if separator < 0 {
+		return validNCName(value)
+	}
+	if separator == 0 || separator == len(value)-1 || strings.IndexByte(value[separator+1:], ':') >= 0 {
+		return false
+	}
+	return validNCName(value[:separator]) && validNCName(value[separator+1:])
+}
+
+func validInstanceXMLNameToken(value string) bool {
 	if value == "" || !utf8.ValidString(value) {
 		return false
 	}
@@ -570,6 +660,19 @@ func validInstanceXMLName(value string) bool {
 		}
 	}
 	return !first
+}
+
+func validInstancePubid(value []byte) bool {
+	for _, character := range string(value) {
+		switch {
+		case character == ' ' || character == '\r' || character == '\n':
+		case character >= 'a' && character <= 'z', character >= 'A' && character <= 'Z', character >= '0' && character <= '9':
+		case strings.ContainsRune("-'()+,./:=?;!*#@$_%", character):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func invalidInstanceDoctype(loc Loc, message string) error {
