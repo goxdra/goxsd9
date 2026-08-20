@@ -164,6 +164,228 @@ func assertPrecisionDecimalNaN(t *testing.T, value precisionDecimalValue) {
 	}
 }
 
+func TestPrecisionDecimalPartialOrderingFiniteCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		left  string
+		right string
+		want  precisionDecimalOrder
+	}{
+		{name: "lexical equivalence same coefficient", left: "3.00e2", right: "300", want: precisionDecimalOrderEqual},
+		{name: "lexical equivalence different coefficient and scale", left: "300", right: "30e1", want: precisionDecimalOrderEqual},
+		{name: "signed zero", left: "-0", right: "+0.000e2", want: precisionDecimalOrderEqual},
+		{name: "adjacent positive and negative scales", left: "99.9", right: "1e2", want: precisionDecimalOrderLess},
+		{name: "adjacent positive and negative scales reverse", left: "1e2", right: "99.9", want: precisionDecimalOrderGreater},
+		{name: "adjacent positive scales", left: "0.009", right: "1e-2", want: precisionDecimalOrderLess},
+		{name: "adjacent positive scales reverse", left: "1e-2", right: "0.009", want: precisionDecimalOrderGreater},
+		{name: "negative reversal", left: "-99.9", right: "-1e2", want: precisionDecimalOrderGreater},
+		{name: "negative reversal reverse", left: "-1e2", right: "-99.9", want: precisionDecimalOrderLess},
+		{name: "negative and positive", left: "-1e100", right: "1e-100", want: precisionDecimalOrderLess},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			left := parsePrecisionDecimalComparisonValue(t, test.left)
+			right := parsePrecisionDecimalComparisonValue(t, test.right)
+			if got := comparePrecisionDecimal(left, right); got != test.want {
+				t.Fatalf("comparePrecisionDecimal(%q, %q) = %d, want %d", test.left, test.right, got, test.want)
+			}
+		})
+	}
+}
+
+func TestPrecisionDecimalPartialOrderingSpecialCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		left  string
+		right string
+		want  precisionDecimalOrder
+	}{
+		{name: "negative infinity equal", left: "-INF", right: "-INF", want: precisionDecimalOrderEqual},
+		{name: "positive infinity equal", left: "INF", right: "+INF", want: precisionDecimalOrderEqual},
+		{name: "negative infinity below positive infinity", left: "-INF", right: "INF", want: precisionDecimalOrderLess},
+		{name: "positive infinity above negative infinity", left: "INF", right: "-INF", want: precisionDecimalOrderGreater},
+		{name: "negative infinity below finite", left: "-INF", right: "0", want: precisionDecimalOrderLess},
+		{name: "finite above negative infinity", left: "0", right: "-INF", want: precisionDecimalOrderGreater},
+		{name: "positive infinity above finite", left: "INF", right: "0", want: precisionDecimalOrderGreater},
+		{name: "finite below positive infinity", left: "0", right: "INF", want: precisionDecimalOrderLess},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			left := parsePrecisionDecimalComparisonValue(t, test.left)
+			right := parsePrecisionDecimalComparisonValue(t, test.right)
+			if got := comparePrecisionDecimal(left, right); got != test.want {
+				t.Fatalf("comparePrecisionDecimal(%q, %q) = %d, want %d", test.left, test.right, got, test.want)
+			}
+		})
+	}
+}
+
+func TestPrecisionDecimalPartialOrderingNaNIsUnordered(t *testing.T) {
+	lexicals := []string{"NaN", "-INF", "-1", "-0", "0", "1", "INF"}
+	for _, leftLexical := range lexicals {
+		for _, rightLexical := range lexicals {
+			if leftLexical != "NaN" && rightLexical != "NaN" {
+				continue
+			}
+			t.Run(leftLexical+" vs "+rightLexical, func(t *testing.T) {
+				left := parsePrecisionDecimalComparisonValue(t, leftLexical)
+				right := parsePrecisionDecimalComparisonValue(t, rightLexical)
+				if got := comparePrecisionDecimal(left, right); got != precisionDecimalOrderUnordered {
+					t.Fatalf("comparePrecisionDecimal(%q, %q) = %d, want unordered", leftLexical, rightLexical, got)
+				}
+			})
+		}
+	}
+}
+
+func TestPrecisionDecimalPartialOrderingValidatesFiniteOperandsBeforeDispatch(t *testing.T) {
+	malformed := []struct {
+		name  string
+		value precisionDecimalFinite
+	}{
+		{name: "nil coefficient", value: precisionDecimalFinite{scale: big.NewInt(0), sign: precisionDecimalSignPositive}},
+		{name: "nil scale", value: precisionDecimalFinite{coefficient: big.NewInt(1), sign: precisionDecimalSignPositive}},
+		{name: "negative coefficient", value: precisionDecimalFinite{coefficient: big.NewInt(-1), scale: big.NewInt(0), sign: precisionDecimalSignPositive}},
+		{name: "invalid sign", value: precisionDecimalFinite{coefficient: big.NewInt(1), scale: big.NewInt(0), sign: precisionDecimalSign(99)}},
+	}
+	validSpecials := []struct {
+		name  string
+		value precisionDecimalValue
+	}{
+		{name: "NaN", value: precisionDecimalNaN{}},
+		{name: "positive infinity", value: precisionDecimalPositiveInfinity{}},
+		{name: "negative infinity", value: precisionDecimalNegativeInfinity{}},
+	}
+	for _, malformedCase := range malformed {
+		for _, specialCase := range validSpecials {
+			t.Run(malformedCase.name+" left of "+specialCase.name, func(t *testing.T) {
+				assertPrecisionDecimalComparisonPanics(t, malformedCase.value, specialCase.value)
+			})
+			t.Run(specialCase.name+" left of "+malformedCase.name, func(t *testing.T) {
+				assertPrecisionDecimalComparisonPanics(t, specialCase.value, malformedCase.value)
+			})
+		}
+	}
+}
+
+func assertPrecisionDecimalComparisonPanics(t *testing.T, left, right precisionDecimalValue) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("comparePrecisionDecimal did not panic for malformed finite operand")
+		}
+	}()
+	comparePrecisionDecimal(left, right)
+}
+
+func TestPrecisionDecimalPartialOrderingAntisymmetryAndEquality(t *testing.T) {
+	lexicals := []string{
+		"-INF", "-100", "-99.9", "-0", "+0", "0", "0.009", "1e-2", "99.9", "1e2", "INF",
+	}
+	values := make([]precisionDecimalValue, len(lexicals))
+	for index, lexical := range lexicals {
+		values[index] = parsePrecisionDecimalComparisonValue(t, lexical)
+	}
+	for leftIndex, left := range values {
+		for rightIndex, right := range values {
+			assertPrecisionDecimalAntisymmetric(t, left, right, lexicals[leftIndex], lexicals[rightIndex])
+		}
+	}
+}
+
+func assertPrecisionDecimalAntisymmetric(t *testing.T, left, right precisionDecimalValue, leftLexical, rightLexical string) {
+	t.Helper()
+	forward := comparePrecisionDecimal(left, right)
+	reverse := comparePrecisionDecimal(right, left)
+	switch forward {
+	case precisionDecimalOrderLess:
+		if reverse != precisionDecimalOrderGreater {
+			t.Fatalf("comparison %q < %q was not reversed: forward=%d reverse=%d", leftLexical, rightLexical, forward, reverse)
+		}
+	case precisionDecimalOrderEqual:
+		if reverse != precisionDecimalOrderEqual {
+			t.Fatalf("comparison %q = %q was not symmetric: forward=%d reverse=%d", leftLexical, rightLexical, forward, reverse)
+		}
+	case precisionDecimalOrderGreater:
+		if reverse != precisionDecimalOrderLess {
+			t.Fatalf("comparison %q > %q was not reversed: forward=%d reverse=%d", leftLexical, rightLexical, forward, reverse)
+		}
+	case precisionDecimalOrderUnordered:
+		t.Fatalf("ordinary comparison %q and %q returned unordered", leftLexical, rightLexical)
+	default:
+		t.Fatalf("ordinary comparison %q and %q returned %d", leftLexical, rightLexical, forward)
+	}
+}
+
+func TestPrecisionDecimalPartialOrderingDoesNotMutateOperands(t *testing.T) {
+	left := parsePrecisionDecimalComparisonValue(t, "3.00e2")
+	right := parsePrecisionDecimalComparisonValue(t, "30e1")
+	leftFinite, ok := left.(precisionDecimalFinite)
+	if !ok {
+		t.Fatalf("left value type = %T, want precisionDecimalFinite", left)
+	}
+	rightFinite, ok := right.(precisionDecimalFinite)
+	if !ok {
+		t.Fatalf("right value type = %T, want precisionDecimalFinite", right)
+	}
+	leftCoefficient := new(big.Int).Set(leftFinite.coefficient)
+	leftScale := new(big.Int).Set(leftFinite.scale)
+	rightCoefficient := new(big.Int).Set(rightFinite.coefficient)
+	rightScale := new(big.Int).Set(rightFinite.scale)
+
+	if got := comparePrecisionDecimal(left, right); got != precisionDecimalOrderEqual {
+		t.Fatalf("comparePrecisionDecimal() = %d, want equal", got)
+	}
+	if got := leftFinite.coefficient.Cmp(leftCoefficient); got != 0 {
+		t.Fatalf("left coefficient changed by %d", got)
+	}
+	if got := leftFinite.scale.Cmp(leftScale); got != 0 {
+		t.Fatalf("left scale changed by %d", got)
+	}
+	if got := rightFinite.coefficient.Cmp(rightCoefficient); got != 0 {
+		t.Fatalf("right coefficient changed by %d", got)
+	}
+	if got := rightFinite.scale.Cmp(rightScale); got != 0 {
+		t.Fatalf("right scale changed by %d", got)
+	}
+}
+
+func TestPrecisionDecimalPartialOrderingLargeCoefficientsAndScales(t *testing.T) {
+	largeCoefficient := strings.Repeat("9", 2048)
+	largeCoefficientPlusOne := largeCoefficient + "1"
+	hugeExponent := "1" + strings.Repeat("0", 256)
+	nextHugeExponent := "1" + strings.Repeat("0", 257)
+	tests := []struct {
+		name  string
+		left  string
+		right string
+		want  precisionDecimalOrder
+	}{
+		{name: "large coefficients", left: largeCoefficient + "e-2", right: largeCoefficientPlusOne + "e-2", want: precisionDecimalOrderLess},
+		{name: "same huge scale", left: "1e-" + hugeExponent, right: "2e-" + hugeExponent, want: precisionDecimalOrderLess},
+		{name: "different huge scales", left: "1e-" + hugeExponent, right: "1e-" + nextHugeExponent, want: precisionDecimalOrderGreater},
+		{name: "different huge scales reverse", left: "1e-" + nextHugeExponent, right: "1e-" + hugeExponent, want: precisionDecimalOrderLess},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			left := parsePrecisionDecimalComparisonValue(t, test.left)
+			right := parsePrecisionDecimalComparisonValue(t, test.right)
+			if got := comparePrecisionDecimal(left, right); got != test.want {
+				t.Fatalf("comparePrecisionDecimal(%q, %q) = %d, want %d", test.left, test.right, got, test.want)
+			}
+		})
+	}
+}
+
+func parsePrecisionDecimalComparisonValue(t *testing.T, lexical string) precisionDecimalValue {
+	t.Helper()
+	value, err := parsePrecisionDecimal(lexical, Loc{})
+	if err != nil {
+		t.Fatalf("parsePrecisionDecimal(%q): %v", lexical, err)
+	}
+	return value
+}
+
 func TestPrecisionDecimalHugeCoefficientAndExponentAreExact(t *testing.T) {
 	coefficientDigits := strings.Repeat("9", 2048)
 	exponentDigits := "1234567890123456789012345678901234567890"
