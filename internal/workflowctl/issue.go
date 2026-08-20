@@ -13,6 +13,77 @@ import (
 
 type intValues []int
 
+const issueDependencyLimit = 50
+
+type issueNodeIdentity struct {
+	repositoryID string
+	issueID      string
+	number       int
+}
+
+type graphqlIssueError struct {
+	Message string `json:"message"`
+}
+
+type issueIdentityResponse struct {
+	Data *struct {
+		Repository *struct {
+			ID    string `json:"id"`
+			Issue *struct {
+				ID     string `json:"id"`
+				Number int    `json:"number"`
+			} `json:"issue"`
+		} `json:"repository"`
+	} `json:"data"`
+	Errors []graphqlIssueError `json:"errors"`
+}
+
+type issueBlockedByNode struct {
+	ID string `json:"id"`
+}
+
+type issueBlockedByPageInfo struct {
+	HasNextPage bool `json:"hasNextPage"`
+}
+
+type issueBlockedByConnection struct {
+	Nodes      []issueBlockedByNode    `json:"nodes"`
+	TotalCount *int                    `json:"totalCount"`
+	PageInfo   *issueBlockedByPageInfo `json:"pageInfo"`
+}
+
+type issueBlockedByIssue struct {
+	ID        string                    `json:"id"`
+	Number    int                       `json:"number"`
+	BlockedBy *issueBlockedByConnection `json:"blockedBy"`
+}
+
+type issueBlockedByRepository struct {
+	ID    string               `json:"id"`
+	Issue *issueBlockedByIssue `json:"issue"`
+}
+
+type issueBlockedByResponse struct {
+	Data *struct {
+		Repository *issueBlockedByRepository `json:"repository"`
+	} `json:"data"`
+	Errors []graphqlIssueError `json:"errors"`
+}
+
+type addBlockedByResponse struct {
+	Data *struct {
+		AddBlockedBy *struct {
+			Issue *struct {
+				ID string `json:"id"`
+			} `json:"issue"`
+			BlockingIssue *struct {
+				ID string `json:"id"`
+			} `json:"blockingIssue"`
+		} `json:"addBlockedBy"`
+	} `json:"data"`
+	Errors []graphqlIssueError `json:"errors"`
+}
+
 var (
 	validAreas    = []string{"codegen", "datatypes", "docs", "parser", "resolver", "schema", "specs", "validator", "workflow", "xpath"}
 	validTypes    = []string{"bug", "conformance", "docs", "feature", "refactor", "research", "tooling"}
@@ -67,9 +138,16 @@ func (a app) createIssue(args []string) error {
 	if err := validateIssueInput(*title, *bodyFile, *area, *typeName, *priority, *effort, *phase, *status); err != nil {
 		return usageError("issue create: %v", err)
 	}
+	if err := validateBlockedBy(blockedBy); err != nil {
+		return usageError("issue create: %v", err)
+	}
 	root, err := a.root()
 	if err != nil {
 		return err
+	}
+	blockerIdentities, err := a.resolveBlockerIdentities(root, blockedBy)
+	if err != nil {
+		return fmt.Errorf("issue phase: resolve blockers before issue creation: %w", err)
 	}
 	url, err := a.createGitHubIssue(root, *title, *bodyFile, *area, *typeName)
 	if err != nil {
@@ -79,10 +157,27 @@ func (a app) createIssue(args []string) error {
 	if err != nil {
 		return fmt.Errorf("issue created at %s but its number was not understood: %w", url, err)
 	}
-	if err := a.configureNewIssue(root, url, number, *priority, *effort, *phase, *status, blockedBy); err != nil {
-		return fmt.Errorf("issue created at %s but configuration failed: %w", url, err)
+	if err := a.configureNewIssue(root, url, number, *priority, *effort, *phase, *status, blockedBy, blockerIdentities); err != nil {
+		return fmt.Errorf("issue created at %s; incomplete operation: %w", url, err)
 	}
 	return writeLine(a.stdout, "%s", url)
+}
+
+func validateBlockedBy(blockedBy []int) error {
+	if len(blockedBy) > issueDependencyLimit {
+		return fmt.Errorf("too many --blocked-by values: got %d, limit is %d", len(blockedBy), issueDependencyLimit)
+	}
+	seen := make(map[int]struct{}, len(blockedBy))
+	for index, blocker := range blockedBy {
+		if blocker < 1 {
+			return fmt.Errorf("invalid --blocked-by value %d at position %d", blocker, index+1)
+		}
+		if _, ok := seen[blocker]; ok {
+			return fmt.Errorf("duplicate --blocked-by issue #%d at position %d", blocker, index+1)
+		}
+		seen[blocker] = struct{}{}
+	}
+	return nil
 }
 
 func validateIssueInput(title, bodyFile, area, typeName, priority, effort, phase, status string) error {
@@ -142,19 +237,62 @@ func (a app) createGitHubIssue(root, title, bodyFile, area, typeName string) (st
 	return firstLine(output), nil
 }
 
-func (a app) configureNewIssue(root, url string, number int, priority, effort, phase, status string, blockedBy []int) error {
+func (a app) configureNewIssue(root, url string, number int, priority, effort, phase, status string,
+	blockedBy []int, resolved ...[]issueNodeIdentity,
+) error {
+	if len(resolved) > 1 {
+		return errors.New("dependency phase: received more than one resolved blocker list")
+	}
+	blockerIdentities := []issueNodeIdentity(nil)
+	if len(resolved) == 1 {
+		blockerIdentities = resolved[0]
+	}
+	if len(resolved) == 0 {
+		if err := validateBlockedBy(blockedBy); err != nil {
+			return fmt.Errorf("dependency phase: %w", err)
+		}
+		for index, blocker := range blockedBy {
+			if blocker == number {
+				return fmt.Errorf("dependency phase: edge %d blocked by #%d is a self-pair", index+1, blocker)
+			}
+		}
+		var err error
+		blockerIdentities, err = a.resolveBlockerIdentities(root, blockedBy)
+		if err != nil {
+			return fmt.Errorf("dependency phase: resolve blockers: %w", err)
+		}
+	}
+	return a.configureNewIssueResolved(root, url, number, priority, effort, phase, status, blockedBy, blockerIdentities)
+}
+
+func (a app) configureNewIssueResolved(root, url string, number int, priority, effort, phase, status string,
+	blockedBy []int, blockerIdentities []issueNodeIdentity,
+) error {
+	if err := validateResolvedBlockers(number, blockedBy, blockerIdentities); err != nil {
+		return err
+	}
+	target, err := a.resolveIssueIdentity(root, number)
+	if err != nil {
+		return fmt.Errorf("issue phase: resolve created issue #%d node: %w", number, err)
+	}
+	if targetErr := validateTargetBlockers(target, blockedBy, blockerIdentities); targetErr != nil {
+		return targetErr
+	}
 	output, err := a.command(root, "gh", "project", "item-add", strconv.Itoa(projectNumber), "--owner", owner,
 		"--url", url, "--format", "json")
 	if err != nil {
-		return fmt.Errorf("add issue to Project: %w", err)
+		return fmt.Errorf("project phase: add issue to Project: %w", err)
 	}
 	var item projectItem
 	if decodeErr := json.Unmarshal([]byte(output), &item); decodeErr != nil {
-		return fmt.Errorf("decode added Project item: %w", decodeErr)
+		return fmt.Errorf("project phase: decode added Project item: %w", decodeErr)
+	}
+	if strings.TrimSpace(item.ID) == "" {
+		return errors.New("project phase: add issue to Project returned no item ID")
 	}
 	fields, err := a.projectFields(root)
 	if err != nil {
-		return err
+		return fmt.Errorf("project phase: read fields: %w", err)
 	}
 	values := []struct{ field, option string }{
 		{field: "Status", option: status},
@@ -164,17 +302,307 @@ func (a app) configureNewIssue(root, url string, number int, priority, effort, p
 	}
 	for _, value := range values {
 		if err := a.setProjectFieldFromList(root, fields, item.ID, value.field, value.option); err != nil {
-			return err
+			return fmt.Errorf("project phase: set %s=%s: %w", value.field, value.option, err)
 		}
 	}
-	for _, blocker := range blockedBy {
-		if _, err := a.command(root, "gh", "issue", "edit", strconv.Itoa(number), "--repo", repositoryKey,
-			"--add-blocked-by", strconv.Itoa(blocker)); err != nil {
-			return fmt.Errorf("add dependency on #%d: %w", blocker, err)
+	for index, blocker := range blockedBy {
+		if err := a.ensureIssueDependency(root, target, blockerIdentities[index]); err != nil {
+			return fmt.Errorf("dependency phase: edge %d blocked by #%d: %w", index+1, blocker, err)
 		}
 	}
 	return nil
 }
+
+func validateResolvedBlockers(number int, blockedBy []int, identities []issueNodeIdentity) error {
+	if err := validateBlockedBy(blockedBy); err != nil {
+		return fmt.Errorf("dependency phase: %w", err)
+	}
+	if len(blockedBy) != len(identities) {
+		return fmt.Errorf("dependency phase: resolved blocker count %d does not match requested count %d",
+			len(identities), len(blockedBy))
+	}
+	for index, blocker := range blockedBy {
+		if blocker == number {
+			return fmt.Errorf("dependency phase: edge %d blocked by #%d is a self-pair", index+1, blocker)
+		}
+		identity := identities[index]
+		if identity.number != blocker {
+			return fmt.Errorf("dependency phase: edge %d blocked by #%d resolved to issue #%d",
+				index+1, blocker, identity.number)
+		}
+		if strings.TrimSpace(identity.repositoryID) == "" || strings.TrimSpace(identity.issueID) == "" {
+			return fmt.Errorf("dependency phase: edge %d blocked by #%d has an incomplete node identity",
+				index+1, blocker)
+		}
+	}
+	return nil
+}
+
+func validateTargetBlockers(target issueNodeIdentity, blockedBy []int, identities []issueNodeIdentity) error {
+	for index, blocker := range blockedBy {
+		identity := identities[index]
+		if identity.repositoryID != target.repositoryID {
+			return fmt.Errorf("dependency phase: edge %d blocked by #%d belongs to repository %q, target belongs to %q",
+				index+1, blocker, identity.repositoryID, target.repositoryID)
+		}
+		if identity.issueID == target.issueID {
+			return fmt.Errorf("dependency phase: edge %d blocked by #%d is a self-pair", index+1, blocker)
+		}
+	}
+	return nil
+}
+
+func (a app) resolveBlockerIdentities(root string, blockedBy []int) ([]issueNodeIdentity, error) {
+	identities := make([]issueNodeIdentity, 0, len(blockedBy))
+	var repositoryID string
+	for index, blocker := range blockedBy {
+		identity, err := a.resolveIssueIdentity(root, blocker)
+		if err != nil {
+			return nil, fmt.Errorf("resolve blocker #%d at flag position %d: %w", blocker, index+1, err)
+		}
+		if repositoryID == "" {
+			repositoryID = identity.repositoryID
+		}
+		if identity.repositoryID != repositoryID {
+			return nil, fmt.Errorf("resolve blocker #%d at flag position %d: repository identity %q differs from %q",
+				blocker, index+1, identity.repositoryID, repositoryID)
+		}
+		identities = append(identities, identity)
+	}
+	return identities, nil
+}
+
+func (a app) resolveIssueIdentity(root string, number int) (issueNodeIdentity, error) {
+	output, err := a.command(root, "gh", "api", "graphql", "-f", "query="+issueIdentityQuery,
+		"-f", "owner="+owner, "-f", "repository="+repository, "-F", "number="+strconv.Itoa(number))
+	if err != nil {
+		return issueNodeIdentity{}, fmt.Errorf("read issue #%d identity: %w", number, err)
+	}
+	var response issueIdentityResponse
+	if err := json.Unmarshal([]byte(output), &response); err != nil {
+		return issueNodeIdentity{}, fmt.Errorf("decode issue #%d identity: %w", number, err)
+	}
+	if err := graphQLErrors(response.Errors); err != nil {
+		return issueNodeIdentity{}, fmt.Errorf("read issue #%d identity: %w", number, err)
+	}
+	if response.Data == nil {
+		return issueNodeIdentity{}, fmt.Errorf("read issue #%d identity returned null data", number)
+	}
+	if response.Data.Repository == nil {
+		return issueNodeIdentity{}, fmt.Errorf("read issue #%d identity returned null repository", number)
+	}
+	if strings.TrimSpace(response.Data.Repository.ID) == "" {
+		return issueNodeIdentity{}, fmt.Errorf("read issue #%d identity returned no repository ID", number)
+	}
+	if response.Data.Repository.Issue == nil {
+		return issueNodeIdentity{}, fmt.Errorf("read issue #%d identity returned no issue", number)
+	}
+	issue := response.Data.Repository.Issue
+	if strings.TrimSpace(issue.ID) == "" {
+		return issueNodeIdentity{}, fmt.Errorf("read issue #%d identity returned no issue ID", number)
+	}
+	if issue.Number < 1 {
+		return issueNodeIdentity{}, fmt.Errorf("read issue #%d identity returned invalid issue number %d", number, issue.Number)
+	}
+	if issue.Number != number {
+		return issueNodeIdentity{}, fmt.Errorf("read issue #%d identity returned issue #%d", number, issue.Number)
+	}
+	return issueNodeIdentity{
+		repositoryID: response.Data.Repository.ID,
+		issueID:      issue.ID,
+		number:       issue.Number,
+	}, nil
+}
+
+func graphQLErrors(items []graphqlIssueError) error {
+	if len(items) == 0 {
+		return nil
+	}
+	messages := make([]string, 0, len(items))
+	for _, item := range items {
+		message := strings.TrimSpace(item.Message)
+		if message == "" {
+			message = "unspecified error"
+		}
+		messages = append(messages, message)
+	}
+	return fmt.Errorf("GitHub GraphQL returned %d error(s): %s", len(items), strings.Join(messages, "; "))
+}
+
+func (a app) ensureIssueDependency(root string, target, blocker issueNodeIdentity) error {
+	if target.issueID == blocker.issueID {
+		return errors.New("target and blocker node IDs are identical")
+	}
+	if target.repositoryID != blocker.repositoryID {
+		return fmt.Errorf("target repository %q differs from blocker repository %q", target.repositoryID, blocker.repositoryID)
+	}
+	blockedBy, err := a.readIssueBlockedBy(root, target)
+	if err != nil {
+		return fmt.Errorf("read target blocked-by IDs: %w", err)
+	}
+	for _, issueID := range blockedBy {
+		if issueID == blocker.issueID {
+			return nil
+		}
+	}
+	if err := a.addBlockedBy(root, target, blocker); err != nil {
+		return fmt.Errorf("write target blocked-by edge: %w", err)
+	}
+	return nil
+}
+
+func (a app) readIssueBlockedBy(root string, target issueNodeIdentity) ([]string, error) {
+	output, err := a.command(root, "gh", "api", "graphql", "-f", "query="+issueBlockedByQuery,
+		"-f", "owner="+owner, "-f", "repository="+repository, "-F", "number="+strconv.Itoa(target.number))
+	if err != nil {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs: %w", target.number, err)
+	}
+	var response issueBlockedByResponse
+	if decodeErr := json.Unmarshal([]byte(output), &response); decodeErr != nil {
+		return nil, fmt.Errorf("decode issue #%d blocked-by IDs: %w", target.number, decodeErr)
+	}
+	if graphqlErr := graphQLErrors(response.Errors); graphqlErr != nil {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs: %w", target.number, graphqlErr)
+	}
+	connection, err := validateIssueBlockedByTarget(response, target)
+	if err != nil {
+		return nil, err
+	}
+	return issueBlockedByIDs(target.number, connection)
+}
+
+func validateIssueBlockedByTarget(response issueBlockedByResponse, target issueNodeIdentity) (*issueBlockedByConnection, error) {
+	if response.Data == nil {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs returned null data", target.number)
+	}
+	if response.Data.Repository == nil {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs returned null repository", target.number)
+	}
+	repository := response.Data.Repository
+	if repository.ID == "" {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs returned no repository ID", target.number)
+	}
+	if repository.ID != target.repositoryID {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs returned repository %q, want %q",
+			target.number, repository.ID, target.repositoryID)
+	}
+	if repository.Issue == nil {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs returned no issue", target.number)
+	}
+	issue := repository.Issue
+	if issue.ID == "" {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs returned no issue ID", target.number)
+	}
+	if issue.ID != target.issueID {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs returned issue %q, want %q",
+			target.number, issue.ID, target.issueID)
+	}
+	if issue.Number != target.number {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs returned issue #%d", target.number, issue.Number)
+	}
+	if issue.BlockedBy == nil {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs returned null connection", target.number)
+	}
+	return issue.BlockedBy, nil
+}
+
+func issueBlockedByIDs(number int, connection *issueBlockedByConnection) ([]string, error) {
+	if connection.TotalCount == nil || connection.PageInfo == nil {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs omitted pagination proof", number)
+	}
+	if *connection.TotalCount < 0 || *connection.TotalCount > issueDependencyLimit {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs reported unsupported relationship count %d (limit %d)",
+			number, *connection.TotalCount, issueDependencyLimit)
+	}
+	if connection.PageInfo.HasNextPage || *connection.TotalCount != len(connection.Nodes) {
+		return nil, fmt.Errorf("read issue #%d blocked-by IDs was incomplete: total %d, returned %d, hasNextPage=%t",
+			number, *connection.TotalCount, len(connection.Nodes), connection.PageInfo.HasNextPage)
+	}
+	ids := make([]string, 0, len(connection.Nodes))
+	for index, node := range connection.Nodes {
+		if strings.TrimSpace(node.ID) == "" {
+			return nil, fmt.Errorf("read issue #%d blocked-by IDs returned no ID for relationship %d",
+				number, index+1)
+		}
+		ids = append(ids, node.ID)
+	}
+	return ids, nil
+}
+
+func (a app) addBlockedBy(root string, target, blocker issueNodeIdentity) error {
+	output, err := a.command(root, "gh", "api", "graphql", "-f", "query="+addBlockedByMutation,
+		"-f", "issueId="+target.issueID, "-f", "blockingIssueId="+blocker.issueID)
+	if err != nil {
+		return fmt.Errorf("add blocked-by mutation: %w", err)
+	}
+	var response addBlockedByResponse
+	if err := json.Unmarshal([]byte(output), &response); err != nil {
+		return fmt.Errorf("decode add blocked-by mutation: %w", err)
+	}
+	if err := graphQLErrors(response.Errors); err != nil {
+		return fmt.Errorf("add blocked-by mutation: %w", err)
+	}
+	if response.Data == nil {
+		return errors.New("add blocked-by mutation returned null data")
+	}
+	if response.Data.AddBlockedBy == nil {
+		return errors.New("add blocked-by mutation returned null payload")
+	}
+	payload := response.Data.AddBlockedBy
+	if payload.Issue == nil || strings.TrimSpace(payload.Issue.ID) == "" {
+		return errors.New("add blocked-by mutation returned no target issue ID")
+	}
+	if payload.BlockingIssue == nil || strings.TrimSpace(payload.BlockingIssue.ID) == "" {
+		return errors.New("add blocked-by mutation returned no blocker issue ID")
+	}
+	if payload.Issue.ID != target.issueID {
+		return fmt.Errorf("add blocked-by mutation returned target %q, want %q", payload.Issue.ID, target.issueID)
+	}
+	if payload.BlockingIssue.ID != blocker.issueID {
+		return fmt.Errorf("add blocked-by mutation returned blocker %q, want %q", payload.BlockingIssue.ID, blocker.issueID)
+	}
+	return nil
+}
+
+const issueIdentityQuery = `query IssueIdentity($owner: String!, $repository: String!, $number: Int!) {
+  repository(owner: $owner, name: $repository) {
+    id
+    issue(number: $number) {
+      id
+      number
+    }
+  }
+}`
+
+const issueBlockedByQuery = `query IssueBlockedBy($owner: String!, $repository: String!, $number: Int!) {
+  repository(owner: $owner, name: $repository) {
+    id
+    issue(number: $number) {
+      id
+      number
+      blockedBy(first: 50) {
+        nodes {
+          id
+        }
+        totalCount
+        pageInfo {
+          hasNextPage
+        }
+      }
+    }
+  }
+}`
+
+const addBlockedByMutation = `mutation AddBlockedBy($issueId: ID!, $blockingIssueId: ID!) {
+  addBlockedBy(input: {issueId: $issueId, blockingIssueId: $blockingIssueId}) {
+    issue {
+      id
+    }
+    blockingIssue {
+      id
+    }
+  }
+}`
 
 func issueNumberFromURL(url string) (int, error) {
 	part := url[strings.LastIndex(url, "/")+1:]
