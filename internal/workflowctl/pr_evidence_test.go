@@ -44,6 +44,26 @@ func TestPREvidenceUpdateCommandUsesSourcesAndPatchesOnlyOwnedBlock(t *testing.T
 	}
 }
 
+func TestReadPREvidenceSourcesAcceptsCuratorWithoutOptionalReason(t *testing.T) {
+	evidence, view := evidenceTestView(t)
+	evidence.DocumentationAudit.ManagedChanges = []documentationChangeReport{testManagedChange()}
+	curator := curatorResult{
+		Schema: curatorResultSchema, RunID: "curator-run", Head: view.HeadRefOID, Verdict: "pass",
+		Summary: "Every managed change is in its canonical home.", Findings: []curatorFinding{},
+	}
+	signalsPath := writePREvidenceJSONSource(t, "signals.json", evidence.DevelopmentSignals)
+	auditPath := writePREvidenceJSONSource(t, "audit.json", evidence.DocumentationAudit)
+	curatorPath := writePREvidenceJSONSource(t, "curator.json", curator)
+
+	got, err := readPREvidenceSources(signalsPath, auditPath, curatorPath, view)
+	if err != nil {
+		t.Fatalf("read PR evidence sources: %v", err)
+	}
+	if got.Curator.Reason != "" {
+		t.Fatalf("Curator reason = %q, want empty optional reason", got.Curator.Reason)
+	}
+}
+
 func writePREvidenceJSONSource(t *testing.T, name string, value any) string {
 	t.Helper()
 	data, err := json.Marshal(value)

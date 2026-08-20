@@ -534,8 +534,12 @@ func readPREvidenceSources(signalsPath, auditPath, curatorPath string, view pull
 	if err := readStructuredJSONFile(auditPath, "documentation audit", &audit); err != nil {
 		return prEvidence{}, err
 	}
-	curator := noCuratorResult(view.HeadRefOID)
-	if strings.TrimSpace(curatorPath) != "" {
+	curator := curatorResult{}
+	hasCurator := strings.TrimSpace(curatorPath) != ""
+	if !hasCurator {
+		curator = noCuratorResult(view.HeadRefOID)
+	}
+	if hasCurator {
 		if err := readStructuredJSONFile(curatorPath, "Curator result", &curator); err != nil {
 			return prEvidence{}, err
 		}
