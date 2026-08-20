@@ -559,7 +559,7 @@ func validInstanceXMLName(value string) bool {
 	first := true
 	for _, character := range value {
 		if first {
-			if !validNCNameStart(character) {
+			if character != ':' && !validNCNameStart(character) {
 				return false
 			}
 			first = false
