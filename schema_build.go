@@ -36,8 +36,7 @@ type schemaTargetNamespace struct {
 	version XSDVersion
 }
 
-// discoverSchema completes the internal discovery-to-schema pipeline without
-// exposing a public parser entrypoint.
+// discoverSchema completes the internal pipeline used by ParseSchema.
 func discoverSchema(root ResolvedSource, resolver Resolver) (Schema, error) {
 	discovery, err := discoverSyntax(root, resolver)
 	if err != nil {
