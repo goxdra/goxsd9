@@ -4,8 +4,8 @@ Status: accepted
 
 ## Decision
 
-Issue [#117](https://github.com/goxdra/goxsd9/issues/117) establishes one
-private, deterministic naming kernel before semantic Go emission. It accepts a
+The code-generation naming contract uses one private, deterministic naming
+kernel before semantic Go emission. It accepts a
 caller-supplied package name, derives legal exported identifiers for generated
 types, fields, variants, and import aliases, and stores ordered records with
 private lookup indexes. The kernel does not reinterpret schema names as Go
@@ -122,8 +122,7 @@ from the ordered records. No accessor or lookup mutates a completed table, and
 mutating an accessor result cannot affect later lookups. The implementation is
 the private kernel in [`codegen_naming.go`](../../codegen_naming.go), with the
 collision and immutability corpus in
-[`codegen_naming_test.go`](../../codegen_naming_test.go). The documentation
-registry is maintained in [`internal/workflowctl/docs.go`](../../internal/workflowctl/docs.go).
+[`codegen_naming_test.go`](../../codegen_naming_test.go).
 
 ## Non-goals
 
