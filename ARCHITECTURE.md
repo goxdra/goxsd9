@@ -37,10 +37,11 @@ observable walks and output. Every fallback ordering uses explicit stable keys.
 ## Input and resolution
 
 The entrypoint is `ParseSchema(root ResolvedSource, resolver Resolver)`.
-The caller creates the root `ResolvedSource` with `NewResolvedSource`; the
+The caller creates root `ResolvedSource` with `NewResolvedSource`; the
 resolver creates referenced sources and supplies resolution policy. Parsing
-consumes, drains, and closes the root and every resolver-supplied stream,
-including sources for repeated and cyclic identities.
+closes root and every resolver-supplied stream. It drains and decodes only
+unseen identities; repeated/cyclic identities are closed without
+decoding.
 
 ```go
 type Resolver interface {
@@ -54,7 +55,7 @@ type Resolver interface {
 
 Each result carries an opaque source identity, a reader-closer, and a child
 context. A resolver can store typed private base-location state in that context.
-Discovery passes the parent context to each FIFO resolver call and preserves the
+Discovery passes the parent context to each FIFO call and preserves the
 returned child context for nested references. Source identities and lexical
 schema locations remain opaque; the parser never interprets paths, opens files,
 or performs network requests. Resolver calls are sequential.

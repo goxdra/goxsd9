@@ -7,8 +7,9 @@
 // deterministic queries and walks. A missing schema version defaults to XSD
 // 1.1. Chameleon includes, redefine/override/defaultOpenContent, assertions,
 // and unsupported datatype facets return explicit unsupported diagnostics.
-// Paths and URLs are never opened by this package. Parsing drains and closes
-// the root and every resolved source.
+// Paths and URLs are never opened by this package. Parsing closes the root and
+// every resolved source, but drains and decodes only unseen identities; repeated
+// and cyclic identities are closed without decoding.
 //
 // XML instance validation and Go code generation remain under construction.
 package goxsd9
