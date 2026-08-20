@@ -24,15 +24,14 @@ not sync canonical `main` or recursive submodules.
 Run-local `agent/issue-N-run-ID` refs never affect ownership, Project status, or PR heads; they are inventory-only.
 `base-sync` fetches `origin/main`, fast-forwards clean canonical `main`, and
 checks/updates recursive pins; no reset/rebase/stash/discard.
-For parser/datatype changes, run
-`go tool workflowctl develop-signals --base BASE_SHA`. Text reports coverage/fuzz
-status; `--format json` reports exact affected/repository
-deltas and selected-target evidence. Replays corpora with bounded
-offline single-worker fuzz; request replay evidence. Regressions require JSON
-exact base/head/reason;
-totals are context. Signals remain separate from catalog inventory/XSD
-conformance;
-`no-relevant-target` succeeds. Evaluation fuzz is excluded.
+Every pushed head saves JSON from
+`go tool workflowctl develop-signals --base BASE_SHA --format json` before
+`pr evidence update`; non-relevant packets: `no-relevant-target`/`not-measured`
+valid. Text: coverage/fuzz; JSON: exact affected/repository deltas,
+selected-target evidence. Parser/datatype replays: bounded offline single-worker
+fuzz; request corpus replay. Regression JSON: exact base/head/reason; totals
+context. Signals stay separate from catalog inventory/XSD conformance/evaluation
+fuzz.
 PR evidence is versioned JSON between owned body markers; `pr evidence update`
 uses exact signal/audit JSON, preserves other body bytes, and is idempotent.
 Challenge/finish require exact REST base/head, audit, and Curator/no-doc result;

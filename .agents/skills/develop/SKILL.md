@@ -45,23 +45,22 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    workflowctl claim renew`; never wake or poll solely
    to renew.
 7. Run `go tool workflowctl check`, fix every failure, update affected
-   docs/comments. Do not redo Smith's investigation.
-   For `syntax.go` or `datatype.go` changes, run
-   `go tool workflowctl develop-signals --base BASE_SHA`; it replays checked-in
-   corpora and runs targets for bounded offline single-worker duration.
-   Text reports coverage/fuzz status, target names, and
-   `no-relevant-target`, not exact values or corpus names. Use `--format json`
-   for exact computed affected-package/repository deltas or selected-target
-   evidence; request replay evidence separately. Regressions require a
-   JSON explanation containing package, reason, computed base/head;
-   repository total is context.
-   Coverage/fuzz health never represent XSD conformance, catalog inventory,
-   or evaluation fuzz excluded from these signals.
+   docs/comments. Do not redo Smith's investigation. Every pushed head saves
+   JSON from `go tool workflowctl develop-signals --base BASE_SHA --format json`
+   before `pr evidence update`; for `syntax.go`/`datatype.go` changes it
+   replays checked-in corpora and runs targets for bounded offline single-worker
+   duration. Text reports coverage/fuzz status; JSON records exact
+   affected-package/repository deltas or selected-target evidence.
+   `no-relevant-target` and `not-measured` are valid for non-relevant packets.
+   Request replay evidence separately. Regressions require JSON package, reason,
+   computed base/head; repository total is context. Coverage/fuzz health never
+   represents XSD conformance, catalog inventory, or evaluation fuzz.
 8. Commit/push with the `AGENTS.md` title convention. Open a draft PR with
    `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`; include
    outcome, consultation, verification, conformance, packet issues.
-9. Pushed heads need `docs audit --base origin/main --format json` and
-   `pr evidence update` from exact signals/audit/Curator JSON. Managed documents
+9. Pushed heads need signals JSON, `docs audit --base origin/main
+   --format json`, and `pr evidence update` from exact signals/audit/Curator JSON.
+   Managed documents
    need a Curator with audit, diff, paths, charters, head; check placement,
    relevance, duplication, history, replacement. Preserve JSON; repeat after
    remediation.
