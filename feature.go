@@ -11,6 +11,9 @@ import (
 type FeatureID = feature.ID
 
 const (
+	// FeatureInstanceSyntax identifies XML instance syntax outside the first
+	// decoder slice, including DTDs and non-UTF-8 encodings.
+	FeatureInstanceSyntax FeatureID = "xsd.instance.syntax"
 	// FeatureDatatypeFacets identifies the not-yet-implemented datatype facet set.
 	FeatureDatatypeFacets FeatureID = "xsd.datatype.facets"
 	// FeaturePrecisionDecimal identifies the not-yet-implemented XSD 1.1 type.
@@ -24,7 +27,7 @@ const (
 type UnsupportedFeature = feature.Feature
 
 // UnsupportedFeatureReference identifies a pinned specification section for
-// one XSD version.
+// one specification version.
 type UnsupportedFeatureReference = feature.Reference
 
 // LookupUnsupportedFeature finds a registered unsupported feature by exact ID.
