@@ -8,7 +8,7 @@ import (
 const (
 	// SourceResolveCode identifies a resolver failure for a schema reference.
 	SourceResolveCode = "XSD3006"
-	// SourceInvalidCode identifies an invalid source returned by a resolver.
+	// SourceInvalidCode identifies an invalid resolved schema source.
 	SourceInvalidCode = "XSD3007"
 	// MissingSchemaLocationCode identifies an include without a location.
 	MissingSchemaLocationCode = "XSD3008"
@@ -69,7 +69,7 @@ func discoverSyntaxDocuments(root ResolvedSource, resolver Resolver) ([]*syntaxD
 }
 
 func discoverSyntax(root ResolvedSource, resolver Resolver) (syntaxDiscoveryResult, error) {
-	if err := validateDiscoverySource(root, Loc{}, FailureInternal); err != nil {
+	if err := validateDiscoverySource(root, Loc{}, FailureInvalid); err != nil {
 		return syntaxDiscoveryResult{}, closeDiscoverySourceOnError(root, Loc{}, err)
 	}
 

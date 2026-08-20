@@ -14,7 +14,7 @@
 - Result: `pass | fail | blocked`
 - Failure class: `public-api`
 - Evidence: `<public concepts observed; do not infer unstated APIs>`
-- Unsupported by contract: parser, validator, and generator APIs are not evaluated.
+- Supported public parser API: `ParseSchema`; this surface evaluation deliberately does not execute parser, validator, or generator APIs. It evaluates only the README, `go doc .`, and documented inventory CLI.
 
 ## CLI
 

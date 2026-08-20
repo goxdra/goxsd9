@@ -48,7 +48,7 @@ func TestEnvoyPromptRejectsSourceInspection(t *testing.T) {
 		{
 			name: "unavailable API",
 			mutate: func(value string) string {
-				return value + "\nDo not call goxsd9.ParseSchema(...).\n"
+				return value + "\nDo not call goxsd9.ValidateSchema(...).\n"
 			},
 			wantErr: "unavailable API",
 		},
@@ -60,6 +60,15 @@ func TestEnvoyPromptRejectsSourceInspection(t *testing.T) {
 				t.Fatalf("validateEnvoyPrompt error = %v, want %q", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestEnvoyPromptAllowsParseSchema(t *testing.T) {
+	root := envoyTestRepositoryRoot(t)
+	prompt := readEnvoyTestFile(t, root, envoyPromptPath)
+	prompt += "\nParseSchema(...) is a supported public parser API; this evaluation does not execute it.\n"
+	if err := validateEnvoyPrompt(prompt); err != nil {
+		t.Fatalf("validateEnvoyPrompt rejected supported ParseSchema wording: %v", err)
 	}
 }
 
