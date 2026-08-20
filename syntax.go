@@ -17,9 +17,9 @@ const (
 	// UnsupportedSchemaSyntaxCode identifies well-formed XSD syntax outside the
 	// syntax kernel.
 	UnsupportedSchemaSyntaxCode = "XSD3003"
-	// SourceReadCode identifies a failure while draining a schema source.
+	// SourceReadCode identifies a failure while draining a source.
 	SourceReadCode = "XSD3004"
-	// SourceCloseCode identifies a failure while closing a schema source.
+	// SourceCloseCode identifies a failure while closing a source.
 	SourceCloseCode = "XSD3005"
 )
 
@@ -741,7 +741,7 @@ func newSyntaxPositionReader(source SourceID, reader io.Reader) *syntaxPositionR
 		source: source,
 		line:   1,
 		column: 1,
-		prefix: make([]byte, 0, 3),
+		prefix: make([]byte, 0, 4),
 	}
 	position.history = append(position.history, syntaxPositionSample{
 		offset: 0,
@@ -844,7 +844,7 @@ func (position *syntaxPositionReader) recordByte(value byte) {
 		position.history = position.history[1:]
 	}
 	position.offset++
-	if len(position.prefix) < 3 {
+	if len(position.prefix) < 4 {
 		position.prefix = append(position.prefix, value)
 		if len(position.prefix) == 3 && bytes.Equal(position.prefix, []byte{0xef, 0xbb, 0xbf}) {
 			position.removeUTF8BOM()
@@ -852,6 +852,13 @@ func (position *syntaxPositionReader) recordByte(value byte) {
 		}
 	}
 	position.advance(value)
+}
+
+func (position *syntaxPositionReader) hasNonUTF8BOM() bool {
+	return bytes.HasPrefix(position.prefix, []byte{0xff, 0xfe}) ||
+		bytes.HasPrefix(position.prefix, []byte{0xfe, 0xff}) ||
+		bytes.HasPrefix(position.prefix, []byte{0x00, 0x00, 0xfe, 0xff}) ||
+		bytes.HasPrefix(position.prefix, []byte{0xff, 0xfe, 0x00, 0x00})
 }
 
 func (position *syntaxPositionReader) removeUTF8BOM() {

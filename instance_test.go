@@ -161,6 +161,9 @@ func TestDecodeInstanceRejectsInvalidNamespacesAndDuplicateExpandedAttributes(t 
 		{name: "xml URI alias", input: `<root xmlns:p="` + xmlNamespaceURI + `"/>`, code: InvalidInstanceNamespaceCode, ref: instanceXMLNamespacesSpecRef},
 		{name: "bad xml binding", input: `<root xmlns:xml="urn:not-xml"/>`, code: InvalidInstanceNamespaceCode, ref: instanceXMLNamespacesSpecRef},
 		{name: "xmlns prefix", input: `<root xmlns:xmlns="urn:not-xmlns"/>`, code: InvalidInstanceNamespaceCode, ref: instanceXMLNamespacesSpecRef},
+		{name: "invalid prefixed local name", input: `<p:9 xmlns:p="urn:p"/>`, code: InvalidInstanceNamespaceCode, ref: instanceXMLNamespacesSpecRef},
+		{name: "empty namespace prefix", input: `<:root/>`, code: InvalidInstanceNamespaceCode, ref: instanceXMLNamespacesSpecRef},
+		{name: "invalid namespace declaration prefix", input: `<root xmlns:9="urn:p"/>`, code: InvalidInstanceNamespaceCode, ref: instanceXMLNamespacesSpecRef},
 		{name: "duplicate expanded attributes", input: `<root xmlns:p="urn:x" xmlns:q="urn:x" p:a="1" q:a="2"/>`, code: InvalidInstanceXMLCode, ref: instanceXMLStartTagsSpecRef},
 	}
 	for _, test := range tests {
@@ -202,6 +205,10 @@ func TestDecodeInstanceRejectsMalformedPrologRootsCommentsAndPIs(t *testing.T) {
 		{name: "multiple roots", input: "<one/><two/>", class: FailureInvalid, code: InvalidInstanceRootCode},
 		{name: "text before root", input: "text<root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "text after root", input: "<root/>text", class: FailureInvalid, code: InvalidInstanceXMLCode},
+		{name: "character reference before root", input: "&#x20;<root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
+		{name: "character reference after root", input: "<root/>&#x20;", class: FailureInvalid, code: InvalidInstanceXMLCode},
+		{name: "CDATA before root", input: "<![CDATA[ ]]><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
+		{name: "CDATA after root", input: "<root/><![CDATA[ ]]>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "declaration after whitespace", input: " <?xml version=\"1.0\"?><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "invalid declaration", input: "<?xml standalone=\"yes\"?><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "invalid declaration value", input: "<?xml version=\"1.0\" standalone=\"maybe\"?><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
@@ -211,6 +218,8 @@ func TestDecodeInstanceRejectsMalformedPrologRootsCommentsAndPIs(t *testing.T) {
 		{name: "unknown directive", input: "<!bogus><root/>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "unclosed element", input: "<root><child/></root", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "DTD unsupported", input: "<!DOCTYPE root><root/>", class: FailureUnsupported, code: UnsupportedInstanceSyntaxCode},
+		{name: "DTD after root", input: "<root/><!DOCTYPE root>", class: FailureInvalid, code: InvalidInstanceXMLCode},
+		{name: "DTD inside root", input: "<root><!DOCTYPE root></root>", class: FailureInvalid, code: InvalidInstanceXMLCode},
 		{name: "non-UTF-8 encoding unsupported", input: "<?xml version=\"1.0\" encoding=\"UTF-16\"?><root/>", class: FailureUnsupported, code: UnsupportedInstanceSyntaxCode},
 	}
 	for _, test := range tests {
@@ -230,6 +239,28 @@ func TestDecodeInstanceRejectsMalformedPrologRootsCommentsAndPIs(t *testing.T) {
 				t.Fatalf("unsupported diagnostic does not match ErrUnsupported: %v", err)
 			}
 		})
+	}
+}
+
+func TestDecodeInstanceRejectsUTF16BOM(t *testing.T) {
+	data := []byte{0xff, 0xfe, '<', 0, 'r', 0, 'o', 0, 'o', 0, 't', 0, '/', 0, '>', 0}
+	reader := &instanceTrackingSource{data: data}
+	document, err := decodeInstance(reader, instanceDecodeConfig{sourceID: "utf16.xml"})
+	if document != nil {
+		t.Fatal("UTF-16 instance returned a document")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if got, want := diagnostic.Class(), FailureUnsupported; got != want {
+		t.Fatalf("Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
+		t.Fatalf("Code() = %q, want %q", got, want)
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unsupported diagnostic does not match ErrUnsupported: %v", err)
+	}
+	if !reader.closed || reader.offset != len(reader.data) || reader.closeCalls != 1 {
+		t.Fatalf("UTF-16 stream lifecycle = closed %t, offset %d, close calls %d", reader.closed, reader.offset, reader.closeCalls)
 	}
 }
 
