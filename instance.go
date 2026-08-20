@@ -87,11 +87,12 @@ type instanceDecoder struct {
 	positions *syntaxPositionReader
 	lexical   *instanceLexicalReader
 
-	root       *instanceElement
-	stack      []instanceFrame
-	rootClosed bool
-	seenToken  bool
-	seenXML    bool
+	root        *instanceElement
+	stack       []instanceFrame
+	rootClosed  bool
+	seenToken   bool
+	seenXML     bool
+	unsupported error
 }
 
 type instanceDecodeConfig struct {
@@ -315,6 +316,9 @@ func (parser *instanceDecoder) finishAtEOF(cause error, loc Loc) (*instanceDocum
 			cause,
 		)
 	}
+	if parser.unsupported != nil {
+		return nil, parser.unsupported
+	}
 	return &instanceDocument{source: parser.source, root: parser.root}, nil
 }
 
@@ -345,7 +349,21 @@ func (parser *instanceDecoder) handleToken(token xml.Token, loc Loc, rawToken []
 					nil,
 				)
 			}
-			return newInstanceUnsupported(loc, "DTD declarations are not supported", nil)
+			if parser.unsupported != nil {
+				return newInstanceInvalid(
+					InvalidInstanceXMLCode,
+					loc,
+					"multiple DTD declarations are not allowed",
+					instanceXMLWellFormedSpecRef,
+					nil,
+				)
+			}
+			if err := validateInstanceDoctype(rawToken, loc); err != nil {
+				return err
+			}
+			parser.unsupported = newInstanceUnsupported(loc, "DTD declarations are not supported", nil)
+			parser.seenToken = true
+			return nil
 		}
 		return newInstanceInvalid(
 			InvalidInstanceXMLCode,
@@ -379,6 +397,185 @@ func instanceIsDoctype(directive xml.Directive) bool {
 		}
 	}
 	return false
+}
+
+func validateInstanceDoctype(raw []byte, loc Loc) error {
+	body, ok := instanceDoctypeBody(raw)
+	if !ok {
+		return invalidInstanceDoctype(loc, "invalid DTD declaration")
+	}
+	index, ok := consumeInstanceDoctypeRoot(body)
+	if !ok {
+		return invalidInstanceDoctype(loc, "invalid DTD root name")
+	}
+	if index == len(body) {
+		return nil
+	}
+	if body[index] != '[' {
+		var externalOK bool
+		index, externalOK = consumeInstanceDoctypeExternalID(body, index)
+		if !externalOK {
+			return invalidInstanceDoctype(loc, "invalid DTD external identifier")
+		}
+		if index == len(body) {
+			return nil
+		}
+		if body[index] != '[' {
+			return invalidInstanceDoctype(loc, "invalid DTD declaration")
+		}
+	}
+	return validateInstanceDoctypeSubset(body, index, loc)
+}
+
+func instanceDoctypeBody(raw []byte) ([]byte, bool) {
+	if len(raw) < len("<!DOCTYPE>") || !bytes.HasPrefix(raw, []byte("<!DOCTYPE")) || !bytes.HasSuffix(raw, []byte{'>'}) {
+		return nil, false
+	}
+	return raw[len("<!") : len(raw)-1], true
+}
+
+func consumeInstanceDoctypeRoot(body []byte) (int, bool) {
+	index := len("DOCTYPE")
+	if index == len(body) || !isInstanceXMLSpace(body[index]) {
+		return 0, false
+	}
+	consumeInstanceDoctypeSpace(body, &index)
+	nameStart := index
+	for index < len(body) && !isInstanceXMLSpace(body[index]) && body[index] != '[' {
+		index++
+	}
+	if nameStart == index || !validInstanceXMLName(string(body[nameStart:index])) {
+		return 0, false
+	}
+	consumeInstanceDoctypeSpace(body, &index)
+	return index, true
+}
+
+func consumeInstanceDoctypeExternalID(body []byte, index int) (int, bool) {
+	keywordStart := index
+	for index < len(body) && !isInstanceXMLSpace(body[index]) && body[index] != '[' {
+		index++
+	}
+	keyword := string(body[keywordStart:index])
+	if keyword != "SYSTEM" && keyword != "PUBLIC" {
+		return 0, false
+	}
+	if !consumeInstanceDoctypeSpace(body, &index) || !consumeInstanceDoctypeLiteral(body, &index) {
+		return 0, false
+	}
+	if keyword == "PUBLIC" && (!consumeInstanceDoctypeSpace(body, &index) || !consumeInstanceDoctypeLiteral(body, &index)) {
+		return 0, false
+	}
+	consumeInstanceDoctypeSpace(body, &index)
+	return index, true
+}
+
+func validateInstanceDoctypeSubset(body []byte, index int, loc Loc) error {
+	depth := 0
+	var quote byte
+	for index < len(body) {
+		var closed, ok bool
+		index, closed, ok = consumeInstanceDoctypeSubsetToken(body, index, &depth, &quote)
+		if !ok {
+			return invalidInstanceDoctype(loc, "invalid DTD internal subset")
+		}
+		if closed {
+			consumeInstanceDoctypeSpace(body, &index)
+			if index != len(body) {
+				return invalidInstanceDoctype(loc, "invalid DTD internal subset")
+			}
+			return nil
+		}
+	}
+	if quote != 0 {
+		return invalidInstanceDoctype(loc, "unterminated DTD literal")
+	}
+	return invalidInstanceDoctype(loc, "unterminated DTD internal subset")
+}
+
+func consumeInstanceDoctypeSubsetToken(body []byte, index int, depth *int, quote *byte) (int, bool, bool) {
+	if *quote != 0 {
+		if body[index] == *quote {
+			*quote = 0
+		}
+		return index + 1, false, true
+	}
+	if bytes.HasPrefix(body[index:], []byte("<!--")) {
+		commentEnd := bytes.Index(body[index+4:], []byte("-->"))
+		if commentEnd < 0 {
+			return index, false, false
+		}
+		return index + 4 + commentEnd + len("-->"), false, true
+	}
+	switch body[index] {
+	case '\'', '"':
+		*quote = body[index]
+	case '[':
+		(*depth)++
+	case ']':
+		(*depth)--
+		if *depth < 0 {
+			return index, false, false
+		}
+		if *depth == 0 {
+			return index + 1, true, true
+		}
+	}
+	return index + 1, false, true
+}
+
+func consumeInstanceDoctypeSpace(data []byte, index *int) bool {
+	start := *index
+	for *index < len(data) && isInstanceXMLSpace(data[*index]) {
+		(*index)++
+	}
+	return *index != start
+}
+
+func consumeInstanceDoctypeLiteral(data []byte, index *int) bool {
+	if *index >= len(data) || (data[*index] != '\'' && data[*index] != '"') {
+		return false
+	}
+	quote := data[*index]
+	*index++
+	for *index < len(data) && data[*index] != quote {
+		(*index)++
+	}
+	if *index == len(data) {
+		return false
+	}
+	(*index)++
+	return true
+}
+
+func validInstanceXMLName(value string) bool {
+	if value == "" || !utf8.ValidString(value) {
+		return false
+	}
+	first := true
+	for _, character := range value {
+		if first {
+			if !validNCNameStart(character) {
+				return false
+			}
+			first = false
+			continue
+		}
+		if character != ':' && !validNCNameChar(character) {
+			return false
+		}
+	}
+	return !first
+}
+
+func invalidInstanceDoctype(loc Loc, message string) error {
+	return newInstanceInvalid(
+		InvalidInstanceXMLCode,
+		loc,
+		message,
+		instanceXMLWellFormedSpecRef,
+		nil,
+	)
 }
 
 func (parser *instanceDecoder) startElement(token xml.StartElement, loc Loc, rawToken []byte) error {

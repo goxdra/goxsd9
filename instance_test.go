@@ -260,6 +260,90 @@ func TestDecodeInstanceRejectsMalformedPrologRootsCommentsAndPIs(t *testing.T) {
 	}
 }
 
+func TestDecodeInstanceDefersWellFormedDTDUnsupported(t *testing.T) { //nolint:gocognit // table cases assert each diagnostic contract explicitly.
+	tests := []struct {
+		name  string
+		input string
+		loc   Loc
+	}{
+		{name: "simple", input: "<!DOCTYPE root><root/>", loc: Loc{source: "instance.xml", line: 1, column: 1}},
+		{name: "internal subset", input: "\n  <!DOCTYPE root [<!ELEMENT root EMPTY>]><root/>", loc: Loc{source: "instance.xml", line: 2, column: 3}},
+		{name: "system identifier", input: "<!DOCTYPE root SYSTEM \"root.dtd\"><root/>", loc: Loc{source: "instance.xml", line: 1, column: 1}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &instanceTrackingSource{data: []byte(test.input)}
+			document, err := decodeInstance(reader, instanceDecodeConfig{sourceID: "instance.xml"})
+			if document != nil {
+				t.Fatal("unsupported DTD returned a document")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if got, want := diagnostic.Class(), FailureUnsupported; got != want {
+				t.Fatalf("Class() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
+				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Loc(), test.loc; got != want {
+				t.Fatalf("Loc() = %v, want %v", got, want)
+			}
+			if !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("unsupported diagnostic does not match ErrUnsupported: %v", err)
+			}
+			if !reader.closed || reader.offset != len(reader.data) || reader.closeCalls != 1 {
+				t.Fatalf("stream lifecycle = closed %t, offset %d, close calls %d", reader.closed, reader.offset, reader.closeCalls)
+			}
+		})
+	}
+}
+
+func TestDecodeInstanceDTDStructuralErrorsRemainInvalid(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		code  string
+	}{
+		{name: "unclosed root", input: "<!DOCTYPE root><root>", code: InvalidInstanceXMLCode},
+		{name: "trailing text", input: "<!DOCTYPE root><root/>text", code: InvalidInstanceXMLCode},
+		{name: "multiple roots", input: "<!DOCTYPE root><one/><two/>", code: InvalidInstanceRootCode},
+		{name: "duplicate DTD", input: "<!DOCTYPE root><!DOCTYPE other><root/>", code: InvalidInstanceXMLCode},
+		{name: "DTD after root", input: "<!DOCTYPE root><root/><!DOCTYPE root>", code: InvalidInstanceXMLCode},
+		{name: "DTD then XML declaration", input: "<!DOCTYPE root><?xml version=\"1.0\"?><root/>", code: InvalidInstanceXMLCode},
+		{name: "unterminated internal subset", input: "<!DOCTYPE root [<!ELEMENT root EMPTY>><root/>", code: InvalidInstanceXMLCode},
+		{name: "unterminated system literal", input: "<!DOCTYPE root SYSTEM \"root.dtd><root/>", code: InvalidInstanceXMLCode},
+		{name: "invalid internal subset suffix", input: "<!DOCTYPE root [] extra><root/>", code: InvalidInstanceXMLCode},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			document, err := decodeInstanceFailureInput(t, test.input)
+			if document != nil {
+				t.Fatal("malformed DTD instance returned a document")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if got, want := diagnostic.Class(), FailureInvalid; got != want {
+				t.Fatalf("Class() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Code(), test.code; got != want {
+				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestDecodeInstanceDTDRootNameMismatchRemainsUnsupported(t *testing.T) {
+	document, err := decodeInstanceFailureInput(t, "<!DOCTYPE declared><actual/>")
+	if document != nil {
+		t.Fatal("DTD root-name mismatch returned a document")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if got, want := diagnostic.Class(), FailureUnsupported; got != want {
+		t.Fatalf("Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
+		t.Fatalf("Code() = %q, want %q", got, want)
+	}
+}
+
 func TestDecodeInstanceRejectsUTF16BOM(t *testing.T) {
 	data := []byte{0xff, 0xfe, '<', 0, 'r', 0, 'o', 0, 'o', 0, 't', 0, '/', 0, '>', 0}
 	reader := &instanceTrackingSource{data: data}
