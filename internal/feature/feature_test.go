@@ -70,3 +70,13 @@ func TestAllAndLookupPreserveStableOrderAndOwnership(t *testing.T) {
 		t.Fatalf("SpecRef() after reference mutation = %q, want %q", got, want)
 	}
 }
+
+func TestReferenceExposesGenericVersionWithXSDCompatibilityAlias(t *testing.T) {
+	reference := Reference{version: "1.0"}
+	if got, want := reference.Version(), "1.0"; got != want {
+		t.Fatalf("Version() = %q, want %q", got, want)
+	}
+	if got, want := reference.XSDVersion(), "1.0"; got != want {
+		t.Fatalf("XSDVersion() = %q, want %q", got, want)
+	}
+}

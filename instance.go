@@ -69,6 +69,11 @@ type instanceAttribute struct {
 	loc   Loc
 }
 
+type instanceRawAttribute struct {
+	value string
+	loc   Loc
+}
+
 type instanceFrame struct {
 	element *instanceElement
 	name    syntaxName
@@ -211,7 +216,7 @@ func (parser *instanceDecoder) decode() (*instanceDocument, error) {
 		token, err := parser.decoder.RawToken()
 		rawToken := parser.lexical.endCapture(parser.decoder.InputOffset())
 		if err != nil {
-			return parser.handleTokenError(err, loc)
+			return parser.handleTokenError(err, loc, rawToken)
 		}
 		if token == nil {
 			return nil, newDiagnostic(
@@ -228,11 +233,14 @@ func (parser *instanceDecoder) decode() (*instanceDocument, error) {
 	}
 }
 
-func (parser *instanceDecoder) handleTokenError(err error, loc Loc) (*instanceDocument, error) {
+func (parser *instanceDecoder) handleTokenError(err error, loc Loc, rawToken []byte) (*instanceDocument, error) {
 	if errors.Is(err, io.EOF) {
 		return parser.finishAtEOF(err, loc)
 	}
 	if errors.Is(err, errInstanceUnsupportedEncoding) {
+		if declarationErr := parser.validateUnsupportedEncodingDeclaration(rawToken, loc); declarationErr != nil {
+			return nil, declarationErr
+		}
 		return nil, newInstanceUnsupported(
 			loc,
 			"non-UTF-8 instance encodings are not supported",
@@ -262,6 +270,29 @@ func (parser *instanceDecoder) handleTokenError(err error, loc Loc) (*instanceDo
 		instanceXMLWellFormedSpecRef,
 		err,
 	)
+}
+
+func (parser *instanceDecoder) validateUnsupportedEncodingDeclaration(rawToken []byte, loc Loc) error {
+	if parser.seenToken || parser.seenXML || parser.root != nil || len(parser.stack) > 0 || parser.rootClosed {
+		return newInstanceInvalid(
+			InvalidInstanceXMLCode,
+			loc,
+			"XML declaration must be the first document token",
+			instanceXMLWellFormedSpecRef,
+			nil,
+		)
+	}
+	data, ok := instanceXMLDeclarationData(rawToken)
+	if !ok {
+		return newInstanceInvalid(
+			InvalidInstanceXMLCode,
+			loc,
+			"invalid XML declaration",
+			instanceXMLWellFormedSpecRef,
+			nil,
+		)
+	}
+	return validateInstanceXMLDeclaration(data, loc)
 }
 
 func (parser *instanceDecoder) finishAtEOF(cause error, loc Loc) (*instanceDocument, error) {
@@ -360,7 +391,7 @@ func (parser *instanceDecoder) startElement(token xml.StartElement, loc Loc, raw
 			nil,
 		)
 	}
-	rawAttributes, rawAttributesOK := instanceRawStartTagAttributes(rawToken)
+	rawAttributes, rawAttributesOK := instanceRawStartTagAttributes(rawToken, loc)
 	scope, err := instanceChildScope(parser.currentScope(), token.Attr, rawAttributes, loc)
 	if err != nil {
 		return err
@@ -492,7 +523,7 @@ func instanceLiteralWhitespace(data xml.CharData, rawToken []byte) bool {
 }
 
 func (parser *instanceDecoder) processingInstruction(token xml.ProcInst, loc Loc) error {
-	if strings.Contains(token.Target, ":") || !validInstanceXMLCharacters(token.Inst) {
+	if !validInstanceXMLCharacters(token.Inst) {
 		return newInstanceInvalid(
 			InvalidInstanceXMLCode,
 			loc,
@@ -527,19 +558,23 @@ func (parser *instanceDecoder) currentScope() *syntaxScope {
 	return parser.stack[len(parser.stack)-1].scope
 }
 
-func instanceChildScope(parent *syntaxScope, attrs []xml.Attr, rawValues []string, loc Loc) (*syntaxScope, error) {
-	for _, attr := range attrs {
+func instanceChildScope(parent *syntaxScope, attrs []xml.Attr, rawAttributes []instanceRawAttribute, loc Loc) (*syntaxScope, error) {
+	for attrIndex, attr := range attrs {
 		if attr.Name.Space != "" && !validNCName(attr.Name.Space) || !validNCName(attr.Name.Local) {
+			attributeLoc := loc
+			if attrIndex < len(rawAttributes) {
+				attributeLoc = rawAttributes[attrIndex].loc
+			}
 			return nil, newInstanceInvalid(
 				InvalidInstanceNamespaceCode,
-				loc,
+				attributeLoc,
 				fmt.Sprintf("invalid XML namespace name %q", instanceLexicalName(attr.Name)),
 				instanceXMLNamespacesSpecRef,
 				nil,
 			)
 		}
 	}
-	normalized := normalizeInstanceXMLAttributes(attrs, rawValues)
+	normalized := normalizeInstanceXMLAttributes(attrs, rawAttributes)
 	scope, err := childSyntaxScope(parent, normalized, loc)
 	if err == nil {
 		return scope, nil
@@ -593,25 +628,29 @@ func instanceLexicalName(name xml.Name) string {
 	return name.Space + ":" + name.Local
 }
 
-func instanceAttributes(attrs []xml.Attr, scope *syntaxScope, rawValues []string, rawValuesOK bool, loc Loc) ([]instanceAttribute, error) {
+func instanceAttributes(attrs []xml.Attr, scope *syntaxScope, rawAttributes []instanceRawAttribute, rawAttributesOK bool, loc Loc) ([]instanceAttribute, error) {
 	result := make([]instanceAttribute, 0, len(attrs))
 	seen := make([]syntaxName, 0, len(attrs))
 	for attrIndex, attr := range attrs {
 		if _, ok := namespaceDeclaration(attr); ok {
 			continue
 		}
-		name, err := resolveInstanceName(attr.Name, scope, false, loc)
+		attributeLoc := loc
+		if rawAttributesOK && attrIndex < len(rawAttributes) {
+			attributeLoc = rawAttributes[attrIndex].loc
+		}
+		name, err := resolveInstanceName(attr.Name, scope, false, attributeLoc)
 		if err != nil {
 			return nil, err
 		}
-		if err := duplicateInstanceAttribute(seen, name, loc); err != nil {
+		if err := duplicateInstanceAttribute(seen, name, attributeLoc); err != nil {
 			return nil, err
 		}
 		seen = append(seen, name)
 		result = append(result, instanceAttribute{
 			name:  name,
-			value: instanceAttributeValue(attr.Value, rawValues, rawValuesOK, attrIndex, len(attrs)),
-			loc:   loc,
+			value: instanceAttributeValue(attr.Value, rawAttributes, rawAttributesOK, attrIndex, len(attrs)),
+			loc:   attributeLoc,
 		})
 	}
 	return result, nil
@@ -632,25 +671,25 @@ func duplicateInstanceAttribute(seen []syntaxName, name syntaxName, loc Loc) err
 	return nil
 }
 
-func instanceAttributeValue(value string, rawValues []string, rawValuesOK bool, index, attributeCount int) string {
+func instanceAttributeValue(value string, rawAttributes []instanceRawAttribute, rawAttributesOK bool, index, attributeCount int) string {
 	normalized := normalizeInstanceXMLAttributeValue(value)
-	if !rawValuesOK || len(rawValues) != attributeCount {
+	if !rawAttributesOK || len(rawAttributes) != attributeCount {
 		return normalized
 	}
-	lexical, ok := normalizeInstanceXMLAttributeLexeme(rawValues[index])
+	lexical, ok := normalizeInstanceXMLAttributeLexeme(rawAttributes[index].value)
 	if !ok {
 		return normalized
 	}
 	return lexical
 }
 
-func normalizeInstanceXMLAttributes(attrs []xml.Attr, rawValues []string) []xml.Attr {
+func normalizeInstanceXMLAttributes(attrs []xml.Attr, rawAttributes []instanceRawAttribute) []xml.Attr {
 	result := make([]xml.Attr, len(attrs))
 	copy(result, attrs)
 	for index := range result {
 		value := normalizeInstanceXMLAttributeValue(result[index].Value)
-		if len(rawValues) == len(attrs) {
-			if normalized, ok := normalizeInstanceXMLAttributeLexeme(rawValues[index]); ok {
+		if len(rawAttributes) == len(attrs) {
+			if normalized, ok := normalizeInstanceXMLAttributeLexeme(rawAttributes[index].value); ok {
 				value = normalized
 			}
 		}
@@ -670,15 +709,15 @@ func normalizeInstanceXMLAttributeValue(value string) string {
 	}, value)
 }
 
-func instanceRawStartTagAttributes(raw []byte) ([]string, bool) {
+func instanceRawStartTagAttributes(raw []byte, start Loc) ([]instanceRawAttribute, bool) {
 	if len(raw) < 2 || raw[0] != '<' {
 		return nil, false
 	}
 	index := 1
 	index = skipInstanceRawStartName(raw, index)
-	values := make([]string, 0)
+	values := make([]instanceRawAttribute, 0)
 	for {
-		value, done, ok := readInstanceRawAttribute(raw, &index)
+		value, done, ok := readInstanceRawAttribute(raw, &index, start)
 		if !ok {
 			return nil, false
 		}
@@ -696,26 +735,27 @@ func skipInstanceRawStartName(raw []byte, index int) int {
 	return index
 }
 
-func readInstanceRawAttribute(raw []byte, index *int) (string, bool, bool) {
+func readInstanceRawAttribute(raw []byte, index *int, start Loc) (instanceRawAttribute, bool, bool) {
 	skipInstanceRawSpace(raw, index)
 	if *index >= len(raw) || raw[*index] == '>' {
-		return "", true, true
+		return instanceRawAttribute{}, true, true
 	}
 	if raw[*index] == '/' {
 		if *index+1 < len(raw) && raw[*index+1] == '>' {
-			return "", true, true
+			return instanceRawAttribute{}, true, true
 		}
-		return "", false, false
+		return instanceRawAttribute{}, false, false
 	}
+	nameStart := *index
 	skipInstanceRawName(raw, index)
 	skipInstanceRawSpace(raw, index)
 	if *index >= len(raw) || raw[*index] != '=' {
-		return "", false, false
+		return instanceRawAttribute{}, false, false
 	}
 	(*index)++
 	skipInstanceRawSpace(raw, index)
 	if *index >= len(raw) || (raw[*index] != '\'' && raw[*index] != '"') {
-		return "", false, false
+		return instanceRawAttribute{}, false, false
 	}
 	quote := raw[*index]
 	(*index)++
@@ -724,11 +764,54 @@ func readInstanceRawAttribute(raw []byte, index *int) (string, bool, bool) {
 		(*index)++
 	}
 	if *index >= len(raw) {
-		return "", false, false
+		return instanceRawAttribute{}, false, false
 	}
 	value := string(raw[valueStart:*index])
 	(*index)++
-	return value, false, true
+	return instanceRawAttribute{
+		value: value,
+		loc:   instanceRawAttributeLoc(start, raw, nameStart),
+	}, false, true
+}
+
+func instanceRawAttributeLoc(start Loc, raw []byte, offset int) Loc {
+	if start.IsZero() || offset < 0 || offset > len(raw) {
+		return start
+	}
+	line := start.line
+	column := start.column
+	previousCR := false
+	for len(raw) > 0 && offset > 0 {
+		value := raw[0]
+		if value == '\r' {
+			raw = raw[1:]
+			offset--
+			line++
+			column = 1
+			previousCR = true
+			continue
+		}
+		if value == '\n' {
+			raw = raw[1:]
+			offset--
+			if previousCR {
+				previousCR = false
+				continue
+			}
+			line++
+			column = 1
+			continue
+		}
+		previousCR = false
+		_, size := utf8.DecodeRune(raw)
+		if size > offset {
+			size = 1
+		}
+		raw = raw[size:]
+		offset -= size
+		column++
+	}
+	return Loc{source: start.source, line: line, column: column}
 }
 
 func skipInstanceRawSpace(raw []byte, index *int) {
@@ -899,6 +982,21 @@ func validateInstanceXMLDeclaration(data []byte, loc Loc) error {
 	}
 }
 
+func instanceXMLDeclarationData(rawToken []byte) ([]byte, bool) {
+	const prefix = "<?xml"
+	if len(rawToken) < len(prefix)+2 || !bytes.HasPrefix(rawToken, []byte(prefix)) || !bytes.HasSuffix(rawToken, []byte("?>")) {
+		return nil, false
+	}
+	data := rawToken[len(prefix) : len(rawToken)-2]
+	if len(data) == 0 || !isInstanceXMLSpace(data[0]) {
+		return nil, false
+	}
+	for len(data) > 0 && isInstanceXMLSpace(data[0]) {
+		data = data[1:]
+	}
+	return data, true
+}
+
 func readInstanceXMLDeclarationField(data []byte, index *int, field int, loc Loc) error {
 	nameStart := *index
 	for *index < len(data) && isInstanceXMLDeclarationNameByte(data[*index]) {
@@ -998,10 +1096,32 @@ func instanceXMLDeclarationValueAllowed(name, value string) bool {
 	case "version":
 		return value == "1.0"
 	case "encoding":
-		return strings.EqualFold(value, "utf-8")
+		return validInstanceEncodingName(value)
 	case "standalone":
 		return value == "yes" || value == "no"
 	default:
 		return false
 	}
+}
+
+func validInstanceEncodingName(value string) bool {
+	if value == "" || !isInstanceEncodingNameStart(value[0]) {
+		return false
+	}
+	for index := 1; index < len(value); index++ {
+		character := value[index]
+		if !isInstanceEncodingNameCharacter(character) {
+			return false
+		}
+	}
+	return true
+}
+
+func isInstanceEncodingNameStart(value byte) bool {
+	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+}
+
+func isInstanceEncodingNameCharacter(value byte) bool {
+	return isInstanceEncodingNameStart(value) || value >= '0' && value <= '9' ||
+		value == '.' || value == '_' || value == '-'
 }
