@@ -443,6 +443,7 @@ func (names codegenNaming) importIdentifiers() map[string]string {
 }
 
 type codegenNameAllocator struct {
+	// used contains canonical case-folded identifier keys.
 	used map[string]struct{}
 }
 
@@ -451,20 +452,27 @@ func newCodegenNameAllocator() *codegenNameAllocator {
 }
 
 func (allocator *codegenNameAllocator) allocate(base string) (string, error) {
-	if _, exists := allocator.used[base]; !exists {
-		allocator.used[base] = struct{}{}
+	if allocator.reserve(base) {
 		return base, nil
 	}
 	for suffix := uint64(2); ; suffix++ {
 		candidate := base + strconv.FormatUint(suffix, 10)
-		if _, exists := allocator.used[candidate]; !exists {
-			allocator.used[candidate] = struct{}{}
+		if allocator.reserve(candidate) {
 			return candidate, nil
 		}
 		if suffix == ^uint64(0) {
 			return "", errCodegenCollisionExhausted
 		}
 	}
+}
+
+func (allocator *codegenNameAllocator) reserve(candidate string) bool {
+	key := codegenCaseFold(candidate)
+	if _, exists := allocator.used[key]; exists {
+		return false
+	}
+	allocator.used[key] = struct{}{}
+	return true
 }
 
 func validateCodegenPackageName(name string) error {

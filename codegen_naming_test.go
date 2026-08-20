@@ -158,6 +158,79 @@ func TestCodegenNamingAllocatesOrderedScopesAndReservations(t *testing.T) {
 	})
 }
 
+func TestCodegenNamingAllocatesCaseFoldCollisionsInOrder(t *testing.T) {
+	tests := []struct {
+		name     string
+		rawNames []string
+		want     []string
+	}{
+		{
+			name:     "HTTPServer and httpserver",
+			rawNames: []string{"HTTPServer", "httpserver", "HTTPServer2"},
+			want:     []string{"HttpServer", "Httpserver2", "HttpServer22"},
+		},
+		{
+			name:     "fooBAR and FOObar",
+			rawNames: []string{"fooBAR", "FOObar", "fooBAR2"},
+			want:     []string{"FooBar", "FoObar2", "FooBar22"},
+		},
+		{
+			name:     "first use determines spelling",
+			rawNames: []string{"httpserver", "HTTPServer"},
+			want:     []string{"Httpserver", "HttpServer2"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			first := mustCodegenNamingForComponents(t, test.rawNames)
+			second := mustCodegenNamingForComponents(t, test.rawNames)
+			assertCodegenComponentNamesInOrder(t, first, test.want)
+			if !reflect.DeepEqual(first, second) {
+				t.Fatalf("repeated naming differs:\nfirst: %#v\nsecond: %#v", first, second)
+			}
+		})
+	}
+}
+
+func mustCodegenNamingForComponents(t *testing.T, rawNames []string) codegenNaming {
+	t.Helper()
+	declarations := make([]schemaComponentInput, len(rawNames))
+	for index, rawName := range rawNames {
+		declarations[index] = schemaComponentInput{
+			kind: ComponentKindElementDeclaration,
+			name: mustTestQName(t, "urn:test", rawName),
+			loc:  mustTestLoc(t, "names.xsd", index+2, 1),
+		}
+	}
+	input := codegenNamingInput{
+		packageName: "generated",
+		schema: mustTestSchema(t, []schemaDocumentInput{{
+			source:       "names.xsd",
+			rootLoc:      mustTestLoc(t, "names.xsd", 1, 1),
+			declarations: declarations,
+		}}),
+	}
+	names, err := newCodegenNaming(input)
+	if err != nil {
+		t.Fatalf("newCodegenNaming: %v", err)
+	}
+	return names
+}
+
+func assertCodegenComponentNamesInOrder(t *testing.T, names codegenNaming, want []string) {
+	t.Helper()
+	got := names.componentNames()
+	if len(got) != len(want) {
+		t.Fatalf("component count = %d, want %d", len(got), len(want))
+	}
+	for index, expected := range want {
+		if got[index].identifier != expected {
+			t.Errorf("component %d identifier = %q, want %q", index, got[index].identifier, expected)
+		}
+	}
+}
+
 type codegenExpectedScopedName struct {
 	owner ComponentID
 	path  []uint32
