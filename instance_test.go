@@ -140,6 +140,31 @@ func TestDecodeInstanceAcceptsXMLDeclarationAndAttributeReferences(t *testing.T)
 	}
 }
 
+func TestDecodeInstanceAcceptsStandaloneXMLDeclaration(t *testing.T) {
+	decodeInstanceTestInput(t, `<?xml version="1.0" standalone="yes"?><root/>`)
+}
+
+func TestDecodeInstanceRejectsDuplicateOrMisorderedXMLDeclarationFields(t *testing.T) {
+	for _, input := range []string{
+		`<?xml version="1.0" standalone="yes" standalone="no"?><root/>`,
+		`<?xml version="1.0" standalone="yes" encoding="UTF-8"?><root/>`,
+	} {
+		t.Run(strconv.Quote(input), func(t *testing.T) {
+			document, err := decodeInstanceFailureInput(t, input)
+			if document != nil {
+				t.Fatal("invalid XML declaration returned a document")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if got, want := diagnostic.Class(), FailureInvalid; got != want {
+				t.Fatalf("Class() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Code(), InvalidInstanceXMLCode; got != want {
+				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestDecodeInstanceDefersWhitespaceSeparatedNonUTF8Encoding(t *testing.T) {
 	for _, input := range []string{
 		`<?xml version = "1.0" encoding = "UTF-16"?><root/>`,
@@ -349,6 +374,123 @@ func TestDecodeInstanceAcceptsBoundedDTDSubsetItems(t *testing.T) {
 	}
 }
 
+func TestDecodeInstanceAcceptsDTDGrammarVariants(t *testing.T) {
+	for _, input := range []string{
+		`<!DOCTYPE root [<!ELEMENT root (child*)>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root (a?,b+,c*)>]><root/>`,
+		`<!DOCTYPE root [<!ATTLIST root format NOTATION (gif | jpg) #IMPLIED>]><root/>`,
+		`<!DOCTYPE root [<!ATTLIST root format NOTATION (gif|jpg) #IMPLIED>]><root/>`,
+		`<!DOCTYPE root [<!NOTATION image PUBLIC "pubid" "image.bin">]><root/>`,
+	} {
+		t.Run(strconv.Quote(input), func(t *testing.T) {
+			document, err := decodeInstanceFailureInput(t, input)
+			if document != nil {
+				t.Fatal("DTD grammar variant returned a document")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if got, want := diagnostic.Class(), FailureUnsupported; got != want {
+				t.Fatalf("Class() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
+				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestDecodeInstanceAcceptsDTDProcessingInstructionData(t *testing.T) {
+	for _, input := range []string{
+		`<!DOCTYPE root [<?foo >?>]><root/>`,
+		`<!DOCTYPE root [<?foo '?>]><root/>`,
+		`<!DOCTYPE root [<?foo <<?>]><root/>`,
+	} {
+		t.Run(strconv.Quote(input), func(t *testing.T) {
+			document, err := decodeInstanceFailureInput(t, input)
+			if document != nil {
+				t.Fatal("DTD PI variant returned a document")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if got, want := diagnostic.Class(), FailureUnsupported; got != want {
+				t.Fatalf("Class() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
+				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestInstanceLexicalReaderMasksDTDPIDataWithoutChangingLength(t *testing.T) {
+	input := `<!DOCTYPE root [<?foo >?>]><root/>`
+	positions := newSyntaxPositionReader("instance.xml", strings.NewReader(input))
+	reader := &instanceLexicalReader{positions: positions}
+	var transformed strings.Builder
+	for {
+		value, err := reader.ReadByte()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("ReadByte: %v", err)
+		}
+		transformed.WriteByte(value)
+	}
+	if got, want := transformed.String(), `<!DOCTYPE root [<?foo  ?>]><root/>`; got != want {
+		t.Fatalf("transformed DTD PI = %q, want %q", got, want)
+	}
+	if got, want := positions.offset, int64(len(input)); got != want {
+		t.Fatalf("transformed byte length = %d, want %d", got, want)
+	}
+}
+
+func TestInstanceLexicalReaderDoesNotMaskNonDTDDirectiveData(t *testing.T) {
+	for _, input := range []string{
+		`<![CDATA[<!DOCTYPE fake><?foo >?>]]>`,
+		`<!--<!DOCTYPE fake><?foo >?>-->`,
+		`<?pi <!DOCTYPE fake>?>`,
+	} {
+		t.Run(strconv.Quote(input), func(t *testing.T) {
+			positions := newSyntaxPositionReader("instance.xml", strings.NewReader(input))
+			reader := &instanceLexicalReader{positions: positions}
+			reader.beginCapture(0)
+			var transformed strings.Builder
+			for {
+				value, err := reader.ReadByte()
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				if err != nil {
+					t.Fatalf("ReadByte: %v", err)
+				}
+				transformed.WriteByte(value)
+			}
+			if got := transformed.String(); got != input {
+				t.Fatalf("non-DTD transform = %q, want %q", got, input)
+			}
+		})
+	}
+}
+
+func TestDecodeInstancePreservesCDATAContainingDirectiveText(t *testing.T) {
+	input := `<root><![CDATA[<!DOCTYPE fake><?foo >?>]]></root>`
+	document, _ := decodeInstanceTestInput(t, input)
+	text, ok := document.root.children[0].(instanceText)
+	if !ok {
+		t.Fatalf("root child = %T, want instanceText", document.root.children[0])
+	}
+	if got, want := text.data, `<!DOCTYPE fake><?foo >?>`; got != want {
+		t.Fatalf("CDATA text = %q, want %q", got, want)
+	}
+}
+
+func TestDecodeInstancePreservesNonDTDDirectiveText(t *testing.T) {
+	input := `<root><!--<!DOCTYPE fake><?foo >?>--><?pi <!DOCTYPE fake>?></root>`
+	document, _ := decodeInstanceTestInput(t, input)
+	if len(document.root.children) != 0 {
+		t.Fatalf("non-DTD directive children = %d, want 0", len(document.root.children))
+	}
+}
+
 func TestDecodeInstanceDTDStructuralErrorsRemainInvalid(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -373,6 +515,10 @@ func TestDecodeInstanceDTDStructuralErrorsRemainInvalid(t *testing.T) {
 		{name: "invalid DTD QName prefix", input: "<!DOCTYPE :root><root/>", code: InvalidInstanceXMLCode},
 		{name: "invalid DTD QName local", input: "<!DOCTYPE root:><root/>", code: InvalidInstanceXMLCode},
 		{name: "multiple DTD QName separators", input: "<!DOCTYPE a:b:c><root/>", code: InvalidInstanceXMLCode},
+		{name: "ELEMENT QName separators", input: "<!DOCTYPE root [<!ELEMENT a:b:c EMPTY>]><root/>", code: InvalidInstanceXMLCode},
+		{name: "content QName separators", input: "<!DOCTYPE root [<!ELEMENT root (a:b:c)>]><root/>", code: InvalidInstanceXMLCode},
+		{name: "ATTLIST element QName separators", input: "<!DOCTYPE root [<!ATTLIST a:b:c id CDATA #IMPLIED>]><root/>", code: InvalidInstanceXMLCode},
+		{name: "ATTLIST attribute QName separators", input: "<!DOCTYPE root [<!ATTLIST root a:b:c CDATA #IMPLIED>]><root/>", code: InvalidInstanceXMLCode},
 		{name: "invalid PUBLIC literal", input: "<!DOCTYPE root PUBLIC \"-//Example<DTD\" \"root.dtd\"><root/>", code: InvalidInstanceXMLCode},
 		{name: "ELEMENT missing contentspec", input: "<!DOCTYPE root [<!ELEMENT root>]><root/>", code: InvalidInstanceXMLCode},
 		{name: "mixed contentspec missing repetition", input: "<!DOCTYPE root [<!ELEMENT root (#PCDATA|child)>]><root/>", code: InvalidInstanceXMLCode},
@@ -396,6 +542,27 @@ func TestDecodeInstanceDTDStructuralErrorsRemainInvalid(t *testing.T) {
 				t.Fatalf("Class() = %q, want %q", got, want)
 			}
 			if got, want := diagnostic.Code(), test.code; got != want {
+				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestDecodeInstanceRejectsAttributesWithoutSeparatingSpace(t *testing.T) {
+	for _, input := range []string{
+		`<root a="1"b="2"/>`,
+		`<!DOCTYPE root><root a="1"b="2"/>`,
+	} {
+		t.Run(strconv.Quote(input), func(t *testing.T) {
+			document, err := decodeInstanceFailureInput(t, input)
+			if document != nil {
+				t.Fatal("malformed start tag returned a document")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if got, want := diagnostic.Class(), FailureInvalid; got != want {
+				t.Fatalf("Class() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Code(), InvalidInstanceXMLCode; got != want {
 				t.Fatalf("Code() = %q, want %q", got, want)
 			}
 		})
@@ -435,6 +602,101 @@ func TestDecodeInstanceDTDNamedEntityStructuralErrorsRemainPrimary(t *testing.T)
 			document, err := decodeInstanceFailureInput(t, input)
 			if document != nil {
 				t.Fatal("malformed DTD-dependent entity returned a document")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if got, want := diagnostic.Class(), FailureInvalid; got != want {
+				t.Fatalf("Class() = %q, want %q", got, want)
+			}
+			if got, want := diagnostic.Code(), InvalidInstanceXMLCode; got != want {
+				t.Fatalf("Code() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestDecodeInstanceDefersDTDDefaultNamespaceBinding(t *testing.T) {
+	for _, input := range []string{
+		`<!DOCTYPE p:root [<!ATTLIST p:root xmlns:p CDATA "urn:p">]><p:root/>`,
+		`<!DOCTYPE p:root [<!ELEMENT p:root EMPTY><!ATTLIST p:root xmlns:p CDATA "urn:p">]><p:root/>`,
+	} {
+		document, err := decodeInstanceFailureInput(t, input)
+		if document != nil {
+			t.Fatal("DTD default namespace returned a document")
+		}
+		diagnostic := requireDiagnostic(t, err)
+		if got, want := diagnostic.Class(), FailureUnsupported; got != want {
+			t.Fatalf("Class() = %q, want %q", got, want)
+		}
+		if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
+			t.Fatalf("Code() = %q, want %q", got, want)
+		}
+	}
+
+	input := `<!DOCTYPE p:root [<!ATTLIST p:root xmlns:p CDATA "urn:p">]><p:root>`
+	document, err := decodeInstanceFailureInput(t, input)
+	if document != nil {
+		t.Fatal("malformed DTD default namespace returned a document")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if got, want := diagnostic.Class(), FailureInvalid; got != want {
+		t.Fatalf("malformed document Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), InvalidInstanceXMLCode; got != want {
+		t.Fatalf("malformed document Code() = %q, want %q", got, want)
+	}
+
+	document, err = decodeInstanceFailureInput(t, `<!DOCTYPE p:root [<!ATTLIST p:root xmlns:p CDATA #IMPLIED>]><p:root/>`)
+	if document != nil {
+		t.Fatal("DTD implied namespace returned a document")
+	}
+	diagnostic = requireDiagnostic(t, err)
+	if got, want := diagnostic.Class(), FailureInvalid; got != want {
+		t.Fatalf("DTD implied namespace Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), InvalidInstanceNamespaceCode; got != want {
+		t.Fatalf("DTD implied namespace Code() = %q, want %q", got, want)
+	}
+}
+
+func TestDecodeInstanceDefersUnresolvedDTDNamespaceForExternalDefaults(t *testing.T) {
+	// An external subset may provide the missing namespace declaration, so the
+	// instance remains structurally deferred rather than being rejected early.
+	document, err := decodeInstanceFailureInput(t, `<!DOCTYPE root SYSTEM "root.dtd"><p:root/>`)
+	if document != nil {
+		t.Fatal("DTD namespace fallback returned a document")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if got, want := diagnostic.Class(), FailureUnsupported; got != want {
+		t.Fatalf("Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), UnsupportedInstanceSyntaxCode; got != want {
+		t.Fatalf("Code() = %q, want %q", got, want)
+	}
+
+	document, err = decodeInstanceFailureInput(t, `<!DOCTYPE root><p:root/>`)
+	if document != nil {
+		t.Fatal("simple DTD namespace fallback returned a document")
+	}
+	diagnostic = requireDiagnostic(t, err)
+	if got, want := diagnostic.Class(), FailureInvalid; got != want {
+		t.Fatalf("simple DTD Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), InvalidInstanceNamespaceCode; got != want {
+		t.Fatalf("simple DTD Code() = %q, want %q", got, want)
+	}
+}
+
+func TestDecodeInstanceRequiresLexicalEndElementNameMatch(t *testing.T) {
+	for _, input := range []string{
+		`<p:root xmlns:p="urn:x" xmlns:q="urn:x"></q:root>`,
+		`<root xmlns="urn:x" xmlns:p="urn:x"></p:root>`,
+		`<!DOCTYPE p:root><p:root xmlns:p="urn:x"></q:root>`,
+		`<!DOCTYPE root><root xmlns="urn:x" xmlns:p="urn:x"></p:root>`,
+	} {
+		t.Run(strconv.Quote(input), func(t *testing.T) {
+			document, err := decodeInstanceFailureInput(t, input)
+			if document != nil {
+				t.Fatal("lexically mismatched end element returned a document")
 			}
 			diagnostic := requireDiagnostic(t, err)
 			if got, want := diagnostic.Class(), FailureInvalid; got != want {
