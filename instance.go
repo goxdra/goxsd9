@@ -77,6 +77,7 @@ type instanceRawAttribute struct {
 type instanceFrame struct {
 	element *instanceElement
 	name    syntaxName
+	rawName string
 	scope   *syntaxScope
 	loc     Loc
 }
@@ -87,12 +88,13 @@ type instanceDecoder struct {
 	positions *syntaxPositionReader
 	lexical   *instanceLexicalReader
 
-	root        *instanceElement
-	stack       []instanceFrame
-	rootClosed  bool
-	seenToken   bool
-	seenXML     bool
-	unsupported error
+	root            *instanceElement
+	stack           []instanceFrame
+	rootClosed      bool
+	seenToken       bool
+	seenXML         bool
+	unsupported     error
+	allowUnboundDTD bool
 }
 
 type instanceDecodeConfig struct {
@@ -103,6 +105,17 @@ type instanceLexicalReader struct {
 	positions    *syntaxPositionReader
 	capture      []byte
 	captureStart int64
+
+	doctype                   bool
+	doctypeDepth              int
+	doctypeQuote              byte
+	doctypeComment            bool
+	doctypePI                 bool
+	doctypePIPreviousQuestion bool
+	doctypePrevious1          byte
+	doctypePrevious2          byte
+	doctypePrevious3          byte
+	doctypeProbe              int
 }
 
 func (reader *instanceLexicalReader) ReadByte() (byte, error) {
@@ -111,23 +124,154 @@ func (reader *instanceLexicalReader) ReadByte() (byte, error) {
 		return 0, err
 	}
 	reader.captureByte(value)
-	return value, nil
+	return reader.transformByte(value), nil
 }
 
 func (reader *instanceLexicalReader) Read(buffer []byte) (int, error) {
 	n, err := reader.positions.Read(buffer)
 	for index := 0; index < n; index++ {
-		reader.captureByte(buffer[index])
+		value := buffer[index]
+		reader.captureByte(value)
+		buffer[index] = reader.transformByte(value)
 	}
 	return n, err
+}
+
+func (reader *instanceLexicalReader) transformByte(value byte) byte {
+	if reader.doctype {
+		return reader.transformDoctypeByte(value)
+	}
+	reader.observeDoctypePrefix(value)
+	return value
+}
+
+func (reader *instanceLexicalReader) observeDoctypePrefix(value byte) {
+	const prefix = "<!DOCTYPE"
+	if reader.doctypeProbe < 0 {
+		return
+	}
+	if reader.doctypeProbe == 0 {
+		if value == '<' {
+			reader.doctypeProbe = 1
+			return
+		}
+		reader.doctypeProbe = -1
+		return
+	}
+	if reader.doctypeProbe < len(prefix) && value == prefix[reader.doctypeProbe] {
+		reader.doctypeProbe++
+		if reader.doctypeProbe == len(prefix) {
+			reader.doctype = true
+			reader.doctypeDepth = 1
+			reader.doctypeProbe = 0
+			reader.resetDoctypeHistory()
+		}
+		return
+	}
+	reader.doctypeProbe = -1
+}
+
+func (reader *instanceLexicalReader) transformDoctypeByte(value byte) byte {
+	if reader.doctypePI {
+		return reader.transformDoctypePIByte(value)
+	}
+	if reader.doctypeComment {
+		return reader.transformDoctypeCommentByte(value)
+	}
+	if reader.doctypeQuote != 0 {
+		return reader.transformDoctypeQuoteByte(value)
+	}
+	if reader.doctypePrevious1 == '<' && value == '?' {
+		reader.doctypePI = true
+		reader.doctypePIPreviousQuestion = false
+		reader.rememberDoctypeByte(value)
+		return value
+	}
+	return reader.transformDoctypeMarkupByte(value)
+}
+
+func (reader *instanceLexicalReader) transformDoctypePIByte(value byte) byte {
+	if reader.doctypePIPreviousQuestion && value == '>' {
+		reader.doctypePI = false
+		reader.doctypePIPreviousQuestion = false
+		reader.doctypeDepth--
+		reader.resetDoctypeHistory()
+		return value
+	}
+	reader.doctypePIPreviousQuestion = value == '?'
+	if value == '<' || value == '>' || value == '\'' || value == '"' {
+		return ' '
+	}
+	return value
+}
+
+func (reader *instanceLexicalReader) transformDoctypeCommentByte(value byte) byte {
+	if reader.doctypePrevious2 == '-' && reader.doctypePrevious1 == '-' && value == '>' {
+		reader.doctypeComment = false
+	}
+	reader.rememberDoctypeByte(value)
+	return value
+}
+
+func (reader *instanceLexicalReader) transformDoctypeQuoteByte(value byte) byte {
+	if value == reader.doctypeQuote {
+		reader.doctypeQuote = 0
+	}
+	reader.rememberDoctypeByte(value)
+	return value
+}
+
+func (reader *instanceLexicalReader) transformDoctypeMarkupByte(value byte) byte {
+	if reader.doctypePrevious3 == '<' && reader.doctypePrevious2 == '!' && reader.doctypePrevious1 == '-' && value == '-' {
+		reader.doctypeComment = true
+		reader.doctypeDepth--
+		reader.rememberDoctypeByte(value)
+		return value
+	}
+	switch value {
+	case '\'', '"':
+		reader.doctypeQuote = value
+	case '<':
+		reader.doctypeDepth++
+	case '>':
+		reader.doctypeDepth--
+		if reader.doctypeDepth == 0 {
+			reader.doctype = false
+			reader.resetDoctypeHistory()
+			return value
+		}
+	}
+	reader.rememberDoctypeByte(value)
+	return value
+}
+
+func (reader *instanceLexicalReader) rememberDoctypeByte(value byte) {
+	reader.doctypePrevious3 = reader.doctypePrevious2
+	reader.doctypePrevious2 = reader.doctypePrevious1
+	reader.doctypePrevious1 = value
+}
+
+func (reader *instanceLexicalReader) resetDoctypeHistory() {
+	reader.doctypePrevious1 = 0
+	reader.doctypePrevious2 = 0
+	reader.doctypePrevious3 = 0
 }
 
 func (reader *instanceLexicalReader) beginCapture(logicalOffset int64) {
 	reader.capture = reader.capture[:0]
 	reader.captureStart = logicalOffset
+	reader.doctype = false
+	reader.doctypeDepth = 0
+	reader.doctypeQuote = 0
+	reader.doctypeComment = false
+	reader.doctypePI = false
+	reader.doctypePIPreviousQuestion = false
+	reader.doctypeProbe = 0
+	reader.resetDoctypeHistory()
 	missing := reader.positions.offset - logicalOffset
 	if missing == 1 {
 		reader.capture = append(reader.capture, '<')
+		reader.doctypeProbe = 1
 	}
 }
 
@@ -362,6 +506,7 @@ func (parser *instanceDecoder) handleToken(token xml.Token, loc Loc, rawToken []
 				return err
 			}
 			parser.unsupported = newInstanceUnsupported(loc, "DTD declarations are not supported", nil)
+			parser.allowUnboundDTD = instanceDoctypeMaySupplyNamespaces(rawToken)
 			parser.decoder.Strict = false
 			parser.seenToken = true
 			return nil
@@ -511,6 +656,121 @@ func validateInstanceDoctypeSubset(body []byte, index int, loc Loc) error {
 	return invalidInstanceDoctype(loc, "unterminated DTD internal subset")
 }
 
+func instanceDoctypeMaySupplyNamespaces(raw []byte) bool {
+	body, ok := instanceDoctypeBody(raw)
+	if !ok {
+		return false
+	}
+	index, ok := consumeInstanceDoctypeRoot(body)
+	if !ok || index == len(body) {
+		return false
+	}
+	if body[index] != '[' {
+		return true
+	}
+	return instanceDoctypeSubsetMaySupplyNamespaces(body, index+1)
+}
+
+func instanceDoctypeSubsetMaySupplyNamespaces(body []byte, index int) bool {
+	for index < len(body) {
+		if consumeInstanceDoctypeSpace(body, &index) {
+			continue
+		}
+		if body[index] == ']' {
+			return false
+		}
+		next, namespace, ok := instanceDoctypeNamespaceItem(body, index)
+		if !ok {
+			return false
+		}
+		if namespace {
+			return true
+		}
+		index = next
+	}
+	return false
+}
+
+func instanceDoctypeNamespaceItem(body []byte, index int) (int, bool, bool) {
+	if body[index] == '%' {
+		next, ok := consumeInstanceDoctypePEReference(body, index)
+		return next, true, ok
+	}
+	if bytes.HasPrefix(body[index:], []byte("<!--")) {
+		next, ok := consumeInstanceDoctypeComment(body, index)
+		return next, false, ok
+	}
+	if bytes.HasPrefix(body[index:], []byte("<?")) {
+		next, ok := consumeInstanceDoctypePI(body, index)
+		return next, false, ok
+	}
+	if !bytes.HasPrefix(body[index:], []byte("<!")) {
+		return 0, false, false
+	}
+	next, ok := consumeInstanceDoctypeMarkup(body, index)
+	if !ok {
+		return 0, false, false
+	}
+	if bytes.HasPrefix(body[index:], []byte("<!ATTLIST")) && instanceDoctypeAttlistHasNamespace(body[index:next]) {
+		return next, true, true
+	}
+	return next, false, true
+}
+
+func instanceDoctypeAttlistHasNamespace(declaration []byte) bool {
+	index := len("<!ATTLIST")
+	if !consumeInstanceDoctypeSpace(declaration, &index) || !consumeInstanceDoctypeQName(declaration, &index) {
+		return false
+	}
+	for {
+		name, done, ok := instanceDoctypeAttlistAttribute(declaration, &index)
+		if !ok {
+			return false
+		}
+		if done {
+			return false
+		}
+		if name != "" {
+			return true
+		}
+	}
+}
+
+func instanceDoctypeAttlistAttribute(declaration []byte, index *int) (string, bool, bool) {
+	if !consumeInstanceDoctypeSpace(declaration, index) {
+		return "", false, false
+	}
+	if *index >= len(declaration) || declaration[*index] == '>' {
+		return "", true, true
+	}
+	nameStart := *index
+	if !consumeInstanceDoctypeQName(declaration, index) {
+		return "", false, false
+	}
+	name := string(declaration[nameStart:*index])
+	if !consumeInstanceDoctypeSpace(declaration, index) || !consumeInstanceDoctypeAttType(declaration, index) || !consumeInstanceDoctypeSpace(declaration, index) {
+		return "", false, false
+	}
+	defaultStart := *index
+	if !consumeInstanceDoctypeDefaultDecl(declaration, index) {
+		return "", false, false
+	}
+	if (name != "xmlns" && !strings.HasPrefix(name, "xmlns:")) || !instanceDoctypeDefaultSuppliesValue(declaration[defaultStart:*index]) {
+		return "", false, true
+	}
+	return name, false, true
+}
+
+func instanceDoctypeDefaultSuppliesValue(value []byte) bool {
+	if len(value) == 0 {
+		return false
+	}
+	if value[0] == '\'' || value[0] == '"' {
+		return true
+	}
+	return bytes.HasPrefix(value, []byte("#FIXED"))
+}
+
 func consumeInstanceDoctypeComment(body []byte, index int) (int, bool) {
 	commentEnd := bytes.Index(body[index+4:], []byte("-->"))
 	if commentEnd < 0 {
@@ -595,7 +855,7 @@ func consumeInstanceDoctypeMarkup(body []byte, index int) (int, bool) {
 }
 
 func consumeInstanceDoctypeElement(body []byte, index int) (int, bool) {
-	if !consumeInstanceDoctypeName(body, &index) || !consumeInstanceDoctypeSpace(body, &index) {
+	if !consumeInstanceDoctypeQName(body, &index) || !consumeInstanceDoctypeSpace(body, &index) {
 		return 0, false
 	}
 	if !consumeInstanceDoctypeContentSpec(body, &index) {
@@ -641,7 +901,7 @@ func consumeInstanceDoctypeMixedModel(body []byte, index *int) bool {
 	for *index < len(body) && body[*index] == '|' {
 		(*index)++
 		consumeInstanceDoctypeSpace(body, index)
-		if !consumeInstanceDoctypeName(body, index) {
+		if !consumeInstanceDoctypeQName(body, index) {
 			return false
 		}
 		nameCount++
@@ -705,11 +965,17 @@ func consumeInstanceDoctypeContentParticle(body []byte, index *int) bool {
 	if *index < len(body) && body[*index] == '(' {
 		return consumeInstanceDoctypeModel(body, index)
 	}
-	return consumeInstanceDoctypeName(body, index)
+	if !consumeInstanceDoctypeQName(body, index) {
+		return false
+	}
+	if *index < len(body) && (body[*index] == '?' || body[*index] == '*' || body[*index] == '+') {
+		(*index)++
+	}
+	return true
 }
 
 func consumeInstanceDoctypeAttlist(body []byte, index int) (int, bool) {
-	if !consumeInstanceDoctypeName(body, &index) {
+	if !consumeInstanceDoctypeQName(body, &index) {
 		return 0, false
 	}
 	for {
@@ -719,7 +985,7 @@ func consumeInstanceDoctypeAttlist(body []byte, index int) (int, bool) {
 		if index >= len(body) || body[index] == '>' {
 			return consumeInstanceDoctypeMarkupEnd(body, index)
 		}
-		if !consumeInstanceDoctypeName(body, &index) || !consumeInstanceDoctypeSpace(body, &index) {
+		if !consumeInstanceDoctypeQName(body, &index) || !consumeInstanceDoctypeSpace(body, &index) {
 			return 0, false
 		}
 		if !consumeInstanceDoctypeAttType(body, &index) || !consumeInstanceDoctypeSpace(body, &index) {
@@ -761,10 +1027,16 @@ func consumeInstanceDoctypeNameList(body []byte, index *int) bool {
 	if !consumeInstanceDoctypeName(body, index) {
 		return false
 	}
-	for consumeInstanceDoctypeSpace(body, index) {
+	for {
+		consumeInstanceDoctypeSpace(body, index)
 		if *index >= len(body) || body[*index] == ')' {
 			break
 		}
+		if body[*index] != '|' {
+			return false
+		}
+		(*index)++
+		consumeInstanceDoctypeSpace(body, index)
 		if !consumeInstanceDoctypeName(body, index) {
 			return false
 		}
@@ -883,6 +1155,15 @@ func consumeInstanceDoctypeNotation(body []byte, index int) (int, bool) {
 		if !consumeInstanceDoctypeSpace(body, &index) || !consumeInstanceDoctypeLiteral(body, &index, true) {
 			return 0, false
 		}
+		publicEnd := index
+		consumeInstanceDoctypeSpace(body, &index)
+		if index >= len(body) || (body[index] != '\'' && body[index] != '"') {
+			index = publicEnd
+			return consumeInstanceDoctypeMarkupEnd(body, index)
+		}
+		if !consumeInstanceDoctypeLiteral(body, &index, false) {
+			return 0, false
+		}
 		return consumeInstanceDoctypeMarkupEnd(body, index)
 	}
 	var ok bool
@@ -918,11 +1199,21 @@ func isInstanceDoctypeDelimiter(value byte) bool {
 }
 
 func consumeInstanceDoctypeName(body []byte, index *int) bool {
+	value, ok := consumeInstanceDoctypeNameToken(body, index)
+	return ok && validInstanceXMLNameToken(value)
+}
+
+func consumeInstanceDoctypeQName(body []byte, index *int) bool {
+	value, ok := consumeInstanceDoctypeNameToken(body, index)
+	return ok && validInstanceXMLName(value)
+}
+
+func consumeInstanceDoctypeNameToken(body []byte, index *int) (string, bool) {
 	start := *index
 	for *index < len(body) {
 		character, size := utf8.DecodeRune(body[*index:])
 		if character == utf8.RuneError && size == 1 {
-			return false
+			return "", false
 		}
 		if character != ':' && !validNCNameChar(character) {
 			break
@@ -930,9 +1221,9 @@ func consumeInstanceDoctypeName(body []byte, index *int) bool {
 		*index += size
 	}
 	if start == *index {
-		return false
+		return "", false
 	}
-	return validInstanceXMLNameToken(string(body[start:*index]))
+	return string(body[start:*index]), true
 }
 
 func consumeInstanceDoctypeNmtoken(body []byte, index *int) bool {
@@ -1203,11 +1494,11 @@ func (parser *instanceDecoder) startElement(token xml.StartElement, loc Loc, raw
 	if err != nil {
 		return err
 	}
-	name, err := resolveInstanceName(token.Name, scope, true, loc)
+	name, err := resolveInstanceName(token.Name, scope, true, parser.allowUnboundDTD, loc)
 	if err != nil {
 		return err
 	}
-	attrs, err := instanceAttributes(token.Attr, scope, rawAttributes, rawAttributesOK, loc)
+	attrs, err := instanceAttributes(token.Attr, scope, rawAttributes, rawAttributesOK, loc, parser.allowUnboundDTD)
 	if err != nil {
 		return err
 	}
@@ -1228,6 +1519,7 @@ func (parser *instanceDecoder) startElement(token xml.StartElement, loc Loc, raw
 	parser.stack = append(parser.stack, instanceFrame{
 		element: element,
 		name:    name,
+		rawName: instanceLexicalName(token.Name),
 		scope:   scope,
 		loc:     loc,
 	})
@@ -1246,7 +1538,17 @@ func (parser *instanceDecoder) endElement(token xml.EndElement, loc Loc) error {
 		)
 	}
 	frame := parser.stack[len(parser.stack)-1]
-	name, err := resolveInstanceName(token.Name, frame.scope, true, loc)
+	rawName := instanceLexicalName(token.Name)
+	if rawName != frame.rawName {
+		return newInstanceInvalid(
+			InvalidInstanceXMLCode,
+			loc,
+			fmt.Sprintf("end element </%s> does not match <%s>", rawName, frame.rawName),
+			instanceXMLWellFormedSpecRef,
+			nil,
+		)
+	}
+	name, err := resolveInstanceName(token.Name, frame.scope, true, parser.allowUnboundDTD, loc)
 	if err != nil {
 		return err
 	}
@@ -1405,7 +1707,7 @@ func instanceChildScope(parent *syntaxScope, attrs []xml.Attr, rawAttributes []i
 	return nil, instanceNamespaceError(err, loc)
 }
 
-func resolveInstanceName(name xml.Name, scope *syntaxScope, element bool, loc Loc) (syntaxName, error) {
+func resolveInstanceName(name xml.Name, scope *syntaxScope, element, allowUnbound bool, loc Loc) (syntaxName, error) {
 	if name.Space != "" && !validNCName(name.Space) || !validNCName(name.Local) {
 		return syntaxName{}, newInstanceInvalid(
 			InvalidInstanceNamespaceCode,
@@ -1429,10 +1731,16 @@ func resolveInstanceName(name xml.Name, scope *syntaxScope, element bool, loc Lo
 		return syntaxName{local: name.Local}, nil
 	}
 	namespace, ok := scope.lookup(prefix)
-	if prefix == "" && !ok {
+	if prefix == "" && !ok && !allowUnbound {
 		return syntaxName{local: name.Local}, nil
 	}
 	if !ok {
+		if allowUnbound {
+			// A DTD can provide a namespace declaration through a default
+			// attribute, including from an external subset. Keep the unresolved
+			// name structurally comparable until the deferred DTD diagnostic wins.
+			return syntaxName{namespace: instanceUnresolvedNamespace(prefix), local: name.Local}, nil
+		}
 		return syntaxName{}, newInstanceInvalid(
 			InvalidInstanceNamespaceCode,
 			loc,
@@ -1444,6 +1752,13 @@ func resolveInstanceName(name xml.Name, scope *syntaxScope, element bool, loc Lo
 	return syntaxName{namespace: namespace, local: name.Local}, nil
 }
 
+func instanceUnresolvedNamespace(prefix string) string {
+	if prefix == "" {
+		return "\x00goxsd9:instance-unresolved-default"
+	}
+	return "\x00goxsd9:instance-unresolved-prefix:" + prefix
+}
+
 func instanceLexicalName(name xml.Name) string {
 	if name.Space == "" {
 		return name.Local
@@ -1451,7 +1766,7 @@ func instanceLexicalName(name xml.Name) string {
 	return name.Space + ":" + name.Local
 }
 
-func instanceAttributes(attrs []xml.Attr, scope *syntaxScope, rawAttributes []instanceRawAttribute, rawAttributesOK bool, loc Loc) ([]instanceAttribute, error) {
+func instanceAttributes(attrs []xml.Attr, scope *syntaxScope, rawAttributes []instanceRawAttribute, rawAttributesOK bool, loc Loc, allowUnbound bool) ([]instanceAttribute, error) {
 	result := make([]instanceAttribute, 0, len(attrs))
 	seen := make([]syntaxName, 0, len(attrs))
 	for attrIndex, attr := range attrs {
@@ -1462,7 +1777,7 @@ func instanceAttributes(attrs []xml.Attr, scope *syntaxScope, rawAttributes []in
 		if rawAttributesOK && attrIndex < len(rawAttributes) {
 			attributeLoc = rawAttributes[attrIndex].loc
 		}
-		name, err := resolveInstanceName(attr.Name, scope, false, attributeLoc)
+		name, err := resolveInstanceName(attr.Name, scope, false, allowUnbound, attributeLoc)
 		if err != nil {
 			return nil, err
 		}
@@ -1559,7 +1874,7 @@ func skipInstanceRawStartName(raw []byte, index int) int {
 }
 
 func readInstanceRawAttribute(raw []byte, index *int, start Loc) (instanceRawAttribute, bool, bool) {
-	skipInstanceRawSpace(raw, index)
+	hadSpace := skipInstanceRawSpace(raw, index)
 	if *index >= len(raw) || raw[*index] == '>' {
 		return instanceRawAttribute{}, true, true
 	}
@@ -1567,6 +1882,9 @@ func readInstanceRawAttribute(raw []byte, index *int, start Loc) (instanceRawAtt
 		if *index+1 < len(raw) && raw[*index+1] == '>' {
 			return instanceRawAttribute{}, true, true
 		}
+		return instanceRawAttribute{}, false, false
+	}
+	if !hadSpace {
 		return instanceRawAttribute{}, false, false
 	}
 	nameStart := *index
@@ -1637,10 +1955,12 @@ func instanceRawAttributeLoc(start Loc, raw []byte, offset int) Loc {
 	return Loc{source: start.source, line: line, column: column}
 }
 
-func skipInstanceRawSpace(raw []byte, index *int) {
+func skipInstanceRawSpace(raw []byte, index *int) bool {
+	start := *index
 	for *index < len(raw) && isInstanceXMLSpace(raw[*index]) {
 		(*index)++
 	}
+	return *index != start
 }
 
 func skipInstanceRawName(raw []byte, index *int) {
@@ -1788,16 +2108,17 @@ func validateInstanceXMLDeclaration(data []byte, loc Loc) error {
 	}
 	index := 0
 	field := 0
+	encodingSeen := false
+	standaloneSeen := false
 	for {
-		if field > 0 {
-			if !consumeInstanceXMLSpace(data, &index) {
-				return invalidInstanceXMLDeclaration(loc, "invalid XML declaration spacing")
-			}
-			if index == len(data) {
-				return nil
-			}
+		name, done, err := readNextInstanceXMLDeclarationField(data, &index, field, loc)
+		if err != nil {
+			return err
 		}
-		if err := readInstanceXMLDeclarationField(data, &index, field, loc); err != nil {
+		if done {
+			return nil
+		}
+		if err := validateInstanceXMLDeclarationFieldOrder(name, field, &encodingSeen, &standaloneSeen, loc); err != nil {
 			return err
 		}
 		field++
@@ -1805,6 +2126,36 @@ func validateInstanceXMLDeclaration(data []byte, loc Loc) error {
 			return nil
 		}
 	}
+}
+
+func readNextInstanceXMLDeclarationField(data []byte, index *int, field int, loc Loc) (string, bool, error) {
+	if field == 0 {
+		name, err := readInstanceXMLDeclarationField(data, index, field, loc)
+		return name, false, err
+	}
+	if !consumeInstanceXMLSpace(data, index) {
+		return "", false, invalidInstanceXMLDeclaration(loc, "invalid XML declaration spacing")
+	}
+	if *index == len(data) {
+		return "", true, nil
+	}
+	name, err := readInstanceXMLDeclarationField(data, index, field, loc)
+	return name, false, err
+}
+
+func validateInstanceXMLDeclarationFieldOrder(name string, field int, encodingSeen, standaloneSeen *bool, loc Loc) error {
+	if name == "encoding" {
+		*encodingSeen = true
+		return nil
+	}
+	if name != "standalone" {
+		return nil
+	}
+	if *standaloneSeen || field == 2 && !*encodingSeen {
+		return invalidInstanceXMLDeclaration(loc, "invalid XML declaration field order")
+	}
+	*standaloneSeen = true
+	return nil
 }
 
 func instanceXMLDeclarationData(rawToken []byte) ([]byte, bool) {
@@ -1849,26 +2200,26 @@ func instanceXMLDeclarationEncoding(data []byte) string {
 	return ""
 }
 
-func readInstanceXMLDeclarationField(data []byte, index *int, field int, loc Loc) error {
+func readInstanceXMLDeclarationField(data []byte, index *int, field int, loc Loc) (string, error) {
 	nameStart := *index
 	for *index < len(data) && isInstanceXMLDeclarationNameByte(data[*index]) {
 		(*index)++
 	}
 	if nameStart == *index {
-		return invalidInstanceXMLDeclaration(loc, "invalid XML declaration field")
+		return "", invalidInstanceXMLDeclaration(loc, "invalid XML declaration field")
 	}
 	name := string(data[nameStart:*index])
 	if !instanceXMLDeclarationFieldAllowed(name, field) {
-		return invalidInstanceXMLDeclaration(loc, "invalid XML declaration field order")
+		return "", invalidInstanceXMLDeclaration(loc, "invalid XML declaration field order")
 	}
 	value, ok := readInstanceXMLDeclarationValue(data, index)
 	if !ok {
-		return invalidInstanceXMLDeclaration(loc, "invalid XML declaration value")
+		return "", invalidInstanceXMLDeclaration(loc, "invalid XML declaration value")
 	}
 	if !instanceXMLDeclarationValueAllowed(name, value) {
-		return invalidInstanceXMLDeclaration(loc, "invalid XML declaration value")
+		return "", invalidInstanceXMLDeclaration(loc, "invalid XML declaration value")
 	}
-	return nil
+	return name, nil
 }
 
 func invalidInstanceXMLDeclaration(loc Loc, message string) error {
@@ -1907,7 +2258,7 @@ func instanceXMLDeclarationFieldAllowed(name string, field int) bool {
 	case 0:
 		return name == "version"
 	case 1:
-		return name == "encoding"
+		return name == "encoding" || name == "standalone"
 	case 2:
 		return name == "standalone"
 	default:
