@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCleanupRemovesOnlyMergedPrimaryAndCompanionClaims(t *testing.T) {
@@ -71,6 +72,48 @@ func TestCleanupRemovesOnlyMergedPrimaryAndCompanionClaims(t *testing.T) {
 	}
 	if err := application.cleanupClaims(base, packet); err != nil {
 		t.Fatalf("repeated cleanupClaims: %v", err)
+	}
+}
+
+func TestPrepareCleanupPlanAllowsExpectedRunLocalWorktreeBeforeMerge(t *testing.T) {
+	fixture := newBaseRepositoryFixture(t, false)
+	configureTestIdentity(t, fixture.linked)
+	writeFixtureFile(t, fixture.linked, "claim", "claim\n")
+	runGitTest(t, fixture.linked, "add", "claim")
+	runGitTest(t, fixture.linked, "commit", "--no-gpg-sign", "-m", claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)))
+	writeFixtureFile(t, fixture.linked, "evaluated", "evaluated\n")
+	runGitTest(t, fixture.linked, "add", "evaluated")
+	runGitTest(t, fixture.linked, "commit", "--no-gpg-sign", "-m", "feat: evaluated work")
+	head := runGitTest(t, fixture.linked, "rev-parse", "HEAD")
+	runGitTest(t, fixture.linked, "push", "origin", "HEAD:refs/heads/agent/issue-55")
+
+	runBranch := "agent/issue-55-run-good"
+	runPath := claimWorktreePath(fixture.primary, runBranch)
+	runGitTest(t, fixture.primary, "worktree", "add", "-b", runBranch, runPath, head)
+
+	recordedAt := time.Date(2026, time.August, 19, 12, 0, 0, 0, time.UTC)
+	view := pullRequestView{
+		BaseRefName: "main",
+		Body:        recoveryBody,
+		HeadRefName: "agent/issue-55",
+		HeadRefOID:  head,
+		Comments:    recoveryEvaluationHistory(t, 15, head, recordedAt),
+	}
+	view.ClosingIssuesReferences = append(view.ClosingIssuesReferences, struct {
+		Number int `json:"number"`
+	}{Number: 55})
+
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}}
+	layout, err := application.repositoryLayout(runPath)
+	if err != nil {
+		t.Fatalf("repositoryLayout: %v", err)
+	}
+	plan, err := application.prepareCleanupPlan(runPath, layout, view, 55, 15)
+	if err != nil {
+		t.Fatalf("prepareCleanupPlan: %v", err)
+	}
+	if len(plan.claims) != 1 || plan.claims[0].localBranch != runBranch || !samePath(plan.claims[0].worktreePath, runPath) {
+		t.Fatalf("cleanup plan claims = %#v, want expected run-local worktree", plan.claims)
 	}
 }
 

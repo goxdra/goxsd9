@@ -1269,7 +1269,7 @@ func validEvaluationClaimProofs(issues []int, proofs []evaluationClaimProof) boo
 		if proof.Issue < 1 || proof.Branch == "" || proof.SHA == "" {
 			return false
 		}
-		issue, ok := issueFromBranch(proof.Branch)
+		issue, ok := fixedClaimIssue(proof.Branch)
 		if !ok || issue != proof.Issue {
 			return false
 		}

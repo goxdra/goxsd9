@@ -251,7 +251,7 @@ func validateRecoveryMetadata(view pullRequestView, proof mergeEvaluationProof, 
 }
 
 func recoveryPrimary(proof mergeEvaluationProof, pullRequestNumber int) (int, error) {
-	primary, ok := issueFromBranch(proof.headRefName)
+	primary, ok := fixedClaimIssue(proof.headRefName)
 	if !ok {
 		return 0, stateError("merged PR #%d head branch %q is not an issue claim; preserve claim artifacts", pullRequestNumber, proof.headRefName)
 	}
@@ -324,7 +324,7 @@ func validateRecoveryClaimProofs(proofs []evaluationClaimProof, issues []int, pu
 		if claim.Issue < 1 || claim.Branch == "" || claim.SHA == "" {
 			return stateError("merged PR #%d has malformed immutable claim proof; preserve claim artifacts", pullRequestNumber)
 		}
-		issue, ok := issueFromBranch(claim.Branch)
+		issue, ok := fixedClaimIssue(claim.Branch)
 		if !ok || issue != claim.Issue {
 			return stateError("merged PR #%d immutable claim proof branch %q does not match issue #%d; preserve claim artifacts", pullRequestNumber, claim.Branch, claim.Issue)
 		}
@@ -376,14 +376,17 @@ func (a app) localClaimRefs(root string) ([]remoteClaim, error) {
 			continue
 		}
 		branch := fields[0]
-		number, ok := issueFromBranch(branch)
-		if !ok {
+		kind, number, _ := classifyAgentRef(branch)
+		if kind != agentRefClaim {
 			continue
 		}
 		claims = append(claims, remoteClaim{branch: branch, number: number, sha: fields[1], source: claimRefLocal})
 	}
 	sort.Slice(claims, func(left, right int) bool {
-		return claims[left].branch < claims[right].branch
+		if claims[left].branch != claims[right].branch {
+			return claims[left].branch < claims[right].branch
+		}
+		return claims[left].sha < claims[right].sha
 	})
 	return claims, nil
 }

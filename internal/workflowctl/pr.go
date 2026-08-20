@@ -503,7 +503,7 @@ func cleanupPlanMatchesReceipt(plan cleanupPlan, receipt evaluationReceipt, numb
 		head:          receipt.Head,
 		headRefName:   receipt.HeadRefName,
 	}
-	primary, ok := issueFromBranch(receipt.HeadRefName)
+	primary, ok := fixedClaimIssue(receipt.HeadRefName)
 	if !ok {
 		return stateError("PR #%d immutable evaluation head ref %q is not an issue claim; preserve claim artifacts", number, receipt.HeadRefName)
 	}
