@@ -34,6 +34,7 @@ func TestDiagnosticCodesAreUnique(t *testing.T) {
 		{name: "SourceResolveCode", code: SourceResolveCode},
 		{name: "SourceInvalidCode", code: SourceInvalidCode},
 		{name: "MissingSchemaLocationCode", code: MissingSchemaLocationCode},
+		{name: "InvalidLanguagePolicyCode", code: InvalidLanguagePolicyCode},
 		{name: "invalidSchemaTargetNamespaceCode", code: invalidSchemaTargetNamespaceCode},
 		{name: "invalidSchemaCompositionCode", code: invalidSchemaCompositionCode},
 		{name: "invalidSchemaDeclarationNameCode", code: invalidSchemaDeclarationNameCode},
