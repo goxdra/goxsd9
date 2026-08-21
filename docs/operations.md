@@ -21,21 +21,23 @@ Three failed rounds add `needs-human`; return issue to Backlog;
 retries continue.
 `go tool workflowctl sync` updates Project status and fetches claim refs; it does
 not sync canonical `main` or recursive submodules.
-Run-local `agent/issue-N-run-ID` refs never affect ownership, Project status, or PR heads; they are inventory-only.
-`base-sync` fetches `origin/main`, fast-forwards clean canonical `main`, and
-checks/updates recursive pins; no reset/rebase/stash/discard.
-Every pushed head saves JSON from
-`go tool workflowctl develop-signals --base BASE_SHA --format json` before
-`pr evidence update`; non-relevant packets: `no-relevant-target`/`not-measured`
-valid. Text: coverage/fuzz; JSON: exact affected/repository deltas,
-selected-target evidence. Parser/datatype replays: bounded offline single-worker
-fuzz; request corpus replay. Regression JSON: exact base/head/reason; totals
-context. Signals stay separate from catalog inventory/XSD conformance/evaluation
-fuzz.
-PR evidence is versioned JSON between owned body markers; `pr evidence update`
-uses exact signal/audit JSON, preserves other body bytes, and is idempotent.
+Run-local refs never affect ownership, Project status, or PR heads; inventory-only.
+`base-sync` fetches `origin/main`, fast-forwards `main`, checks recursive pins;
+no reset/rebase/stash/discard.
+After draft opens, set `PR_NUMBER` from open PR:
+`PR_NUMBER="$(gh pr view --json number --jq '.number')"`; then set
+`BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"` to
+exact REST base SHA; use it for `develop-signals --base "$BASE_SHA"`,
+`docs audit --base "$BASE_SHA"`, and `pr evidence update` JSON; never
+`origin/main` or local merge-base.
+Non-relevant: `no-relevant-target`/`not-measured` valid. Text coverage/fuzz; JSON
+affected/repository deltas/targets. Parser/datatype: bounded offline single-worker
+fuzz; corpus replay. Regression JSON: base/head/reason; totals context. Separate
+signals from catalog inventory/XSD conformance/evaluation fuzz.
+PR evidence is versioned JSON between owned markers; updates use signal/audit JSON,
+preserve other body bytes, and are idempotent.
 Challenge/finish require exact REST base/head, audit, and Curator/no-doc result;
-challenges bind body/evidence digests. Before each Examiner, `evaluation challenge`
+challenges bind body/evidence digests. Before Examiner, `evaluation challenge`
 records one-use head-bound challenge. Examiner JSON is versioned;
 `workflowctl` rejects wrong-head, stale, reused, malformed, or caller-selected
 results. Fresh context required; receipts are evidence, not identity proof.
@@ -45,12 +47,12 @@ If draft-to-ready GraphQL is unavailable, close the draft and create an
 identical-head ready PR via REST, then require a new challenge and fresh
 Examiner. Post-merge Project failures converge on `workflowctl sync`.
 
-The GitHub issue, claim ref, checks, challenge, attestation, receipt, and merge
-commit are the communication record. At finalization, pass a plain-text summary
-outside the repository to `workflowctl pr finish PR --summary-file FILE`; it covers
-problem, outcome, rationale, invariants, and process learning, omitting status,
-commands and claim/review metadata. The command validates it as squash body;
-later runs read it through `workflowctl history`. Use Markdown body files for evidence.
+Issue, claim, checks, challenge, attestation, receipt, and merge commit record
+communication. At finalization, pass a plain-text summary outside the repository
+to `workflowctl pr finish PR --summary-file FILE`; it covers problem, outcome,
+rationale, invariants, and process learning; omit status, commands, and
+claim/review metadata. The command validates the squash body; history reads it.
+Use Markdown body files for evidence.
 
 Summary is non-empty UTF-8 text in a file of at most 8 KiB, LF-only; one final LF
 is accepted. Surrounding/line-trailing whitespace, control, format, other
