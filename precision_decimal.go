@@ -802,20 +802,38 @@ const (
 	precisionDecimalSpecialNaN
 )
 
+// precisionDecimalFacetInput keeps the phase-specific lexical/value pairing
+// used by value facets. The value itself never retains lexical text.
+type precisionDecimalFacetInput struct {
+	normalizedLexical string
+	value             precisionDecimalValue
+}
+
 // parsePrecisionDecimal applies XML whitespace collapse, validates the pinned
 // lexical mapping, and constructs one complete private value-space variant.
 func parsePrecisionDecimal(lexical string, loc Loc) (precisionDecimalValue, error) {
+	input, err := parsePrecisionDecimalFacetInput(lexical, loc)
+	if err != nil {
+		return nil, err
+	}
+	return input.value, nil
+}
+
+func parsePrecisionDecimalFacetInput(lexical string, loc Loc) (precisionDecimalFacetInput, error) {
 	lexeme := collapseXMLWhitespace(lexical)
 	scanned, ok := scanPrecisionDecimalLexical(lexeme)
 	if !ok {
-		return nil, newPrecisionDecimalLexicalDiagnostic(loc)
+		return precisionDecimalFacetInput{}, newPrecisionDecimalLexicalDiagnostic(loc)
 	}
 
 	value, ok := constructPrecisionDecimal(scanned)
 	if ok {
-		return value, nil
+		return precisionDecimalFacetInput{
+			normalizedLexical: lexeme,
+			value:             value,
+		}, nil
 	}
-	return nil, newDiagnostic(
+	return precisionDecimalFacetInput{}, newDiagnostic(
 		FailureInternal,
 		diagnosticPrecisionDecimalConstructionCode,
 		loc,
