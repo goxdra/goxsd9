@@ -92,10 +92,8 @@ opaque library value even though this CLI gives it a reproducible spelling.
 
 The CLI always uses the repository `Compatibility`/default parser pipeline.
 It exposes no language-edition flag, and `schema/@version` never selects a
-policy. `ParseSchemaWithPolicy` and the `Strict10`/`Strict11` policy work remain
-library/conformance boundaries for the policy packets in issues [#127](https://github.com/goxdra/goxsd9/issues/127)
-and [#128](https://github.com/goxdra/goxsd9/issues/128). This preserves the
-accepted boundary in [0004-xsd-language-policy.md](0004-xsd-language-policy.md).
+policy. This preserves the accepted boundary in
+[0004-xsd-language-policy.md](0004-xsd-language-policy.md).
 
 ## Finite offline limits
 
@@ -270,54 +268,21 @@ The last command exits 2 and emits a usage diagnostic. These examples prove
 that path interpretation belongs to the CLI while `ParseSchema` and `Resolver`
 retain their current opaque, sequential boundary.
 
-## Bounded implementation packets
-
-The packets below implement this decision in dependency order. They must not
-claim that the product commands exist until their own acceptance proof passes.
-
-| Issue | Size and dependencies | Outcome | Acceptance proof |
-| --- | --- | --- | --- |
-| [#136](https://github.com/goxdra/goxsd9/issues/136) | XS; depends on this decision, [#99](https://github.com/goxdra/goxsd9/issues/99), and the current parse boundary | Implement `parse` and the shared CLI boundary: local resolver, canonical identities, finite schema limits, deterministic diagnostics, and the `documents=N components=M` summary | Offline tests cover one file, a resolved graph, stdin/root requirements, containment, repeated identities, limits, human/JSON diagnostics, status codes, and exact stdout |
-| [#137](https://github.com/goxdra/goxsd9/issues/137) | S; blocked by [#131](https://github.com/goxdra/goxsd9/issues/131) and [#136](https://github.com/goxdra/goxsd9/issues/136) | Implement `validate` with schema-first ordering, valid/invalid scalar examples, stdin identity, instance limits, and stage-aware diagnostics | Tests prove no instance consumption before schema success, empty success stdout, located invalid/unsupported diagnostics, `-` handling, and status 1/2 behavior |
-| [#138](https://github.com/goxdra/goxsd9/issues/138) | M; depends on [#130](https://github.com/goxdra/goxsd9/issues/130) and [#136](https://github.com/goxdra/goxsd9/issues/136) | Implement `generate`: package/name validation, deterministic formatted scalar Go, stdout/file/force/atomic output, and output limits | Tests compare repeated output byte-for-byte, prove no destination mutation on failure, refusal/force behavior, same-directory atomic replacement, complete stdout, and status diagnostics; choice generation remains explicitly unsupported |
-
-The table is the complete first-slice decomposition. No packet adds network
-access, catalogs, environment lookup, strict language flags, XML Base
-interpretation, broader validation, choice generation, or a public generator
-filesystem policy.
-
 ## Repository and specification evidence
 
-This decision records policy at the command boundary and leaves current library
-design unchanged:
+The current library and product invariants remain canonical in
+[README.md](../../README.md), [ARCHITECTURE.md](../../ARCHITECTURE.md),
+[PLAN.md](../../PLAN.md), [0004-xsd-language-policy.md](0004-xsd-language-policy.md),
+and [0005-codegen-naming.md](0005-codegen-naming.md). This decision records
+only the CLI boundary choices and does not duplicate those documents.
 
-- [`README.md` — Schema parsing](../../README.md) establishes caller-created
-  `ResolvedSource`, resolver-owned policy, opaque paths/URLs, scalar-only
-  validation, and staged generation.
-- [`ARCHITECTURE.md` — Input and resolution](../../ARCHITECTURE.md#input-and-resolution)
-  and [`Diagnostics`](../../ARCHITECTURE.md#diagnostics) require sequential
-  resolver calls, opaque context/location data, deterministic immutable schema
-  state, four failure classes, and no schema after an error.
-- [`PLAN.md` §1 — Vertical slice](../../PLAN.md#1-vertical-slice) makes
-  documented end-to-end library and CLI examples the exit measure.
-- [`resolver.go`](../../resolver.go) defines `Resolver` and
-  `NewResolvedSource`; [`schema_parse.go`](../../schema_parse.go) defines the
-  supported `ParseSchema` entrypoint and policy boundary;
-  [`validation.go`](../../validation.go) defines `ValidateInstance` and its
-  scalar-only behavior.
-- [`diagnostic.go`](../../diagnostic.go) and [`loc.go`](../../loc.go) define
-  stable classes, codes, causes, related locations, and one-based locations.
-  [`cmd/conformance/main.go`](../../cmd/conformance/main.go) and
-  [`cmd/specs/main.go`](../../cmd/specs/main.go) establish the repository's
-  stdout/stderr and 0/1/2 convention.
-- [`0004-xsd-language-policy.md`](0004-xsd-language-policy.md) keeps
-  `schema/@version` inert; [`0005-codegen-naming.md`](0005-codegen-naming.md)
-  keeps package selection caller-owned and naming ordered and deterministic.
-- The W3C schema-document identity/composition anchors are
-  [XSD 1.0 `schemaDoc`](https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/#key-schemaDoc)
-  and [XSD 1.1 `schemaDoc`](https://www.w3.org/TR/2012/REC-xmlschema11-1-20120405/#key-schemaDoc).
-  Their §4.2 composition and §4.3 access clauses support this contract's
-  distinction between normative graph relationships and CLI retrieval policy.
+XSD 1.0 and 1.1 define schema-document composition and include/import
+relationships in §4.2 ([XSD 1.0](https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/#composition),
+[XSD 1.1](https://www.w3.org/TR/2012/REC-xmlschema11-1-20120405/#composition)),
+while their §4.3 access rules leave document location and retrieval to
+processor/application policy. The first slice therefore chooses bounded local
+retrieval while preserving the normative graph relationships and makes no W3C
+conformance claim.
 
 Current gaps and non-goals are intentional: this file defines no command
 implementation, does not broaden the schema or scalar validation slices, does
