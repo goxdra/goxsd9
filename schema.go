@@ -96,12 +96,13 @@ func (id ComponentID) IsZero() bool {
 // Component is an immutable schema component identity and its fundamental
 // source facts. Derived validator and code-generator state is not stored here.
 type Component struct {
-	id         ComponentID
-	kind       ComponentKind
-	name       QName
-	loc        Loc
-	element    *schemaElementComponent
-	simpleType *schemaSimpleTypeComponent
+	id          ComponentID
+	kind        ComponentKind
+	name        QName
+	loc         Loc
+	element     *schemaElementComponent
+	simpleType  *schemaSimpleTypeComponent
+	complexType *schemaComplexTypeComponent
 }
 
 // ID returns the stable identity of the component.
@@ -270,6 +271,165 @@ func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 	return definition.facts.digitFacets
 }
 
+// ComplexType returns the immutable complex-type view for a supported named
+// complex type definition.
+func (component Component) ComplexType() (ComplexTypeDefinition, bool) {
+	if component.complexType == nil {
+		return ComplexTypeDefinition{}, false
+	}
+	return ComplexTypeDefinition{
+		component: component,
+		facts:     component.complexType,
+	}, true
+}
+
+// ComplexTypeDefinition returns the immutable complex-type view for a
+// supported named complex type definition.
+func (component Component) ComplexTypeDefinition() (ComplexTypeDefinition, bool) {
+	return component.ComplexType()
+}
+
+// ComplexTypeDefinition is the immutable type-specific view of a supported
+// named complex type with a particle model.
+type ComplexTypeDefinition struct {
+	component Component
+	facts     *schemaComplexTypeComponent
+}
+
+// Component returns the generic component represented by the view.
+func (definition ComplexTypeDefinition) Component() Component {
+	return definition.component
+}
+
+// ID returns the stable identity of the complex type definition.
+func (definition ComplexTypeDefinition) ID() ComponentID {
+	return definition.component.ID()
+}
+
+// Name returns the expanded name of the complex type definition.
+func (definition ComplexTypeDefinition) Name() QName {
+	return definition.component.Name()
+}
+
+// Loc returns the declaration location of the complex type definition.
+func (definition ComplexTypeDefinition) Loc() Loc {
+	return definition.component.Loc()
+}
+
+// Particle returns the immutable content particle of the complex type.
+func (definition ComplexTypeDefinition) Particle() Particle {
+	if definition.facts == nil {
+		return nil
+	}
+	return definition.facts.particle
+}
+
+// Particle is a concrete immutable content-model alternative.
+type Particle interface {
+	Loc() Loc
+	MinOccurs() uint64
+	MaxOccurs() uint64
+	particle()
+}
+
+// ChoiceParticle is a particle whose alternatives are tried in lexical
+// declaration order.
+type ChoiceParticle struct {
+	facts *schemaChoiceParticle
+}
+
+func (ChoiceParticle) particle() {}
+
+// Loc returns the location of the choice particle.
+func (particle ChoiceParticle) Loc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.loc
+}
+
+// MinOccurs returns the effective minimum occurrence bound.
+func (particle ChoiceParticle) MinOccurs() uint64 {
+	if particle.facts == nil {
+		return 0
+	}
+	return particle.facts.minOccurs
+}
+
+// MaxOccurs returns the effective maximum occurrence bound.
+func (particle ChoiceParticle) MaxOccurs() uint64 {
+	if particle.facts == nil {
+		return 0
+	}
+	return particle.facts.maxOccurs
+}
+
+// Alternatives returns the choice alternatives in lexical declaration order.
+// The returned slice is independent of the completed schema.
+func (particle ChoiceParticle) Alternatives() []Particle {
+	if particle.facts == nil || len(particle.facts.alternatives) == 0 {
+		return nil
+	}
+	return append([]Particle(nil), particle.facts.alternatives...)
+}
+
+// ElementParticle is a local element declaration particle.
+type ElementParticle struct {
+	facts *schemaElementParticle
+}
+
+func (ElementParticle) particle() {}
+
+// Loc returns the location of the local element particle.
+func (particle ElementParticle) Loc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.loc
+}
+
+// MinOccurs returns the effective minimum occurrence bound.
+func (particle ElementParticle) MinOccurs() uint64 {
+	if particle.facts == nil {
+		return 0
+	}
+	return particle.facts.minOccurs
+}
+
+// MaxOccurs returns the effective maximum occurrence bound.
+func (particle ElementParticle) MaxOccurs() uint64 {
+	if particle.facts == nil {
+		return 0
+	}
+	return particle.facts.maxOccurs
+}
+
+// Name returns the expanded name of the local element declaration.
+func (particle ElementParticle) Name() QName {
+	if particle.facts == nil {
+		return QName{}
+	}
+	return particle.facts.name
+}
+
+// DeclaredType returns the expanded QName written in the element's type
+// attribute.
+func (particle ElementParticle) DeclaredType() QName {
+	if particle.facts == nil {
+		return QName{}
+	}
+	return particle.facts.declaredType
+}
+
+// TypeID returns the identity of the named declared type. Built-in datatypes
+// do not have synthetic component identities and return the zero ID.
+func (particle ElementParticle) TypeID() (ComponentID, bool) {
+	if particle.facts == nil || !particle.facts.hasTypeID {
+		return ComponentID{}, false
+	}
+	return particle.facts.typeID, true
+}
+
 // SchemaDocument is an immutable document in a Schema's discovery order.
 type SchemaDocument struct {
 	source          SourceID
@@ -427,11 +587,12 @@ type schemaDocumentInput struct {
 }
 
 type schemaComponentInput struct {
-	kind       ComponentKind
-	name       QName
-	loc        Loc
-	element    *schemaElementInput
-	simpleType *schemaSimpleTypeInput
+	kind        ComponentKind
+	name        QName
+	loc         Loc
+	element     *schemaElementInput
+	simpleType  *schemaSimpleTypeInput
+	complexType *schemaComplexTypeInput
 }
 
 type schemaElementInput struct {
@@ -462,19 +623,58 @@ type schemaSimpleTypeComponent struct {
 	digitFacets DigitFacets
 }
 
+type schemaComplexTypeInput struct {
+	particle *schemaChoiceParticleInput
+}
+
+type schemaChoiceParticleInput struct {
+	loc          Loc
+	minOccurs    uint64
+	maxOccurs    uint64
+	alternatives []schemaElementParticleInput
+}
+
+type schemaElementParticleInput struct {
+	loc       Loc
+	name      QName
+	typeInput *schemaElementInput
+}
+
 type schemaElementComponent struct {
 	declaredType QName
 	typeID       ComponentID
 	hasTypeID    bool
 }
 
+type schemaComplexTypeComponent struct {
+	particle Particle
+}
+
+type schemaChoiceParticle struct {
+	loc          Loc
+	minOccurs    uint64
+	maxOccurs    uint64
+	alternatives []Particle
+}
+
+type schemaElementParticle struct {
+	loc          Loc
+	minOccurs    uint64
+	maxOccurs    uint64
+	name         QName
+	declaredType QName
+	typeID       ComponentID
+	hasTypeID    bool
+}
+
 type schemaComponentRecord struct {
-	id         ComponentID
-	kind       ComponentKind
-	name       QName
-	loc        Loc
-	element    *schemaElementInput
-	simpleType *schemaSimpleTypeInput
+	id          ComponentID
+	kind        ComponentKind
+	name        QName
+	loc         Loc
+	element     *schemaElementInput
+	simpleType  *schemaSimpleTypeInput
+	complexType *schemaComplexTypeInput
 }
 
 // newSchema completes the ordered component representation after discovery
@@ -494,7 +694,11 @@ func newSchema(inputs []schemaDocumentInput) (Schema, error) {
 	if err != nil {
 		return Schema{}, err
 	}
-	components, byID := completeSchemaComponents(records, simpleTypes, elements)
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, simpleTypes)
+	if err != nil {
+		return Schema{}, err
+	}
+	components, byID := completeSchemaComponents(records, simpleTypes, elements, complexTypes)
 	storage := &schemaStorage{
 		components: components,
 		byID:       byID,
@@ -605,11 +809,12 @@ func newSchemaComponentRecord(source SourceID, declarationIndex int, declaration
 			source:  source,
 			ordinal: ordinal,
 		},
-		kind:       declaration.kind,
-		name:       declaration.name,
-		loc:        declaration.loc,
-		element:    declaration.element,
-		simpleType: declaration.simpleType,
+		kind:        declaration.kind,
+		name:        declaration.name,
+		loc:         declaration.loc,
+		element:     declaration.element,
+		simpleType:  declaration.simpleType,
+		complexType: cloneSchemaComplexTypeInput(declaration.complexType),
 	}, nil
 }
 
@@ -631,11 +836,12 @@ func completeSchemaComponents(
 	records []schemaComponentRecord,
 	simpleTypes []schemaSimpleTypeResult,
 	elements []schemaElementTypeResult,
+	complexTypes []schemaComplexTypeResult,
 ) ([]Component, map[ComponentID]int) {
 	components := make([]Component, 0, len(records))
 	byID := make(map[ComponentID]int, len(records))
 	for index, record := range records {
-		component := completeSchemaComponent(record, simpleTypes[index], elements[index])
+		component := completeSchemaComponent(record, simpleTypes[index], elements[index], complexTypes[index])
 		byID[record.id] = len(components)
 		components = append(components, component)
 	}
@@ -646,6 +852,7 @@ func completeSchemaComponent(
 	record schemaComponentRecord,
 	simpleType schemaSimpleTypeResult,
 	element schemaElementTypeResult,
+	complexType schemaComplexTypeResult,
 ) Component {
 	component := Component{
 		id:   record.id,
@@ -669,5 +876,35 @@ func completeSchemaComponent(
 			digitFacets: simpleType.digitFacets,
 		}
 	}
+	if complexType.present {
+		component.complexType = &schemaComplexTypeComponent{
+			particle: complexType.particle,
+		}
+	}
 	return component
+}
+
+func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTypeInput {
+	if input == nil {
+		return nil
+	}
+	clone := &schemaComplexTypeInput{}
+	if input.particle == nil {
+		return clone
+	}
+	clone.particle = &schemaChoiceParticleInput{
+		loc:       input.particle.loc,
+		minOccurs: input.particle.minOccurs,
+		maxOccurs: input.particle.maxOccurs,
+	}
+	clone.particle.alternatives = make([]schemaElementParticleInput, len(input.particle.alternatives))
+	for index, alternative := range input.particle.alternatives {
+		clone.particle.alternatives[index] = alternative
+		if alternative.typeInput == nil {
+			continue
+		}
+		typeInput := *alternative.typeInput
+		clone.particle.alternatives[index].typeInput = &typeInput
+	}
+	return clone
 }

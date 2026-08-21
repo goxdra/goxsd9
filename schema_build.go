@@ -364,6 +364,13 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version 
 		}
 		declaration.element = elementType
 	}
+	if kind == ComponentKindComplexTypeDefinition {
+		complexType, complexErr := schemaComplexTypeInputFromElement(element, version)
+		if complexErr != nil {
+			return schemaComponentInput{}, false, complexErr
+		}
+		declaration.complexType = complexType
+	}
 	if kind != ComponentKindSimpleTypeDefinition {
 		return declaration, true, nil
 	}
@@ -392,6 +399,78 @@ func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schema
 		typeLoc:      attributes[0].loc,
 		version:      version,
 	}, nil
+}
+
+func schemaComplexTypeInputFromElement(element *syntaxElement, version XSDVersion) (*schemaComplexTypeInput, error) {
+	var choice *syntaxElement
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local != "choice" {
+			continue
+		}
+		choice = child
+		break
+	}
+	if choice == nil {
+		return nil, nil
+	}
+
+	input := &schemaComplexTypeInput{
+		particle: &schemaChoiceParticleInput{
+			loc:          choice.loc,
+			minOccurs:    1,
+			maxOccurs:    1,
+			alternatives: make([]schemaElementParticleInput, 0),
+		},
+	}
+	for _, node := range choice.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if child.name.local != "element" {
+			continue
+		}
+		alternative, err := schemaElementParticleInputFromElement(child, version)
+		if err != nil {
+			return nil, err
+		}
+		input.particle.alternatives = append(input.particle.alternatives, alternative)
+	}
+	return input, nil
+}
+
+func schemaElementParticleInputFromElement(element *syntaxElement, version XSDVersion) (schemaElementParticleInput, error) {
+	nameAttributes := syntaxAttributesByLocal(element, "name")
+	if len(nameAttributes) != 1 {
+		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "choice element input has an invalid name attribute")
+	}
+	local := collapseXMLWhitespace(nameAttributes[0].value)
+	name, err := NewQName("", local)
+	if err != nil {
+		return schemaElementParticleInput{}, newSchemaBridgeInvariant(nameAttributes[0].loc, "construct local choice element name")
+	}
+	input := schemaElementParticleInput{
+		loc:  element.loc,
+		name: name,
+	}
+	typeAttributes := syntaxAttributesByLocal(element, "type")
+	if len(typeAttributes) == 0 {
+		return input, nil
+	}
+	if len(typeAttributes) != 1 {
+		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "choice element type attribute is not unique")
+	}
+	declaredType, err := expandSchemaQName(element, typeAttributes[0])
+	if err != nil {
+		return schemaElementParticleInput{}, err
+	}
+	input.typeInput = &schemaElementInput{
+		declaredType: declaredType,
+		typeLoc:      typeAttributes[0].loc,
+		version:      version,
+	}
+	return input, nil
 }
 
 func schemaSimpleTypeRestrictionInput(element *syntaxElement, version XSDVersion) (*schemaSimpleTypeInput, error) {
@@ -765,6 +844,16 @@ func resolveSchemaElementType(
 	if input == nil {
 		return schemaElementTypeResult{}, newSchemaBridgeInvariant(record.loc, "element type resolution has no type input")
 	}
+	return resolveSchemaScalarType(input, records, byName, simpleTypes, "for global elements")
+}
+
+func resolveSchemaScalarType(
+	input *schemaElementInput,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	simpleTypes []schemaSimpleTypeResult,
+	complexTargetSuffix string,
+) (schemaElementTypeResult, error) {
 	if input.declaredType.Namespace() == xsdNamespaceURI {
 		switch input.declaredType.Local() {
 		case "integer", "decimal":
@@ -805,7 +894,7 @@ func resolveSchemaElementType(
 	if records[candidate].kind == ComponentKindComplexTypeDefinition {
 		return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
 			input.typeLoc,
-			fmt.Sprintf("named complex type %q is not implemented for global elements", input.declaredType),
+			fmt.Sprintf("named complex type %q is not implemented %s", input.declaredType, complexTargetSuffix),
 			input.version,
 		)
 	}
@@ -821,6 +910,70 @@ func resolveSchemaElementType(
 		typeID:       records[candidate].id,
 		hasTypeID:    true,
 	}, nil
+}
+
+type schemaComplexTypeResult struct {
+	present  bool
+	particle Particle
+}
+
+func resolveSchemaComplexTypes(
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	simpleTypes []schemaSimpleTypeResult,
+) ([]schemaComplexTypeResult, error) {
+	if len(simpleTypes) != len(records) {
+		return nil, newSchemaBridgeInvariant(Loc{}, "complex type resolution has incomplete simple type results")
+	}
+	results := make([]schemaComplexTypeResult, len(records))
+	for index, record := range records {
+		if record.complexType == nil {
+			continue
+		}
+		if record.complexType.particle == nil {
+			return nil, newSchemaBridgeInvariant(record.loc, "complex type resolution has no particle input")
+		}
+		alternatives := make([]Particle, 0, len(record.complexType.particle.alternatives))
+		for _, input := range record.complexType.particle.alternatives {
+			if input.typeInput == nil {
+				return nil, newSchemaSyntaxUnsupported(
+					input.loc,
+					"local choice elements without declared types are not implemented",
+				)
+			}
+			resolved, err := resolveSchemaScalarType(
+				input.typeInput,
+				records,
+				byName,
+				simpleTypes,
+				"for local choice elements",
+			)
+			if err != nil {
+				return nil, err
+			}
+			facts := &schemaElementParticle{
+				loc:          input.loc,
+				minOccurs:    1,
+				maxOccurs:    1,
+				name:         input.name,
+				declaredType: resolved.declaredType,
+				typeID:       resolved.typeID,
+				hasTypeID:    resolved.hasTypeID,
+			}
+			alternatives = append(alternatives, ElementParticle{facts: facts})
+		}
+		choice := &schemaChoiceParticle{
+			loc:          record.complexType.particle.loc,
+			minOccurs:    record.complexType.particle.minOccurs,
+			maxOccurs:    record.complexType.particle.maxOccurs,
+			alternatives: alternatives,
+		}
+		results[index] = schemaComplexTypeResult{
+			present:  true,
+			particle: ChoiceParticle{facts: choice},
+		}
+	}
+	return results, nil
 }
 
 func unresolvedSchemaElementType(input *schemaElementInput) (schemaElementTypeResult, error) {

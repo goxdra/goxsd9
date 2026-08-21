@@ -282,6 +282,64 @@ func assertParseElementCopies(t *testing.T, schema goxsd9.Schema, name goxsd9.QN
 	}
 }
 
+//nolint:gocognit // Keep the end-to-end public particle contract together.
+func TestParseSchemaExposesConcreteChoiceParticleAlternatives(t *testing.T) {
+	rootContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">
+  <xs:complexType name="Choice">
+    <xs:choice>
+      <xs:element name="integer" type="xs:integer"/>
+      <xs:element name="decimal" type="xs:decimal"/>
+    </xs:choice>
+  </xs:complexType>
+</xs:schema>`
+	root, err := goxsd9.NewResolvedSource(context.Background(), "choice-root", newParseTestReader(rootContents))
+	if err != nil {
+		t.Fatalf("NewResolvedSource: %v", err)
+	}
+	schema, err := goxsd9.ParseSchema(root, nil)
+	if err != nil {
+		t.Fatalf("ParseSchema: %v", err)
+	}
+	components := schema.Components()
+	if got, want := len(components), 1; got != want {
+		t.Fatalf("global component count = %d, want %d", got, want)
+	}
+	definition, ok := components[0].ComplexTypeDefinition()
+	if !ok {
+		t.Fatal("complex type definition view is missing")
+	}
+	choice, ok := definition.Particle().(goxsd9.ChoiceParticle)
+	if !ok {
+		t.Fatalf("particle type = %T, want ChoiceParticle", definition.Particle())
+	}
+	if choice.MinOccurs() != 1 || choice.MaxOccurs() != 1 {
+		t.Fatalf("choice occurrence bounds = %d/%d, want 1/1", choice.MinOccurs(), choice.MaxOccurs())
+	}
+	alternatives := choice.Alternatives()
+	if got, want := len(alternatives), 2; got != want {
+		t.Fatalf("alternative count = %d, want %d", got, want)
+	}
+	alternatives[0] = nil
+	if len(choice.Alternatives()) != 2 {
+		t.Fatal("mutating returned alternatives changed the completed schema")
+	}
+	for index, wantName := range []string{"integer", "decimal"} {
+		element, ok := choice.Alternatives()[index].(goxsd9.ElementParticle)
+		if !ok {
+			t.Fatalf("alternative %d type = %T, want ElementParticle", index, choice.Alternatives()[index])
+		}
+		if got := element.Name().Namespace(); got != "" {
+			t.Fatalf("alternative %d name namespace = %q, want empty", index, got)
+		}
+		if got, want := element.Name().Local(), wantName; got != want {
+			t.Fatalf("alternative %d name = %q, want %q", index, got, want)
+		}
+		if typeID, hasTypeID := element.TypeID(); hasTypeID || !typeID.IsZero() {
+			t.Fatalf("alternative %d built-in type has a synthetic ID", index)
+		}
+	}
+}
+
 type typedElementParseResolver struct {
 	calls    []parseTestCall
 	contents string

@@ -3,6 +3,7 @@ package goxsd9
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -1069,6 +1070,313 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 	assertSchemaBridgeDiagnosticCases(t, tests)
 }
 
+//nolint:funlen // Keep occurrence, lexical, and structural choice boundaries together.
+func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
+	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Choice">%s</xs:complexType></xs:schema>`
+	assertSchemaBridgeDiagnosticCases(t, []schemaBridgeDiagnosticCase{
+		{
+			name:    "choice occurrence is unsupported after lexical validation",
+			root:    fmt.Sprintf(base, `<xs:choice minOccurs="0">`+`<xs:element name="value" type="xs:integer"/>`+`</xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "choice min occurrence exceeds omitted max default",
+			root:  fmt.Sprintf(base, `<xs:choice minOccurs="2"><xs:element name="value" type="xs:integer"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "choice omitted min default exceeds max occurrence",
+			root:  fmt.Sprintf(base, `<xs:choice maxOccurs="0"><xs:element name="value" type="xs:integer"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "choice unbounded max remains lexically valid",
+			root:    fmt.Sprintf(base, `<xs:choice minOccurs="2" maxOccurs="unbounded"><xs:element name="value" type="xs:integer"/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "element occurrence is unsupported after lexical validation",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" minOccurs="0"/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "element min occurrence exceeds omitted max default",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" minOccurs="2"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "element omitted min default exceeds max occurrence",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" maxOccurs="0"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "element unbounded max remains lexically valid",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" minOccurs="2" maxOccurs="unbounded"/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "element form policy is unsupported after lexical validation",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" form="unqualified"/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "nested sequence is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:sequence/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "wildcard is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:any/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "element reference is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element ref="value"/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "inline type is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "direct all is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:all/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "choice annotation after particles is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer"/><xs:annotation/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "malformed occurrence is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice minOccurs="maybe">`+`<xs:element name="value" type="xs:integer"/>`+`</xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "malformed form is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" form="maybe"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "malformed local NCName is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="bad:name" type="xs:integer"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaDeclarationNameCode,
+		},
+		{
+			name:  "malformed local type QName is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="bad:type:extra"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaConditionalCode,
+		},
+		{
+			name:  "choice element requires a name or ref",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element type="xs:integer"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaDeclarationNameCode,
+		},
+	})
+}
+
+//nolint:gocognit,funlen // Keep version classification and no-partial-schema assertions together.
+func TestSchemaBridgeClassifiesVersionedChoiceElementSyntax(t *testing.T) {
+	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="%s"><xs:complexType name="Choice"><xs:choice>%s</xs:choice></xs:complexType></xs:schema>`
+	tests := []struct {
+		name     string
+		version  XSDVersion
+		particle string
+		class    FailureClass
+		code     string
+		specRef  string
+	}{
+		{
+			name:     "XSD 1.1 local target namespace is unsupported",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value" type="xs:integer" targetNamespace="urn:qualified"/>`,
+			class:    FailureUnsupported,
+			code:     UnsupportedSchemaSyntaxCode,
+			specRef:  "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name:     "XSD 1.0 local target namespace is invalid",
+			version:  XSDVersion10,
+			particle: `<xs:element name="value" type="xs:integer" targetNamespace="urn:qualified"/>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+		{
+			name:     "XSD 1.1 element alternative is unsupported",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value"><xs:alternative id="alternative" test="@kind = 'integer'" type="xs:integer" xpathDefaultNamespace="##local"/></xs:element>`,
+			class:    FailureUnsupported,
+			code:     UnsupportedSchemaSyntaxCode,
+			specRef:  "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name:     "XSD 1.0 element alternative is invalid",
+			version:  XSDVersion10,
+			particle: `<xs:element name="value"><xs:alternative type="xs:integer"/></xs:element>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+		{
+			name:     "target namespace lexical failure remains invalid",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value" type="xs:integer" targetNamespace="%ZZ"/>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+		{
+			name:     "alternative QName lexical failure remains invalid",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value"><xs:alternative type="bad:prefix:extra"/></xs:element>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaConditionalCode,
+		},
+		{
+			name:     "alternative XPath namespace lexical failure remains invalid",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value"><xs:alternative type="xs:integer" xpathDefaultNamespace="%ZZ"/></xs:element>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+		{
+			name:     "alternative structure failure remains invalid",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value"><xs:alternative/></xs:element>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+		{
+			name:     "target namespace and form conflict remains invalid",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value" type="xs:integer" targetNamespace="urn:qualified" form="qualified"/>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := fmt.Sprintf(base, test.version, test.particle)
+			schema, err := discoverTestSchema(t, root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted versioned choice syntax")
+			}
+			if schema.storage != nil || len(schema.Components()) != 0 {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class || diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic = %s, want %s/%s", diagnostic, test.class, test.code)
+			}
+			if test.specRef != "" && diagnostic.SpecRef() != test.specRef {
+				t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), test.specRef)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep target classification, locations, causes, and refs together.
+func TestSchemaBridgePreservesChoiceElementTypeDiagnostics(t *testing.T) {
+	tests := []struct {
+		name       string
+		root       string
+		class      FailureClass
+		code       string
+		cause      error
+		feature    FeatureID
+		specRef    string
+		relatedMin int
+	}{
+		{
+			name:    "unresolved",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:m="urn:missing" version="1.0"><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="m:Missing"/></xs:choice></xs:complexType></xs:schema>`,
+			class:   FailureInvalid,
+			code:    diagnosticSchemaElementTypeUnresolvedCode,
+			cause:   errSchemaElementTypeUnresolved,
+			specRef: schemaElementTypeXSD10SpecRef,
+		},
+		{
+			name:       "wrong kind",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="target"/><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="target"/></xs:choice></xs:complexType></xs:schema>`,
+			class:      FailureInvalid,
+			code:       diagnosticSchemaElementTypeWrongKindCode,
+			cause:      errSchemaElementTypeWrongKind,
+			specRef:    schemaElementTypeXSD11SpecRef,
+			relatedMin: 1,
+		},
+		{
+			name:       "ambiguous",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Amount"><xs:restriction base="xs:decimal"/></xs:simpleType><xs:simpleType name="Amount"><xs:restriction base="xs:integer"/></xs:simpleType><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="Amount"/></xs:choice></xs:complexType></xs:schema>`,
+			class:      FailureInvalid,
+			code:       diagnosticSchemaElementTypeAmbiguousCode,
+			cause:      errSchemaElementTypeAmbiguous,
+			specRef:    schemaElementTypeXSD11SpecRef,
+			relatedMin: 2,
+		},
+		{
+			name:    "named complex type",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Target"/><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="Target"/></xs:choice></xs:complexType></xs:schema>`,
+			class:   FailureUnsupported,
+			code:    UnsupportedSchemaSyntaxCode,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "unsupported built-in scalar",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:string"/></xs:choice></xs:complexType></xs:schema>`,
+			class:   FailureUnsupported,
+			code:    UnsupportedSchemaSyntaxCode,
+			feature: FeatureSchemaSyntax,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted an invalid or unsupported local type")
+			}
+			if schema.storage != nil || len(schema.Components()) != 0 {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class || diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic = %s, want %s/%s", diagnostic, test.class, test.code)
+			}
+			if test.feature != "" && diagnostic.Feature() != test.feature {
+				t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), test.feature)
+			}
+			if test.specRef != "" && diagnostic.SpecRef() != test.specRef {
+				t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), test.specRef)
+			}
+			if len(diagnostic.Related()) < test.relatedMin {
+				t.Fatalf("related locations = %v, want at least %d", diagnostic.Related(), test.relatedMin)
+			}
+			if test.cause != nil && !errors.Is(err, test.cause) {
+				t.Fatalf("diagnostic does not preserve cause %v: %v", test.cause, err)
+			}
+		})
+	}
+}
+
 func TestSchemaBridgeAcceptsInertRootMetadata(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" id="schema-id" version="" xml:lang="en-419"/>`
 	schema, err := discoverTestSchema(t, root, nil)
@@ -1855,6 +2163,159 @@ func TestSchemaBridgeBuildsTypedGlobalElementsWithoutSyntheticBuiltinIDs(t *test
 	}
 	if _, ok := components[2].Element(); ok {
 		t.Fatal("simple type unexpectedly has an element view")
+	}
+}
+
+//nolint:gocognit,funlen // Keep ordered facts, identity isolation, and immutability together.
+func TestSchemaBridgeBuildsOrderedChoiceParticlesWithoutLocalComponentIDs(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">
+  <xs:complexType name="Choice">
+    <xs:choice>
+      <xs:element name="first" type="xs:integer"/>
+      <xs:element name="second" type="t:Amount"/>
+      <xs:element name="third" type="xs:decimal"/>
+    </xs:choice>
+  </xs:complexType>
+  <xs:simpleType name="Amount"><xs:restriction base="xs:decimal"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	if got, want := len(components), 2; got != want {
+		t.Fatalf("global component count = %d, want %d", got, want)
+	}
+	if components[0].ID().Ordinal() != 1 || components[1].ID().Ordinal() != 2 {
+		t.Fatalf("global component IDs = %v, %v, want ordinals 1,2", components[0].ID(), components[1].ID())
+	}
+	if got := schema.Find(mustTestQName(t, "", "first")); len(got) != 0 {
+		t.Fatalf("local element is globally discoverable: %v", got)
+	}
+	if _, ok := schema.Lookup(ComponentID{source: "root.xsd", ordinal: 3}); ok {
+		t.Fatal("local element received a global component ID")
+	}
+
+	definition, ok := components[0].ComplexType()
+	if !ok {
+		t.Fatal("complex type view is missing")
+	}
+	alias, aliasOK := components[0].ComplexTypeDefinition()
+	if !aliasOK || alias.ID() != definition.ID() {
+		t.Fatal("complex type aliases do not expose the same component")
+	}
+	particle := definition.Particle()
+	choice, ok := particle.(ChoiceParticle)
+	if !ok {
+		t.Fatalf("particle type = %T, want ChoiceParticle", particle)
+	}
+	if choice.Loc() != mustTestLoc(t, "root.xsd", 3, 5) {
+		t.Fatalf("choice location = %s, want root.xsd:3:5", choice.Loc())
+	}
+	if choice.MinOccurs() != 1 || choice.MaxOccurs() != 1 {
+		t.Fatalf("choice occurrence bounds = %d/%d, want 1/1", choice.MinOccurs(), choice.MaxOccurs())
+	}
+	alternatives := choice.Alternatives()
+	if got, want := len(alternatives), 3; got != want {
+		t.Fatalf("alternative count = %d, want %d", got, want)
+	}
+	alternatives[0] = nil
+	if len(choice.Alternatives()) != 3 {
+		t.Fatal("mutating alternatives changed the completed choice")
+	}
+	wantNames := []string{"first", "second", "third"}
+	for index, alternative := range choice.Alternatives() {
+		element, ok := alternative.(ElementParticle)
+		if !ok {
+			t.Fatalf("alternative %d type = %T, want ElementParticle", index, alternative)
+		}
+		if element.Name() != mustTestQName(t, "", wantNames[index]) {
+			t.Fatalf("alternative %d name = %q, want no-namespace %q", index, element.Name(), wantNames[index])
+		}
+		if element.MinOccurs() != 1 || element.MaxOccurs() != 1 {
+			t.Fatalf("alternative %d occurrence bounds = %d/%d, want 1/1", index, element.MinOccurs(), element.MaxOccurs())
+		}
+		if element.Loc() != mustTestLoc(t, "root.xsd", 4+index, 7) {
+			t.Fatalf("alternative %d location = %s, want root.xsd:%d:7", index, element.Loc(), 4+index)
+		}
+		switch index {
+		case 0:
+			if element.DeclaredType() != mustTestQName(t, testXSDNamespace, "integer") {
+				t.Fatalf("integer declared type = %q", element.DeclaredType())
+			}
+			if typeID, hasTypeID := element.TypeID(); hasTypeID || !typeID.IsZero() {
+				t.Fatalf("built-in type ID = (%v, %t), want zero,false", typeID, hasTypeID)
+			}
+		case 1:
+			if element.DeclaredType() != mustTestQName(t, "urn:root", "Amount") {
+				t.Fatalf("named declared type = %q", element.DeclaredType())
+			}
+			if typeID, hasTypeID := element.TypeID(); !hasTypeID || typeID != components[1].ID() {
+				t.Fatalf("named type ID = (%v, %t), want (%v, true)", typeID, hasTypeID, components[1].ID())
+			}
+		case 2:
+			if element.DeclaredType() != mustTestQName(t, testXSDNamespace, "decimal") {
+				t.Fatalf("decimal declared type = %q", element.DeclaredType())
+			}
+		}
+	}
+}
+
+func TestSchemaBridgeAcceptsEmptyChoiceParticle(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Empty"><xs:choice/></xs:complexType></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	definition, ok := schema.Components()[0].ComplexType()
+	if !ok {
+		t.Fatal("empty choice complex type view is missing")
+	}
+	choice, ok := definition.Particle().(ChoiceParticle)
+	if !ok {
+		t.Fatalf("particle type = %T, want ChoiceParticle", definition.Particle())
+	}
+	if alternatives := choice.Alternatives(); len(alternatives) != 0 {
+		t.Fatalf("empty choice alternatives = %d, want zero", len(alternatives))
+	}
+}
+
+func TestSchemaBridgeResolvesForwardCrossDocumentChoiceElementTypes(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:o="urn:other" targetNamespace="urn:root">
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:complexType name="Choice"><xs:choice><xs:element name="value" type="o:Amount"/></xs:choice></xs:complexType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, map[string]discoveryFixture{
+		"other.xsd": {
+			id:       "other.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:simpleType name="Amount"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	if got, want := len(components), 2; got != want {
+		t.Fatalf("global component count = %d, want %d", got, want)
+	}
+	choice, ok := components[0].ComplexType()
+	if !ok {
+		t.Fatal("cross-document complex type view is missing")
+	}
+	particle, ok := choice.Particle().(ChoiceParticle)
+	if !ok {
+		t.Fatal("cross-document particle type is not ChoiceParticle")
+	}
+	alternatives := particle.Alternatives()
+	if len(alternatives) != 1 {
+		t.Fatalf("cross-document alternative count = %d, want 1", len(alternatives))
+	}
+	alternative, ok := alternatives[0].(ElementParticle)
+	if !ok {
+		t.Fatal("cross-document alternative type is not ElementParticle")
+	}
+	if typeID, hasTypeID := alternative.TypeID(); !hasTypeID || typeID != components[1].ID() {
+		t.Fatalf("cross-document type ID = (%v, %t), want (%v, true)", typeID, hasTypeID, components[1].ID())
 	}
 }
 
