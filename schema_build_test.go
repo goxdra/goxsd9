@@ -3,6 +3,7 @@ package goxsd9
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -1805,6 +1806,279 @@ func TestSchemaBridgeRejectsInlineSimpleTypeRestrictionAsUnsupported(t *testing.
 	}
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+	}
+}
+
+func TestSchemaBridgeBuildsTypedGlobalElementsWithoutSyntheticBuiltinIDs(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
+  <xs:element name="whole" type="  xs:integer  "/>
+  <xs:element name="amount" type=" t:Amount "/>
+  <xs:simpleType name="Amount"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	if got, want := len(components), 3; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+	whole, ok := components[0].Element()
+	if !ok {
+		t.Fatal("built-in integer element view is missing")
+	}
+	if got, want := whole.DeclaredType(), mustTestQName(t, testXSDNamespace, "integer"); got != want {
+		t.Fatalf("integer declared type = %q, want %q", got, want)
+	}
+	if typeID, hasTypeID := whole.TypeID(); hasTypeID || !typeID.IsZero() {
+		t.Fatalf("integer type ID = (%v, %t), want zero,false", typeID, hasTypeID)
+	}
+	amount, ok := components[1].ElementDeclaration()
+	if !ok {
+		t.Fatal("named decimal element view is missing")
+	}
+	if got, want := amount.DeclaredType(), mustTestQName(t, "urn:test", "Amount"); got != want {
+		t.Fatalf("named declared type = %q, want %q", got, want)
+	}
+	targetID := components[2].ID()
+	if got, hasTypeID := amount.TypeID(); !hasTypeID || got != targetID {
+		t.Fatalf("named type ID = (%v, %t), want (%v, true)", got, hasTypeID, targetID)
+	}
+	if got := amount.Component().ID(); got != components[1].ID() {
+		t.Fatalf("element view component ID = %v, want %v", got, components[1].ID())
+	}
+	if got := amount.Name(); got != components[1].Name() {
+		t.Fatalf("element view name = %q, want %q", got, components[1].Name())
+	}
+	if got := amount.Loc(); got != components[1].Loc() {
+		t.Fatalf("element view location = %s, want %s", got, components[1].Loc())
+	}
+	if _, ok := components[2].Element(); ok {
+		t.Fatal("simple type unexpectedly has an element view")
+	}
+}
+
+//nolint:gocognit,funlen // Keep target classification, locations, causes, and refs together.
+func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) {
+	tests := []struct {
+		name        string
+		root        string
+		class       FailureClass
+		code        string
+		feature     FeatureID
+		specRef     string
+		cause       error
+		primary     Loc
+		related     []Loc
+		unsupported bool
+	}{
+		{
+			name: "unresolved",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:m="urn:missing" version="1.0">
+  <xs:element name="item" type="m:Missing"/>
+</xs:schema>`,
+			class:   FailureInvalid,
+			code:    diagnosticSchemaElementTypeUnresolvedCode,
+			specRef: schemaElementTypeXSD10SpecRef,
+			cause:   errSchemaElementTypeUnresolved,
+			primary: mustTestLoc(t, "root.xsd", 2, 3),
+		},
+		{
+			name: "malformed QName",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item" type="bad:Type:extra"/>
+</xs:schema>`,
+			class:   FailureInvalid,
+			code:    invalidSchemaConditionalCode,
+			primary: mustTestLoc(t, "root.xsd", 2, 3),
+		},
+		{
+			name: "unbound QName",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item" type="missing:Type"/>
+</xs:schema>`,
+			class:   FailureInvalid,
+			code:    invalidSchemaConditionalCode,
+			primary: mustTestLoc(t, "root.xsd", 2, 3),
+		},
+		{
+			name: "empty QName",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item" type="   "/>
+</xs:schema>`,
+			class:   FailureInvalid,
+			code:    invalidSchemaCompositionCode,
+			primary: mustTestLoc(t, "root.xsd", 2, 3),
+		},
+		{
+			name: "wrong kind",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="candidate"/>
+  <xs:element name="item" type="candidate"/>
+</xs:schema>`,
+			class:   FailureInvalid,
+			code:    diagnosticSchemaElementTypeWrongKindCode,
+			specRef: schemaElementTypeXSD11SpecRef,
+			cause:   errSchemaElementTypeWrongKind,
+			primary: mustTestLoc(t, "root.xsd", 3, 3),
+			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3)},
+		},
+		{
+			name: "ambiguous",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="Amount"><xs:restriction base="xs:decimal"/></xs:simpleType>
+  <xs:simpleType name="Amount"><xs:restriction base="xs:integer"/></xs:simpleType>
+  <xs:element name="item" type="Amount"/>
+</xs:schema>`,
+			class:   FailureInvalid,
+			code:    diagnosticSchemaElementTypeAmbiguousCode,
+			specRef: schemaElementTypeXSD11SpecRef,
+			cause:   errSchemaElementTypeAmbiguous,
+			primary: mustTestLoc(t, "root.xsd", 4, 3),
+			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3), mustTestLoc(t, "root.xsd", 3, 3)},
+		},
+		{
+			name: "simple and complex definitions are ambiguous",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="Amount"><xs:restriction base="xs:decimal"/></xs:simpleType>
+  <xs:complexType name="Amount"/>
+  <xs:element name="item" type="Amount"/>
+</xs:schema>`,
+			class:   FailureInvalid,
+			code:    diagnosticSchemaElementTypeAmbiguousCode,
+			specRef: schemaElementTypeXSD11SpecRef,
+			cause:   errSchemaElementTypeAmbiguous,
+			primary: mustTestLoc(t, "root.xsd", 4, 3),
+			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3), mustTestLoc(t, "root.xsd", 3, 3)},
+		},
+		{
+			name: "named complex type is unsupported",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="Complex"/>
+  <xs:element name="item" type="Complex"/>
+</xs:schema>`,
+			class:       FailureUnsupported,
+			feature:     FeatureSchemaSyntax,
+			primary:     mustTestLoc(t, "root.xsd", 3, 3),
+			unsupported: true,
+		},
+		{
+			name: "string built-in is unsupported",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.0">
+  <xs:element name="item" type="xs:string"/>
+</xs:schema>`,
+			class:       FailureUnsupported,
+			feature:     FeatureSchemaSyntax,
+			primary:     mustTestLoc(t, "root.xsd", 2, 3),
+			unsupported: true,
+		},
+		{
+			name: "precisionDecimal is unsupported",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item" type="xs:precisionDecimal"/>
+</xs:schema>`,
+			class:       FailureUnsupported,
+			code:        diagnosticSchemaElementTypeUnsupportedCode,
+			feature:     FeaturePrecisionDecimal,
+			primary:     mustTestLoc(t, "root.xsd", 2, 3),
+			unsupported: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted an invalid or unsupported element type")
+			}
+			if schema.storage != nil || len(schema.Components()) != 0 {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class {
+				t.Fatalf("diagnostic class = %q, want %q", diagnostic.Class(), test.class)
+			}
+			if test.code != "" && diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code(), test.code)
+			}
+			if test.feature != "" && diagnostic.Feature() != test.feature {
+				t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), test.feature)
+			}
+			if test.specRef != "" && diagnostic.SpecRef() != test.specRef {
+				t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), test.specRef)
+			}
+			if diagnostic.Loc() != test.primary {
+				t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), test.primary)
+			}
+			if test.related != nil && !reflect.DeepEqual(diagnostic.Related(), test.related) {
+				t.Fatalf("related locations = %v, want %v", diagnostic.Related(), test.related)
+			}
+			if test.cause != nil && !errors.Is(err, test.cause) {
+				t.Fatalf("diagnostic does not preserve cause %v: %v", test.cause, err)
+			}
+			if test.unsupported && !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgePreservesExistingElementExclusions(t *testing.T) {
+	tests := []struct {
+		name  string
+		root  string
+		class FailureClass
+	}{
+		{
+			name:  "type and inline type",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" type="xs:integer"><xs:simpleType/></xs:element></xs:schema>`,
+			class: FailureInvalid,
+		},
+		{
+			name:  "type and default",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" type="xs:integer" default="1"/></xs:schema>`,
+			class: FailureUnsupported,
+		},
+		{
+			name:  "default and fixed remain invalid",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" type="xs:integer" default="1" fixed="2"/></xs:schema>`,
+			class: FailureInvalid,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted an excluded element construct")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class {
+				t.Fatalf("diagnostic class = %q, want %q", diagnostic.Class(), test.class)
+			}
+			if test.class == FailureUnsupported && !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("unsupported exclusion does not match ErrUnsupported: %v", err)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeDoesNotCompleteElementFromFailedSimpleType(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item" type="Amount"/>
+  <xs:simpleType name="Amount"><xs:restriction base="xs:decimal"><xs:fractionDigits value="-1"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err == nil {
+		t.Fatal("discoverSchema accepted a failed named element type")
+	}
+	if schema.storage != nil || len(schema.Components()) != 0 {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Code() != InvalidFractionDigitsCode {
+		t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code(), InvalidFractionDigitsCode)
 	}
 }
 

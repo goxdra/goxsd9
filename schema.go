@@ -100,6 +100,7 @@ type Component struct {
 	kind       ComponentKind
 	name       QName
 	loc        Loc
+	element    *schemaElementComponent
 	simpleType *schemaSimpleTypeComponent
 }
 
@@ -126,6 +127,69 @@ func (component Component) Loc() Loc {
 // Document returns the source identity of the declaring document.
 func (component Component) Document() SourceID {
 	return component.id.Source()
+}
+
+// Element returns the immutable element-declaration view for a supported
+// global element with a declared type.
+func (component Component) Element() (ElementDeclaration, bool) {
+	if component.element == nil {
+		return ElementDeclaration{}, false
+	}
+	return ElementDeclaration{
+		component: component,
+		facts:     component.element,
+	}, true
+}
+
+// ElementDeclaration returns the immutable element-declaration view for a
+// supported global element with a declared type.
+func (component Component) ElementDeclaration() (ElementDeclaration, bool) {
+	return component.Element()
+}
+
+// ElementDeclaration is the immutable type-specific view of a supported
+// global element declaration.
+type ElementDeclaration struct {
+	component Component
+	facts     *schemaElementComponent
+}
+
+// Component returns the generic component represented by the view.
+func (declaration ElementDeclaration) Component() Component {
+	return declaration.component
+}
+
+// ID returns the stable identity of the element declaration.
+func (declaration ElementDeclaration) ID() ComponentID {
+	return declaration.component.ID()
+}
+
+// Name returns the expanded name of the element declaration.
+func (declaration ElementDeclaration) Name() QName {
+	return declaration.component.Name()
+}
+
+// Loc returns the declaration location of the element declaration.
+func (declaration ElementDeclaration) Loc() Loc {
+	return declaration.component.Loc()
+}
+
+// DeclaredType returns the expanded QName written in the element's type
+// attribute.
+func (declaration ElementDeclaration) DeclaredType() QName {
+	if declaration.facts == nil {
+		return QName{}
+	}
+	return declaration.facts.declaredType
+}
+
+// TypeID returns the identity of a named declared type. Built-in datatypes do
+// not have synthetic component identities and return the zero ID.
+func (declaration ElementDeclaration) TypeID() (ComponentID, bool) {
+	if declaration.facts == nil || !declaration.facts.hasTypeID {
+		return ComponentID{}, false
+	}
+	return declaration.facts.typeID, true
 }
 
 // SimpleType returns the immutable simple-type view for a supported named
@@ -366,7 +430,14 @@ type schemaComponentInput struct {
 	kind       ComponentKind
 	name       QName
 	loc        Loc
+	element    *schemaElementInput
 	simpleType *schemaSimpleTypeInput
+}
+
+type schemaElementInput struct {
+	declaredType QName
+	typeLoc      Loc
+	version      XSDVersion
 }
 
 type schemaSimpleTypeInput struct {
@@ -391,11 +462,18 @@ type schemaSimpleTypeComponent struct {
 	digitFacets DigitFacets
 }
 
+type schemaElementComponent struct {
+	declaredType QName
+	typeID       ComponentID
+	hasTypeID    bool
+}
+
 type schemaComponentRecord struct {
 	id         ComponentID
 	kind       ComponentKind
 	name       QName
 	loc        Loc
+	element    *schemaElementInput
 	simpleType *schemaSimpleTypeInput
 }
 
@@ -408,11 +486,15 @@ func newSchema(inputs []schemaDocumentInput) (Schema, error) {
 	if err != nil {
 		return Schema{}, err
 	}
-	resolved, err := resolveSchemaSimpleTypes(records, byName)
+	simpleTypes, err := resolveSchemaSimpleTypes(records, byName)
 	if err != nil {
 		return Schema{}, err
 	}
-	components, byID := completeSchemaComponents(records, resolved)
+	elements, err := resolveSchemaElementTypes(records, byName, simpleTypes)
+	if err != nil {
+		return Schema{}, err
+	}
+	components, byID := completeSchemaComponents(records, simpleTypes, elements)
 	storage := &schemaStorage{
 		components: components,
 		byID:       byID,
@@ -526,6 +608,7 @@ func newSchemaComponentRecord(source SourceID, declarationIndex int, declaration
 		kind:       declaration.kind,
 		name:       declaration.name,
 		loc:        declaration.loc,
+		element:    declaration.element,
 		simpleType: declaration.simpleType,
 	}, nil
 }
@@ -544,31 +627,46 @@ func schemaComponentOrdinal(declarationIndex int, loc Loc) (uint64, error) {
 	return ordinal + 1, nil
 }
 
-func completeSchemaComponents(records []schemaComponentRecord, resolved []schemaSimpleTypeResult) ([]Component, map[ComponentID]int) {
+func completeSchemaComponents(
+	records []schemaComponentRecord,
+	simpleTypes []schemaSimpleTypeResult,
+	elements []schemaElementTypeResult,
+) ([]Component, map[ComponentID]int) {
 	components := make([]Component, 0, len(records))
 	byID := make(map[ComponentID]int, len(records))
 	for index, record := range records {
-		component := completeSchemaComponent(record, resolved[index])
+		component := completeSchemaComponent(record, simpleTypes[index], elements[index])
 		byID[record.id] = len(components)
 		components = append(components, component)
 	}
 	return components, byID
 }
 
-func completeSchemaComponent(record schemaComponentRecord, resolved schemaSimpleTypeResult) Component {
+func completeSchemaComponent(
+	record schemaComponentRecord,
+	simpleType schemaSimpleTypeResult,
+	element schemaElementTypeResult,
+) Component {
 	component := Component{
 		id:   record.id,
 		kind: record.kind,
 		name: record.name,
 		loc:  record.loc,
 	}
-	if resolved.present {
+	if element.present {
+		component.element = &schemaElementComponent{
+			declaredType: element.declaredType,
+			typeID:       element.typeID,
+			hasTypeID:    element.hasTypeID,
+		}
+	}
+	if simpleType.present {
 		component.simpleType = &schemaSimpleTypeComponent{
-			base:        resolved.base,
-			baseLoc:     resolved.baseLoc,
-			baseID:      resolved.baseID,
-			hasBaseID:   resolved.hasBaseID,
-			digitFacets: resolved.digitFacets,
+			base:        simpleType.base,
+			baseLoc:     simpleType.baseLoc,
+			baseID:      simpleType.baseID,
+			hasBaseID:   simpleType.hasBaseID,
+			digitFacets: simpleType.digitFacets,
 		}
 	}
 	return component

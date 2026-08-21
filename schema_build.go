@@ -7,20 +7,26 @@ import (
 )
 
 const (
-	invalidSchemaTargetNamespaceCode         = "XSD3009"
-	invalidSchemaCompositionCode             = "XSD3010"
-	invalidSchemaDeclarationNameCode         = "XSD3011"
-	diagnosticSchemaSimpleTypeUnresolvedCode = "XSD3014"
-	diagnosticSchemaSimpleTypeWrongKindCode  = "XSD3015"
-	diagnosticSchemaSimpleTypeAmbiguousCode  = "XSD3016"
-	diagnosticSchemaSimpleTypeCycleCode      = "XSD3017"
-	diagnosticSchemaSimpleTypeBaseCode       = "XSD3018"
-	diagnosticSchemaBridgeInvariantCode      = "GOXSD9025"
+	invalidSchemaTargetNamespaceCode           = "XSD3009"
+	invalidSchemaCompositionCode               = "XSD3010"
+	invalidSchemaDeclarationNameCode           = "XSD3011"
+	diagnosticSchemaSimpleTypeUnresolvedCode   = "XSD3014"
+	diagnosticSchemaSimpleTypeWrongKindCode    = "XSD3015"
+	diagnosticSchemaSimpleTypeAmbiguousCode    = "XSD3016"
+	diagnosticSchemaSimpleTypeCycleCode        = "XSD3017"
+	diagnosticSchemaSimpleTypeBaseCode         = "XSD3018"
+	diagnosticSchemaElementTypeUnresolvedCode  = "XSD3019"
+	diagnosticSchemaElementTypeWrongKindCode   = "XSD3020"
+	diagnosticSchemaElementTypeAmbiguousCode   = "XSD3021"
+	diagnosticSchemaElementTypeUnsupportedCode = "XSD3022"
+	diagnosticSchemaBridgeInvariantCode        = "GOXSD9025"
 )
 
 const (
-	schemaSimpleTypeXSD10SpecRef = "xsd10-structures#Simple_Type_Definitions"
-	schemaSimpleTypeXSD11SpecRef = "xsd11-structures#Simple_Type_Definition"
+	schemaSimpleTypeXSD10SpecRef  = "xsd10-structures#Simple_Type_Definitions"
+	schemaSimpleTypeXSD11SpecRef  = "xsd11-structures#Simple_Type_Definition"
+	schemaElementTypeXSD10SpecRef = "xsd10-structures#Element_Declaration_details"
+	schemaElementTypeXSD11SpecRef = "xsd11-structures#Element_Declaration_details"
 )
 
 var (
@@ -28,6 +34,9 @@ var (
 	errSchemaSimpleTypeBaseWrongKind  = errors.New("simple type base has the wrong kind")
 	errSchemaSimpleTypeBaseAmbiguous  = errors.New("simple type base is ambiguous")
 	errSchemaSimpleTypeBaseCycle      = errors.New("simple type base is cyclic")
+	errSchemaElementTypeUnresolved    = errors.New("element type is unresolved")
+	errSchemaElementTypeWrongKind     = errors.New("element type has the wrong kind")
+	errSchemaElementTypeAmbiguous     = errors.New("element type is ambiguous")
 )
 
 type schemaTargetNamespace struct {
@@ -302,6 +311,7 @@ func schemaDocumentDeclarations(document *syntaxDocument, targetNamespace string
 	return declarations, nil
 }
 
+//nolint:gocognit // Keep root declaration classification and phase-specific input explicit.
 func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version XSDVersion) (schemaComponentInput, bool, error) {
 	textNode, ok := node.(syntaxText)
 	if ok {
@@ -347,6 +357,13 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version 
 		name: name,
 		loc:  element.loc,
 	}
+	if kind == ComponentKindElementDeclaration {
+		elementType, elementErr := schemaElementTypeInput(element, version)
+		if elementErr != nil {
+			return schemaComponentInput{}, false, elementErr
+		}
+		declaration.element = elementType
+	}
 	if kind != ComponentKindSimpleTypeDefinition {
 		return declaration, true, nil
 	}
@@ -356,6 +373,25 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version 
 	}
 	declaration.simpleType = simpleType
 	return declaration, true, nil
+}
+
+func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schemaElementInput, error) {
+	attributes := syntaxAttributesByLocal(element, "type")
+	if len(attributes) == 0 {
+		return nil, nil
+	}
+	if len(attributes) != 1 {
+		return nil, newSchemaCompositionDiagnostic(element.loc, "element type attribute must be unique")
+	}
+	declaredType, err := expandSchemaQName(element, attributes[0])
+	if err != nil {
+		return nil, err
+	}
+	return &schemaElementInput{
+		declaredType: declaredType,
+		typeLoc:      attributes[0].loc,
+		version:      version,
+	}, nil
 }
 
 func schemaSimpleTypeRestrictionInput(element *syntaxElement, version XSDVersion) (*schemaSimpleTypeInput, error) {
@@ -690,6 +726,175 @@ func resolveSchemaSimpleTypes(records []schemaComponentRecord, byName map[QName]
 	return resolver.results, nil
 }
 
+type schemaElementTypeResult struct {
+	present      bool
+	declaredType QName
+	typeID       ComponentID
+	hasTypeID    bool
+}
+
+func resolveSchemaElementTypes(
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	simpleTypes []schemaSimpleTypeResult,
+) ([]schemaElementTypeResult, error) {
+	if len(simpleTypes) != len(records) {
+		return nil, newSchemaBridgeInvariant(Loc{}, "element type resolution has incomplete simple type results")
+	}
+	results := make([]schemaElementTypeResult, len(records))
+	for index, record := range records {
+		if record.element == nil {
+			continue
+		}
+		result, err := resolveSchemaElementType(record, records, byName, simpleTypes)
+		if err != nil {
+			return nil, err
+		}
+		results[index] = result
+	}
+	return results, nil
+}
+
+func resolveSchemaElementType(
+	record schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	simpleTypes []schemaSimpleTypeResult,
+) (schemaElementTypeResult, error) {
+	input := record.element
+	if input == nil {
+		return schemaElementTypeResult{}, newSchemaBridgeInvariant(record.loc, "element type resolution has no type input")
+	}
+	if input.declaredType.Namespace() == xsdNamespaceURI {
+		switch input.declaredType.Local() {
+		case "integer", "decimal":
+			return schemaElementTypeResult{
+				present:      true,
+				declaredType: input.declaredType,
+			}, nil
+		case "precisionDecimal":
+			return schemaElementTypeResult{}, unsupportedSchemaElementPrecisionDecimal(input)
+		default:
+			return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
+				input.typeLoc,
+				fmt.Sprintf("element type %q is not implemented", input.declaredType),
+				input.version,
+			)
+		}
+	}
+
+	candidates := byName[input.declaredType]
+	if len(candidates) == 0 {
+		return unresolvedSchemaElementType(input)
+	}
+	typeCandidates := make([]int, 0, len(candidates))
+	for _, candidate := range candidates {
+		kind := records[candidate].kind
+		if kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
+			continue
+		}
+		typeCandidates = append(typeCandidates, candidate)
+	}
+	if len(typeCandidates) > 1 {
+		return ambiguousSchemaElementType(input, schemaComponentLocations(records, typeCandidates))
+	}
+	if len(typeCandidates) == 0 {
+		return wrongKindSchemaElementType(input, schemaComponentLocations(records, candidates))
+	}
+	candidate := typeCandidates[0]
+	if records[candidate].kind == ComponentKindComplexTypeDefinition {
+		return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
+			input.typeLoc,
+			fmt.Sprintf("named complex type %q is not implemented for global elements", input.declaredType),
+			input.version,
+		)
+	}
+	if !simpleTypes[candidate].present {
+		return schemaElementTypeResult{}, newSchemaBridgeInvariant(
+			input.typeLoc,
+			"element type resolution has an incomplete simple type result",
+		)
+	}
+	return schemaElementTypeResult{
+		present:      true,
+		declaredType: input.declaredType,
+		typeID:       records[candidate].id,
+		hasTypeID:    true,
+	}, nil
+}
+
+func unresolvedSchemaElementType(input *schemaElementInput) (schemaElementTypeResult, error) {
+	return schemaElementTypeResult{}, newSchemaElementTypeDiagnostic(
+		diagnosticSchemaElementTypeUnresolvedCode,
+		input.typeLoc,
+		fmt.Sprintf("element type %q cannot be resolved", input.declaredType),
+		nil,
+		input.version,
+		errSchemaElementTypeUnresolved,
+	)
+}
+
+func wrongKindSchemaElementType(input *schemaElementInput, related []Loc) (schemaElementTypeResult, error) {
+	return schemaElementTypeResult{}, newSchemaElementTypeDiagnostic(
+		diagnosticSchemaElementTypeWrongKindCode,
+		input.typeLoc,
+		fmt.Sprintf("element type %q does not name a simple type", input.declaredType),
+		related,
+		input.version,
+		fmt.Errorf("%w: %q", errSchemaElementTypeWrongKind, input.declaredType),
+	)
+}
+
+func ambiguousSchemaElementType(input *schemaElementInput, related []Loc) (schemaElementTypeResult, error) {
+	return schemaElementTypeResult{}, newSchemaElementTypeDiagnostic(
+		diagnosticSchemaElementTypeAmbiguousCode,
+		input.typeLoc,
+		fmt.Sprintf("element type %q is ambiguous", input.declaredType),
+		related,
+		input.version,
+		fmt.Errorf("%w: %q", errSchemaElementTypeAmbiguous, input.declaredType),
+	)
+}
+
+func newSchemaElementTypeDiagnostic(code string, loc Loc, message string, related []Loc, version XSDVersion, cause error) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    code,
+		loc:     loc,
+		message: message,
+		related: append([]Loc(nil), related...),
+		specRef: schemaElementTypeSpecRef(version),
+		cause:   cause,
+	}
+}
+
+func schemaElementTypeSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaElementTypeXSD10SpecRef
+	}
+	return schemaElementTypeXSD11SpecRef
+}
+
+func unsupportedSchemaElementPrecisionDecimal(input *schemaElementInput) error {
+	feature, ok := LookupUnsupportedFeature(FeaturePrecisionDecimal)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticUnregisteredFeatureCode,
+			input.typeLoc,
+			"precisionDecimal feature is not registered",
+			nil,
+		)
+	}
+	return newUnsupportedForVersion(
+		feature,
+		diagnosticSchemaElementTypeUnsupportedCode,
+		input.typeLoc,
+		fmt.Sprintf("element type %q is not implemented", input.declaredType),
+		input.version,
+	)
+}
+
 func (resolver *schemaSimpleTypeResolver) resolve(index int) (schemaSimpleTypeResult, error) {
 	switch resolver.states[index] {
 	case schemaSimpleTypeUnvisited:
@@ -983,4 +1188,18 @@ func newSchemaSyntaxUnsupported(loc Loc, message string) Diagnostic {
 		)
 	}
 	return newUnsupported(feature, UnsupportedSchemaSyntaxCode, loc, message)
+}
+
+func newSchemaSyntaxUnsupportedForVersion(loc Loc, message string, version XSDVersion) Diagnostic {
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSyntaxFeatureCode,
+			loc,
+			"schema syntax feature is not registered",
+			nil,
+		)
+	}
+	return newUnsupportedForVersion(feature, UnsupportedSchemaSyntaxCode, loc, message, version)
 }

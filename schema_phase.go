@@ -647,7 +647,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	status := globalSchemaAttributeStatus(kind, attribute.name.local)
 	switch status {
 	case schemaAttributeAllowed:
-		return "", validateAllowedGlobalSchemaAttribute(attribute)
+		return "", validateAllowedGlobalSchemaAttribute(element, kind, attribute)
 	case schemaAttributeUnsupported:
 		if err := validateRecognizedUnsupportedAttribute(element, attribute); err != nil {
 			return "", err
@@ -660,7 +660,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	}
 }
 
-func validateAllowedGlobalSchemaAttribute(attribute syntaxAttribute) error {
+func validateAllowedGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, attribute syntaxAttribute) error {
 	if attribute.name.local == "name" {
 		if !validNCName(collapseXMLWhitespace(attribute.value)) {
 			return newDiagnostic(FailureInvalid, invalidSchemaDeclarationNameCode, attribute.loc, "schema declaration name must be an unqualified valid NCName", nil)
@@ -669,6 +669,9 @@ func validateAllowedGlobalSchemaAttribute(attribute syntaxAttribute) error {
 	}
 	if attribute.name.local == "id" && !validNCName(collapseXMLWhitespace(attribute.value)) {
 		return newSchemaCompositionDiagnostic(attribute.loc, "schema declaration id must be a valid NCName")
+	}
+	if kind == ComponentKindElementDeclaration && attribute.name.local == "type" {
+		return validateConditionalQNameForSchema(element, attribute)
 	}
 	return nil
 }
@@ -702,8 +705,10 @@ func globalSchemaAttributeStatus(kind ComponentKind, local string) schemaAttribu
 
 func elementSchemaAttributeStatus(local string) schemaAttributeStatus {
 	switch local {
-	case "abstract", "block", "default", "fixed", "nillable", "substitutionGroup", "targetNamespace", "type", "final":
+	case "abstract", "block", "default", "fixed", "nillable", "substitutionGroup", "targetNamespace", "final":
 		return schemaAttributeUnsupported
+	case "type":
+		return schemaAttributeAllowed
 	default:
 		return schemaAttributeForbidden
 	}
