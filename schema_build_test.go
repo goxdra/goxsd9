@@ -1153,6 +1153,60 @@ func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
+			name:  "empty inline simple type is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType/></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline simple type restriction QName is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="bad:base:QName"/></xs:simpleType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaConditionalCode,
+		},
+		{
+			name:  "inline simple type duplicate model children are invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="xs:integer"/><xs:restriction base="xs:decimal"/></xs:simpleType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline simple type forbidden child is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType><xs:choice/></xs:simpleType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline simple type name attribute is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType name="Named"><xs:restriction base="xs:integer"/></xs:simpleType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline simple type final attribute is lexically invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType final="bogus"><xs:restriction base="xs:integer"/></xs:simpleType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "malformed inline complex type is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:complexType><xs:choice><xs:element type="xs:integer"/></xs:choice></xs:complexType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaDeclarationNameCode,
+		},
+		{
+			name:  "inline complex type boolean attribute is lexically invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:complexType mixed="maybe"><xs:choice><xs:element name="nested" type="xs:integer"/></xs:choice></xs:complexType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "valid inline complex type is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:complexType><xs:choice><xs:element name="nested" type="xs:integer"/></xs:choice></xs:complexType></xs:element></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
 			name:  "direct all is invalid",
 			root:  fmt.Sprintf(base, `<xs:choice><xs:all/></xs:choice>`),
 			class: FailureInvalid,
@@ -1293,6 +1347,25 @@ func TestSchemaBridgeClassifiesVersionedChoiceElementSyntax(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSchemaBridgeValidatesInlineTypesInChoiceAlternatives(t *testing.T) {
+	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Choice"><xs:choice>%s</xs:choice></xs:complexType></xs:schema>`
+	tests := []schemaBridgeDiagnosticCase{
+		{
+			name:  "empty alternative inline simple type is invalid",
+			root:  fmt.Sprintf(base, `<xs:element name="value"><xs:alternative><xs:simpleType/></xs:alternative></xs:element>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "valid alternative inline simple type is unsupported",
+			root:    fmt.Sprintf(base, `<xs:element name="value"><xs:alternative><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:alternative></xs:element>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+	}
+	assertSchemaBridgeDiagnosticCases(t, tests)
 }
 
 //nolint:gocognit // Keep target classification, locations, causes, and refs together.

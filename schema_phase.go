@@ -1534,7 +1534,7 @@ func schemaParticleOccurrenceValues(element *syntaxElement) (schemaOccurrenceVal
 }
 
 //nolint:gocognit,funlen // Keep XSD 1.1 alternative lexical and structural checks together.
-func validateChoiceElementAlternative(element *syntaxElement) error {
+func validateChoiceElementAlternative(element *syntaxElement, version XSDVersion) error {
 	idAttributes := syntaxAttributesByLocal(element, "id")
 	testAttributes := syntaxAttributesByLocal(element, "test")
 	typeAttributes := syntaxAttributesByLocal(element, "type")
@@ -1608,6 +1608,9 @@ func validateChoiceElementAlternative(element *syntaxElement) error {
 			if typeChildSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "alternative type child must be unique")
 			}
+			if err := validateInlineSchemaType(child, version); err != nil {
+				return err
+			}
 			typeChildSeen = true
 		default:
 			if isKnownSchemaElement(child.name.local) {
@@ -1624,6 +1627,22 @@ func validateChoiceElementAlternative(element *syntaxElement) error {
 		return newSchemaCompositionDiagnostic(element.loc, "alternative requires a type or inline type")
 	}
 	return nil
+}
+
+func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error {
+	kind, ok := schemaDeclarationKind(element.name.local)
+	if !ok || kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
+		return newSchemaBridgeInvariant(element.loc, "inline schema type has an unknown kind")
+	}
+	for _, attribute := range element.attrs {
+		if attribute.name.namespace == "" && attribute.name.local == "name" {
+			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("inline %s cannot specify a name", element.name.local))
+		}
+		if _, err := validateGlobalSchemaAttribute(element, kind, attribute); err != nil {
+			return err
+		}
+	}
+	return validateGlobalSchemaChildren(element, version)
 }
 
 //nolint:gocognit,funlen // Keep local element grammar, lexical checks, and support boundaries together.
@@ -1759,13 +1778,16 @@ func validateChoiceElementParticle(element *syntaxElement, version XSDVersion) (
 			if typeChildSeen || constraintPhase {
 				return candidate, newSchemaCompositionDiagnostic(child.loc, "local element type child must be unique and precede constraints")
 			}
+			if err := validateInlineSchemaType(child, version); err != nil {
+				return candidate, err
+			}
 			typeChildSeen = true
 			candidate.considerAt(child.loc, fmt.Sprintf("local element child <%s> is not implemented", child.name.local))
 		case "alternative":
 			if refSeen || constraintPhase {
 				return candidate, newSchemaCompositionDiagnostic(child.loc, "local element alternative must precede identity constraints")
 			}
-			if err := validateChoiceElementAlternative(child); err != nil {
+			if err := validateChoiceElementAlternative(child, version); err != nil {
 				return candidate, err
 			}
 			if version == XSDVersion10 {
