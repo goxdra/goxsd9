@@ -9,20 +9,28 @@ func TestFeatureRegistryValidationAndLookup(t *testing.T) {
 	if err := ValidateFeatureRegistry(); err != nil {
 		t.Fatalf("ValidateFeatureRegistry: %v", err)
 	}
-	feature, ok := LookupUnsupportedFeature("xsd.assertion")
-	if !ok {
+	feature, found := LookupUnsupportedFeature("xsd.assertion")
+	if !found {
 		t.Fatal("LookupUnsupportedFeature did not find xsd.assertion")
 	}
 	if got, want := feature.Title(), "XSD assertions"; got != want {
 		t.Fatalf("Title() = %q, want %q", got, want)
 	}
-	if _, ok := LookupUnsupportedFeature("xsd.unknown"); ok {
+	if _, unknownFound := LookupUnsupportedFeature("xsd.unknown"); unknownFound {
 		t.Fatal("LookupUnsupportedFeature accepted an unknown ID")
 	}
-	for _, id := range []FeatureID{FeatureDatatypeFacets, FeatureInstanceSyntax, FeaturePrecisionDecimal} {
-		if _, ok := LookupUnsupportedFeature(id); !ok {
+	for _, id := range []FeatureID{FeatureDatatypeFacets, FeatureInstanceSyntax, FeatureInstanceValidation, FeaturePrecisionDecimal} {
+		if _, featureFound := LookupUnsupportedFeature(id); !featureFound {
 			t.Fatalf("LookupUnsupportedFeature did not find %q", id)
 		}
+	}
+	validationFeature, found := LookupUnsupportedFeature(FeatureInstanceValidation)
+	if !found {
+		t.Fatal("LookupUnsupportedFeature did not find instance validation")
+	}
+	references := validationFeature.References()
+	if len(references) != 2 || references[0].Source() != "xsd10-structures#cvc-elt" || references[1].Source() != "xsd11-structures#cvc-elt" {
+		t.Fatalf("instance validation references = %#v, want XSD 1.0 and 1.1 cvc-elt", references)
 	}
 }
 

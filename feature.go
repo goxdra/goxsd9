@@ -14,6 +14,9 @@ const (
 	// FeatureInstanceSyntax identifies XML instance syntax outside the first
 	// decoder slice, including DTDs and non-UTF-8 encodings.
 	FeatureInstanceSyntax FeatureID = "xsd.instance.syntax"
+	// FeatureInstanceValidation identifies XML instance semantic validation
+	// outside the supported scalar element slice.
+	FeatureInstanceValidation FeatureID = "xsd.instance.validation"
 	// FeatureDatatypeFacets identifies the not-yet-implemented datatype facet set.
 	FeatureDatatypeFacets FeatureID = "xsd.datatype.facets"
 	// FeaturePrecisionDecimal identifies the not-yet-implemented XSD 1.1 type.

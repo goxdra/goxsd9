@@ -126,10 +126,12 @@ semantic tradeoffs. Users can supply the same datatype-library interface.
 
 ## Validation and code generation
 
-Validation compiles content-model machinery on demand and does not cache it in
-`Schema`. It reports instance locations and related schema locations. XPath
-support begins with the XSD-required subset and expands toward the full XPath
-2.0 dependency set.
+`ValidateInstance` decodes and validates a global built-in/named XSD
+`integer`/`decimal`. Named types use `TypeID`/`Lookup`; built-ins use XSD
+1.1 compatibility/default. Strict parsers/facets validate ordered text.
+Unsupported attributes, children, and semantics use
+`xsd.instance.validation`; instance locations are primary. Broader validation
+staged.
 
 Code generation consumes only the public schema model. It produces deterministic
 formatted Go, uses type switches for choices, and never depends on map order.

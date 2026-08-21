@@ -1,5 +1,6 @@
 // Package goxsd9 provides a supported vertical slice for parsing XML Schema
-// documents into immutable schema components.
+// documents into immutable schema components and validating scalar XML
+// instances.
 //
 // ParseSchema accepts a caller-created ResolvedSource and a Resolver. The
 // current subset discovers mixed XSD 1.0 and XSD 1.1 schema graphs, builds
@@ -17,5 +18,9 @@
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
 //
-// XML instance validation and Go code generation remain under construction.
+// ValidateInstance supports one complete instance rooted at a global element
+// declared as built-in or named xs:integer or xs:decimal. The scalar element
+// must contain only character data; attributes and child elements are
+// explicit unsupported behavior. Go code generation remains under
+// construction.
 package goxsd9

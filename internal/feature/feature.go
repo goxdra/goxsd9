@@ -121,6 +121,14 @@ var registry = []definition{
 		},
 	},
 	{
+		id:    "xsd.instance.validation",
+		title: "XML instance semantic validation outside the scalar element slice",
+		references: []Reference{
+			{version: "1.0", source: "xsd10-structures#cvc-elt"},
+			{version: "1.1", source: "xsd11-structures#cvc-elt"},
+		},
+	},
+	{
 		id:    "xsd.schema.syntax",
 		title: "XSD schema syntax outside the bootstrap kernel",
 		references: []Reference{
