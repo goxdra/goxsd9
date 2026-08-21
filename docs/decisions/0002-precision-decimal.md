@@ -70,8 +70,8 @@ The representation uses no binary floating point, mutable
 numeric internals, raw-lexeme or cached canonical strings, or partially constructed public value. Any private
 `big.Int` is owned or copied before mutation, and coefficient, scale, raw lexeme, and cache state are not exposed.
 
-Each future canonical-output call receives a finite, non-negative byte budget `B`, measured in exact ASCII bytes
-of the final canonical lexical form; this grammar is ASCII, so characters and bytes coincide. Let `L` be the
+The private, on-demand `canonicalPrecisionDecimal` canonicalizer accepts a finite, non-negative ASCII-byte budget
+`B` for the exact final canonical lexical form; this grammar is ASCII, so characters and bytes coincide. Let `L` be the
 exact planned length: complete output is returned iff `L <= B`, while the one-over-limit case `L = B+1` is
 rejected. `B=0` rejects every valid value because every canonical lexical form is non-empty. Exact planned length
 must be computed, or safely capped at `B+1` while preserving the accept/reject distinction, from the
@@ -79,9 +79,10 @@ arbitrary-precision representation before allocating or materializing output. No
 `10^huge` construction, padding expansion before the check, cached canonical string, partial output, truncation,
 or value mutation is permitted.
 
-For a valid value with `L > B`, a future API returns no string and leaves the value unchanged. Its distinct project
-sentinel is `ErrPrecisionDecimalCanonicalOutputLimit`; this future name does not imply a current API. The error is
-cause-preserving and carries source `Loc` when a future source-aware API has one.
+For a valid value with `L > B`, the private `canonicalPrecisionDecimal` canonicalizer returns no string and leaves
+the value unchanged. It reports a located `FailureInvalid` diagnostic preserving the exported
+`ErrPrecisionDecimalCanonicalOutputLimit` sentinel as its cause and the caller's `Loc`. Public and schema
+`precisionDecimal` support remains deferred under the existing unsupported feature gate.
 It is a resource/invalid-request result, not lexical invalidity, unsupported behavior, or internal failure.
 
 Canonicalization remains separate from comparison and the existing
