@@ -140,6 +140,162 @@ func TestParseSchemaBuildsDeterministicImmutableGraph(t *testing.T) {
 	assertParseTestCopies(t, schema)
 }
 
+//nolint:gocognit,funlen // Keep the end-to-end immutable and deterministic contract together.
+func TestParseSchemaModelsGlobalElementScalarTypesAcrossMixedDocuments(t *testing.T) {
+	rootContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:t="urn:wrong" xmlns:o="urn:other" targetNamespace="urn:root" version="1.0">
+  <xs:import namespace="urn:other" schemaLocation="other-location"/>
+  <xs:element name="integerValue" type="  xs:integer  "/>
+  <xs:element name="decimalValue" type="xs:decimal"/>
+  <xs:element xmlns:t="urn:root" name="namedValue" type=" t:Named "/>
+  <xs:element name="crossValue" type=" o:OtherAmount "/>
+  <xs:simpleType name="Named"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	childContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" targetNamespace="urn:other" version="1.1">
+  <xs:simpleType name="OtherAmount"><xs:restriction base="xs:integer"><xs:totalDigits value="5"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	rootReader := newParseTestReader(rootContents)
+	root, err := goxsd9.NewResolvedSource(context.Background(), "typed-root", rootReader)
+	if err != nil {
+		t.Fatalf("NewResolvedSource: %v", err)
+	}
+	resolver := &typedElementParseResolver{contents: childContents}
+	schema, err := goxsd9.ParseSchema(root, resolver)
+	if err != nil {
+		t.Fatalf("ParseSchema: %v", err)
+	}
+	if got, want := len(resolver.calls), 1; got != want {
+		t.Fatalf("resolver call count = %d, want %d; type references must not resolve sources", got, want)
+	}
+	if got, want := resolver.calls[0], (parseTestCall{namespaceURN: "urn:other", location: "other-location"}); got != want {
+		t.Fatalf("resolver call = %#v, want %#v", got, want)
+	}
+	if got, want := rootReader.closeCount, 1; got != want {
+		t.Fatalf("root close count = %d, want %d", got, want)
+	}
+	components := schema.Components()
+	if got, want := len(components), 6; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+	wantNames := []goxsd9.QName{
+		parseTestQName(t, "urn:root", "integerValue"),
+		parseTestQName(t, "urn:root", "decimalValue"),
+		parseTestQName(t, "urn:root", "namedValue"),
+		parseTestQName(t, "urn:root", "crossValue"),
+		parseTestQName(t, "urn:root", "Named"),
+		parseTestQName(t, "urn:other", "OtherAmount"),
+	}
+	for index, want := range wantNames {
+		if got := components[index].Name(); got != want {
+			t.Errorf("component %d name = %q, want %q", index, got, want)
+		}
+	}
+	assertParseElementView(t, components[0], parseTestQName(t, parseTestXSDNamespace, "integer"), goxsd9.ComponentID{}, false)
+	assertParseElementView(t, components[1], parseTestQName(t, parseTestXSDNamespace, "decimal"), goxsd9.ComponentID{}, false)
+	assertParseElementView(t, components[2], parseTestQName(t, "urn:root", "Named"), components[4].ID(), true)
+	assertParseElementView(t, components[3], parseTestQName(t, "urn:other", "OtherAmount"), components[5].ID(), true)
+	if _, ok := components[4].Element(); ok {
+		t.Fatal("simple type component has an element view")
+	}
+	namedType, ok := components[4].SimpleType()
+	if !ok {
+		t.Fatal("root named simple type view is missing")
+	}
+	if got, want := namedType.DigitFacets().Version(), goxsd9.XSDVersion10; got != want {
+		t.Fatalf("root named type version = %q, want %q", got, want)
+	}
+	otherType, ok := components[5].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("cross-document simple type view is missing")
+	}
+	if got, want := otherType.DigitFacets().Version(), goxsd9.XSDVersion11; got != want {
+		t.Fatalf("cross-document type version = %q, want %q", got, want)
+	}
+	walked := make([]goxsd9.ComponentID, 0, len(components))
+	if err := schema.Walk(func(component goxsd9.Component) error {
+		walked = append(walked, component.ID())
+		return nil
+	}); err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	wantWalk := make([]goxsd9.ComponentID, 0, len(components))
+	for _, component := range components {
+		wantWalk = append(wantWalk, component.ID())
+	}
+	if !reflect.DeepEqual(walked, wantWalk) {
+		t.Fatalf("Walk IDs = %#v, want %#v", walked, wantWalk)
+	}
+	namedName := parseTestQName(t, "urn:root", "namedValue")
+	allFound := schema.Find(namedName)
+	if len(allFound) != 1 || allFound[0].ID() != components[2].ID() {
+		t.Fatalf("Find(namedValue) = %#v, want component 2", allFound)
+	}
+	found := schema.FindKind(goxsd9.ComponentKindElementDeclaration, namedName)
+	if len(found) != 1 || found[0].ID() != components[2].ID() {
+		t.Fatalf("FindKind(namedValue) = %#v, want component 2", found)
+	}
+	elementView, ok := components[2].Element()
+	if !ok {
+		t.Fatal("named element view is missing")
+	}
+	alias, ok := components[2].ElementDeclaration()
+	if !ok || alias.DeclaredType() != elementView.DeclaredType() {
+		t.Fatal("ElementDeclaration compatibility alias does not preserve declared type")
+	}
+	assertParseElementCopies(t, schema, namedName, components[2].ID())
+}
+
+func assertParseElementView(t *testing.T, component goxsd9.Component, wantType goxsd9.QName, wantTypeID goxsd9.ComponentID, wantHasTypeID bool) {
+	t.Helper()
+	view, ok := component.Element()
+	if !ok {
+		t.Fatalf("component %s has no element view", component.ID().Source())
+	}
+	if view.Component().ID() != component.ID() || view.ID() != component.ID() || view.Name() != component.Name() || view.Loc() != component.Loc() {
+		t.Fatalf("element view does not preserve generic component facts")
+	}
+	if got := view.DeclaredType(); got != wantType {
+		t.Fatalf("declared type = %q, want %q", got, wantType)
+	}
+	gotTypeID, gotHasTypeID := view.TypeID()
+	if gotTypeID != wantTypeID || gotHasTypeID != wantHasTypeID {
+		t.Fatalf("type ID = (%v, %t), want (%v, %t)", gotTypeID, gotHasTypeID, wantTypeID, wantHasTypeID)
+	}
+}
+
+func assertParseElementCopies(t *testing.T, schema goxsd9.Schema, name goxsd9.QName, wantID goxsd9.ComponentID) {
+	t.Helper()
+	components := schema.Components()
+	components[2] = goxsd9.Component{}
+	if got, ok := schema.Lookup(wantID); !ok || got.Name() != name {
+		t.Fatal("mutating Components changed the completed element")
+	}
+	found := schema.Find(name)
+	found[0] = goxsd9.Component{}
+	if got, ok := schema.Lookup(wantID); !ok || got.Name() != name {
+		t.Fatal("mutating Find changed the completed element")
+	}
+	documents := schema.Documents()
+	documentComponents := documents[0].Components()
+	documentComponents[2] = goxsd9.Component{}
+	if got, ok := schema.Lookup(wantID); !ok || got.Name() != name {
+		t.Fatal("mutating document Components changed the completed element")
+	}
+}
+
+type typedElementParseResolver struct {
+	calls    []parseTestCall
+	contents string
+}
+
+func (resolver *typedElementParseResolver) Resolve(ctx context.Context, namespaceURN, schemaLocation string) (goxsd9.ResolvedSource, error) {
+	resolver.calls = append(resolver.calls, parseTestCall{namespaceURN: namespaceURN, location: schemaLocation})
+	if schemaLocation != "other-location" {
+		return goxsd9.ResolvedSource{}, fmt.Errorf("unexpected schema location %q", schemaLocation)
+	}
+	childContext := context.WithValue(ctx, parseTestContextKey{}, "typed-other")
+	return goxsd9.NewResolvedSource(childContext, "typed-other", newParseTestReader(resolver.contents))
+}
+
 func assertParseTestDocuments(t *testing.T, schema goxsd9.Schema) {
 	t.Helper()
 	wantSources := []goxsd9.SourceID{"opaque-root", "opaque-a", "opaque-b"}
