@@ -17,11 +17,10 @@ It is an optional user label. Its value may be absent, empty, arbitrary, or
 look like an XSD edition without changing the selected policy.
 
 The current two-argument `ParseSchema(root, resolver)` behavior is unchanged
-by this decision record. A future API may accept the explicit policy and may
-retain a one-way `Compatibility` wrapper for the existing call shape. No
-future API is prescribed here that would break the current public API without
-separate review. This record chooses the contract for the implementation
-packets; it does not change current behavior or make a conformance claim.
+by this decision record. `ParseSchemaWithPolicy` currently accepts and
+preflights `Compatibility`, `Strict10`, and `Strict11` before discovery; graph
+propagation and profile-specific behavior remain future work. This record does
+not make a conformance claim.
 
 ### Why the schema token cannot select an edition
 
@@ -176,8 +175,8 @@ not change current behavior. The current two-argument parser still has legacy
 per-document behavior: absent or empty `schema/@version` defaults to XSD 1.1,
 `"1.0"` selects the current legacy XSD 1.0 path, `"1.1"` selects the current
 legacy XSD 1.1 path, and arbitrary labels are rejected as unsupported. The
-accepted graph-wide `Compatibility`, `Strict10`, and `Strict11` policy is
-future work, not current runtime behavior.
+policy values and invalid-policy preflight are implemented; graph
+propagation and strict/profile behavior remain future work.
 
 The implementation boundary is limited to constructing and validating the
 policy, propagating it through the schema graph, deriving version-sensitive

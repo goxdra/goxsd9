@@ -14,7 +14,10 @@ identities close without decoding.
 
 Mixed XSD 1.0/1.1 graphs, declarations, and simple-type restrictions are supported. Chameleon includes, redefine/override/defaultOpenContent, assertions, and broader datatype facets remain unsupported; totalDigits/fractionDigits are implemented.
 The two-argument parser retains per-document handling: absent or empty `schema/@version` defaults to XSD 1.1, `"1.0"` selects the legacy XSD 1.0 path, `"1.1"` selects the legacy XSD 1.1 path, and arbitrary labels are unsupported.
-Normatively, `schema/@version` is an inert optional `xs:token` label; the accepted graph-wide `Compatibility` (default), `Strict10`, and `Strict11` policy is future work and absent from the current parser.
+Normatively, `schema/@version` is an inert optional `xs:token` label.
+`ParseSchemaWithPolicy` validates graph-wide `Compatibility`,
+`Strict10`, or `Strict11` policy before discovery; propagation and
+profile-specific behavior remain future work.
 Unsupported behavior and invalid input return located diagnostics; errors return no schema. XML validation and Go generation remain under construction.
 
 ## Design goals
