@@ -78,6 +78,11 @@ func TestDiagnosticCodesAreUnique(t *testing.T) {
 		{name: "diagnosticDigitEffectiveKindCode", code: diagnosticDigitEffectiveKindCode},
 		{name: "diagnosticDigitEffectiveVersionCode", code: diagnosticDigitEffectiveVersionCode},
 		{name: "diagnosticDigitIntegerFractionCode", code: diagnosticDigitIntegerFractionCode},
+		{name: "diagnosticCodegenUnsupported", code: diagnosticCodegenUnsupported},
+		{name: "diagnosticCodegenInvariant", code: diagnosticCodegenInvariant},
+		{name: "diagnosticCodegenFormat", code: diagnosticCodegenFormat},
+		{name: "diagnosticCodegenSchemaInvalid", code: diagnosticCodegenSchemaInvalid},
+		{name: "diagnosticCodegenNamingInvalid", code: diagnosticCodegenNamingInvalid},
 	}
 	seen := make(map[string]string, len(definitions))
 	for _, definition := range definitions {

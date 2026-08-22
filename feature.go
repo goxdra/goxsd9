@@ -14,6 +14,9 @@ const (
 	// FeatureInstanceSyntax identifies XML instance syntax outside the first
 	// decoder slice, including DTDs and non-UTF-8 encodings.
 	FeatureInstanceSyntax FeatureID = "xsd.instance.syntax"
+	// FeatureCodegen identifies Go generation outside supported scalar
+	// declarations.
+	FeatureCodegen FeatureID = "xsd.codegen"
 	// FeatureInstanceValidation identifies XML instance semantic validation
 	// outside the supported scalar element slice.
 	FeatureInstanceValidation FeatureID = "xsd.instance.validation"

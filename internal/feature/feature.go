@@ -99,6 +99,14 @@ var registry = []definition{
 		},
 	},
 	{
+		id:    "xsd.codegen",
+		title: "Go code generation outside supported scalar declarations",
+		references: []Reference{
+			{version: "1.0", source: "xsd10-structures#Simple_Type_Definitions"},
+			{version: "1.1", source: "xsd11-structures#Simple_Type_Definition"},
+		},
+	},
+	{
 		id:    "xsd.datatype.facets",
 		title: "XSD datatype facets",
 		references: []Reference{
