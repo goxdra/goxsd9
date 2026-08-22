@@ -3,6 +3,7 @@ package goxsd9
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -1069,6 +1070,1108 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 	assertSchemaBridgeDiagnosticCases(t, tests)
 }
 
+//nolint:funlen // Keep occurrence, lexical, and structural choice boundaries together.
+func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
+	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Choice">%s</xs:complexType></xs:schema>`
+	assertSchemaBridgeDiagnosticCases(t, []schemaBridgeDiagnosticCase{
+		{
+			name:    "choice occurrence is unsupported after lexical validation",
+			root:    fmt.Sprintf(base, `<xs:choice minOccurs="0">`+`<xs:element name="value" type="xs:integer"/>`+`</xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "choice min occurrence exceeds omitted max default",
+			root:  fmt.Sprintf(base, `<xs:choice minOccurs="2"><xs:element name="value" type="xs:integer"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "choice omitted min default exceeds max occurrence",
+			root:  fmt.Sprintf(base, `<xs:choice maxOccurs="0"><xs:element name="value" type="xs:integer"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "choice unbounded max remains lexically valid",
+			root:    fmt.Sprintf(base, `<xs:choice minOccurs="2" maxOccurs="unbounded"><xs:element name="value" type="xs:integer"/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "element occurrence is unsupported after lexical validation",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" minOccurs="0"/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "element min occurrence exceeds omitted max default",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" minOccurs="2"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "element omitted min default exceeds max occurrence",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" maxOccurs="0"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "element unbounded max remains lexically valid",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" minOccurs="2" maxOccurs="unbounded"/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "element form policy is unsupported after lexical validation",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" form="unqualified"/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "nested sequence is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:sequence/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "wildcard is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:any/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "element reference is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element ref="value"/></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "inline type is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "empty inline simple type is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType/></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline simple type restriction QName is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="bad:base:QName"/></xs:simpleType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaConditionalCode,
+		},
+		{
+			name:  "inline simple type duplicate model children are invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="xs:integer"/><xs:restriction base="xs:decimal"/></xs:simpleType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline simple type forbidden child is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType><xs:choice/></xs:simpleType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline simple type name attribute is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType name="Named"><xs:restriction base="xs:integer"/></xs:simpleType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline simple type final attribute is lexically invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType final="bogus"><xs:restriction base="xs:integer"/></xs:simpleType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "malformed inline complex type is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:complexType><xs:choice><xs:element type="xs:integer"/></xs:choice></xs:complexType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaDeclarationNameCode,
+		},
+		{
+			name:  "inline complex type boolean attribute is lexically invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:complexType mixed="maybe"><xs:choice><xs:element name="nested" type="xs:integer"/></xs:choice></xs:complexType></xs:element></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "valid inline complex type is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:complexType><xs:choice><xs:element name="nested" type="xs:integer"/></xs:choice></xs:complexType></xs:element></xs:choice>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "direct all is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:all/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "choice annotation after particles is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer"/><xs:annotation/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "malformed occurrence is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice minOccurs="maybe">`+`<xs:element name="value" type="xs:integer"/>`+`</xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "malformed form is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" form="maybe"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "malformed local NCName is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="bad:name" type="xs:integer"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaDeclarationNameCode,
+		},
+		{
+			name:  "malformed local type QName is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="bad:type:extra"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaConditionalCode,
+		},
+		{
+			name:  "choice element requires a name or ref",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element type="xs:integer"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  invalidSchemaDeclarationNameCode,
+		},
+	})
+}
+
+//nolint:gocognit,funlen // Keep version classification and no-partial-schema assertions together.
+func TestSchemaBridgeClassifiesVersionedChoiceElementSyntax(t *testing.T) {
+	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="%s"><xs:complexType name="Choice"><xs:choice>%s</xs:choice></xs:complexType></xs:schema>`
+	tests := []struct {
+		name     string
+		version  XSDVersion
+		particle string
+		class    FailureClass
+		code     string
+		specRef  string
+	}{
+		{
+			name:     "XSD 1.1 local target namespace is unsupported",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value" type="xs:integer" targetNamespace="urn:qualified"/>`,
+			class:    FailureUnsupported,
+			code:     UnsupportedSchemaSyntaxCode,
+			specRef:  "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name:     "XSD 1.0 local target namespace is invalid",
+			version:  XSDVersion10,
+			particle: `<xs:element name="value" type="xs:integer" targetNamespace="urn:qualified"/>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+		{
+			name:     "XSD 1.1 element alternative is unsupported",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value"><xs:alternative id="alternative" test="@kind = 'integer'" type="xs:integer" xpathDefaultNamespace="##local"/></xs:element>`,
+			class:    FailureUnsupported,
+			code:     UnsupportedSchemaSyntaxCode,
+			specRef:  "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name:     "XSD 1.0 element alternative is invalid",
+			version:  XSDVersion10,
+			particle: `<xs:element name="value"><xs:alternative type="xs:integer"/></xs:element>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+		{
+			name:     "target namespace lexical failure remains invalid",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value" type="xs:integer" targetNamespace="%ZZ"/>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+		{
+			name:     "alternative QName lexical failure remains invalid",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value"><xs:alternative type="bad:prefix:extra"/></xs:element>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaConditionalCode,
+		},
+		{
+			name:     "alternative XPath namespace lexical failure remains invalid",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value"><xs:alternative type="xs:integer" xpathDefaultNamespace="%ZZ"/></xs:element>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+		{
+			name:     "alternative structure failure remains invalid",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value"><xs:alternative/></xs:element>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+		{
+			name:     "target namespace and form conflict remains invalid",
+			version:  XSDVersion11,
+			particle: `<xs:element name="value" type="xs:integer" targetNamespace="urn:qualified" form="qualified"/>`,
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := fmt.Sprintf(base, test.version, test.particle)
+			schema, err := discoverTestSchema(t, root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted versioned choice syntax")
+			}
+			if schema.storage != nil || len(schema.Components()) != 0 {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class || diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic = %s, want %s/%s", diagnostic, test.class, test.code)
+			}
+			if test.specRef != "" && diagnostic.SpecRef() != test.specRef {
+				t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), test.specRef)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeValidatesInlineTypesInChoiceAlternatives(t *testing.T) {
+	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Choice"><xs:choice>%s</xs:choice></xs:complexType></xs:schema>`
+	tests := []schemaBridgeDiagnosticCase{
+		{
+			name:  "empty alternative inline simple type is invalid",
+			root:  fmt.Sprintf(base, `<xs:element name="value"><xs:alternative><xs:simpleType/></xs:alternative></xs:element>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "valid alternative inline simple type is unsupported",
+			root:    fmt.Sprintf(base, `<xs:element name="value"><xs:alternative><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:alternative></xs:element>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+	}
+	assertSchemaBridgeDiagnosticCases(t, tests)
+}
+
+//nolint:funlen // Keep the issue's direct-choice grammar matrix together.
+func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
+	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `"%s><xs:complexType name="Choice"><xs:choice>%s</xs:choice></xs:complexType></xs:schema>`
+	wrapper := func(options, body string) string {
+		return fmt.Sprintf(base, options, `<xs:element name="value">`+body+`</xs:element>`)
+	}
+	assertSchemaBridgeDiagnosticCases(t, []schemaBridgeDiagnosticCase{
+		{
+			name:  "list requires one source",
+			root:  wrapper("", `<xs:simpleType><xs:list/></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "list itemType malformed",
+			root:  wrapper("", `<xs:simpleType><xs:list itemType="bad:q:name"/></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaConditionalCode,
+		},
+		{
+			name:  "list itemType unbound",
+			root:  wrapper("", `<xs:simpleType><xs:list itemType="missing:Type"/></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaConditionalCode,
+		},
+		{
+			name:  "list sources are exclusive",
+			root:  wrapper("", `<xs:simpleType><xs:list itemType="xs:integer"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:list></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "valid list itemType is unsupported",
+			root:    wrapper("", `<xs:simpleType><xs:list itemType="xs:integer"/></xs:simpleType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "valid list inline type is unsupported",
+			root:    wrapper("", `<xs:simpleType><xs:list><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:list></xs:simpleType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "list foreign child is invalid",
+			root:  wrapper(` xmlns:f="urn:foreign"`, `<xs:simpleType><xs:list itemType="xs:integer"><f:payload/></xs:list></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "union requires a source",
+			root:  wrapper("", `<xs:simpleType><xs:union/></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "union memberTypes malformed",
+			root:  wrapper("", `<xs:simpleType><xs:union memberTypes="xs:integer bad:q:name"/></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaConditionalCode,
+		},
+		{
+			name:    "valid union memberTypes is unsupported",
+			root:    wrapper("", `<xs:simpleType><xs:union memberTypes="xs:integer xs:decimal"/></xs:simpleType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "valid union memberTypes and inline members are unsupported",
+			root:    wrapper("", `<xs:simpleType><xs:union memberTypes="xs:integer"><xs:simpleType><xs:restriction base="xs:decimal"/></xs:simpleType></xs:union></xs:simpleType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "valid union inline members are unsupported",
+			root:    wrapper("", `<xs:simpleType><xs:union><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType><xs:simpleType><xs:restriction base="xs:decimal"/></xs:simpleType></xs:union></xs:simpleType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "union memberTypes cannot be empty with inline members",
+			root:  wrapper("", `<xs:simpleType><xs:union memberTypes=""><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:union></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "totalDigits zero is invalid",
+			root:  wrapper("", `<xs:simpleType><xs:restriction base="xs:decimal"><xs:totalDigits value="0"/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  InvalidTotalDigitsCode,
+		},
+		{
+			name:  "fractionDigits negative is invalid",
+			root:  wrapper("", `<xs:simpleType><xs:restriction base="xs:decimal"><xs:fractionDigits value="-1"/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  InvalidFractionDigitsCode,
+		},
+		{
+			name:  "facet value is required",
+			root:  wrapper("", `<xs:simpleType><xs:restriction base="xs:decimal"><xs:pattern/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "local simpleType final is prohibited",
+			root:  wrapper("", `<xs:simpleType final="#all"><xs:restriction base="xs:decimal"/></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "facet fixed boolean is validated",
+			root:  wrapper("", `<xs:simpleType><xs:restriction base="xs:decimal"><xs:pattern value="x" fixed="maybe"/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "facet id is validated",
+			root:  wrapper("", `<xs:simpleType><xs:restriction base="xs:decimal"><xs:pattern value="x" id="bad:id"/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "valid pattern retains datatype facet feature",
+			root:    wrapper("", `<xs:simpleType><xs:restriction base="xs:decimal"><xs:pattern value="[0-9]+"/></xs:restriction></xs:simpleType>`),
+			class:   FailureUnsupported,
+			feature: FeatureDatatypeFacets,
+			code:    UnsupportedDatatypeFacetCode,
+		},
+		{
+			name:  "assertion facet test is required",
+			root:  wrapper(` version="1.1"`, `<xs:simpleType><xs:restriction base="xs:decimal"><xs:assertion/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "valid assertion facet is unsupported",
+			root:    wrapper(` version="1.1"`, `<xs:simpleType><xs:restriction base="xs:decimal"><xs:assertion test="true()"/></xs:restriction></xs:simpleType>`),
+			class:   FailureUnsupported,
+			feature: FeatureDatatypeFacets,
+			code:    UnsupportedDatatypeFacetCode,
+		},
+		{
+			name:  "restriction inline type cannot follow assertion",
+			root:  wrapper(` version="1.1"`, `<xs:simpleType><xs:restriction base="xs:decimal"><xs:assertion test="true()"/><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "explicitTimezone is invalid in XSD 1.0",
+			root:  wrapper(` version="1.0"`, `<xs:simpleType><xs:restriction base="xs:dateTime"><xs:explicitTimezone value="required"/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "minScale cannot be negative",
+			root:  wrapper(` version="1.1"`, `<xs:simpleType><xs:restriction base="xs:decimal"><xs:minScale value="-1"/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "unsupported facet cannot hide malformed later facet",
+			root:  wrapper("", `<xs:simpleType><xs:restriction base="xs:decimal"><xs:pattern value="x"/><xs:totalDigits value="-1"/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  InvalidTotalDigitsCode,
+		},
+		{
+			name:    "restriction inline type may precede a facet",
+			root:    wrapper("", `<xs:simpleType><xs:restriction><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="inner"/></xs:restriction></xs:simpleType><xs:pattern value="outer"/></xs:restriction></xs:simpleType>`),
+			class:   FailureUnsupported,
+			feature: FeatureDatatypeFacets,
+			code:    UnsupportedDatatypeFacetCode,
+		},
+		{
+			name:  "restriction inline type cannot hide a malformed later facet",
+			root:  wrapper("", `<xs:simpleType><xs:restriction><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="inner"/></xs:restriction></xs:simpleType><xs:totalDigits value="0"/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  InvalidTotalDigitsCode,
+		},
+		{
+			name:  "restriction foreign child is invalid in XSD 1.0",
+			root:  wrapper(` version="1.0" xmlns:f="urn:foreign"`, `<xs:simpleType><xs:restriction base="xs:string"><f:pattern/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "restriction foreign child is unsupported in XSD 1.1",
+			root:    wrapper(` version="1.1" xmlns:f="urn:foreign"`, `<xs:simpleType><xs:restriction base="xs:string"><f:pattern/></xs:restriction></xs:simpleType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
+		},
+		{
+			name:    "restriction inline type may precede a facet",
+			root:    wrapper("", `<xs:simpleType><xs:restriction><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="inner"/></xs:restriction></xs:simpleType><xs:pattern value="outer"/></xs:restriction></xs:simpleType>`),
+			class:   FailureUnsupported,
+			feature: FeatureDatatypeFacets,
+			code:    UnsupportedDatatypeFacetCode,
+		},
+		{
+			name:  "restriction inline type cannot hide a malformed later facet",
+			root:  wrapper("", `<xs:simpleType><xs:restriction><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="inner"/></xs:restriction></xs:simpleType><xs:totalDigits value="0"/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  InvalidTotalDigitsCode,
+		},
+		{
+			name:  "simpleContent requires derivation",
+			root:  wrapper("", `<xs:complexType><xs:simpleContent/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "simpleContent extension is unsupported",
+			root:    wrapper("", `<xs:complexType><xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "simpleContent base QName is validated",
+			root:  wrapper("", `<xs:complexType><xs:simpleContent><xs:extension base="bad:q:name"/></xs:simpleContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaConditionalCode,
+		},
+		{
+			name:  "simpleContent rejects a model particle",
+			root:  wrapper("", `<xs:complexType><xs:simpleContent><xs:extension base="xs:string"><xs:sequence/></xs:extension></xs:simpleContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "complexContent foreign child is invalid",
+			root:  wrapper(` xmlns:f="urn:foreign"`, `<xs:complexType><xs:complexContent><f:payload/></xs:complexContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "all annotation must precede elements",
+			root:  wrapper("", `<xs:complexType><xs:all><xs:element name="item" type="xs:string"/><xs:annotation/></xs:all></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "all minOccurs is restricted to zero or one",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:all minOccurs="2"><xs:element name="item" type="xs:string"/></xs:all></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "all maxOccurs rejects unbounded",
+			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:all maxOccurs="unbounded"><xs:element name="item" type="xs:string"/></xs:all></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "XSD 1.1 all permits zero min and max occurrences",
+			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:all minOccurs="0" maxOccurs="0"><xs:element name="item" type="xs:string"/></xs:all></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "XSD 1.1 all rejects effective min one with max zero",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:all minOccurs="1" maxOccurs="0"><xs:element name="item" type="xs:string"/></xs:all></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "XSD 1.0 all rejects zero max occurrences",
+			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:all minOccurs="0" maxOccurs="0"><xs:element name="item" type="xs:string"/></xs:all></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "XSD 1.0 all child occurrences are restricted",
+			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:element name="item" type="xs:string" minOccurs="2"/></xs:all></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "XSD 1.0 all rejects any children",
+			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:any/></xs:all></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "XSD 1.0 all rejects group children",
+			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:group ref="xs:group"/></xs:all></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "XSD 1.1 all permits any children as unfinished",
+			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:all><xs:any/></xs:all></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "XSD 1.1 all permits group children as unfinished",
+			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:all><xs:group ref="xs:group"/></xs:all></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "XSD 1.1 all group one occurrences are unfinished",
+			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:all><xs:group ref="xs:group" minOccurs="1" maxOccurs="1"/></xs:all></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "XSD 1.1 all group rejects zero minOccurs",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:all><xs:group ref="xs:group" minOccurs="0"/></xs:all></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "all unsupported child cannot hide malformed later element",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:all><xs:any/><xs:element name="item" abstract="true"/></xs:all></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "group annotation must be unique",
+			root:  wrapper("", `<xs:complexType><xs:group ref="xs:group"><xs:annotation/><xs:annotation/></xs:group></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "simpleContent rejects outer mixed",
+			root:  wrapper("", `<xs:complexType mixed="true"><xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "simpleContent permits outer mixed in XSD 1.0",
+			root:    wrapper(` version="1.0"`, `<xs:complexType mixed="true"><xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "simpleContent permits outer mixed false",
+			root:    wrapper("", `<xs:complexType mixed="false"><xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "complexContent mixed values must agree",
+			root:  wrapper("", `<xs:complexType mixed="true"><xs:complexContent mixed="false"><xs:extension base="xs:string"/></xs:complexContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "complexContent mixed mismatch is unfinished in XSD 1.0",
+			root:    wrapper(` version="1.0"`, `<xs:complexType mixed="true"><xs:complexContent mixed="false"><xs:extension base="xs:string"/></xs:complexContent></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "complexContent matching mixed values are unsupported",
+			root:    wrapper("", `<xs:complexType mixed="true"><xs:complexContent mixed="true"><xs:extension base="xs:string"/></xs:complexContent></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "simpleContent restriction inline type is preflighted",
+			root:    wrapper("", `<xs:complexType><xs:simpleContent><xs:restriction base="xs:string"><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType><xs:pattern value="x"/></xs:restriction></xs:simpleContent></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureDatatypeFacets,
+			code:    UnsupportedDatatypeFacetCode,
+		},
+		{
+			name:  "simpleContent annotation follows inline type",
+			root:  wrapper("", `<xs:complexType><xs:simpleContent><xs:restriction base="xs:string"><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType><xs:annotation/></xs:restriction></xs:simpleContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "simpleContent inline type follows anyAttribute",
+			root:  wrapper("", `<xs:complexType><xs:simpleContent><xs:restriction base="xs:string"><xs:anyAttribute/><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType></xs:restriction></xs:simpleContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "simpleContent facet follows anyAttribute",
+			root:  wrapper("", `<xs:complexType><xs:simpleContent><xs:restriction base="xs:string"><xs:anyAttribute/><xs:pattern value="x"/></xs:restriction></xs:simpleContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "complexContent base is required",
+			root:  wrapper("", `<xs:complexType><xs:complexContent><xs:extension/></xs:complexContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "complexContent extension is unsupported",
+			root:    wrapper("", `<xs:complexType><xs:complexContent><xs:extension base="xs:string"/></xs:complexContent></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "complexContent restriction openContent requires a model",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:complexContent><xs:restriction base="xs:string"><xs:openContent mode="none"/></xs:restriction></xs:complexContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "complexContent attributes are preflighted",
+			root:    wrapper("", `<xs:complexType><xs:complexContent><xs:extension base="xs:string"><xs:attribute name="item" type="xs:string"/></xs:extension></xs:complexContent></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "simpleContent assertions are unsupported in XSD 1.1",
+			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:simpleContent><xs:extension base="xs:string"><xs:assert test="true()"/><xs:assert test="true()"/></xs:extension></xs:simpleContent></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "openContent is invalid in XSD 1.0",
+			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:openContent/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "openContent requires any in XSD 1.1",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:openContent mode="suffix"/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "openContent none rejects any",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:openContent mode="none"><xs:any/></xs:openContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "openContent none remains unsupported without any",
+			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:openContent mode="none"/></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "openContent default requires any",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:openContent/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "openContent suffix with any is unsupported",
+			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:openContent mode="suffix"><xs:any namespace="##any"/></xs:openContent></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "openContent any forbids occurrences",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:openContent mode="suffix"><xs:any minOccurs="0"/></xs:openContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "openContent mode is validated",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:openContent mode="bad"/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline complexType abstract is invalid",
+			root:  wrapper("", `<xs:complexType abstract="true"><xs:sequence/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline complexType block is invalid",
+			root:  wrapper("", `<xs:complexType block="extension"><xs:sequence/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline complexType final is invalid",
+			root:  wrapper("", `<xs:complexType final="extension"><xs:sequence/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "inline complexType defaultAttributesApply is invalid in XSD 1.0",
+			root:  wrapper(` version="1.0"`, `<xs:complexType defaultAttributesApply="true"><xs:sequence/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "inline complexType defaultAttributesApply is unsupported in XSD 1.1",
+			root:    wrapper(` version="1.1"`, `<xs:complexType defaultAttributesApply="true"><xs:sequence/></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "inline complexType mixed remains unsupported",
+			root:    wrapper("", `<xs:complexType mixed="true"><xs:sequence/></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "local attribute requires name or ref",
+			root:  wrapper("", `<xs:complexType><xs:attribute type="xs:string"/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "local attribute QName is validated",
+			root:  wrapper("", `<xs:complexType><xs:attribute name="item" type="bad:q:name"/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaConditionalCode,
+		},
+		{
+			name:    "local attribute declaration is unsupported",
+			root:    wrapper("", `<xs:complexType><xs:attribute name="item" type="xs:string"/></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "local attribute default requires optional use",
+			root:  wrapper("", `<xs:complexType><xs:attribute ref="xml:lang" use="required" default="en"/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "local attribute default with optional use is unsupported",
+			root:    wrapper("", `<xs:complexType><xs:attribute ref="xml:lang" use="optional" default="en"/></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "local attribute fixed rejects prohibited use",
+			root:  wrapper("", `<xs:complexType><xs:attribute name="item" use="prohibited" fixed="en"/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "local attribute fixed prohibited use is unfinished in XSD 1.0",
+			root:    wrapper(` version="1.0"`, `<xs:complexType><xs:attribute name="item" use="prohibited" fixed="en"/></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "local attribute targetNamespace is invalid in XSD 1.0",
+			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:attribute name="item" targetNamespace="urn:item"/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "local attribute targetNamespace is unsupported in XSD 1.1",
+			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:attribute name="item" targetNamespace="urn:item"/></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "attributeGroup ref is required",
+			root:  wrapper("", `<xs:complexType><xs:attributeGroup/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "attributeGroup ref QName is validated",
+			root:  wrapper("", `<xs:complexType><xs:attributeGroup ref="bad:q:name"/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaConditionalCode,
+		},
+		{
+			name:    "attributeGroup ref is unsupported",
+			root:    wrapper("", `<xs:complexType><xs:attributeGroup ref="xs:group"/></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "anyAttribute processContents is validated",
+			root:  wrapper("", `<xs:complexType><xs:anyAttribute processContents="bad"/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "anyAttribute notQName is invalid in XSD 1.0",
+			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:anyAttribute notQName="xs:integer"/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "anyAttribute wildcard is unsupported",
+			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:anyAttribute notQName="xs:integer"/></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "anyAttribute namespace and notQName are unsupported",
+			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:anyAttribute namespace="##any" notQName="##defined"/></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "anyAttribute rejects definedSibling notQName",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:anyAttribute notQName="##definedSibling"/></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "any accepts definedSibling notQName",
+			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:choice><xs:any notQName="##definedSibling"/></xs:choice></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "any particle notQName is invalid in XSD 1.0",
+			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:choice><xs:any notQName="xs:integer"/></xs:choice></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "local element abstract is forbidden",
+			root:  wrapper("", `<xs:complexType><xs:choice><xs:element name="item" abstract="true"/></xs:choice></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "local element substitutionGroup is forbidden",
+			root:  wrapper("", `<xs:complexType><xs:choice><xs:element name="item" substitutionGroup="xs:item"/></xs:choice></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:    "local element block remains unsupported",
+			root:    wrapper("", `<xs:complexType><xs:choice><xs:element name="item" block="extension"/></xs:choice></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "local element nillable remains unsupported",
+			root:    wrapper("", `<xs:complexType><xs:choice><xs:element name="item" nillable="true"/></xs:choice></xs:complexType>`),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:  "malformed descendant wins after unsupported facet",
+			root:  wrapper("", `<xs:simpleType><xs:restriction base="xs:decimal"><xs:pattern value="x"/><xs:enumeration unknown="y"/></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "list unsupported child cannot hide malformed later sibling",
+			root:  wrapper("", `<xs:simpleType><xs:list itemType="xs:integer"><xs:unknown/><xs:annotation/></xs:list></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "union unsupported child cannot hide malformed later sibling",
+			root:  wrapper("", `<xs:simpleType><xs:union memberTypes="xs:integer"><xs:unknown/><xs:annotation/></xs:union></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "facet unsupported child cannot hide malformed later sibling",
+			root:  wrapper("", `<xs:simpleType><xs:restriction base="xs:decimal"><xs:pattern value="x"><xs:unknown/><xs:annotation/></xs:pattern></xs:restriction></xs:simpleType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "complex derivation unsupported child cannot hide malformed later sibling",
+			root:  wrapper("", `<xs:complexType><xs:simpleContent><xs:extension base="xs:string"><xs:unknown/><xs:sequence/></xs:extension></xs:simpleContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "openContent unsupported child cannot hide malformed later sibling",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:openContent mode="none"><xs:unknown/><xs:sequence/></xs:openContent></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "local attribute unsupported child cannot hide malformed later sibling",
+			root:  wrapper("", `<xs:complexType><xs:attribute name="item"><xs:unknown/><xs:sequence/></xs:attribute></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+		{
+			name:  "alternative unsupported child cannot hide malformed later sibling",
+			root:  wrapper(` version="1.1"`, `<xs:complexType><xs:choice><xs:element name="item"><xs:alternative type="xs:string"><xs:unknown/><xs:choice/></xs:alternative></xs:element></xs:choice></xs:complexType>`),
+			class: FailureInvalid,
+			code:  invalidSchemaCompositionCode,
+		},
+	})
+}
+
+func TestSchemaBridgePreservesEarliestNestedRestrictionUnsupported(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="Choice"><xs:choice>
+    <xs:element name="value"><xs:simpleType>
+      <xs:restriction>
+        <xs:simpleType>
+          <xs:restriction base="xs:decimal">
+            <xs:pattern value="inner"/>
+          </xs:restriction>
+        </xs:simpleType>
+        <xs:pattern value="outer"/>
+      </xs:restriction>
+    </xs:simpleType></xs:element>
+  </xs:choice></xs:complexType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err == nil {
+		t.Fatal("discoverSchema accepted unsupported nested restriction syntax")
+	}
+	if schema.storage != nil {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != UnsupportedDatatypeFacetCode {
+		t.Fatalf("diagnostic = %s, want nested datatype facet unsupported", diagnostic)
+	}
+	if diagnostic.SpecRef() != "xsd11-datatypes#decimal" {
+		t.Fatalf("diagnostic spec ref = %q, want xsd11-datatypes#decimal", diagnostic.SpecRef())
+	}
+	if got, want := diagnostic.Loc(), mustTestLoc(t, "root.xsd", 7, 13); got != want {
+		t.Fatalf("diagnostic location = %s, want nested pattern at %s", got, want)
+	}
+}
+
+//nolint:gocognit // Keep target classification, locations, causes, and refs together.
+func TestSchemaBridgePreservesChoiceElementTypeDiagnostics(t *testing.T) {
+	tests := []struct {
+		name       string
+		root       string
+		class      FailureClass
+		code       string
+		cause      error
+		feature    FeatureID
+		specRef    string
+		relatedMin int
+	}{
+		{
+			name:    "unresolved",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:m="urn:missing" version="1.0"><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="m:Missing"/></xs:choice></xs:complexType></xs:schema>`,
+			class:   FailureInvalid,
+			code:    diagnosticSchemaElementTypeUnresolvedCode,
+			cause:   errSchemaElementTypeUnresolved,
+			specRef: schemaElementTypeXSD10SpecRef,
+		},
+		{
+			name:       "wrong kind",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="target"/><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="target"/></xs:choice></xs:complexType></xs:schema>`,
+			class:      FailureInvalid,
+			code:       diagnosticSchemaElementTypeWrongKindCode,
+			cause:      errSchemaElementTypeWrongKind,
+			specRef:    schemaElementTypeXSD11SpecRef,
+			relatedMin: 1,
+		},
+		{
+			name:       "ambiguous",
+			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Amount"><xs:restriction base="xs:decimal"/></xs:simpleType><xs:simpleType name="Amount"><xs:restriction base="xs:integer"/></xs:simpleType><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="Amount"/></xs:choice></xs:complexType></xs:schema>`,
+			class:      FailureInvalid,
+			code:       diagnosticSchemaElementTypeAmbiguousCode,
+			cause:      errSchemaElementTypeAmbiguous,
+			specRef:    schemaElementTypeXSD11SpecRef,
+			relatedMin: 2,
+		},
+		{
+			name:    "named complex type",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Target"/><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="Target"/></xs:choice></xs:complexType></xs:schema>`,
+			class:   FailureUnsupported,
+			code:    UnsupportedSchemaSyntaxCode,
+			feature: FeatureSchemaSyntax,
+		},
+		{
+			name:    "unsupported built-in scalar",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:string"/></xs:choice></xs:complexType></xs:schema>`,
+			class:   FailureUnsupported,
+			code:    UnsupportedSchemaSyntaxCode,
+			feature: FeatureSchemaSyntax,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted an invalid or unsupported local type")
+			}
+			if schema.storage != nil || len(schema.Components()) != 0 {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class || diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic = %s, want %s/%s", diagnostic, test.class, test.code)
+			}
+			if test.feature != "" && diagnostic.Feature() != test.feature {
+				t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), test.feature)
+			}
+			if test.specRef != "" && diagnostic.SpecRef() != test.specRef {
+				t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), test.specRef)
+			}
+			if len(diagnostic.Related()) < test.relatedMin {
+				t.Fatalf("related locations = %v, want at least %d", diagnostic.Related(), test.relatedMin)
+			}
+			if test.cause != nil && !errors.Is(err, test.cause) {
+				t.Fatalf("diagnostic does not preserve cause %v: %v", test.cause, err)
+			}
+		})
+	}
+}
+
 func TestSchemaBridgeAcceptsInertRootMetadata(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" id="schema-id" version="" xml:lang="en-419"/>`
 	schema, err := discoverTestSchema(t, root, nil)
@@ -1855,6 +2958,159 @@ func TestSchemaBridgeBuildsTypedGlobalElementsWithoutSyntheticBuiltinIDs(t *test
 	}
 	if _, ok := components[2].Element(); ok {
 		t.Fatal("simple type unexpectedly has an element view")
+	}
+}
+
+//nolint:gocognit,funlen // Keep ordered facts, identity isolation, and immutability together.
+func TestSchemaBridgeBuildsOrderedChoiceParticlesWithoutLocalComponentIDs(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">
+  <xs:complexType name="Choice">
+    <xs:choice>
+      <xs:element name="first" type="xs:integer"/>
+      <xs:element name="second" type="t:Amount"/>
+      <xs:element name="third" type="xs:decimal"/>
+    </xs:choice>
+  </xs:complexType>
+  <xs:simpleType name="Amount"><xs:restriction base="xs:decimal"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	if got, want := len(components), 2; got != want {
+		t.Fatalf("global component count = %d, want %d", got, want)
+	}
+	if components[0].ID().Ordinal() != 1 || components[1].ID().Ordinal() != 2 {
+		t.Fatalf("global component IDs = %v, %v, want ordinals 1,2", components[0].ID(), components[1].ID())
+	}
+	if got := schema.Find(mustTestQName(t, "", "first")); len(got) != 0 {
+		t.Fatalf("local element is globally discoverable: %v", got)
+	}
+	if _, ok := schema.Lookup(ComponentID{source: "root.xsd", ordinal: 3}); ok {
+		t.Fatal("local element received a global component ID")
+	}
+
+	definition, ok := components[0].ComplexType()
+	if !ok {
+		t.Fatal("complex type view is missing")
+	}
+	alias, aliasOK := components[0].ComplexTypeDefinition()
+	if !aliasOK || alias.ID() != definition.ID() {
+		t.Fatal("complex type aliases do not expose the same component")
+	}
+	particle := definition.Particle()
+	choice, ok := particle.(ChoiceParticle)
+	if !ok {
+		t.Fatalf("particle type = %T, want ChoiceParticle", particle)
+	}
+	if choice.Loc() != mustTestLoc(t, "root.xsd", 3, 5) {
+		t.Fatalf("choice location = %s, want root.xsd:3:5", choice.Loc())
+	}
+	if choice.MinOccurs() != 1 || choice.MaxOccurs() != 1 {
+		t.Fatalf("choice occurrence bounds = %d/%d, want 1/1", choice.MinOccurs(), choice.MaxOccurs())
+	}
+	alternatives := choice.Alternatives()
+	if got, want := len(alternatives), 3; got != want {
+		t.Fatalf("alternative count = %d, want %d", got, want)
+	}
+	alternatives[0] = nil
+	if len(choice.Alternatives()) != 3 {
+		t.Fatal("mutating alternatives changed the completed choice")
+	}
+	wantNames := []string{"first", "second", "third"}
+	for index, alternative := range choice.Alternatives() {
+		element, ok := alternative.(ElementParticle)
+		if !ok {
+			t.Fatalf("alternative %d type = %T, want ElementParticle", index, alternative)
+		}
+		if element.Name() != mustTestQName(t, "", wantNames[index]) {
+			t.Fatalf("alternative %d name = %q, want no-namespace %q", index, element.Name(), wantNames[index])
+		}
+		if element.MinOccurs() != 1 || element.MaxOccurs() != 1 {
+			t.Fatalf("alternative %d occurrence bounds = %d/%d, want 1/1", index, element.MinOccurs(), element.MaxOccurs())
+		}
+		if element.Loc() != mustTestLoc(t, "root.xsd", 4+index, 7) {
+			t.Fatalf("alternative %d location = %s, want root.xsd:%d:7", index, element.Loc(), 4+index)
+		}
+		switch index {
+		case 0:
+			if element.DeclaredType() != mustTestQName(t, testXSDNamespace, "integer") {
+				t.Fatalf("integer declared type = %q", element.DeclaredType())
+			}
+			if typeID, hasTypeID := element.TypeID(); hasTypeID || !typeID.IsZero() {
+				t.Fatalf("built-in type ID = (%v, %t), want zero,false", typeID, hasTypeID)
+			}
+		case 1:
+			if element.DeclaredType() != mustTestQName(t, "urn:root", "Amount") {
+				t.Fatalf("named declared type = %q", element.DeclaredType())
+			}
+			if typeID, hasTypeID := element.TypeID(); !hasTypeID || typeID != components[1].ID() {
+				t.Fatalf("named type ID = (%v, %t), want (%v, true)", typeID, hasTypeID, components[1].ID())
+			}
+		case 2:
+			if element.DeclaredType() != mustTestQName(t, testXSDNamespace, "decimal") {
+				t.Fatalf("decimal declared type = %q", element.DeclaredType())
+			}
+		}
+	}
+}
+
+func TestSchemaBridgeAcceptsEmptyChoiceParticle(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Empty"><xs:choice/></xs:complexType></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	definition, ok := schema.Components()[0].ComplexType()
+	if !ok {
+		t.Fatal("empty choice complex type view is missing")
+	}
+	choice, ok := definition.Particle().(ChoiceParticle)
+	if !ok {
+		t.Fatalf("particle type = %T, want ChoiceParticle", definition.Particle())
+	}
+	if alternatives := choice.Alternatives(); len(alternatives) != 0 {
+		t.Fatalf("empty choice alternatives = %d, want zero", len(alternatives))
+	}
+}
+
+func TestSchemaBridgeResolvesForwardCrossDocumentChoiceElementTypes(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:o="urn:other" targetNamespace="urn:root">
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:complexType name="Choice"><xs:choice><xs:element name="value" type="o:Amount"/></xs:choice></xs:complexType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, map[string]discoveryFixture{
+		"other.xsd": {
+			id:       "other.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:simpleType name="Amount"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	if got, want := len(components), 2; got != want {
+		t.Fatalf("global component count = %d, want %d", got, want)
+	}
+	choice, ok := components[0].ComplexType()
+	if !ok {
+		t.Fatal("cross-document complex type view is missing")
+	}
+	particle, ok := choice.Particle().(ChoiceParticle)
+	if !ok {
+		t.Fatal("cross-document particle type is not ChoiceParticle")
+	}
+	alternatives := particle.Alternatives()
+	if len(alternatives) != 1 {
+		t.Fatalf("cross-document alternative count = %d, want 1", len(alternatives))
+	}
+	alternative, ok := alternatives[0].(ElementParticle)
+	if !ok {
+		t.Fatal("cross-document alternative type is not ElementParticle")
+	}
+	if typeID, hasTypeID := alternative.TypeID(); !hasTypeID || typeID != components[1].ID() {
+		t.Fatalf("cross-document type ID = (%v, %t), want (%v, true)", typeID, hasTypeID, components[1].ID())
 	}
 }
 
