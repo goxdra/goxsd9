@@ -129,8 +129,7 @@ func TestRunLocalCleanupAcceptanceMatrixPreservesBeforeMutation(t *testing.T) {
 	}{
 		{name: "moved", inventory: goodSHA + " refs/heads/" + goodBranch, currentSHA: "moved-head", want: "found moved"},
 		{name: "open PR", inventory: goodSHA + " refs/heads/" + goodBranch, currentSHA: goodSHA, openPR: true, want: "open PR"},
-		{name: "wrong issue", inventory: goodSHA + " refs/heads/agent/issue-56-run-good", currentSHA: goodSHA, want: "differs from immutable claim issue"},
-		{name: "wrong run", inventory: goodSHA + " refs/heads/agent/issue-55-run-other", currentSHA: goodSHA, want: "differs from evaluated-head claim run"},
+		{name: "wrong run", inventory: goodSHA + " refs/heads/agent/issue-55-run-other", currentSHA: goodSHA, want: "no canonical claim marker"},
 		{name: "wrong SHA", inventory: "unrelated-head refs/heads/" + goodBranch, currentSHA: "unrelated-head", want: "immutable claim head"},
 		{name: "malformed", inventory: "bad refs/heads/agent/issue-55-run-", currentSHA: "bad", want: "malformed run-local"},
 		{name: "ambiguous", inventory: goodSHA + " refs/heads/agent/issue-55-run-a\n" + goodSHA + " refs/heads/agent/issue-55-run-b", currentSHA: goodSHA, want: "ambiguous run-local"},
@@ -158,6 +157,58 @@ func TestRunLocalCleanupAcceptanceMatrixPreservesBeforeMutation(t *testing.T) {
 				t.Fatalf("validation attempted deletion commands: %v", commands)
 			}
 		})
+	}
+}
+
+func TestRunLocalCleanupIgnoresUnrelatedDivergenceAndMalformedRefs(t *testing.T) {
+	const (
+		goodSHA    = "evaluated-head"
+		goodBranch = "agent/issue-55-run-good"
+	)
+	commands := []string{}
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		commands = append(commands, command)
+		switch {
+		case command == "git ls-remote --heads origin refs/heads/agent/*":
+			return goodSHA + " refs/heads/" + goodBranch + "\n" +
+				"remote-unrelated refs/heads/agent/issue-56-run-other\n" +
+				"bad-remote refs/heads/agent/issue-56-run-", nil
+		case command == "git for-each-ref --format=%(refname:short) %(objectname) refs/heads/agent/issue-*":
+			return "local-unrelated refs/heads/agent/issue-56-run-other\n" +
+				"bad-local refs/heads/agent/issue-56-run-", nil
+		case command == "git for-each-ref --format=%(refname:short) %(objectname) refs/remotes/origin/agent/issue-*":
+			return "tracking-unrelated origin/agent/issue-56-run-other\n" +
+				"bad-tracking origin/agent/issue-56-run-", nil
+		case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
+			return "evaluated-commit\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+		case command == "git ls-remote --heads origin refs/heads/"+goodBranch:
+			return goodSHA + " refs/heads/" + goodBranch, nil
+		case strings.HasPrefix(command, "gh pr list "):
+			return "[]", nil
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+	packet := mergedPacket{plan: cleanupPlan{
+		claims:            []claimArtifact{{issue: 55, branch: "agent/issue-55", sha: goodSHA}},
+		proofHead:         goodSHA,
+		validateArtifacts: true,
+	}}
+	refs, err := application.prepareRunLocalCleanup("/repo", packet)
+	if err != nil {
+		t.Fatalf("prepareRunLocalCleanup: %v", err)
+	}
+	if len(refs) != 1 || refs[0].branch != goodBranch || refs[0].sha != goodSHA {
+		t.Fatalf("proven run-local refs = %#v, want only %s at %s", refs, goodBranch, goodSHA)
+	}
+	for _, command := range commands {
+		if !strings.Contains(command, "agent/issue-56-run-other") {
+			continue
+		}
+		if strings.Contains(command, "push --force-with-lease") || strings.Contains(command, "update-ref") || strings.Contains(command, "worktree remove") {
+			t.Fatalf("unrelated ref became a mutation target: %v", commands)
+		}
 	}
 }
 
@@ -256,11 +307,13 @@ func TestPreMergeRunLocalWorktreeAllowanceRejectsExtraWorktree(t *testing.T) {
 }
 
 func TestRunLocalHistoryPreservesConflictingIdentities(t *testing.T) {
-	history := "tip\x00work\x00claim-a\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-		"claim-b\x00" + claimMessage(86, "run-other", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00"
-	identities, err := parseRunLocalHistory(history, "agent/issue-86-run-good")
+	history := "tip\x00work\x00current\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		"conflicting\x00" + claimMessage(86, "run-other", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		"oldest-current\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		"f7d1ce\x00inherited squash body\nAgent-Run-ID: old-run\nAgent-Run-ID: another-old-run\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
+	identities, err := parseBoundedRunLocalHistory(history, "agent/issue-86-run-good")
 	if err != nil {
-		t.Fatalf("parseRunLocalHistory: %v", err)
+		t.Fatalf("parseBoundedRunLocalHistory: %v", err)
 	}
 	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 		if name != "git" || name+" "+strings.Join(args, " ") != "git log --format=%H%x00%B%x00 evaluated-head" {
@@ -272,6 +325,64 @@ func TestRunLocalHistoryPreservesConflictingIdentities(t *testing.T) {
 	err = application.validateRunLocalProof("/repo", ref, claimArtifact{issue: 86, sha: "evaluated-head"}, "evaluated-head")
 	if err == nil || !strings.Contains(err.Error(), "conflicting runs") {
 		t.Fatalf("conflicting history proof = %v, want preservation refusal; identities=%#v", err, identities)
+	}
+}
+
+func TestRunLocalHistoryRejectsAmbiguousMetadataInsideBoundedRange(t *testing.T) {
+	const branch = "agent/issue-86-run-f9"
+	for _, test := range []struct {
+		name     string
+		metadata string
+	}{
+		{name: "repeated run ID", metadata: "Agent-Run-ID: run-f9\nAgent-Run-ID: run-other\nAgent-Issue: 86\n"},
+		{name: "repeated issue", metadata: "Agent-Run-ID: run-f9\nAgent-Issue: 86\nAgent-Issue: 87\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			history := "tip\x00work\x00current\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+				"ambiguous\x00" + test.metadata + "\x00" +
+				"oldest-current\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+				"f7d1ce\x00inherited squash body\nAgent-Run-ID: historical-a\nAgent-Run-ID: historical-b\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
+			commands := []string{}
+			application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				commands = append(commands, command)
+				if command != "git log --format=%H%x00%B%x00 evaluated-head" {
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+				return history, nil
+			}}
+			err := application.validateRunLocalProof("/repo", runLocalRefCandidate{branch: branch, sha: "evaluated-head"}, claimArtifact{issue: 86, sha: "evaluated-head"}, "evaluated-head")
+			if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+				t.Fatalf("ambiguous bounded history proof = %v, want preservation refusal", err)
+			}
+			if len(commands) != 1 {
+				t.Fatalf("bounded history refusal issued mutation commands: %v", commands)
+			}
+		})
+	}
+}
+
+func TestRunLocalHistoryIgnoresInheritedRepeatedTrailers(t *testing.T) {
+	const branch = "agent/issue-86-run-f9"
+	history := "tip\x00work\x00claim\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		"f7d1ce\x00inherited squash body\nAgent-Run-ID: historical-a\nAgent-Run-ID: historical-b\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
+	identities, err := parseBoundedRunLocalHistory(history, branch)
+	if err != nil {
+		t.Fatalf("parseBoundedRunLocalHistory: %v", err)
+	}
+	if len(identities) != 1 || identities[0] != (runLocalHistoryIdentity{runID: "run-f9", issue: 86}) {
+		t.Fatalf("bounded identities = %#v, want current claim only", identities)
+	}
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if command != "git log --format=%H%x00%B%x00 evaluated-head" {
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+		return history, nil
+	}}
+	err = application.validateRunLocalProof("/repo", runLocalRefCandidate{branch: branch, sha: "evaluated-head"}, claimArtifact{issue: 86, sha: "evaluated-head"}, "evaluated-head")
+	if err != nil {
+		t.Fatalf("inherited squash trailers rejected current packet: %v", err)
 	}
 }
 
