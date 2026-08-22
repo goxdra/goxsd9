@@ -122,25 +122,26 @@ func TestCodegenScalarSourceFormatFailureUsesFormatDiagnostic(t *testing.T) {
 	}
 }
 
-func TestCodegenScalarUntypedElementUsesDocumentVersionReference(t *testing.T) {
+func TestCodegenScalarUntypedElementUsesGraphPolicyReference(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		version string
+		policy  LanguagePolicy
 		wantRef string
 	}{
-		{name: "XSD 1.0", version: "1.0", wantRef: "xsd10-structures#Element_Declaration_details"},
-		{name: "XSD 1.1", version: "1.1", wantRef: "xsd11-structures#Element_Declaration_details"},
+		{name: "Strict10", version: "1.0", policy: Strict10, wantRef: "xsd10-structures#Element_Declaration_details"},
+		{name: "Strict11", version: "1.1", policy: Strict11, wantRef: "xsd11-structures#Element_Declaration_details"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			assertCodegenScalarUntypedElement(t, test.version, test.wantRef)
+			assertCodegenScalarUntypedElement(t, test.version, test.policy, test.wantRef)
 		})
 	}
 }
 
-func assertCodegenScalarUntypedElement(t *testing.T, version, wantRef string) {
+func assertCodegenScalarUntypedElement(t *testing.T, version string, policy LanguagePolicy, wantRef string) {
 	t.Helper()
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + version + `"><xs:element name="item"/></xs:schema>`
-	schema, err := discoverTestSchema(t, root, nil)
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
 	if err != nil {
 		t.Fatalf("discoverTestSchema: %v", err)
 	}
@@ -236,7 +237,6 @@ func TestCodegenScalarSourceRejectsZeroSchemaMissingRuntimeAndMismatchedNaming(t
 			simpleType: &schemaSimpleTypeInput{
 				base:    mustTestQName(t, testXSDNamespace, "decimal"),
 				baseLoc: mustTestLoc(t, "valid.xsd", 2, 27),
-				version: XSDVersion11,
 			},
 		}},
 	}})
@@ -277,7 +277,6 @@ func TestCodegenScalarSourceRejectsZeroSchemaMissingRuntimeAndMismatchedNaming(t
 			simpleType: &schemaSimpleTypeInput{
 				base:    mustTestQName(t, testXSDNamespace, "integer"),
 				baseLoc: mustTestLoc(t, "other.xsd", 2, 27),
-				version: XSDVersion11,
 			},
 		}},
 	}})

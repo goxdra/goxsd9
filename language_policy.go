@@ -25,11 +25,18 @@ const (
 var errInvalidLanguagePolicy = errors.New("invalid schema language policy")
 
 func validateLanguagePolicy(policy LanguagePolicy) error {
+	_, err := xsdVersionForLanguagePolicy(policy)
+	return err
+}
+
+func xsdVersionForLanguagePolicy(policy LanguagePolicy) (XSDVersion, error) {
 	switch policy {
-	case Compatibility, Strict10, Strict11:
-		return nil
+	case Strict10:
+		return XSDVersion10, nil
+	case Compatibility, Strict11:
+		return XSDVersion11, nil
 	default:
-		return fmt.Errorf("%w: %q", errInvalidLanguagePolicy, string(policy))
+		return "", fmt.Errorf("%w: %q", errInvalidLanguagePolicy, string(policy))
 	}
 }
 

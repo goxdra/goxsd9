@@ -16,11 +16,10 @@ The unqualified `xs:schema/@version` attribute is never an edition selector.
 It is an optional user label. Its value may be absent, empty, arbitrary, or
 look like an XSD edition without changing the selected policy.
 
-The current two-argument `ParseSchema(root, resolver)` behavior is unchanged
-by this decision record. `ParseSchemaWithPolicy` currently accepts and
-preflights `Compatibility`, `Strict10`, and `Strict11` before discovery; graph
-propagation and profile-specific behavior remain future work. This record does
-not make a conformance claim.
+`ParseSchema(root, resolver)` selects `Compatibility` for the complete graph.
+`ParseSchemaWithPolicy` validates `Compatibility`, `Strict10`, or `Strict11`
+before discovery and applies that one policy to the complete graph. This
+record does not make a conformance claim.
 
 ### Why the schema token cannot select an edition
 
@@ -106,17 +105,17 @@ has no unambiguous compatibility rule in the supported subset, parsing reports
 explicit unsupported behavior at the source construct. It does not infer a
 rule from `schema/@version`, silently skip the construct, or claim strict
 conformance. The selected graph policy is the one version source of truth;
-any per-feature `XSDVersion` or capability value in a future implementation is
-derived from that policy and is not an independent selector.
+phase-local `XSDVersion` and capability values are derived from it and passed
+to the relevant phase. Result metadata such as `DigitFacets.Version` records
+that construction input; it is not an independent selector.
 
 ## Examples
 
-These examples describe the accepted future policy contract; they do not
-describe current two-argument `ParseSchema` runtime behavior.
+These examples describe the current policy contract.
 
 The following examples make the label and policy boundaries observable. A
-schema label is retained only as input to the schema representation rules; it
-never selects a policy and never mismatches a policy by itself.
+schema label is accepted only as an inert input to schema representation
+validation; it never selects a policy and never mismatches a policy by itself.
 
 | Example | Selected policy | Result |
 | --- | --- | --- |
@@ -126,14 +125,24 @@ never selects a policy and never mismatches a policy by itself.
 | `version="1.0"` | `Strict11` | Use strict XSD 1.1 rules. The label does not downgrade the graph. No mismatch. |
 | `version="1.1"` | `Strict10` | Use strict XSD 1.0 rules. The label does not upgrade the graph. No mismatch. |
 | Root label `"1.0"`, resolver-supplied import label `"1.1"` | `Compatibility` | Allow the mixed graph and use one compatibility policy for both documents, including cycles and repeated identities. Do not switch policy at the import. |
+
+### Future contract examples
+
+Catalog or manifest edition integration and strict-profile feature mismatch
+handling are future work and non-goals of the current implementation. The
+following rows describe their intended contract only:
+
+| Example | Selected policy | Result |
+| --- | --- | --- |
 | A catalog entry selects XSD 1.0 or XSD 1.1 from manifest edition metadata | `Strict10` or `Strict11` respectively | Select the strict policy before parsing. Ignore every schema label in the root and resolver graph; labels cannot override catalog selection. |
 | `Strict10` encounters a recognized XSD 1.1-only feature such as `<xs:assert>` that must be processed | `Strict10` | Report an actual strict-profile feature mismatch at the construct’s source `Loc` as explicit unsupported behavior, with the registered feature, stable code, and pinned XSD 1.1 reference. Return no schema. |
 
-The final row is a mismatch because the source invokes behavior outside the
-selected strict profile, not because it contains a particular label. A
-well-formed graph whose documents merely use different labels is not a strict
-mismatch. Conversely, malformed representation input, such as an invalid
-`vc:minVersion` decimal, is invalid input rather than a policy mismatch.
+The future strict-profile row is a mismatch because the source invokes
+behavior outside the selected strict profile, not because it contains a
+particular label. A well-formed graph whose documents merely use different
+labels is not a strict mismatch. Conversely, malformed representation input,
+such as an invalid `vc:minVersion` decimal, is invalid input rather than a
+policy mismatch.
 
 ## Lifecycle and diagnostics
 
@@ -170,13 +179,13 @@ into a source error merely to obtain a location.
 The XSD `schema/@version` token is an inert user label: the specifications
 assign it no language-edition semantics. Language selection therefore belongs
 to an explicit, immutable graph policy rather than to a schema document or a
-resolver-provided label. This decision records that policy boundary and does
-not change current behavior. The current two-argument parser still has legacy
-per-document behavior: absent or empty `schema/@version` defaults to XSD 1.1,
-`"1.0"` selects the current legacy XSD 1.0 path, `"1.1"` selects the current
-legacy XSD 1.1 path, and arbitrary labels are rejected as unsupported. The
-policy values and invalid-policy preflight are implemented; graph
-propagation and strict/profile behavior remain future work.
+resolver-provided label. `ParseSchema` currently selects `Compatibility` by
+default, and `ParseSchemaWithPolicy` applies the validated policy to every
+root, include, import, repeat, and cycle. Absent, empty, arbitrary, `"1.0"`,
+and `"1.1"` labels do not select or mismatch a policy. Conditional capability
+and supported grammar, component, and digit-facet behavior are derived from
+that policy. Strict-profile feature mismatch rules and catalog or manifest
+edition integration remain future work.
 
 The implementation boundary is limited to constructing and validating the
 policy, propagating it through the schema graph, deriving version-sensitive

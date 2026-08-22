@@ -915,6 +915,7 @@ func TestSchemaBridgeAcceptsForeignRootAndGlobalAttributes(t *testing.T) {
 type schemaBridgeDiagnosticCase struct {
 	name    string
 	root    string
+	policy  LanguagePolicy
 	class   FailureClass
 	feature FeatureID
 	code    string
@@ -925,7 +926,11 @@ func assertSchemaBridgeDiagnosticCases(t *testing.T, tests []schemaBridgeDiagnos
 	t.Helper()
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			schema, err := discoverTestSchema(t, test.root, nil)
+			policy := test.policy
+			if policy == "" {
+				policy = Compatibility
+			}
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, policy)
 			if err == nil {
 				t.Fatal("discoverSchema accepted invalid or unsupported syntax")
 			}
@@ -1257,6 +1262,7 @@ func TestSchemaBridgeClassifiesVersionedChoiceElementSyntax(t *testing.T) {
 	tests := []struct {
 		name     string
 		version  XSDVersion
+		policy   LanguagePolicy
 		particle string
 		class    FailureClass
 		code     string
@@ -1273,6 +1279,7 @@ func TestSchemaBridgeClassifiesVersionedChoiceElementSyntax(t *testing.T) {
 		{
 			name:     "XSD 1.0 local target namespace is invalid",
 			version:  XSDVersion10,
+			policy:   Strict10,
 			particle: `<xs:element name="value" type="xs:integer" targetNamespace="urn:qualified"/>`,
 			class:    FailureInvalid,
 			code:     invalidSchemaCompositionCode,
@@ -1288,6 +1295,7 @@ func TestSchemaBridgeClassifiesVersionedChoiceElementSyntax(t *testing.T) {
 		{
 			name:     "XSD 1.0 element alternative is invalid",
 			version:  XSDVersion10,
+			policy:   Strict10,
 			particle: `<xs:element name="value"><xs:alternative type="xs:integer"/></xs:element>`,
 			class:    FailureInvalid,
 			code:     invalidSchemaCompositionCode,
@@ -1331,7 +1339,11 @@ func TestSchemaBridgeClassifiesVersionedChoiceElementSyntax(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := fmt.Sprintf(base, test.version, test.particle)
-			schema, err := discoverTestSchema(t, root, nil)
+			policy := test.policy
+			if policy == "" {
+				policy = Strict11
+			}
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
 			if err == nil {
 				t.Fatal("discoverSchema accepted versioned choice syntax")
 			}
@@ -1516,10 +1528,11 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:  "explicitTimezone is invalid in XSD 1.0",
-			root:  wrapper(` version="1.0"`, `<xs:simpleType><xs:restriction base="xs:dateTime"><xs:explicitTimezone value="required"/></xs:restriction></xs:simpleType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "explicitTimezone is invalid in XSD 1.0",
+			root:   wrapper(` version="1.0"`, `<xs:simpleType><xs:restriction base="xs:dateTime"><xs:explicitTimezone value="required"/></xs:restriction></xs:simpleType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
 			name:  "minScale cannot be negative",
@@ -1547,10 +1560,11 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:  InvalidTotalDigitsCode,
 		},
 		{
-			name:  "restriction foreign child is invalid in XSD 1.0",
-			root:  wrapper(` version="1.0" xmlns:f="urn:foreign"`, `<xs:simpleType><xs:restriction base="xs:string"><f:pattern/></xs:restriction></xs:simpleType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "restriction foreign child is invalid in XSD 1.0",
+			root:   wrapper(` version="1.0" xmlns:f="urn:foreign"`, `<xs:simpleType><xs:restriction base="xs:string"><f:pattern/></xs:restriction></xs:simpleType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
 			name:    "restriction foreign child is unsupported in XSD 1.1",
@@ -1615,10 +1629,11 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:  "all maxOccurs rejects unbounded",
-			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:all maxOccurs="unbounded"><xs:element name="item" type="xs:string"/></xs:all></xs:complexType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "all maxOccurs rejects unbounded",
+			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:all maxOccurs="unbounded"><xs:element name="item" type="xs:string"/></xs:all></xs:complexType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
 			name:    "XSD 1.1 all permits zero min and max occurrences",
@@ -1633,28 +1648,32 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:  "XSD 1.0 all rejects zero max occurrences",
-			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:all minOccurs="0" maxOccurs="0"><xs:element name="item" type="xs:string"/></xs:all></xs:complexType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "XSD 1.0 all rejects zero max occurrences",
+			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:all minOccurs="0" maxOccurs="0"><xs:element name="item" type="xs:string"/></xs:all></xs:complexType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
-			name:  "XSD 1.0 all child occurrences are restricted",
-			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:element name="item" type="xs:string" minOccurs="2"/></xs:all></xs:complexType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "XSD 1.0 all child occurrences are restricted",
+			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:element name="item" type="xs:string" minOccurs="2"/></xs:all></xs:complexType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
-			name:  "XSD 1.0 all rejects any children",
-			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:any/></xs:all></xs:complexType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "XSD 1.0 all rejects any children",
+			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:any/></xs:all></xs:complexType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
-			name:  "XSD 1.0 all rejects group children",
-			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:group ref="xs:group"/></xs:all></xs:complexType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "XSD 1.0 all rejects group children",
+			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:group ref="xs:group"/></xs:all></xs:complexType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
 			name:    "XSD 1.1 all permits any children as unfinished",
@@ -1701,6 +1720,7 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 		{
 			name:    "simpleContent permits outer mixed in XSD 1.0",
 			root:    wrapper(` version="1.0"`, `<xs:complexType mixed="true"><xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent></xs:complexType>`),
+			policy:  Strict10,
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
 		},
@@ -1719,6 +1739,7 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 		{
 			name:    "complexContent mixed mismatch is unfinished in XSD 1.0",
 			root:    wrapper(` version="1.0"`, `<xs:complexType mixed="true"><xs:complexContent mixed="false"><xs:extension base="xs:string"/></xs:complexContent></xs:complexType>`),
+			policy:  Strict10,
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
 		},
@@ -1784,10 +1805,11 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:  "openContent is invalid in XSD 1.0",
-			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:openContent/></xs:complexType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "openContent is invalid in XSD 1.0",
+			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:openContent/></xs:complexType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
 			name:  "openContent requires any in XSD 1.1",
@@ -1850,10 +1872,11 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:  "inline complexType defaultAttributesApply is invalid in XSD 1.0",
-			root:  wrapper(` version="1.0"`, `<xs:complexType defaultAttributesApply="true"><xs:sequence/></xs:complexType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "inline complexType defaultAttributesApply is invalid in XSD 1.0",
+			root:   wrapper(` version="1.0"`, `<xs:complexType defaultAttributesApply="true"><xs:sequence/></xs:complexType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
 			name:    "inline complexType defaultAttributesApply is unsupported in XSD 1.1",
@@ -1906,14 +1929,16 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 		{
 			name:    "local attribute fixed prohibited use is unfinished in XSD 1.0",
 			root:    wrapper(` version="1.0"`, `<xs:complexType><xs:attribute name="item" use="prohibited" fixed="en"/></xs:complexType>`),
+			policy:  Strict10,
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:  "local attribute targetNamespace is invalid in XSD 1.0",
-			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:attribute name="item" targetNamespace="urn:item"/></xs:complexType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "local attribute targetNamespace is invalid in XSD 1.0",
+			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:attribute name="item" targetNamespace="urn:item"/></xs:complexType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
 			name:    "local attribute targetNamespace is unsupported in XSD 1.1",
@@ -1946,10 +1971,11 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:  "anyAttribute notQName is invalid in XSD 1.0",
-			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:anyAttribute notQName="xs:integer"/></xs:complexType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "anyAttribute notQName is invalid in XSD 1.0",
+			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:anyAttribute notQName="xs:integer"/></xs:complexType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
 			name:    "anyAttribute wildcard is unsupported",
@@ -1976,10 +2002,11 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:  "any particle notQName is invalid in XSD 1.0",
-			root:  wrapper(` version="1.0"`, `<xs:complexType><xs:choice><xs:any notQName="xs:integer"/></xs:choice></xs:complexType>`),
-			class: FailureInvalid,
-			code:  invalidSchemaCompositionCode,
+			name:   "any particle notQName is invalid in XSD 1.0",
+			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:choice><xs:any notQName="xs:integer"/></xs:choice></xs:complexType>`),
+			policy: Strict10,
+			class:  FailureInvalid,
+			code:   invalidSchemaCompositionCode,
 		},
 		{
 			name:  "local element abstract is forbidden",
@@ -2095,6 +2122,7 @@ func TestSchemaBridgePreservesChoiceElementTypeDiagnostics(t *testing.T) {
 	tests := []struct {
 		name       string
 		root       string
+		policy     LanguagePolicy
 		class      FailureClass
 		code       string
 		cause      error
@@ -2105,6 +2133,7 @@ func TestSchemaBridgePreservesChoiceElementTypeDiagnostics(t *testing.T) {
 		{
 			name:    "unresolved",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:m="urn:missing" version="1.0"><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="m:Missing"/></xs:choice></xs:complexType></xs:schema>`,
+			policy:  Strict10,
 			class:   FailureInvalid,
 			code:    diagnosticSchemaElementTypeUnresolvedCode,
 			cause:   errSchemaElementTypeUnresolved,
@@ -2145,7 +2174,11 @@ func TestSchemaBridgePreservesChoiceElementTypeDiagnostics(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			schema, err := discoverTestSchema(t, test.root, nil)
+			policy := test.policy
+			if policy == "" {
+				policy = Compatibility
+			}
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, policy)
 			if err == nil {
 				t.Fatal("discoverSchema accepted an invalid or unsupported local type")
 			}
@@ -2463,7 +2496,7 @@ func TestSchemaBridgeValidatesSimpleTypeRestrictionDiagnostics(t *testing.T) {
 
 func TestSchemaBridgePreservesSimpleTypeFacetResolutionDiagnostics(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.0"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:fractionDigits value="-1"/></xs:restriction></xs:simpleType></xs:schema>`
-	schema, err := discoverTestSchema(t, root, nil)
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
 	if err == nil {
 		t.Fatal("discoverSchema accepted an invalid fractionDigits value")
 	}
@@ -2480,13 +2513,17 @@ func TestSchemaBridgePreservesSimpleTypeFacetResolutionDiagnostics(t *testing.T)
 }
 
 func discoverTestSchema(t *testing.T, rootContents string, fixtures map[string]discoveryFixture) (Schema, error) {
+	return discoverTestSchemaWithPolicy(t, rootContents, fixtures, Compatibility)
+}
+
+func discoverTestSchemaWithPolicy(t *testing.T, rootContents string, fixtures map[string]discoveryFixture, policy LanguagePolicy) (Schema, error) {
 	t.Helper()
 	root, err := NewResolvedSource(context.Background(), "root.xsd", &discoveryReader{data: []byte(rootContents)})
 	if err != nil {
 		t.Fatalf("NewResolvedSource: %v", err)
 	}
 	resolver := &discoveryResolver{fixtures: fixtures}
-	return discoverSchema(root, resolver)
+	return discoverSchemaWithPolicy(root, resolver, policy)
 }
 
 func TestSchemaBridgeBuildsImmutableIntegerAndDecimalSimpleTypes(t *testing.T) {
@@ -2598,12 +2635,12 @@ func TestSchemaBridgeResolvesForwardCrossDocumentSimpleTypeBases(t *testing.T) {
   <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
   <xs:simpleType name="rootType"><xs:restriction base="o:otherType"><xs:totalDigits value="4"/></xs:restriction></xs:simpleType>
 </xs:schema>`
-	schema, err := discoverTestSchema(t, root, map[string]discoveryFixture{
+	schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
 		"other.xsd": {
 			id:       "other.xsd",
 			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="1.1"><xs:simpleType name="otherType"><xs:restriction base="xs:integer"><xs:totalDigits value="8"/></xs:restriction></xs:simpleType></xs:schema>`,
 		},
-	})
+	}, Strict10)
 	if err != nil {
 		t.Fatalf("discoverSchema: %v", err)
 	}
@@ -2630,7 +2667,7 @@ func TestSchemaBridgeResolvesForwardCrossDocumentSimpleTypeBases(t *testing.T) {
 	if !ok {
 		t.Fatal("imported simple type view is missing")
 	}
-	if got, want := baseType.DigitFacets().Version(), XSDVersion11; got != want {
+	if got, want := baseType.DigitFacets().Version(), XSDVersion10; got != want {
 		t.Fatalf("imported facet version = %q, want %q", got, want)
 	}
 }
@@ -2638,17 +2675,21 @@ func TestSchemaBridgeResolvesForwardCrossDocumentSimpleTypeBases(t *testing.T) {
 func TestSchemaBridgeUsesRestrictionNamespaceContextAndVersion(t *testing.T) {
 	for _, version := range []XSDVersion{XSDVersion10, XSDVersion11} {
 		t.Run(string(version), func(t *testing.T) {
-			assertRestrictionNamespaceContextAndVersion(t, version)
+			policy := Strict11
+			if version == XSDVersion10 {
+				policy = Strict10
+			}
+			assertRestrictionNamespaceContextAndVersion(t, version, policy)
 		})
 	}
 }
 
-func assertRestrictionNamespaceContextAndVersion(t *testing.T, version XSDVersion) {
+func assertRestrictionNamespaceContextAndVersion(t *testing.T, version XSDVersion, policy LanguagePolicy) {
 	t.Helper()
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:d="urn:not-the-datatype-namespace" targetNamespace="urn:test" version="` + string(version) + `">
   <xs:simpleType name="item"><xs:restriction xmlns:d="` + testXSDNamespace + `" base="d:decimal"><xs:totalDigits value="3"/></xs:restriction></xs:simpleType>
 </xs:schema>`
-	schema, err := discoverTestSchema(t, root, nil)
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
 	if err != nil {
 		t.Fatalf("discoverSchema: %v", err)
 	}
@@ -2671,6 +2712,7 @@ type schemaSimpleTypeBaseFailureCase struct {
 	name       string
 	root       string
 	fixtures   map[string]discoveryFixture
+	policy     LanguagePolicy
 	class      FailureClass
 	code       string
 	cause      error
@@ -2684,6 +2726,7 @@ func TestSchemaBridgeRejectsSimpleTypeBaseFailuresWithoutSchema(t *testing.T) {
 		{
 			name:    "unresolved",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:m="urn:missing" version="1.0"><xs:simpleType name="item"><xs:restriction base="m:missing"/></xs:simpleType></xs:schema>`,
+			policy:  Strict10,
 			class:   FailureInvalid,
 			code:    diagnosticSchemaSimpleTypeUnresolvedCode,
 			cause:   errSchemaSimpleTypeBaseUnresolved,
@@ -2739,7 +2782,11 @@ func TestSchemaBridgeRejectsSimpleTypeBaseFailuresWithoutSchema(t *testing.T) {
 
 func assertSimpleTypeBaseFailure(t *testing.T, test schemaSimpleTypeBaseFailureCase) {
 	t.Helper()
-	schema, err := discoverTestSchema(t, test.root, test.fixtures)
+	policy := test.policy
+	if policy == "" {
+		policy = Compatibility
+	}
+	schema, err := discoverTestSchemaWithPolicy(t, test.root, test.fixtures, policy)
 	if err == nil {
 		t.Fatal("discoverSchema accepted an invalid or unsupported base")
 	}
@@ -2826,6 +2873,7 @@ func TestSchemaBridgeReportsUnsupportedSimpleTypeFeatures(t *testing.T) {
 	tests := []struct {
 		name    string
 		root    string
+		policy  LanguagePolicy
 		feature FeatureID
 		code    string
 		specRef string
@@ -2843,6 +2891,7 @@ func TestSchemaBridgeReportsUnsupportedSimpleTypeFeatures(t *testing.T) {
 		{
 			name:    "XSD 1.0 datatype facet",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.0"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:pattern value="[0-9]+"/></xs:restriction></xs:simpleType></xs:schema>`,
+			policy:  Strict10,
 			feature: FeatureDatatypeFacets,
 			code:    UnsupportedDatatypeFacetCode,
 			specRef: "xsd10-datatypes#decimal",
@@ -2862,14 +2911,17 @@ func TestSchemaBridgeReportsUnsupportedSimpleTypeFeatures(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			assertUnsupportedSimpleTypeFeature(t, test.root, test.feature, test.code, test.specRef)
+			assertUnsupportedSimpleTypeFeature(t, test.root, test.policy, test.feature, test.code, test.specRef)
 		})
 	}
 }
 
-func assertUnsupportedSimpleTypeFeature(t *testing.T, root string, feature FeatureID, code, specRef string) {
+func assertUnsupportedSimpleTypeFeature(t *testing.T, root string, policy LanguagePolicy, feature FeatureID, code, specRef string) {
 	t.Helper()
-	schema, err := discoverTestSchema(t, root, nil)
+	if policy == "" {
+		policy = Compatibility
+	}
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
 	if err == nil {
 		t.Fatal("discoverSchema accepted unsupported simple type behavior")
 	}
@@ -3119,6 +3171,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 	tests := []struct {
 		name        string
 		root        string
+		policy      LanguagePolicy
 		class       FailureClass
 		code        string
 		feature     FeatureID
@@ -3133,6 +3186,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:m="urn:missing" version="1.0">
   <xs:element name="item" type="m:Missing"/>
 </xs:schema>`,
+			policy:  Strict10,
 			class:   FailureInvalid,
 			code:    diagnosticSchemaElementTypeUnresolvedCode,
 			specRef: schemaElementTypeXSD10SpecRef,
@@ -3242,7 +3296,11 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			schema, err := discoverTestSchema(t, test.root, nil)
+			policy := test.policy
+			if policy == "" {
+				policy = Compatibility
+			}
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, policy)
 			if err == nil {
 				t.Fatal("discoverSchema accepted an invalid or unsupported element type")
 			}
