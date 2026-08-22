@@ -397,14 +397,20 @@ func TestPrecisionDecimalFacetLayerRejectsInapplicableFacets(t *testing.T) {
 	}
 }
 
-func TestPrecisionDecimalFacetLayerReportsApplicableFacetsUnsupported(t *testing.T) {
+func TestPrecisionDecimalFacetLayerAcceptsImplementedFacetsAndGatesAssertions(t *testing.T) {
 	loc := mustPrecisionDecimalFacetLoc(t, "facet-name.xsd", 80, 2)
-	for _, name := range []string{"pattern", "enumeration", "minInclusive", "minExclusive", "maxInclusive", "maxExclusive", "assertions", "whiteSpace"} {
-		t.Run("applicable but unimplemented "+name, func(t *testing.T) {
+	for _, name := range []string{"pattern", "enumeration", "minInclusive", "minExclusive", "maxInclusive", "maxExclusive", "whiteSpace"} {
+		t.Run("implemented "+name, func(t *testing.T) {
 			err := ValidatePrecisionDecimalFacetName(name, loc)
-			assertPrecisionDecimalUnsupportedFacet(t, err, loc)
+			if err != nil {
+				t.Fatalf("implemented facet was rejected: %v", err)
+			}
 		})
 	}
+	err := ValidatePrecisionDecimalFacetName("assertions", loc)
+	assertPrecisionDecimalUnsupportedFacetWithFeature(t, err, loc, FeatureID("xsd.assertion"), "xsd11-structures#cAssertions")
+	err = ValidatePrecisionDecimalFacetName("assertion", loc)
+	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalUnknownFacetCode, loc, precisionDecimalFacetSetSpecRef)
 }
 
 func TestPrecisionDecimalFacetLayerRejectsUnknownFacets(t *testing.T) {
@@ -439,10 +445,10 @@ func TestPrecisionDecimalFacetLayerAllowsDeclaredFacets(t *testing.T) {
 	}
 }
 
-func assertPrecisionDecimalUnsupportedFacet(t *testing.T, err error, loc Loc) {
+func assertPrecisionDecimalUnsupportedFacetWithFeature(t *testing.T, err error, loc Loc, feature FeatureID, specRef string) {
 	t.Helper()
 	if err == nil {
-		t.Fatal("applicable but unimplemented facet was accepted")
+		t.Fatal("unsupported facet was accepted")
 	}
 	diagnostic := mustDiagnostic(t, err)
 	if diagnostic.Class() != FailureUnsupported {
@@ -454,11 +460,11 @@ func assertPrecisionDecimalUnsupportedFacet(t *testing.T, err error, loc Loc) {
 	if diagnostic.Loc() != loc {
 		t.Fatalf("Loc() = %v, want %v", diagnostic.Loc(), loc)
 	}
-	if diagnostic.Feature() != FeaturePrecisionDecimal {
-		t.Fatalf("Feature() = %q, want %q", diagnostic.Feature(), FeaturePrecisionDecimal)
+	if diagnostic.Feature() != feature {
+		t.Fatalf("Feature() = %q, want %q", diagnostic.Feature(), feature)
 	}
-	if diagnostic.SpecRef() != "xsd-precisionDecimal#precisionDecimal" {
-		t.Fatalf("SpecRef() = %q, want %q", diagnostic.SpecRef(), "xsd-precisionDecimal#precisionDecimal")
+	if diagnostic.SpecRef() != specRef {
+		t.Fatalf("SpecRef() = %q, want %q", diagnostic.SpecRef(), specRef)
 	}
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("unsupported facet does not match ErrUnsupported: %v", err)
