@@ -434,15 +434,27 @@ func newPrecisionDecimalBoundDiagnostic(name string, loc Loc, specRef string, ca
 }
 
 func newPrecisionDecimalPatternResourceDiagnostic(loc Loc, cause error) Diagnostic {
-	return newPrecisionDecimalFacetDiagnostic(
-		FailureUnsupported,
+	feature, ok := LookupUnsupportedFeature(FeaturePrecisionDecimal)
+	if !ok {
+		return newPrecisionDecimalFacetDiagnostic(
+			FailureInternal,
+			UnsupportedPrecisionDecimalPatternCode,
+			loc,
+			precisionDecimalPatternValueSpecRef,
+			"precisionDecimal unsupported feature is not registered",
+			nil,
+			fmt.Errorf("%w: %w", errInvalidPrecisionDecimalFacetState, cause),
+		)
+	}
+	diagnostic := newUnsupported(
+		feature,
 		UnsupportedPrecisionDecimalPatternCode,
 		loc,
-		precisionDecimalPatternValueSpecRef,
 		"precisionDecimal XML Schema pattern exceeds implementation resource limits",
-		nil,
-		fmt.Errorf("%w: %w", ErrUnsupported, cause),
 	)
+	diagnostic.specRef = precisionDecimalPatternValueSpecRef
+	diagnostic.cause = fmt.Errorf("%w: %w", ErrUnsupported, cause)
+	return diagnostic
 }
 
 func clonePrecisionDecimalValue(value precisionDecimalValue) precisionDecimalValue {
@@ -479,7 +491,9 @@ func clonePrecisionDecimalPatternFacets(facets []PrecisionDecimalPatternFacet) [
 	if facets == nil {
 		return nil
 	}
-	return append([]PrecisionDecimalPatternFacet(nil), facets...)
+	result := make([]PrecisionDecimalPatternFacet, len(facets))
+	copy(result, facets)
+	return result
 }
 
 func clonePrecisionDecimalPatternGroups(groups [][]PrecisionDecimalPatternFacet) [][]PrecisionDecimalPatternFacet {
@@ -704,6 +718,21 @@ func validatePrecisionDecimalPatternState(patterns []PrecisionDecimalPatternFace
 	return nil
 }
 
+func validatePrecisionDecimalLocalPatternState(patterns []PrecisionDecimalPatternFacet) error {
+	if patterns != nil && len(patterns) == 0 {
+		return newPrecisionDecimalFacetDiagnostic(
+			FailureInvalid,
+			InvalidPrecisionDecimalPatternCode,
+			Loc{},
+			precisionDecimalPatternValueSpecRef,
+			"precisionDecimal pattern declaration is empty",
+			nil,
+			errInvalidPrecisionDecimalPattern,
+		)
+	}
+	return validatePrecisionDecimalPatternState(patterns)
+}
+
 func validatePrecisionDecimalPatternGroupsState(groups [][]PrecisionDecimalPatternFacet) error {
 	for _, group := range groups {
 		if len(group) == 0 {
@@ -817,7 +846,7 @@ func validatePrecisionDecimalLocalValueFacetState(local PrecisionDecimalFacetDec
 			"precisionDecimal declarations cannot contain both maxInclusive and maxExclusive",
 		)
 	}
-	if err := validatePrecisionDecimalPatternState(local.Patterns); err != nil {
+	if err := validatePrecisionDecimalLocalPatternState(local.Patterns); err != nil {
 		return err
 	}
 	if err := validatePrecisionDecimalLocalEnumerationState(local.Enumeration); err != nil {

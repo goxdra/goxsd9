@@ -465,6 +465,21 @@ func TestPrecisionDecimalFacetDeclarationsRejectZeroValuesWithoutPanics(t *testi
 	}
 }
 
+func TestPrecisionDecimalFacetDeclarationsRejectEmptyPatterns(t *testing.T) {
+	for _, local := range []PrecisionDecimalFacetDeclarations{
+		{Patterns: []PrecisionDecimalPatternFacet{}},
+		NewPrecisionDecimalValueFacetDeclarations([]PrecisionDecimalPatternFacet{}, nil, nil, nil, nil, nil, nil),
+	} {
+		if local.Patterns == nil {
+			t.Fatal("explicit empty pattern declaration was collapsed to omission")
+		}
+		err := constructPrecisionDecimalFacetsNoPanic(t, local)
+		assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalPatternCode, Loc{}, precisionDecimalPatternValueSpecRef)
+		err = restrictPrecisionDecimalFacetsNoPanic(t, PrecisionDecimalFacets{}, local)
+		assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalPatternCode, Loc{}, precisionDecimalPatternValueSpecRef)
+	}
+}
+
 func TestPrecisionDecimalBoundNaNIsLegalButProducesEmptyRestrictions(t *testing.T) {
 	loc := mustPrecisionDecimalFacetLoc(t, "nan-bound.xsd", 110, 4)
 	nan := precisionDecimalMinInclusive(t, "NaN", loc)
@@ -696,6 +711,70 @@ func testPrecisionDecimalRegexClasses(t *testing.T, loc Loc) {
 	}
 }
 
+func TestPrecisionDecimalXMLRegexW3CHyphenDisambiguation(t *testing.T) {
+	loc := mustPrecisionDecimalFacetLoc(t, "w3c-regex-hyphen.xsd", 141, 2)
+	cases := []struct {
+		name    string
+		source  string
+		valid   []string
+		invalid []string
+	}{
+		{
+			name:    "reH19",
+			source:  `[a-a-x-x]+`,
+			valid:   []string{"a-x"},
+			invalid: []string{"j", "a-b"},
+		},
+		{
+			name:    "reF20",
+			source:  `[^a-d-b-c]`,
+			valid:   []string{"x"},
+			invalid: []string{"a-b", "c-c", "ab", "cc"},
+		},
+		{
+			name:   "reG26",
+			source: `[a-c-1-4x-z-7-9]*`,
+			valid:  []string{"", "a-1x-7", "c-4z-9", "a-1z-8a-1z-9", "a1z-9", "a-1z8", "a-1", "z-9"},
+		},
+		{
+			name:    "class escape then hyphen",
+			source:  `[\d-a]+`,
+			valid:   []string{"1-a", "9"},
+			invalid: []string{"b"},
+		},
+		{
+			name:   "leading and range-following hyphens",
+			source: `[--]|[a-b--]`,
+			valid:  []string{"-", "a", "b"},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			assertPrecisionDecimalPatternMatches(t, test.source, loc, test.valid, test.invalid)
+		})
+	}
+	for _, source := range []string{`[--z]`, `[a--b]`, `[a-\d]`, `[!--]`} {
+		if _, err := ParsePrecisionDecimalPatternFacet(source, loc); err == nil {
+			t.Fatalf("invalid XSD regex %q was accepted", source)
+		}
+	}
+}
+
+func assertPrecisionDecimalPatternMatches(t *testing.T, source string, loc Loc, matching, nonmatching []string) {
+	t.Helper()
+	pattern := mustPrecisionDecimalPatternFacet(t, source, loc)
+	for _, value := range matching {
+		if !pattern.matches(value) {
+			t.Errorf("pattern %q did not match W3C-valid value %q", source, value)
+		}
+	}
+	for _, value := range nonmatching {
+		if pattern.matches(value) {
+			t.Errorf("pattern %q matched W3C-invalid value %q", source, value)
+		}
+	}
+}
+
 func testPrecisionDecimalRegexSurrogateBlocks(t *testing.T, loc Loc) {
 	t.Helper()
 	surrogates := mustPrecisionDecimalPatternFacet(t, `\p{IsHighSurrogates}`, loc)
@@ -718,10 +797,7 @@ func TestPrecisionDecimalXMLRegexResourceLimitsAreStable(t *testing.T) {
 		if err == nil {
 			t.Fatalf("resource-heavy pattern %q was accepted", source[:min(len(source), 20)])
 		}
-		diagnostic := mustDiagnostic(t, err)
-		if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedPrecisionDecimalPatternCode || diagnostic.Loc() != loc || !errors.Is(err, ErrUnsupported) {
-			t.Fatalf("resource diagnostic = (%q,%q,%v), want unsupported/%s/%v: %v", diagnostic.Class(), diagnostic.Code(), diagnostic.Loc(), UnsupportedPrecisionDecimalPatternCode, loc, err)
-		}
+		assertPrecisionDecimalPatternResourceDiagnostic(t, err, loc, errPrecisionDecimalXMLRegexResourceLimit)
 	}
 	hugeQuantifier := mustPrecisionDecimalPatternFacet(t, `a{`+strings.Repeat("9", 4096)+`}`, loc)
 	if hugeQuantifier.matches("a") {
@@ -740,10 +816,7 @@ func TestPrecisionDecimalXMLRegexMatchResourceLimitIsUnsupported(t *testing.T) {
 		[]PrecisionDecimalPatternFacet{pattern}, nil, nil, nil, nil, nil, nil,
 	))
 	err := validatePrecisionDecimalFacets(strings.Repeat("0", 256), facets, loc)
-	diagnostic := mustDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedPrecisionDecimalPatternCode || diagnostic.Loc() != loc || !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("match resource diagnostic = (%q,%q,%v), want unsupported/%s/%v: %v", diagnostic.Class(), diagnostic.Code(), diagnostic.Loc(), UnsupportedPrecisionDecimalPatternCode, loc, err)
-	}
+	assertPrecisionDecimalPatternResourceDiagnostic(t, err, loc, errPrecisionDecimalXMLRegexMatchResourceLimit)
 }
 
 func TestPrecisionDecimalDerivedMembersPropagatePatternResourceDiagnostic(t *testing.T) {
@@ -756,21 +829,28 @@ func TestPrecisionDecimalDerivedMembersPropagatePatternResourceDiagnostic(t *tes
 
 	enumeration := mustPrecisionDecimalEnumerationFacet(t, longZero, memberLoc)
 	_, err := RestrictPrecisionDecimalFacets(base, PrecisionDecimalFacetDeclarations{Enumeration: []PrecisionDecimalEnumerationFacet{enumeration}})
-	assertPrecisionDecimalPatternResourceDiagnostic(t, err, patternLoc)
+	assertPrecisionDecimalPatternResourceDiagnostic(t, err, patternLoc, errPrecisionDecimalXMLRegexMatchResourceLimit)
 
 	bound := precisionDecimalMaxInclusive(t, longZero, boundLoc)
 	_, err = RestrictPrecisionDecimalFacets(base, PrecisionDecimalFacetDeclarations{MaxInclusive: bound})
-	assertPrecisionDecimalPatternResourceDiagnostic(t, err, patternLoc)
+	assertPrecisionDecimalPatternResourceDiagnostic(t, err, patternLoc, errPrecisionDecimalXMLRegexMatchResourceLimit)
 }
 
-func assertPrecisionDecimalPatternResourceDiagnostic(t *testing.T, err error, patternLoc Loc) {
+func assertPrecisionDecimalPatternResourceDiagnostic(t *testing.T, err error, patternLoc Loc, resourceCause error) {
 	t.Helper()
 	diagnostic := mustDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedPrecisionDecimalPatternCode || diagnostic.Loc() != patternLoc || diagnostic.SpecRef() != precisionDecimalPatternValueSpecRef {
-		t.Fatalf("pattern resource diagnostic = (%q,%q,%v,%q), want unsupported/%s/%v/%q: %v", diagnostic.Class(), diagnostic.Code(), diagnostic.Loc(), diagnostic.SpecRef(), UnsupportedPrecisionDecimalPatternCode, patternLoc, precisionDecimalPatternValueSpecRef, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedPrecisionDecimalPatternCode || diagnostic.Feature() != FeaturePrecisionDecimal || diagnostic.Loc() != patternLoc || diagnostic.SpecRef() != precisionDecimalPatternValueSpecRef {
+		t.Fatalf("pattern resource diagnostic = (%q,%q,%q,%v,%q), want unsupported/%s/%s/%v/%q: %v", diagnostic.Class(), diagnostic.Code(), diagnostic.Feature(), diagnostic.Loc(), diagnostic.SpecRef(), UnsupportedPrecisionDecimalPatternCode, FeaturePrecisionDecimal, patternLoc, precisionDecimalPatternValueSpecRef, err)
 	}
-	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errPrecisionDecimalXMLRegexMatchResourceLimit) {
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, resourceCause) {
 		t.Fatalf("pattern resource diagnostic lost unsupported cause: %v", err)
+	}
+	report, reportErr := ReportUnsupportedFeatures(makeDiagnostics([]Diagnostic{diagnostic}))
+	if reportErr != nil {
+		t.Fatalf("ReportUnsupportedFeatures: %v", reportErr)
+	}
+	if len(report) != 1 || report[0].Feature().ID() != FeaturePrecisionDecimal || report[0].Count() != 1 {
+		t.Fatalf("unsupported feature report = %#v, want one precisionDecimal occurrence", report)
 	}
 }
 

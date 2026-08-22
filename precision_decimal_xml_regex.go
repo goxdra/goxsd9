@@ -394,6 +394,7 @@ func (parser *precisionDecimalXMLRegexParser) parseCharacterClass() (precisionDe
 
 func (parser *precisionDecimalXMLRegexParser) parseCharacterClassGroup(negative bool) (precisionDecimalXMLCharSet, error) {
 	parts := make([]precisionDecimalXMLCharSet, 0, 1)
+	previousSingle := false
 	for {
 		if parser.atEnd() {
 			return precisionDecimalXMLCharSet{}, errors.New("unterminated character class")
@@ -408,19 +409,20 @@ func (parser *precisionDecimalXMLRegexParser) parseCharacterClassGroup(negative 
 		if precisionDecimalXMLCharacterClassSubtractionStart(parser, parts) {
 			return parser.parseCharacterClassSubtraction(parts, negative)
 		}
-		if precisionDecimalXMLCharacterClassHasInvalidHyphen(parser, parts) {
+		if precisionDecimalXMLCharacterClassHasInvalidHyphen(parser, previousSingle) {
 			return precisionDecimalXMLCharSet{}, errors.New("unescaped hyphen is not at a character class edge")
 		}
-		part, err := parser.parseCharacterClassMember()
+		part, single, err := parser.parseCharacterClassMember()
 		if err != nil {
 			return precisionDecimalXMLCharSet{}, err
 		}
 		parts = append(parts, part)
+		previousSingle = single
 	}
 }
 
-func precisionDecimalXMLCharacterClassHasInvalidHyphen(parser *precisionDecimalXMLRegexParser, parts []precisionDecimalXMLCharSet) bool {
-	if len(parts) == 0 || parser.peek() != '-' || parser.pos+1 >= len(parser.input) {
+func precisionDecimalXMLCharacterClassHasInvalidHyphen(parser *precisionDecimalXMLRegexParser, previousSingle bool) bool {
+	if !previousSingle || parser.peek() != '-' || parser.pos+1 >= len(parser.input) {
 		return false
 	}
 	if parser.input[parser.pos+1] == ']' {
@@ -461,32 +463,32 @@ func (parser *precisionDecimalXMLRegexParser) parseCharacterClassSubtraction(par
 	}}, nil
 }
 
-func (parser *precisionDecimalXMLRegexParser) parseCharacterClassMember() (precisionDecimalXMLCharSet, error) {
+func (parser *precisionDecimalXMLRegexParser) parseCharacterClassMember() (precisionDecimalXMLCharSet, bool, error) {
 	part, literal, single, escaped, err := parser.parseCharacterClassPart()
 	if err != nil {
-		return precisionDecimalXMLCharSet{}, err
+		return precisionDecimalXMLCharSet{}, false, err
 	}
 	if !single || !precisionDecimalXMLCharacterClassRangeStart(parser) {
-		return part, nil
+		return part, single, nil
 	}
 	if literal == '-' && !escaped {
-		return precisionDecimalXMLCharSet{}, errors.New("unescaped hyphen cannot start a character class range")
+		return precisionDecimalXMLCharSet{}, false, errors.New("unescaped hyphen cannot start a character class range")
 	}
 	parser.pos++
 	_, endpointLiteral, endpointSingle, endpointEscaped, err := parser.parseCharacterClassPart()
 	if err != nil {
-		return precisionDecimalXMLCharSet{}, err
+		return precisionDecimalXMLCharSet{}, false, err
 	}
 	if !endpointSingle {
-		return precisionDecimalXMLCharSet{}, errors.New("character class range endpoint is not a single character")
+		return precisionDecimalXMLCharSet{}, false, errors.New("character class range endpoint is not a single character")
 	}
 	if endpointLiteral == '-' && !endpointEscaped {
-		return precisionDecimalXMLCharSet{}, errors.New("unescaped hyphen cannot end a character class range")
+		return precisionDecimalXMLCharSet{}, false, errors.New("unescaped hyphen cannot end a character class range")
 	}
 	if literal > endpointLiteral {
-		return precisionDecimalXMLCharSet{}, errors.New("character class range is reversed")
+		return precisionDecimalXMLCharSet{}, false, errors.New("character class range is reversed")
 	}
-	return precisionDecimalXMLRangeSet(literal, endpointLiteral), nil
+	return precisionDecimalXMLRangeSet(literal, endpointLiteral), false, nil
 }
 
 func precisionDecimalXMLCharacterClassRangeStart(parser *precisionDecimalXMLRegexParser) bool {
