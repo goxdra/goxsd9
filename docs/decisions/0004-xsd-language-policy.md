@@ -125,14 +125,24 @@ validation; it never selects a policy and never mismatches a policy by itself.
 | `version="1.0"` | `Strict11` | Use strict XSD 1.1 rules. The label does not downgrade the graph. No mismatch. |
 | `version="1.1"` | `Strict10` | Use strict XSD 1.0 rules. The label does not upgrade the graph. No mismatch. |
 | Root label `"1.0"`, resolver-supplied import label `"1.1"` | `Compatibility` | Allow the mixed graph and use one compatibility policy for both documents, including cycles and repeated identities. Do not switch policy at the import. |
+
+### Future contract examples
+
+Catalog or manifest edition integration and strict-profile feature mismatch
+handling are future work and non-goals of the current implementation. The
+following rows describe their intended contract only:
+
+| Example | Selected policy | Result |
+| --- | --- | --- |
 | A catalog entry selects XSD 1.0 or XSD 1.1 from manifest edition metadata | `Strict10` or `Strict11` respectively | Select the strict policy before parsing. Ignore every schema label in the root and resolver graph; labels cannot override catalog selection. |
 | `Strict10` encounters a recognized XSD 1.1-only feature such as `<xs:assert>` that must be processed | `Strict10` | Report an actual strict-profile feature mismatch at the construct’s source `Loc` as explicit unsupported behavior, with the registered feature, stable code, and pinned XSD 1.1 reference. Return no schema. |
 
-The final row is a mismatch because the source invokes behavior outside the
-selected strict profile, not because it contains a particular label. A
-well-formed graph whose documents merely use different labels is not a strict
-mismatch. Conversely, malformed representation input, such as an invalid
-`vc:minVersion` decimal, is invalid input rather than a policy mismatch.
+The future strict-profile row is a mismatch because the source invokes
+behavior outside the selected strict profile, not because it contains a
+particular label. A well-formed graph whose documents merely use different
+labels is not a strict mismatch. Conversely, malformed representation input,
+such as an invalid `vc:minVersion` decimal, is invalid input rather than a
+policy mismatch.
 
 ## Lifecycle and diagnostics
 
@@ -196,7 +206,7 @@ catalog metadata may only construct a strict policy for a conformance run.
 | Packet | Size and dependency | Durable responsibility boundary |
 | --- | --- | --- |
 | XS: policy value and preflight | XS; follows this decision | Define and validate the immutable policy values and establish policy preflight while preserving the existing behavior boundary. |
-| S: graph propagation and capability | S; depends on XS | Propagate one selected policy across the schema graph and derive conditional-inclusion capability from it while keeping source and resolver metadata opaque. Delivered by the current parser policy boundary. |
+| S: graph propagation and capability | S; depends on XS | Propagate one selected policy across the schema graph and derive conditional-inclusion capability from it while keeping source and resolver metadata opaque. |
 | M: strict rules and conformance integration | M; depends on S | Apply the profile-specific compatibility and strict rules and integrate strict-policy selection from manifest or catalog edition metadata. |
 
 ## Consequences
