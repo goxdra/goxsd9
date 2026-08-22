@@ -262,31 +262,54 @@ func validateCodegenImportNames(names codegenNaming, allocated map[string]struct
 	if len(names.importByID) != len(names.imports) {
 		return newCodegenNamingInvariant(Loc{}, "naming table import index has the wrong size", errCodegenNamingMisaligned)
 	}
+	allocator := &codegenNameAllocator{used: make(map[string]struct{}, len(allocated))}
+	for key := range allocated {
+		allocator.used[key] = struct{}{}
+	}
 	for _, imported := range names.imports {
-		if err := validateCodegenImportAliasRequest(codegenImportAliasRequest{
-			identity: imported.identity,
-			alias:    imported.alias,
-		}); err != nil {
+		if err := validateCodegenImportName(names, imported, allocator, allocated); err != nil {
 			return err
 		}
-		identifier, err := codegenIdentifier(imported.alias, codegenNameKindImport, false, nil, Loc{})
-		if err != nil {
-			return err
-		}
-		if identifier != imported.identifier {
-			return newCodegenNamingInvariant(Loc{}, "naming table import alias is not allocated from its request", errCodegenNamingMisaligned)
-		}
-		indexed, ok := names.importAlias(imported.identity)
-		if !ok || indexed != imported.identifier {
-			return newCodegenNamingInvariant(Loc{}, "naming table import lookup is stale", errCodegenNamingMisaligned)
-		}
-		key := codegenCaseFold(imported.identifier)
-		if _, exists := allocated[key]; exists {
-			return newCodegenNamingInvariant(Loc{}, "naming table contains a repeated import identifier", errCodegenNamingMisaligned)
-		}
-		allocated[key] = struct{}{}
 	}
 
+	return nil
+}
+
+func validateCodegenImportName(
+	names codegenNaming,
+	imported codegenImportAliasName,
+	allocator *codegenNameAllocator,
+	allocated map[string]struct{},
+) error {
+	if err := validateCodegenImportAliasRequest(codegenImportAliasRequest{
+		identity: imported.identity,
+		alias:    imported.alias,
+	}); err != nil {
+		return err
+	}
+	requested, err := codegenIdentifier(imported.alias, codegenNameKindImport, false, nil, Loc{})
+	if err != nil {
+		return err
+	}
+	if err := validateCodegenAllocatedIdentifier(imported.identifier, codegenNameKindImport, "import alias"); err != nil {
+		return err
+	}
+	identifier, allocationErr := allocator.allocate(requested)
+	if allocationErr != nil {
+		return newCodegenNamingInvariant(Loc{}, "could not replay import alias allocation", allocationErr)
+	}
+	if identifier != imported.identifier {
+		return newCodegenNamingInvariant(Loc{}, "naming table import alias is not allocated from its request", errCodegenNamingMisaligned)
+	}
+	indexed, ok := names.importAlias(imported.identity)
+	if !ok || indexed != imported.identifier {
+		return newCodegenNamingInvariant(Loc{}, "naming table import lookup is stale", errCodegenNamingMisaligned)
+	}
+	key := codegenCaseFold(imported.identifier)
+	if _, exists := allocated[key]; exists {
+		return newCodegenNamingInvariant(Loc{}, "naming table contains a repeated import identifier", errCodegenNamingMisaligned)
+	}
+	allocated[key] = struct{}{}
 	return nil
 }
 

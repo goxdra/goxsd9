@@ -70,6 +70,41 @@ func TestCodegenScalarSourceIsDeterministicLocatedAndCompiling(t *testing.T) {
 	compileGeneratedCode(t, first)
 }
 
+func TestCodegenScalarSourceAcceptsCollisionResolvedRuntimeImportAlias(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
+  <xs:simpleType name="runtime"><xs:restriction base="xs:integer"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverTestSchema: %v", err)
+	}
+	names := mustScalarCodegenNaming(t, schema)
+	if got, ok := names.componentName(schema.Components()[0].ID()); !ok || got != "Runtime" {
+		t.Fatalf("componentName(runtime) = %q, %t, want Runtime, true", got, ok)
+	}
+	if got, ok := names.importAlias(codegenRuntimeImportPath); !ok || got != "Runtime2" {
+		t.Fatalf("runtime import alias = %q, %t, want Runtime2, true", got, ok)
+	}
+
+	source, err := emitCodegen(schema, names)
+	if err != nil {
+		t.Fatalf("emitCodegen: %v", err)
+	}
+	if source == nil {
+		t.Fatal("emitCodegen returned nil source without an error")
+	}
+	for _, fragment := range []string{
+		"import Runtime2 \"github.com/goxdra/goxsd9\"",
+		"type Runtime struct {\n\tValue Runtime2.StrictInteger\n}",
+	} {
+		if !strings.Contains(string(source), fragment) {
+			t.Fatalf("generated source is missing %q:\n%s", fragment, source)
+		}
+	}
+
+	compileGeneratedCode(t, source)
+}
+
 func TestCodegenScalarSourceFormatFailureUsesFormatDiagnostic(t *testing.T) {
 	output, err := renderCodegenSource(codegenSourcePlan{packageName: "generated package"})
 	if output != nil {
