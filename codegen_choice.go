@@ -222,6 +222,14 @@ func collectCodegenDirectChoices(
 		}
 		alternatives := choice.Alternatives()
 		for index, alternative := range alternatives {
+			if alternative == nil {
+				return nil, newCodegenInternal(
+					choice.Loc(),
+					"direct-choice alternative is nil",
+					nil,
+					errCodegenDirectChoiceParticle,
+				)
+			}
 			if directChoiceTypedNilParticle(alternative) {
 				return nil, newCodegenInternal(
 					choice.Loc(),

@@ -346,6 +346,34 @@ func TestPlanCodegenDirectChoicesRejectsMalformedFacts(t *testing.T) {
 	}
 }
 
+func TestPlanCodegenDirectChoicesRejectsNilParticleAlternative(t *testing.T) {
+	schema := codegenDirectChoiceFailureSchema(t)
+	choice := codegenDirectChoiceTestChoice(schema)
+	choice.facts.alternatives[0] = nil
+	wantLoc := choice.Loc()
+
+	plan, err := planCodegenDirectChoices(schema, "generated")
+	if err == nil {
+		t.Fatal("planCodegenDirectChoices accepted a nil particle alternative")
+	}
+	if !reflect.DeepEqual(plan, codegenDirectChoicePlan{}) {
+		t.Fatalf("failure plan = %#v, want zero plan", plan)
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		t.Fatalf("error %T is not a Diagnostic: %v", err, err)
+	}
+	if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+		t.Fatalf("diagnostic = (%q,%q), want (%q,%q)", diagnostic.Class(), diagnostic.Code(), FailureInternal, diagnosticCodegenInvariant)
+	}
+	if diagnostic.Loc() != wantLoc {
+		t.Fatalf("diagnostic location = %s, want choice location %s", diagnostic.Loc(), wantLoc)
+	}
+	if !errors.Is(err, errCodegenDirectChoiceParticle) {
+		t.Fatalf("diagnostic lost nil particle cause: %v", err)
+	}
+}
+
 func assertCodegenDirectChoiceInternalFailure(t *testing.T, schema Schema, cause error) {
 	t.Helper()
 	plan, err := planCodegenDirectChoices(schema, "generated")
