@@ -493,6 +493,31 @@ func TestPrecisionDecimalBoundNaNIsLegalButProducesEmptyRestrictions(t *testing.
 	if !errors.Is(err, errInvalidPrecisionDecimalBound) {
 		t.Fatalf("non-fixed NaN redeclaration did not preserve empty-base cause: %v", err)
 	}
+
+	minExclusiveBase := mustPrecisionDecimalValueFacets(t, PrecisionDecimalFacetDeclarations{MinExclusive: precisionDecimalMinExclusive(t, "NaN", loc)})
+	if _, restrictionErr := RestrictPrecisionDecimalFacets(minExclusiveBase, PrecisionDecimalFacetDeclarations{MinExclusive: precisionDecimalMinExclusive(t, "NaN", loc)}); restrictionErr != nil {
+		t.Fatalf("same non-fixed minExclusive NaN bound was rejected: %v", restrictionErr)
+	}
+	err = expectPrecisionDecimalBoundRestrictionDiagnostic(t, minExclusiveBase, PrecisionDecimalFacetDeclarations{MinExclusive: precisionDecimalMinExclusive(t, "0", loc)}, loc, precisionDecimalMinExclusiveRestrictionSpecRef)
+	if !errors.Is(err, errInvalidPrecisionDecimalBound) {
+		t.Fatalf("finite minExclusive widening lost empty-base cause: %v", err)
+	}
+	err = expectPrecisionDecimalBoundRestrictionDiagnostic(t, minExclusiveBase, PrecisionDecimalFacetDeclarations{MaxInclusive: precisionDecimalMaxInclusive(t, "NaN", loc)}, loc, precisionDecimalMaxInclusiveRestrictionSpecRef)
+	if !errors.Is(err, errInvalidPrecisionDecimalBound) {
+		t.Fatalf("new NaN upper bound widened empty base: %v", err)
+	}
+	maxExclusiveBase := mustPrecisionDecimalValueFacets(t, PrecisionDecimalFacetDeclarations{MaxExclusive: precisionDecimalMaxExclusive(t, "NaN", loc)})
+	if _, restrictionErr := RestrictPrecisionDecimalFacets(maxExclusiveBase, PrecisionDecimalFacetDeclarations{MaxExclusive: precisionDecimalMaxExclusive(t, "NaN", loc)}); restrictionErr != nil {
+		t.Fatalf("same non-fixed maxExclusive NaN bound was rejected: %v", restrictionErr)
+	}
+	err = expectPrecisionDecimalBoundRestrictionDiagnostic(t, maxExclusiveBase, PrecisionDecimalFacetDeclarations{MaxExclusive: precisionDecimalMaxExclusive(t, "0", loc)}, loc, precisionDecimalMaxExclusiveRestrictionSpecRef)
+	if !errors.Is(err, errInvalidPrecisionDecimalBound) {
+		t.Fatalf("finite maxExclusive widening lost empty-base cause: %v", err)
+	}
+	err = expectPrecisionDecimalBoundRestrictionDiagnostic(t, maxExclusiveBase, PrecisionDecimalFacetDeclarations{MinInclusive: precisionDecimalMinInclusive(t, "NaN", loc)}, loc, precisionDecimalMinInclusiveRestrictionSpecRef)
+	if !errors.Is(err, errInvalidPrecisionDecimalBound) {
+		t.Fatalf("new NaN lower bound widened empty base: %v", err)
+	}
 }
 
 func TestPrecisionDecimalFixedBoundAllowsStricterOppositeKind(t *testing.T) {
@@ -718,6 +743,34 @@ func TestPrecisionDecimalXMLRegexMatchResourceLimitIsUnsupported(t *testing.T) {
 	diagnostic := mustDiagnostic(t, err)
 	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedPrecisionDecimalPatternCode || diagnostic.Loc() != loc || !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("match resource diagnostic = (%q,%q,%v), want unsupported/%s/%v: %v", diagnostic.Class(), diagnostic.Code(), diagnostic.Loc(), UnsupportedPrecisionDecimalPatternCode, loc, err)
+	}
+}
+
+func TestPrecisionDecimalDerivedMembersPropagatePatternResourceDiagnostic(t *testing.T) {
+	patternLoc := mustPrecisionDecimalFacetLoc(t, "base-pattern.xsd", 152, 2)
+	memberLoc := mustPrecisionDecimalFacetLoc(t, "derived-enumeration.xsd", 153, 2)
+	boundLoc := mustPrecisionDecimalFacetLoc(t, "derived-bound.xsd", 154, 2)
+	pattern := mustPrecisionDecimalPatternFacet(t, strings.Repeat("0*", 128), patternLoc)
+	base := mustPrecisionDecimalValueFacets(t, PrecisionDecimalFacetDeclarations{Patterns: []PrecisionDecimalPatternFacet{pattern}})
+	longZero := strings.Repeat("0", 256)
+
+	enumeration := mustPrecisionDecimalEnumerationFacet(t, longZero, memberLoc)
+	_, err := RestrictPrecisionDecimalFacets(base, PrecisionDecimalFacetDeclarations{Enumeration: []PrecisionDecimalEnumerationFacet{enumeration}})
+	assertPrecisionDecimalPatternResourceDiagnostic(t, err, patternLoc)
+
+	bound := precisionDecimalMaxInclusive(t, longZero, boundLoc)
+	_, err = RestrictPrecisionDecimalFacets(base, PrecisionDecimalFacetDeclarations{MaxInclusive: bound})
+	assertPrecisionDecimalPatternResourceDiagnostic(t, err, patternLoc)
+}
+
+func assertPrecisionDecimalPatternResourceDiagnostic(t *testing.T, err error, patternLoc Loc) {
+	t.Helper()
+	diagnostic := mustDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedPrecisionDecimalPatternCode || diagnostic.Loc() != patternLoc || diagnostic.SpecRef() != precisionDecimalPatternValueSpecRef {
+		t.Fatalf("pattern resource diagnostic = (%q,%q,%v,%q), want unsupported/%s/%v/%q: %v", diagnostic.Class(), diagnostic.Code(), diagnostic.Loc(), diagnostic.SpecRef(), UnsupportedPrecisionDecimalPatternCode, patternLoc, precisionDecimalPatternValueSpecRef, err)
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errPrecisionDecimalXMLRegexMatchResourceLimit) {
+		t.Fatalf("pattern resource diagnostic lost unsupported cause: %v", err)
 	}
 }
 

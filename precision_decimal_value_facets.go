@@ -899,15 +899,7 @@ func validatePrecisionDecimalLocalFacetMembers(base PrecisionDecimalFacets, loca
 			value:             member.value,
 		}
 		if err := validatePrecisionDecimalFacetInput(input, base, member.Loc()); err != nil {
-			return newPrecisionDecimalFacetDiagnostic(
-				FailureInvalid,
-				InvalidPrecisionDecimalEnumerationCode,
-				member.Loc(),
-				precisionDecimalEnumerationRestrictionSpecRef,
-				"derived precisionDecimal enumeration member is outside the base value space",
-				precisionDecimalMembershipRelatedLocations(err, member.Loc()),
-				fmt.Errorf("%w: %w", errInvalidPrecisionDecimalEnumeration, err),
-			)
+			return precisionDecimalLocalEnumerationMembershipError(err, member)
 		}
 	}
 	for _, bound := range []struct {
@@ -942,15 +934,7 @@ func validatePrecisionDecimalLocalFacetMembers(base PrecisionDecimalFacets, loca
 		}
 		input := precisionDecimalFacetInput{normalizedLexical: bound.lexical, value: bound.value}
 		if err := validatePrecisionDecimalFacetInput(input, base, bound.loc); err != nil {
-			return newPrecisionDecimalFacetDiagnostic(
-				FailureInvalid,
-				InvalidPrecisionDecimalBoundCode,
-				bound.loc,
-				precisionDecimalBoundRestrictionSpecRefForName(bound.name),
-				"derived precisionDecimal "+bound.name+" is outside the base value space",
-				precisionDecimalMembershipRelatedLocations(err, bound.loc),
-				fmt.Errorf("%w: %w", errInvalidPrecisionDecimalBound, err),
-			)
+			return precisionDecimalLocalBoundMembershipError(err, bound.name, bound.loc)
 		}
 	}
 	return nil
@@ -969,20 +953,17 @@ func precisionDecimalValueIsNaN(value precisionDecimalValue) bool {
 }
 
 func precisionDecimalBoundMembershipException(base PrecisionDecimalFacets, name string, value precisionDecimalValue) bool {
-	if precisionDecimalFixedNaNBoundRedeclaration(base, name, value) {
-		return true
-	}
-	if precisionDecimalValueIsNaN(value) {
-		return false
-	}
 	switch name {
 	case "minExclusive":
-		return base.minExclusive != nil && precisionDecimalEqualOrIdentical(value, base.minExclusive.value)
+		if base.minExclusive != nil && precisionDecimalEqualOrIdentical(value, base.minExclusive.value) {
+			return true
+		}
 	case "maxExclusive":
-		return base.maxExclusive != nil && precisionDecimalEqualOrIdentical(value, base.maxExclusive.value)
-	default:
-		return false
+		if base.maxExclusive != nil && precisionDecimalEqualOrIdentical(value, base.maxExclusive.value) {
+			return true
+		}
 	}
+	return precisionDecimalFixedNaNBoundRedeclaration(base, name, value)
 }
 
 func precisionDecimalFixedNaNBoundRedeclaration(base PrecisionDecimalFacets, name string, value precisionDecimalValue) bool {
@@ -1053,6 +1034,44 @@ func precisionDecimalMembershipRelatedLocations(err error, primary Loc) []Loc {
 		}
 	}
 	return append(locations, diagnostic.Loc())
+}
+
+func precisionDecimalShouldWrapMembershipError(err error) bool {
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		return false
+	}
+	return diagnostic.Class() == FailureInvalid && diagnostic.Code() == PrecisionDecimalFacetValueViolationCode
+}
+
+func precisionDecimalLocalEnumerationMembershipError(err error, member PrecisionDecimalEnumerationFacet) error {
+	if !precisionDecimalShouldWrapMembershipError(err) {
+		return err
+	}
+	return newPrecisionDecimalFacetDiagnostic(
+		FailureInvalid,
+		InvalidPrecisionDecimalEnumerationCode,
+		member.Loc(),
+		precisionDecimalEnumerationRestrictionSpecRef,
+		"derived precisionDecimal enumeration member is outside the base value space",
+		precisionDecimalMembershipRelatedLocations(err, member.Loc()),
+		fmt.Errorf("%w: %w", errInvalidPrecisionDecimalEnumeration, err),
+	)
+}
+
+func precisionDecimalLocalBoundMembershipError(err error, name string, loc Loc) error {
+	if !precisionDecimalShouldWrapMembershipError(err) {
+		return err
+	}
+	return newPrecisionDecimalFacetDiagnostic(
+		FailureInvalid,
+		InvalidPrecisionDecimalBoundCode,
+		loc,
+		precisionDecimalBoundRestrictionSpecRefForName(name),
+		"derived precisionDecimal "+name+" is outside the base value space",
+		precisionDecimalMembershipRelatedLocations(err, loc),
+		fmt.Errorf("%w: %w", errInvalidPrecisionDecimalBound, err),
+	)
 }
 
 func validatePrecisionDecimalLocalBoundValueState(local PrecisionDecimalFacetDeclarations) error {
