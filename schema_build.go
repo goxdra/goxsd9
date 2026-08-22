@@ -42,20 +42,27 @@ var (
 type schemaTargetNamespace struct {
 	value   string
 	present bool
-	version XSDVersion
 }
 
 // discoverSchema completes the internal pipeline used by ParseSchema.
 func discoverSchema(root ResolvedSource, resolver Resolver) (Schema, error) {
-	discovery, err := discoverSyntax(root, resolver)
+	return discoverSchemaWithPolicy(root, resolver, Compatibility)
+}
+
+func discoverSchemaWithPolicy(root ResolvedSource, resolver Resolver, policy LanguagePolicy) (Schema, error) {
+	discovery, err := discoverSyntaxWithPolicy(root, resolver, policy)
 	if err != nil {
 		return Schema{}, err
 	}
-	return newSchemaFromDiscovery(discovery)
+	return newSchemaFromDiscoveryWithPolicy(discovery, policy)
 }
 
 func newSchemaFromDiscovery(discovery syntaxDiscoveryResult) (Schema, error) {
-	namespaces, sourceIndices, err := schemaDiscoveryNamespaces(discovery.documents)
+	return newSchemaFromDiscoveryWithPolicy(discovery, Compatibility)
+}
+
+func newSchemaFromDiscoveryWithPolicy(discovery syntaxDiscoveryResult, policy LanguagePolicy) (Schema, error) {
+	namespaces, sourceIndices, err := schemaDiscoveryNamespacesWithPolicy(discovery.documents, policy)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -70,36 +77,35 @@ func newSchemaFromDiscovery(discovery syntaxDiscoveryResult) (Schema, error) {
 		return Schema{}, err
 	}
 
-	schema, err := newSchema(inputs)
+	schema, err := newSchemaWithPolicy(inputs, policy)
 	if err != nil {
 		return Schema{}, err
 	}
 	return schema, nil
 }
 
-func schemaDiscoveryNamespaces(documents []*syntaxDocument) ([]schemaTargetNamespace, map[SourceID]int, error) {
+func schemaDiscoveryNamespacesWithPolicy(documents []*syntaxDocument, policy LanguagePolicy) ([]schemaTargetNamespace, map[SourceID]int, error) {
+	version, err := xsdVersionForLanguagePolicy(policy)
+	if err != nil {
+		return nil, nil, invalidLanguagePolicyDiagnostic(policy, err)
+	}
 	namespaces := make([]schemaTargetNamespace, len(documents))
 	sourceIndices := make(map[SourceID]int, len(documents))
 	for index, document := range documents {
-		if err := validateDiscoveredDocument(document, sourceIndices); err != nil {
+		if err := validateDiscoveredDocument(document, sourceIndices, version); err != nil {
 			return nil, nil, err
 		}
 		namespace, err := syntaxDocumentTargetNamespace(document)
 		if err != nil {
 			return nil, nil, err
 		}
-		version, err := syntaxDocumentVersion(document)
-		if err != nil {
-			return nil, nil, err
-		}
 		sourceIndices[document.source] = index
-		namespace.version = version
 		namespaces[index] = namespace
 	}
 	return namespaces, sourceIndices, nil
 }
 
-func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[SourceID]int) error {
+func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[SourceID]int, version XSDVersion) error {
 	if document == nil || document.root == nil {
 		return newDiagnostic(
 			FailureInternal,
@@ -127,13 +133,13 @@ func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[Sour
 			nil,
 		)
 	}
-	return validateSyntaxDocumentStructure(document)
+	return validateSyntaxDocumentStructureWithPolicy(document, version)
 }
 
 func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTargetNamespace) ([]schemaDocumentInput, error) {
 	inputs := make([]schemaDocumentInput, 0, len(documents))
 	for index, document := range documents {
-		declarations, err := schemaDocumentDeclarations(document, namespaces[index].value, namespaces[index].version)
+		declarations, err := schemaDocumentDeclarations(document, namespaces[index].value)
 		if err != nil {
 			return nil, err
 		}
@@ -141,7 +147,6 @@ func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTarget
 			source:          document.source,
 			rootLoc:         document.root.loc,
 			targetNamespace: namespaces[index].value,
-			version:         namespaces[index].version,
 			declarations:    declarations,
 		})
 	}
@@ -177,34 +182,6 @@ func syntaxDocumentTargetNamespace(document *syntaxDocument) (schemaTargetNamesp
 		value:   value,
 		present: true,
 	}, nil
-}
-
-func syntaxDocumentVersion(document *syntaxDocument) (XSDVersion, error) {
-	attributes := syntaxAttributesByLocal(document.root, "version")
-	if len(attributes) == 0 {
-		return XSDVersion11, nil
-	}
-	if len(attributes) != 1 || attributes[0].name.namespace != "" {
-		return "", newDiagnostic(
-			FailureInvalid,
-			invalidSchemaCompositionCode,
-			document.root.loc,
-			"schema version must be one unqualified attribute",
-			nil,
-		)
-	}
-	attribute := attributes[0]
-	switch collapseXMLWhitespace(attribute.value) {
-	case "", string(XSDVersion11):
-		return XSDVersion11, nil
-	case string(XSDVersion10):
-		return XSDVersion10, nil
-	default:
-		return "", newSchemaSyntaxUnsupported(
-			attribute.loc,
-			fmt.Sprintf("XSD schema version %q is not supported", collapseXMLWhitespace(attribute.value)),
-		)
-	}
 }
 
 func validateSchemaComposition(
@@ -297,10 +274,10 @@ func validateSchemaImport(
 	return nil
 }
 
-func schemaDocumentDeclarations(document *syntaxDocument, targetNamespace string, version XSDVersion) ([]schemaComponentInput, error) {
+func schemaDocumentDeclarations(document *syntaxDocument, targetNamespace string) ([]schemaComponentInput, error) {
 	declarations := make([]schemaComponentInput, 0)
 	for _, node := range document.root.children {
-		declaration, present, err := schemaDocumentDeclaration(node, targetNamespace, version)
+		declaration, present, err := schemaDocumentDeclaration(node, targetNamespace)
 		if err != nil {
 			return nil, err
 		}
@@ -313,7 +290,7 @@ func schemaDocumentDeclarations(document *syntaxDocument, targetNamespace string
 }
 
 //nolint:gocognit // Keep root declaration classification and phase-specific input explicit.
-func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version XSDVersion) (schemaComponentInput, bool, error) {
+func schemaDocumentDeclaration(node syntaxNode, targetNamespace string) (schemaComponentInput, bool, error) {
 	textNode, ok := node.(syntaxText)
 	if ok {
 		if xmlWhitespace([]byte(textNode.data)) {
@@ -359,14 +336,14 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version 
 		loc:  element.loc,
 	}
 	if kind == ComponentKindElementDeclaration {
-		elementType, elementErr := schemaElementTypeInput(element, version)
+		elementType, elementErr := schemaElementTypeInput(element)
 		if elementErr != nil {
 			return schemaComponentInput{}, false, elementErr
 		}
 		declaration.element = elementType
 	}
 	if kind == ComponentKindComplexTypeDefinition {
-		complexType, complexErr := schemaComplexTypeInputFromElement(element, version)
+		complexType, complexErr := schemaComplexTypeInputFromElement(element)
 		if complexErr != nil {
 			return schemaComponentInput{}, false, complexErr
 		}
@@ -375,7 +352,7 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version 
 	if kind != ComponentKindSimpleTypeDefinition {
 		return declaration, true, nil
 	}
-	simpleType, err := schemaSimpleTypeRestrictionInput(element, version)
+	simpleType, err := schemaSimpleTypeRestrictionInput(element)
 	if err != nil {
 		return schemaComponentInput{}, false, err
 	}
@@ -383,7 +360,7 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version 
 	return declaration, true, nil
 }
 
-func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schemaElementInput, error) {
+func schemaElementTypeInput(element *syntaxElement) (*schemaElementInput, error) {
 	attributes := syntaxAttributesByLocal(element, "type")
 	if len(attributes) == 0 {
 		return nil, nil
@@ -398,11 +375,10 @@ func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schema
 	return &schemaElementInput{
 		declaredType: declaredType,
 		typeLoc:      attributes[0].loc,
-		version:      version,
 	}, nil
 }
 
-func schemaComplexTypeInputFromElement(element *syntaxElement, version XSDVersion) (*schemaComplexTypeInput, error) {
+func schemaComplexTypeInputFromElement(element *syntaxElement) (*schemaComplexTypeInput, error) {
 	var choice *syntaxElement
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
@@ -432,7 +408,7 @@ func schemaComplexTypeInputFromElement(element *syntaxElement, version XSDVersio
 		if child.name.local != "element" {
 			continue
 		}
-		alternative, err := schemaElementParticleInputFromElement(child, version)
+		alternative, err := schemaElementParticleInputFromElement(child)
 		if err != nil {
 			return nil, err
 		}
@@ -441,7 +417,7 @@ func schemaComplexTypeInputFromElement(element *syntaxElement, version XSDVersio
 	return input, nil
 }
 
-func schemaElementParticleInputFromElement(element *syntaxElement, version XSDVersion) (schemaElementParticleInput, error) {
+func schemaElementParticleInputFromElement(element *syntaxElement) (schemaElementParticleInput, error) {
 	nameAttributes := syntaxAttributesByLocal(element, "name")
 	if len(nameAttributes) != 1 {
 		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "choice element input has an invalid name attribute")
@@ -469,12 +445,11 @@ func schemaElementParticleInputFromElement(element *syntaxElement, version XSDVe
 	input.typeInput = &schemaElementInput{
 		declaredType: declaredType,
 		typeLoc:      typeAttributes[0].loc,
-		version:      version,
 	}
 	return input, nil
 }
 
-func schemaSimpleTypeRestrictionInput(element *syntaxElement, version XSDVersion) (*schemaSimpleTypeInput, error) {
+func schemaSimpleTypeRestrictionInput(element *syntaxElement) (*schemaSimpleTypeInput, error) {
 	var restriction *syntaxElement
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
@@ -489,10 +464,10 @@ func schemaSimpleTypeRestrictionInput(element *syntaxElement, version XSDVersion
 	if restriction == nil {
 		return nil, newSchemaBridgeInvariant(element.loc, "supported simple type has no restriction")
 	}
-	return schemaRestrictionInput(restriction, version)
+	return schemaRestrictionInput(restriction)
 }
 
-func schemaRestrictionInput(element *syntaxElement, version XSDVersion) (*schemaSimpleTypeInput, error) {
+func schemaRestrictionInput(element *syntaxElement) (*schemaSimpleTypeInput, error) {
 	baseAttributes := syntaxAttributesByLocal(element, "base")
 	if len(baseAttributes) != 1 {
 		return nil, newDiagnostic(
@@ -510,7 +485,6 @@ func schemaRestrictionInput(element *syntaxElement, version XSDVersion) (*schema
 	input := &schemaSimpleTypeInput{
 		base:    base,
 		baseLoc: baseAttributes[0].loc,
-		version: version,
 	}
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
@@ -787,7 +761,11 @@ type schemaSimpleTypeResolver struct {
 	stack   []int
 }
 
-func resolveSchemaSimpleTypes(records []schemaComponentRecord, byName map[QName][]int) ([]schemaSimpleTypeResult, error) {
+func resolveSchemaSimpleTypes(
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	version XSDVersion,
+) ([]schemaSimpleTypeResult, error) {
 	resolver := schemaSimpleTypeResolver{
 		records: records,
 		byName:  byName,
@@ -799,7 +777,7 @@ func resolveSchemaSimpleTypes(records []schemaComponentRecord, byName map[QName]
 		if record.simpleType == nil {
 			continue
 		}
-		if _, err := resolver.resolve(index); err != nil {
+		if _, err := resolver.resolve(index, version); err != nil {
 			return nil, err
 		}
 	}
@@ -817,6 +795,7 @@ func resolveSchemaElementTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
 ) ([]schemaElementTypeResult, error) {
 	if len(simpleTypes) != len(records) {
 		return nil, newSchemaBridgeInvariant(Loc{}, "element type resolution has incomplete simple type results")
@@ -826,7 +805,7 @@ func resolveSchemaElementTypes(
 		if record.element == nil {
 			continue
 		}
-		result, err := resolveSchemaElementType(record, records, byName, simpleTypes)
+		result, err := resolveSchemaElementType(record, records, byName, simpleTypes, version)
 		if err != nil {
 			return nil, err
 		}
@@ -840,12 +819,13 @@ func resolveSchemaElementType(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
 ) (schemaElementTypeResult, error) {
 	input := record.element
 	if input == nil {
 		return schemaElementTypeResult{}, newSchemaBridgeInvariant(record.loc, "element type resolution has no type input")
 	}
-	return resolveSchemaScalarType(input, records, byName, simpleTypes, "for global elements")
+	return resolveSchemaScalarType(input, records, byName, simpleTypes, version, "for global elements")
 }
 
 func resolveSchemaScalarType(
@@ -853,6 +833,7 @@ func resolveSchemaScalarType(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
 	complexTargetSuffix string,
 ) (schemaElementTypeResult, error) {
 	if input.declaredType.Namespace() == xsdNamespaceURI {
@@ -863,19 +844,19 @@ func resolveSchemaScalarType(
 				declaredType: input.declaredType,
 			}, nil
 		case "precisionDecimal":
-			return schemaElementTypeResult{}, unsupportedSchemaElementPrecisionDecimal(input)
+			return schemaElementTypeResult{}, unsupportedSchemaElementPrecisionDecimal(input, version)
 		default:
 			return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
 				input.typeLoc,
 				fmt.Sprintf("element type %q is not implemented", input.declaredType),
-				input.version,
+				version,
 			)
 		}
 	}
 
 	candidates := byName[input.declaredType]
 	if len(candidates) == 0 {
-		return unresolvedSchemaElementType(input)
+		return unresolvedSchemaElementType(input, version)
 	}
 	typeCandidates := make([]int, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -886,17 +867,17 @@ func resolveSchemaScalarType(
 		typeCandidates = append(typeCandidates, candidate)
 	}
 	if len(typeCandidates) > 1 {
-		return ambiguousSchemaElementType(input, schemaComponentLocations(records, typeCandidates))
+		return ambiguousSchemaElementType(input, schemaComponentLocations(records, typeCandidates), version)
 	}
 	if len(typeCandidates) == 0 {
-		return wrongKindSchemaElementType(input, schemaComponentLocations(records, candidates))
+		return wrongKindSchemaElementType(input, schemaComponentLocations(records, candidates), version)
 	}
 	candidate := typeCandidates[0]
 	if records[candidate].kind == ComponentKindComplexTypeDefinition {
 		return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
 			input.typeLoc,
 			fmt.Sprintf("named complex type %q is not implemented %s", input.declaredType, complexTargetSuffix),
-			input.version,
+			version,
 		)
 	}
 	if !simpleTypes[candidate].present {
@@ -922,6 +903,7 @@ func resolveSchemaComplexTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
 ) ([]schemaComplexTypeResult, error) {
 	if len(simpleTypes) != len(records) {
 		return nil, newSchemaBridgeInvariant(Loc{}, "complex type resolution has incomplete simple type results")
@@ -947,6 +929,7 @@ func resolveSchemaComplexTypes(
 				records,
 				byName,
 				simpleTypes,
+				version,
 				"for local choice elements",
 			)
 			if err != nil {
@@ -977,35 +960,35 @@ func resolveSchemaComplexTypes(
 	return results, nil
 }
 
-func unresolvedSchemaElementType(input *schemaElementInput) (schemaElementTypeResult, error) {
+func unresolvedSchemaElementType(input *schemaElementInput, version XSDVersion) (schemaElementTypeResult, error) {
 	return schemaElementTypeResult{}, newSchemaElementTypeDiagnostic(
 		diagnosticSchemaElementTypeUnresolvedCode,
 		input.typeLoc,
 		fmt.Sprintf("element type %q cannot be resolved", input.declaredType),
 		nil,
-		input.version,
+		version,
 		errSchemaElementTypeUnresolved,
 	)
 }
 
-func wrongKindSchemaElementType(input *schemaElementInput, related []Loc) (schemaElementTypeResult, error) {
+func wrongKindSchemaElementType(input *schemaElementInput, related []Loc, version XSDVersion) (schemaElementTypeResult, error) {
 	return schemaElementTypeResult{}, newSchemaElementTypeDiagnostic(
 		diagnosticSchemaElementTypeWrongKindCode,
 		input.typeLoc,
 		fmt.Sprintf("element type %q does not name a simple type", input.declaredType),
 		related,
-		input.version,
+		version,
 		fmt.Errorf("%w: %q", errSchemaElementTypeWrongKind, input.declaredType),
 	)
 }
 
-func ambiguousSchemaElementType(input *schemaElementInput, related []Loc) (schemaElementTypeResult, error) {
+func ambiguousSchemaElementType(input *schemaElementInput, related []Loc, version XSDVersion) (schemaElementTypeResult, error) {
 	return schemaElementTypeResult{}, newSchemaElementTypeDiagnostic(
 		diagnosticSchemaElementTypeAmbiguousCode,
 		input.typeLoc,
 		fmt.Sprintf("element type %q is ambiguous", input.declaredType),
 		related,
-		input.version,
+		version,
 		fmt.Errorf("%w: %q", errSchemaElementTypeAmbiguous, input.declaredType),
 	)
 }
@@ -1029,7 +1012,7 @@ func schemaElementTypeSpecRef(version XSDVersion) string {
 	return schemaElementTypeXSD11SpecRef
 }
 
-func unsupportedSchemaElementPrecisionDecimal(input *schemaElementInput) error {
+func unsupportedSchemaElementPrecisionDecimal(input *schemaElementInput, version XSDVersion) error {
 	feature, ok := LookupUnsupportedFeature(FeaturePrecisionDecimal)
 	if !ok {
 		return newDiagnostic(
@@ -1045,17 +1028,17 @@ func unsupportedSchemaElementPrecisionDecimal(input *schemaElementInput) error {
 		diagnosticSchemaElementTypeUnsupportedCode,
 		input.typeLoc,
 		fmt.Sprintf("element type %q is not implemented", input.declaredType),
-		input.version,
+		version,
 	)
 }
 
-func (resolver *schemaSimpleTypeResolver) resolve(index int) (schemaSimpleTypeResult, error) {
+func (resolver *schemaSimpleTypeResolver) resolve(index int, version XSDVersion) (schemaSimpleTypeResult, error) {
 	switch resolver.states[index] {
 	case schemaSimpleTypeUnvisited:
 	case schemaSimpleTypeResolved:
 		return resolver.results[index], nil
 	case schemaSimpleTypeVisiting:
-		return schemaSimpleTypeResult{}, resolver.cycleDiagnostic(index)
+		return schemaSimpleTypeResult{}, resolver.cycleDiagnostic(index, version)
 	default:
 		return schemaSimpleTypeResult{}, newSchemaBridgeInvariant(
 			resolver.records[index].loc,
@@ -1071,19 +1054,15 @@ func (resolver *schemaSimpleTypeResolver) resolve(index int) (schemaSimpleTypeRe
 	}
 	resolver.states[index] = schemaSimpleTypeVisiting
 	resolver.stack = append(resolver.stack, index)
-	local, err := schemaDigitFacetDeclarations(input)
+	local, err := schemaDigitFacetDeclarations(input, version)
 	if err != nil {
 		return resolver.finishResolve(index, err)
 	}
-	base, err := resolver.resolveBase(index)
+	base, err := resolver.resolveBase(index, version)
 	if err != nil {
 		return resolver.finishResolve(index, err)
 	}
-	baseFacets, err := reversionDigitFacets(base.facets, input.version)
-	if err != nil {
-		return resolver.finishResolve(index, err)
-	}
-	facets, err := RestrictDigitFacets(baseFacets, local)
+	facets, err := RestrictDigitFacets(base.facets, local)
 	if err != nil {
 		return resolver.finishResolve(index, err)
 	}
@@ -1113,24 +1092,24 @@ type schemaSimpleTypeBase struct {
 	hasID  bool
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveBase(index int) (schemaSimpleTypeBase, error) {
+func (resolver *schemaSimpleTypeResolver) resolveBase(index int, version XSDVersion) (schemaSimpleTypeBase, error) {
 	input := resolver.records[index].simpleType
 	if input.base.Namespace() == xsdNamespaceURI {
-		return resolveBuiltinSchemaSimpleTypeBase(input)
+		return resolveBuiltinSchemaSimpleTypeBase(input, version)
 	}
-	return resolver.resolveNamedSchemaSimpleTypeBase(input)
+	return resolver.resolveNamedSchemaSimpleTypeBase(input, version)
 }
 
-func resolveBuiltinSchemaSimpleTypeBase(input *schemaSimpleTypeInput) (schemaSimpleTypeBase, error) {
+func resolveBuiltinSchemaSimpleTypeBase(input *schemaSimpleTypeInput, version XSDVersion) (schemaSimpleTypeBase, error) {
 	switch input.base.Local() {
 	case "integer":
-		facets, err := NewIntegerDigitFacets(nil, input.version)
+		facets, err := NewIntegerDigitFacets(nil, version)
 		if err != nil {
 			return schemaSimpleTypeBase{}, err
 		}
 		return schemaSimpleTypeBase{facets: facets}, nil
 	case "decimal":
-		facets, err := NewDecimalDigitFacets(nil, nil, input.version)
+		facets, err := NewDecimalDigitFacets(nil, nil, version)
 		if err != nil {
 			return schemaSimpleTypeBase{}, err
 		}
@@ -1145,10 +1124,10 @@ func resolveBuiltinSchemaSimpleTypeBase(input *schemaSimpleTypeInput) (schemaSim
 	}
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeBase(input *schemaSimpleTypeInput) (schemaSimpleTypeBase, error) {
+func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeBase(input *schemaSimpleTypeInput, version XSDVersion) (schemaSimpleTypeBase, error) {
 	candidates := resolver.byName[input.base]
 	if len(candidates) == 0 {
-		return unresolvedSchemaSimpleTypeBase(input)
+		return unresolvedSchemaSimpleTypeBase(input, version)
 	}
 	simpleCandidates := make([]int, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -1157,13 +1136,13 @@ func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeBase(input
 		}
 	}
 	if len(simpleCandidates) == 0 {
-		return wrongKindSchemaSimpleTypeBase(input, schemaComponentLocations(resolver.records, candidates))
+		return wrongKindSchemaSimpleTypeBase(input, schemaComponentLocations(resolver.records, candidates), version)
 	}
 	if len(simpleCandidates) > 1 {
-		return ambiguousSchemaSimpleTypeBase(input, schemaComponentLocations(resolver.records, simpleCandidates))
+		return ambiguousSchemaSimpleTypeBase(input, schemaComponentLocations(resolver.records, simpleCandidates), version)
 	}
 	baseIndex := simpleCandidates[0]
-	base, err := resolver.resolve(baseIndex)
+	base, err := resolver.resolve(baseIndex, version)
 	if err != nil {
 		return schemaSimpleTypeBase{}, err
 	}
@@ -1174,47 +1153,47 @@ func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeBase(input
 	}, nil
 }
 
-func unresolvedSchemaSimpleTypeBase(input *schemaSimpleTypeInput) (schemaSimpleTypeBase, error) {
+func unresolvedSchemaSimpleTypeBase(input *schemaSimpleTypeInput, version XSDVersion) (schemaSimpleTypeBase, error) {
 	return schemaSimpleTypeBase{}, newSchemaSimpleTypeDiagnostic(
 		diagnosticSchemaSimpleTypeUnresolvedCode,
 		input.baseLoc,
 		fmt.Sprintf("simple type restriction base %q cannot be resolved", input.base),
 		nil,
-		input.version,
+		version,
 		errSchemaSimpleTypeBaseUnresolved,
 	)
 }
 
-func wrongKindSchemaSimpleTypeBase(input *schemaSimpleTypeInput, related []Loc) (schemaSimpleTypeBase, error) {
+func wrongKindSchemaSimpleTypeBase(input *schemaSimpleTypeInput, related []Loc, version XSDVersion) (schemaSimpleTypeBase, error) {
 	return schemaSimpleTypeBase{}, newSchemaSimpleTypeDiagnostic(
 		diagnosticSchemaSimpleTypeWrongKindCode,
 		input.baseLoc,
 		fmt.Sprintf("simple type restriction base %q does not name a simple type", input.base),
 		related,
-		input.version,
+		version,
 		fmt.Errorf("%w: %q", errSchemaSimpleTypeBaseWrongKind, input.base),
 	)
 }
 
-func ambiguousSchemaSimpleTypeBase(input *schemaSimpleTypeInput, related []Loc) (schemaSimpleTypeBase, error) {
+func ambiguousSchemaSimpleTypeBase(input *schemaSimpleTypeInput, related []Loc, version XSDVersion) (schemaSimpleTypeBase, error) {
 	return schemaSimpleTypeBase{}, newSchemaSimpleTypeDiagnostic(
 		diagnosticSchemaSimpleTypeAmbiguousCode,
 		input.baseLoc,
 		fmt.Sprintf("simple type restriction base %q is ambiguous", input.base),
 		related,
-		input.version,
+		version,
 		fmt.Errorf("%w: %q", errSchemaSimpleTypeBaseAmbiguous, input.base),
 	)
 }
 
-func schemaDigitFacetDeclarations(input *schemaSimpleTypeInput) (DigitFacetDeclarations, error) {
+func schemaDigitFacetDeclarations(input *schemaSimpleTypeInput, version XSDVersion) (DigitFacetDeclarations, error) {
 	var totalDigits *TotalDigitsFacet
 	if input.totalDigits != nil {
 		facet, err := ParseTotalDigitsFacetWithFixed(
 			input.totalDigits.lexical,
 			input.totalDigits.loc,
 			input.totalDigits.fixed,
-			input.version,
+			version,
 		)
 		if err != nil {
 			return DigitFacetDeclarations{}, err
@@ -1227,7 +1206,7 @@ func schemaDigitFacetDeclarations(input *schemaSimpleTypeInput) (DigitFacetDecla
 			input.fractionDigits.lexical,
 			input.fractionDigits.loc,
 			input.fractionDigits.fixed,
-			input.version,
+			version,
 		)
 		if err != nil {
 			return DigitFacetDeclarations{}, err
@@ -1237,13 +1216,11 @@ func schemaDigitFacetDeclarations(input *schemaSimpleTypeInput) (DigitFacetDecla
 	return NewDigitFacetDeclarations(totalDigits, fractionDigits), nil
 }
 
-func (resolver *schemaSimpleTypeResolver) cycleDiagnostic(index int) error {
+func (resolver *schemaSimpleTypeResolver) cycleDiagnostic(index int, version XSDVersion) error {
 	loc := resolver.records[index].loc
-	version := XSDVersion11
 	input := resolver.records[index].simpleType
 	if input != nil {
 		loc = input.baseLoc
-		version = input.version
 	}
 	start := 0
 	for position, current := range resolver.stack {

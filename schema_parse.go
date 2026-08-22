@@ -1,14 +1,10 @@
 package goxsd9
 
 // ParseSchema discovers root and referenced schema documents and returns their
-// immutable component graph. The current parser supports the implemented
-// mixed XSD 1.0 and XSD 1.1 schema subset. The current two-argument parser
-// retains legacy per-document handling: an absent or empty schema/@version
-// defaults to XSD 1.1, "1.0" selects the legacy XSD 1.0 path, "1.1" selects
-// the legacy XSD 1.1 path, and arbitrary labels are rejected as unsupported.
-// Normatively, schema/@version is an inert optional xs:token label. Use
-// ParseSchemaWithPolicy to validate an explicit graph-wide policy; policy
-// propagation and profile-specific behavior remain future work.
+// immutable component graph. It uses the Compatibility policy for the entire
+// graph. The unqualified schema/@version attribute is an inert optional
+// xs:token label; absent, empty, arbitrary, "1.0", and "1.1" values do not
+// select a policy or produce a label-only diagnostic.
 //
 // root must be created with NewResolvedSource. The caller supplies that root;
 // resolver supplies referenced sources. Parsing drains and closes root and
@@ -19,20 +15,21 @@ package goxsd9
 // a resolution diagnostic when a reference does. On every error, the returned
 // Schema is zero.
 func ParseSchema(root ResolvedSource, resolver Resolver) (Schema, error) {
-	return discoverSchema(root, resolver)
+	return discoverSchemaWithPolicy(root, resolver, Compatibility)
 }
 
 // ParseSchemaWithPolicy validates an explicit graph-wide language policy
 // before discovering the root or calling the resolver. Valid policies
-// currently enter the same parser pipeline as ParseSchema; policy propagation
-// and profile-specific behavior are not implemented in this boundary.
+// select one behavior for the entire root/include/import graph, including
+// conditional inclusion, grammar validation, component construction, and
+// datatype facets. Schema version labels never override the selected policy.
 // Invalid policy configuration returns no Schema and a diagnostic at Loc{}
 // with the configuration cause preserved. A root with a reader is closed
 // exactly once on that preflight failure.
 func ParseSchemaWithPolicy(root ResolvedSource, resolver Resolver, policy LanguagePolicy) (Schema, error) {
 	cause := validateLanguagePolicy(policy)
 	if cause == nil {
-		return discoverSchema(root, resolver)
+		return discoverSchemaWithPolicy(root, resolver, policy)
 	}
 
 	return Schema{}, closeDiscoverySourceOnError(

@@ -71,6 +71,10 @@ func (source *validationTestSource) Close() error {
 }
 
 func validationTestSchema(t *testing.T, root string, fixtures map[string]validationTestFixture) goxsd9.Schema {
+	return validationTestSchemaWithPolicy(t, root, fixtures, goxsd9.Compatibility)
+}
+
+func validationTestSchemaWithPolicy(t *testing.T, root string, fixtures map[string]validationTestFixture, policy goxsd9.LanguagePolicy) goxsd9.Schema {
 	t.Helper()
 	rootSource, err := goxsd9.NewResolvedSource(
 		context.Background(),
@@ -80,7 +84,7 @@ func validationTestSchema(t *testing.T, root string, fixtures map[string]validat
 	if err != nil {
 		t.Fatalf("NewResolvedSource: %v", err)
 	}
-	schema, err := goxsd9.ParseSchema(rootSource, validationTestResolver{fixtures: fixtures})
+	schema, err := goxsd9.ParseSchemaWithPolicy(rootSource, validationTestResolver{fixtures: fixtures}, policy)
 	if err != nil {
 		t.Fatalf("ParseSchema: %v", err)
 	}
@@ -201,7 +205,7 @@ func TestValidateInstanceReportsLexicalAndFacetDiagnosticsWithSchemaEvidence(t *
 	  <xs:element name="amount" type="r:Amount"/>
   <xs:simpleType name="Amount"><xs:restriction base="xs:decimal"><xs:totalDigits value="3"/><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
 </xs:schema>`
-	schema := validationTestSchema(t, root, nil)
+	schema := validationTestSchemaWithPolicy(t, root, nil, goxsd9.Strict10)
 
 	input := `<count xmlns="urn:root">1.0</count>`
 	err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
@@ -308,7 +312,7 @@ func TestValidateInstanceAppliesNamedAndBuiltInDecimalVersionRules(t *testing.T)
 	  <xs:element name="named" type="r:Named"/>
   <xs:simpleType name="Named"><xs:restriction base="xs:decimal"/></xs:simpleType>
 </xs:schema>`
-	schema := validationTestSchema(t, root, nil)
+	schema := validationTestSchemaWithPolicy(t, root, nil, goxsd9.Strict10)
 	for _, input := range []string{
 		`<built xmlns="urn:root">.5</built>`,
 		`<built xmlns="urn:root">1.</built>`,

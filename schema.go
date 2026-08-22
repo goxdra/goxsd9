@@ -435,7 +435,6 @@ type SchemaDocument struct {
 	source          SourceID
 	rootLoc         Loc
 	targetNamespace string
-	version         XSDVersion
 	storage         *schemaStorage
 	start           int
 	count           int
@@ -471,6 +470,7 @@ func (document SchemaDocument) Components() []Component {
 type Schema struct {
 	documents []SchemaDocument
 	storage   *schemaStorage
+	policy    LanguagePolicy
 }
 
 type schemaStorage struct {
@@ -488,7 +488,6 @@ func (schema Schema) Documents() []SchemaDocument {
 			source:          document.source,
 			rootLoc:         document.rootLoc,
 			targetNamespace: document.targetNamespace,
-			version:         document.version,
 			storage:         document.storage,
 			start:           document.start,
 			count:           document.count,
@@ -583,7 +582,6 @@ type schemaDocumentInput struct {
 	source          SourceID
 	rootLoc         Loc
 	targetNamespace string
-	version         XSDVersion
 	// declarations contains the named schema-level declarations in lexical
 	// order. Local particle components will use a separate scoped model.
 	declarations []schemaComponentInput
@@ -601,13 +599,11 @@ type schemaComponentInput struct {
 type schemaElementInput struct {
 	declaredType QName
 	typeLoc      Loc
-	version      XSDVersion
 }
 
 type schemaSimpleTypeInput struct {
 	base           QName
 	baseLoc        Loc
-	version        XSDVersion
 	totalDigits    *schemaFacetInput
 	fractionDigits *schemaFacetInput
 }
@@ -685,19 +681,29 @@ type schemaComponentRecord struct {
 // Input slices are consumed only for construction; the returned schema owns
 // its ordered storage.
 func newSchema(inputs []schemaDocumentInput) (Schema, error) {
+	return newSchemaWithPolicy(inputs, Compatibility)
+}
+
+// newSchemaWithPolicy derives the construction version once from the validated
+// graph policy and passes it through component resolution.
+func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (Schema, error) {
+	version, err := xsdVersionForLanguagePolicy(policy)
+	if err != nil {
+		return Schema{}, invalidLanguagePolicyDiagnostic(policy, err)
+	}
 	documents, records, byName, err := allocateSchemaRecords(inputs)
 	if err != nil {
 		return Schema{}, err
 	}
-	simpleTypes, err := resolveSchemaSimpleTypes(records, byName)
+	simpleTypes, err := resolveSchemaSimpleTypes(records, byName, version)
 	if err != nil {
 		return Schema{}, err
 	}
-	elements, err := resolveSchemaElementTypes(records, byName, simpleTypes)
+	elements, err := resolveSchemaElementTypes(records, byName, simpleTypes, version)
 	if err != nil {
 		return Schema{}, err
 	}
-	complexTypes, err := resolveSchemaComplexTypes(records, byName, simpleTypes)
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, simpleTypes, version)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -714,6 +720,7 @@ func newSchema(inputs []schemaDocumentInput) (Schema, error) {
 	return Schema{
 		documents: documents,
 		storage:   storage,
+		policy:    policy,
 	}, nil
 }
 
@@ -725,10 +732,6 @@ func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []sc
 
 	for _, input := range inputs {
 		if err := validateSchemaDocumentInput(input, seenSources); err != nil {
-			return nil, nil, nil, err
-		}
-		version, err := schemaDocumentInputVersion(input)
-		if err != nil {
 			return nil, nil, nil, err
 		}
 		seenSources[input.source] = struct{}{}
@@ -747,25 +750,11 @@ func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []sc
 			source:          input.source,
 			rootLoc:         input.rootLoc,
 			targetNamespace: input.targetNamespace,
-			version:         version,
 			start:           documentStart,
 			count:           len(records) - documentStart,
 		})
 	}
 	return documents, records, byName, nil
-}
-
-func schemaDocumentInputVersion(input schemaDocumentInput) (XSDVersion, error) {
-	if input.version == "" {
-		return XSDVersion11, nil
-	}
-	if input.version == XSDVersion10 || input.version == XSDVersion11 {
-		return input.version, nil
-	}
-	return "", newSchemaBridgeInvariant(
-		input.rootLoc,
-		fmt.Sprintf("schema document has unsupported version %q", input.version),
-	)
 }
 
 func validateSchemaDocumentInput(input schemaDocumentInput, seenSources map[SourceID]struct{}) error {

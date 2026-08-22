@@ -16,11 +16,10 @@ The unqualified `xs:schema/@version` attribute is never an edition selector.
 It is an optional user label. Its value may be absent, empty, arbitrary, or
 look like an XSD edition without changing the selected policy.
 
-The current two-argument `ParseSchema(root, resolver)` behavior is unchanged
-by this decision record. `ParseSchemaWithPolicy` currently accepts and
-preflights `Compatibility`, `Strict10`, and `Strict11` before discovery; graph
-propagation and profile-specific behavior remain future work. This record does
-not make a conformance claim.
+`ParseSchema(root, resolver)` selects `Compatibility` for the complete graph.
+`ParseSchemaWithPolicy` validates `Compatibility`, `Strict10`, or `Strict11`
+before discovery and applies that one policy to the complete graph. This
+record does not make a conformance claim.
 
 ### Why the schema token cannot select an edition
 
@@ -106,17 +105,17 @@ has no unambiguous compatibility rule in the supported subset, parsing reports
 explicit unsupported behavior at the source construct. It does not infer a
 rule from `schema/@version`, silently skip the construct, or claim strict
 conformance. The selected graph policy is the one version source of truth;
-any per-feature `XSDVersion` or capability value in a future implementation is
-derived from that policy and is not an independent selector.
+phase-local `XSDVersion` and capability values are derived from it and passed
+to the relevant phase. Result metadata such as `DigitFacets.Version` records
+that construction input; it is not an independent selector.
 
 ## Examples
 
-These examples describe the accepted future policy contract; they do not
-describe current two-argument `ParseSchema` runtime behavior.
+These examples describe the current policy contract.
 
 The following examples make the label and policy boundaries observable. A
-schema label is retained only as input to the schema representation rules; it
-never selects a policy and never mismatches a policy by itself.
+schema label is accepted only as an inert input to schema representation
+validation; it never selects a policy and never mismatches a policy by itself.
 
 | Example | Selected policy | Result |
 | --- | --- | --- |
@@ -170,13 +169,13 @@ into a source error merely to obtain a location.
 The XSD `schema/@version` token is an inert user label: the specifications
 assign it no language-edition semantics. Language selection therefore belongs
 to an explicit, immutable graph policy rather than to a schema document or a
-resolver-provided label. This decision records that policy boundary and does
-not change current behavior. The current two-argument parser still has legacy
-per-document behavior: absent or empty `schema/@version` defaults to XSD 1.1,
-`"1.0"` selects the current legacy XSD 1.0 path, `"1.1"` selects the current
-legacy XSD 1.1 path, and arbitrary labels are rejected as unsupported. The
-policy values and invalid-policy preflight are implemented; graph
-propagation and strict/profile behavior remain future work.
+resolver-provided label. `ParseSchema` currently selects `Compatibility` by
+default, and `ParseSchemaWithPolicy` applies the validated policy to every
+root, include, import, repeat, and cycle. Absent, empty, arbitrary, `"1.0"`,
+and `"1.1"` labels do not select or mismatch a policy. Conditional capability
+and supported grammar, component, and digit-facet behavior are derived from
+that policy. Strict-profile feature mismatch rules and catalog or manifest
+edition integration remain future work.
 
 The implementation boundary is limited to constructing and validating the
 policy, propagating it through the schema graph, deriving version-sensitive
@@ -197,7 +196,7 @@ catalog metadata may only construct a strict policy for a conformance run.
 | Packet | Size and dependency | Durable responsibility boundary |
 | --- | --- | --- |
 | XS: policy value and preflight | XS; follows this decision | Define and validate the immutable policy values and establish policy preflight while preserving the existing behavior boundary. |
-| S: graph propagation and capability | S; depends on XS | Propagate one selected policy across the schema graph and derive conditional-inclusion capability from it while keeping source and resolver metadata opaque. |
+| S: graph propagation and capability | S; depends on XS | Propagate one selected policy across the schema graph and derive conditional-inclusion capability from it while keeping source and resolver metadata opaque. Delivered by the current parser policy boundary. |
 | M: strict rules and conformance integration | M; depends on S | Apply the profile-specific compatibility and strict rules and integrate strict-policy selection from manifest or catalog edition metadata. |
 
 ## Consequences

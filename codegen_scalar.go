@@ -66,7 +66,10 @@ func planCodegenSource(schema Schema, names codegenNaming) (codegenSourcePlan, e
 		runtimeAlias: runtimeAlias,
 		declarations: make([]codegenSourceDeclaration, 0, len(components)),
 	}
-	documentVersions := codegenDocumentVersions(schema)
+	policyVersion, versionErr := codegenSchemaVersion(schema)
+	if versionErr != nil {
+		return codegenSourcePlan{}, versionErr
+	}
 	for _, component := range components {
 		identifier, ok := names.componentName(component.ID())
 		if !ok {
@@ -76,17 +79,13 @@ func planCodegenSource(schema Schema, names codegenNaming) (codegenSourcePlan, e
 				errCodegenNamingMisaligned,
 			)
 		}
-		documentVersion := codegenElementDefaultVersion
-		if version, ok := documentVersions[component.ID().Source()]; ok {
-			documentVersion = version
-		}
 		fieldType, usesRuntime, err := planCodegenComponent(
 			schema,
 			names,
 			component,
 			runtimeAlias,
 			hasRuntimeAlias,
-			documentVersion,
+			policyVersion,
 		)
 		if err != nil {
 			return codegenSourcePlan{}, err
@@ -100,16 +99,19 @@ func planCodegenSource(schema Schema, names codegenNaming) (codegenSourcePlan, e
 	return plan, nil
 }
 
-func codegenDocumentVersions(schema Schema) map[SourceID]XSDVersion {
-	versions := make(map[SourceID]XSDVersion, len(schema.documents))
-	for _, document := range schema.documents {
-		version := document.version
-		if version != XSDVersion10 && version != XSDVersion11 {
-			version = codegenElementDefaultVersion
-		}
-		versions[document.source] = version
+func codegenSchemaVersion(schema Schema) (XSDVersion, error) {
+	if schema.policy == "" {
+		return codegenElementDefaultVersion, nil
 	}
-	return versions
+	version, err := xsdVersionForLanguagePolicy(schema.policy)
+	if err != nil {
+		return "", newCodegenSchemaInvariant(
+			Loc{},
+			"schema has an invalid language policy",
+			err,
+		)
+	}
+	return version, nil
 }
 
 func planCodegenComponent(
@@ -118,7 +120,7 @@ func planCodegenComponent(
 	component Component,
 	runtimeAlias string,
 	hasRuntimeAlias bool,
-	documentVersion XSDVersion,
+	policyVersion XSDVersion,
 ) (string, bool, error) {
 	switch component.Kind() {
 	case ComponentKindSimpleTypeDefinition:
@@ -132,7 +134,7 @@ func planCodegenComponent(
 		}
 		return fieldType, true, nil
 	case ComponentKindElementDeclaration:
-		return codegenElementFieldType(schema, names, component, runtimeAlias, hasRuntimeAlias, documentVersion)
+		return codegenElementFieldType(schema, names, component, runtimeAlias, hasRuntimeAlias, policyVersion)
 	case ComponentKindAttributeDeclaration,
 		ComponentKindComplexTypeDefinition,
 		ComponentKindModelGroupDefinition,

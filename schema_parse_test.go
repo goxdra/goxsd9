@@ -136,7 +136,7 @@ func TestParseSchemaBuildsDeterministicImmutableGraph(t *testing.T) {
 	assertParseTestComponents(t, schema)
 	assertParseTestResolverCalls(t, resolver)
 	assertParseTestSourcesClosed(t, rootReader, resolver)
-	assertParseTestMixedVersions(t, schema)
+	assertParseTestCompatibilityVersion(t, schema)
 	assertParseTestCopies(t, schema)
 }
 
@@ -200,7 +200,7 @@ func TestParseSchemaModelsGlobalElementScalarTypesAcrossMixedDocuments(t *testin
 	if !ok {
 		t.Fatal("root named simple type view is missing")
 	}
-	if got, want := namedType.DigitFacets().Version(), goxsd9.XSDVersion10; got != want {
+	if got, want := namedType.DigitFacets().Version(), goxsd9.XSDVersion11; got != want {
 		t.Fatalf("root named type version = %q, want %q", got, want)
 	}
 	otherType, ok := components[5].SimpleTypeDefinition()
@@ -492,7 +492,7 @@ func assertParseTestSourcesClosed(t *testing.T, rootReader *parseTestReader, res
 	}
 }
 
-func assertParseTestMixedVersions(t *testing.T, schema goxsd9.Schema) {
+func assertParseTestCompatibilityVersion(t *testing.T, schema goxsd9.Schema) {
 	t.Helper()
 	rootType := schema.FindKind(goxsd9.ComponentKindSimpleTypeDefinition, parseTestQName(t, "urn:root", "rootType"))
 	childType := schema.FindKind(goxsd9.ComponentKindSimpleTypeDefinition, parseTestQName(t, "urn:b", "bType"))
@@ -503,7 +503,7 @@ func assertParseTestMixedVersions(t *testing.T, schema goxsd9.Schema) {
 	if !ok {
 		t.Fatal("root simple type view is missing")
 	}
-	if got, want := rootDefinition.DigitFacets().Version(), goxsd9.XSDVersion10; got != want {
+	if got, want := rootDefinition.DigitFacets().Version(), goxsd9.XSDVersion11; got != want {
 		t.Fatalf("root simple type version = %q, want %q", got, want)
 	}
 	childDefinition, ok := childType[0].SimpleType()

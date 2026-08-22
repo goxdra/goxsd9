@@ -61,7 +61,7 @@ type syntaxDiscovery struct {
 // this package: locations are passed through unchanged and only resolver
 // identities are used for cycle detection.
 func discoverSyntaxDocuments(root ResolvedSource, resolver Resolver) ([]*syntaxDocument, error) {
-	result, err := discoverSyntax(root, resolver)
+	result, err := discoverSyntaxWithPolicy(root, resolver, Compatibility)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +69,19 @@ func discoverSyntaxDocuments(root ResolvedSource, resolver Resolver) ([]*syntaxD
 }
 
 func discoverSyntax(root ResolvedSource, resolver Resolver) (syntaxDiscoveryResult, error) {
+	return discoverSyntaxWithPolicy(root, resolver, Compatibility)
+}
+
+//nolint:gocognit // FIFO discovery keeps resolution, filtering, and closure in one phase.
+func discoverSyntaxWithPolicy(root ResolvedSource, resolver Resolver, policy LanguagePolicy) (syntaxDiscoveryResult, error) {
+	version, policyErr := xsdVersionForLanguagePolicy(policy)
+	if policyErr != nil {
+		return syntaxDiscoveryResult{}, closeDiscoverySourceOnError(
+			root,
+			Loc{},
+			invalidLanguagePolicyDiagnostic(policy, policyErr),
+		)
+	}
 	if err := validateDiscoverySource(root, Loc{}, FailureInvalid); err != nil {
 		return syntaxDiscoveryResult{}, closeDiscoverySourceOnError(root, Loc{}, err)
 	}
@@ -88,11 +101,11 @@ func discoverSyntax(root ResolvedSource, resolver Resolver) (syntaxDiscoveryResu
 		if err != nil {
 			return syntaxDiscoveryResult{}, discovery.finish(err)
 		}
-		err = applySchemaConditionals(document)
+		err = applySchemaConditionalsWithPolicy(document, policy, version)
 		if err != nil {
 			return syntaxDiscoveryResult{}, discovery.finish(err)
 		}
-		err = validateSyntaxDocumentStructure(document)
+		err = validateSyntaxDocumentStructureWithPolicy(document, version)
 		if err != nil {
 			return syntaxDiscoveryResult{}, discovery.finish(err)
 		}

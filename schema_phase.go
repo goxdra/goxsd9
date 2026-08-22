@@ -25,10 +25,7 @@ type schemaConditionalEvaluation struct {
 	hasMax     bool
 }
 
-// applySchemaConditionals evaluates XSD 1.1 conditional inclusion before any
-// schema grammar or reference work. Excluded elements are removed from the
-// effective tree, so their syntax and references cannot affect discovery.
-func applySchemaConditionals(document *syntaxDocument) error {
+func applySchemaConditionalsWithPolicy(document *syntaxDocument, policy LanguagePolicy, version XSDVersion) error {
 	if document == nil || document.root == nil {
 		return newDiagnostic(
 			FailureInternal,
@@ -39,7 +36,7 @@ func applySchemaConditionals(document *syntaxDocument) error {
 		)
 	}
 
-	state, err := evaluateSchemaConditional(document.root)
+	state, err := evaluateSchemaConditional(document.root, policy, version)
 	if err != nil {
 		return err
 	}
@@ -48,10 +45,10 @@ func applySchemaConditionals(document *syntaxDocument) error {
 		document.root.attrs = conditionalRootFacts(document.root.attrs)
 		return nil
 	}
-	return pruneSchemaConditionalChildren(document.root)
+	return pruneSchemaConditionalChildren(document.root, policy, version)
 }
 
-func pruneSchemaConditionalChildren(parent *syntaxElement) error {
+func pruneSchemaConditionalChildren(parent *syntaxElement, policy LanguagePolicy, version XSDVersion) error {
 	children := make([]syntaxNode, 0, len(parent.children))
 	for _, node := range parent.children {
 		child, ok := node.(*syntaxElement)
@@ -59,14 +56,14 @@ func pruneSchemaConditionalChildren(parent *syntaxElement) error {
 			children = append(children, node)
 			continue
 		}
-		state, err := evaluateSchemaConditional(child)
+		state, err := evaluateSchemaConditional(child, policy, version)
 		if err != nil {
 			return err
 		}
 		if !state.include {
 			continue
 		}
-		if err := pruneSchemaConditionalChildren(child); err != nil {
+		if err := pruneSchemaConditionalChildren(child, policy, version); err != nil {
 			return err
 		}
 		children = append(children, child)
@@ -75,12 +72,12 @@ func pruneSchemaConditionalChildren(parent *syntaxElement) error {
 	return nil
 }
 
-func evaluateSchemaConditional(element *syntaxElement) (schemaConditionalState, error) {
-	evaluation, err := collectSchemaConditionalAttributes(element)
+func evaluateSchemaConditional(element *syntaxElement, policy LanguagePolicy, version XSDVersion) (schemaConditionalState, error) {
+	evaluation, err := collectSchemaConditionalAttributes(element, policy)
 	if err != nil {
 		return schemaConditionalState{}, err
 	}
-	if err := applySchemaConditionalVersion(element, &evaluation); err != nil {
+	if err := applySchemaConditionalVersion(element, &evaluation, version); err != nil {
 		return schemaConditionalState{}, err
 	}
 	if !evaluation.include {
@@ -92,25 +89,25 @@ func evaluateSchemaConditional(element *syntaxElement) (schemaConditionalState, 
 	return evaluation.schemaConditionalState, nil
 }
 
-func collectSchemaConditionalAttributes(element *syntaxElement) (schemaConditionalEvaluation, error) {
+func collectSchemaConditionalAttributes(element *syntaxElement, policy LanguagePolicy) (schemaConditionalEvaluation, error) {
 	evaluation := schemaConditionalEvaluation{
 		schemaConditionalState: schemaConditionalState{include: true},
 	}
 	for _, attribute := range element.attrs {
-		if err := collectSchemaConditionalAttribute(element, attribute, &evaluation); err != nil {
+		if err := collectSchemaConditionalAttribute(element, attribute, &evaluation, policy); err != nil {
 			return schemaConditionalEvaluation{}, err
 		}
 	}
 	return evaluation, nil
 }
 
-func collectSchemaConditionalAttribute(element *syntaxElement, attribute syntaxAttribute, evaluation *schemaConditionalEvaluation) error {
+func collectSchemaConditionalAttribute(element *syntaxElement, attribute syntaxAttribute, evaluation *schemaConditionalEvaluation, policy LanguagePolicy) error {
 	if attribute.name.namespace != xsdVersioningNamespaceURI {
 		return nil
 	}
 	switch attribute.name.local {
 	case "minVersion", "maxVersion":
-		return collectSchemaConditionalVersion(attribute, evaluation)
+		return collectSchemaConditionalVersion(attribute, evaluation, policy)
 	case "typeAvailable", "typeUnavailable", "facetAvailable", "facetUnavailable":
 		return collectSchemaConditionalAvailability(element, attribute, evaluation)
 	default:
@@ -120,8 +117,12 @@ func collectSchemaConditionalAttribute(element *syntaxElement, attribute syntaxA
 	}
 }
 
-func collectSchemaConditionalVersion(attribute syntaxAttribute, evaluation *schemaConditionalEvaluation) error {
-	value, err := ParseStrictDecimalFor(XSDVersion11, attribute.value, attribute.loc)
+func collectSchemaConditionalVersion(attribute syntaxAttribute, evaluation *schemaConditionalEvaluation, policy LanguagePolicy) error {
+	version, err := xsdVersionForLanguagePolicy(policy)
+	if err != nil {
+		return invalidLanguagePolicyDiagnostic(policy, err)
+	}
+	value, err := ParseStrictDecimalFor(version, attribute.value, attribute.loc)
 	if err != nil {
 		return err
 	}
@@ -152,15 +153,19 @@ func collectSchemaConditionalAvailability(element *syntaxElement, attribute synt
 	return nil
 }
 
-func applySchemaConditionalVersion(element *syntaxElement, evaluation *schemaConditionalEvaluation) error {
-	version, err := ParseStrictDecimalFor(XSDVersion11, "1.1", element.loc)
-	if err != nil {
-		return newSchemaBridgeInvariant(element.loc, "construct XSD 1.1 conditional version")
+func applySchemaConditionalVersion(element *syntaxElement, evaluation *schemaConditionalEvaluation, version XSDVersion) error {
+	processorLexical := "1.1"
+	if version == XSDVersion10 {
+		processorLexical = "1.0"
 	}
-	if evaluation.hasMin && version.Compare(evaluation.minVersion) < 0 {
+	processorVersion, err := ParseStrictDecimalFor(version, processorLexical, element.loc)
+	if err != nil {
+		return newSchemaBridgeInvariant(element.loc, "construct policy conditional version")
+	}
+	if evaluation.hasMin && processorVersion.Compare(evaluation.minVersion) < 0 {
 		evaluation.include = false
 	}
-	if evaluation.hasMax && version.Compare(evaluation.maxVersion) >= 0 {
+	if evaluation.hasMax && processorVersion.Compare(evaluation.maxVersion) >= 0 {
 		evaluation.include = false
 	}
 	return nil
@@ -251,9 +256,7 @@ const (
 	schemaGrammarDeclarations
 )
 
-// validateSyntaxDocumentStructure validates active syntax before references
-// are extracted. It deliberately does not construct public components.
-func validateSyntaxDocumentStructure(document *syntaxDocument) error {
+func validateSyntaxDocumentStructureWithPolicy(document *syntaxDocument, version XSDVersion) error {
 	if document == nil || document.root == nil {
 		return newDiagnostic(
 			FailureInternal,
@@ -273,16 +276,12 @@ func validateSyntaxDocumentStructure(document *syntaxDocument) error {
 			nil,
 		)
 	}
-	return validateSchemaRootContents(document)
+	return validateSchemaRootContents(document, version)
 }
 
-func validateSchemaRootContents(document *syntaxDocument) error {
+func validateSchemaRootContents(document *syntaxDocument, version XSDVersion) error {
 	root := document.root
 	unsupportedRootAttribute, unsupportedRootAttributeLoc, err := validateSchemaRootAttributes(root)
-	if err != nil {
-		return err
-	}
-	version, err := syntaxDocumentVersion(document)
 	if err != nil {
 		return err
 	}
