@@ -29,7 +29,7 @@ Diagnostics cover invalid/unsupported input; errors omit schema. `ValidateInstan
 - No goroutines, locks, or map-order output.
 - Measured W3C conformance.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) and [PLAN.md](PLAN.md) for design and phased outcomes.
+See [ARCHITECTURE.md](ARCHITECTURE.md), [PLAN.md](PLAN.md), and the [CLI decision](docs/decisions/0006-vertical-slice-cli.md).
 
 ## Repository checks
 

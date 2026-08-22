@@ -34,6 +34,7 @@ var documentRules = []documentRule{
 	{path: "docs/decisions/0003-schema-bootstrap.md", charter: "manifest-scoped schema bootstrap boundary", maxLines: 110, maxWords: 750},
 	{path: "docs/decisions/0004-xsd-language-policy.md", charter: "XSD language policy selection contract", maxLines: 240, maxWords: 2250},
 	{path: "docs/decisions/0005-codegen-naming.md", charter: "deterministic Go code-generation naming contract", maxLines: 180, maxWords: 1450},
+	{path: "docs/decisions/0006-vertical-slice-cli.md", charter: "vertical-slice CLI contract", maxLines: 360, maxWords: 2500},
 	{path: "docs/operations.md", charter: "scheduler and operator contract", maxLines: 60, maxWords: 525},
 }
 
