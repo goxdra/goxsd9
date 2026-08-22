@@ -276,6 +276,100 @@ func TestPlanCodegenDirectChoicesReturnsZeroPlanWithLocatedCauses(t *testing.T) 
 	}
 }
 
+func TestPlanCodegenDirectChoicesRejectsMalformedFacts(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(Schema)
+		cause  error
+	}{
+		{
+			name: "invalid target source",
+			mutate: func(schema Schema) {
+				choice := codegenDirectChoiceTestChoice(schema)
+				element := codegenDirectChoiceTestElement(choice)
+				element.facts.declaredType = QName{namespace: "urn:missing", local: "Missing"}
+				element.facts.typeID = ComponentID{ordinal: 1}
+				element.facts.hasTypeID = true
+			},
+			cause: errCodegenDirectChoiceTarget,
+		},
+		{
+			name: "invalid target ordinal",
+			mutate: func(schema Schema) {
+				choice := codegenDirectChoiceTestChoice(schema)
+				element := codegenDirectChoiceTestElement(choice)
+				element.facts.declaredType = QName{namespace: "urn:missing", local: "Missing"}
+				element.facts.typeID = ComponentID{source: "missing.xsd"}
+				element.facts.hasTypeID = true
+			},
+			cause: errCodegenDirectChoiceTarget,
+		},
+		{
+			name: "nil top-level choice",
+			mutate: func(schema Schema) {
+				component := schema.Components()[0]
+				component.complexType.particle = (*ChoiceParticle)(nil)
+			},
+			cause: errCodegenDirectChoiceParticle,
+		},
+		{
+			name: "nil top-level element",
+			mutate: func(schema Schema) {
+				component := schema.Components()[0]
+				component.complexType.particle = (*ElementParticle)(nil)
+			},
+			cause: errCodegenDirectChoiceParticle,
+		},
+		{
+			name: "nil choice alternative",
+			mutate: func(schema Schema) {
+				choice := codegenDirectChoiceTestChoice(schema)
+				choice.facts.alternatives[0] = (*ChoiceParticle)(nil)
+			},
+			cause: errCodegenDirectChoiceParticle,
+		},
+		{
+			name: "nil element alternative",
+			mutate: func(schema Schema) {
+				choice := codegenDirectChoiceTestChoice(schema)
+				choice.facts.alternatives[0] = (*ElementParticle)(nil)
+			},
+			cause: errCodegenDirectChoiceParticle,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema := codegenDirectChoiceFailureSchema(t)
+			test.mutate(schema)
+			assertCodegenDirectChoiceInternalFailure(t, schema, test.cause)
+		})
+	}
+}
+
+func assertCodegenDirectChoiceInternalFailure(t *testing.T, schema Schema, cause error) {
+	t.Helper()
+	plan, err := planCodegenDirectChoices(schema, "generated")
+	if err == nil {
+		t.Fatal("planCodegenDirectChoices unexpectedly succeeded")
+	}
+	if !reflect.DeepEqual(plan, codegenDirectChoicePlan{}) {
+		t.Fatalf("failure plan = %#v, want zero plan", plan)
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		t.Fatalf("error %T is not a Diagnostic: %v", err, err)
+	}
+	if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+		t.Fatalf("diagnostic = (%q,%q), want (%q,%q)", diagnostic.Class(), diagnostic.Code(), FailureInternal, diagnosticCodegenInvariant)
+	}
+	if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "choice.xsd" {
+		t.Fatalf("diagnostic location = %s, want choice.xsd location", diagnostic.Loc())
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("diagnostic lost cause %v: %v", cause, err)
+	}
+}
+
 func TestPlanCodegenDirectChoicesRejectsIncompleteElementParticle(t *testing.T) {
 	schema := codegenDirectChoiceFailureSchema(t)
 	choice := codegenDirectChoiceTestChoice(schema)

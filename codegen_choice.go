@@ -167,6 +167,14 @@ func collectCodegenDirectChoices(
 				codegenDirectChoiceParticlesReference,
 			)
 		}
+		if directChoiceTypedNilParticle(particle) {
+			return nil, newCodegenInternal(
+				component.Loc(),
+				fmt.Sprintf("complex type %q has a typed-nil choice particle", component.Name()),
+				nil,
+				errCodegenDirectChoiceParticle,
+			)
+		}
 
 		choice, choiceOK := directChoiceValue(particle)
 		if !choiceOK {
@@ -214,6 +222,14 @@ func collectCodegenDirectChoices(
 		}
 		alternatives := choice.Alternatives()
 		for index, alternative := range alternatives {
+			if directChoiceTypedNilParticle(alternative) {
+				return nil, newCodegenInternal(
+					choice.Loc(),
+					"direct-choice alternative is a typed-nil particle",
+					nil,
+					errCodegenDirectChoiceParticle,
+				)
+			}
 			path, pathErr := codegenDirectChoicePath(index)
 			if pathErr != nil {
 				return nil, newCodegenInternal(
@@ -276,6 +292,17 @@ func collectCodegenDirectChoices(
 		owners = append(owners, owner)
 	}
 	return owners, nil
+}
+
+func directChoiceTypedNilParticle(particle Particle) bool {
+	switch concrete := particle.(type) {
+	case *ChoiceParticle:
+		return concrete == nil
+	case *ElementParticle:
+		return concrete == nil
+	default:
+		return false
+	}
 }
 
 func directChoiceValue(particle Particle) (ChoiceParticle, bool) {
@@ -416,12 +443,20 @@ func validateCodegenDirectChoiceTarget(
 			)
 		}
 	}
-	if !hasTypeID || typeID.IsZero() {
+	if !hasTypeID {
 		return nil, newCodegenDirectChoiceResolution(
 			element.Loc(),
 			fmt.Sprintf("named direct-choice type %q has no resolved component identity", declaredType),
 			nil,
 			errCodegenDirectChoiceResolve,
+		)
+	}
+	if typeID.Source() == "" || typeID.Ordinal() == 0 {
+		return nil, newCodegenInternal(
+			element.Loc(),
+			fmt.Sprintf("named direct-choice type %q has an invalid component identity", declaredType),
+			nil,
+			errCodegenDirectChoiceTarget,
 		)
 	}
 	target, ok := schema.Lookup(typeID)
