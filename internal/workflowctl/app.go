@@ -124,7 +124,7 @@ Usage:
   go tool workflowctl claim verify
   go tool workflowctl coverage --base REF [--format text|json]
   go tool workflowctl develop-signals --base REF [--duration DURATION] [--coverage-explanation-file FILE] [--additional-fuzz PACKAGE:TARGET ...] [--format text|json]
-  go tool workflowctl backlog health
+  go tool workflowctl backlog health [--format text|json]
   go tool workflowctl issue create [flags]
   go tool workflowctl handoff ISSUE --body-file FILE
   go tool workflowctl pr open ISSUE --title TITLE --body-file FILE
