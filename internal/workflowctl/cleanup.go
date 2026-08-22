@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type claimArtifact struct {
@@ -375,6 +376,12 @@ func (a app) prepareRunLocalCleanup(root string, packet mergedPacket) ([]provenR
 	if err != nil {
 		return nil, err
 	}
+	inventory.runLocals = filterRunLocalRefsForClaims(inventory.runLocals, packet.plan.claims)
+	inventory.malformed = filterMalformedRunLocalRefsForClaims(inventory.malformed, packet.plan.claims)
+	local = filterRunLocalRefsForClaims(local, packet.plan.claims)
+	malformedLocal = filterMalformedRunLocalRefsForClaims(malformedLocal, packet.plan.claims)
+	tracking = filterRunLocalRefsForClaims(tracking, packet.plan.claims)
+	malformedTracking = filterMalformedRunLocalRefsForClaims(malformedTracking, packet.plan.claims)
 	malformedErr := rejectMalformedRunLocalRefs(inventory.malformed, malformedLocal, malformedTracking)
 	if malformedErr != nil {
 		return nil, malformedErr
@@ -398,6 +405,68 @@ func (a app) prepareRunLocalCleanup(root string, packet mergedPacket) ([]provenR
 		matched = append(matched, matchedCandidate)
 	}
 	return matched, nil
+}
+
+func filterRunLocalRefsForClaims(refs []runLocalRef, claims []claimArtifact) []runLocalRef {
+	filtered := make([]runLocalRef, 0, len(refs))
+	for _, ref := range refs {
+		if !runLocalIssueInClaims(ref.branch, claims) {
+			continue
+		}
+		filtered = append(filtered, ref)
+	}
+	return filtered
+}
+
+func filterMalformedRunLocalRefsForClaims(refs []agentRef, claims []claimArtifact) []agentRef {
+	filtered := make([]agentRef, 0, len(refs))
+	for _, ref := range refs {
+		if !runLocalIssueInClaims(ref.branch, claims) {
+			continue
+		}
+		filtered = append(filtered, ref)
+	}
+	return filtered
+}
+
+func runLocalIssueInClaims(branch string, claims []claimArtifact) bool {
+	issue, ok := runLocalRefIssue(branch)
+	if !ok {
+		return false
+	}
+	for _, claim := range claims {
+		if claim.issue == issue {
+			return true
+		}
+	}
+	return false
+}
+
+func runLocalRefIssue(branch string) (int, bool) {
+	kind, number, _ := classifyAgentRef(branch)
+	if kind != agentRefRunLocal && kind != agentRefMalformed {
+		return 0, false
+	}
+	if number > 0 {
+		return number, true
+	}
+	const prefix = "agent/issue-"
+	value := strings.TrimPrefix(branch, prefix)
+	if value == branch || value == "" {
+		return 0, false
+	}
+	digits := value
+	if index := strings.IndexByte(value, '-'); index >= 0 {
+		digits = value[:index]
+	}
+	if digits == "" {
+		return 0, false
+	}
+	number, err := strconv.Atoi(digits)
+	if err != nil || number < 1 {
+		return 0, false
+	}
+	return number, true
 }
 
 func (a app) validateRunLocalCandidate(root string, packet mergedPacket, candidate runLocalRefCandidate) (provenRunLocalRef, bool, error) {
@@ -554,7 +623,7 @@ func (a app) runLocalRefHistory(root string, ref runLocalRefCandidate, proofHead
 	format := "%H%x00%B%x00"
 	history, err := a.command(root, "git", "log", "--format="+format, proofHead)
 	if err == nil {
-		return parseRunLocalHistory(history, ref.branch)
+		return parseBoundedRunLocalHistory(history, ref.branch)
 	}
 	fetchRef := "refs/workflowctl/run-local-proof/" + ref.branch
 	existing, checkErr := a.command(root, "git", "for-each-ref", "--format=%(objectname)", fetchRef)
@@ -584,7 +653,7 @@ func (a app) runLocalRefHistory(root string, ref runLocalRefCandidate, proofHead
 	if cleanupErr != nil {
 		return nil, cleanupErr
 	}
-	return parseRunLocalHistory(history, ref.branch)
+	return parseBoundedRunLocalHistory(history, ref.branch)
 }
 
 func (a app) deleteTemporaryRunLocalProofRef(root, ref string) error {
@@ -599,18 +668,34 @@ func (a app) deleteTemporaryRunLocalProofRef(root, ref string) error {
 	return a.deleteRefIfExact(root, ref, sha, "temporary evaluated claim ref")
 }
 
-func parseRunLocalHistory(history, branch string) ([]runLocalHistoryIdentity, error) {
+type runLocalHistoryRecord struct {
+	commit  string
+	message string
+}
+
+func splitRunLocalHistory(history, branch string) ([]runLocalHistoryRecord, error) {
 	fields := strings.Split(history, "\x00")
 	if len(fields) == 1 && strings.TrimSpace(fields[0]) == "" {
 		return nil, stateError("preserve run-local ref %s: evaluated head history is empty", branch)
 	}
-	identities := make([]runLocalHistoryIdentity, 0)
+	records := make([]runLocalHistoryRecord, 0, len(fields)/2)
 	for index := 0; index+1 < len(fields); index += 2 {
 		commit := strings.TrimSpace(fields[index])
 		if commit == "" {
 			return nil, stateError("preserve run-local ref %s: evaluated head history contains an empty commit", branch)
 		}
-		identity, found, err := parseRunLocalHistoryRecord(fields[index+1], branch, commit)
+		records = append(records, runLocalHistoryRecord{commit: commit, message: fields[index+1]})
+	}
+	if len(fields)%2 != 1 || strings.TrimSpace(fields[len(fields)-1]) != "" {
+		return nil, stateError("preserve run-local ref %s: evaluated head history is malformed", branch)
+	}
+	return records, nil
+}
+
+func parseRunLocalHistoryRecords(records []runLocalHistoryRecord, branch string) ([]runLocalHistoryIdentity, error) {
+	identities := make([]runLocalHistoryIdentity, 0, len(records))
+	for _, record := range records {
+		identity, found, err := parseRunLocalHistoryRecord(record.message, branch, record.commit)
 		if err != nil {
 			return nil, err
 		}
@@ -619,10 +704,103 @@ func parseRunLocalHistory(history, branch string) ([]runLocalHistoryIdentity, er
 		}
 		identities = append(identities, identity)
 	}
-	if len(fields)%2 != 1 || strings.TrimSpace(fields[len(fields)-1]) != "" {
-		return nil, stateError("preserve run-local ref %s: evaluated head history is malformed", branch)
-	}
 	return identities, nil
+}
+
+func parseBoundedRunLocalHistory(history, branch string) ([]runLocalHistoryIdentity, error) {
+	kind, issue, runID := classifyAgentRef(branch)
+	if kind != agentRefRunLocal || runID == "" {
+		return nil, stateError("preserve run-local ref %s: run identity is malformed", branch)
+	}
+	records, err := splitRunLocalHistory(history, branch)
+	if err != nil {
+		return nil, err
+	}
+	anchor, err := findRunLocalHistoryAnchor(records, branch, runID, issue)
+	if err != nil {
+		return nil, err
+	}
+	return parseRunLocalHistoryRecords(records[:anchor+1], branch)
+}
+
+func findRunLocalHistoryAnchor(records []runLocalHistoryRecord, branch, runID string, issue int) (int, error) {
+	anchor := -1
+	malformedIndex := -1
+	var malformedErr error
+	for index, record := range records {
+		identity, canonical, parseErr := parseCanonicalRunLocalClaim(record.message, issue)
+		if parseErr != nil {
+			malformedIndex, malformedErr = earliestMalformedRunLocalAnchor(malformedIndex, malformedErr, index, record, branch, parseErr)
+			continue
+		}
+		if canonical && identity.runID == runID && identity.issue == issue {
+			anchor = index
+		}
+	}
+	if anchor < 0 {
+		if malformedErr != nil {
+			return 0, malformedErr
+		}
+		return 0, stateError("preserve run-local ref %s: evaluated head history has no canonical claim marker for run %s and issue #%d", branch, runID, issue)
+	}
+	if malformedIndex >= 0 && malformedIndex <= anchor {
+		return 0, malformedErr
+	}
+	return anchor, nil
+}
+
+func earliestMalformedRunLocalAnchor(currentIndex int, currentErr error, index int, record runLocalHistoryRecord, branch string, parseErr error) (int, error) {
+	if currentIndex >= 0 && currentIndex <= index {
+		return currentIndex, currentErr
+	}
+	return index, stateError("preserve run-local ref %s at history commit %s: malformed canonical claim marker: %w", branch, record.commit, parseErr)
+}
+
+func parseCanonicalRunLocalClaim(message string, issue int) (runLocalHistoryIdentity, bool, error) {
+	lines := strings.Split(message, "\n")
+	expectedSubject := fmt.Sprintf("chore(workflow): claim issue #%d", issue)
+	if len(lines) == 0 || lines[0] != expectedSubject {
+		return runLocalHistoryIdentity{}, false, nil
+	}
+	if len(lines) != 7 || lines[1] != "" || lines[2] != "Agent-Persona: Smith" {
+		return runLocalHistoryIdentity{}, true, errors.New("claim marker does not have the generated message shape")
+	}
+	runID, ok := exactHistoryTrailerLine(lines[3], "Agent-Run-ID")
+	if !ok || !validRunID(runID) {
+		return runLocalHistoryIdentity{}, true, errors.New("claim marker has an invalid Agent-Run-ID trailer")
+	}
+	lease, ok := exactHistoryTrailerLine(lines[4], "Agent-Lease-Until")
+	if !ok {
+		return runLocalHistoryIdentity{}, true, errors.New("claim marker has an invalid Agent-Lease-Until trailer")
+	}
+	parsedLease, err := time.Parse(time.RFC3339, lease)
+	if err != nil || parsedLease.Format(time.RFC3339) != lease {
+		return runLocalHistoryIdentity{}, true, errors.New("claim marker has an invalid Agent-Lease-Until trailer")
+	}
+	issueValue, ok := exactHistoryTrailerLine(lines[5], "Agent-Issue")
+	if !ok {
+		return runLocalHistoryIdentity{}, true, errors.New("claim marker has an invalid Agent-Issue trailer")
+	}
+	parsedIssue, err := canonicalHistoryIssue(issueValue)
+	if err != nil || parsedIssue != issue {
+		return runLocalHistoryIdentity{}, true, errors.New("claim marker has an invalid Agent-Issue trailer")
+	}
+	if lines[6] != "" {
+		return runLocalHistoryIdentity{}, true, errors.New("claim marker does not have the generated message shape")
+	}
+	return runLocalHistoryIdentity{runID: runID, issue: parsedIssue}, true, nil
+}
+
+func exactHistoryTrailerLine(line, name string) (string, bool) {
+	prefix := name + ": "
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	value := strings.TrimPrefix(line, prefix)
+	if value == "" || strings.TrimSpace(value) != value {
+		return "", false
+	}
+	return value, true
 }
 
 func parseRunLocalHistoryRecord(message, branch, commit string) (runLocalHistoryIdentity, bool, error) {
