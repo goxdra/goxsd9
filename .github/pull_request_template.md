@@ -20,11 +20,11 @@
 
 ### Development signals
 
-<!-- For parser/datatype changes, include `go tool workflowctl develop-signals --base BASE_SHA --format json` evidence for exact computed
-     affected/repository deltas, selected-target evidence, and bounded fuzz results.
-     Request checked-in corpus replay evidence separately,
-     or record no-relevant-target. These are engineering-health signals, not
-     XSD conformance. Explain affected package regressions with exact computed base/head evidence. -->
+<!-- Provide exact development-signals v2 JSON/deltas or selected targets; state
+     `no-relevant-target` explicitly. Distinguish automatic policy fuzz,
+     optional current-head additional fuzz, and separately requested checked-in
+     corpus replay. Fuzz is engineering health, not conformance; evidence is
+     independently recomputed at exact REST base/head. -->
 
 ## Conformance and documentation
 

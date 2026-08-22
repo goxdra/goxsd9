@@ -3,6 +3,8 @@ package workflowctl
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -40,6 +42,35 @@ func TestCheckCoveragePolicyRequiresMatchingConcreteExplanation(t *testing.T) {
 	explanation.Head.Covered++
 	if err := checkCoveragePolicy(report, []coverageExplanation{explanation}); err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("forged explanation accepted: %v", err)
+	}
+}
+
+func TestCoverageExplanationsAreCanonicalAndRejectStaleFacts(t *testing.T) {
+	report := testSignalCoverageReport()
+	report.Packages[0].Status = "changed"
+	report.Base, report.Head = "base", "head"
+	first := coverageExplanation{
+		Schema: coverageExplanationSchema, Package: "z.example/parser", Reason: "known branch",
+		Base: coverageSideReport{Present: true, HasTests: true, Statements: 2, Covered: 2, Percent: 100},
+		Head: coverageSideReport{Present: true, HasTests: true, Statements: 2, Covered: 1, Percent: 50},
+	}
+	second := first
+	second.Package = report.Packages[0].Package
+	second.Base, second.Head = report.Packages[0].Base, report.Packages[0].Head
+	canonical, err := canonicalCoverageExplanations([]coverageExplanation{first, second})
+	if err != nil {
+		t.Fatalf("canonicalize explanations: %v", err)
+	}
+	if canonical[0].Package != report.Packages[0].Package || canonical[1].Package != first.Package {
+		t.Fatalf("explanation order = %#v", canonical)
+	}
+	if err := checkCoveragePolicy(report, []coverageExplanation{second}); err != nil {
+		t.Fatalf("matching sorted explanation rejected: %v", err)
+	}
+	stale := second
+	stale.Head.Covered++
+	if err := checkCoveragePolicy(report, []coverageExplanation{stale}); err == nil {
+		t.Fatal("stale explanation facts were accepted")
 	}
 }
 
@@ -126,6 +157,7 @@ func TestDevelopSignalsCommandReportsNoRelevantTarget(t *testing.T) {
 	application := fuzzTestApplication(t, root, &output)
 	application.buildCoverageReport = func(string, string) (coverageReport, error) {
 		report := testSignalCoverageReport()
+		report.Base, report.Head = "base-sha", "head-sha"
 		report.Packages[0].Delta.Percent = 10
 		return report, nil
 	}
@@ -147,7 +179,11 @@ func TestDevelopSignalsCommandReportsNoRelevantTarget(t *testing.T) {
 func TestDevelopSignalsCommandRejectsUnexplainedPolicyRegression(t *testing.T) {
 	root := newFuzzFixture(t)
 	application := fuzzTestApplication(t, root, io.Discard)
-	application.buildCoverageReport = func(string, string) (coverageReport, error) { return testSignalCoverageReport(), nil }
+	application.buildCoverageReport = func(string, string) (coverageReport, error) {
+		report := testSignalCoverageReport()
+		report.Base, report.Head = "base-sha", "head-sha"
+		return report, nil
+	}
 	application.coverageChangedPaths = func(string, string, string) (map[string]bool, error) { return nil, nil }
 	err := application.run([]string{"develop-signals", "--base", "base-sha"})
 	if err == nil || !strings.Contains(err.Error(), "regressed without an explanation") {
@@ -157,7 +193,7 @@ func TestDevelopSignalsCommandRejectsUnexplainedPolicyRegression(t *testing.T) {
 
 func TestWriteDevelopmentSignalsSeparatesFuzzCoverageAndConformance(t *testing.T) {
 	var output bytes.Buffer
-	report := developmentSignalsReport{Selection: "no-relevant-target", Fuzz: []signalFuzzReport{}}
+	report := developmentSignalsReport{Selection: "no-relevant-target", CoverageExplanations: []coverageExplanation{}, Fuzz: []signalFuzzReport{}, AdditionalFuzz: []additionalFuzzReport{}}
 	if err := writeDevelopmentSignalsText(&output, report); err != nil {
 		t.Fatalf("write signals: %v", err)
 	}
@@ -166,6 +202,177 @@ func TestWriteDevelopmentSignalsSeparatesFuzzCoverageAndConformance(t *testing.T
 		if !strings.Contains(text, phrase) {
 			t.Fatalf("signals omitted %q: %s", phrase, text)
 		}
+	}
+}
+
+func TestDevelopmentSignalsJSONMakesNoTargetAndUnmeasuredClaimsExplicit(t *testing.T) {
+	packages := []coveragePackageReport{}
+	report := developmentSignalsReport{
+		Schema: developmentSignalsSchema, Base: "base", Head: "head",
+		Coverage: coverageReport{
+			Base: "base", Head: "head", Packages: packages,
+			Affected: coverageTotals(packages, true), Repository: coverageTotals(packages, false),
+		},
+		CoverageExplanations: []coverageExplanation{}, Fuzz: []signalFuzzReport{}, AdditionalFuzz: []additionalFuzzReport{}, Selection: "no-relevant-target",
+		Catalog: noMeasuredDevelopmentSignal, XSDFeatureSupport: noMeasuredDevelopmentSignal,
+		ExecutableConformance: noMeasuredDevelopmentSignal,
+	}
+	var output bytes.Buffer
+	if err := writeDevelopmentSignalsJSON(&output, report); err != nil {
+		t.Fatalf("write development signals JSON: %v", err)
+	}
+	var got developmentSignalsReport
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatalf("decode development signals JSON: %v", err)
+	}
+	if err := validateDevelopmentSignals(got, "base", "head"); err != nil {
+		t.Fatalf("validate development signals: %v", err)
+	}
+}
+
+func TestDevelopmentSignalsV2RoundTripIsByteStableAndArraysAreNonNil(t *testing.T) {
+	packages := []coveragePackageReport{}
+	report := developmentSignalsReport{
+		Schema: developmentSignalsSchema, Base: "base", Head: "head",
+		Coverage: coverageReport{
+			Base: "base", Head: "head", Packages: packages,
+			Affected: coverageTotals(packages, true), Repository: coverageTotals(packages, false),
+		},
+		CoverageExplanations: []coverageExplanation{}, Fuzz: []signalFuzzReport{}, AdditionalFuzz: []additionalFuzzReport{},
+		Selection: "no-relevant-target", Catalog: noMeasuredDevelopmentSignal,
+		XSDFeatureSupport: noMeasuredDevelopmentSignal, ExecutableConformance: noMeasuredDevelopmentSignal,
+	}
+	var first bytes.Buffer
+	if err := writeDevelopmentSignalsJSON(&first, report); err != nil {
+		t.Fatalf("write v2 signals: %v", err)
+	}
+	var decoded developmentSignalsReport
+	if err := json.Unmarshal(first.Bytes(), &decoded); err != nil {
+		t.Fatalf("decode v2 signals: %v", err)
+	}
+	if decoded.CoverageExplanations == nil || decoded.Fuzz == nil || decoded.AdditionalFuzz == nil {
+		t.Fatal("v2 signal arrays became nil after round trip")
+	}
+	if err := validateDevelopmentSignals(decoded, "base", "head"); err != nil {
+		t.Fatalf("validate v2 signals: %v", err)
+	}
+	var second bytes.Buffer
+	if err := writeDevelopmentSignalsJSON(&second, decoded); err != nil {
+		t.Fatalf("rewrite v2 signals: %v", err)
+	}
+	if !bytes.Equal(first.Bytes(), second.Bytes()) {
+		t.Fatalf("v2 signals changed bytes after round trip:\n%s\n---\n%s", first.Bytes(), second.Bytes())
+	}
+}
+
+func TestDevelopSignalsAdditionalFuzzIsSortedAndCanBeTheOnlyCampaign(t *testing.T) {
+	root := newFuzzFixtureWithFiles(t, []fuzzFixtureFile{
+		{name: "additional_test.go", content: `package fixture
+
+import "testing"
+
+func FuzzAdditionalBeta(f *testing.F) { f.Fuzz(func(*testing.T, string) {}) }
+func FuzzAdditionalAlpha(f *testing.F) { f.Fuzz(func(*testing.T, string) {}) }
+`},
+	})
+	var output bytes.Buffer
+	var targets []string
+	application := fuzzTestApplication(t, root, &output)
+	application.buildCoverageReport = func(string, string) (coverageReport, error) {
+		report := testSignalCoverageReport()
+		report.Base, report.Head = "base-sha", "head-sha"
+		report.Packages[0].Status = "changed"
+		report.Packages[0].Head = coverageSideReport{Present: true, HasTests: true, Statements: 10, Covered: 9, Percent: 90}
+		report.Packages[0].Delta = coverageDelta(report.Packages[0].Base, report.Packages[0].Head)
+		report.Affected = coverageTotals(report.Packages, true)
+		report.Repository = coverageTotals(report.Packages, false)
+		return report, nil
+	}
+	application.coverageChangedPaths = func(string, string, string) (map[string]bool, error) {
+		return map[string]bool{"internal/workflowctl/signals.go": true}, nil
+	}
+	application.executeCommandWithContextAndEnv = func(_ context.Context, _ string, _ []string, _ io.Reader,
+		name string, args ...string,
+	) (string, error) {
+		if name != "go" {
+			t.Fatalf("campaign command = %q, want go", name)
+		}
+		targets = append(targets, args[3])
+		return "", nil
+	}
+	if err := application.run([]string{
+		"develop-signals", "--base", "base-sha", "--format", "json",
+		"--additional-fuzz", "example.com/fuzzfixture:FuzzAdditionalBeta", "--additional-fuzz", ".:FuzzAdditionalAlpha",
+	}); err != nil {
+		t.Fatalf("develop-signals with additional fuzz: %v", err)
+	}
+	if want := []string{"-fuzz=^FuzzAdditionalAlpha$", "-fuzz=^FuzzAdditionalBeta$"}; !reflect.DeepEqual(targets, want) {
+		t.Fatalf("additional fuzz order = %#v, want %#v", targets, want)
+	}
+	var report developmentSignalsReport
+	if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+		t.Fatalf("decode additional signal report: %v", err)
+	}
+	if report.Selection != "no-relevant-target" || len(report.Fuzz) != 0 || len(report.AdditionalFuzz) != 2 {
+		t.Fatalf("additional-only signal selection = %#v", report)
+	}
+	if report.AdditionalFuzz[0].Target != "FuzzAdditionalAlpha" || report.AdditionalFuzz[1].Target != "FuzzAdditionalBeta" {
+		t.Fatalf("additional fuzz report order = %#v", report.AdditionalFuzz)
+	}
+	if report.AdditionalFuzz[0].Package != "." || report.AdditionalFuzz[1].Package != "." {
+		t.Fatalf("additional fuzz report packages = %#v, want canonical root packages", report.AdditionalFuzz)
+	}
+	if err := validateDevelopmentSignals(report, "base-sha", "head-sha"); err != nil {
+		t.Fatalf("validate additional signal report: %v", err)
+	}
+}
+
+func TestParseAdditionalFuzzTargetsRejectsUnsafeDuplicatesAndExcess(t *testing.T) {
+	for _, value := range []string{"FuzzOnly", ".:", ".:FuzzOne:extra", ".:notFuzz"} {
+		if _, err := parseAdditionalFuzzTargets([]string{value}); err == nil {
+			t.Fatalf("invalid additional fuzz %q was accepted", value)
+		}
+	}
+	if _, err := parseAdditionalFuzzTargets([]string{".:FuzzOne", ".:FuzzOne"}); err == nil {
+		t.Fatal("duplicate additional fuzz target was accepted")
+	}
+	if _, err := parseAdditionalFuzzTargets([]string{"./:FuzzOne", ".:FuzzOne"}); err == nil {
+		t.Fatal("non-canonical duplicate additional fuzz target was accepted")
+	}
+	values := make([]string, maxAdditionalFuzzTargets+1)
+	for index := range values {
+		values[index] = fmt.Sprintf(".:FuzzTarget%d", index)
+	}
+	if _, err := parseAdditionalFuzzTargets(values); err == nil {
+		t.Fatal("additional fuzz count limit was not enforced")
+	}
+}
+
+func TestCanonicalizeAdditionalFuzzTargetsNormalizesRootAliases(t *testing.T) {
+	root := newFuzzFixture(t)
+	canonical, err := canonicalizeAdditionalFuzzTargets(root, []additionalFuzzTarget{{
+		Package: "example.com/fuzzfixture", Target: "FuzzFixture",
+	}})
+	if err != nil {
+		t.Fatalf("canonicalize module-root package: %v", err)
+	}
+	if len(canonical) != 1 || canonical[0].Package != "." {
+		t.Fatalf("canonical module-root package = %#v, want .", canonical)
+	}
+	if _, err := canonicalizeAdditionalFuzzTargets(root, []additionalFuzzTarget{
+		{Package: ".", Target: "FuzzFixture"},
+		{Package: "example.com/fuzzfixture", Target: "FuzzFixture"},
+	}); err == nil {
+		t.Fatal("module-root alias duplicate was accepted")
+	}
+}
+
+func TestValidateAdditionalFuzzRejectsDescendingTargetsWithinPackage(t *testing.T) {
+	valid := func(target string) additionalFuzzReport {
+		return additionalFuzzReport{Package: ".", Target: target, Duration: "250ms", Workers: 1, Offline: true, Result: "success"}
+	}
+	if err := validateAdditionalFuzz(nil, []additionalFuzzReport{valid("FuzzBeta"), valid("FuzzAlpha")}); err == nil {
+		t.Fatal("additional fuzz targets in descending same-package order were accepted")
 	}
 }
 

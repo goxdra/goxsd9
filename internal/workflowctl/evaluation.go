@@ -46,6 +46,7 @@ var evaluationReservedTextSequences = [...]struct {
 
 type pullRequestView struct {
 	BaseRefName             string `json:"baseRefName"`
+	BaseRefOID              string `json:"baseRefOid"`
 	Body                    string `json:"body"`
 	ClosingIssuesReferences []struct {
 		Number int `json:"number"`
@@ -76,6 +77,7 @@ type pullRequestAPI struct {
 	MergeCommitSHA string     `json:"merge_commit_sha"`
 	Base           struct {
 		Ref string `json:"ref"`
+		SHA string `json:"sha"`
 	} `json:"base"`
 	Body  string `json:"body"`
 	Draft bool   `json:"draft"`
@@ -107,6 +109,7 @@ type evaluationReceipt struct {
 	Head              string                 `json:"head"`
 	HeadRefName       string                 `json:"headRefName,omitempty"`
 	BodySHA256        string                 `json:"bodySHA256,omitempty"`
+	EvidenceSHA256    string                 `json:"evidenceSHA256,omitempty"`
 	PR                int                    `json:"pullRequest,omitempty"`
 	RecordedAt        time.Time              `json:"recordedAt"`
 	ReportSHA256      string                 `json:"reportSHA256"`
@@ -137,10 +140,12 @@ type evaluationRepair struct {
 }
 
 type evaluationChallenge struct {
-	Challenge   string    `json:"challenge"`
-	Head        string    `json:"head"`
-	PR          int       `json:"pullRequest"`
-	RequestedAt time.Time `json:"requestedAt"`
+	Challenge      string    `json:"challenge"`
+	Head           string    `json:"head"`
+	PR             int       `json:"pullRequest"`
+	BodySHA256     string    `json:"bodySHA256,omitempty"`
+	EvidenceSHA256 string    `json:"evidenceSHA256,omitempty"`
+	RequestedAt    time.Time `json:"requestedAt"`
 }
 
 type evaluationFinding struct {
@@ -396,15 +401,22 @@ func (a app) requestEvaluation(number int) error {
 	if err != nil {
 		return err
 	}
+	parsedEvidence, err := a.validatePREvidenceForPR(root, number, view)
+	if err != nil {
+		return err
+	}
+	bodySHA256, evidenceSHA256 := currentPREvidenceDigest(view, parsedEvidence)
 	challengeID, err := randomRunID()
 	if err != nil {
 		return err
 	}
 	challenge := evaluationChallenge{
-		Challenge:   challengeID,
-		Head:        view.HeadRefOID,
-		PR:          number,
-		RequestedAt: time.Now().UTC().Truncate(time.Second),
+		Challenge:      challengeID,
+		Head:           view.HeadRefOID,
+		PR:             number,
+		BodySHA256:     bodySHA256,
+		EvidenceSHA256: evidenceSHA256,
+		RequestedAt:    time.Now().UTC().Truncate(time.Second),
 	}
 	marker, err := json.Marshal(challenge)
 	if err != nil {
@@ -423,6 +435,11 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 	if err != nil {
 		return err
 	}
+	parsedEvidence, err := a.validatePREvidenceForPR(root, number, view)
+	if err != nil {
+		return err
+	}
+	bodySHA256, evidenceSHA256 := currentPREvidenceDigest(view, parsedEvidence)
 	receipts, receiptsErr := evaluationReceipts(view.Comments)
 	if receiptsErr != nil {
 		return stateError("PR #%d has invalid evaluation history: %v", number, receiptsErr)
@@ -455,7 +472,8 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 		EvaluatorRunID:    attestation.RunID,
 		Head:              attestation.Head,
 		HeadRefName:       view.HeadRefName,
-		BodySHA256:        sha256Hex([]byte(view.Body)),
+		BodySHA256:        bodySHA256,
+		EvidenceSHA256:    evidenceSHA256,
 		PR:                attestation.PR,
 		RecordedAt:        time.Now().UTC().Truncate(time.Second),
 		ReportSHA256:      sha256Hex(canonicalReport),
@@ -625,7 +643,7 @@ func validateEvaluationAttestation(attestation evaluationAttestation, number int
 	if err := validateEvaluationAttestationText(attestation); err != nil {
 		return err
 	}
-	challenge, ok := trustedEvaluationChallenge(view.Comments, attestation.Challenge, number, view.HeadRefOID, now)
+	challenge, ok := trustedEvaluationChallengeForView(view, attestation.Challenge, number, now)
 	if !ok {
 		return errors.New("challenge is missing, stale, untrusted, or for another head")
 	}
@@ -713,6 +731,32 @@ func trustedEvaluationChallenge(comments []pullRequestComment, challengeID strin
 	return trusted, matches == 1
 }
 
+func trustedEvaluationChallengeForView(view pullRequestView, challengeID string, number int,
+	now time.Time,
+) (evaluationChallenge, bool) {
+	challenge, ok := trustedEvaluationChallenge(view.Comments, challengeID, number, view.HeadRefOID, now)
+	if !ok {
+		return evaluationChallenge{}, false
+	}
+	if !hasCurrentPREvidence(view) {
+		return challenge, true
+	}
+	parsed, err := validatePREvidenceForView(view)
+	if err != nil || challenge.BodySHA256 == "" || challenge.EvidenceSHA256 == "" {
+		return evaluationChallenge{}, false
+	}
+	bodySHA256, evidenceSHA256 := currentPREvidenceDigest(view, parsed)
+	if challenge.BodySHA256 != bodySHA256 || challenge.EvidenceSHA256 != evidenceSHA256 {
+		return evaluationChallenge{}, false
+	}
+	return challenge, true
+}
+
+func hasCurrentPREvidence(view pullRequestView) bool {
+	return strings.Contains(view.Body, evidenceMarkerToken(prEvidenceStartMarker)) ||
+		strings.Contains(view.Body, evidenceMarkerToken(prEvidenceEndMarker)) || view.BaseRefOID != ""
+}
+
 func parseEvaluationChallenge(body string) (evaluationChallenge, bool) {
 	value, ok := markerJSON(body, evaluationChallengeMarker)
 	if !ok {
@@ -731,6 +775,10 @@ func parseEvaluationChallenge(body string) (evaluationChallenge, bool) {
 		return evaluationChallenge{}, false
 	}
 	if challenge.Challenge == "" || challenge.Head == "" || challenge.PR < 1 || challenge.RequestedAt.IsZero() {
+		return evaluationChallenge{}, false
+	}
+	if (challenge.BodySHA256 == "") != (challenge.EvidenceSHA256 == "") ||
+		(challenge.BodySHA256 != "" && (!validSHA256(challenge.BodySHA256) || !validSHA256(challenge.EvidenceSHA256))) {
 		return evaluationChallenge{}, false
 	}
 	return challenge, true
@@ -844,6 +892,7 @@ func (a app) readPullRequest(root string, number int) (pullRequestView, error) {
 func pullRequestViewFromAPI(response pullRequestAPI) pullRequestView {
 	view := pullRequestView{
 		BaseRefName:    response.Base.Ref,
+		BaseRefOID:     response.Base.SHA,
 		Body:           response.Body,
 		HeadRefName:    response.Head.Ref,
 		HeadRefOID:     response.Head.SHA,
@@ -1157,6 +1206,13 @@ func evaluationChallengeMatchesReceipt(challenge evaluationChallengeRecord, rece
 		challenge.challenge.PR != receipt.receipt.PR || challenge.challenge.Head != receipt.receipt.Head {
 		return false
 	}
+	if challenge.challenge.BodySHA256 != "" || challenge.challenge.EvidenceSHA256 != "" ||
+		receipt.receipt.EvidenceSHA256 != "" {
+		if challenge.challenge.BodySHA256 != receipt.receipt.BodySHA256 ||
+			challenge.challenge.EvidenceSHA256 != receipt.receipt.EvidenceSHA256 {
+			return false
+		}
+	}
 	if challenge.commentIndex >= receipt.commentIndex ||
 		challenge.comment.CreatedAt.After(receipt.comment.CreatedAt) {
 		return false
@@ -1217,6 +1273,9 @@ func parseEvaluationReceipt(body string) (evaluationReceipt, bool) {
 	if receipt.ReportTransport != "" && receipt.ReportTransport != evaluationReportTransportV1 {
 		return evaluationReceipt{}, false
 	}
+	if receipt.EvidenceSHA256 != "" && !validSHA256(receipt.EvidenceSHA256) {
+		return evaluationReceipt{}, false
+	}
 	if receipt.AttestationSHA256 != "" && (!validSHA256(receipt.AttestationSHA256) || receipt.Challenge == "" ||
 		receipt.EvaluatorRunID == "" || receipt.PR < 1) {
 		return evaluationReceipt{}, false
@@ -1229,12 +1288,15 @@ func parseEvaluationReceipt(body string) (evaluationReceipt, bool) {
 
 func validEvaluationReceiptMetadata(receipt evaluationReceipt) bool {
 	hasMetadata := receipt.BaseRefName != "" || len(receipt.ClosingIssues) != 0 || receipt.HeadRefName != "" ||
-		receipt.BodySHA256 != "" || receipt.ClaimProofs != nil
+		receipt.BodySHA256 != "" || receipt.EvidenceSHA256 != "" || receipt.ClaimProofs != nil
 	if !hasMetadata {
 		return true
 	}
 	if receipt.BaseRefName == "" || receipt.HeadRefName == "" || !validSHA256(receipt.BodySHA256) ||
 		len(receipt.ClosingIssues) == 0 {
+		return false
+	}
+	if receipt.EvidenceSHA256 != "" && !validSHA256(receipt.EvidenceSHA256) {
 		return false
 	}
 	if !validEvaluationIssueList(receipt.ClosingIssues) {
@@ -1580,6 +1642,9 @@ func latestPassingEvaluationReceipt(view pullRequestView, number int) (evaluatio
 	if err := evaluationReceiptMatchesCurrentPR(latest, view); err != nil {
 		return evaluationReceipt{}, err
 	}
+	if err := evaluationReceiptMatchesCurrentEvidence(latest, view); err != nil {
+		return evaluationReceipt{}, err
+	}
 	return latest, nil
 }
 
@@ -1598,6 +1663,24 @@ func evaluationReceiptMatchesCurrentPR(receipt evaluationReceipt, view pullReque
 	}
 	if receipt.BodySHA256 != sha256Hex([]byte(view.Body)) {
 		return errors.New("latest passing evaluation does not match current PR body; request a fresh challenge-bound Examiner attestation")
+	}
+	return nil
+}
+
+func evaluationReceiptMatchesCurrentEvidence(receipt evaluationReceipt, view pullRequestView) error {
+	if !hasCurrentPREvidence(view) {
+		return nil
+	}
+	parsed, err := validatePREvidenceForView(view)
+	if err != nil {
+		return fmt.Errorf("current PR evidence is invalid: %w", err)
+	}
+	if receipt.EvidenceSHA256 == "" {
+		return errors.New("latest passing evaluation lacks evidence digest for the current PR; request a fresh challenge-bound Examiner attestation")
+	}
+	_, evidenceSHA256 := currentPREvidenceDigest(view, parsed)
+	if receipt.EvidenceSHA256 != evidenceSHA256 {
+		return errors.New("latest passing evaluation does not match current PR evidence; request a fresh challenge-bound Examiner attestation")
 	}
 	return nil
 }

@@ -44,26 +44,26 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
 6. Renew before pushes and required durable boundaries with `go tool
    workflowctl claim renew`; never wake or poll solely
    to renew.
-7. Run `go tool workflowctl check`, fix every failure, update affected
-   docs/comments. Do not redo Smith's investigation.
-   For `syntax.go` or `datatype.go` changes, run
-   `go tool workflowctl develop-signals --base BASE_SHA`; it replays checked-in
-   corpora and runs targets for bounded offline single-worker duration.
-   Text reports coverage/fuzz status, target names, and
-   `no-relevant-target`, not exact values or corpus names. Use `--format json`
-   for exact computed affected-package/repository deltas or selected-target
-   evidence; request replay evidence separately. Regressions require a
-   JSON explanation containing package, reason, computed base/head;
-   repository total is context.
-   Coverage/fuzz health never represent XSD conformance, catalog inventory,
-   or evaluation fuzz excluded from these signals.
-8. Commit/push with the `AGENTS.md` title convention. Open a draft PR with
-   `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`; include
-   outcome, consultation, verification, conformance, packet issues.
-9. On every pushed head run `go tool workflowctl docs audit --base origin/main`.
-   Managed documents require a fresh read-only Curator with audit, diff, paths,
-   charters, head. Curator checks placement, relevance, duplication,
-   history, replacement. Preserve Curator JSON; repeat after remediation.
+7. Run `go tool workflowctl check`, fix failures, update docs. Do not redo Smith's
+   investigation.
+8. Commit/push using `AGENTS.md`; open the initial draft PR from that pushed
+   head with `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`;
+   include outcome, consultation, verification, conformance, packet issues.
+9. Once an existing PR exists, after each push establish `PR_NUMBER`:
+   `PR_NUMBER="$(gh pr view --json number --jq '.number')"`; set
+   `BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`.
+   Save `develop-signals --base "$BASE_SHA" --format json` and `docs audit
+   --base "$BASE_SHA" --format json` before `pr evidence update`. Automatic
+   policy fuzz follows changed boundaries; optional repeatable
+   `--additional-fuzz PACKAGE:TARGET` is current-head validated. Separately
+   requested checked-in corpus replay is bounded offline single-worker. JSON
+   gives deltas/targets; `no-relevant-target`/`not-measured` are valid;
+   fuzz is engineering health, not conformance. Before evidence update,
+   challenge, or finish, workflowctl resolves exact REST base/head, requires
+   matching local commits, recomputes complete v2 signals/policy, and compares
+   canonical payload. Managed docs need Curator audit, diff, paths, charters, head;
+   check placement, relevance, duplication, history, replacement; preserve JSON;
+   repeat after remediation.
 10. Run `go tool workflowctl evaluation challenge PR`; for every
     managed-document review head, fresh read-only Curator review/result is
     mandatory. Give challenge, PR state, tests, audit, Curator result,

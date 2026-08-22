@@ -62,11 +62,13 @@ const (
 
 func (a app) runPR(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl pr open ISSUE [flags] | finish PR --summary-file FILE | recover PR")
+		return usageError("usage: workflowctl pr open ISSUE [flags] | evidence update PR [flags] | finish PR --summary-file FILE | recover PR")
 	}
 	switch args[0] {
 	case "open":
 		return a.openPullRequest(args[1:])
+	case "evidence":
+		return a.runPREvidence(args[1:])
 	case "finish":
 		return a.finishPullRequestCommand(args[1:])
 	case "recover":
@@ -358,6 +360,9 @@ func (a app) validateFinishPullRequest(root, branch string, claimedIssue, number
 		return pullRequestView{}, stateError("PR #%d has invalid work commits: %v", number, titleErr)
 	}
 	if err := a.validateClosingClaims(root, view, claimedIssue); err != nil {
+		return pullRequestView{}, err
+	}
+	if _, err := a.validatePREvidenceForPR(root, number, view); err != nil {
 		return pullRequestView{}, err
 	}
 	passes, evaluationErr := latestEvaluationPasses(view, number)

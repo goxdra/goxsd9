@@ -18,15 +18,20 @@ import (
 
 const testExaminerRunID = "examiner-command-flow"
 
+func acceptDevelopmentSignalsForCommandFlow(string, developmentSignalsReport) error {
+	return nil
+}
+
 func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	application := app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         &stdout,
-		stderr:         &stderr,
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         &stdout,
+		stderr:                         &stderr,
 	}
 
 	challenge := requestTestChallenge(t, &application, &stdout)
@@ -71,10 +76,11 @@ func TestEvaluationAcceptsRunSpecificLocalBranchForFixedPRHead(t *testing.T) {
 	backend.localBranch = claimLocalBranch(13, "run-test")
 	var stdout bytes.Buffer
 	application := app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         &stdout,
-		stderr:         new(bytes.Buffer),
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         &stdout,
+		stderr:                         new(bytes.Buffer),
 	}
 	challenge := requestTestChallenge(t, &application, &stdout)
 	if challenge.Head != backend.head {
@@ -93,14 +99,231 @@ func TestEvaluationAcceptsRunSpecificLocalBranchForFixedPRHead(t *testing.T) {
 	}
 }
 
+func TestManagedDocumentCuratorValidationPrecedesChallengeAndFinishMutation(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		curator func(string) curatorResult
+		want    string
+	}{
+		{
+			name: "challenge missing Curator", command: "challenge",
+			curator: noCuratorResult,
+			want:    "managed-document changes require",
+		},
+		{
+			name: "challenge mismatched Curator", command: "challenge",
+			curator: func(_ string) curatorResult { return testPassingCurator("mismatched-head") },
+			want:    "exact PR head",
+		},
+		{
+			name: "finish missing Curator", command: "finish",
+			curator: noCuratorResult,
+			want:    "managed-document changes require",
+		},
+		{
+			name: "finish mismatched Curator", command: "finish",
+			curator: func(_ string) curatorResult { return testPassingCurator("mismatched-head") },
+			want:    "exact PR head",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			configureManagedDocumentEvidence(t, backend, test.curator(backend.head))
+			var stdout bytes.Buffer
+			application := app{
+				ctx:                            context.Background(),
+				executeCommand:                 backend.execute,
+				verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+				stdout:                         &stdout,
+				stderr:                         new(bytes.Buffer),
+			}
+
+			var err error
+			switch test.command {
+			case "challenge":
+				err = application.runEvaluation([]string{"challenge", "14"})
+			case "finish":
+				err = application.runPR(backend.finishArgs())
+			default:
+				t.Fatalf("unknown command %q", test.command)
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("%s error = %v, want %q", test.command, err, test.want)
+			}
+			if len(backend.comments) != 0 || backend.bodyPatchCount != 0 || backend.merged || backend.projectDone {
+				t.Fatalf("rejected %s mutated GitHub state: comments=%d bodyPatches=%d merged=%t projectDone=%t",
+					test.command, len(backend.comments), backend.bodyPatchCount, backend.merged, backend.projectDone)
+			}
+		})
+	}
+}
+
+func configureManagedDocumentEvidence(t *testing.T, backend *workflowBackend, curator curatorResult) {
+	t.Helper()
+	parsed, err := parsePREvidenceBody(backend.body)
+	if err != nil {
+		t.Fatalf("parse workflow PR evidence: %v", err)
+	}
+	managedChange := testManagedChange()
+	managedChange.Status = "D"
+	managedChange.Additions = 0
+	managedChange.Deletions = 1
+	managedChange.Lines = 0
+	managedChange.Words = 0
+	parsed.evidence.DocumentationAudit.ManagedChanges = []documentationChangeReport{managedChange}
+	parsed.evidence.Curator = curator
+	block, err := renderPREvidenceBlock(parsed.evidence)
+	if err != nil {
+		t.Fatalf("render managed-document PR evidence: %v", err)
+	}
+	updated, err := replacePREvidenceBlock(backend.body, block)
+	if err != nil {
+		t.Fatalf("replace managed-document PR evidence: %v", err)
+	}
+	backend.body = updated
+	backend.managedDocumentChange = true
+}
+
+func TestSignalEvidenceRecomputationPrecedesUpdateChallengeAndFinishMutations(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(*testing.T, *workflowBackend, *app)
+		want string
+	}{
+		{name: "update", run: func(t *testing.T, backend *workflowBackend, application *app) {
+			signals := staleDevelopmentSignalsReport(backend.head)
+			audit := testWorkflowPREvidence(backend.head).DocumentationAudit
+			signalsPath := writePREvidenceJSONSource(t, "signals.json", signals)
+			auditPath := writePREvidenceJSONSource(t, "audit.json", audit)
+			if err := application.runPREvidence([]string{"update", "14", "--signals-file", signalsPath, "--docs-audit-file", auditPath}); err == nil {
+				t.Fatal("rewritten old signal payload reached body PATCH")
+			}
+		}, want: "body PATCH"},
+		{name: "challenge", run: func(t *testing.T, _ *workflowBackend, application *app) {
+			if err := application.runEvaluation([]string{"challenge", "14"}); err == nil {
+				t.Fatal("rewritten old signal payload reached comment POST")
+			}
+		}, want: "comment POST"},
+		{name: "finish", run: func(t *testing.T, backend *workflowBackend, application *app) {
+			if err := application.runPR(backend.finishArgs()); err == nil {
+				t.Fatal("rewritten old signal payload reached finish mutation")
+			}
+		}, want: "finish mutation"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			makeSignalEvidenceStale(t, backend)
+			application := app{
+				ctx: context.Background(), executeCommand: backend.execute,
+				buildDevelopmentSignalsReport: func(_ string, _ string, _ string, _ time.Duration,
+					_ []coverageExplanation, _ []additionalFuzzTarget,
+				) (developmentSignalsReport, error) {
+					return testWorkflowPREvidence(backend.head).DevelopmentSignals, nil
+				},
+				stdout: new(bytes.Buffer), stderr: new(bytes.Buffer),
+			}
+			test.run(t, backend, &application)
+			if backend.bodyPatchCount != 0 || len(backend.comments) != 0 || backend.merged || backend.projectDone {
+				t.Fatalf("%s mutated GitHub state: bodyPatches=%d comments=%d merged=%t projectDone=%t",
+					test.want, backend.bodyPatchCount, len(backend.comments), backend.merged, backend.projectDone)
+			}
+		})
+	}
+}
+
+func TestSignalEvidenceRecomputationAcceptsExactCurrentReport(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	application := app{
+		ctx: context.Background(), executeCommand: backend.execute,
+		buildDevelopmentSignalsReport: func(_ string, _ string, _ string, _ time.Duration,
+			_ []coverageExplanation, _ []additionalFuzzTarget,
+		) (developmentSignalsReport, error) {
+			return testWorkflowPREvidence(backend.head).DevelopmentSignals, nil
+		},
+		stdout: new(bytes.Buffer), stderr: new(bytes.Buffer),
+	}
+	if err := application.runEvaluation([]string{"challenge", "14"}); err != nil {
+		t.Fatalf("exact current signal report rejected: %v", err)
+	}
+	if len(backend.comments) != 1 {
+		t.Fatalf("challenge comment count = %d, want 1", len(backend.comments))
+	}
+}
+
+func makeSignalEvidenceStale(t *testing.T, backend *workflowBackend) {
+	t.Helper()
+	parsed, err := parsePREvidenceBody(backend.body)
+	if err != nil {
+		t.Fatalf("parse workflow evidence: %v", err)
+	}
+	parsed.evidence.DevelopmentSignals = staleDevelopmentSignalsReport(backend.head)
+	block, err := renderPREvidenceBlock(parsed.evidence)
+	if err != nil {
+		t.Fatalf("render stale workflow evidence: %v", err)
+	}
+	backend.body, err = replacePREvidenceBlock(backend.body, block)
+	if err != nil {
+		t.Fatalf("replace stale workflow evidence: %v", err)
+	}
+	view := pullRequestView{BaseRefOID: "base-sha", HeadRefOID: backend.head, Body: backend.body}
+	if _, err := validatePREvidenceForView(view); err != nil {
+		t.Fatalf("stale complete workflow evidence is structurally invalid: %v", err)
+	}
+}
+
+func staleDevelopmentSignalsReport(head string) developmentSignalsReport {
+	oldBase, oldHead := "archived-base", "archived-head"
+	packageReport := coveragePackageReport{
+		Package: "example.com/copied", Status: "changed", Affected: true,
+		Base: coverageSideReport{Present: true, HasTests: true, Statements: 10, Covered: 8, Percent: 80},
+		Head: coverageSideReport{Present: true, HasTests: true, Statements: 10, Covered: 7, Percent: 70},
+	}
+	packageReport.Delta = coverageDelta(packageReport.Base, packageReport.Head)
+	packages := []coveragePackageReport{packageReport}
+	coverage := coverageReport{
+		Base: oldBase, Head: oldHead, Packages: packages,
+		Affected: coverageTotals(packages, true), Repository: coverageTotals(packages, false),
+	}
+	report := developmentSignalsReport{
+		Schema: developmentSignalsSchema, Base: oldBase, Head: oldHead, Coverage: coverage,
+		CoverageExplanations: []coverageExplanation{{
+			Schema: coverageExplanationSchema, Package: packageReport.Package, Reason: "archived coverage regression",
+			Base: packageReport.Base, Head: packageReport.Head,
+		}},
+		Fuzz: []signalFuzzReport{{
+			Boundary: "syntax.go", Package: ".", Target: "FuzzDecodeSyntax", Duration: "250ms",
+			Workers: 1, Offline: true, Result: "success",
+		}},
+		AdditionalFuzz: []additionalFuzzReport{}, Selection: "selected",
+		Catalog: noMeasuredDevelopmentSignal, XSDFeatureSupport: noMeasuredDevelopmentSignal,
+		ExecutableConformance: noMeasuredDevelopmentSignal,
+	}
+	report.Base = "base-sha"
+	report.Head = head
+	report.Coverage.Base = report.Base
+	report.Coverage.Head = report.Head
+	return report
+}
+
+func testPassingCurator(head string) curatorResult {
+	return curatorResult{
+		Schema: curatorResultSchema, RunID: "curator-command-flow", Head: head, Verdict: "pass",
+		Summary: "Every managed change is in its canonical home.", Findings: []curatorFinding{},
+	}
+}
+
 func TestFinishRejectsEvaluationMetadataDrift(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer
 	application := app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         &stdout,
-		stderr:         new(bytes.Buffer),
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         &stdout,
+		stderr:                         new(bytes.Buffer),
 	}
 	challenge := requestTestChallenge(t, &application, &stdout)
 	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
@@ -132,10 +355,11 @@ func TestAmbiguousMergeResponsesReconcile(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 			application := app{
-				ctx:            context.Background(),
-				executeCommand: backend.execute,
-				stdout:         &stdout,
-				stderr:         &stderr,
+				ctx:                            context.Background(),
+				executeCommand:                 backend.execute,
+				verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+				stdout:                         &stdout,
+				stderr:                         &stderr,
 			}
 			challenge := requestTestChallenge(t, &application, &stdout)
 			_, attestationFile := writeTestAttestation(t, backend.head, challenge)
@@ -160,10 +384,11 @@ func TestAmbiguousMergeResponseRejectsPostMergeMetadataDrift(t *testing.T) {
 	backend.mutatePRBodyAfterMerge = true
 	var stdout bytes.Buffer
 	application := app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         &stdout,
-		stderr:         new(bytes.Buffer),
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         &stdout,
+		stderr:                         new(bytes.Buffer),
 	}
 	challenge := requestTestChallenge(t, &application, &stdout)
 	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
@@ -216,10 +441,11 @@ func testReservedAttestationSequence(t *testing.T, field struct {
 	backend := newWorkflowBackend(t)
 	stdout := new(bytes.Buffer)
 	application := &app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         stdout,
-		stderr:         new(bytes.Buffer),
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         stdout,
+		stderr:                         new(bytes.Buffer),
 	}
 	challenge := requestTestChallenge(t, application, stdout)
 	attestation := evaluationAttestation{
@@ -454,10 +680,11 @@ func newRepairFixture(t *testing.T) (*workflowBackend, *app, *bytes.Buffer) {
 	backend.localBranch = claimLocalBranch(13, "run-test")
 	stdout := new(bytes.Buffer)
 	application := &app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         stdout,
-		stderr:         new(bytes.Buffer),
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         stdout,
+		stderr:                         new(bytes.Buffer),
 	}
 	challenge := requestTestChallenge(t, application, stdout)
 	_, attestationFile := writeTestFailureAttestation(t, backend.head, challenge)
@@ -953,6 +1180,8 @@ type workflowBackend struct {
 	projectDone                bool
 	mergeResponseMode          string
 	mutatePRBodyAfterMerge     bool
+	managedDocumentChange      bool
+	bodyPatchCount             int
 	mergeSHA                   string
 	mergedAt                   time.Time
 	removeSummaryOnNextCommand bool
@@ -967,14 +1196,44 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 	if err := os.WriteFile(summaryFile, []byte(summary+"\n"), 0o600); err != nil {
 		t.Fatalf("write summary: %v", err)
 	}
+	body := "## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n"
+	evidence := testWorkflowPREvidence("evaluated-head")
+	block, err := renderPREvidenceBlock(evidence)
+	if err != nil {
+		t.Fatalf("render workflow PR evidence: %v", err)
+	}
+	body += "\n" + string(block)
 	return &workflowBackend{
 		t: t, root: "/primary-worktrees/issue-13", branch: "agent/issue-13", localBranch: "agent/issue-13", head: "evaluated-head",
-		body:          "## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n",
+		body:          body,
 		summary:       summary,
 		summaryFile:   summaryFile,
 		title:         "test(workflow): exercise evaluation flow",
 		workCommitLog: framedCommitLog("test(workflow): exercise evaluation flow", "chore(workflow): claim issue #13"),
 		mergeSHA:      "merge-commit",
+	}
+}
+
+func testWorkflowPREvidence(head string) prEvidence {
+	base := "base-sha"
+	packages := []coveragePackageReport{}
+	coverage := coverageReport{
+		Base: base, Head: head, Packages: packages,
+		Affected: coverageTotals(packages, true), Repository: coverageTotals(packages, false),
+	}
+	return prEvidence{
+		Schema: prEvidenceSchema, Base: base, Head: head,
+		DevelopmentSignals: developmentSignalsReport{
+			Schema: developmentSignalsSchema, Base: base, Head: head, Coverage: coverage,
+			CoverageExplanations: []coverageExplanation{}, Fuzz: []signalFuzzReport{}, AdditionalFuzz: []additionalFuzzReport{}, Selection: "no-relevant-target",
+			Catalog: noMeasuredDevelopmentSignal, XSDFeatureSupport: noMeasuredDevelopmentSignal,
+			ExecutableConformance: noMeasuredDevelopmentSignal,
+		},
+		DocumentationAudit: documentationAuditReport{
+			Schema: documentationAuditSchema, Base: base, Head: head, MergeBase: "merge-sha",
+			ManagedChanges: []documentationChangeReport{}, EvaluationFixtures: []string{},
+		},
+		Curator: noCuratorResult(head),
 	}
 }
 
@@ -1074,7 +1333,21 @@ func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
 
 func (b *workflowBackend) executeGitArtifact(command string) (string, bool) {
 	switch command {
+	case "status --porcelain":
+		return "", true
 	case "merge-base --is-ancestor evaluated-head evaluated-head":
+		return "", true
+	case "merge-base base-sha evaluated-head":
+		return "merge-sha", true
+	case "diff --name-status -z --no-renames merge-sha evaluated-head --":
+		if b.managedDocumentChange {
+			return "D\x00README.md\x00", true
+		}
+		return "", true
+	case "diff --numstat -z --no-renames merge-sha evaluated-head --":
+		if b.managedDocumentChange {
+			return "0\t1\tREADME.md\x00", true
+		}
 		return "", true
 	case "ls-remote --heads origin refs/heads/agent/*":
 		return "evaluated-head refs/heads/agent/issue-13", true
@@ -1093,6 +1366,10 @@ func (b *workflowBackend) executeGitClaim(dir, command string) (string, error) {
 		return "", nil
 	case "rev-parse HEAD", "rev-parse origin/agent/issue-13":
 		return b.head, nil
+	case "rev-parse --verify --end-of-options HEAD^{commit}":
+		return b.head, nil
+	case "rev-parse --verify --end-of-options base-sha^{commit}":
+		return "base-sha", nil
 	case "log -100 --format=%B":
 		lease := time.Now().UTC().Add(claimDuration).Truncate(time.Second)
 		return claimMessage(13, "run-test", lease), nil
@@ -1112,6 +1389,16 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 		return b.commentsJSON()
 	case "api --method POST repos/goxdra/goxsd9/issues/14/comments --input -":
 		return b.postComment(input)
+	case "api --method PATCH repos/goxdra/goxsd9/pulls/14 --input -":
+		var request struct {
+			Body string `json:"body"`
+		}
+		if err := json.Unmarshal(input, &request); err != nil {
+			return "", fmt.Errorf("decode body update request: %w", err)
+		}
+		b.body = request.Body
+		b.bodyPatchCount++
+		return `{}`, nil
 	case "api --paginate repos/goxdra/goxsd9/commits/evaluated-head/check-runs?per_page=100":
 		return "{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"docs\",\"status\":\"completed\"}]}" +
 			"{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"quality\",\"status\":\"completed\"}]}", nil
@@ -1138,6 +1425,7 @@ func (b *workflowBackend) pullRequestJSON() (string, error) {
 		response.State = "closed"
 	}
 	response.Base.Ref = "main"
+	response.Base.SHA = "base-sha"
 	response.Head.Ref = b.branch
 	response.Head.SHA = b.head
 	response.URL = "https://github.com/goxdra/goxsd9/pull/14"
