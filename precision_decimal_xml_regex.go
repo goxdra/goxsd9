@@ -39,17 +39,26 @@ const (
 )
 
 type precisionDecimalXMLCharSet struct {
-	contains func(rune) bool
+	contains     func(rune) bool
+	anyCharacter bool
 }
 
 type precisionDecimalXMLRegexParser struct {
-	input []rune
-	pos   int
+	input      []rune
+	pos        int
+	depth      int
+	classDepth int
+	pieces     int
+	classParts int
 }
 
 type precisionDecimalXMLRegexMatchState struct {
 	piece int
 	pos   int
+}
+
+type precisionDecimalXMLRegexMatchBudget struct {
+	remaining int
 }
 
 type precisionDecimalXMLBlock struct {
@@ -58,11 +67,30 @@ type precisionDecimalXMLBlock struct {
 	high rune
 }
 
+const (
+	precisionDecimalXMLRegexMaxSourceRunes = 16384
+	precisionDecimalXMLRegexMaxSourceBytes = precisionDecimalXMLRegexMaxSourceRunes * utf8.UTFMax
+	precisionDecimalXMLRegexMaxDepth       = 128
+	precisionDecimalXMLRegexMaxPieces      = 2048
+	precisionDecimalXMLRegexMaxClassParts  = 512
+	precisionDecimalXMLRegexMaxMatchWork   = 250000
+)
+
+var errPrecisionDecimalXMLRegexResourceLimit = errors.New("precisionDecimal XML Schema pattern exceeds resource limits")
+var errPrecisionDecimalXMLRegexMatchResourceLimit = errors.New("precisionDecimal XML Schema pattern matching exceeds resource limits")
+
 func parsePrecisionDecimalXMLRegex(source string) (*precisionDecimalXMLRegex, error) {
+	if len(source) > precisionDecimalXMLRegexMaxSourceBytes {
+		return nil, errPrecisionDecimalXMLRegexResourceLimit
+	}
 	if !utf8.ValidString(source) {
 		return nil, errors.New("pattern is not valid UTF-8")
 	}
-	parser := precisionDecimalXMLRegexParser{input: []rune(source)}
+	input := []rune(source)
+	if len(input) > precisionDecimalXMLRegexMaxSourceRunes {
+		return nil, errPrecisionDecimalXMLRegexResourceLimit
+	}
+	parser := precisionDecimalXMLRegexParser{input: input}
 	regex, err := parser.parseRegex(false)
 	if err != nil {
 		return nil, err
@@ -118,6 +146,10 @@ func (parser *precisionDecimalXMLRegexParser) parseBranch() (precisionDecimalXML
 }
 
 func (parser *precisionDecimalXMLRegexParser) parsePiece() (precisionDecimalXMLRegexPiece, error) {
+	parser.pieces++
+	if parser.pieces > precisionDecimalXMLRegexMaxPieces {
+		return precisionDecimalXMLRegexPiece{}, errPrecisionDecimalXMLRegexResourceLimit
+	}
 	atom, err := parser.parseAtom()
 	if err != nil {
 		return precisionDecimalXMLRegexPiece{}, err
@@ -155,7 +187,13 @@ func (parser *precisionDecimalXMLRegexParser) parseAtom() (precisionDecimalXMLRe
 	parser.pos++
 	switch next {
 	case '(':
+		parser.depth++
+		if parser.depth > precisionDecimalXMLRegexMaxDepth {
+			parser.depth--
+			return precisionDecimalXMLRegexAtom{}, errPrecisionDecimalXMLRegexResourceLimit
+		}
 		group, err := parser.parseRegex(true)
+		parser.depth--
 		if err != nil {
 			return precisionDecimalXMLRegexAtom{}, err
 		}
@@ -279,7 +317,7 @@ func (parser *precisionDecimalXMLRegexParser) parseUnicodePropertyEscape(prefix 
 	if !ok {
 		return precisionDecimalXMLCharSet{}, 0, false, fmt.Errorf("unknown Unicode property %q", name)
 	}
-	if prefix == 'P' {
+	if prefix == 'P' && !set.anyCharacter {
 		base := set
 		set = precisionDecimalXMLCharSet{contains: func(value rune) bool {
 			return precisionDecimalXMLChar(value) && !base.contains(value)
@@ -341,11 +379,20 @@ func (parser *precisionDecimalXMLRegexParser) parseBracedQuantifier(piece *preci
 }
 
 func (parser *precisionDecimalXMLRegexParser) parseCharacterClass() (precisionDecimalXMLCharSet, error) {
+	parser.classDepth++
+	if parser.classDepth > precisionDecimalXMLRegexMaxDepth {
+		parser.classDepth--
+		return precisionDecimalXMLCharSet{}, errPrecisionDecimalXMLRegexResourceLimit
+	}
+	defer func() { parser.classDepth-- }()
 	if parser.atEnd() || parser.peek() != '[' {
 		return precisionDecimalXMLCharSet{}, errors.New("character class must start with [")
 	}
 	parser.pos++
-	negative := parser.consumeCharacterClassNegation()
+	return parser.parseCharacterClassGroup(parser.consumeCharacterClassNegation())
+}
+
+func (parser *precisionDecimalXMLRegexParser) parseCharacterClassGroup(negative bool) (precisionDecimalXMLCharSet, error) {
 	parts := make([]precisionDecimalXMLCharSet, 0, 1)
 	for {
 		if parser.atEnd() {
@@ -361,12 +408,25 @@ func (parser *precisionDecimalXMLRegexParser) parseCharacterClass() (precisionDe
 		if precisionDecimalXMLCharacterClassSubtractionStart(parser, parts) {
 			return parser.parseCharacterClassSubtraction(parts, negative)
 		}
+		if precisionDecimalXMLCharacterClassHasInvalidHyphen(parser, parts) {
+			return precisionDecimalXMLCharSet{}, errors.New("unescaped hyphen is not at a character class edge")
+		}
 		part, err := parser.parseCharacterClassMember()
 		if err != nil {
 			return precisionDecimalXMLCharSet{}, err
 		}
 		parts = append(parts, part)
 	}
+}
+
+func precisionDecimalXMLCharacterClassHasInvalidHyphen(parser *precisionDecimalXMLRegexParser, parts []precisionDecimalXMLCharSet) bool {
+	if len(parts) == 0 || parser.peek() != '-' || parser.pos+1 >= len(parser.input) {
+		return false
+	}
+	if parser.input[parser.pos+1] == ']' {
+		return false
+	}
+	return !precisionDecimalXMLCharacterClassDoubleHyphenSubtraction(parser)
 }
 
 func (parser *precisionDecimalXMLRegexParser) consumeCharacterClassNegation() bool {
@@ -379,6 +439,10 @@ func (parser *precisionDecimalXMLRegexParser) consumeCharacterClassNegation() bo
 
 func precisionDecimalXMLCharacterClassSubtractionStart(parser *precisionDecimalXMLRegexParser, parts []precisionDecimalXMLCharSet) bool {
 	return len(parts) != 0 && parser.peek() == '-' && parser.pos+1 < len(parser.input) && parser.input[parser.pos+1] == '['
+}
+
+func precisionDecimalXMLCharacterClassDoubleHyphenSubtraction(parser *precisionDecimalXMLRegexParser) bool {
+	return parser.pos+2 < len(parser.input) && parser.input[parser.pos] == '-' && parser.input[parser.pos+1] == '-' && parser.input[parser.pos+2] == '['
 }
 
 func (parser *precisionDecimalXMLRegexParser) parseCharacterClassSubtraction(parts []precisionDecimalXMLCharSet, negative bool) (precisionDecimalXMLCharSet, error) {
@@ -398,20 +462,26 @@ func (parser *precisionDecimalXMLRegexParser) parseCharacterClassSubtraction(par
 }
 
 func (parser *precisionDecimalXMLRegexParser) parseCharacterClassMember() (precisionDecimalXMLCharSet, error) {
-	part, literal, single, err := parser.parseCharacterClassPart()
+	part, literal, single, escaped, err := parser.parseCharacterClassPart()
 	if err != nil {
 		return precisionDecimalXMLCharSet{}, err
 	}
 	if !single || !precisionDecimalXMLCharacterClassRangeStart(parser) {
 		return part, nil
 	}
+	if literal == '-' && !escaped {
+		return precisionDecimalXMLCharSet{}, errors.New("unescaped hyphen cannot start a character class range")
+	}
 	parser.pos++
-	_, endpointLiteral, endpointSingle, err := parser.parseCharacterClassPart()
+	_, endpointLiteral, endpointSingle, endpointEscaped, err := parser.parseCharacterClassPart()
 	if err != nil {
 		return precisionDecimalXMLCharSet{}, err
 	}
 	if !endpointSingle {
 		return precisionDecimalXMLCharSet{}, errors.New("character class range endpoint is not a single character")
+	}
+	if endpointLiteral == '-' && !endpointEscaped {
+		return precisionDecimalXMLCharSet{}, errors.New("unescaped hyphen cannot end a character class range")
 	}
 	if literal > endpointLiteral {
 		return precisionDecimalXMLCharSet{}, errors.New("character class range is reversed")
@@ -424,25 +494,33 @@ func precisionDecimalXMLCharacterClassRangeStart(parser *precisionDecimalXMLRege
 		return false
 	}
 	next := parser.input[parser.pos+1]
-	return next != ']' && next != '['
+	if next == ']' || next == '[' || next == '-' {
+		return false
+	}
+	return true
 }
 
-func (parser *precisionDecimalXMLRegexParser) parseCharacterClassPart() (precisionDecimalXMLCharSet, rune, bool, error) {
+func (parser *precisionDecimalXMLRegexParser) parseCharacterClassPart() (precisionDecimalXMLCharSet, rune, bool, bool, error) {
+	parser.classParts++
+	if parser.classParts > precisionDecimalXMLRegexMaxClassParts {
+		return precisionDecimalXMLCharSet{}, 0, false, false, errPrecisionDecimalXMLRegexResourceLimit
+	}
 	if parser.atEnd() {
-		return precisionDecimalXMLCharSet{}, 0, false, errors.New("missing character class member")
+		return precisionDecimalXMLCharSet{}, 0, false, false, errors.New("missing character class member")
 	}
 	next := parser.peek()
 	parser.pos++
 	if next == '\\' {
-		return parser.parseEscapeSet()
+		set, literal, single, err := parser.parseEscapeSet()
+		return set, literal, single, single, err
 	}
 	if next == '[' || next == ']' {
-		return precisionDecimalXMLCharSet{}, 0, false, fmt.Errorf("unescaped %c is not allowed in a character class", next)
+		return precisionDecimalXMLCharSet{}, 0, false, false, fmt.Errorf("unescaped %c is not allowed in a character class", next)
 	}
 	if !precisionDecimalXMLChar(next) {
-		return precisionDecimalXMLCharSet{}, 0, false, fmt.Errorf("character class literal %U is not an XML character", next)
+		return precisionDecimalXMLCharSet{}, 0, false, false, fmt.Errorf("character class literal %U is not an XML character", next)
 	}
-	return precisionDecimalXMLLiteralSet(next), next, true, nil
+	return precisionDecimalXMLLiteralSet(next), next, true, false, nil
 }
 
 func (parser *precisionDecimalXMLRegexParser) atEnd() bool {
@@ -486,22 +564,66 @@ func precisionDecimalXMLClassSet(parts []precisionDecimalXMLCharSet, negative bo
 
 func precisionDecimalXMLPropertySet(name string) (precisionDecimalXMLCharSet, bool) {
 	if strings.HasPrefix(name, "Is") {
+		if !precisionDecimalXMLIsBlockSyntax(name) {
+			return precisionDecimalXMLCharSet{}, false
+		}
 		block, found := precisionDecimalXMLBlockSet(name[2:])
 		if found {
 			return block, true
 		}
+		return precisionDecimalXMLCharSet{contains: precisionDecimalXMLChar, anyCharacter: true}, true
+	}
+	if !precisionDecimalXMLCategoryCode(name) {
 		return precisionDecimalXMLCharSet{}, false
 	}
-	if table, ok := unicode.Categories[name]; ok {
-		return precisionDecimalXMLCategorySet(table), true
+	if name == "Cn" {
+		return precisionDecimalXMLCharSet{contains: precisionDecimalXMLUnassigned}, true
 	}
-	if alias, ok := unicode.CategoryAliases[name]; ok {
-		table, found := unicode.Categories[alias]
-		if found {
-			return precisionDecimalXMLCategorySet(table), true
+	if name == "C" {
+		return precisionDecimalXMLCharSet{contains: precisionDecimalXMLCategoryC}, true
+	}
+	table, ok := unicode.Categories[name]
+	if !ok {
+		return precisionDecimalXMLCharSet{}, false
+	}
+	return precisionDecimalXMLCategorySet(table), true
+}
+
+func precisionDecimalXMLIsBlockSyntax(name string) bool {
+	if len(name) <= 2 || !strings.HasPrefix(name, "Is") {
+		return false
+	}
+	for _, value := range name[2:] {
+		if value >= 'A' && value <= 'Z' {
+			continue
 		}
+		if value >= 'a' && value <= 'z' {
+			continue
+		}
+		if value >= '0' && value <= '9' {
+			continue
+		}
+		if value == '-' {
+			continue
+		}
+		return false
 	}
-	return precisionDecimalXMLCharSet{}, false
+	return true
+}
+
+func precisionDecimalXMLCategoryCode(name string) bool {
+	switch name {
+	case "L", "Lu", "Ll", "Lt", "Lm", "Lo",
+		"M", "Mn", "Mc", "Me",
+		"N", "Nd", "Nl", "No",
+		"P", "Pc", "Pd", "Ps", "Pe", "Pi", "Pf", "Po",
+		"Z", "Zs", "Zl", "Zp",
+		"S", "Sm", "Sc", "Sk", "So",
+		"C", "Cc", "Cf", "Co", "Cn":
+		return true
+	default:
+		return false
+	}
 }
 
 func precisionDecimalXMLCategorySet(table *unicode.RangeTable) precisionDecimalXMLCharSet {
@@ -512,6 +634,10 @@ func precisionDecimalXMLCategorySet(table *unicode.RangeTable) precisionDecimalX
 
 func precisionDecimalXMLBlockSet(name string) (precisionDecimalXMLCharSet, bool) {
 	normalized := precisionDecimalXMLNormalizeBlockName(name)
+	switch normalized {
+	case "HighSurrogates", "HighPrivateUseSurrogates", "LowSurrogates":
+		return precisionDecimalXMLCharSet{contains: func(rune) bool { return false }}, true
+	}
 	for _, block := range precisionDecimalXMLBlocks {
 		if precisionDecimalXMLNormalizeBlockName(block.name) != normalized {
 			continue
@@ -524,342 +650,342 @@ func precisionDecimalXMLBlockSet(name string) (precisionDecimalXMLCharSet, bool)
 func precisionDecimalXMLNormalizeBlockName(name string) string {
 	var builder strings.Builder
 	for _, value := range name {
-		if value == '_' || value == '-' || value == ' ' {
+		if value == '_' || unicode.IsSpace(value) {
 			continue
 		}
 		builder.WriteRune(value)
 	}
-	return strings.ToLower(builder.String())
+	return builder.String()
 }
 
 var precisionDecimalXMLBlocks = []precisionDecimalXMLBlock{
-	{name: "basiclatin", low: 0x0000, high: 0x007F},
-	{name: "latin-1supplement", low: 0x0080, high: 0x00FF},
-	{name: "latinextended-a", low: 0x0100, high: 0x017F},
-	{name: "latinextended-b", low: 0x0180, high: 0x024F},
-	{name: "ipaextensions", low: 0x0250, high: 0x02AF},
-	{name: "spacingmodifierletters", low: 0x02B0, high: 0x02FF},
-	{name: "combiningdiacriticalmarks", low: 0x0300, high: 0x036F},
-	{name: "greekandcoptic", low: 0x0370, high: 0x03FF},
-	{name: "cyrillic", low: 0x0400, high: 0x04FF},
-	{name: "cyrillicsupplement", low: 0x0500, high: 0x052F},
-	{name: "armenian", low: 0x0530, high: 0x058F},
-	{name: "hebrew", low: 0x0590, high: 0x05FF},
-	{name: "arabic", low: 0x0600, high: 0x06FF},
-	{name: "syriac", low: 0x0700, high: 0x074F},
-	{name: "arabicsupplement", low: 0x0750, high: 0x077F},
-	{name: "thaana", low: 0x0780, high: 0x07BF},
-	{name: "nko", low: 0x07C0, high: 0x07FF},
-	{name: "samaritan", low: 0x0800, high: 0x083F},
-	{name: "mandaic", low: 0x0840, high: 0x085F},
-	{name: "syriacsupplement", low: 0x0860, high: 0x086F},
-	{name: "arabicextended-b", low: 0x0870, high: 0x089F},
-	{name: "arabicextended-a", low: 0x08A0, high: 0x08FF},
-	{name: "devanagari", low: 0x0900, high: 0x097F},
-	{name: "bengali", low: 0x0980, high: 0x09FF},
-	{name: "gurmukhi", low: 0x0A00, high: 0x0A7F},
-	{name: "gujarati", low: 0x0A80, high: 0x0AFF},
-	{name: "oriya", low: 0x0B00, high: 0x0B7F},
-	{name: "tamil", low: 0x0B80, high: 0x0BFF},
-	{name: "telugu", low: 0x0C00, high: 0x0C7F},
-	{name: "kannada", low: 0x0C80, high: 0x0CFF},
-	{name: "malayalam", low: 0x0D00, high: 0x0D7F},
-	{name: "sinhala", low: 0x0D80, high: 0x0DFF},
-	{name: "thai", low: 0x0E00, high: 0x0E7F},
-	{name: "lao", low: 0x0E80, high: 0x0EFF},
-	{name: "tibetan", low: 0x0F00, high: 0x0FFF},
-	{name: "myanmar", low: 0x1000, high: 0x109F},
-	{name: "georgian", low: 0x10A0, high: 0x10FF},
-	{name: "hanguljamo", low: 0x1100, high: 0x11FF},
-	{name: "ethiopic", low: 0x1200, high: 0x137F},
-	{name: "ethiopicsupplement", low: 0x1380, high: 0x139F},
-	{name: "cherokee", low: 0x13A0, high: 0x13FF},
-	{name: "unifiedcanadianaboriginalsyllabics", low: 0x1400, high: 0x167F},
-	{name: "ogham", low: 0x1680, high: 0x169F},
-	{name: "runic", low: 0x16A0, high: 0x16FF},
-	{name: "tagalog", low: 0x1700, high: 0x171F},
-	{name: "hanunoo", low: 0x1720, high: 0x173F},
-	{name: "buhid", low: 0x1740, high: 0x175F},
-	{name: "tagbanwa", low: 0x1760, high: 0x177F},
-	{name: "khmer", low: 0x1780, high: 0x17FF},
-	{name: "mongolian", low: 0x1800, high: 0x18AF},
-	{name: "unifiedcanadianaboriginalsyllabicsextended", low: 0x18B0, high: 0x18FF},
-	{name: "limbu", low: 0x1900, high: 0x194F},
-	{name: "taile", low: 0x1950, high: 0x197F},
-	{name: "newtailue", low: 0x1980, high: 0x19DF},
-	{name: "khmersymbols", low: 0x19E0, high: 0x19FF},
-	{name: "buginese", low: 0x1A00, high: 0x1A1F},
-	{name: "taitham", low: 0x1A20, high: 0x1AAF},
-	{name: "combiningdiacriticalmarksextended", low: 0x1AB0, high: 0x1AFF},
-	{name: "balinese", low: 0x1B00, high: 0x1B7F},
-	{name: "sundanese", low: 0x1B80, high: 0x1BBF},
-	{name: "batak", low: 0x1BC0, high: 0x1BFF},
-	{name: "lepcha", low: 0x1C00, high: 0x1C4F},
-	{name: "olchiki", low: 0x1C50, high: 0x1C7F},
-	{name: "cyrillicextended-c", low: 0x1C80, high: 0x1C8F},
-	{name: "georgianextended", low: 0x1C90, high: 0x1CBF},
-	{name: "sundanesesupplement", low: 0x1CC0, high: 0x1CCF},
-	{name: "vedicextensions", low: 0x1CD0, high: 0x1CFF},
-	{name: "phoneticextensions", low: 0x1D00, high: 0x1D7F},
-	{name: "phoneticextensionssupplement", low: 0x1D80, high: 0x1DBF},
-	{name: "combiningdiacriticalmarkssupplement", low: 0x1DC0, high: 0x1DFF},
-	{name: "latinextendedadditional", low: 0x1E00, high: 0x1EFF},
-	{name: "greekextended", low: 0x1F00, high: 0x1FFF},
-	{name: "generalpunctuation", low: 0x2000, high: 0x206F},
-	{name: "superscriptsandsubscripts", low: 0x2070, high: 0x209F},
-	{name: "currencysymbols", low: 0x20A0, high: 0x20CF},
-	{name: "combiningdiacriticalmarksforsymbols", low: 0x20D0, high: 0x20FF},
-	{name: "letterlikesymbols", low: 0x2100, high: 0x214F},
-	{name: "numberforms", low: 0x2150, high: 0x218F},
-	{name: "arrows", low: 0x2190, high: 0x21FF},
-	{name: "mathematicaloperators", low: 0x2200, high: 0x22FF},
-	{name: "miscellaneoustechnical", low: 0x2300, high: 0x23FF},
-	{name: "controlpictures", low: 0x2400, high: 0x243F},
-	{name: "opticalcharacterrecognition", low: 0x2440, high: 0x245F},
-	{name: "enclosedalphanumerics", low: 0x2460, high: 0x24FF},
-	{name: "boxdrawing", low: 0x2500, high: 0x257F},
-	{name: "blockelements", low: 0x2580, high: 0x259F},
-	{name: "geometricshapes", low: 0x25A0, high: 0x25FF},
-	{name: "miscellaneoussymbols", low: 0x2600, high: 0x26FF},
-	{name: "dingbats", low: 0x2700, high: 0x27BF},
-	{name: "miscellaneousmathematicalsymbols-a", low: 0x27C0, high: 0x27EF},
-	{name: "supplementalarrows-a", low: 0x27F0, high: 0x27FF},
-	{name: "braillepatterns", low: 0x2800, high: 0x28FF},
-	{name: "supplementalarrows-b", low: 0x2900, high: 0x297F},
-	{name: "miscellaneousmathematicalsymbols-b", low: 0x2980, high: 0x29FF},
-	{name: "supplementalmathematicaloperators", low: 0x2A00, high: 0x2AFF},
-	{name: "miscellaneoussymbolsandarrows", low: 0x2B00, high: 0x2BFF},
-	{name: "glagolitic", low: 0x2C00, high: 0x2C5F},
-	{name: "latinextended-c", low: 0x2C60, high: 0x2C7F},
-	{name: "coptic", low: 0x2C80, high: 0x2CFF},
-	{name: "georgiansupplement", low: 0x2D00, high: 0x2D2F},
-	{name: "tifinagh", low: 0x2D30, high: 0x2D7F},
-	{name: "ethiopicextended", low: 0x2D80, high: 0x2DDF},
-	{name: "cyrillicextended-a", low: 0x2DE0, high: 0x2DFF},
-	{name: "supplementalpunctuation", low: 0x2E00, high: 0x2E7F},
-	{name: "cjkradicalssupplement", low: 0x2E80, high: 0x2EFF},
-	{name: "kangxiradicals", low: 0x2F00, high: 0x2FDF},
-	{name: "ideographicdescriptioncharacters", low: 0x2FF0, high: 0x2FFF},
-	{name: "cjksymbolsandpunctuation", low: 0x3000, high: 0x303F},
-	{name: "hiragana", low: 0x3040, high: 0x309F},
-	{name: "katakana", low: 0x30A0, high: 0x30FF},
-	{name: "bopomofo", low: 0x3100, high: 0x312F},
-	{name: "hangulcompatibilityjamo", low: 0x3130, high: 0x318F},
-	{name: "kanbun", low: 0x3190, high: 0x319F},
-	{name: "bopomofoextended", low: 0x31A0, high: 0x31BF},
-	{name: "cjkstrokes", low: 0x31C0, high: 0x31EF},
-	{name: "katakanaphoneticextensions", low: 0x31F0, high: 0x31FF},
-	{name: "enclosedcjklettersandmonths", low: 0x3200, high: 0x32FF},
-	{name: "cjkcompatibility", low: 0x3300, high: 0x33FF},
-	{name: "cjkunifiedideographsextensiona", low: 0x3400, high: 0x4DBF},
-	{name: "yijinghexagramsymbols", low: 0x4DC0, high: 0x4DFF},
-	{name: "cjkunifiedideographs", low: 0x4E00, high: 0x9FFF},
-	{name: "yisyllables", low: 0xA000, high: 0xA48F},
-	{name: "yiradicals", low: 0xA490, high: 0xA4CF},
-	{name: "lisu", low: 0xA4D0, high: 0xA4FF},
-	{name: "vai", low: 0xA500, high: 0xA63F},
-	{name: "cyrillicextended-b", low: 0xA640, high: 0xA69F},
-	{name: "bamum", low: 0xA6A0, high: 0xA6FF},
-	{name: "modifiertoneletters", low: 0xA700, high: 0xA71F},
-	{name: "latinextended-d", low: 0xA720, high: 0xA7FF},
-	{name: "sylotinagri", low: 0xA800, high: 0xA82F},
-	{name: "commonindicnumberforms", low: 0xA830, high: 0xA83F},
-	{name: "phags-pa", low: 0xA840, high: 0xA87F},
-	{name: "saurashtra", low: 0xA880, high: 0xA8DF},
-	{name: "devanagariextended", low: 0xA8E0, high: 0xA8FF},
-	{name: "kayahli", low: 0xA900, high: 0xA92F},
-	{name: "rejang", low: 0xA930, high: 0xA95F},
-	{name: "hanguljamoextended-a", low: 0xA960, high: 0xA97F},
-	{name: "javanese", low: 0xA980, high: 0xA9DF},
-	{name: "myanmarextended-b", low: 0xA9E0, high: 0xA9FF},
-	{name: "cham", low: 0xAA00, high: 0xAA5F},
-	{name: "myanmarextended-a", low: 0xAA60, high: 0xAA7F},
-	{name: "taiviet", low: 0xAA80, high: 0xAADF},
-	{name: "meeteimayekextensions", low: 0xAAE0, high: 0xAAFF},
-	{name: "ethiopicextended-a", low: 0xAB00, high: 0xAB2F},
-	{name: "latinextended-e", low: 0xAB30, high: 0xAB6F},
-	{name: "cherokeesupplement", low: 0xAB70, high: 0xABBF},
-	{name: "meeteimayek", low: 0xABC0, high: 0xABFF},
-	{name: "hangulsyllables", low: 0xAC00, high: 0xD7AF},
-	{name: "hanguljamoextended-b", low: 0xD7B0, high: 0xD7FF},
-	{name: "highsurrogates", low: 0xD800, high: 0xDB7F},
-	{name: "highprivateusesurrogates", low: 0xDB80, high: 0xDBFF},
-	{name: "lowsurrogates", low: 0xDC00, high: 0xDFFF},
-	{name: "privateusearea", low: 0xE000, high: 0xF8FF},
-	{name: "cjkcompatibilityideographs", low: 0xF900, high: 0xFAFF},
-	{name: "alphabeticpresentationforms", low: 0xFB00, high: 0xFB4F},
-	{name: "arabicpresentationforms-a", low: 0xFB50, high: 0xFDFF},
-	{name: "variationselectors", low: 0xFE00, high: 0xFE0F},
-	{name: "verticalforms", low: 0xFE10, high: 0xFE1F},
-	{name: "combininghalfmarks", low: 0xFE20, high: 0xFE2F},
-	{name: "cjkcompatibilityforms", low: 0xFE30, high: 0xFE4F},
-	{name: "smallformvariants", low: 0xFE50, high: 0xFE6F},
-	{name: "arabicpresentationforms-b", low: 0xFE70, high: 0xFEFF},
-	{name: "halfwidthandfullwidthforms", low: 0xFF00, high: 0xFFEF},
-	{name: "specials", low: 0xFFF0, high: 0xFFFF},
-	{name: "linearbsyllabary", low: 0x10000, high: 0x1007F},
-	{name: "linearbideograms", low: 0x10080, high: 0x100FF},
-	{name: "aegeannumbers", low: 0x10100, high: 0x1013F},
-	{name: "ancientgreeknumbers", low: 0x10140, high: 0x1018F},
-	{name: "ancientsymbols", low: 0x10190, high: 0x101CF},
-	{name: "phaistosdisc", low: 0x101D0, high: 0x101FF},
-	{name: "lycian", low: 0x10280, high: 0x1029F},
-	{name: "carian", low: 0x102A0, high: 0x102DF},
-	{name: "copticepactnumbers", low: 0x102E0, high: 0x102FF},
-	{name: "olditalic", low: 0x10300, high: 0x1032F},
-	{name: "gothic", low: 0x10330, high: 0x1034F},
-	{name: "oldpermic", low: 0x10350, high: 0x1037F},
-	{name: "ugaritic", low: 0x10380, high: 0x1039F},
-	{name: "oldpersian", low: 0x103A0, high: 0x103DF},
-	{name: "deseret", low: 0x10400, high: 0x1044F},
-	{name: "shavian", low: 0x10450, high: 0x1047F},
-	{name: "osmanya", low: 0x10480, high: 0x104AF},
-	{name: "osage", low: 0x104B0, high: 0x104FF},
-	{name: "elbasan", low: 0x10500, high: 0x1052F},
-	{name: "caucasianalbanian", low: 0x10530, high: 0x1056F},
-	{name: "vithkuqi", low: 0x10570, high: 0x105BF},
-	{name: "lineara", low: 0x10600, high: 0x1077F},
-	{name: "latinextended-f", low: 0x10780, high: 0x107BF},
-	{name: "cypriotsyllabary", low: 0x10800, high: 0x1083F},
-	{name: "imperialaramaic", low: 0x10840, high: 0x1085F},
-	{name: "palmyrene", low: 0x10860, high: 0x1087F},
-	{name: "nabataean", low: 0x10880, high: 0x108AF},
-	{name: "hatran", low: 0x108E0, high: 0x108FF},
-	{name: "phoenician", low: 0x10900, high: 0x1091F},
-	{name: "lydian", low: 0x10920, high: 0x1093F},
-	{name: "meroitichieroglyphs", low: 0x10980, high: 0x1099F},
-	{name: "meroiticcursive", low: 0x109A0, high: 0x109FF},
-	{name: "kharoshthi", low: 0x10A00, high: 0x10A5F},
-	{name: "oldsoutharabian", low: 0x10A60, high: 0x10A7F},
-	{name: "oldnortharabian", low: 0x10A80, high: 0x10A9F},
-	{name: "manichaean", low: 0x10AC0, high: 0x10AFF},
-	{name: "avestan", low: 0x10B00, high: 0x10B3F},
-	{name: "inscriptionalparthian", low: 0x10B40, high: 0x10B5F},
-	{name: "inscriptionalpahlavi", low: 0x10B60, high: 0x10B7F},
-	{name: "psalterpahlavi", low: 0x10B80, high: 0x10BAF},
-	{name: "oldturkic", low: 0x10C00, high: 0x10C4F},
-	{name: "oldhungarian", low: 0x10C80, high: 0x10CFF},
-	{name: "hanifirohingya", low: 0x10D00, high: 0x10D3F},
-	{name: "ruminumeralsymbols", low: 0x10E60, high: 0x10E7F},
-	{name: "yezidi", low: 0x10E80, high: 0x10EBF},
-	{name: "arabicextended-c", low: 0x10EC0, high: 0x10EFF},
-	{name: "oldsogdian", low: 0x10F00, high: 0x10F2F},
-	{name: "sogdian", low: 0x10F30, high: 0x10F6F},
-	{name: "olduyghur", low: 0x10F70, high: 0x10FAF},
-	{name: "chorasmian", low: 0x10FB0, high: 0x10FDF},
-	{name: "elymaic", low: 0x10FE0, high: 0x10FFF},
-	{name: "brahmi", low: 0x11000, high: 0x1107F},
-	{name: "kaithi", low: 0x11080, high: 0x110CF},
-	{name: "sorasompeng", low: 0x110D0, high: 0x110FF},
-	{name: "chakma", low: 0x11100, high: 0x1114F},
-	{name: "mahajani", low: 0x11150, high: 0x1117F},
-	{name: "sharada", low: 0x11180, high: 0x111DF},
-	{name: "sinhalaarchaicnumbers", low: 0x111E0, high: 0x111FF},
-	{name: "khojki", low: 0x11200, high: 0x1124F},
-	{name: "multani", low: 0x11280, high: 0x112AF},
-	{name: "khudawadi", low: 0x112B0, high: 0x112FF},
-	{name: "grantha", low: 0x11300, high: 0x1137F},
-	{name: "newa", low: 0x11400, high: 0x1147F},
-	{name: "tirhuta", low: 0x11480, high: 0x114DF},
-	{name: "siddham", low: 0x11580, high: 0x115FF},
-	{name: "modi", low: 0x11600, high: 0x1165F},
-	{name: "mongoliansupplement", low: 0x11660, high: 0x1167F},
-	{name: "takri", low: 0x11680, high: 0x116CF},
-	{name: "ahom", low: 0x11700, high: 0x1174F},
-	{name: "dogra", low: 0x11800, high: 0x1184F},
-	{name: "warangciti", low: 0x118A0, high: 0x118FF},
-	{name: "divesakuru", low: 0x11900, high: 0x1195F},
-	{name: "nandinagari", low: 0x119A0, high: 0x119FF},
-	{name: "zanabazarsquare", low: 0x11A00, high: 0x11A4F},
-	{name: "soyombo", low: 0x11A50, high: 0x11AAF},
-	{name: "unifiedcanadianaboriginalsyllabicsextended-a", low: 0x11AB0, high: 0x11ABF},
-	{name: "paucinhau", low: 0x11AC0, high: 0x11AFF},
-	{name: "devanagariextended-a", low: 0x11B00, high: 0x11B5F},
-	{name: "bhaiksuki", low: 0x11C00, high: 0x11C6F},
-	{name: "marchen", low: 0x11C70, high: 0x11CBF},
-	{name: "masaramgondi", low: 0x11D00, high: 0x11D5F},
-	{name: "gunjalagondi", low: 0x11D60, high: 0x11DAF},
-	{name: "makasar", low: 0x11EE0, high: 0x11EFF},
-	{name: "kawi", low: 0x11F00, high: 0x11F5F},
-	{name: "lisusupplement", low: 0x11FB0, high: 0x11FBF},
-	{name: "tamilsupplement", low: 0x11FC0, high: 0x11FFF},
-	{name: "cuneiform", low: 0x12000, high: 0x123FF},
-	{name: "cuneiformnumbersandpunctuation", low: 0x12400, high: 0x1247F},
-	{name: "earlydynasticcuneiform", low: 0x12480, high: 0x1254F},
-	{name: "cypro-minoan", low: 0x12F90, high: 0x12FFF},
-	{name: "egyptianhieroglyphs", low: 0x13000, high: 0x1342F},
-	{name: "egyptianhieroglyphformatcontrols", low: 0x13430, high: 0x1345F},
-	{name: "anatolianhieroglyphs", low: 0x14400, high: 0x1467F},
-	{name: "bamumsupplement", low: 0x16800, high: 0x16A3F},
-	{name: "mro", low: 0x16A40, high: 0x16A6F},
-	{name: "tangsa", low: 0x16A70, high: 0x16ACF},
-	{name: "bassavah", low: 0x16AD0, high: 0x16AFF},
-	{name: "pahawhhmong", low: 0x16B00, high: 0x16B8F},
-	{name: "medefaidrin", low: 0x16E40, high: 0x16E9F},
-	{name: "miao", low: 0x16F00, high: 0x16F9F},
-	{name: "ideographicsymbolsandpunctuation", low: 0x16FE0, high: 0x16FFF},
-	{name: "tangut", low: 0x17000, high: 0x187FF},
-	{name: "tangutcomponents", low: 0x18800, high: 0x18AFF},
-	{name: "khitansmallscript", low: 0x18B00, high: 0x18CFF},
-	{name: "tangutsupplement", low: 0x18D00, high: 0x18D7F},
-	{name: "kanaextended-b", low: 0x1AFF0, high: 0x1AFFF},
-	{name: "kanasupplement", low: 0x1B000, high: 0x1B0FF},
-	{name: "kanaextended-a", low: 0x1B100, high: 0x1B12F},
-	{name: "smallkanaextension", low: 0x1B130, high: 0x1B16F},
-	{name: "nushu", low: 0x1B170, high: 0x1B2FF},
-	{name: "duployan", low: 0x1BC00, high: 0x1BC9F},
-	{name: "shorthandformatcontrols", low: 0x1BCA0, high: 0x1BCAF},
-	{name: "znamennymusicalnotation", low: 0x1CF00, high: 0x1CFCF},
-	{name: "byzantinemusicalsymbols", low: 0x1D000, high: 0x1D0FF},
-	{name: "musicalsymbols", low: 0x1D100, high: 0x1D1FF},
-	{name: "ancientgreekmusicalnotation", low: 0x1D200, high: 0x1D24F},
-	{name: "kaktoviknumerals", low: 0x1D2C0, high: 0x1D2DF},
-	{name: "mayannumerals", low: 0x1D2E0, high: 0x1D2FF},
-	{name: "taixuanjingsymbols", low: 0x1D300, high: 0x1D35F},
-	{name: "countingrodnumerals", low: 0x1D360, high: 0x1D37F},
-	{name: "mathematicalalphanumericsymbols", low: 0x1D400, high: 0x1D7FF},
-	{name: "suttonsignwriting", low: 0x1D800, high: 0x1DAAF},
-	{name: "latinextended-g", low: 0x1DF00, high: 0x1DFFF},
-	{name: "glagoliticsupplement", low: 0x1E000, high: 0x1E02F},
-	{name: "cyrillicextended-d", low: 0x1E030, high: 0x1E08F},
-	{name: "nyiakengpuachuehmong", low: 0x1E100, high: 0x1E14F},
-	{name: "toto", low: 0x1E290, high: 0x1E2BF},
-	{name: "wancho", low: 0x1E2C0, high: 0x1E2FF},
-	{name: "nagmundari", low: 0x1E4D0, high: 0x1E4FF},
-	{name: "ethiopicextended-b", low: 0x1E7E0, high: 0x1E7FF},
-	{name: "mendekikakui", low: 0x1E800, high: 0x1E8DF},
-	{name: "adlam", low: 0x1E900, high: 0x1E95F},
-	{name: "indicsiyaqnumbers", low: 0x1EC70, high: 0x1ECBF},
-	{name: "ottomansiyaqnumbers", low: 0x1ED00, high: 0x1ED4F},
-	{name: "arabicmathematicalalphabeticsymbols", low: 0x1EE00, high: 0x1EEFF},
-	{name: "mahjongtiles", low: 0x1F000, high: 0x1F02F},
-	{name: "dominotiles", low: 0x1F030, high: 0x1F09F},
-	{name: "playingcards", low: 0x1F0A0, high: 0x1F0FF},
-	{name: "enclosedalphanumericsupplement", low: 0x1F100, high: 0x1F1FF},
-	{name: "enclosedideographicsupplement", low: 0x1F200, high: 0x1F2FF},
-	{name: "miscellaneoussymbolsandpictographs", low: 0x1F300, high: 0x1F5FF},
-	{name: "emoticons", low: 0x1F600, high: 0x1F64F},
-	{name: "ornamentaldingbats", low: 0x1F650, high: 0x1F67F},
-	{name: "transportandmapsymbols", low: 0x1F680, high: 0x1F6FF},
-	{name: "alchemicalsymbols", low: 0x1F700, high: 0x1F77F},
-	{name: "geometricshapesextended", low: 0x1F780, high: 0x1F7FF},
-	{name: "supplementalarrows-c", low: 0x1F800, high: 0x1F8FF},
-	{name: "supplementalsymbolsandpictographs", low: 0x1F900, high: 0x1F9FF},
-	{name: "chesssymbols", low: 0x1FA00, high: 0x1FA6F},
-	{name: "symbolsandpictographsextended-a", low: 0x1FA70, high: 0x1FAFF},
-	{name: "symbolsforlegacycomputing", low: 0x1FB00, high: 0x1FBFF},
-	{name: "cjkunifiedideographsextensionb", low: 0x20000, high: 0x2A6DF},
-	{name: "cjkunifiedideographsextensionc", low: 0x2A700, high: 0x2B73F},
-	{name: "cjkunifiedideographsextensiond", low: 0x2B740, high: 0x2B81F},
-	{name: "cjkunifiedideographsextensione", low: 0x2B820, high: 0x2CEAF},
-	{name: "cjkunifiedideographsextensionf", low: 0x2CEB0, high: 0x2EBEF},
-	{name: "cjkcompatibilityideographssupplement", low: 0x2F800, high: 0x2FA1F},
-	{name: "cjkunifiedideographsextensiong", low: 0x30000, high: 0x3134F},
-	{name: "cjkunifiedideographsextensionh", low: 0x31350, high: 0x323AF},
-	{name: "tags", low: 0xE0000, high: 0xE007F},
-	{name: "variationselectorssupplement", low: 0xE0100, high: 0xE01EF},
-	{name: "supplementaryprivateusearea-a", low: 0xF0000, high: 0xFFFFF},
-	{name: "supplementaryprivateusearea-b", low: 0x100000, high: 0x10FFFF},
+	{name: "BasicLatin", low: 0x0000, high: 0x007F},
+	{name: "Latin-1Supplement", low: 0x0080, high: 0x00FF},
+	{name: "LatinExtended-A", low: 0x0100, high: 0x017F},
+	{name: "LatinExtended-B", low: 0x0180, high: 0x024F},
+	{name: "IPAExtensions", low: 0x0250, high: 0x02AF},
+	{name: "SpacingModifierLetters", low: 0x02B0, high: 0x02FF},
+	{name: "CombiningDiacriticalMarks", low: 0x0300, high: 0x036F},
+	{name: "GreekandCoptic", low: 0x0370, high: 0x03FF},
+	{name: "Cyrillic", low: 0x0400, high: 0x04FF},
+	{name: "CyrillicSupplement", low: 0x0500, high: 0x052F},
+	{name: "Armenian", low: 0x0530, high: 0x058F},
+	{name: "Hebrew", low: 0x0590, high: 0x05FF},
+	{name: "Arabic", low: 0x0600, high: 0x06FF},
+	{name: "Syriac", low: 0x0700, high: 0x074F},
+	{name: "ArabicSupplement", low: 0x0750, high: 0x077F},
+	{name: "Thaana", low: 0x0780, high: 0x07BF},
+	{name: "NKo", low: 0x07C0, high: 0x07FF},
+	{name: "Samaritan", low: 0x0800, high: 0x083F},
+	{name: "Mandaic", low: 0x0840, high: 0x085F},
+	{name: "SyriacSupplement", low: 0x0860, high: 0x086F},
+	{name: "ArabicExtended-B", low: 0x0870, high: 0x089F},
+	{name: "ArabicExtended-A", low: 0x08A0, high: 0x08FF},
+	{name: "Devanagari", low: 0x0900, high: 0x097F},
+	{name: "Bengali", low: 0x0980, high: 0x09FF},
+	{name: "Gurmukhi", low: 0x0A00, high: 0x0A7F},
+	{name: "Gujarati", low: 0x0A80, high: 0x0AFF},
+	{name: "Oriya", low: 0x0B00, high: 0x0B7F},
+	{name: "Tamil", low: 0x0B80, high: 0x0BFF},
+	{name: "Telugu", low: 0x0C00, high: 0x0C7F},
+	{name: "Kannada", low: 0x0C80, high: 0x0CFF},
+	{name: "Malayalam", low: 0x0D00, high: 0x0D7F},
+	{name: "Sinhala", low: 0x0D80, high: 0x0DFF},
+	{name: "Thai", low: 0x0E00, high: 0x0E7F},
+	{name: "Lao", low: 0x0E80, high: 0x0EFF},
+	{name: "Tibetan", low: 0x0F00, high: 0x0FFF},
+	{name: "Myanmar", low: 0x1000, high: 0x109F},
+	{name: "Georgian", low: 0x10A0, high: 0x10FF},
+	{name: "HangulJamo", low: 0x1100, high: 0x11FF},
+	{name: "Ethiopic", low: 0x1200, high: 0x137F},
+	{name: "EthiopicSupplement", low: 0x1380, high: 0x139F},
+	{name: "Cherokee", low: 0x13A0, high: 0x13FF},
+	{name: "UnifiedCanadianAboriginalSyllabics", low: 0x1400, high: 0x167F},
+	{name: "Ogham", low: 0x1680, high: 0x169F},
+	{name: "Runic", low: 0x16A0, high: 0x16FF},
+	{name: "Tagalog", low: 0x1700, high: 0x171F},
+	{name: "Hanunoo", low: 0x1720, high: 0x173F},
+	{name: "Buhid", low: 0x1740, high: 0x175F},
+	{name: "Tagbanwa", low: 0x1760, high: 0x177F},
+	{name: "Khmer", low: 0x1780, high: 0x17FF},
+	{name: "Mongolian", low: 0x1800, high: 0x18AF},
+	{name: "UnifiedCanadianAboriginalSyllabicsExtended", low: 0x18B0, high: 0x18FF},
+	{name: "Limbu", low: 0x1900, high: 0x194F},
+	{name: "TaiLe", low: 0x1950, high: 0x197F},
+	{name: "NewTaiLue", low: 0x1980, high: 0x19DF},
+	{name: "KhmerSymbols", low: 0x19E0, high: 0x19FF},
+	{name: "Buginese", low: 0x1A00, high: 0x1A1F},
+	{name: "TaiTham", low: 0x1A20, high: 0x1AAF},
+	{name: "CombiningDiacriticalMarksExtended", low: 0x1AB0, high: 0x1AFF},
+	{name: "Balinese", low: 0x1B00, high: 0x1B7F},
+	{name: "Sundanese", low: 0x1B80, high: 0x1BBF},
+	{name: "Batak", low: 0x1BC0, high: 0x1BFF},
+	{name: "Lepcha", low: 0x1C00, high: 0x1C4F},
+	{name: "OlChiki", low: 0x1C50, high: 0x1C7F},
+	{name: "CyrillicExtended-C", low: 0x1C80, high: 0x1C8F},
+	{name: "GeorgianExtended", low: 0x1C90, high: 0x1CBF},
+	{name: "SundaneseSupplement", low: 0x1CC0, high: 0x1CCF},
+	{name: "VedicExtensions", low: 0x1CD0, high: 0x1CFF},
+	{name: "PhoneticExtensions", low: 0x1D00, high: 0x1D7F},
+	{name: "PhoneticExtensionsSupplement", low: 0x1D80, high: 0x1DBF},
+	{name: "CombiningDiacriticalMarksSupplement", low: 0x1DC0, high: 0x1DFF},
+	{name: "LatinExtendedAdditional", low: 0x1E00, high: 0x1EFF},
+	{name: "GreekExtended", low: 0x1F00, high: 0x1FFF},
+	{name: "GeneralPunctuation", low: 0x2000, high: 0x206F},
+	{name: "SuperscriptsandSubscripts", low: 0x2070, high: 0x209F},
+	{name: "CurrencySymbols", low: 0x20A0, high: 0x20CF},
+	{name: "CombiningDiacriticalMarksforSymbols", low: 0x20D0, high: 0x20FF},
+	{name: "LetterlikeSymbols", low: 0x2100, high: 0x214F},
+	{name: "NumberForms", low: 0x2150, high: 0x218F},
+	{name: "Arrows", low: 0x2190, high: 0x21FF},
+	{name: "MathematicalOperators", low: 0x2200, high: 0x22FF},
+	{name: "MiscellaneousTechnical", low: 0x2300, high: 0x23FF},
+	{name: "ControlPictures", low: 0x2400, high: 0x243F},
+	{name: "OpticalCharacterRecognition", low: 0x2440, high: 0x245F},
+	{name: "EnclosedAlphanumerics", low: 0x2460, high: 0x24FF},
+	{name: "BoxDrawing", low: 0x2500, high: 0x257F},
+	{name: "BlockElements", low: 0x2580, high: 0x259F},
+	{name: "GeometricShapes", low: 0x25A0, high: 0x25FF},
+	{name: "MiscellaneousSymbols", low: 0x2600, high: 0x26FF},
+	{name: "Dingbats", low: 0x2700, high: 0x27BF},
+	{name: "MiscellaneousMathematicalSymbols-A", low: 0x27C0, high: 0x27EF},
+	{name: "SupplementalArrows-A", low: 0x27F0, high: 0x27FF},
+	{name: "BraillePatterns", low: 0x2800, high: 0x28FF},
+	{name: "SupplementalArrows-B", low: 0x2900, high: 0x297F},
+	{name: "MiscellaneousMathematicalSymbols-B", low: 0x2980, high: 0x29FF},
+	{name: "SupplementalMathematicalOperators", low: 0x2A00, high: 0x2AFF},
+	{name: "MiscellaneousSymbolsandArrows", low: 0x2B00, high: 0x2BFF},
+	{name: "Glagolitic", low: 0x2C00, high: 0x2C5F},
+	{name: "LatinExtended-C", low: 0x2C60, high: 0x2C7F},
+	{name: "Coptic", low: 0x2C80, high: 0x2CFF},
+	{name: "GeorgianSupplement", low: 0x2D00, high: 0x2D2F},
+	{name: "Tifinagh", low: 0x2D30, high: 0x2D7F},
+	{name: "EthiopicExtended", low: 0x2D80, high: 0x2DDF},
+	{name: "CyrillicExtended-A", low: 0x2DE0, high: 0x2DFF},
+	{name: "SupplementalPunctuation", low: 0x2E00, high: 0x2E7F},
+	{name: "CJKRadicalsSupplement", low: 0x2E80, high: 0x2EFF},
+	{name: "KangxiRadicals", low: 0x2F00, high: 0x2FDF},
+	{name: "IdeographicDescriptionCharacters", low: 0x2FF0, high: 0x2FFF},
+	{name: "CJKSymbolsandPunctuation", low: 0x3000, high: 0x303F},
+	{name: "Hiragana", low: 0x3040, high: 0x309F},
+	{name: "Katakana", low: 0x30A0, high: 0x30FF},
+	{name: "Bopomofo", low: 0x3100, high: 0x312F},
+	{name: "HangulCompatibilityJamo", low: 0x3130, high: 0x318F},
+	{name: "Kanbun", low: 0x3190, high: 0x319F},
+	{name: "BopomofoExtended", low: 0x31A0, high: 0x31BF},
+	{name: "CJKStrokes", low: 0x31C0, high: 0x31EF},
+	{name: "KatakanaPhoneticExtensions", low: 0x31F0, high: 0x31FF},
+	{name: "EnclosedCJKLettersandMonths", low: 0x3200, high: 0x32FF},
+	{name: "CJKCompatibility", low: 0x3300, high: 0x33FF},
+	{name: "CJKUnifiedIdeographsExtensionA", low: 0x3400, high: 0x4DBF},
+	{name: "YijingHexagramSymbols", low: 0x4DC0, high: 0x4DFF},
+	{name: "CJKUnifiedIdeographs", low: 0x4E00, high: 0x9FFF},
+	{name: "YiSyllables", low: 0xA000, high: 0xA48F},
+	{name: "YiRadicals", low: 0xA490, high: 0xA4CF},
+	{name: "Lisu", low: 0xA4D0, high: 0xA4FF},
+	{name: "Vai", low: 0xA500, high: 0xA63F},
+	{name: "CyrillicExtended-B", low: 0xA640, high: 0xA69F},
+	{name: "Bamum", low: 0xA6A0, high: 0xA6FF},
+	{name: "ModifierToneLetters", low: 0xA700, high: 0xA71F},
+	{name: "LatinExtended-D", low: 0xA720, high: 0xA7FF},
+	{name: "SylotiNagri", low: 0xA800, high: 0xA82F},
+	{name: "CommonIndicNumberForms", low: 0xA830, high: 0xA83F},
+	{name: "Phags-pa", low: 0xA840, high: 0xA87F},
+	{name: "Saurashtra", low: 0xA880, high: 0xA8DF},
+	{name: "DevanagariExtended", low: 0xA8E0, high: 0xA8FF},
+	{name: "KayahLi", low: 0xA900, high: 0xA92F},
+	{name: "Rejang", low: 0xA930, high: 0xA95F},
+	{name: "HangulJamoExtended-A", low: 0xA960, high: 0xA97F},
+	{name: "Javanese", low: 0xA980, high: 0xA9DF},
+	{name: "MyanmarExtended-B", low: 0xA9E0, high: 0xA9FF},
+	{name: "Cham", low: 0xAA00, high: 0xAA5F},
+	{name: "MyanmarExtended-A", low: 0xAA60, high: 0xAA7F},
+	{name: "TaiViet", low: 0xAA80, high: 0xAADF},
+	{name: "MeeteiMayekExtensions", low: 0xAAE0, high: 0xAAFF},
+	{name: "EthiopicExtended-A", low: 0xAB00, high: 0xAB2F},
+	{name: "LatinExtended-E", low: 0xAB30, high: 0xAB6F},
+	{name: "CherokeeSupplement", low: 0xAB70, high: 0xABBF},
+	{name: "MeeteiMayek", low: 0xABC0, high: 0xABFF},
+	{name: "HangulSyllables", low: 0xAC00, high: 0xD7AF},
+	{name: "HangulJamoExtended-B", low: 0xD7B0, high: 0xD7FF},
+	{name: "HighSurrogates", low: 0xD800, high: 0xDB7F},
+	{name: "HighPrivateUseSurrogates", low: 0xDB80, high: 0xDBFF},
+	{name: "LowSurrogates", low: 0xDC00, high: 0xDFFF},
+	{name: "PrivateUseArea", low: 0xE000, high: 0xF8FF},
+	{name: "CJKCompatibilityIdeographs", low: 0xF900, high: 0xFAFF},
+	{name: "AlphabeticPresentationForms", low: 0xFB00, high: 0xFB4F},
+	{name: "ArabicPresentationForms-A", low: 0xFB50, high: 0xFDFF},
+	{name: "VariationSelectors", low: 0xFE00, high: 0xFE0F},
+	{name: "VerticalForms", low: 0xFE10, high: 0xFE1F},
+	{name: "CombiningHalfMarks", low: 0xFE20, high: 0xFE2F},
+	{name: "CJKCompatibilityForms", low: 0xFE30, high: 0xFE4F},
+	{name: "SmallFormVariants", low: 0xFE50, high: 0xFE6F},
+	{name: "ArabicPresentationForms-B", low: 0xFE70, high: 0xFEFF},
+	{name: "HalfwidthandFullwidthForms", low: 0xFF00, high: 0xFFEF},
+	{name: "Specials", low: 0xFFF0, high: 0xFFFF},
+	{name: "LinearBSyllabary", low: 0x10000, high: 0x1007F},
+	{name: "LinearBIdeograms", low: 0x10080, high: 0x100FF},
+	{name: "AegeanNumbers", low: 0x10100, high: 0x1013F},
+	{name: "AncientGreekNumbers", low: 0x10140, high: 0x1018F},
+	{name: "AncientSymbols", low: 0x10190, high: 0x101CF},
+	{name: "PhaistosDisc", low: 0x101D0, high: 0x101FF},
+	{name: "Lycian", low: 0x10280, high: 0x1029F},
+	{name: "Carian", low: 0x102A0, high: 0x102DF},
+	{name: "CopticEpactNumbers", low: 0x102E0, high: 0x102FF},
+	{name: "OldItalic", low: 0x10300, high: 0x1032F},
+	{name: "Gothic", low: 0x10330, high: 0x1034F},
+	{name: "OldPermic", low: 0x10350, high: 0x1037F},
+	{name: "Ugaritic", low: 0x10380, high: 0x1039F},
+	{name: "OldPersian", low: 0x103A0, high: 0x103DF},
+	{name: "Deseret", low: 0x10400, high: 0x1044F},
+	{name: "Shavian", low: 0x10450, high: 0x1047F},
+	{name: "Osmanya", low: 0x10480, high: 0x104AF},
+	{name: "Osage", low: 0x104B0, high: 0x104FF},
+	{name: "Elbasan", low: 0x10500, high: 0x1052F},
+	{name: "CaucasianAlbanian", low: 0x10530, high: 0x1056F},
+	{name: "Vithkuqi", low: 0x10570, high: 0x105BF},
+	{name: "LinearA", low: 0x10600, high: 0x1077F},
+	{name: "LatinExtended-F", low: 0x10780, high: 0x107BF},
+	{name: "CypriotSyllabary", low: 0x10800, high: 0x1083F},
+	{name: "ImperialAramaic", low: 0x10840, high: 0x1085F},
+	{name: "Palmyrene", low: 0x10860, high: 0x1087F},
+	{name: "Nabataean", low: 0x10880, high: 0x108AF},
+	{name: "Hatran", low: 0x108E0, high: 0x108FF},
+	{name: "Phoenician", low: 0x10900, high: 0x1091F},
+	{name: "Lydian", low: 0x10920, high: 0x1093F},
+	{name: "MeroiticHieroglyphs", low: 0x10980, high: 0x1099F},
+	{name: "MeroiticCursive", low: 0x109A0, high: 0x109FF},
+	{name: "Kharoshthi", low: 0x10A00, high: 0x10A5F},
+	{name: "OldSouthArabian", low: 0x10A60, high: 0x10A7F},
+	{name: "OldNorthArabian", low: 0x10A80, high: 0x10A9F},
+	{name: "Manichaean", low: 0x10AC0, high: 0x10AFF},
+	{name: "Avestan", low: 0x10B00, high: 0x10B3F},
+	{name: "InscriptionalParthian", low: 0x10B40, high: 0x10B5F},
+	{name: "InscriptionalPahlavi", low: 0x10B60, high: 0x10B7F},
+	{name: "PsalterPahlavi", low: 0x10B80, high: 0x10BAF},
+	{name: "OldTurkic", low: 0x10C00, high: 0x10C4F},
+	{name: "OldHungarian", low: 0x10C80, high: 0x10CFF},
+	{name: "HanifiRohingya", low: 0x10D00, high: 0x10D3F},
+	{name: "RumiNumeralSymbols", low: 0x10E60, high: 0x10E7F},
+	{name: "Yezidi", low: 0x10E80, high: 0x10EBF},
+	{name: "ArabicExtended-C", low: 0x10EC0, high: 0x10EFF},
+	{name: "OldSogdian", low: 0x10F00, high: 0x10F2F},
+	{name: "Sogdian", low: 0x10F30, high: 0x10F6F},
+	{name: "OldUyghur", low: 0x10F70, high: 0x10FAF},
+	{name: "Chorasmian", low: 0x10FB0, high: 0x10FDF},
+	{name: "Elymaic", low: 0x10FE0, high: 0x10FFF},
+	{name: "Brahmi", low: 0x11000, high: 0x1107F},
+	{name: "Kaithi", low: 0x11080, high: 0x110CF},
+	{name: "SoraSompeng", low: 0x110D0, high: 0x110FF},
+	{name: "Chakma", low: 0x11100, high: 0x1114F},
+	{name: "Mahajani", low: 0x11150, high: 0x1117F},
+	{name: "Sharada", low: 0x11180, high: 0x111DF},
+	{name: "SinhalaArchaicNumbers", low: 0x111E0, high: 0x111FF},
+	{name: "Khojki", low: 0x11200, high: 0x1124F},
+	{name: "Multani", low: 0x11280, high: 0x112AF},
+	{name: "Khudawadi", low: 0x112B0, high: 0x112FF},
+	{name: "Grantha", low: 0x11300, high: 0x1137F},
+	{name: "Newa", low: 0x11400, high: 0x1147F},
+	{name: "Tirhuta", low: 0x11480, high: 0x114DF},
+	{name: "Siddham", low: 0x11580, high: 0x115FF},
+	{name: "Modi", low: 0x11600, high: 0x1165F},
+	{name: "MongolianSupplement", low: 0x11660, high: 0x1167F},
+	{name: "Takri", low: 0x11680, high: 0x116CF},
+	{name: "Ahom", low: 0x11700, high: 0x1174F},
+	{name: "Dogra", low: 0x11800, high: 0x1184F},
+	{name: "WarangCiti", low: 0x118A0, high: 0x118FF},
+	{name: "DivesAkuru", low: 0x11900, high: 0x1195F},
+	{name: "Nandinagari", low: 0x119A0, high: 0x119FF},
+	{name: "ZanabazarSquare", low: 0x11A00, high: 0x11A4F},
+	{name: "Soyombo", low: 0x11A50, high: 0x11AAF},
+	{name: "UnifiedCanadianAboriginalSyllabicsExtended-A", low: 0x11AB0, high: 0x11ABF},
+	{name: "PauCinHau", low: 0x11AC0, high: 0x11AFF},
+	{name: "DevanagariExtended-A", low: 0x11B00, high: 0x11B5F},
+	{name: "Bhaiksuki", low: 0x11C00, high: 0x11C6F},
+	{name: "Marchen", low: 0x11C70, high: 0x11CBF},
+	{name: "MasaramGondi", low: 0x11D00, high: 0x11D5F},
+	{name: "GunjalaGondi", low: 0x11D60, high: 0x11DAF},
+	{name: "Makasar", low: 0x11EE0, high: 0x11EFF},
+	{name: "Kawi", low: 0x11F00, high: 0x11F5F},
+	{name: "LisuSupplement", low: 0x11FB0, high: 0x11FBF},
+	{name: "TamilSupplement", low: 0x11FC0, high: 0x11FFF},
+	{name: "Cuneiform", low: 0x12000, high: 0x123FF},
+	{name: "CuneiformNumbersandPunctuation", low: 0x12400, high: 0x1247F},
+	{name: "EarlyDynasticCuneiform", low: 0x12480, high: 0x1254F},
+	{name: "Cypro-Minoan", low: 0x12F90, high: 0x12FFF},
+	{name: "EgyptianHieroglyphs", low: 0x13000, high: 0x1342F},
+	{name: "EgyptianHieroglyphFormatControls", low: 0x13430, high: 0x1345F},
+	{name: "AnatolianHieroglyphs", low: 0x14400, high: 0x1467F},
+	{name: "BamumSupplement", low: 0x16800, high: 0x16A3F},
+	{name: "Mro", low: 0x16A40, high: 0x16A6F},
+	{name: "Tangsa", low: 0x16A70, high: 0x16ACF},
+	{name: "BassaVah", low: 0x16AD0, high: 0x16AFF},
+	{name: "PahawhHmong", low: 0x16B00, high: 0x16B8F},
+	{name: "Medefaidrin", low: 0x16E40, high: 0x16E9F},
+	{name: "Miao", low: 0x16F00, high: 0x16F9F},
+	{name: "IdeographicSymbolsandPunctuation", low: 0x16FE0, high: 0x16FFF},
+	{name: "Tangut", low: 0x17000, high: 0x187FF},
+	{name: "TangutComponents", low: 0x18800, high: 0x18AFF},
+	{name: "KhitanSmallScript", low: 0x18B00, high: 0x18CFF},
+	{name: "TangutSupplement", low: 0x18D00, high: 0x18D7F},
+	{name: "KanaExtended-B", low: 0x1AFF0, high: 0x1AFFF},
+	{name: "KanaSupplement", low: 0x1B000, high: 0x1B0FF},
+	{name: "KanaExtended-A", low: 0x1B100, high: 0x1B12F},
+	{name: "SmallKanaExtension", low: 0x1B130, high: 0x1B16F},
+	{name: "Nushu", low: 0x1B170, high: 0x1B2FF},
+	{name: "Duployan", low: 0x1BC00, high: 0x1BC9F},
+	{name: "ShorthandFormatControls", low: 0x1BCA0, high: 0x1BCAF},
+	{name: "ZnamennyMusicalNotation", low: 0x1CF00, high: 0x1CFCF},
+	{name: "ByzantineMusicalSymbols", low: 0x1D000, high: 0x1D0FF},
+	{name: "MusicalSymbols", low: 0x1D100, high: 0x1D1FF},
+	{name: "AncientGreekMusicalNotation", low: 0x1D200, high: 0x1D24F},
+	{name: "KaktovikNumerals", low: 0x1D2C0, high: 0x1D2DF},
+	{name: "MayanNumerals", low: 0x1D2E0, high: 0x1D2FF},
+	{name: "TaiXuanJingSymbols", low: 0x1D300, high: 0x1D35F},
+	{name: "CountingRodNumerals", low: 0x1D360, high: 0x1D37F},
+	{name: "MathematicalAlphanumericSymbols", low: 0x1D400, high: 0x1D7FF},
+	{name: "SuttonSignWriting", low: 0x1D800, high: 0x1DAAF},
+	{name: "LatinExtended-G", low: 0x1DF00, high: 0x1DFFF},
+	{name: "GlagoliticSupplement", low: 0x1E000, high: 0x1E02F},
+	{name: "CyrillicExtended-D", low: 0x1E030, high: 0x1E08F},
+	{name: "NyiakengPuachueHmong", low: 0x1E100, high: 0x1E14F},
+	{name: "Toto", low: 0x1E290, high: 0x1E2BF},
+	{name: "Wancho", low: 0x1E2C0, high: 0x1E2FF},
+	{name: "NagMundari", low: 0x1E4D0, high: 0x1E4FF},
+	{name: "EthiopicExtended-B", low: 0x1E7E0, high: 0x1E7FF},
+	{name: "MendeKikakui", low: 0x1E800, high: 0x1E8DF},
+	{name: "Adlam", low: 0x1E900, high: 0x1E95F},
+	{name: "IndicSiyaqNumbers", low: 0x1EC70, high: 0x1ECBF},
+	{name: "OttomanSiyaqNumbers", low: 0x1ED00, high: 0x1ED4F},
+	{name: "ArabicMathematicalAlphabeticSymbols", low: 0x1EE00, high: 0x1EEFF},
+	{name: "MahjongTiles", low: 0x1F000, high: 0x1F02F},
+	{name: "DominoTiles", low: 0x1F030, high: 0x1F09F},
+	{name: "PlayingCards", low: 0x1F0A0, high: 0x1F0FF},
+	{name: "EnclosedAlphanumericSupplement", low: 0x1F100, high: 0x1F1FF},
+	{name: "EnclosedIdeographicSupplement", low: 0x1F200, high: 0x1F2FF},
+	{name: "MiscellaneousSymbolsandPictographs", low: 0x1F300, high: 0x1F5FF},
+	{name: "Emoticons", low: 0x1F600, high: 0x1F64F},
+	{name: "OrnamentalDingbats", low: 0x1F650, high: 0x1F67F},
+	{name: "TransportandMapSymbols", low: 0x1F680, high: 0x1F6FF},
+	{name: "AlchemicalSymbols", low: 0x1F700, high: 0x1F77F},
+	{name: "GeometricShapesExtended", low: 0x1F780, high: 0x1F7FF},
+	{name: "SupplementalArrows-C", low: 0x1F800, high: 0x1F8FF},
+	{name: "SupplementalSymbolsandPictographs", low: 0x1F900, high: 0x1F9FF},
+	{name: "ChessSymbols", low: 0x1FA00, high: 0x1FA6F},
+	{name: "SymbolsandPictographsExtended-A", low: 0x1FA70, high: 0x1FAFF},
+	{name: "SymbolsforLegacyComputing", low: 0x1FB00, high: 0x1FBFF},
+	{name: "CJKUnifiedIdeographsExtensionB", low: 0x20000, high: 0x2A6DF},
+	{name: "CJKUnifiedIdeographsExtensionC", low: 0x2A700, high: 0x2B73F},
+	{name: "CJKUnifiedIdeographsExtensionD", low: 0x2B740, high: 0x2B81F},
+	{name: "CJKUnifiedIdeographsExtensionE", low: 0x2B820, high: 0x2CEAF},
+	{name: "CJKUnifiedIdeographsExtensionF", low: 0x2CEB0, high: 0x2EBEF},
+	{name: "CJKCompatibilityIdeographsSupplement", low: 0x2F800, high: 0x2FA1F},
+	{name: "CJKUnifiedIdeographsExtensionG", low: 0x30000, high: 0x3134F},
+	{name: "CJKUnifiedIdeographsExtensionH", low: 0x31350, high: 0x323AF},
+	{name: "Tags", low: 0xE0000, high: 0xE007F},
+	{name: "VariationSelectorsSupplement", low: 0xE0100, high: 0xE01EF},
+	{name: "SupplementaryPrivateUseArea-A", low: 0xF0000, high: 0xFFFFF},
+	{name: "SupplementaryPrivateUseArea-B", low: 0x100000, high: 0x10FFFF},
 }
 
 func precisionDecimalXMLChar(value rune) bool {
@@ -908,61 +1034,109 @@ func precisionDecimalXMLWord(value rune) bool {
 	if !precisionDecimalXMLChar(value) {
 		return false
 	}
-	return unicode.Is(unicode.L, value) || unicode.Is(unicode.M, value) ||
-		unicode.Is(unicode.N, value) || unicode.Is(unicode.Pc, value)
+	return !unicode.Is(unicode.P, value) && !unicode.Is(unicode.Z, value) && !precisionDecimalXMLCategoryC(value)
 }
 
-func (regex *precisionDecimalXMLRegex) matches(source string) bool {
-	if !utf8.ValidString(source) {
+func precisionDecimalXMLCategoryC(value rune) bool {
+	return unicode.Is(unicode.C, value) || precisionDecimalXMLUnassigned(value)
+}
+
+func precisionDecimalXMLUnassigned(value rune) bool {
+	if !precisionDecimalXMLChar(value) {
 		return false
 	}
+	if table, ok := unicode.Categories["Cn"]; ok {
+		return unicode.Is(table, value)
+	}
+	return !unicode.Is(unicode.L, value) &&
+		!unicode.Is(unicode.M, value) &&
+		!unicode.Is(unicode.N, value) &&
+		!unicode.Is(unicode.P, value) &&
+		!unicode.Is(unicode.Z, value) &&
+		!unicode.Is(unicode.S, value) &&
+		!unicode.Is(unicode.C, value)
+}
+
+func (regex *precisionDecimalXMLRegex) match(source string) (bool, error) {
+	if len(source) > precisionDecimalXMLRegexMaxSourceBytes {
+		return false, errPrecisionDecimalXMLRegexMatchResourceLimit
+	}
+	if !utf8.ValidString(source) {
+		return false, nil
+	}
 	input := []rune(source)
+	if len(input) > precisionDecimalXMLRegexMaxSourceRunes {
+		return false, errPrecisionDecimalXMLRegexMatchResourceLimit
+	}
 	for _, value := range input {
 		if precisionDecimalXMLChar(value) {
 			continue
 		}
-		return false
+		return false, nil
 	}
+	budget := precisionDecimalXMLRegexMatchBudget{remaining: precisionDecimalXMLRegexMaxMatchWork}
 	for _, branch := range regex.branches {
-		positions := precisionDecimalXMLRegexBranchPositions(branch, input, 0)
+		positions, err := precisionDecimalXMLRegexBranchPositionsWithBudget(branch, input, 0, &budget)
+		if err != nil {
+			return false, err
+		}
 		for _, position := range positions {
 			if position == len(input) {
-				return true
+				return true, nil
 			}
 		}
 	}
-	return false
+	return false, nil
 }
 
-func precisionDecimalXMLRegexBranchPositions(branch precisionDecimalXMLRegexBranch, input []rune, start int) []int {
+func (regex *precisionDecimalXMLRegex) matches(source string) bool {
+	matched, err := regex.match(source)
+	if err != nil {
+		return false
+	}
+	return matched
+}
+
+func precisionDecimalXMLRegexBranchPositionsWithBudget(branch precisionDecimalXMLRegexBranch, input []rune, start int, budget *precisionDecimalXMLRegexMatchBudget) ([]int, error) {
 	memo := make(map[precisionDecimalXMLRegexMatchState][]int)
-	return precisionDecimalXMLRegexBranchPositionsFrom(branch, input, 0, start, memo)
+	return precisionDecimalXMLRegexBranchPositionsFrom(branch, input, 0, start, memo, budget)
 }
 
-func precisionDecimalXMLRegexBranchPositionsFrom(branch precisionDecimalXMLRegexBranch, input []rune, pieceIndex, position int, memo map[precisionDecimalXMLRegexMatchState][]int) []int {
+func precisionDecimalXMLRegexBranchPositionsFrom(branch precisionDecimalXMLRegexBranch, input []rune, pieceIndex, position int, memo map[precisionDecimalXMLRegexMatchState][]int, budget *precisionDecimalXMLRegexMatchBudget) ([]int, error) {
+	if err := budget.consume(); err != nil {
+		return nil, err
+	}
 	key := precisionDecimalXMLRegexMatchState{piece: pieceIndex, pos: position}
 	if result, ok := memo[key]; ok {
-		return result
+		return result, nil
 	}
 	if pieceIndex == len(branch.pieces) {
 		result := []int{position}
 		memo[key] = result
-		return result
+		return result, nil
 	}
 	piece := branch.pieces[pieceIndex]
-	ends := precisionDecimalXMLRepeatPositions(piece.atom, piece.min, piece.max, input, position)
-	result := make([]int, 0, len(ends))
+	ends, err := precisionDecimalXMLRepeatPositions(piece.atom, piece.min, piece.max, input, position, budget)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]int, 0)
 	for _, end := range ends {
-		suffix := precisionDecimalXMLRegexBranchPositionsFrom(branch, input, pieceIndex+1, end, memo)
+		suffix, err := precisionDecimalXMLRegexBranchPositionsFrom(branch, input, pieceIndex+1, end, memo, budget)
+		if err != nil {
+			return nil, err
+		}
 		for _, candidate := range suffix {
-			precisionDecimalXMLAppendUnique(&result, candidate)
+			if err := precisionDecimalXMLAppendUnique(&result, candidate, budget); err != nil {
+				return nil, err
+			}
 		}
 	}
 	memo[key] = result
-	return result
+	return result, nil
 }
 
-func precisionDecimalXMLRepeatPositions(atom precisionDecimalXMLRegexAtom, minimumCount, maximumCount *big.Int, input []rune, start int) []int {
+func precisionDecimalXMLRepeatPositions(atom precisionDecimalXMLRegexAtom, minimumCount, maximumCount *big.Int, input []rune, start int, budget *precisionDecimalXMLRegexMatchBudget) ([]int, error) {
 	nullable := precisionDecimalXMLAtomNullable(atom)
 	limit := len(input)
 	if nullable {
@@ -970,9 +1144,9 @@ func precisionDecimalXMLRepeatPositions(atom precisionDecimalXMLRegexAtom, minim
 	}
 	minimum, maximum, ok := precisionDecimalXMLRepeatBounds(minimumCount, maximumCount, limit, nullable)
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	return precisionDecimalXMLRepeatPositionsWithinBounds(atom, minimum, maximum, input, start)
+	return precisionDecimalXMLRepeatPositionsWithinBounds(atom, minimum, maximum, input, start, budget)
 }
 
 func precisionDecimalXMLRepeatBounds(minimumCount, maximumCount *big.Int, limit int, nullable bool) (int, int, bool) {
@@ -993,36 +1167,56 @@ func precisionDecimalXMLRepeatBounds(minimumCount, maximumCount *big.Int, limit 
 	return minimum, maximum, true
 }
 
-func precisionDecimalXMLRepeatPositionsWithinBounds(atom precisionDecimalXMLRegexAtom, minimum, maximum int, input []rune, start int) []int {
+func precisionDecimalXMLRepeatPositionsWithinBounds(atom precisionDecimalXMLRegexAtom, minimum, maximum int, input []rune, start int, budget *precisionDecimalXMLRegexMatchBudget) ([]int, error) {
 	positions := []int{start}
-	result := make([]int, 0, len(positions))
+	result := make([]int, 0)
 	if minimum == 0 {
-		result = append(result, start)
+		if err := precisionDecimalXMLAppendUnique(&result, start, budget); err != nil {
+			return nil, err
+		}
 	}
 	for count := 1; count <= maximum; count++ {
-		next := precisionDecimalXMLNextPositions(atom, input, positions)
+		next, err := precisionDecimalXMLNextPositions(atom, input, positions, budget)
+		if err != nil {
+			return nil, err
+		}
 		if len(next) == 0 {
 			break
 		}
 		positions = next
-		if count >= minimum {
-			for _, position := range positions {
-				precisionDecimalXMLAppendUnique(&result, position)
+		if count < minimum {
+			continue
+		}
+		if err := precisionDecimalXMLAppendPositions(&result, positions, budget); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func precisionDecimalXMLAppendPositions(result *[]int, positions []int, budget *precisionDecimalXMLRegexMatchBudget) error {
+	for _, position := range positions {
+		if err := precisionDecimalXMLAppendUnique(result, position, budget); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func precisionDecimalXMLNextPositions(atom precisionDecimalXMLRegexAtom, input []rune, positions []int, budget *precisionDecimalXMLRegexMatchBudget) ([]int, error) {
+	next := make([]int, 0)
+	for _, position := range positions {
+		ends, err := precisionDecimalXMLAtomPositions(atom, input, position, budget)
+		if err != nil {
+			return nil, err
+		}
+		for _, end := range ends {
+			if err := precisionDecimalXMLAppendUnique(&next, end, budget); err != nil {
+				return nil, err
 			}
 		}
 	}
-	return result
-}
-
-func precisionDecimalXMLNextPositions(atom precisionDecimalXMLRegexAtom, input []rune, positions []int) []int {
-	next := make([]int, 0, len(positions))
-	for _, position := range positions {
-		ends := precisionDecimalXMLAtomPositions(atom, input, position)
-		for _, end := range ends {
-			precisionDecimalXMLAppendUnique(&next, end)
-		}
-	}
-	return next
+	return next, nil
 }
 
 func precisionDecimalXMLQuantifierLimit(value *big.Int, limit int, nullable bool) (int, bool) {
@@ -1036,30 +1230,48 @@ func precisionDecimalXMLQuantifierLimit(value *big.Int, limit int, nullable bool
 	return 0, false
 }
 
-func precisionDecimalXMLAtomPositions(atom precisionDecimalXMLRegexAtom, input []rune, position int) []int {
+func precisionDecimalXMLAtomPositions(atom precisionDecimalXMLRegexAtom, input []rune, position int, budget *precisionDecimalXMLRegexMatchBudget) ([]int, error) {
+	if err := budget.consume(); err != nil {
+		return nil, err
+	}
 	switch atom.kind {
 	case precisionDecimalXMLRegexLiteralAtom:
-		if position < len(input) && input[position] == atom.literal {
-			return []int{position + 1}
-		}
-		return nil
+		return precisionDecimalXMLLiteralPositions(atom, input, position)
 	case precisionDecimalXMLRegexSetAtom:
-		if position < len(input) && atom.set.contains(input[position]) {
-			return []int{position + 1}
-		}
-		return nil
+		return precisionDecimalXMLSetPositions(atom, input, position)
 	case precisionDecimalXMLRegexGroupAtom:
-		result := []int{}
-		for _, branch := range atom.group.branches {
-			positions := precisionDecimalXMLRegexBranchPositions(branch, input, position)
-			for _, end := range positions {
-				precisionDecimalXMLAppendUnique(&result, end)
-			}
-		}
-		return result
+		return precisionDecimalXMLGroupPositions(atom, input, position, budget)
 	default:
 		panic("precisionDecimal XML regex: invalid atom kind")
 	}
+}
+
+func precisionDecimalXMLLiteralPositions(atom precisionDecimalXMLRegexAtom, input []rune, position int) ([]int, error) {
+	if position < len(input) && input[position] == atom.literal {
+		return []int{position + 1}, nil
+	}
+	return nil, nil
+}
+
+func precisionDecimalXMLSetPositions(atom precisionDecimalXMLRegexAtom, input []rune, position int) ([]int, error) {
+	if position < len(input) && atom.set.contains(input[position]) {
+		return []int{position + 1}, nil
+	}
+	return nil, nil
+}
+
+func precisionDecimalXMLGroupPositions(atom precisionDecimalXMLRegexAtom, input []rune, position int, budget *precisionDecimalXMLRegexMatchBudget) ([]int, error) {
+	result := []int{}
+	for _, branch := range atom.group.branches {
+		positions, err := precisionDecimalXMLRegexBranchPositionsWithBudget(branch, input, position, budget)
+		if err != nil {
+			return nil, err
+		}
+		if err := precisionDecimalXMLAppendPositions(&result, positions, budget); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
 func precisionDecimalXMLAtomNullable(atom precisionDecimalXMLRegexAtom) bool {
@@ -1086,11 +1298,26 @@ func precisionDecimalXMLBranchNullable(branch precisionDecimalXMLRegexBranch) bo
 	return true
 }
 
-func precisionDecimalXMLAppendUnique(values *[]int, candidate int) {
+func precisionDecimalXMLAppendUnique(values *[]int, candidate int, budget *precisionDecimalXMLRegexMatchBudget) error {
 	for _, value := range *values {
+		if err := budget.consume(); err != nil {
+			return err
+		}
 		if value == candidate {
-			return
+			return nil
 		}
 	}
+	if err := budget.consume(); err != nil {
+		return err
+	}
 	*values = append(*values, candidate)
+	return nil
+}
+
+func (budget *precisionDecimalXMLRegexMatchBudget) consume() error {
+	if budget.remaining <= 0 {
+		return errPrecisionDecimalXMLRegexMatchResourceLimit
+	}
+	budget.remaining--
+	return nil
 }

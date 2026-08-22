@@ -409,6 +409,8 @@ func TestPrecisionDecimalFacetLayerAcceptsImplementedFacetsAndGatesAssertions(t 
 	}
 	err := ValidatePrecisionDecimalFacetName("assertions", loc)
 	assertPrecisionDecimalUnsupportedFacetWithFeature(t, err, loc, FeatureID("xsd.assertion"), "xsd11-structures#cAssertions")
+	err = ValidatePrecisionDecimalFacetName("assertion", loc)
+	assertPrecisionDecimalFacetDiagnostic(t, err, InvalidPrecisionDecimalUnknownFacetCode, loc, precisionDecimalFacetSetSpecRef)
 }
 
 func TestPrecisionDecimalFacetLayerRejectsUnknownFacets(t *testing.T) {

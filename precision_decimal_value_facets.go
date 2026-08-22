@@ -25,38 +25,44 @@ const (
 	// InvalidPrecisionDecimalBoundCode identifies an invalid ordered bound
 	// declaration value.
 	InvalidPrecisionDecimalBoundCode = "XSD2025"
+	// UnsupportedPrecisionDecimalPatternCode identifies a pattern that is
+	// valid XML Schema syntax but exceeds the implementation's resource
+	// limits.
+	UnsupportedPrecisionDecimalPatternCode = "XSD2026"
 )
 
 const (
-	precisionDecimalPatternValueSpecRef             = "xsd11-datatypes#f-pattern-value"
-	precisionDecimalEnumerationValueSpecRef         = "xsd11-datatypes#f-enumeration-value"
+	precisionDecimalPatternValueSpecRef             = "xsd11-datatypes#f-p-value"
+	precisionDecimalEnumerationValueSpecRef         = "xsd11-datatypes#f-e-value"
 	precisionDecimalEnumerationValidSpecRef         = "xsd11-datatypes#cvc-enumeration-valid"
 	precisionDecimalPatternValidSpecRef             = "xsd11-datatypes#cvc-pattern-valid"
-	precisionDecimalMinInclusiveValueSpecRef        = "xsd11-datatypes#f-minInclusive-value"
-	precisionDecimalMinExclusiveValueSpecRef        = "xsd11-datatypes#f-minExclusive-value"
-	precisionDecimalMaxInclusiveValueSpecRef        = "xsd11-datatypes#f-maxInclusive-value"
-	precisionDecimalMaxExclusiveValueSpecRef        = "xsd11-datatypes#f-maxExclusive-value"
-	precisionDecimalMinInclusiveFixedSpecRef        = "xsd11-datatypes#f-minInclusive-fixed"
-	precisionDecimalMinExclusiveFixedSpecRef        = "xsd11-datatypes#f-minExclusive-fixed"
-	precisionDecimalMaxInclusiveFixedSpecRef        = "xsd11-datatypes#f-maxInclusive-fixed"
-	precisionDecimalMaxExclusiveFixedSpecRef        = "xsd11-datatypes#f-maxExclusive-fixed"
+	precisionDecimalMinInclusiveValueSpecRef        = "xsd11-datatypes#f-mii-value"
+	precisionDecimalMinExclusiveValueSpecRef        = "xsd11-datatypes#f-mie-value"
+	precisionDecimalMaxInclusiveValueSpecRef        = "xsd11-datatypes#f-mai-value"
+	precisionDecimalMaxExclusiveValueSpecRef        = "xsd11-datatypes#f-mae-value"
+	precisionDecimalMinInclusiveFixedSpecRef        = "xsd11-datatypes#f-mii-fixed"
+	precisionDecimalMinExclusiveFixedSpecRef        = "xsd11-datatypes#f-mie-fixed"
+	precisionDecimalMaxInclusiveFixedSpecRef        = "xsd11-datatypes#f-mai-fixed"
+	precisionDecimalMaxExclusiveFixedSpecRef        = "xsd11-datatypes#f-mae-fixed"
 	precisionDecimalMinInclusiveRestrictionSpecRef  = "xsd11-datatypes#minInclusive-valid-restriction"
 	precisionDecimalMinExclusiveRestrictionSpecRef  = "xsd11-datatypes#minExclusive-valid-restriction"
 	precisionDecimalMaxInclusiveRestrictionSpecRef  = "xsd11-datatypes#maxInclusive-valid-restriction"
 	precisionDecimalMaxExclusiveRestrictionSpecRef  = "xsd11-datatypes#maxExclusive-valid-restriction"
-	precisionDecimalMinInclusiveMaxInclusiveSpecRef = "xsd11-datatypes#minInclusive-maxInclusive"
-	precisionDecimalMinInclusiveMaxExclusiveSpecRef = "xsd11-datatypes#minInclusive-maxExclusive"
-	precisionDecimalMinExclusiveMaxInclusiveSpecRef = "xsd11-datatypes#minExclusive-maxInclusive"
-	precisionDecimalMinExclusiveMaxExclusiveSpecRef = "xsd11-datatypes#minExclusive-maxExclusive"
+	precisionDecimalMinInclusiveMaxInclusiveSpecRef = "xsd11-datatypes#minInclusive-less-than-equal-to-maxInclusive"
+	precisionDecimalMinInclusiveMaxExclusiveSpecRef = "xsd11-datatypes#minInclusive-less-than-maxExclusive"
+	precisionDecimalMinExclusiveMaxInclusiveSpecRef = "xsd11-datatypes#minExclusive-less-than-maxInclusive"
+	precisionDecimalMinExclusiveMaxExclusiveSpecRef = "xsd11-datatypes#minExclusive-less-than-equal-to-maxExclusive"
 	precisionDecimalMinInclusiveMinExclusiveSpecRef = "xsd11-datatypes#minInclusive-minExclusive"
 	precisionDecimalMaxInclusiveMaxExclusiveSpecRef = "xsd11-datatypes#maxInclusive-maxExclusive"
 	precisionDecimalMinInclusiveValidSpecRef        = "xsd11-datatypes#cvc-minInclusive-valid"
 	precisionDecimalMinExclusiveValidSpecRef        = "xsd11-datatypes#cvc-minExclusive-valid"
 	precisionDecimalMaxInclusiveValidSpecRef        = "xsd11-datatypes#cvc-maxInclusive-valid"
 	precisionDecimalMaxExclusiveValidSpecRef        = "xsd11-datatypes#cvc-maxExclusive-valid"
-	precisionDecimalWhiteSpaceValueSpecRef          = "xsd-precisionDecimal#f-whiteSpace-value"
-	precisionDecimalWhiteSpaceFixedSpecRef          = "xsd-precisionDecimal#f-whiteSpace-fixed"
-	precisionDecimalBoundRestrictionSpecRef         = "xsd11-datatypes#ordered-facet-valid-restriction"
+	precisionDecimalTotalDigitsValidSpecRef         = "xsd-precisionDecimal#cvc-totalDigits-valid"
+	precisionDecimalMinScaleValidSpecRef            = "xsd-precisionDecimal#cvc-minScale-valid"
+	precisionDecimalMaxScaleValidSpecRef            = "xsd-precisionDecimal#cvc-maxScale-valid"
+	precisionDecimalWhiteSpaceValueSpecRef          = "xsd-precisionDecimal#precisionDecimal.whiteSpace"
+	precisionDecimalWhiteSpaceFixedSpecRef          = "xsd-precisionDecimal#precisionDecimal.whiteSpace"
 	precisionDecimalEnumerationRestrictionSpecRef   = "xsd11-datatypes#enumeration-valid-restriction"
 )
 
@@ -72,9 +78,8 @@ var (
 // PrecisionDecimalPatternFacet is a parsed XML Schema regular-expression
 // pattern declaration. Patterns in one declaration step are alternatives.
 type PrecisionDecimalPatternFacet struct {
-	source     string
-	expression *precisionDecimalXMLRegex
-	loc        Loc
+	source string
+	loc    Loc
 }
 
 // Value returns the declared XML Schema regular-expression source.
@@ -90,8 +95,9 @@ func (facet PrecisionDecimalPatternFacet) Loc() Loc {
 // PrecisionDecimalEnumerationFacet is a parsed exact enumeration member.
 // Its value representation remains private to the datatype layer.
 type PrecisionDecimalEnumerationFacet struct {
-	value precisionDecimalValue
-	loc   Loc
+	normalizedLexical string
+	value             precisionDecimalValue
+	loc               Loc
 }
 
 // Loc returns the source location of the enumeration declaration.
@@ -101,9 +107,10 @@ func (facet PrecisionDecimalEnumerationFacet) Loc() Loc {
 
 // PrecisionDecimalMinInclusiveFacet is a parsed inclusive lower bound.
 type PrecisionDecimalMinInclusiveFacet struct {
-	value precisionDecimalValue
-	loc   Loc
-	fixed bool
+	normalizedLexical string
+	value             precisionDecimalValue
+	loc               Loc
+	fixed             bool
 }
 
 // Loc returns the source location of the bound declaration.
@@ -124,9 +131,10 @@ func (facet PrecisionDecimalMinInclusiveFacet) WithFixed(fixed bool) PrecisionDe
 
 // PrecisionDecimalMinExclusiveFacet is a parsed exclusive lower bound.
 type PrecisionDecimalMinExclusiveFacet struct {
-	value precisionDecimalValue
-	loc   Loc
-	fixed bool
+	normalizedLexical string
+	value             precisionDecimalValue
+	loc               Loc
+	fixed             bool
 }
 
 // Loc returns the source location of the bound declaration.
@@ -147,9 +155,10 @@ func (facet PrecisionDecimalMinExclusiveFacet) WithFixed(fixed bool) PrecisionDe
 
 // PrecisionDecimalMaxInclusiveFacet is a parsed inclusive upper bound.
 type PrecisionDecimalMaxInclusiveFacet struct {
-	value precisionDecimalValue
-	loc   Loc
-	fixed bool
+	normalizedLexical string
+	value             precisionDecimalValue
+	loc               Loc
+	fixed             bool
 }
 
 // Loc returns the source location of the bound declaration.
@@ -170,9 +179,10 @@ func (facet PrecisionDecimalMaxInclusiveFacet) WithFixed(fixed bool) PrecisionDe
 
 // PrecisionDecimalMaxExclusiveFacet is a parsed exclusive upper bound.
 type PrecisionDecimalMaxExclusiveFacet struct {
-	value precisionDecimalValue
-	loc   Loc
-	fixed bool
+	normalizedLexical string
+	value             precisionDecimalValue
+	loc               Loc
+	fixed             bool
 }
 
 // Loc returns the source location of the bound declaration.
@@ -214,30 +224,14 @@ func (facet PrecisionDecimalWhiteSpaceFacet) Fixed() bool {
 	return facet.fixed
 }
 
-type precisionDecimalBoundKind uint8
-
-const (
-	precisionDecimalMinInclusiveBoundKind precisionDecimalBoundKind = iota + 1
-	precisionDecimalMinExclusiveBoundKind
-	precisionDecimalMaxInclusiveBoundKind
-	precisionDecimalMaxExclusiveBoundKind
-)
-
-type precisionDecimalBoundRecord struct {
-	kind  precisionDecimalBoundKind
-	value precisionDecimalValue
-	loc   Loc
-}
-
 // ParsePrecisionDecimalPatternFacet parses an XML Schema regular expression.
 func ParsePrecisionDecimalPatternFacet(pattern string, loc Loc) (PrecisionDecimalPatternFacet, error) {
-	expression, err := parsePrecisionDecimalXMLRegex(pattern)
+	_, err := parsePrecisionDecimalXMLRegex(pattern)
 	if err == nil {
-		return PrecisionDecimalPatternFacet{
-			source:     pattern,
-			expression: expression,
-			loc:        loc,
-		}, nil
+		return PrecisionDecimalPatternFacet{source: pattern, loc: loc}, nil
+	}
+	if errors.Is(err, errPrecisionDecimalXMLRegexResourceLimit) {
+		return PrecisionDecimalPatternFacet{}, newPrecisionDecimalPatternResourceDiagnostic(loc, err)
 	}
 	return PrecisionDecimalPatternFacet{}, newPrecisionDecimalFacetDiagnostic(
 		FailureInvalid,
@@ -252,11 +246,15 @@ func ParsePrecisionDecimalPatternFacet(pattern string, loc Loc) (PrecisionDecima
 
 // ParsePrecisionDecimalEnumerationFacet parses one exact enumeration member.
 func ParsePrecisionDecimalEnumerationFacet(lexical string, loc Loc) (PrecisionDecimalEnumerationFacet, error) {
-	value, err := parsePrecisionDecimal(lexical, loc)
+	input, err := parsePrecisionDecimalFacetInput(lexical, loc)
 	if err != nil {
 		return PrecisionDecimalEnumerationFacet{}, newPrecisionDecimalEnumerationDiagnostic(loc, err)
 	}
-	return PrecisionDecimalEnumerationFacet{value: clonePrecisionDecimalValue(value), loc: loc}, nil
+	return PrecisionDecimalEnumerationFacet{
+		normalizedLexical: input.normalizedLexical,
+		value:             clonePrecisionDecimalValue(input.value),
+		loc:               loc,
+	}, nil
 }
 
 // ParsePrecisionDecimalMinInclusiveFacet parses an inclusive lower bound.
@@ -307,7 +305,7 @@ func ParsePrecisionDecimalMaxExclusiveFacetWithFixed(lexical string, loc Loc, fi
 func ParsePrecisionDecimalWhiteSpaceFacet(lexical string, loc Loc) (PrecisionDecimalWhiteSpaceFacet, error) {
 	value := collapseXMLWhitespace(lexical)
 	if value == "collapse" {
-		return PrecisionDecimalWhiteSpaceFacet{value: value, loc: loc, fixed: true}, nil
+		return PrecisionDecimalWhiteSpaceFacet{value: value, loc: loc}, nil
 	}
 	return PrecisionDecimalWhiteSpaceFacet{}, newPrecisionDecimalFacetDiagnostic(
 		FailureInvalid,
@@ -360,35 +358,55 @@ func ValidatePrecisionDecimalFacetValue(name, lexical string, loc Loc) error {
 }
 
 func parsePrecisionDecimalMinInclusiveFacet(lexical string, loc Loc, fixed bool) (PrecisionDecimalMinInclusiveFacet, error) {
-	value, err := parsePrecisionDecimal(lexical, loc)
+	input, err := parsePrecisionDecimalFacetInput(lexical, loc)
 	if err != nil {
 		return PrecisionDecimalMinInclusiveFacet{}, newPrecisionDecimalBoundDiagnostic("minInclusive", loc, precisionDecimalMinInclusiveValueSpecRef, err)
 	}
-	return PrecisionDecimalMinInclusiveFacet{value: clonePrecisionDecimalValue(value), loc: loc, fixed: fixed}, nil
+	return PrecisionDecimalMinInclusiveFacet{
+		normalizedLexical: input.normalizedLexical,
+		value:             clonePrecisionDecimalValue(input.value),
+		loc:               loc,
+		fixed:             fixed,
+	}, nil
 }
 
 func parsePrecisionDecimalMinExclusiveFacet(lexical string, loc Loc, fixed bool) (PrecisionDecimalMinExclusiveFacet, error) {
-	value, err := parsePrecisionDecimal(lexical, loc)
+	input, err := parsePrecisionDecimalFacetInput(lexical, loc)
 	if err != nil {
 		return PrecisionDecimalMinExclusiveFacet{}, newPrecisionDecimalBoundDiagnostic("minExclusive", loc, precisionDecimalMinExclusiveValueSpecRef, err)
 	}
-	return PrecisionDecimalMinExclusiveFacet{value: clonePrecisionDecimalValue(value), loc: loc, fixed: fixed}, nil
+	return PrecisionDecimalMinExclusiveFacet{
+		normalizedLexical: input.normalizedLexical,
+		value:             clonePrecisionDecimalValue(input.value),
+		loc:               loc,
+		fixed:             fixed,
+	}, nil
 }
 
 func parsePrecisionDecimalMaxInclusiveFacet(lexical string, loc Loc, fixed bool) (PrecisionDecimalMaxInclusiveFacet, error) {
-	value, err := parsePrecisionDecimal(lexical, loc)
+	input, err := parsePrecisionDecimalFacetInput(lexical, loc)
 	if err != nil {
 		return PrecisionDecimalMaxInclusiveFacet{}, newPrecisionDecimalBoundDiagnostic("maxInclusive", loc, precisionDecimalMaxInclusiveValueSpecRef, err)
 	}
-	return PrecisionDecimalMaxInclusiveFacet{value: clonePrecisionDecimalValue(value), loc: loc, fixed: fixed}, nil
+	return PrecisionDecimalMaxInclusiveFacet{
+		normalizedLexical: input.normalizedLexical,
+		value:             clonePrecisionDecimalValue(input.value),
+		loc:               loc,
+		fixed:             fixed,
+	}, nil
 }
 
 func parsePrecisionDecimalMaxExclusiveFacet(lexical string, loc Loc, fixed bool) (PrecisionDecimalMaxExclusiveFacet, error) {
-	value, err := parsePrecisionDecimal(lexical, loc)
+	input, err := parsePrecisionDecimalFacetInput(lexical, loc)
 	if err != nil {
 		return PrecisionDecimalMaxExclusiveFacet{}, newPrecisionDecimalBoundDiagnostic("maxExclusive", loc, precisionDecimalMaxExclusiveValueSpecRef, err)
 	}
-	return PrecisionDecimalMaxExclusiveFacet{value: clonePrecisionDecimalValue(value), loc: loc, fixed: fixed}, nil
+	return PrecisionDecimalMaxExclusiveFacet{
+		normalizedLexical: input.normalizedLexical,
+		value:             clonePrecisionDecimalValue(input.value),
+		loc:               loc,
+		fixed:             fixed,
+	}, nil
 }
 
 func newPrecisionDecimalEnumerationDiagnostic(loc Loc, cause error) Diagnostic {
@@ -415,7 +433,22 @@ func newPrecisionDecimalBoundDiagnostic(name string, loc Loc, specRef string, ca
 	)
 }
 
+func newPrecisionDecimalPatternResourceDiagnostic(loc Loc, cause error) Diagnostic {
+	return newPrecisionDecimalFacetDiagnostic(
+		FailureUnsupported,
+		UnsupportedPrecisionDecimalPatternCode,
+		loc,
+		precisionDecimalPatternValueSpecRef,
+		"precisionDecimal XML Schema pattern exceeds implementation resource limits",
+		nil,
+		fmt.Errorf("%w: %w", ErrUnsupported, cause),
+	)
+}
+
 func clonePrecisionDecimalValue(value precisionDecimalValue) precisionDecimalValue {
+	if value == nil {
+		return nil
+	}
 	switch typed := value.(type) {
 	case precisionDecimalFinite:
 		return precisionDecimalFinite{
@@ -432,6 +465,14 @@ func clonePrecisionDecimalValue(value precisionDecimalValue) precisionDecimalVal
 	default:
 		panic("precisionDecimal value clone: invalid value variant")
 	}
+}
+
+func (facet PrecisionDecimalPatternFacet) matches(source string) bool {
+	expression, err := parsePrecisionDecimalXMLRegex(facet.source)
+	if err != nil {
+		return false
+	}
+	return expression.matches(source)
 }
 
 func clonePrecisionDecimalPatternFacets(facets []PrecisionDecimalPatternFacet) []PrecisionDecimalPatternFacet {
@@ -464,6 +505,14 @@ func clonePrecisionDecimalEnumerationFacets(facets []PrecisionDecimalEnumeration
 	return result
 }
 
+func clonePrecisionDecimalEnumerationFacetsForEffective(facets []PrecisionDecimalEnumerationFacet) []PrecisionDecimalEnumerationFacet {
+	result := clonePrecisionDecimalEnumerationFacets(facets)
+	for index := range result {
+		result[index].normalizedLexical = ""
+	}
+	return result
+}
+
 func clonePrecisionDecimalMinInclusiveFacet(facet *PrecisionDecimalMinInclusiveFacet) *PrecisionDecimalMinInclusiveFacet {
 	if facet == nil {
 		return nil
@@ -471,6 +520,14 @@ func clonePrecisionDecimalMinInclusiveFacet(facet *PrecisionDecimalMinInclusiveF
 	facetCopy := *facet
 	facetCopy.value = clonePrecisionDecimalValue(facet.value)
 	return &facetCopy
+}
+
+func clonePrecisionDecimalMinInclusiveFacetForEffective(facet *PrecisionDecimalMinInclusiveFacet) *PrecisionDecimalMinInclusiveFacet {
+	result := clonePrecisionDecimalMinInclusiveFacet(facet)
+	if result != nil {
+		result.normalizedLexical = ""
+	}
+	return result
 }
 
 func clonePrecisionDecimalMinExclusiveFacet(facet *PrecisionDecimalMinExclusiveFacet) *PrecisionDecimalMinExclusiveFacet {
@@ -482,6 +539,14 @@ func clonePrecisionDecimalMinExclusiveFacet(facet *PrecisionDecimalMinExclusiveF
 	return &facetCopy
 }
 
+func clonePrecisionDecimalMinExclusiveFacetForEffective(facet *PrecisionDecimalMinExclusiveFacet) *PrecisionDecimalMinExclusiveFacet {
+	result := clonePrecisionDecimalMinExclusiveFacet(facet)
+	if result != nil {
+		result.normalizedLexical = ""
+	}
+	return result
+}
+
 func clonePrecisionDecimalMaxInclusiveFacet(facet *PrecisionDecimalMaxInclusiveFacet) *PrecisionDecimalMaxInclusiveFacet {
 	if facet == nil {
 		return nil
@@ -489,6 +554,14 @@ func clonePrecisionDecimalMaxInclusiveFacet(facet *PrecisionDecimalMaxInclusiveF
 	facetCopy := *facet
 	facetCopy.value = clonePrecisionDecimalValue(facet.value)
 	return &facetCopy
+}
+
+func clonePrecisionDecimalMaxInclusiveFacetForEffective(facet *PrecisionDecimalMaxInclusiveFacet) *PrecisionDecimalMaxInclusiveFacet {
+	result := clonePrecisionDecimalMaxInclusiveFacet(facet)
+	if result != nil {
+		result.normalizedLexical = ""
+	}
+	return result
 }
 
 func clonePrecisionDecimalMaxExclusiveFacet(facet *PrecisionDecimalMaxExclusiveFacet) *PrecisionDecimalMaxExclusiveFacet {
@@ -500,12 +573,24 @@ func clonePrecisionDecimalMaxExclusiveFacet(facet *PrecisionDecimalMaxExclusiveF
 	return &facetCopy
 }
 
+func clonePrecisionDecimalMaxExclusiveFacetForEffective(facet *PrecisionDecimalMaxExclusiveFacet) *PrecisionDecimalMaxExclusiveFacet {
+	result := clonePrecisionDecimalMaxExclusiveFacet(facet)
+	if result != nil {
+		result.normalizedLexical = ""
+	}
+	return result
+}
+
 func clonePrecisionDecimalWhiteSpaceFacet(facet *PrecisionDecimalWhiteSpaceFacet) *PrecisionDecimalWhiteSpaceFacet {
 	if facet == nil {
 		return nil
 	}
 	facetCopy := *facet
 	return &facetCopy
+}
+
+func precisionDecimalDefaultWhiteSpaceFacet() *PrecisionDecimalWhiteSpaceFacet {
+	return &PrecisionDecimalWhiteSpaceFacet{value: "collapse", fixed: true}
 }
 
 func clonePrecisionDecimalFacetDeclarations(local PrecisionDecimalFacetDeclarations) PrecisionDecimalFacetDeclarations {
@@ -521,13 +606,6 @@ func clonePrecisionDecimalFacetDeclarations(local PrecisionDecimalFacetDeclarati
 		local.MaxExclusive,
 		local.WhiteSpace,
 	)
-	if local.boundRecords != nil {
-		declarations.boundRecords = make([]precisionDecimalBoundRecord, len(local.boundRecords))
-		for index, record := range local.boundRecords {
-			declarations.boundRecords[index] = record
-			declarations.boundRecords[index].value = clonePrecisionDecimalValue(record.value)
-		}
-	}
 	return declarations
 }
 
@@ -599,24 +677,28 @@ func (facets PrecisionDecimalFacets) MaxExclusiveFacet() (PrecisionDecimalMaxExc
 // WhiteSpaceFacet returns the effective whiteSpace declaration.
 func (facets PrecisionDecimalFacets) WhiteSpaceFacet() (PrecisionDecimalWhiteSpaceFacet, bool) {
 	if facets.whiteSpace == nil {
-		return PrecisionDecimalWhiteSpaceFacet{}, false
+		return *precisionDecimalDefaultWhiteSpaceFacet(), true
 	}
 	return *clonePrecisionDecimalWhiteSpaceFacet(facets.whiteSpace), true
 }
 
 func validatePrecisionDecimalPatternState(patterns []PrecisionDecimalPatternFacet) error {
 	for _, pattern := range patterns {
-		if pattern.expression != nil {
+		_, err := parsePrecisionDecimalXMLRegex(pattern.source)
+		if err == nil {
 			continue
+		}
+		if errors.Is(err, errPrecisionDecimalXMLRegexResourceLimit) {
+			return newPrecisionDecimalPatternResourceDiagnostic(pattern.Loc(), err)
 		}
 		return newPrecisionDecimalFacetDiagnostic(
 			FailureInternal,
 			InvalidPrecisionDecimalPatternCode,
 			pattern.Loc(),
 			precisionDecimalPatternValueSpecRef,
-			"completed precisionDecimal pattern has no compiled expression",
+			"completed precisionDecimal pattern is not valid XML Schema syntax",
 			nil,
-			errInvalidPrecisionDecimalFacetState,
+			fmt.Errorf("%w: %w", errInvalidPrecisionDecimalFacetState, err),
 		)
 	}
 	return nil
@@ -643,8 +725,19 @@ func validatePrecisionDecimalPatternGroupsState(groups [][]PrecisionDecimalPatte
 }
 
 func validatePrecisionDecimalEnumerationState(members []PrecisionDecimalEnumerationFacet) error {
+	if members != nil && len(members) == 0 {
+		return newPrecisionDecimalFacetDiagnostic(
+			FailureInternal,
+			InvalidPrecisionDecimalEnumerationCode,
+			Loc{},
+			precisionDecimalEnumerationValueSpecRef,
+			"completed precisionDecimal enumeration is empty",
+			nil,
+			errInvalidPrecisionDecimalFacetState,
+		)
+	}
 	for _, member := range members {
-		if member.value != nil {
+		if precisionDecimalValueIsWellFormed(member.value) {
 			continue
 		}
 		return newPrecisionDecimalFacetDiagnostic(
@@ -655,6 +748,35 @@ func validatePrecisionDecimalEnumerationState(members []PrecisionDecimalEnumerat
 			"completed precisionDecimal enumeration member has no value",
 			nil,
 			errInvalidPrecisionDecimalFacetState,
+		)
+	}
+	return nil
+}
+
+func validatePrecisionDecimalLocalEnumerationState(members []PrecisionDecimalEnumerationFacet) error {
+	if members != nil && len(members) == 0 {
+		return newPrecisionDecimalFacetDiagnostic(
+			FailureInvalid,
+			InvalidPrecisionDecimalEnumerationCode,
+			Loc{},
+			precisionDecimalEnumerationValueSpecRef,
+			"precisionDecimal enumeration declaration is empty",
+			nil,
+			errInvalidPrecisionDecimalEnumeration,
+		)
+	}
+	for _, member := range members {
+		if precisionDecimalValueIsWellFormed(member.value) && member.normalizedLexical != "" {
+			continue
+		}
+		return newPrecisionDecimalFacetDiagnostic(
+			FailureInvalid,
+			InvalidPrecisionDecimalEnumerationCode,
+			member.Loc(),
+			precisionDecimalEnumerationValueSpecRef,
+			"invalid precisionDecimal enumeration declaration",
+			nil,
+			errInvalidPrecisionDecimalEnumeration,
 		)
 	}
 	return nil
@@ -679,9 +801,6 @@ func validatePrecisionDecimalWhiteSpaceState(facet *PrecisionDecimalWhiteSpaceFa
 }
 
 func validatePrecisionDecimalLocalValueFacetState(local PrecisionDecimalFacetDeclarations) error {
-	if err := validatePrecisionDecimalBoundRecords(local.boundRecords); err != nil {
-		return err
-	}
 	if local.MinInclusive != nil && local.MinExclusive != nil {
 		return invalidPrecisionDecimalBoundCombinationWithSpec(
 			local.MinExclusive.Loc(),
@@ -701,13 +820,16 @@ func validatePrecisionDecimalLocalValueFacetState(local PrecisionDecimalFacetDec
 	if err := validatePrecisionDecimalPatternState(local.Patterns); err != nil {
 		return err
 	}
-	if err := validatePrecisionDecimalEnumerationState(local.Enumeration); err != nil {
+	if err := validatePrecisionDecimalLocalEnumerationState(local.Enumeration); err != nil {
+		return err
+	}
+	if err := validatePrecisionDecimalLocalBoundValueState(local); err != nil {
 		return err
 	}
 	if err := validatePrecisionDecimalBoundState(local.MinInclusive, local.MinExclusive, local.MaxInclusive, local.MaxExclusive); err != nil {
 		return err
 	}
-	return validatePrecisionDecimalWhiteSpaceState(local.WhiteSpace)
+	return validatePrecisionDecimalLocalWhiteSpaceState(local.WhiteSpace)
 }
 
 func validatePrecisionDecimalEffectiveValueFacetState(facets PrecisionDecimalFacets) error {
@@ -717,59 +839,278 @@ func validatePrecisionDecimalEffectiveValueFacetState(facets PrecisionDecimalFac
 	if err := validatePrecisionDecimalEnumerationState(facets.enumeration); err != nil {
 		return err
 	}
+	if err := validatePrecisionDecimalEffectiveBoundValueState(facets); err != nil {
+		return err
+	}
 	if err := validatePrecisionDecimalBoundState(facets.minInclusive, facets.minExclusive, facets.maxInclusive, facets.maxExclusive); err != nil {
 		return err
 	}
 	return validatePrecisionDecimalWhiteSpaceState(facets.whiteSpace)
 }
 
-func validatePrecisionDecimalBoundRecords(records []precisionDecimalBoundRecord) error {
-	var seenMinInclusive, seenMinExclusive bool
-	var seenMaxInclusive, seenMaxExclusive bool
-	var minInclusiveLoc, minExclusiveLoc, maxInclusiveLoc, maxExclusiveLoc Loc
-	for _, record := range records {
-		var duplicate bool
-		var related Loc
-		switch record.kind {
-		case precisionDecimalMinInclusiveBoundKind:
-			duplicate = seenMinInclusive
-			related = minInclusiveLoc
-			seenMinInclusive = true
-			minInclusiveLoc = record.loc
-		case precisionDecimalMinExclusiveBoundKind:
-			duplicate = seenMinExclusive
-			related = minExclusiveLoc
-			seenMinExclusive = true
-			minExclusiveLoc = record.loc
-		case precisionDecimalMaxInclusiveBoundKind:
-			duplicate = seenMaxInclusive
-			related = maxInclusiveLoc
-			seenMaxInclusive = true
-			maxInclusiveLoc = record.loc
-		case precisionDecimalMaxExclusiveBoundKind:
-			duplicate = seenMaxExclusive
-			related = maxExclusiveLoc
-			seenMaxExclusive = true
-			maxExclusiveLoc = record.loc
-		default:
+func validatePrecisionDecimalLocalWhiteSpaceState(facet *PrecisionDecimalWhiteSpaceFacet) error {
+	if facet == nil {
+		return nil
+	}
+	if facet.value == "collapse" {
+		return nil
+	}
+	return newPrecisionDecimalFacetDiagnostic(
+		FailureInvalid,
+		InvalidPrecisionDecimalWhiteSpaceCode,
+		facet.Loc(),
+		precisionDecimalWhiteSpaceValueSpecRef,
+		"completed precisionDecimal whiteSpace is not collapse",
+		nil,
+		errInvalidPrecisionDecimalWhiteSpace,
+	)
+}
+
+func precisionDecimalValueIsWellFormed(value precisionDecimalValue) bool {
+	switch typed := value.(type) {
+	case precisionDecimalFinite:
+		if typed.coefficient == nil || typed.scale == nil || typed.coefficient.Sign() < 0 {
+			return false
+		}
+		return typed.sign == precisionDecimalSignPositive || typed.sign == precisionDecimalSignNegative
+	case precisionDecimalPositiveInfinity, precisionDecimalNegativeInfinity, precisionDecimalNaN:
+		return true
+	default:
+		return false
+	}
+}
+
+func precisionDecimalEqualOrIdentical(left, right precisionDecimalValue) bool {
+	if !precisionDecimalValueIsWellFormed(left) || !precisionDecimalValueIsWellFormed(right) {
+		return false
+	}
+	_, leftNaN := left.(precisionDecimalNaN)
+	_, rightNaN := right.(precisionDecimalNaN)
+	if leftNaN || rightNaN {
+		return leftNaN && rightNaN
+	}
+	return comparePrecisionDecimal(left, right) == precisionDecimalOrderEqual
+}
+
+func validatePrecisionDecimalLocalFacetMembers(base PrecisionDecimalFacets, local PrecisionDecimalFacetDeclarations) error {
+	for _, member := range local.Enumeration {
+		input := precisionDecimalFacetInput{
+			normalizedLexical: member.normalizedLexical,
+			value:             member.value,
+		}
+		if err := validatePrecisionDecimalFacetInput(input, base, member.Loc()); err != nil {
+			return newPrecisionDecimalFacetDiagnostic(
+				FailureInvalid,
+				InvalidPrecisionDecimalEnumerationCode,
+				member.Loc(),
+				precisionDecimalEnumerationRestrictionSpecRef,
+				"derived precisionDecimal enumeration member is outside the base value space",
+				precisionDecimalMembershipRelatedLocations(err, member.Loc()),
+				fmt.Errorf("%w: %w", errInvalidPrecisionDecimalEnumeration, err),
+			)
+		}
+	}
+	for _, bound := range []struct {
+		present bool
+		name    string
+		lexical string
+		value   precisionDecimalValue
+		loc     Loc
+	}{
+		{present: local.MinInclusive != nil, name: "minInclusive", lexical: precisionDecimalLocalMinInclusiveLexical(local.MinInclusive), value: precisionDecimalLocalMinInclusiveValue(local.MinInclusive), loc: precisionDecimalLocalMinInclusiveLoc(local.MinInclusive)},
+		{present: local.MinExclusive != nil, name: "minExclusive", lexical: precisionDecimalLocalMinExclusiveLexical(local.MinExclusive), value: precisionDecimalLocalMinExclusiveValue(local.MinExclusive), loc: precisionDecimalLocalMinExclusiveLoc(local.MinExclusive)},
+		{present: local.MaxInclusive != nil, name: "maxInclusive", lexical: precisionDecimalLocalMaxInclusiveLexical(local.MaxInclusive), value: precisionDecimalLocalMaxInclusiveValue(local.MaxInclusive), loc: precisionDecimalLocalMaxInclusiveLoc(local.MaxInclusive)},
+		{present: local.MaxExclusive != nil, name: "maxExclusive", lexical: precisionDecimalLocalMaxExclusiveLexical(local.MaxExclusive), value: precisionDecimalLocalMaxExclusiveValue(local.MaxExclusive), loc: precisionDecimalLocalMaxExclusiveLoc(local.MaxExclusive)},
+	} {
+		if !bound.present {
+			continue
+		}
+		membershipException := precisionDecimalBoundMembershipException(base, bound.name, bound.value)
+		if precisionDecimalBaseValueSpaceEmpty(base) && !membershipException {
+			return newPrecisionDecimalFacetDiagnostic(
+				FailureInvalid,
+				InvalidPrecisionDecimalBoundCode,
+				bound.loc,
+				precisionDecimalBoundRestrictionSpecRefForName(bound.name),
+				"derived precisionDecimal "+bound.name+" is outside the empty base value space",
+				precisionDecimalEffectiveBoundLocations(base),
+				fmt.Errorf("%w: base value space is empty", errInvalidPrecisionDecimalBound),
+			)
+		}
+		if membershipException {
+			continue
+		}
+		input := precisionDecimalFacetInput{normalizedLexical: bound.lexical, value: bound.value}
+		if err := validatePrecisionDecimalFacetInput(input, base, bound.loc); err != nil {
+			return newPrecisionDecimalFacetDiagnostic(
+				FailureInvalid,
+				InvalidPrecisionDecimalBoundCode,
+				bound.loc,
+				precisionDecimalBoundRestrictionSpecRefForName(bound.name),
+				"derived precisionDecimal "+bound.name+" is outside the base value space",
+				precisionDecimalMembershipRelatedLocations(err, bound.loc),
+				fmt.Errorf("%w: %w", errInvalidPrecisionDecimalBound, err),
+			)
+		}
+	}
+	return nil
+}
+
+func precisionDecimalBaseValueSpaceEmpty(base PrecisionDecimalFacets) bool {
+	return precisionDecimalValueIsNaN(precisionDecimalLocalMinInclusiveValue(base.minInclusive)) ||
+		precisionDecimalValueIsNaN(precisionDecimalLocalMinExclusiveValue(base.minExclusive)) ||
+		precisionDecimalValueIsNaN(precisionDecimalLocalMaxInclusiveValue(base.maxInclusive)) ||
+		precisionDecimalValueIsNaN(precisionDecimalLocalMaxExclusiveValue(base.maxExclusive))
+}
+
+func precisionDecimalValueIsNaN(value precisionDecimalValue) bool {
+	_, ok := value.(precisionDecimalNaN)
+	return ok
+}
+
+func precisionDecimalBoundMembershipException(base PrecisionDecimalFacets, name string, value precisionDecimalValue) bool {
+	if precisionDecimalFixedNaNBoundRedeclaration(base, name, value) {
+		return true
+	}
+	if precisionDecimalValueIsNaN(value) {
+		return false
+	}
+	switch name {
+	case "minExclusive":
+		return base.minExclusive != nil && precisionDecimalEqualOrIdentical(value, base.minExclusive.value)
+	case "maxExclusive":
+		return base.maxExclusive != nil && precisionDecimalEqualOrIdentical(value, base.maxExclusive.value)
+	default:
+		return false
+	}
+}
+
+func precisionDecimalFixedNaNBoundRedeclaration(base PrecisionDecimalFacets, name string, value precisionDecimalValue) bool {
+	if !precisionDecimalValueIsNaN(value) {
+		return false
+	}
+	var baseValue precisionDecimalValue
+	var fixed bool
+	switch name {
+	case "minInclusive":
+		if base.minInclusive == nil {
+			return false
+		}
+		baseValue = base.minInclusive.value
+		fixed = base.minInclusive.fixed
+	case "minExclusive":
+		if base.minExclusive == nil {
+			return false
+		}
+		baseValue = base.minExclusive.value
+		fixed = base.minExclusive.fixed
+	case "maxInclusive":
+		if base.maxInclusive == nil {
+			return false
+		}
+		baseValue = base.maxInclusive.value
+		fixed = base.maxInclusive.fixed
+	case "maxExclusive":
+		if base.maxExclusive == nil {
+			return false
+		}
+		baseValue = base.maxExclusive.value
+		fixed = base.maxExclusive.fixed
+	default:
+		return false
+	}
+	return fixed && precisionDecimalEqualOrIdentical(value, baseValue)
+}
+
+func precisionDecimalEffectiveBoundLocations(base PrecisionDecimalFacets) []Loc {
+	locations := make([]Loc, 0, 4)
+	for _, location := range []Loc{
+		precisionDecimalLocalMinInclusiveLoc(base.minInclusive),
+		precisionDecimalLocalMinExclusiveLoc(base.minExclusive),
+		precisionDecimalLocalMaxInclusiveLoc(base.maxInclusive),
+		precisionDecimalLocalMaxExclusiveLoc(base.maxExclusive),
+	} {
+		if location.IsZero() {
+			continue
+		}
+		locations = append(locations, location)
+	}
+	return locations
+}
+
+func precisionDecimalMembershipRelatedLocations(err error, primary Loc) []Loc {
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		return nil
+	}
+	locations := diagnostic.Related()
+	if diagnostic.Loc().IsZero() || diagnostic.Loc() == primary {
+		return locations
+	}
+	for _, location := range locations {
+		if location == diagnostic.Loc() {
+			return locations
+		}
+	}
+	return append(locations, diagnostic.Loc())
+}
+
+func validatePrecisionDecimalLocalBoundValueState(local PrecisionDecimalFacetDeclarations) error {
+	for _, bound := range []struct {
+		present bool
+		value   precisionDecimalValue
+		lexical string
+		loc     Loc
+		spec    string
+	}{
+		{present: local.MinInclusive != nil, value: precisionDecimalLocalMinInclusiveValue(local.MinInclusive), lexical: precisionDecimalLocalMinInclusiveLexical(local.MinInclusive), loc: precisionDecimalLocalMinInclusiveLoc(local.MinInclusive), spec: precisionDecimalMinInclusiveValueSpecRef},
+		{present: local.MinExclusive != nil, value: precisionDecimalLocalMinExclusiveValue(local.MinExclusive), lexical: precisionDecimalLocalMinExclusiveLexical(local.MinExclusive), loc: precisionDecimalLocalMinExclusiveLoc(local.MinExclusive), spec: precisionDecimalMinExclusiveValueSpecRef},
+		{present: local.MaxInclusive != nil, value: precisionDecimalLocalMaxInclusiveValue(local.MaxInclusive), lexical: precisionDecimalLocalMaxInclusiveLexical(local.MaxInclusive), loc: precisionDecimalLocalMaxInclusiveLoc(local.MaxInclusive), spec: precisionDecimalMaxInclusiveValueSpecRef},
+		{present: local.MaxExclusive != nil, value: precisionDecimalLocalMaxExclusiveValue(local.MaxExclusive), lexical: precisionDecimalLocalMaxExclusiveLexical(local.MaxExclusive), loc: precisionDecimalLocalMaxExclusiveLoc(local.MaxExclusive), spec: precisionDecimalMaxExclusiveValueSpecRef},
+	} {
+		if !bound.present {
+			continue
+		}
+		if !precisionDecimalValueIsWellFormed(bound.value) || bound.lexical == "" {
+			return newPrecisionDecimalFacetDiagnostic(
+				FailureInvalid,
+				InvalidPrecisionDecimalBoundCode,
+				bound.loc,
+				bound.spec,
+				"completed precisionDecimal ordered bound has no valid value",
+				nil,
+				errInvalidPrecisionDecimalBound,
+			)
+		}
+	}
+	return nil
+}
+
+func validatePrecisionDecimalEffectiveBoundValueState(facets PrecisionDecimalFacets) error {
+	for _, bound := range []struct {
+		value precisionDecimalValue
+		loc   Loc
+		spec  string
+	}{
+		{value: precisionDecimalLocalMinInclusiveValue(facets.minInclusive), loc: precisionDecimalLocalMinInclusiveLoc(facets.minInclusive), spec: precisionDecimalMinInclusiveValueSpecRef},
+		{value: precisionDecimalLocalMinExclusiveValue(facets.minExclusive), loc: precisionDecimalLocalMinExclusiveLoc(facets.minExclusive), spec: precisionDecimalMinExclusiveValueSpecRef},
+		{value: precisionDecimalLocalMaxInclusiveValue(facets.maxInclusive), loc: precisionDecimalLocalMaxInclusiveLoc(facets.maxInclusive), spec: precisionDecimalMaxInclusiveValueSpecRef},
+		{value: precisionDecimalLocalMaxExclusiveValue(facets.maxExclusive), loc: precisionDecimalLocalMaxExclusiveLoc(facets.maxExclusive), spec: precisionDecimalMaxExclusiveValueSpecRef},
+	} {
+		if bound.value == nil {
+			continue
+		}
+		if !precisionDecimalValueIsWellFormed(bound.value) {
 			return newPrecisionDecimalFacetDiagnostic(
 				FailureInternal,
-				InvalidPrecisionDecimalBoundCombinationCode,
-				record.loc,
-				precisionDecimalBoundRestrictionSpecRef,
-				"completed precisionDecimal bound has an invalid kind",
+				InvalidPrecisionDecimalBoundCode,
+				bound.loc,
+				bound.spec,
+				"completed precisionDecimal ordered bound has no valid value",
 				nil,
 				errInvalidPrecisionDecimalFacetState,
 			)
 		}
-		if !duplicate {
-			continue
-		}
-		return invalidPrecisionDecimalBoundCombination(
-			record.loc,
-			related,
-			"precisionDecimal declarations contain a duplicate ordered bound",
-		)
 	}
 	return nil
 }
@@ -808,7 +1149,7 @@ func validatePrecisionDecimalBoundState(
 	if order == precisionDecimalOrderUnordered {
 		return nil
 	}
-	valid := order == precisionDecimalOrderLess || (order == precisionDecimalOrderEqual && minInclusiveKind && maxInclusiveKind)
+	valid := order == precisionDecimalOrderLess || (order == precisionDecimalOrderEqual && minInclusiveKind == maxInclusiveKind)
 	if valid {
 		return nil
 	}
@@ -818,6 +1159,90 @@ func validatePrecisionDecimalBoundState(
 		precisionDecimalBoundCombinationSpecRef(minInclusiveKind, maxInclusiveKind),
 		"precisionDecimal lower and upper bounds describe an empty ordered interval",
 	)
+}
+
+func precisionDecimalLocalMinInclusiveValue(facet *PrecisionDecimalMinInclusiveFacet) precisionDecimalValue {
+	if facet == nil {
+		return nil
+	}
+	return facet.value
+}
+
+func precisionDecimalLocalMinInclusiveLexical(facet *PrecisionDecimalMinInclusiveFacet) string {
+	if facet == nil {
+		return ""
+	}
+	return facet.normalizedLexical
+}
+
+func precisionDecimalLocalMinInclusiveLoc(facet *PrecisionDecimalMinInclusiveFacet) Loc {
+	if facet == nil {
+		return Loc{}
+	}
+	return facet.Loc()
+}
+
+func precisionDecimalLocalMinExclusiveValue(facet *PrecisionDecimalMinExclusiveFacet) precisionDecimalValue {
+	if facet == nil {
+		return nil
+	}
+	return facet.value
+}
+
+func precisionDecimalLocalMinExclusiveLexical(facet *PrecisionDecimalMinExclusiveFacet) string {
+	if facet == nil {
+		return ""
+	}
+	return facet.normalizedLexical
+}
+
+func precisionDecimalLocalMinExclusiveLoc(facet *PrecisionDecimalMinExclusiveFacet) Loc {
+	if facet == nil {
+		return Loc{}
+	}
+	return facet.Loc()
+}
+
+func precisionDecimalLocalMaxInclusiveValue(facet *PrecisionDecimalMaxInclusiveFacet) precisionDecimalValue {
+	if facet == nil {
+		return nil
+	}
+	return facet.value
+}
+
+func precisionDecimalLocalMaxInclusiveLexical(facet *PrecisionDecimalMaxInclusiveFacet) string {
+	if facet == nil {
+		return ""
+	}
+	return facet.normalizedLexical
+}
+
+func precisionDecimalLocalMaxInclusiveLoc(facet *PrecisionDecimalMaxInclusiveFacet) Loc {
+	if facet == nil {
+		return Loc{}
+	}
+	return facet.Loc()
+}
+
+func precisionDecimalLocalMaxExclusiveValue(facet *PrecisionDecimalMaxExclusiveFacet) precisionDecimalValue {
+	if facet == nil {
+		return nil
+	}
+	return facet.value
+}
+
+func precisionDecimalLocalMaxExclusiveLexical(facet *PrecisionDecimalMaxExclusiveFacet) string {
+	if facet == nil {
+		return ""
+	}
+	return facet.normalizedLexical
+}
+
+func precisionDecimalLocalMaxExclusiveLoc(facet *PrecisionDecimalMaxExclusiveFacet) Loc {
+	if facet == nil {
+		return Loc{}
+	}
+	return facet.Loc()
 }
 
 func validatePrecisionDecimalBounds(facets PrecisionDecimalFacets) error {
@@ -836,10 +1261,6 @@ func precisionDecimalUpperBound(maxInclusive *PrecisionDecimalMaxInclusiveFacet,
 		return maxInclusive.value, maxInclusive.Loc(), true
 	}
 	return maxExclusive.value, maxExclusive.Loc(), false
-}
-
-func invalidPrecisionDecimalBoundCombination(primary, related Loc, message string) Diagnostic {
-	return invalidPrecisionDecimalBoundCombinationWithSpec(primary, related, precisionDecimalBoundRestrictionSpecRef, message)
 }
 
 func invalidPrecisionDecimalBoundCombinationWithSpec(primary, related Loc, specRef, message string) Diagnostic {
@@ -872,22 +1293,18 @@ func applyPrecisionDecimalValueFacets(effective, base *PrecisionDecimalFacets, l
 	if len(local.Patterns) != 0 {
 		effective.patterns = append(effective.patterns, clonePrecisionDecimalPatternFacets(local.Patterns))
 	}
-	applyPrecisionDecimalEnumerationFacets(effective, base, local.Enumeration)
+	applyPrecisionDecimalEnumerationFacets(effective, local.Enumeration)
 	if err := applyPrecisionDecimalWhiteSpaceFacet(effective, base, local.WhiteSpace, derived); err != nil {
 		return err
 	}
 	return applyPrecisionDecimalBoundFacets(effective, base, local, derived)
 }
 
-func applyPrecisionDecimalEnumerationFacets(effective, base *PrecisionDecimalFacets, local []PrecisionDecimalEnumerationFacet) {
+func applyPrecisionDecimalEnumerationFacets(effective *PrecisionDecimalFacets, local []PrecisionDecimalEnumerationFacet) {
 	if local == nil {
 		return
 	}
-	if base.enumeration == nil {
-		effective.enumeration = clonePrecisionDecimalEnumerationFacets(local)
-		return
-	}
-	effective.enumeration = intersectPrecisionDecimalEnumerations(base.enumeration, local)
+	effective.enumeration = clonePrecisionDecimalEnumerationFacetsForEffective(local)
 }
 
 func applyPrecisionDecimalWhiteSpaceFacet(effective, base *PrecisionDecimalFacets, local *PrecisionDecimalWhiteSpaceFacet, derived bool) error {
@@ -906,6 +1323,9 @@ func applyPrecisionDecimalWhiteSpaceFacet(effective, base *PrecisionDecimalFacet
 		)
 	}
 	effective.whiteSpace = clonePrecisionDecimalWhiteSpaceFacet(local)
+	if base.whiteSpace == nil {
+		effective.whiteSpace.fixed = true
+	}
 	if base.whiteSpace != nil && base.whiteSpace.Fixed() {
 		effective.whiteSpace.fixed = true
 	}
@@ -936,23 +1356,6 @@ func applyPrecisionDecimalBoundFacets(effective, base *PrecisionDecimalFacets, l
 	return nil
 }
 
-func intersectPrecisionDecimalEnumerations(base, local []PrecisionDecimalEnumerationFacet) []PrecisionDecimalEnumerationFacet {
-	result := make([]PrecisionDecimalEnumerationFacet, 0, len(local))
-	for _, localMember := range local {
-		for _, baseMember := range base {
-			if comparePrecisionDecimal(localMember.value, baseMember.value) != precisionDecimalOrderEqual {
-				continue
-			}
-			result = append(result, PrecisionDecimalEnumerationFacet{
-				value: clonePrecisionDecimalValue(localMember.value),
-				loc:   localMember.Loc(),
-			})
-			break
-		}
-	}
-	return result
-}
-
 func applyPrecisionDecimalMinInclusive(effective, base *PrecisionDecimalFacets, local PrecisionDecimalMinInclusiveFacet, derived bool) error {
 	if derived {
 		if base.minInclusive != nil {
@@ -966,7 +1369,7 @@ func applyPrecisionDecimalMinInclusive(effective, base *PrecisionDecimalFacets, 
 			}
 		}
 	}
-	effective.minInclusive = clonePrecisionDecimalMinInclusiveFacet(&local)
+	effective.minInclusive = clonePrecisionDecimalMinInclusiveFacetForEffective(&local)
 	effective.minExclusive = nil
 	if base.minInclusive != nil && base.minInclusive.fixed {
 		effective.minInclusive.fixed = true
@@ -987,7 +1390,7 @@ func applyPrecisionDecimalMinExclusive(effective, base *PrecisionDecimalFacets, 
 			}
 		}
 	}
-	effective.minExclusive = clonePrecisionDecimalMinExclusiveFacet(&local)
+	effective.minExclusive = clonePrecisionDecimalMinExclusiveFacetForEffective(&local)
 	effective.minInclusive = nil
 	if base.minExclusive != nil && base.minExclusive.fixed {
 		effective.minExclusive.fixed = true
@@ -1008,7 +1411,7 @@ func applyPrecisionDecimalMaxInclusive(effective, base *PrecisionDecimalFacets, 
 			}
 		}
 	}
-	effective.maxInclusive = clonePrecisionDecimalMaxInclusiveFacet(&local)
+	effective.maxInclusive = clonePrecisionDecimalMaxInclusiveFacetForEffective(&local)
 	effective.maxExclusive = nil
 	if base.maxInclusive != nil && base.maxInclusive.fixed {
 		effective.maxInclusive.fixed = true
@@ -1029,7 +1432,7 @@ func applyPrecisionDecimalMaxExclusive(effective, base *PrecisionDecimalFacets, 
 			}
 		}
 	}
-	effective.maxExclusive = clonePrecisionDecimalMaxExclusiveFacet(&local)
+	effective.maxExclusive = clonePrecisionDecimalMaxExclusiveFacetForEffective(&local)
 	effective.maxInclusive = nil
 	if base.maxExclusive != nil && base.maxExclusive.fixed {
 		effective.maxExclusive.fixed = true
@@ -1038,7 +1441,7 @@ func applyPrecisionDecimalMaxExclusive(effective, base *PrecisionDecimalFacets, 
 }
 
 func validatePrecisionDecimalBoundRestriction(localValue precisionDecimalValue, localLoc Loc, baseValue precisionDecimalValue, baseLoc Loc, baseFixed bool, localInclusive, baseInclusive, lower bool) error {
-	if baseFixed && comparePrecisionDecimal(localValue, baseValue) != precisionDecimalOrderEqual {
+	if baseFixed && localInclusive == baseInclusive && !precisionDecimalEqualOrIdentical(localValue, baseValue) {
 		return newPrecisionDecimalFacetDiagnostic(
 			FailureInvalid,
 			InvalidPrecisionDecimalFacetRestrictionCode,
@@ -1103,6 +1506,19 @@ func precisionDecimalBoundRestrictionSpecRefForKind(inclusive, lower bool) strin
 		return precisionDecimalMaxInclusiveRestrictionSpecRef
 	}
 	return precisionDecimalMaxExclusiveRestrictionSpecRef
+}
+
+func precisionDecimalBoundRestrictionSpecRefForName(name string) string {
+	switch name {
+	case "minInclusive":
+		return precisionDecimalMinInclusiveRestrictionSpecRef
+	case "minExclusive":
+		return precisionDecimalMinExclusiveRestrictionSpecRef
+	case "maxInclusive":
+		return precisionDecimalMaxInclusiveRestrictionSpecRef
+	default:
+		return precisionDecimalMaxExclusiveRestrictionSpecRef
+	}
 }
 
 func precisionDecimalFacetValueViolation(valueLoc Loc, related []Loc, specRef, message string) error {
@@ -1183,7 +1599,11 @@ func validatePrecisionDecimalPatterns(normalizedLexical string, facets Precision
 	for _, group := range facets.patterns {
 		matched := false
 		for _, pattern := range group {
-			if !pattern.expression.matches(normalizedLexical) {
+			patternMatched, err := validatePrecisionDecimalPatternMatch(normalizedLexical, pattern)
+			if err != nil {
+				return err
+			}
+			if !patternMatched {
 				continue
 			}
 			matched = true
@@ -1202,6 +1622,40 @@ func validatePrecisionDecimalPatterns(normalizedLexical string, facets Precision
 	return nil
 }
 
+func validatePrecisionDecimalPatternMatch(normalizedLexical string, pattern PrecisionDecimalPatternFacet) (bool, error) {
+	expression, err := parsePrecisionDecimalXMLRegex(pattern.source)
+	if err != nil {
+		if errors.Is(err, errPrecisionDecimalXMLRegexResourceLimit) {
+			return false, newPrecisionDecimalPatternResourceDiagnostic(pattern.Loc(), err)
+		}
+		return false, newPrecisionDecimalFacetDiagnostic(
+			FailureInternal,
+			InvalidPrecisionDecimalPatternCode,
+			pattern.Loc(),
+			precisionDecimalPatternValueSpecRef,
+			"completed precisionDecimal pattern is not valid XML Schema syntax",
+			nil,
+			fmt.Errorf("%w: %w", errInvalidPrecisionDecimalFacetState, err),
+		)
+	}
+	matched, err := expression.match(normalizedLexical)
+	if err == nil {
+		return matched, nil
+	}
+	if errors.Is(err, errPrecisionDecimalXMLRegexResourceLimit) || errors.Is(err, errPrecisionDecimalXMLRegexMatchResourceLimit) {
+		return false, newPrecisionDecimalPatternResourceDiagnostic(pattern.Loc(), err)
+	}
+	return false, newPrecisionDecimalFacetDiagnostic(
+		FailureInternal,
+		InvalidPrecisionDecimalPatternCode,
+		pattern.Loc(),
+		precisionDecimalPatternValueSpecRef,
+		"completed precisionDecimal pattern matching failed",
+		nil,
+		fmt.Errorf("%w: %w", errInvalidPrecisionDecimalFacetState, err),
+	)
+}
+
 func validatePrecisionDecimalTotalDigitsValue(value precisionDecimalValue, facets PrecisionDecimalFacets, valueLoc Loc) error {
 	if facets.totalDigits == nil {
 		return nil
@@ -1213,7 +1667,7 @@ func validatePrecisionDecimalTotalDigitsValue(value precisionDecimalValue, facet
 	return precisionDecimalFacetValueViolation(
 		valueLoc,
 		precisionDecimalRelatedLocation(facets.totalDigits.Loc()),
-		precisionDecimalTotalDigitsSpecRef,
+		precisionDecimalTotalDigitsValidSpecRef,
 		"precisionDecimal value exceeds totalDigits",
 	)
 }
@@ -1227,7 +1681,7 @@ func validatePrecisionDecimalScaleValue(value precisionDecimalValue, facets Prec
 		return precisionDecimalFacetValueViolation(
 			valueLoc,
 			precisionDecimalRelatedLocation(facets.minScale.Loc()),
-			precisionDecimalMinScaleValueSpecRef,
+			precisionDecimalMinScaleValidSpecRef,
 			"precisionDecimal value is below minScale",
 		)
 	}
@@ -1235,7 +1689,7 @@ func validatePrecisionDecimalScaleValue(value precisionDecimalValue, facets Prec
 		return precisionDecimalFacetValueViolation(
 			valueLoc,
 			precisionDecimalRelatedLocation(facets.maxScale.Loc()),
-			precisionDecimalMaxScaleValueSpecRef,
+			precisionDecimalMaxScaleValidSpecRef,
 			"precisionDecimal value exceeds maxScale",
 		)
 	}
@@ -1247,7 +1701,7 @@ func validatePrecisionDecimalEnumerationValue(value precisionDecimalValue, facet
 		return nil
 	}
 	for _, member := range facets.enumeration {
-		if comparePrecisionDecimal(value, member.value) == precisionDecimalOrderEqual {
+		if precisionDecimalEqualOrIdentical(value, member.value) {
 			return nil
 		}
 	}

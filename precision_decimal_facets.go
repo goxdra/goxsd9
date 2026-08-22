@@ -258,7 +258,6 @@ type PrecisionDecimalFacetDeclarations struct {
 	MaxInclusive *PrecisionDecimalMaxInclusiveFacet
 	MaxExclusive *PrecisionDecimalMaxExclusiveFacet
 	WhiteSpace   *PrecisionDecimalWhiteSpaceFacet
-	boundRecords []precisionDecimalBoundRecord
 }
 
 // NewPrecisionDecimalFacetDeclarations makes an owned copy of local
@@ -360,7 +359,7 @@ func NewPrecisionDecimalFacets(
 // NewPrecisionDecimalFacetsFromDeclarations constructs complete effective
 // facets from local declarations.
 func NewPrecisionDecimalFacetsFromDeclarations(local PrecisionDecimalFacetDeclarations) (PrecisionDecimalFacets, error) {
-	return completePrecisionDecimalFacets(PrecisionDecimalFacets{}, clonePrecisionDecimalFacetDeclarations(local), false)
+	return completePrecisionDecimalFacets(PrecisionDecimalFacets{}, local, false)
 }
 
 // RestrictPrecisionDecimalFacets inherits omitted declarations from base and
@@ -369,7 +368,7 @@ func RestrictPrecisionDecimalFacets(base PrecisionDecimalFacets, local Precision
 	if err := base.validate(); err != nil {
 		return PrecisionDecimalFacets{}, err
 	}
-	return completePrecisionDecimalFacets(base, clonePrecisionDecimalFacetDeclarations(local), true)
+	return completePrecisionDecimalFacets(base, local, true)
 }
 
 // ConstructPrecisionDecimalFacets is the phase-oriented name for
@@ -472,7 +471,7 @@ func ValidatePrecisionDecimalFacetName(name string, loc Loc) error {
 	switch name {
 	case "totalDigits", "minScale", "maxScale", "pattern", "enumeration", "minInclusive", "minExclusive", "maxInclusive", "maxExclusive", "whiteSpace":
 		return nil
-	case "assertion", "assertions":
+	case "assertions":
 		feature, ok := LookupUnsupportedFeature(FeatureID("xsd.assertion"))
 		if !ok {
 			return newDiagnostic(
@@ -591,36 +590,29 @@ func completePrecisionDecimalFacets(base PrecisionDecimalFacets, local Precision
 	if err := validatePrecisionDecimalLocalDeclarations(local); err != nil {
 		return PrecisionDecimalFacets{}, err
 	}
+	if err := validatePrecisionDecimalLocalFacetMembers(base, local); err != nil {
+		return PrecisionDecimalFacets{}, err
+	}
+	local = clonePrecisionDecimalFacetDeclarations(local)
+	baseWhiteSpace := base.whiteSpace
+	if baseWhiteSpace == nil {
+		baseWhiteSpace = precisionDecimalDefaultWhiteSpaceFacet()
+	}
 
 	effective := PrecisionDecimalFacets{
 		totalDigits:  clonePrecisionDecimalTotalDigitsFacet(base.totalDigits),
 		minScale:     clonePrecisionDecimalMinScaleFacet(base.minScale),
 		maxScale:     clonePrecisionDecimalMaxScaleFacet(base.maxScale),
 		patterns:     clonePrecisionDecimalPatternGroups(base.patterns),
-		enumeration:  clonePrecisionDecimalEnumerationFacets(base.enumeration),
-		minInclusive: clonePrecisionDecimalMinInclusiveFacet(base.minInclusive),
-		minExclusive: clonePrecisionDecimalMinExclusiveFacet(base.minExclusive),
-		maxInclusive: clonePrecisionDecimalMaxInclusiveFacet(base.maxInclusive),
-		maxExclusive: clonePrecisionDecimalMaxExclusiveFacet(base.maxExclusive),
-		whiteSpace:   clonePrecisionDecimalWhiteSpaceFacet(base.whiteSpace),
+		enumeration:  clonePrecisionDecimalEnumerationFacetsForEffective(base.enumeration),
+		minInclusive: clonePrecisionDecimalMinInclusiveFacetForEffective(base.minInclusive),
+		minExclusive: clonePrecisionDecimalMinExclusiveFacetForEffective(base.minExclusive),
+		maxInclusive: clonePrecisionDecimalMaxInclusiveFacetForEffective(base.maxInclusive),
+		maxExclusive: clonePrecisionDecimalMaxExclusiveFacetForEffective(base.maxExclusive),
+		whiteSpace:   clonePrecisionDecimalWhiteSpaceFacet(baseWhiteSpace),
 	}
 
-	if local.TotalDigits != nil {
-		if err := applyPrecisionDecimalTotalDigits(&effective, base, *local.TotalDigits, derived); err != nil {
-			return PrecisionDecimalFacets{}, err
-		}
-	}
-	if local.MinScale != nil {
-		if err := applyPrecisionDecimalMinScale(&effective, base, *local.MinScale, derived); err != nil {
-			return PrecisionDecimalFacets{}, err
-		}
-	}
-	if local.MaxScale != nil {
-		if err := applyPrecisionDecimalMaxScale(&effective, base, *local.MaxScale, derived); err != nil {
-			return PrecisionDecimalFacets{}, err
-		}
-	}
-	if err := applyPrecisionDecimalValueFacets(&effective, &base, local, derived); err != nil {
+	if err := applyPrecisionDecimalLocalFacets(&effective, base, local, derived); err != nil {
 		return PrecisionDecimalFacets{}, err
 	}
 
@@ -634,6 +626,25 @@ func completePrecisionDecimalFacets(base PrecisionDecimalFacets, local Precision
 		return PrecisionDecimalFacets{}, err
 	}
 	return effective, nil
+}
+
+func applyPrecisionDecimalLocalFacets(effective *PrecisionDecimalFacets, base PrecisionDecimalFacets, local PrecisionDecimalFacetDeclarations, derived bool) error {
+	if local.TotalDigits != nil {
+		if err := applyPrecisionDecimalTotalDigits(effective, base, *local.TotalDigits, derived); err != nil {
+			return err
+		}
+	}
+	if local.MinScale != nil {
+		if err := applyPrecisionDecimalMinScale(effective, base, *local.MinScale, derived); err != nil {
+			return err
+		}
+	}
+	if local.MaxScale != nil {
+		if err := applyPrecisionDecimalMaxScale(effective, base, *local.MaxScale, derived); err != nil {
+			return err
+		}
+	}
+	return applyPrecisionDecimalValueFacets(effective, &base, local, derived)
 }
 
 func applyPrecisionDecimalTotalDigits(effective *PrecisionDecimalFacets, base PrecisionDecimalFacets, local PrecisionDecimalTotalDigitsFacet, derived bool) error {
@@ -769,6 +780,28 @@ func (facets PrecisionDecimalFacets) validate() error {
 			return err
 		}
 	}
+	if facets.minScale != nil && facets.minScale.value.value == nil {
+		return newPrecisionDecimalFacetDiagnostic(
+			FailureInternal,
+			InvalidPrecisionDecimalMinScaleCode,
+			facets.minScale.Loc(),
+			precisionDecimalMinScaleValueSpecRef,
+			"completed precisionDecimal minScale has no value representation",
+			nil,
+			errInvalidPrecisionDecimalFacetState,
+		)
+	}
+	if facets.maxScale != nil && facets.maxScale.value.value == nil {
+		return newPrecisionDecimalFacetDiagnostic(
+			FailureInternal,
+			InvalidPrecisionDecimalMaxScaleCode,
+			facets.maxScale.Loc(),
+			precisionDecimalMaxScaleValueSpecRef,
+			"completed precisionDecimal maxScale has no value representation",
+			nil,
+			errInvalidPrecisionDecimalFacetState,
+		)
+	}
 	if err := validatePrecisionDecimalEffectiveValueFacetState(facets); err != nil {
 		return err
 	}
@@ -792,15 +825,72 @@ func (facets PrecisionDecimalFacets) validate() error {
 
 func validatePrecisionDecimalLocalDeclarations(local PrecisionDecimalFacetDeclarations) error {
 	if local.TotalDigits != nil {
-		if err := validatePrecisionDecimalTotalDigitsState(*local.TotalDigits); err != nil {
+		if err := validatePrecisionDecimalLocalTotalDigitsState(*local.TotalDigits); err != nil {
+			return err
+		}
+	}
+	if local.MinScale != nil {
+		if err := validatePrecisionDecimalLocalScaleState(*local.MinScale, precisionDecimalMinScaleValueSpecRef, InvalidPrecisionDecimalMinScaleCode, errInvalidPrecisionDecimalMinScaleValue); err != nil {
+			return err
+		}
+	}
+	if local.MaxScale != nil {
+		if err := validatePrecisionDecimalLocalScaleState(*local.MaxScale, precisionDecimalMaxScaleValueSpecRef, InvalidPrecisionDecimalMaxScaleCode, errInvalidPrecisionDecimalMaxScaleValue); err != nil {
 			return err
 		}
 	}
 	return validatePrecisionDecimalLocalValueFacetState(local)
 }
 
+func validatePrecisionDecimalLocalTotalDigitsState(facet PrecisionDecimalTotalDigitsFacet) error {
+	if facet.value.value != nil && facet.value.Sign() > 0 {
+		return nil
+	}
+	return newPrecisionDecimalFacetDiagnostic(
+		FailureInvalid,
+		InvalidPrecisionDecimalTotalDigitsCode,
+		facet.Loc(),
+		xsd11TotalDigitsValueSpecRef,
+		"invalid precisionDecimal totalDigits declaration",
+		nil,
+		errInvalidPrecisionDecimalTotalDigitsValue,
+	)
+}
+
+func validatePrecisionDecimalLocalScaleState(facet interface{ Loc() Loc }, specRef, code string, cause error) error {
+	var value StrictInteger
+	switch typed := facet.(type) {
+	case PrecisionDecimalMinScaleFacet:
+		value = typed.value
+	case PrecisionDecimalMaxScaleFacet:
+		value = typed.value
+	default:
+		return newPrecisionDecimalFacetDiagnostic(
+			FailureInternal,
+			InvalidPrecisionDecimalFacetRestrictionCode,
+			facet.Loc(),
+			precisionDecimalFacetSetSpecRef,
+			"invalid precisionDecimal scale facet variant",
+			nil,
+			errInvalidPrecisionDecimalFacetState,
+		)
+	}
+	if value.value != nil {
+		return nil
+	}
+	return newPrecisionDecimalFacetDiagnostic(
+		FailureInvalid,
+		code,
+		facet.Loc(),
+		specRef,
+		"invalid precisionDecimal scale declaration",
+		nil,
+		cause,
+	)
+}
+
 func validatePrecisionDecimalTotalDigitsState(facet PrecisionDecimalTotalDigitsFacet) error {
-	if facet.value.Sign() > 0 {
+	if facet.value.value != nil && facet.value.Sign() > 0 {
 		return nil
 	}
 	return newPrecisionDecimalFacetDiagnostic(
@@ -835,7 +925,9 @@ func clonePrecisionDecimalTotalDigitsFacet(facet *PrecisionDecimalTotalDigitsFac
 		return nil
 	}
 	facetCopy := *facet
-	facetCopy.value = precisionDecimalIntegerCopy(facet.value)
+	if facet.value.value != nil {
+		facetCopy.value = precisionDecimalIntegerCopy(facet.value)
+	}
 	return &facetCopy
 }
 
@@ -844,7 +936,9 @@ func clonePrecisionDecimalMinScaleFacet(facet *PrecisionDecimalMinScaleFacet) *P
 		return nil
 	}
 	facetCopy := *facet
-	facetCopy.value = precisionDecimalIntegerCopy(facet.value)
+	if facet.value.value != nil {
+		facetCopy.value = precisionDecimalIntegerCopy(facet.value)
+	}
 	return &facetCopy
 }
 
@@ -853,7 +947,9 @@ func clonePrecisionDecimalMaxScaleFacet(facet *PrecisionDecimalMaxScaleFacet) *P
 		return nil
 	}
 	facetCopy := *facet
-	facetCopy.value = precisionDecimalIntegerCopy(facet.value)
+	if facet.value.value != nil {
+		facetCopy.value = precisionDecimalIntegerCopy(facet.value)
+	}
 	return &facetCopy
 }
 
