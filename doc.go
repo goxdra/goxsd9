@@ -18,6 +18,6 @@
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:integer or xs:decimal. The scalar element
 // must contain only character data; attributes and child elements are
-// explicit unsupported behavior. Go code generation remains under
-// construction.
+// explicit unsupported behavior. GenerateGo produces deterministic Go source
+// for the supported scalar schema components.
 package goxsd9
