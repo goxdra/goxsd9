@@ -20,10 +20,11 @@
 
 ### Development signals
 
-<!-- Record development-signals v2 results. Keep coverage, automatic policy
-     fuzz, optional additional fuzz, catalog, XSD feature support, and
-     executable conformance distinct; fuzz is engineering health, not
-     conformance. Evidence is independently recomputed at exact REST base/head. -->
+<!-- Provide exact development-signals v2 JSON/deltas or selected targets; state
+     `no-relevant-target` explicitly. Distinguish automatic policy fuzz,
+     optional current-head additional fuzz, and separately requested checked-in
+     corpus replay. Fuzz is engineering health, not conformance; evidence is
+     independently recomputed at exact REST base/head. -->
 
 ## Conformance and documentation
 
