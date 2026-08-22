@@ -28,10 +28,12 @@ func TestFeatureRegistryValidationAndLookup(t *testing.T) {
 	if !found || codegen.Title() != "Go code generation outside supported scalar declarations" {
 		t.Fatalf("codegen feature title = %q, want stable title", codegen.Title())
 	}
-	if references := codegen.References(); len(references) != 2 ||
+	if references := codegen.References(); len(references) != 4 ||
 		references[0].Source() != "xsd10-structures#Simple_Type_Definitions" ||
-		references[1].Source() != "xsd11-structures#Simple_Type_Definition" {
-		t.Fatalf("codegen feature references = %#v, want XSD 1.0 and 1.1 simple-type sections", references)
+		references[1].Source() != "xsd10-structures#Element_Declaration_details" ||
+		references[2].Source() != "xsd11-structures#Simple_Type_Definition" ||
+		references[3].Source() != "xsd11-structures#Element_Declaration_details" {
+		t.Fatalf("codegen feature references = %#v, want simple-type and element sections for XSD 1.0 and 1.1", references)
 	}
 	validationFeature, found := LookupUnsupportedFeature(FeatureInstanceValidation)
 	if !found {

@@ -66,6 +66,7 @@ func planCodegenSource(schema Schema, names codegenNaming) (codegenSourcePlan, e
 		runtimeAlias: runtimeAlias,
 		declarations: make([]codegenSourceDeclaration, 0, len(components)),
 	}
+	documentVersions := codegenDocumentVersions(schema)
 	for _, component := range components {
 		identifier, ok := names.componentName(component.ID())
 		if !ok {
@@ -75,7 +76,18 @@ func planCodegenSource(schema Schema, names codegenNaming) (codegenSourcePlan, e
 				errCodegenNamingMisaligned,
 			)
 		}
-		fieldType, usesRuntime, err := planCodegenComponent(schema, names, component, runtimeAlias, hasRuntimeAlias)
+		documentVersion := codegenElementDefaultVersion
+		if version, ok := documentVersions[component.ID().Source()]; ok {
+			documentVersion = version
+		}
+		fieldType, usesRuntime, err := planCodegenComponent(
+			schema,
+			names,
+			component,
+			runtimeAlias,
+			hasRuntimeAlias,
+			documentVersion,
+		)
 		if err != nil {
 			return codegenSourcePlan{}, err
 		}
@@ -88,12 +100,25 @@ func planCodegenSource(schema Schema, names codegenNaming) (codegenSourcePlan, e
 	return plan, nil
 }
 
+func codegenDocumentVersions(schema Schema) map[SourceID]XSDVersion {
+	versions := make(map[SourceID]XSDVersion, len(schema.documents))
+	for _, document := range schema.documents {
+		version := document.version
+		if version != XSDVersion10 && version != XSDVersion11 {
+			version = codegenElementDefaultVersion
+		}
+		versions[document.source] = version
+	}
+	return versions
+}
+
 func planCodegenComponent(
 	schema Schema,
 	names codegenNaming,
 	component Component,
 	runtimeAlias string,
 	hasRuntimeAlias bool,
+	documentVersion XSDVersion,
 ) (string, bool, error) {
 	switch component.Kind() {
 	case ComponentKindSimpleTypeDefinition:
@@ -107,7 +132,7 @@ func planCodegenComponent(
 		}
 		return fieldType, true, nil
 	case ComponentKindElementDeclaration:
-		return codegenElementFieldType(schema, names, component, runtimeAlias, hasRuntimeAlias)
+		return codegenElementFieldType(schema, names, component, runtimeAlias, hasRuntimeAlias, documentVersion)
 	case ComponentKindAttributeDeclaration,
 		ComponentKindComplexTypeDefinition,
 		ComponentKindModelGroupDefinition,
@@ -359,31 +384,32 @@ func codegenElementFieldType(
 	component Component,
 	runtimeAlias string,
 	hasRuntimeAlias bool,
+	version XSDVersion,
 ) (string, bool, error) {
 	declaration, ok := component.ElementDeclaration()
 	if !ok {
-		return "", false, newCodegenUnsupported(
+		return "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element %q has no supported declaration view", component.Name()),
 			nil,
 			fmt.Errorf("%w: element declaration view is missing", errCodegenUnsupported),
-			codegenElementDefaultVersion,
+			version,
 		)
 	}
 	declaredType := declaration.DeclaredType()
 	if declaredType.IsZero() {
-		return "", false, newCodegenUnsupported(
+		return "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element %q has no explicit scalar type", component.Name()),
 			nil,
 			fmt.Errorf("%w: declared type is empty", errCodegenUnsupported),
-			codegenElementDefaultVersion,
+			version,
 		)
 	}
 	if declaredType.Namespace() == xsdNamespaceURI {
-		return codegenBuiltinElementFieldType(component, declaration, runtimeAlias, hasRuntimeAlias)
+		return codegenBuiltinElementFieldType(component, declaration, runtimeAlias, hasRuntimeAlias, version)
 	}
-	return codegenNamedElementFieldType(schema, names, component, declaration)
+	return codegenNamedElementFieldType(schema, names, component, declaration, version)
 }
 
 func codegenBuiltinElementFieldType(
@@ -391,6 +417,7 @@ func codegenBuiltinElementFieldType(
 	declaration ElementDeclaration,
 	runtimeAlias string,
 	hasRuntimeAlias bool,
+	version XSDVersion,
 ) (string, bool, error) {
 	typeID, hasTypeID := declaration.TypeID()
 	if hasTypeID || !typeID.IsZero() {
@@ -409,12 +436,12 @@ func codegenBuiltinElementFieldType(
 		fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeDecimal, component.Loc())
 		return fieldType, true, err
 	default:
-		return "", false, newCodegenUnsupported(
+		return "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element type %q is outside scalar Go generation", declaration.DeclaredType()),
 			nil,
 			fmt.Errorf("%w: built-in type %q", errCodegenUnsupported, declaration.DeclaredType()),
-			codegenElementDefaultVersion,
+			version,
 		)
 	}
 }
@@ -424,6 +451,7 @@ func codegenNamedElementFieldType(
 	names codegenNaming,
 	component Component,
 	declaration ElementDeclaration,
+	version XSDVersion,
 ) (string, bool, error) {
 	declaredType := declaration.DeclaredType()
 	typeID, hasTypeID := declaration.TypeID()
@@ -454,12 +482,12 @@ func codegenNamedElementFieldType(
 		)
 	}
 	if target.Kind() != ComponentKindSimpleTypeDefinition {
-		return "", false, newCodegenUnsupported(
+		return "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element type %q is not a supported named simple type", declaredType),
 			related,
 			fmt.Errorf("%w: target component kind %q", errCodegenUnsupported, target.Kind()),
-			codegenElementDefaultVersion,
+			version,
 		)
 	}
 	_, err := codegenNamedScalarKind(target)
@@ -518,7 +546,7 @@ func renderCodegenSource(plan codegenSourcePlan) ([]byte, error) {
 
 	formatted, err := format.Source([]byte(source.String()))
 	if err != nil {
-		return nil, newCodegenInternal(Loc{}, "format generated Go source", nil, fmt.Errorf("%w: %w", errCodegenFormat, err))
+		return nil, newCodegenFormat(Loc{}, "format generated Go source", fmt.Errorf("%w: %w", errCodegenFormat, err))
 	}
 	return formatted, nil
 }
@@ -537,7 +565,41 @@ func newCodegenInternal(loc Loc, message string, related []Loc, cause error) Dia
 	return diagnostic
 }
 
+func newCodegenFormat(loc Loc, message string, cause error) Diagnostic {
+	return newDiagnostic(FailureInternal, diagnosticCodegenFormat, loc, message, cause)
+}
+
 func newCodegenUnsupported(loc Loc, message string, related []Loc, cause error, version XSDVersion) error {
+	specRef := ""
+	if version == XSDVersion10 || version == XSDVersion11 {
+		specRef = schemaSimpleTypeSpecRef(version)
+	}
+	return newCodegenUnsupportedForReference(loc, message, related, cause, version, specRef)
+}
+
+func newCodegenElementUnsupported(loc Loc, message string, related []Loc, cause error, version XSDVersion) error {
+	specRef := ""
+	if version == XSDVersion10 || version == XSDVersion11 {
+		specRef = schemaElementTypeSpecRef(version)
+	}
+	return newCodegenUnsupportedForReference(
+		loc,
+		message,
+		related,
+		cause,
+		version,
+		specRef,
+	)
+}
+
+func newCodegenUnsupportedForReference(
+	loc Loc,
+	message string,
+	related []Loc,
+	cause error,
+	version XSDVersion,
+	specRef string,
+) error {
 	feature, ok := LookupUnsupportedFeature(FeatureCodegen)
 	if !ok {
 		diagnostic := newDiagnostic(
@@ -558,6 +620,14 @@ func newCodegenUnsupported(loc Loc, message string, related []Loc, cause error, 
 		)
 	}
 	diagnostic := newUnsupportedForVersion(feature, diagnosticCodegenUnsupported, loc, message, version)
+	if specRef != "" {
+		for _, reference := range feature.References() {
+			if reference.Version() == string(version) && reference.Source() == specRef {
+				diagnostic.specRef = reference.Source()
+				break
+			}
+		}
+	}
 	return decorateCodegenUnsupported(diagnostic, related, cause)
 }
 

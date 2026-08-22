@@ -70,6 +70,68 @@ func TestCodegenScalarSourceIsDeterministicLocatedAndCompiling(t *testing.T) {
 	compileGeneratedCode(t, first)
 }
 
+func TestCodegenScalarSourceFormatFailureUsesFormatDiagnostic(t *testing.T) {
+	output, err := renderCodegenSource(codegenSourcePlan{packageName: "generated package"})
+	if output != nil {
+		t.Fatalf("format failure returned partial source: %s", output)
+	}
+	if err == nil {
+		t.Fatal("format failure unexpectedly succeeded")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenFormat {
+		t.Fatalf("diagnostic = %s, want internal format diagnostic %s", diagnostic, diagnosticCodegenFormat)
+	}
+	if !errors.Is(err, errCodegenFormat) {
+		t.Fatalf("format diagnostic lost formatting cause: %v", err)
+	}
+}
+
+func TestCodegenScalarUntypedElementUsesDocumentVersionReference(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		version string
+		wantRef string
+	}{
+		{name: "XSD 1.0", version: "1.0", wantRef: "xsd10-structures#Element_Declaration_details"},
+		{name: "XSD 1.1", version: "1.1", wantRef: "xsd11-structures#Element_Declaration_details"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertCodegenScalarUntypedElement(t, test.version, test.wantRef)
+		})
+	}
+}
+
+func assertCodegenScalarUntypedElement(t *testing.T, version, wantRef string) {
+	t.Helper()
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + version + `"><xs:element name="item"/></xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverTestSchema: %v", err)
+	}
+	names := mustScalarCodegenNaming(t, schema)
+	output, err := emitCodegen(schema, names)
+	if output != nil {
+		t.Fatalf("unsupported untyped element returned partial source: %s", output)
+	}
+	if err == nil {
+		t.Fatal("unsupported untyped element unexpectedly generated source")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported {
+		t.Fatalf("diagnostic = %s, want located codegen unsupported diagnostic", diagnostic)
+	}
+	if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
+		t.Fatalf("diagnostic location = %s, want a root.xsd location", diagnostic.Loc())
+	}
+	if diagnostic.SpecRef() != wantRef {
+		t.Fatalf("diagnostic specification reference = %q, want %q", diagnostic.SpecRef(), wantRef)
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+		t.Fatalf("unsupported diagnostic lost feature or cause: %v", err)
+	}
+}
+
 func TestCodegenScalarSourceUsesNamingIdentity(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
   <xs:simpleType name="type"><xs:restriction base="xs:integer"/></xs:simpleType>
