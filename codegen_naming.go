@@ -39,6 +39,7 @@ type codegenLocalParticleRequest struct {
 	path      []uint32
 	name      QName
 	anonymous bool
+	loc       Loc
 }
 
 // codegenVariantRequest reserves a concrete name for a future element or
@@ -48,6 +49,7 @@ type codegenVariantRequest struct {
 	path      []uint32
 	name      QName
 	anonymous bool
+	loc       Loc
 }
 
 // codegenImportAliasRequest is an ordered request for an import alias. The
@@ -192,13 +194,13 @@ func allocateCodegenComponents(names *codegenNaming, components []Component, all
 func allocateCodegenFields(names *codegenNaming, requests []codegenLocalParticleRequest) error {
 	allocators := make(map[ComponentID]*codegenNameAllocator)
 	for _, request := range requests {
-		if err := validateCodegenScopeRequest(request.owner, request.path, "local particle"); err != nil {
+		if err := validateCodegenScopeRequestAt(request.owner, request.path, "local particle", request.loc); err != nil {
 			return err
 		}
 		key := codegenScopedPathKey{owner: request.owner, path: codegenLexicalPathKey(request.path)}
 		if _, exists := names.fieldByKey[key]; exists {
 			return newCodegenNameError(
-				Loc{},
+				request.loc,
 				"local particle",
 				request.name.Local(),
 				"the owner and lexical path are repeated",
@@ -209,7 +211,7 @@ func allocateCodegenFields(names *codegenNaming, requests []codegenLocalParticle
 			codegenNameKindField,
 			request.anonymous,
 			request.path,
-			Loc{},
+			request.loc,
 		)
 		if err != nil {
 			return err
@@ -224,7 +226,7 @@ func allocateCodegenFields(names *codegenNaming, requests []codegenLocalParticle
 			return newDiagnostic(
 				FailureInternal,
 				codegenCollisionExhaustedCode,
-				Loc{},
+				request.loc,
 				"allocate Go name for local particle",
 				err,
 			)
@@ -239,13 +241,13 @@ func allocateCodegenFields(names *codegenNaming, requests []codegenLocalParticle
 
 func allocateCodegenVariants(names *codegenNaming, requests []codegenVariantRequest, allocator *codegenNameAllocator) error {
 	for _, request := range requests {
-		if err := validateCodegenScopeRequest(request.owner, request.path, "variant"); err != nil {
+		if err := validateCodegenScopeRequestAt(request.owner, request.path, "variant", request.loc); err != nil {
 			return err
 		}
 		key := codegenScopedPathKey{owner: request.owner, path: codegenLexicalPathKey(request.path)}
 		if _, exists := names.variantByKey[key]; exists {
 			return newCodegenNameError(
-				Loc{},
+				request.loc,
 				"variant",
 				request.name.Local(),
 				"the owner and lexical path are repeated",
@@ -256,7 +258,7 @@ func allocateCodegenVariants(names *codegenNaming, requests []codegenVariantRequ
 			codegenNameKindVariant,
 			request.anonymous,
 			request.path,
-			Loc{},
+			request.loc,
 		)
 		if err != nil {
 			return err
@@ -266,7 +268,7 @@ func allocateCodegenVariants(names *codegenNaming, requests []codegenVariantRequ
 			return newDiagnostic(
 				FailureInternal,
 				codegenCollisionExhaustedCode,
-				Loc{},
+				request.loc,
 				"allocate Go name for variant",
 				err,
 			)
@@ -507,16 +509,16 @@ func newCodegenPackageNameError(name, reason string) error {
 	)
 }
 
-func validateCodegenScopeRequest(owner ComponentID, path []uint32, context string) error {
+func validateCodegenScopeRequestAt(owner ComponentID, path []uint32, context string, loc Loc) error {
 	if owner.Source() == "" || owner.Ordinal() == 0 {
-		return newCodegenNameError(Loc{}, context, "", "the owner component identity is empty")
+		return newCodegenNameError(loc, context, "", "the owner component identity is empty")
 	}
 	if len(path) == 0 {
-		return newCodegenNameError(Loc{}, context, "", "the lexical path is empty")
+		return newCodegenNameError(loc, context, "", "the lexical path is empty")
 	}
 	for _, segment := range path {
 		if segment == 0 {
-			return newCodegenNameError(Loc{}, context, "", "the lexical path is not one-based")
+			return newCodegenNameError(loc, context, "", "the lexical path is not one-based")
 		}
 	}
 	return nil

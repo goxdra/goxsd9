@@ -28,12 +28,18 @@ func TestFeatureRegistryValidationAndLookup(t *testing.T) {
 	if !found || codegen.Title() != "Go code generation outside supported scalar declarations" {
 		t.Fatalf("codegen feature title = %q, want stable title", codegen.Title())
 	}
-	if references := codegen.References(); len(references) != 4 ||
+	if references := codegen.References(); len(references) != 10 ||
 		references[0].Source() != "xsd10-structures#Simple_Type_Definitions" ||
 		references[1].Source() != "xsd10-structures#Element_Declaration_details" ||
-		references[2].Source() != "xsd11-structures#Simple_Type_Definition" ||
-		references[3].Source() != "xsd11-structures#Element_Declaration_details" {
-		t.Fatalf("codegen feature references = %#v, want simple-type and element sections for XSD 1.0 and 1.1", references)
+		references[2].Source() != "xsd10-structures#cParticles" ||
+		references[3].Source() != "xsd10-structures#element-choice" ||
+		references[4].Source() != "xsd10-structures#Particle_details" ||
+		references[5].Source() != "xsd11-structures#Simple_Type_Definition" ||
+		references[6].Source() != "xsd11-structures#Element_Declaration_details" ||
+		references[7].Source() != "xsd11-structures#cParticles" ||
+		references[8].Source() != "xsd11-structures#element-choice" ||
+		references[9].Source() != "xsd11-structures#Particle_details" {
+		t.Fatalf("codegen feature references = %#v, want scalar and direct-choice sections for XSD 1.0 and 1.1", references)
 	}
 	validationFeature, found := LookupUnsupportedFeature(FeatureInstanceValidation)
 	if !found {
