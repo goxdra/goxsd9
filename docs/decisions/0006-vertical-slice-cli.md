@@ -58,24 +58,30 @@ under this policy is a resolution/resource failure, never invalid XSD.
 `include` is distinct from `import`: the library retains include
 target-namespace compatibility, including the specification's
 no-target-namespace/chameleon rule; current unsupported chameleon behavior
-remains an explicit library boundary. For
-`include` and `redefine`, and XSD 1.1 `override`, the `schemaLocation` is a
-required dereference expectation rather than a namespace lookup hint. An
-absent required location is invalid schema representation; a failed local
-dereference is a resolution failure. An `import` may legally omit
-`schemaLocation`; that normative namespace-only
-case is not invalid input, but this CLI has no namespace-only policy and
-reports a resolution failure when it cannot obtain the imported components.
-When an import location is present, its namespace and lexical location still
-pass unchanged to the resolver.
+remains an explicit library boundary. Normatively, XSD 1.0/1.1 treat
+`schemaLocation` on `include` and `redefine`, and XSD 1.1 `override`, as
+dereference expectations rather than namespace lookup hints. This first-slice
+CLI boundary covers only the currently handled `include`/`import` references.
+The current parser reports `redefine` and `override` as explicit unsupported
+behavior before resolution; the CLI preserves that diagnostic and never
+relabels either construct as invalid input or a resolution failure. Their
+normative dereference behavior remains future library work. For handled
+`include`, an absent required location is invalid schema representation and a
+failed local dereference is a resolution failure. An `import` may legally omit
+`schemaLocation`; that normative namespace-only case is not invalid input, but
+this CLI has no namespace-only policy and reports a resolution failure when it
+cannot obtain the imported components. When an import location is present, its
+namespace and lexical location still pass unchanged to the resolver.
 
 The first slice does not interpret `xml:base`. A schema graph containing
 `xml:base` is rejected with an explicit unsupported-resolution diagnostic and
 the XML Base specification reference; it is not classified as invalid XSD.
 This is a product restriction, not a conformance claim. In an instance,
-`xsi:schemaLocation` and `xsi:noNamespaceSchemaLocation` are optional hints;
-because the schema operand is explicit, the CLI ignores them and never uses
-them to open another schema.
+`xsi:schemaLocation` and `xsi:noNamespaceSchemaLocation` are optional hints.
+Because the schema operand is explicit, the CLI never uses them to select or
+open another schema. It passes the instance unchanged to current
+`ValidateInstance`; current scalar validation reports these attributes as
+explicit unsupported behavior. The CLI does not filter them semantically.
 
 ## Source identities and language policy
 
@@ -94,9 +100,15 @@ Paths use `/` and are relative; they are not absolute URIs. The `schema/` and
 diagnostics. An identity is never a target namespace, `schema/@version`, XML
 declaration version, generated Go name, or filesystem URI.
 
-The CLI uses the current Compatibility/default parser pipeline and exposes no
-edition flag. `schema/@version` remains an inert label and never selects a
-parser policy, as recorded in [0004-xsd-language-policy.md](0004-xsd-language-policy.md).
+The CLI exposes no edition flag and does not choose an edition from
+`schema/@version`; it does not change the current parser entrypoint. The
+current two-argument `ParseSchema` retains legacy per-document behavior:
+absent or empty `schema/@version` defaults to XSD 1.1, `"1.0"` selects the
+legacy XSD 1.0 path, `"1.1"` selects the legacy XSD 1.1 path, and arbitrary
+labels are unsupported. Graph-wide `ParseSchemaWithPolicy` propagation and
+profile behavior remain future work. Normatively, `schema/@version` is an
+inert optional label, as recorded in [0004-xsd-language-policy.md](0004-xsd-language-policy.md);
+the current legacy entrypoint behavior is a separate implementation fact.
 
 ## Fixed offline limits
 
@@ -123,7 +135,7 @@ Human mode emits deterministic one-line diagnostics to stderr. The stable
 shape is a fixed field order:
 
 ```text
-command stage=<stage> class=<class|-> kind=<kind> source_id=<id|-> location=<line:column|-> code=<code> [related=...] [feature=...] [spec_ref=...] message
+command stage=STAGE class=CLASS kind=KIND source_id=SOURCE_ID location=LINE:COLUMN code=CODE [related=...] [feature=...] [spec_ref=...] message
 ```
 
 The library classes are `invalid`, `unsupported`, `resolution`, and `internal`.
@@ -132,9 +144,27 @@ The CLI stage is separate: a schema failure during `validate` has
 `stage=validate`; generation and destination failures use `generate` and
 `output` respectively. Usage/configuration uses `stage=usage` and no library
 class. For a CLI-owned diagnostic with no library class, JSON uses `class: null`
-and human mode uses `class=-`; its `kind` is `usage`, `resource`, or `output`.
-All lists and diagnostics retain processing order; no observable field comes
-from map iteration.
+and human mode uses `class=-`; its `kind` is `usage`, `path-policy`, `resource`,
+`limit`, `output`, or `internal`. All lists and diagnostics retain processing
+order; no observable field comes from map iteration.
+
+CLI-owned diagnostics reserve the non-colliding `CLI1xxx` namespace. These
+codes are structural, not parsed from messages or library errors:
+
+| Code | Meaning | Kind | Status | Source identity and location |
+| --- | --- | --- | ---: | --- |
+| `CLI1001` | Usage or configuration | `usage` | 2 | Known operand role ID, otherwise `-`; no `Loc` |
+| `CLI1002` | Path policy rejection, including URI schemes or containment | `path-policy` | 1 | Rejected schema/instance role ID; no `Loc` unless one is already available |
+| `CLI1003` | Source/resource acquisition or retrieval failure | `resource` | 1 | Subject role ID assigned before opening; no `Loc` for CLI-owned open failures |
+| `CLI1004` | Fixed schema, instance, or generated-output limit | `limit` | 1 | Limited role ID; no `Loc` |
+| `CLI1005` | Output transaction, overwrite, symlink, write, close, or rename failure | `output` | 1 | `output/<relative/path>`; no `Loc` |
+| `CLI1006` | CLI internal invariant failure | `internal` | 1 | Best available role ID, otherwise `-`; no `Loc` |
+
+`CLI1001` uses `stage=usage`, `CLI1005` uses `stage=output`, and the other
+codes use the active command phase (`parse` for schema resolution, `validate`
+for instance processing, or `output` for generated-output limits). Library
+diagnostics retain their existing stable codes and classes, including
+`XSD2001`; CLI-owned codes are additional structural identifiers.
 
 JSON mode emits one ordered `goxsd9-diagnostics/v1` envelope to stderr and no
 human lines:
@@ -143,18 +173,18 @@ human lines:
 {
   "format": "goxsd9-diagnostics/v1",
   "command": "validate",
-  "stage": "parse",
+  "stage": "validate",
   "exit_status": 1,
   "diagnostics": [{
     "class": "invalid",
     "kind": "processing",
-    "code": "...",
-    "source_id": "schema/root.xsd",
+    "code": "XSD2001",
+    "source_id": "instance/examples/invalid.xml",
     "location": {"line": 3, "column": 5},
     "related": [],
     "feature": "",
     "spec_ref": "",
-    "message": "..."
+    "message": "integer lexical form is invalid"
   }]
 }
 ```
@@ -173,7 +203,7 @@ The CLI reads `Diagnostic` accessors and preserved error causes; it never parses
 | Success | 0 | Command data only | None; no diagnostic is emitted | Empty; no diagnostic envelope |
 | Usage or configuration | 2 | Empty | Operand role ID when known; otherwise `-` | Deterministic usage diagnostic, class absent, no location required |
 | Invalid, unsupported, resolution, or internal | 1 | Empty | Primary `SourceID` plus related source IDs | Ordered library fields, locations and causes preserved |
-| Resource or output processing | 1 | Empty, except a pipe may already have bytes | Schema/instance or `output/...` role ID, even without `Loc` | Ordered CLI fields with `kind=resource` or `kind=output` |
+| Resource, path-policy, limit, output, or CLI-internal processing | 1 | Empty, except a pipe may already have bytes | Schema/instance or `output/...` role ID, even without `Loc` | Ordered CLI fields with the mapped CLI kind |
 
 `parse` reports schema failures at `stage=parse`. `validate` parses the schema
 before opening or consuming the instance; schema failures remain at `stage=parse`
@@ -228,7 +258,7 @@ Invalid scalar instance; human and JSON diagnostics both stay on stderr:
 
 ```console
 $ goxsd9 validate --diagnostics human examples/root.xsd examples/invalid.xml
-validate stage=validate class=invalid kind=processing source_id=instance/examples/invalid.xml location=3:5 code=<stable-code>: value is not valid for the declared integer
+validate stage=validate class=invalid kind=processing source_id=instance/examples/invalid.xml location=3:5 code=XSD2001: integer lexical form is invalid
 $ goxsd9 validate --diagnostics json examples/root.xsd examples/invalid.xml
 {"format":"goxsd9-diagnostics/v1", "command":"validate", "stage":"validate", "exit_status":1, "diagnostics":[...]}
 ```
@@ -279,7 +309,9 @@ only their dependency order and responsibility boundaries:
 - [#136 — parse](https://github.com/goxdra/goxsd9/issues/136) (XS) owns the
   shared schema-source boundary and first-slice parse command.
 - [#137 — validate](https://github.com/goxdra/goxsd9/issues/137) (S) follows
-  #136 and owns the schema-first instance-validation command.
+  #136 and owns the schema-first instance-validation command while preserving
+  current scalar validation's explicit unsupported treatment of instance
+  attributes, including schema-location hints.
 - [#138 — generate](https://github.com/goxdra/goxsd9/issues/138) (M) follows
   #136 and the scalar emitter work. It must first expose a deliberate
   in-memory `GenerateGo`-like API over public inputs, without exposing private
