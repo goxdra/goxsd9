@@ -31,12 +31,12 @@ exact REST base SHA; use it for `develop-signals --base "$BASE_SHA"`,
 `docs audit --base "$BASE_SHA"`, and `pr evidence update` JSON; never
 `origin/main` or local merge-base.
 Non-relevant: `no-relevant-target`/`not-measured` valid. Text coverage/fuzz; JSON
-affected/repository deltas/targets. Parser/datatype: bounded offline single-worker
-fuzz; corpus replay. Regression JSON: base/head/reason; totals context. Separate
-signals from catalog inventory/XSD conformance/evaluation fuzz.
-PR evidence is versioned JSON between owned markers; updates use signal/audit JSON,
-preserve other body bytes, and are idempotent.
-Challenge/finish require exact REST base/head, audit, and Curator/no-doc result;
+deltas. Bounded offline fuzz; corpus replay. Repeatable bounded
+`--additional-fuzz PACKAGE:TARGET` is current-head validated, separate. Regression
+JSON: base/head/reason. Fuzz is engineering health, not conformance. Evidence
+versioned; before mutation workflowctl resolves REST base/head/local match,
+recomputes signals/policy, and compares canonical payload. Updates preserve bytes.
+Challenge/finish require REST base/head, audit, and Curator/no-doc result;
 challenges bind body/evidence digests. Before Examiner, `evaluation challenge`
 records one-use head-bound challenge. Examiner JSON is versioned;
 `workflowctl` rejects wrong-head, stale, reused, malformed, or caller-selected

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 )
 
 const (
@@ -27,11 +28,14 @@ type app struct {
 	fuzzRemoveAll                   func(path string) error
 	buildCoverageReport             func(root, base string) (coverageReport, error)
 	coverageChangedPaths            func(root, base, head string) (map[string]bool, error)
-	skillEvalGraderAgent            skillEvalAgent
-	skillEvalProcessStart           skillEvalProcessStarter
-	skillEvalSubjectAgent           skillEvalAgent
-	stdout                          io.Writer
-	stderr                          io.Writer
+	buildDevelopmentSignalsReport   func(root, base, expectedHead string, duration time.Duration,
+		explanations []coverageExplanation, additional []additionalFuzzTarget) (developmentSignalsReport, error)
+	verifyDevelopmentSignalsReport func(root string, expected developmentSignalsReport) error
+	skillEvalGraderAgent           skillEvalAgent
+	skillEvalProcessStart          skillEvalProcessStarter
+	skillEvalSubjectAgent          skillEvalAgent
+	stdout                         io.Writer
+	stderr                         io.Writer
 }
 
 // Run executes workflowctl and returns a process exit code.
@@ -119,7 +123,7 @@ Usage:
   go tool workflowctl claim renew
   go tool workflowctl claim verify
   go tool workflowctl coverage --base REF [--format text|json]
-  go tool workflowctl develop-signals --base REF [--duration DURATION] [--coverage-explanation-file FILE] [--format text|json]
+  go tool workflowctl develop-signals --base REF [--duration DURATION] [--coverage-explanation-file FILE] [--additional-fuzz PACKAGE:TARGET ...] [--format text|json]
   go tool workflowctl backlog health
   go tool workflowctl issue create [flags]
   go tool workflowctl handoff ISSUE --body-file FILE

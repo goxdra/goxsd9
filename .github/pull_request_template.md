@@ -20,8 +20,10 @@
 
 ### Development signals
 
-<!-- Record development-signals results and keep coverage, fuzz, catalog, XSD
-     feature support, and executable conformance distinct. -->
+<!-- Record development-signals v2 results. Keep coverage, automatic policy
+     fuzz, optional additional fuzz, catalog, XSD feature support, and
+     executable conformance distinct; fuzz is engineering health, not
+     conformance. Evidence is independently recomputed at exact REST base/head. -->
 
 ## Conformance and documentation
 

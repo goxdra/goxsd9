@@ -117,7 +117,12 @@ These instructions apply to every file in this repository.
   `BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`.
   Freeze it for `develop-signals`, `docs audit`, and the JSON passed to `pr
   evidence update`; never substitute moving `origin/main` or a locally inferred
-  merge-base. Every head containing a managed-document change requires the
+  merge-base. `develop-signals` records automatic policy fuzz separately from
+  optional bounded `--additional-fuzz PACKAGE:TARGET` campaigns; both are
+  engineering-health signals, not conformance evidence. Before evidence update,
+  challenge, or finish can mutate remote state, workflowctl independently
+  recomputes the v2 signals after resolving exact REST base/head and matching
+  local commits. Every head containing a managed-document change requires the
   exact audit and a fresh read-only Curator review for placement, current
   relevance, duplication, history, and replacement opportunities. Repeat the
   audit and Curator review after each remediation push; deletion alone does not

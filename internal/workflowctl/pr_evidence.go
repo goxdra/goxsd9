@@ -280,8 +280,14 @@ func validateDevelopmentSignals(report developmentSignalsReport, expectedBase, e
 	if report.Head != expectedHead {
 		return fmt.Errorf("head is %q, want exact PR head %q", report.Head, expectedHead)
 	}
+	if report.CoverageExplanations == nil {
+		return errors.New("coverageExplanations must be a JSON array")
+	}
 	if report.Fuzz == nil {
 		return errors.New("fuzz must be a JSON array")
+	}
+	if report.AdditionalFuzz == nil {
+		return errors.New("additionalFuzz must be a JSON array")
 	}
 	if report.Catalog != noMeasuredDevelopmentSignal || report.XSDFeatureSupport != noMeasuredDevelopmentSignal ||
 		report.ExecutableConformance != noMeasuredDevelopmentSignal {
@@ -290,7 +296,13 @@ func validateDevelopmentSignals(report developmentSignalsReport, expectedBase, e
 	if err := validateCoverageReport(report.Coverage, report.Base, report.Head); err != nil {
 		return fmt.Errorf("coverage: %w", err)
 	}
-	return validateSignalFuzz(report.Selection, report.Fuzz)
+	if err := validateCoverageExplanations(report.CoverageExplanations); err != nil {
+		return fmt.Errorf("coverage explanations: %w", err)
+	}
+	if err := validateSignalFuzz(report.Selection, report.Fuzz); err != nil {
+		return err
+	}
+	return validateAdditionalFuzz(report.Fuzz, report.AdditionalFuzz)
 }
 
 func validateSignalFuzz(selection string, fuzz []signalFuzzReport) error {
@@ -329,6 +341,76 @@ func validateSignalFuzzResult(result signalFuzzReport) error {
 		return fmt.Errorf("fuzz result %q has invalid duration %q", result.Target, result.Duration)
 	}
 	return nil
+}
+
+func validateCoverageExplanations(explanations []coverageExplanation) error {
+	if _, err := canonicalCoverageExplanations(explanations); err != nil {
+		return err
+	}
+	for index, explanation := range explanations {
+		if index > 0 && explanations[index-1].Package >= explanation.Package {
+			return fmt.Errorf("coverage explanations are not sorted and unique at %q", explanation.Package)
+		}
+	}
+	return nil
+}
+
+func validateAdditionalFuzz(automatic []signalFuzzReport, additional []additionalFuzzReport) error {
+	if len(additional) > maxAdditionalFuzzTargets {
+		return fmt.Errorf("additionalFuzz contains %d results; maximum is %d", len(additional), maxAdditionalFuzzTargets)
+	}
+	previous := additionalFuzzTarget{}
+	for index, result := range additional {
+		current, err := validateAdditionalFuzzShape(index, result)
+		if err != nil {
+			return err
+		}
+		if index > 0 && (previous.Package > current.Package ||
+			(previous.Package == current.Package && previous.Target >= current.Target)) {
+			return fmt.Errorf("additional fuzz results are not sorted and unique at %s:%s", current.Package, current.Target)
+		}
+		previous = current
+		if signalFuzzTargetIndexByPackageTarget(automatic, current.Package, current.Target) >= 0 {
+			return fmt.Errorf("additional fuzz target %s:%s duplicates an automatic result", current.Package, current.Target)
+		}
+		if err := validateAdditionalFuzzResult(result); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAdditionalFuzzShape(index int, result additionalFuzzReport) (additionalFuzzTarget, error) {
+	if result.Package == "./" {
+		return additionalFuzzTarget{}, fmt.Errorf("additional fuzz result %d uses non-canonical package %q", index+1, result.Package)
+	}
+	if err := validateFuzzPackageName(result.Package); err != nil {
+		return additionalFuzzTarget{}, fmt.Errorf("additional fuzz result %d: %w", index+1, err)
+	}
+	if err := validateFuzzTargetName(result.Target); err != nil {
+		return additionalFuzzTarget{}, fmt.Errorf("additional fuzz result %d: %w", index+1, err)
+	}
+	return additionalFuzzTarget{Package: result.Package, Target: result.Target}, nil
+}
+
+func validateAdditionalFuzzResult(result additionalFuzzReport) error {
+	if result.Workers != 1 || !result.Offline || result.Result != "success" {
+		return fmt.Errorf("additional fuzz result %q does not prove bounded offline single-worker success", result.Target)
+	}
+	duration, err := time.ParseDuration(result.Duration)
+	if err != nil || duration <= 0 || duration > maxSignalFuzzDuration {
+		return fmt.Errorf("additional fuzz result %q has invalid duration %q", result.Target, result.Duration)
+	}
+	return nil
+}
+
+func signalFuzzTargetIndexByPackageTarget(fuzz []signalFuzzReport, packageName, targetName string) int {
+	for index, result := range fuzz {
+		if result.Package == packageName && result.Target == targetName {
+			return index
+		}
+	}
+	return -1
 }
 
 func signalFuzzTargetIndex(boundary, packageName, targetName string) int {
@@ -570,15 +652,91 @@ func (a app) validatePREvidenceForPR(root string, number int, view pullRequestVi
 	if err != nil {
 		return parsedPREvidence{}, stateError("PR #%d evidence is invalid: %v", number, err)
 	}
-	audit, err := a.documentationAuditReportForCommits(root, parsed.evidence.DocumentationAudit.Base,
-		parsed.evidence.DocumentationAudit.Head)
-	if err != nil {
-		return parsedPREvidence{}, stateError("PR #%d documentation audit could not be verified: %v", number, err)
-	}
-	if !documentationAuditReportsEqual(audit, parsed.evidence.DocumentationAudit) {
-		return parsedPREvidence{}, stateError("PR #%d documentation audit result does not match the exact current PR diff", number)
+	if err := a.validatePREvidenceForExactHead(root, number, view, parsed.evidence); err != nil {
+		return parsedPREvidence{}, err
 	}
 	return parsed, nil
+}
+
+func (a app) validatePREvidenceForExactHead(root string, number int, view pullRequestView, evidence prEvidence) error {
+	if err := a.verifyDevelopmentSignalsForExactHead(root, evidence.DevelopmentSignals); err != nil {
+		return stateError("PR #%d development signals could not be independently recomputed: %v", number, err)
+	}
+	audit, err := a.documentationAuditReportForCommits(root, evidence.DocumentationAudit.Base,
+		evidence.DocumentationAudit.Head)
+	if err != nil {
+		return stateError("PR #%d documentation audit could not be verified: %v", number, err)
+	}
+	if !documentationAuditReportsEqual(audit, evidence.DocumentationAudit) {
+		return stateError("PR #%d documentation audit result does not match the exact current PR diff", number)
+	}
+	if evidence.Base != view.BaseRefOID || evidence.Head != view.HeadRefOID {
+		return stateError("PR #%d evidence changed while validating the exact REST head", number)
+	}
+	return nil
+}
+
+func (a app) verifyDevelopmentSignalsForExactHead(root string, expected developmentSignalsReport) error {
+	if err := validateDevelopmentSignals(expected, expected.Base, expected.Head); err != nil {
+		return err
+	}
+	localHead, err := a.resolveCommit(root, "HEAD")
+	if err != nil {
+		return fmt.Errorf("resolve local HEAD: %w", err)
+	}
+	if localHead != expected.Head {
+		return fmt.Errorf("local HEAD %q does not match exact REST head %q", localHead, expected.Head)
+	}
+	localBase, err := a.resolveCommit(root, expected.Base)
+	if err != nil {
+		return fmt.Errorf("resolve local PR base %q: %w", expected.Base, err)
+	}
+	if localBase != expected.Base {
+		return fmt.Errorf("local PR base %q does not match exact REST base %q", localBase, expected.Base)
+	}
+	verify := a.verifyDevelopmentSignalsReport
+	if verify != nil {
+		return verify(root, expected)
+	}
+	duration, err := developmentSignalsCampaignDuration(expected)
+	if err != nil {
+		return err
+	}
+	additional, err := additionalFuzzTargetsFromReport(expected)
+	if err != nil {
+		return err
+	}
+	build := a.buildDevelopmentSignalsReport
+	if build == nil {
+		build = a.buildDevelopmentSignalsReportFromRepository
+	}
+	fresh, err := build(root, expected.Base, expected.Head, duration, expected.CoverageExplanations, additional)
+	if err != nil {
+		return err
+	}
+	if freshErr := validateDevelopmentSignals(fresh, expected.Base, expected.Head); freshErr != nil {
+		return fmt.Errorf("fresh development signals are invalid: %w", freshErr)
+	}
+	want, err := canonicalDevelopmentSignalsJSON(expected)
+	if err != nil {
+		return err
+	}
+	got, err := canonicalDevelopmentSignalsJSON(fresh)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(want, got) {
+		return errors.New("freshly recomputed development signals differ from the complete v2 payload")
+	}
+	return nil
+}
+
+func canonicalDevelopmentSignalsJSON(report developmentSignalsReport) ([]byte, error) {
+	data, err := json.Marshal(report)
+	if err != nil {
+		return nil, fmt.Errorf("encode development signals for comparison: %w", err)
+	}
+	return data, nil
 }
 
 func documentationAuditReportsEqual(left, right documentationAuditReport) bool {
@@ -637,8 +795,8 @@ func (a app) updatePREvidence(number int, signalsPath, auditPath, curatorPath st
 	if err != nil {
 		return err
 	}
-	if auditErr := a.validateDocumentationAuditSource(root, number, evidence.DocumentationAudit); auditErr != nil {
-		return auditErr
+	if evidenceErr := a.validatePREvidenceForExactHead(root, number, view, evidence); evidenceErr != nil {
+		return evidenceErr
 	}
 	block, err := renderPREvidenceBlock(evidence)
 	if err != nil {
@@ -668,17 +826,6 @@ func (a app) updatePREvidence(number int, signalsPath, auditPath, curatorPath st
 		return stateError("PR #%d evidence update is invalid after reread: %v", number, err)
 	}
 	return writeLine(a.stdout, "PR #%d evidence updated for %s", number, view.HeadRefOID)
-}
-
-func (a app) validateDocumentationAuditSource(root string, number int, report documentationAuditReport) error {
-	current, err := a.documentationAuditReportForCommits(root, report.Base, report.Head)
-	if err != nil {
-		return stateError("PR #%d documentation audit could not be verified: %v", number, err)
-	}
-	if !documentationAuditReportsEqual(current, report) {
-		return stateError("PR #%d documentation audit result does not match the exact current PR diff", number)
-	}
-	return nil
 }
 
 func (a app) updatePullRequestBody(root string, number int, body string) error {

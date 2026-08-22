@@ -55,16 +55,14 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    to exact REST PR base; then save `develop-signals --base "$BASE_SHA" --format json`
    and `docs audit --base "$BASE_SHA" --format json` before
    `pr evidence update` from exact signals/audit/Curator JSON using this base.
-   `syntax.go`/`datatype.go` changes replay checked-in corpora and run
-   targets for bounded offline single-worker duration. Text: coverage/fuzz;
-   JSON: exact affected-package/repository deltas or selected targets.
-   Non-relevant: `no-relevant-target`/`not-measured` valid. Request
-   replay. Regressions require package/reason JSON and computed base/head;
-   repository total is context.
-   Coverage/fuzz health never represents XSD conformance, catalog inventory, or
-   evaluation fuzz. Managed documents
+   Parser/datatype changes replay corpora with bounded offline single-worker
+   fuzz. Repeatable `--additional-fuzz PACKAGE:TARGET` is current-head validated,
+   separate fuzz. No-target/`not-measured` are valid. Before evidence/challenge,
+   workflowctl resolves REST base/local head and recomputes signals; rewritten
+   SHAs do not authenticate results. Coverage/fuzz is engineering health, not
+   conformance. Managed documents
    need a Curator with audit, diff, paths, charters, head; check placement,
-   relevance, duplication, history, replacement. Preserve JSON; repeat after
+   relevance, duplication, history, replacement; preserve JSON and repeat after
    remediation.
 10. Run `go tool workflowctl evaluation challenge PR`; for every
     managed-document review head, fresh read-only Curator review/result is

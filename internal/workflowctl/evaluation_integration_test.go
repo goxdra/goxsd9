@@ -18,15 +18,20 @@ import (
 
 const testExaminerRunID = "examiner-command-flow"
 
+func acceptDevelopmentSignalsForCommandFlow(string, developmentSignalsReport) error {
+	return nil
+}
+
 func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	application := app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         &stdout,
-		stderr:         &stderr,
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         &stdout,
+		stderr:                         &stderr,
 	}
 
 	challenge := requestTestChallenge(t, &application, &stdout)
@@ -71,10 +76,11 @@ func TestEvaluationAcceptsRunSpecificLocalBranchForFixedPRHead(t *testing.T) {
 	backend.localBranch = claimLocalBranch(13, "run-test")
 	var stdout bytes.Buffer
 	application := app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         &stdout,
-		stderr:         new(bytes.Buffer),
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         &stdout,
+		stderr:                         new(bytes.Buffer),
 	}
 	challenge := requestTestChallenge(t, &application, &stdout)
 	if challenge.Head != backend.head {
@@ -127,10 +133,11 @@ func TestManagedDocumentCuratorValidationPrecedesChallengeAndFinishMutation(t *t
 			configureManagedDocumentEvidence(t, backend, test.curator(backend.head))
 			var stdout bytes.Buffer
 			application := app{
-				ctx:            context.Background(),
-				executeCommand: backend.execute,
-				stdout:         &stdout,
-				stderr:         new(bytes.Buffer),
+				ctx:                            context.Background(),
+				executeCommand:                 backend.execute,
+				verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+				stdout:                         &stdout,
+				stderr:                         new(bytes.Buffer),
 			}
 
 			var err error
@@ -179,6 +186,128 @@ func configureManagedDocumentEvidence(t *testing.T, backend *workflowBackend, cu
 	backend.managedDocumentChange = true
 }
 
+func TestSignalEvidenceRecomputationPrecedesUpdateChallengeAndFinishMutations(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(*testing.T, *workflowBackend, *app)
+		want string
+	}{
+		{name: "update", run: func(t *testing.T, backend *workflowBackend, application *app) {
+			signals := staleDevelopmentSignalsReport(backend.head)
+			audit := testWorkflowPREvidence(backend.head).DocumentationAudit
+			signalsPath := writePREvidenceJSONSource(t, "signals.json", signals)
+			auditPath := writePREvidenceJSONSource(t, "audit.json", audit)
+			if err := application.runPREvidence([]string{"update", "14", "--signals-file", signalsPath, "--docs-audit-file", auditPath}); err == nil {
+				t.Fatal("rewritten old signal payload reached body PATCH")
+			}
+		}, want: "body PATCH"},
+		{name: "challenge", run: func(t *testing.T, _ *workflowBackend, application *app) {
+			if err := application.runEvaluation([]string{"challenge", "14"}); err == nil {
+				t.Fatal("rewritten old signal payload reached comment POST")
+			}
+		}, want: "comment POST"},
+		{name: "finish", run: func(t *testing.T, backend *workflowBackend, application *app) {
+			if err := application.runPR(backend.finishArgs()); err == nil {
+				t.Fatal("rewritten old signal payload reached finish mutation")
+			}
+		}, want: "finish mutation"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			makeSignalEvidenceStale(t, backend)
+			application := app{
+				ctx: context.Background(), executeCommand: backend.execute,
+				buildDevelopmentSignalsReport: func(_ string, _ string, _ string, _ time.Duration,
+					_ []coverageExplanation, _ []additionalFuzzTarget,
+				) (developmentSignalsReport, error) {
+					return testWorkflowPREvidence(backend.head).DevelopmentSignals, nil
+				},
+				stdout: new(bytes.Buffer), stderr: new(bytes.Buffer),
+			}
+			test.run(t, backend, &application)
+			if backend.bodyPatchCount != 0 || len(backend.comments) != 0 || backend.merged || backend.projectDone {
+				t.Fatalf("%s mutated GitHub state: bodyPatches=%d comments=%d merged=%t projectDone=%t",
+					test.want, backend.bodyPatchCount, len(backend.comments), backend.merged, backend.projectDone)
+			}
+		})
+	}
+}
+
+func TestSignalEvidenceRecomputationAcceptsExactCurrentReport(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	application := app{
+		ctx: context.Background(), executeCommand: backend.execute,
+		buildDevelopmentSignalsReport: func(_ string, _ string, _ string, _ time.Duration,
+			_ []coverageExplanation, _ []additionalFuzzTarget,
+		) (developmentSignalsReport, error) {
+			return testWorkflowPREvidence(backend.head).DevelopmentSignals, nil
+		},
+		stdout: new(bytes.Buffer), stderr: new(bytes.Buffer),
+	}
+	if err := application.runEvaluation([]string{"challenge", "14"}); err != nil {
+		t.Fatalf("exact current signal report rejected: %v", err)
+	}
+	if len(backend.comments) != 1 {
+		t.Fatalf("challenge comment count = %d, want 1", len(backend.comments))
+	}
+}
+
+func makeSignalEvidenceStale(t *testing.T, backend *workflowBackend) {
+	t.Helper()
+	parsed, err := parsePREvidenceBody(backend.body)
+	if err != nil {
+		t.Fatalf("parse workflow evidence: %v", err)
+	}
+	parsed.evidence.DevelopmentSignals = staleDevelopmentSignalsReport(backend.head)
+	block, err := renderPREvidenceBlock(parsed.evidence)
+	if err != nil {
+		t.Fatalf("render stale workflow evidence: %v", err)
+	}
+	backend.body, err = replacePREvidenceBlock(backend.body, block)
+	if err != nil {
+		t.Fatalf("replace stale workflow evidence: %v", err)
+	}
+	view := pullRequestView{BaseRefOID: "base-sha", HeadRefOID: backend.head, Body: backend.body}
+	if _, err := validatePREvidenceForView(view); err != nil {
+		t.Fatalf("stale complete workflow evidence is structurally invalid: %v", err)
+	}
+}
+
+func staleDevelopmentSignalsReport(head string) developmentSignalsReport {
+	oldBase, oldHead := "archived-base", "archived-head"
+	packageReport := coveragePackageReport{
+		Package: "example.com/copied", Status: "changed", Affected: true,
+		Base: coverageSideReport{Present: true, HasTests: true, Statements: 10, Covered: 8, Percent: 80},
+		Head: coverageSideReport{Present: true, HasTests: true, Statements: 10, Covered: 7, Percent: 70},
+	}
+	packageReport.Delta = coverageDelta(packageReport.Base, packageReport.Head)
+	packages := []coveragePackageReport{packageReport}
+	coverage := coverageReport{
+		Base: oldBase, Head: oldHead, Packages: packages,
+		Affected: coverageTotals(packages, true), Repository: coverageTotals(packages, false),
+	}
+	report := developmentSignalsReport{
+		Schema: developmentSignalsSchema, Base: oldBase, Head: oldHead, Coverage: coverage,
+		CoverageExplanations: []coverageExplanation{{
+			Schema: coverageExplanationSchema, Package: packageReport.Package, Reason: "archived coverage regression",
+			Base: packageReport.Base, Head: packageReport.Head,
+		}},
+		Fuzz: []signalFuzzReport{{
+			Boundary: "syntax.go", Package: ".", Target: "FuzzDecodeSyntax", Duration: "250ms",
+			Workers: 1, Offline: true, Result: "success",
+		}},
+		AdditionalFuzz: []additionalFuzzReport{}, Selection: "selected",
+		Catalog: noMeasuredDevelopmentSignal, XSDFeatureSupport: noMeasuredDevelopmentSignal,
+		ExecutableConformance: noMeasuredDevelopmentSignal,
+	}
+	report.Base = "base-sha"
+	report.Head = head
+	report.Coverage.Base = report.Base
+	report.Coverage.Head = report.Head
+	return report
+}
+
 func testPassingCurator(head string) curatorResult {
 	return curatorResult{
 		Schema: curatorResultSchema, RunID: "curator-command-flow", Head: head, Verdict: "pass",
@@ -190,10 +319,11 @@ func TestFinishRejectsEvaluationMetadataDrift(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer
 	application := app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         &stdout,
-		stderr:         new(bytes.Buffer),
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         &stdout,
+		stderr:                         new(bytes.Buffer),
 	}
 	challenge := requestTestChallenge(t, &application, &stdout)
 	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
@@ -225,10 +355,11 @@ func TestAmbiguousMergeResponsesReconcile(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 			application := app{
-				ctx:            context.Background(),
-				executeCommand: backend.execute,
-				stdout:         &stdout,
-				stderr:         &stderr,
+				ctx:                            context.Background(),
+				executeCommand:                 backend.execute,
+				verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+				stdout:                         &stdout,
+				stderr:                         &stderr,
 			}
 			challenge := requestTestChallenge(t, &application, &stdout)
 			_, attestationFile := writeTestAttestation(t, backend.head, challenge)
@@ -253,10 +384,11 @@ func TestAmbiguousMergeResponseRejectsPostMergeMetadataDrift(t *testing.T) {
 	backend.mutatePRBodyAfterMerge = true
 	var stdout bytes.Buffer
 	application := app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         &stdout,
-		stderr:         new(bytes.Buffer),
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         &stdout,
+		stderr:                         new(bytes.Buffer),
 	}
 	challenge := requestTestChallenge(t, &application, &stdout)
 	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
@@ -309,10 +441,11 @@ func testReservedAttestationSequence(t *testing.T, field struct {
 	backend := newWorkflowBackend(t)
 	stdout := new(bytes.Buffer)
 	application := &app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         stdout,
-		stderr:         new(bytes.Buffer),
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         stdout,
+		stderr:                         new(bytes.Buffer),
 	}
 	challenge := requestTestChallenge(t, application, stdout)
 	attestation := evaluationAttestation{
@@ -547,10 +680,11 @@ func newRepairFixture(t *testing.T) (*workflowBackend, *app, *bytes.Buffer) {
 	backend.localBranch = claimLocalBranch(13, "run-test")
 	stdout := new(bytes.Buffer)
 	application := &app{
-		ctx:            context.Background(),
-		executeCommand: backend.execute,
-		stdout:         stdout,
-		stderr:         new(bytes.Buffer),
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         stdout,
+		stderr:                         new(bytes.Buffer),
 	}
 	challenge := requestTestChallenge(t, application, stdout)
 	_, attestationFile := writeTestFailureAttestation(t, backend.head, challenge)
@@ -1063,7 +1197,7 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 		t.Fatalf("write summary: %v", err)
 	}
 	body := "## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n"
-	evidence := testWorkflowPREvidence("base-sha", "evaluated-head")
+	evidence := testWorkflowPREvidence("evaluated-head")
 	block, err := renderPREvidenceBlock(evidence)
 	if err != nil {
 		t.Fatalf("render workflow PR evidence: %v", err)
@@ -1080,7 +1214,8 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 	}
 }
 
-func testWorkflowPREvidence(base, head string) prEvidence {
+func testWorkflowPREvidence(head string) prEvidence {
+	base := "base-sha"
 	packages := []coveragePackageReport{}
 	coverage := coverageReport{
 		Base: base, Head: head, Packages: packages,
@@ -1090,7 +1225,7 @@ func testWorkflowPREvidence(base, head string) prEvidence {
 		Schema: prEvidenceSchema, Base: base, Head: head,
 		DevelopmentSignals: developmentSignalsReport{
 			Schema: developmentSignalsSchema, Base: base, Head: head, Coverage: coverage,
-			Fuzz: []signalFuzzReport{}, Selection: "no-relevant-target",
+			CoverageExplanations: []coverageExplanation{}, Fuzz: []signalFuzzReport{}, AdditionalFuzz: []additionalFuzzReport{}, Selection: "no-relevant-target",
 			Catalog: noMeasuredDevelopmentSignal, XSDFeatureSupport: noMeasuredDevelopmentSignal,
 			ExecutableConformance: noMeasuredDevelopmentSignal,
 		},
@@ -1231,6 +1366,10 @@ func (b *workflowBackend) executeGitClaim(dir, command string) (string, error) {
 		return "", nil
 	case "rev-parse HEAD", "rev-parse origin/agent/issue-13":
 		return b.head, nil
+	case "rev-parse --verify --end-of-options HEAD^{commit}":
+		return b.head, nil
+	case "rev-parse --verify --end-of-options base-sha^{commit}":
+		return "base-sha", nil
 	case "log -100 --format=%B":
 		lease := time.Now().UTC().Add(claimDuration).Truncate(time.Second)
 		return claimMessage(13, "run-test", lease), nil

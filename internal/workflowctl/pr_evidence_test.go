@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,11 +20,11 @@ func TestPREvidenceUpdateCommandUsesSourcesAndPatchesOnlyOwnedBlock(t *testing.T
 	signals := sourceEvidence.DevelopmentSignals
 	signals.Head = backend.head
 	signals.Coverage.Head = backend.head
-	audit := testWorkflowPREvidence("base-sha", backend.head).DocumentationAudit
+	audit := testWorkflowPREvidence(backend.head).DocumentationAudit
 	signalsPath := writePREvidenceJSONSource(t, "signals.json", signals)
 	auditPath := writePREvidenceJSONSource(t, "audit.json", audit)
 	var stdout, stderr bytes.Buffer
-	application := app{executeCommand: backend.execute, stdout: &stdout, stderr: &stderr}
+	application := app{executeCommand: backend.execute, verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow, stdout: &stdout, stderr: &stderr}
 
 	if err := application.runPREvidence([]string{"update", "14", "--signals-file", signalsPath, "--docs-audit-file", auditPath}); err != nil {
 		t.Fatalf("update PR evidence: %v", err)
@@ -246,7 +247,7 @@ func evidenceTestView(t *testing.T) (prEvidence, pullRequestView) {
 		Schema: prEvidenceSchema, Base: base, Head: head,
 		DevelopmentSignals: developmentSignalsReport{
 			Schema: developmentSignalsSchema, Base: base, Head: head, Coverage: coverage,
-			Fuzz: []signalFuzzReport{}, Selection: "no-relevant-target",
+			CoverageExplanations: []coverageExplanation{}, Fuzz: []signalFuzzReport{}, AdditionalFuzz: []additionalFuzzReport{}, Selection: "no-relevant-target",
 			Catalog: noMeasuredDevelopmentSignal, XSDFeatureSupport: noMeasuredDevelopmentSignal,
 			ExecutableConformance: noMeasuredDevelopmentSignal,
 		},
@@ -296,5 +297,74 @@ func TestPREvidenceJSONRoundTripIsCanonical(t *testing.T) {
 	var decoded map[string]any
 	if err := json.Unmarshal(block, &decoded); err == nil {
 		t.Fatal("comment markers were unexpectedly valid as JSON")
+	}
+}
+
+func TestDevelopmentSignalEvidenceRequiresFreshCompletePayload(t *testing.T) {
+	evidence, _ := evidenceTestView(t)
+	expected := evidence.DevelopmentSignals
+	commands := 0
+	application := app{
+		executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+			if name != "git" {
+				t.Fatalf("resolution command = %q, want git", name)
+			}
+			commands++
+			switch strings.Join(args, " ") {
+			case "rev-parse --verify --end-of-options HEAD^{commit}":
+				return expected.Head, nil
+			case "rev-parse --verify --end-of-options base-sha^{commit}":
+				return expected.Base, nil
+			default:
+				t.Fatalf("unexpected resolution command: %v", args)
+				return "", nil
+			}
+		},
+		buildDevelopmentSignalsReport: func(root, base, head string, duration time.Duration,
+			explanations []coverageExplanation, additional []additionalFuzzTarget,
+		) (developmentSignalsReport, error) {
+			if root != "/repo" || base != expected.Base || head != expected.Head || duration != defaultSignalFuzzDuration ||
+				len(explanations) != 0 || len(additional) != 0 {
+				t.Fatalf("builder inputs = %q %q %q %s %#v %#v", root, base, head, duration, explanations, additional)
+			}
+			return expected, nil
+		},
+	}
+	if err := application.verifyDevelopmentSignalsForExactHead("/repo", expected); err != nil {
+		t.Fatalf("exact current signals rejected: %v", err)
+	}
+	if commands != 2 {
+		t.Fatalf("commit resolution calls = %d, want 2", commands)
+	}
+	application.buildDevelopmentSignalsReport = func(string, string, string, time.Duration,
+		[]coverageExplanation, []additionalFuzzTarget,
+	) (developmentSignalsReport, error) {
+		fresh := expected
+		fresh.CoverageExplanations = []coverageExplanation{{Schema: coverageExplanationSchema, Package: "example.com/stale", Reason: "copied"}}
+		return fresh, nil
+	}
+	if err := application.verifyDevelopmentSignalsForExactHead("/repo", expected); err == nil || !strings.Contains(err.Error(), "complete v2 payload") {
+		t.Fatalf("rewritten old signal payload error = %v", err)
+	}
+}
+
+func TestDevelopmentSignalEvidenceRejectsLocalBaseDrift(t *testing.T) {
+	evidence, _ := evidenceTestView(t)
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		if name != "git" {
+			t.Fatalf("unexpected command = %s %v", name, args)
+		}
+		switch strings.Join(args, " ") {
+		case "rev-parse --verify --end-of-options HEAD^{commit}":
+			return evidence.Head, nil
+		case "rev-parse --verify --end-of-options base-sha^{commit}":
+			return "different-base", nil
+		default:
+			t.Fatalf("unexpected command = %s %v", name, args)
+		}
+		return "", nil
+	}}
+	if err := application.verifyDevelopmentSignalsForExactHead("/repo", evidence.DevelopmentSignals); err == nil || !strings.Contains(err.Error(), "local PR base") {
+		t.Fatalf("local base drift error = %v", err)
 	}
 }

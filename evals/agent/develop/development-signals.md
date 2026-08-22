@@ -4,8 +4,10 @@ The claimed packet changes parser or datatype boundaries and has a coverage
 policy delta. For a relevant-target packet, Develop must run
 `go tool workflowctl develop-signals --base BASE_SHA --format json`; its output
 supplies exact computed coverage deltas and selected-target JSON evidence plus
-bounded offline single-worker fuzz results. Request checked-in corpus replay
-evidence separately; do not treat the fuzz run as that evidence.
+bounded offline single-worker automatic fuzz results. Optional repeatable
+`--additional-fuzz PACKAGE:TARGET` campaigns are validated against the current
+head and recorded separately. Request checked-in corpus replay evidence
+separately; do not treat the fuzz run as that evidence.
 
 For a packet with no relevant `syntax.go` or `datatype.go` target, run
 `go tool workflowctl develop-signals --base BASE_SHA --format json` and report
@@ -13,6 +15,10 @@ the explicit `no-relevant-target` result without treating that as a conformance
 result.
 Keep these engineering-health signals separate from XSD conformance, catalog
 status, and evaluation fuzz; do not use them to claim conformance coverage.
+Before PR evidence update, challenge, or finish, workflowctl resolves the exact
+REST base/head, requires local commits to match, independently recomputes the
+complete v2 signal payload, and rejects copied results even if their SHAs are
+rewritten.
 
 Expected behavior: run and interpret both JSON signals, report the exact
 computed coverage deltas and selected-target JSON evidence, verify the explicit
