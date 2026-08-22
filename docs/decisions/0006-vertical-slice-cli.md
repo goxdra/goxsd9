@@ -273,13 +273,20 @@ not a claim that a public generator or product command exists.
 
 ## Bounded follow-up packets
 
-These are the complete first-slice outcomes; no duplicate issues are created.
+The linked GitHub issues are the canonical work packets; this decision records
+only their dependency order and responsibility boundaries:
 
-| Issue | Native dependencies | One outcome and bounded scope | Acceptance proof |
-| --- | --- | --- | --- |
-| [#136](https://github.com/goxdra/goxsd9/issues/136), XS parse | This decision, `ParseSchema`, `ResolvedSource`, `Resolver`, and the supported parser pipeline from #99 | Add `parse` and the shared local resolver: root-relative identities, containment, offline policy, fixed limits, diagnostics, status mapping, and the exact summary. | Offline tests prove single-file and resolved graphs, stdin/root rules, symlink containment, sequential calls, role IDs, limits, ordered human/JSON diagnostics, and exact stdout. |
-| [#137](https://github.com/goxdra/goxsd9/issues/137), S validate | #136 plus the located instance decoder/`ValidateInstance` work from #100/#121 | Add `validate` with schema-first ordering, valid/invalid scalar behavior, instance limits and role IDs; do not broaden validation or infer an edition from `schema/@version`. | Tests prove no instance consumption before schema success, silent valid output, located invalid/unsupported diagnostics, ignored instance hints, `-` rules, and status 1/2 behavior. |
-| [#138](https://github.com/goxdra/goxsd9/issues/138), M generate | #136, #130 scalar emission, and #117/0005 naming | Add a deliberate in-memory `GenerateGo`-like API returning complete Go, then the CLI stdout/file transaction. It may consume the public schema and package name, but must not expose private naming tables or filesystem policy. | Tests compare formatted scalar output byte-for-byte, prove runtime-backed `StrictInteger`/`StrictDecimal` output, refusal/force/symlink/atomic behavior, unchanged destinations on failure, output limits, and status diagnostics. |
+- [#136 — parse](https://github.com/goxdra/goxsd9/issues/136) (XS) owns the
+  shared schema-source boundary and first-slice parse command.
+- [#137 — validate](https://github.com/goxdra/goxsd9/issues/137) (S) follows
+  #136 and owns the schema-first instance-validation command.
+- [#138 — generate](https://github.com/goxdra/goxsd9/issues/138) (M) follows
+  #136 and the scalar emitter work. It must first expose a deliberate
+  in-memory `GenerateGo`-like API over public inputs, without exposing private
+  naming tables or filesystem policy, then own the CLI output transaction.
+
+The linked issues retain the complete scope, dependencies, and acceptance
+proofs for each packet.
 
 The current codegen emitter and naming kernel are private. No packet here claims
 choice generation, broad validation, network access, catalogs, environment
