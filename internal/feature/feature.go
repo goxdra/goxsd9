@@ -99,6 +99,16 @@ var registry = []definition{
 		},
 	},
 	{
+		id:    "xsd.codegen",
+		title: "Go code generation outside supported scalar declarations",
+		references: []Reference{
+			{version: "1.0", source: "xsd10-structures#Simple_Type_Definitions"},
+			{version: "1.0", source: "xsd10-structures#Element_Declaration_details"},
+			{version: "1.1", source: "xsd11-structures#Simple_Type_Definition"},
+			{version: "1.1", source: "xsd11-structures#Element_Declaration_details"},
+		},
+	},
+	{
 		id:    "xsd.datatype.facets",
 		title: "XSD datatype facets",
 		references: []Reference{
@@ -235,18 +245,21 @@ func validateReferences(id ID, references []Reference) error {
 	if len(references) == 0 {
 		return fmt.Errorf("feature %q has no specification reference", id)
 	}
-	seenVersions := make(map[string]struct{}, len(references))
-	for index, reference := range references {
+	seenReferences := make(map[string]struct{}, len(references))
+	previousVersion := ""
+	for _, reference := range references {
 		if reference.version != "1.0" && reference.version != "1.1" {
 			return fmt.Errorf("feature %q has invalid specification version %q", id, reference.version)
 		}
-		if _, ok := seenVersions[reference.version]; ok {
-			return fmt.Errorf("feature %q repeats specification version %q", id, reference.version)
+		if previousVersion != "" && reference.version < previousVersion {
+			return fmt.Errorf("feature %q references are not sorted by specification version", id)
 		}
-		seenVersions[reference.version] = struct{}{}
-		if index > 0 && references[index-1].version >= reference.version {
-			return fmt.Errorf("feature %q references are not unique and sorted", id)
+		previousVersion = reference.version
+		key := reference.version + "\x00" + reference.source
+		if _, ok := seenReferences[key]; ok {
+			return fmt.Errorf("feature %q repeats specification reference %q", id, reference.source)
 		}
+		seenReferences[key] = struct{}{}
 		if err := validateReferenceSource(id, reference.source); err != nil {
 			return err
 		}

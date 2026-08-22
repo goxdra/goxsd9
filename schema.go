@@ -435,6 +435,7 @@ type SchemaDocument struct {
 	source          SourceID
 	rootLoc         Loc
 	targetNamespace string
+	version         XSDVersion
 	storage         *schemaStorage
 	start           int
 	count           int
@@ -487,6 +488,7 @@ func (schema Schema) Documents() []SchemaDocument {
 			source:          document.source,
 			rootLoc:         document.rootLoc,
 			targetNamespace: document.targetNamespace,
+			version:         document.version,
 			storage:         document.storage,
 			start:           document.start,
 			count:           document.count,
@@ -581,6 +583,7 @@ type schemaDocumentInput struct {
 	source          SourceID
 	rootLoc         Loc
 	targetNamespace string
+	version         XSDVersion
 	// declarations contains the named schema-level declarations in lexical
 	// order. Local particle components will use a separate scoped model.
 	declarations []schemaComponentInput
@@ -724,6 +727,10 @@ func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []sc
 		if err := validateSchemaDocumentInput(input, seenSources); err != nil {
 			return nil, nil, nil, err
 		}
+		version, err := schemaDocumentInputVersion(input)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		seenSources[input.source] = struct{}{}
 
 		documentStart := len(records)
@@ -740,11 +747,25 @@ func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []sc
 			source:          input.source,
 			rootLoc:         input.rootLoc,
 			targetNamespace: input.targetNamespace,
+			version:         version,
 			start:           documentStart,
 			count:           len(records) - documentStart,
 		})
 	}
 	return documents, records, byName, nil
+}
+
+func schemaDocumentInputVersion(input schemaDocumentInput) (XSDVersion, error) {
+	if input.version == "" {
+		return XSDVersion11, nil
+	}
+	if input.version == XSDVersion10 || input.version == XSDVersion11 {
+		return input.version, nil
+	}
+	return "", newSchemaBridgeInvariant(
+		input.rootLoc,
+		fmt.Sprintf("schema document has unsupported version %q", input.version),
+	)
 }
 
 func validateSchemaDocumentInput(input schemaDocumentInput, seenSources map[SourceID]struct{}) error {

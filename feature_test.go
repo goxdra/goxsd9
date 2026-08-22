@@ -19,10 +19,21 @@ func TestFeatureRegistryValidationAndLookup(t *testing.T) {
 	if _, unknownFound := LookupUnsupportedFeature("xsd.unknown"); unknownFound {
 		t.Fatal("LookupUnsupportedFeature accepted an unknown ID")
 	}
-	for _, id := range []FeatureID{FeatureDatatypeFacets, FeatureInstanceSyntax, FeatureInstanceValidation, FeaturePrecisionDecimal} {
+	for _, id := range []FeatureID{FeatureCodegen, FeatureDatatypeFacets, FeatureInstanceSyntax, FeatureInstanceValidation, FeaturePrecisionDecimal} {
 		if _, featureFound := LookupUnsupportedFeature(id); !featureFound {
 			t.Fatalf("LookupUnsupportedFeature did not find %q", id)
 		}
+	}
+	codegen, found := LookupUnsupportedFeature(FeatureCodegen)
+	if !found || codegen.Title() != "Go code generation outside supported scalar declarations" {
+		t.Fatalf("codegen feature title = %q, want stable title", codegen.Title())
+	}
+	if references := codegen.References(); len(references) != 4 ||
+		references[0].Source() != "xsd10-structures#Simple_Type_Definitions" ||
+		references[1].Source() != "xsd10-structures#Element_Declaration_details" ||
+		references[2].Source() != "xsd11-structures#Simple_Type_Definition" ||
+		references[3].Source() != "xsd11-structures#Element_Declaration_details" {
+		t.Fatalf("codegen feature references = %#v, want simple-type and element sections for XSD 1.0 and 1.1", references)
 	}
 	validationFeature, found := LookupUnsupportedFeature(FeatureInstanceValidation)
 	if !found {

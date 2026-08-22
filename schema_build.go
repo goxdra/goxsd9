@@ -141,6 +141,7 @@ func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTarget
 			source:          document.source,
 			rootLoc:         document.root.loc,
 			targetNamespace: namespaces[index].value,
+			version:         namespaces[index].version,
 			declarations:    declarations,
 		})
 	}
