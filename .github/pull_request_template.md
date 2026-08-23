@@ -1,4 +1,5 @@
 <!-- Title: <type>(<optional-scope>): <lowercase imperative summary> -->
+<!-- goxsd9/pr-review-state/v1 pending -->
 <!-- This Markdown body is review evidence. Write the squash summary separately at finalization. -->
 
 ## Outcome

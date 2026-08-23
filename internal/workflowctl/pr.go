@@ -363,6 +363,9 @@ func (a app) validateFinishPullRequest(root, branch string, claimedIssue, number
 	if err := a.validateClosingClaims(root, view, claimedIssue); err != nil {
 		return pullRequestView{}, err
 	}
+	if err := requirePRReviewStateReady(view.Body); err != nil {
+		return pullRequestView{}, stateError("PR #%d review state is not evidence-ready: %v", number, err)
+	}
 	if _, err := a.validatePREvidenceForPR(root, number, view); err != nil {
 		return pullRequestView{}, err
 	}

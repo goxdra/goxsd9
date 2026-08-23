@@ -791,6 +791,9 @@ func (a app) updatePREvidence(number int, signalsPath, auditPath, curatorPath st
 	if err != nil {
 		return err
 	}
+	if _, stateErr := parsePRReviewStateMarker(view.Body); stateErr != nil {
+		return stateError("PR #%d evidence update refused: %v", number, stateErr)
+	}
 	evidence, err := readPREvidenceSources(signalsPath, auditPath, curatorPath, view)
 	if err != nil {
 		return err
@@ -803,6 +806,10 @@ func (a app) updatePREvidence(number int, signalsPath, auditPath, curatorPath st
 		return err
 	}
 	updatedBody, err := replacePREvidenceBlock(view.Body, block)
+	if err != nil {
+		return stateError("PR #%d evidence update refused: %v", number, err)
+	}
+	updatedBody, err = replacePRReviewState(updatedBody, prReviewStateEvidenceReady)
 	if err != nil {
 		return stateError("PR #%d evidence update refused: %v", number, err)
 	}
@@ -821,6 +828,9 @@ func (a app) updatePREvidence(number int, signalsPath, auditPath, curatorPath st
 	}
 	if updated.Body != updatedBody {
 		return stateError("PR #%d evidence update was not preserved by GitHub", number)
+	}
+	if stateErr := requirePRReviewStateReady(updated.Body); stateErr != nil {
+		return stateError("PR #%d evidence update has invalid review state after reread: %v", number, stateErr)
 	}
 	if _, err := validatePREvidenceForView(updated); err != nil {
 		return stateError("PR #%d evidence update is invalid after reread: %v", number, err)

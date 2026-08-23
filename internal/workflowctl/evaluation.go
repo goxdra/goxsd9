@@ -401,6 +401,9 @@ func (a app) requestEvaluation(number int) error {
 	if err != nil {
 		return err
 	}
+	if stateErr := requirePRReviewStateReady(view.Body); stateErr != nil {
+		return stateError("PR #%d review state is not evidence-ready: %v", number, stateErr)
+	}
 	parsedEvidence, err := a.validatePREvidenceForPR(root, number, view)
 	if err != nil {
 		return err
