@@ -130,6 +130,7 @@ Usage:
   go tool workflowctl pr open ISSUE --title TITLE --body-file FILE
   go tool workflowctl pr evidence update PR --signals-file FILE --docs-audit-file FILE [--curator-file FILE]
   go tool workflowctl pr finish PR --summary-file FILE
+  go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]
   go tool workflowctl pr recover PR
   go tool workflowctl claim prune ISSUE
   go tool workflowctl evaluation challenge PR

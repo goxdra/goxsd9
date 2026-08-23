@@ -101,7 +101,7 @@ func (a app) assertClaimable(root string, number int) error {
 	if item.Status != "Ready" && item.Status != "Picked" {
 		return stateError("issue #%d is %s, not Ready", number, item.Status)
 	}
-	if issueHasLabel(status, "needs-human") {
+	if issueNeedsHuman(status) {
 		return stateError("issue #%d needs human attention", number)
 	}
 	return nil
@@ -163,7 +163,7 @@ func (a app) escalateStaleClaim(root string, claim remoteClaim) error {
 	if err != nil {
 		return err
 	}
-	if !issueHasLabel(status, "needs-human") {
+	if !issueNeedsHuman(status) {
 		if _, err := a.command(root, "gh", "issue", "edit", strconv.Itoa(claim.number), "--repo", repositoryKey,
 			"--add-label", "needs-human"); err != nil {
 			return fmt.Errorf("mark stale claim issue #%d needs-human: %w", claim.number, err)

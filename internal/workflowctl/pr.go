@@ -62,7 +62,7 @@ const (
 
 func (a app) runPR(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl pr open ISSUE [flags] | evidence update PR [flags] | finish PR --summary-file FILE | recover PR")
+		return usageError("usage: workflowctl pr open ISSUE [flags] | evidence update PR [flags] | finish PR --summary-file FILE | resume PR [flags] | recover PR")
 	}
 	switch args[0] {
 	case "open":
@@ -73,6 +73,8 @@ func (a app) runPR(args []string) error {
 		return a.finishPullRequestCommand(args[1:])
 	case "recover":
 		return a.recoverPullRequestCommand(args[1:])
+	case "resume":
+		return a.resumePullRequestCommand(args[1:])
 	default:
 		return usageError("unknown pr command %q", args[0])
 	}
