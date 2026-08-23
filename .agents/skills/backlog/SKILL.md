@@ -30,7 +30,7 @@ code during this workflow.
    specification references when applicable.
 5. Use native `blocked by` edges for ordering and native sub-issues for
    decomposition. Split `L` and `XL`; only `XS`, `S`, and `M` may become Ready.
-6. Maintain at least eight unblocked Ready issues, including two `XS`, three
+6. Maintain at least ten unblocked Ready issues, including two `XS`, three
    `S`, and two `M`. Prefer current-phase work, issues that unblock the most
    downstream outcomes, user value, and unsupported features that unlock the
    most undisputed conformance tests.

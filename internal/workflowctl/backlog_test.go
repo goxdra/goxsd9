@@ -63,6 +63,79 @@ func TestBacklogHealthFormatsAllDeficitCombinations(t *testing.T) {
 	}
 }
 
+func TestBacklogHealthReadyFloorBoundary(t *testing.T) {
+	nineFixture, nineReport := backlogReadyBoundaryFixture(9)
+	if nineReport.Counts.Ready != 9 || nineReport.Deficits.Ready != 1 || nineReport.Healthy {
+		t.Fatalf("nine-ready report = %#v, want count 9, deficit 1, unhealthy", nineReport)
+	}
+	assertBacklogHealthFormats(t, nineFixture, nineReport)
+
+	tenFixture, tenReport := backlogReadyBoundaryFixture(10)
+	if tenReport.Counts.Ready != 10 || tenReport.Deficits.Ready != 0 || !tenReport.Healthy {
+		t.Fatalf("ten-ready report = %#v, want count 10, deficit 0, healthy", tenReport)
+	}
+	assertBacklogHealthFormats(t, tenFixture, tenReport)
+}
+
+func assertBacklogHealthFormats(t *testing.T, fixture backlogFixture, want backlogHealthReport) {
+	t.Helper()
+	textResult := runBacklogFixture(t, []string{"backlog", "health"}, fixture)
+	assertBacklogResult(t, textResult, want, fixture, "text")
+	jsonResult := runBacklogFixture(t, []string{"backlog", "health", "--format", "json"}, fixture)
+	assertBacklogResult(t, jsonResult, want, fixture, "json")
+}
+
+func backlogReadyBoundaryFixture(ready int) (backlogFixture, backlogHealthReport) {
+	counts := backlogHealthCounts{Ready: ready, XS: 2, S: 3, M: ready - 5}
+	return backlogFixtureForCounts(counts)
+}
+
+func backlogFixtureForCounts(counts backlogHealthCounts) (backlogFixture, backlogHealthReport) {
+	items := []projectItem{
+		backlogProjectItem(900, "In Progress", "Issue", repositoryKey, "M"),
+		backlogProjectItem(901, "Ready", "PullRequest", repositoryKey, "XS"),
+		backlogProjectItem(902, "Ready", "Issue", "other/example", "S"),
+	}
+	selected := make([]int, 0, counts.Ready)
+	number := 1
+	appendItems := func(effort string, count int) {
+		for index := 0; index < count; index++ {
+			items = append(items, backlogProjectItem(number, "Ready", "Issue", repositoryKey, effort))
+			selected = append(selected, number)
+			number++
+		}
+	}
+	appendItems("XS", counts.XS)
+	appendItems("S", counts.S)
+	appendItems("M", counts.M)
+	unknown := counts.Ready - counts.XS - counts.S - counts.M
+	if unknown > 0 {
+		appendItems("XL", unknown)
+	}
+
+	blockedNumber := 999
+	items = append(items, backlogProjectItem(blockedNumber, "Ready", "Issue", repositoryKey, "XS"))
+	relations := make(map[int]issueRelations, len(selected)+1)
+	for _, issueNumber := range selected {
+		relations[issueNumber] = issueRelations{}
+	}
+	if len(selected) != 0 {
+		relations[selected[0]] = issueRelations{
+			BlockedBy: issueConnection{Nodes: []relatedIssue{{Number: 700, State: "CLOSED"}}},
+		}
+	}
+	relations[blockedNumber] = issueRelations{
+		BlockedBy: issueConnection{Nodes: []relatedIssue{{Number: 701, State: "OPEN"}}},
+	}
+	fixture := backlogFixture{
+		list:          projectList{Items: items, TotalCount: len(items)},
+		relations:     relations,
+		selected:      selected,
+		blockedNumber: blockedNumber,
+	}
+	return fixture, newBacklogHealthReport(counts)
+}
+
 func TestBacklogHealthRejectsInvalidArgumentsBeforeCommands(t *testing.T) {
 	tests := []struct {
 		name string
@@ -299,7 +372,7 @@ func backlogDependencyNumber(args []string) (int, bool) {
 }
 
 func backlogHealthFixture(mask int) (backlogFixture, backlogHealthReport) {
-	floors := backlogHealthFloors{Ready: 8, XS: 2, S: 3, M: 2}
+	floors := backlogHealthFloors{Ready: 10, XS: 2, S: 3, M: 2}
 	counts := backlogHealthCounts(floors)
 	if mask&backlogReadyDeficit != 0 {
 		counts.Ready--
@@ -314,47 +387,7 @@ func backlogHealthFixture(mask int) (backlogFixture, backlogHealthReport) {
 		counts.M--
 	}
 
-	items := []projectItem{
-		backlogProjectItem(900, "In Progress", "Issue", repositoryKey, "M"),
-		backlogProjectItem(901, "Ready", "PullRequest", repositoryKey, "XS"),
-		backlogProjectItem(902, "Ready", "Issue", "other/example", "S"),
-	}
-	selected := make([]int, 0, counts.Ready)
-	number := 1
-	appendItems := func(effort string, count int) {
-		for index := 0; index < count; index++ {
-			items = append(items, backlogProjectItem(number, "Ready", "Issue", repositoryKey, effort))
-			selected = append(selected, number)
-			number++
-		}
-	}
-	appendItems("XS", counts.XS)
-	appendItems("S", counts.S)
-	appendItems("M", counts.M)
-	unknown := counts.Ready - counts.XS - counts.S - counts.M
-	appendItems("XL", unknown)
-
-	blockedNumber := 999
-	items = append(items, backlogProjectItem(blockedNumber, "Ready", "Issue", repositoryKey, "XS"))
-	relations := make(map[int]issueRelations, len(selected)+1)
-	for _, issueNumber := range selected {
-		relations[issueNumber] = issueRelations{}
-	}
-	if len(selected) != 0 {
-		relations[selected[0]] = issueRelations{
-			BlockedBy: issueConnection{Nodes: []relatedIssue{{Number: 700, State: "CLOSED"}}},
-		}
-	}
-	relations[blockedNumber] = issueRelations{
-		BlockedBy: issueConnection{Nodes: []relatedIssue{{Number: 701, State: "OPEN"}}},
-	}
-	fixture := backlogFixture{
-		list:          projectList{Items: items, TotalCount: len(items)},
-		relations:     relations,
-		selected:      selected,
-		blockedNumber: blockedNumber,
-	}
-	return fixture, newBacklogHealthReport(counts)
+	return backlogFixtureForCounts(counts)
 }
 
 func backlogProjectItem(number int, status, itemType, repository, effort string) projectItem {
@@ -376,7 +409,7 @@ func parseBacklogTextCounts(t *testing.T, output string) backlogHealthCounts {
 }
 
 func expectedBacklogJSON(report backlogHealthReport) string {
-	return fmt.Sprintf("{\"counts\":{\"ready\":%d,\"xs\":%d,\"s\":%d,\"m\":%d},\"floors\":{\"ready\":8,\"xs\":2,\"s\":3,\"m\":2},\"deficits\":{\"ready\":%d,\"xs\":%d,\"s\":%d,\"m\":%d},\"healthy\":%t}\n",
+	return fmt.Sprintf("{\"counts\":{\"ready\":%d,\"xs\":%d,\"s\":%d,\"m\":%d},\"floors\":{\"ready\":10,\"xs\":2,\"s\":3,\"m\":2},\"deficits\":{\"ready\":%d,\"xs\":%d,\"s\":%d,\"m\":%d},\"healthy\":%t}\n",
 		report.Counts.Ready, report.Counts.XS, report.Counts.S, report.Counts.M,
 		report.Deficits.Ready, report.Deficits.XS, report.Deficits.S, report.Deficits.M, report.Healthy)
 }

@@ -125,7 +125,7 @@ func (a app) readyCounts(root string, list projectList) (backlogHealthCounts, er
 }
 
 func newBacklogHealthReport(counts backlogHealthCounts) backlogHealthReport {
-	floors := backlogHealthFloors{Ready: 8, XS: 2, S: 3, M: 2}
+	floors := backlogHealthFloors{Ready: 10, XS: 2, S: 3, M: 2}
 	deficits := backlogHealthDeficits{
 		Ready: backlogHealthDeficit(floors.Ready, counts.Ready),
 		XS:    backlogHealthDeficit(floors.XS, counts.XS),
