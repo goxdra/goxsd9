@@ -102,14 +102,11 @@ diagnostics. An identity is never a target namespace, `schema/@version`, XML
 declaration version, generated Go name, or filesystem URI.
 
 The CLI exposes no edition flag and does not choose an edition from
-`schema/@version`; it does not change the current parser entrypoint. The
-current two-argument `ParseSchema` retains legacy per-document behavior:
-absent or empty `schema/@version` defaults to XSD 1.1, `"1.0"` selects the
-legacy XSD 1.0 path, `"1.1"` selects the legacy XSD 1.1 path, and arbitrary
-labels are unsupported. Graph-wide `ParseSchemaWithPolicy` propagation and
-profile behavior remain future work. Normatively, `schema/@version` is an
-inert optional label, as recorded in [0004-xsd-language-policy.md](0004-xsd-language-policy.md);
-the current legacy entrypoint behavior is a separate implementation fact.
+`schema/@version`. The parser applies policy graph-wide: `ParseSchema` selects
+graph-wide `Compatibility` for the complete graph, while
+`ParseSchemaWithPolicy` applies one validated policy to the complete graph.
+Normatively, `schema/@version` is an inert optional label and never selects or
+mismatches a policy, as recorded in [0004-xsd-language-policy.md](0004-xsd-language-policy.md).
 
 ## Fixed offline limits
 
