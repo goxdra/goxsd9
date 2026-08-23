@@ -6,10 +6,10 @@ unsupported behavior.
 
 ## Schema parsing
 
-`ParseSchema` exposes schema discovery and immutable components. Callers create a
-root `ResolvedSource`; `Resolver` supplies referenced sources and resolution policy. Calls are
-sequential; contexts and locations stay opaque, and paths/URLs stay unopened.
-Parsing closes streams and decodes only unseen identities; repeated and cyclic
+`ParseSchema` exposes schema discovery and immutable components. Callers create
+`ResolvedSource` roots; `Resolver` supplies referenced sources and resolution policy. Calls are
+sequential; contexts/locations stay opaque; paths/URLs stay unopened.
+Parsing closes streams and decodes only unseen identities; repeated/cyclic
 identities close without decoding.
 
 Mixed XSD 1.0/1.1 graphs, declarations, and simple-type restrictions are supported. Chameleon includes, redefine/override/defaultOpenContent, assertions, and broader facets remain unsupported; total/fraction digits are implemented.
@@ -18,7 +18,7 @@ and applies graph-wide `Compatibility`, `Strict10`, or `Strict11` before discove
 unqualified `schema/@version` is an inert optional `xs:token` label: absent, empty, arbitrary,
 `"1.0"`, and `"1.1"` values never select or mismatch a policy. Strict10 routes the complete
 graph through XSD 1.0 behavior; Compatibility and Strict11 use XSD 1.1 behavior for the supported subset.
-Diagnostics cover invalid/unsupported input; errors omit schema. `ValidateInstance` supports text-only integer/decimal; semantics unsupported. `GenerateGo` emits deterministic scalar-choice Go; broader generation staged.
+Diagnostics cover invalid/unsupported input; errors omit schema. `ValidateInstance` supports text-only integer/decimal; semantics unsupported. `GenerateGo` emits deterministic Go for supported scalar components and direct scalar choices; broader generation remains staged.
 
 ## Design goals
 
