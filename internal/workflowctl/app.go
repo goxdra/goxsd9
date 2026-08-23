@@ -126,7 +126,7 @@ Usage:
   go tool workflowctl develop-signals --base REF [--duration DURATION] [--coverage-explanation-file FILE] [--additional-fuzz PACKAGE:TARGET ...] [--format text|json]
   go tool workflowctl backlog health [--format text|json]
   go tool workflowctl issue create [flags]
-  go tool workflowctl handoff ISSUE --body-file FILE
+  go tool workflowctl handoff ISSUE --body-file FILE [--needs-human]
   go tool workflowctl pr open ISSUE --title TITLE --body-file FILE
   go tool workflowctl pr evidence update PR --signals-file FILE --docs-audit-file FILE [--curator-file FILE]
   go tool workflowctl pr finish PR --summary-file FILE

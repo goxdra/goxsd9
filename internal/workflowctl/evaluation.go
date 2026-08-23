@@ -493,7 +493,7 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 		return err
 	}
 	if attestation.Verdict == "fail" && failedRounds+1 == 3 {
-		if err := a.escalateEvaluation(root, primary); err != nil {
+		if err := a.transitionIssueToNeedsHuman(root, primary); err != nil {
 			return err
 		}
 	}
@@ -1758,10 +1758,13 @@ func parseCommentAttestation(body string) (evaluationAttestation, []byte, bool) 
 	return attestation, value, true
 }
 
-func (a app) escalateEvaluation(root string, number int) error {
+func (a app) transitionIssueToNeedsHuman(root string, number int) error {
 	if _, err := a.command(root, "gh", "issue", "edit", strconv.Itoa(number), "--repo", repositoryKey,
 		"--add-label", "needs-human"); err != nil {
-		return fmt.Errorf("mark issue #%d needs-human: %w", number, err)
+		return fmt.Errorf("needs-human label phase incomplete; retry: mark issue #%d needs-human: %w", number, err)
 	}
-	return a.setIssueProjectStatus(root, number, "Backlog")
+	if err := a.setIssueProjectStatus(root, number, "Backlog"); err != nil {
+		return fmt.Errorf("project Backlog phase incomplete after needs-human label; retry: %w", err)
+	}
+	return nil
 }
