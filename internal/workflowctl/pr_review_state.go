@@ -40,6 +40,9 @@ func locatePRReviewStateMarkers(body string) ([]prReviewStateMarker, error) {
 		if relativeEnd < 0 {
 			return nil, errors.New("PR review-state marker is unterminated")
 		}
+		if relativeEnd <= len(" ") {
+			return nil, errors.New("PR review-state marker has an empty state")
+		}
 		end := stateStart + relativeEnd + len(" -->")
 		state := body[stateStart+1 : stateStart+relativeEnd]
 		markers = append(markers, prReviewStateMarker{start: start, end: end, state: state})

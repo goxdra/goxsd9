@@ -33,7 +33,7 @@ type diagnosticCodeDefinition struct {
 	name   string
 }
 
-var diagnosticCodePattern = regexp.MustCompile(`^(?:GOXSD|XSD)[0-9]{4}$`)
+var diagnosticCodePattern = regexp.MustCompile(`^(?:GOXSD|XML|XSD)[0-9]{4}$`)
 
 func discoverDiagnosticCodeDefinitions(root string) ([]diagnosticCodeDefinition, error) {
 	entries, err := os.ReadDir(root)
@@ -143,6 +143,8 @@ func TestDiagnosticCodeDiscoveryCatchesUnlistedDuplicate(t *testing.T) {
 const (
 	knownCode = "XSD9999"
 	newUnlistedCode = "XSD9999"
+	firstXMLCode = "XML9999"
+	secondXMLCode = "XML9999"
 )
 `
 	if err := os.WriteFile(filepath.Join(root, "fixture.go"), []byte(fixture), 0o600); err != nil {
@@ -153,8 +155,19 @@ const (
 		t.Fatalf("discover fixture codes: %v", err)
 	}
 	duplicates := duplicateDiagnosticCodes(definitions)
-	if len(duplicates) != 1 || !strings.Contains(duplicates[0], "newUnlistedCode") {
-		t.Fatalf("fixture duplicates = %#v, want newly introduced unlisted literal", duplicates)
+	if len(duplicates) != 2 || !strings.Contains(duplicates[0], "firstXMLCode") ||
+		!strings.Contains(duplicates[0], "secondXMLCode") || !strings.Contains(duplicates[1], "newUnlistedCode") {
+		t.Fatalf("fixture duplicates = %#v, want deterministic XML and XSD duplicate reports", duplicates)
+	}
+	if !strings.HasPrefix(duplicates[0], "XML9999:") || !strings.HasPrefix(duplicates[1], "XSD9999:") {
+		t.Fatalf("fixture duplicate order = %#v, want XML before XSD", duplicates)
+	}
+	definitionsAgain, err := discoverDiagnosticCodeDefinitions(root)
+	if err != nil {
+		t.Fatalf("rediscover fixture codes: %v", err)
+	}
+	if got := duplicateDiagnosticCodes(definitionsAgain); strings.Join(got, "\n") != strings.Join(duplicates, "\n") {
+		t.Fatalf("fixture duplicate report changed between scans: first=%#v second=%#v", duplicates, got)
 	}
 }
 

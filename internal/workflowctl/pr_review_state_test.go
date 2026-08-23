@@ -14,6 +14,7 @@ func TestPRReviewStateMarkerValidation(t *testing.T) {
 		want string
 	}{
 		{name: "missing", body: "ordinary body", want: "missing"},
+		{name: "empty state", body: "<!-- " + prReviewStateSchema + " -->", want: "empty state"},
 		{name: "malformed state", body: prReviewStateToken("unknown"), want: "unsupported state"},
 		{name: "malformed token", body: "<!-- " + prReviewStateSchema + " pending", want: "unterminated"},
 		{name: "duplicate", body: prReviewStateToken(prReviewStatePending) + "\n" + prReviewStateToken(prReviewStateEvidenceReady), want: "appears 2 times"},
@@ -98,6 +99,9 @@ func TestReviewStateGateRejectsBeforeChallengeAndFinishMutation(t *testing.T) {
 	}{
 		{name: "missing", body: func(body string) string {
 			return strings.Replace(body, prReviewStateToken(prReviewStateEvidenceReady)+"\n", "", 1)
+		}},
+		{name: "empty state", body: func(body string) string {
+			return strings.Replace(body, prReviewStateToken(prReviewStateEvidenceReady), "<!-- "+prReviewStateSchema+" -->", 1)
 		}},
 		{name: "malformed", body: func(body string) string {
 			return strings.Replace(body, prReviewStateToken(prReviewStateEvidenceReady), "<!-- "+prReviewStateSchema+" unknown -->", 1)
