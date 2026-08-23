@@ -230,6 +230,86 @@ func TestCodegenDirectChoiceSourceRejectsMalformedPlanWithoutOutput(t *testing.T
 	}
 }
 
+//nolint:gocognit // Keep the malformed built-in and named target corpus together.
+func TestCodegenDirectChoiceSourceRejectsMalformedTargetFactsWithoutOutput(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema func(*testing.T) Schema
+		mutate func(*codegenDirectChoicePlan)
+		loc    func(Schema, codegenDirectChoicePlan) Loc
+	}{
+		{
+			name:   "built-in kind",
+			schema: codegenDirectChoiceFailureSchema,
+			mutate: func(plan *codegenDirectChoicePlan) {
+				target, ok := plan.owners[0].alternatives[0].target.(codegenDirectChoiceBuiltinTarget)
+				if !ok {
+					panic("test fixture did not build a built-in target")
+				}
+				target.kind = DigitDatatypeDecimal
+				plan.owners[0].alternatives[0].target = target
+			},
+			loc: func(_ Schema, plan codegenDirectChoicePlan) Loc {
+				return plan.owners[0].alternatives[0].loc
+			},
+		},
+		{
+			name:   "named identifier",
+			schema: codegenDirectChoiceCollisionSchema,
+			mutate: func(plan *codegenDirectChoicePlan) {
+				target, ok := plan.owners[0].alternatives[2].target.(codegenDirectChoiceNamedTarget)
+				if !ok {
+					panic("test fixture did not build a named target")
+				}
+				target.componentIdentifier = "WrongTarget"
+				plan.owners[0].alternatives[2].target = target
+			},
+			loc: func(_ Schema, plan codegenDirectChoicePlan) Loc {
+				return plan.owners[0].alternatives[2].loc
+			},
+		},
+		{
+			name:   "named kind",
+			schema: codegenDirectChoiceCollisionSchema,
+			mutate: func(plan *codegenDirectChoicePlan) {
+				target, ok := plan.owners[0].alternatives[2].target.(codegenDirectChoiceNamedTarget)
+				if !ok {
+					panic("test fixture did not build a named target")
+				}
+				target.kind = DigitDatatypeDecimal
+				plan.owners[0].alternatives[2].target = target
+			},
+			loc: func(_ Schema, plan codegenDirectChoicePlan) Loc {
+				return plan.owners[0].alternatives[2].loc
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema := test.schema(t)
+			choicePlan, err := planCodegenDirectChoices(schema, "generated")
+			if err != nil {
+				t.Fatalf("planCodegenDirectChoices: %v", err)
+			}
+			test.mutate(&choicePlan)
+			output, err := emitCodegenSourceWithDirectChoices(schema, choicePlan)
+			if output != nil || err == nil {
+				t.Fatalf("malformed target result = (%q, %v), want nil output and error", output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+				t.Fatalf("diagnostic = %s, want internal codegen invariant", diagnostic)
+			}
+			if diagnostic.Loc() != test.loc(schema, choicePlan) {
+				t.Fatalf("diagnostic location = %s, want alternative location %s", diagnostic.Loc(), test.loc(schema, choicePlan))
+			}
+			if !errors.Is(err, errCodegenDirectChoicePlan) {
+				t.Fatalf("malformed target error lost direct-choice plan cause: %v", err)
+			}
+		})
+	}
+}
+
 func TestGenerateGoDirectChoicePreservesUnresolvedTargetDiagnostic(t *testing.T) {
 	schema := codegenDirectChoiceFailureSchema(t)
 	choice := codegenDirectChoiceTestChoice(schema)

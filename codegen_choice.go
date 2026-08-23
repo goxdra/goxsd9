@@ -903,7 +903,7 @@ func validateCodegenDirectChoicePlan(schema Schema, plan codegenDirectChoicePlan
 			if generated, ok := plan.names.variantName(owner.id, alternative.path); !ok || generated != alternative.variantIdentifier {
 				return newCodegenInternal(alternative.loc, "direct-choice plan variant name does not match its naming state", nil, errCodegenDirectChoicePlan)
 			}
-			if err := validateCodegenDirectChoicePlanTarget(schema, alternative.target, alternative.loc); err != nil {
+			if err := validateCodegenDirectChoicePlanTarget(schema, plan.names, alternative.target, alternative.loc); err != nil {
 				return err
 			}
 		}
@@ -1014,13 +1014,22 @@ func codegenDirectChoiceOwnerAt(owners []codegenDirectChoiceOwner, id ComponentI
 }
 
 //nolint:gocognit // Keep concrete target invariant checks together.
-func validateCodegenDirectChoicePlanTarget(schema Schema, target codegenDirectChoiceTarget, loc Loc) error {
+func validateCodegenDirectChoicePlanTarget(schema Schema, names codegenNaming, target codegenDirectChoiceTarget, loc Loc) error {
 	switch concrete := target.(type) {
 	case codegenDirectChoiceBuiltinTarget:
 		if concrete.declaredType.Namespace() != xsdNamespaceURI || concrete.kind != DigitDatatypeInteger && concrete.kind != DigitDatatypeDecimal {
 			return newCodegenInternal(loc, "direct-choice plan built-in target facts are inconsistent", nil, errCodegenDirectChoicePlan)
 		}
-		if concrete.declaredType.Local() != "integer" && concrete.declaredType.Local() != "decimal" {
+		switch concrete.declaredType.Local() {
+		case "integer":
+			if concrete.kind != DigitDatatypeInteger {
+				return newCodegenInternal(loc, "direct-choice plan built-in integer target kind is inconsistent", nil, errCodegenDirectChoicePlan)
+			}
+		case "decimal":
+			if concrete.kind != DigitDatatypeDecimal {
+				return newCodegenInternal(loc, "direct-choice plan built-in decimal target kind is inconsistent", nil, errCodegenDirectChoicePlan)
+			}
+		default:
 			return newCodegenInternal(loc, "direct-choice plan built-in target kind is inconsistent", nil, errCodegenDirectChoicePlan)
 		}
 		return nil
@@ -1032,8 +1041,16 @@ func validateCodegenDirectChoicePlanTarget(schema Schema, target codegenDirectCh
 		if !ok || component.ID() != concrete.id || component.Name() != concrete.declaredType || component.Kind() != ComponentKindSimpleTypeDefinition {
 			return newCodegenInternal(loc, "direct-choice plan named target identity is inconsistent", appendCodegenRelated(nil, component.Loc()), errCodegenDirectChoicePlan)
 		}
-		if _, ok := component.SimpleTypeDefinition(); !ok {
+		identifier, ok := names.componentName(concrete.id)
+		if !ok || identifier != concrete.componentIdentifier {
+			return newCodegenInternal(loc, "direct-choice plan named target identifier is inconsistent", appendCodegenRelated(nil, component.Loc()), errCodegenDirectChoicePlan)
+		}
+		definition, ok := component.SimpleTypeDefinition()
+		if !ok {
 			return newCodegenInternal(loc, "direct-choice plan named target has no simple-type facts", appendCodegenRelated(nil, component.Loc()), errCodegenDirectChoicePlan)
+		}
+		if concrete.kind != definition.DigitFacets().Kind() {
+			return newCodegenInternal(loc, "direct-choice plan named target kind is inconsistent", appendCodegenRelated(nil, component.Loc()), errCodegenDirectChoicePlan)
 		}
 		return nil
 	default:
