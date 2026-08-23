@@ -152,6 +152,14 @@ var registry = []definition{
 			{version: "1.1", source: "xsd11-structures#cSchemaDocument"},
 		},
 	},
+	{
+		id:    "xsd.schema.xml-base",
+		title: "XML Base schema resolution",
+		references: []Reference{
+			{version: "1.0", source: "xmlbase#matching"},
+			{version: "1.1", source: "xmlbase#matching"},
+		},
+	},
 }
 
 // All returns registered features in their canonical order.

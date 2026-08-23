@@ -12,8 +12,9 @@ goxsd9 validate [--schema-root DIR] [--diagnostics human|json] SCHEMA INSTANCE
 goxsd9 generate [--schema-root DIR] [--diagnostics human|json] --package NAME [--output FILE|-] [--force] SCHEMA
 ```
 
-These forms are a future contract; no executable product CLI exists in this
-packet. Flags occur before operands, each option is supplied at most once, and
+The `parse` form is implemented by `cmd/goxsd9` in the first slice;
+`validate` and `generate` remain future commands. Flags occur before operands,
+each option is supplied at most once, and
 unknown options or extra operands are usage errors. `parse` and `generate`
 take exactly one `SCHEMA`; `validate` takes exactly one `SCHEMA` and one
 `INSTANCE`. Human diagnostics are the default. `--force` is valid only with an

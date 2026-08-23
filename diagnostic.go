@@ -90,6 +90,11 @@ func (diagnostic Diagnostic) SpecRef() string {
 	return diagnostic.specRef
 }
 
+// Message returns the diagnostic's human-readable message without its code or location.
+func (diagnostic Diagnostic) Message() string {
+	return diagnostic.message
+}
+
 // Error returns a deterministic human-readable description.
 func (diagnostic Diagnostic) Error() string {
 	if diagnostic.loc.IsZero() {

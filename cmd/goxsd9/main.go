@@ -1,0 +1,187 @@
+// Command goxsd9 provides the first product command over the public schema API.
+package main
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/goxdra/goxsd9"
+)
+
+func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	return runWithInput(args, os.Stdin, stdout, stderr)
+}
+
+func runWithInput(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return reportUsage(stderr, "missing command", diagnosticsHuman, "-")
+	}
+	if args[0] != "parse" {
+		return reportUsage(stderr, fmt.Sprintf("unknown command %q", args[0]), diagnosticsHuman, "-")
+	}
+
+	options, err := parseParseOptions(args[1:])
+	if err != nil {
+		return reportUsage(stderr, err.Error(), options.diagnostics, usageSourceID(options.schema))
+	}
+	if options.schema == "-" && !options.schemaRootSet {
+		return reportUsage(stderr, "schema stdin requires --schema-root", options.diagnostics, "schema/stdin")
+	}
+
+	return runParse(options, stdin, stdout, stderr)
+}
+
+type parseOptions struct {
+	schema         string
+	schemaRoot     string
+	diagnostics    diagnosticFormat
+	schemaRootSet  bool
+	diagnosticsSet bool
+}
+
+func parseParseOptions(args []string) (parseOptions, error) {
+	options := parseOptions{diagnostics: diagnosticsHuman}
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		if options.schema != "" {
+			if isFlag(argument) {
+				return options, errors.New("flags must precede the schema operand")
+			}
+			return options, errors.New("parse accepts exactly one schema operand")
+		}
+		if argument == "" {
+			return options, errors.New("schema operand is empty")
+		}
+		if argument == "-" || !isFlag(argument) {
+			options.schema = argument
+			continue
+		}
+
+		next, err := parseFlag(args, index, &options)
+		if err != nil {
+			return options, err
+		}
+		index = next
+	}
+	if options.schema == "" {
+		return options, errors.New("parse requires one schema operand")
+	}
+	return options, nil
+}
+
+func parseFlag(args []string, index int, options *parseOptions) (int, error) {
+	argument := args[index]
+	switch {
+	case argument == "--schema-root" || hasFlagValue(argument, "--schema-root"):
+		return parseSchemaRootFlag(args, index, options)
+	case argument == "--diagnostics" || hasFlagValue(argument, "--diagnostics"):
+		return parseDiagnosticsFlag(args, index, options)
+	default:
+		return index, fmt.Errorf("unknown option %q", argument)
+	}
+}
+
+func parseSchemaRootFlag(args []string, index int, options *parseOptions) (int, error) {
+	if options.schemaRootSet {
+		return index, errors.New("duplicate --schema-root flag")
+	}
+	value, next, err := flagValue(args, index, "--schema-root")
+	if err != nil {
+		return index, err
+	}
+	if value == "" {
+		return index, errors.New("--schema-root requires a directory")
+	}
+	options.schemaRoot = value
+	options.schemaRootSet = true
+	return next, nil
+}
+
+func parseDiagnosticsFlag(args []string, index int, options *parseOptions) (int, error) {
+	if options.diagnosticsSet {
+		return index, errors.New("duplicate --diagnostics flag")
+	}
+	value, next, err := flagValue(args, index, "--diagnostics")
+	if err != nil {
+		return index, err
+	}
+	if value != string(diagnosticsHuman) && value != string(diagnosticsJSON) {
+		return index, errors.New("--diagnostics must be human or json")
+	}
+	options.diagnostics = diagnosticFormat(value)
+	options.diagnosticsSet = true
+	return next, nil
+}
+
+func isFlag(argument string) bool {
+	return len(argument) > 0 && argument[0] == '-'
+}
+
+func hasFlagValue(argument, name string) bool {
+	return len(argument) > len(name) && argument[:len(name)] == name && argument[len(name)] == '='
+}
+
+func flagValue(args []string, index int, name string) (string, int, error) {
+	argument := args[index]
+	if hasFlagValue(argument, name) {
+		return argument[len(name)+1:], index, nil
+	}
+	if index+1 >= len(args) {
+		return "", index, fmt.Errorf("%s requires a value", name)
+	}
+	if isFlag(args[index+1]) {
+		return "", index, fmt.Errorf("%s requires a value", name)
+	}
+	return args[index+1], index + 1, nil
+}
+
+func usageSourceID(schema string) goxsd9.SourceID {
+	if schema == "-" {
+		return "schema/stdin"
+	}
+	return "-"
+}
+
+func runParse(options parseOptions, stdin io.Reader, stdout, stderr io.Writer) int {
+	plan, err := prepareSchemaPlan(options)
+	if err != nil {
+		return reportError(stderr, options.diagnostics, "parse", err)
+	}
+
+	budget := &schemaBudget{}
+	root, err := plan.openRoot(stdin, budget)
+	if err != nil {
+		return reportError(stderr, options.diagnostics, "parse", err)
+	}
+
+	schema, err := goxsd9.ParseSchema(root, plan.resolver(budget))
+	if err != nil {
+		return reportError(stderr, options.diagnostics, "parse", err)
+	}
+
+	output := fmt.Sprintf("documents=%d components=%d\n", len(schema.Documents()), len(schema.Components()))
+	if err := writeOutput(stdout, output); err != nil {
+		return reportError(stderr, options.diagnostics, "output", newCLIError(cliOutputCode, cliOutputKind, "output/stdout", "failed to write parse summary", err))
+	}
+	return 0
+}
+
+func writeOutput(writer io.Writer, output string) error {
+	if writer == nil {
+		return errors.New("stdout writer is nil")
+	}
+	count, err := io.WriteString(writer, output)
+	if err != nil {
+		return err
+	}
+	if count != len(output) {
+		return io.ErrShortWrite
+	}
+	return nil
+}

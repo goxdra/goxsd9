@@ -126,6 +126,9 @@ func TestUnsupportedDiagnostic(t *testing.T) {
 	if got, want := diagnostic.SpecRef(), "xsd11-structures#cAssertions"; got != want {
 		t.Fatalf("SpecRef() = %q, want %q", got, want)
 	}
+	if got, want := diagnostic.Message(), "assertions are not implemented"; got != want {
+		t.Fatalf("Message() = %q, want %q", got, want)
+	}
 }
 
 func TestUnsupportedDiagnosticRejectsUnregisteredFeature(t *testing.T) {
