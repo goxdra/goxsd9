@@ -270,6 +270,20 @@ func TestCodegenDirectChoiceSourceRejectsMalformedTargetFactsWithoutOutput(t *te
 			},
 		},
 		{
+			name:   "built-in target representation does not match schema",
+			schema: codegenDirectChoiceCollisionSchema,
+			mutate: func(plan *codegenDirectChoicePlan) {
+				target, ok := plan.owners[0].alternatives[2].target.(codegenDirectChoiceNamedTarget)
+				if !ok {
+					panic("test fixture did not build a named target")
+				}
+				plan.owners[0].alternatives[0].target = target
+			},
+			loc: func(_ Schema, plan codegenDirectChoicePlan) Loc {
+				return plan.owners[0].alternatives[0].loc
+			},
+		},
+		{
 			name:   "named identifier",
 			schema: codegenDirectChoiceCollisionSchema,
 			mutate: func(plan *codegenDirectChoicePlan) {
@@ -293,6 +307,20 @@ func TestCodegenDirectChoiceSourceRejectsMalformedTargetFactsWithoutOutput(t *te
 					panic("test fixture did not build a named target")
 				}
 				target.kind = DigitDatatypeDecimal
+				plan.owners[0].alternatives[2].target = target
+			},
+			loc: func(_ Schema, plan codegenDirectChoicePlan) Loc {
+				return plan.owners[0].alternatives[2].loc
+			},
+		},
+		{
+			name:   "named target representation does not match schema",
+			schema: codegenDirectChoiceCollisionSchema,
+			mutate: func(plan *codegenDirectChoicePlan) {
+				target, ok := plan.owners[0].alternatives[0].target.(codegenDirectChoiceBuiltinTarget)
+				if !ok {
+					panic("test fixture did not build a built-in target")
+				}
 				plan.owners[0].alternatives[2].target = target
 			},
 			loc: func(_ Schema, plan codegenDirectChoicePlan) Loc {
@@ -356,6 +384,100 @@ func TestCodegenDirectChoiceSourceRejectsNamingReplayCollisionWithoutOutput(t *t
 	}
 	if !errors.Is(err, errCodegenDirectChoicePlan) {
 		t.Fatalf("naming collision error lost direct-choice plan cause: %v", err)
+	}
+}
+
+//nolint:gocognit // Keep ordered naming records and private lookup mutations together.
+func TestCodegenDirectChoiceSourceRejectsNamingReplayRecordAndLookupMutations(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*codegenDirectChoicePlan)
+		wantLoc func(Schema, codegenDirectChoicePlan) Loc
+	}{
+		{
+			name: "component record",
+			mutate: func(plan *codegenDirectChoicePlan) {
+				plan.names.components[0].identifier = "Changed"
+			},
+			wantLoc: func(schema Schema, _ codegenDirectChoicePlan) Loc {
+				return schema.Components()[0].Loc()
+			},
+		},
+		{
+			name: "component lookup",
+			mutate: func(plan *codegenDirectChoicePlan) {
+				component := plan.names.components[0]
+				plan.names.componentByID[component.id] = "Changed"
+			},
+		},
+		{
+			name: "field record",
+			mutate: func(plan *codegenDirectChoicePlan) {
+				plan.names.fields[0].identifier = "Changed"
+			},
+		},
+		{
+			name: "field lookup",
+			mutate: func(plan *codegenDirectChoicePlan) {
+				field := plan.names.fields[0]
+				key := codegenScopedPathKey{owner: field.owner, path: codegenLexicalPathKey(field.path)}
+				plan.names.fieldByKey[key] = "Changed"
+			},
+		},
+		{
+			name: "variant record",
+			mutate: func(plan *codegenDirectChoicePlan) {
+				plan.names.variants[0].identifier = "Changed"
+			},
+		},
+		{
+			name: "variant lookup",
+			mutate: func(plan *codegenDirectChoicePlan) {
+				variant := plan.names.variants[0]
+				key := codegenScopedPathKey{owner: variant.owner, path: codegenLexicalPathKey(variant.path)}
+				plan.names.variantByKey[key] = "Changed"
+			},
+		},
+		{
+			name: "import record",
+			mutate: func(plan *codegenDirectChoicePlan) {
+				plan.names.imports[0].identifier = "Changed"
+			},
+		},
+		{
+			name: "import lookup",
+			mutate: func(plan *codegenDirectChoicePlan) {
+				plan.names.importByID[codegenRuntimeImportPath] = "Changed"
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema := codegenDirectChoiceCollisionSchema(t)
+			plan, err := planCodegenDirectChoices(schema, "generated")
+			if err != nil {
+				t.Fatalf("planCodegenDirectChoices: %v", err)
+			}
+			test.mutate(&plan)
+			output, err := emitCodegenSourceWithDirectChoices(schema, plan)
+			if output != nil || err == nil {
+				t.Fatalf("naming replay mutation result = (%q, %v), want nil output and error", output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+				t.Fatalf("diagnostic = %s, want internal codegen invariant", diagnostic)
+			}
+			wantLoc := plan.owners[0].alternatives[0].loc
+			if test.wantLoc != nil {
+				wantLoc = test.wantLoc(schema, plan)
+			}
+			if diagnostic.Loc() != wantLoc {
+				t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+			}
+			if !errors.Is(err, errCodegenDirectChoicePlan) {
+				t.Fatalf("naming replay mutation error lost direct-choice plan cause: %v", err)
+			}
+		})
 	}
 }
 
