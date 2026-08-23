@@ -65,11 +65,50 @@ func (a app) recoverPullRequest(number int) error {
 	if err != nil {
 		return recoveryNeededError(number, mergeSHA, err)
 	}
+	if err := a.reconcileMergedPrimaryIssue(root, number, proof, plan.primaryIssue); err != nil {
+		return recoveryNeededError(number, mergeSHA, fmt.Errorf("primary issue reconciliation: %w", err))
+	}
+	if err := a.setIssueProjectStatus(root, plan.primaryIssue, "Done"); err != nil {
+		return recoveryNeededError(number, mergeSHA, fmt.Errorf("primary Project status reconciliation: %w", err))
+	}
 	packet := mergedPacket{number: number, mergeSHA: mergeSHA, plan: plan}
 	if err := a.cleanupClaims(base, packet); err != nil {
 		return recoveryNeededError(number, mergeSHA, err)
 	}
 	return writeLine(a.stdout, "PR #%d was already merged at %s; Git base and proven claim cleanup are complete", number, mergeSHA)
+}
+
+func mergeEvaluationProofFromReceipt(receipt evaluationReceipt) mergeEvaluationProof {
+	return mergeEvaluationProof{
+		bodySHA256:    receipt.BodySHA256,
+		baseRefName:   receipt.BaseRefName,
+		claimProofs:   append([]evaluationClaimProof(nil), receipt.ClaimProofs...),
+		closingIssues: append([]int(nil), receipt.ClosingIssues...),
+		head:          receipt.Head,
+		headRefName:   receipt.HeadRefName,
+	}
+}
+
+func (a app) reconcileMergedPrimaryIssue(root string, pullRequestNumber int, proof mergeEvaluationProof,
+	expectedPrimary int,
+) error {
+	if !hasMergeEvaluationMetadata(proof) {
+		return stateError("PR #%d lacks immutable primary closure metadata; preserve claim artifacts", pullRequestNumber)
+	}
+	if proof.baseRefName != "main" {
+		return stateError("PR #%d immutable primary closure proof targets base %q; preserve claim artifacts", pullRequestNumber, proof.baseRefName)
+	}
+	primary, err := recoveryPrimary(proof, pullRequestNumber)
+	if err != nil {
+		return err
+	}
+	if expectedPrimary != primary {
+		return stateError("PR #%d proven primary issue #%d differs from cleanup primary issue #%d; preserve claim artifacts", pullRequestNumber, primary, expectedPrimary)
+	}
+	if _, err := recoveryClaimProofs(proof, primary, pullRequestNumber); err != nil {
+		return fmt.Errorf("immutable claim proof: %w", err)
+	}
+	return a.reconcileIssueClosed(root, primary)
 }
 
 func recoveryNeededError(number int, mergeSHA string, cause error) error {

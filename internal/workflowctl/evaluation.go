@@ -952,31 +952,6 @@ func decodeJSONDocuments[T any](output string) ([]T, error) {
 	}
 }
 
-func closingIssueNumbers(body string) []int {
-	text := strings.ToLower(body)
-	const marker = "closes #"
-	var numbers []int
-	for {
-		index := strings.Index(text, marker)
-		if index < 0 {
-			return numbers
-		}
-		text = text[index+len(marker):]
-		end := 0
-		for end < len(text) && text[end] >= '0' && text[end] <= '9' {
-			end++
-		}
-		if end == 0 {
-			continue
-		}
-		number, err := strconv.Atoi(text[:end])
-		if err == nil && number > 0 && !containsNumber(numbers, number) {
-			numbers = append(numbers, number)
-		}
-		text = text[end:]
-	}
-}
-
 func containsNumber(numbers []int, target int) bool {
 	for _, number := range numbers {
 		if number == target {

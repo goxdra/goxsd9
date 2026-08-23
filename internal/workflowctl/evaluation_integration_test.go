@@ -152,9 +152,9 @@ func TestManagedDocumentCuratorValidationPrecedesChallengeAndFinishMutation(t *t
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("%s error = %v, want %q", test.command, err, test.want)
 			}
-			if len(backend.comments) != 0 || backend.bodyPatchCount != 0 || backend.merged || backend.projectDone {
-				t.Fatalf("rejected %s mutated GitHub state: comments=%d bodyPatches=%d merged=%t projectDone=%t",
-					test.command, len(backend.comments), backend.bodyPatchCount, backend.merged, backend.projectDone)
+			if len(backend.comments) != 0 || backend.bodyPatchCount != 0 || backend.merged || backend.projectDone || backend.issuePatchCount != 0 || backend.issueState != "open" {
+				t.Fatalf("rejected %s mutated GitHub state: comments=%d bodyPatches=%d merged=%t projectDone=%t issueState=%s issuePatches=%d",
+					test.command, len(backend.comments), backend.bodyPatchCount, backend.merged, backend.projectDone, backend.issueState, backend.issuePatchCount)
 			}
 		})
 	}
@@ -226,9 +226,9 @@ func TestSignalEvidenceRecomputationPrecedesUpdateChallengeAndFinishMutations(t 
 				stdout: new(bytes.Buffer), stderr: new(bytes.Buffer),
 			}
 			test.run(t, backend, &application)
-			if backend.bodyPatchCount != 0 || len(backend.comments) != 0 || backend.merged || backend.projectDone {
-				t.Fatalf("%s mutated GitHub state: bodyPatches=%d comments=%d merged=%t projectDone=%t",
-					test.want, backend.bodyPatchCount, len(backend.comments), backend.merged, backend.projectDone)
+			if backend.bodyPatchCount != 0 || len(backend.comments) != 0 || backend.merged || backend.projectDone || backend.issuePatchCount != 0 || backend.issueState != "open" {
+				t.Fatalf("%s mutated GitHub state: bodyPatches=%d comments=%d merged=%t projectDone=%t issueState=%s issuePatches=%d",
+					test.want, backend.bodyPatchCount, len(backend.comments), backend.merged, backend.projectDone, backend.issueState, backend.issuePatchCount)
 			}
 		})
 	}
@@ -1011,6 +1011,9 @@ func checkMergeResult(t *testing.T, backend *workflowBackend) {
 	if !backend.merged || !backend.projectDone {
 		t.Fatalf("merge state = %t, Project Done = %t", backend.merged, backend.projectDone)
 	}
+	if backend.issueState != "closed" {
+		t.Fatalf("primary issue state = %q, want closed", backend.issueState)
+	}
 	if backend.mergeRequest.SHA != backend.head || backend.mergeRequest.MergeMethod != "squash" {
 		t.Fatalf("merge request = %#v", backend.mergeRequest)
 	}
@@ -1023,6 +1026,74 @@ func checkMergeResult(t *testing.T, backend *workflowBackend) {
 	if strings.Contains(backend.mergeRequest.CommitMessage, "Agent-Run-ID") {
 		t.Fatal("claim metadata leaked into the squash commit message")
 	}
+}
+
+func newPassingFinishFixture(t *testing.T) (*workflowBackend, *app) {
+	t.Helper()
+	backend := newWorkflowBackend(t)
+	stdout := new(bytes.Buffer)
+	application := &app{
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         stdout,
+		stderr:                         new(bytes.Buffer),
+	}
+	challenge := requestTestChallenge(t, application, stdout)
+	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record evaluation: %v", err)
+	}
+	stdout.Reset()
+	return backend, application
+}
+
+func TestFinishAlreadyClosedPrimarySkipsExplicitClose(t *testing.T) {
+	backend, application := newPassingFinishFixture(t)
+	backend.issueState = "closed"
+	if err := application.runPR(backend.finishArgs()); err != nil {
+		t.Fatalf("finish already-closed primary: %v", err)
+	}
+	checkMergeResult(t, backend)
+	if backend.issuePatchCount != 0 {
+		t.Fatalf("already-closed primary received %d PATCH attempts", backend.issuePatchCount)
+	}
+}
+
+func TestFinishRetriesAmbiguousPrimaryCloseThroughRecovery(t *testing.T) {
+	backend, application := newPassingFinishFixture(t)
+	backend.issuePatchMode = "transport"
+	err := application.runPR(backend.finishArgs())
+	if err == nil || !strings.Contains(err.Error(), "primary issue reconciliation") || !strings.Contains(err.Error(), "pr recover 14") {
+		t.Fatalf("ambiguous primary close error = %v, want receipt-bound recovery guidance", err)
+	}
+	if !backend.merged || backend.issuePatchCount != 1 || backend.projectDone {
+		t.Fatalf("ambiguous primary close state = merged %t, PATCH %d, Project Done %t", backend.merged, backend.issuePatchCount, backend.projectDone)
+	}
+	backend.issuePatchMode = ""
+	if err := application.recoverPullRequest(14); err != nil {
+		t.Fatalf("recover after ambiguous primary close: %v", err)
+	}
+	checkMergeResult(t, backend)
+	if backend.issuePatchCount != 1 {
+		t.Fatalf("primary issue PATCH count = %d, want one explicit close", backend.issuePatchCount)
+	}
+}
+
+func TestFinishRecoversAfterPrimaryReadFailure(t *testing.T) {
+	backend, application := newPassingFinishFixture(t)
+	backend.issueReadFailures = 1
+	err := application.runPR(backend.finishArgs())
+	if err == nil || !strings.Contains(err.Error(), "primary issue reconciliation") || !strings.Contains(err.Error(), "pr recover 14") {
+		t.Fatalf("primary read failure = %v, want recovery guidance", err)
+	}
+	if !backend.merged || backend.issuePatchCount != 0 || backend.projectDone {
+		t.Fatalf("primary read failure state = merged %t, PATCH %d, Project Done %t", backend.merged, backend.issuePatchCount, backend.projectDone)
+	}
+	if err := application.recoverPullRequest(14); err != nil {
+		t.Fatalf("recover after primary read failure: %v", err)
+	}
+	checkMergeResult(t, backend)
 }
 
 func TestReadEvaluationAttestationRejectsMalformedEvidence(t *testing.T) {
@@ -1178,6 +1249,11 @@ type workflowBackend struct {
 	mergeRequest               mergePullRequestRequest
 	merged                     bool
 	projectDone                bool
+	projectStatus              string
+	issueState                 string
+	issueReadFailures          int
+	issuePatchCount            int
+	issuePatchMode             string
 	mergeResponseMode          string
 	mutatePRBodyAfterMerge     bool
 	managedDocumentChange      bool
@@ -1211,6 +1287,7 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 		title:         "test(workflow): exercise evaluation flow",
 		workCommitLog: framedCommitLog("test(workflow): exercise evaluation flow", "chore(workflow): claim issue #13"),
 		mergeSHA:      "merge-commit",
+		issueState:    "open",
 	}
 }
 
@@ -1399,17 +1476,40 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 		b.body = request.Body
 		b.bodyPatchCount++
 		return `{}`, nil
+	case "api repos/goxdra/goxsd9/issues/13":
+		if b.issueReadFailures > 0 {
+			b.issueReadFailures--
+			return "", errors.New("simulated primary issue read failure")
+		}
+		return fmt.Sprintf(`{"state":%q,"labels":[]}`, b.issueState), nil
+	case "api --method PATCH repos/goxdra/goxsd9/issues/13 --input -":
+		var request struct {
+			State string `json:"state"`
+		}
+		if err := json.Unmarshal(input, &request); err != nil {
+			return "", fmt.Errorf("decode issue close request: %w", err)
+		}
+		if request.State != "closed" {
+			return "", fmt.Errorf("unexpected issue state mutation %q", request.State)
+		}
+		b.issuePatchCount++
+		b.issueState = "closed"
+		if b.issuePatchMode == "transport" {
+			return "", errors.New("simulated lost issue close response")
+		}
+		return `{"state":"closed"}`, nil
 	case "api --paginate repos/goxdra/goxsd9/commits/evaluated-head/check-runs?per_page=100":
 		return "{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"docs\",\"status\":\"completed\"}]}" +
 			"{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"quality\",\"status\":\"completed\"}]}", nil
 	case "api --method PUT repos/goxdra/goxsd9/pulls/14/merge --input -":
 		return b.merge(input)
 	case "project item-list 1 --owner goxdra --format json --limit 500":
-		return `{"items":[{"content":{"number":13,"repository":"goxdra/goxsd9"},"id":"item-13"}],"totalCount":1}`, nil
+		return fmt.Sprintf(`{"items":[{"content":{"number":13,"repository":"goxdra/goxsd9"},"id":"item-13","status":%q}],"totalCount":1}`, b.projectStatus), nil
 	case "project field-list 1 --owner goxdra --format json":
 		return `{"fields":[{"id":"status-id","name":"Status","options":[{"id":"done-id","name":"Done"}]}]}`, nil
 	case "project item-edit --project-id PVT_kwDOEupz2s4Bgc9A --id item-13 --field-id status-id --single-select-option-id done-id":
 		b.projectDone = true
+		b.projectStatus = "Done"
 		return "", nil
 	default:
 		return "", fmt.Errorf("unexpected gh command: %s", joined)

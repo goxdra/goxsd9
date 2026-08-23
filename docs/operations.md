@@ -44,9 +44,9 @@ records one-use head-bound challenge; Examiner JSON is versioned;
 results. Fresh context; receipts are evidence, not identity proof.
 REST squash merge is SHA-bound. Cleanup scopes inventory by packet, proves branch-bounded run identity, rejects inherited-trailer ownership, and preserves artifacts. Exact deletion, idempotent `pr recover`, merged-proof `claim prune`, archives, and unrelated refs remain.
 
-If draft-to-ready GraphQL is unavailable, close the draft and create an
-identical-head ready PR via REST, then require a new challenge and fresh
-Examiner. Post-merge Project failures converge on `workflowctl sync`.
+GraphQL fallback uses identical-head REST and fresh Examiner.
+Exact merge proof closes and rereads primary as CLOSED, sets primary Project
+Done, and makes `pr recover` retry; `sync` maps CLOSED to Done.
 
 Issue, claim, checks, challenge, attestation, receipt, merge record
 communication. At finalization, pass a plain-text summary outside the repository
