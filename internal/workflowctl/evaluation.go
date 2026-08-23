@@ -1822,12 +1822,43 @@ func parseCommentAttestation(body string) (evaluationAttestation, []byte, bool) 
 }
 
 func (a app) transitionIssueToNeedsHuman(root string, number int) error {
+	item, err := a.currentNeedsHumanProjectItem(root, number)
+	if err != nil {
+		return fmt.Errorf("needs-human transition preflight incomplete; retry: %w", err)
+	}
 	if _, err := a.command(root, "gh", "issue", "edit", strconv.Itoa(number), "--repo", repositoryKey,
 		"--add-label", "needs-human"); err != nil {
 		return fmt.Errorf("needs-human label phase incomplete; retry: mark issue #%d needs-human: %w", number, err)
 	}
-	if err := a.setIssueProjectStatus(root, number, "Backlog"); err != nil {
+	if err := a.setValidatedProjectItemStatus(root, item, "Backlog"); err != nil {
 		return fmt.Errorf("project Backlog phase incomplete after needs-human label; retry: %w", err)
 	}
 	return nil
+}
+
+func (a app) currentNeedsHumanProjectItem(root string, number int) (projectItem, error) {
+	status, err := a.readIssueStatus(root, number)
+	if err != nil {
+		return projectItem{}, fmt.Errorf("read current issue state: %w", err)
+	}
+	if status.State != "OPEN" {
+		return projectItem{}, stateError("issue #%d is %s; needs-human transition requires OPEN issue",
+			number, status.State)
+	}
+	items, err := a.projectItems(root)
+	if err != nil {
+		return projectItem{}, fmt.Errorf("read current Project membership: %w", err)
+	}
+	item, err := findProjectIssue(items, number)
+	if err != nil {
+		return projectItem{}, fmt.Errorf("validate current Project membership: %w", err)
+	}
+	return item, nil
+}
+
+func (a app) setValidatedProjectItemStatus(root string, item projectItem, status string) error {
+	if item.Status == status {
+		return nil
+	}
+	return a.setProjectField(root, item.ID, "Status", status)
 }
