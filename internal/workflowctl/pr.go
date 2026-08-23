@@ -534,7 +534,7 @@ func (a app) proveMergedPullRequest(root string, number int, evaluated pullReque
 	if observed.HeadRefOID != evaluated.HeadRefOID {
 		return evaluationReceipt{}, "", stateError("PR #%d current head %s differs from merge-time evaluated head %s; preserve claim artifacts", number, observed.HeadRefOID, evaluated.HeadRefOID)
 	}
-	receipt, err := latestPassingEvaluationMatchesPR(observed, number)
+	receipt, err := latestMergeBoundaryEvaluationMatchesPR(observed, number)
 	if err != nil {
 		return evaluationReceipt{}, "", err
 	}
@@ -544,10 +544,16 @@ func (a app) proveMergedPullRequest(root string, number int, evaluated pullReque
 	return receipt, mergeSHA, nil
 }
 
-func latestPassingEvaluationMatchesPR(view pullRequestView, number int) (evaluationReceipt, error) {
-	receipt, err := latestPassingEvaluationReceipt(view, number)
+func latestMergeBoundaryEvaluationMatchesPR(view pullRequestView, number int) (evaluationReceipt, error) {
+	receipt, err := mergeBoundaryEvaluationReceipt(view, number)
 	if err != nil {
 		return evaluationReceipt{}, fmt.Errorf("post-merge evaluation proof is not valid: %w", err)
+	}
+	if err := evaluationReceiptMatchesCurrentPR(receipt, view); err != nil {
+		return evaluationReceipt{}, err
+	}
+	if err := evaluationReceiptMatchesCurrentEvidence(receipt, view); err != nil {
+		return evaluationReceipt{}, err
 	}
 	return receipt, nil
 }

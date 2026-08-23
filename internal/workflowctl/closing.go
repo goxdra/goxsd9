@@ -11,9 +11,18 @@ const closingReferenceRepository = repositoryKey
 type closingReferenceParser struct {
 	fenceChar        byte
 	fenceLength      int
+	fenceContext     markdownFenceContext
 	inlineCodeLength int
 	htmlComment      bool
-	htmlBlockTag     string
+	htmlBlockTags    []string
+	htmlRawTag       string
+}
+
+type markdownFenceContext struct {
+	blockQuoteDepth int
+	listDepth       int
+	listIndent      int
+	indent          int
 }
 
 func closingIssueNumbers(body string) []int {
@@ -31,14 +40,15 @@ func closingIssueNumbers(body string) []int {
 
 func (parser *closingReferenceParser) parseLine(rawLine string) []int {
 	line := strings.TrimSuffix(rawLine, "\r")
-	if parser.htmlBlockTag != "" {
+	if len(parser.htmlBlockTags) != 0 {
 		parser.consumeHTMLBlock(line)
 		return nil
 	}
 	if parser.fenceChar != 0 {
-		if isClosingFence(line, parser.fenceChar, parser.fenceLength) {
+		if isClosingFenceInContext(line, parser.fenceChar, parser.fenceLength, parser.fenceContext) {
 			parser.fenceChar = 0
 			parser.fenceLength = 0
+			parser.fenceContext = markdownFenceContext{}
 		}
 		return nil
 	}
@@ -48,6 +58,7 @@ func (parser *closingReferenceParser) parseLine(rawLine string) []int {
 	if fenceChar, fenceLength, ok := openingFence(line); ok {
 		parser.fenceChar = fenceChar
 		parser.fenceLength = fenceLength
+		_, parser.fenceContext, _ = markdownFencePrefix(line)
 		return nil
 	}
 	visible := parser.maskExcluded(line)
@@ -73,8 +84,8 @@ func isIndentedCode(line string) bool {
 }
 
 func openingFence(line string) (byte, int, bool) {
-	offset := leadingSpaces(line)
-	if offset > 3 || offset == len(line) {
+	offset, _, ok := markdownFencePrefix(line)
+	if !ok || offset == len(line) {
 		return 0, 0, false
 	}
 	value := line[offset]
@@ -91,9 +102,18 @@ func openingFence(line string) (byte, int, bool) {
 	return value, length, true
 }
 
-func isClosingFence(line string, fenceChar byte, fenceLength int) bool {
-	offset := leadingSpaces(line)
-	if offset > 3 || offset == len(line) || line[offset] != fenceChar {
+func isClosingFenceInContext(line string, fenceChar byte, fenceLength int, opening markdownFenceContext) bool {
+	offset, candidate, ok := markdownClosingFencePrefix(line, opening)
+	if !ok || offset == len(line) || line[offset] != fenceChar {
+		return false
+	}
+	if candidate.blockQuoteDepth != opening.blockQuoteDepth {
+		return false
+	}
+	if opening.listDepth == 0 && candidate.listDepth != 0 {
+		return false
+	}
+	if opening.listDepth != 0 && (candidate.listDepth != 0 || candidate.indent < opening.listIndent) {
 		return false
 	}
 	length := 0
@@ -106,13 +126,134 @@ func isClosingFence(line string, fenceChar byte, fenceLength int) bool {
 	return strings.TrimSpace(line[offset+length:]) == ""
 }
 
-func leadingSpaces(line string) int {
-	for index := 0; index < len(line); index++ {
-		if line[index] != ' ' {
-			return index
-		}
+func markdownClosingFencePrefix(line string, opening markdownFenceContext) (int, markdownFenceContext, bool) {
+	offset, context, ok := markdownFencePrefix(line)
+	if ok {
+		return offset, context, true
 	}
-	return len(line)
+	if opening.listDepth == 0 {
+		return 0, markdownFenceContext{}, false
+	}
+	return markdownListContinuationFencePrefix(line, opening)
+}
+
+func markdownListContinuationFencePrefix(line string, opening markdownFenceContext) (int, markdownFenceContext, bool) {
+	context := markdownFenceContext{}
+	offset := 0
+	for offset < len(line) {
+		spaces := leadingSpacesFrom(line, offset)
+		if spaces > 3 {
+			return markdownClosingFenceIndent(offset, spaces, context, opening)
+		}
+		offset += spaces
+		if offset == len(line) {
+			context.indent = spaces
+			return offset, context, true
+		}
+		next, consumed := consumeMarkdownFenceContainer(line, offset, spaces, &context)
+		if consumed {
+			offset = next
+			continue
+		}
+		context.indent = spaces
+		return offset, context, true
+	}
+	return offset, context, true
+}
+
+func markdownClosingFenceIndent(offset, spaces int, context, opening markdownFenceContext) (int, markdownFenceContext, bool) {
+	if context.blockQuoteDepth != opening.blockQuoteDepth {
+		return 0, markdownFenceContext{}, false
+	}
+	if context.listDepth != 0 {
+		return 0, markdownFenceContext{}, false
+	}
+	if spaces < opening.listIndent || spaces > opening.listIndent+3 {
+		return 0, markdownFenceContext{}, false
+	}
+	context.indent = spaces
+	return offset + spaces, context, true
+}
+
+func consumeMarkdownFenceContainer(line string, offset, spaces int, context *markdownFenceContext) (int, bool) {
+	if line[offset] == '>' {
+		context.blockQuoteDepth++
+		offset++
+		if offset < len(line) && isSpaceByte(line[offset]) {
+			offset++
+		}
+		return offset, true
+	}
+	markerLength := markdownListMarkerLength(line, offset)
+	if markerLength == 0 {
+		return offset, false
+	}
+	context.listDepth++
+	context.listIndent += spaces + markerLength
+	return offset + markerLength, true
+}
+
+func markdownFencePrefix(line string) (int, markdownFenceContext, bool) {
+	var context markdownFenceContext
+	offset := 0
+	for offset < len(line) {
+		spaces := leadingSpacesFrom(line, offset)
+		if spaces > 3 {
+			return 0, markdownFenceContext{}, false
+		}
+		offset += spaces
+		if offset == len(line) {
+			context.indent = spaces
+			return offset, context, true
+		}
+		if line[offset] == '>' {
+			context.blockQuoteDepth++
+			offset++
+			if offset < len(line) && isSpaceByte(line[offset]) {
+				offset++
+			}
+			continue
+		}
+		markerLength := markdownListMarkerLength(line, offset)
+		if markerLength == 0 {
+			context.indent = spaces
+			return offset, context, true
+		}
+		context.listDepth++
+		context.listIndent += spaces + markerLength
+		offset += markerLength
+	}
+	return offset, context, true
+}
+
+func leadingSpacesFrom(line string, start int) int {
+	index := start
+	for index < len(line) && line[index] == ' ' {
+		index++
+	}
+	return index - start
+}
+
+func markdownListMarkerLength(line string, offset int) int {
+	if offset >= len(line) {
+		return 0
+	}
+	if (line[offset] == '-' || line[offset] == '+' || line[offset] == '*') &&
+		offset+1 < len(line) && isSpaceByte(line[offset+1]) {
+		return 2
+	}
+	digitCount := 0
+	for offset+digitCount < len(line) && line[offset+digitCount] >= '0' && line[offset+digitCount] <= '9' {
+		digitCount++
+	}
+	if digitCount == 0 || digitCount > 9 || offset+digitCount+1 >= len(line) {
+		return 0
+	}
+	if (line[offset+digitCount] != '.' && line[offset+digitCount] != ')') ||
+		!isSpaceByte(line[offset+digitCount+1]) {
+		return 0
+	}
+	return digitCount + 2
 }
 
 func (parser *closingReferenceParser) maskExcluded(line string) string {
@@ -244,6 +385,14 @@ func (parser *closingReferenceParser) updateHTMLBlock(line string) {
 		if !ok {
 			return
 		}
+		if parser.htmlRawTag != "" {
+			name, closing, _, tagOK := htmlTag(line[index:end])
+			if tagOK && closing && name == parser.htmlRawTag {
+				parser.closeHTMLTag(name)
+			}
+			index = end
+			continue
+		}
 		parser.updateHTMLTag(line[index:end])
 		index = end
 	}
@@ -268,13 +417,25 @@ func (parser *closingReferenceParser) updateHTMLTag(text string) {
 		return
 	}
 	if closing {
-		if parser.htmlBlockTag == name {
-			parser.htmlBlockTag = ""
-		}
+		parser.closeHTMLTag(name)
 		return
 	}
-	if !selfClosing && isHTMLBlockTag(name) {
-		parser.htmlBlockTag = name
+	if selfClosing || isHTMLVoidTag(name) || !isHTMLBlockTag(name) {
+		return
+	}
+	parser.htmlBlockTags = append(parser.htmlBlockTags, name)
+	if isHTMLRawBlockTag(name) {
+		parser.htmlRawTag = name
+	}
+}
+
+func (parser *closingReferenceParser) closeHTMLTag(name string) {
+	if len(parser.htmlBlockTags) == 0 || parser.htmlBlockTags[len(parser.htmlBlockTags)-1] != name {
+		return
+	}
+	parser.htmlBlockTags = parser.htmlBlockTags[:len(parser.htmlBlockTags)-1]
+	if parser.htmlRawTag == name {
+		parser.htmlRawTag = ""
 	}
 }
 
@@ -288,7 +449,7 @@ func htmlTag(text string) (string, bool, bool, bool) {
 		closing = true
 		index++
 	}
-	for index < len(text) && text[index] == ' ' {
+	for index < len(text) && isSpaceByte(text[index]) {
 		index++
 	}
 	start := index
@@ -306,11 +467,29 @@ func htmlTag(text string) (string, bool, bool, bool) {
 
 func isHTMLBlockTag(name string) bool {
 	switch name {
-	case "address", "article", "aside", "base", "blockquote", "body", "caption", "center", "col",
+	case "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center", "col",
 		"colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset", "figcaption",
 		"figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hr", "html",
 		"iframe", "legend", "li", "link", "main", "menu", "menuitem", "nav", "ol", "p", "pre", "script",
-		"section", "summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "track", "ul":
+		"search", "section", "style", "summary", "table", "tbody", "td", "textarea", "tfoot", "th", "thead",
+		"title", "tr", "track", "ul", "xmp":
+		return true
+	}
+	return false
+}
+
+func isHTMLRawBlockTag(name string) bool {
+	switch name {
+	case "pre", "script", "style", "textarea", "xmp":
+		return true
+	}
+	return false
+}
+
+func isHTMLVoidTag(name string) bool {
+	switch name {
+	case "area", "base", "basefont", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+		"param", "source", "track", "wbr":
 		return true
 	}
 	return false

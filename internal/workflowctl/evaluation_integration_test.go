@@ -403,6 +403,32 @@ func TestAmbiguousMergeResponseRejectsPostMergeMetadataDrift(t *testing.T) {
 		t.Fatal("ambiguous merge response did not record completed merge")
 	}
 }
+
+func TestFinishRejectsPostMergeEvaluationReceiptOnBothMergePaths(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		mode string
+	}{
+		{name: "normal merge response", mode: ""},
+		{name: "ambiguous merge response", mode: "transport"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			backend, application := newPassingFinishFixture(t)
+			backend.mergeResponseMode = test.mode
+			backend.delayReceiptAfterMerge = true
+
+			err := application.runPR(backend.finishArgs())
+			if err == nil || !strings.Contains(err.Error(), "merge boundary") {
+				t.Fatalf("post-merge receipt error = %v, want merge-boundary refusal", err)
+			}
+			if !backend.merged || backend.issueState != "open" || backend.issuePatchCount != 0 || backend.projectDone {
+				t.Fatalf("post-merge receipt reconciliation state = merged %t, issue %s, PATCH %d, Project Done %t",
+					backend.merged, backend.issueState, backend.issuePatchCount, backend.projectDone)
+			}
+		})
+	}
+}
+
 func TestEvaluationRecordRejectsReservedAttestationSequences(t *testing.T) {
 	fields := []struct {
 		name  string
@@ -1256,6 +1282,7 @@ type workflowBackend struct {
 	issuePatchMode             string
 	mergeResponseMode          string
 	mutatePRBodyAfterMerge     bool
+	delayReceiptAfterMerge     bool
 	managedDocumentChange      bool
 	bodyPatchCount             int
 	mergeSHA                   string
@@ -1566,6 +1593,9 @@ func (b *workflowBackend) merge(data []byte) (string, error) {
 	}
 	b.merged = true
 	b.mergedAt = time.Now().UTC().Truncate(time.Second)
+	if b.delayReceiptAfterMerge {
+		b.delayEvaluationReceipt()
+	}
 	if b.mutatePRBodyAfterMerge {
 		b.body += "\nReviewed metadata drift.\n"
 	}
@@ -1579,6 +1609,18 @@ func (b *workflowBackend) merge(data []byte) (string, error) {
 	default:
 		return fmt.Sprintf(`{"merged":true,"sha":%q}`, b.mergeSHA), nil
 	}
+}
+
+func (b *workflowBackend) delayEvaluationReceipt() {
+	b.t.Helper()
+	if len(b.comments) < 2 {
+		b.t.Fatal("delayed receipt fixture has no recorded receipt")
+	}
+	delayedAt := b.mergedAt.Add(time.Second)
+	b.comments[1].CreatedAt = delayedAt
+	b.comments[1].Body = replaceTestReceipt(b.t, b.comments[1].Body, func(receipt *evaluationReceipt) {
+		receipt.RecordedAt = delayedAt
+	})
 }
 
 func marshalTestResponse(value any) (string, error) {
