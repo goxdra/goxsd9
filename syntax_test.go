@@ -204,6 +204,35 @@ func TestDecodeSyntaxReportsGenericUnsupportedSyntax(t *testing.T) {
 	}
 }
 
+func TestParseSchemaReportsXMLBaseAsUnsupportedResolution(t *testing.T) {
+	input := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xml:base="child.xsd"/>`
+	reader := &trackingSource{data: []byte(input)}
+	root := newTestSource(t, reader)
+	schema, err := ParseSchema(root, nil)
+	if err == nil {
+		t.Fatal("ParseSchema accepted XML Base")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported {
+		t.Fatalf("diagnostic class = %q, want %q", diagnostic.Class(), FailureUnsupported)
+	}
+	if diagnostic.Feature() != FeatureID("xsd.schema.xml-base") {
+		t.Fatalf("diagnostic feature = %q, want xsd.schema.xml-base", diagnostic.Feature())
+	}
+	if diagnostic.SpecRef() != "xmlbase#matching" {
+		t.Fatalf("diagnostic spec ref = %q, want xmlbase#matching", diagnostic.SpecRef())
+	}
+	if diagnostic.Loc().Source() != "schema.xsd" || diagnostic.Loc().Line() != 1 || diagnostic.Loc().Column() != 1 {
+		t.Fatalf("diagnostic location = %s, want schema.xsd:1:1", diagnostic.Loc())
+	}
+	if len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+		t.Fatalf("schema after XML Base error = %#v, want zero schema", schema)
+	}
+	if !reader.closed {
+		t.Fatal("XML Base source was not closed")
+	}
+}
+
 func TestDecodeSyntaxPreservesCloseFailure(t *testing.T) {
 	closeErr := errors.New("close failed")
 	reader := &trackingSource{data: []byte("<xs:schema xmlns:xs=\"" + testXSDNamespace + "\"/>")}

@@ -422,7 +422,25 @@ func validateSchemaXMLAttribute(attribute syntaxAttribute) error {
 	case "lang":
 		return validateXMLLanguage(attribute)
 	case "base":
-		return validateSchemaAnyURI(attribute)
+		if err := validateSchemaAnyURI(attribute); err != nil {
+			return err
+		}
+		feature, ok := LookupUnsupportedFeature(featureSchemaXMLBase)
+		if !ok {
+			return newDiagnostic(
+				FailureInternal,
+				diagnosticSyntaxFeatureCode,
+				attribute.loc,
+				"XML Base feature is not registered",
+				nil,
+			)
+		}
+		return newUnsupported(
+			feature,
+			UnsupportedSchemaSyntaxCode,
+			attribute.loc,
+			"XML Base schema resolution is not implemented",
+		)
 	default:
 		return nil
 	}

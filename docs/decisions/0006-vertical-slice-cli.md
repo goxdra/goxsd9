@@ -12,8 +12,9 @@ goxsd9 validate [--schema-root DIR] [--diagnostics human|json] SCHEMA INSTANCE
 goxsd9 generate [--schema-root DIR] [--diagnostics human|json] --package NAME [--output FILE|-] [--force] SCHEMA
 ```
 
-These forms are a future contract; no executable product CLI exists in this
-packet. Flags occur before operands, each option is supplied at most once, and
+The `parse` form is implemented by `cmd/goxsd9` in the first slice;
+`validate` and `generate` remain future commands. Flags occur before operands,
+each option is supplied at most once, and
 unknown options or extra operands are usage errors. `parse` and `generate`
 take exactly one `SCHEMA`; `validate` takes exactly one `SCHEMA` and one
 `INSTANCE`. Human diagnostics are the default. `--force` is valid only with an
@@ -101,14 +102,11 @@ diagnostics. An identity is never a target namespace, `schema/@version`, XML
 declaration version, generated Go name, or filesystem URI.
 
 The CLI exposes no edition flag and does not choose an edition from
-`schema/@version`; it does not change the current parser entrypoint. The
-current two-argument `ParseSchema` retains legacy per-document behavior:
-absent or empty `schema/@version` defaults to XSD 1.1, `"1.0"` selects the
-legacy XSD 1.0 path, `"1.1"` selects the legacy XSD 1.1 path, and arbitrary
-labels are unsupported. Graph-wide `ParseSchemaWithPolicy` propagation and
-profile behavior remain future work. Normatively, `schema/@version` is an
-inert optional label, as recorded in [0004-xsd-language-policy.md](0004-xsd-language-policy.md);
-the current legacy entrypoint behavior is a separate implementation fact.
+`schema/@version`. The parser applies policy graph-wide: `ParseSchema` selects
+graph-wide `Compatibility` for the complete graph, while
+`ParseSchemaWithPolicy` applies one validated policy to the complete graph.
+Normatively, `schema/@version` is an inert optional label and never selects or
+mismatches a policy, as recorded in [0004-xsd-language-policy.md](0004-xsd-language-policy.md).
 
 ## Fixed offline limits
 
@@ -227,11 +225,12 @@ including with `--force`. Stdout is buffered until generation completes, but a
 broken pipe can still leave a downstream reader with a prefix; callers needing
 rollback use an explicit file.
 
-## Future contract examples
+## Contract examples
 
-Every example in this section is a future contract example, not current
-executable behavior. Counts and diagnostic text are illustrative except for
-the required success stream shapes.
+The parse examples in this section, including the stdin example, document
+current executable behavior. The validate and generate examples are future
+contract examples. Counts and diagnostic text are illustrative except for the
+required success stream shapes.
 
 Single-file schema, with the default root:
 
@@ -298,8 +297,8 @@ $ goxsd9 validate - -
 
 The last command exits 2. These examples show that path interpretation belongs
 to the CLI while `ParseSchema` and `Resolver` retain their opaque, sequential
-boundary. The generated shape is evidence from the current private emitter,
-not a claim that a public generator or product command exists.
+boundary. The generated shape comes from the current private emitter; the public
+`generate` command remains future work.
 
 ## Bounded follow-up packets
 

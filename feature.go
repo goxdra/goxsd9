@@ -28,6 +28,8 @@ const (
 	FeatureSchemaSyntax FeatureID = "xsd.schema.syntax"
 )
 
+const featureSchemaXMLBase FeatureID = "xsd.schema.xml-base"
+
 // UnsupportedFeature is an opaque handle to a registered unsupported
 // specification capability.
 type UnsupportedFeature = feature.Feature
