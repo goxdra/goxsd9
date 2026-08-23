@@ -480,5 +480,8 @@ func (a app) setIssueProjectStatus(root string, number int, status string) error
 	if err != nil {
 		return err
 	}
+	if item.Status == status {
+		return nil
+	}
 	return a.setProjectField(root, item.ID, "Status", status)
 }

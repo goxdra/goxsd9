@@ -362,3 +362,22 @@ func TestHistoricalMergedCandidatesRequireMergedProof(t *testing.T) {
 		t.Fatalf("historical merged candidates = %#v, want only PR #14", candidates)
 	}
 }
+
+func TestHistoricalMergedCandidatesUseEffectiveClosingReferences(t *testing.T) {
+	canonical := historicalPullRequest{Number: 14, Merged: true, MergeCommitSHA: "merge", State: "closed"}
+	canonical.Base.Ref = "main"
+	canonical.Body = "Closes #55"
+	inline := canonical
+	inline.Number = 15
+	inline.Body = "`Closes #55`"
+	fenced := canonical
+	fenced.Number = 16
+	fenced.Body = "```\nCloses #55\n```"
+	quoted := canonical
+	quoted.Number = 17
+	quoted.Body = "> Closes #55"
+	candidates := historicalMergedCandidates([][]historicalPullRequest{{inline, fenced, quoted, canonical}}, 55)
+	if len(candidates) != 1 || candidates[0].Number != 14 {
+		t.Fatalf("historical effective closing candidates = %#v, want only PR #14", candidates)
+	}
+}

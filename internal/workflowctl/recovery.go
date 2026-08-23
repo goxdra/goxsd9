@@ -65,11 +65,50 @@ func (a app) recoverPullRequest(number int) error {
 	if err != nil {
 		return recoveryNeededError(number, mergeSHA, err)
 	}
+	if err := a.reconcileMergedPrimaryIssue(root, number, proof, plan.primaryIssue); err != nil {
+		return recoveryNeededError(number, mergeSHA, fmt.Errorf("primary issue reconciliation: %w", err))
+	}
+	if err := a.setIssueProjectStatus(root, plan.primaryIssue, "Done"); err != nil {
+		return recoveryNeededError(number, mergeSHA, fmt.Errorf("primary Project status reconciliation: %w", err))
+	}
 	packet := mergedPacket{number: number, mergeSHA: mergeSHA, plan: plan}
 	if err := a.cleanupClaims(base, packet); err != nil {
 		return recoveryNeededError(number, mergeSHA, err)
 	}
 	return writeLine(a.stdout, "PR #%d was already merged at %s; Git base and proven claim cleanup are complete", number, mergeSHA)
+}
+
+func mergeEvaluationProofFromReceipt(receipt evaluationReceipt) mergeEvaluationProof {
+	return mergeEvaluationProof{
+		bodySHA256:    receipt.BodySHA256,
+		baseRefName:   receipt.BaseRefName,
+		claimProofs:   append([]evaluationClaimProof(nil), receipt.ClaimProofs...),
+		closingIssues: append([]int(nil), receipt.ClosingIssues...),
+		head:          receipt.Head,
+		headRefName:   receipt.HeadRefName,
+	}
+}
+
+func (a app) reconcileMergedPrimaryIssue(root string, pullRequestNumber int, proof mergeEvaluationProof,
+	expectedPrimary int,
+) error {
+	if !hasMergeEvaluationMetadata(proof) {
+		return stateError("PR #%d lacks immutable primary closure metadata; preserve claim artifacts", pullRequestNumber)
+	}
+	if proof.baseRefName != "main" {
+		return stateError("PR #%d immutable primary closure proof targets base %q; preserve claim artifacts", pullRequestNumber, proof.baseRefName)
+	}
+	primary, err := recoveryPrimary(proof, pullRequestNumber)
+	if err != nil {
+		return err
+	}
+	if expectedPrimary != primary {
+		return stateError("PR #%d proven primary issue #%d differs from cleanup primary issue #%d; preserve claim artifacts", pullRequestNumber, primary, expectedPrimary)
+	}
+	if _, err := recoveryClaimProofs(proof, primary, pullRequestNumber); err != nil {
+		return fmt.Errorf("immutable claim proof: %w", err)
+	}
+	return a.reconcileIssueClosed(root, primary)
 }
 
 func recoveryNeededError(number int, mergeSHA string, cause error) error {
@@ -96,43 +135,52 @@ type mergeEvaluationProof struct {
 }
 
 func mergeTimeEvaluationProof(view pullRequestView, number int) (mergeEvaluationProof, error) {
-	if view.MergedAt == nil {
-		return mergeEvaluationProof{}, errors.New("github reported a merge without a merge timestamp for immutable evaluation proof")
-	}
-	if err := rejectUntrustedEvaluationEvidence(view.Comments); err != nil {
-		return mergeEvaluationProof{}, fmt.Errorf("validate immutable pre-merge evaluation proof: %w", err)
-	}
-	history, err := parseEvaluationHistory(view.Comments)
+	selected, err := mergeBoundaryEvaluationReceipt(view, number)
 	if err != nil {
-		return mergeEvaluationProof{}, fmt.Errorf("read immutable pre-merge evaluation proof: %w", err)
-	}
-	if historyErr := validateEvaluationHistory(history); historyErr != nil {
-		return mergeEvaluationProof{}, fmt.Errorf("read immutable pre-merge evaluation proof: %w", historyErr)
-	}
-	mergeAt := view.MergedAt.UTC()
-	if boundaryErr := validateMergeBoundaryHistory(history, mergeAt); boundaryErr != nil {
-		return mergeEvaluationProof{}, boundaryErr
-	}
-	selected, err := latestMergeBoundaryReceipt(history)
-	if err != nil {
-		return mergeEvaluationProof{}, err
-	}
-	if err := validateMergeBoundaryReceipt(selected.receipt, number); err != nil {
 		return mergeEvaluationProof{}, err
 	}
 	return mergeEvaluationProof{
-		bodySHA256:    selected.receipt.BodySHA256,
-		baseRefName:   selected.receipt.BaseRefName,
-		claimProofs:   append([]evaluationClaimProof(nil), selected.receipt.ClaimProofs...),
-		closingIssues: append([]int(nil), selected.receipt.ClosingIssues...),
-		head:          selected.receipt.Head,
-		headRefName:   selected.receipt.HeadRefName,
+		bodySHA256:    selected.BodySHA256,
+		baseRefName:   selected.BaseRefName,
+		claimProofs:   append([]evaluationClaimProof(nil), selected.ClaimProofs...),
+		closingIssues: append([]int(nil), selected.ClosingIssues...),
+		head:          selected.Head,
+		headRefName:   selected.HeadRefName,
 	}, nil
+}
+
+func mergeBoundaryEvaluationReceipt(view pullRequestView, number int) (evaluationReceipt, error) {
+	if view.MergedAt == nil {
+		return evaluationReceipt{}, errors.New("github reported a merge without a merge timestamp for immutable evaluation proof")
+	}
+	if err := rejectUntrustedEvaluationEvidence(view.Comments); err != nil {
+		return evaluationReceipt{}, fmt.Errorf("validate immutable pre-merge evaluation proof: %w", err)
+	}
+	history, err := parseEvaluationHistory(view.Comments)
+	if err != nil {
+		return evaluationReceipt{}, fmt.Errorf("read immutable pre-merge evaluation proof: %w", err)
+	}
+	if historyErr := validateEvaluationHistory(history); historyErr != nil {
+		return evaluationReceipt{}, fmt.Errorf("read immutable pre-merge evaluation proof: %w", historyErr)
+	}
+	mergeAt := view.MergedAt.UTC()
+	if boundaryErr := validateMergeBoundaryHistory(history, mergeAt); boundaryErr != nil {
+		return evaluationReceipt{}, boundaryErr
+	}
+	selected, err := latestMergeBoundaryReceipt(history)
+	if err != nil {
+		return evaluationReceipt{}, err
+	}
+	if err := validateMergeBoundaryReceipt(selected.receipt, number); err != nil {
+		return evaluationReceipt{}, err
+	}
+	return selected.receipt, nil
 }
 
 func validateMergeBoundaryHistory(history evaluationHistory, mergeAt time.Time) error {
 	for _, challenge := range history.challenges {
-		if challenge.comment.CreatedAt.IsZero() || challenge.comment.CreatedAt.After(mergeAt) {
+		if challenge.comment.CreatedAt.IsZero() || challenge.comment.CreatedAt.After(mergeAt) ||
+			challenge.challenge.RequestedAt.IsZero() || challenge.challenge.RequestedAt.After(mergeAt) {
 			return errors.New("trusted evaluation challenge was created after the merge boundary")
 		}
 	}
