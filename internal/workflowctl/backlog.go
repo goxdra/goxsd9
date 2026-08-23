@@ -125,7 +125,7 @@ func (a app) readyCounts(root string, list projectList) (backlogHealthCounts, er
 }
 
 func newBacklogHealthReport(counts backlogHealthCounts) backlogHealthReport {
-	floors := backlogHealthFloors{Ready: 8, XS: 2, S: 3, M: 2}
+	floors := backlogHealthFloors{Ready: 10, XS: 2, S: 3, M: 2}
 	deficits := backlogHealthDeficits{
 		Ready: backlogHealthDeficit(floors.Ready, counts.Ready),
 		XS:    backlogHealthDeficit(floors.XS, counts.XS),
@@ -161,6 +161,10 @@ func writeBacklogHealthJSON(w io.Writer, report backlogHealthReport) error {
 func (report backlogHealthReport) writeText(w io.Writer) error {
 	if err := writeLine(w, "Ready: %d (XS=%d S=%d M=%d)", report.Counts.Ready,
 		report.Counts.XS, report.Counts.S, report.Counts.M); err != nil {
+		return err
+	}
+	if err := writeLine(w, "Ready floor: %d (XS=%d S=%d M=%d)", report.Floors.Ready,
+		report.Floors.XS, report.Floors.S, report.Floors.M); err != nil {
 		return err
 	}
 	if !report.Healthy {
