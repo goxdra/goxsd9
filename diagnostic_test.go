@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+//nolint:funlen // The registry deliberately lists every exported and internal code.
 func TestDiagnosticCodesAreUnique(t *testing.T) {
 	definitions := []struct {
 		name string
@@ -14,6 +15,10 @@ func TestDiagnosticCodesAreUnique(t *testing.T) {
 		{name: "InvalidDecimalLexicalCode", code: InvalidDecimalLexicalCode},
 		{name: "InvalidXSDVersionCode", code: InvalidXSDVersionCode},
 		{name: "InvalidBooleanLexicalCode", code: InvalidBooleanLexicalCode},
+		{name: "InvalidBoundCode", code: InvalidBoundCode},
+		{name: "InvalidBoundRestrictionCode", code: InvalidBoundRestrictionCode},
+		{name: "InvalidBoundCombinationCode", code: InvalidBoundCombinationCode},
+		{name: "BoundValueViolationCode", code: BoundValueViolationCode},
 		{name: "InvalidTotalDigitsCode", code: InvalidTotalDigitsCode},
 		{name: "InvalidFractionDigitsCode", code: InvalidFractionDigitsCode},
 		{name: "diagnosticPrecisionDecimalLexicalCode", code: diagnosticPrecisionDecimalLexicalCode},
@@ -82,6 +87,7 @@ func TestDiagnosticCodesAreUnique(t *testing.T) {
 		{name: "diagnosticDigitEffectiveKindCode", code: diagnosticDigitEffectiveKindCode},
 		{name: "diagnosticDigitEffectiveVersionCode", code: diagnosticDigitEffectiveVersionCode},
 		{name: "diagnosticDigitIntegerFractionCode", code: diagnosticDigitIntegerFractionCode},
+		{name: "diagnosticBoundEffectiveVersionCode", code: diagnosticBoundEffectiveVersionCode},
 		{name: "diagnosticCodegenUnsupported", code: diagnosticCodegenUnsupported},
 		{name: "diagnosticCodegenInvariant", code: diagnosticCodegenInvariant},
 		{name: "diagnosticCodegenFormat", code: diagnosticCodegenFormat},
