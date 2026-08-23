@@ -2,104 +2,159 @@ package goxsd9
 
 import (
 	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 )
 
-//nolint:funlen // The registry deliberately lists every exported and internal code.
 func TestDiagnosticCodesAreUnique(t *testing.T) {
-	definitions := []struct {
-		name string
-		code string
-	}{
-		{name: "InvalidIntegerLexicalCode", code: InvalidIntegerLexicalCode},
-		{name: "InvalidDecimalLexicalCode", code: InvalidDecimalLexicalCode},
-		{name: "InvalidXSDVersionCode", code: InvalidXSDVersionCode},
-		{name: "InvalidBooleanLexicalCode", code: InvalidBooleanLexicalCode},
-		{name: "InvalidBoundCode", code: InvalidBoundCode},
-		{name: "InvalidBoundRestrictionCode", code: InvalidBoundRestrictionCode},
-		{name: "InvalidBoundCombinationCode", code: InvalidBoundCombinationCode},
-		{name: "BoundValueViolationCode", code: BoundValueViolationCode},
-		{name: "InvalidTotalDigitsCode", code: InvalidTotalDigitsCode},
-		{name: "InvalidFractionDigitsCode", code: InvalidFractionDigitsCode},
-		{name: "diagnosticPrecisionDecimalLexicalCode", code: diagnosticPrecisionDecimalLexicalCode},
-		{name: "diagnosticPrecisionDecimalConstructionCode", code: diagnosticPrecisionDecimalConstructionCode},
-		{name: "InvalidDigitFacetCombinationCode", code: InvalidDigitFacetCombinationCode},
-		{name: "InvalidDigitFacetRestrictionCode", code: InvalidDigitFacetRestrictionCode},
-		{name: "DigitFacetValueViolationCode", code: DigitFacetValueViolationCode},
-		{name: "InvalidDigitDatatypeCode", code: InvalidDigitDatatypeCode},
-		{name: "UnsupportedDatatypeFacetCode", code: UnsupportedDatatypeFacetCode},
-		{name: "InvalidEnumerationCode", code: InvalidEnumerationCode},
-		{name: "InvalidEnumerationRestrictionCode", code: InvalidEnumerationRestrictionCode},
-		{name: "EnumerationValueViolationCode", code: EnumerationValueViolationCode},
-		{name: "InvalidXMLSyntaxCode", code: InvalidXMLSyntaxCode},
-		{name: "InvalidInstanceXMLCode", code: InvalidInstanceXMLCode},
-		{name: "InvalidInstanceNamespaceCode", code: InvalidInstanceNamespaceCode},
-		{name: "InvalidInstanceRootCode", code: InvalidInstanceRootCode},
-		{name: "UnsupportedInstanceSyntaxCode", code: UnsupportedInstanceSyntaxCode},
-		{name: "InvalidInstanceReaderCode", code: InvalidInstanceReaderCode},
-		{name: "InvalidInstanceSourceCode", code: InvalidInstanceSourceCode},
-		{name: "InvalidInstanceSchemaCode", code: InvalidInstanceSchemaCode},
-		{name: "UnknownInstanceSchemaRootCode", code: UnknownInstanceSchemaRootCode},
-		{name: "AmbiguousInstanceSchemaRootCode", code: AmbiguousInstanceSchemaRootCode},
-		{name: "UnsupportedInstanceValidationCode", code: UnsupportedInstanceValidationCode},
-		{name: "InvalidSchemaRootCode", code: InvalidSchemaRootCode},
-		{name: "UnsupportedSchemaSyntaxCode", code: UnsupportedSchemaSyntaxCode},
-		{name: "SourceReadCode", code: SourceReadCode},
-		{name: "SourceCloseCode", code: SourceCloseCode},
-		{name: "SourceResolveCode", code: SourceResolveCode},
-		{name: "SourceInvalidCode", code: SourceInvalidCode},
-		{name: "MissingSchemaLocationCode", code: MissingSchemaLocationCode},
-		{name: "InvalidLanguagePolicyCode", code: InvalidLanguagePolicyCode},
-		{name: "invalidSchemaTargetNamespaceCode", code: invalidSchemaTargetNamespaceCode},
-		{name: "invalidSchemaCompositionCode", code: invalidSchemaCompositionCode},
-		{name: "invalidSchemaDeclarationNameCode", code: invalidSchemaDeclarationNameCode},
-		{name: "diagnosticSchemaSimpleTypeUnresolvedCode", code: diagnosticSchemaSimpleTypeUnresolvedCode},
-		{name: "diagnosticSchemaSimpleTypeWrongKindCode", code: diagnosticSchemaSimpleTypeWrongKindCode},
-		{name: "diagnosticSchemaSimpleTypeAmbiguousCode", code: diagnosticSchemaSimpleTypeAmbiguousCode},
-		{name: "diagnosticSchemaSimpleTypeCycleCode", code: diagnosticSchemaSimpleTypeCycleCode},
-		{name: "diagnosticSchemaSimpleTypeBaseCode", code: diagnosticSchemaSimpleTypeBaseCode},
-		{name: "diagnosticSchemaElementTypeUnresolvedCode", code: diagnosticSchemaElementTypeUnresolvedCode},
-		{name: "diagnosticSchemaElementTypeWrongKindCode", code: diagnosticSchemaElementTypeWrongKindCode},
-		{name: "diagnosticSchemaElementTypeAmbiguousCode", code: diagnosticSchemaElementTypeAmbiguousCode},
-		{name: "diagnosticSchemaElementTypeUnsupportedCode", code: diagnosticSchemaElementTypeUnsupportedCode},
-		{name: "diagnosticSchemaBridgeInvariantCode", code: diagnosticSchemaBridgeInvariantCode},
-		{name: "diagnosticInstanceValidationCode", code: diagnosticInstanceValidationCode},
-		{name: "diagnosticUnsupportedWithoutFeatureCode", code: diagnosticUnsupportedWithoutFeatureCode},
-		{name: "diagnosticUnregisteredFeatureCode", code: diagnosticUnregisteredFeatureCode},
-		{name: "diagnosticIntegerConstructionCode", code: diagnosticIntegerConstructionCode},
-		{name: "diagnosticDecimalConstructionCode", code: diagnosticDecimalConstructionCode},
-		{name: "diagnosticSyntaxNoReaderCode", code: diagnosticSyntaxNoReaderCode},
-		{name: "diagnosticSyntaxEmptyTokenCode", code: diagnosticSyntaxEmptyTokenCode},
-		{name: "diagnosticSyntaxUnsupportedTokenCode", code: diagnosticSyntaxUnsupportedTokenCode},
-		{name: "diagnosticSyntaxAssertionFeatureCode", code: diagnosticSyntaxAssertionFeatureCode},
-		{name: "diagnosticSyntaxFeatureCode", code: diagnosticSyntaxFeatureCode},
-		{name: "diagnosticSyntaxUnclassifiedErrorCode", code: diagnosticSyntaxUnclassifiedErrorCode},
-		{name: "diagnosticSchemaEmptySourceCode", code: diagnosticSchemaEmptySourceCode},
-		{name: "diagnosticSchemaRepeatedSourceCode", code: diagnosticSchemaRepeatedSourceCode},
-		{name: "diagnosticSchemaEmptyKindCode", code: diagnosticSchemaEmptyKindCode},
-		{name: "diagnosticSchemaEmptyNameCode", code: diagnosticSchemaEmptyNameCode},
-		{name: "diagnosticSyntaxDocumentNoRootCode", code: diagnosticSyntaxDocumentNoRootCode},
-		{name: "diagnosticDigitRestrictionKindCode", code: diagnosticDigitRestrictionKindCode},
-		{name: "diagnosticDigitRestrictionVersionCode", code: diagnosticDigitRestrictionVersionCode},
-		{name: "diagnosticDigitTotalStateCode", code: diagnosticDigitTotalStateCode},
-		{name: "diagnosticDigitFractionStateCode", code: diagnosticDigitFractionStateCode},
-		{name: "diagnosticDigitValueConstructionCode", code: diagnosticDigitValueConstructionCode},
-		{name: "diagnosticDigitEffectiveKindCode", code: diagnosticDigitEffectiveKindCode},
-		{name: "diagnosticDigitEffectiveVersionCode", code: diagnosticDigitEffectiveVersionCode},
-		{name: "diagnosticDigitIntegerFractionCode", code: diagnosticDigitIntegerFractionCode},
-		{name: "diagnosticBoundEffectiveVersionCode", code: diagnosticBoundEffectiveVersionCode},
-		{name: "diagnosticCodegenUnsupported", code: diagnosticCodegenUnsupported},
-		{name: "diagnosticCodegenInvariant", code: diagnosticCodegenInvariant},
-		{name: "diagnosticCodegenFormat", code: diagnosticCodegenFormat},
-		{name: "diagnosticCodegenSchemaInvalid", code: diagnosticCodegenSchemaInvalid},
-		{name: "diagnosticCodegenNamingInvalid", code: diagnosticCodegenNamingInvalid},
+	definitions, err := discoverDiagnosticCodeDefinitions(".")
+	if err != nil {
+		t.Fatalf("discover diagnostic codes: %v", err)
 	}
-	seen := make(map[string]string, len(definitions))
-	for _, definition := range definitions {
-		if previous, exists := seen[definition.code]; exists {
-			t.Fatalf("diagnostic code %q is assigned to %s and %s", definition.code, previous, definition.name)
+	if duplicates := duplicateDiagnosticCodes(definitions); len(duplicates) != 0 {
+		t.Fatalf("duplicate diagnostic codes:\n%s", strings.Join(duplicates, "\n"))
+	}
+}
+
+type diagnosticCodeDefinition struct {
+	code   string
+	file   string
+	line   int
+	column int
+	name   string
+}
+
+var diagnosticCodePattern = regexp.MustCompile(`^(?:GOXSD|XSD)[0-9]{4}$`)
+
+func discoverDiagnosticCodeDefinitions(root string) ([]diagnosticCodeDefinition, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, fmt.Errorf("read diagnostic code root: %w", err)
+	}
+	fileSet := token.NewFileSet()
+	definitions := make([]diagnosticCodeDefinition, 0)
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || filepath.Ext(name) != ".go" || strings.HasSuffix(name, "_test.go") {
+			continue
 		}
-		seen[definition.code] = definition.name
+		path := filepath.Join(root, name)
+		fileDefinitions, fileErr := discoverDiagnosticCodesInFile(fileSet, path)
+		if fileErr != nil {
+			return nil, fileErr
+		}
+		definitions = append(definitions, fileDefinitions...)
+	}
+	sort.Slice(definitions, func(left, right int) bool {
+		first, second := definitions[left], definitions[right]
+		if first.code != second.code {
+			return first.code < second.code
+		}
+		if first.file != second.file {
+			return first.file < second.file
+		}
+		if first.line != second.line {
+			return first.line < second.line
+		}
+		if first.column != second.column {
+			return first.column < second.column
+		}
+		return first.name < second.name
+	})
+	return definitions, nil
+}
+
+func discoverDiagnosticCodesInFile(fileSet *token.FileSet, path string) ([]diagnosticCodeDefinition, error) {
+	file, err := parser.ParseFile(fileSet, path, nil, 0)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	definitions := make([]diagnosticCodeDefinition, 0)
+	ast.Inspect(file, func(node ast.Node) bool {
+		declaration, ok := node.(*ast.GenDecl)
+		if !ok || declaration.Tok != token.CONST {
+			return true
+		}
+		for _, specification := range declaration.Specs {
+			valueSpec, ok := specification.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			definitions = append(definitions, diagnosticCodesInValueSpec(fileSet, path, valueSpec)...)
+		}
+		return true
+	})
+	return definitions, nil
+}
+
+func diagnosticCodesInValueSpec(fileSet *token.FileSet, path string, valueSpec *ast.ValueSpec) []diagnosticCodeDefinition {
+	definitions := make([]diagnosticCodeDefinition, 0, len(valueSpec.Values))
+	for index, value := range valueSpec.Values {
+		literal, ok := value.(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING || index >= len(valueSpec.Names) {
+			continue
+		}
+		code, err := strconv.Unquote(literal.Value)
+		if err != nil || !diagnosticCodePattern.MatchString(code) {
+			continue
+		}
+		position := fileSet.Position(literal.Pos())
+		definitions = append(definitions, diagnosticCodeDefinition{
+			code: code, file: filepath.ToSlash(path), line: position.Line,
+			column: position.Column, name: valueSpec.Names[index].Name,
+		})
+	}
+	return definitions
+}
+
+func duplicateDiagnosticCodes(definitions []diagnosticCodeDefinition) []string {
+	duplicates := make([]string, 0)
+	for index := 0; index < len(definitions); {
+		end := index + 1
+		for end < len(definitions) && definitions[end].code == definitions[index].code {
+			end++
+		}
+		if end-index > 1 {
+			parts := make([]string, 0, end-index)
+			for _, definition := range definitions[index:end] {
+				parts = append(parts, fmt.Sprintf("%s (%s:%d:%d)", definition.name, definition.file,
+					definition.line, definition.column))
+			}
+			duplicates = append(duplicates, fmt.Sprintf("%s: %s", definitions[index].code, strings.Join(parts, ", ")))
+		}
+		index = end
+	}
+	return duplicates
+}
+
+func TestDiagnosticCodeDiscoveryCatchesUnlistedDuplicate(t *testing.T) {
+	root := t.TempDir()
+	fixture := `package fixture
+
+const (
+	knownCode = "XSD9999"
+	newUnlistedCode = "XSD9999"
+)
+`
+	if err := os.WriteFile(filepath.Join(root, "fixture.go"), []byte(fixture), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	definitions, err := discoverDiagnosticCodeDefinitions(root)
+	if err != nil {
+		t.Fatalf("discover fixture codes: %v", err)
+	}
+	duplicates := duplicateDiagnosticCodes(definitions)
+	if len(duplicates) != 1 || !strings.Contains(duplicates[0], "newUnlistedCode") {
+		t.Fatalf("fixture duplicates = %#v, want newly introduced unlisted literal", duplicates)
 	}
 }
 

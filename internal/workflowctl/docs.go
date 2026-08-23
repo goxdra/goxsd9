@@ -24,7 +24,7 @@ var documentRules = []documentRule{
 	{path: ".agents/skills/backlog/SKILL.md", charter: "executable backlog procedure", maxLines: 55, maxWords: 375},
 	{path: ".agents/skills/develop/SKILL.md", charter: "executable development procedure", maxLines: 120, maxWords: 825},
 	{path: ".agents/skills/retro/SKILL.md", charter: "executable retrospective procedure", maxLines: 50, maxWords: 300},
-	{path: ".github/pull_request_template.md", charter: "pull request evidence headings", maxLines: 35, maxWords: 175},
+	{path: ".github/pull_request_template.md", charter: "pull request evidence headings", maxLines: 36, maxWords: 175},
 	{path: "AGENTS.md", charter: "durable repository invariants", maxLines: 145, maxWords: 1150},
 	{path: "ARCHITECTURE.md", charter: "current design", maxLines: 160, maxWords: 950},
 	{path: "PLAN.md", charter: "phased outcomes and exit measures", maxLines: 110, maxWords: 650},

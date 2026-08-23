@@ -38,7 +38,7 @@ const (
 	// Completed built-in element views do not retain their document version.
 	// Compatibility validation uses the repository's XSD 1.1-compatible default.
 	instanceBuiltInValidationVersion XSDVersion = XSDVersion11
-	diagnosticInstanceValidationCode            = "GOXSD9026"
+	diagnosticInstanceValidationCode            = "GOXSD9034"
 )
 
 var (
