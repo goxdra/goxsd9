@@ -32,6 +32,7 @@ var signalFuzzTargets = []signalFuzzTarget{
 	{Boundary: "syntax.go", Package: ".", Target: "FuzzDecodeSyntax"},
 	{Boundary: "datatype.go", Package: ".", Target: "FuzzStrictIntegerCanonicalRoundTrip"},
 	{Boundary: "datatype.go", Package: ".", Target: "FuzzStrictDecimalCanonicalRoundTrip"},
+	{Boundary: "datatype.go", Package: ".", Target: "FuzzStrictBooleanCanonicalRoundTrip"},
 }
 
 type signalFuzzReport struct {

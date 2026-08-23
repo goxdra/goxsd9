@@ -13,10 +13,10 @@ import (
 
 func TestSelectSignalFuzzTargetsUsesStableBoundaryOrder(t *testing.T) {
 	got := selectSignalFuzzTargets(map[string]bool{"datatype.go": true, "syntax.go": true})
-	if len(got) != 3 {
-		t.Fatalf("selected targets = %#v, want three targets", got)
+	if len(got) != 4 {
+		t.Fatalf("selected targets = %#v, want four targets", got)
 	}
-	want := []string{"FuzzDecodeSyntax", "FuzzStrictIntegerCanonicalRoundTrip", "FuzzStrictDecimalCanonicalRoundTrip"}
+	want := []string{"FuzzDecodeSyntax", "FuzzStrictIntegerCanonicalRoundTrip", "FuzzStrictDecimalCanonicalRoundTrip", "FuzzStrictBooleanCanonicalRoundTrip"}
 	for index, target := range got {
 		if target.Target != want[index] {
 			t.Fatalf("target %d = %q, want %q", index, target.Target, want[index])
@@ -140,11 +140,11 @@ func TestDevelopSignalsCommandReportsSelectedSignalsSequentially(t *testing.T) {
 	if err := application.run([]string{"develop-signals", "--base", "base-sha", "--duration", "250ms"}); err != nil {
 		t.Fatalf("develop-signals: %v", err)
 	}
-	if want := []string{"-fuzz=^FuzzDecodeSyntax$", "-fuzz=^FuzzStrictIntegerCanonicalRoundTrip$", "-fuzz=^FuzzStrictDecimalCanonicalRoundTrip$"}; !reflect.DeepEqual(targets, want) {
+	if want := []string{"-fuzz=^FuzzDecodeSyntax$", "-fuzz=^FuzzStrictIntegerCanonicalRoundTrip$", "-fuzz=^FuzzStrictDecimalCanonicalRoundTrip$", "-fuzz=^FuzzStrictBooleanCanonicalRoundTrip$"}; !reflect.DeepEqual(targets, want) {
 		t.Fatalf("fuzz target arguments = %#v, want %#v", targets, want)
 	}
 	text := output.String()
-	for _, phrase := range []string{"coverage: ", "fuzz health: selected", "FuzzDecodeSyntax", "FuzzStrictIntegerCanonicalRoundTrip", "FuzzStrictDecimalCanonicalRoundTrip", "workers=1 offline=true", "conformance: not measured"} {
+	for _, phrase := range []string{"coverage: ", "fuzz health: selected", "FuzzDecodeSyntax", "FuzzStrictIntegerCanonicalRoundTrip", "FuzzStrictDecimalCanonicalRoundTrip", "FuzzStrictBooleanCanonicalRoundTrip", "workers=1 offline=true", "conformance: not measured"} {
 		if !strings.Contains(text, phrase) {
 			t.Fatalf("develop-signals output omitted %q: %s", phrase, text)
 		}

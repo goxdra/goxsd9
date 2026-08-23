@@ -13,6 +13,7 @@ func TestDiagnosticCodesAreUnique(t *testing.T) {
 		{name: "InvalidIntegerLexicalCode", code: InvalidIntegerLexicalCode},
 		{name: "InvalidDecimalLexicalCode", code: InvalidDecimalLexicalCode},
 		{name: "InvalidXSDVersionCode", code: InvalidXSDVersionCode},
+		{name: "InvalidBooleanLexicalCode", code: InvalidBooleanLexicalCode},
 		{name: "InvalidTotalDigitsCode", code: InvalidTotalDigitsCode},
 		{name: "InvalidFractionDigitsCode", code: InvalidFractionDigitsCode},
 		{name: "diagnosticPrecisionDecimalLexicalCode", code: diagnosticPrecisionDecimalLexicalCode},

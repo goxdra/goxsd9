@@ -82,6 +82,252 @@ func checkInvalidInteger(t *testing.T, lexical string, loc Loc) {
 	assertInvalidLexicalDiagnostic(t, err, InvalidIntegerLexicalCode, loc)
 }
 
+func TestStrictBooleanLexicalMappingAndCanonicalRepresentation(t *testing.T) {
+	loc, err := NewLoc("boolean.xsd", 5, 6)
+	if err != nil {
+		t.Fatalf("NewLoc: %v", err)
+	}
+	tests := []struct {
+		name    string
+		lexical string
+		want    bool
+	}{
+		{name: "true", lexical: "true", want: true},
+		{name: "one", lexical: "1", want: true},
+		{name: "false", lexical: "false", want: false},
+		{name: "zero", lexical: "0", want: false},
+		{name: "surrounding XML whitespace true", lexical: "\t \ntrue\r\n", want: true},
+		{name: "surrounding XML whitespace false", lexical: "\rfalse\t ", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			checkStrictBooleanCase(t, test.lexical, test.want, loc)
+		})
+	}
+}
+
+func checkStrictBooleanCase(t *testing.T, lexical string, want bool, loc Loc) {
+	t.Helper()
+	value, err := ParseStrictBoolean(lexical, loc)
+	if err != nil {
+		t.Fatalf("ParseStrictBoolean: %v", err)
+	}
+	wantCanonical := "false"
+	if want {
+		wantCanonical = "true"
+	}
+	canonical := value.Canonical()
+	if canonical != wantCanonical {
+		t.Fatalf("Canonical() = %q, want %q", canonical, wantCanonical)
+	}
+	if got := value.String(); got != wantCanonical {
+		t.Fatalf("String() = %q, want %q", got, wantCanonical)
+	}
+	if got := value.Canonical(); got != canonical {
+		t.Fatalf("repeated Canonical() = %q, want %q", got, canonical)
+	}
+	roundTrip, err := ParseStrictBoolean(canonical, Loc{})
+	if err != nil {
+		t.Fatalf("ParseStrictBoolean(canonical): %v", err)
+	}
+	if !value.Equal(roundTrip) {
+		t.Fatal("boolean canonical round trip changed the value")
+	}
+	alias, err := ParseBoolean(lexical, loc)
+	if err != nil {
+		t.Fatalf("ParseBoolean: %v", err)
+	}
+	if !value.Equal(alias) {
+		t.Fatal("strict and alias boolean values differ")
+	}
+}
+
+func TestStrictBooleanEquivalentLexicalValuesAndZeroValue(t *testing.T) {
+	loc := Loc{}
+	trueWord, err := ParseStrictBoolean("true", loc)
+	if err != nil {
+		t.Fatalf("ParseStrictBoolean(true): %v", err)
+	}
+	trueDigit, err := ParseStrictBoolean("1", loc)
+	if err != nil {
+		t.Fatalf("ParseStrictBoolean(1): %v", err)
+	}
+	if !trueWord.Equal(trueDigit) || trueWord.Canonical() != trueDigit.Canonical() {
+		t.Fatal("true and 1 do not represent the same canonical value")
+	}
+	falseWord, err := ParseStrictBoolean("false", loc)
+	if err != nil {
+		t.Fatalf("ParseStrictBoolean(false): %v", err)
+	}
+	falseDigit, err := ParseStrictBoolean("0", loc)
+	if err != nil {
+		t.Fatalf("ParseStrictBoolean(0): %v", err)
+	}
+	if !falseWord.Equal(falseDigit) || falseWord.Canonical() != falseDigit.Canonical() {
+		t.Fatal("false and 0 do not represent the same canonical value")
+	}
+
+	var zero StrictBoolean
+	if got, want := zero.Canonical(), "false"; got != want {
+		t.Fatalf("zero Canonical() = %q, want %q", got, want)
+	}
+	if got, want := zero.String(), "false"; got != want {
+		t.Fatalf("zero String() = %q, want %q", got, want)
+	}
+	if !zero.Equal(falseWord) {
+		t.Fatal("zero boolean is not false")
+	}
+}
+
+func TestStrictBooleanVersionPolicy(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		version XSDVersion
+	}{
+		{name: "XSD 1.0", version: XSDVersion10},
+		{name: "XSD 1.1", version: XSDVersion11},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, lexical := range []string{"true", "false", "1", "0"} {
+				checkStrictBooleanVersionCase(t, test.version, lexical)
+			}
+		})
+	}
+}
+
+func checkStrictBooleanVersionCase(t *testing.T, version XSDVersion, lexical string) {
+	t.Helper()
+	value, err := ParseStrictBooleanFor(version, lexical, Loc{})
+	if err != nil {
+		t.Fatalf("ParseStrictBooleanFor(%q): %v", lexical, err)
+	}
+	alias, err := ParseBooleanFor(version, lexical, Loc{})
+	if err != nil {
+		t.Fatalf("ParseBooleanFor(%q): %v", lexical, err)
+	}
+	if !value.Equal(alias) {
+		t.Fatalf("ParseBooleanFor(%q) differs from strict value", lexical)
+	}
+}
+
+func TestStrictBooleanRejectsInvalidLexicalFormsWithVersionedDiagnostics(t *testing.T) {
+	loc, err := NewLoc("boolean.xsd", 8, 11)
+	if err != nil {
+		t.Fatalf("NewLoc: %v", err)
+	}
+	invalid := []struct {
+		name    string
+		lexical string
+	}{
+		{name: "empty", lexical: ""},
+		{name: "XML whitespace only", lexical: " \t\r\n"},
+		{name: "uppercase true", lexical: "True"},
+		{name: "uppercase false", lexical: "FALSE"},
+		{name: "positive sign", lexical: "+true"},
+		{name: "negative sign", lexical: "-false"},
+		{name: "signed one", lexical: "+1"},
+		{name: "signed zero", lexical: "-0"},
+		{name: "internal XML whitespace", lexical: "tr\tue"},
+		{name: "trailing data", lexical: "truex"},
+		{name: "two tokens", lexical: "true false"},
+		{name: "decimal data", lexical: "1.0"},
+		{name: "Unicode whitespace", lexical: "\u00a0true\u00a0"},
+		{name: "fullwidth lookalike", lexical: "ｔrue"},
+		{name: "Cyrillic lookalike", lexical: "truе"},
+		{name: "fullwidth digit", lexical: "１"},
+	}
+	for _, version := range []struct {
+		name    string
+		version XSDVersion
+		specRef string
+	}{
+		{name: "XSD 1.0", version: XSDVersion10, specRef: "xsd10-datatypes#boolean-lexical-representation"},
+		{name: "XSD 1.1", version: XSDVersion11, specRef: "xsd11-datatypes#boolean-lexical-mapping"},
+	} {
+		t.Run(version.name, func(t *testing.T) {
+			for _, test := range invalid {
+				t.Run(test.name, func(t *testing.T) {
+					_, parseErr := ParseStrictBooleanFor(version.version, test.lexical, loc)
+					assertInvalidBooleanLexicalDiagnostic(t, parseErr, loc, version.specRef)
+				})
+			}
+		})
+	}
+
+	_, err = ParseStrictBoolean("True", loc)
+	assertInvalidBooleanLexicalDiagnostic(t, err, loc, "xsd11-datatypes#boolean-lexical-mapping")
+}
+
+func TestStrictBooleanRejectsInvalidVersionPolicies(t *testing.T) {
+	loc, err := NewLoc("boolean.xsd", 12, 2)
+	if err != nil {
+		t.Fatalf("NewLoc: %v", err)
+	}
+	for _, test := range []struct {
+		name     string
+		versions []XSDVersion
+	}{
+		{name: "multiple", versions: []XSDVersion{XSDVersion10, XSDVersion11}},
+		{name: "unknown", versions: []XSDVersion{XSDVersion("2.0")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ParseStrictBoolean("true", loc, test.versions...)
+			assertInvalidVersionDiagnostic(t, err, loc)
+			_, err = ParseBoolean("true", loc, test.versions...)
+			assertInvalidVersionDiagnostic(t, err, loc)
+		})
+	}
+}
+
+func assertInvalidBooleanLexicalDiagnostic(t *testing.T, err error, loc Loc, specRef string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("parser accepted invalid boolean lexical form")
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		t.Fatalf("error %T is not a Diagnostic: %v", err, err)
+	}
+	if got, want := diagnostic.Class(), FailureInvalid; got != want {
+		t.Fatalf("Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), InvalidBooleanLexicalCode; got != want {
+		t.Fatalf("Code() = %q, want %q", got, want)
+	}
+	if got := diagnostic.Loc(); got != loc {
+		t.Fatalf("Loc() = %#v, want %#v", got, loc)
+	}
+	if got, want := diagnostic.SpecRef(), specRef; got != want {
+		t.Fatalf("SpecRef() = %q, want %q", got, want)
+	}
+	if cause := diagnostic.Unwrap(); cause != nil {
+		t.Fatalf("invalid lexical diagnostic has cause %v, want nil", cause)
+	}
+}
+
+func assertInvalidVersionDiagnostic(t *testing.T, err error, loc Loc) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("parser accepted invalid XSD version policy")
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		t.Fatalf("error %T is not a Diagnostic: %v", err, err)
+	}
+	if got, want := diagnostic.Class(), FailureInvalid; got != want {
+		t.Fatalf("Class() = %q, want %q", got, want)
+	}
+	if got, want := diagnostic.Code(), InvalidXSDVersionCode; got != want {
+		t.Fatalf("Code() = %q, want %q", got, want)
+	}
+	if got := diagnostic.Loc(); got != loc {
+		t.Fatalf("Loc() = %#v, want %#v", got, loc)
+	}
+	if cause := diagnostic.Unwrap(); cause == nil {
+		t.Fatal("invalid XSD version diagnostic lost selector cause")
+	}
+}
+
 func TestStrictDecimalLexicalMappingAndCanonicalRepresentation(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -288,6 +534,32 @@ func FuzzStrictDecimalCanonicalRoundTrip(f *testing.F) {
 		}
 		if !value.Equal(roundTrip) {
 			t.Fatal("decimal canonical round trip changed the value")
+		}
+	})
+}
+
+func FuzzStrictBooleanCanonicalRoundTrip(f *testing.F) {
+	for _, lexical := range []string{"true", "false", "1", "0", " \ttrue\r\n", "\nfalse\t", "tr ue", "True", "１"} {
+		f.Add(lexical)
+	}
+	f.Fuzz(func(t *testing.T, lexical string) {
+		value, err := ParseStrictBoolean(lexical, Loc{})
+		if err != nil {
+			return
+		}
+		canonical := value.Canonical()
+		if canonical != "true" && canonical != "false" {
+			t.Fatalf("Canonical() = %q, want true or false", canonical)
+		}
+		roundTrip, err := ParseStrictBoolean(canonical, Loc{})
+		if err != nil {
+			t.Fatalf("ParseStrictBoolean(canonical): %v", err)
+		}
+		if !value.Equal(roundTrip) {
+			t.Fatal("boolean canonical round trip changed the value")
+		}
+		if got := roundTrip.Canonical(); got != canonical {
+			t.Fatalf("round-trip Canonical() = %q, want %q", got, canonical)
 		}
 	})
 }
