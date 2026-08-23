@@ -163,6 +163,10 @@ func (report backlogHealthReport) writeText(w io.Writer) error {
 		report.Counts.XS, report.Counts.S, report.Counts.M); err != nil {
 		return err
 	}
+	if err := writeLine(w, "Ready floor: %d (XS=%d S=%d M=%d)", report.Floors.Ready,
+		report.Floors.XS, report.Floors.S, report.Floors.M); err != nil {
+		return err
+	}
 	if !report.Healthy {
 		return nil
 	}

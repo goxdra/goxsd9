@@ -56,8 +56,9 @@ func TestBacklogHealthFormatsAllDeficitCombinations(t *testing.T) {
 				t.Fatalf("decode JSON report: %v", err)
 			}
 			textCounts := parseBacklogTextCounts(t, textResult.output)
-			if textCounts != jsonReport.Counts || jsonReport.Healthy != want.Healthy {
-				t.Fatalf("text and JSON disagree: text=%#v JSON=%#v", textCounts, jsonReport)
+			textFloors := parseBacklogTextFloors(t, textResult.output)
+			if textCounts != jsonReport.Counts || textFloors != jsonReport.Floors || jsonReport.Healthy != want.Healthy {
+				t.Fatalf("text and JSON disagree: text counts=%#v floors=%#v JSON=%#v", textCounts, textFloors, jsonReport)
 			}
 		})
 	}
@@ -292,7 +293,9 @@ func assertBacklogResult(t *testing.T, result backlogRunResult, want backlogHeal
 		return
 	}
 
-	wantText := fmt.Sprintf("Ready: %d (XS=%d S=%d M=%d)\n", want.Counts.Ready, want.Counts.XS, want.Counts.S, want.Counts.M)
+	wantText := fmt.Sprintf("Ready: %d (XS=%d S=%d M=%d)\nReady floor: %d (XS=%d S=%d M=%d)\n",
+		want.Counts.Ready, want.Counts.XS, want.Counts.S, want.Counts.M,
+		want.Floors.Ready, want.Floors.XS, want.Floors.S, want.Floors.M)
 	if want.Healthy {
 		wantText += "Ready-work buffer: healthy\n"
 	}
@@ -406,6 +409,19 @@ func parseBacklogTextCounts(t *testing.T, output string) backlogHealthCounts {
 		t.Fatalf("parse text counts: fields=%d err=%v output=%q", fields, err, output)
 	}
 	return counts
+}
+
+func parseBacklogTextFloors(t *testing.T, output string) backlogHealthFloors {
+	t.Helper()
+	lines := strings.Split(output, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("parse text floors: output has no floor line: %q", output)
+	}
+	var floors backlogHealthFloors
+	if fields, err := fmt.Sscanf(lines[1], "Ready floor: %d (XS=%d S=%d M=%d)", &floors.Ready, &floors.XS, &floors.S, &floors.M); err != nil || fields != 4 {
+		t.Fatalf("parse text floors: fields=%d err=%v output=%q", fields, err, output)
+	}
+	return floors
 }
 
 func expectedBacklogJSON(report backlogHealthReport) string {
