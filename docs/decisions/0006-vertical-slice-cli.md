@@ -228,11 +228,12 @@ including with `--force`. Stdout is buffered until generation completes, but a
 broken pipe can still leave a downstream reader with a prefix; callers needing
 rollback use an explicit file.
 
-## Future contract examples
+## Contract examples
 
-Every example in this section is a future contract example, not current
-executable behavior. Counts and diagnostic text are illustrative except for
-the required success stream shapes.
+The parse examples in this section, including the stdin example, document
+current executable behavior. The validate and generate examples are future
+contract examples. Counts and diagnostic text are illustrative except for the
+required success stream shapes.
 
 Single-file schema, with the default root:
 
@@ -299,8 +300,8 @@ $ goxsd9 validate - -
 
 The last command exits 2. These examples show that path interpretation belongs
 to the CLI while `ParseSchema` and `Resolver` retain their opaque, sequential
-boundary. The generated shape is evidence from the current private emitter,
-not a claim that a public generator or product command exists.
+boundary. The generated shape comes from the current private emitter; the public
+`generate` command remains future work.
 
 ## Bounded follow-up packets
 
