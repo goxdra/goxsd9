@@ -13,6 +13,8 @@ const (
 	InvalidDecimalLexicalCode = "XSD2002"
 	// InvalidXSDVersionCode identifies an unsupported datatype version policy.
 	InvalidXSDVersionCode = "XSD2003"
+	// InvalidBooleanLexicalCode identifies an invalid xs:boolean lexical form.
+	InvalidBooleanLexicalCode = "XSD2027"
 )
 
 // XSDVersion selects the specification version for version-sensitive
@@ -113,6 +115,91 @@ func (value StrictInteger) Compare(other StrictInteger) int {
 // Equal reports whether two integers represent the same value.
 func (value StrictInteger) Equal(other StrictInteger) bool {
 	return value.Compare(other) == 0
+}
+
+// StrictBoolean is a value in the XSD boolean value space. Its zero value is
+// false.
+type StrictBoolean struct {
+	value bool
+}
+
+// Boolean is the strict XSD boolean value type.
+type Boolean = StrictBoolean
+
+// ParseStrictBoolean applies XSD whitespace normalization, validates a
+// boolean lexical form, and constructs its value. With no version it uses
+// the XSD 1.1 lexical mapping; pass a version to select an explicit policy.
+func ParseStrictBoolean(lexical string, loc Loc, versions ...XSDVersion) (StrictBoolean, error) {
+	version, err := selectXSDVersion(versions)
+	if err != nil {
+		return StrictBoolean{}, newDiagnostic(
+			FailureInvalid,
+			InvalidXSDVersionCode,
+			loc,
+			err.Error(),
+			err,
+		)
+	}
+	return parseStrictBoolean(lexical, loc, version)
+}
+
+// ParseStrictBooleanFor parses a boolean using an explicit XSD version.
+func ParseStrictBooleanFor(version XSDVersion, lexical string, loc Loc) (StrictBoolean, error) {
+	return ParseStrictBoolean(lexical, loc, version)
+}
+
+// ParseBoolean parses an exact strict XSD boolean value.
+func ParseBoolean(lexical string, loc Loc, versions ...XSDVersion) (Boolean, error) {
+	return ParseStrictBoolean(lexical, loc, versions...)
+}
+
+// ParseBooleanFor parses a boolean using an explicit XSD version.
+func ParseBooleanFor(version XSDVersion, lexical string, loc Loc) (Boolean, error) {
+	return ParseStrictBooleanFor(version, lexical, loc)
+}
+
+func parseStrictBoolean(lexical string, loc Loc, version XSDVersion) (StrictBoolean, error) {
+	switch collapseXMLWhitespace(lexical) {
+	case "true", "1":
+		return StrictBoolean{value: true}, nil
+	case "false", "0":
+		return StrictBoolean{}, nil
+	default:
+		diagnostic := newDiagnostic(
+			FailureInvalid,
+			InvalidBooleanLexicalCode,
+			loc,
+			"invalid xs:boolean lexical representation",
+			nil,
+		)
+		diagnostic.specRef = strictBooleanSpecRef(version)
+		return StrictBoolean{}, diagnostic
+	}
+}
+
+// String returns the canonical XSD representation of the boolean.
+func (value StrictBoolean) String() string {
+	return value.Canonical()
+}
+
+// Canonical returns the canonical XSD representation of the boolean.
+func (value StrictBoolean) Canonical() string {
+	if value.value {
+		return "true"
+	}
+	return "false"
+}
+
+// Equal reports whether two booleans represent the same value.
+func (value StrictBoolean) Equal(other StrictBoolean) bool {
+	return value.value == other.value
+}
+
+func strictBooleanSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return "xsd10-datatypes#boolean-lexical-representation"
+	}
+	return "xsd11-datatypes#boolean-lexical-mapping"
 }
 
 type integerLexeme struct {
