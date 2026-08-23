@@ -60,6 +60,9 @@ func prepareSchemaPlan(options parseOptions) (schemaPlan, error) {
 }
 
 func prepareStdinPlan(rootPath string) (schemaPlan, error) {
+	if hasURIScheme(rootPath) {
+		return schemaPlan{}, newCLIError(cliPathPolicyCode, cliPathPolicyKind, "schema/stdin", "schema root is a URI, not a local path", nil)
+	}
 	root, err := canonicalDirectory(rootPath)
 	if err != nil {
 		return schemaPlan{}, newCLIError(cliResourceCode, cliResourceKind, "schema/stdin", "failed to use schema root", err)

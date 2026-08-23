@@ -72,6 +72,39 @@ func TestParseCommandReadsSchemaStdinWithRoleScopedID(t *testing.T) {
 	assertJSONDiagnostic(t, stderr.Bytes(), "CLI1001", "schema/stdin", 2)
 }
 
+func TestParseCommandRejectsStdinURISchemaRoots(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+	}{
+		{name: "http URI", root: "http://example.test/schema-root"},
+		{name: "file URI", root: "file:/tmp/schema-root"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := runWithInput(
+				[]string{"parse", "--diagnostics", "json", "--schema-root", test.root, "-"},
+				strings.NewReader(schemaDocument(`<xs:element name="root"/>`)),
+				&stdout,
+				&stderr,
+			)
+			if code != 1 || stdout.Len() != 0 {
+				t.Fatalf("URI schema-root result = code %d, stdout %q", code, stdout.String())
+			}
+			var envelope diagnosticEnvelope
+			decodeDiagnosticEnvelope(t, stderr.Bytes(), &envelope)
+			if envelope.ExitStatus != 1 || len(envelope.Diagnostics) != 1 {
+				t.Fatalf("diagnostic envelope = %#v", envelope)
+			}
+			diagnostic := envelope.Diagnostics[0]
+			if diagnostic.Kind != cliPathPolicyKind || diagnostic.Code != cliPathPolicyCode || diagnostic.SourceID != "schema/stdin" {
+				t.Fatalf("diagnostic fields = %#v", diagnostic)
+			}
+		})
+	}
+}
+
 func TestParseCommandPreservesChildSourceIDInDiagnostics(t *testing.T) {
 	directory := t.TempDir()
 	rootPath := filepath.Join(directory, "root.xsd")
