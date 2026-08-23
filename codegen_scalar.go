@@ -38,6 +38,18 @@ type codegenSourcePlan struct {
 type codegenSourceDeclaration struct {
 	name      string
 	fieldType string
+	choice    *codegenSourceChoice
+}
+
+type codegenSourceChoice struct {
+	marker   string
+	variants []codegenSourceVariant
+}
+
+type codegenSourceVariant struct {
+	name      string
+	fieldName string
+	fieldType string
 }
 
 // emitCodegenSource plans supported scalar declarations in schema order and
@@ -50,12 +62,44 @@ func emitCodegenSource(schema Schema, names codegenNaming) ([]byte, error) {
 	return renderCodegenSource(plan)
 }
 
+func emitCodegenSourceWithDirectChoices(schema Schema, choicePlan codegenDirectChoicePlan) ([]byte, error) {
+	plan, err := planCodegenSourceWithDirectChoices(schema, choicePlan)
+	if err != nil {
+		return nil, err
+	}
+	return renderCodegenSource(plan)
+}
+
 // emitCodegen is the private phase boundary used by code-generation callers.
 func emitCodegen(schema Schema, names codegenNaming) ([]byte, error) {
 	return emitCodegenSource(schema, names)
 }
 
 func planCodegenSource(schema Schema, names codegenNaming) (codegenSourcePlan, error) {
+	return planCodegenSourceWithChoicePlan(schema, names, nil)
+}
+
+func planCodegenSourceWithDirectChoices(schema Schema, choicePlan codegenDirectChoicePlan) (codegenSourcePlan, error) {
+	if choicePlan.names.packageIdentifier() == "" {
+		return codegenSourcePlan{}, newCodegenInternal(
+			Loc{},
+			"direct-choice source plan has no naming state",
+			nil,
+			errCodegenDirectChoiceNaming,
+		)
+	}
+	if err := validateCodegenDirectChoicePlan(schema, choicePlan); err != nil {
+		return codegenSourcePlan{}, err
+	}
+	return planCodegenSourceWithChoicePlan(schema, choicePlan.names, &choicePlan)
+}
+
+//nolint:gocognit // Keep ordered scalar and direct-choice declaration planning together.
+func planCodegenSourceWithChoicePlan(
+	schema Schema,
+	names codegenNaming,
+	choicePlan *codegenDirectChoicePlan,
+) (codegenSourcePlan, error) {
 	components, runtimeAlias, hasRuntimeAlias, err := validateCodegenInput(schema, names)
 	if err != nil {
 		return codegenSourcePlan{}, err
@@ -79,6 +123,27 @@ func planCodegenSource(schema Schema, names codegenNaming) (codegenSourcePlan, e
 				errCodegenNamingMisaligned,
 			)
 		}
+		if choicePlan != nil && component.Kind() == ComponentKindComplexTypeDefinition {
+			owner, ownerOK := codegenDirectChoiceOwnerAt(choicePlan.owners, component.ID())
+			if !ownerOK {
+				return codegenSourcePlan{}, newCodegenInternal(
+					component.Loc(),
+					"schema complex type has no direct-choice source plan owner",
+					nil,
+					errCodegenDirectChoicePlan,
+				)
+			}
+			choice, usesRuntime, choiceErr := planCodegenSourceChoice(owner, choicePlan.runtimeAlias)
+			if choiceErr != nil {
+				return codegenSourcePlan{}, choiceErr
+			}
+			plan.useRuntime = plan.useRuntime || usesRuntime
+			plan.declarations = append(plan.declarations, codegenSourceDeclaration{
+				name:   identifier,
+				choice: &choice,
+			})
+			continue
+		}
 		fieldType, usesRuntime, err := planCodegenComponent(
 			schema,
 			names,
@@ -97,6 +162,64 @@ func planCodegenSource(schema Schema, names codegenNaming) (codegenSourcePlan, e
 		})
 	}
 	return plan, nil
+}
+
+func planCodegenSourceChoice(owner codegenDirectChoiceOwner, runtimeAlias string) (codegenSourceChoice, bool, error) {
+	if owner.marker != codegenDirectChoiceMarkerIdentifier(owner.identifier) || !validCodegenDirectChoiceMarker(owner.marker) {
+		return codegenSourceChoice{}, false, newCodegenInternal(
+			owner.loc,
+			"direct-choice owner marker is malformed",
+			nil,
+			errCodegenDirectChoicePlan,
+		)
+	}
+	choice := codegenSourceChoice{
+		marker:   owner.marker,
+		variants: make([]codegenSourceVariant, 0, len(owner.alternatives)),
+	}
+	usesRuntime := false
+	for _, alternative := range owner.alternatives {
+		fieldType, alternativeUsesRuntime, err := planCodegenSourceChoiceTarget(
+			alternative.target,
+			runtimeAlias,
+			alternative.loc,
+		)
+		if err != nil {
+			return codegenSourceChoice{}, false, err
+		}
+		usesRuntime = usesRuntime || alternativeUsesRuntime
+		choice.variants = append(choice.variants, codegenSourceVariant{
+			name:      alternative.variantIdentifier,
+			fieldName: alternative.fieldIdentifier,
+			fieldType: fieldType,
+		})
+	}
+	return choice, usesRuntime, nil
+}
+
+func planCodegenSourceChoiceTarget(target codegenDirectChoiceTarget, runtimeAlias string, loc Loc) (string, bool, error) {
+	switch concrete := target.(type) {
+	case codegenDirectChoiceBuiltinTarget:
+		fieldType, err := codegenRuntimeScalarType(runtimeAlias, runtimeAlias != "", concrete.kind, loc)
+		return fieldType, true, err
+	case codegenDirectChoiceNamedTarget:
+		if concrete.componentIdentifier == "" {
+			return "", false, newCodegenInternal(
+				loc,
+				"direct-choice named target has no generated component identifier",
+				nil,
+				errCodegenDirectChoicePlan,
+			)
+		}
+		return concrete.componentIdentifier, false, nil
+	default:
+		return "", false, newCodegenInternal(
+			loc,
+			"direct-choice source target has an unknown representation",
+			nil,
+			errCodegenDirectChoicePlan,
+		)
+	}
 }
 
 func codegenSchemaVersion(schema Schema) (XSDVersion, error) {
@@ -562,6 +685,12 @@ func renderCodegenSource(plan codegenSourcePlan) ([]byte, error) {
 		source.WriteString("\n\n")
 	}
 	for _, declaration := range plan.declarations {
+		if declaration.choice != nil {
+			if err := renderCodegenChoiceDeclaration(&source, declaration); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		source.WriteString("type ")
 		source.WriteString(declaration.name)
 		source.WriteString(" struct {\n\tValue ")
@@ -574,6 +703,49 @@ func renderCodegenSource(plan codegenSourcePlan) ([]byte, error) {
 		return nil, newCodegenFormat(Loc{}, "format generated Go source", fmt.Errorf("%w: %w", errCodegenFormat, err))
 	}
 	return formatted, nil
+}
+
+func renderCodegenChoiceDeclaration(source *strings.Builder, declaration codegenSourceDeclaration) error {
+	choice := declaration.choice
+	if !validCodegenDirectChoiceMarker(choice.marker) {
+		return newCodegenInternal(
+			Loc{},
+			"render direct-choice declaration with an invalid marker",
+			nil,
+			errCodegenDirectChoicePlan,
+		)
+	}
+	source.WriteString("type ")
+	source.WriteString(declaration.name)
+	source.WriteString(" interface {\n\t")
+	source.WriteString(choice.marker)
+	source.WriteString("()\n}\n\n")
+	for _, variant := range choice.variants {
+		if variant.name == "" || variant.fieldName == "" || variant.fieldType == "" {
+			return newCodegenInternal(
+				Loc{},
+				"render direct-choice declaration with incomplete variant facts",
+				nil,
+				errCodegenDirectChoicePlan,
+			)
+		}
+		source.WriteString("type ")
+		source.WriteString(variant.name)
+		source.WriteString(" struct {\n\t")
+		source.WriteString(variant.fieldName)
+		source.WriteByte(' ')
+		source.WriteString(variant.fieldType)
+		source.WriteString("\n}\n\nfunc (")
+		source.WriteString(variant.name)
+		source.WriteString(") ")
+		source.WriteString(choice.marker)
+		source.WriteString("() {}\n\n")
+	}
+	return nil
+}
+
+func validCodegenDirectChoiceMarker(marker string) bool {
+	return strings.HasPrefix(marker, "is") && isGoIdentifier(marker)
 }
 
 func newCodegenNamingInvariant(loc Loc, message string, cause error) Diagnostic {

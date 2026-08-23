@@ -2,7 +2,9 @@ package goxsd9
 
 import (
 	"errors"
+	"go/format"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -167,6 +169,88 @@ func TestPlanCodegenDirectChoicesAllocatesAllOrderedNamingScopes(t *testing.T) {
 	}
 	if got, ok := names.componentName(schema.Components()[4].ID()); !ok || got != "XType2" {
 		t.Fatalf("case-fold component name = %q, %t, want XType2", got, ok)
+	}
+}
+
+func TestCodegenDirectChoiceSourceConsumesCompleteNamingState(t *testing.T) {
+	schema := codegenDirectChoiceCollisionSchema(t)
+	choicePlan, err := planCodegenDirectChoices(schema, "generated")
+	if err != nil {
+		t.Fatalf("planCodegenDirectChoices: %v", err)
+	}
+	source, err := emitCodegenSourceWithDirectChoices(schema, choicePlan)
+	if err != nil {
+		t.Fatalf("emitCodegenSourceWithDirectChoices: %v", err)
+	}
+	formatted, err := format.Source(source)
+	if err != nil {
+		t.Fatalf("format generated direct-choice source: %v\n%s", err, source)
+	}
+	if string(source) != string(formatted) {
+		t.Fatalf("direct-choice source is not go/format output:\n%s", source)
+	}
+	for _, fragment := range []string{
+		`import Runtime2 "github.com/goxdra/goxsd9"`,
+		"type Runtime interface {\n\tisRuntime()\n}",
+		"type LineItem struct {\n\tLineItem Runtime2.StrictInteger\n}",
+		"type LineItem2 struct {\n\tLineItem2 Runtime2.StrictDecimal\n}",
+		"type Shared3 struct {\n\tShared Shared2\n}",
+		"type Shared2 struct {\n\tValue Runtime2.StrictInteger\n}",
+		"type XType struct {\n\tValue Runtime2.StrictInteger\n}",
+		"func (Shared3) isRuntime() {}",
+	} {
+		if !strings.Contains(string(source), fragment) {
+			t.Fatalf("direct-choice source is missing %q:\n%s", fragment, source)
+		}
+	}
+	compileGeneratedCode(t, source)
+}
+
+func TestCodegenDirectChoiceSourceRejectsMalformedPlanWithoutOutput(t *testing.T) {
+	schema := codegenDirectChoiceFailureSchema(t)
+	choicePlan, err := planCodegenDirectChoices(schema, "generated")
+	if err != nil {
+		t.Fatalf("planCodegenDirectChoices: %v", err)
+	}
+	choicePlan.owners[0].alternatives[0].fieldIdentifier = ""
+	output, err := emitCodegenSourceWithDirectChoices(schema, choicePlan)
+	if output != nil || err == nil {
+		t.Fatalf("malformed direct-choice plan result = (%q, %v), want nil output and error", output, err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+		t.Fatalf("diagnostic = %s, want internal codegen invariant", diagnostic)
+	}
+	wantLoc := codegenDirectChoiceTestElement(codegenDirectChoiceTestChoice(schema)).Loc()
+	if diagnostic.Loc() != wantLoc {
+		t.Fatalf("diagnostic location = %s, want alternative location %s", diagnostic.Loc(), wantLoc)
+	}
+	if !errors.Is(err, errCodegenDirectChoicePlan) {
+		t.Fatalf("malformed plan error lost direct-choice plan cause: %v", err)
+	}
+}
+
+func TestGenerateGoDirectChoicePreservesUnresolvedTargetDiagnostic(t *testing.T) {
+	schema := codegenDirectChoiceFailureSchema(t)
+	choice := codegenDirectChoiceTestChoice(schema)
+	element := codegenDirectChoiceTestElement(choice)
+	element.facts.declaredType = QName{namespace: "urn:missing", local: "Missing"}
+	element.facts.typeID = ComponentID{source: "missing.xsd", ordinal: 1}
+	element.facts.hasTypeID = true
+
+	output, err := GenerateGo(schema, "generated")
+	if output != nil || err == nil {
+		t.Fatalf("unresolved direct-choice result = (%q, %v), want nil output and error", output, err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureResolution || diagnostic.Code() != diagnosticCodegenSchemaInvalid {
+		t.Fatalf("diagnostic = %s, want direct-choice resolution diagnostic", diagnostic)
+	}
+	if diagnostic.Loc() != element.Loc() {
+		t.Fatalf("diagnostic location = %s, want element location %s", diagnostic.Loc(), element.Loc())
+	}
+	if !errors.Is(err, errCodegenDirectChoiceResolve) {
+		t.Fatalf("resolution diagnostic lost direct-choice cause: %v", err)
 	}
 }
 
@@ -343,6 +427,49 @@ func TestPlanCodegenDirectChoicesRejectsMalformedFacts(t *testing.T) {
 			test.mutate(schema)
 			assertCodegenDirectChoiceInternalFailure(t, schema, test.cause)
 		})
+	}
+}
+
+func TestPlanCodegenDirectChoicesClassifiesMissingComplexFactsAsInternal(t *testing.T) {
+	schema := mustTestSchema(t, []schemaDocumentInput{{
+		source:  "choice.xsd",
+		rootLoc: mustTestLoc(t, "choice.xsd", 1, 1),
+		declarations: []schemaComponentInput{{
+			kind: ComponentKindComplexTypeDefinition,
+			name: mustTestQName(t, "urn:choice", "Choice"),
+			loc:  mustTestLoc(t, "choice.xsd", 2, 3),
+		}},
+	}})
+	assertCodegenDirectChoiceInternalFailure(t, schema, errCodegenDirectChoiceParticle)
+}
+
+func TestPlanCodegenDirectChoicesClassifiesMissingParticleAsUnsupported(t *testing.T) {
+	schema := codegenDirectChoiceFailureSchema(t)
+	component := schema.Components()[0]
+	component.complexType.particle = nil
+
+	plan, err := planCodegenDirectChoices(schema, "generated")
+	if err == nil {
+		t.Fatal("planCodegenDirectChoices accepted a complex type without a particle")
+	}
+	if !reflect.DeepEqual(plan, codegenDirectChoicePlan{}) {
+		t.Fatalf("failure plan = %#v, want zero plan", plan)
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		t.Fatalf("error %T is not a Diagnostic: %v", err, err)
+	}
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported {
+		t.Fatalf("diagnostic = (%q,%q), want unsupported codegen diagnostic (%q,%q)", diagnostic.Class(), diagnostic.Code(), FailureUnsupported, diagnosticCodegenUnsupported)
+	}
+	if diagnostic.Feature() != FeatureCodegen || diagnostic.SpecRef() != codegenDirectChoiceXSD11ParticlesSpecRef {
+		t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), FeatureCodegen, codegenDirectChoiceXSD11ParticlesSpecRef)
+	}
+	if diagnostic.Loc() != component.Loc() {
+		t.Fatalf("diagnostic location = %s, want component location %s", diagnostic.Loc(), component.Loc())
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+		t.Fatalf("unsupported diagnostic lost its classification causes: %v", err)
 	}
 }
 

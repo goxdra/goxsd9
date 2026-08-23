@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/format"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 const (
 	codegenPackageNameCode   = "GOXSD9026"
 	codegenUnsupportedCode   = "GOXSD9029"
+	codegenInvariantCode     = "GOXSD9030"
 	codegenSchemaInvalidCode = "GOXSD9032"
 )
 
@@ -78,6 +80,101 @@ func TestGenerateGoUsesCollisionResolvedRuntimeAlias(t *testing.T) {
 	compilePublicGeneratedCode(t, source)
 }
 
+//nolint:gocognit // Keep the cross-version generation and external-compile corpus together.
+func TestGenerateGoDirectScalarChoiceIsDeterministicFormattedAndExternallyUsable(t *testing.T) {
+	rootContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:o="urn:other" targetNamespace="urn:root">
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:complexType name="runtime"><xs:choice>
+    <xs:element name="line-item" type="xs:integer"/>
+    <xs:element name="LINE_ITEM" type="xs:decimal"/>
+    <xs:element name="shared" type="o:Shared"/>
+  </xs:choice></xs:complexType>
+  <xs:simpleType name="Shared"><xs:restriction base="xs:integer"/></xs:simpleType>
+</xs:schema>`
+	otherContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" targetNamespace="urn:other">
+  <xs:simpleType name="Shared"><xs:restriction base="xs:decimal"/></xs:simpleType>
+</xs:schema>`
+
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict10, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			root, err := goxsd9.NewResolvedSource(context.Background(), "root.xsd", newParseTestReader(rootContents))
+			if err != nil {
+				t.Fatalf("NewResolvedSource: %v", err)
+			}
+			schema, err := goxsd9.ParseSchemaWithPolicy(root, &publicCodegenResolver{
+				contents: map[string]string{"other.xsd": otherContents},
+			}, policy)
+			if err != nil {
+				t.Fatalf("ParseSchemaWithPolicy: %v", err)
+			}
+
+			first, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo: %v", err)
+			}
+			second, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo second: %v", err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatalf("repeated direct-choice output differs:\nfirst:\n%s\nsecond:\n%s", first, second)
+			}
+			formatted, err := format.Source(first)
+			if err != nil {
+				t.Fatalf("format generated direct-choice source: %v\n%s", err, first)
+			}
+			if !bytes.Equal(first, formatted) {
+				t.Fatalf("generated direct-choice source is not complete go/format output:\n%s", first)
+			}
+			for _, fragment := range []string{
+				`import Runtime2 "github.com/goxdra/goxsd9"`,
+				"type Runtime interface {\n\tisRuntime()\n}",
+				"type LineItem struct {\n\tLineItem Runtime2.StrictInteger\n}",
+				"type LineItem2 struct {\n\tLineItem2 Runtime2.StrictDecimal\n}",
+				"type Shared3 struct {\n\tShared Shared2\n}",
+				"func (Shared3) isRuntime() {}",
+				"type Shared struct {\n\tValue Runtime2.StrictInteger\n}",
+				"type Shared2 struct {\n\tValue Runtime2.StrictDecimal\n}",
+			} {
+				if !strings.Contains(string(first), fragment) {
+					t.Fatalf("generated direct-choice source is missing %q:\n%s", fragment, first)
+				}
+			}
+			compilePublicGeneratedChoiceCode(t, first)
+		})
+	}
+}
+
+func TestGenerateGoDirectScalarEmptyChoiceNeedsNoRuntimeImport(t *testing.T) {
+	schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`" targetNamespace="urn:test"><xs:complexType name="Choice"><xs:choice/></xs:complexType></xs:schema>`)
+	source, err := goxsd9.GenerateGo(schema, "generated")
+	if err != nil {
+		t.Fatalf("GenerateGo: %v", err)
+	}
+	if strings.Contains(string(source), "import ") {
+		t.Fatalf("empty choice generated an unnecessary import:\n%s", source)
+	}
+	if !strings.Contains(string(source), "type Choice interface {\n\tisChoice()\n}") {
+		t.Fatalf("empty choice generated source is missing its interface:\n%s", source)
+	}
+	compilePublicGeneratedCode(t, source)
+}
+
+func TestGenerateGoRejectsComplexTypeWithoutCompletedFacts(t *testing.T) {
+	schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`" targetNamespace="urn:test"><xs:complexType name="Choice"/></xs:schema>`)
+	output, err := goxsd9.GenerateGo(schema, "generated")
+	if output != nil || err == nil {
+		t.Fatalf("incomplete complex type result = (%q, %v), want nil output and error", output, err)
+	}
+	diagnostic := requirePublicCodegenDiagnostic(t, err)
+	if diagnostic.Class() != goxsd9.FailureInternal || diagnostic.Code() != codegenInvariantCode {
+		t.Fatalf("diagnostic = %s, want internal codegen invariant %s", diagnostic, codegenInvariantCode)
+	}
+	if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
+		t.Fatalf("diagnostic location = %s, want located root.xsd diagnostic", diagnostic.Loc())
+	}
+}
+
 func TestGenerateGoPreservesInvalidPackageDiagnostic(t *testing.T) {
 	schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`"><xs:simpleType name="Amount"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`)
 
@@ -110,7 +207,11 @@ func TestGenerateGoRejectsZeroSchema(t *testing.T) {
 
 func TestGenerateGoPreservesUnsupportedComponentDiagnostic(t *testing.T) {
 	schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`" targetNamespace="urn:test"><xs:attribute name="amount"/></xs:schema>`)
+	assertPublicUnsupportedCodegen(t, schema, "")
+}
 
+func assertPublicUnsupportedCodegen(t *testing.T, schema goxsd9.Schema, wantSpec string) {
+	t.Helper()
 	output, err := goxsd9.GenerateGo(schema, "generated")
 	if output != nil || err == nil {
 		t.Fatalf("unsupported component result = (%q, %v), want nil output and error", output, err)
@@ -121,6 +222,9 @@ func TestGenerateGoPreservesUnsupportedComponentDiagnostic(t *testing.T) {
 	}
 	if diagnostic.Feature() != goxsd9.FeatureCodegen || diagnostic.SpecRef() == "" {
 		t.Fatalf("diagnostic feature/specification reference = %q/%q, want codegen feature and reference", diagnostic.Feature(), diagnostic.SpecRef())
+	}
+	if wantSpec != "" && diagnostic.SpecRef() != wantSpec {
+		t.Fatalf("diagnostic specification reference = %q, want %q", diagnostic.SpecRef(), wantSpec)
 	}
 	if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
 		t.Fatalf("diagnostic location = %s, want located root.xsd diagnostic", diagnostic.Loc())
@@ -194,4 +298,74 @@ func compilePublicGeneratedCode(t *testing.T, source []byte) {
 	if err != nil {
 		t.Fatalf("compile generated source: %v\n%s", err, output)
 	}
+}
+
+func compilePublicGeneratedChoiceCode(t *testing.T, source []byte) {
+	t.Helper()
+	moduleRoot, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	temporary := t.TempDir()
+	goMod := fmt.Sprintf("module generated.test\n\ngo 1.26.0\n\nrequire github.com/goxdra/goxsd9 v0.0.0\n\nreplace github.com/goxdra/goxsd9 => %s\n", moduleRoot)
+	writeErr := os.WriteFile(filepath.Join(temporary, "go.mod"), []byte(goMod), 0o600)
+	if writeErr != nil {
+		t.Fatalf("write generated choice go.mod: %v", writeErr)
+	}
+	writeErr = os.WriteFile(filepath.Join(temporary, "generated.go"), source, 0o600)
+	if writeErr != nil {
+		t.Fatalf("write generated choice source: %v", writeErr)
+	}
+	consumer := `package consumer
+
+import (
+	generated "generated.test"
+	runtime "github.com/goxdra/goxsd9"
+)
+
+func selectChoice(choice generated.Runtime) {
+	switch value := choice.(type) {
+	case generated.LineItem:
+		var _ runtime.StrictInteger = value.LineItem
+	case generated.LineItem2:
+		var _ runtime.StrictDecimal = value.LineItem2
+	case generated.Shared3:
+		var _ generated.Shared2 = value.Shared
+	default:
+		panic("unhandled generated choice variant")
+	}
+}
+
+var _ generated.Runtime = generated.LineItem{}
+var _ generated.Runtime = generated.LineItem2{}
+var _ generated.Runtime = generated.Shared3{}
+`
+	consumerDirectory := filepath.Join(temporary, "consumer")
+	writeErr = os.Mkdir(consumerDirectory, 0o700)
+	if writeErr != nil {
+		t.Fatalf("create generated choice consumer directory: %v", writeErr)
+	}
+	writeErr = os.WriteFile(filepath.Join(consumerDirectory, "consumer.go"), []byte(consumer), 0o600)
+	if writeErr != nil {
+		t.Fatalf("write generated choice consumer: %v", writeErr)
+	}
+	command := exec.CommandContext(context.Background(), "go", "test", "./...")
+	command.Dir = temporary
+	command.Env = append(os.Environ(), "GOWORK=off")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("compile external generated choice source: %v\n%s", err, output)
+	}
+}
+
+type publicCodegenResolver struct {
+	contents map[string]string
+}
+
+func (resolver *publicCodegenResolver) Resolve(ctx context.Context, _, schemaLocation string) (goxsd9.ResolvedSource, error) {
+	contents, ok := resolver.contents[schemaLocation]
+	if !ok {
+		return goxsd9.ResolvedSource{}, fmt.Errorf("no public codegen fixture for %q", schemaLocation)
+	}
+	return goxsd9.NewResolvedSource(ctx, goxsd9.SourceID(schemaLocation), newParseTestReader(contents))
 }
