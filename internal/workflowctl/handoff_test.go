@@ -18,6 +18,12 @@ type handoffFixture struct {
 	needsHuman    bool
 	projectStatus string
 	projectMember bool
+	projectItemID string
+	projectType   string
+	issueReads    int
+	projectReads  int
+	raceIssue     bool
+	raceProject   bool
 	bodyPath      string
 	body          string
 	comments      []issueCommentAPI
@@ -30,6 +36,8 @@ func newHandoffFixture() *handoffFixture {
 		issueState:    "open",
 		projectStatus: "Ready",
 		projectMember: true,
+		projectItemID: "item-14",
+		projectType:   "Issue",
 	}
 }
 
@@ -80,6 +88,10 @@ func (f *handoffFixture) executeGitHub(command string) (string, error) {
 }
 
 func (f *handoffFixture) issueStateJSON() string {
+	f.issueReads++
+	if f.raceIssue && f.issueReads == 2 {
+		f.issueState = "closed"
+	}
 	labels := "[]"
 	if f.needsHuman {
 		labels = `[{"name":"needs-human"}]`
@@ -88,11 +100,15 @@ func (f *handoffFixture) issueStateJSON() string {
 }
 
 func (f *handoffFixture) projectItemsJSON() string {
+	f.projectReads++
+	if f.raceProject && f.projectReads == 2 {
+		f.projectItemID = "item-raced"
+	}
 	if !f.projectMember {
 		return `{"items":[],"totalCount":0}`
 	}
-	return fmt.Sprintf(`{"items":[{"content":{"number":14,"repository":%q},"id":"item-14","status":%q}],"totalCount":1}`,
-		repositoryKey, f.projectStatus)
+	return fmt.Sprintf(`{"items":[{"content":{"number":14,"repository":%q,"type":%q},"id":%q,"status":%q}],"totalCount":1}`,
+		repositoryKey, f.projectType, f.projectItemID, f.projectStatus)
 }
 
 func (f *handoffFixture) commentsJSON() (string, error) {
@@ -159,6 +175,8 @@ func TestHandoffNeedsHumanParsesAndUsesSafeOrder(t *testing.T) {
 		"gh api repos/goxdra/goxsd9/issues/14",
 		"gh project item-list 1 --owner goxdra --format json --limit 500",
 		"gh api --paginate repos/goxdra/goxsd9/issues/14/comments?per_page=100",
+		"gh api repos/goxdra/goxsd9/issues/14",
+		"gh project item-list 1 --owner goxdra --format json --limit 500",
 		"gh issue edit 14 --repo goxdra/goxsd9 --add-label needs-human",
 		"gh project item-list 1 --owner goxdra --format json --limit 500",
 		"gh project field-list 1 --owner goxdra --format json",
@@ -194,17 +212,23 @@ func TestHandoffNeedsHumanRejectsClosedOrMissingProjectBeforeMutation(t *testing
 		name          string
 		issueState    string
 		projectMember bool
+		projectType   string
+		projectItemID string
 		want          string
 		commands      int
 	}{
-		{name: "closed issue", issueState: "closed", projectMember: true, want: "is CLOSED", commands: 2},
-		{name: "missing Project", issueState: "open", projectMember: false, want: "not in canonical Project", commands: 3},
+		{name: "closed issue", issueState: "closed", projectMember: true, projectType: "Issue", projectItemID: "item-14", want: "is CLOSED", commands: 2},
+		{name: "missing Project", issueState: "open", projectMember: false, projectType: "Issue", projectItemID: "item-14", want: "not in canonical Project", commands: 3},
+		{name: "PullRequest Project item", issueState: "open", projectMember: true, projectType: "PullRequest", projectItemID: "item-14", want: "not in canonical Project", commands: 3},
+		{name: "missing Project item ID", issueState: "open", projectMember: true, projectType: "Issue", projectItemID: "", want: "not in canonical Project", commands: 3},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newHandoffFixture()
 			fixture.issueState = test.issueState
 			fixture.projectMember = test.projectMember
+			fixture.projectType = test.projectType
+			fixture.projectItemID = test.projectItemID
 			bodyPath := filepath.Join(t.TempDir(), "handoff.md")
 			if err := fixture.withBody(bodyPath, "terminal evidence\n"); err != nil {
 				t.Fatalf("write body: %v", err)
@@ -219,6 +243,39 @@ func TestHandoffNeedsHumanRejectsClosedOrMissingProjectBeforeMutation(t *testing
 			}
 			if fixture.needsHuman || fixture.projectStatus != "Ready" || len(fixture.comments) != 0 {
 				t.Fatal("preflight rejection reached mutation")
+			}
+		})
+	}
+}
+
+func TestHandoffNeedsHumanRejectsChangedPreMutationProof(t *testing.T) {
+	tests := []struct {
+		name     string
+		mutate   func(*handoffFixture)
+		want     string
+		commands int
+	}{
+		{name: "issue closed", mutate: func(fixture *handoffFixture) { fixture.raceIssue = true }, want: "issue is CLOSED", commands: 5},
+		{name: "Project identity changed", mutate: func(fixture *handoffFixture) { fixture.raceProject = true }, want: "Project identity differs", commands: 6},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newHandoffFixture()
+			test.mutate(fixture)
+			bodyPath := filepath.Join(t.TempDir(), "handoff.md")
+			if err := fixture.withBody(bodyPath, "terminal evidence\n"); err != nil {
+				t.Fatalf("write body: %v", err)
+			}
+			application := app{stdout: new(bytes.Buffer), executeCommand: fixture.execute}
+			err := application.runHandoff([]string{"14", "--body-file", bodyPath, "--needs-human"})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("race handoff error = %v, want %q", err, test.want)
+			}
+			if len(fixture.commands) != test.commands {
+				t.Fatalf("race commands = %#v, want %d commands", fixture.commands, test.commands)
+			}
+			if fixture.needsHuman || fixture.projectStatus != "Ready" || len(fixture.comments) != 0 {
+				t.Fatal("changed proof reached mutation")
 			}
 		})
 	}

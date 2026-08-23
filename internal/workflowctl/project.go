@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 type projectList struct {
@@ -106,9 +107,13 @@ func (a app) setProjectField(root, itemID, fieldName, optionName string) error {
 
 func findProjectIssue(list projectList, number int) (projectItem, error) {
 	for _, item := range list.Items {
-		if item.Content.Number == number && item.Content.Repository == repositoryKey {
-			return item, nil
+		if item.Content.Number != number || item.Content.Repository != repositoryKey {
+			continue
 		}
+		if item.Content.Type != "Issue" || strings.TrimSpace(item.ID) == "" {
+			continue
+		}
+		return item, nil
 	}
-	return projectItem{}, fmt.Errorf("issue #%d is not in Project #%d", number, projectNumber)
+	return projectItem{}, fmt.Errorf("issue #%d is not in Project #%d as a canonical Issue item", number, projectNumber)
 }

@@ -447,13 +447,13 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 	if receiptsErr != nil {
 		return stateError("PR #%d has invalid evaluation history: %v", number, receiptsErr)
 	}
-	failedRounds := evaluationFailureCount(receipts)
-	if failedRounds >= 3 {
-		return stateError("PR #%d already has three failed evaluation rounds", number)
-	}
 	attestation, attestationJSON, err := readEvaluationAttestation(attestationFile)
 	if err != nil {
 		return err
+	}
+	failedRounds := evaluationFailureCount(receipts)
+	if failedRounds >= 3 {
+		return a.reconcileRecordedNeedsHuman(root, number, primary, view, receipts, attestation, attestationJSON)
 	}
 	if validationErr := validateEvaluationAttestation(attestation, number, view, receipts,
 		time.Now().UTC()); validationErr != nil {
@@ -499,6 +499,25 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 	}
 	return writeLine(a.stdout, "PR #%d evaluation round %d: %s (%s)", number, receipt.Round,
 		attestation.Verdict, view.HeadRefOID)
+}
+
+func (a app) reconcileRecordedNeedsHuman(root string, number, primary int, view pullRequestView,
+	receipts []evaluationReceipt, attestation evaluationAttestation, attestationJSON []byte,
+) error {
+	receipt, ok := thirdFailureReceipt(receipts)
+	if !ok {
+		return stateError("PR #%d already has three failed evaluation rounds; exact third-failure receipt is missing",
+			number)
+	}
+	if err := validateRecordedAttestation(attestation, attestationJSON, receipt, number, view); err != nil {
+		return stateError("PR #%d already has three failed evaluation rounds; exact third-failure attestation required: %v",
+			number, err)
+	}
+	if err := a.transitionIssueToNeedsHuman(root, primary); err != nil {
+		return err
+	}
+	return writeLine(a.stdout, "PR #%d evaluation round %d needs-human transition reconciled (%s)",
+		number, receipt.Round, view.HeadRefOID)
 }
 
 func (a app) evaluationClaimProofs(root string, view pullRequestView, primary int) ([]evaluationClaimProof, error) {
@@ -590,6 +609,50 @@ func evaluationFailureCount(receipts []evaluationReceipt) int {
 		}
 	}
 	return count
+}
+
+func thirdFailureReceipt(receipts []evaluationReceipt) (evaluationReceipt, bool) {
+	failures := 0
+	for _, receipt := range receipts {
+		if receipt.Verdict != "fail" {
+			continue
+		}
+		failures++
+		if failures == 3 {
+			return receipt, true
+		}
+	}
+	return evaluationReceipt{}, false
+}
+
+func validateRecordedAttestation(attestation evaluationAttestation, attestationJSON []byte,
+	receipt evaluationReceipt, number int, view pullRequestView,
+) error {
+	if receipt.Verdict != "fail" {
+		return errors.New("recorded third-failure receipt is not failing")
+	}
+	if receipt.AttestationSHA256 == "" || sha256Hex(attestationJSON) != receipt.AttestationSHA256 {
+		return errors.New("attestation bytes do not match the recorded receipt")
+	}
+	if attestation.Schema != evaluationAttestationSchema || attestation.Evaluator != "Examiner" ||
+		strings.TrimSpace(attestation.RunID) == "" {
+		return errors.New("attestation identity is invalid")
+	}
+	if attestation.PR != number || attestation.Head != view.HeadRefOID || receipt.PR != number ||
+		receipt.Head != view.HeadRefOID {
+		return errors.New("attestation targets a different PR or head")
+	}
+	if attestation.Challenge != receipt.Challenge || attestation.RunID != receipt.EvaluatorRunID ||
+		attestation.Evaluator != receipt.Evaluator || attestation.Verdict != receipt.Verdict {
+		return errors.New("attestation identity differs from the recorded receipt")
+	}
+	if strings.TrimSpace(attestation.Summary) == "" {
+		return errors.New("summary is empty")
+	}
+	if err := validateEvaluationFindings(attestation); err != nil {
+		return err
+	}
+	return validateEvaluationAttestationText(attestation)
 }
 
 func readEvaluationAttestation(path string) (evaluationAttestation, []byte, error) {

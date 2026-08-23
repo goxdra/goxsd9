@@ -44,7 +44,7 @@ func TestSetIssueProjectStatusIsIdempotent(t *testing.T) {
 		commands++
 		command := name + " " + strings.Join(args, " ")
 		if command == "gh project item-list 1 --owner goxdra --format json --limit 500" {
-			return `{"items":[{"content":{"number":141,"repository":"goxdra/goxsd9"},"id":"item-141","status":"Done"}]}`, nil
+			return `{"items":[{"content":{"number":141,"repository":"goxdra/goxsd9","type":"Issue"},"id":"item-141","status":"Done"}]}`, nil
 		}
 		return "", fmt.Errorf("unexpected idempotent command: %s", command)
 	}}
