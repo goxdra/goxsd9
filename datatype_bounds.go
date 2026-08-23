@@ -1202,10 +1202,6 @@ func validateIntegerLocalBoundRestrictions(base IntegerBoundFacets, local []Inte
 		validateIntegerMonotonicForVersion,
 		integerBoundRelatedLocation(base),
 		"integer",
-		base.lower,
-		func(endpoint *integerBoundEndpoint) bool { return endpoint.inclusive },
-		integerLowerBoundKind,
-		func(endpoint *integerBoundEndpoint) Loc { return endpoint.loc },
 	)
 }
 
@@ -1220,14 +1216,9 @@ func validateDecimalLocalBoundRestrictions(base DecimalBoundFacets, local []Deci
 		validateDecimalMonotonicForVersion,
 		decimalBoundRelatedLocation(base),
 		"decimal",
-		base.lower,
-		func(endpoint *decimalBoundEndpoint) bool { return endpoint.inclusive },
-		decimalLowerBoundKind,
-		func(endpoint *decimalBoundEndpoint) Loc { return endpoint.loc },
 	)
 }
 
-//nolint:gocognit // The ordered restriction checks must remain in declaration order.
 func validateLocalBoundRestrictions[T boundDeclaration, E any](
 	version XSDVersion,
 	local []T,
@@ -1238,10 +1229,6 @@ func validateLocalBoundRestrictions[T boundDeclaration, E any](
 	validateMonotonic func(*E, T, XSDVersion) error,
 	baseRelated []Loc,
 	datatype string,
-	lower *E,
-	endpointInclusive func(*E) bool,
-	lowerKind func(*E) BoundKind,
-	lowerLoc func(*E) Loc,
 ) error {
 	for index := range local {
 		bound := local[index]
@@ -1258,9 +1245,6 @@ func validateLocalBoundRestrictions[T boundDeclaration, E any](
 			if err := validateMonotonic(baseBound, bound, version); err != nil {
 				return err
 			}
-		}
-		if version == XSDVersion10 && bound.Kind().IsLower() && lower != nil && endpointInclusive(lower) != bound.Kind().Inclusive() {
-			return invalidBoundCombinationDiagnostic(bound.Loc(), facetLocations(lowerLoc(lower)), version, lowerKind(lower), bound.Kind(), "XSD 1.0 effective lower bounds cannot use both inclusivity kinds")
 		}
 	}
 	return nil

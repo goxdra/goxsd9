@@ -320,15 +320,17 @@ func TestBoundVersionDuplicateRulesAndDeclarationOrder(t *testing.T) {
 		t.Fatalf("XSD 1.0 upper opposite kind across derivation: %v", restrictErr)
 	}
 
-	minInclusive := mustIntegerBound(t, BoundMinInclusive, "5", firstLoc, false, XSDVersion10)
-	minExclusive := mustIntegerBound(t, BoundMinExclusive, "6", secondLoc, false, XSDVersion10)
-	minBase, err := NewIntegerBoundFacets([]IntegerBoundFacet{minInclusive}, XSDVersion10)
+	minInclusive10 := mustIntegerBound(t, BoundMinInclusive, "5", firstLoc, false, XSDVersion10)
+	minExclusive10 := mustIntegerBound(t, BoundMinExclusive, "6", secondLoc, false, XSDVersion10)
+	minBase10, err := NewIntegerBoundFacets([]IntegerBoundFacet{minInclusive10}, XSDVersion10)
 	if err != nil {
-		t.Fatalf("NewIntegerBoundFacets(min base): %v", err)
+		t.Fatalf("NewIntegerBoundFacets(min 1.0 base): %v", err)
 	}
-	invalid, err := RestrictIntegerBoundFacets(minBase, NewIntegerBoundFacetDeclarations([]IntegerBoundFacet{minExclusive}))
+	if _, restrictErr := RestrictIntegerBoundFacets(minBase10, NewIntegerBoundFacetDeclarations([]IntegerBoundFacet{minExclusive10})); restrictErr != nil {
+		t.Fatalf("XSD 1.0 lower opposite kind across derivation: %v", restrictErr)
+	}
+	_, err = NewIntegerBoundFacets([]IntegerBoundFacet{minInclusive10, minExclusive10}, XSDVersion10)
 	assertBoundDiagnostic(t, err, InvalidBoundCombinationCode, secondLoc, "xsd10-datatypes#minInclusive-minExclusive")
-	assertNoIntegerBounds(t, invalid)
 
 	minInclusive11 := mustIntegerBound(t, BoundMinInclusive, "5", firstLoc, false, XSDVersion11)
 	minExclusive11 := mustIntegerBound(t, BoundMinExclusive, "6", secondLoc, false, XSDVersion11)
@@ -338,6 +340,86 @@ func TestBoundVersionDuplicateRulesAndDeclarationOrder(t *testing.T) {
 	}
 	if _, err := RestrictIntegerBoundFacets(minBase11, NewIntegerBoundFacetDeclarations([]IntegerBoundFacet{minExclusive11})); err != nil {
 		t.Fatalf("XSD 1.1 lower opposite kind across derivation: %v", err)
+	}
+}
+
+func TestXSD10LowerInclusiveToExclusiveRestrictionsValidateExactValues(t *testing.T) {
+	baseLoc := mustFacetTestLoc(t, "xsd10-lower-base.xsd", 10, 4)
+	childLoc := mustFacetTestLoc(t, "xsd10-lower-child.xsd", 20, 4)
+	for _, test := range []struct {
+		name       string
+		childValue string
+		invalid    string
+		valid      string
+	}{
+		{name: "equal endpoint", childValue: "10", invalid: "10", valid: "11"},
+		{name: "stricter endpoint", childValue: "11", invalid: "11", valid: "12"},
+	} {
+		t.Run("integer/"+test.name, func(t *testing.T) {
+			assertXSD10IntegerLowerRestriction(t, baseLoc, childLoc, test.childValue, test.invalid, test.valid)
+		})
+
+		t.Run("decimal/"+test.name, func(t *testing.T) {
+			assertXSD10DecimalLowerRestriction(t, baseLoc, childLoc, test.childValue, test.invalid, test.valid)
+		})
+	}
+}
+
+func assertXSD10IntegerLowerRestriction(t *testing.T, baseLoc, childLoc Loc, childValue, invalidLexical, validLexical string) {
+	t.Helper()
+	baseFacet := mustIntegerBound(t, BoundMinInclusive, "10", baseLoc, false, XSDVersion10)
+	base, err := NewIntegerBoundFacets([]IntegerBoundFacet{baseFacet}, XSDVersion10)
+	if err != nil {
+		t.Fatalf("NewIntegerBoundFacets: %v", err)
+	}
+	childFacet := mustIntegerBound(t, BoundMinExclusive, childValue, childLoc, false, XSDVersion10)
+	child, err := RestrictIntegerBoundFacets(base, NewIntegerBoundFacetDeclarations([]IntegerBoundFacet{childFacet}))
+	if err != nil {
+		t.Fatalf("RestrictIntegerBoundFacets: %v", err)
+	}
+	invalidValue, err := ParseStrictInteger(invalidLexical, childLoc)
+	if err != nil {
+		t.Fatalf("ParseStrictInteger(invalid): %v", err)
+	}
+	validationErr := child.ValidateInteger(invalidValue, childLoc)
+	if validationErr == nil {
+		t.Fatal("child accepted its exclusive endpoint")
+	}
+	validValue, err := ParseStrictInteger(validLexical, childLoc)
+	if err != nil {
+		t.Fatalf("ParseStrictInteger(valid): %v", err)
+	}
+	if validationErr = child.ValidateInteger(validValue, childLoc); validationErr != nil {
+		t.Fatalf("child rejected valid integer: %v", validationErr)
+	}
+}
+
+func assertXSD10DecimalLowerRestriction(t *testing.T, baseLoc, childLoc Loc, childValue, invalidLexical, validLexical string) {
+	t.Helper()
+	baseFacet := mustDecimalBound(t, BoundMinInclusive, "10.0", baseLoc, XSDVersion10)
+	base, err := NewDecimalBoundFacets([]DecimalBoundFacet{baseFacet}, XSDVersion10)
+	if err != nil {
+		t.Fatalf("NewDecimalBoundFacets: %v", err)
+	}
+	childFacet := mustDecimalBound(t, BoundMinExclusive, childValue+".0", childLoc, XSDVersion10)
+	child, err := RestrictDecimalBoundFacets(base, NewDecimalBoundFacetDeclarations([]DecimalBoundFacet{childFacet}))
+	if err != nil {
+		t.Fatalf("RestrictDecimalBoundFacets: %v", err)
+	}
+	invalidValue, err := ParseStrictDecimal(invalidLexical+".0", childLoc, XSDVersion10)
+	if err != nil {
+		t.Fatalf("ParseStrictDecimal(invalid): %v", err)
+	}
+	validationErr := child.ValidateDecimal(invalidValue, childLoc)
+	if validationErr == nil {
+		t.Fatal("child accepted its exclusive endpoint")
+	}
+	validValue, err := ParseStrictDecimal(validLexical+".0", childLoc, XSDVersion10)
+	if err != nil {
+		t.Fatalf("ParseStrictDecimal(valid): %v", err)
+	}
+	if validationErr = child.ValidateDecimal(validValue, childLoc); validationErr != nil {
+		t.Fatalf("child rejected valid decimal: %v", validationErr)
 	}
 }
 
