@@ -78,7 +78,7 @@ func (a app) desiredStatus(root string, item projectItem, claims map[int]bool) (
 	if status.State == "CLOSED" {
 		return "Done", nil
 	}
-	if issueHasLabel(status, "needs-human") {
+	if issueNeedsHuman(status) {
 		return "Backlog", nil
 	}
 	if claims[item.Content.Number] {
@@ -104,9 +104,9 @@ func (a app) readIssueStatus(root string, number int) (issueStatus, error) {
 	return status, nil
 }
 
-func issueHasLabel(status issueStatus, target string) bool {
+func issueNeedsHuman(status issueStatus) bool {
 	for _, label := range status.Labels {
-		if label.Name == target {
+		if label.Name == "needs-human" {
 			return true
 		}
 	}

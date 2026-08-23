@@ -14,9 +14,9 @@ fetched `origin/main` with recursive pins; `doctor` enforces; stale launches run
 draft PR, squash-merges evaluated head; one companion. Managed-document heads:
 exact audit + fresh read-only Curator review; repeat after each remediation push;
 preserve review records in PR evidence; Examiner gates.
-Claims last four hours. Renew at durable boundaries, including before pushes;
-never wake solely to renew. Expired no-PR claims are archived
-under `agent/archive/`; open PRs require `needs-human`.
+Four-hour claims renew at durable boundaries/pushes, never solely for renewal;
+no-PR expirations archive under `agent/archive/`; PR resume:
+`go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]`.
 Three failed rounds add `needs-human`; bounded transient retries continue
 successful runs; return issue to Backlog.
 `go tool workflowctl sync` updates Project status/claim refs; it does not sync
