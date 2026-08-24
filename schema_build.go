@@ -795,17 +795,18 @@ func resolveSchemaElementTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	simpleTypes []schemaSimpleTypeResult,
+	complexTypes []schemaComplexTypeResult,
 	version XSDVersion,
 ) ([]schemaElementTypeResult, error) {
-	if len(simpleTypes) != len(records) {
-		return nil, newSchemaBridgeInvariant(Loc{}, "element type resolution has incomplete simple type results")
+	if len(simpleTypes) != len(records) || len(complexTypes) != len(records) {
+		return nil, newSchemaBridgeInvariant(Loc{}, "element type resolution has incomplete type results")
 	}
 	results := make([]schemaElementTypeResult, len(records))
 	for index, record := range records {
 		if record.element == nil {
 			continue
 		}
-		result, err := resolveSchemaElementType(record, records, byName, simpleTypes, version)
+		result, err := resolveSchemaElementType(record, records, byName, simpleTypes, complexTypes, version)
 		if err != nil {
 			return nil, err
 		}
@@ -819,13 +820,63 @@ func resolveSchemaElementType(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	simpleTypes []schemaSimpleTypeResult,
+	complexTypes []schemaComplexTypeResult,
 	version XSDVersion,
 ) (schemaElementTypeResult, error) {
 	input := record.element
 	if input == nil {
 		return schemaElementTypeResult{}, newSchemaBridgeInvariant(record.loc, "element type resolution has no type input")
 	}
-	return resolveSchemaScalarType(input, records, byName, simpleTypes, version, "for global elements")
+	if input.declaredType.Namespace() == xsdNamespaceURI {
+		return resolveSchemaScalarType(input, records, byName, simpleTypes, version, "for global elements")
+	}
+
+	candidates := byName[input.declaredType]
+	if len(candidates) == 0 {
+		return unresolvedSchemaElementType(input, version)
+	}
+	typeCandidates := make([]int, 0, len(candidates))
+	for _, candidate := range candidates {
+		kind := records[candidate].kind
+		if kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
+			continue
+		}
+		typeCandidates = append(typeCandidates, candidate)
+	}
+	if len(typeCandidates) > 1 {
+		return ambiguousSchemaElementType(input, schemaComponentLocations(records, typeCandidates), version)
+	}
+	if len(typeCandidates) == 0 {
+		return wrongKindSchemaElementType(input, schemaComponentLocations(records, candidates), version)
+	}
+	candidate := typeCandidates[0]
+	if records[candidate].kind == ComponentKindComplexTypeDefinition {
+		if !complexTypes[candidate].present {
+			return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
+				input.typeLoc,
+				fmt.Sprintf("named complex type %q is not implemented for global elements", input.declaredType),
+				version,
+			)
+		}
+		return schemaElementTypeResult{
+			present:      true,
+			declaredType: input.declaredType,
+			typeID:       records[candidate].id,
+			hasTypeID:    true,
+		}, nil
+	}
+	if !simpleTypes[candidate].present {
+		return schemaElementTypeResult{}, newSchemaBridgeInvariant(
+			input.typeLoc,
+			"element type resolution has an incomplete simple type result",
+		)
+	}
+	return schemaElementTypeResult{
+		present:      true,
+		declaredType: input.declaredType,
+		typeID:       records[candidate].id,
+		hasTypeID:    true,
+	}, nil
 }
 
 func resolveSchemaScalarType(
