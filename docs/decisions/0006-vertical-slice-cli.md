@@ -239,11 +239,11 @@ $ goxsd9 parse examples/root.xsd
 documents=1 components=2
 ```
 
-Resolved multi-document graph, beneath an explicit containment root:
+Single-file schema, beneath an explicit containment root:
 
 ```console
 $ goxsd9 parse --schema-root examples examples/root.xsd
-documents=3 components=7
+documents=1 components=2
 ```
 
 Valid scalar instance; success is silent:
@@ -291,7 +291,7 @@ Schema stdin requires a root; the two-stdin form is a usage error:
 
 ```console
 $ cat examples/root.xsd | goxsd9 parse --schema-root examples -
-documents=3 components=7
+documents=1 components=2
 $ goxsd9 validate - -
 ```
 
