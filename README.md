@@ -1,36 +1,39 @@
 # goxsd9
 
-goxsd9 targets XSD 1.1/1.0 parsing, XML validation, and Go code generation.
-It prioritizes a vertical slice and measured conformance without hiding
-unsupported behavior.
+goxsd9 targets XSD 1.1/1.0 parsing, XML validation, and measured Go code generation; unsupported behavior is explicit.
 
 ## Schema parsing
 
-`ParseSchema` exposes immutable schema components. Callers create `ResolvedSource`; `Resolver` supplies sources and policy. Calls are sequential; contexts/locations remain opaque, paths/URLs unopened. Parsing closes streams after unseen identities decode; repeated/cyclic identities close without decoding.
+`ParseSchema` exposes immutable components. Callers create `ResolvedSource`; `Resolver` supplies sources/policy. Calls are sequential; contexts/locations stay opaque, paths/URLs unopened. Parsing closes unseen streams; repeated/cyclic identities close without decoding.
 
-Mixed XSD 1.0/1.1 graphs, declarations, and simple-type restrictions are supported. Chameleon includes, redefine/override/defaultOpenContent, assertions, and broader facets remain unsupported; total/fraction digits are implemented.
-`ParseSchema` selects graph-wide `Compatibility` by default; `ParseSchemaWithPolicy` validates
-and applies graph-wide `Compatibility`, `Strict10`, or `Strict11` before discovery.
-unqualified `schema/@version` is an inert optional `xs:token` label: absent, empty, arbitrary,
-`"1.0"`, and `"1.1"` values never select or mismatch a policy. Strict10 routes the complete
-graph through XSD 1.0 behavior; Compatibility and Strict11 use XSD 1.1 behavior for the supported subset.
-Diagnostics cover invalid/unsupported input; errors omit schema. `ValidateInstance` supports text-only built-in/named integer/decimal globals and named complex globals with one direct local built-in/named integer/decimal choice; attributes and broader particles/semantics unsupported. `GenerateGo` emits deterministic Go for scalar components and direct choices; broader generation staged. [Scalar&nbsp;library&nbsp;quickstart:&nbsp;supported&nbsp;scalar&nbsp;path;&nbsp;product&nbsp;CLI&nbsp;validate&nbsp;is&nbsp;implemented;&nbsp;generate&nbsp;remains&nbsp;future](library_example_test.go).
+Mixed XSD 1.0/1.1 graphs, declarations, restrictions, and total/fraction digits are supported; chameleon/redefine/override/defaultOpenContent/assertions/broader facets are unsupported. `ParseSchema` defaults to graph-wide `Compatibility`; `ParseSchemaWithPolicy` applies `Compatibility`/`Strict10`/`Strict11` graph-wide. `schema/@version` is inert `xs:token`; it never selects or mismatches policy. Diagnostics cover invalid/unsupported input; schema omitted on errors. `ValidateInstance` supports text-only built-in/named integer/decimal globals and named complex globals with one direct local integer/decimal choice; attributes/broader particles/semantics are unsupported. `GenerateGo` emits deterministic scalar/choice Go; broader generation is staged. [Scalar library quickstart](library_example_test.go) is library-only.
+
+## Product CLI
+
+From repository root, product `parse`/`validate` are implemented; the [library quickstart](library_example_test.go) is separate, and product `generate` is future. [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines paths, source IDs, limits, diagnostics, and statuses.
+[`examples/root.xsd`](examples/root.xsd), [`examples/valid.xml`](examples/valid.xml), [`examples/invalid.xml`](examples/invalid.xml)
+
+```console
+$ go run ./cmd/goxsd9 parse examples/root.xsd
+documents=1 components=2
+$ go run ./cmd/goxsd9 validate examples/root.xsd examples/valid.xml
+$ go run ./cmd/goxsd9 validate examples/root.xsd examples/invalid.xml
+validate stage=validate class=invalid kind=processing source_id=instance/examples/invalid.xml location=1:8 code=XSD2001 related=schema/root.xsd:2:3 spec_ref=xsd11-datatypes#integer invalid xs:integer lexical representation
+exit status 1
+```
+
+Parse prints summary to stdout; valid validation is silent and exits 0. Invalid exits 1 with empty stdout and a located stderr diagnostic; `go run` adds `exit status 1`. Usage is 2; unsupported behavior is explicit, with no broader conformance claim.
 
 ## Design goals
 
-- Exact value spaces and facets.
-- Streaming input through resolvers.
-- Immutable deterministic query and walk APIs.
-- Located diagnostics without silent gaps.
-- No goroutines, locks, or map-order output.
-- Measured conformance.
+Exact value spaces/facets, streaming resolver input, immutable deterministic queries/walks,
+located diagnostics, no goroutines/locks or map-order output, and measured conformance.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md), [PLAN.md](PLAN.md), and the [CLI decision](docs/decisions/0006-vertical-slice-cli.md).
+See [ARCHITECTURE.md](ARCHITECTURE.md) and [PLAN.md](PLAN.md).
 
 ## Repository checks
 
-Fresh checkout; `go tool conformance inventory` reports metadata only and runs no tests:
-
+Fresh checkout; inventory reports metadata only, not tests:
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
@@ -40,27 +43,17 @@ go tool conformance inventory
 
 ## Pinned specification corpus
 
-Build and search a verified manifest entry under ignored `.cache`:
-
+Build/search a verified `.cache` entry:
 ```sh
 go tool specs build -id xsd11-structures
 go tool specs search -id xsd11-structures -query "content model"
 ```
-
-Use `-root PATH`, `-output PATH`, and `-index PATH`; see the [schema bootstrap contract](docs/decisions/0003-schema-bootstrap.md) for digest verification, declared representation conversion, and generated artifacts.
+Use `-root`, `-output`, and `-index`; the [schema bootstrap contract](docs/decisions/0003-schema-bootstrap.md) covers digests, conversion, and artifacts.
 
 ## Project workflow
 
-Work lives in [GitHub Issues](https://github.com/goxdra/goxsd9/issues) and the
-[goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1). Agents use worktrees
-and workflow skills. See [operations](docs/operations.md) and
-[AGENTS.md](AGENTS.md) for workflowctl rules.
+Work uses [GitHub Issues](https://github.com/goxdra/goxsd9/issues) and the [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1); agents use worktrees/workflow skills—see [operations](docs/operations.md) and [AGENTS.md](AGENTS.md) for workflow rules.
 
 ## Test data licensing
 
-The `testdata/w3c/xsdtests` submodule is the W3C XML Schema test suite under its own
-document license; see its `00COPYRIGHT`. It is not relicensed under Apache-2.0.
-
-## License
-
-Apache-2.0. See [LICENSE](LICENSE).
+The W3C submodule keeps `00COPYRIGHT`, not Apache-2.0; the repository is Apache-2.0 ([LICENSE](LICENSE)).
