@@ -227,8 +227,8 @@ rollback use an explicit file.
 
 ## Contract examples
 
-The parse examples in this section, including the stdin example, document
-current executable behavior. The validate and generate examples are future
+The parse and validate examples in this section describe current executable
+behavior, including the stdin parse example. The generate examples remain future
 contract examples. Counts and diagnostic text are illustrative except for the
 required success stream shapes.
 
