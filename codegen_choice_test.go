@@ -265,6 +265,7 @@ func TestCodegenDirectChoiceSourceRejectsCoordinatedAlternativeTruncation(t *tes
 	}
 }
 
+//nolint:gocognit // Keep the two located plan-fact mutations under one regression corpus.
 func TestCodegenDirectChoiceSourceRejectsStaleParticleLocations(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -319,6 +320,7 @@ func TestCodegenDirectChoiceSourceRejectsStaleParticleLocations(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep choice and element boundary revalidation under one regression corpus.
 func TestCodegenDirectChoiceSourceRevalidatesSchemaOccurrenceBounds(t *testing.T) {
 	tests := []struct {
 		name   string

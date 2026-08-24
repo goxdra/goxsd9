@@ -960,7 +960,7 @@ func validateCodegenDirectChoicePlan(schema Schema, plan codegenDirectChoicePlan
 	return nil
 }
 
-//nolint:gocognit // Compare the consumed plan with the complete ordered schema view.
+//nolint:gocognit,funlen // Compare the consumed plan with the complete ordered schema view.
 func validateCodegenDirectChoicePlanAgainstSchema(
 	plan codegenDirectChoicePlan,
 	expected []codegenDirectChoiceCollectedOwner,
