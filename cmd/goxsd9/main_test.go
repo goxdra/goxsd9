@@ -399,6 +399,51 @@ func TestValidateCommandRendersLocatedHumanAndJSONDiagnostics(t *testing.T) {
 	}
 }
 
+func TestValidateCommandEscapesNewlinesInHumanSourceIDs(t *testing.T) {
+	directory := t.TempDir()
+	schemaPath := filepath.Join(directory, "schema\nroot.xsd")
+	instancePath := filepath.Join(directory, "invalid\ninstance.xml")
+	writeTestFile(t, schemaPath, schemaDocument(`<xs:element name="count" type="xs:integer"/>`))
+	writeTestFile(t, instancePath, `<count>not-an-integer</count>`)
+	expectedSchemaSource := "schema/schema\nroot.xsd"
+	expectedInstanceSource := expectedInstanceSourceID(t, instancePath)
+
+	var stdout, stderr bytes.Buffer
+	code := runWithInput([]string{"validate", schemaPath, instancePath}, strings.NewReader("unused"), &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 {
+		t.Fatalf("human invalid = code %d, stdout %q", code, stdout.String())
+	}
+	human := stderr.String()
+	if got := strings.Count(human, "\n"); got != 1 {
+		t.Fatalf("human diagnostic physical newline count = %d, output %q", got, human)
+	}
+	for _, source := range []string{expectedInstanceSource, expectedSchemaSource} {
+		escaped := strings.ReplaceAll(source, "\n", `\n`)
+		if !strings.Contains(human, escaped) {
+			t.Fatalf("human diagnostic = %q, missing escaped source %q", human, escaped)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runWithInput([]string{"validate", "--diagnostics", "json", schemaPath, instancePath}, strings.NewReader("unused"), &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 {
+		t.Fatalf("JSON invalid = code %d, stdout %q", code, stdout.String())
+	}
+	var envelope diagnosticEnvelope
+	decodeDiagnosticEnvelope(t, stderr.Bytes(), &envelope)
+	if len(envelope.Diagnostics) != 1 {
+		t.Fatalf("JSON diagnostic count = %d, want 1", len(envelope.Diagnostics))
+	}
+	diagnostic := envelope.Diagnostics[0]
+	if diagnostic.SourceID != expectedInstanceSource {
+		t.Fatalf("JSON primary source ID = %q, want raw %q", diagnostic.SourceID, expectedInstanceSource)
+	}
+	if len(diagnostic.Related) != 1 || diagnostic.Related[0].SourceID != expectedSchemaSource {
+		t.Fatalf("JSON related source IDs = %#v, want raw %q", diagnostic.Related, expectedSchemaSource)
+	}
+}
+
 func TestValidateCommandSeparatesSchemaAndInstanceStages(t *testing.T) {
 	directory := t.TempDir()
 	schemaPath := filepath.Join(directory, "root.xsd")

@@ -6,6 +6,8 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/goxdra/goxsd9"
 )
@@ -238,14 +240,14 @@ func (diagnostic renderedDiagnostic) human(command, stage string) string {
 		"stage=" + stage,
 		"class=" + class,
 		"kind=" + diagnostic.Kind,
-		"source_id=" + diagnostic.SourceID,
+		"source_id=" + escapeHumanSourceID(diagnostic.SourceID),
 		"location=" + strconv.Itoa(diagnostic.Location.Line) + ":" + strconv.Itoa(diagnostic.Location.Column),
 		"code=" + diagnostic.Code,
 	}
 	if len(diagnostic.Related) > 0 {
 		related := make([]string, 0, len(diagnostic.Related))
 		for _, location := range diagnostic.Related {
-			related = append(related, location.SourceID+":"+strconv.Itoa(location.Location.Line)+":"+strconv.Itoa(location.Location.Column))
+			related = append(related, escapeHumanSourceID(location.SourceID)+":"+strconv.Itoa(location.Location.Line)+":"+strconv.Itoa(location.Location.Column))
 		}
 		fields = append(fields, "related="+strings.Join(related, ","))
 	}
@@ -256,4 +258,33 @@ func (diagnostic renderedDiagnostic) human(command, stage string) string {
 		fields = append(fields, "spec_ref="+diagnostic.SpecRef)
 	}
 	return strings.Join(fields, " ") + " " + strings.NewReplacer("\r", "\\r", "\n", "\\n").Replace(diagnostic.Message)
+}
+
+func escapeHumanSourceID(sourceID string) string {
+	for index := 0; index < len(sourceID); {
+		value, size := utf8.DecodeRuneInString(sourceID[index:])
+		if isHumanSourceIDSeparator(value) {
+			var escaped strings.Builder
+			escaped.Grow(len(sourceID) + 2)
+			escaped.WriteString(sourceID[:index])
+			for remaining := index; remaining < len(sourceID); {
+				value, size = utf8.DecodeRuneInString(sourceID[remaining:])
+				if isHumanSourceIDSeparator(value) {
+					quoted := strconv.QuoteRune(value)
+					escaped.WriteString(quoted[1 : len(quoted)-1])
+					remaining += size
+					continue
+				}
+				escaped.WriteString(sourceID[remaining : remaining+size])
+				remaining += size
+			}
+			return escaped.String()
+		}
+		index += size
+	}
+	return sourceID
+}
+
+func isHumanSourceIDSeparator(value rune) bool {
+	return unicode.IsControl(value) || unicode.In(value, unicode.Cf, unicode.Zl, unicode.Zp)
 }
