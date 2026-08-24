@@ -801,7 +801,22 @@ func validateCodegenDirectChoicePlan(schema Schema, plan codegenDirectChoicePlan
 		)
 	}
 	components := schema.Components()
-	if err := validateCodegenDirectChoicePlanNamingReplay(schema, plan); err != nil {
+	version, versionErr := codegenSchemaVersion(schema)
+	if versionErr != nil {
+		return versionErr
+	}
+	expectedOwners, collectErr := collectCodegenDirectChoices(schema, components, version)
+	if collectErr != nil {
+		return collectErr
+	}
+	expectedNames, namingErr := newCodegenNaming(codegenDirectChoiceNamingInput(plan.packageName, schema, expectedOwners))
+	if namingErr != nil {
+		return namingErr
+	}
+	if err := validateCodegenDirectChoicePlanAgainstSchema(plan, expectedOwners); err != nil {
+		return err
+	}
+	if err := validateCodegenDirectChoicePlanNamingReplay(schema, plan, expectedNames); err != nil {
 		return err
 	}
 	if err := validateCodegenNaming(components, plan.names); err != nil {
@@ -833,10 +848,6 @@ func validateCodegenDirectChoicePlan(schema Schema, plan codegenDirectChoicePlan
 	}
 	if _, err := codegenIdentifier(plan.runtimeAlias, codegenNameKindImport, false, nil, Loc{}); err != nil {
 		return newCodegenNamingInvariant(Loc{}, "direct-choice plan has an invalid runtime import alias", err)
-	}
-	version, versionErr := codegenSchemaVersion(schema)
-	if versionErr != nil {
-		return versionErr
 	}
 	seenOwners := make(map[ComponentID]struct{}, len(plan.owners))
 	lastOwnerIndex := -1
@@ -949,6 +960,154 @@ func validateCodegenDirectChoicePlan(schema Schema, plan codegenDirectChoicePlan
 	return nil
 }
 
+//nolint:gocognit // Compare the consumed plan with the complete ordered schema view.
+func validateCodegenDirectChoicePlanAgainstSchema(
+	plan codegenDirectChoicePlan,
+	expected []codegenDirectChoiceCollectedOwner,
+) error {
+	if len(plan.owners) != len(expected) {
+		if len(plan.owners) < len(expected) {
+			index := len(plan.owners)
+			return newCodegenInternal(
+				codegenDirectChoiceCollectedOwnerLoc(expected, index),
+				"direct-choice plan is missing a schema direct-choice owner",
+				nil,
+				errCodegenDirectChoicePlan,
+			)
+		}
+		index := len(expected)
+		return newCodegenInternal(
+			codegenDirectChoicePlanOwnerLoc(plan, index),
+			"direct-choice plan contains an extra owner not present in the schema",
+			nil,
+			errCodegenDirectChoicePlan,
+		)
+	}
+	for ownerIndex, expectedOwner := range expected {
+		actualOwner := plan.owners[ownerIndex]
+		ownerLoc := expectedOwner.loc
+		if ownerLoc.IsZero() {
+			ownerLoc = actualOwner.loc
+		}
+		if actualOwner.id != expectedOwner.id || actualOwner.name != expectedOwner.name || actualOwner.loc != expectedOwner.loc {
+			return newCodegenInternal(
+				ownerLoc,
+				"direct-choice plan owner facts do not match the schema",
+				nil,
+				errCodegenDirectChoicePlan,
+			)
+		}
+		if actualOwner.choiceLoc != expectedOwner.choiceLoc {
+			choiceLoc := expectedOwner.choiceLoc
+			if choiceLoc.IsZero() {
+				choiceLoc = actualOwner.choiceLoc
+			}
+			return newCodegenInternal(
+				choiceLoc,
+				"direct-choice plan choice location does not match the schema",
+				nil,
+				errCodegenDirectChoicePlan,
+			)
+		}
+		if len(actualOwner.alternatives) != len(expectedOwner.alternatives) {
+			index := len(actualOwner.alternatives)
+			if index < len(expectedOwner.alternatives) {
+				return newCodegenInternal(
+					codegenDirectChoiceCollectedAlternativeLoc(expectedOwner, index),
+					"direct-choice plan is missing a schema direct-choice alternative",
+					nil,
+					errCodegenDirectChoicePlan,
+				)
+			}
+			return newCodegenInternal(
+				codegenDirectChoicePlanAlternativeLoc(actualOwner, len(expectedOwner.alternatives)),
+				"direct-choice plan contains an extra alternative not present in the schema",
+				nil,
+				errCodegenDirectChoicePlan,
+			)
+		}
+		for alternativeIndex, expectedAlternative := range expectedOwner.alternatives {
+			actualAlternative := actualOwner.alternatives[alternativeIndex]
+			alternativeLoc := expectedAlternative.loc
+			if alternativeLoc.IsZero() {
+				alternativeLoc = actualAlternative.loc
+			}
+			if !equalCodegenPath(actualAlternative.path, expectedAlternative.path) {
+				return newCodegenInternal(
+					alternativeLoc,
+					"direct-choice plan alternative path does not match the schema",
+					nil,
+					errCodegenDirectChoicePlan,
+				)
+			}
+			if actualAlternative.name != expectedAlternative.name {
+				return newCodegenInternal(
+					alternativeLoc,
+					"direct-choice plan alternative name does not match the schema",
+					nil,
+					errCodegenDirectChoicePlan,
+				)
+			}
+			if actualAlternative.loc != expectedAlternative.loc {
+				return newCodegenInternal(
+					alternativeLoc,
+					"direct-choice plan alternative location does not match the schema",
+					nil,
+					errCodegenDirectChoicePlan,
+				)
+			}
+			if err := validateCodegenDirectChoicePlanTargetMatches(expectedAlternative.target, actualAlternative.target, alternativeLoc); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func codegenDirectChoiceCollectedOwnerLoc(owners []codegenDirectChoiceCollectedOwner, index int) Loc {
+	if index >= 0 && index < len(owners) {
+		owner := owners[index]
+		if owner.loc.IsZero() {
+			return owner.choiceLoc
+		}
+		return owner.loc
+	}
+	return Loc{}
+}
+
+func codegenDirectChoiceCollectedAlternativeLoc(owner codegenDirectChoiceCollectedOwner, index int) Loc {
+	if index >= 0 && index < len(owner.alternatives) {
+		if !owner.alternatives[index].loc.IsZero() {
+			return owner.alternatives[index].loc
+		}
+	}
+	if !owner.choiceLoc.IsZero() {
+		return owner.choiceLoc
+	}
+	return owner.loc
+}
+
+func codegenDirectChoicePlanOwnerLoc(plan codegenDirectChoicePlan, index int) Loc {
+	if index >= 0 && index < len(plan.owners) {
+		owner := plan.owners[index]
+		if !owner.loc.IsZero() {
+			return owner.loc
+		}
+		return owner.choiceLoc
+	}
+	return codegenDirectChoicePlanLoc(plan)
+}
+
+func codegenDirectChoicePlanAlternativeLoc(owner codegenDirectChoiceOwner, index int) Loc {
+	if index >= 0 && index < len(owner.alternatives) && !owner.alternatives[index].loc.IsZero() {
+		return owner.alternatives[index].loc
+	}
+	if !owner.choiceLoc.IsZero() {
+		return owner.choiceLoc
+	}
+	return owner.loc
+}
+
 //nolint:gocognit // Replay ordered field and variant records at the plan boundary.
 func validateCodegenDirectChoicePlanScopedNames(plan codegenDirectChoicePlan) error {
 	want := 0
@@ -1008,39 +1167,8 @@ func validateCodegenDirectChoicePlanScopedNames(plan codegenDirectChoicePlan) er
 	return nil
 }
 
-func codegenDirectChoicePlanNamingInput(schema Schema, plan codegenDirectChoicePlan) codegenNamingInput {
-	owners := make([]codegenDirectChoiceCollectedOwner, 0, len(plan.owners))
-	for _, owner := range plan.owners {
-		collected := codegenDirectChoiceCollectedOwner{
-			id:           owner.id,
-			name:         owner.name,
-			loc:          owner.loc,
-			choiceLoc:    owner.choiceLoc,
-			alternatives: make([]codegenDirectChoiceCollectedAlternative, 0, len(owner.alternatives)),
-		}
-		for _, alternative := range owner.alternatives {
-			collected.alternatives = append(collected.alternatives, codegenDirectChoiceCollectedAlternative{
-				path: cloneCodegenPath(alternative.path),
-				loc:  alternative.loc,
-				name: alternative.name,
-			})
-		}
-		owners = append(owners, collected)
-	}
-	return codegenDirectChoiceNamingInput(plan.packageName, schema, owners)
-}
-
 //nolint:gocognit,funlen // Compare every ordered naming record and private lookup.
-func validateCodegenDirectChoicePlanNamingReplay(schema Schema, plan codegenDirectChoicePlan) error {
-	replayed, err := newCodegenNaming(codegenDirectChoicePlanNamingInput(schema, plan))
-	if err != nil {
-		return newCodegenInternal(
-			codegenDirectChoicePlanLoc(plan),
-			"replay direct-choice naming state",
-			nil,
-			fmt.Errorf("%w: %w", errCodegenDirectChoicePlan, err),
-		)
-	}
+func validateCodegenDirectChoicePlanNamingReplay(schema Schema, plan codegenDirectChoicePlan, replayed codegenNaming) error {
 	if plan.names.packageIdentifier() != replayed.packageIdentifier() {
 		return codegenDirectChoiceNamingMismatch(plan, codegenDirectChoicePlanLoc(plan), "direct-choice plan package name does not match naming replay")
 	}

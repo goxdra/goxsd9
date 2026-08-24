@@ -230,6 +230,146 @@ func TestCodegenDirectChoiceSourceRejectsMalformedPlanWithoutOutput(t *testing.T
 	}
 }
 
+func TestCodegenDirectChoiceSourceRejectsCoordinatedAlternativeTruncation(t *testing.T) {
+	schema := codegenDirectChoiceCollisionSchema(t)
+	choicePlan, err := planCodegenDirectChoices(schema, "generated")
+	if err != nil {
+		t.Fatalf("planCodegenDirectChoices: %v", err)
+	}
+	owner := &choicePlan.owners[0]
+	if len(owner.alternatives) != 3 || len(choicePlan.names.fields) != 3 || len(choicePlan.names.variants) != 3 {
+		t.Fatalf("fixture plan has unexpected direct-choice records: %#v", choicePlan)
+	}
+	omitted := owner.alternatives[2]
+	fieldKey := codegenScopedPathKey{owner: owner.id, path: codegenLexicalPathKey(omitted.path)}
+	variantKey := codegenScopedPathKey{owner: owner.id, path: codegenLexicalPathKey(omitted.path)}
+	owner.alternatives = owner.alternatives[:2]
+	choicePlan.names.fields = choicePlan.names.fields[:2]
+	choicePlan.names.variants = choicePlan.names.variants[:2]
+	delete(choicePlan.names.fieldByKey, fieldKey)
+	delete(choicePlan.names.variantByKey, variantKey)
+
+	output, err := emitCodegenSourceWithDirectChoices(schema, choicePlan)
+	if output != nil || err == nil {
+		t.Fatalf("coordinated alternative truncation result = (%q, %v), want nil output and error", output, err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+		t.Fatalf("diagnostic = %s, want internal codegen invariant", diagnostic)
+	}
+	if diagnostic.Loc() != omitted.loc {
+		t.Fatalf("diagnostic location = %s, want first omitted alternative location %s", diagnostic.Loc(), omitted.loc)
+	}
+	if !errors.Is(err, errCodegenDirectChoicePlan) {
+		t.Fatalf("coordinated alternative truncation error lost direct-choice plan cause: %v", err)
+	}
+}
+
+func TestCodegenDirectChoiceSourceRejectsStaleParticleLocations(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*codegenDirectChoicePlan)
+		wantLoc func(Schema) Loc
+		message string
+	}{
+		{
+			name: "choice",
+			mutate: func(plan *codegenDirectChoicePlan) {
+				plan.owners[0].choiceLoc = Loc{}
+			},
+			wantLoc: func(schema Schema) Loc {
+				return codegenDirectChoiceTestChoice(schema).Loc()
+			},
+			message: "choice location",
+		},
+		{
+			name: "alternative",
+			mutate: func(plan *codegenDirectChoicePlan) {
+				plan.owners[0].alternatives[0].loc = Loc{}
+			},
+			wantLoc: func(schema Schema) Loc {
+				return codegenDirectChoiceTestElement(codegenDirectChoiceTestChoice(schema)).Loc()
+			},
+			message: "alternative location",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema := codegenDirectChoiceFailureSchema(t)
+			choicePlan, err := planCodegenDirectChoices(schema, "generated")
+			if err != nil {
+				t.Fatalf("planCodegenDirectChoices: %v", err)
+			}
+			test.mutate(&choicePlan)
+			output, err := emitCodegenSourceWithDirectChoices(schema, choicePlan)
+			if output != nil || err == nil {
+				t.Fatalf("stale %s result = (%q, %v), want nil output and error", test.message, output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+				t.Fatalf("diagnostic = %s, want internal codegen invariant", diagnostic)
+			}
+			if diagnostic.Loc() != test.wantLoc(schema) {
+				t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), test.wantLoc(schema))
+			}
+			if !errors.Is(err, errCodegenDirectChoicePlan) {
+				t.Fatalf("stale %s error lost direct-choice plan cause: %v", test.message, err)
+			}
+		})
+	}
+}
+
+func TestCodegenDirectChoiceSourceRevalidatesSchemaOccurrenceBounds(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(Schema)
+		loc    func(Schema) Loc
+	}{
+		{
+			name: "choice",
+			mutate: func(schema Schema) {
+				codegenDirectChoiceTestChoice(schema).facts.minOccurs = 0
+			},
+			loc: func(schema Schema) Loc {
+				return codegenDirectChoiceTestChoice(schema).Loc()
+			},
+		},
+		{
+			name: "element",
+			mutate: func(schema Schema) {
+				codegenDirectChoiceTestElement(codegenDirectChoiceTestChoice(schema)).facts.maxOccurs = 2
+			},
+			loc: func(schema Schema) Loc {
+				return codegenDirectChoiceTestElement(codegenDirectChoiceTestChoice(schema)).Loc()
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema := codegenDirectChoiceFailureSchema(t)
+			choicePlan, err := planCodegenDirectChoices(schema, "generated")
+			if err != nil {
+				t.Fatalf("planCodegenDirectChoices: %v", err)
+			}
+			test.mutate(schema)
+			output, err := emitCodegenSourceWithDirectChoices(schema, choicePlan)
+			if output != nil || err == nil {
+				t.Fatalf("schema %s-bound result = (%q, %v), want nil output and error", test.name, output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported {
+				t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic", diagnostic)
+			}
+			if diagnostic.Loc() != test.loc(schema) {
+				t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), test.loc(schema))
+			}
+			if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+				t.Fatalf("schema %s-bound error lost unsupported causes: %v", test.name, err)
+			}
+		})
+	}
+}
+
 //nolint:gocognit,funlen // Keep the malformed built-in and named target corpus together.
 func TestCodegenDirectChoiceSourceRejectsMalformedTargetFactsWithoutOutput(t *testing.T) {
 	tests := []struct {
