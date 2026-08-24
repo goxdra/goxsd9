@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -85,6 +86,37 @@ func TestRecoveryUsesImmutableEvaluatedHeadAndRefusesAdvancedPR(t *testing.T) {
 	_, err = application.prepareRecoveryCleanupPlan("/repo", repositoryLayout{primaryRoot: "/repo"}, view, 14, got)
 	if err == nil || !strings.Contains(err.Error(), "differs from immutable merge-time evaluated head") {
 		t.Fatalf("prepareRecoveryCleanupPlan error = %v, want advanced-head refusal", err)
+	}
+}
+
+func TestRecoveryPrimaryOnlyRequiresEvaluatedHeadObjectBeforeRunLocalProof(t *testing.T) {
+	mergedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+	view := recoveryMergedView(mergedAt, recoveryEvaluationHistory(t, 14, "evaluated-head", mergedAt.Add(-time.Minute)))
+	proof, err := mergeTimeEvaluationProof(view, 14)
+	if err != nil {
+		t.Fatalf("mergeTimeEvaluationProof: %v", err)
+	}
+	commands := []string{}
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		commands = append(commands, command)
+		switch command {
+		case "git cat-file -e evaluated-head^{commit}":
+			return "", errors.New("evaluated head object is absent")
+		case "git fetch --no-tags origin refs/pull/14/head":
+			return "", nil
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+	_, err = application.prepareRecoveryCleanupPlanWithProof("/repo", repositoryLayout{primaryRoot: "/repo"}, view, 14, proof)
+	if err == nil || !strings.Contains(err.Error(), "evaluated head for run-local proof") {
+		t.Fatalf("primary-only recovery without evaluated object = %v, want proof-head refusal", err)
+	}
+	for _, command := range commands {
+		if strings.HasPrefix(command, "git log ") || strings.Contains(command, "run-local-proof") {
+			t.Fatalf("run-local history was inspected without the evaluated object: %v", commands)
+		}
 	}
 }
 
