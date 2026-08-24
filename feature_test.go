@@ -19,7 +19,10 @@ func TestFeatureRegistryValidationAndLookup(t *testing.T) {
 	if _, unknownFound := LookupUnsupportedFeature("xsd.unknown"); unknownFound {
 		t.Fatal("LookupUnsupportedFeature accepted an unknown ID")
 	}
-	for _, id := range []FeatureID{FeatureCodegen, FeatureDatatypeFacets, FeatureInstanceSyntax, FeatureInstanceValidation, FeaturePrecisionDecimal} {
+	if _, retiredFound := LookupUnsupportedFeature("xsd.datatype.precision-decimal"); retiredFound {
+		t.Fatal("LookupUnsupportedFeature retained the retired precisionDecimal gate")
+	}
+	for _, id := range []FeatureID{FeatureCodegen, FeatureDatatypeFacets, FeatureInstanceSyntax, FeatureInstanceValidation} {
 		if _, featureFound := LookupUnsupportedFeature(id); !featureFound {
 			t.Fatalf("LookupUnsupportedFeature did not find %q", id)
 		}

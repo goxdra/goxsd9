@@ -809,7 +809,7 @@ func TestPrecisionDecimalXMLRegexResourceLimitsAreStable(t *testing.T) {
 	}
 }
 
-func TestPrecisionDecimalXMLRegexMatchResourceLimitIsUnsupported(t *testing.T) {
+func TestPrecisionDecimalXMLRegexMatchResourceLimitIsInvalid(t *testing.T) {
 	loc := mustPrecisionDecimalFacetLoc(t, "regex-match-resource.xsd", 151, 2)
 	pattern := mustPrecisionDecimalPatternFacet(t, strings.Repeat("0*", 128), loc)
 	facets := mustPrecisionDecimalValueFacets(t, NewPrecisionDecimalValueFacetDeclarations(
@@ -839,18 +839,18 @@ func TestPrecisionDecimalDerivedMembersPropagatePatternResourceDiagnostic(t *tes
 func assertPrecisionDecimalPatternResourceDiagnostic(t *testing.T, err error, patternLoc Loc, resourceCause error) {
 	t.Helper()
 	diagnostic := mustDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedPrecisionDecimalPatternCode || diagnostic.Feature() != FeaturePrecisionDecimal || diagnostic.Loc() != patternLoc || diagnostic.SpecRef() != precisionDecimalPatternValueSpecRef {
-		t.Fatalf("pattern resource diagnostic = (%q,%q,%q,%v,%q), want unsupported/%s/%s/%v/%q: %v", diagnostic.Class(), diagnostic.Code(), diagnostic.Feature(), diagnostic.Loc(), diagnostic.SpecRef(), UnsupportedPrecisionDecimalPatternCode, FeaturePrecisionDecimal, patternLoc, precisionDecimalPatternValueSpecRef, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != UnsupportedPrecisionDecimalPatternCode || diagnostic.Feature() != "" || diagnostic.Loc() != patternLoc || diagnostic.SpecRef() != precisionDecimalPatternValueSpecRef {
+		t.Fatalf("pattern resource diagnostic = (%q,%q,%q,%v,%q), want invalid/%s/no-feature/%v/%q: %v", diagnostic.Class(), diagnostic.Code(), diagnostic.Feature(), diagnostic.Loc(), diagnostic.SpecRef(), UnsupportedPrecisionDecimalPatternCode, patternLoc, precisionDecimalPatternValueSpecRef, err)
 	}
-	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, resourceCause) {
-		t.Fatalf("pattern resource diagnostic lost unsupported cause: %v", err)
+	if errors.Is(err, ErrUnsupported) || !errors.Is(err, resourceCause) {
+		t.Fatalf("pattern resource diagnostic has the wrong cause classification: %v", err)
 	}
 	report, reportErr := ReportUnsupportedFeatures(makeDiagnostics([]Diagnostic{diagnostic}))
 	if reportErr != nil {
 		t.Fatalf("ReportUnsupportedFeatures: %v", reportErr)
 	}
-	if len(report) != 1 || report[0].Feature().ID() != FeaturePrecisionDecimal || report[0].Count() != 1 {
-		t.Fatalf("unsupported feature report = %#v, want one precisionDecimal occurrence", report)
+	if len(report) != 0 {
+		t.Fatalf("unsupported feature report = %#v, want no precisionDecimal occurrence", report)
 	}
 }
 

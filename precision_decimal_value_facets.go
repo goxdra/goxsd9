@@ -25,9 +25,9 @@ const (
 	// InvalidPrecisionDecimalBoundCode identifies an invalid ordered bound
 	// declaration value.
 	InvalidPrecisionDecimalBoundCode = "XSD2025"
-	// UnsupportedPrecisionDecimalPatternCode identifies a pattern that is
-	// valid XML Schema syntax but exceeds the implementation's resource
-	// limits.
+	// UnsupportedPrecisionDecimalPatternCode identifies a valid pattern that
+	// exceeds the implementation's resource limits. The diagnostic is invalid
+	// input/resource exhaustion, not unsupported precisionDecimal behavior.
 	UnsupportedPrecisionDecimalPatternCode = "XSD2026"
 )
 
@@ -100,6 +100,11 @@ type PrecisionDecimalEnumerationFacet struct {
 	loc               Loc
 }
 
+// Value returns an owned exact enumeration value.
+func (facet PrecisionDecimalEnumerationFacet) Value() StrictPrecisionDecimal {
+	return StrictPrecisionDecimal{value: clonePrecisionDecimalValue(facet.value)}
+}
+
 // Loc returns the source location of the enumeration declaration.
 func (facet PrecisionDecimalEnumerationFacet) Loc() Loc {
 	return facet.loc
@@ -111,6 +116,11 @@ type PrecisionDecimalMinInclusiveFacet struct {
 	value             precisionDecimalValue
 	loc               Loc
 	fixed             bool
+}
+
+// Value returns an owned exact inclusive lower-bound value.
+func (facet PrecisionDecimalMinInclusiveFacet) Value() StrictPrecisionDecimal {
+	return StrictPrecisionDecimal{value: clonePrecisionDecimalValue(facet.value)}
 }
 
 // Loc returns the source location of the bound declaration.
@@ -137,6 +147,11 @@ type PrecisionDecimalMinExclusiveFacet struct {
 	fixed             bool
 }
 
+// Value returns an owned exact exclusive lower-bound value.
+func (facet PrecisionDecimalMinExclusiveFacet) Value() StrictPrecisionDecimal {
+	return StrictPrecisionDecimal{value: clonePrecisionDecimalValue(facet.value)}
+}
+
 // Loc returns the source location of the bound declaration.
 func (facet PrecisionDecimalMinExclusiveFacet) Loc() Loc {
 	return facet.loc
@@ -161,6 +176,11 @@ type PrecisionDecimalMaxInclusiveFacet struct {
 	fixed             bool
 }
 
+// Value returns an owned exact inclusive upper-bound value.
+func (facet PrecisionDecimalMaxInclusiveFacet) Value() StrictPrecisionDecimal {
+	return StrictPrecisionDecimal{value: clonePrecisionDecimalValue(facet.value)}
+}
+
 // Loc returns the source location of the bound declaration.
 func (facet PrecisionDecimalMaxInclusiveFacet) Loc() Loc {
 	return facet.loc
@@ -183,6 +203,11 @@ type PrecisionDecimalMaxExclusiveFacet struct {
 	value             precisionDecimalValue
 	loc               Loc
 	fixed             bool
+}
+
+// Value returns an owned exact exclusive upper-bound value.
+func (facet PrecisionDecimalMaxExclusiveFacet) Value() StrictPrecisionDecimal {
+	return StrictPrecisionDecimal{value: clonePrecisionDecimalValue(facet.value)}
 }
 
 // Loc returns the source location of the bound declaration.
@@ -434,27 +459,15 @@ func newPrecisionDecimalBoundDiagnostic(name string, loc Loc, specRef string, ca
 }
 
 func newPrecisionDecimalPatternResourceDiagnostic(loc Loc, cause error) Diagnostic {
-	feature, ok := LookupUnsupportedFeature(FeaturePrecisionDecimal)
-	if !ok {
-		return newPrecisionDecimalFacetDiagnostic(
-			FailureInternal,
-			UnsupportedPrecisionDecimalPatternCode,
-			loc,
-			precisionDecimalPatternValueSpecRef,
-			"precisionDecimal unsupported feature is not registered",
-			nil,
-			fmt.Errorf("%w: %w", errInvalidPrecisionDecimalFacetState, cause),
-		)
-	}
-	diagnostic := newUnsupported(
-		feature,
+	return newPrecisionDecimalFacetDiagnostic(
+		FailureInvalid,
 		UnsupportedPrecisionDecimalPatternCode,
 		loc,
+		precisionDecimalPatternValueSpecRef,
 		"precisionDecimal XML Schema pattern exceeds implementation resource limits",
+		nil,
+		fmt.Errorf("%w: %w", errInvalidPrecisionDecimalPattern, cause),
 	)
-	diagnostic.specRef = precisionDecimalPatternValueSpecRef
-	diagnostic.cause = fmt.Errorf("%w: %w", ErrUnsupported, cause)
-	return diagnostic
 }
 
 func clonePrecisionDecimalValue(value precisionDecimalValue) precisionDecimalValue {
