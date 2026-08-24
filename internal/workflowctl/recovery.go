@@ -178,18 +178,44 @@ func mergeBoundaryEvaluationReceipt(view pullRequestView, number int) (evaluatio
 }
 
 func validateMergeBoundaryHistory(history evaluationHistory, mergeAt time.Time) error {
-	for _, challenge := range history.challenges {
+	if err := validateMergeBoundaryChallenges(history.challenges, mergeAt); err != nil {
+		return err
+	}
+	if err := validateMergeBoundaryReceipts(history.receipts, mergeAt); err != nil {
+		return err
+	}
+	return validateMergeBoundaryResolutions(history.resolutions, mergeAt)
+}
+
+func validateMergeBoundaryChallenges(challenges []evaluationChallengeRecord, mergeAt time.Time) error {
+	for _, challenge := range challenges {
 		if challenge.comment.CreatedAt.IsZero() || challenge.comment.CreatedAt.After(mergeAt) ||
 			challenge.challenge.RequestedAt.IsZero() || challenge.challenge.RequestedAt.After(mergeAt) {
 			return errors.New("trusted evaluation challenge was created after the merge boundary")
 		}
 	}
-	for _, record := range history.receipts {
+	return nil
+}
+
+func validateMergeBoundaryReceipts(receipts []evaluationReceiptRecord, mergeAt time.Time) error {
+	for _, record := range receipts {
 		if record.comment.CreatedAt.IsZero() || record.comment.CreatedAt.After(mergeAt) {
 			return errors.New("trusted evaluation receipt was created after the merge boundary")
 		}
 		if record.receipt.RecordedAt.After(mergeAt) {
 			return errors.New("evaluation receipt record time is after the merge boundary")
+		}
+	}
+	return nil
+}
+
+func validateMergeBoundaryResolutions(resolutions []evaluationResolutionRecord, mergeAt time.Time) error {
+	for _, record := range resolutions {
+		if record.comment.CreatedAt.IsZero() || record.comment.CreatedAt.After(mergeAt) {
+			return errors.New("trusted no-verdict resolution was created after the merge boundary")
+		}
+		if record.resolution.ResolvedAt.After(mergeAt) {
+			return errors.New("no-verdict resolution time is after the merge boundary")
 		}
 	}
 	return nil
@@ -208,6 +234,9 @@ func latestMergeBoundaryReceipt(history evaluationHistory) (evaluationReceiptRec
 		if record.comment.CreatedAt.Equal(selected.comment.CreatedAt) {
 			return evaluationReceiptRecord{}, errors.New("pre-merge evaluation proof has ambiguous receipts at the merge boundary")
 		}
+	}
+	if !latestEvaluationReceiptClosesLatestChallenge(history) {
+		return evaluationReceiptRecord{}, errors.New("latest challenge was not closed by a passing attested receipt; a no-verdict resolution cannot prove merge")
 	}
 	return selected, nil
 }
