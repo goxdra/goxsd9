@@ -111,8 +111,8 @@ optimization signals; quality must not regress. Never require sessions or
 telemetry.
 ## Failure behavior
 
-- Retry transient operations with bounded backoff; three failed recoveries make
-  a located, actionable `needs-human` handoff.
-- Leave incomplete branches/worktrees recoverable. Never force-push over active
-  claim or bypass required check.
+- Three failures require `go tool workflowctl handoff ISSUE --body-file FILE --needs-human`:
+  validate body, OPEN/Project; label, Backlog, comment last; never
+  infer Markdown/challenges without receipts.
+- Preserve incomplete worktrees; never force-push claim or bypass checks.
 - After one bounded reselection, do not backlog-loop or widen scope.

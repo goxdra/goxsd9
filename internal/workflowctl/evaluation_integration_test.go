@@ -71,6 +71,167 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	checkMergeResult(t, backend)
 }
 
+func TestThirdFailureProjectTransitionRetryConvergesWithoutReceipt(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	backend.projectStatus = "Ready"
+	var stdout bytes.Buffer
+	application := app{
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         &stdout,
+		stderr:                         new(bytes.Buffer),
+	}
+	thirdChallenge, thirdAttestationFile := recordThirdFailureRounds(t, &application, backend, &stdout, true)
+	assertPartialThirdFailure(t, backend)
+
+	commentCount := len(backend.comments)
+	_, unrelatedAttestationFile := writeTestFailureAttestationRun(t, backend.head, thirdChallenge,
+		"unrelated-attestation")
+	assertReconciliationRejects(t, &application, backend, unrelatedAttestationFile, commentCount,
+		"unrelated attestation")
+
+	junkAttestationFile := filepath.Join(t.TempDir(), "junk-attestation.json")
+	if err := os.WriteFile(junkAttestationFile, []byte(`{"schema":"evaluation-attestation/v1","verdict":"fail"}`), 0o600); err != nil {
+		t.Fatalf("write junk attestation: %v", err)
+	}
+	assertReconciliationRejects(t, &application, backend, junkAttestationFile, commentCount,
+		"junk attestation")
+
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", thirdAttestationFile}); err != nil {
+		t.Fatalf("retry exact third-failure attestation: %v", err)
+	}
+	if len(backend.comments) != commentCount {
+		t.Fatalf("exact retry appended a receipt: comments = %d, want %d", len(backend.comments), commentCount)
+	}
+	if !backend.needsHuman || backend.projectStatus != "Backlog" || backend.projectTransitionAttempts != 2 {
+		t.Fatalf("reconciled transition state = label %t, Project %s, attempts %d",
+			backend.needsHuman, backend.projectStatus, backend.projectTransitionAttempts)
+	}
+}
+
+func recordThirdFailureRounds(t *testing.T, application *app, backend *workflowBackend,
+	stdout *bytes.Buffer, injectProjectFailure bool,
+) (evaluationChallenge, string) {
+	t.Helper()
+	var thirdChallenge evaluationChallenge
+	var thirdAttestationFile string
+	for round := 1; round <= 3; round++ {
+		stdout.Reset()
+		challenge := requestTestChallenge(t, application, stdout)
+		if round == 3 {
+			thirdChallenge = challenge
+			if injectProjectFailure {
+				backend.projectTransitionFailures = 1
+			}
+		}
+		_, attestationFile := writeTestFailureAttestationRun(t, backend.head, challenge,
+			fmt.Sprintf("examiner-third-failure-%d", round))
+		if round == 3 {
+			thirdAttestationFile = attestationFile
+		}
+		stdout.Reset()
+		err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+		assertThirdFailureRound(t, round, err, injectProjectFailure)
+	}
+	return thirdChallenge, thirdAttestationFile
+}
+
+func assertThirdFailureRound(t *testing.T, round int, err error, injectProjectFailure bool) {
+	t.Helper()
+	if round != 3 {
+		if err != nil {
+			t.Fatalf("record failure round %d: %v", round, err)
+		}
+		return
+	}
+	if err == nil {
+		t.Fatal("third failure unexpectedly completed transition")
+	}
+	if injectProjectFailure && !strings.Contains(err.Error(), "project Backlog phase incomplete") {
+		t.Fatalf("third failure error = %v, want Project transition failure", err)
+	}
+}
+
+func assertPartialThirdFailure(t *testing.T, backend *workflowBackend) {
+	t.Helper()
+	if got, want := len(backend.comments), 6; got != want {
+		t.Fatalf("comments after failed transition = %d, want %d", got, want)
+	}
+	if !backend.needsHuman || backend.projectStatus != "Ready" || backend.projectTransitionAttempts != 1 {
+		t.Fatalf("partial transition state = label %t, Project %s, attempts %d",
+			backend.needsHuman, backend.projectStatus, backend.projectTransitionAttempts)
+	}
+}
+
+func assertReconciliationRejects(t *testing.T, application *app, backend *workflowBackend,
+	attestationFile string, commentCount int, label string,
+) {
+	t.Helper()
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err == nil {
+		t.Fatalf("%s bypassed recorded third-failure reconciliation", label)
+	}
+	if len(backend.comments) != commentCount || backend.projectTransitionAttempts != 1 {
+		t.Fatalf("%s mutated evaluation or Project state", label)
+	}
+}
+
+func TestThirdFailureTransitionRequiresCurrentOpenCanonicalProject(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(*workflowBackend)
+		repair  func(*workflowBackend)
+	}{
+		{name: "closed issue", prepare: func(backend *workflowBackend) { backend.issueState = "closed" }, repair: func(backend *workflowBackend) { backend.issueState = "open" }},
+		{name: "missing Project", prepare: func(backend *workflowBackend) { backend.projectMember = false }, repair: func(backend *workflowBackend) { backend.projectMember = true }},
+		{name: "changed Project identity", prepare: func(backend *workflowBackend) { backend.projectRepository = "other/repository" }, repair: func(backend *workflowBackend) { backend.projectRepository = repositoryKey }},
+		{name: "PullRequest Project item", prepare: func(backend *workflowBackend) { backend.projectType = "PullRequest" }, repair: func(backend *workflowBackend) { backend.projectType = "Issue" }},
+		{name: "missing Project item ID", prepare: func(backend *workflowBackend) { backend.projectItemID = "" }, repair: func(backend *workflowBackend) { backend.projectItemID = "item-13" }},
+		{name: "malformed Project content", prepare: func(backend *workflowBackend) { backend.projectMalformed = true }, repair: func(backend *workflowBackend) { backend.projectMalformed = false }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runThirdFailureProofCase(t, test.prepare, test.repair)
+		})
+	}
+}
+
+func runThirdFailureProofCase(t *testing.T, prepare, repair func(*workflowBackend)) {
+	t.Helper()
+	backend := newWorkflowBackend(t)
+	backend.projectStatus = "Ready"
+	prepare(backend)
+	var stdout bytes.Buffer
+	application := app{
+		ctx:                            context.Background(),
+		executeCommand:                 backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         &stdout,
+		stderr:                         new(bytes.Buffer),
+	}
+	_, attestationFile := recordThirdFailureRounds(t, &application, backend, &stdout, false)
+	if len(backend.comments) != 6 || backend.needsHuman || backend.projectTransitionAttempts != 0 {
+		t.Fatalf("invalid proof mutated after recording: comments=%d label=%t Project attempts=%d",
+			len(backend.comments), backend.needsHuman, backend.projectTransitionAttempts)
+	}
+	commentCount := len(backend.comments)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err == nil {
+		t.Fatal("exact retry accepted invalid current transition proof")
+	}
+	if len(backend.comments) != commentCount || backend.needsHuman || backend.projectTransitionAttempts != 0 {
+		t.Fatal("invalid exact retry mutated transition state")
+	}
+	repair(backend)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("retry repaired transition proof: %v", err)
+	}
+	if len(backend.comments) != commentCount || !backend.needsHuman || backend.projectStatus != "Backlog" ||
+		backend.projectTransitionAttempts != 1 {
+		t.Fatalf("repaired transition state: comments=%d label=%t Project=%s attempts=%d",
+			len(backend.comments), backend.needsHuman, backend.projectStatus, backend.projectTransitionAttempts)
+	}
+}
+
 func TestEvaluationAcceptsRunSpecificLocalBranchForFixedPRHead(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	backend.localBranch = claimLocalBranch(13, "run-test")
@@ -955,6 +1116,10 @@ func writeTestAttestation(t *testing.T, head string, challenge evaluationChallen
 }
 
 func writeTestFailureAttestation(t *testing.T, head string, challenge evaluationChallenge) ([]byte, string) {
+	return writeTestFailureAttestationRun(t, head, challenge, "examiner-failed-round")
+}
+
+func writeTestFailureAttestationRun(t *testing.T, head string, challenge evaluationChallenge, runID string) ([]byte, string) {
 	t.Helper()
 	return writeTestAttestationValue(t, evaluationAttestation{
 		Challenge: challenge.Challenge,
@@ -966,7 +1131,7 @@ func writeTestFailureAttestation(t *testing.T, head string, challenge evaluation
 		}},
 		Head:    head,
 		PR:      14,
-		RunID:   "examiner-failed-round",
+		RunID:   runID,
 		Schema:  evaluationAttestationSchema,
 		Summary: "Blocking finding; literal \\u001e; delimiter --> remains data.",
 		Verdict: "fail",
@@ -1251,7 +1416,7 @@ func claimStateCommand(t *testing.T, issue string) commandExecutor {
 		command := name + " " + strings.Join(args, " ")
 		switch command {
 		case "gh project item-list 1 --owner goxdra --format json --limit 500":
-			return `{"items":[{"content":{"number":13,"repository":"goxdra/goxsd9"},"status":"Ready"}]}`, nil
+			return `{"items":[{"content":{"number":13,"repository":"goxdra/goxsd9","type":"Issue"},"id":"item-13","status":"Ready"}]}`, nil
 		case "gh api repos/goxdra/goxsd9/issues/13":
 			return issue, nil
 		default:
@@ -1272,6 +1437,15 @@ type workflowBackend struct {
 	summaryFile                string
 	workCommitLog              string
 	comments                   []issueCommentAPI
+	needsHuman                 bool
+	projectMember              bool
+	projectItemID              string
+	projectType                string
+	projectRepository          string
+	projectNumber              int
+	projectMalformed           bool
+	projectTransitionFailures  int
+	projectTransitionAttempts  int
 	mergeRequest               mergePullRequestRequest
 	merged                     bool
 	projectDone                bool
@@ -1308,13 +1482,18 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 	body += "\n" + string(block)
 	return &workflowBackend{
 		t: t, root: "/primary-worktrees/issue-13", branch: "agent/issue-13", localBranch: "agent/issue-13", head: "evaluated-head",
-		body:          body,
-		summary:       summary,
-		summaryFile:   summaryFile,
-		title:         "test(workflow): exercise evaluation flow",
-		workCommitLog: framedCommitLog("test(workflow): exercise evaluation flow", "chore(workflow): claim issue #13"),
-		mergeSHA:      "merge-commit",
-		issueState:    "open",
+		body:              body,
+		summary:           summary,
+		summaryFile:       summaryFile,
+		title:             "test(workflow): exercise evaluation flow",
+		workCommitLog:     framedCommitLog("test(workflow): exercise evaluation flow", "chore(workflow): claim issue #13"),
+		mergeSHA:          "merge-commit",
+		issueState:        "open",
+		projectMember:     true,
+		projectItemID:     "item-13",
+		projectType:       "Issue",
+		projectRepository: repositoryKey,
+		projectNumber:     13,
 	}
 }
 
@@ -1486,6 +1665,9 @@ func (b *workflowBackend) executeGitClaim(dir, command string) (string, error) {
 
 func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, error) {
 	joined := strings.Join(args, " ")
+	if output, handled, err := b.executeGitHubIssue13(input, joined); handled {
+		return output, err
+	}
 	switch joined {
 	case "api repos/goxdra/goxsd9/pulls/14":
 		return b.pullRequestJSON()
@@ -1503,12 +1685,6 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 		b.body = request.Body
 		b.bodyPatchCount++
 		return `{}`, nil
-	case "api repos/goxdra/goxsd9/issues/13":
-		if b.issueReadFailures > 0 {
-			b.issueReadFailures--
-			return "", errors.New("simulated primary issue read failure")
-		}
-		return fmt.Sprintf(`{"state":%q,"labels":[]}`, b.issueState), nil
 	case "api --method PATCH repos/goxdra/goxsd9/issues/13 --input -":
 		var request struct {
 			State string `json:"state"`
@@ -1530,17 +1706,57 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 			"{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"quality\",\"status\":\"completed\"}]}", nil
 	case "api --method PUT repos/goxdra/goxsd9/pulls/14/merge --input -":
 		return b.merge(input)
-	case "project item-list 1 --owner goxdra --format json --limit 500":
-		return fmt.Sprintf(`{"items":[{"content":{"number":13,"repository":"goxdra/goxsd9"},"id":"item-13","status":%q}],"totalCount":1}`, b.projectStatus), nil
-	case "project field-list 1 --owner goxdra --format json":
-		return `{"fields":[{"id":"status-id","name":"Status","options":[{"id":"done-id","name":"Done"}]}]}`, nil
-	case "project item-edit --project-id PVT_kwDOEupz2s4Bgc9A --id item-13 --field-id status-id --single-select-option-id done-id":
-		b.projectDone = true
-		b.projectStatus = "Done"
-		return "", nil
 	default:
 		return "", fmt.Errorf("unexpected gh command: %s", joined)
 	}
+}
+
+func (b *workflowBackend) executeGitHubIssue13(_ []byte, joined string) (string, bool, error) {
+	switch joined {
+	case "api repos/goxdra/goxsd9/issues/13":
+		if b.issueReadFailures > 0 {
+			b.issueReadFailures--
+			return "", true, errors.New("simulated primary issue read failure")
+		}
+		labels := "[]"
+		if b.needsHuman {
+			labels = `[{"name":"needs-human"}]`
+		}
+		return fmt.Sprintf(`{"state":%q,"labels":%s}`, b.issueState, labels), true, nil
+	case "issue edit 13 --repo goxdra/goxsd9 --add-label needs-human":
+		b.needsHuman = true
+		return "", true, nil
+	case "project item-list 1 --owner goxdra --format json --limit 500":
+		return b.projectItemsJSON(), true, nil
+	case "project field-list 1 --owner goxdra --format json":
+		return `{"fields":[{"id":"status-id","name":"Status","options":[{"id":"backlog-id","name":"Backlog"},{"id":"done-id","name":"Done"}]}]}`, true, nil
+	case "project item-edit --project-id PVT_kwDOEupz2s4Bgc9A --id item-13 --field-id status-id --single-select-option-id backlog-id":
+		b.projectTransitionAttempts++
+		if b.projectTransitionFailures > 0 {
+			b.projectTransitionFailures--
+			return "", true, errors.New("simulated needs-human Project transition failure")
+		}
+		b.projectStatus = "Backlog"
+		return "", true, nil
+	case "project item-edit --project-id PVT_kwDOEupz2s4Bgc9A --id item-13 --field-id status-id --single-select-option-id done-id":
+		b.projectDone = true
+		b.projectStatus = "Done"
+		return "", true, nil
+	default:
+		return "", false, nil
+	}
+}
+
+func (b *workflowBackend) projectItemsJSON() string {
+	if !b.projectMember {
+		return `{"items":[],"totalCount":0}`
+	}
+	if b.projectMalformed {
+		return fmt.Sprintf(`{"items":[{"content":{"repository":%q,"type":%q},"id":%q,"status":%q}],"totalCount":1}`,
+			b.projectRepository, b.projectType, b.projectItemID, b.projectStatus)
+	}
+	return fmt.Sprintf(`{"items":[{"content":{"number":%d,"repository":%q,"type":%q},"id":%q,"status":%q}],"totalCount":1}`,
+		b.projectNumber, b.projectRepository, b.projectType, b.projectItemID, b.projectStatus)
 }
 
 func (b *workflowBackend) pullRequestJSON() (string, error) {
