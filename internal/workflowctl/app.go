@@ -134,6 +134,7 @@ Usage:
   go tool workflowctl pr recover PR
   go tool workflowctl claim prune ISSUE
   go tool workflowctl evaluation challenge PR
+  go tool workflowctl evaluation status PR
   go tool workflowctl evaluation record PR --attestation-file FILE
   go tool workflowctl evaluation repair PR --round ROUND
   go tool workflowctl skill-eval [--case GLOB] [--jobs JOBS] [--list] [--model MODEL]
