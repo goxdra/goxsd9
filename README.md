@@ -6,11 +6,7 @@ unsupported behavior.
 
 ## Schema parsing
 
-`ParseSchema` exposes schema discovery and immutable components. Callers create a
-root `ResolvedSource`; `Resolver` supplies referenced sources and resolution policy. Calls are
-sequential; contexts and locations stay opaque, and paths/URLs stay unopened.
-Parsing closes streams and decodes only unseen identities; repeated and cyclic
-identities close without decoding.
+`ParseSchema` exposes immutable schema components. Callers create `ResolvedSource`; `Resolver` supplies sources and policy. Calls are sequential; contexts/locations remain opaque, paths/URLs unopened. Parsing closes streams after unseen identities decode; repeated/cyclic identities close without decoding.
 
 Mixed XSD 1.0/1.1 graphs, declarations, and simple-type restrictions are supported. Chameleon includes, redefine/override/defaultOpenContent, assertions, and broader facets remain unsupported; total/fraction digits are implemented.
 `ParseSchema` selects graph-wide `Compatibility` by default; `ParseSchemaWithPolicy` validates
@@ -18,7 +14,7 @@ and applies graph-wide `Compatibility`, `Strict10`, or `Strict11` before discove
 unqualified `schema/@version` is an inert optional `xs:token` label: absent, empty, arbitrary,
 `"1.0"`, and `"1.1"` values never select or mismatch a policy. Strict10 routes the complete
 graph through XSD 1.0 behavior; Compatibility and Strict11 use XSD 1.1 behavior for the supported subset.
-Diagnostics cover invalid/unsupported input. `ValidateInstance` supports text-only built-in/named integer/decimal globals and named complex globals with one direct local integer/decimal choice; attributes, semantics, particles unsupported. `GenerateGo` emits deterministic Go; staged. [Scalar&nbsp;library&nbsp;quickstart:&nbsp;supported&nbsp;scalar&nbsp;path;&nbsp;product&nbsp;CLI&nbsp;validate&nbsp;is&nbsp;implemented;&nbsp;generate&nbsp;remains&nbsp;future](library_example_test.go).
+Diagnostics cover invalid/unsupported input; errors omit schema. `ValidateInstance` supports text-only built-in/named integer/decimal globals and named complex globals with one direct local built-in/named integer/decimal choice; attributes and broader particles/semantics unsupported. `GenerateGo` emits deterministic Go for scalar components and direct choices; broader generation staged. [Scalar&nbsp;library&nbsp;quickstart:&nbsp;supported&nbsp;scalar&nbsp;path;&nbsp;product&nbsp;CLI&nbsp;validate&nbsp;is&nbsp;implemented;&nbsp;generate&nbsp;remains&nbsp;future](library_example_test.go).
 
 ## Design goals
 
