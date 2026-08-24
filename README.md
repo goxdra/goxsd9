@@ -1,7 +1,7 @@
 # goxsd9
 
 goxsd9 targets XSD 1.1/1.0 parsing, XML validation, and Go code generation.
-It prioritizes a useful vertical slice and measured conformance without hiding
+It prioritizes a vertical slice and measured conformance without hiding
 unsupported behavior.
 
 ## Schema parsing
@@ -18,16 +18,16 @@ and applies graph-wide `Compatibility`, `Strict10`, or `Strict11` before discove
 unqualified `schema/@version` is an inert optional `xs:token` label: absent, empty, arbitrary,
 `"1.0"`, and `"1.1"` values never select or mismatch a policy. Strict10 routes the complete
 graph through XSD 1.0 behavior; Compatibility and Strict11 use XSD 1.1 behavior for the supported subset.
-Diagnostics cover invalid/unsupported input; errors omit schema. `ValidateInstance` supports text-only integer/decimal; semantics unsupported. `GenerateGo` emits deterministic scalar Go; broader generation staged. [Scalar&nbsp;library&nbsp;quickstart:&nbsp;supported&nbsp;scalar&nbsp;path;&nbsp;product&nbsp;CLI&nbsp;validate/generate&nbsp;remain&nbsp;future](library_example_test.go).
+Diagnostics cover invalid/unsupported input; errors omit schema. `ValidateInstance` supports text-only integer/decimal; semantics unsupported. `GenerateGo` emits deterministic Go for supported scalar components and direct scalar choices; broader generation remains staged. [Scalar&nbsp;library&nbsp;quickstart:&nbsp;supported&nbsp;scalar&nbsp;path;&nbsp;product&nbsp;CLI&nbsp;validate/generate&nbsp;remain&nbsp;future](library_example_test.go).
 
 ## Design goals
 
 - Exact value spaces and facets.
-- Streaming input through caller resolvers.
-- Immutable, deterministic query and walk APIs.
-- Located diagnostics without silent unsupported behavior.
+- Streaming input through resolvers.
+- Immutable deterministic query and walk APIs.
+- Located diagnostics without silent gaps.
 - No goroutines, locks, or map-order output.
-- Measured W3C conformance.
+- Measured conformance.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [PLAN.md](PLAN.md), and the [CLI decision](docs/decisions/0006-vertical-slice-cli.md).
 
@@ -51,13 +51,13 @@ go tool specs build -id xsd11-structures
 go tool specs search -id xsd11-structures -query "content model"
 ```
 
-Use `-root PATH`, `-output PATH`, and `-index PATH` as needed; see the [schema bootstrap contract](docs/decisions/0003-schema-bootstrap.md) for digest verification, declared representation conversion, and generated artifacts.
+Use `-root PATH`, `-output PATH`, and `-index PATH`; see the [schema bootstrap contract](docs/decisions/0003-schema-bootstrap.md) for digest verification, declared representation conversion, and generated artifacts.
 
 ## Project workflow
 
 Work lives in [GitHub Issues](https://github.com/goxdra/goxsd9/issues) and the
 [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1). Agents use worktrees
-and workflow skills. See [scheduled operations](docs/operations.md) and
+and workflow skills. See [operations](docs/operations.md) and
 [AGENTS.md](AGENTS.md) for workflowctl rules.
 
 ## Test data licensing

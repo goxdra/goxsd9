@@ -19,5 +19,5 @@
 // declared as built-in or named xs:integer or xs:decimal. The scalar element
 // must contain only character data; attributes and child elements are
 // explicit unsupported behavior. GenerateGo produces deterministic Go source
-// for the supported scalar schema components.
+// for the supported scalar schema components and direct scalar choices.
 package goxsd9
