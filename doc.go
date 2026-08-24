@@ -16,8 +16,10 @@
 // identities; repeated and cyclic identities are closed without decoding.
 //
 // ValidateInstance supports one complete instance rooted at a global element
-// declared as built-in or named xs:integer or xs:decimal. The scalar element
-// must contain only character data; attributes and child elements are
-// explicit unsupported behavior. GenerateGo produces deterministic Go source
-// for the supported scalar schema components and direct scalar choices.
+// declared as built-in or named xs:integer/xs:decimal, or as a named complex
+// type whose one direct choice contains local built-in or named integer/decimal
+// elements. Scalar elements contain only character data; attributes, broader
+// particles, and semantics remain explicit unsupported behavior. GenerateGo
+// produces deterministic Go source for the supported scalar schema components
+// and direct scalar choices.
 package goxsd9
