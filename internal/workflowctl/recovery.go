@@ -246,14 +246,15 @@ func (a app) prepareRecoveryCleanupPlanWithProof(root string, layout repositoryL
 	if err != nil {
 		return cleanupPlan{}, err
 	}
+	err = a.ensureRecoveryHead(root, pullRequestNumber, proof.head)
+	if err != nil {
+		return cleanupPlan{}, err
+	}
 	claims, err = attachClaimWorktrees(layout, claims)
 	if err != nil {
 		return cleanupPlan{}, err
 	}
 	if len(claims) > 1 {
-		if err := a.ensureRecoveryHead(root, pullRequestNumber, proof.head); err != nil {
-			return cleanupPlan{}, err
-		}
 		if err := a.validateClaimArtifacts(root, layout, claims, proof.head, primary, true); err != nil {
 			return cleanupPlan{}, err
 		}
@@ -404,10 +405,10 @@ func (a app) ensureRecoveryHead(root string, pullRequestNumber int, head string)
 	}
 	ref := "refs/pull/" + strconv.Itoa(pullRequestNumber) + "/head"
 	if _, err := a.command(root, "git", "fetch", "--no-tags", "origin", ref); err != nil {
-		return fmt.Errorf("fetch merged PR #%d head for companion proof: %w", pullRequestNumber, err)
+		return fmt.Errorf("fetch merged PR #%d evaluated head for run-local proof: %w", pullRequestNumber, err)
 	}
 	if _, err := a.command(root, "git", "cat-file", "-e", head+"^{commit}"); err != nil {
-		return fmt.Errorf("verify merged PR #%d head for companion proof: %w", pullRequestNumber, err)
+		return fmt.Errorf("verify merged PR #%d evaluated head for run-local proof: %w", pullRequestNumber, err)
 	}
 	return nil
 }

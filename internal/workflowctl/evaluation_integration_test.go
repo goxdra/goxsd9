@@ -1620,6 +1620,8 @@ func (b *workflowBackend) executeGitArtifact(command string) (string, bool) {
 		return "", true
 	case "merge-base --is-ancestor evaluated-head evaluated-head":
 		return "", true
+	case "cat-file -e evaluated-head^{commit}", "fetch --no-tags origin refs/pull/14/head":
+		return "", true
 	case "merge-base base-sha evaluated-head":
 		return "merge-sha", true
 	case "diff --name-status -z --no-renames merge-sha evaluated-head --":

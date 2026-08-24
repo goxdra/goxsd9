@@ -103,7 +103,11 @@ func TestPrepareCleanupPlanAllowsExpectedRunLocalWorktreeBeforeMerge(t *testing.
 		Number int `json:"number"`
 	}{Number: 55})
 
-	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}}
+	application := app{
+		ctx:            context.Background(),
+		stdout:         &bytes.Buffer{},
+		executeCommand: realGitWithNoOpenPRExecutor(t, nil),
+	}
 	layout, err := application.repositoryLayout(runPath)
 	if err != nil {
 		t.Fatalf("repositoryLayout: %v", err)
@@ -114,6 +118,36 @@ func TestPrepareCleanupPlanAllowsExpectedRunLocalWorktreeBeforeMerge(t *testing.
 	}
 	if len(plan.claims) != 1 || plan.claims[0].localBranch != runBranch || !samePath(plan.claims[0].worktreePath, runPath) {
 		t.Fatalf("cleanup plan claims = %#v, want expected run-local worktree", plan.claims)
+	}
+}
+
+func TestAttachProvenRunLocalWorktreeAllowsExpectedAncestorCaller(t *testing.T) {
+	const (
+		fixedBranch = "agent/issue-86"
+		runBranch   = "agent/issue-86-run-good"
+		ancestor    = "canonical-anchor"
+		proofHead   = "evaluated-head"
+	)
+	runPath := claimWorktreePath("/repo", runBranch)
+	layout := repositoryLayout{
+		primaryRoot: "/repo",
+		worktrees:   []gitWorktree{{path: runPath, head: ancestor, branch: "refs/heads/" + runBranch}},
+	}
+	claims := []claimArtifact{{issue: 86, branch: fixedBranch, sha: proofHead}}
+	attached, err := attachClaimWorktrees(layout, claims)
+	if err != nil {
+		t.Fatalf("attachClaimWorktrees: %v", err)
+	}
+	if hasWorktreeForRoot(attached, runPath) {
+		t.Fatal("unproven ancestor worktree was attached before shared proof")
+	}
+	proven := []provenRunLocalRef{{branch: runBranch, sha: ancestor, localPresent: true}}
+	attached, err = attachProvenRunLocalWorktrees(layout, claims, proven, runPath)
+	if err != nil {
+		t.Fatalf("attachProvenRunLocalWorktrees: %v", err)
+	}
+	if len(attached) != 1 || attached[0].localBranch != runBranch || !samePath(attached[0].worktreePath, runPath) {
+		t.Fatalf("proven ancestor attachment = %#v, want %s at %s", attached, runBranch, runPath)
 	}
 }
 
