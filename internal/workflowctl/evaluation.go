@@ -208,9 +208,21 @@ type evaluationHistory struct {
 	repairs    []evaluationRepairRecord
 }
 
+type evaluationStatusChallenge struct {
+	challenge       evaluationChallengeRecord
+	resolved        bool
+	resolvedReceipt evaluationReceipt
+}
+
+type evaluationStatusProjection struct {
+	currentHead    string
+	challenges     []evaluationStatusChallenge
+	recordedRounds []evaluationReceipt
+}
+
 func (a app) runEvaluation(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl evaluation challenge PR | record PR --attestation-file FILE | repair PR --round ROUND")
+		return usageError("usage: workflowctl evaluation challenge PR | status PR | record PR --attestation-file FILE | repair PR --round ROUND")
 	}
 	switch args[0] {
 	case "challenge":
@@ -222,6 +234,15 @@ func (a app) runEvaluation(args []string) error {
 			return usageError("evaluation challenge: %v", err)
 		}
 		return a.requestEvaluation(pr)
+	case "status":
+		if len(args) != 2 {
+			return usageError("usage: workflowctl evaluation status PR")
+		}
+		pr, err := positiveNumber(args[1])
+		if err != nil {
+			return usageError("evaluation status: %v", err)
+		}
+		return a.statusEvaluation(pr)
 	case "record":
 		return a.recordEvaluation(args[1:])
 	case "repair":
@@ -229,6 +250,169 @@ func (a app) runEvaluation(args []string) error {
 	default:
 		return usageError("unknown evaluation command %q", args[0])
 	}
+}
+
+func (a app) statusEvaluation(number int) error {
+	root, err := a.root()
+	if err != nil {
+		return err
+	}
+	view, err := a.readPullRequest(root, number)
+	if err != nil {
+		return err
+	}
+	if view.State != "OPEN" {
+		return stateError("PR #%d is %s", number, view.State)
+	}
+	if evidenceErr := rejectUntrustedEvaluationEvidence(view.Comments); evidenceErr != nil {
+		return stateError("PR #%d has untrusted evaluation evidence: %v", number, evidenceErr)
+	}
+	history, err := parseEvaluationHistory(view.Comments)
+	if err != nil {
+		return stateError("PR #%d has invalid evaluation history: %v", number, err)
+	}
+	if validationErr := validateEvaluationHistory(history); validationErr != nil {
+		return stateError("PR #%d has invalid evaluation history: %v", number, validationErr)
+	}
+	projection, err := evaluationStatusForPR(number, view, history)
+	if err != nil {
+		return stateError("PR #%d has invalid evaluation history: %v", number, err)
+	}
+	report := renderEvaluationStatus(number, projection)
+	if _, err := io.WriteString(a.stdout, report); err != nil {
+		return fmt.Errorf("write evaluation status: %w", err)
+	}
+	return nil
+}
+
+func evaluationStatusForPR(number int, view pullRequestView, history evaluationHistory) (
+	evaluationStatusProjection, error) {
+	if err := validateEvaluationStatusHistory(number, history); err != nil {
+		return evaluationStatusProjection{}, err
+	}
+	projection := evaluationStatusProjection{
+		currentHead:    view.HeadRefOID,
+		challenges:     make([]evaluationStatusChallenge, 0, len(history.challenges)),
+		recordedRounds: make([]evaluationReceipt, 0, len(history.receipts)),
+	}
+	for _, record := range history.receipts {
+		projection.recordedRounds = append(projection.recordedRounds, record.receipt)
+	}
+	for _, challenge := range history.challenges {
+		statusChallenge := evaluationStatusChallenge{challenge: challenge}
+		matches := 0
+		for _, receipt := range history.receipts {
+			if receipt.receipt.AttestationSHA256 == "" || !evaluationChallengeMatchesReceipt(challenge, receipt) {
+				continue
+			}
+			statusChallenge.resolvedReceipt = receipt.receipt
+			matches++
+		}
+		if matches > 1 {
+			return evaluationStatusProjection{}, fmt.Errorf("evaluation challenge %q has %d matching trusted receipts",
+				challenge.challenge.Challenge, matches)
+		}
+		statusChallenge.resolved = matches == 1
+		projection.challenges = append(projection.challenges, statusChallenge)
+	}
+	return projection, nil
+}
+
+func validateEvaluationStatusHistory(number int, history evaluationHistory) error {
+	seenChallenges := make(map[string]struct{}, len(history.challenges))
+	for _, record := range history.challenges {
+		challenge := record.challenge
+		if challenge.PR != number {
+			return fmt.Errorf("evaluation challenge %q targets PR #%d, want PR #%d",
+				challenge.Challenge, challenge.PR, number)
+		}
+		if _, seen := seenChallenges[challenge.Challenge]; seen {
+			return fmt.Errorf("evaluation challenge %q has duplicate trusted markers", challenge.Challenge)
+		}
+		seenChallenges[challenge.Challenge] = struct{}{}
+		if record.comment.CreatedAt.IsZero() || !commentTimeMatches(record.comment.CreatedAt, challenge.RequestedAt) {
+			return fmt.Errorf("evaluation challenge %q timestamp does not match its comment",
+				challenge.Challenge)
+		}
+	}
+	for _, record := range history.receipts {
+		if record.receipt.PR != 0 && record.receipt.PR != number {
+			return fmt.Errorf("evaluation round %d targets PR #%d, want PR #%d",
+				record.receipt.Round, record.receipt.PR, number)
+		}
+	}
+	for _, record := range history.repairs {
+		if record.repair.PR != number {
+			return fmt.Errorf("evaluation repair round %d targets PR #%d, want PR #%d",
+				record.repair.Round, record.repair.PR, number)
+		}
+	}
+	return nil
+}
+
+func renderEvaluationStatus(number int, projection evaluationStatusProjection) string {
+	lines := []string{
+		fmt.Sprintf("PR #%d evaluation status", number),
+		"Current head: " + projection.currentHead,
+		fmt.Sprintf("Trusted challenges: %d", len(projection.challenges)),
+	}
+	outstanding := 0
+	for _, challenge := range projection.challenges {
+		if !challenge.resolved {
+			outstanding++
+		}
+	}
+	lines = append(lines,
+		fmt.Sprintf("Outstanding challenges: %d", outstanding),
+		fmt.Sprintf("Resolved challenges: %d", len(projection.challenges)-outstanding),
+		fmt.Sprintf("Recorded rounds: %d", len(projection.recordedRounds)),
+		fmt.Sprintf("Recorded pass verdicts: %d", evaluationStatusVerdictCount(projection.recordedRounds, "pass")),
+		fmt.Sprintf("Recorded fail verdicts: %d", evaluationStatusVerdictCount(projection.recordedRounds, "fail")),
+		"State: "+evaluationStatusState(len(projection.challenges), outstanding),
+	)
+	if len(projection.challenges) > 0 {
+		lines = append(lines, "Challenges (comment order):")
+		for index, challenge := range projection.challenges {
+			status := "outstanding"
+			if challenge.resolved {
+				status = fmt.Sprintf("resolved by round %d (verdict: %s)", challenge.resolvedReceipt.Round,
+					challenge.resolvedReceipt.Verdict)
+			}
+			lines = append(lines, fmt.Sprintf("%d. %s (head=%s, requested=%s): %s", index+1,
+				challenge.challenge.challenge.Challenge, challenge.challenge.challenge.Head,
+				challenge.challenge.challenge.RequestedAt.Format(time.RFC3339Nano), status))
+		}
+	}
+	if len(projection.recordedRounds) > 0 {
+		lines = append(lines, "Recorded rounds (comment order):")
+		for _, receipt := range projection.recordedRounds {
+			lines = append(lines, fmt.Sprintf("- round %d: %s", receipt.Round, receipt.Verdict))
+		}
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func evaluationStatusVerdictCount(receipts []evaluationReceipt, verdict string) int {
+	count := 0
+	for _, receipt := range receipts {
+		if receipt.Verdict == verdict {
+			count++
+		}
+	}
+	return count
+}
+
+func evaluationStatusState(challenges, outstanding int) string {
+	if challenges == 0 {
+		return "no trusted challenges"
+	}
+	if outstanding == 0 {
+		return "resolved challenges"
+	}
+	if outstanding == challenges {
+		return "outstanding challenges"
+	}
+	return "outstanding and resolved challenges"
 }
 
 func (a app) repairEvaluation(args []string) error {
