@@ -42,7 +42,7 @@ records one-use head-bound challenge; Examiner JSON is versioned;
 results. Fresh context; receipts are evidence, not identity proof.
 Unresolved challenges survive snapshot changes. After two hours, `workflowctl evaluation resolve PR --challenge ID --reason-file FILE` records authenticated
 no-verdict resolution; never pass/fail or merge proof.
-REST squash merge is SHA-bound. Cleanup inventories packets, proves branch-bounded identity, rejects inherited trailers, preserves artifacts. Exact deletion, idempotent `pr recover`, merged-proof `claim prune`, archives/unrelated refs remain.
+REST squash-merge SHA-bound. Cleanup scopes inventory by packet, proves branch-bounded run identity, rejects inherited-trailer ownership; preserves artifacts, archives/unrelated refs. Exact deletion, idempotent `pr recover`, merged-proof `claim prune`.
 
 GraphQL fallback: identical-head REST, fresh Examiner.
 GitHub-effective references validate close; exact merge proof binds primary to
