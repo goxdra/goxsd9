@@ -17,8 +17,9 @@ and keeps it optional.
 
 The source is pinned as `xsd-precisionDecimal` in [`specs/manifest.json`](../../specs/manifest.json),
 including its digest: [An XSD datatype for IEEE floating-point decimal](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/).
-The former unsupported gate was retired after this boundary completed;
-validator and code-generation support remain separate.
+The completed optional precisionDecimal library/schema boundary has no
+precisionDecimal unsupported gate; validator and code-generation support remain
+separate.
 
 ## Semantic contract
 
@@ -112,9 +113,10 @@ conformance claim or a substitute for the per-call resource contract.
 
 ## Bounded follow-up and corpus evidence
 
-These packets now form one completed optional boundary. Assertions remain
-separate, and exact decimal facets stay separate from precisionDecimal
-construction.
+The completed optional precisionDecimal boundary covers exact precisionDecimal
+library values and applicable facets, partial comparison, bounded canonical
+output, and immutable schema facts. Assertions and exact-decimal facet work
+remain separate.
 
 Pinned catalog’s [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references the accepted,
 undisputed auxiliary groups [`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)
