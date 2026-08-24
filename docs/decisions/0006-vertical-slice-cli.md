@@ -265,17 +265,17 @@ $ goxsd9 validate --diagnostics json examples/root.xsd examples/invalid.xml
 The public scalar and direct-choice generator formats output like this:
 
 ```console
-$ goxsd9 generate --package sample examples/scalars.xsd
+$ goxsd9 generate --package sample examples/root.xsd
 package sample
 
 import Runtime "github.com/goxdra/goxsd9"
 
-type Amount struct {
-	Value Runtime.StrictDecimal
+type Count struct {
+	Value Runtime.StrictInteger
 }
 
-type WholeNumber struct {
-	Value Runtime.StrictInteger
+type Amount struct {
+	Value Runtime.StrictDecimal
 }
 ```
 
@@ -283,7 +283,7 @@ An explicit destination emits no stdout and writes the same complete bytes
 atomically:
 
 ```console
-$ goxsd9 generate --package sample --output generated.go --force examples/scalars.xsd
+$ goxsd9 generate --package sample --output generated.go --force examples/root.xsd
 $
 ```
 
