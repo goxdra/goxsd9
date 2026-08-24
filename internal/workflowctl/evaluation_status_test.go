@@ -319,8 +319,13 @@ func TestEvaluationStatusHelpAdvertisesCommand(t *testing.T) {
 	if err := (app{stdout: &output}).usage(); err != nil {
 		t.Fatalf("usage: %v", err)
 	}
-	if want := "workflowctl evaluation status PR"; !strings.Contains(output.String(), want) {
-		t.Fatalf("usage omits %q:\n%s", want, output.String())
+	for _, want := range []string{
+		"workflowctl evaluation status PR",
+		"workflowctl evaluation resolve PR --challenge ID --reason-file FILE",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("usage omits %q:\n%s", want, output.String())
+		}
 	}
 }
 

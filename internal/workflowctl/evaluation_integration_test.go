@@ -1437,6 +1437,8 @@ type workflowBackend struct {
 	summaryFile                string
 	workCommitLog              string
 	comments                   []issueCommentAPI
+	commentPostCount           int
+	postCommentAuthor          string
 	needsHuman                 bool
 	projectMember              bool
 	projectItemID              string
@@ -1800,7 +1802,11 @@ func (b *workflowBackend) postComment(data []byte) (string, error) {
 		return "", fmt.Errorf("decode comment request: %w", err)
 	}
 	comment := issueCommentAPI{Body: request.Body, CreatedAt: time.Now().UTC().Truncate(time.Second)}
-	comment.User.Login = trustedActor
+	b.commentPostCount++
+	comment.User.Login = b.postCommentAuthor
+	if comment.User.Login == "" {
+		comment.User.Login = trustedActor
+	}
 	b.comments = append(b.comments, comment)
 	return `{}`, nil
 }

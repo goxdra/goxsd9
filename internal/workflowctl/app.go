@@ -137,6 +137,7 @@ Usage:
   go tool workflowctl evaluation status PR
   go tool workflowctl evaluation record PR --attestation-file FILE
   go tool workflowctl evaluation repair PR --round ROUND
+  go tool workflowctl evaluation resolve PR --challenge ID --reason-file FILE
   go tool workflowctl skill-eval [--case GLOB] [--jobs JOBS] [--list] [--model MODEL]
   go tool workflowctl fuzz --package PACKAGE --target FUZZ_TARGET --duration DURATION
 `)

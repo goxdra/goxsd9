@@ -40,7 +40,9 @@ var evaluationEvidenceReservedSequences = [...]evaluationEvidenceReservedSequenc
 	{value: "<!-- workflowctl-evaluation-report-base64-v1 ", receiptEvidence: true},
 	{value: "<!-- workflowctl-evaluation-repair-v1 ", receiptEvidence: true},
 	{value: "<!-- workflowctl-evaluation-challenge ", receiptEvidence: false},
+	{value: "<!-- workflowctl-evaluation-resolution-v1 ", receiptEvidence: true},
 	{value: "## Examiner evaluation — round receipt\n\n", receiptEvidence: true},
+	{value: "## Examiner evaluation — no-verdict resolution\n\n", receiptEvidence: true},
 }
 
 const (
@@ -348,7 +350,9 @@ func expectedEvaluationEvidenceRepairSemantics(frame evaluationEvidenceFrame, in
 	body := frame.bodies[index]
 	if expectedEvaluationEvidenceHasReceipt(body) ||
 		expectedEvaluationEvidenceHasAttestationEvidence(body) ||
-		expectedEvaluationEvidenceHasMarker(body, evaluationChallengeMarker) {
+		expectedEvaluationEvidenceHasMarker(body, evaluationChallengeMarker) ||
+		expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarker) ||
+		bytes.Contains(body, []byte(evaluationResolutionHeading)) {
 		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
 	}
 	repair, ok := expectedEvaluationEvidenceRepair(body)
@@ -366,6 +370,10 @@ func expectedEvaluationEvidenceRepairSemantics(frame evaluationEvidenceFrame, in
 
 func expectedEvaluationEvidenceTrustedCommentSemantics(frame evaluationEvidenceFrame, index int) evaluationEvidenceCommentSemantics {
 	body := frame.bodies[index]
+	if expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarker) ||
+		bytes.Contains(body, []byte(evaluationResolutionHeading)) {
+		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
+	}
 	if !expectedEvaluationEvidenceHasReceipt(body) {
 		if expectedEvaluationEvidenceHasAttestationEvidence(body) {
 			return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
@@ -403,7 +411,9 @@ func expectedEvaluationEvidenceHasReceiptEvidence(body []byte) bool {
 func expectedEvaluationEvidenceHasAttestationEvidence(body []byte) bool {
 	return expectedEvaluationEvidenceHasMarker(body, evaluationReportBase64Marker) ||
 		expectedEvaluationEvidenceHasMarker(body, evaluationAttestationBase64Marker) ||
-		expectedEvaluationEvidenceHasMarker(body, evaluationAttestationMarker)
+		expectedEvaluationEvidenceHasMarker(body, evaluationAttestationMarker) ||
+		expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarker) ||
+		bytes.Contains(body, []byte(evaluationResolutionHeading))
 }
 
 func expectedEvaluationEvidenceHasRawAttestation(body []byte) bool {

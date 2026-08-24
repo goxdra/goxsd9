@@ -369,6 +369,9 @@ func (a app) validateFinishPullRequest(root, branch string, claimedIssue, number
 	if _, err := a.validatePREvidenceForPR(root, number, view); err != nil {
 		return pullRequestView{}, err
 	}
+	if err := rejectUntrustedEvaluationEvidence(view.Comments); err != nil {
+		return pullRequestView{}, stateError("PR #%d has untrusted evaluation evidence: %v", number, err)
+	}
 	passes, evaluationErr := latestEvaluationPasses(view, number)
 	if evaluationErr != nil {
 		return pullRequestView{}, stateError("PR #%d has invalid evaluation history: %v", number, evaluationErr)

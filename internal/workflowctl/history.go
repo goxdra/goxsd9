@@ -54,8 +54,9 @@ type historySnapshot struct {
 }
 
 type historyEvaluationPacket struct {
-	number int
-	rounds []historyEvaluationRound
+	number      int
+	rounds      []historyEvaluationRound
+	resolutions []historyEvaluationResolution
 }
 
 type historyEvaluationRound struct {
@@ -63,6 +64,13 @@ type historyEvaluationRound struct {
 	verdict          string
 	blockingFindings int
 	findingEvidence  bool
+}
+
+type historyEvaluationResolution struct {
+	challenge  string
+	head       string
+	reason     string
+	resolvedAt time.Time
 }
 
 type historyEvaluationMetrics struct {
@@ -74,6 +82,7 @@ type historyEvaluationMetrics struct {
 	failedRounds                 int
 	blockingFindings             int
 	missingFindingEvidenceRounds int
+	noVerdictResolutions         int
 }
 
 func (a app) runHistory(args []string) error {
@@ -177,7 +186,7 @@ func (a app) collectHistoryEvaluations(root string, pullRequests []pullRequestSu
 		if err != nil {
 			return nil, err
 		}
-		if len(packet.rounds) == 0 {
+		if len(packet.rounds) == 0 && len(packet.resolutions) == 0 {
 			continue
 		}
 		packets = append(packets, packet)
@@ -193,6 +202,9 @@ func historyTrustedComments(comments []pullRequestComment) []pullRequestComment 
 			continue
 		}
 		if comment.Author.Login != historyLegacyTrustedActor {
+			continue
+		}
+		if hasMarker(comment.Body, evaluationResolutionMarker) || strings.Contains(comment.Body, evaluationResolutionHeading) {
 			continue
 		}
 		comment.Author.Login = trustedActor
@@ -279,6 +291,16 @@ func historyEvaluationPacketForPR(pullRequest pullRequestSummary, history evalua
 		}
 		packet.rounds = append(packet.rounds, round)
 	}
+	for _, record := range history.resolutions {
+		resolution, include, err := historyEvaluationResolutionForPR(pullRequest, record)
+		if err != nil {
+			return historyEvaluationPacket{}, err
+		}
+		if !include {
+			continue
+		}
+		packet.resolutions = append(packet.resolutions, resolution)
+	}
 	return packet, nil
 }
 
@@ -312,6 +334,27 @@ func historyEvaluationRoundForPR(pullRequest pullRequestSummary, record evaluati
 		round.blockingFindings = len(attestation.Findings)
 	}
 	return round, true, nil
+}
+
+func historyEvaluationResolutionForPR(pullRequest pullRequestSummary, record evaluationResolutionRecord) (
+	historyEvaluationResolution, bool, error) {
+	if record.comment.CreatedAt.IsZero() {
+		return historyEvaluationResolution{}, false, fmt.Errorf("PR #%d no-verdict resolution for challenge %q has missing comment timestamp",
+			pullRequest.Number, record.resolution.Challenge)
+	}
+	if record.comment.CreatedAt.After(pullRequest.MergedAt) || record.resolution.ResolvedAt.After(pullRequest.MergedAt) {
+		return historyEvaluationResolution{}, false, nil
+	}
+	if record.resolution.PR != pullRequest.Number {
+		return historyEvaluationResolution{}, false, fmt.Errorf("PR #%d no-verdict resolution for challenge %q targets PR #%d",
+			pullRequest.Number, record.resolution.Challenge, record.resolution.PR)
+	}
+	return historyEvaluationResolution{
+		challenge:  record.resolution.Challenge,
+		head:       record.resolution.Head,
+		reason:     record.resolution.Reason,
+		resolvedAt: record.resolution.ResolvedAt,
+	}, true, nil
 }
 
 func (a app) collectGitCandidates(root string, window historyWindow) ([]gitHistoryCandidate, error) {
@@ -590,10 +633,16 @@ func renderHistoryEvaluationMetrics(w io.Writer, metrics historyEvaluationMetric
 
 func renderHistoryEvaluationFindings(w io.Writer, metrics historyEvaluationMetrics) error {
 	if metrics.missingFindingEvidenceRounds == 0 {
-		return writeLine(w, "- Blocking findings: %d", metrics.blockingFindings)
+		if err := writeLine(w, "- Blocking findings: %d", metrics.blockingFindings); err != nil {
+			return err
+		}
+		return writeLine(w, "- No-verdict resolutions: %d", metrics.noVerdictResolutions)
 	}
-	return writeLine(w, "- Blocking findings: unavailable (validated attested findings=%d; %d receipt(s) have no attestation findings payload)",
-		metrics.blockingFindings, metrics.missingFindingEvidenceRounds)
+	if err := writeLine(w, "- Blocking findings: unavailable (validated attested findings=%d; %d receipt(s) have no attestation findings payload)",
+		metrics.blockingFindings, metrics.missingFindingEvidenceRounds); err != nil {
+		return err
+	}
+	return writeLine(w, "- No-verdict resolutions: %d", metrics.noVerdictResolutions)
 }
 
 func renderHistoryEvaluationDetails(w io.Writer, packets []historyEvaluationPacket, limit int) error {
@@ -610,8 +659,15 @@ func renderHistoryEvaluationDetails(w io.Writer, packets []historyEvaluationPack
 		for _, round := range rounds {
 			parts = append(parts, formatHistoryEvaluationRound(round))
 		}
-		if err := writeLine(w, "  - #%d: %s", packet.number, strings.Join(parts, "; ")); err != nil {
-			return err
+		if len(parts) > 0 {
+			if err := writeLine(w, "  - #%d: %s", packet.number, strings.Join(parts, "; ")); err != nil {
+				return err
+			}
+		}
+		for _, resolution := range packet.resolutions {
+			if err := writeLine(w, "  - #%d: %s", packet.number, formatHistoryEvaluationResolution(resolution)); err != nil {
+				return err
+			}
 		}
 	}
 	return renderOmitted(w, len(packets)-count, "evaluated packet", limit)
@@ -629,15 +685,17 @@ func historyEvaluationMetricsFor(packets []historyEvaluationPacket) historyEvalu
 		metrics.failedRounds += packetMetrics.failedRounds
 		metrics.blockingFindings += packetMetrics.blockingFindings
 		metrics.missingFindingEvidenceRounds += packetMetrics.missingFindingEvidenceRounds
+		metrics.noVerdictResolutions += packetMetrics.noVerdictResolutions
 	}
 	return metrics
 }
 
 func historyEvaluationMetricsForPacket(packet historyEvaluationPacket) historyEvaluationMetrics {
+	metrics := historyEvaluationMetrics{noVerdictResolutions: len(packet.resolutions)}
 	if len(packet.rounds) == 0 {
-		return historyEvaluationMetrics{}
+		return metrics
 	}
-	metrics := historyEvaluationMetrics{evaluatedPackets: 1}
+	metrics.evaluatedPackets = 1
 	first := packet.rounds[0]
 	if first.verdict == "pass" {
 		metrics.firstPassPackets = 1
@@ -677,6 +735,11 @@ func formatHistoryEvaluationRound(round historyEvaluationRound) string {
 		return fmt.Sprintf("round %d fail (findings unavailable)", round.round)
 	}
 	return fmt.Sprintf("round %d %s", round.round, round.verdict)
+}
+
+func formatHistoryEvaluationResolution(resolution historyEvaluationResolution) string {
+	return fmt.Sprintf("no-verdict resolution challenge %s (head=%s, resolved=%s, reason=%q)",
+		resolution.challenge, resolution.head, resolution.resolvedAt.Format(time.RFC3339Nano), resolution.reason)
 }
 
 func medianLeadTime(items []pullRequestSummary) (time.Duration, bool) {
