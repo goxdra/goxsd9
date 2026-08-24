@@ -12,8 +12,8 @@ goxsd9 validate [--schema-root DIR] [--diagnostics human|json] SCHEMA INSTANCE
 goxsd9 generate [--schema-root DIR] [--diagnostics human|json] --package NAME [--output FILE|-] [--force] SCHEMA
 ```
 
-The `parse` form is implemented by `cmd/goxsd9` in the first slice;
-`validate` and `generate` remain future commands. Flags occur before operands,
+The `parse` and `validate` forms are implemented by `cmd/goxsd9` in the first
+slice; `generate` remains a future command. Flags occur before operands,
 each option is supplied at most once, and
 unknown options or extra operands are usage errors. `parse` and `generate`
 take exactly one `SCHEMA`; `validate` takes exactly one `SCHEMA` and one
@@ -227,8 +227,8 @@ rollback use an explicit file.
 
 ## Contract examples
 
-The parse examples in this section, including the stdin example, document
-current executable behavior. The validate and generate examples are future
+The parse and validate examples in this section describe current executable
+behavior, including the stdin parse example. The generate examples remain future
 contract examples. Counts and diagnostic text are illustrative except for the
 required success stream shapes.
 
