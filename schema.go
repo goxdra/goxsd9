@@ -699,11 +699,11 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 	if err != nil {
 		return Schema{}, err
 	}
-	elements, err := resolveSchemaElementTypes(records, byName, simpleTypes, version)
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, simpleTypes, version)
 	if err != nil {
 		return Schema{}, err
 	}
-	complexTypes, err := resolveSchemaComplexTypes(records, byName, simpleTypes, version)
+	elements, err := resolveSchemaElementTypes(records, byName, simpleTypes, complexTypes, version)
 	if err != nil {
 		return Schema{}, err
 	}

@@ -26,6 +26,9 @@ const (
 	// UnsupportedInstanceValidationCode identifies semantic validation outside
 	// the supported scalar element slice.
 	UnsupportedInstanceValidationCode = "XSD4004"
+	// InvalidInstanceChoiceCode identifies invalid direct-choice content in an
+	// XML instance.
+	InvalidInstanceChoiceCode = "XSD4005"
 )
 
 const (
@@ -51,6 +54,13 @@ var (
 	errInstanceUnsupportedType     = errors.New("global element type is outside scalar validation")
 	errInstanceAttributes          = errors.New("instance attributes are outside scalar validation")
 	errInstanceChildElements       = errors.New("instance child elements are outside scalar validation")
+	errInstanceChoiceMissing       = errors.New("choice instance has no selected element")
+	errInstanceChoiceUnknown       = errors.New("choice instance has an unknown element")
+	errInstanceChoiceMultiple      = errors.New("choice instance has multiple elements")
+	errInstanceChoiceText          = errors.New("choice instance has non-whitespace parent text")
+	errInstanceChoiceNested        = errors.New("choice instance has nested element content")
+	errInstanceChoiceParticle      = errors.New("choice type has an unsupported particle")
+	errInstanceChoiceTarget        = errors.New("choice alternative has an unsupported target")
 	errInstanceValidationInvariant = errors.New("scalar validation invariant is broken")
 )
 
@@ -61,12 +71,23 @@ type instanceScalarType struct {
 	related []Loc
 }
 
+type instanceChoiceAlternative struct {
+	name   QName
+	loc    Loc
+	scalar instanceScalarType
+}
+
+type instanceChoiceProgram struct {
+	version      XSDVersion
+	related      []Loc
+	alternatives []instanceChoiceAlternative
+}
+
 // ValidateInstance consumes, drains, and closes reader exactly once, then
 // validates one XML instance against schema. The supported semantic slice is
 // a single global element whose declared type is built-in or named XSD
-// integer or decimal. The element has no attributes or child elements; its
-// ordered character data is parsed and checked against effective digit
-// facets. Comments and processing instructions are ignored by the decoder.
+// integer or decimal, or a named complex type with one direct scalar choice.
+// Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint
 // uses the repository's compatibility/default XSD 1.1-compatible datatype
@@ -118,6 +139,7 @@ func ValidateInstance(schema Schema, sourceID SourceID, reader io.ReadCloser) er
 	return validateScalarInstance(schema, document.root)
 }
 
+//nolint:gocognit // Keep root dispatch, target resolution, and scalar fallback together.
 func validateScalarInstance(schema Schema, root *instanceElement) error {
 	if root == nil {
 		return newInstanceValidationInternal(
@@ -140,6 +162,43 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 	if err != nil {
 		return err
 	}
+	if declaration.DeclaredType().Namespace() != xsdNamespaceURI {
+		typeID, hasTypeID := declaration.TypeID()
+		if !hasTypeID || typeID.IsZero() {
+			return newInstanceValidationUnsupported(
+				root.loc,
+				fmt.Sprintf("global element type %q has no resolved named type", declaration.DeclaredType()),
+				[]Loc{declaration.Loc()},
+				instanceSchemaValidationVersion(schema),
+				errInstanceNoDeclaredType,
+			)
+		}
+		target, ok := schema.Lookup(typeID)
+		if !ok {
+			return newInstanceValidationInternal(
+				root.loc,
+				fmt.Sprintf("global element type ID %v is not in the completed schema", typeID),
+				[]Loc{declaration.Loc()},
+				errInstanceValidationInvariant,
+			)
+		}
+		if target.Kind() == ComponentKindComplexTypeDefinition {
+			definition, ok := target.ComplexTypeDefinition()
+			if !ok {
+				return newInstanceValidationInternal(
+					root.loc,
+					fmt.Sprintf("global element type ID %v has no complex type view", typeID),
+					[]Loc{declaration.Loc(), target.Loc()},
+					errInstanceValidationInvariant,
+				)
+			}
+			program, programErr := instanceChoiceProgramFor(schema, declaration, definition, root.loc)
+			if programErr != nil {
+				return programErr
+			}
+			return validateChoiceInstance(root, program)
+		}
+	}
 	scalar, err := instanceScalarTypeFor(schema, declaration, root.loc)
 	if err != nil {
 		return err
@@ -151,6 +210,7 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 }
 
 func instanceSchemaElement(schema Schema, rootName QName, loc Loc) (ElementDeclaration, error) {
+	version := instanceSchemaValidationVersion(schema)
 	matches := schema.FindKind(ComponentKindElementDeclaration, rootName)
 	if len(matches) == 0 {
 		return ElementDeclaration{}, newInstanceValidationInvalid(
@@ -158,7 +218,7 @@ func instanceSchemaElement(schema Schema, rootName QName, loc Loc) (ElementDecla
 			loc,
 			fmt.Sprintf("instance root %q has no matching global element declaration", rootName),
 			nil,
-			instanceValidationSpecRef(instanceBuiltInValidationVersion),
+			instanceValidationSpecRef(version),
 			errInstanceUnknownSchemaRoot,
 		)
 	}
@@ -172,7 +232,7 @@ func instanceSchemaElement(schema Schema, rootName QName, loc Loc) (ElementDecla
 			loc,
 			fmt.Sprintf("instance root %q matches more than one global element declaration", rootName),
 			related,
-			instanceValidationSpecRef(instanceBuiltInValidationVersion),
+			instanceValidationSpecRef(version),
 			errInstanceAmbiguousSchemaRoot,
 		)
 	}
@@ -184,11 +244,252 @@ func instanceSchemaElement(schema Schema, rootName QName, loc Loc) (ElementDecla
 			loc,
 			fmt.Sprintf("global element %q has no supported declared type", component.Name()),
 			[]Loc{component.Loc()},
-			instanceBuiltInValidationVersion,
+			version,
 			errInstanceNoDeclaredType,
 		)
 	}
 	return declaration, nil
+}
+
+//nolint:gocognit,funlen // Keep complete choice-program validation in one phase.
+func instanceChoiceProgramFor(
+	schema Schema,
+	declaration ElementDeclaration,
+	definition ComplexTypeDefinition,
+	loc Loc,
+) (instanceChoiceProgram, error) {
+	version := instanceSchemaValidationVersion(schema)
+	related := []Loc{declaration.Loc(), definition.Loc()}
+	particle := definition.Particle()
+	choice, ok := particle.(ChoiceParticle)
+	if !ok {
+		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("named complex type %q does not have a direct choice particle", definition.Name()),
+			related,
+			version,
+			errInstanceChoiceParticle,
+		)
+	}
+	if choice.facts == nil {
+		return instanceChoiceProgram{}, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("named complex type %q has an incomplete choice particle", definition.Name()),
+			related,
+			errInstanceValidationInvariant,
+		)
+	}
+	related = appendInstanceRelated(relCopy(related), choice.Loc())
+	if choice.MinOccurs() != 1 || choice.MaxOccurs() != 1 {
+		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+			choice.Loc(),
+			fmt.Sprintf("choice particle occurrence bounds %d/%d are outside instance validation", choice.MinOccurs(), choice.MaxOccurs()),
+			related,
+			version,
+			errInstanceChoiceParticle,
+		)
+	}
+
+	particleAlternatives := choice.Alternatives()
+	elements := make([]ElementParticle, 0, len(particleAlternatives))
+	for _, particleAlternative := range particleAlternatives {
+		element, ok := particleAlternative.(ElementParticle)
+		if !ok || element.facts == nil {
+			return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+				choice.Loc(),
+				"direct choice contains a non-element alternative",
+				related,
+				version,
+				errInstanceChoiceParticle,
+			)
+		}
+		if element.MinOccurs() != 1 || element.MaxOccurs() != 1 {
+			return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+				element.Loc(),
+				fmt.Sprintf("choice alternative occurrence bounds %d/%d are outside instance validation", element.MinOccurs(), element.MaxOccurs()),
+				appendInstanceRelated(relCopy(related), element.Loc()),
+				version,
+				errInstanceChoiceParticle,
+			)
+		}
+		if element.Name().IsZero() {
+			return instanceChoiceProgram{}, newInstanceValidationInternal(
+				element.Loc(),
+				"direct choice element has no expanded name",
+				appendInstanceRelated(relCopy(related), element.Loc()),
+				errInstanceValidationInvariant,
+			)
+		}
+		elements = append(elements, element)
+		related = appendInstanceRelated(related, element.Loc())
+	}
+
+	program := instanceChoiceProgram{
+		version:      version,
+		related:      related,
+		alternatives: make([]instanceChoiceAlternative, 0, len(elements)),
+	}
+	for _, element := range elements {
+		alternativeRelated := []Loc{declaration.Loc(), definition.Loc(), choice.Loc(), element.Loc()}
+		typeID, hasTypeID := element.TypeID()
+		scalar, err := instanceScalarTypeForTarget(
+			schema,
+			element.DeclaredType(),
+			typeID,
+			hasTypeID,
+			alternativeRelated,
+			element.Loc(),
+			version,
+		)
+		if err != nil {
+			return instanceChoiceProgram{}, err
+		}
+		program.alternatives = append(program.alternatives, instanceChoiceAlternative{
+			name:   element.Name(),
+			loc:    element.Loc(),
+			scalar: scalar,
+		})
+	}
+	return program, nil
+}
+
+//nolint:gocognit,funlen // Keep direct-child selection and selected scalar validation ordered.
+func validateChoiceInstance(root *instanceElement, program instanceChoiceProgram) error {
+	for _, attribute := range root.attrs {
+		return newInstanceValidationUnsupported(
+			attribute.loc,
+			fmt.Sprintf("attribute %q is not supported for direct choice validation", renderSyntaxName(attribute.name)),
+			program.related,
+			program.version,
+			errInstanceAttributes,
+		)
+	}
+
+	selectedIndex := -1
+	var selected *instanceElement
+	for _, node := range root.children {
+		text, isText := node.(instanceText)
+		if isText {
+			if xmlWhitespace([]byte(text.data)) {
+				continue
+			}
+			return newInstanceChoiceInvalid(
+				text.loc,
+				"direct choice parent contains non-whitespace character data",
+				program.related,
+				program.version,
+				errInstanceChoiceText,
+			)
+		}
+		child, isElement := node.(*instanceElement)
+		if !isElement {
+			return newInstanceValidationInternal(
+				root.loc,
+				"instance tree contains an unknown direct choice node",
+				program.related,
+				errInstanceValidationInvariant,
+			)
+		}
+		if child == nil {
+			return newInstanceValidationInternal(
+				root.loc,
+				"instance tree contains a nil direct choice child",
+				program.related,
+				errInstanceValidationInvariant,
+			)
+		}
+		if selected != nil {
+			message := "direct choice contains more than one child element"
+			if child.name == selected.name {
+				message = fmt.Sprintf("direct choice repeats child element %q", renderSyntaxName(child.name))
+			}
+			return newInstanceChoiceInvalid(child.loc, message, program.related, program.version, errInstanceChoiceMultiple)
+		}
+		selected = child
+		childName, err := NewQName(child.name.namespace, child.name.local)
+		if err != nil {
+			return newInstanceValidationInternal(
+				child.loc,
+				"direct choice child name could not be expanded",
+				program.related,
+				err,
+			)
+		}
+		for index := range program.alternatives {
+			if program.alternatives[index].name == childName {
+				selectedIndex = index
+				break
+			}
+		}
+		if selectedIndex < 0 {
+			return newInstanceChoiceInvalid(
+				child.loc,
+				fmt.Sprintf("direct choice child %q does not match an alternative", renderSyntaxName(child.name)),
+				program.related,
+				program.version,
+				errInstanceChoiceUnknown,
+			)
+		}
+	}
+	if selected == nil {
+		return newInstanceChoiceInvalid(
+			root.loc,
+			"direct choice requires one child element",
+			program.related,
+			program.version,
+			errInstanceChoiceMissing,
+		)
+	}
+	alternative := program.alternatives[selectedIndex]
+	for _, attribute := range selected.attrs {
+		return newInstanceValidationUnsupported(
+			attribute.loc,
+			fmt.Sprintf("attribute %q is not supported for direct choice scalar validation", renderSyntaxName(attribute.name)),
+			alternative.scalar.related,
+			alternative.scalar.version,
+			errInstanceAttributes,
+		)
+	}
+	for _, node := range selected.children {
+		nested, isElement := node.(*instanceElement)
+		if isElement {
+			if nested == nil {
+				return newInstanceValidationInternal(
+					selected.loc,
+					"instance tree contains a nil nested choice element",
+					alternative.scalar.related,
+					errInstanceValidationInvariant,
+				)
+			}
+			return newInstanceChoiceInvalid(
+				nested.loc,
+				fmt.Sprintf("direct choice child %q contains nested element %q", renderSyntaxName(selected.name), renderSyntaxName(nested.name)),
+				alternative.scalar.related,
+				program.version,
+				errInstanceChoiceNested,
+			)
+		}
+		if _, isText := node.(instanceText); !isText {
+			return newInstanceValidationInternal(
+				selected.loc,
+				"instance tree contains an unknown nested choice node",
+				alternative.scalar.related,
+				errInstanceValidationInvariant,
+			)
+		}
+	}
+	return validateScalarValue(selected, alternative.scalar)
+}
+
+func newInstanceChoiceInvalid(loc Loc, message string, related []Loc, version XSDVersion, cause error) Diagnostic {
+	return newInstanceValidationInvalid(
+		InvalidInstanceChoiceCode,
+		loc,
+		message,
+		related,
+		instanceValidationSpecRef(version),
+		cause,
+	)
 }
 
 func validateScalarStructure(root *instanceElement, scalar instanceScalarType) error {
@@ -264,34 +565,75 @@ func validateScalarValue(root *instanceElement, scalar instanceScalarType) error
 }
 
 func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Loc) (instanceScalarType, error) {
-	related := []Loc{declaration.Loc()}
-	declaredType := declaration.DeclaredType()
+	typeID, hasTypeID := declaration.TypeID()
+	return instanceScalarTypeForTarget(
+		schema,
+		declaration.DeclaredType(),
+		typeID,
+		hasTypeID,
+		[]Loc{declaration.Loc()},
+		loc,
+		instanceBuiltInValidationVersion,
+	)
+}
+
+func instanceScalarTypeForTarget(
+	schema Schema,
+	declaredType QName,
+	typeID ComponentID,
+	hasTypeID bool,
+	related []Loc,
+	loc Loc,
+	fallbackVersion XSDVersion,
+) (instanceScalarType, error) {
 	if declaredType.IsZero() {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
-			"global element has no declared type for scalar validation",
+			"element has no declared type for scalar validation",
 			related,
-			instanceBuiltInValidationVersion,
+			fallbackVersion,
 			errInstanceNoDeclaredType,
 		)
 	}
 	if declaredType.Namespace() == xsdNamespaceURI {
 		return instanceBuiltInScalarType(declaredType, related, loc)
 	}
-
-	typeID, hasTypeID := declaration.TypeID()
 	if !hasTypeID || typeID.IsZero() {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
-			fmt.Sprintf("global element type %q has no resolved simple type", declaredType),
+			fmt.Sprintf("element type %q has no resolved simple type", declaredType),
 			related,
-			instanceBuiltInValidationVersion,
+			fallbackVersion,
 			errInstanceNoDeclaredType,
 		)
 	}
-	definition, related, err := instanceNamedTypeDefinition(schema, typeID, related, loc)
-	if err != nil {
-		return instanceScalarType{}, err
+	typeComponent, ok := schema.Lookup(typeID)
+	if !ok {
+		return instanceScalarType{}, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("element type ID %v is not in the completed schema", typeID),
+			related,
+			errInstanceValidationInvariant,
+		)
+	}
+	related = appendInstanceRelated(relCopy(related), typeComponent.Loc())
+	if typeComponent.Kind() != ComponentKindSimpleTypeDefinition {
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("element type %q is outside scalar validation", declaredType),
+			related,
+			fallbackVersion,
+			errInstanceChoiceTarget,
+		)
+	}
+	definition, ok := typeComponent.SimpleTypeDefinition()
+	if !ok {
+		return instanceScalarType{}, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("element type ID %v has no simple type view", typeID),
+			related,
+			errInstanceValidationInvariant,
+		)
 	}
 	facets := definition.DigitFacets()
 	if facets.Kind() != DigitDatatypeInteger && facets.Kind() != DigitDatatypeDecimal {
@@ -353,37 +695,6 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc) (inst
 	}
 }
 
-func instanceNamedTypeDefinition(schema Schema, typeID ComponentID, related []Loc, loc Loc) (SimpleTypeDefinition, []Loc, error) {
-	typeComponent, ok := schema.Lookup(typeID)
-	if !ok {
-		return SimpleTypeDefinition{}, related, newInstanceValidationInternal(
-			loc,
-			fmt.Sprintf("global element type ID %v is not in the completed schema", typeID),
-			related,
-			errInstanceValidationInvariant,
-		)
-	}
-	related = appendInstanceRelated(relCopy(related), typeComponent.Loc())
-	if typeComponent.Kind() != ComponentKindSimpleTypeDefinition {
-		return SimpleTypeDefinition{}, related, newInstanceValidationInternal(
-			loc,
-			fmt.Sprintf("global element type ID %v does not identify a simple type", typeID),
-			related,
-			errInstanceValidationInvariant,
-		)
-	}
-	definition, ok := typeComponent.SimpleTypeDefinition()
-	if !ok {
-		return SimpleTypeDefinition{}, related, newInstanceValidationInternal(
-			loc,
-			fmt.Sprintf("global element type ID %v has no simple type view", typeID),
-			related,
-			errInstanceValidationInvariant,
-		)
-	}
-	return definition, related, nil
-}
-
 func instanceScalarText(root *instanceElement) (string, Loc) {
 	var content strings.Builder
 	valueLoc := root.loc
@@ -405,6 +716,14 @@ func instanceValidationSpecRef(version XSDVersion) string {
 		return instanceValidationXSD10SpecRef
 	}
 	return instanceValidationXSD11SpecRef
+}
+
+func instanceSchemaValidationVersion(schema Schema) XSDVersion {
+	version, err := xsdVersionForLanguagePolicy(schema.policy)
+	if err != nil {
+		return instanceBuiltInValidationVersion
+	}
+	return version
 }
 
 func instanceIntegerSpecRef(version XSDVersion) string {

@@ -115,6 +115,7 @@ func validationTestDiagnostics(t *testing.T, err error) []goxsd9.Diagnostic {
 	return []goxsd9.Diagnostic{validationTestDiagnostic(t, err)}
 }
 
+//nolint:unparam // Validation fixtures currently use one-line instance locations.
 func validationTestLoc(t *testing.T, source goxsd9.SourceID, line, column int) goxsd9.Loc {
 	t.Helper()
 	loc, err := goxsd9.NewLoc(source, line, column)
