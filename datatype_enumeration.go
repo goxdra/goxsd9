@@ -7,12 +7,12 @@ import (
 
 const (
 	// InvalidEnumerationCode identifies an invalid enumeration declaration.
-	InvalidEnumerationCode = "XSD2020"
+	InvalidEnumerationCode = "XSD2032"
 	// InvalidEnumerationRestrictionCode identifies an invalid derived
 	// enumeration declaration.
-	InvalidEnumerationRestrictionCode = "XSD2021"
+	InvalidEnumerationRestrictionCode = "XSD2033"
 	// EnumerationValueViolationCode identifies a value outside an enumeration.
-	EnumerationValueViolationCode = "XSD2022"
+	EnumerationValueViolationCode = "XSD2034"
 )
 
 var (
@@ -24,8 +24,8 @@ var (
 )
 
 const (
-	diagnosticEnumerationEffectiveVersionCode = "GOXSD9025"
-	diagnosticEnumerationEffectiveStateCode   = "GOXSD9026"
+	diagnosticEnumerationEffectiveVersionCode = "GOXSD9036"
+	diagnosticEnumerationEffectiveStateCode   = "GOXSD9037"
 )
 
 type enumerationRule uint8

@@ -628,7 +628,7 @@ func issueNumberFromURL(url string) (int, error) {
 
 func (a app) runHandoff(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl handoff ISSUE --body-file FILE")
+		return usageError("usage: workflowctl handoff ISSUE --body-file FILE [--needs-human]")
 	}
 	number, err := positiveNumber(args[0])
 	if err != nil {
@@ -637,11 +637,12 @@ func (a app) runHandoff(args []string) error {
 	flags := flag.NewFlagSet("handoff", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	bodyFile := flags.String("body-file", "", "Markdown body file")
+	needsHuman := flags.Bool("needs-human", false, "mark the issue needs-human before recording the handoff")
 	if parseErr := flags.Parse(args[1:]); parseErr != nil {
 		return usageError("handoff: %v", parseErr)
 	}
 	if flags.NArg() != 0 || *bodyFile == "" {
-		return usageError("usage: workflowctl handoff ISSUE --body-file FILE")
+		return usageError("usage: workflowctl handoff ISSUE --body-file FILE [--needs-human]")
 	}
 	if fileErr := requireRegularFile(*bodyFile); fileErr != nil {
 		return fileErr
@@ -650,10 +651,133 @@ func (a app) runHandoff(args []string) error {
 	if err != nil {
 		return err
 	}
+	if *needsHuman {
+		return a.handoffNeedsHuman(root, number, *bodyFile)
+	}
 	output, err := a.command(root, "gh", "issue", "comment", strconv.Itoa(number), "--repo", repositoryKey,
 		"--body-file", *bodyFile)
 	if err != nil {
 		return fmt.Errorf("comment on issue #%d: %w", number, err)
 	}
 	return writeLine(a.stdout, "%s", output)
+}
+
+func (a app) handoffNeedsHuman(root string, number int, bodyFile string) error {
+	body, err := readHandoffBody(bodyFile)
+	if err != nil {
+		return fmt.Errorf("handoff issue #%d: validate body: %w", number, err)
+	}
+	status, err := a.readIssueStatus(root, number)
+	if err != nil {
+		return fmt.Errorf("handoff issue #%d: preflight issue state: %w", number, err)
+	}
+	if status.State != "OPEN" {
+		return stateError("handoff issue #%d is %s; no mutation performed", number, status.State)
+	}
+	items, err := a.projectItems(root)
+	if err != nil {
+		return fmt.Errorf("handoff issue #%d: preflight Project membership: %w", number, err)
+	}
+	initialItem, projectErr := findProjectIssue(items, number)
+	if projectErr != nil {
+		return stateError("handoff issue #%d is not in canonical Project #%d; no mutation performed: %w",
+			number, projectNumber, projectErr)
+	}
+	comments, err := a.readIssueComments(root, number)
+	if err != nil {
+		return fmt.Errorf("handoff issue #%d: preflight evidence comments: %w", number, err)
+	}
+	alreadyPosted := exactTrustedIssueComment(comments, body)
+	if proofErr := a.verifyHandoffTarget(root, number, status, initialItem); proofErr != nil {
+		return proofErr
+	}
+	if transitionErr := a.transitionIssueToNeedsHuman(root, number); transitionErr != nil {
+		return fmt.Errorf("handoff issue #%d transition incomplete; retry: %w", number, transitionErr)
+	}
+	if alreadyPosted {
+		return writeLine(a.stdout, "issue #%d needs-human handoff already recorded", number)
+	}
+	output, err := a.command(root, "gh", "issue", "comment", strconv.Itoa(number), "--repo", repositoryKey,
+		"--body-file", bodyFile)
+	if err != nil {
+		return fmt.Errorf("handoff issue #%d evidence comment phase incomplete after needs-human and Project Backlog; retry: %w",
+			number, err)
+	}
+	return writeLine(a.stdout, "%s", output)
+}
+
+func (a app) verifyHandoffTarget(root string, number int, initialStatus issueStatus,
+	initialItem projectItem,
+) error {
+	latestStatus, err := a.readIssueStatus(root, number)
+	if err != nil {
+		return fmt.Errorf("handoff issue #%d pre-mutation proof: read issue state: %w", number, err)
+	}
+	if latestStatus.State != "OPEN" || latestStatus.State != initialStatus.State {
+		return stateError("handoff issue #%d pre-mutation proof changed: issue is %s; no mutation performed",
+			number, latestStatus.State)
+	}
+	items, err := a.projectItems(root)
+	if err != nil {
+		return fmt.Errorf("handoff issue #%d pre-mutation proof: read Project: %w", number, err)
+	}
+	latestItem, err := findProjectIssue(items, number)
+	if err != nil {
+		return stateError("handoff issue #%d pre-mutation proof changed: Project membership is invalid; no mutation performed: %w",
+			number, err)
+	}
+	if !sameCanonicalProjectItem(initialItem, latestItem) {
+		return stateError("handoff issue #%d pre-mutation proof changed: Project identity differs; no mutation performed",
+			number)
+	}
+	return nil
+}
+
+func sameCanonicalProjectItem(left, right projectItem) bool {
+	return left.ID == right.ID && left.Content.Number == right.Content.Number &&
+		left.Content.Repository == right.Content.Repository && left.Content.Type == right.Content.Type
+}
+
+func readHandoffBody(path string) (string, error) {
+	if err := requireRegularFile(path); err != nil {
+		return "", err
+	}
+	// #nosec G304 -- path is an explicit operator-supplied input.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read body: %w", err)
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return "", errors.New("body must not be empty")
+	}
+	return string(data), nil
+}
+
+func (a app) readIssueComments(root string, number int) ([]issueCommentAPI, error) {
+	endpoint := "repos/" + repositoryKey + "/issues/" + strconv.Itoa(number) + "/comments?per_page=100"
+	output, err := a.command(root, "gh", "api", "--paginate", endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("read issue #%d comments: %w", number, err)
+	}
+	pages, err := decodeJSONDocuments[[]issueCommentAPI](output)
+	if err != nil {
+		return nil, fmt.Errorf("decode issue #%d comments: %w", number, err)
+	}
+	comments := make([]issueCommentAPI, 0)
+	for _, page := range pages {
+		comments = append(comments, page...)
+	}
+	return comments, nil
+}
+
+func exactTrustedIssueComment(comments []issueCommentAPI, body string) bool {
+	for _, comment := range comments {
+		if comment.Body != body {
+			continue
+		}
+		if comment.User.Login == owner || comment.User.Login == trustedActor {
+			return true
+		}
+	}
+	return false
 }

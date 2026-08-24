@@ -9,7 +9,7 @@ import (
 const (
 	diagnosticPrecisionDecimalLexicalCode        = "XSD2010"
 	diagnosticPrecisionDecimalConstructionCode   = "GOXSD9005"
-	diagnosticPrecisionDecimalCanonicalLimitCode = "GOXSD9026"
+	diagnosticPrecisionDecimalCanonicalLimitCode = "GOXSD9035"
 	precisionDecimalLexicalSpecRef               = "xsd-precisionDecimal#f-precDecLexmap"
 	precisionDecimalCanonicalLimitSpecRef        = "xsd-precisionDecimal#implementation-limits"
 )
