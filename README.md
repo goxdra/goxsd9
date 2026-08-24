@@ -1,6 +1,6 @@
 # goxsd9
 
-goxsd9 targets XSD 1.1/1.0 parsing, XML validation, and measured Go code generation; unsupported behavior is explicit.
+goxsd9 targets XSD 1.1/1.0 parsing, XML validation, and Go code generation; unsupported behavior is explicit.
 
 ## Schema parsing
 
@@ -10,7 +10,7 @@ Mixed XSD 1.0/1.1 graphs, declarations, restrictions, and total/fraction digits 
 
 ## Product CLI
 
-From repository root, product `parse`/`validate` are implemented; the [library quickstart](library_example_test.go) is separate, and product `generate` is future. [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines paths, source IDs, limits, diagnostics, and statuses.
+`parse`, `validate`, and `generate` are implemented; `generate` calls public `GenerateGo` and writes Go to stdout or `--output FILE`. [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
 [`examples/root.xsd`](examples/root.xsd), [`examples/valid.xml`](examples/valid.xml), [`examples/invalid.xml`](examples/invalid.xml)
 
 ```console
@@ -20,9 +20,10 @@ $ go run ./cmd/goxsd9 validate examples/root.xsd examples/valid.xml
 $ go run ./cmd/goxsd9 validate examples/root.xsd examples/invalid.xml
 validate stage=validate class=invalid kind=processing source_id=instance/examples/invalid.xml location=1:8 code=XSD2001 related=schema/root.xsd:2:3 spec_ref=xsd11-datatypes#integer invalid xs:integer lexical representation
 exit status 1
+$ go run ./cmd/goxsd9 generate --package sample examples/root.xsd > generated.go
 ```
 
-Parse prints summary to stdout; valid validation is silent and exits 0. Invalid exits 1 with empty stdout and a located stderr diagnostic; `go run` adds `exit status 1`. Usage is 2; unsupported behavior is explicit, with no broader conformance claim.
+Parse prints summary to stdout; validation is silent and exits 0. Invalid exits 1 with empty stdout and a located stderr diagnostic; `go run` adds `exit status 1`. Usage is 2; unsupported behavior is explicit, with no broader conformance claim.
 
 ## Design goals
 

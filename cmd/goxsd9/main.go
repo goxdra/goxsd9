@@ -27,6 +27,8 @@ func runWithInput(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		return runParseCommand(args[1:], stdin, stdout, stderr)
 	case "validate":
 		return runValidateCommand(args[1:], stdin, stdout, stderr)
+	case "generate":
+		return runGenerateCommand(args[1:], stdin, stdout, stderr)
 	default:
 		return reportUsage(stderr, "parse", fmt.Sprintf("unknown command %q", args[0]), diagnosticsHuman, "-")
 	}
@@ -56,6 +58,21 @@ func runValidateCommand(args []string, stdin io.Reader, stdout, stderr io.Writer
 	return runValidate(options, stdin, stdout, stderr)
 }
 
+func runGenerateCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	options, err := parseGenerateOptions(args)
+	if err != nil {
+		return reportUsage(stderr, "generate", err.Error(), options.diagnostics, usageSourceID(options.schema))
+	}
+	if options.schema == "-" && !options.schemaRootSet {
+		return reportUsage(stderr, "generate", "schema stdin requires --schema-root", options.diagnostics, "schema/stdin")
+	}
+	if options.force && (!options.outputSet || options.output == "-") {
+		return reportUsage(stderr, "generate", "--force requires an explicit file destination", options.diagnostics, usageSourceID(options.schema))
+	}
+
+	return runGenerate(options, stdin, stdout, stderr)
+}
+
 type commandOptions struct {
 	schema         string
 	instance       string
@@ -67,6 +84,16 @@ type commandOptions struct {
 
 type parseOptions = commandOptions
 type validateOptions = commandOptions
+
+type generateOptions struct {
+	commandOptions
+	packageName string
+	packageSet  bool
+	output      string
+	outputSet   bool
+	force       bool
+	forceSet    bool
+}
 
 func parseParseOptions(args []string) (parseOptions, error) {
 	options := parseOptions{diagnostics: diagnosticsHuman}
@@ -150,7 +177,111 @@ func parseValidateArgument(args []string, index int, options *validateOptions) (
 	return parseFlag(args, index, options)
 }
 
-func parseFlag(args []string, index int, options *parseOptions) (int, error) {
+func parseGenerateOptions(args []string) (generateOptions, error) {
+	options := generateOptions{commandOptions: commandOptions{diagnostics: diagnosticsHuman}}
+	for index := 0; index < len(args); index++ {
+		next, err := parseGenerateArgument(args, index, &options)
+		if err != nil {
+			return options, err
+		}
+		index = next
+	}
+	if options.schema == "" {
+		return options, errors.New("generate requires one schema operand")
+	}
+	if !options.packageSet {
+		return options, errors.New("generate requires --package")
+	}
+	if options.force && (!options.outputSet || options.output == "-") {
+		return options, errors.New("--force requires an explicit file destination")
+	}
+	return options, nil
+}
+
+func parseGenerateArgument(args []string, index int, options *generateOptions) (int, error) {
+	argument := args[index]
+	if options.schema != "" {
+		if isFlag(argument) {
+			return index, errors.New("flags must precede the schema operand")
+		}
+		return index, errors.New("generate accepts exactly one schema operand")
+	}
+	if argument == "" {
+		return index, errors.New("schema operand is empty")
+	}
+	if argument == "-" || !isFlag(argument) {
+		options.schema = argument
+		return index, nil
+	}
+	return parseGenerateFlag(args, index, options)
+}
+
+func parseGenerateFlag(args []string, index int, options *generateOptions) (int, error) {
+	argument := args[index]
+	switch {
+	case argument == "--package" || hasFlagValue(argument, "--package"):
+		return parsePackageFlag(args, index, options)
+	case argument == "--output" || hasFlagValue(argument, "--output"):
+		return parseOutputFlag(args, index, options)
+	case argument == "--force":
+		if options.forceSet {
+			return index, errors.New("duplicate --force flag")
+		}
+		options.force = true
+		options.forceSet = true
+		return index, nil
+	default:
+		return parseFlag(args, index, &options.commandOptions)
+	}
+}
+
+func parsePackageFlag(args []string, index int, options *generateOptions) (int, error) {
+	if options.packageSet {
+		return index, errors.New("duplicate --package flag")
+	}
+	value, next, err := flagValue(args, index, "--package")
+	if err != nil {
+		return index, err
+	}
+	if value == "" {
+		return index, errors.New("--package requires a name")
+	}
+	options.packageName = value
+	options.packageSet = true
+	return next, nil
+}
+
+func parseOutputFlag(args []string, index int, options *generateOptions) (int, error) {
+	if options.outputSet {
+		return index, errors.New("duplicate --output flag")
+	}
+	value, next, err := flagValueAllowDash(args, index, "--output")
+	if err != nil {
+		return index, err
+	}
+	if value == "" {
+		return index, errors.New("--output requires a file or -")
+	}
+	options.output = value
+	options.outputSet = true
+	return next, nil
+}
+
+func flagValueAllowDash(args []string, index int, name string) (string, int, error) {
+	argument := args[index]
+	if hasFlagValue(argument, name) {
+		return argument[len(name)+1:], index, nil
+	}
+	if index+1 >= len(args) {
+		return "", index, fmt.Errorf("%s requires a value", name)
+	}
+	if isFlag(args[index+1]) && args[index+1] != "-" {
+		return "", index, fmt.Errorf("%s requires a value", name)
+	}
+	return args[index+1], index + 1, nil
+}
+
+func parseFlag(args []string, index int, options *commandOptions) (int, error) {
 	argument := args[index]
 	switch {
 	case argument == "--schema-root" || hasFlagValue(argument, "--schema-root"):

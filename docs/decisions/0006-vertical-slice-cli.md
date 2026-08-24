@@ -12,8 +12,9 @@ goxsd9 validate [--schema-root DIR] [--diagnostics human|json] SCHEMA INSTANCE
 goxsd9 generate [--schema-root DIR] [--diagnostics human|json] --package NAME [--output FILE|-] [--force] SCHEMA
 ```
 
-The `parse` and `validate` forms are implemented by `cmd/goxsd9` in the first
-slice; `generate` remains a future command. Flags occur before operands,
+The `parse`, `validate`, and `generate` forms are implemented by `cmd/goxsd9`
+in the first slice. `generate` calls the public `goxsd9.GenerateGo` API for
+complete in-memory source before applying the CLI output transaction. Flags occur before operands,
 each option is supplied at most once, and
 unknown options or extra operands are usage errors. `parse` and `generate`
 take exactly one `SCHEMA`; `validate` takes exactly one `SCHEMA` and one
@@ -227,9 +228,8 @@ rollback use an explicit file.
 
 ## Contract examples
 
-The parse and validate examples in this section describe current executable
-behavior, including the stdin parse example. The generate examples remain future
-contract examples. Counts and diagnostic text are illustrative except for the
+The parse, validate, and generate examples in this section describe current
+executable behavior, including the stdin parse example. Counts and diagnostic text are illustrative except for the
 required success stream shapes.
 
 Single-file schema, with the default root:
@@ -262,7 +262,7 @@ $ goxsd9 validate --diagnostics json examples/root.xsd examples/invalid.xml
 {"format":"goxsd9-diagnostics/v1", "command":"validate", "stage":"validate", "exit_status":1, "diagnostics":[...]}
 ```
 
-The current private scalar emitter formats output like this future example:
+The public scalar and direct-choice generator formats output like this:
 
 ```console
 $ goxsd9 generate --package sample examples/scalars.xsd
@@ -297,8 +297,9 @@ $ goxsd9 validate - -
 
 The last command exits 2. These examples show that path interpretation belongs
 to the CLI while `ParseSchema` and `Resolver` retain their opaque, sequential
-boundary. The generated shape comes from the current private emitter; the public
-`generate` command remains future work.
+boundary. The generated shape comes from the public `goxsd9.GenerateGo` API.
+The CLI owns schema path resolution, diagnostics, output limits, and the
+atomic file transaction; it does not expose private naming or rendering state.
 
 ## Bounded follow-up packets
 
@@ -312,16 +313,17 @@ only their dependency order and responsibility boundaries:
   current scalar validation's explicit unsupported treatment of instance
   attributes, including schema-location hints.
 - [#138 — generate](https://github.com/goxdra/goxsd9/issues/138) (M) follows
-  #136 and the scalar emitter work. It must first expose a deliberate
-  in-memory `GenerateGo`-like API over public inputs, without exposing private
-  naming tables or filesystem policy, then own the CLI output transaction.
+  #136 and the scalar emitter work. It owns the CLI generate boundary and
+  output transaction while using the deliberate public `GenerateGo` API;
+  private naming tables and filesystem policy remain internal to their layers.
 
 The linked issues retain the complete scope, dependencies, and acceptance
 proofs for each packet.
 
-The current codegen emitter and naming kernel are private. No packet here claims
-choice generation, broad validation, network access, catalogs, environment
-lookup, XML Base interpretation, strict edition flags, or W3C conformance.
+The current codegen emitter and naming kernel remain private behind
+`GenerateGo`. No packet here claims broader generation, broad validation,
+network access, catalogs, environment lookup, XML Base interpretation, strict
+edition flags, or W3C conformance.
 
 ## Repository and specification evidence
 
