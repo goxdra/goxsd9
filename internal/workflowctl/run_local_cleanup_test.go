@@ -391,7 +391,7 @@ func TestCleanupRemovesOnlyProvenRunLocalDuplicateFromFourRefShape(t *testing.T)
 	fixture := newIssue86FourRefFixture(t)
 
 	commands := []string{}
-	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, executeCommand: realGitWithOpenPRExecutor(t, false, &commands)}
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, executeCommand: realGitWithNoOpenPRExecutor(t, &commands)}
 	layout, err := application.repositoryLayout(fixture.repository.linked)
 	if err != nil {
 		t.Fatalf("repositoryLayout: %v", err)
@@ -418,7 +418,7 @@ func TestCleanupRemovesOnlyProvenRunLocalDuplicateFromFourRefShape(t *testing.T)
 func TestCleanupRemovesOnlyProvenRunLocalAncestorFromPR154Shape(t *testing.T) {
 	fixture := newIssue86AncestorFixture(t)
 	commands := []string{}
-	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, executeCommand: realGitWithOpenPRExecutor(t, false, &commands)}
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, executeCommand: realGitWithNoOpenPRExecutor(t, &commands)}
 	layout, err := application.repositoryLayout(fixture.repository.primary)
 	if err != nil {
 		t.Fatalf("repositoryLayout: %v", err)
@@ -576,7 +576,7 @@ func TestCleanupRemoteOnlyRunLocalProofDoesNotLeaveTrackingRef(t *testing.T) {
 	}
 	base := synchronizedBase{fetched: fetchedBase{primary: cleanPrimary{layout: layout}}}
 	commands := []string{}
-	application.executeCommand = realGitWithOpenPRExecutor(t, false, &commands)
+	application.executeCommand = realGitWithNoOpenPRExecutor(t, &commands)
 	packet := mergedPacket{number: 86, mergeSHA: "merge-proof", plan: plan}
 	if err := application.cleanupClaims(base, packet); err != nil {
 		t.Fatalf("cleanupClaims: %v", err)
@@ -905,16 +905,13 @@ func scriptedRunLocalApplication(inventory, currentSHA string, openPR bool, comm
 	}}
 }
 
-func realGitWithOpenPRExecutor(t *testing.T, openPR bool, commands *[]string) commandExecutor {
+func realGitWithNoOpenPRExecutor(t *testing.T, commands *[]string) commandExecutor {
 	t.Helper()
 	return func(dir string, input io.Reader, name string, args ...string) (string, error) {
 		if commands != nil {
 			*commands = append(*commands, name+" "+strings.Join(args, " "))
 		}
 		if name == "gh" {
-			if openPR {
-				return `[{"number":99}]`, nil
-			}
 			return "[]", nil
 		}
 		// #nosec G204 -- this test executor invokes fixed Git commands in temporary repositories.

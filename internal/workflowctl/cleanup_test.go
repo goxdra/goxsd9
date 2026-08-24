@@ -103,7 +103,11 @@ func TestPrepareCleanupPlanAllowsExpectedRunLocalWorktreeBeforeMerge(t *testing.
 		Number int `json:"number"`
 	}{Number: 55})
 
-	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}}
+	application := app{
+		ctx:            context.Background(),
+		stdout:         &bytes.Buffer{},
+		executeCommand: realGitWithNoOpenPRExecutor(t, nil),
+	}
 	layout, err := application.repositoryLayout(runPath)
 	if err != nil {
 		t.Fatalf("repositoryLayout: %v", err)
