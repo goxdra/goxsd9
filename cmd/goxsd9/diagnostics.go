@@ -85,17 +85,17 @@ type diagnosticEnvelope struct {
 	Diagnostics []renderedDiagnostic `json:"diagnostics"`
 }
 
-func reportUsage(writer io.Writer, message string, format diagnosticFormat, sourceID goxsd9.SourceID) int {
+func reportUsage(writer io.Writer, command, message string, format diagnosticFormat, sourceID goxsd9.SourceID) int {
 	diagnostic := newCLIError(cliUsageCode, cliUsageKind, sourceID, message, nil)
-	if err := writeDiagnostics(writer, format, "usage", 2, []error{diagnostic}); err != nil {
+	if err := writeDiagnostics(writer, format, command, "usage", 2, []error{diagnostic}); err != nil {
 		return 1
 	}
 	return 2
 }
 
-func reportError(writer io.Writer, format diagnosticFormat, stage string, err error) int {
+func reportError(writer io.Writer, command string, format diagnosticFormat, stage string, err error) int {
 	rendered := renderError(err)
-	if writeErr := writeDiagnostics(writer, format, stage, 1, rendered); writeErr != nil {
+	if writeErr := writeDiagnostics(writer, format, command, stage, 1, rendered); writeErr != nil {
 		return 1
 	}
 	return 1
@@ -137,7 +137,7 @@ func diagnosticErrors(items []goxsd9.Diagnostic) []error {
 	return result
 }
 
-func writeDiagnostics(writer io.Writer, format diagnosticFormat, stage string, status int, errorsToRender []error) error {
+func writeDiagnostics(writer io.Writer, format diagnosticFormat, command, stage string, status int, errorsToRender []error) error {
 	if writer == nil {
 		return errors.New("diagnostic writer is nil")
 	}
@@ -148,14 +148,14 @@ func writeDiagnostics(writer io.Writer, format diagnosticFormat, stage string, s
 	if format == diagnosticsJSON {
 		return json.NewEncoder(writer).Encode(diagnosticEnvelope{
 			Format:      "goxsd9-diagnostics/v1",
-			Command:     "parse",
+			Command:     command,
 			Stage:       stage,
 			ExitStatus:  status,
 			Diagnostics: rendered,
 		})
 	}
 	for _, diagnostic := range rendered {
-		line := diagnostic.human("parse", stage)
+		line := diagnostic.human(command, stage)
 		count, err := io.WriteString(writer, line+"\n")
 		if err != nil {
 			return err

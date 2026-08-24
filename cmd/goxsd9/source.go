@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	maxSchemaSourceBytes = int64(16 << 20)
-	maxSchemaTotalBytes  = int64(64 << 20)
-	maxResolverCalls     = 256
+	maxSchemaSourceBytes   = int64(16 << 20)
+	maxSchemaTotalBytes    = int64(64 << 20)
+	maxResolverCalls       = 256
+	maxInstanceSourceBytes = int64(16 << 20)
 )
 
 type schemaBudget struct {
@@ -387,6 +388,72 @@ func isASCIILetter(character byte) bool {
 	return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
 }
 
+type instancePlan struct {
+	sourceID  goxsd9.SourceID
+	path      string
+	fromStdin bool
+}
+
+func prepareInstancePlan(operand string) (instancePlan, error) {
+	if operand == "-" {
+		return instancePlan{sourceID: "instance/stdin", fromStdin: true}, nil
+	}
+	if hasURIScheme(operand) {
+		return instancePlan{}, newCLIError(cliPathPolicyCode, cliPathPolicyKind, "instance/-", "instance operand is a URI, not a local path", nil)
+	}
+
+	invocationDirectory, err := os.Getwd()
+	if err != nil {
+		return instancePlan{}, newCLIError(cliResourceCode, cliResourceKind, "instance/-", "failed to determine invocation directory", err)
+	}
+	path := operand
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(invocationDirectory, path)
+	}
+	path = filepath.Clean(path)
+	return instancePlan{
+		sourceID: instanceIDForPath(invocationDirectory, path),
+		path:     path,
+	}, nil
+}
+
+func instanceIDForPath(root, path string) goxsd9.SourceID {
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == "." || relative == "" {
+		return "instance/-"
+	}
+	return goxsd9.SourceID("instance/" + filepath.ToSlash(relative))
+}
+
+func (plan instancePlan) open(input io.Reader) (io.ReadCloser, error) {
+	if plan.fromStdin {
+		if input == nil {
+			return nil, newCLIError(cliInternalCode, cliInternalKind, plan.sourceID, "stdin reader is nil", nil)
+		}
+		return newInputReadCloser(input), nil
+	}
+
+	info, err := os.Stat(plan.path)
+	if err != nil {
+		return nil, newCLIError(cliResourceCode, cliResourceKind, plan.sourceID, "failed to inspect instance source", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, newCLIError(cliResourceCode, cliResourceKind, plan.sourceID, "instance source is not a regular file", nil)
+	}
+	if info.Mode().Perm()&0o444 == 0 {
+		return nil, newCLIError(cliResourceCode, cliResourceKind, plan.sourceID, "instance source is not readable", nil)
+	}
+	if info.Size() > maxInstanceSourceBytes {
+		return nil, newCLIError(cliLimitCode, cliLimitKind, plan.sourceID, "instance source exceeds the 16 MiB per-source limit", newSourceLimitError(plan.sourceID, "instance source exceeds the 16 MiB per-source limit"))
+	}
+
+	file, err := os.Open(plan.path)
+	if err != nil {
+		return nil, newCLIError(cliResourceCode, cliResourceKind, plan.sourceID, "failed to open instance source", err)
+	}
+	return file, nil
+}
+
 type inputReadCloser struct {
 	reader io.Reader
 	closer io.Closer
@@ -416,6 +483,63 @@ func (reader *inputReadCloser) Close() error {
 	if reader.closer == nil {
 		return nil
 	}
+	return reader.closer.Close()
+}
+
+type instanceSource struct {
+	reader   io.Reader
+	closer   io.Closer
+	sourceID goxsd9.SourceID
+	used     int64
+	closed   bool
+}
+
+func newInstanceSource(source io.ReadCloser, sourceID goxsd9.SourceID) *instanceSource {
+	return &instanceSource{reader: source, closer: source, sourceID: sourceID}
+}
+
+func (reader *instanceSource) Read(buffer []byte) (int, error) {
+	if reader.closed {
+		return 0, os.ErrClosed
+	}
+	if len(buffer) == 0 {
+		return 0, nil
+	}
+	remaining := maxInstanceSourceBytes - reader.used
+	if remaining <= 0 {
+		return reader.probeLimit()
+	}
+	allowed := int64(len(buffer))
+	if allowed > remaining {
+		allowed = remaining
+	}
+	count, err := reader.reader.Read(buffer[:int(allowed)])
+	if count > 0 {
+		reader.used += int64(count)
+	}
+	if err != nil {
+		return count, err
+	}
+	return count, nil
+}
+
+func (reader *instanceSource) probeLimit() (int, error) {
+	var probe [1]byte
+	count, err := reader.reader.Read(probe[:])
+	if count > 0 {
+		return 0, newSourceLimitError(reader.sourceID, "instance source exceeds the 16 MiB per-source limit")
+	}
+	if err != nil {
+		return 0, err
+	}
+	return 0, nil
+}
+
+func (reader *instanceSource) Close() error {
+	if reader.closed {
+		return nil
+	}
+	reader.closed = true
 	return reader.closer.Close()
 }
 

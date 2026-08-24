@@ -341,6 +341,330 @@ func TestParseCommandReportsOutputFailureWithoutRetry(t *testing.T) {
 	}
 }
 
+func TestValidateCommandReportsSilentScalarSuccess(t *testing.T) {
+	directory := t.TempDir()
+	schemaPath := filepath.Join(directory, "root.xsd")
+	instancePath := filepath.Join(directory, "instance.xml")
+	writeTestFile(t, schemaPath, schemaDocument(`<xs:element name="count" type="xs:integer"/><xs:element name="amount" type="xs:decimal"/>`))
+
+	for _, value := range []string{"<count>42</count>", "<amount>12.50</amount>"} {
+		writeTestFile(t, instancePath, value)
+		var stdout, stderr bytes.Buffer
+		code := runWithInput([]string{"validate", "--schema-root", directory, schemaPath, instancePath}, strings.NewReader("unused"), &stdout, &stderr)
+		if code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+			t.Fatalf("valid instance %q = code %d, stdout %q, stderr %q", value, code, stdout.String(), stderr.String())
+		}
+	}
+}
+
+func TestValidateCommandRendersLocatedHumanAndJSONDiagnostics(t *testing.T) {
+	directory := t.TempDir()
+	schemaPath := filepath.Join(directory, "root.xsd")
+	instancePath := filepath.Join(directory, "invalid.xml")
+	writeTestFile(t, schemaPath, schemaDocument(`<xs:element name="count" type="xs:integer"/>`))
+	writeTestFile(t, instancePath, `<count>not-an-integer</count>`)
+
+	var stdout, stderr bytes.Buffer
+	code := runWithInput([]string{"validate", schemaPath, instancePath}, strings.NewReader("unused"), &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 {
+		t.Fatalf("human invalid = code %d, stdout %q", code, stdout.String())
+	}
+	if want := "validate stage=validate class=invalid kind=processing"; !strings.HasPrefix(stderr.String(), want) {
+		t.Fatalf("human diagnostic = %q, want prefix %q", stderr.String(), want)
+	}
+	expectedSource := expectedInstanceSourceID(t, instancePath)
+	for _, want := range []string{"source_id=" + expectedSource, "code=" + goxsd9.InvalidIntegerLexicalCode} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("human diagnostic = %q, missing %q", stderr.String(), want)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runWithInput([]string{"validate", "--diagnostics", "json", schemaPath, instancePath}, strings.NewReader("unused"), &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 {
+		t.Fatalf("JSON invalid = code %d, stdout %q", code, stdout.String())
+	}
+	var envelope diagnosticEnvelope
+	decodeDiagnosticEnvelope(t, stderr.Bytes(), &envelope)
+	if envelope.Command != "validate" || envelope.Stage != "validate" || envelope.ExitStatus != 1 || len(envelope.Diagnostics) != 1 {
+		t.Fatalf("JSON envelope = %#v", envelope)
+	}
+	diagnostic := envelope.Diagnostics[0]
+	if diagnostic.Class == nil || *diagnostic.Class != string(goxsd9.FailureInvalid) || diagnostic.Kind != "processing" || diagnostic.Code != goxsd9.InvalidIntegerLexicalCode || diagnostic.SourceID != expectedSource {
+		t.Fatalf("JSON diagnostic = %#v", diagnostic)
+	}
+	if diagnostic.Location.Line != 1 || diagnostic.Location.Column != 8 {
+		t.Fatalf("JSON location = %#v", diagnostic.Location)
+	}
+}
+
+func TestValidateCommandSeparatesSchemaAndInstanceStages(t *testing.T) {
+	directory := t.TempDir()
+	schemaPath := filepath.Join(directory, "root.xsd")
+	writeTestFile(t, schemaPath, "<not-a-schema/>")
+	instance := &trackingReadCloser{reader: strings.NewReader(`<count>not-an-integer</count>`)}
+	var stdout, stderr bytes.Buffer
+	code := runWithInput([]string{"validate", "--diagnostics", "json", schemaPath, "-"}, instance, &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 || instance.reads != 0 {
+		t.Fatalf("schema failure = code %d, stdout %q, reads %d", code, stdout.String(), instance.reads)
+	}
+	var schemaEnvelope diagnosticEnvelope
+	decodeDiagnosticEnvelope(t, stderr.Bytes(), &schemaEnvelope)
+	if schemaEnvelope.Command != "validate" || schemaEnvelope.Stage != "parse" || schemaEnvelope.ExitStatus != 1 {
+		t.Fatalf("schema envelope = %#v", schemaEnvelope)
+	}
+	if instance.closes != 0 {
+		t.Fatalf("schema failure closed unopened instance stdin %d times", instance.closes)
+	}
+
+	writeTestFile(t, schemaPath, schemaDocument(`<xs:element name="count" type="xs:integer"/>`))
+	stdout.Reset()
+	stderr.Reset()
+	instance = &trackingReadCloser{reader: strings.NewReader(`<count>not-an-integer</count>`)}
+	code = runWithInput([]string{"validate", "--diagnostics", "json", schemaPath, "-"}, instance, &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 || instance.reads == 0 || instance.closes != 1 {
+		t.Fatalf("instance failure = code %d, stdout %q, reads %d, closes %d", code, stdout.String(), instance.reads, instance.closes)
+	}
+	var instanceEnvelope diagnosticEnvelope
+	decodeDiagnosticEnvelope(t, stderr.Bytes(), &instanceEnvelope)
+	if instanceEnvelope.Command != "validate" || instanceEnvelope.Stage != "validate" || instanceEnvelope.ExitStatus != 1 {
+		t.Fatalf("instance envelope = %#v", instanceEnvelope)
+	}
+	if got := instanceEnvelope.Diagnostics[0].SourceID; got != "instance/stdin" {
+		t.Fatalf("instance source ID = %q, want instance/stdin", got)
+	}
+}
+
+func TestValidateCommandPreservesUnsupportedInstanceDiagnostics(t *testing.T) {
+	directory := t.TempDir()
+	schemaPath := filepath.Join(directory, "root.xsd")
+	writeTestFile(t, schemaPath, schemaDocument(`<xs:element name="count" type="xs:integer"/>`))
+	var stdout, stderr bytes.Buffer
+	code := runWithInput(
+		[]string{"validate", "--diagnostics", "json", schemaPath, "-"},
+		strings.NewReader(`<count xsi:schemaLocation="urn:example example.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">1</count>`),
+		&stdout,
+		&stderr,
+	)
+	if code != 1 || stdout.Len() != 0 {
+		t.Fatalf("unsupported instance = code %d, stdout %q", code, stdout.String())
+	}
+	var envelope diagnosticEnvelope
+	decodeDiagnosticEnvelope(t, stderr.Bytes(), &envelope)
+	if envelope.Command != "validate" || envelope.Stage != "validate" || envelope.ExitStatus != 1 || len(envelope.Diagnostics) != 1 {
+		t.Fatalf("unsupported envelope = %#v", envelope)
+	}
+	diagnostic := envelope.Diagnostics[0]
+	if diagnostic.Class == nil || *diagnostic.Class != string(goxsd9.FailureUnsupported) || diagnostic.Code != goxsd9.UnsupportedInstanceValidationCode || diagnostic.Kind != "processing" {
+		t.Fatalf("unsupported diagnostic = %#v", diagnostic)
+	}
+	if diagnostic.Feature == "" || diagnostic.SpecRef == "" || diagnostic.SourceID != "instance/stdin" {
+		t.Fatalf("unsupported diagnostic metadata = %#v", diagnostic)
+	}
+}
+
+func TestValidateCommandUsageStatusesAndDeterministicDiagnostics(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		sourceID string
+	}{
+		{name: "unknown flag", args: []string{"validate", "--diagnostics", "json", "--unknown", "schema.xsd", "instance.xml"}, sourceID: "-"},
+		{name: "duplicate root", args: []string{"validate", "--diagnostics", "json", "--schema-root", ".", "--schema-root", ".", "schema.xsd", "instance.xml"}, sourceID: "-"},
+		{name: "duplicate diagnostics", args: []string{"validate", "--diagnostics", "json", "--diagnostics", "human", "schema.xsd", "instance.xml"}, sourceID: "-"},
+		{name: "late flag", args: []string{"validate", "--diagnostics", "json", "schema.xsd", "--diagnostics", "human", "instance.xml"}, sourceID: "-"},
+		{name: "extra operand", args: []string{"validate", "--diagnostics", "json", "schema.xsd", "instance.xml", "extra.xml"}, sourceID: "-"},
+		{name: "missing operand", args: []string{"validate", "--diagnostics", "json", "schema.xsd"}, sourceID: "-"},
+		{name: "empty schema", args: []string{"validate", "--diagnostics", "json", "", "instance.xml"}, sourceID: "-"},
+		{name: "empty instance", args: []string{"validate", "--diagnostics", "json", "schema.xsd", ""}, sourceID: "-"},
+		{name: "schema stdin without root", args: []string{"validate", "--diagnostics", "json", "-", "instance.xml"}, sourceID: "schema/stdin"},
+		{name: "two stdin", args: []string{"validate", "--diagnostics", "json", "--schema-root", ".", "-", "-"}, sourceID: "instance/stdin"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var firstOut, firstErr bytes.Buffer
+			if code := runWithInput(test.args, strings.NewReader(""), &firstOut, &firstErr); code != 2 || firstOut.Len() != 0 {
+				t.Fatalf("first result = code %d, stdout %q", code, firstOut.String())
+			}
+			assertValidateUsage(t, firstErr.Bytes(), test.sourceID)
+
+			var secondOut, secondErr bytes.Buffer
+			if code := runWithInput(test.args, strings.NewReader(""), &secondOut, &secondErr); code != 2 || secondOut.Len() != 0 {
+				t.Fatalf("second result = code %d, stdout %q", code, secondOut.String())
+			}
+			if firstErr.String() != secondErr.String() {
+				t.Fatalf("diagnostics differ:\nfirst %q\nsecond %q", firstErr.String(), secondErr.String())
+			}
+		})
+	}
+}
+
+func TestValidateCommandStdinIdentityAndSchemaFirstOrdering(t *testing.T) {
+	directory := t.TempDir()
+	schemaPath := filepath.Join(directory, "root.xsd")
+	instancePath := filepath.Join(directory, "instance.xml")
+	writeTestFile(t, schemaPath, schemaDocument(`<xs:element name="count" type="xs:integer"/>`))
+	writeTestFile(t, instancePath, `<count>42</count>`)
+
+	var stdout, stderr bytes.Buffer
+	code := runWithInput([]string{"validate", "--schema-root", directory, "-", instancePath}, strings.NewReader(schemaDocument(`<xs:element name="count" type="xs:integer"/>`)), &stdout, &stderr)
+	if code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("schema stdin success = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+
+	writeTestFile(t, schemaPath, "<not-a-schema/>")
+	instance := &trackingReadCloser{reader: strings.NewReader(`<count>42</count>`)}
+	stdout.Reset()
+	stderr.Reset()
+	code = runWithInput([]string{"validate", "--diagnostics", "json", schemaPath, "-"}, instance, &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 || instance.reads != 0 || instance.closes != 0 {
+		t.Fatalf("schema-first instance stdin = code %d, stdout %q, reads %d, closes %d", code, stdout.String(), instance.reads, instance.closes)
+	}
+	var envelope diagnosticEnvelope
+	decodeDiagnosticEnvelope(t, stderr.Bytes(), &envelope)
+	if envelope.Diagnostics[0].SourceID != "schema/root.xsd" || envelope.Stage != "parse" {
+		t.Fatalf("schema-first diagnostic = %#v", envelope.Diagnostics[0])
+	}
+}
+
+func TestValidateCommandReportsInstanceIdentityPathAndResourceFailures(t *testing.T) {
+	directory := t.TempDir()
+	schemaPath := filepath.Join(directory, "root.xsd")
+	missingPath := filepath.Join(directory, "missing.xml")
+	childDirectory := filepath.Join(directory, "instance-dir")
+	if err := os.Mkdir(childDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, schemaPath, schemaDocument(`<xs:element name="count" type="xs:integer"/>`))
+
+	tests := []struct {
+		name     string
+		operand  string
+		code     string
+		sourceID string
+	}{
+		{name: "missing", operand: missingPath, code: cliResourceCode, sourceID: expectedInstanceSourceID(t, missingPath)},
+		{name: "directory", operand: childDirectory, code: cliResourceCode, sourceID: expectedInstanceSourceID(t, childDirectory)},
+		{name: "URI", operand: "https://example.test/instance.xml", code: cliPathPolicyCode, sourceID: "instance/-"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := runWithInput([]string{"validate", "--diagnostics", "json", schemaPath, test.operand}, strings.NewReader("unused"), &stdout, &stderr)
+			if code != 1 || stdout.Len() != 0 {
+				t.Fatalf("result = code %d, stdout %q", code, stdout.String())
+			}
+			var envelope diagnosticEnvelope
+			decodeDiagnosticEnvelope(t, stderr.Bytes(), &envelope)
+			if envelope.Command != "validate" || envelope.Stage != "validate" || envelope.ExitStatus != 1 || len(envelope.Diagnostics) != 1 {
+				t.Fatalf("envelope = %#v", envelope)
+			}
+			diagnostic := envelope.Diagnostics[0]
+			if diagnostic.Code != test.code || diagnostic.SourceID != test.sourceID || diagnostic.Class != nil {
+				t.Fatalf("diagnostic = %#v", diagnostic)
+			}
+		})
+	}
+}
+
+func TestValidateCommandEnforcesIndependentInstanceLimit(t *testing.T) {
+	directory := t.TempDir()
+	schemaPath := filepath.Join(directory, "root.xsd")
+	instancePath := filepath.Join(directory, "instance.xml")
+	writeTestFile(t, schemaPath, schemaDocument(`<xs:element name="count" type="xs:integer"/>`))
+
+	writeTestFile(t, instancePath, sizedInstance(maxInstanceSourceBytes))
+	var stdout, stderr bytes.Buffer
+	code := runWithInput([]string{"validate", "--diagnostics", "json", schemaPath, instancePath}, strings.NewReader("unused"), &stdout, &stderr)
+	if code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("exact instance limit = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+
+	writeTestFile(t, instancePath, sizedInstance(maxInstanceSourceBytes+1))
+	stdout.Reset()
+	stderr.Reset()
+	code = runWithInput([]string{"validate", "--diagnostics", "json", schemaPath, instancePath}, strings.NewReader("unused"), &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 {
+		t.Fatalf("over instance limit = code %d, stdout %q", code, stdout.String())
+	}
+	var envelope diagnosticEnvelope
+	decodeDiagnosticEnvelope(t, stderr.Bytes(), &envelope)
+	if envelope.Stage != "validate" || envelope.ExitStatus != 1 || len(envelope.Diagnostics) != 1 {
+		t.Fatalf("limit envelope = %#v", envelope)
+	}
+	diagnostic := envelope.Diagnostics[0]
+	if diagnostic.Code != cliLimitCode || diagnostic.SourceID != expectedInstanceSourceID(t, instancePath) || diagnostic.Kind != cliLimitKind || diagnostic.Class != nil {
+		t.Fatalf("limit diagnostic = %#v", diagnostic)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runWithInput([]string{"validate", "--diagnostics", "json", schemaPath, "-"}, strings.NewReader(sizedInstance(maxInstanceSourceBytes+1)), &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 {
+		t.Fatalf("stream instance limit = code %d, stdout %q", code, stdout.String())
+	}
+	var streamEnvelope diagnosticEnvelope
+	decodeDiagnosticEnvelope(t, stderr.Bytes(), &streamEnvelope)
+	if streamEnvelope.Stage != "validate" || streamEnvelope.ExitStatus != 1 || len(streamEnvelope.Diagnostics) != 1 {
+		t.Fatalf("stream limit envelope = %#v", streamEnvelope)
+	}
+	streamDiagnostic := streamEnvelope.Diagnostics[0]
+	if streamDiagnostic.Code != cliLimitCode || streamDiagnostic.SourceID != "instance/stdin" || streamDiagnostic.Kind != cliLimitKind || streamDiagnostic.Class != nil {
+		t.Fatalf("stream limit diagnostic = %#v", streamDiagnostic)
+	}
+}
+
+func TestValidateCommandClosesInstanceExactlyOnce(t *testing.T) {
+	directory := t.TempDir()
+	schemaPath := filepath.Join(directory, "root.xsd")
+	writeTestFile(t, schemaPath, schemaDocument(`<xs:element name="count" type="xs:integer"/>`))
+	instance := &trackingReadCloser{reader: strings.NewReader(`<count>42</count>`)}
+	var stdout, stderr bytes.Buffer
+	code := runWithInput([]string{"validate", schemaPath, "-"}, instance, &stdout, &stderr)
+	if code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("lifecycle result = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	if instance.reads == 0 || instance.closes != 1 {
+		t.Fatalf("instance lifecycle = reads %d, closes %d", instance.reads, instance.closes)
+	}
+}
+
+func assertValidateUsage(t *testing.T, data []byte, sourceID string) {
+	t.Helper()
+	var envelope diagnosticEnvelope
+	decodeDiagnosticEnvelope(t, data, &envelope)
+	if envelope.Command != "validate" || envelope.Stage != "usage" || envelope.ExitStatus != 2 || len(envelope.Diagnostics) != 1 {
+		t.Fatalf("usage envelope = %#v", envelope)
+	}
+	diagnostic := envelope.Diagnostics[0]
+	if diagnostic.Class != nil || diagnostic.Kind != cliUsageKind || diagnostic.Code != cliUsageCode || diagnostic.SourceID != sourceID || diagnostic.Location != (renderedLineColumn{}) {
+		t.Fatalf("usage diagnostic = %#v", diagnostic)
+	}
+}
+
+func expectedInstanceSourceID(t *testing.T, path string) string {
+	t.Helper()
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(instanceIDForPath(root, absolute))
+}
+
+func sizedInstance(size int64) string {
+	prefix := `<count>`
+	suffix := `1</count>`
+	if int64(len(prefix)+len(suffix)) > size {
+		panic("test instance prefix exceeds requested size")
+	}
+	return prefix + strings.Repeat(" ", int(size)-len(prefix)-len(suffix)) + suffix
+}
+
 type jsonDiagnosticEnvelope struct {
 	Format      string           `json:"format"`
 	Command     string           `json:"command"`
@@ -435,6 +759,23 @@ type countingReadCloser struct {
 func (reader *countingReadCloser) Close() error {
 	reader.closeCount++
 	return nil
+}
+
+type trackingReadCloser struct {
+	reader *strings.Reader
+	reads  int
+	closes int
+	err    error
+}
+
+func (reader *trackingReadCloser) Read(buffer []byte) (int, error) {
+	reader.reads++
+	return reader.reader.Read(buffer)
+}
+
+func (reader *trackingReadCloser) Close() error {
+	reader.closes++
+	return reader.err
 }
 
 type shortWriter struct {

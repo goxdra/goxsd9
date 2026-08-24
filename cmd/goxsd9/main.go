@@ -20,30 +20,53 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func runWithInput(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return reportUsage(stderr, "missing command", diagnosticsHuman, "-")
+		return reportUsage(stderr, "parse", "missing command", diagnosticsHuman, "-")
 	}
-	if args[0] != "parse" {
-		return reportUsage(stderr, fmt.Sprintf("unknown command %q", args[0]), diagnosticsHuman, "-")
+	switch args[0] {
+	case "parse":
+		return runParseCommand(args[1:], stdin, stdout, stderr)
+	case "validate":
+		return runValidateCommand(args[1:], stdin, stdout, stderr)
+	default:
+		return reportUsage(stderr, "parse", fmt.Sprintf("unknown command %q", args[0]), diagnosticsHuman, "-")
 	}
+}
 
-	options, err := parseParseOptions(args[1:])
+func runParseCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	options, err := parseParseOptions(args)
 	if err != nil {
-		return reportUsage(stderr, err.Error(), options.diagnostics, usageSourceID(options.schema))
+		return reportUsage(stderr, "parse", err.Error(), options.diagnostics, usageSourceID(options.schema))
 	}
 	if options.schema == "-" && !options.schemaRootSet {
-		return reportUsage(stderr, "schema stdin requires --schema-root", options.diagnostics, "schema/stdin")
+		return reportUsage(stderr, "parse", "schema stdin requires --schema-root", options.diagnostics, "schema/stdin")
 	}
 
 	return runParse(options, stdin, stdout, stderr)
 }
 
-type parseOptions struct {
+func runValidateCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	options, err := parseValidateOptions(args)
+	if err != nil {
+		return reportUsage(stderr, "validate", err.Error(), options.diagnostics, validateUsageSourceID(options))
+	}
+	if options.schema == "-" && !options.schemaRootSet {
+		return reportUsage(stderr, "validate", "schema stdin requires --schema-root", options.diagnostics, "schema/stdin")
+	}
+
+	return runValidate(options, stdin, stdout, stderr)
+}
+
+type commandOptions struct {
 	schema         string
+	instance       string
 	schemaRoot     string
 	diagnostics    diagnosticFormat
 	schemaRootSet  bool
 	diagnosticsSet bool
 }
+
+type parseOptions = commandOptions
+type validateOptions = commandOptions
 
 func parseParseOptions(args []string) (parseOptions, error) {
 	options := parseOptions{diagnostics: diagnosticsHuman}
@@ -73,6 +96,58 @@ func parseParseOptions(args []string) (parseOptions, error) {
 		return options, errors.New("parse requires one schema operand")
 	}
 	return options, nil
+}
+
+func parseValidateOptions(args []string) (validateOptions, error) {
+	options := validateOptions{diagnostics: diagnosticsHuman}
+	for index := 0; index < len(args); index++ {
+		next, err := parseValidateArgument(args, index, &options)
+		if err != nil {
+			return options, err
+		}
+		index = next
+	}
+	if options.schema == "" {
+		return options, errors.New("validate requires two operands")
+	}
+	if options.instance == "" {
+		return options, errors.New("validate requires two operands")
+	}
+	if options.schema == "-" && options.instance == "-" {
+		return options, errors.New("validate cannot read schema and instance from stdin")
+	}
+	return options, nil
+}
+
+func parseValidateArgument(args []string, index int, options *validateOptions) (int, error) {
+	argument := args[index]
+	if options.instance != "" {
+		if argument == "" {
+			return index, errors.New("operand is empty")
+		}
+		if isFlag(argument) {
+			return index, errors.New("flags must precede operands")
+		}
+		return index, errors.New("validate accepts exactly two operands")
+	}
+	if options.schema != "" {
+		if argument == "" {
+			return index, errors.New("instance operand is empty")
+		}
+		if argument == "-" || !isFlag(argument) {
+			options.instance = argument
+			return index, nil
+		}
+		return index, errors.New("flags must precede operands")
+	}
+	if argument == "" {
+		return index, errors.New("schema operand is empty")
+	}
+	if argument == "-" || !isFlag(argument) {
+		options.schema = argument
+		return index, nil
+	}
+	return parseFlag(args, index, options)
 }
 
 func parseFlag(args []string, index int, options *parseOptions) (int, error) {
@@ -148,26 +223,68 @@ func usageSourceID(schema string) goxsd9.SourceID {
 	return "-"
 }
 
+func validateUsageSourceID(options validateOptions) goxsd9.SourceID {
+	if options.instance == "-" {
+		return "instance/stdin"
+	}
+	if options.schema == "-" {
+		return "schema/stdin"
+	}
+	return "-"
+}
+
 func runParse(options parseOptions, stdin io.Reader, stdout, stderr io.Writer) int {
 	plan, err := prepareSchemaPlan(options)
 	if err != nil {
-		return reportError(stderr, options.diagnostics, "parse", err)
+		return reportError(stderr, "parse", options.diagnostics, "parse", err)
 	}
 
 	budget := &schemaBudget{}
 	root, err := plan.openRoot(stdin, budget)
 	if err != nil {
-		return reportError(stderr, options.diagnostics, "parse", err)
+		return reportError(stderr, "parse", options.diagnostics, "parse", err)
 	}
 
 	schema, err := goxsd9.ParseSchema(root, plan.resolver(budget))
 	if err != nil {
-		return reportError(stderr, options.diagnostics, "parse", err)
+		return reportError(stderr, "parse", options.diagnostics, "parse", err)
 	}
 
 	output := fmt.Sprintf("documents=%d components=%d\n", len(schema.Documents()), len(schema.Components()))
 	if err := writeOutput(stdout, output); err != nil {
-		return reportError(stderr, options.diagnostics, "output", newCLIError(cliOutputCode, cliOutputKind, "output/stdout", "failed to write parse summary", err))
+		return reportError(stderr, "parse", options.diagnostics, "output", newCLIError(cliOutputCode, cliOutputKind, "output/stdout", "failed to write parse summary", err))
+	}
+	return 0
+}
+
+func runValidate(options validateOptions, stdin io.Reader, _, stderr io.Writer) int {
+	plan, err := prepareSchemaPlan(options)
+	if err != nil {
+		return reportError(stderr, "validate", options.diagnostics, "parse", err)
+	}
+
+	budget := &schemaBudget{}
+	root, err := plan.openRoot(stdin, budget)
+	if err != nil {
+		return reportError(stderr, "validate", options.diagnostics, "parse", err)
+	}
+
+	schema, err := goxsd9.ParseSchema(root, plan.resolver(budget))
+	if err != nil {
+		return reportError(stderr, "validate", options.diagnostics, "parse", err)
+	}
+
+	instance, err := prepareInstancePlan(options.instance)
+	if err != nil {
+		return reportError(stderr, "validate", options.diagnostics, "validate", err)
+	}
+	reader, err := instance.open(stdin)
+	if err != nil {
+		return reportError(stderr, "validate", options.diagnostics, "validate", err)
+	}
+	bounded := newInstanceSource(reader, instance.sourceID)
+	if err := goxsd9.ValidateInstance(schema, instance.sourceID, bounded); err != nil {
+		return reportError(stderr, "validate", options.diagnostics, "validate", err)
 	}
 	return 0
 }
