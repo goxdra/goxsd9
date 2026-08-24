@@ -18,7 +18,7 @@ and applies graph-wide `Compatibility`, `Strict10`, or `Strict11` before discove
 unqualified `schema/@version` is an inert optional `xs:token` label: absent, empty, arbitrary,
 `"1.0"`, and `"1.1"` values never select or mismatch a policy. Strict10 routes the complete
 graph through XSD 1.0 behavior; Compatibility and Strict11 use XSD 1.1 behavior for the supported subset.
-Diagnostics cover invalid/unsupported input; errors omit schema. `ValidateInstance` supports text-only integer/decimal; semantics unsupported. `GenerateGo` emits deterministic Go for supported scalar components and direct scalar choices; broader generation remains staged. [Scalar&nbsp;library&nbsp;quickstart:&nbsp;supported&nbsp;scalar&nbsp;path;&nbsp;product&nbsp;CLI&nbsp;validate&nbsp;is&nbsp;implemented;&nbsp;generate&nbsp;remains&nbsp;future](library_example_test.go).
+Diagnostics cover invalid/unsupported input. `ValidateInstance` supports text-only built-in/named integer/decimal globals and named complex globals with one direct local integer/decimal choice; attributes, semantics, particles unsupported. `GenerateGo` emits deterministic Go; staged. [Scalar&nbsp;library&nbsp;quickstart:&nbsp;supported&nbsp;scalar&nbsp;path;&nbsp;product&nbsp;CLI&nbsp;validate&nbsp;is&nbsp;implemented;&nbsp;generate&nbsp;remains&nbsp;future](library_example_test.go).
 
 ## Design goals
 
