@@ -222,6 +222,11 @@ func validateMergeBoundaryResolutions(resolutions []evaluationResolutionRecord, 
 }
 
 func latestMergeBoundaryReceipt(history evaluationHistory) (evaluationReceiptRecord, error) {
+	outstanding := outstandingEvaluationChallenges(history)
+	if len(outstanding) != 0 {
+		first := outstanding[0].challenge
+		return evaluationReceiptRecord{}, fmt.Errorf("pre-merge evaluation proof has %d outstanding trusted Examiner challenge(s), including %q; every challenge needs exactly one attested receipt or no-verdict resolution before recovery", len(outstanding), first.Challenge)
+	}
 	if len(history.receipts) == 0 {
 		return evaluationReceiptRecord{}, errors.New("no trusted evaluation receipt proves an immutable pre-merge head")
 	}

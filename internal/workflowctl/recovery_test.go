@@ -145,6 +145,22 @@ func TestRecoveryRejectsPassThenFailAtMergeBoundary(t *testing.T) {
 	}
 }
 
+func TestRecoveryRejectsUnresolvedEarlierChallengeBeforePassingLaterReceipt(t *testing.T) {
+	mergedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+	comments := make([]pullRequestComment, 0, 3)
+	comments = append(comments,
+		recoveryEvaluationChallengeComment(t, 14, "evaluated-head", "earlier-challenge", mergedAt.Add(-3*time.Minute)),
+	)
+	comments = append(comments,
+		recoveryEvaluationRound(t, 14, "evaluated-head", "later-challenge", "later-run", 1, "pass",
+			mergedAt.Add(-time.Minute), mergedAt.Add(-time.Minute))...,
+	)
+	view := recoveryMergedView(mergedAt, comments)
+	if _, err := mergeTimeEvaluationProof(view, 14); err == nil || !strings.Contains(err.Error(), "outstanding trusted Examiner challenge") {
+		t.Fatalf("mergeTimeEvaluationProof error = %v, want unresolved-earlier-challenge refusal", err)
+	}
+}
+
 func TestRecoveryRejectsPostMergeReceiptTimestampSkew(t *testing.T) {
 	mergedAt := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
 	comments := recoveryEvaluationRound(t, 14, "evaluated-head", "skew-challenge", "skew-run", 1, "pass",
@@ -267,6 +283,12 @@ func recoveryEvaluationRound(t *testing.T, number int, head, challengeID, runID 
 	recordedAt, commentAt time.Time) []pullRequestComment {
 	t.Helper()
 	requestedAt := recordedAt.Add(-time.Minute)
+	comment := recoveryEvaluationChallengeComment(t, number, head, challengeID, requestedAt)
+	return []pullRequestComment{comment, recoveryEvaluationReceiptWithMetadata(t, number, head, challengeID, runID, round, verdict, recordedAt, commentAt)}
+}
+
+func recoveryEvaluationChallengeComment(t *testing.T, number int, head, challengeID string, requestedAt time.Time) pullRequestComment {
+	t.Helper()
 	challenge := evaluationChallenge{Challenge: challengeID, Head: head, PR: number, RequestedAt: requestedAt}
 	marker, err := json.Marshal(challenge)
 	if err != nil {
@@ -277,7 +299,7 @@ func recoveryEvaluationRound(t *testing.T, number int, head, challengeID, runID 
 		CreatedAt: requestedAt,
 	}
 	comment.Author.Login = trustedActor
-	return []pullRequestComment{comment, recoveryEvaluationReceiptWithMetadata(t, number, head, challengeID, runID, round, verdict, recordedAt, commentAt)}
+	return comment
 }
 
 func recoveryEvaluationReceipt(t *testing.T, number int, head string, recordedAt time.Time) pullRequestComment {
