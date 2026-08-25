@@ -4,13 +4,13 @@ goxsd9 targets XSD 1.1/1.0 parsing, XML validation, and Go code generation; unsu
 
 ## Schema parsing
 
-`ParseSchema` exposes immutable components. Callers create `ResolvedSource`; `Resolver` supplies sources/policy. Calls are sequential; contexts/locations stay opaque, paths/URLs unopened. Parsing closes unseen streams; repeated/cyclic identities close without decoding.
+`ParseSchema` exposes immutable components. Callers create `ResolvedSource`; `Resolver` supplies sources. Calls are sequential; contexts and locations stay opaque. Parsing closes unseen streams; repeats/cycles close without decoding.
 
-Mixed XSD 1.0/1.1 graphs, declarations, restrictions, digit facets, and `xs:precisionDecimal` are supported; precisionDecimal is optional under `Compatibility`/`Strict11`, and `Strict10` rejects it. Chameleon/redefine/override/defaultOpenContent/assertions and broader facets remain unsupported. `ParseSchema` defaults to `Compatibility`; `ParseSchemaWithPolicy` selects a policy. `schema/@version` is inert. Errors omit schema. `ValidateInstance` supports text-only built-in/named integer/decimal globals and named complex globals with one direct local integer/decimal choice; precisionDecimal instance validation, attributes, particles, and semantics remain unsupported. `GenerateGo` emits deterministic scalar/choice Go; broader generation is staged. [Scalar library quickstart](library_example_test.go) is library-only.
+Mixed XSD 1.0/1.1 graphs, declarations, restrictions, digit facets, and optional `xs:precisionDecimal` are supported; `Strict10` rejects it. Chameleon, redefine, override, defaultOpenContent, assertions, broader facets remain unsupported. `ParseSchema` defaults to `Compatibility`; `schema/@version` is inert. `ValidateInstance` supports text-only built-in/named integer/decimal globals and named complex globals with one direct local choice; attributes and broader particles remain unsupported. `GenerateGo` emits deterministic scalar/choice Go. The [direct-choice example](direct_choice_example_test.go) uses [fixtures](examples/direct-choice/). Run `go test ./... -run '^Example_directChoice$'`; it expects invalid `XSD2001` at `examples/direct-choice/invalid.xml:2:19` with `xsd11-datatypes#integer`. Scope: one direct, non-repeating local integer/decimal choice; refs, nested particles, wildcards, attributes, inline types, identity constraints remain unsupported.
 
 ## Product CLI
 
-`parse`, `validate`, and `generate` work; `generate` uses public `GenerateGo`, writing Go to stdout or `--output FILE`. [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
+`parse`, `validate`, and `generate` work through public APIs; [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines the CLI contract.
 [`examples/root.xsd`](examples/root.xsd), [`examples/valid.xml`](examples/valid.xml), [`examples/invalid.xml`](examples/invalid.xml)
 
 ```console
@@ -23,7 +23,7 @@ exit status 1
 $ go run ./cmd/goxsd9 generate --package sample examples/root.xsd > generated.go
 ```
 
-Parse summarizes to stdout; validation is silent (exit 0). Invalid exits 1 with empty stdout and a located stderr diagnostic; `go run` adds `exit status 1`. Usage is 2; unsupported behavior is explicit, with no broader conformance claim.
+Parse writes stdout; validation is silent on success. Invalid validation exits 1 with a located stderr diagnostic; usage is 2. Unsupported behavior is explicit, with no broader conformance claim.
 
 ## Design goals
 
