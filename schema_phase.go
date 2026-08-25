@@ -736,6 +736,7 @@ const (
 	schemaAttributeForbidden
 )
 
+//nolint:gocognit // Keep declaration validation and invalid/mismatch precedence together.
 func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion) error {
 	kind, ok := schemaDeclarationKind(element.name.local)
 	if !ok {
@@ -743,9 +744,16 @@ func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion)
 	}
 	unsupportedMessage := ""
 	unsupportedLoc := Loc{}
+	var mismatchErr error
 	for _, attribute := range element.attrs {
 		message, err := validateGlobalSchemaAttribute(element, kind, attribute, version)
 		if err != nil {
+			if errors.Is(err, errLanguagePolicyMismatch) {
+				if mismatchErr == nil {
+					mismatchErr = err
+				}
+				continue
+			}
 			return err
 		}
 		if message != "" && unsupportedMessage == "" {
@@ -759,8 +767,27 @@ func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion)
 	if err := validateGlobalSchemaAttributeCooccurrence(element); err != nil {
 		return err
 	}
-	if err := validateGlobalSchemaChildren(element, version); err != nil {
-		return preferSchemaUnsupported(err, unsupportedLoc, unsupportedMessage)
+	var childErr error
+	childrenErr := validateGlobalSchemaChildren(element, version)
+	if childrenErr != nil {
+		if errors.Is(childrenErr, errLanguagePolicyMismatch) {
+			if mismatchErr == nil {
+				mismatchErr = childrenErr
+			}
+		}
+		if !errors.Is(childrenErr, errLanguagePolicyMismatch) {
+			childErr = preferSchemaUnsupported(childrenErr, unsupportedLoc, unsupportedMessage)
+			var diagnostic Diagnostic
+			if !errors.As(childErr, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+				return childErr
+			}
+		}
+	}
+	if mismatchErr != nil {
+		return mismatchErr
+	}
+	if childErr != nil {
+		return childErr
 	}
 	if unsupportedMessage != "" {
 		return newSchemaSyntaxUnsupported(unsupportedLoc, unsupportedMessage)
@@ -1670,11 +1697,19 @@ func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractio
 			if err := validateSimpleTypeFacetAttributes(child); err != nil {
 				return err
 			}
+			var childErr error
 			if err := validateSimpleTypeFacetChildren(child); err != nil {
-				return err
+				var diagnostic Diagnostic
+				if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+					return err
+				}
+				childErr = err
 			}
 			if version == XSDVersion10 && isXSD11SimpleTypeFacet(child.name.local) {
 				return unsupportedSimpleTypeRestrictionChild(child, version)
+			}
+			if childErr != nil {
+				return childErr
 			}
 			if bridgeFacets {
 				return nil
@@ -3592,23 +3627,46 @@ func validateAllParticleChild(node syntaxNode, version XSDVersion, annotationSee
 	return validateAllParticleContentChild(child, version, candidate)
 }
 
+//nolint:gocognit // Stage all-child occurrence mismatches through child grammar validation.
 func validateAllParticleContentChild(child *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate) error {
 	switch child.name.local {
 	case "element":
-		if err := validateAllChildParticleOccurrences(child, "all element", version); err != nil {
-			return err
+		occurrenceErr := validateAllChildParticleOccurrences(child, "all element", version)
+		if occurrenceErr != nil && !errors.Is(occurrenceErr, errLanguagePolicyMismatch) {
+			return occurrenceErr
 		}
 		localCandidate, err := validateChoiceElementParticle(child, version)
 		if err != nil {
+			if occurrenceErr != nil && errors.Is(err, errLanguagePolicyMismatch) {
+				candidate.considerError(occurrenceErr)
+				candidate.considerError(err)
+				return nil
+			}
 			return err
 		}
 		candidate.merge(localCandidate)
+		if occurrenceErr != nil {
+			candidate.considerError(occurrenceErr)
+		}
 		return nil
 	case "any":
-		if err := validateAllChildParticleOccurrences(child, "all any", version); err != nil {
-			return err
+		occurrenceErr := validateAllChildParticleOccurrences(child, "all any", version)
+		if occurrenceErr != nil && !errors.Is(occurrenceErr, errLanguagePolicyMismatch) {
+			return occurrenceErr
 		}
-		return validateAllParticleUnsupportedChild(child, version, candidate)
+		childErr := validateAllParticleUnsupportedChild(child, version, candidate)
+		if childErr != nil {
+			if occurrenceErr != nil && errors.Is(childErr, errLanguagePolicyMismatch) {
+				candidate.considerError(occurrenceErr)
+				candidate.considerError(childErr)
+				return nil
+			}
+			return childErr
+		}
+		if occurrenceErr != nil {
+			candidate.considerError(occurrenceErr)
+		}
+		return nil
 	case "group":
 		return validateAllParticleUnsupportedChild(child, version, candidate)
 	default:

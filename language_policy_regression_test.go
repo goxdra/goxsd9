@@ -571,6 +571,134 @@ func TestStrict10MismatchOutranksEarlierGenericUnsupported(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep declaration precedence fixtures and diagnostic assertions together.
+func TestStrict10GlobalMismatchDoesNotHideInvalidDeclaration(t *testing.T) {
+	tests := []struct {
+		name   string
+		root   string
+		code   string
+		line   int
+		column int
+	}{
+		{
+			name: "missing name",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element targetNamespace="urn:test"/>
+</xs:schema>`,
+			code:   invalidSchemaDeclarationNameCode,
+			line:   2,
+			column: 3,
+		},
+		{
+			name: "malformed child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item" targetNamespace="urn:test"><xs:alternative/></xs:element>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+			line: 2,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Strict10)
+			if err == nil || schema.storage != nil {
+				t.Fatal("Strict10 accepted malformed declaration or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
+			}
+			if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != test.line || diagnostic.Loc().Column() == 0 {
+				t.Fatalf("diagnostic location = %s, want root.xsd:%d with a column", diagnostic.Loc(), test.line)
+			}
+			if test.column != 0 && diagnostic.Loc().Column() != test.column {
+				t.Fatalf("diagnostic column = %d, want %d", diagnostic.Loc().Column(), test.column)
+			}
+			if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+				t.Fatalf("invalid declaration retained an unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
+func TestStrict10FacetMismatchOutranksFacetChildUnsupported(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item">
+    <xs:restriction base="xs:decimal">
+      <xs:minScale value="1"><xs:unknown/></xs:minScale>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err == nil || schema.storage != nil {
+		t.Fatal("Strict10 accepted a malformed facet or returned a schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != UnsupportedDatatypeFacetCode {
+		t.Fatalf("diagnostic = %s, want datatype facet unsupported", diagnostic)
+	}
+	if diagnostic.SpecRef() != "xsd11-datatypes#decimal" {
+		t.Fatalf("diagnostic spec ref = %q, want xsd11-datatypes#decimal", diagnostic.SpecRef())
+	}
+	if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 4 || diagnostic.Loc().Column() != 7 {
+		t.Fatalf("diagnostic location = %s, want root.xsd:4:7", diagnostic.Loc())
+	}
+	if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("diagnostic lost mismatch or unsupported cause: %v", err)
+	}
+}
+
+//nolint:gocognit // Keep malformed all-child profiles and precedence assertions together.
+func TestAllChildOccurrenceMismatchDoesNotHideMalformedChildren(t *testing.T) {
+	tests := []struct {
+		name  string
+		child string
+		code  string
+	}{
+		{
+			name:  "element missing name",
+			child: `<xs:element maxOccurs="2"/>`,
+			code:  invalidSchemaDeclarationNameCode,
+		},
+		{
+			name:  "wildcard namespace",
+			child: `<xs:any maxOccurs="2" namespace="##any ##local"/>`,
+			code:  invalidSchemaCompositionCode,
+		},
+	}
+	profiles := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item"><xs:all>` + test.child + `</xs:all></xs:complexType></xs:schema>`
+			for _, profile := range profiles {
+				t.Run(profile.name, func(t *testing.T) {
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err == nil || schema.storage != nil {
+						t.Fatal("malformed all child was accepted or returned a schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+						t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
+					}
+					if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 1 || diagnostic.Loc().Column() == 0 {
+						t.Fatalf("diagnostic location = %s, want root.xsd:1 with a column", diagnostic.Loc())
+					}
+					if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+						t.Fatalf("malformed all child retained an unsupported cause: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
 //nolint:gocognit // Keep paired all-particle profile fixtures and diagnostics together.
 func TestAllChildRepeatedOccurrencesRemainVersionAware(t *testing.T) {
 	tests := []struct {
