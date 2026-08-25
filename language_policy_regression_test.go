@@ -1930,6 +1930,26 @@ func TestAnnotationXMLBaseCandidatesYieldToLaterInvalidGrammar(t *testing.T) {
 	}
 }
 
+func TestStrict10AlternativeMismatchPreservesEarlierChildMismatch(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item"><xs:alternative><xs:annotation xml:base="urn:test"/><xs:complexType defaultAttributesApply="false"/></xs:alternative></xs:element>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err == nil || schema.storage != nil {
+		t.Fatal("Strict10 accepted alternative or returned a schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.SpecRef() != "xsd11-structures#cSchemaDocument" {
+		t.Fatalf("diagnostic = %s/%q/%q/%q, want inline child mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code(), diagnostic.SpecRef())
+	}
+	if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() != 79 {
+		t.Fatalf("diagnostic location = %s, want inline complexType at root.xsd:2:79", diagnostic.Loc())
+	}
+	if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("alternative mismatch lost cause: %v", err)
+	}
+}
+
 func assertDiagnosticClassAndCode(t *testing.T, err error, class FailureClass, code string) {
 	t.Helper()
 	diagnostic := requireDiagnostic(t, err)

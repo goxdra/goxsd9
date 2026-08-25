@@ -3401,12 +3401,12 @@ func validateChoiceElementAlternative(element *syntaxElement, version XSDVersion
 		return newSchemaCompositionDiagnostic(element.loc, "alternative requires a type or inline type")
 	}
 	if version == XSDVersion10 {
-		return newXSD11FeatureMismatch(
+		candidate.considerError(newXSD11FeatureMismatch(
 			FeatureSchemaSyntax,
 			UnsupportedSchemaSyntaxCode,
 			element.loc,
 			"alternative is an XSD 1.1-only construct",
-		)
+		))
 	}
 	return candidate.err()
 }
