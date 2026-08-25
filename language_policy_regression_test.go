@@ -1718,6 +1718,218 @@ func TestRootDiscoveryValidXMLBaseAndRedefineRemainUnsupported(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep annotation candidate precedence and exact Strict10 metadata together.
+func TestStrict10AnnotationXMLBaseCandidatesYieldToRecognizedMismatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		root    string
+		feature FeatureID
+		code    string
+		specRef string
+	}{
+		{
+			name: "restriction minScale",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:annotation xml:base="urn:test"/><xs:minScale value="1"/></xs:restriction></xs:simpleType>
+</xs:schema>`,
+			feature: FeatureDatatypeFacets,
+			code:    UnsupportedDatatypeFacetCode,
+			specRef: "xsd11-datatypes#decimal",
+		},
+		{
+			name: "choice local targetNamespace",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:choice><xs:annotation xml:base="urn:test"/><xs:element name="value" targetNamespace="urn:test"/></xs:choice></xs:complexType>
+</xs:schema>`,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name: "outer all maxOccurs",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:all minOccurs="0" maxOccurs="0"><xs:annotation xml:base="urn:test"/><xs:element name="value" type="xs:string"/></xs:all></xs:complexType>
+</xs:schema>`,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name: "any notNamespace",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:choice><xs:any notNamespace="##local"><xs:annotation xml:base="urn:test"/></xs:any></xs:choice></xs:complexType>
+</xs:schema>`,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name: "anyAttribute notNamespace",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:anyAttribute notNamespace="##local"><xs:annotation xml:base="urn:test"/></xs:anyAttribute></xs:complexType>
+</xs:schema>`,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xsd11-structures#cSchemaDocument",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Strict10)
+			if err == nil || schema.storage != nil {
+				t.Fatal("Strict10 accepted annotated unsupported input or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != test.feature || diagnostic.Code() != test.code || diagnostic.SpecRef() != test.specRef {
+				t.Fatalf("diagnostic = %s/%q/%q/%q, want mismatch %q/%q/%q", diagnostic, diagnostic.Feature(), diagnostic.Code(), diagnostic.SpecRef(), test.feature, test.code, test.specRef)
+			}
+			if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() == 0 {
+				t.Fatalf("diagnostic location = %s, want root.xsd:2 with a column", diagnostic.Loc())
+			}
+			if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("recognized mismatch lost cause: %v", err)
+			}
+		})
+	}
+}
+
+//nolint:gocognit,funlen // Exercise every annotation-bearing child collector across all profiles.
+func TestAnnotationXMLBaseCandidatesYieldToLaterInvalidGrammar(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+		code string
+	}{
+		{
+			name: "restriction malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:annotation xml:base="urn:test"/><xs:minScale value="1"/><xs:sequence/></xs:restriction></xs:simpleType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "list malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:list itemType="xs:string"><xs:annotation xml:base="urn:test"/><xs:element/></xs:list></xs:simpleType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "union malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:union memberTypes="xs:string"><xs:annotation xml:base="urn:test"/><xs:element/></xs:union></xs:simpleType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "digit facet malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:totalDigits value="1"><xs:annotation xml:base="urn:test"/><xs:element/></xs:totalDigits></xs:restriction></xs:simpleType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "complex content malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:complexContent><xs:annotation xml:base="urn:test"/><xs:sequence/></xs:complexContent></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "open content malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:openContent mode="none"><xs:annotation xml:base="urn:test"/><xs:sequence/></xs:openContent></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "local attribute malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:attribute name="value"><xs:annotation xml:base="urn:test"/><xs:element/></xs:attribute></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "attribute group malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:tns="urn:test">
+  <xs:complexType name="item"><xs:attributeGroup ref="tns:group"><xs:annotation xml:base="urn:test"/><xs:element/></xs:attributeGroup></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "assert malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:assert test="true()"><xs:annotation xml:base="urn:test"/><xs:element/></xs:assert></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "model malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:choice><xs:annotation xml:base="urn:test"/><xs:element/></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaDeclarationNameCode,
+		},
+		{
+			name: "group particle malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:tns="urn:test">
+  <xs:complexType name="item"><xs:choice><xs:group ref="tns:group"><xs:annotation xml:base="urn:test"/><xs:element/></xs:group></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "all malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:all><xs:annotation xml:base="urn:test"/><xs:element/></xs:all></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaDeclarationNameCode,
+		},
+		{
+			name: "any malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:choice><xs:any notNamespace="##local"><xs:annotation xml:base="urn:test"/><xs:element/></xs:any></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "anyAttribute malformed sibling",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:anyAttribute notNamespace="##local"><xs:annotation xml:base="urn:test"/><xs:element/></xs:anyAttribute></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, profile := range []struct {
+				name   string
+				policy LanguagePolicy
+			}{
+				{name: "Compatibility", policy: Compatibility},
+				{name: "Strict10", policy: Strict10},
+				{name: "Strict11", policy: Strict11},
+			} {
+				t.Run(profile.name, func(t *testing.T) {
+					schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, profile.policy)
+					if err == nil || schema.storage != nil {
+						t.Fatal("malformed annotated input was accepted or returned a schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+						t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
+					}
+					if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() == 0 {
+						t.Fatalf("diagnostic location = %s, want root.xsd:2 with a column", diagnostic.Loc())
+					}
+					if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+						t.Fatalf("invalid annotated input retained unsupported cause: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
 func assertDiagnosticClassAndCode(t *testing.T, err error, class FailureClass, code string) {
 	t.Helper()
 	diagnostic := requireDiagnostic(t, err)
