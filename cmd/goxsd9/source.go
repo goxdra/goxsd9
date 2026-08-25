@@ -39,7 +39,7 @@ type schemaPlan struct {
 	rootIsStdin bool
 }
 
-func prepareSchemaPlan(options parseOptions) (schemaPlan, error) {
+func prepareSchemaPlan(options commandOptions) (schemaPlan, error) {
 	if options.schema == "-" {
 		return prepareStdinPlan(options.schemaRoot)
 	}
