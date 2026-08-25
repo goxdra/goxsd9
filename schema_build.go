@@ -1394,6 +1394,9 @@ func restrictSchemaIntegerFacets(
 	if err != nil {
 		return nil, err
 	}
+	if local.deferredUnsupported != nil {
+		return nil, local.deferredUnsupported
+	}
 	return schemaIntegerFacetVariant{digits: digits, enumeration: enumeration}, nil
 }
 
@@ -1418,6 +1421,9 @@ func restrictSchemaDecimalFacets(
 	enumeration, err := RestrictDecimalEnumerationFacets(baseEnumeration, local.decimalEnumeration)
 	if err != nil {
 		return nil, err
+	}
+	if local.deferredUnsupported != nil {
+		return nil, local.deferredUnsupported
 	}
 	return schemaDecimalFacetVariant{digits: digits, enumeration: enumeration}, nil
 }
@@ -1514,9 +1520,10 @@ func schemaEnumerationBaseValueSpaceDiagnostic(
 }
 
 type schemaNumericFacetDeclarationSet struct {
-	digits             DigitFacetDeclarations
-	integerEnumeration IntegerEnumerationFacetDeclarations
-	decimalEnumeration DecimalEnumerationFacetDeclarations
+	digits              DigitFacetDeclarations
+	integerEnumeration  IntegerEnumerationFacetDeclarations
+	decimalEnumeration  DecimalEnumerationFacetDeclarations
+	deferredUnsupported error
 }
 
 //nolint:gocognit // Keep the supported numeric facet mapping and unsupported facet boundary in one lexical pass.
@@ -1529,6 +1536,7 @@ func schemaNumericFacetDeclarations(
 	var fractionDigits *FractionDigitsFacet
 	var integerEnumeration []IntegerEnumerationFacet
 	var decimalEnumeration []DecimalEnumerationFacet
+	var deferredUnsupported error
 	for _, input := range inputs {
 		loc := schemaFacetValueLocation(input)
 		switch input.kind {
@@ -1565,15 +1573,26 @@ func schemaNumericFacetDeclarations(
 			schemaFacetMinInclusive, schemaFacetMinExclusive, schemaFacetMaxInclusive, schemaFacetMaxExclusive,
 			schemaFacetWhiteSpace, schemaFacetLength, schemaFacetMinLength, schemaFacetMaxLength,
 			schemaFacetPrecision, schemaFacetExplicitTimezone:
-			return schemaNumericFacetDeclarationSet{}, unsupportedSchemaDatatypeFacet(input, version)
+			err := unsupportedSchemaDatatypeFacet(input, version)
+			if err == nil {
+				continue
+			}
+			var diagnostic Diagnostic
+			if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+				return schemaNumericFacetDeclarationSet{}, err
+			}
+			if deferredUnsupported == nil {
+				deferredUnsupported = err
+			}
 		default:
 			return schemaNumericFacetDeclarationSet{}, newSchemaBridgeInvariant(input.loc, "simple type facet has an unknown kind")
 		}
 	}
 	return schemaNumericFacetDeclarationSet{
-		digits:             NewDigitFacetDeclarations(totalDigits, fractionDigits),
-		integerEnumeration: NewIntegerEnumerationFacetDeclarations(integerEnumeration),
-		decimalEnumeration: NewDecimalEnumerationFacetDeclarations(decimalEnumeration),
+		digits:              NewDigitFacetDeclarations(totalDigits, fractionDigits),
+		integerEnumeration:  NewIntegerEnumerationFacetDeclarations(integerEnumeration),
+		decimalEnumeration:  NewDecimalEnumerationFacetDeclarations(decimalEnumeration),
+		deferredUnsupported: deferredUnsupported,
 	}, nil
 }
 

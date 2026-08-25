@@ -205,6 +205,86 @@ func TestSchemaBridgeRejectsInvalidNumericEnumerationDeclarations(t *testing.T) 
 	}
 }
 
+//nolint:gocognit // Keep order, classification, location, and cause assertions together.
+func TestSchemaBridgeCompletesNumericEnumerationBeforeUnsupportedFacet(t *testing.T) {
+	tests := []struct {
+		name        string
+		root        string
+		code        string
+		class       FailureClass
+		loc         Loc
+		cause       error
+		unsupported bool
+	}{
+		{
+			name: "excluded facet before malformed enumeration",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.1">
+  <xs:simpleType name="item">
+    <xs:restriction base="xs:decimal">
+      <xs:pattern value="x"/>
+      <xs:enumeration value="not-a-decimal"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`,
+			code:  InvalidEnumerationCode,
+			class: FailureInvalid,
+			loc:   mustTestLoc(t, "root.xsd", 5, 7),
+			cause: errInvalidEnumerationValue,
+		},
+		{
+			name: "malformed enumeration before excluded facet",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.1">
+  <xs:simpleType name="item">
+    <xs:restriction base="xs:decimal">
+      <xs:enumeration value="not-a-decimal"/>
+      <xs:pattern value="x"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`,
+			code:  InvalidEnumerationCode,
+			class: FailureInvalid,
+			loc:   mustTestLoc(t, "root.xsd", 4, 7),
+			cause: errInvalidEnumerationValue,
+		},
+		{
+			name: "valid enumeration with excluded facet",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.1">
+  <xs:simpleType name="item">
+    <xs:restriction base="xs:decimal">
+      <xs:pattern value="x"/>
+      <xs:enumeration value="1.0"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`,
+			code:        UnsupportedDatatypeFacetCode,
+			class:       FailureUnsupported,
+			loc:         mustTestLoc(t, "root.xsd", 4, 7),
+			unsupported: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Strict11)
+			if err == nil {
+				t.Fatal("discoverSchema accepted invalid or unsupported numeric facets")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class || diagnostic.Code() != test.code || diagnostic.Loc() != test.loc {
+				t.Fatalf("diagnostic = %s, want %s/%s at %s", diagnostic, test.class, test.code, test.loc)
+			}
+			if test.cause != nil && !errors.Is(err, test.cause) {
+				t.Fatalf("diagnostic lost cause %v: %v", test.cause, err)
+			}
+			if test.unsupported && !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+			}
+		})
+	}
+}
+
 type schemaEnumerationBaseDigitSpaceCase struct {
 	name     string
 	root     string
