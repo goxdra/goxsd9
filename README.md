@@ -10,7 +10,7 @@ Mixed XSD 1.0/1.1 graphs, declarations, restrictions, and total/fraction digits 
 
 ## Product CLI
 
-`parse`, `validate`, and `generate` are implemented; `generate` calls public `GenerateGo` and writes Go to stdout or `--output FILE`. [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
+`parse`, `validate`, and `generate` work; `generate` uses public `GenerateGo`, writing Go to stdout or `--output FILE`. [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
 [`examples/root.xsd`](examples/root.xsd), [`examples/valid.xml`](examples/valid.xml), [`examples/invalid.xml`](examples/invalid.xml)
 
 ```console
@@ -23,7 +23,7 @@ exit status 1
 $ go run ./cmd/goxsd9 generate --package sample examples/root.xsd > generated.go
 ```
 
-Parse prints summary to stdout; validation is silent and exits 0. Invalid exits 1 with empty stdout and a located stderr diagnostic; `go run` adds `exit status 1`. Usage is 2; unsupported behavior is explicit, with no broader conformance claim.
+Parse summarizes to stdout; validation is silent (exit 0). Invalid exits 1 with empty stdout and a located stderr diagnostic; `go run` adds `exit status 1`. Usage is 2; unsupported behavior is explicit, with no broader conformance claim.
 
 ## Design goals
 
