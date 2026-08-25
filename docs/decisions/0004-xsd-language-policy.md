@@ -137,7 +137,7 @@ rows describe the implemented contract:
 | A catalog entry selects XSD 1.0 or XSD 1.1 from manifest edition metadata | `Strict10` or `Strict11` respectively | Select the strict policy before parsing. Ignore every schema label in the root and resolver graph; labels cannot override catalog selection. |
 | `Strict10` encounters a recognized XSD 1.1-only feature such as `<xs:assert>` that must be processed | `Strict10` | Report an actual strict-profile feature mismatch at the construct’s source `Loc` as explicit unsupported behavior, with the registered feature, stable code, and pinned XSD 1.1 reference. Return no schema. |
 
-The future strict-profile row is a mismatch because the source invokes
+The current strict-profile row is a mismatch because the source invokes
 behavior outside the selected strict profile, not because it contains a
 particular label. A well-formed graph whose documents merely use different
 labels is not a strict mismatch. Conversely, malformed representation input,
