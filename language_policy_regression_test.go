@@ -476,6 +476,183 @@ func TestStrict10MalformedXSD11RootAttributesRemainInvalid(t *testing.T) {
 	}
 }
 
+//nolint:gocognit,funlen // Keep cross-profile mismatch-precedence fixtures together.
+func TestLanguagePolicyMismatchCandidatesYieldToInvalidGrammar(t *testing.T) {
+	profiles := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	}
+	tests := []struct {
+		name string
+		root string
+		code string
+	}{
+		{
+			name: "root defaultAttributes before missing global name",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" defaultAttributes="Defaults">
+  <xs:element/>
+</xs:schema>`,
+			code: invalidSchemaDeclarationNameCode,
+		},
+		{
+			name: "global attribute targetNamespace before missing name",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:attribute targetNamespace="urn:test"/>
+</xs:schema>`,
+			code: invalidSchemaDeclarationNameCode,
+		},
+		{
+			name: "anyAttribute namespace and notNamespace",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:anyAttribute namespace="##any" notNamespace="##local"/></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "anyAttribute mismatch before malformed child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:anyAttribute notNamespace="##local"><xs:element/></xs:anyAttribute></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "any namespace and notNamespace",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:choice><xs:any namespace="##any" notNamespace="##local"/></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "any mismatch before malformed child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:choice><xs:any notQName="xs:string"><xs:element/></xs:any></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "inline complexType defaultAttributesApply before malformed descendant",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="container"><xs:choice><xs:element name="item"><xs:complexType defaultAttributesApply="true"><xs:choice><xs:element/></xs:choice></xs:complexType></xs:element></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaDeclarationNameCode,
+		},
+		{
+			name: "local alternative before forbidden child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="container"><xs:choice><xs:element name="item" type="xs:integer"><xs:alternative type="xs:integer"/><xs:sequence/></xs:element></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "local targetNamespace before forbidden child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="container"><xs:choice><xs:element name="item" type="xs:integer" targetNamespace="urn:test"><xs:sequence/></xs:element></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "local attribute targetNamespace before missing name",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:attribute targetNamespace="urn:test"/></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "outer all occurrence before malformed child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:all minOccurs="0" maxOccurs="0"><xs:element/></xs:all></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaDeclarationNameCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, profile := range profiles {
+				t.Run(profile.name, func(t *testing.T) {
+					schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, profile.policy)
+					if err == nil || schema.storage != nil {
+						t.Fatal("malformed input was accepted or returned a schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+						t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
+					}
+					if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() == 0 || diagnostic.Loc().Column() == 0 {
+						t.Fatalf("diagnostic location = %s, want located root.xsd input", diagnostic.Loc())
+					}
+					if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+						t.Fatalf("invalid input retained an unsupported cause: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep exact feature, cause, and location assertions together.
+func TestStrict10InlineAndOuterMismatchLocationsRemainExact(t *testing.T) {
+	tests := []struct {
+		name      string
+		root      string
+		feature   FeatureID
+		code      string
+		specRef   string
+		line      int
+		column    int
+		wantCause bool
+	}{
+		{
+			name: "inline defaultAttributesApply",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="container"><xs:choice><xs:element name="item"><xs:complexType defaultAttributesApply="true"><xs:sequence><xs:element name="value" type="xs:string"/></xs:sequence></xs:complexType></xs:element></xs:choice></xs:complexType>
+</xs:schema>`,
+			feature:   FeatureSchemaSyntax,
+			code:      UnsupportedSchemaSyntaxCode,
+			specRef:   "xsd11-structures#cSchemaDocument",
+			line:      2,
+			column:    71,
+			wantCause: true,
+		},
+		{
+			name: "outer all occurrence",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:all minOccurs="0" maxOccurs="0"><xs:element name="value" type="xs:string"/></xs:all></xs:complexType>
+</xs:schema>`,
+			feature:   FeatureSchemaSyntax,
+			code:      UnsupportedSchemaSyntaxCode,
+			specRef:   "xsd11-structures#cSchemaDocument",
+			line:      2,
+			column:    31,
+			wantCause: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Strict10)
+			if err == nil || schema.storage != nil {
+				t.Fatal("Strict10 accepted a recognized mismatch or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != test.feature || diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic = %s/%q/%q, want unsupported/%q/%q", diagnostic, diagnostic.Feature(), diagnostic.Code(), test.feature, test.code)
+			}
+			if diagnostic.SpecRef() != test.specRef {
+				t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), test.specRef)
+			}
+			if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != test.line || test.column != 0 && diagnostic.Loc().Column() != test.column {
+				t.Fatalf("diagnostic location = %s, want root.xsd:%d:%d", diagnostic.Loc(), test.line, test.column)
+			}
+			if test.wantCause && (!errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported)) {
+				t.Fatalf("diagnostic lost mismatch or unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
 func TestStrict10KeepsGenericXSD10UnsupportedBehavior(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:pattern value="[0-9]+"/></xs:restriction></xs:simpleType></xs:schema>`
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)

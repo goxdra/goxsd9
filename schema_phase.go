@@ -289,14 +289,14 @@ func validateSyntaxDocumentStructureWithPolicy(document *syntaxDocument, policy 
 
 func validateSchemaRootContents(document *syntaxDocument, version XSDVersion) error {
 	root := document.root
-	unsupportedRootAttribute, unsupportedRootAttributeLoc, err := validateSchemaRootAttributes(root, version)
+	candidate, err := validateSchemaRootAttributes(root, version)
 	if err != nil {
 		return err
 	}
-	return validateSchemaRootChildren(root, version, unsupportedRootAttributeLoc, unsupportedRootAttribute)
+	return validateSchemaRootChildren(root, version, &candidate)
 }
 
-func validateSchemaRootChildren(root *syntaxElement, version XSDVersion, unsupportedRootAttributeLoc Loc, unsupportedRootAttribute string) error {
+func validateSchemaRootChildren(root *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate) error {
 	phase := schemaGrammarMetadata
 	for _, node := range root.children {
 		child, err := schemaRootChildElement(node)
@@ -308,14 +308,15 @@ func validateSchemaRootChildren(root *syntaxElement, version XSDVersion, unsuppo
 		}
 		nextPhase, err := validateSchemaRootChild(child, phase, version)
 		if err != nil {
-			return preferSchemaUnsupported(err, unsupportedRootAttributeLoc, unsupportedRootAttribute)
+			if !candidate.considerError(err) {
+				return err
+			}
+			phase = nextPhase
+			continue
 		}
 		phase = nextPhase
 	}
-	if unsupportedRootAttribute != "" {
-		return newSchemaSyntaxUnsupported(unsupportedRootAttributeLoc, unsupportedRootAttribute)
-	}
-	return nil
+	return candidate.err()
 }
 
 func schemaRootChildElement(node syntaxNode) (*syntaxElement, error) {
@@ -511,20 +512,21 @@ func validateSchemaRootForbiddenOrUnsupported(child *syntaxElement) error {
 	return newSchemaSyntaxUnsupported(child.loc, fmt.Sprintf("XSD schema child <%s> is not implemented", child.name.local))
 }
 
-func validateSchemaRootAttributes(element *syntaxElement, version XSDVersion) (string, Loc, error) {
-	unsupportedMessage := ""
-	unsupportedLoc := Loc{}
+func validateSchemaRootAttributes(element *syntaxElement, version XSDVersion) (schemaChildUnsupportedCandidate, error) {
+	var candidate schemaChildUnsupportedCandidate
 	for _, attribute := range element.attrs {
 		message, err := validateSchemaRootAttribute(element, attribute, version)
 		if err != nil {
-			return "", Loc{}, err
+			if !candidate.considerError(err) {
+				return candidate, err
+			}
+			continue
 		}
-		if message != "" && unsupportedMessage == "" {
-			unsupportedMessage = message
-			unsupportedLoc = attribute.loc
+		if message != "" {
+			candidate.considerAt(attribute.loc, message)
 		}
 	}
-	return unsupportedMessage, unsupportedLoc, nil
+	return candidate, nil
 }
 
 func validateSchemaRootAttribute(element *syntaxElement, attribute syntaxAttribute, version XSDVersion) (string, error) {
@@ -2572,7 +2574,9 @@ func validateLocalAttribute(element *syntaxElement, version XSDVersion) error {
 		}
 		if attribute.name.namespace != "" {
 			if err := validateSchemaQualifiedAttribute(attribute, "local attribute"); err != nil {
-				return err
+				if !candidate.considerError(err) {
+					return err
+				}
 			}
 			continue
 		}
@@ -2599,27 +2603,31 @@ func validateLocalAttribute(element *syntaxElement, version XSDVersion) error {
 				return err
 			}
 			if version == XSDVersion10 {
-				return newXSD11FeatureMismatch(
+				candidate.considerError(newXSD11FeatureMismatch(
 					FeatureSchemaSyntax,
 					UnsupportedSchemaSyntaxCode,
 					attribute.loc,
 					"local attribute targetNamespace is an XSD 1.1-only construct",
-				)
+				))
 			}
-			candidate.considerAtVersion(attribute.loc, "local attribute targetNamespace is not implemented", version)
+			if version != XSDVersion10 {
+				candidate.considerAtVersion(attribute.loc, "local attribute targetNamespace is not implemented", version)
+			}
 		case "inheritable":
 			if err := validateSchemaBoolean(attribute); err != nil {
 				return err
 			}
 			if version == XSDVersion10 {
-				return newXSD11FeatureMismatch(
+				candidate.considerError(newXSD11FeatureMismatch(
 					FeatureSchemaSyntax,
 					UnsupportedSchemaSyntaxCode,
 					attribute.loc,
 					"local attribute inheritable is an XSD 1.1-only construct",
-				)
+				))
 			}
-			candidate.considerAtVersion(attribute.loc, "local attribute inheritable is not implemented", version)
+			if version != XSDVersion10 {
+				candidate.considerAtVersion(attribute.loc, "local attribute inheritable is not implemented", version)
+			}
 		case "id":
 			if !validNCName(collapseXMLWhitespace(attribute.value)) {
 				return newSchemaCompositionDiagnostic(attribute.loc, "local attribute id must be a valid NCName")
@@ -2745,6 +2753,7 @@ func validateAttributeGroupReference(element *syntaxElement) error {
 
 //nolint:gocognit // Keep wildcard lexical/co-occurrence checks together.
 func validateAnyAttribute(element *syntaxElement, version XSDVersion) error {
+	var candidate schemaChildUnsupportedCandidate
 	if err := validateUniqueSchemaAttributes(element, "id", "namespace", "processContents", "notNamespace", "notQName"); err != nil {
 		return err
 	}
@@ -2756,7 +2765,9 @@ func validateAnyAttribute(element *syntaxElement, version XSDVersion) error {
 		}
 		if attribute.name.namespace != "" {
 			if err := validateSchemaQualifiedAttribute(attribute, "anyAttribute"); err != nil {
-				return err
+				if !candidate.considerError(err) {
+					return err
+				}
 			}
 			continue
 		}
@@ -2778,24 +2789,24 @@ func validateAnyAttribute(element *syntaxElement, version XSDVersion) error {
 				return err
 			}
 			if version == XSDVersion10 {
-				return newXSD11FeatureMismatch(
+				candidate.considerError(newXSD11FeatureMismatch(
 					FeatureSchemaSyntax,
 					UnsupportedSchemaSyntaxCode,
 					attribute.loc,
 					"anyAttribute notNamespace is an XSD 1.1-only construct",
-				)
+				))
 			}
 		case "notQName":
 			if err := validateWildcardNotQName(element, attribute, false); err != nil {
 				return err
 			}
 			if version == XSDVersion10 {
-				return newXSD11FeatureMismatch(
+				candidate.considerError(newXSD11FeatureMismatch(
 					FeatureSchemaSyntax,
 					UnsupportedSchemaSyntaxCode,
 					attribute.loc,
 					"anyAttribute notQName is an XSD 1.1-only construct",
-				)
+				))
 			}
 		default:
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("anyAttribute has forbidden attribute %q", attribute.name.local))
@@ -2817,6 +2828,9 @@ func validateAnyAttribute(element *syntaxElement, version XSDVersion) error {
 			return newSchemaCompositionDiagnostic(child.loc, "anyAttribute annotation must be unique")
 		}
 		annotationSeen = true
+	}
+	if candidate.present {
+		return candidate.err()
 	}
 	return newSchemaSyntaxUnsupportedForVersion(element.loc, "anyAttribute wildcards are not implemented", version)
 }
@@ -3244,8 +3258,7 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 	if !ok || kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
 		return newSchemaBridgeInvariant(element.loc, "inline schema type has an unknown kind")
 	}
-	unsupportedMessage := ""
-	unsupportedLoc := Loc{}
+	var candidate schemaChildUnsupportedCandidate
 	for _, attribute := range element.attrs {
 		if attribute.name.namespace == "" && attribute.name.local == "name" {
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("inline %s cannot specify a name", element.name.local))
@@ -3261,18 +3274,22 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 		}
 		message, err := validateGlobalSchemaAttribute(element, kind, attribute, version)
 		if err != nil {
-			return err
+			if !candidate.considerError(err) {
+				return err
+			}
+			continue
 		}
-		if message != "" && unsupportedMessage == "" {
-			unsupportedMessage = message
-			unsupportedLoc = attribute.loc
+		if message != "" {
+			candidate.considerAt(attribute.loc, message)
 		}
 	}
 	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, false); err != nil {
-		return preferSchemaUnsupported(err, unsupportedLoc, unsupportedMessage)
+		if !candidate.considerError(err) {
+			return err
+		}
 	}
-	if unsupportedMessage != "" {
-		return newSchemaSyntaxUnsupported(unsupportedLoc, unsupportedMessage)
+	if candidate.present {
+		return candidate.err()
 	}
 	return nil
 }
@@ -3434,13 +3451,8 @@ func validateChoiceElementParticle(element *syntaxElement, version XSDVersion) (
 				return candidate, newSchemaCompositionDiagnostic(child.loc, "local element alternative must precede identity constraints")
 			}
 			alternativeErr := validateChoiceElementAlternative(child, version)
-			if alternativeErr != nil {
-				if version == XSDVersion10 && errors.Is(alternativeErr, errLanguagePolicyMismatch) {
-					return candidate, alternativeErr
-				}
-				if !candidate.considerError(alternativeErr) {
-					return candidate, alternativeErr
-				}
+			if alternativeErr != nil && !candidate.considerError(alternativeErr) {
+				return candidate, alternativeErr
 			}
 			if !candidate.present {
 				candidate.considerAtVersion(child.loc, "local element alternatives are not implemented", version)
@@ -3579,7 +3591,9 @@ func validateGroupParticle(element *syntaxElement) error {
 func validateAllParticle(element *syntaxElement, version XSDVersion) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateAllParticleOccurrences(element, "all particle", version); err != nil {
-		return err
+		if !candidate.considerError(err) {
+			return err
+		}
 	}
 	if err := validateSchemaParticleAttributes(element, &candidate); err != nil {
 		return err
@@ -3861,7 +3875,9 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 			}
 			if attribute.name.namespace == xmlNamespaceURI {
 				if err := validateSchemaXMLAttribute(attribute); err != nil {
-					return err
+					if !candidate.considerError(err) {
+						return err
+					}
 				}
 			}
 			continue
@@ -3885,14 +3901,16 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 				return err
 			}
 			if version == XSDVersion10 {
-				return newXSD11FeatureMismatch(
+				candidate.considerError(newXSD11FeatureMismatch(
 					FeatureSchemaSyntax,
 					UnsupportedSchemaSyntaxCode,
 					attribute.loc,
 					"any notNamespace is an XSD 1.1-only construct",
-				)
+				))
 			}
-			candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
+			if version != XSDVersion10 {
+				candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
+			}
 		case "processContents":
 			if err := validateSchemaEnum(attribute, "lax", "skip", "strict"); err != nil {
 				return err
@@ -3903,14 +3921,16 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 				return err
 			}
 			if version == XSDVersion10 {
-				return newXSD11FeatureMismatch(
+				candidate.considerError(newXSD11FeatureMismatch(
 					FeatureSchemaSyntax,
 					UnsupportedSchemaSyntaxCode,
 					attribute.loc,
 					"any notQName is an XSD 1.1-only construct",
-				)
+				))
 			}
-			candidate.considerAt(attribute.loc, "wildcard particles are not implemented")
+			if version != XSDVersion10 {
+				candidate.considerAt(attribute.loc, "wildcard particles are not implemented")
+			}
 		default:
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("any has forbidden attribute %q", attribute.name.local))
 		}
