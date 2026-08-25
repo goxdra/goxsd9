@@ -952,6 +952,53 @@ func TestStrict10AllChildMismatchUsesLexicalAttributeOrder(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep nested all-child precedence metadata assertions together.
+func TestStrict10AllChildOccurrencePrecedesLaterNestedMismatch(t *testing.T) {
+	tests := []struct {
+		name        string
+		child       string
+		wantMessage string
+		wantColumn  int
+	}{
+		{
+			name:        "element inline complexType",
+			child:       `<xs:element name="v" maxOccurs="2"><xs:complexType defaultAttributesApply="false"/></xs:element>`,
+			wantMessage: "all element maxOccurs greater than 1 is an XSD 1.1-only construct",
+			wantColumn:  39,
+		},
+		{
+			name:        "any annotation XML Base",
+			child:       `<xs:any maxOccurs="2"><xs:annotation xml:base="urn:test"/></xs:any>`,
+			wantMessage: "all any maxOccurs greater than 1 is an XSD 1.1-only construct",
+			wantColumn:  39,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:all>` + test.child + `</xs:all></xs:complexType>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+			if err == nil || schema.storage != nil {
+				t.Fatal("Strict10 accepted an all-child occurrence or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != diagnosticSchemaAllOccurrenceVersionCode {
+				t.Fatalf("diagnostic = %s/%q/%q, want all occurrence mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
+			}
+			if diagnostic.Message() != test.wantMessage {
+				t.Fatalf("diagnostic message = %q, want %q", diagnostic.Message(), test.wantMessage)
+			}
+			if diagnostic.SpecRef() != "xsd11-structures#cSchemaDocument" || diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() != test.wantColumn {
+				t.Fatalf("diagnostic metadata = %s/%q, want xsd11 schema occurrence at root.xsd:2:%d", diagnostic.Loc(), diagnostic.SpecRef(), test.wantColumn)
+			}
+			if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("diagnostic lost mismatch or unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
 //nolint:gocognit // Keep XML Base candidate precedence fixtures and metadata assertions together.
 func TestStrict10XMLBaseCandidatesYieldToMismatch(t *testing.T) {
 	tests := []struct {

@@ -1275,6 +1275,7 @@ func (candidate schemaChildUnsupportedCandidate) err() error {
 	return newSchemaSyntaxUnsupported(candidate.loc, candidate.message)
 }
 
+//nolint:gocognit // Keep all-child mismatch precedence in one local phase.
 func stageAllChildOccurrenceCandidate(candidate *schemaChildUnsupportedCandidate, child *syntaxElement, occurrenceErr error) error {
 	if occurrenceErr == nil {
 		return nil
@@ -1296,8 +1297,41 @@ func stageAllChildOccurrenceCandidate(candidate *schemaChildUnsupportedCandidate
 		candidate.captured = occurrenceErr
 		return nil
 	}
+	if candidate.present && errors.Is(candidate.captured, errLanguagePolicyMismatch) {
+		occurrenceLoc, occurrenceLocated := schemaCandidateDiagnosticLoc(occurrenceErr)
+		candidateLoc, candidateLocated := schemaCandidateDiagnosticLoc(candidate.captured)
+		if occurrenceLocated && candidateLocated && schemaLocPrecedes(occurrenceLoc, candidateLoc) {
+			candidate.captured = occurrenceErr
+			candidate.mismatchOwner = nil
+			candidate.mismatchAttributeIndex = 0
+			candidate.hasMismatchAttributeIndex = false
+			return nil
+		}
+	}
 	candidate.considerError(occurrenceErr)
 	return nil
+}
+
+func schemaCandidateDiagnosticLoc(err error) (Loc, bool) {
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		return Loc{}, false
+	}
+	loc := diagnostic.Loc()
+	if loc.IsZero() {
+		return Loc{}, false
+	}
+	return loc, true
+}
+
+func schemaLocPrecedes(earlier, later Loc) bool {
+	if earlier.Source() == "" || later.Source() == "" || earlier.Line() < 1 || later.Line() < 1 || earlier.Column() < 1 || later.Column() < 1 || earlier.Source() != later.Source() {
+		return false
+	}
+	if earlier.Line() != later.Line() {
+		return earlier.Line() < later.Line()
+	}
+	return earlier.Column() < later.Column()
 }
 
 func schemaAttributeIndex(element *syntaxElement, local string) (int, bool) {
