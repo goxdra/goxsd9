@@ -60,10 +60,11 @@ type historyEvaluationPacket struct {
 }
 
 type historyEvaluationRound struct {
-	round            int
-	verdict          string
-	blockingFindings int
-	findingEvidence  bool
+	round              int
+	verdict            string
+	blockingFindings   int
+	findingEvidence    bool
+	attestationSummary string
 }
 
 type historyEvaluationResolution struct {
@@ -330,6 +331,7 @@ func historyEvaluationRoundForPR(pullRequest pullRequestSummary, record evaluati
 			pullRequest.Number, record.receipt.Round)
 	}
 	round.findingEvidence = true
+	round.attestationSummary = attestation.Summary
 	if record.receipt.Verdict == "fail" {
 		round.blockingFindings = len(attestation.Findings)
 	}
@@ -730,7 +732,8 @@ func historyEvaluationMetricsForPacket(packet historyEvaluationPacket) historyEv
 func formatHistoryEvaluationRound(round historyEvaluationRound) string {
 	if round.verdict == "fail" {
 		if round.findingEvidence {
-			return fmt.Sprintf("round %d fail (%d blocking findings)", round.round, round.blockingFindings)
+			return fmt.Sprintf("round %d fail (%d blocking findings; summary=%s)", round.round,
+				round.blockingFindings, strconv.Quote(round.attestationSummary))
 		}
 		return fmt.Sprintf("round %d fail (findings unavailable)", round.round)
 	}
