@@ -1178,11 +1178,14 @@ func collectGlobalSchemaChildren(element *syntaxElement) ([]*syntaxElement, sche
 }
 
 type schemaChildUnsupportedCandidate struct {
-	loc      Loc
-	message  string
-	version  XSDVersion
-	captured error
-	present  bool
+	loc                       Loc
+	message                   string
+	version                   XSDVersion
+	captured                  error
+	present                   bool
+	mismatchOwner             *syntaxElement
+	mismatchAttributeIndex    int
+	hasMismatchAttributeIndex bool
 }
 
 func (candidate *schemaChildUnsupportedCandidate) consider(child *syntaxElement, parent string) {
@@ -1204,6 +1207,10 @@ func (candidate *schemaChildUnsupportedCandidate) considerAtVersion(loc Loc, mes
 }
 
 func (candidate *schemaChildUnsupportedCandidate) considerError(err error) bool {
+	return candidate.considerErrorAt(err, nil, 0)
+}
+
+func (candidate *schemaChildUnsupportedCandidate) considerErrorAt(err error, owner *syntaxElement, attributeIndex int) bool {
 	if err == nil {
 		return false
 	}
@@ -1219,6 +1226,14 @@ func (candidate *schemaChildUnsupportedCandidate) considerError(err error) bool 
 	}
 	candidate.captured = err
 	candidate.present = true
+	candidate.mismatchOwner = nil
+	candidate.mismatchAttributeIndex = 0
+	candidate.hasMismatchAttributeIndex = false
+	if errors.Is(err, errLanguagePolicyMismatch) && owner != nil {
+		candidate.mismatchOwner = owner
+		candidate.mismatchAttributeIndex = attributeIndex
+		candidate.hasMismatchAttributeIndex = true
+	}
 	return true
 }
 
@@ -1237,6 +1252,10 @@ func (candidate *schemaChildUnsupportedCandidate) merge(other schemaChildUnsuppo
 		return
 	}
 	if other.captured != nil {
+		if other.hasMismatchAttributeIndex {
+			candidate.considerErrorAt(other.captured, other.mismatchOwner, other.mismatchAttributeIndex)
+			return
+		}
 		candidate.considerError(other.captured)
 		return
 	}
@@ -1254,6 +1273,53 @@ func (candidate schemaChildUnsupportedCandidate) err() error {
 		return newSchemaSyntaxUnsupportedForVersion(candidate.loc, candidate.message, candidate.version)
 	}
 	return newSchemaSyntaxUnsupported(candidate.loc, candidate.message)
+}
+
+func stageAllChildOccurrenceCandidate(candidate *schemaChildUnsupportedCandidate, child *syntaxElement, occurrenceErr error) error {
+	if occurrenceErr == nil {
+		return nil
+	}
+	if !errors.Is(occurrenceErr, errLanguagePolicyMismatch) {
+		if candidate.considerError(occurrenceErr) {
+			return nil
+		}
+		return occurrenceErr
+	}
+	if candidate.present && errors.Is(candidate.captured, errLanguagePolicyMismatch) && candidate.mismatchOwner == child && candidate.hasMismatchAttributeIndex {
+		if occurrenceIndex, ok := schemaAttributeIndex(child, "maxOccurs"); ok && occurrenceIndex < candidate.mismatchAttributeIndex {
+			candidate.captured = occurrenceErr
+			candidate.mismatchAttributeIndex = occurrenceIndex
+		}
+		return nil
+	}
+	if candidate.present && child.name.local == "any" && errors.Is(candidate.captured, errLanguagePolicyMismatch) && candidate.mismatchOwner == nil {
+		candidate.captured = occurrenceErr
+		return nil
+	}
+	candidate.considerError(occurrenceErr)
+	return nil
+}
+
+func schemaAttributeIndex(element *syntaxElement, local string) (int, bool) {
+	for index, attribute := range element.attrs {
+		if attribute.name.namespace == "" && attribute.name.local == local {
+			return index, true
+		}
+	}
+	return 0, false
+}
+
+func schemaAnyMismatchAttributeIndex(element *syntaxElement) (int, bool) {
+	for index, attribute := range element.attrs {
+		if attribute.name.namespace != "" {
+			continue
+		}
+		switch attribute.name.local {
+		case "notNamespace", "notQName":
+			return index, true
+		}
+	}
+	return 0, false
 }
 
 func consumeGlobalSchemaAnnotation(child *syntaxElement, annotationSeen, contentSeen *bool) (bool, error) {
@@ -3559,12 +3625,13 @@ func validateChoiceElementParticle(element *syntaxElement, version XSDVersion) (
 			if err := validateSchemaAnyURI(targetNamespaceAttributes[0]); err != nil {
 				return candidate, err
 			}
-			candidate.considerError(newXSD11FeatureMismatch(
+			attributeIndex, _ := schemaAttributeIndex(element, "targetNamespace")
+			candidate.considerErrorAt(newXSD11FeatureMismatch(
 				FeatureSchemaSyntax,
 				UnsupportedSchemaSyntaxCode,
 				targetNamespaceAttributes[0].loc,
 				"local element targetNamespace is an XSD 1.1-only construct",
-			))
+			), element, attributeIndex)
 		}
 		if version != XSDVersion10 {
 			candidate.considerAtVersion(targetNamespaceAttributes[0].loc, "local element targetNamespace is not implemented", version)
@@ -3803,41 +3870,34 @@ func validateAllParticleChild(node syntaxNode, version XSDVersion, annotationSee
 	return validateAllParticleContentChild(child, version, candidate)
 }
 
-//nolint:gocognit // Stage all-child occurrence mismatches through child grammar validation.
 func validateAllParticleContentChild(child *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate) error {
 	switch child.name.local {
 	case "element":
-		occurrenceErr := validateAllChildParticleOccurrences(child, "all element", version)
-		if occurrenceErr != nil && !errors.Is(occurrenceErr, errLanguagePolicyMismatch) {
-			return occurrenceErr
-		}
-		if occurrenceErr != nil {
-			candidate.considerError(occurrenceErr)
-		}
 		localCandidate, err := validateChoiceElementParticle(child, version)
 		if err != nil {
-			if candidate.considerError(err) {
-				return nil
+			if !localCandidate.considerError(err) {
+				return err
 			}
+		}
+		occurrenceErr := validateAllChildParticleOccurrences(child, "all element", version)
+		if err := stageAllChildOccurrenceCandidate(&localCandidate, child, occurrenceErr); err != nil {
 			return err
 		}
 		candidate.merge(localCandidate)
 		return nil
 	case "any":
-		occurrenceErr := validateAllChildParticleOccurrences(child, "all any", version)
-		if occurrenceErr != nil && !errors.Is(occurrenceErr, errLanguagePolicyMismatch) {
-			return occurrenceErr
-		}
-		if occurrenceErr != nil {
-			candidate.considerError(occurrenceErr)
-		}
-		childErr := validateAllParticleUnsupportedChild(child, version, candidate)
+		var childCandidate schemaChildUnsupportedCandidate
+		childErr := validateAllParticleUnsupportedChild(child, version, &childCandidate)
 		if childErr != nil {
-			if candidate.considerError(childErr) {
-				return nil
+			if !childCandidate.considerError(childErr) {
+				return childErr
 			}
-			return childErr
 		}
+		occurrenceErr := validateAllChildParticleOccurrences(child, "all any", version)
+		if err := stageAllChildOccurrenceCandidate(&childCandidate, child, occurrenceErr); err != nil {
+			return err
+		}
+		candidate.merge(childCandidate)
 		return nil
 	case "group":
 		return validateAllParticleUnsupportedChild(child, version, candidate)
@@ -3857,6 +3917,14 @@ func validateAllParticleUnsupportedChild(child *syntaxElement, version XSDVersio
 	if childErr != nil {
 		if version == XSDVersion10 {
 			if mismatchErr := validateAllParticleXSD10Error(child, childErr); mismatchErr != nil {
+				if errors.Is(childErr, errLanguagePolicyMismatch) {
+					if attributeIndex, ok := schemaAnyMismatchAttributeIndex(child); ok {
+						if candidate.considerErrorAt(mismatchErr, child, attributeIndex) {
+							return nil
+						}
+						return mismatchErr
+					}
+				}
 				if candidate.considerError(mismatchErr) {
 					return nil
 				}
@@ -4028,7 +4096,7 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 		return err
 	}
 	annotationSeen := false
-	for _, attribute := range element.attrs {
+	for attributeIndex, attribute := range element.attrs {
 		if attribute.name.namespace == xsdVersioningNamespaceURI {
 			continue
 		}
@@ -4064,12 +4132,12 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 				return err
 			}
 			if version == XSDVersion10 {
-				candidate.considerError(newXSD11FeatureMismatch(
+				candidate.considerErrorAt(newXSD11FeatureMismatch(
 					FeatureSchemaSyntax,
 					UnsupportedSchemaSyntaxCode,
 					attribute.loc,
 					"any notNamespace is an XSD 1.1-only construct",
-				))
+				), element, attributeIndex)
 			}
 			if version != XSDVersion10 {
 				candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
@@ -4084,12 +4152,12 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 				return err
 			}
 			if version == XSDVersion10 {
-				candidate.considerError(newXSD11FeatureMismatch(
+				candidate.considerErrorAt(newXSD11FeatureMismatch(
 					FeatureSchemaSyntax,
 					UnsupportedSchemaSyntaxCode,
 					attribute.loc,
 					"any notQName is an XSD 1.1-only construct",
-				))
+				), element, attributeIndex)
 			}
 			if version != XSDVersion10 {
 				candidate.considerAt(attribute.loc, "wildcard particles are not implemented")

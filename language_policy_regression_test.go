@@ -890,6 +890,68 @@ func TestStrict10AllChildCandidatesPreserveOccurrenceAndInvalidPrecedence(t *tes
 	}
 }
 
+//nolint:gocognit // Keep lexical mismatch permutations and metadata assertions together.
+func TestStrict10AllChildMismatchUsesLexicalAttributeOrder(t *testing.T) {
+	tests := []struct {
+		name        string
+		child       string
+		wantCode    string
+		wantMessage string
+	}{
+		{
+			name:        "element targetNamespace before maxOccurs",
+			child:       `<xs:element name="v" targetNamespace="urn:t" maxOccurs="2"/>`,
+			wantCode:    UnsupportedSchemaSyntaxCode,
+			wantMessage: "local element targetNamespace is an XSD 1.1-only construct",
+		},
+		{
+			name:        "element maxOccurs before targetNamespace",
+			child:       `<xs:element name="v" maxOccurs="2" targetNamespace="urn:t"/>`,
+			wantCode:    diagnosticSchemaAllOccurrenceVersionCode,
+			wantMessage: "all element maxOccurs greater than 1 is an XSD 1.1-only construct",
+		},
+		{
+			name:        "any notNamespace before maxOccurs",
+			child:       `<xs:any notNamespace="##local" maxOccurs="2"/>`,
+			wantCode:    UnsupportedSchemaSyntaxCode,
+			wantMessage: "any notNamespace is an XSD 1.1-only construct",
+		},
+		{
+			name:        "any maxOccurs before notNamespace",
+			child:       `<xs:any maxOccurs="2" notNamespace="##local"/>`,
+			wantCode:    diagnosticSchemaAllOccurrenceVersionCode,
+			wantMessage: "all any maxOccurs greater than 1 is an XSD 1.1-only construct",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:all>` + test.child + `</xs:all></xs:complexType>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+			if err == nil || schema.storage != nil {
+				t.Fatal("Strict10 accepted a conflicting all-child construct or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != test.wantCode {
+				t.Fatalf("diagnostic = %s/%q/%q, want unsupported/%q/%q", diagnostic, diagnostic.Feature(), diagnostic.Code(), FeatureSchemaSyntax, test.wantCode)
+			}
+			if diagnostic.Message() != test.wantMessage {
+				t.Fatalf("diagnostic message = %q, want %q", diagnostic.Message(), test.wantMessage)
+			}
+			if diagnostic.SpecRef() != "xsd11-structures#cSchemaDocument" {
+				t.Fatalf("diagnostic spec ref = %q, want xsd11-structures#cSchemaDocument", diagnostic.SpecRef())
+			}
+			if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() != 39 {
+				t.Fatalf("diagnostic location = %s, want root.xsd:2:39", diagnostic.Loc())
+			}
+			if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("diagnostic lost mismatch or unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
 //nolint:gocognit // Keep XML Base candidate precedence fixtures and metadata assertions together.
 func TestStrict10XMLBaseCandidatesYieldToMismatch(t *testing.T) {
 	tests := []struct {
