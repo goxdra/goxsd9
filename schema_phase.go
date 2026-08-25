@@ -362,6 +362,7 @@ func schemaRootChildElement(node syntaxNode) (*syntaxElement, error) {
 	return child, nil
 }
 
+//nolint:gocognit // Keep root grammar dispatch and phase transitions together.
 func validateSchemaRootChild(child *syntaxElement, phase schemaGrammarPhase, version XSDVersion) (schemaGrammarPhase, error) {
 	if child.name.namespace != xsdNamespaceURI {
 		return phase, newSchemaCompositionDiagnostic(child.loc, "schema root contains a forbidden non-XSD construct")
@@ -377,7 +378,11 @@ func validateSchemaRootChild(child *syntaxElement, phase schemaGrammarPhase, ver
 		if phase == schemaGrammarDefaultOpenContent || phase == schemaGrammarDeclarations {
 			return phase, newSchemaCompositionDiagnostic(child.loc, "schema child <redefine> follows global declarations")
 		}
-		return schemaGrammarComposition, newSchemaSyntaxUnsupported(child.loc, "XSD schema child <redefine> is not implemented")
+		nextPhase := schemaGrammarComposition
+		if err := validateRedefineElement(child, version); err != nil {
+			return nextPhase, err
+		}
+		return nextPhase, newSchemaSyntaxUnsupportedForVersion(child.loc, "XSD schema child <redefine> is not implemented", version)
 	case "override":
 		if phase == schemaGrammarDefaultOpenContent || phase == schemaGrammarDeclarations {
 			return phase, newSchemaCompositionDiagnostic(child.loc, "schema child <override> follows global declarations")
@@ -415,6 +420,88 @@ func validateSchemaRootComposition(child *syntaxElement, phase schemaGrammarPhas
 		return phase, err
 	}
 	return schemaGrammarComposition, nil
+}
+
+//nolint:gocognit,funlen // Keep redefine attribute and child grammar in one ordered phase.
+func validateRedefineElement(element *syntaxElement, version XSDVersion) error {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateUniqueSchemaAttributes(element, "id", "schemaLocation"); err != nil {
+		return err
+	}
+	schemaLocationAttributes := syntaxAttributesByLocal(element, "schemaLocation")
+	for _, attribute := range element.attrs {
+		if attribute.name.namespace == xsdVersioningNamespaceURI {
+			continue
+		}
+		if attribute.name.namespace != "" {
+			if err := stageSchemaCandidateError(&candidate, validateSchemaQualifiedAttribute(attribute, "schema redefine")); err != nil {
+				return err
+			}
+			continue
+		}
+		switch attribute.name.local {
+		case "id":
+			if !validNCName(collapseXMLWhitespace(attribute.value)) {
+				return newSchemaCompositionDiagnostic(attribute.loc, "schema redefine id must be a valid NCName")
+			}
+		case "schemaLocation":
+			if err := validateSchemaAnyURI(attribute); err != nil {
+				return err
+			}
+		default:
+			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("schema redefine has forbidden attribute %q", attribute.name.local))
+		}
+	}
+	if len(schemaLocationAttributes) == 0 {
+		return newDiagnostic(
+			FailureInvalid,
+			MissingSchemaLocationCode,
+			element.loc,
+			"schema redefine has no schemaLocation attribute",
+			nil,
+		)
+	}
+	annotationSeen := false
+	contentSeen := false
+	for _, node := range element.children {
+		textNode, ok := node.(syntaxText)
+		if ok {
+			if !xmlWhitespace([]byte(textNode.data)) {
+				return newSchemaCompositionDiagnostic(textNode.loc, "schema redefine contains non-whitespace character data")
+			}
+			continue
+		}
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			return newSchemaBridgeInvariant(Loc{}, "schema redefine contains an unknown syntax node")
+		}
+		if child.name.namespace != xsdNamespaceURI {
+			return newSchemaCompositionDiagnostic(child.loc, "schema redefine contains a forbidden non-XSD child")
+		}
+		if child.name.local == "annotation" {
+			if annotationSeen || contentSeen {
+				return newSchemaCompositionDiagnostic(child.loc, "schema redefine annotation must be first and unique")
+			}
+			annotationSeen = true
+			if err := stageSchemaCandidateError(&candidate, validateSchemaAnnotationElement(child)); err != nil {
+				return err
+			}
+			continue
+		}
+		contentSeen = true
+		switch child.name.local {
+		case "simpleType", "complexType", "group", "attributeGroup":
+			if err := stageSchemaCandidateError(&candidate, validateGlobalSchemaDeclaration(child, version)); err != nil {
+				return err
+			}
+		default:
+			if isKnownSchemaElement(child.name.local) {
+				return newSchemaCompositionDiagnostic(child.loc, fmt.Sprintf("schema redefine contains forbidden child <%s>", child.name.local))
+			}
+			candidate.considerAt(child.loc, fmt.Sprintf("schema redefine child <%s> is not implemented", child.name.local))
+		}
+	}
+	return candidate.err()
 }
 
 func validateOverrideElement(element *syntaxElement, version XSDVersion) error {

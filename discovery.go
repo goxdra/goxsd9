@@ -302,12 +302,27 @@ func syntaxReferenceFromElement(element *syntaxElement) (syntaxReference, bool, 
 }
 
 func validateSchemaReferenceElement(element *syntaxElement, kind syntaxReferenceKind) error {
+	var candidate schemaChildUnsupportedCandidate
 	for _, attribute := range element.attrs {
 		if err := validateSchemaReferenceAttribute(attribute, kind); err != nil {
-			return err
+			if !candidate.considerError(err) {
+				return err
+			}
 		}
 	}
-	return validateSchemaReferenceChildren(element)
+	if kind == syntaxReferenceInclude && len(syntaxAttributesByLocal(element, "schemaLocation")) == 0 {
+		return newDiagnostic(
+			FailureInvalid,
+			MissingSchemaLocationCode,
+			element.loc,
+			"schema include has no schemaLocation attribute",
+			nil,
+		)
+	}
+	if err := validateSchemaReferenceChildren(element, &candidate); err != nil {
+		return err
+	}
+	return candidate.err()
 }
 
 func validateSchemaReferenceAttribute(attribute syntaxAttribute, kind syntaxReferenceKind) error {
@@ -358,10 +373,10 @@ func schemaReferenceName(kind syntaxReferenceKind) string {
 	}
 }
 
-func validateSchemaReferenceChildren(element *syntaxElement) error {
+func validateSchemaReferenceChildren(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
 	annotationSeen := false
 	for _, node := range element.children {
-		seen, err := validateSchemaReferenceChild(node, annotationSeen)
+		seen, err := validateSchemaReferenceChild(node, annotationSeen, candidate)
 		if err != nil {
 			return err
 		}
@@ -370,7 +385,7 @@ func validateSchemaReferenceChildren(element *syntaxElement) error {
 	return nil
 }
 
-func validateSchemaReferenceChild(node syntaxNode, annotationSeen bool) (bool, error) {
+func validateSchemaReferenceChild(node syntaxNode, annotationSeen bool, candidate *schemaChildUnsupportedCandidate) (bool, error) {
 	textNode, ok := node.(syntaxText)
 	if ok {
 		if !xmlWhitespace([]byte(textNode.data)) {
@@ -394,25 +409,26 @@ func validateSchemaReferenceChild(node syntaxNode, annotationSeen bool) (bool, e
 	if annotationSeen {
 		return false, newSchemaCompositionDiagnostic(child.loc, "schema composition contains more than one annotation")
 	}
-	if err := validateSchemaAnnotationElement(child); err != nil {
+	if err := stageSchemaCandidateError(candidate, validateSchemaAnnotationElement(child)); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
 func validateSchemaAnnotationElement(element *syntaxElement) error {
-	if err := validateSchemaAnnotationAttributes(element); err != nil {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSchemaAnnotationAttributes(element, &candidate); err != nil {
 		return err
 	}
 	for _, node := range element.children {
-		if err := validateSchemaAnnotationChild(node); err != nil {
+		if err := validateSchemaAnnotationChild(node, &candidate); err != nil {
 			return err
 		}
 	}
-	return nil
+	return candidate.err()
 }
 
-func validateSchemaAnnotationChild(node syntaxNode) error {
+func validateSchemaAnnotationChild(node syntaxNode, candidate *schemaChildUnsupportedCandidate) error {
 	textNode, ok := node.(syntaxText)
 	if ok {
 		if !xmlWhitespace([]byte(textNode.data)) {
@@ -429,7 +445,7 @@ func validateSchemaAnnotationChild(node syntaxNode) error {
 	}
 	switch child.name.local {
 	case "appinfo", "documentation":
-		return validateSchemaAnnotationItem(child)
+		return validateSchemaAnnotationItem(child, candidate)
 	default:
 		return newSchemaCompositionDiagnostic(
 			child.loc,
@@ -438,8 +454,8 @@ func validateSchemaAnnotationChild(node syntaxNode) error {
 	}
 }
 
-func validateSchemaAnnotationItem(element *syntaxElement) error {
-	if err := validateSchemaAnnotationAttributes(element); err != nil {
+func validateSchemaAnnotationItem(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
+	if err := validateSchemaAnnotationAttributes(element, candidate); err != nil {
 		return err
 	}
 	// appinfo and documentation are mixed content. Their descendants are
@@ -448,9 +464,9 @@ func validateSchemaAnnotationItem(element *syntaxElement) error {
 	return nil
 }
 
-func validateSchemaAnnotationAttributes(element *syntaxElement) error {
+func validateSchemaAnnotationAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
 	for _, attribute := range element.attrs {
-		if err := validateSchemaAnnotationAttribute(element.name.local, attribute); err != nil {
+		if err := stageSchemaCandidateError(candidate, validateSchemaAnnotationAttribute(element.name.local, attribute)); err != nil {
 			return err
 		}
 	}

@@ -1531,6 +1531,193 @@ func TestAllChildRepeatedOccurrencesRemainVersionAware(t *testing.T) {
 	}
 }
 
+//nolint:gocognit,dupl // Keep root discovery precedence fixtures across all profiles.
+func TestRootDiscoveryXMLBaseCandidatesYieldToInvalidGrammar(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+		code string
+	}{
+		{
+			name: "include missing schemaLocation",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:include xml:base="urn:test"/>
+</xs:schema>`,
+			code: MissingSchemaLocationCode,
+		},
+		{
+			name: "include malformed nested child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:include schemaLocation="child.xsd" xml:base="urn:test"><xs:sequence/></xs:include>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "import malformed nested child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:import xml:base="urn:test"><xs:sequence/></xs:import>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "redefine missing schemaLocation",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:redefine xml:base="urn:test"/>
+</xs:schema>`,
+			code: MissingSchemaLocationCode,
+		},
+		{
+			name: "redefine malformed nested child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:redefine schemaLocation="child.xsd" xml:base="urn:test"><xs:element/></xs:redefine>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "annotation malformed nested child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:annotation xml:base="urn:test"><xs:sequence/></xs:annotation>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+	}
+	profiles := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, profile := range profiles {
+				t.Run(profile.name, func(t *testing.T) {
+					schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, profile.policy)
+					if err == nil || schema.storage != nil {
+						t.Fatal("malformed root discovery input was accepted or returned a schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+						t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
+					}
+					if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() == 0 {
+						t.Fatalf("diagnostic location = %s, want root.xsd:2 with a column", diagnostic.Loc())
+					}
+					if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+						t.Fatalf("invalid root discovery input retained an unsupported cause: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+//nolint:gocognit,funlen // Keep valid unsupported root constructs and metadata checks together.
+func TestRootDiscoveryValidXMLBaseAndRedefineRemainUnsupported(t *testing.T) {
+	tests := []struct {
+		name    string
+		root    string
+		feature FeatureID
+		code    string
+		specRef string
+	}{
+		{
+			name: "include XML Base",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:include schemaLocation="child.xsd" xml:base="urn:test"/>
+</xs:schema>`,
+			feature: featureSchemaXMLBase,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xmlbase#matching",
+		},
+		{
+			name: "import XML Base",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:import namespace="urn:test" schemaLocation="child.xsd" xml:base="urn:test"/>
+</xs:schema>`,
+			feature: featureSchemaXMLBase,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xmlbase#matching",
+		},
+		{
+			name: "redefine XML Base",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:redefine schemaLocation="child.xsd" xml:base="urn:test"/>
+</xs:schema>`,
+			feature: featureSchemaXMLBase,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xmlbase#matching",
+		},
+		{
+			name: "annotation XML Base",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:annotation xml:base="urn:test"/>
+</xs:schema>`,
+			feature: featureSchemaXMLBase,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xmlbase#matching",
+		},
+	}
+	profiles := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, profile := range profiles {
+				t.Run(profile.name, func(t *testing.T) {
+					schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, profile.policy)
+					if err == nil || schema.storage != nil {
+						t.Fatal("valid unsupported root construct was accepted or returned a schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != test.feature || diagnostic.Code() != test.code || diagnostic.SpecRef() != test.specRef {
+						t.Fatalf("diagnostic = %s/%q/%q/%q, want %q/%q/%q/%q", diagnostic, diagnostic.Feature(), diagnostic.Code(), diagnostic.SpecRef(), FailureUnsupported, test.feature, test.code, test.specRef)
+					}
+					if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() == 0 {
+						t.Fatalf("diagnostic location = %s, want root.xsd:2 with a column", diagnostic.Loc())
+					}
+					if errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+						t.Fatalf("valid unsupported root construct has wrong causes: %v", err)
+					}
+				})
+			}
+		})
+	}
+
+	for _, profile := range []struct {
+		name    string
+		policy  LanguagePolicy
+		specRef string
+	}{
+		{name: "Compatibility", policy: Compatibility, specRef: "xsd11-structures#cSchemaDocument"},
+		{name: "Strict10", policy: Strict10, specRef: "xsd10-structures#schema-document"},
+		{name: "Strict11", policy: Strict11, specRef: "xsd11-structures#cSchemaDocument"},
+	} {
+		t.Run("redefine profile/"+profile.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:redefine schemaLocation="child.xsd"/>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err == nil || schema.storage != nil {
+				t.Fatal("valid redefine was accepted or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.SpecRef() != profile.specRef {
+				t.Fatalf("redefine diagnostic = %s/%q/%q/%q, want profile unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code(), diagnostic.SpecRef())
+			}
+			if !errors.Is(err, ErrUnsupported) || errors.Is(err, errLanguagePolicyMismatch) {
+				t.Fatalf("redefine unsupported causes are wrong: %v", err)
+			}
+		})
+	}
+}
+
 func assertDiagnosticClassAndCode(t *testing.T, err error, class FailureClass, code string) {
 	t.Helper()
 	diagnostic := requireDiagnostic(t, err)

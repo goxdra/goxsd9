@@ -643,8 +643,8 @@ func TestSchemaBridgeRejectsNamesAndUnsupportedDirectRoots(t *testing.T) {
 		t.Fatal("discoverSchema returned a partial schema for redefine")
 	}
 	diagnostic := requireDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
-		t.Fatalf("redefine diagnostic = %s, want schema syntax unsupported", diagnostic)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != MissingSchemaLocationCode {
+		t.Fatalf("redefine diagnostic = %s, want missing schemaLocation", diagnostic)
 	}
 }
 
