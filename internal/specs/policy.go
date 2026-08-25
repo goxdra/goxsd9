@@ -41,5 +41,12 @@ func LanguagePolicyForXSDVersions(versions []string) (goxsd9.LanguagePolicy, err
 // LanguagePolicy selects the strict parser policy for this manifest entry's
 // exact edition metadata.
 func (entry Entry) LanguagePolicy() (goxsd9.LanguagePolicy, error) {
-	return LanguagePolicyForXSDVersions(entry.XSDVersions)
+	if entry.policyErr != nil {
+		return "", entry.policyErr
+	}
+	if entry.policy == "" {
+		return "", corpusError(languagePolicySelectionCode, entry.ID, entry.URL,
+			errors.New("manifest entry has no validated XSD edition policy"))
+	}
+	return entry.policy, nil
 }

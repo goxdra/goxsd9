@@ -74,7 +74,7 @@ func discoverSyntax(root ResolvedSource, resolver Resolver) (syntaxDiscoveryResu
 
 //nolint:gocognit // FIFO discovery keeps resolution, filtering, and closure in one phase.
 func discoverSyntaxWithPolicy(root ResolvedSource, resolver Resolver, policy LanguagePolicy) (syntaxDiscoveryResult, error) {
-	version, policyErr := xsdVersionForLanguagePolicy(policy)
+	policyErr := validateLanguagePolicy(policy)
 	if policyErr != nil {
 		return syntaxDiscoveryResult{}, closeDiscoverySourceOnError(
 			root,
@@ -101,11 +101,11 @@ func discoverSyntaxWithPolicy(root ResolvedSource, resolver Resolver, policy Lan
 		if err != nil {
 			return syntaxDiscoveryResult{}, discovery.finish(err)
 		}
-		err = applySchemaConditionalsWithPolicy(document, policy, version)
+		err = applySchemaConditionalsWithPolicy(document, policy)
 		if err != nil {
 			return syntaxDiscoveryResult{}, discovery.finish(err)
 		}
-		err = validateSyntaxDocumentStructureWithPolicy(document, version)
+		err = validateSyntaxDocumentStructureWithPolicy(document, policy)
 		if err != nil {
 			return syntaxDiscoveryResult{}, discovery.finish(err)
 		}

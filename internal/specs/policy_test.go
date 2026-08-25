@@ -62,15 +62,45 @@ func TestLanguagePolicyForXSDVersionsRejectsMissingUnknownAndAmbiguousMetadata(t
 	}
 }
 
-func TestEntryLanguagePolicyUsesOwnedEditionMetadata(t *testing.T) {
-	entry := Entry{XSDVersions: []string{"1.0"}}
+func TestEntryLanguagePolicyDoesNotRereadMutableEditionMetadata(t *testing.T) {
+	entry := sourceEntry(Source{ID: "xsd10", URL: "https://www.w3.org/TR/2004/xsd10", XSDVersions: []string{"1.0"}}, KindSpecification)
 	policy, err := entry.LanguagePolicy()
 	if err != nil || policy != goxsd9.Strict10 {
 		t.Fatalf("Entry.LanguagePolicy() = %q/%v, want Strict10/nil", policy, err)
 	}
 	entry.XSDVersions[0] = "1.1"
 	policy, err = entry.LanguagePolicy()
+	if err != nil || policy != goxsd9.Strict10 {
+		t.Fatalf("Entry.LanguagePolicy() after metadata change = %q/%v, want cached Strict10/nil", policy, err)
+	}
+}
+
+func TestEntryLanguagePolicyCachesSelectionErrors(t *testing.T) {
+	entry := artifactEntry(BootstrapArtifact{ID: "shared", URL: "https://www.w3.org/2001/xml.xsd", XSDVersions: []string{"1.0", "1.1"}})
+	_, firstErr := entry.LanguagePolicy()
+	if firstErr == nil {
+		t.Fatal("LanguagePolicy() error = nil, want ambiguous edition error")
+	}
+	entry.XSDVersions[0] = "1.1"
+	_, secondErr := entry.LanguagePolicy()
+	if secondErr == nil {
+		t.Fatal("LanguagePolicy() after metadata change = nil, want cached error")
+	}
+	var firstCorpusErr, secondCorpusErr *Error
+	if !errors.As(firstErr, &firstCorpusErr) || !errors.As(secondErr, &secondCorpusErr) {
+		t.Fatalf("LanguagePolicy() errors = %v / %v, want corpus errors", firstErr, secondErr)
+	}
+	if firstCorpusErr.Code != secondCorpusErr.Code || firstCorpusErr.ID != secondCorpusErr.ID || firstCorpusErr.URL != secondCorpusErr.URL {
+		t.Fatalf("LanguagePolicy() error changed after metadata mutation: %v / %v", firstErr, secondErr)
+	}
+}
+
+func TestCloneEntryPreservesLanguagePolicySelection(t *testing.T) {
+	entry := sourceEntry(Source{ID: "xsd11", URL: "https://www.w3.org/TR/2012/xsd11", XSDVersions: []string{"1.1"}}, KindSpecification)
+	clone := cloneEntry(entry)
+	clone.XSDVersions[0] = "1.0"
+	policy, err := clone.LanguagePolicy()
 	if err != nil || policy != goxsd9.Strict11 {
-		t.Fatalf("Entry.LanguagePolicy() after metadata change = %q/%v, want Strict11/nil", policy, err)
+		t.Fatalf("cloned Entry.LanguagePolicy() = %q/%v, want cached Strict11/nil", policy, err)
 	}
 }

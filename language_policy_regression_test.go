@@ -509,6 +509,120 @@ func TestStrict10KeepsGlobalElementFinalAsGenericUnsupported(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep compound precedence fixtures and diagnostic assertions together.
+func TestStrict10MismatchOutranksEarlierGenericUnsupported(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+		line int
+	}{
+		{
+			name: "global attribute before alternative",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item" final="extension">
+    <xs:alternative type="xs:integer"/>
+  </xs:element>
+</xs:schema>`,
+			line: 3,
+		},
+		{
+			name: "inline type before alternative",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item">
+    <xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType>
+    <xs:alternative type="xs:integer"/>
+  </xs:element>
+</xs:schema>`,
+			line: 4,
+		},
+		{
+			name: "particle candidate before target namespace",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:choice>
+    <xs:element name="value" type="xs:integer" minOccurs="0" targetNamespace="urn:test"/>
+  </xs:choice></xs:complexType>
+</xs:schema>`,
+			line: 3,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Strict10)
+			if err == nil || schema.storage != nil {
+				t.Fatal("Strict10 accepted a mismatch or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+				t.Fatalf("diagnostic = %s, want schema-syntax unsupported", diagnostic)
+			}
+			if diagnostic.Feature() != FeatureSchemaSyntax {
+				t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), FeatureSchemaSyntax)
+			}
+			if diagnostic.SpecRef() != "xsd11-structures#cSchemaDocument" {
+				t.Fatalf("diagnostic spec ref = %q, want xsd11-structures#cSchemaDocument", diagnostic.SpecRef())
+			}
+			if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != test.line || diagnostic.Loc().Column() == 0 {
+				t.Fatalf("diagnostic location = %s, want root.xsd:%d with a column", diagnostic.Loc(), test.line)
+			}
+			if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("diagnostic lost mismatch or unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep paired all-particle profile fixtures and diagnostics together.
+func TestAllChildRepeatedOccurrencesRemainVersionAware(t *testing.T) {
+	tests := []struct {
+		name  string
+		child string
+	}{
+		{name: "element finite", child: `<xs:element name="value" type="xs:integer" maxOccurs="2"/>`},
+		{name: "element unbounded", child: `<xs:element name="value" type="xs:integer" maxOccurs="unbounded"/>`},
+		{name: "wildcard finite", child: `<xs:any namespace="##any" maxOccurs="2"/>`},
+		{name: "wildcard unbounded", child: `<xs:any namespace="##any" maxOccurs="unbounded"/>`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item"><xs:all>` + test.child + `</xs:all></xs:complexType></xs:schema>`
+			for _, profile := range []struct {
+				name       string
+				policy     LanguagePolicy
+				wantStrict bool
+			}{
+				{name: "Compatibility", policy: Compatibility},
+				{name: "Strict10", policy: Strict10, wantStrict: true},
+				{name: "Strict11", policy: Strict11},
+			} {
+				t.Run(profile.name, func(t *testing.T) {
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err == nil || schema.storage != nil {
+						t.Fatal("all child occurrence unexpectedly produced a schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureUnsupported {
+						t.Fatalf("diagnostic class = %q, want unsupported", diagnostic.Class())
+					}
+					if profile.wantStrict {
+						if diagnostic.Code() != diagnosticSchemaAllOccurrenceVersionCode {
+							t.Fatalf("Strict10 diagnostic code = %q, want %q", diagnostic.Code(), diagnosticSchemaAllOccurrenceVersionCode)
+						}
+						if !errors.Is(err, errLanguagePolicyMismatch) {
+							t.Fatalf("Strict10 diagnostic lost policy mismatch: %v", err)
+						}
+					}
+					if !profile.wantStrict && errors.Is(err, errLanguagePolicyMismatch) {
+						t.Fatalf("%s diagnostic was classified as Strict10 mismatch: %v", profile.name, err)
+					}
+					if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 1 || diagnostic.Loc().Column() == 0 {
+						t.Fatalf("diagnostic location = %s, want root.xsd:1 with a column", diagnostic.Loc())
+					}
+				})
+			}
+		})
+	}
+}
+
 func assertDiagnosticClassAndCode(t *testing.T, err error, class FailureClass, code string) {
 	t.Helper()
 	diagnostic := requireDiagnostic(t, err)

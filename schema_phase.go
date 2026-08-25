@@ -25,7 +25,11 @@ type schemaConditionalEvaluation struct {
 	hasMax     bool
 }
 
-func applySchemaConditionalsWithPolicy(document *syntaxDocument, policy LanguagePolicy, version XSDVersion) error {
+func applySchemaConditionalsWithPolicy(document *syntaxDocument, policy LanguagePolicy) error {
+	version, err := xsdVersionForLanguagePolicy(policy)
+	if err != nil {
+		return invalidLanguagePolicyDiagnostic(policy, err)
+	}
 	if document == nil || document.root == nil {
 		return newDiagnostic(
 			FailureInternal,
@@ -256,7 +260,11 @@ const (
 	schemaGrammarDeclarations
 )
 
-func validateSyntaxDocumentStructureWithPolicy(document *syntaxDocument, version XSDVersion) error {
+func validateSyntaxDocumentStructureWithPolicy(document *syntaxDocument, policy LanguagePolicy) error {
+	version, err := xsdVersionForLanguagePolicy(policy)
+	if err != nil {
+		return invalidLanguagePolicyDiagnostic(policy, err)
+	}
 	if document == nil || document.root == nil {
 		return newDiagnostic(
 			FailureInternal,
@@ -775,6 +783,9 @@ func preferSchemaUnsupported(err error, loc Loc, message string) error {
 	if message == "" {
 		return err
 	}
+	if errors.Is(err, errLanguagePolicyMismatch) {
+		return err
+	}
 	var diagnostic Diagnostic
 	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
 		return err
@@ -1062,7 +1073,10 @@ func (candidate *schemaChildUnsupportedCandidate) considerError(err error) bool 
 	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
 		return false
 	}
-	if candidate.present {
+	if candidate.present && !errors.Is(err, errLanguagePolicyMismatch) {
+		return true
+	}
+	if candidate.present && errors.Is(candidate.captured, errLanguagePolicyMismatch) {
 		return true
 	}
 	candidate.captured = err
@@ -3581,7 +3595,7 @@ func validateAllParticleChild(node syntaxNode, version XSDVersion, annotationSee
 func validateAllParticleContentChild(child *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate) error {
 	switch child.name.local {
 	case "element":
-		if err := validateAllParticleOccurrences(child, "all element", version); err != nil {
+		if err := validateAllChildParticleOccurrences(child, "all element", version); err != nil {
 			return err
 		}
 		localCandidate, err := validateChoiceElementParticle(child, version)
@@ -3590,7 +3604,12 @@ func validateAllParticleContentChild(child *syntaxElement, version XSDVersion, c
 		}
 		candidate.merge(localCandidate)
 		return nil
-	case "any", "group":
+	case "any":
+		if err := validateAllChildParticleOccurrences(child, "all any", version); err != nil {
+			return err
+		}
+		return validateAllParticleUnsupportedChild(child, version, candidate)
+	case "group":
 		return validateAllParticleUnsupportedChild(child, version, candidate)
 	default:
 		return newSchemaCompositionDiagnostic(child.loc, "all particle contains a forbidden child")
@@ -3681,6 +3700,56 @@ func validateAllParticleOccurrences(element *syntaxElement, owner string, versio
 		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "maxOccurs"), owner+" maxOccurs must be 1")
 	}
 	return nil
+}
+
+func validateAllChildParticleOccurrences(element *syntaxElement, owner string, version XSDVersion) error {
+	minimum, maximum, err := schemaParticleOccurrenceValues(element)
+	if err != nil {
+		return err
+	}
+	one, err := ParseStrictInteger("1", element.loc)
+	if err != nil {
+		return newSchemaBridgeInvariant(element.loc, "construct all child occurrence bound")
+	}
+	minimumValue, err := effectiveSchemaParticleOccurrence(minimum, element.loc)
+	if err != nil {
+		return err
+	}
+	if minimumValue.Compare(one) > 0 {
+		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "minOccurs"), owner+" minOccurs must be 0 or 1")
+	}
+	if maximum.unbounded {
+		if version == XSDVersion10 {
+			return newAllChildOccurrenceVersionMismatch(element, owner, "maxOccurs=unbounded")
+		}
+		return nil
+	}
+	maximumValue, err := effectiveSchemaParticleOccurrence(maximum, element.loc)
+	if err != nil {
+		return err
+	}
+	if minimumValue.Compare(maximumValue) > 0 {
+		return newSchemaCompositionDiagnostic(element.loc, owner+" minOccurs cannot exceed maxOccurs")
+	}
+	if maximumValue.Compare(one) <= 0 {
+		if maximumValue.IsZero() && minimumValue.IsZero() && version == XSDVersion10 {
+			return newAllChildOccurrenceVersionMismatch(element, owner, "maxOccurs=0")
+		}
+		return nil
+	}
+	if version == XSDVersion10 {
+		return newAllChildOccurrenceVersionMismatch(element, owner, "maxOccurs greater than 1")
+	}
+	return nil
+}
+
+func newAllChildOccurrenceVersionMismatch(element *syntaxElement, owner, occurrence string) error {
+	return newXSD11FeatureMismatch(
+		FeatureSchemaSyntax,
+		diagnosticSchemaAllOccurrenceVersionCode,
+		schemaParticleOccurrenceLoc(element, "maxOccurs"),
+		fmt.Sprintf("%s %s is an XSD 1.1-only construct", owner, occurrence),
+	)
 }
 
 func validateAllGroupOccurrences(element *syntaxElement) error {

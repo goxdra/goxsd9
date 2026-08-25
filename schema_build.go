@@ -20,6 +20,7 @@ const (
 	diagnosticSchemaElementTypeAmbiguousCode    = "XSD3021"
 	diagnosticSchemaElementTypeUnsupportedCode  = "XSD3022"
 	diagnosticSchemaPrecisionDecimalVersionCode = "XSD3030"
+	diagnosticSchemaAllOccurrenceVersionCode    = diagnosticSchemaPrecisionDecimalVersionCode
 	diagnosticSchemaBridgeInvariantCode         = "GOXSD9025"
 )
 
@@ -88,14 +89,14 @@ func newSchemaFromDiscoveryWithPolicy(discovery syntaxDiscoveryResult, policy La
 }
 
 func schemaDiscoveryNamespacesWithPolicy(documents []*syntaxDocument, policy LanguagePolicy) ([]schemaTargetNamespace, map[SourceID]int, error) {
-	version, err := xsdVersionForLanguagePolicy(policy)
+	err := validateLanguagePolicy(policy)
 	if err != nil {
 		return nil, nil, invalidLanguagePolicyDiagnostic(policy, err)
 	}
 	namespaces := make([]schemaTargetNamespace, len(documents))
 	sourceIndices := make(map[SourceID]int, len(documents))
 	for index, document := range documents {
-		if err := validateDiscoveredDocument(document, sourceIndices, version); err != nil {
+		if err := validateDiscoveredDocument(document, sourceIndices, policy); err != nil {
 			return nil, nil, err
 		}
 		namespace, err := syntaxDocumentTargetNamespace(document)
@@ -108,7 +109,7 @@ func schemaDiscoveryNamespacesWithPolicy(documents []*syntaxDocument, policy Lan
 	return namespaces, sourceIndices, nil
 }
 
-func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[SourceID]int, version XSDVersion) error {
+func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[SourceID]int, policy LanguagePolicy) error {
 	if document == nil || document.root == nil {
 		return newDiagnostic(
 			FailureInternal,
@@ -136,7 +137,7 @@ func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[Sour
 			nil,
 		)
 	}
-	return validateSyntaxDocumentStructureWithPolicy(document, version)
+	return validateSyntaxDocumentStructureWithPolicy(document, policy)
 }
 
 func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTargetNamespace) ([]schemaDocumentInput, error) {
