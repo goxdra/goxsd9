@@ -8,6 +8,8 @@ The API-only consumer calls `ParseSchema`, `ValidateInstance`, and `GenerateGo`:
 
 Run these fixed commands in order. Run every command twice and compare stdout, stderr, and numeric process status independently. Record each attempted step as `pass`, `fail`, `blocked`, or `unevaluated`; invalid validation is the expected status-1 case. Keep catalog inventory, package documentation, API consumer, product CLI, generated-consumer compilation, and environment prerequisites as separate evidence classes.
 
+Preserve the captured stdout, stderr, numeric status, and repeat comparison for inventory, documentation, and the API consumer in their matching report sections; keep inventory execution status separate from its `unevaluated` catalog result.
+
 Run the inventory from `evals/envoy/fixture`, `go doc .` and the product CLI commands from the repository root, and the API-only consumer from `evals/envoy/fixture/consumer`.
 
 ```sh

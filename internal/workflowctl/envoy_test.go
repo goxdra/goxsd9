@@ -309,31 +309,13 @@ func TestCheckEnvoyCommandsUsesFixedRepeatedPublicSurface(t *testing.T) {
 func envoyTestCheckApplication(commands *[]string) app {
 	return app{
 		ctx: context.Background(),
-		executeCommand: func(directory string, _ io.Reader, name string, args ...string) (string, error) {
-			*commands = append(*commands, directory+" "+name+" "+strings.Join(args, " "))
-			return envoyTestLegacyCommand(name, args)
-		},
 		executeCommandCapture: func(directory string, _ []string, name string, args ...string) (commandCaptureResult, error) {
-			*commands = append(*commands, directory+" "+name+" "+strings.Join(args, " "))
+			if commands != nil {
+				*commands = append(*commands, directory+" "+name+" "+strings.Join(args, " "))
+			}
 			return envoyTestCapturedCommand(name, args)
 		},
 	}
-}
-
-func envoyTestLegacyCommand(name string, args []string) (string, error) {
-	if name != "go" {
-		return "", io.ErrUnexpectedEOF
-	}
-	if len(args) >= 2 && args[0] == "tool" {
-		return envoyTestInventoryOutput(), nil
-	}
-	if len(args) == 2 && args[0] == "doc" && args[1] == "." {
-		return envoyTestDocsOutput(), nil
-	}
-	if len(args) == 2 && args[0] == "run" && args[1] == "." {
-		return envoyTestConsumerOutput("123"), nil
-	}
-	return "", io.ErrUnexpectedEOF
 }
 
 func envoyTestCapturedCommand(name string, args []string) (commandCaptureResult, error) {
@@ -342,6 +324,15 @@ func envoyTestCapturedCommand(name string, args []string) (commandCaptureResult,
 	}
 	if len(args) == 2 && args[0] == "test" && args[1] == "./..." {
 		return commandCaptureResult{}, nil
+	}
+	if len(args) >= 2 && args[0] == "tool" {
+		return commandCaptureResult{stdout: envoyTestInventoryOutput()}, nil
+	}
+	if len(args) == 2 && args[0] == "doc" && args[1] == "." {
+		return commandCaptureResult{stdout: envoyTestDocsOutput()}, nil
+	}
+	if len(args) == 2 && args[0] == "run" && args[1] == "." {
+		return commandCaptureResult{stdout: envoyTestConsumerOutput("123")}, nil
 	}
 	for _, command := range envoyCLICommands() {
 		if sameStrings(args, command.args) {
@@ -352,26 +343,58 @@ func envoyTestCapturedCommand(name string, args []string) (commandCaptureResult,
 }
 
 func TestCheckEnvoyCommandsRejectsNondeterministicConsumerOutput(t *testing.T) {
-	commands := 0
+	consumerRuns := 0
 	application := app{
 		ctx: context.Background(),
-		executeCommand: func(_ string, _ io.Reader, _ string, args ...string) (string, error) {
-			commands++
-			if len(args) >= 2 && args[0] == "tool" {
-				return envoyTestInventoryOutput(), nil
+		executeCommandCapture: func(_ string, _ []string, name string, args ...string) (commandCaptureResult, error) {
+			result, err := envoyTestCapturedCommand(name, args)
+			if err != nil {
+				return commandCaptureResult{}, err
 			}
-			if len(args) == 2 && args[0] == "doc" {
-				return envoyTestDocsOutput(), nil
+			if len(args) == 2 && args[0] == "run" && args[1] == "." {
+				consumerRuns++
+				if consumerRuns == 2 {
+					result.stdout = envoyTestConsumerOutput("124")
+				}
 			}
-			if commands%2 == 1 {
-				return envoyTestConsumerOutput("123"), nil
-			}
-			return envoyTestConsumerOutput("124"), nil
+			return result, nil
 		},
 	}
 	err := application.checkEnvoyCommands("/repository")
 	if err == nil || !strings.Contains(err.Error(), "not deterministic") {
 		t.Fatalf("checkEnvoyCommands error = %v, want nondeterministic output failure", err)
+	}
+}
+
+func TestCheckEnvoyCommandsRejectsUnexpectedCapturedStderr(t *testing.T) {
+	application := envoyTestCheckApplication(nil)
+	capture := application.executeCommandCapture
+	application.executeCommandCapture = func(directory string, env []string, name string, args ...string) (commandCaptureResult, error) {
+		result, err := capture(directory, env, name, args...)
+		if err == nil && len(args) >= 2 && args[0] == "tool" {
+			result.stderr = "unexpected stderr\n"
+		}
+		return result, err
+	}
+	err := application.checkEnvoyCommands("/repository")
+	if err == nil || !strings.Contains(err.Error(), "inventory metadata stderr") {
+		t.Fatalf("checkEnvoyCommands error = %v, want captured-stderr failure", err)
+	}
+}
+
+func TestCheckEnvoyCommandsRejectsUnexpectedCapturedStatus(t *testing.T) {
+	application := envoyTestCheckApplication(nil)
+	capture := application.executeCommandCapture
+	application.executeCommandCapture = func(directory string, env []string, name string, args ...string) (commandCaptureResult, error) {
+		result, err := capture(directory, env, name, args...)
+		if err == nil && len(args) == 2 && args[0] == "doc" && args[1] == "." {
+			result.status = 7
+		}
+		return result, err
+	}
+	err := application.checkEnvoyCommands("/repository")
+	if err == nil || !strings.Contains(err.Error(), "public documentation command status") {
+		t.Fatalf("checkEnvoyCommands error = %v, want captured-status failure", err)
 	}
 }
 
