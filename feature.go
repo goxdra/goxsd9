@@ -22,8 +22,6 @@ const (
 	FeatureInstanceValidation FeatureID = "xsd.instance.validation"
 	// FeatureDatatypeFacets identifies the not-yet-implemented datatype facet set.
 	FeatureDatatypeFacets FeatureID = "xsd.datatype.facets"
-	// FeaturePrecisionDecimal identifies the not-yet-implemented XSD 1.1 type.
-	FeaturePrecisionDecimal FeatureID = "xsd.datatype.precision-decimal"
 	// FeatureSchemaSyntax identifies XSD syntax outside the bootstrap kernel.
 	FeatureSchemaSyntax FeatureID = "xsd.schema.syntax"
 )

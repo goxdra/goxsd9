@@ -9,9 +9,11 @@
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
 // The unqualified schema/@version is an inert optional xs:token label: absent,
 // empty, arbitrary, "1.0", and "1.1" values never select or mismatch a policy.
-// Chameleon includes, redefine/override/defaultOpenContent,
-// assertions, and unsupported datatype facets return explicit unsupported
-// diagnostics. Paths and URLs are never opened by this package. Parsing closes
+// Chameleon includes, redefine/override/defaultOpenContent, assertions, and
+// datatype facets outside the supported integer/decimal and optional
+// precisionDecimal boundaries return explicit unsupported diagnostics.
+// precisionDecimal is available only when explicitly named under Compatibility
+// or Strict11; Strict10 reports a located policy diagnostic. Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
 //

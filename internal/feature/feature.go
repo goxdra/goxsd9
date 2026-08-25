@@ -123,13 +123,6 @@ var registry = []definition{
 		},
 	},
 	{
-		id:    "xsd.datatype.precision-decimal",
-		title: "XSD precisionDecimal",
-		references: []Reference{
-			{version: "1.1", source: "xsd-precisionDecimal#precisionDecimal"},
-		},
-	},
-	{
 		id:    "xsd.instance.syntax",
 		title: "XML instance syntax outside the first decoder slice",
 		references: []Reference{

@@ -12,12 +12,14 @@ datatype and work in progress; it is not a mandatory XSD 1.1 conformance
 requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/)
 §2.5.1 (primitive datatypes; `#dt-primitive`) and [§H.1](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#impl-def)
 permit, but do not require, primitive datatypes outside the standard set. The
-project keeps `xsd.datatype.precision-decimal` unsupported until its supported
-cluster is complete; unfinished behavior remains explicitly unsupported.
+project implements this datatype as an explicit opt-in library/schema boundary
+and keeps it optional.
 
 The source is pinned as `xsd-precisionDecimal` in [`specs/manifest.json`](../../specs/manifest.json),
 including its digest: [An XSD datatype for IEEE floating-point decimal](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/).
-Existing gate is recorded in [`internal/feature/feature.go`](../../internal/feature/feature.go) and [`feature.go`](../../feature.go).
+The completed optional precisionDecimal library/schema boundary has no
+precisionDecimal unsupported gate; validator and code-generation support remain
+separate.
 
 ## Semantic contract
 
@@ -81,12 +83,12 @@ or value mutation is permitted.
 
 For a valid value with `L > B`, the private `canonicalPrecisionDecimal` canonicalizer returns no string and leaves
 the value unchanged. It reports a located `FailureInvalid` diagnostic preserving the exported
-`ErrPrecisionDecimalCanonicalOutputLimit` sentinel as its cause and the caller's `Loc`. Public and schema
-`precisionDecimal` support remains deferred under the existing unsupported feature gate.
+`ErrPrecisionDecimalCanonicalOutputLimit` sentinel as its cause and the caller's `Loc`. Public and schema APIs expose
+this completed boundary without exposing the private representation.
 It is a resource/invalid-request result, not lexical invalidity, unsupported behavior, or internal failure.
 
-Canonicalization remains separate from comparison and the existing
-`xsd.datatype.precision-decimal` unsupported feature gate. Boundary contract:
+Canonicalization remains separate from comparison and the optional schema
+policy boundary. Boundary contract:
 
 | Case | Result | Classification |
 | --- | --- | --- |
@@ -111,10 +113,10 @@ conformance claim or a substitute for the per-call resource contract.
 
 ## Bounded follow-up and corpus evidence
 
-Implementation remains bounded into separate packets: lexical/value core; facet derivation and validation; partial
-comparison, canonicalization, and resource behavior; schema/feature integration; and corpus verification. The
-assertion packet belongs to `xsd.assertion`, and exact decimal facet work stays separate from precisionDecimal value
-construction. The feature gate changes only when the supported cluster is complete.
+The completed optional precisionDecimal boundary covers exact precisionDecimal
+library values and applicable facets, partial comparison, bounded canonical
+output, and immutable schema facts. Assertions and exact-decimal facet work
+remain separate.
 
 Pinned catalog’s [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references the accepted,
 undisputed auxiliary groups [`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)

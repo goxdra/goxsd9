@@ -7,19 +7,20 @@ import (
 )
 
 const (
-	invalidSchemaTargetNamespaceCode           = "XSD3009"
-	invalidSchemaCompositionCode               = "XSD3010"
-	invalidSchemaDeclarationNameCode           = "XSD3011"
-	diagnosticSchemaSimpleTypeUnresolvedCode   = "XSD3014"
-	diagnosticSchemaSimpleTypeWrongKindCode    = "XSD3015"
-	diagnosticSchemaSimpleTypeAmbiguousCode    = "XSD3016"
-	diagnosticSchemaSimpleTypeCycleCode        = "XSD3017"
-	diagnosticSchemaSimpleTypeBaseCode         = "XSD3018"
-	diagnosticSchemaElementTypeUnresolvedCode  = "XSD3019"
-	diagnosticSchemaElementTypeWrongKindCode   = "XSD3020"
-	diagnosticSchemaElementTypeAmbiguousCode   = "XSD3021"
-	diagnosticSchemaElementTypeUnsupportedCode = "XSD3022"
-	diagnosticSchemaBridgeInvariantCode        = "GOXSD9025"
+	invalidSchemaTargetNamespaceCode            = "XSD3009"
+	invalidSchemaCompositionCode                = "XSD3010"
+	invalidSchemaDeclarationNameCode            = "XSD3011"
+	diagnosticSchemaSimpleTypeUnresolvedCode    = "XSD3014"
+	diagnosticSchemaSimpleTypeWrongKindCode     = "XSD3015"
+	diagnosticSchemaSimpleTypeAmbiguousCode     = "XSD3016"
+	diagnosticSchemaSimpleTypeCycleCode         = "XSD3017"
+	diagnosticSchemaSimpleTypeBaseCode          = "XSD3018"
+	diagnosticSchemaElementTypeUnresolvedCode   = "XSD3019"
+	diagnosticSchemaElementTypeWrongKindCode    = "XSD3020"
+	diagnosticSchemaElementTypeAmbiguousCode    = "XSD3021"
+	diagnosticSchemaElementTypeUnsupportedCode  = "XSD3022"
+	diagnosticSchemaPrecisionDecimalVersionCode = "XSD3030"
+	diagnosticSchemaBridgeInvariantCode         = "GOXSD9025"
 )
 
 const (
@@ -37,6 +38,7 @@ var (
 	errSchemaElementTypeUnresolved    = errors.New("element type is unresolved")
 	errSchemaElementTypeWrongKind     = errors.New("element type has the wrong kind")
 	errSchemaElementTypeAmbiguous     = errors.New("element type is ambiguous")
+	errSchemaPrecisionDecimalVersion  = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
 )
 
 type schemaTargetNamespace struct {
@@ -485,31 +487,30 @@ func schemaRestrictionInput(element *syntaxElement) (*schemaSimpleTypeInput, err
 	input := &schemaSimpleTypeInput{
 		base:    base,
 		baseLoc: baseAttributes[0].loc,
+		facets:  make([]schemaFacetInput, 0),
 	}
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
 		if !ok {
 			continue
 		}
-		switch child.name.local {
-		case "totalDigits":
-			facet, err := schemaFacetInputFromElement(child)
-			if err != nil {
-				return nil, err
-			}
-			input.totalDigits = facet
-		case "fractionDigits":
-			facet, err := schemaFacetInputFromElement(child)
-			if err != nil {
-				return nil, err
-			}
-			input.fractionDigits = facet
+		if _, ok := schemaFacetKindFromName(child.name.local); !ok {
+			continue
 		}
+		facet, err := schemaFacetInputFromElement(child)
+		if err != nil {
+			return nil, err
+		}
+		input.facets = append(input.facets, *facet)
 	}
 	return input, nil
 }
 
 func schemaFacetInputFromElement(element *syntaxElement) (*schemaFacetInput, error) {
+	kind, ok := schemaFacetKindFromName(element.name.local)
+	if !ok {
+		return nil, newSchemaBridgeInvariant(element.loc, fmt.Sprintf("schema facet <%s> has an unknown kind", element.name.local))
+	}
 	valueAttributes := syntaxAttributesByLocal(element, "value")
 	if len(valueAttributes) != 1 {
 		return nil, newDiagnostic(
@@ -544,10 +545,90 @@ func schemaFacetInputFromElement(element *syntaxElement) (*schemaFacetInput, err
 		}
 	}
 	return &schemaFacetInput{
-		lexical: valueAttributes[0].value,
-		loc:     element.loc,
-		fixed:   fixed,
+		lexical:  valueAttributes[0].value,
+		loc:      element.loc,
+		valueLoc: valueAttributes[0].loc,
+		kind:     kind,
+		fixed:    fixed,
 	}, nil
+}
+
+func schemaFacetKindFromName(name string) (schemaFacetKind, bool) {
+	switch name {
+	case "totalDigits":
+		return schemaFacetTotalDigits, true
+	case "fractionDigits":
+		return schemaFacetFractionDigits, true
+	case "minScale":
+		return schemaFacetMinScale, true
+	case "maxScale":
+		return schemaFacetMaxScale, true
+	case "pattern":
+		return schemaFacetPattern, true
+	case "enumeration":
+		return schemaFacetEnumeration, true
+	case "minInclusive":
+		return schemaFacetMinInclusive, true
+	case "minExclusive":
+		return schemaFacetMinExclusive, true
+	case "maxInclusive":
+		return schemaFacetMaxInclusive, true
+	case "maxExclusive":
+		return schemaFacetMaxExclusive, true
+	case "whiteSpace":
+		return schemaFacetWhiteSpace, true
+	case "length":
+		return schemaFacetLength, true
+	case "minLength":
+		return schemaFacetMinLength, true
+	case "maxLength":
+		return schemaFacetMaxLength, true
+	case "precision":
+		return schemaFacetPrecision, true
+	case "explicitTimezone":
+		return schemaFacetExplicitTimezone, true
+	default:
+		return 0, false
+	}
+}
+
+func schemaFacetName(kind schemaFacetKind) string {
+	switch kind {
+	case schemaFacetTotalDigits:
+		return "totalDigits"
+	case schemaFacetFractionDigits:
+		return "fractionDigits"
+	case schemaFacetMinScale:
+		return "minScale"
+	case schemaFacetMaxScale:
+		return "maxScale"
+	case schemaFacetPattern:
+		return "pattern"
+	case schemaFacetEnumeration:
+		return "enumeration"
+	case schemaFacetMinInclusive:
+		return "minInclusive"
+	case schemaFacetMinExclusive:
+		return "minExclusive"
+	case schemaFacetMaxInclusive:
+		return "maxInclusive"
+	case schemaFacetMaxExclusive:
+		return "maxExclusive"
+	case schemaFacetWhiteSpace:
+		return "whiteSpace"
+	case schemaFacetLength:
+		return "length"
+	case schemaFacetMinLength:
+		return "minLength"
+	case schemaFacetMaxLength:
+		return "maxLength"
+	case schemaFacetPrecision:
+		return "precision"
+	case schemaFacetExplicitTimezone:
+		return "explicitTimezone"
+	default:
+		return ""
+	}
 }
 
 func expandSchemaQName(element *syntaxElement, attribute syntaxAttribute) (QName, error) {
@@ -737,12 +818,12 @@ func validNCNameChar(character rune) bool {
 }
 
 type schemaSimpleTypeResult struct {
-	present     bool
-	base        QName
-	baseLoc     Loc
-	baseID      ComponentID
-	hasBaseID   bool
-	digitFacets DigitFacets
+	present   bool
+	base      QName
+	baseLoc   Loc
+	baseID    ComponentID
+	hasBaseID bool
+	facets    schemaSimpleTypeFacetVariant
 }
 
 type schemaSimpleTypeState uint8
@@ -895,7 +976,13 @@ func resolveSchemaScalarType(
 				declaredType: input.declaredType,
 			}, nil
 		case "precisionDecimal":
-			return schemaElementTypeResult{}, unsupportedSchemaElementPrecisionDecimal(input, version)
+			if version == XSDVersion10 {
+				return schemaElementTypeResult{}, precisionDecimalSchemaVersionDiagnostic(input.typeLoc, input.declaredType)
+			}
+			return schemaElementTypeResult{
+				present:      true,
+				declaredType: input.declaredType,
+			}, nil
 		default:
 			return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
 				input.typeLoc,
@@ -1063,26 +1150,6 @@ func schemaElementTypeSpecRef(version XSDVersion) string {
 	return schemaElementTypeXSD11SpecRef
 }
 
-func unsupportedSchemaElementPrecisionDecimal(input *schemaElementInput, version XSDVersion) error {
-	feature, ok := LookupUnsupportedFeature(FeaturePrecisionDecimal)
-	if !ok {
-		return newDiagnostic(
-			FailureInternal,
-			diagnosticUnregisteredFeatureCode,
-			input.typeLoc,
-			"precisionDecimal feature is not registered",
-			nil,
-		)
-	}
-	return newUnsupportedForVersion(
-		feature,
-		diagnosticSchemaElementTypeUnsupportedCode,
-		input.typeLoc,
-		fmt.Sprintf("element type %q is not implemented", input.declaredType),
-		version,
-	)
-}
-
 func (resolver *schemaSimpleTypeResolver) resolve(index int, version XSDVersion) (schemaSimpleTypeResult, error) {
 	switch resolver.states[index] {
 	case schemaSimpleTypeUnvisited:
@@ -1105,25 +1172,21 @@ func (resolver *schemaSimpleTypeResolver) resolve(index int, version XSDVersion)
 	}
 	resolver.states[index] = schemaSimpleTypeVisiting
 	resolver.stack = append(resolver.stack, index)
-	local, err := schemaDigitFacetDeclarations(input, version)
-	if err != nil {
-		return resolver.finishResolve(index, err)
-	}
 	base, err := resolver.resolveBase(index, version)
 	if err != nil {
 		return resolver.finishResolve(index, err)
 	}
-	facets, err := RestrictDigitFacets(base.facets, local)
+	facets, err := restrictSchemaSimpleTypeFacets(base.facets, input.facets, version)
 	if err != nil {
 		return resolver.finishResolve(index, err)
 	}
 	resolver.results[index] = schemaSimpleTypeResult{
-		present:     true,
-		base:        input.base,
-		baseLoc:     input.baseLoc,
-		baseID:      base.id,
-		hasBaseID:   base.hasID,
-		digitFacets: facets,
+		present:   true,
+		base:      input.base,
+		baseLoc:   input.baseLoc,
+		baseID:    base.id,
+		hasBaseID: base.hasID,
+		facets:    facets,
 	}
 	return resolver.finishResolve(index, nil)
 }
@@ -1138,7 +1201,7 @@ func (resolver *schemaSimpleTypeResolver) finishResolve(index int, err error) (s
 }
 
 type schemaSimpleTypeBase struct {
-	facets DigitFacets
+	facets schemaSimpleTypeFacetVariant
 	id     ComponentID
 	hasID  bool
 }
@@ -1158,20 +1221,38 @@ func resolveBuiltinSchemaSimpleTypeBase(input *schemaSimpleTypeInput, version XS
 		if err != nil {
 			return schemaSimpleTypeBase{}, err
 		}
-		return schemaSimpleTypeBase{facets: facets}, nil
+		return schemaSimpleTypeBase{facets: schemaDigitFacetVariant{value: facets}}, nil
 	case "decimal":
 		facets, err := NewDecimalDigitFacets(nil, nil, version)
 		if err != nil {
 			return schemaSimpleTypeBase{}, err
 		}
-		return schemaSimpleTypeBase{facets: facets}, nil
+		return schemaSimpleTypeBase{facets: schemaDigitFacetVariant{value: facets}}, nil
 	case "precisionDecimal":
-		return schemaSimpleTypeBase{}, unsupportedSchemaSimpleTypeBase(input.baseLoc, input.base)
+		if version == XSDVersion10 {
+			return schemaSimpleTypeBase{}, precisionDecimalSchemaVersionDiagnostic(input.baseLoc, input.base)
+		}
+		facets, err := NewPrecisionDecimalFacetsFromDeclarations(PrecisionDecimalFacetDeclarations{})
+		if err != nil {
+			return schemaSimpleTypeBase{}, err
+		}
+		return schemaSimpleTypeBase{facets: schemaPrecisionDecimalFacetVariant{value: facets}}, nil
 	default:
 		return schemaSimpleTypeBase{}, newSchemaSyntaxUnsupported(
 			input.baseLoc,
 			fmt.Sprintf("simple type restriction base %q is not supported", input.base),
 		)
+	}
+}
+
+func precisionDecimalSchemaVersionDiagnostic(loc Loc, name QName) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaPrecisionDecimalVersionCode,
+		loc:     loc,
+		message: fmt.Sprintf("precisionDecimal type %q is not available under the selected XSD 1.0 policy", name),
+		specRef: "xsd11-datatypes#dt-primitive",
+		cause:   fmt.Errorf("%w: %q", errSchemaPrecisionDecimalVersion, name),
 	}
 }
 
@@ -1198,7 +1279,7 @@ func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeBase(input
 		return schemaSimpleTypeBase{}, err
 	}
 	return schemaSimpleTypeBase{
-		facets: base.digitFacets,
+		facets: base.facets,
 		id:     resolver.records[baseIndex].id,
 		hasID:  true,
 	}, nil
@@ -1237,34 +1318,208 @@ func ambiguousSchemaSimpleTypeBase(input *schemaSimpleTypeInput, related []Loc, 
 	)
 }
 
-func schemaDigitFacetDeclarations(input *schemaSimpleTypeInput, version XSDVersion) (DigitFacetDeclarations, error) {
-	var totalDigits *TotalDigitsFacet
-	if input.totalDigits != nil {
-		facet, err := ParseTotalDigitsFacetWithFixed(
-			input.totalDigits.lexical,
-			input.totalDigits.loc,
-			input.totalDigits.fixed,
-			version,
-		)
+func restrictSchemaSimpleTypeFacets(
+	base schemaSimpleTypeFacetVariant,
+	inputs []schemaFacetInput,
+	version XSDVersion,
+) (schemaSimpleTypeFacetVariant, error) {
+	switch typed := base.(type) {
+	case schemaDigitFacetVariant:
+		local, err := schemaDigitFacetDeclarations(inputs, version)
 		if err != nil {
-			return DigitFacetDeclarations{}, err
+			return nil, err
 		}
-		totalDigits = &facet
+		facets, err := RestrictDigitFacets(typed.value, local)
+		if err != nil {
+			return nil, err
+		}
+		return schemaDigitFacetVariant{value: facets}, nil
+	case schemaPrecisionDecimalFacetVariant:
+		local, err := schemaPrecisionDecimalFacetDeclarations(inputs)
+		if err != nil {
+			return nil, err
+		}
+		facets, err := RestrictPrecisionDecimalFacets(typed.value, local)
+		if err != nil {
+			return nil, err
+		}
+		return schemaPrecisionDecimalFacetVariant{value: facets}, nil
+	default:
+		return nil, newSchemaBridgeInvariant(Loc{}, "simple type facet resolution has an unknown datatype variant")
 	}
+}
+
+func schemaDigitFacetDeclarations(inputs []schemaFacetInput, version XSDVersion) (DigitFacetDeclarations, error) {
+	var totalDigits *TotalDigitsFacet
 	var fractionDigits *FractionDigitsFacet
-	if input.fractionDigits != nil {
-		facet, err := ParseFractionDigitsFacetWithFixed(
-			input.fractionDigits.lexical,
-			input.fractionDigits.loc,
-			input.fractionDigits.fixed,
-			version,
-		)
-		if err != nil {
-			return DigitFacetDeclarations{}, err
+	for _, input := range inputs {
+		loc := schemaFacetValueLocation(input)
+		switch input.kind {
+		case schemaFacetTotalDigits:
+			facet, err := ParseTotalDigitsFacetWithFixed(input.lexical, loc, input.fixed, version)
+			if err != nil {
+				return DigitFacetDeclarations{}, err
+			}
+			totalDigits = &facet
+		case schemaFacetFractionDigits:
+			facet, err := ParseFractionDigitsFacetWithFixed(input.lexical, loc, input.fixed, version)
+			if err != nil {
+				return DigitFacetDeclarations{}, err
+			}
+			fractionDigits = &facet
+		case schemaFacetMinScale, schemaFacetMaxScale, schemaFacetPattern, schemaFacetEnumeration,
+			schemaFacetMinInclusive, schemaFacetMinExclusive, schemaFacetMaxInclusive, schemaFacetMaxExclusive,
+			schemaFacetWhiteSpace, schemaFacetLength, schemaFacetMinLength, schemaFacetMaxLength,
+			schemaFacetPrecision, schemaFacetExplicitTimezone:
+			return DigitFacetDeclarations{}, unsupportedSchemaDatatypeFacet(input, version)
+		default:
+			return DigitFacetDeclarations{}, newSchemaBridgeInvariant(input.loc, "simple type facet has an unknown kind")
 		}
-		fractionDigits = &facet
 	}
 	return NewDigitFacetDeclarations(totalDigits, fractionDigits), nil
+}
+
+//nolint:funlen // Keep the facet-kind to parser mapping explicit and located.
+func schemaPrecisionDecimalFacetDeclarations(inputs []schemaFacetInput) (PrecisionDecimalFacetDeclarations, error) {
+	var totalDigits *PrecisionDecimalTotalDigitsFacet
+	var minScale *PrecisionDecimalMinScaleFacet
+	var maxScale *PrecisionDecimalMaxScaleFacet
+	var whiteSpace *PrecisionDecimalWhiteSpaceFacet
+	var patterns []PrecisionDecimalPatternFacet
+	var enumeration []PrecisionDecimalEnumerationFacet
+	var minInclusive *PrecisionDecimalMinInclusiveFacet
+	var minExclusive *PrecisionDecimalMinExclusiveFacet
+	var maxInclusive *PrecisionDecimalMaxInclusiveFacet
+	var maxExclusive *PrecisionDecimalMaxExclusiveFacet
+	for _, input := range inputs {
+		loc := schemaFacetValueLocation(input)
+		var err error
+		switch input.kind {
+		case schemaFacetTotalDigits:
+			facet, parseErr := ParsePrecisionDecimalTotalDigitsFacetWithFixed(input.lexical, loc, input.fixed)
+			err = parseErr
+			totalDigits = &facet
+		case schemaFacetMinScale:
+			facet, parseErr := ParsePrecisionDecimalMinScaleFacetWithFixed(input.lexical, loc, input.fixed)
+			err = parseErr
+			minScale = &facet
+		case schemaFacetMaxScale:
+			facet, parseErr := ParsePrecisionDecimalMaxScaleFacetWithFixed(input.lexical, loc, input.fixed)
+			err = parseErr
+			maxScale = &facet
+		case schemaFacetPattern:
+			facet, parseErr := ParsePrecisionDecimalPatternFacet(input.lexical, loc)
+			err = parseErr
+			patterns = append(patterns, facet)
+		case schemaFacetEnumeration:
+			facet, parseErr := ParsePrecisionDecimalEnumerationFacet(input.lexical, loc)
+			err = parseErr
+			enumeration = append(enumeration, facet)
+		case schemaFacetMinInclusive:
+			facet, parseErr := ParsePrecisionDecimalMinInclusiveFacetWithFixed(input.lexical, loc, input.fixed)
+			err = parseErr
+			minInclusive = &facet
+		case schemaFacetMinExclusive:
+			facet, parseErr := ParsePrecisionDecimalMinExclusiveFacetWithFixed(input.lexical, loc, input.fixed)
+			err = parseErr
+			minExclusive = &facet
+		case schemaFacetMaxInclusive:
+			facet, parseErr := ParsePrecisionDecimalMaxInclusiveFacetWithFixed(input.lexical, loc, input.fixed)
+			err = parseErr
+			maxInclusive = &facet
+		case schemaFacetMaxExclusive:
+			facet, parseErr := ParsePrecisionDecimalMaxExclusiveFacetWithFixed(input.lexical, loc, input.fixed)
+			err = parseErr
+			maxExclusive = &facet
+		case schemaFacetWhiteSpace:
+			facet, parseErr := ParsePrecisionDecimalWhiteSpaceFacet(input.lexical, loc)
+			facet.fixed = input.fixed
+			err = parseErr
+			whiteSpace = &facet
+		case schemaFacetFractionDigits, schemaFacetLength, schemaFacetMinLength, schemaFacetMaxLength, schemaFacetPrecision, schemaFacetExplicitTimezone:
+			return PrecisionDecimalFacetDeclarations{}, ValidatePrecisionDecimalFacetName(schemaFacetName(input.kind), loc)
+		default:
+			return PrecisionDecimalFacetDeclarations{}, ValidatePrecisionDecimalFacetName(schemaFacetName(input.kind), loc)
+		}
+		if err != nil {
+			return PrecisionDecimalFacetDeclarations{}, err
+		}
+	}
+	return NewPrecisionDecimalFacetDeclarationsAll(
+		totalDigits,
+		minScale,
+		maxScale,
+		patterns,
+		enumeration,
+		minInclusive,
+		minExclusive,
+		maxInclusive,
+		maxExclusive,
+		whiteSpace,
+	), nil
+}
+
+func schemaFacetValueLocation(input schemaFacetInput) Loc {
+	if !input.valueLoc.IsZero() {
+		return input.valueLoc
+	}
+	return input.loc
+}
+
+func unsupportedSchemaDatatypeFacet(input schemaFacetInput, version XSDVersion) error {
+	if err := validateOrdinarySchemaFacetInput(input, version); err != nil {
+		return err
+	}
+	feature, ok := LookupUnsupportedFeature(FeatureDatatypeFacets)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticUnregisteredFeatureCode,
+			schemaFacetValueLocation(input),
+			"datatype facet feature is not registered",
+			nil,
+		)
+	}
+	return newUnsupportedForVersion(
+		feature,
+		UnsupportedDatatypeFacetCode,
+		input.loc,
+		fmt.Sprintf("simple type restriction facet <%s> is not implemented for this datatype", schemaFacetName(input.kind)),
+		version,
+	)
+}
+
+func validateOrdinarySchemaFacetInput(input schemaFacetInput, version XSDVersion) error {
+	valueLoc := schemaFacetValueLocation(input)
+	if version == XSDVersion10 && isXSD11SimpleTypeFacet(schemaFacetName(input.kind)) {
+		return newSchemaCompositionDiagnostic(input.loc, fmt.Sprintf("simple type restriction facet <%s> is not permitted in XSD 1.0", schemaFacetName(input.kind)))
+	}
+	switch input.kind {
+	case schemaFacetMinScale, schemaFacetMaxScale:
+		value, err := ParseStrictInteger(collapseXMLWhitespace(input.lexical), valueLoc)
+		if err != nil {
+			return err
+		}
+		if value.Sign() < 0 {
+			return newSchemaCompositionDiagnostic(valueLoc, schemaFacetName(input.kind)+" facet value must be non-negative")
+		}
+	case schemaFacetPrecision:
+		value, err := ParseStrictInteger(collapseXMLWhitespace(input.lexical), valueLoc)
+		if err != nil {
+			return err
+		}
+		if value.Sign() <= 0 {
+			return newSchemaCompositionDiagnostic(valueLoc, "precision facet value must be positive")
+		}
+	case schemaFacetTotalDigits, schemaFacetFractionDigits, schemaFacetPattern, schemaFacetEnumeration,
+		schemaFacetMinInclusive, schemaFacetMinExclusive, schemaFacetMaxInclusive, schemaFacetMaxExclusive,
+		schemaFacetWhiteSpace, schemaFacetLength, schemaFacetMinLength, schemaFacetMaxLength,
+		schemaFacetExplicitTimezone:
+		return nil
+	default:
+		return newSchemaBridgeInvariant(input.loc, "simple type facet has an unknown kind")
+	}
+	return nil
 }
 
 func (resolver *schemaSimpleTypeResolver) cycleDiagnostic(index int, version XSDVersion) error {
@@ -1329,25 +1584,6 @@ func schemaSimpleTypeSpecRef(version XSDVersion) string {
 		return schemaSimpleTypeXSD10SpecRef
 	}
 	return schemaSimpleTypeXSD11SpecRef
-}
-
-func unsupportedSchemaSimpleTypeBase(loc Loc, name QName) error {
-	feature, ok := LookupUnsupportedFeature(FeaturePrecisionDecimal)
-	if !ok {
-		return newDiagnostic(
-			FailureInternal,
-			diagnosticUnregisteredFeatureCode,
-			loc,
-			"precisionDecimal feature is not registered",
-			nil,
-		)
-	}
-	return newUnsupported(
-		feature,
-		diagnosticSchemaSimpleTypeBaseCode,
-		loc,
-		fmt.Sprintf("simple type restriction base %q is not implemented", name),
-	)
 }
 
 func newSchemaCompositionDiagnostic(loc Loc, message string) Diagnostic {

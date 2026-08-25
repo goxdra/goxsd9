@@ -268,7 +268,34 @@ func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 	if definition.facts == nil {
 		return DigitFacets{}
 	}
-	return definition.facts.digitFacets
+	facets, ok := definition.facts.facets.(schemaDigitFacetVariant)
+	if !ok {
+		return DigitFacets{}
+	}
+	return facets.value
+}
+
+// PrecisionDecimalFacets returns the effective precisionDecimal facets. It
+// returns the zero value for an integer or decimal simple type.
+func (definition SimpleTypeDefinition) PrecisionDecimalFacets() PrecisionDecimalFacets {
+	if definition.facts == nil {
+		return PrecisionDecimalFacets{}
+	}
+	facets, ok := definition.facts.facets.(schemaPrecisionDecimalFacetVariant)
+	if !ok {
+		return PrecisionDecimalFacets{}
+	}
+	return facets.value
+}
+
+// HasPrecisionDecimalFacets reports whether the simple type is backed by the
+// optional precisionDecimal datatype.
+func (definition SimpleTypeDefinition) HasPrecisionDecimalFacets() bool {
+	if definition.facts == nil {
+		return false
+	}
+	_, ok := definition.facts.facets.(schemaPrecisionDecimalFacetVariant)
+	return ok
 }
 
 // ComplexType returns the immutable complex-type view for a supported named
@@ -602,25 +629,63 @@ type schemaElementInput struct {
 }
 
 type schemaSimpleTypeInput struct {
-	base           QName
-	baseLoc        Loc
-	totalDigits    *schemaFacetInput
-	fractionDigits *schemaFacetInput
+	base    QName
+	baseLoc Loc
+	facets  []schemaFacetInput
 }
 
+type schemaFacetKind uint8
+
+const (
+	schemaFacetTotalDigits schemaFacetKind = iota + 1
+	schemaFacetFractionDigits
+	schemaFacetMinScale
+	schemaFacetMaxScale
+	schemaFacetPattern
+	schemaFacetEnumeration
+	schemaFacetMinInclusive
+	schemaFacetMinExclusive
+	schemaFacetMaxInclusive
+	schemaFacetMaxExclusive
+	schemaFacetWhiteSpace
+	schemaFacetLength
+	schemaFacetMinLength
+	schemaFacetMaxLength
+	schemaFacetPrecision
+	schemaFacetExplicitTimezone
+)
+
 type schemaFacetInput struct {
-	lexical string
-	loc     Loc
-	fixed   bool
+	lexical  string
+	loc      Loc
+	valueLoc Loc
+	kind     schemaFacetKind
+	fixed    bool
 }
 
 type schemaSimpleTypeComponent struct {
-	base        QName
-	baseLoc     Loc
-	baseID      ComponentID
-	hasBaseID   bool
-	digitFacets DigitFacets
+	base      QName
+	baseLoc   Loc
+	baseID    ComponentID
+	hasBaseID bool
+	facets    schemaSimpleTypeFacetVariant
 }
+
+type schemaSimpleTypeFacetVariant interface {
+	schemaSimpleTypeFacetVariant()
+}
+
+type schemaDigitFacetVariant struct {
+	value DigitFacets
+}
+
+func (schemaDigitFacetVariant) schemaSimpleTypeFacetVariant() {}
+
+type schemaPrecisionDecimalFacetVariant struct {
+	value PrecisionDecimalFacets
+}
+
+func (schemaPrecisionDecimalFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
 	particle *schemaChoiceParticleInput
@@ -879,11 +944,11 @@ func completeSchemaComponent(
 	}
 	if simpleType.present {
 		component.simpleType = &schemaSimpleTypeComponent{
-			base:        simpleType.base,
-			baseLoc:     simpleType.baseLoc,
-			baseID:      simpleType.baseID,
-			hasBaseID:   simpleType.hasBaseID,
-			digitFacets: simpleType.digitFacets,
+			base:      simpleType.base,
+			baseLoc:   simpleType.baseLoc,
+			baseID:    simpleType.baseID,
+			hasBaseID: simpleType.hasBaseID,
+			facets:    simpleType.facets,
 		}
 	}
 	if complexType.present {

@@ -1518,7 +1518,7 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			name:    "valid assertion facet is unsupported",
 			root:    wrapper(` version="1.1"`, `<xs:simpleType><xs:restriction base="xs:decimal"><xs:assertion test="true()"/></xs:restriction></xs:simpleType>`),
 			class:   FailureUnsupported,
-			feature: FeatureDatatypeFacets,
+			feature: FeatureID("xsd.assertion"),
 			code:    UnsupportedDatatypeFacetCode,
 		},
 		{
@@ -2765,13 +2765,6 @@ func TestSchemaBridgeRejectsSimpleTypeBaseFailuresWithoutSchema(t *testing.T) {
 			specRef:    "xsd11-structures#Simple_Type_Definition",
 			relatedMin: 1,
 		},
-		{
-			name:    "precision decimal unsupported",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:precisionDecimal"/></xs:simpleType></xs:schema>`,
-			class:   FailureUnsupported,
-			code:    diagnosticSchemaSimpleTypeBaseCode,
-			feature: FeaturePrecisionDecimal,
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -3279,17 +3272,6 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 </xs:schema>`,
 			class:       FailureUnsupported,
 			feature:     FeatureSchemaSyntax,
-			primary:     mustTestLoc(t, "root.xsd", 2, 3),
-			unsupported: true,
-		},
-		{
-			name: "precisionDecimal is unsupported",
-			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
-  <xs:element name="item" type="xs:precisionDecimal"/>
-</xs:schema>`,
-			class:       FailureUnsupported,
-			code:        diagnosticSchemaElementTypeUnsupportedCode,
-			feature:     FeaturePrecisionDecimal,
 			primary:     mustTestLoc(t, "root.xsd", 2, 3),
 			unsupported: true,
 		},
