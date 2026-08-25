@@ -1135,6 +1135,16 @@ func (candidate *schemaChildUnsupportedCandidate) considerError(err error) bool 
 	return true
 }
 
+func stageSchemaCandidateError(candidate *schemaChildUnsupportedCandidate, err error) error {
+	if err == nil {
+		return nil
+	}
+	if candidate.considerError(err) {
+		return nil
+	}
+	return err
+}
+
 func (candidate *schemaChildUnsupportedCandidate) merge(other schemaChildUnsupportedCandidate) {
 	if !other.present {
 		return
@@ -1368,7 +1378,8 @@ func schemaRestrictionBaseName(element *syntaxElement) QName {
 
 //nolint:gocognit // Keep list source cardinality and recursive preflight together.
 func validateSimpleTypeList(element *syntaxElement, version XSDVersion) error {
-	if err := validateSimpleTypeListAttributes(element); err != nil {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSimpleTypeListAttributes(element, &candidate); err != nil {
 		return err
 	}
 	children, err := collectSimpleTypeChildren(element, "simple type list")
@@ -1378,7 +1389,6 @@ func validateSimpleTypeList(element *syntaxElement, version XSDVersion) error {
 	annotationSeen := false
 	contentSeen := false
 	inlineSeen := false
-	var candidate schemaChildUnsupportedCandidate
 	for _, child := range children {
 		if child.name.local == "annotation" {
 			if annotationSeen || contentSeen {
@@ -1416,12 +1426,12 @@ func validateSimpleTypeList(element *syntaxElement, version XSDVersion) error {
 	return newSchemaSyntaxUnsupported(element.loc, "simple type lists are not implemented")
 }
 
-func validateSimpleTypeListAttributes(element *syntaxElement) error {
-	return validateSimpleTypeSourceAttributes(element, "list", "itemType", false)
+func validateSimpleTypeListAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
+	return validateSimpleTypeSourceAttributes(element, "list", "itemType", false, candidate)
 }
 
 //nolint:gocognit // Keep shared list/union attribute lexical checks together.
-func validateSimpleTypeSourceAttributes(element *syntaxElement, kind, source string, sourceIsQNameList bool) error {
+func validateSimpleTypeSourceAttributes(element *syntaxElement, kind, source string, sourceIsQNameList bool, candidate *schemaChildUnsupportedCandidate) error {
 	if err := validateUniqueSchemaAttributes(element, "id", source); err != nil {
 		return err
 	}
@@ -1434,7 +1444,7 @@ func validateSimpleTypeSourceAttributes(element *syntaxElement, kind, source str
 				return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("simple type %s has forbidden attribute %q", kind, attribute.name.local))
 			}
 			if attribute.name.namespace == xmlNamespaceURI {
-				if err := validateSchemaXMLAttribute(attribute); err != nil {
+				if err := stageSchemaCandidateError(candidate, validateSchemaXMLAttribute(attribute)); err != nil {
 					return err
 				}
 			}
@@ -1470,7 +1480,8 @@ func validateSimpleTypeSourceAttributes(element *syntaxElement, kind, source str
 
 //nolint:gocognit // Keep union source cardinality and recursive preflight together.
 func validateSimpleTypeUnion(element *syntaxElement, version XSDVersion) error {
-	if err := validateSimpleTypeUnionAttributes(element); err != nil {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSimpleTypeUnionAttributes(element, &candidate); err != nil {
 		return err
 	}
 	children, err := collectSimpleTypeChildren(element, "simple type union")
@@ -1480,7 +1491,6 @@ func validateSimpleTypeUnion(element *syntaxElement, version XSDVersion) error {
 	annotationSeen := false
 	contentSeen := false
 	inlineCount := 0
-	var candidate schemaChildUnsupportedCandidate
 	for _, child := range children {
 		if child.name.local == "annotation" {
 			if annotationSeen || contentSeen {
@@ -1513,8 +1523,8 @@ func validateSimpleTypeUnion(element *syntaxElement, version XSDVersion) error {
 	return newSchemaSyntaxUnsupported(element.loc, "simple type unions are not implemented")
 }
 
-func validateSimpleTypeUnionAttributes(element *syntaxElement) error {
-	return validateSimpleTypeSourceAttributes(element, "union", "memberTypes", true)
+func validateSimpleTypeUnionAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
+	return validateSimpleTypeSourceAttributes(element, "union", "memberTypes", true, candidate)
 }
 
 func validateUniqueSchemaAttributes(element *syntaxElement, locals ...string) error {
@@ -1528,13 +1538,17 @@ func validateUniqueSchemaAttributes(element *syntaxElement, locals ...string) er
 }
 
 func validateSimpleTypeRestrictionWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets bool) error {
-	if err := validateSimpleTypeRestrictionAttributes(element); err != nil {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSimpleTypeRestrictionAttributes(element, &candidate); err != nil {
 		return err
 	}
-	return validateSimpleTypeRestrictionChildren(element, version, bridgeFacets)
+	if err := validateSimpleTypeRestrictionChildren(element, version, bridgeFacets, &candidate); err != nil {
+		return err
+	}
+	return candidate.err()
 }
 
-func validateSimpleTypeRestrictionAttributes(element *syntaxElement) error {
+func validateSimpleTypeRestrictionAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
 	if err := validateUniqueSchemaAttributes(element, "base", "id"); err != nil {
 		return err
 	}
@@ -1549,7 +1563,7 @@ func validateSimpleTypeRestrictionAttributes(element *syntaxElement) error {
 		return newSchemaCompositionDiagnostic(inline.loc, "simple type restriction cannot combine base with an inline simpleType")
 	}
 	for _, attribute := range element.attrs {
-		if err := validateSimpleTypeRestrictionAttribute(element, attribute); err != nil {
+		if err := validateSimpleTypeRestrictionAttribute(element, attribute, candidate); err != nil {
 			return err
 		}
 	}
@@ -1569,7 +1583,7 @@ func inlineSimpleTypeChild(element *syntaxElement) *syntaxElement {
 	return nil
 }
 
-func validateSimpleTypeRestrictionAttribute(element *syntaxElement, attribute syntaxAttribute) error {
+func validateSimpleTypeRestrictionAttribute(element *syntaxElement, attribute syntaxAttribute, candidate *schemaChildUnsupportedCandidate) error {
 	if attribute.name.namespace == xsdVersioningNamespaceURI {
 		return nil
 	}
@@ -1578,7 +1592,7 @@ func validateSimpleTypeRestrictionAttribute(element *syntaxElement, attribute sy
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("simple type restriction has forbidden attribute %q", attribute.name.local))
 		}
 		if attribute.name.namespace == xmlNamespaceURI {
-			return validateSchemaXMLAttribute(attribute)
+			return stageSchemaCandidateError(candidate, validateSchemaXMLAttribute(attribute))
 		}
 		return nil
 	}
@@ -1595,7 +1609,7 @@ func validateSimpleTypeRestrictionAttribute(element *syntaxElement, attribute sy
 	}
 }
 
-func validateSimpleTypeRestrictionChildren(element *syntaxElement, version XSDVersion, bridgeFacets bool) error {
+func validateSimpleTypeRestrictionChildren(element *syntaxElement, version XSDVersion, bridgeFacets bool, candidate *schemaChildUnsupportedCandidate) error {
 	children, err := collectSimpleTypeRestrictionChildren(element, version)
 	if err != nil {
 		return err
@@ -1606,7 +1620,6 @@ func validateSimpleTypeRestrictionChildren(element *syntaxElement, version XSDVe
 	fractionSeen := false
 	inlineSeen := false
 	baseSeen := len(syntaxAttributesByLocal(element, "base")) > 0
-	var candidate schemaChildUnsupportedCandidate
 	facetSeen := make(map[string]bool)
 	for _, child := range children {
 		if err := validateSimpleTypeRestrictionChild(child, &annotationSeen, &contentSeen, &totalSeen, &fractionSeen, &inlineSeen, baseSeen, facetSeen, version, bridgeFacets); err != nil {
@@ -1686,7 +1699,7 @@ func validateSimpleTypeRestrictionChild(child *syntaxElement, annotationSeen, co
 	return validateSimpleTypeRestrictionFacet(child, totalSeen, fractionSeen, facetSeen, version, bridgeFacets)
 }
 
-//nolint:gocognit,funlen // Keep facet classification and lexical preflight together.
+//nolint:gocognit // Keep facet classification and lexical preflight together.
 func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractionSeen *bool, facetSeen map[string]bool, version XSDVersion, bridgeFacets bool) error {
 	if !bridgeFacets && (child.name.local == "minScale" || child.name.local == "maxScale") {
 		valueAttributes := syntaxAttributesByLocal(child, "value")
@@ -1721,7 +1734,7 @@ func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractio
 				}
 				facetSeen[child.name.local] = true
 				var candidate schemaChildUnsupportedCandidate
-				if err := validateSimpleTypeAssertionFacet(child); err != nil {
+				if err := validateSimpleTypeAssertionFacet(child, &candidate); err != nil {
 					if !candidate.considerError(err) {
 						return err
 					}
@@ -1737,22 +1750,21 @@ func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractio
 				return newSchemaCompositionDiagnostic(child.loc, fmt.Sprintf("simple type restriction facet <%s> must be unique", child.name.local))
 			}
 			facetSeen[child.name.local] = true
-			if err := validateSimpleTypeFacetAttributes(child); err != nil {
+			var candidate schemaChildUnsupportedCandidate
+			if err := validateSimpleTypeFacetAttributes(child, &candidate); err != nil {
 				return err
 			}
-			var childErr error
 			if err := validateSimpleTypeFacetChildren(child); err != nil {
-				var diagnostic Diagnostic
-				if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
-					return err
+				if stagedErr := stageSchemaCandidateError(&candidate, err); stagedErr != nil {
+					return stagedErr
 				}
-				childErr = err
 			}
 			if version == XSDVersion10 && isXSD11SimpleTypeFacet(child.name.local) {
-				return unsupportedSimpleTypeRestrictionChild(child, version)
+				candidate.considerError(unsupportedSimpleTypeRestrictionChild(child, version))
+				return candidate.err()
 			}
-			if childErr != nil {
-				return childErr
+			if candidate.present {
+				return candidate.err()
 			}
 			if bridgeFacets {
 				return nil
@@ -1824,7 +1836,8 @@ func unsupportedSimpleTypeRestrictionChild(child *syntaxElement, version XSDVers
 }
 
 func validateSimpleTypeDigitFacet(element *syntaxElement, version XSDVersion) error {
-	if err := validateSimpleTypeDigitFacetAttributes(element); err != nil {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSimpleTypeDigitFacetAttributes(element, &candidate); err != nil {
 		return err
 	}
 	valueAttributes := syntaxAttributesByLocal(element, "value")
@@ -1833,16 +1846,22 @@ func validateSimpleTypeDigitFacet(element *syntaxElement, version XSDVersion) er
 		if err != nil {
 			return err
 		}
-		return validateSimpleTypeDigitFacetChildren(element)
+		if err := validateSimpleTypeDigitFacetChildren(element, &candidate); err != nil {
+			return err
+		}
+		return candidate.err()
 	}
 	_, err := ParseFractionDigitsFor(version, valueAttributes[0].value, valueAttributes[0].loc)
 	if err != nil {
 		return err
 	}
-	return validateSimpleTypeDigitFacetChildren(element)
+	if err := validateSimpleTypeDigitFacetChildren(element, &candidate); err != nil {
+		return err
+	}
+	return candidate.err()
 }
 
-func validateSimpleTypeDigitFacetAttributes(element *syntaxElement) error {
+func validateSimpleTypeDigitFacetAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
 	if err := validateUniqueSchemaAttributes(element, "value", "fixed", "id"); err != nil {
 		return err
 	}
@@ -1851,14 +1870,14 @@ func validateSimpleTypeDigitFacetAttributes(element *syntaxElement) error {
 		return newSchemaCompositionDiagnostic(element.loc, element.name.local+" facet requires a value attribute")
 	}
 	for _, attribute := range element.attrs {
-		if err := validateSimpleTypeDigitFacetAttribute(element, attribute); err != nil {
+		if err := validateSimpleTypeDigitFacetAttribute(element, attribute, candidate); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateSimpleTypeDigitFacetAttribute(element *syntaxElement, attribute syntaxAttribute) error {
+func validateSimpleTypeDigitFacetAttribute(element *syntaxElement, attribute syntaxAttribute, candidate *schemaChildUnsupportedCandidate) error {
 	if attribute.name.namespace == xsdVersioningNamespaceURI {
 		return nil
 	}
@@ -1867,7 +1886,7 @@ func validateSimpleTypeDigitFacetAttribute(element *syntaxElement, attribute syn
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("%s facet has forbidden attribute %q", element.name.local, attribute.name.local))
 		}
 		if attribute.name.namespace == xmlNamespaceURI {
-			return validateSchemaXMLAttribute(attribute)
+			return stageSchemaCandidateError(candidate, validateSchemaXMLAttribute(attribute))
 		}
 		return nil
 	}
@@ -1886,14 +1905,13 @@ func validateSimpleTypeDigitFacetAttribute(element *syntaxElement, attribute syn
 	}
 }
 
-func validateSimpleTypeDigitFacetChildren(element *syntaxElement) error {
+func validateSimpleTypeDigitFacetChildren(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
 	children, err := collectSimpleTypeChildren(element, element.name.local+" facet")
 	if err != nil {
 		return err
 	}
 	annotationSeen := false
 	contentSeen := false
-	var candidate schemaChildUnsupportedCandidate
 	for _, child := range children {
 		if child.name.local == "annotation" {
 			if annotationSeen || contentSeen {
@@ -1921,7 +1939,7 @@ func repeatedSimpleTypeFacetAllowed(local string, version XSDVersion) bool {
 }
 
 //nolint:gocognit,funlen // Keep recognized facet attribute and value checks together.
-func validateSimpleTypeFacetAttributes(element *syntaxElement) error {
+func validateSimpleTypeFacetAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
 	if err := validateUniqueSchemaAttributes(element, "value", "fixed", "id"); err != nil {
 		return err
 	}
@@ -1938,7 +1956,7 @@ func validateSimpleTypeFacetAttributes(element *syntaxElement) error {
 				return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("%s facet has forbidden attribute %q", element.name.local, attribute.name.local))
 			}
 			if attribute.name.namespace == xmlNamespaceURI {
-				if err := validateSchemaXMLAttribute(attribute); err != nil {
+				if err := stageSchemaCandidateError(candidate, validateSchemaXMLAttribute(attribute)); err != nil {
 					return err
 				}
 			}
@@ -2029,7 +2047,7 @@ func validateSimpleTypeFacetChildren(element *syntaxElement) error {
 }
 
 //nolint:gocognit // Keep XSD 1.1 assertion facet lexical checks together.
-func validateSimpleTypeAssertionFacet(element *syntaxElement) error {
+func validateSimpleTypeAssertionFacet(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
 	if err := validateUniqueSchemaAttributes(element, "test", "xpathDefaultNamespace", "id"); err != nil {
 		return err
 	}
@@ -2042,7 +2060,7 @@ func validateSimpleTypeAssertionFacet(element *syntaxElement) error {
 			continue
 		}
 		if attribute.name.namespace != "" {
-			if err := validateSchemaQualifiedAttribute(attribute, "assertion facet"); err != nil {
+			if err := stageSchemaCandidateError(candidate, validateSchemaQualifiedAttribute(attribute, "assertion facet")); err != nil {
 				return err
 			}
 			continue
@@ -2061,7 +2079,10 @@ func validateSimpleTypeAssertionFacet(element *syntaxElement) error {
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("assertion facet has forbidden attribute %q", attribute.name.local))
 		}
 	}
-	return validateSimpleTypeFacetChildren(element)
+	if err := validateSimpleTypeFacetChildren(element); err != nil {
+		return stageSchemaCandidateError(candidate, err)
+	}
+	return nil
 }
 
 func collectSimpleTypeChildren(element *syntaxElement, owner string) ([]*syntaxElement, error) {
@@ -2244,7 +2265,8 @@ func validateComplexTypeMixedAgreement(parent, content *syntaxElement) error {
 
 //nolint:gocognit // Keep the ordered simple/complex content grammar explicit.
 func validateComplexTypeContentChild(element *syntaxElement, version XSDVersion) error {
-	if err := validateComplexTypeContentAttributes(element); err != nil {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateComplexTypeContentAttributes(element, &candidate); err != nil {
 		return err
 	}
 	children, err := collectSimpleTypeChildren(element, element.name.local)
@@ -2253,7 +2275,6 @@ func validateComplexTypeContentChild(element *syntaxElement, version XSDVersion)
 	}
 	annotationSeen := false
 	derivationSeen := false
-	var candidate schemaChildUnsupportedCandidate
 	for _, child := range children {
 		if child.name.local == "annotation" {
 			if annotationSeen || derivationSeen {
@@ -2283,7 +2304,7 @@ func validateComplexTypeContentChild(element *syntaxElement, version XSDVersion)
 }
 
 //nolint:gocognit // Keep version-neutral content attribute checks together.
-func validateComplexTypeContentAttributes(element *syntaxElement) error {
+func validateComplexTypeContentAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
 	if err := validateUniqueSchemaAttributes(element, "id", "mixed"); err != nil {
 		return err
 	}
@@ -2292,7 +2313,7 @@ func validateComplexTypeContentAttributes(element *syntaxElement) error {
 			continue
 		}
 		if attribute.name.namespace != "" {
-			if err := validateSchemaQualifiedAttribute(attribute, element.name.local); err != nil {
+			if err := stageSchemaCandidateError(candidate, validateSchemaQualifiedAttribute(attribute, element.name.local)); err != nil {
 				return err
 			}
 			continue
@@ -2318,6 +2339,7 @@ func validateComplexTypeContentAttributes(element *syntaxElement) error {
 
 //nolint:gocognit,funlen // Keep derivation ordering and recursive preflight explicit.
 func validateComplexDerivation(element *syntaxElement, version XSDVersion, complexContent, simpleRestriction bool) error {
+	var candidate schemaChildUnsupportedCandidate
 	if err := validateUniqueSchemaAttributes(element, "base", "id"); err != nil {
 		return err
 	}
@@ -2333,7 +2355,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			continue
 		}
 		if attribute.name.namespace != "" {
-			if err := validateSchemaQualifiedAttribute(attribute, element.name.local); err != nil {
+			if err := stageSchemaCandidateError(&candidate, validateSchemaQualifiedAttribute(attribute, element.name.local)); err != nil {
 				return err
 			}
 			continue
@@ -2364,7 +2386,6 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	totalSeen := false
 	fractionSeen := false
 	facetSeen := make(map[string]bool)
-	var candidate schemaChildUnsupportedCandidate
 	for _, child := range children {
 		if child.name.local == "annotation" {
 			if annotationSeen || contentSeen {
@@ -2472,7 +2493,8 @@ func validateOpenContent(element *syntaxElement, version XSDVersion) error {
 
 //nolint:gocognit // Keep the shared open-content grammar and policy boundary together.
 func validateOpenContentLike(element *syntaxElement, version XSDVersion, owner string, defaultOpenContent bool) error {
-	if err := validateOpenContentAttributesLike(element, owner, defaultOpenContent); err != nil {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateOpenContentAttributesLike(element, owner, defaultOpenContent, &candidate); err != nil {
 		return err
 	}
 	children, err := collectSimpleTypeChildren(element, owner)
@@ -2482,7 +2504,6 @@ func validateOpenContentLike(element *syntaxElement, version XSDVersion, owner s
 	annotationSeen := false
 	contentSeen := false
 	anySeen := false
-	var candidate schemaChildUnsupportedCandidate
 	for _, child := range children {
 		if child.name.local == "annotation" {
 			if annotationSeen || contentSeen {
@@ -2524,12 +2545,13 @@ func validateOpenContentLike(element *syntaxElement, version XSDVersion, owner s
 		return newSchemaCompositionDiagnostic(element.loc, owner+" requires an any child unless mode is none")
 	}
 	if version == XSDVersion10 {
-		return newXSD11FeatureMismatch(
+		candidate.considerError(newXSD11FeatureMismatch(
 			FeatureSchemaSyntax,
 			UnsupportedSchemaSyntaxCode,
 			element.loc,
 			owner+" is an XSD 1.1-only construct",
-		)
+		))
+		return candidate.err()
 	}
 	if candidate.present {
 		return candidate.err()
@@ -2547,7 +2569,7 @@ func validateOpenContentAny(element *syntaxElement, version XSDVersion, owner st
 	return validateAnyParticle(element, version)
 }
 
-func validateOpenContentAttributesLike(element *syntaxElement, owner string, defaultOpenContent bool) error {
+func validateOpenContentAttributesLike(element *syntaxElement, owner string, defaultOpenContent bool, candidate *schemaChildUnsupportedCandidate) error {
 	uniqueAttributes := []string{"id", "mode"}
 	if defaultOpenContent {
 		uniqueAttributes = append(uniqueAttributes, "appliesToEmpty")
@@ -2556,7 +2578,7 @@ func validateOpenContentAttributesLike(element *syntaxElement, owner string, def
 		return err
 	}
 	for _, attribute := range element.attrs {
-		if err := validateOpenContentAttribute(attribute, owner, defaultOpenContent); err != nil {
+		if err := stageSchemaCandidateError(candidate, validateOpenContentAttribute(attribute, owner, defaultOpenContent)); err != nil {
 			return err
 		}
 	}
@@ -2748,6 +2770,7 @@ func validateAttributeGroupReference(element *syntaxElement) error {
 	if err := validateUniqueSchemaAttributes(element, "ref", "id"); err != nil {
 		return err
 	}
+	var candidate schemaChildUnsupportedCandidate
 	refAttributes := syntaxAttributesByLocal(element, "ref")
 	if len(refAttributes) == 0 {
 		return newSchemaCompositionDiagnostic(element.loc, "attributeGroup reference requires a ref attribute")
@@ -2757,7 +2780,7 @@ func validateAttributeGroupReference(element *syntaxElement) error {
 			continue
 		}
 		if attribute.name.namespace != "" {
-			if err := validateSchemaQualifiedAttribute(attribute, "attributeGroup reference"); err != nil {
+			if err := stageSchemaCandidateError(&candidate, validateSchemaQualifiedAttribute(attribute, "attributeGroup reference")); err != nil {
 				return err
 			}
 			continue
@@ -2788,6 +2811,9 @@ func validateAttributeGroupReference(element *syntaxElement) error {
 			return newSchemaCompositionDiagnostic(child.loc, "attributeGroup reference annotation must be unique")
 		}
 		annotationSeen = true
+	}
+	if candidate.present {
+		return candidate.err()
 	}
 	return newSchemaSyntaxUnsupported(element.loc, "attributeGroup references are not implemented")
 }
@@ -2947,6 +2973,7 @@ func validateWildcardNotQName(element *syntaxElement, attribute syntaxAttribute,
 
 //nolint:gocognit // Keep XSD 1.1 assertion lexical checks together.
 func validateComplexTypeAssert(element *syntaxElement, version XSDVersion) error {
+	var candidate schemaChildUnsupportedCandidate
 	if err := validateUniqueSchemaAttributes(element, "id", "test", "xpathDefaultNamespace"); err != nil {
 		return err
 	}
@@ -2959,7 +2986,7 @@ func validateComplexTypeAssert(element *syntaxElement, version XSDVersion) error
 			continue
 		}
 		if attribute.name.namespace != "" {
-			if err := validateSchemaQualifiedAttribute(attribute, "assert"); err != nil {
+			if err := stageSchemaCandidateError(&candidate, validateSchemaQualifiedAttribute(attribute, "assert")); err != nil {
 				return err
 			}
 			continue
@@ -2993,12 +3020,16 @@ func validateComplexTypeAssert(element *syntaxElement, version XSDVersion) error
 		annotationSeen = true
 	}
 	if version == XSDVersion10 {
-		return newXSD11FeatureMismatch(
+		candidate.considerError(newXSD11FeatureMismatch(
 			FeatureID("xsd.assertion"),
 			UnsupportedSchemaSyntaxCode,
 			element.loc,
 			"assert is an XSD 1.1-only construct",
-		)
+		))
+		return candidate.err()
+	}
+	if candidate.present {
+		return candidate.err()
 	}
 	return newSchemaSyntaxUnsupportedForVersion(element.loc, "assertions are not implemented", version)
 }
@@ -3090,7 +3121,7 @@ func validateSchemaParticleAttributes(element *syntaxElement, candidate *schemaC
 				return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("%s has forbidden attribute %q", element.name.local, attribute.name.local))
 			}
 			if attribute.name.namespace == xmlNamespaceURI {
-				if err := validateSchemaXMLAttribute(attribute); err != nil {
+				if err := stageSchemaCandidateError(candidate, validateSchemaXMLAttribute(attribute)); err != nil {
 					return err
 				}
 			}
@@ -3579,7 +3610,7 @@ func validateGroupParticle(element *syntaxElement) error {
 				return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("group has forbidden attribute %q", attribute.name.local))
 			}
 			if attribute.name.namespace == xmlNamespaceURI {
-				if err := validateSchemaXMLAttribute(attribute); err != nil {
+				if err := stageSchemaCandidateError(&candidate, validateSchemaXMLAttribute(attribute)); err != nil {
 					return err
 				}
 			}

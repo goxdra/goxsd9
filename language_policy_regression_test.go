@@ -476,7 +476,7 @@ func TestStrict10MalformedXSD11RootAttributesRemainInvalid(t *testing.T) {
 	}
 }
 
-//nolint:gocognit,funlen // Keep cross-profile mismatch-precedence fixtures together.
+//nolint:gocognit,funlen,dupl // Keep cross-profile mismatch-precedence fixtures together.
 func TestLanguagePolicyMismatchCandidatesYieldToInvalidGrammar(t *testing.T) {
 	profiles := []struct {
 		name   string
@@ -987,6 +987,270 @@ func TestConditionalAvailabilityCandidateYieldsToGrammarDiagnostics(t *testing.T
 			}
 			if errors.Is(err, errLanguagePolicyMismatch) != test.wantMismatch {
 				t.Fatalf("conditional diagnostic mismatch cause = %t, want %t: %v", errors.Is(err, errLanguagePolicyMismatch), test.wantMismatch, err)
+			}
+		})
+	}
+}
+
+//nolint:gocognit,funlen,dupl // Keep the exhaustive XML Base helper-family fixtures together.
+func TestXMLBaseCandidatesYieldToInvalidGrammarAcrossProfiles(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+		code string
+	}{
+		{
+			name: "simple type list source attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:list itemType="xs:string" xml:base="urn:test"><xs:element/></xs:list></xs:simpleType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "simple type union source attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:union memberTypes="xs:string" xml:base="urn:test"><xs:element/></xs:union></xs:simpleType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "simple type restriction attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:restriction base="xs:string" xml:base="urn:test"><xs:element/></xs:restriction></xs:simpleType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "digit facet attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:restriction base="xs:string"><xs:totalDigits value="1" xml:base="urn:test"><xs:element/></xs:totalDigits></xs:restriction></xs:simpleType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "recognized facet attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:restriction base="xs:string"><xs:minScale value="1" xml:base="urn:test"><xs:element/></xs:minScale></xs:restriction></xs:simpleType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "assertion facet attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:restriction base="xs:string"><xs:assertion test="true()" xml:base="urn:test"><xs:element/></xs:assertion></xs:restriction></xs:simpleType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "complex type content attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:complexContent xml:base="urn:test"><xs:extension base="xs:string"><xs:element/></xs:extension></xs:complexContent></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "complex derivation attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:complexContent><xs:extension base="xs:string" xml:base="urn:test"><xs:element/></xs:extension></xs:complexContent></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "open content attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:openContent xml:base="urn:test"><xs:element/></xs:openContent></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "attribute group reference attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:tns="urn:test">
+  <xs:complexType name="item"><xs:attributeGroup ref="tns:group" xml:base="urn:test"><xs:element/></xs:attributeGroup></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "complex type assertion attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:assert test="true()" xml:base="urn:test"><xs:element/></xs:assert></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "particle attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:choice xml:base="urn:test"><xs:element/></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaDeclarationNameCode,
+		},
+		{
+			name: "group particle attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:tns="urn:test">
+  <xs:complexType name="item"><xs:choice><xs:group ref="tns:group" xml:base="urn:test"><xs:element/></xs:group></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+	}
+	profiles := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, profile := range profiles {
+				t.Run(profile.name, func(t *testing.T) {
+					schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, profile.policy)
+					if err == nil || schema.storage != nil {
+						t.Fatal("malformed XML Base input was accepted or returned a schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+						t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
+					}
+					if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() == 0 {
+						t.Fatalf("diagnostic location = %s, want root.xsd:2 with a column", diagnostic.Loc())
+					}
+					if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+						t.Fatalf("invalid XML Base input retained an unsupported cause: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+//nolint:gocognit,funlen // Keep Strict10 mismatch metadata fixtures and profile checks together.
+func TestXMLBaseCandidatesPreserveRecognizedMismatchAcrossProfiles(t *testing.T) {
+	tests := []struct {
+		name    string
+		root    string
+		feature FeatureID
+		code    string
+		specRef string
+	}{
+		{
+			name: "open content any",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:openContent xml:base="urn:test"><xs:any/></xs:openContent></xs:complexType>
+</xs:schema>`,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name: "complex type assert",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:assert test="true()" xml:base="urn:test"/></xs:complexType>
+</xs:schema>`,
+			feature: FeatureID("xsd.assertion"),
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xsd11-structures#cAssertions",
+		},
+		{
+			name: "assertion facet",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:restriction base="xs:string"><xs:assertion test="true()" xml:base="urn:test"/></xs:restriction></xs:simpleType>
+</xs:schema>`,
+			feature: FeatureID("xsd.assertion"),
+			code:    UnsupportedDatatypeFacetCode,
+			specRef: "xsd11-structures#cAssertions",
+		},
+		{
+			name: "minScale facet",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:restriction base="xs:string"><xs:minScale value="1" xml:base="urn:test"/></xs:restriction></xs:simpleType>
+</xs:schema>`,
+			feature: FeatureDatatypeFacets,
+			code:    UnsupportedDatatypeFacetCode,
+			specRef: "xsd11-datatypes#decimal",
+		},
+		{
+			name: "restriction child facet",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:restriction base="xs:string" xml:base="urn:test"><xs:minScale value="1"/></xs:restriction></xs:simpleType>
+</xs:schema>`,
+			feature: FeatureDatatypeFacets,
+			code:    UnsupportedDatatypeFacetCode,
+			specRef: "xsd11-datatypes#decimal",
+		},
+		{
+			name: "complex content child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:complexContent xml:base="urn:test"><xs:extension base="xs:string"><xs:openContent><xs:any/></xs:openContent></xs:extension></xs:complexContent></xs:complexType>
+</xs:schema>`,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name: "complex derivation child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:complexContent><xs:extension base="xs:string" xml:base="urn:test"><xs:openContent><xs:any/></xs:openContent></xs:extension></xs:complexContent></xs:complexType>
+</xs:schema>`,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name: "particle child target namespace",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:choice xml:base="urn:test"><xs:element name="value" type="xs:string" targetNamespace="urn:test"/></xs:choice></xs:complexType>
+</xs:schema>`,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name: "outer all occurrence",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:all minOccurs="0" maxOccurs="0" xml:base="urn:test"><xs:element name="value" type="xs:string"/></xs:all></xs:complexType>
+</xs:schema>`,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: "xsd11-structures#cSchemaDocument",
+		},
+	}
+	profiles := []struct {
+		name       string
+		policy     LanguagePolicy
+		wantStrict bool
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10, wantStrict: true},
+		{name: "Strict11", policy: Strict11},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, profile := range profiles {
+				t.Run(profile.name, func(t *testing.T) {
+					schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, profile.policy)
+					if err == nil || schema.storage != nil {
+						t.Fatal("XML Base input was accepted or returned a schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureUnsupported {
+						t.Fatalf("diagnostic class = %q, want unsupported: %v", diagnostic.Class(), err)
+					}
+					if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() == 0 {
+						t.Fatalf("diagnostic location = %s, want root.xsd:2 with a column", diagnostic.Loc())
+					}
+					if profile.wantStrict {
+						if diagnostic.Feature() != test.feature || diagnostic.Code() != test.code || diagnostic.SpecRef() != test.specRef {
+							t.Fatalf("Strict10 metadata = %q/%q/%q, want %q/%q/%q", diagnostic.Feature(), diagnostic.Code(), diagnostic.SpecRef(), test.feature, test.code, test.specRef)
+						}
+						if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+							t.Fatalf("Strict10 mismatch lost cause: %v", err)
+						}
+						return
+					}
+					if errors.Is(err, errLanguagePolicyMismatch) {
+						t.Fatalf("%s diagnostic was classified as a Strict10 mismatch: %v", profile.name, err)
+					}
+				})
 			}
 		})
 	}
