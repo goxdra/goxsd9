@@ -506,6 +506,13 @@ func TestLanguagePolicyMismatchCandidatesYieldToInvalidGrammar(t *testing.T) {
 			code: invalidSchemaDeclarationNameCode,
 		},
 		{
+			name: "global xml base before missing name",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:attribute xml:base="urn:test"/>
+</xs:schema>`,
+			code: invalidSchemaDeclarationNameCode,
+		},
+		{
 			name: "anyAttribute namespace and notNamespace",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
   <xs:complexType name="item"><xs:anyAttribute namespace="##any" notNamespace="##local"/></xs:complexType>
@@ -534,6 +541,13 @@ func TestLanguagePolicyMismatchCandidatesYieldToInvalidGrammar(t *testing.T) {
 			code: invalidSchemaCompositionCode,
 		},
 		{
+			name: "global annotation xml base before forbidden child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item"><xs:annotation xml:base="urn:test"/><xs:sequence/></xs:element>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
 			name: "inline complexType defaultAttributesApply before malformed descendant",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
   <xs:complexType name="container"><xs:choice><xs:element name="item"><xs:complexType defaultAttributesApply="true"><xs:choice><xs:element/></xs:choice></xs:complexType></xs:element></xs:choice></xs:complexType>
@@ -555,6 +569,20 @@ func TestLanguagePolicyMismatchCandidatesYieldToInvalidGrammar(t *testing.T) {
 			code: invalidSchemaCompositionCode,
 		},
 		{
+			name: "local xml base before forbidden child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="container"><xs:choice><xs:element name="item" type="xs:integer" xml:base="urn:test"><xs:sequence/></xs:element></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "alternative xml base before forbidden child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="container"><xs:choice><xs:element name="item" type="xs:integer"><xs:alternative type="xs:integer" xml:base="urn:test"><xs:element/></xs:alternative></xs:element></xs:choice></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
 			name: "local attribute targetNamespace before missing name",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
   <xs:complexType name="item"><xs:attribute targetNamespace="urn:test"/></xs:complexType>
@@ -565,6 +593,13 @@ func TestLanguagePolicyMismatchCandidatesYieldToInvalidGrammar(t *testing.T) {
 			name: "outer all occurrence before malformed child",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
   <xs:complexType name="item"><xs:all minOccurs="0" maxOccurs="0"><xs:element/></xs:all></xs:complexType>
+</xs:schema>`,
+			code: invalidSchemaDeclarationNameCode,
+		},
+		{
+			name: "outer all mismatch and generic child before malformed child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:all minOccurs="0" maxOccurs="0"><xs:any/><xs:element/></xs:all></xs:complexType>
 </xs:schema>`,
 			code: invalidSchemaDeclarationNameCode,
 		},
@@ -648,6 +683,310 @@ func TestStrict10InlineAndOuterMismatchLocationsRemainExact(t *testing.T) {
 			}
 			if test.wantCause && (!errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported)) {
 				t.Fatalf("diagnostic lost mismatch or unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
+func TestStrict10RootUnsupportedChildAdvancesGrammarPhase(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:defaultOpenContent mode="interleave"><xs:any/></xs:defaultOpenContent>
+  <xs:defaultOpenContent mode="interleave"><xs:any/></xs:defaultOpenContent>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err == nil || schema.storage != nil {
+		t.Fatal("duplicate defaultOpenContent was accepted or returned a schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+		t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, invalidSchemaCompositionCode)
+	}
+	if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 3 || diagnostic.Loc().Column() == 0 {
+		t.Fatalf("diagnostic location = %s, want root.xsd:3 with a column", diagnostic.Loc())
+	}
+	if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+		t.Fatalf("duplicate defaultOpenContent retained an unsupported cause: %v", err)
+	}
+}
+
+//nolint:gocognit // Keep override nested-candidate precedence fixtures together.
+func TestStrict10OverrideCandidatesYieldToNestedInvalid(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+	}{
+		{
+			name: "nested mismatch before missing attribute name",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:override schemaLocation="child.xsd"><xs:element name="item" targetNamespace="urn:test"/><xs:attribute/></xs:override>
+</xs:schema>`,
+		},
+		{
+			name: "nested xml base before missing attribute name",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:override schemaLocation="child.xsd"><xs:element name="item" xml:base="urn:test"/><xs:attribute/></xs:override>
+</xs:schema>`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Strict10)
+			if err == nil || schema.storage != nil {
+				t.Fatal("malformed override was accepted or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaDeclarationNameCode {
+				t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, invalidSchemaDeclarationNameCode)
+			}
+			if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() == 0 {
+				t.Fatalf("diagnostic location = %s, want root.xsd:2 with a column", diagnostic.Loc())
+			}
+			if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+				t.Fatalf("invalid override retained an unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep global inline-type grammar profiles and diagnostics together.
+func TestGlobalInlineTypesValidateDescendants(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+		code string
+	}{
+		{
+			name: "element complexType malformed particle",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item"><xs:complexType><xs:choice><xs:element/></xs:choice></xs:complexType></xs:element>
+</xs:schema>`,
+			code: invalidSchemaDeclarationNameCode,
+		},
+		{
+			name: "attribute simpleType malformed child",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:attribute name="item"><xs:simpleType><xs:restriction base="xs:string"><xs:element/></xs:restriction></xs:simpleType></xs:attribute>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, profile := range []struct {
+				name   string
+				policy LanguagePolicy
+			}{
+				{name: "Compatibility", policy: Compatibility},
+				{name: "Strict10", policy: Strict10},
+				{name: "Strict11", policy: Strict11},
+			} {
+				t.Run(profile.name, func(t *testing.T) {
+					schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, profile.policy)
+					if err == nil || schema.storage != nil {
+						t.Fatal("malformed inline type was accepted or returned a schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+						t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
+					}
+					if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+						t.Fatalf("invalid inline type retained an unsupported cause: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestGlobalGroupModelsValidateParticles(t *testing.T) {
+	malformed := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:group name="item"><xs:sequence><xs:element/></xs:sequence></xs:group>
+</xs:schema>`
+	for _, profile := range []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	} {
+		t.Run("malformed/"+profile.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, malformed, nil, profile.policy)
+			if err == nil || schema.storage != nil {
+				t.Fatal("malformed group model was accepted or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaDeclarationNameCode {
+				t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, invalidSchemaDeclarationNameCode)
+			}
+		})
+	}
+
+	strictRoot := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:group name="item"><xs:all minOccurs="0" maxOccurs="0"><xs:element name="value" type="xs:string"/></xs:all></xs:group>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, strictRoot, nil, Strict10)
+	if err == nil || schema.storage != nil {
+		t.Fatal("Strict10 accepted group all maxOccurs=0 or returned a schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+		t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code())
+	}
+	if diagnostic.SpecRef() != "xsd11-structures#cSchemaDocument" || !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("group all mismatch lost metadata or cause: %s", diagnostic)
+	}
+}
+
+func TestStrict10AssertionMismatchOutranksFacetChildUnsupported(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item"><xs:restriction base="xs:string"><xs:assertion test="true()"><xs:unknown/></xs:assertion></xs:restriction></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err == nil || schema.storage != nil {
+		t.Fatal("Strict10 accepted assertion facet or returned a schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureID("xsd.assertion") || diagnostic.Code() != UnsupportedDatatypeFacetCode {
+		t.Fatalf("diagnostic = %s/%q/%q, want assertion mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
+	}
+	if diagnostic.SpecRef() != "xsd11-structures#cAssertions" || diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() == 0 {
+		t.Fatalf("assertion diagnostic metadata = %s/%q, want xsd11 assertion at root.xsd:2", diagnostic, diagnostic.SpecRef())
+	}
+	if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("assertion mismatch lost cause: %v", err)
+	}
+}
+
+func TestStrict10AllChildCandidatesPreserveOccurrenceAndInvalidPrecedence(t *testing.T) {
+	occurrenceRoot := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item"><xs:all><xs:any maxOccurs="2"/></xs:all></xs:complexType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, occurrenceRoot, nil, Strict10)
+	if err == nil || schema.storage != nil {
+		t.Fatal("Strict10 accepted repeated all wildcard or returned a schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticSchemaAllOccurrenceVersionCode || diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("diagnostic = %s/%q/%q, want all occurrence mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
+	}
+	if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("all occurrence mismatch lost cause: %v", err)
+	}
+
+	groupRoot := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:tns="urn:test">
+  <xs:complexType name="item"><xs:all><xs:group ref="tns:group"/><xs:element/></xs:all></xs:complexType>
+</xs:schema>`
+	schema, err = discoverTestSchemaWithPolicy(t, groupRoot, nil, Strict10)
+	if err == nil || schema.storage != nil {
+		t.Fatal("malformed all sibling was accepted or returned a schema")
+	}
+	diagnostic = requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaDeclarationNameCode {
+		t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, invalidSchemaDeclarationNameCode)
+	}
+	if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+		t.Fatalf("malformed all sibling retained an unsupported cause: %v", err)
+	}
+}
+
+//nolint:gocognit // Keep XML Base candidate precedence fixtures and metadata assertions together.
+func TestStrict10XMLBaseCandidatesYieldToMismatch(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+		line int
+	}{
+		{
+			name: "global attribute",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item" xml:base="urn:test" targetNamespace="urn:target"/>
+</xs:schema>`,
+			line: 2,
+		},
+		{
+			name: "global annotation",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item"><xs:annotation xml:base="urn:test"/><xs:alternative type="xs:integer"/></xs:element>
+</xs:schema>`,
+			line: 2,
+		},
+		{
+			name: "local element attribute",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="container"><xs:choice><xs:element name="item" type="xs:integer" xml:base="urn:test" targetNamespace="urn:target"/></xs:choice></xs:complexType>
+</xs:schema>`,
+			line: 2,
+		},
+		{
+			name: "alternative attribute",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="item"><xs:alternative type="xs:integer" xml:base="urn:test"/></xs:element>
+</xs:schema>`,
+			line: 2,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Strict10)
+			if err == nil || schema.storage != nil {
+				t.Fatal("Strict10 accepted a recognized mismatch or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+				t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
+			}
+			if diagnostic.SpecRef() != "xsd11-structures#cSchemaDocument" || diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != test.line || diagnostic.Loc().Column() == 0 {
+				t.Fatalf("diagnostic metadata = %s/%q, want xsd11 schema mismatch at root.xsd:%d", diagnostic, diagnostic.SpecRef(), test.line)
+			}
+			if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("mismatch lost unsupported or policy cause: %v", err)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep conditional candidate precedence and cause assertions together.
+func TestConditionalAvailabilityCandidateYieldsToGrammarDiagnostics(t *testing.T) {
+	tests := []struct {
+		name         string
+		root         string
+		class        FailureClass
+		code         string
+		wantMismatch bool
+	}{
+		{
+			name:  "invalid declaration wins",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `" vc:typeAvailable="xs:string"><xs:element/></xs:schema>`,
+			class: FailureInvalid,
+			code:  invalidSchemaDeclarationNameCode,
+		},
+		{
+			name:         "recognized mismatch wins",
+			root:         `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:vc="` + xsdVersioningNamespaceURI + `" vc:typeAvailable="xs:string"><xs:element name="item" targetNamespace="urn:test"/></xs:schema>`,
+			class:        FailureUnsupported,
+			code:         UnsupportedSchemaSyntaxCode,
+			wantMismatch: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Strict10)
+			if err == nil || schema.storage != nil {
+				t.Fatal("conditional availability input was accepted or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class || diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic = %s, want %s/%s", diagnostic, test.class, test.code)
+			}
+			if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() == 0 || diagnostic.Loc().Column() == 0 {
+				t.Fatalf("diagnostic location = %s, want located root.xsd input", diagnostic.Loc())
+			}
+			if errors.Is(err, ErrUnsupported) != test.wantMismatch {
+				t.Fatalf("conditional diagnostic ErrUnsupported = %t, want %t: %v", errors.Is(err, ErrUnsupported), test.wantMismatch, err)
+			}
+			if errors.Is(err, errLanguagePolicyMismatch) != test.wantMismatch {
+				t.Fatalf("conditional diagnostic mismatch cause = %t, want %t: %v", errors.Is(err, errLanguagePolicyMismatch), test.wantMismatch, err)
 			}
 		})
 	}

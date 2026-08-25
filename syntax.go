@@ -35,8 +35,14 @@ const (
 // frames so later phases can resolve QName-valued attributes without retaining
 // source bytes.
 type syntaxDocument struct {
-	source SourceID
-	root   *syntaxElement
+	source                 SourceID
+	root                   *syntaxElement
+	conditionalUnsupported *schemaUnsupportedCandidate
+}
+
+type schemaUnsupportedCandidate struct {
+	loc     Loc
+	message string
 }
 
 type syntaxElement struct {
