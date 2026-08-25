@@ -395,7 +395,7 @@ func validateOverrideElement(element *syntaxElement, version XSDVersion) error {
 	if err := validateOverrideAttributes(element); err != nil {
 		return err
 	}
-	if err := validateOverrideChildren(element); err != nil {
+	if err := validateOverrideChildren(element, version); err != nil {
 		return err
 	}
 	if version == XSDVersion10 {
@@ -440,16 +440,18 @@ func validateOverrideAttribute(attribute syntaxAttribute) error {
 	return nil
 }
 
-func validateOverrideChildren(element *syntaxElement) error {
+func validateOverrideChildren(element *syntaxElement, version XSDVersion) error {
+	annotationSeen := false
+	contentSeen := false
 	for _, node := range element.children {
-		if err := validateOverrideChild(node); err != nil {
+		if err := validateOverrideChild(node, version, &annotationSeen, &contentSeen); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateOverrideChild(node syntaxNode) error {
+func validateOverrideChild(node syntaxNode, version XSDVersion, annotationSeen, contentSeen *bool) error {
 	textNode, ok := node.(syntaxText)
 	if ok {
 		if !xmlWhitespace([]byte(textNode.data)) {
@@ -465,12 +467,17 @@ func validateOverrideChild(node syntaxNode) error {
 		return newSchemaCompositionDiagnostic(child.loc, "schema override contains a forbidden non-XSD child")
 	}
 	if child.name.local == "annotation" {
+		if *annotationSeen || *contentSeen {
+			return newSchemaCompositionDiagnostic(child.loc, "schema override annotation must be first and unique")
+		}
+		*annotationSeen = true
 		return validateSchemaAnnotationElement(child)
 	}
 	if !isGlobalSchemaDeclarationName(child.name.local) {
 		return newSchemaCompositionDiagnostic(child.loc, fmt.Sprintf("schema override contains forbidden child <%s>", child.name.local))
 	}
-	return nil
+	*contentSeen = true
+	return validateGlobalSchemaDeclaration(child, version)
 }
 
 func isGlobalSchemaDeclarationName(local string) bool {

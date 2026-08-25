@@ -337,6 +337,111 @@ func TestStrict10MalformedXSD11RepresentationsRemainInvalid(t *testing.T) {
 	}
 }
 
+func TestOverrideNestedDeclarationsRejectMalformedGrammar(t *testing.T) {
+	tests := []struct {
+		name        string
+		declaration string
+		wantCode    string
+		wantLine    int
+		wantColumn  int
+	}{
+		{name: "missing name", declaration: `<xs:element/>`, wantCode: invalidSchemaDeclarationNameCode, wantLine: 3, wantColumn: 5},
+		{name: "forbidden attribute", declaration: `<xs:element name="item" bogus="true"/>`, wantCode: invalidSchemaCompositionCode, wantLine: 3},
+		{name: "forbidden child", declaration: `<xs:element name="item"><xs:sequence/></xs:element>`, wantCode: invalidSchemaCompositionCode, wantLine: 3},
+		{name: "nested annotation ordering", declaration: `<xs:element name="item"><xs:unique/><xs:annotation/></xs:element>`, wantCode: invalidSchemaCompositionCode, wantLine: 3},
+		{name: "override annotation ordering", declaration: "<xs:element name=\"item\"/>\n    <xs:annotation/>", wantCode: invalidSchemaCompositionCode, wantLine: 4, wantColumn: 5},
+	}
+	policies := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, policy := range policies {
+				t.Run(policy.name, func(t *testing.T) {
+					assertMalformedOverrideNestedDeclaration(t, test.declaration, test.wantCode, test.wantLine, test.wantColumn, policy.policy)
+				})
+			}
+		})
+	}
+}
+
+func TestOverrideValidNestedDeclarationRetainsOuterClassification(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">` +
+		`
+  <xs:override schemaLocation="child.xsd">
+    <xs:element name="item"/>
+  </xs:override>
+</xs:schema>`
+	policies := []struct {
+		name         string
+		policy       LanguagePolicy
+		wantMismatch bool
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10, wantMismatch: true},
+		{name: "Strict11", policy: Strict11},
+	}
+	for _, test := range policies {
+		t.Run(test.name, func(t *testing.T) {
+			assertValidOverrideClassification(t, root, test.policy, test.wantMismatch)
+		})
+	}
+}
+
+func assertMalformedOverrideNestedDeclaration(t *testing.T, declaration, wantCode string, wantLine, wantColumn int, policy LanguagePolicy) {
+	t.Helper()
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">` +
+		`
+  <xs:override schemaLocation="child.xsd">
+    ` + declaration +
+		`
+  </xs:override>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+	if err == nil || schema.storage != nil {
+		t.Fatal("malformed override declaration was accepted or returned a schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != wantCode {
+		t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, wantCode)
+	}
+	if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != wantLine {
+		t.Fatalf("diagnostic location = %s, want root.xsd line %d", diagnostic.Loc(), wantLine)
+	}
+	if wantColumn != 0 && diagnostic.Loc().Column() != wantColumn {
+		t.Fatalf("diagnostic column = %d, want %d", diagnostic.Loc().Column(), wantColumn)
+	}
+	if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+		t.Fatalf("malformed override declaration was classified as unsupported: %v", err)
+	}
+}
+
+func assertValidOverrideClassification(t *testing.T, root string, policy LanguagePolicy, wantMismatch bool) {
+	t.Helper()
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+	if err == nil || schema.storage != nil {
+		t.Fatal("valid override declaration was accepted or returned a schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+		t.Fatalf("diagnostic = %s, want schema-syntax unsupported", diagnostic)
+	}
+	if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() != 3 {
+		t.Fatalf("diagnostic location = %s, want root.xsd:2:3", diagnostic.Loc())
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("override unsupported diagnostic lost ErrUnsupported: %v", err)
+	}
+	if errors.Is(err, errLanguagePolicyMismatch) != wantMismatch {
+		t.Fatalf("override policy mismatch = %t, want %t: %v", errors.Is(err, errLanguagePolicyMismatch), wantMismatch, err)
+	}
+}
+
 func TestStrict10MalformedXSD11RootAttributesRemainInvalid(t *testing.T) {
 	tests := []struct {
 		name string
