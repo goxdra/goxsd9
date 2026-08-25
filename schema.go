@@ -268,11 +268,42 @@ func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 	if definition.facts == nil {
 		return DigitFacets{}
 	}
-	facets, ok := definition.facts.facets.(schemaDigitFacetVariant)
-	if !ok {
+	switch facets := definition.facts.facets.(type) {
+	case schemaDigitFacetVariant:
+		return facets.value
+	case schemaIntegerFacetVariant:
+		return facets.digits
+	case schemaDecimalFacetVariant:
+		return facets.digits
+	default:
 		return DigitFacets{}
 	}
-	return facets.value
+}
+
+// IntegerEnumerationFacets returns the effective integer enumeration facets.
+// It returns the zero value for a decimal or precisionDecimal simple type.
+func (definition SimpleTypeDefinition) IntegerEnumerationFacets() IntegerEnumerationFacets {
+	if definition.facts == nil {
+		return IntegerEnumerationFacets{}
+	}
+	facets, ok := definition.facts.facets.(schemaIntegerFacetVariant)
+	if !ok {
+		return IntegerEnumerationFacets{}
+	}
+	return facets.enumeration
+}
+
+// DecimalEnumerationFacets returns the effective decimal enumeration facets.
+// It returns the zero value for an integer or precisionDecimal simple type.
+func (definition SimpleTypeDefinition) DecimalEnumerationFacets() DecimalEnumerationFacets {
+	if definition.facts == nil {
+		return DecimalEnumerationFacets{}
+	}
+	facets, ok := definition.facts.facets.(schemaDecimalFacetVariant)
+	if !ok {
+		return DecimalEnumerationFacets{}
+	}
+	return facets.enumeration
 }
 
 // PrecisionDecimalFacets returns the effective precisionDecimal facets. It
@@ -680,6 +711,20 @@ type schemaDigitFacetVariant struct {
 }
 
 func (schemaDigitFacetVariant) schemaSimpleTypeFacetVariant() {}
+
+type schemaIntegerFacetVariant struct {
+	digits      DigitFacets
+	enumeration IntegerEnumerationFacets
+}
+
+func (schemaIntegerFacetVariant) schemaSimpleTypeFacetVariant() {}
+
+type schemaDecimalFacetVariant struct {
+	digits      DigitFacets
+	enumeration DecimalEnumerationFacets
+}
+
+func (schemaDecimalFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaPrecisionDecimalFacetVariant struct {
 	value PrecisionDecimalFacets

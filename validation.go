@@ -65,11 +65,28 @@ var (
 )
 
 type instanceScalarType struct {
-	kind    DigitDatatype
-	version XSDVersion
-	facets  DigitFacets
-	related []Loc
+	kind        DigitDatatype
+	version     XSDVersion
+	facets      DigitFacets
+	enumeration instanceEnumerationFacet
+	related     []Loc
 }
+
+type instanceEnumerationFacet interface {
+	instanceEnumerationFacet()
+}
+
+type instanceIntegerEnumerationFacet struct {
+	facets IntegerEnumerationFacets
+}
+
+func (instanceIntegerEnumerationFacet) instanceEnumerationFacet() {}
+
+type instanceDecimalEnumerationFacet struct {
+	facets DecimalEnumerationFacets
+}
+
+func (instanceDecimalEnumerationFacet) instanceEnumerationFacet() {}
 
 type instanceChoiceAlternative struct {
 	name   QName
@@ -534,27 +551,13 @@ func validateScalarStructure(root *instanceElement, scalar instanceScalarType) e
 }
 
 func validateScalarValue(root *instanceElement, scalar instanceScalarType) error {
-	lexical, valueLoc := instanceScalarText(root)
 	switch scalar.kind {
 	case DigitDatatypeInteger:
-		value, parseErr := ParseStrictInteger(lexical, valueLoc)
-		if parseErr != nil {
-			return instanceDecorateDiagnostic(parseErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
-		}
-		if facetErr := scalar.facets.ValidateInteger(value, valueLoc); facetErr != nil {
-			return instanceDecorateDiagnostic(facetErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
-		}
-		return nil
+		return validateIntegerScalarValue(root, scalar)
 	case DigitDatatypeDecimal:
-		value, parseErr := ParseStrictDecimalFor(scalar.version, lexical, valueLoc)
-		if parseErr != nil {
-			return instanceDecorateDiagnostic(parseErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
-		}
-		if facetErr := scalar.facets.ValidateDecimal(value, valueLoc); facetErr != nil {
-			return instanceDecorateDiagnostic(facetErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
-		}
-		return nil
+		return validateDecimalScalarValue(root, scalar)
 	default:
+		_, valueLoc := instanceScalarText(root)
 		return newInstanceValidationInternal(
 			valueLoc,
 			fmt.Sprintf("global element %q has an unknown scalar datatype %q", renderSyntaxName(root.name), scalar.kind),
@@ -562,6 +565,68 @@ func validateScalarValue(root *instanceElement, scalar instanceScalarType) error
 			errInstanceValidationInvariant,
 		)
 	}
+}
+
+func validateIntegerScalarValue(root *instanceElement, scalar instanceScalarType) error {
+	lexical, valueLoc := instanceScalarText(root)
+	value, parseErr := ParseStrictInteger(lexical, valueLoc)
+	if parseErr != nil {
+		return instanceDecorateDiagnostic(parseErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+	}
+	if facetErr := scalar.facets.ValidateInteger(value, valueLoc); facetErr != nil {
+		return instanceDecorateDiagnostic(facetErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+	}
+	if facetErr := validateIntegerEnumerationValue(value, valueLoc, scalar); facetErr != nil {
+		return instanceDecorateDiagnostic(facetErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+	}
+	return nil
+}
+
+func validateDecimalScalarValue(root *instanceElement, scalar instanceScalarType) error {
+	lexical, valueLoc := instanceScalarText(root)
+	value, parseErr := ParseStrictDecimalFor(scalar.version, lexical, valueLoc)
+	if parseErr != nil {
+		return instanceDecorateDiagnostic(parseErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
+	}
+	if facetErr := scalar.facets.ValidateDecimal(value, valueLoc); facetErr != nil {
+		return instanceDecorateDiagnostic(facetErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
+	}
+	if facetErr := validateDecimalEnumerationValue(value, valueLoc, scalar); facetErr != nil {
+		return instanceDecorateDiagnostic(facetErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
+	}
+	return nil
+}
+
+func validateIntegerEnumerationValue(value StrictInteger, valueLoc Loc, scalar instanceScalarType) error {
+	if scalar.enumeration == nil {
+		return nil
+	}
+	enumeration, ok := scalar.enumeration.(instanceIntegerEnumerationFacet)
+	if !ok {
+		return newInstanceValidationInternal(
+			valueLoc,
+			"integer scalar validation has a non-integer enumeration facet",
+			scalar.related,
+			errInstanceValidationInvariant,
+		)
+	}
+	return enumeration.facets.ValidateInteger(value, valueLoc)
+}
+
+func validateDecimalEnumerationValue(value StrictDecimal, valueLoc Loc, scalar instanceScalarType) error {
+	if scalar.enumeration == nil {
+		return nil
+	}
+	enumeration, ok := scalar.enumeration.(instanceDecimalEnumerationFacet)
+	if !ok {
+		return newInstanceValidationInternal(
+			valueLoc,
+			"decimal scalar validation has a non-decimal enumeration facet",
+			scalar.related,
+			errInstanceValidationInvariant,
+		)
+	}
+	return enumeration.facets.ValidateDecimal(value, valueLoc)
 }
 
 func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Loc) (instanceScalarType, error) {
@@ -577,6 +642,7 @@ func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Lo
 	)
 }
 
+//nolint:funlen // Keep named scalar target resolution and its fail-closed diagnostics together.
 func instanceScalarTypeForTarget(
 	schema Schema,
 	declaredType QName,
@@ -661,12 +727,37 @@ func instanceScalarTypeForTarget(
 			errInstanceValidationInvariant,
 		)
 	}
-	return instanceScalarType{
+	scalar := instanceScalarType{
 		kind:    facets.Kind(),
 		version: facets.Version(),
 		facets:  facets,
 		related: related,
-	}, nil
+	}
+	var enumerationLocations []Loc
+	scalar.enumeration, enumerationLocations = instanceScalarEnumerationFor(definition, facets.Kind())
+	for _, location := range enumerationLocations {
+		scalar.related = appendInstanceRelated(scalar.related, location)
+	}
+	return scalar, nil
+}
+
+func instanceScalarEnumerationFor(definition SimpleTypeDefinition, kind DigitDatatype) (instanceEnumerationFacet, []Loc) {
+	switch kind {
+	case DigitDatatypeInteger:
+		enumeration := definition.IntegerEnumerationFacets()
+		if !enumeration.HasEnumeration() {
+			return nil, nil
+		}
+		return instanceIntegerEnumerationFacet{facets: enumeration}, enumeration.Locations()
+	case DigitDatatypeDecimal:
+		enumeration := definition.DecimalEnumerationFacets()
+		if !enumeration.HasEnumeration() {
+			return nil, nil
+		}
+		return instanceDecimalEnumerationFacet{facets: enumeration}, enumeration.Locations()
+	default:
+		return nil, nil
+	}
 }
 
 func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc) (instanceScalarType, error) {
