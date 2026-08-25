@@ -126,11 +126,11 @@ validation; it never selects a policy and never mismatches a policy by itself.
 | `version="1.1"` | `Strict10` | Use strict XSD 1.0 rules. The label does not upgrade the graph. No mismatch. |
 | Root label `"1.0"`, resolver-supplied import label `"1.1"` | `Compatibility` | Allow the mixed graph and use one compatibility policy for both documents, including cycles and repeated identities. Do not switch policy at the import. |
 
-### Future contract examples
+### Implemented integration examples
 
 Catalog or manifest edition integration and strict-profile feature mismatch
-handling are future work and non-goals of the current implementation. The
-following rows describe their intended contract only:
+handling follow the same explicit policy boundary as the parser. The following
+rows describe the implemented contract:
 
 | Example | Selected policy | Result |
 | --- | --- | --- |
@@ -146,7 +146,7 @@ policy mismatch.
 
 ## Lifecycle and diagnostics
 
-Future implementation packets preserve these invariants:
+The implementation preserves these invariants:
 
 1. Validate the policy before discovery and before any resolver call. An
    invalid policy configuration uses the dedicated stable parser-policy code
@@ -184,8 +184,9 @@ default, and `ParseSchemaWithPolicy` applies the validated policy to every
 root, include, import, repeat, and cycle. Absent, empty, arbitrary, `"1.0"`,
 and `"1.1"` labels do not select or mismatch a policy. Conditional capability
 and supported grammar, component, and digit-facet behavior are derived from
-that policy. Strict-profile feature mismatch rules and catalog or manifest
-edition integration remain future work.
+that policy. Recognized strict-profile feature mismatches and exact catalog or
+manifest edition selection are implemented at their respective boundaries;
+broader conformance execution and feature support remain future work.
 
 The implementation boundary is limited to constructing and validating the
 policy, propagating it through the schema graph, deriving version-sensitive
