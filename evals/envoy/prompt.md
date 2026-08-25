@@ -1,19 +1,23 @@
 # Envoy surface evaluation
 
-Use only the repository README, the public package documentation returned by `go doc .`, and the documented conformance CLI. Do not inspect repository source, private implementation details, or imports. Do not use source-viewing flags or search commands. `ParseSchema` is the supported public parser API, but this Envoy surface evaluation deliberately does not execute parser APIs; it evaluates only the README, `go doc .`, and documented inventory CLI. If a step would need a parser, XML validator, or Go generator API, record it as unevaluated rather than inventing an API.
+Use only README.md, `go doc .`, and public command/consumer behavior. Evidence from source files, implementation-only details, test utilities, and repository import declarations are outside the permitted evidence. Do not use source-viewing or search commands.
 
-Run the inventory from `evals/envoy/fixture`; its `-root .` is the fixture root.
+The public consumer exercises the supported scalar path, so these API checks are mandatory: `ParseSchema` must succeed with a nil resolver; `ValidateInstance` must return nil for the valid instance and must return an invalid `Diagnostic` for the invalid instance; and `GenerateGo` must be called twice with byte-identical results. Check the invalid diagnostic through accessors: `FailureInvalid`, `XSD2001`, the primary input `Loc`, related schema evidence, and `xsd11-datatypes#integer`. The consumer also compiles the complete returned Go source in a temporary external module. SourceID is opaque; CLI source IDs and catalog statuses do not apply to direct API evidence.
+
+Run these fixed commands in order. Repeat each command once and compare its complete output byte-for-byte. Run the inventory from `evals/envoy/fixture`, `go doc .` from the repository root, and the consumer from `evals/envoy/fixture/consumer`.
 
 ```sh
 go tool conformance inventory -root .
 ```
 
-Run the package documentation command from the repository root.
-
 ```sh
 go doc .
 ```
 
-Repeat the commands when checking reproducibility. The inventory is deterministic catalog metadata only; it is not schema or instance test execution. The package documentation is the public API surface for this evaluation. This evaluation deliberately does not execute `ParseSchema` or any validator or generator API; it evaluates only the README, `go doc .`, and documented inventory CLI.
+```sh
+go run .
+```
 
-Record the result with `report.md`. Keep evidence to short observations and classify each problem as documentation, public API, CLI, or environment. Keep boundary evidence separate from those outcomes.
+The catalog inventory is deterministic catalog metadata only; it is not schema or instance test execution evidence. Keep catalog expected-validity, status, and headline fields separate from consumer execution. Keep product CLI, direct-choice generation, broader schema/validation features, and W3C conformance scoring explicitly unevaluated.
+
+Record the result in `report.md`. Give documentation, api, command, generated-consumer, and environment separate failure classes and use only pass, fail, blocked, or unevaluated statuses. Keep boundary evidence separate.
