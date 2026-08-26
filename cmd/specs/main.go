@@ -1,8 +1,9 @@
-// Command specs builds and searches the pinned W3C specification corpus.
+// Command specs builds, searches, and inspects the pinned W3C specification corpus.
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/goxdra/goxsd9/internal/specs"
@@ -28,9 +30,98 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runBuild(args[1:], stdout, stderr)
 	case "search":
 		return runSearch(args[1:], stdout, stderr)
+	case "bootstrap":
+		return runBootstrap(args[1:], stdout, stderr)
 	default:
 		return usage(stderr, "unknown command %q", args[0])
 	}
+}
+
+func runBootstrap(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("specs bootstrap", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "repository root; defaults to the nearest parent of the current directory")
+	version := flags.String("version", "", "XSD version")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		return usage(stderr, "bootstrap takes no positional arguments")
+	}
+	if *version == "" {
+		return usage(stderr, "bootstrap requires -version VERSION")
+	}
+
+	return bootstrap(*root, *version, stdout, stderr)
+}
+
+func bootstrap(root, version string, stdout, stderr io.Writer) int {
+	repositoryRoot, err := findRepositoryRoot(root)
+	if err != nil {
+		return reportError(stderr, err)
+	}
+	manifest, err := specs.ReadManifest(repositoryRoot)
+	if err != nil {
+		return reportError(stderr, err)
+	}
+	plan, err := manifest.BootstrapPlan(version)
+	if err != nil {
+		return reportError(stderr, err)
+	}
+	output, err := renderBootstrapPlan(plan)
+	if err != nil {
+		return reportError(stderr, err)
+	}
+
+	written, err := stdout.Write([]byte(output))
+	if err != nil {
+		return reportError(stderr, fmt.Errorf("write bootstrap plan: %w", err))
+	}
+	if written != len(output) {
+		return reportError(stderr, fmt.Errorf("write bootstrap plan: %w", io.ErrShortWrite))
+	}
+	return 0
+}
+
+func renderBootstrapPlan(plan specs.BootstrapPlan) (string, error) {
+	entries := plan.Entries()
+	lines := []string{
+		"version\t" + plan.Version(),
+		"id\trole\trepresentation\tdependencies\tlexical_aliases",
+	}
+	for _, entry := range entries {
+		dependencies, err := encodeBootstrapList(entry.Dependencies)
+		if err != nil {
+			return "", fmt.Errorf("encode bootstrap dependencies for %q: %w", entry.ID, err)
+		}
+		aliases, err := encodeBootstrapList(entry.Aliases)
+		if err != nil {
+			return "", fmt.Errorf("encode bootstrap lexical aliases for %q: %w", entry.ID, err)
+		}
+		role := "dependency"
+		if entry.Entry {
+			role = "entry"
+		}
+		lines = append(lines, strings.Join([]string{
+			entry.ID,
+			role,
+			entry.Representation,
+			dependencies,
+			aliases,
+		}, "\t"))
+	}
+	return strings.Join(lines, "\n") + "\n", nil
+}
+
+func encodeBootstrapList(values []string) (string, error) {
+	if len(values) == 0 {
+		return "[]", nil
+	}
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 func runBuild(args []string, stdout, stderr io.Writer) int {
@@ -186,7 +277,7 @@ func requireManifestRoot(root string) error {
 }
 
 func usage(stderr io.Writer, format string, args ...any) int {
-	if _, err := fmt.Fprintf(stderr, "specs: "+format+"\n\nUsage:\n  go tool specs build -id ID [-root REPOSITORY] [-output DIRECTORY]\n  go tool specs search [-id ID] [-query TEXT] [-root REPOSITORY] [-index FILE]\n", args...); err != nil {
+	if _, err := fmt.Fprintf(stderr, "specs: "+format+"\n\nUsage:\n  go tool specs build -id ID [-root REPOSITORY] [-output DIRECTORY]\n  go tool specs search [-id ID] [-query TEXT] [-root REPOSITORY] [-index FILE]\n  go tool specs bootstrap -version VERSION [-root REPOSITORY]\n", args...); err != nil {
 		return 1
 	}
 	return 2
