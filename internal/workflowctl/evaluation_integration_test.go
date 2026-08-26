@@ -1439,6 +1439,7 @@ type workflowBackend struct {
 	comments                   []issueCommentAPI
 	commentPostCount           int
 	duplicateReceiptPost       bool
+	duplicateConvergencePost   bool
 	postCommentResponseMode    string
 	postCommentAuthor          string
 	needsHuman                 bool
@@ -1811,6 +1812,11 @@ func (b *workflowBackend) postComment(data []byte) (string, error) {
 	}
 	b.comments = append(b.comments, comment)
 	if b.duplicateReceiptPost && hasMarker(request.Body, evaluationMarker) {
+		duplicate := comment
+		duplicate.ID++
+		b.comments = append(b.comments, duplicate)
+	}
+	if b.duplicateConvergencePost && hasMarker(request.Body, evaluationConvergenceMarker) {
 		duplicate := comment
 		duplicate.ID++
 		b.comments = append(b.comments, duplicate)

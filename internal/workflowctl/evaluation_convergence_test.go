@@ -226,6 +226,157 @@ func TestEvaluationConcurrentEquivalentReceiptPostConvergesOnce(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the concurrent-marker projection assertions together.
+func TestEvaluationRacingConvergencePostsAreEquivalent(t *testing.T) {
+	backend, application, stdout := newConvergenceWorkflowFixture(t)
+	backend.duplicateConvergencePost = true
+	challenge := requestTestChallenge(t, application, stdout)
+	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record initial evaluation: %v", err)
+	}
+	appendEquivalentWorkflowReceipt(t, backend)
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("reconcile racing convergence posts: %v", err)
+	}
+	if got, want := backend.commentPostCount, 3; got != want {
+		t.Fatalf("racing convergence POST count = %d, want %d", got, want)
+	}
+	if got, want := len(backend.comments), 5; got != want {
+		t.Fatalf("racing convergence physical comment count = %d, want %d", got, want)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.convergences) != 2 {
+		t.Fatalf("racing convergence records = %d, want two authenticated equivalent markers", len(history.convergences))
+	}
+	receipts, err := evaluationReceipts(physicalWorkflowComments(t, backend))
+	if err != nil {
+		t.Fatalf("project racing convergence receipts: %v", err)
+	}
+	if len(receipts) != 1 || receipts[0].Round != 1 {
+		t.Fatalf("racing convergence logical receipts = %#v, want one round-1 receipt", receipts)
+	}
+	status, err := evaluationStatusForPR(14, pullRequestView{HeadRefOID: backend.head}, history)
+	if err != nil {
+		t.Fatalf("project racing convergence status: %v", err)
+	}
+	if len(status.recordedRounds) != 1 || len(status.challenges) != 1 || !status.challenges[0].resolved {
+		t.Fatalf("racing convergence status = %#v, want one resolved logical round", status)
+	}
+	packets, err := application.collectHistoryEvaluations(backend.root, []pullRequestSummary{
+		{Number: 14, MergedAt: time.Now().UTC().Add(time.Hour)},
+	})
+	if err != nil {
+		t.Fatalf("collect racing convergence history: %v", err)
+	}
+	if len(packets) != 1 || len(packets[0].rounds) != 1 {
+		t.Fatalf("racing convergence history packets = %#v, want one logical round", packets)
+	}
+	postCount := backend.commentPostCount
+	commentCount := len(backend.comments)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("retry racing convergence reconciliation: %v", err)
+	}
+	if backend.commentPostCount != postCount || len(backend.comments) != commentCount {
+		t.Fatalf("racing convergence retry mutated history: posts %d->%d comments %d->%d",
+			postCount, backend.commentPostCount, commentCount, len(backend.comments))
+	}
+}
+
+//nolint:gocognit,funlen // Keep late-receipt supersession and every projection assertion together.
+func TestEvaluationLateEquivalentReceiptSupersedesConvergence(t *testing.T) {
+	backend, application, stdout := newConvergenceWorkflowFixture(t)
+	challenge := requestTestChallenge(t, application, stdout)
+	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record initial evaluation: %v", err)
+	}
+	appendEquivalentWorkflowReceipt(t, backend)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record initial convergence: %v", err)
+	}
+	firstConvergence := backend.comments[len(backend.comments)-1]
+	appendEquivalentWorkflowReceiptAfterConvergence(t, backend)
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("supersede stale convergence: %v", err)
+	}
+	if got, want := len(backend.comments), 6; got != want {
+		t.Fatalf("late-receipt physical comment count = %d, want %d", got, want)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.receipts) != 3 || len(history.convergences) != 2 {
+		t.Fatalf("late-receipt history = receipts %d, convergence records %d; want 3 and 2",
+			len(history.receipts), len(history.convergences))
+	}
+	if got, want := len(history.convergences[0].convergence.Closed), 1; got != want {
+		t.Fatalf("stale convergence closure length = %d, want %d", got, want)
+	}
+	if got, want := len(history.convergences[1].convergence.Closed), 2; got != want {
+		t.Fatalf("superseding convergence closure length = %d, want %d", got, want)
+	}
+	receipts, err := evaluationReceipts(physicalWorkflowComments(t, backend))
+	if err != nil {
+		t.Fatalf("project late-receipt logical receipts: %v", err)
+	}
+	if len(receipts) != 1 || receipts[0].Round != 1 {
+		t.Fatalf("late-receipt logical receipts = %#v, want one round-1 receipt", receipts)
+	}
+	status, err := evaluationStatusForPR(14, pullRequestView{HeadRefOID: backend.head}, history)
+	if err != nil {
+		t.Fatalf("project late-receipt status: %v", err)
+	}
+	if len(status.recordedRounds) != 1 || len(status.challenges) != 1 || !status.challenges[0].resolved {
+		t.Fatalf("late-receipt status = %#v, want one resolved logical round", status)
+	}
+	packets, err := application.collectHistoryEvaluations(backend.root, []pullRequestSummary{
+		{Number: 14, MergedAt: time.Now().UTC().Add(time.Hour)},
+	})
+	if err != nil {
+		t.Fatalf("collect late-receipt history: %v", err)
+	}
+	if len(packets) != 1 || len(packets[0].rounds) != 1 || packets[0].rounds[0].round != 1 {
+		t.Fatalf("late-receipt history packets = %#v, want one logical round", packets)
+	}
+	postCount := backend.commentPostCount
+	commentCount := len(backend.comments)
+	err = application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+	if err != nil {
+		t.Fatalf("retry superseded convergence: %v", err)
+	}
+	if backend.commentPostCount != postCount || len(backend.comments) != commentCount {
+		t.Fatalf("superseded convergence retry mutated history: posts %d->%d comments %d->%d",
+			postCount, backend.commentPostCount, commentCount, len(backend.comments))
+	}
+	passes, err := latestEvaluationPasses(pullRequestView{
+		BaseRefName: "main",
+		Body:        backend.body,
+		Comments:    physicalWorkflowComments(t, backend),
+		HeadRefName: backend.branch,
+		HeadRefOID:  backend.head,
+	}, 14)
+	if err != nil || !passes {
+		t.Fatalf("late-receipt latest evaluation = passes %t, err %v; want pass", passes, err)
+	}
+	backend.merged = true
+	backend.mergedAt = time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	mergedView, err := application.readPullRequest(backend.root, 14)
+	if err != nil {
+		t.Fatalf("read late-receipt merged PR: %v", err)
+	}
+	mergeReceipt, err := mergeBoundaryEvaluationReceipt(mergedView, 14)
+	if err != nil {
+		t.Fatalf("project late-receipt merge-boundary proof: %v", err)
+	}
+	if mergeReceipt.Round != 1 || mergeReceipt.Verdict != "pass" {
+		t.Fatalf("late-receipt merge-boundary receipt = %#v, want one passing logical round", mergeReceipt)
+	}
+	if firstConvergence.Body == backend.comments[len(backend.comments)-1].Body {
+		t.Fatal("superseding convergence reused the stale closure marker")
+	}
+}
+
 func newConvergenceWorkflowFixture(t *testing.T) (*workflowBackend, *app, *bytes.Buffer) {
 	t.Helper()
 	backend := newWorkflowBackend(t)
@@ -254,6 +405,26 @@ func appendEquivalentWorkflowReceipt(t *testing.T, backend *workflowBackend) {
 	duplicate := backend.comments[receiptIndex]
 	duplicate.ID = nextWorkflowCommentID(backend.comments)
 	duplicate.CreatedAt = backend.comments[receiptIndex].CreatedAt
+	backend.comments = append(backend.comments, duplicate)
+}
+
+func appendEquivalentWorkflowReceiptAfterConvergence(t *testing.T, backend *workflowBackend) {
+	t.Helper()
+	receiptIndex := -1
+	for index, comment := range backend.comments {
+		if hasMarker(comment.Body, evaluationMarker) {
+			receiptIndex = index
+		}
+	}
+	if receiptIndex < 0 {
+		t.Fatal("late equivalent receipt fixture has no receipt comment")
+	}
+	duplicate := backend.comments[receiptIndex]
+	duplicate.ID = nextWorkflowCommentID(backend.comments)
+	duplicate.CreatedAt = time.Now().UTC().Truncate(time.Second)
+	duplicate.Body = replaceTestReceipt(t, duplicate.Body, func(receipt *evaluationReceipt) {
+		receipt.RecordedAt = duplicate.CreatedAt
+	})
 	backend.comments = append(backend.comments, duplicate)
 }
 

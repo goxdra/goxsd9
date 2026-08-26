@@ -551,6 +551,18 @@ func evaluationConvergenceGroupForFacts(groups []evaluationReceiptGroup, facts e
 	return evaluationReceiptGroup{}, false
 }
 
+func evaluationReceiptRecordsBeforeComment(group evaluationReceiptGroup, commentIndex int) (
+	[]evaluationReceiptRecord, error) {
+	prior := make([]evaluationReceiptRecord, 0, len(group.records))
+	for _, record := range group.records {
+		if record.commentIndex >= commentIndex {
+			continue
+		}
+		prior = append(prior, record)
+	}
+	return orderedEvaluationReceiptRecords(prior)
+}
+
 func validateEvaluationConvergenceRecords(history evaluationHistory) error {
 	groups, err := evaluationReceiptGroups(history.receipts)
 	if err != nil {
@@ -585,11 +597,11 @@ func validateEvaluationConvergenceRecord(history evaluationHistory, groups []eva
 	if !ok {
 		return errors.New("evaluation convergence does not bind a trusted receipt group")
 	}
-	ordered, err := orderedEvaluationReceiptRecords(group.records)
+	ordered, err := evaluationReceiptRecordsBeforeComment(group, record.commentIndex)
 	if err != nil {
 		return err
 	}
-	if len(convergence.Closed) == 0 {
+	if len(ordered) < 2 || len(convergence.Closed) == 0 {
 		return errors.New("evaluation convergence closes no trusted receipt")
 	}
 	return validateEvaluationConvergenceSources(history, record, ordered)
@@ -612,11 +624,11 @@ func validateEvaluationConvergenceSources(history evaluationHistory, record eval
 	if record.comment.CreatedAt.Before(convergence.Canonical.CommentCreatedAt) {
 		return errors.New("evaluation convergence comment precedes its canonical receipt")
 	}
+	if len(convergence.Closed) != len(ordered)-1 {
+		return errors.New("evaluation convergence does not close every historical equivalent receipt")
+	}
 	if err := validateEvaluationConvergenceClosedSources(history, record, canonical, ordered); err != nil {
 		return err
-	}
-	if len(convergence.Closed) != len(ordered)-1 {
-		return errors.New("evaluation convergence does not close every later equivalent receipt")
 	}
 	return nil
 }
@@ -683,25 +695,11 @@ func validateEquivalentEvaluationReceiptGroups(history evaluationHistory, groups
 			return err
 		}
 		facts := evaluationReceiptFactsForReceipt(ordered[0].receipt)
-		if evaluationConvergenceMatchCount(history.convergences, facts) > 1 {
-			return errors.New("evaluation receipt group has multiple authenticated convergence records")
-		}
 		if err := validateEvaluationReceiptGroupClosure(history, group, facts, ordered); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func evaluationConvergenceMatchCount(convergences []evaluationConvergenceRecord,
-	facts evaluationReceiptFacts) int {
-	matches := 0
-	for _, convergence := range convergences {
-		if equalEvaluationReceiptFacts(evaluationReceiptFactsForConvergence(convergence.convergence), facts) {
-			matches++
-		}
-	}
-	return matches
 }
 
 func validateEvaluationReceiptGroupClosure(history evaluationHistory, group evaluationReceiptGroup,
