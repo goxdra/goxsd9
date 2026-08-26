@@ -208,7 +208,7 @@ func TestEvaluationChallengeBindsBodyAndEvidenceDigests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render evidence: %v", err)
 	}
-	view.Body = prReviewStateToken(prReviewStateEvidenceReady) + "\nbefore\n" + string(block) + "\nafter\n"
+	view.Body = testPRReviewStateFrame(t, prReviewStateEvidenceReady) + "\nbefore\n" + string(block) + "\nafter\n"
 	parsed, err := validatePREvidenceForView(view)
 	if err != nil {
 		t.Fatalf("validate evidence: %v", err)

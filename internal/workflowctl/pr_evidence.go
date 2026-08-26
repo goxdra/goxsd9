@@ -787,55 +787,81 @@ func (a app) runPREvidence(args []string) error {
 }
 
 func (a app) updatePREvidence(number int, signalsPath, auditPath, curatorPath string) error {
-	root, view, _, err := a.readEvaluationTarget(number)
+	prepared, err := a.preparePREvidenceUpdate(number, signalsPath, auditPath, curatorPath)
 	if err != nil {
 		return err
 	}
+	if prepared.body == prepared.view.Body {
+		return writeLine(a.stdout, "PR #%d evidence is already current at %s", number, prepared.view.HeadRefOID)
+	}
+	if updateErr := a.updatePullRequestBody(prepared.root, number, prepared.body); updateErr != nil {
+		return updateErr
+	}
+	if err := a.verifyPREvidenceUpdate(number, prepared); err != nil {
+		return err
+	}
+	return writeLine(a.stdout, "PR #%d evidence updated for %s", number, prepared.view.HeadRefOID)
+}
+
+type preparedPREvidenceUpdate struct {
+	root  string
+	view  pullRequestView
+	block []byte
+	body  string
+}
+
+func (a app) preparePREvidenceUpdate(number int, signalsPath, auditPath, curatorPath string) (preparedPREvidenceUpdate, error) {
+	root, view, _, err := a.readEvaluationTarget(number)
+	if err != nil {
+		return preparedPREvidenceUpdate{}, err
+	}
 	if _, stateErr := parsePRReviewStateMarker(view.Body); stateErr != nil {
-		return stateError("PR #%d evidence update refused: %v", number, stateErr)
+		return preparedPREvidenceUpdate{}, stateError("PR #%d evidence update refused: %v", number, stateErr)
 	}
 	evidence, err := readPREvidenceSources(signalsPath, auditPath, curatorPath, view)
 	if err != nil {
-		return err
+		return preparedPREvidenceUpdate{}, err
 	}
 	if evidenceErr := a.validatePREvidenceForExactHead(root, number, view, evidence); evidenceErr != nil {
-		return evidenceErr
+		return preparedPREvidenceUpdate{}, evidenceErr
 	}
 	block, err := renderPREvidenceBlock(evidence)
 	if err != nil {
-		return err
+		return preparedPREvidenceUpdate{}, err
 	}
 	updatedBody, err := replacePREvidenceBlock(view.Body, block)
 	if err != nil {
-		return stateError("PR #%d evidence update refused: %v", number, err)
+		return preparedPREvidenceUpdate{}, stateError("PR #%d evidence update refused: %v", number, err)
 	}
 	updatedBody, err = replacePRReviewState(updatedBody, prReviewStateEvidenceReady)
 	if err != nil {
-		return stateError("PR #%d evidence update refused: %v", number, err)
+		return preparedPREvidenceUpdate{}, stateError("PR #%d evidence update refused: %v", number, err)
 	}
-	if updatedBody == view.Body {
-		return writeLine(a.stdout, "PR #%d evidence is already current at %s", number, view.HeadRefOID)
-	}
-	if updateErr := a.updatePullRequestBody(root, number, updatedBody); updateErr != nil {
-		return updateErr
-	}
-	updated, err := a.readPullRequest(root, number)
+	return preparedPREvidenceUpdate{root: root, view: view, block: block, body: updatedBody}, nil
+}
+
+func (a app) verifyPREvidenceUpdate(number int, prepared preparedPREvidenceUpdate) error {
+	updated, err := a.readPullRequest(prepared.root, number)
 	if err != nil {
 		return fmt.Errorf("verify PR #%d evidence update: %w", number, err)
 	}
-	if updated.BaseRefOID != view.BaseRefOID || updated.HeadRefOID != view.HeadRefOID {
+	if updated.BaseRefOID != prepared.view.BaseRefOID || updated.HeadRefOID != prepared.view.HeadRefOID {
 		return stateError("PR #%d changed base or head during evidence update; fresh evidence is required", number)
 	}
-	if updated.Body != updatedBody {
+	if updated.Body != prepared.body {
 		return stateError("PR #%d evidence update was not preserved by GitHub", number)
 	}
 	if stateErr := requirePRReviewStateReady(updated.Body); stateErr != nil {
 		return stateError("PR #%d evidence update has invalid review state after reread: %v", number, stateErr)
 	}
-	if _, err := validatePREvidenceForView(updated); err != nil {
+	updatedEvidence, err := validatePREvidenceForView(updated)
+	if err != nil {
 		return stateError("PR #%d evidence update is invalid after reread: %v", number, err)
 	}
-	return writeLine(a.stdout, "PR #%d evidence updated for %s", number, view.HeadRefOID)
+	if !bytes.Equal(updatedEvidence.block, prepared.block) {
+		return stateError("PR #%d evidence update changed the workflow-owned evidence block during reread", number)
+	}
+	return nil
 }
 
 func (a app) updatePullRequestBody(root string, number int, body string) error {
