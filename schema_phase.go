@@ -3230,7 +3230,7 @@ func validateComplexTypeAssert(element *syntaxElement, version XSDVersion) error
 
 func validateChoiceParticle(element *syntaxElement, version XSDVersion) error {
 	var candidate schemaChildUnsupportedCandidate
-	if err := validateSchemaParticleAttributes(element, &candidate); err != nil {
+	if err := validateSchemaParticleAttributes(element, &candidate, version); err != nil {
 		return err
 	}
 	childrenCandidate, err := validateModelParticleChildren(element, "choice", version)
@@ -3302,8 +3302,8 @@ func validateModelParticleChildren(element *syntaxElement, model string, version
 }
 
 //nolint:gocognit // Keep particle attribute validation and support classification together.
-func validateSchemaParticleAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
-	if err := validateSchemaParticleOccurrences(element); err != nil {
+func validateSchemaParticleAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate, version XSDVersion) error {
+	if err := validateSchemaParticleOccurrences(element, version); err != nil {
 		return err
 	}
 	for _, attribute := range element.attrs {
@@ -3335,48 +3335,21 @@ func validateSchemaParticleAttributes(element *syntaxElement, candidate *schemaC
 	return nil
 }
 
-type schemaOccurrenceValue struct {
-	present   bool
-	unbounded bool
-	value     StrictInteger
+func validateSchemaParticleOccurrences(element *syntaxElement, version XSDVersion) error {
+	_, err := schemaParticleOccurrenceRange(element, version)
+	return err
 }
 
-func validateSchemaParticleOccurrences(element *syntaxElement) error {
-	minimum, maximum, err := schemaParticleOccurrenceValues(element)
-	if err != nil {
-		return err
-	}
-	minimumValue, err := effectiveSchemaParticleOccurrence(minimum, element.loc)
-	if err != nil {
-		return err
-	}
-	if maximum.unbounded {
-		return nil
-	}
-	maximumValue, err := effectiveSchemaParticleOccurrence(maximum, element.loc)
-	if err != nil {
-		return err
-	}
-	if minimumValue.Compare(maximumValue) > 0 {
-		return newSchemaCompositionDiagnostic(element.loc, "particle minOccurs cannot exceed maxOccurs")
-	}
-	return nil
+type schemaParticleOccurrenceLexical struct {
+	present bool
+	lexical string
+	loc     Loc
 }
 
-func effectiveSchemaParticleOccurrence(value schemaOccurrenceValue, loc Loc) (StrictInteger, error) {
-	if value.present {
-		return value.value, nil
-	}
-	defaultValue, err := ParseStrictInteger("1", loc)
-	if err != nil {
-		return StrictInteger{}, newSchemaBridgeInvariant(loc, "construct default particle occurrence")
-	}
-	return defaultValue, nil
-}
-
-//nolint:gocognit // Keep lexical occurrence validation and comparison inputs together.
-func schemaParticleOccurrenceValues(element *syntaxElement) (schemaOccurrenceValue, schemaOccurrenceValue, error) {
-	var minimum, maximum schemaOccurrenceValue
+//nolint:gocognit // Keep lexical parsing, exact range construction, and diagnostics together.
+func schemaParticleOccurrenceRange(element *syntaxElement, version XSDVersion) (particleOccurrenceRange, error) {
+	minimum := schemaParticleOccurrenceLexical{lexical: "1", loc: element.loc}
+	maximum := schemaParticleOccurrenceLexical{lexical: "1", loc: element.loc}
 	for _, attribute := range element.attrs {
 		if attribute.name.namespace != "" {
 			continue
@@ -3389,27 +3362,81 @@ func schemaParticleOccurrenceValues(element *syntaxElement) (schemaOccurrenceVal
 			value = &maximum
 		}
 		if value.present {
-			return schemaOccurrenceValue{}, schemaOccurrenceValue{}, newSchemaCompositionDiagnostic(
+			return particleOccurrenceRange{}, newSchemaCompositionDiagnostic(
 				attribute.loc,
 				fmt.Sprintf("particle attribute %q must be unique", attribute.name.local),
 			)
 		}
 		value.present = true
-		lexeme := collapseXMLWhitespace(attribute.value)
-		if attribute.name.local == "maxOccurs" && lexeme == "unbounded" {
-			value.unbounded = true
-			continue
-		}
-		parsed, parseErr := ParseStrictInteger(lexeme, attribute.loc)
-		if parseErr != nil || parsed.Sign() < 0 {
-			return schemaOccurrenceValue{}, schemaOccurrenceValue{}, newSchemaCompositionDiagnostic(
-				attribute.loc,
-				fmt.Sprintf("attribute %q has an invalid occurrence value", attribute.name.local),
-			)
-		}
-		value.value = parsed
+		value.lexical = attribute.value
+		value.loc = attribute.loc
 	}
-	return minimum, maximum, nil
+
+	minimumValue, err := parseParticleOccurrence(minimum.lexical, false, minimum.loc)
+	if err != nil {
+		return particleOccurrenceRange{}, invalidSchemaParticleOccurrence("minOccurs", minimum.loc, err)
+	}
+	maximumValue, err := parseParticleOccurrence(maximum.lexical, true, maximum.loc)
+	if err != nil {
+		return particleOccurrenceRange{}, invalidSchemaParticleOccurrence("maxOccurs", maximum.loc, err)
+	}
+	occurrences, err := newParticleOccurrenceRange(minimumValue, maximumValue)
+	if errors.Is(err, errParticleOccurrenceMinimumExceedsMaximum) {
+		related := make([]Loc, 0, 2)
+		if minimum.present {
+			related = append(related, minimum.loc)
+		}
+		if maximum.present {
+			related = append(related, maximum.loc)
+		}
+		return particleOccurrenceRange{}, newSchemaParticleOccurrenceDiagnostic(
+			element.loc,
+			"particle minOccurs cannot exceed maxOccurs",
+			related,
+			version,
+			err,
+		)
+	}
+	if err != nil {
+		return particleOccurrenceRange{}, newSchemaBridgeInvariant(
+			element.loc,
+			"construct particle occurrence range",
+		)
+	}
+	return occurrences, nil
+}
+
+func newSchemaParticleOccurrenceDiagnostic(loc Loc, message string, related []Loc, version XSDVersion, cause error) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    invalidSchemaCompositionCode,
+		loc:     loc,
+		message: message,
+		related: append([]Loc(nil), related...),
+		specRef: schemaParticleCorrectSpecRef(version),
+		cause:   cause,
+	}
+}
+
+func schemaParticleCorrectSpecRef(version XSDVersion) string {
+	switch version {
+	case XSDVersion10:
+		return "xsd10-structures#coss-particle"
+	case XSDVersion11:
+		return "xsd11-structures#cvc-particle"
+	default:
+		return ""
+	}
+}
+
+func invalidSchemaParticleOccurrence(name string, loc Loc, cause error) Diagnostic {
+	return newDiagnostic(
+		FailureInvalid,
+		invalidSchemaCompositionCode,
+		loc,
+		fmt.Sprintf("attribute %q has an invalid occurrence value", name),
+		cause,
+	)
 }
 
 //nolint:gocognit,funlen // Keep XSD 1.1 alternative lexical and structural checks together.
@@ -3626,7 +3653,7 @@ func validateChoiceElementParticle(element *syntaxElement, version XSDVersion) (
 				return candidate, err
 			}
 		case "minOccurs", "maxOccurs":
-			if err := validateSchemaParticleOccurrences(element); err != nil {
+			if err := validateSchemaParticleOccurrences(element, version); err != nil {
 				return candidate, err
 			}
 			candidate.considerAt(attribute.loc, fmt.Sprintf("local element attribute %q is not implemented", attribute.name.local))
@@ -3757,7 +3784,7 @@ func validateUnsupportedParticle(element *syntaxElement, version XSDVersion) err
 	case "sequence":
 		return validateSequenceParticle(element, version)
 	case "group":
-		return validateGroupParticle(element)
+		return validateGroupParticle(element, version)
 	case "any":
 		return validateAnyParticle(element, version)
 	default:
@@ -3778,7 +3805,7 @@ func validateUnsupportedModelParticle(element *syntaxElement, version XSDVersion
 
 func validateSequenceParticle(element *syntaxElement, version XSDVersion) error {
 	var candidate schemaChildUnsupportedCandidate
-	if err := validateSchemaParticleAttributes(element, &candidate); err != nil {
+	if err := validateSchemaParticleAttributes(element, &candidate, version); err != nil {
 		return err
 	}
 	childrenCandidate, err := validateModelParticleChildren(element, "sequence", version)
@@ -3790,9 +3817,9 @@ func validateSequenceParticle(element *syntaxElement, version XSDVersion) error 
 }
 
 //nolint:gocognit // Keep group particle grammar and unsupported classification together.
-func validateGroupParticle(element *syntaxElement) error {
+func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
 	var candidate schemaChildUnsupportedCandidate
-	if err := validateSchemaParticleOccurrences(element); err != nil {
+	if err := validateSchemaParticleOccurrences(element, version); err != nil {
 		return err
 	}
 	refSeen := false
@@ -3868,7 +3895,7 @@ func validateAllParticle(element *syntaxElement, version XSDVersion) error {
 			return err
 		}
 	}
-	if err := validateSchemaParticleAttributes(element, &candidate); err != nil {
+	if err := validateSchemaParticleAttributes(element, &candidate, version); err != nil {
 		return err
 	}
 	if err := validateAllParticleChildren(element, version, &candidate); err != nil {
@@ -3953,7 +3980,7 @@ func validateAllParticleContentChild(child *syntaxElement, version XSDVersion, c
 //nolint:gocognit // Keep all-child version classification and candidate staging together.
 func validateAllParticleUnsupportedChild(child *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate) error {
 	if child.name.local == "group" {
-		if err := validateAllGroupOccurrences(child); err != nil {
+		if err := validateAllGroupOccurrences(child, version); err != nil {
 			return err
 		}
 	}
@@ -4010,7 +4037,7 @@ func validateAllParticleXSD10Error(child *syntaxElement, childErr error) error {
 }
 
 func validateAllParticleOccurrences(element *syntaxElement, owner string, version XSDVersion) error {
-	minimum, maximum, err := schemaParticleOccurrenceValues(element)
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
 		return err
 	}
@@ -4018,19 +4045,20 @@ func validateAllParticleOccurrences(element *syntaxElement, owner string, versio
 	if err != nil {
 		return newSchemaBridgeInvariant(element.loc, "construct all particle occurrence bound")
 	}
-	minimumValue, err := effectiveSchemaParticleOccurrence(minimum, element.loc)
-	if err != nil {
-		return err
+	minimumValue, ok := occurrences.minimumOccurrence().finiteValue()
+	if !ok {
+		return newSchemaBridgeInvariant(element.loc, "all particle minimum occurrence is not finite")
 	}
 	if minimumValue.Compare(one) > 0 {
 		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "minOccurs"), owner+" minOccurs must be 0 or 1")
 	}
-	if maximum.unbounded {
+	maximumOccurrence := occurrences.maximumOccurrence()
+	if maximumOccurrence.isUnbounded() {
 		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "maxOccurs"), owner+" maxOccurs must be 1")
 	}
-	maximumValue, err := effectiveSchemaParticleOccurrence(maximum, element.loc)
-	if err != nil {
-		return err
+	maximumValue, ok := maximumOccurrence.finiteValue()
+	if !ok {
+		return newSchemaBridgeInvariant(element.loc, "all particle maximum occurrence is not finite")
 	}
 	if maximumValue.IsZero() && minimumValue.IsZero() {
 		if version == XSDVersion10 {
@@ -4050,7 +4078,7 @@ func validateAllParticleOccurrences(element *syntaxElement, owner string, versio
 }
 
 func validateAllChildParticleOccurrences(element *syntaxElement, owner string, version XSDVersion) error {
-	minimum, maximum, err := schemaParticleOccurrenceValues(element)
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
 		return err
 	}
@@ -4058,25 +4086,23 @@ func validateAllChildParticleOccurrences(element *syntaxElement, owner string, v
 	if err != nil {
 		return newSchemaBridgeInvariant(element.loc, "construct all child occurrence bound")
 	}
-	minimumValue, err := effectiveSchemaParticleOccurrence(minimum, element.loc)
-	if err != nil {
-		return err
+	minimumValue, ok := occurrences.minimumOccurrence().finiteValue()
+	if !ok {
+		return newSchemaBridgeInvariant(element.loc, "all child minimum occurrence is not finite")
 	}
 	if minimumValue.Compare(one) > 0 {
 		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "minOccurs"), owner+" minOccurs must be 0 or 1")
 	}
-	if maximum.unbounded {
+	maximumOccurrence := occurrences.maximumOccurrence()
+	if maximumOccurrence.isUnbounded() {
 		if version == XSDVersion10 {
 			return newAllChildOccurrenceVersionMismatch(element, owner, "maxOccurs=unbounded")
 		}
 		return nil
 	}
-	maximumValue, err := effectiveSchemaParticleOccurrence(maximum, element.loc)
-	if err != nil {
-		return err
-	}
-	if minimumValue.Compare(maximumValue) > 0 {
-		return newSchemaCompositionDiagnostic(element.loc, owner+" minOccurs cannot exceed maxOccurs")
+	maximumValue, ok := maximumOccurrence.finiteValue()
+	if !ok {
+		return newSchemaBridgeInvariant(element.loc, "all child maximum occurrence is not finite")
 	}
 	if maximumValue.Compare(one) <= 0 {
 		if maximumValue.IsZero() && minimumValue.IsZero() && version == XSDVersion10 {
@@ -4099,8 +4125,8 @@ func newAllChildOccurrenceVersionMismatch(element *syntaxElement, owner, occurre
 	)
 }
 
-func validateAllGroupOccurrences(element *syntaxElement) error {
-	minimum, maximum, err := schemaParticleOccurrenceValues(element)
+func validateAllGroupOccurrences(element *syntaxElement, version XSDVersion) error {
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
 		return err
 	}
@@ -4108,13 +4134,22 @@ func validateAllGroupOccurrences(element *syntaxElement) error {
 	if err != nil {
 		return newSchemaBridgeInvariant(element.loc, "construct all group occurrence bound")
 	}
-	if minimum.present && minimum.value.Compare(one) != 0 {
+	minimumValue, ok := occurrences.minimumOccurrence().finiteValue()
+	if !ok {
+		return newSchemaBridgeInvariant(element.loc, "all group minimum occurrence is not finite")
+	}
+	if minimumValue.Compare(one) != 0 {
 		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "minOccurs"), "all group minOccurs must be 1")
 	}
-	if maximum.unbounded {
+	maximumOccurrence := occurrences.maximumOccurrence()
+	if maximumOccurrence.isUnbounded() {
 		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "maxOccurs"), "all group maxOccurs must be 1")
 	}
-	if maximum.present && maximum.value.Compare(one) != 0 {
+	maximumValue, ok := maximumOccurrence.finiteValue()
+	if !ok {
+		return newSchemaBridgeInvariant(element.loc, "all group maximum occurrence is not finite")
+	}
+	if maximumValue.Compare(one) != 0 {
 		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "maxOccurs"), "all group maxOccurs must be 1")
 	}
 	return nil
@@ -4136,7 +4171,7 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 	}
 	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
 	notNamespaceAttributes := syntaxAttributesByLocal(element, "notNamespace")
-	if err := validateSchemaParticleOccurrences(element); err != nil {
+	if err := validateSchemaParticleOccurrences(element, version); err != nil {
 		return err
 	}
 	annotationSeen := false

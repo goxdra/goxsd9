@@ -145,6 +145,11 @@ func (a app) createPullRequest(issue int, title, body string) error {
 	if verifyErr := a.verifyClaimForPush(root, localBranch, claimedIssue); verifyErr != nil {
 		return verifyErr
 	}
+	canonicalBody, lifecycleErr := replacePRReviewState(body, prReviewStatePending)
+	if lifecycleErr != nil {
+		return stateError("cannot open PR: invalid review-state lifecycle: %v", lifecycleErr)
+	}
+	body = canonicalBody
 	if _, pushErr := a.command(root, "git", "push", "origin", "HEAD:refs/heads/"+branch); pushErr != nil {
 		return fmt.Errorf("push pull request branch: %w", pushErr)
 	}
