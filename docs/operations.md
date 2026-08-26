@@ -1,6 +1,6 @@
 # Scheduled operations
 
-Paseo schedules outside this repository. Jobs start from clean coordination checkout in America/New_York. Skills are executable procedures; this is the operator contract.
+Paseo schedules externally. Jobs start from clean coordination checkout in America/New_York. Skills are executable procedures; this is operator contract.
 | Job | Schedule | Agent | Prompt |
 | --- | --- | --- | --- |
 | Develop | 00:00, then every 3 hours | Luna, maximum effort | `Run $develop for this repository.` |
@@ -40,8 +40,8 @@ challenges bind body/evidence digests. Before Examiner, `evaluation challenge`
 records one-use head-bound challenge; Examiner JSON is versioned;
 `workflowctl` rejects wrong-head, stale, reused, malformed, or caller-selected
 results. Fresh context; receipts are evidence, not identity proof.
-After two hours, `evaluation resolve PR --challenge ID --reason-file FILE` records no-verdict resolution; convergence binds complete duplicates as one round; neither authorizes pass/fail or merge.
-REST squash-merge SHA-bound. Cleanup scopes inventory by packet, proves branch-bounded run identity, rejects inherited-trailer ownership; preserves artifacts, archives/unrelated refs. Exact deletion, idempotent `pr recover`, merged-proof `claim prune`.
+Unresolved challenges survive head/body snapshot changes; complete equivalent trusted Examiner receipts become one logical round; all original comments/authenticated records remain in GitHub; expiry-only no-verdict resolution stays distinct; convergence alone grants no verdict/merge authority.
+REST squash-merge SHA-bound. Packet cleanup proves branch-bounded ownership, preserves artifacts, archives unrelated refs; deletion is exact, recover idempotent, and claim prune merge-proofed.
 
 GraphQL fallback: identical-head REST, fresh Examiner.
 GitHub-effective references validate close; exact merge proof binds primary to
