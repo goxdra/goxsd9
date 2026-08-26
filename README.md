@@ -44,12 +44,13 @@ go tool conformance inventory
 
 ## Pinned specification corpus
 
-Build/search a verified `.cache` entry:
+Pinned corpus commands:
 ```sh
 go tool specs build -id xsd11-structures
 go tool specs search -id xsd11-structures -query "content model"
+go tool specs bootstrap -version 1.1
 ```
-Use `-root`, `-output`, and `-index`; the [schema bootstrap contract](docs/decisions/0003-schema-bootstrap.md) covers digests, conversion, and artifacts.
+Use `-root`, `-output`, and `-index`; `bootstrap` previews the plan without fetching.
 
 ## Project workflow
 
