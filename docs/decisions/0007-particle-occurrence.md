@@ -55,7 +55,7 @@ public component is allocated.
 
 | Edition | Applicable restrictions |
 | --- | --- |
-| XSD 1.0 | An `all` model group has `minOccurs` `0` or `1` and fixed `maxOccurs` `1`. It is limited to the permitted model-group-definition/content-type placements. Its member particles are element particles and each member maximum is `0` or `1`; the corresponding minimum is therefore also `0` or `1`. `any`, `group`, `choice`, and `sequence` children are not permitted. |
+| XSD 1.0 | XSD 1.0 all members are element particles with minOccurs 0 or 1 and fixed maxOccurs 1; the current parser validates these restrictions and leaves explicit occurrence syntax unsupported. |
 | XSD 1.1 | An `all` model group has `minOccurs` and `maxOccurs` each in `0/1`. It has the permitted model-group-definition/content-type placements, and an `all` term may also occur as a `1/1` particle inside an `all` group. Its member terms that are model groups must themselves be `all`; a group-reference member is fixed at `1/1`. Element and wildcard members use the exact general occurrence model. The XML representation permits element, wildcard, and group children. |
 
 These are constraints on future component construction, not a claim that the
