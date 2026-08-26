@@ -322,12 +322,12 @@ func TestSimpleContentPrecisionDecimalScaleSignsRemainRecognizedInBridgeFalsePat
   </xs:complexType>
 </xs:schema>`
 	for _, profile := range []struct {
-		name         string
-		policy       LanguagePolicy
-		wantMismatch bool
+		name                  string
+		policy                LanguagePolicy
+		wantPrecisionMismatch bool
 	}{
 		{name: "Compatibility", policy: Compatibility},
-		{name: "Strict10", policy: Strict10, wantMismatch: true},
+		{name: "Strict10", policy: Strict10, wantPrecisionMismatch: true},
 		{name: "Strict11", policy: Strict11},
 	} {
 		t.Run(profile.name, func(t *testing.T) {
@@ -336,19 +336,137 @@ func TestSimpleContentPrecisionDecimalScaleSignsRemainRecognizedInBridgeFalsePat
 				t.Fatal("simpleContent scale facet was accepted or returned a schema")
 			}
 			diagnostic := requireDiagnostic(t, err)
+			if profile.wantPrecisionMismatch {
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != diagnosticSchemaPrecisionDecimalVersionCode {
+					t.Fatalf("diagnostic = %s/%q/%q, want precisionDecimal version mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
+				}
+				if diagnostic.SpecRef() != "xsd11-datatypes#dt-primitive" || diagnostic.Loc() != mustTestLoc(t, "root.xsd", 4, 7) {
+					t.Fatalf("diagnostic metadata = %s/%q, want precisionDecimal mismatch at root.xsd:4:7", diagnostic, diagnostic.SpecRef())
+				}
+				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, errSchemaPrecisionDecimalVersion) {
+					t.Fatalf("precisionDecimal mismatch lost required causes: %v", err)
+				}
+				return
+			}
 			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != UnsupportedDatatypeFacetCode {
 				t.Fatalf("diagnostic = %s/%q/%q, want datatype facet unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code())
 			}
 			if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 5 || diagnostic.Loc().Column() != 9 {
 				t.Fatalf("diagnostic location = %s, want root.xsd:5:9", diagnostic.Loc())
 			}
-			if errors.Is(err, errLanguagePolicyMismatch) != profile.wantMismatch {
-				t.Fatalf("policy mismatch = %t, want %t: %v", errors.Is(err, errLanguagePolicyMismatch), profile.wantMismatch, err)
+			if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, errSchemaPrecisionDecimalVersion) {
+				t.Fatalf("non-Strict10 unsupported result retained a version mismatch: %v", err)
 			}
 			if !errors.Is(err, ErrUnsupported) {
 				t.Fatalf("unsupported cause was not preserved: %v", err)
 			}
 		})
+	}
+}
+
+func TestStrict10SimpleContentPrecisionDecimalInvalidFacetPrecedesVersionMismatch(t *testing.T) {
+	tests := []struct {
+		name   string
+		facet  string
+		code   string
+		line   int
+		column int
+	}{
+		{
+			name:   "malformed integer",
+			facet:  `<xs:minScale value="not-an-integer"/>`,
+			code:   InvalidIntegerLexicalCode,
+			line:   5,
+			column: 22,
+		},
+		{
+			name: "forbidden child",
+			facet: `<xs:minScale value="-1">
+          <xs:element/>
+        </xs:minScale>`,
+			code:   invalidSchemaCompositionCode,
+			line:   6,
+			column: 11,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item">
+    <xs:simpleContent>
+      <xs:restriction base="xs:precisionDecimal">
+        ` + test.facet + `
+      </xs:restriction>
+    </xs:simpleContent>
+  </xs:complexType>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+			assertInvalidScaleFacet(t, schema, err, test.code, test.line, test.column)
+		})
+	}
+}
+
+func TestNamedScaleBaseDefersNonNegativeClassificationInBridgeFalsePaths(t *testing.T) { //nolint:gocognit // cover both bridge-false entry paths across policies.
+	fixtures := []struct {
+		name string
+		root string
+	}{
+		{
+			name: "simpleContent restriction",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test">
+  <xs:complexType name="item">
+    <xs:simpleContent>
+      <xs:restriction base="t:Base">
+        <xs:minScale value="-1"/>
+      </xs:restriction>
+    </xs:simpleContent>
+  </xs:complexType>
+</xs:schema>`,
+		},
+		{
+			name: "inline simple type",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test">
+  <xs:element name="item">
+    <xs:simpleType>
+      <xs:restriction base="t:Base">
+        <xs:minScale value="-1"/>
+      </xs:restriction>
+    </xs:simpleType>
+  </xs:element>
+</xs:schema>`,
+		},
+	}
+	profiles := []struct {
+		name         string
+		policy       LanguagePolicy
+		wantMismatch bool
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10, wantMismatch: true},
+		{name: "Strict11", policy: Strict11},
+	}
+	for _, fixture := range fixtures {
+		for _, profile := range profiles {
+			t.Run(fixture.name+"/"+profile.name, func(t *testing.T) {
+				schema, err := discoverTestSchemaWithPolicy(t, fixture.root, nil, profile.policy)
+				if err == nil || schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+					t.Fatal("named-base scale facet was accepted or returned a schema")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != UnsupportedDatatypeFacetCode {
+					t.Fatalf("diagnostic = %s/%q/%q, want deferred datatype facet unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code())
+				}
+				if diagnostic.Loc() != mustTestLoc(t, "root.xsd", 5, 9) {
+					t.Fatalf("diagnostic location = %s, want root.xsd:5:9", diagnostic.Loc())
+				}
+				if errors.Is(err, errLanguagePolicyMismatch) != profile.wantMismatch {
+					t.Fatalf("policy mismatch = %t, want %t: %v", errors.Is(err, errLanguagePolicyMismatch), profile.wantMismatch, err)
+				}
+				if !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("unsupported cause was not preserved: %v", err)
+				}
+			})
+		}
 	}
 }
 

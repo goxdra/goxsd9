@@ -1527,16 +1527,21 @@ func validateSimpleTypeGlobalRestrictionChild(child *syntaxElement, modelSeen *b
 	}
 	*modelSeen = true
 	restrictionErr := validateSimpleTypeRestrictionWithFacetBridge(child, version, bridgeFacets)
-	if version == XSDVersion10 && precisionDecimalRestrictionBase(child) {
-		if restrictionErr == nil {
-			return precisionDecimalSchemaVersionDiagnostic(child.loc, schemaRestrictionBaseName(child))
-		}
-		var diagnostic Diagnostic
-		if errors.As(restrictionErr, &diagnostic) && diagnostic.Class() == FailureUnsupported {
-			return precisionDecimalSchemaVersionDiagnostic(child.loc, schemaRestrictionBaseName(child))
-		}
+	return preferPrecisionDecimalRestrictionMismatch(child, version, restrictionErr)
+}
+
+func preferPrecisionDecimalRestrictionMismatch(element *syntaxElement, version XSDVersion, err error) error {
+	if version != XSDVersion10 || !precisionDecimalRestrictionBase(element) {
+		return err
 	}
-	return restrictionErr
+	if err == nil {
+		return precisionDecimalSchemaVersionDiagnostic(element.loc, schemaRestrictionBaseName(element))
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+		return err
+	}
+	return precisionDecimalSchemaVersionDiagnostic(element.loc, schemaRestrictionBaseName(element))
 }
 
 func precisionDecimalRestrictionBase(element *syntaxElement) bool {
@@ -1737,8 +1742,8 @@ func validateSimpleTypeRestrictionWithFacetBridge(element *syntaxElement, versio
 	if err := validateSimpleTypeRestrictionAttributes(element, &candidate); err != nil {
 		return err
 	}
-	enforceNonNegativeScale := !precisionDecimalRestrictionBase(element) &&
-		(!bridgeFacets || (version == XSDVersion10 && directOrdinaryBuiltinScaleBase(element)))
+	enforceNonNegativeScale := directOrdinaryBuiltinScaleBase(element) &&
+		(!bridgeFacets || version == XSDVersion10)
 	if err := validateSimpleTypeRestrictionChildren(element, version, bridgeFacets, enforceNonNegativeScale, &candidate); err != nil {
 		return err
 	}
@@ -2534,7 +2539,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	if err := validateConditionalQNameForSchema(element, baseAttributes[0]); err != nil {
 		return err
 	}
-	enforceNonNegativeScale := !precisionDecimalRestrictionBase(element)
+	enforceNonNegativeScale := directOrdinaryBuiltinScaleBase(element)
 	for _, attribute := range element.attrs {
 		if attribute.name.namespace == xsdVersioningNamespaceURI {
 			continue
@@ -2666,10 +2671,14 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	if complexContent && element.name.local == "restriction" && openContentSeen && !modelSeen {
 		return newSchemaCompositionDiagnostic(openContentLoc, "complexContent restriction openContent requires a model particle")
 	}
-	if candidate.present {
-		return candidate.err()
+	derivationErr := candidate.err()
+	if derivationErr == nil {
+		derivationErr = newSchemaSyntaxUnsupported(element.loc, element.name.local+" derivation is not implemented")
 	}
-	return newSchemaSyntaxUnsupported(element.loc, element.name.local+" derivation is not implemented")
+	if simpleRestriction {
+		return preferPrecisionDecimalRestrictionMismatch(element, version, derivationErr)
+	}
+	return derivationErr
 }
 
 func validateOpenContent(element *syntaxElement, version XSDVersion) error {
