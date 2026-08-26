@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,13 @@ import (
 type commandExecutor func(dir string, input io.Reader, name string, args ...string) (string, error)
 type commandEnvironmentExecutor func(dir string, env []string, input io.Reader, name string, args ...string) (string, error)
 type commandContextEnvironmentExecutor func(ctx context.Context, dir string, env []string, input io.Reader, name string, args ...string) (string, error)
+type commandCaptureExecutor func(dir string, env []string, name string, args ...string) (commandCaptureResult, error)
+
+type commandCaptureResult struct {
+	stdout string
+	stderr string
+	status int
+}
 
 func (a app) command(dir, name string, args ...string) (string, error) {
 	return a.commandInput(dir, nil, name, args...)
@@ -94,6 +102,65 @@ func (a app) commandOutputWithEnv(dir string, env []string, input io.Reader, tri
 		return "", fmt.Errorf("run %s: %w", name, err)
 	}
 	return "", fmt.Errorf("run %s: %w: %s", name, err, text)
+}
+
+func (a app) commandCaptureWithEnv(dir string, env []string, name string, args ...string) (commandCaptureResult, error) {
+	if a.executeCommandCapture != nil {
+		return a.executeCommandCapture(dir, env, name, args...)
+	}
+	if a.executeCommandWithContextAndEnv != nil || a.executeCommandWithEnv != nil || a.executeCommand != nil {
+		return commandCaptureResult{}, errors.New("separate command capture is unavailable for the injected command executor")
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// #nosec G204 -- callers select repository-owned commands and fixed arguments.
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	if len(env) != 0 {
+		cmd.Env = commandEnvironment(env)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	result := commandCaptureResult{stdout: stdout.String(), stderr: stderr.String()}
+	if err == nil {
+		return result, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && ctx.Err() == nil {
+		result.status = exitErr.ExitCode()
+		return result, nil
+	}
+	return result, fmt.Errorf("run %s: %w", name, err)
+}
+
+func commandEnvironment(overrides []string) []string {
+	if len(overrides) == 0 {
+		return nil
+	}
+	environment := os.Environ()
+	result := make([]string, 0, len(environment)+len(overrides))
+	for _, current := range environment {
+		if commandEnvironmentOverridden(current, overrides) {
+			continue
+		}
+		result = append(result, current)
+	}
+	return append(result, overrides...)
+}
+
+func commandEnvironmentOverridden(current string, overrides []string) bool {
+	for _, override := range overrides {
+		key, _, found := strings.Cut(override, "=")
+		if found && strings.HasPrefix(current, key+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 func (a app) root() (string, error) {
