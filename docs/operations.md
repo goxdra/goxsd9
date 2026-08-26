@@ -40,8 +40,7 @@ challenges bind body/evidence digests. Before Examiner, `evaluation challenge`
 records one-use head-bound challenge; Examiner JSON is versioned;
 `workflowctl` rejects wrong-head, stale, reused, malformed, or caller-selected
 results. Fresh context; receipts are evidence, not identity proof.
-Unresolved challenges survive snapshot changes. After two hours, `workflowctl evaluation resolve PR --challenge ID --reason-file FILE` records authenticated
-no-verdict resolution; never pass/fail or merge proof.
+After two hours, `evaluation resolve PR --challenge ID --reason-file FILE` records no-verdict resolution; convergence binds complete duplicates as one round; neither authorizes pass/fail or merge.
 REST squash-merge SHA-bound. Cleanup scopes inventory by packet, proves branch-bounded run identity, rejects inherited-trailer ownership; preserves artifacts, archives/unrelated refs. Exact deletion, idempotent `pr recover`, merged-proof `claim prune`.
 
 GraphQL fallback: identical-head REST, fresh Examiner.

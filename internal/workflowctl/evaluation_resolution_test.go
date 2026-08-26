@@ -479,7 +479,7 @@ func resolutionTestComment(t *testing.T, challenge evaluationChallenge, resolved
 }
 
 func workflowCommentAPI(comment pullRequestComment) issueCommentAPI {
-	apiComment := issueCommentAPI{Body: comment.Body, CreatedAt: comment.CreatedAt}
+	apiComment := issueCommentAPI{ID: comment.ID, Body: comment.Body, CreatedAt: comment.CreatedAt}
 	apiComment.User.Login = comment.Author.Login
 	return apiComment
 }

@@ -983,7 +983,7 @@ func pullRequestCommentsFromAPI(t *testing.T, comments []issueCommentAPI) []pull
 	t.Helper()
 	converted := make([]pullRequestComment, 0, len(comments))
 	for _, comment := range comments {
-		convertedComment := pullRequestComment{Body: comment.Body, CreatedAt: comment.CreatedAt}
+		convertedComment := pullRequestComment{ID: comment.ID, Body: comment.Body, CreatedAt: comment.CreatedAt}
 		convertedComment.Author.Login = comment.User.Login
 		converted = append(converted, convertedComment)
 	}
@@ -1438,6 +1438,8 @@ type workflowBackend struct {
 	workCommitLog              string
 	comments                   []issueCommentAPI
 	commentPostCount           int
+	duplicateReceiptPost       bool
+	postCommentResponseMode    string
 	postCommentAuthor          string
 	needsHuman                 bool
 	projectMember              bool
@@ -1801,13 +1803,21 @@ func (b *workflowBackend) postComment(data []byte) (string, error) {
 	if err := json.Unmarshal(data, &request); err != nil {
 		return "", fmt.Errorf("decode comment request: %w", err)
 	}
-	comment := issueCommentAPI{Body: request.Body, CreatedAt: time.Now().UTC().Truncate(time.Second)}
+	comment := issueCommentAPI{ID: int64(len(b.comments) + 1), Body: request.Body, CreatedAt: time.Now().UTC().Truncate(time.Second)}
 	b.commentPostCount++
 	comment.User.Login = b.postCommentAuthor
 	if comment.User.Login == "" {
 		comment.User.Login = trustedActor
 	}
 	b.comments = append(b.comments, comment)
+	if b.duplicateReceiptPost && hasMarker(request.Body, evaluationMarker) {
+		duplicate := comment
+		duplicate.ID++
+		b.comments = append(b.comments, duplicate)
+	}
+	if b.postCommentResponseMode == "transport" {
+		return "", errors.New("simulated lost comment response")
+	}
 	return `{}`, nil
 }
 
