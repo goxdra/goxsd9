@@ -613,6 +613,9 @@ func (a app) repairEvaluationReceipt(number, round int) error {
 	if err != nil {
 		return err
 	}
+	if stateErr := requirePRReviewStateReady(view.Body); stateErr != nil {
+		return stateError("PR #%d review state is not evidence-ready: %v", number, stateErr)
+	}
 	if evidenceErr := rejectUntrustedEvaluationEvidence(view.Comments); evidenceErr != nil {
 		return stateError("PR #%d has untrusted evaluation evidence: %v", number, evidenceErr)
 	}
@@ -738,6 +741,9 @@ func (a app) requestEvaluation(number int) error {
 	if err != nil {
 		return err
 	}
+	if stateErr := requirePRReviewStateReady(view.Body); stateErr != nil {
+		return stateError("PR #%d review state is not evidence-ready: %v", number, stateErr)
+	}
 	history, historyErr := readEvaluationMutationHistory(number, view.Comments)
 	if historyErr != nil {
 		return stateError("PR #%d has invalid evaluation history: %v", number, historyErr)
@@ -748,9 +754,6 @@ func (a app) requestEvaluation(number int) error {
 		return stateError("PR #%d has %d outstanding trusted Examiner challenge(s), including %q; no new challenge was posted. Record its exact attested receipt or, after the two-hour expiry at %s, run `go tool workflowctl evaluation resolve %d --challenge %s --reason-file FILE`",
 			number, len(outstanding), first.Challenge, first.RequestedAt.Add(evaluationChallengeDuration).Format(time.RFC3339Nano),
 			number, first.Challenge)
-	}
-	if stateErr := requirePRReviewStateReady(view.Body); stateErr != nil {
-		return stateError("PR #%d review state is not evidence-ready: %v", number, stateErr)
 	}
 	parsedEvidence, err := a.validatePREvidenceForPR(root, number, view)
 	if err != nil {
@@ -785,6 +788,9 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 	root, view, primary, err := a.readEvaluationTarget(number)
 	if err != nil {
 		return err
+	}
+	if stateErr := requirePRReviewStateReady(view.Body); stateErr != nil {
+		return stateError("PR #%d review state is not evidence-ready: %v", number, stateErr)
 	}
 	history, historyErr := readEvaluationMutationHistory(number, view.Comments)
 	if historyErr != nil {
@@ -858,6 +864,9 @@ func (a app) postEvaluationResolution(number int, challengeID, reason string) er
 	root, view, _, err := a.readEvaluationTarget(number)
 	if err != nil {
 		return err
+	}
+	if stateErr := requirePRReviewStateReady(view.Body); stateErr != nil {
+		return stateError("PR #%d review state is not evidence-ready: %v", number, stateErr)
 	}
 	canonicalReason, err := validateEvaluationResolutionReason(reason)
 	if err != nil {

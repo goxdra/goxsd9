@@ -34,7 +34,7 @@ is current-head validated; checked-in corpus replay is distinct.
 JSON exact deltas/targets; fuzz health, not conformance. Before
 evidence update, challenge, or finish, workflowctl resolves exact REST base/head,
 requires matching commits, recomputes v2 signals/policy, compares canonical
-payload. Evidence updates preserve non-owned PR body bytes.
+payload. v1 slots use exact pending/ready status lines; other PR-body bytes are opaque.
 Challenge/finish require REST base/head, audit, Curator/no-doc result;
 challenges bind body/evidence digests. Before Examiner, `evaluation challenge`
 records one-use head-bound challenge; Examiner JSON is versioned;
@@ -55,6 +55,5 @@ rationale, invariants, process learning; omit status, commands, claim/review
 metadata. It validates squash body; history reads it.
 Use Markdown evidence body files.
 
-Summary is non-empty UTF-8 text in a file of at most 8 KiB, LF-only; one final LF
-is accepted. Surrounding/line-trailing whitespace, control, format, other
-line-separator characters, and generated claim trailers are rejected.
+Summary is non-empty UTF-8 text, at most 8 KiB, LF-only; one final LF is accepted.
+Reject surrounding/line-trailing whitespace, controls, formatting, other line separators, and generated claim trailers.
