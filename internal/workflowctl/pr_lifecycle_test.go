@@ -20,14 +20,23 @@ type historicalPRLifecycleFixture struct {
 	prose    string
 }
 
+const (
+	historicalPR144DevelopmentStale   = "Development-signal evidence will be installed."
+	historicalPR144DocumentationStale = "Managed documentation will receive its audit and Curator review."
+	historicalPR144EvaluationStale    = "A fresh challenge-bound Examiner evaluation will be created."
+	historicalPR146DevelopmentStale   = "Pending exact-base evidence generation."
+	historicalPR188DevelopmentStale   = "Exact-base development signals and documentation audit will be attached after the draft PR exists."
+	historicalPR189DevelopmentStale   = "Pending exact-base/head recomputation by workflowctl after the draft PR exists."
+)
+
 var historicalPRLifecycleFixtures = [...]historicalPRLifecycleFixture{
 	{
 		name:  "pr-144",
 		state: prReviewStatePending,
 		statuses: [len(prReviewStateSlotSpecs)]string{
-			"Exact-base/head development signals were independently recomputed for this change.",
-			"Documentation audit and Curator result will be added after the exact-base run.",
-			"Pending fresh challenge-bound Examiner evaluation.",
+			historicalPR144DevelopmentStale,
+			historicalPR144DocumentationStale,
+			historicalPR144EvaluationStale,
 		},
 		prose: "Exact-base/head development signals were independently recomputed for this change.",
 	},
@@ -35,7 +44,7 @@ var historicalPRLifecycleFixtures = [...]historicalPRLifecycleFixture{
 		name:  "pr-146",
 		state: prReviewStatePending,
 		statuses: [len(prReviewStateSlotSpecs)]string{
-			"Exact-base development-signals/v2 evidence is recorded in the evidence block below.",
+			historicalPR146DevelopmentStale,
 			"Current documentation changes are covered by a Curator review.",
 			"Pending fresh challenge-bound Examiner evaluation.",
 		},
@@ -45,7 +54,7 @@ var historicalPRLifecycleFixtures = [...]historicalPRLifecycleFixture{
 		name:  "pr-188",
 		state: prReviewStateEvidenceReady,
 		statuses: [len(prReviewStateSlotSpecs)]string{
-			"Exact-base development signals, documentation audit, and Curator result are attached in the evidence below.",
+			historicalPR188DevelopmentStale,
 			"Curator result is attached in the evidence below.",
 			"Fresh challenge-bound Examiner review is required before merge.",
 		},
@@ -55,7 +64,7 @@ var historicalPRLifecycleFixtures = [...]historicalPRLifecycleFixture{
 		name:  "pr-189",
 		state: prReviewStateEvidenceReady,
 		statuses: [len(prReviewStateSlotSpecs)]string{
-			"Exact-base/head development signals were recomputed and the embedded payload is current.",
+			historicalPR189DevelopmentStale,
 			"The documentation audit and Curator result are current.",
 			"Pending fresh challenge-bound Examiner review.",
 		},
@@ -69,26 +78,27 @@ var historicalPRLegacyBodies = [...]struct {
 }{
 	{
 		name: "pr-144",
-		body: "## Outcome\n\nExact-base/head development signals were independently recomputed for this change.\n\n" +
-			"## Work packet\n\nCloses #13.\n\n## Evaluation\n\nPending fresh challenge-bound Examiner evaluation.\n",
+		body: "## Outcome\n\n" + historicalPR144DevelopmentStale + "\n\n" +
+			"## Work packet\n\nCloses #13.\n\n## Conformance and documentation\n\n" +
+			historicalPR144DocumentationStale + "\n\n## Evaluation\n\n" + historicalPR144EvaluationStale + "\n",
 	},
 	{
 		name: "pr-146",
 		body: "## Outcome\n\nThe default text output is unchanged and JSON reports exact computed deltas.\n\n" +
 			"## Work packet\n\nCloses #13\n\n### Development signals\n\n" +
-			"Exact-base development-signals/v2 evidence is recorded in the evidence block below.\n\n" +
+			historicalPR146DevelopmentStale + "\n\n" +
 			"## Evaluation\n\nPending fresh challenge-bound Examiner evaluation.\n",
 	},
 	{
 		name: "pr-188",
 		body: prReviewStateToken(prReviewStateEvidenceReady) + "\n\n## Outcome\n\n" +
-			"Exact-base development signals, documentation audit, and Curator result are attached in the evidence below.\n\n" +
+			historicalPR188DevelopmentStale + "\n\n" +
 			"## Work packet\n\nCloses #13\n\n## Evaluation\n\nFresh challenge-bound Examiner review is required before merge.\n",
 	},
 	{
 		name: "pr-189",
 		body: prReviewStateToken(prReviewStateEvidenceReady) + "\n\n## Outcome\n\n" +
-			"Exact-base/head development signals were recomputed and the embedded payload is current.\n\n" +
+			historicalPR189DevelopmentStale + "\n\n" +
 			"## Work packet\n\nCloses #13\n\n## Evaluation\n\nPending fresh challenge-bound Examiner review.\n",
 	},
 }
@@ -110,11 +120,16 @@ func historicalPRLifecycleBody(t *testing.T, backend *workflowBackend, fixture h
 	t.Helper()
 	canonicalFrame := testPRReviewStateFrame(t, prReviewStateEvidenceReady)
 	staleFrame := historicalPRLifecycleFrame(t, fixture)
-	body := strings.Replace(backend.body, canonicalFrame, staleFrame, 1)
-	if body == backend.body {
-		t.Fatalf("historical %s fixture did not replace the canonical lifecycle frame", fixture.name)
-	}
+	body := replaceHistoricalPRLifecycleFrame(t, backend.body, canonicalFrame, staleFrame, fixture.name)
 	return body + "\n" + fixture.prose + "\n"
+}
+
+func replaceHistoricalPRLifecycleFrame(t *testing.T, body, oldFrame, newFrame, fixtureName string) string {
+	t.Helper()
+	if count := strings.Count(body, oldFrame); count != 1 {
+		t.Fatalf("historical %s fixture has %d canonical lifecycle frames, want 1", fixtureName, count)
+	}
+	return strings.Replace(body, oldFrame, newFrame, 1)
 }
 
 func canonicalEvidenceReadyLifecycleFrame() string {
@@ -171,7 +186,7 @@ func assertHistoricalPREvidenceUpdate(t *testing.T, backend *workflowBackend, be
 	if backend.bodyPatchCount != 1 {
 		t.Fatalf("body PATCH count = %d, want 1", backend.bodyPatchCount)
 	}
-	wantBody := strings.Replace(beforeBody, historicalPRLifecycleFrame(t, fixture), canonicalEvidenceReadyLifecycleFrame(), 1)
+	wantBody := replaceHistoricalPRLifecycleFrame(t, beforeBody, historicalPRLifecycleFrame(t, fixture), canonicalEvidenceReadyLifecycleFrame(), fixture.name)
 	if backend.body != wantBody {
 		t.Fatalf("evidence update changed bytes outside lifecycle frame:\n got %q\nwant %q", backend.body, wantBody)
 	}
