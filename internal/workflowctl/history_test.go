@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -386,7 +387,8 @@ func TestHistoryEvaluationMetricsUseValidatedReceiptsAndStableOrder(t *testing.T
 		"Total rounds: 3",
 		"Failed rounds: 1",
 		"Blocking findings: 2",
-		"#42: round 1 fail (2 blocking findings); round 2 pass",
+		fmt.Sprintf("#42: round 1 fail (2 blocking findings; summary=%s); round 2 pass",
+			strconv.Quote("History fail round 1 \\u001e.")),
 		"Omitted: 1 evaluated packet(s) beyond --limit 1",
 	} {
 		if !strings.Contains(output, want) {
@@ -398,6 +400,135 @@ func TestHistoryEvaluationMetricsUseValidatedReceiptsAndStableOrder(t *testing.T
 	}
 	if len(seenCommands) != 2 {
 		t.Fatalf("history evaluation commands = %v, want two read-only comment reads", seenCommands)
+	}
+}
+
+func TestHistoryRetainsAttestationSummaryAndSuppressesPassSummary(t *testing.T) {
+	base := time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
+	failedSummary := "The exact failed summary remains trusted data."
+	passSummary := "The exact pass summary remains hidden in history detail."
+	failedChallenge := historyTestChallenge(t, "summary-fail", 60, "head-60", base, trustedActor)
+	failedReceipt := historyTestEvaluationWithSummary(t, failedChallenge, "summary-fail-run", 1, "fail", 2,
+		failedSummary, historyTestCurrentBase64, trustedActor, base.Add(time.Minute))
+	passChallenge := historyTestChallenge(t, "summary-pass", 60, "head-60", base.Add(2*time.Minute), trustedActor)
+	passReceipt := historyTestEvaluationWithSummary(t, passChallenge, "summary-pass-run", 2, "pass", 0,
+		passSummary, historyTestCurrentBase64, trustedActor, base.Add(3*time.Minute))
+	history, err := parseEvaluationHistory([]pullRequestComment{failedChallenge, failedReceipt, passChallenge, passReceipt})
+	if err != nil {
+		t.Fatalf("parse summary history: %v", err)
+	}
+	if validationErr := validateEvaluationHistory(history); validationErr != nil {
+		t.Fatalf("validate summary history: %v", validationErr)
+	}
+	packet, err := historyEvaluationPacketForPR(
+		pullRequestSummary{Number: 60, MergedAt: base.Add(time.Hour)}, history)
+	if err != nil {
+		t.Fatalf("historyEvaluationPacketForPR: %v", err)
+	}
+	if got, want := len(packet.rounds), 2; got != want {
+		t.Fatalf("summary round count = %d, want %d", got, want)
+	}
+	if got := packet.rounds[0].attestationSummary; got != failedSummary {
+		t.Fatalf("failed attestation summary = %q, want %q", got, failedSummary)
+	}
+	if got := packet.rounds[1].attestationSummary; got != passSummary {
+		t.Fatalf("pass attestation summary = %q, want %q", got, passSummary)
+	}
+
+	var report bytes.Buffer
+	if err := renderEvaluationHistory(&report, []historyEvaluationPacket{packet}, 1); err != nil {
+		t.Fatalf("render summary history: %v", err)
+	}
+	output := report.String()
+	wantDetail := fmt.Sprintf("#60: round 1 fail (2 blocking findings; summary=%s); round 2 pass",
+		strconv.Quote(failedSummary))
+	if !strings.Contains(output, wantDetail) {
+		t.Fatalf("failed summary detail missing:\n%s", output)
+	}
+	if strings.Contains(output, passSummary) || strings.Contains(output, "summary="+strconv.Quote(passSummary)) {
+		t.Fatalf("pass summary leaked into history detail:\n%s", output)
+	}
+}
+
+func TestHistoryEscapesAttestationSummaryAsOneReportRecord(t *testing.T) {
+	base := time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
+	controlBytes := make([]byte, 0, 32)
+	for value := byte(0); value <= 0x1f; value++ {
+		controlBytes = append(controlBytes, value)
+	}
+	summary := "prefix\ncarriage\rcontrols:" + string(controlBytes) + " quote=\" slash=\\ separators=\u2028\u2029"
+	challenge := historyTestChallenge(t, "summary-escaping", 61, "head-61", base, trustedActor)
+	receipt := historyTestEvaluationWithSummary(t, challenge, "summary-escaping-run", 1, "fail", 1,
+		summary, historyTestCurrentBase64, trustedActor, base.Add(time.Minute))
+	history, err := parseEvaluationHistory([]pullRequestComment{challenge, receipt})
+	if err != nil {
+		t.Fatalf("parse escaping history: %v", err)
+	}
+	if validationErr := validateEvaluationHistory(history); validationErr != nil {
+		t.Fatalf("validate escaping history: %v", validationErr)
+	}
+	packet, err := historyEvaluationPacketForPR(
+		pullRequestSummary{Number: 61, MergedAt: base.Add(time.Hour)}, history)
+	if err != nil {
+		t.Fatalf("historyEvaluationPacketForPR: %v", err)
+	}
+	if got := packet.rounds[0].attestationSummary; got != summary {
+		t.Fatalf("escaped attestation summary = %q, want exact decoded summary %q", got, summary)
+	}
+
+	var report bytes.Buffer
+	if err := renderEvaluationHistory(&report, []historyEvaluationPacket{packet}, 1); err != nil {
+		t.Fatalf("render escaping history: %v", err)
+	}
+	output := report.String()
+	wantDetail := fmt.Sprintf("  - #61: round 1 fail (1 blocking findings; summary=%s)\n", strconv.Quote(summary))
+	if !strings.Contains(output, wantDetail) {
+		t.Fatalf("escaped summary detail missing:\n%q", output)
+	}
+	if strings.Contains(output, summary) {
+		t.Fatalf("raw summary bytes appeared in report:\n%q", output)
+	}
+	if got := strings.Count(output, "  - #61:"); got != 1 {
+		t.Fatalf("report record count for PR #61 = %d, want 1:\n%q", got, output)
+	}
+}
+
+func TestHistoryEvaluationDetailsSortRoundsAndLimitPackets(t *testing.T) {
+	packets := []historyEvaluationPacket{
+		{
+			number: 70,
+			rounds: []historyEvaluationRound{
+				{round: 3, verdict: "fail", blockingFindings: 3, findingEvidence: true, attestationSummary: "PR 70 round 3"},
+				{round: 1, verdict: "fail", blockingFindings: 1, findingEvidence: true, attestationSummary: "PR 70 round 1"},
+			},
+		},
+		{
+			number: 71,
+			rounds: []historyEvaluationRound{
+				{round: 2, verdict: "fail", blockingFindings: 2, findingEvidence: true, attestationSummary: "PR 71 round 2"},
+			},
+		},
+	}
+
+	metrics := historyEvaluationMetricsFor(packets)
+	wantMetrics := historyEvaluationMetrics{evaluatedPackets: 2, totalRounds: 3, failedRounds: 3, blockingFindings: 6}
+	if metrics != wantMetrics {
+		t.Fatalf("full-window evaluation metrics = %#v, want %#v", metrics, wantMetrics)
+	}
+	var report bytes.Buffer
+	if err := renderEvaluationHistory(&report, packets, 1); err != nil {
+		t.Fatalf("render limited evaluation history: %v", err)
+	}
+	output := report.String()
+	wantFirst := "#70: round 1 fail (1 blocking findings; summary=\"PR 70 round 1\"); round 3 fail (3 blocking findings; summary=\"PR 70 round 3\")"
+	if !strings.Contains(output, wantFirst) {
+		t.Fatalf("round order or first packet detail changed:\n%s", output)
+	}
+	if strings.Contains(output, "#71:") || strings.Contains(output, "PR 71 round 2") {
+		t.Fatalf("limited detail included packet #71:\n%s", output)
+	}
+	if !strings.Contains(output, "Omitted: 1 evaluated packet(s) beyond --limit 1") {
+		t.Fatalf("limited packet omission missing:\n%s", output)
 	}
 }
 
@@ -501,7 +632,8 @@ func TestHistoryLegacyReceiptWithoutAttestationDoesNotClaimFindings(t *testing.T
 		t.Fatalf("render legacy no-attestation history: %v", err)
 	}
 	if !strings.Contains(report.String(), "Blocking findings: unavailable") ||
-		strings.Contains(report.String(), "Blocking findings: 0") {
+		strings.Contains(report.String(), "Blocking findings: 0") ||
+		strings.Contains(report.String(), "summary=") {
 		t.Fatalf("legacy no-attestation report claimed zero findings:\n%s", report.String())
 	}
 }
@@ -608,6 +740,12 @@ func historyTestChallenge(t *testing.T, id string, number int, head string, requ
 
 func historyTestEvaluation(t *testing.T, challenge pullRequestComment, runID string, round int, verdict string,
 	findingCount int, format, actor string, recordedAt time.Time) pullRequestComment {
+	return historyTestEvaluationWithSummary(t, challenge, runID, round, verdict, findingCount,
+		fmt.Sprintf("History %s round %d \\u001e.", verdict, round), format, actor, recordedAt)
+}
+
+func historyTestEvaluationWithSummary(t *testing.T, challenge pullRequestComment, runID string, round int, verdict string,
+	findingCount int, summary, format, actor string, recordedAt time.Time) pullRequestComment {
 	t.Helper()
 	parsedChallenge, ok := parseEvaluationChallenge(challenge.Body)
 	if !ok {
@@ -629,7 +767,7 @@ func historyTestEvaluation(t *testing.T, challenge pullRequestComment, runID str
 		PR:        parsedChallenge.PR,
 		RunID:     runID,
 		Schema:    evaluationAttestationSchema,
-		Summary:   fmt.Sprintf("History %s round %d \\u001e.", verdict, round),
+		Summary:   summary,
 		Verdict:   verdict,
 	}
 	attestationJSON, err := json.Marshal(attestation)
