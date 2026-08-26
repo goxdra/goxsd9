@@ -80,10 +80,10 @@ boundary:
    not cache derived repetition programs in the schema.
 
 The current schema preflight uses this exact private range to validate lexical
-occurrence input, then keeps explicit occurrence syntax unsupported. Existing
+occurrence input while explicit occurrence syntax remains unsupported. Existing
 default-only choice and sequence construction, `Particle` alternatives, and
-the `uint64` `MinOccurs`/`MaxOccurs` accessors are unchanged. No explicit
-occurrence reaches a public particle in this packet.
+the `uint64` `MinOccurs`/`MaxOccurs` accessors remain unchanged. Explicit
+occurrence values do not reach public particles.
 
 ## Public API migration
 
@@ -122,11 +122,11 @@ location. An error-level diagnostic returns no schema.
 
 ## Non-goals, risks, and follow-up
 
-This packet does not enable explicit occurrence syntax, expose a new public
-API, change default-only choice or sequence behavior, implement repetition in
-validation, generate repeated Go fields, calculate effective total ranges, or
-claim current parser support for `all` mapping. It also does not add a fixed
-resource limit to the exact value itself; later phases must set bounded input
+Currently, explicit occurrence syntax remains unsupported: no new public API is
+exposed, default-only choice and sequence behavior is unchanged, repetition is
+not implemented in validation, repeated Go fields are not generated, effective
+total ranges are not calculated, and the parser does not support `all` mapping.
+The exact value has no fixed resource limit; later phases must set bounded input
 and materialization policies.
 
 The main risks are memory proportional to hostile finite lexicals, a breaking
@@ -135,9 +135,9 @@ semantic `0/0` absence as a public zero-valued component. The range
 constructor, ownership tests, and mapping proof guard the latter two; future
 resource policy must guard the first.
 
-Deferred follow-up issues are: exact public particle occurrence accessors and
-retirement of the `uint64` methods; schema mapping for local elements, groups,
-wildcards, and model groups including `0/0` absence; bounded validator
-materialization and repetition programs; and bounded repeated Go emission.
-Each follow-up must preserve the phase boundaries and edition-specific `all`
-rules recorded here.
+Public occurrence accessors and retirement of the `uint64` methods belong to the
+schema API migration boundary. Schema mapping, including `0/0` absence, belongs
+to component construction; bounded materialization and repetition belong to
+validation; bounded repeated emission belongs to code generation. These
+responsibilities preserve the phase boundaries and edition-specific `all` rules
+recorded here.
