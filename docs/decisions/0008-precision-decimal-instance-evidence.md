@@ -29,9 +29,12 @@ mutable discussion. [#83](https://github.com/goxdra/goxsd9/issues/83) and
 are not coupled to the instance runner. Local attributes are distinct from
 global attribute work in [#198](https://github.com/goxdra/goxsd9/issues/198).
 
-The runner preserves catalog order, exact lexical and value representations,
-source locations, and explicit unsupported behavior and diagnostics. It does not
-skip, approximate, relabel, or promote auxiliary evidence into conformance.
+This head performs catalog classification only; it does not execute auxiliary
+instances. A future runner must preserve catalog order, exact lexical and value
+representations, source locations, and explicit unsupported behavior and
+diagnostics. Future-runner packet detail remains in [#196](https://github.com/goxdra/goxsd9/issues/196)
+and [#211](https://github.com/goxdra/goxsd9/issues/211); it must not skip,
+approximate, relabel, or promote auxiliary evidence into conformance.
 
 The canonical catalog sources are [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml),
 which references [`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)
@@ -43,6 +46,4 @@ and [`ibmData/instance_invalid/D3_3_4/`](../../testdata/w3c/xsdtests/ibmData/ins
 its paired schema is invalid. The uncataloged Saxon `pdecimal001.n6.xml` is
 excluded.
 
-Execution retains the exact ledger and owner records at the linked issues and
-keeps the headline classification at 69 rows (50 Saxon plus 19 IBM; 24 expected
-valid plus 45 expected invalid).
+The selected auxiliary rows remain outside headline conformance.
