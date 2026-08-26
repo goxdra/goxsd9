@@ -41,7 +41,7 @@ records one-use head-bound challenge; Examiner JSON is versioned;
 `workflowctl` rejects wrong-head, stale, reused, malformed, or caller-selected
 results. Fresh context; receipts are evidence, not identity proof.
 Unresolved challenges survive head/body snapshot changes; complete equivalent trusted Examiner receipts become one logical round; all original comments/authenticated records remain in GitHub; expiry-only no-verdict resolution stays distinct; convergence alone grants no verdict/merge authority.
-REST squash-merge SHA-bound. Packet cleanup proves branch-bounded ownership, preserves artifacts, archives unrelated refs; deletion is exact, recover idempotent, and claim prune merge-proofed.
+Squash-merge SHA-bound. Packet-scoped cleanup inventories claims, checks inherited-trailer ownership; separately archives stale claims; unrelated refs untouched; exact deletion, idempotent recovery, merge-proofed pruning.
 
 GraphQL fallback: identical-head REST, fresh Examiner.
 GitHub-effective references validate close; exact merge proof binds primary to
