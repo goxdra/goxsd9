@@ -3194,7 +3194,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 			code:    diagnosticSchemaElementTypeUnresolvedCode,
 			specRef: schemaElementTypeXSD10SpecRef,
 			cause:   errSchemaElementTypeUnresolved,
-			primary: mustTestLoc(t, "root.xsd", 2, 3),
+			primary: mustTestLoc(t, "root.xsd", 2, 27),
 		},
 		{
 			name: "malformed QName",
@@ -3203,7 +3203,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 </xs:schema>`,
 			class:   FailureInvalid,
 			code:    invalidSchemaConditionalCode,
-			primary: mustTestLoc(t, "root.xsd", 2, 3),
+			primary: mustTestLoc(t, "root.xsd", 2, 27),
 		},
 		{
 			name: "unbound QName",
@@ -3212,7 +3212,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 </xs:schema>`,
 			class:   FailureInvalid,
 			code:    invalidSchemaConditionalCode,
-			primary: mustTestLoc(t, "root.xsd", 2, 3),
+			primary: mustTestLoc(t, "root.xsd", 2, 27),
 		},
 		{
 			name: "empty QName",
@@ -3221,7 +3221,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 </xs:schema>`,
 			class:   FailureInvalid,
 			code:    invalidSchemaCompositionCode,
-			primary: mustTestLoc(t, "root.xsd", 2, 3),
+			primary: mustTestLoc(t, "root.xsd", 2, 27),
 		},
 		{
 			name: "wrong kind",
@@ -3233,7 +3233,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 			code:    diagnosticSchemaElementTypeWrongKindCode,
 			specRef: schemaElementTypeXSD11SpecRef,
 			cause:   errSchemaElementTypeWrongKind,
-			primary: mustTestLoc(t, "root.xsd", 3, 3),
+			primary: mustTestLoc(t, "root.xsd", 3, 27),
 			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3)},
 		},
 		{
@@ -3247,7 +3247,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 			code:    diagnosticSchemaElementTypeAmbiguousCode,
 			specRef: schemaElementTypeXSD11SpecRef,
 			cause:   errSchemaElementTypeAmbiguous,
-			primary: mustTestLoc(t, "root.xsd", 4, 3),
+			primary: mustTestLoc(t, "root.xsd", 4, 27),
 			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3), mustTestLoc(t, "root.xsd", 3, 3)},
 		},
 		{
@@ -3261,7 +3261,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 			code:    diagnosticSchemaElementTypeAmbiguousCode,
 			specRef: schemaElementTypeXSD11SpecRef,
 			cause:   errSchemaElementTypeAmbiguous,
-			primary: mustTestLoc(t, "root.xsd", 4, 3),
+			primary: mustTestLoc(t, "root.xsd", 4, 27),
 			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3), mustTestLoc(t, "root.xsd", 3, 3)},
 		},
 		{
@@ -3272,7 +3272,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 </xs:schema>`,
 			class:       FailureUnsupported,
 			feature:     FeatureSchemaSyntax,
-			primary:     mustTestLoc(t, "root.xsd", 3, 3),
+			primary:     mustTestLoc(t, "root.xsd", 3, 27),
 			unsupported: true,
 		},
 		{
@@ -3282,7 +3282,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 </xs:schema>`,
 			class:       FailureUnsupported,
 			feature:     FeatureSchemaSyntax,
-			primary:     mustTestLoc(t, "root.xsd", 2, 3),
+			primary:     mustTestLoc(t, "root.xsd", 2, 27),
 			unsupported: true,
 		},
 	}

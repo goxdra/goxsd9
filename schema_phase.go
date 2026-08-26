@@ -1551,6 +1551,14 @@ func precisionDecimalRestrictionBase(element *syntaxElement) bool {
 	return base.Namespace() == xsdNamespaceURI && base.Local() == "precisionDecimal"
 }
 
+func directOrdinaryBuiltinScaleBase(element *syntaxElement) bool {
+	base := schemaRestrictionBaseName(element)
+	if base.Namespace() != xsdNamespaceURI {
+		return false
+	}
+	return base.Local() == "decimal" || base.Local() == "integer"
+}
+
 func schemaRestrictionBaseName(element *syntaxElement) QName {
 	attributes := syntaxAttributesByLocal(element, "base")
 	if len(attributes) != 1 {
@@ -1729,7 +1737,9 @@ func validateSimpleTypeRestrictionWithFacetBridge(element *syntaxElement, versio
 	if err := validateSimpleTypeRestrictionAttributes(element, &candidate); err != nil {
 		return err
 	}
-	if err := validateSimpleTypeRestrictionChildren(element, version, bridgeFacets, &candidate); err != nil {
+	enforceNonNegativeScale := !precisionDecimalRestrictionBase(element) &&
+		(!bridgeFacets || (version == XSDVersion10 && directOrdinaryBuiltinScaleBase(element)))
+	if err := validateSimpleTypeRestrictionChildren(element, version, bridgeFacets, enforceNonNegativeScale, &candidate); err != nil {
 		return err
 	}
 	return candidate.err()
@@ -1796,7 +1806,7 @@ func validateSimpleTypeRestrictionAttribute(element *syntaxElement, attribute sy
 	}
 }
 
-func validateSimpleTypeRestrictionChildren(element *syntaxElement, version XSDVersion, bridgeFacets bool, candidate *schemaChildUnsupportedCandidate) error {
+func validateSimpleTypeRestrictionChildren(element *syntaxElement, version XSDVersion, bridgeFacets, enforceNonNegativeScale bool, candidate *schemaChildUnsupportedCandidate) error {
 	children, err := collectSimpleTypeRestrictionChildren(element, version, candidate)
 	if err != nil {
 		return err
@@ -1809,7 +1819,7 @@ func validateSimpleTypeRestrictionChildren(element *syntaxElement, version XSDVe
 	baseSeen := len(syntaxAttributesByLocal(element, "base")) > 0
 	facetSeen := make(map[string]bool)
 	for _, child := range children {
-		if err := validateSimpleTypeRestrictionChild(child, &annotationSeen, &contentSeen, &totalSeen, &fractionSeen, &inlineSeen, baseSeen, facetSeen, version, bridgeFacets); err != nil {
+		if err := validateSimpleTypeRestrictionChild(child, &annotationSeen, &contentSeen, &totalSeen, &fractionSeen, &inlineSeen, baseSeen, facetSeen, version, bridgeFacets, enforceNonNegativeScale); err != nil {
 			if candidate.considerError(err) {
 				continue
 			}
@@ -1852,7 +1862,7 @@ func collectSimpleTypeRestrictionChildren(element *syntaxElement, version XSDVer
 }
 
 //nolint:gocognit // Keep restriction ordering and recursive preflight together.
-func validateSimpleTypeRestrictionChild(child *syntaxElement, annotationSeen, contentSeen, totalSeen, fractionSeen, inlineSeen *bool, baseSeen bool, facetSeen map[string]bool, version XSDVersion, bridgeFacets bool) error {
+func validateSimpleTypeRestrictionChild(child *syntaxElement, annotationSeen, contentSeen, totalSeen, fractionSeen, inlineSeen *bool, baseSeen bool, facetSeen map[string]bool, version XSDVersion, bridgeFacets, enforceNonNegativeScale bool) error {
 	if child.name.namespace != xsdNamespaceURI {
 		if version == XSDVersion10 {
 			return newSchemaCompositionDiagnostic(child.loc, "simple type restriction contains a forbidden foreign child")
@@ -1883,23 +1893,11 @@ func validateSimpleTypeRestrictionChild(child *syntaxElement, annotationSeen, co
 		}
 		return newSchemaSyntaxUnsupported(child.loc, "inline anonymous simple types in restrictions are not implemented")
 	}
-	return validateSimpleTypeRestrictionFacet(child, totalSeen, fractionSeen, facetSeen, version, bridgeFacets)
+	return validateSimpleTypeRestrictionFacet(child, totalSeen, fractionSeen, facetSeen, version, bridgeFacets, enforceNonNegativeScale)
 }
 
 //nolint:gocognit // Keep facet classification and lexical preflight together.
-func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractionSeen *bool, facetSeen map[string]bool, version XSDVersion, bridgeFacets bool) error {
-	if !bridgeFacets && (child.name.local == "minScale" || child.name.local == "maxScale") {
-		valueAttributes := syntaxAttributesByLocal(child, "value")
-		if len(valueAttributes) == 1 {
-			value, err := ParseStrictInteger(collapseXMLWhitespace(valueAttributes[0].value), valueAttributes[0].loc)
-			if err != nil {
-				return err
-			}
-			if value.Sign() < 0 {
-				return newSchemaCompositionDiagnostic(valueAttributes[0].loc, child.name.local+" facet value must be non-negative")
-			}
-		}
-	}
+func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractionSeen *bool, facetSeen map[string]bool, version XSDVersion, bridgeFacets, enforceNonNegativeScale bool) error {
 	switch child.name.local {
 	case "totalDigits":
 		if *totalSeen {
@@ -1938,7 +1936,7 @@ func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractio
 			}
 			facetSeen[child.name.local] = true
 			var candidate schemaChildUnsupportedCandidate
-			if err := validateSimpleTypeFacetAttributes(child, &candidate); err != nil {
+			if err := validateSimpleTypeFacetAttributes(child, &candidate, enforceNonNegativeScale); err != nil {
 				return err
 			}
 			if err := validateSimpleTypeFacetChildren(child, &candidate); err != nil {
@@ -2124,7 +2122,7 @@ func repeatedSimpleTypeFacetAllowed(local string, version XSDVersion) bool {
 }
 
 //nolint:gocognit,funlen // Keep recognized facet attribute and value checks together.
-func validateSimpleTypeFacetAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
+func validateSimpleTypeFacetAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate, enforceNonNegativeScale bool) error {
 	if err := validateUniqueSchemaAttributes(element, "value", "fixed", "id"); err != nil {
 		return err
 	}
@@ -2181,7 +2179,9 @@ func validateSimpleTypeFacetAttributes(element *syntaxElement, candidate *schema
 		if parseErr != nil {
 			return parseErr
 		}
-		_ = parsed
+		if enforceNonNegativeScale && parsed.Sign() < 0 {
+			return newSchemaCompositionDiagnostic(value.loc, element.name.local+" facet value must be non-negative")
+		}
 	case "precision":
 		parsed, parseErr := ParseStrictInteger(collapseXMLWhitespace(value.value), value.loc)
 		if parseErr != nil {
@@ -2534,6 +2534,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	if err := validateConditionalQNameForSchema(element, baseAttributes[0]); err != nil {
 		return err
 	}
+	enforceNonNegativeScale := !precisionDecimalRestrictionBase(element)
 	for _, attribute := range element.attrs {
 		if attribute.name.namespace == xsdVersioningNamespaceURI {
 			continue
@@ -2592,7 +2593,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if !simpleRestriction || attributesSeen || anyAttributeSeen || assertSeen {
 				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" facet is not permitted here")
 			}
-			if err := validateSimpleTypeRestrictionFacet(child, &totalSeen, &fractionSeen, facetSeen, version, false); err != nil && !candidate.considerError(err) {
+			if err := validateSimpleTypeRestrictionFacet(child, &totalSeen, &fractionSeen, facetSeen, version, false, enforceNonNegativeScale); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "openContent":

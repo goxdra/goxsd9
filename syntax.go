@@ -113,6 +113,7 @@ type syntaxDecoder struct {
 	source           SourceID
 	decoder          *xml.Decoder
 	positions        *syntaxPositionReader
+	lexical          *xmlLexicalReader
 	deferUnsupported bool
 
 	root       *syntaxElement
@@ -141,12 +142,14 @@ func decodeSyntax(reader io.ReadCloser, config syntaxDecodeConfig) (document *sy
 	}
 
 	positions := newSyntaxPositionReader(config.sourceID, reader)
-	decoder := xml.NewDecoder(positions)
+	lexical := newXMLLexicalReader(positions)
+	decoder := xml.NewDecoder(lexical)
 	decoder.Strict = true
 	parser := syntaxDecoder{
 		source:           config.sourceID,
 		decoder:          decoder,
 		positions:        positions,
+		lexical:          lexical,
 		deferUnsupported: config.deferUnsupported,
 	}
 
@@ -201,7 +204,9 @@ func (parser *syntaxDecoder) decode() (*syntaxDocument, error) {
 	for {
 		offset := parser.decoder.InputOffset()
 		loc := parser.positions.locAt(offset)
+		parser.lexical.beginCapture(offset)
 		token, err := parser.decoder.RawToken()
+		rawToken := parser.lexical.endCapture(parser.decoder.InputOffset())
 		if err != nil {
 			return parser.handleTokenError(err, loc)
 		}
@@ -214,16 +219,16 @@ func (parser *syntaxDecoder) decode() (*syntaxDocument, error) {
 				nil,
 			)
 		}
-		if err := parser.handleToken(token, loc); err != nil {
+		if err := parser.handleToken(token, loc, rawToken); err != nil {
 			return nil, err
 		}
 	}
 }
 
-func (parser *syntaxDecoder) handleToken(token xml.Token, loc Loc) error {
+func (parser *syntaxDecoder) handleToken(token xml.Token, loc Loc, rawToken []byte) error {
 	switch value := token.(type) {
 	case xml.StartElement:
-		return parser.startElement(value, loc)
+		return parser.startElement(value, loc, rawToken)
 	case xml.EndElement:
 		return parser.endElement(value, loc)
 	case xml.CharData:
@@ -295,8 +300,12 @@ func (parser *syntaxDecoder) handleTokenError(err error, loc Loc) (*syntaxDocume
 	)
 }
 
-func (parser *syntaxDecoder) startElement(token xml.StartElement, loc Loc) error {
-	scope, err := childSyntaxScope(parser.currentScope(), token.Attr, loc)
+func (parser *syntaxDecoder) startElement(token xml.StartElement, loc Loc, rawToken []byte) error {
+	attributeLocs, attributeLocsOK := rawXMLStartTagAttributeLocs(rawToken, loc)
+	if !attributeLocsOK || len(attributeLocs) != len(token.Attr) {
+		attributeLocs = nil
+	}
+	scope, err := childSyntaxScopeWithLocations(parser.currentScope(), token.Attr, loc, attributeLocs)
 	if err != nil {
 		return err
 	}
@@ -331,7 +340,7 @@ func (parser *syntaxDecoder) startElement(token xml.StartElement, loc Loc) error
 		}
 	}
 
-	attrs, err := syntaxAttributes(token.Attr, scope, loc)
+	attrs, err := syntaxAttributes(token.Attr, scope, loc, attributeLocs)
 	if err != nil {
 		return err
 	}
@@ -546,10 +555,6 @@ var supportedSyntaxElements = map[string]struct{}{
 	"unique":           {},
 }
 
-func childSyntaxScope(parent *syntaxScope, attrs []xml.Attr, loc Loc) (*syntaxScope, error) {
-	return childSyntaxScopeWithLocations(parent, attrs, loc, nil)
-}
-
 func childSyntaxScopeWithLocations(parent *syntaxScope, attrs []xml.Attr, loc Loc, attributeLocs []Loc) (*syntaxScope, error) {
 	bindings := make([]syntaxBinding, 0)
 	for attrIndex, attr := range attrs {
@@ -651,14 +656,15 @@ func resolveSyntaxName(name xml.Name, scope *syntaxScope, element bool, loc Loc)
 	return syntaxName{namespace: namespace, local: name.Local}, nil
 }
 
-func syntaxAttributes(attrs []xml.Attr, scope *syntaxScope, loc Loc) ([]syntaxAttribute, error) {
+func syntaxAttributes(attrs []xml.Attr, scope *syntaxScope, loc Loc, attributeLocs []Loc) ([]syntaxAttribute, error) {
 	result := make([]syntaxAttribute, 0, len(attrs))
 	seen := make([]syntaxName, 0, len(attrs))
-	for _, attr := range attrs {
+	for attrIndex, attr := range attrs {
 		if _, ok := namespaceDeclaration(attr); ok {
 			continue
 		}
-		name, err := resolveSyntaxName(attr.Name, scope, false, loc)
+		attributeLoc := syntaxAttributeLoc(attributeLocs, attrIndex, loc)
+		name, err := resolveSyntaxName(attr.Name, scope, false, attributeLoc)
 		if err != nil {
 			return nil, err
 		}
@@ -667,16 +673,23 @@ func syntaxAttributes(attrs []xml.Attr, scope *syntaxScope, loc Loc) ([]syntaxAt
 				return nil, newDiagnostic(
 					FailureInvalid,
 					InvalidXMLSyntaxCode,
-					loc,
+					attributeLoc,
 					fmt.Sprintf("duplicate attribute %q", renderSyntaxName(name)),
 					nil,
 				)
 			}
 		}
 		seen = append(seen, name)
-		result = append(result, syntaxAttribute{name: name, value: attr.Value, loc: loc})
+		result = append(result, syntaxAttribute{name: name, value: attr.Value, loc: attributeLoc})
 	}
 	return result, nil
+}
+
+func syntaxAttributeLoc(attributeLocs []Loc, index int, fallback Loc) Loc {
+	if index >= 0 && index < len(attributeLocs) && !attributeLocs[index].IsZero() {
+		return attributeLocs[index]
+	}
+	return fallback
 }
 
 func renderSyntaxName(name syntaxName) string {

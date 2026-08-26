@@ -143,6 +143,215 @@ func TestLanguagePolicyDigitFacetDiagnosticsUseSelectedEdition(t *testing.T) {
 	}
 }
 
+func TestGlobalOrdinaryScaleFacetNegativeValuesRemainInvalidAcrossProfiles(t *testing.T) {
+	profiles := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	}
+	for _, profile := range profiles {
+		for _, base := range []string{"decimal", "integer"} {
+			for _, facet := range []string{"minScale", "maxScale"} {
+				name := profile.name + "/xs:" + base + "/" + facet
+				t.Run(name, func(t *testing.T) {
+					root := globalScaleFacetSchema(base, facet, "-1")
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					assertInvalidScaleFacet(t, schema, err, invalidSchemaCompositionCode, 4, 20)
+				})
+			}
+		}
+	}
+}
+
+func TestGlobalOrdinaryScaleFacetMalformedValuesRemainInvalidAcrossProfiles(t *testing.T) {
+	profiles := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	}
+	for _, profile := range profiles {
+		for _, base := range []string{"decimal", "integer"} {
+			for _, facet := range []string{"minScale", "maxScale"} {
+				name := profile.name + "/xs:" + base + "/" + facet
+				t.Run(name, func(t *testing.T) {
+					root := globalScaleFacetSchema(base, facet, "not-an-integer")
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					assertInvalidScaleFacet(t, schema, err, InvalidIntegerLexicalCode, 4, 20)
+				})
+			}
+		}
+	}
+}
+
+func TestStrict10GlobalOrdinaryScaleFacetNonNegativeValuesRetainMismatch(t *testing.T) { //nolint:gocognit // exercise each profile/base/facet sign combination.
+	for _, value := range []string{"-0", "1"} {
+		for _, base := range []string{"decimal", "integer"} {
+			for _, facet := range []string{"minScale", "maxScale"} {
+				name := value + "/xs:" + base + "/" + facet
+				t.Run(name, func(t *testing.T) {
+					root := globalScaleFacetSchema(base, facet, value)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+					if err == nil || schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+						t.Fatal("valid Strict10 mismatch was accepted or returned a schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != UnsupportedDatatypeFacetCode {
+						t.Fatalf("diagnostic = %s/%q/%q, want datatype facet mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
+					}
+					if diagnostic.SpecRef() != "xsd11-datatypes#decimal" || diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 4 || diagnostic.Loc().Column() != 7 {
+						t.Fatalf("diagnostic metadata = %s/%q, want xsd11 decimal mismatch at root.xsd:4:7", diagnostic, diagnostic.SpecRef())
+					}
+					if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errLanguagePolicyMismatch) {
+						t.Fatalf("mismatch lost unsupported or policy cause: %v", err)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestStrict10GlobalOrdinaryNegativeScalePrecedesUnknownChild(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item">
+    <xs:restriction base="xs:decimal">
+      <xs:minScale value="-1"><xs:unknown/></xs:minScale>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	assertInvalidScaleFacet(t, schema, err, invalidSchemaCompositionCode, 4, 20)
+}
+
+func globalScaleFacetSchema(base, facet, value string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item">
+    <xs:restriction base="xs:` + base + `">
+      <xs:` + facet + ` value="` + value + `"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`
+}
+
+func assertInvalidScaleFacet(t *testing.T, schema Schema, err error, code string, line, column int) {
+	t.Helper()
+	if err == nil || schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+		t.Fatal("invalid scale facet was accepted or returned a schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != code {
+		t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, code)
+	}
+	if diagnostic.Loc() != mustTestLoc(t, "root.xsd", line, column) {
+		t.Fatalf("diagnostic location = %s, want root.xsd:%d:%d", diagnostic.Loc(), line, column)
+	}
+	if diagnostic.Unwrap() != nil {
+		t.Fatalf("invalid scale facet retained a cause: %v", diagnostic.Unwrap())
+	}
+	if errors.Is(err, errLanguagePolicyMismatch) || errors.Is(err, ErrUnsupported) {
+		t.Fatalf("invalid scale facet retained unsupported cause: %v", err)
+	}
+}
+
+func TestLanguagePolicyPrecisionDecimalScaleSignsRemainProfileAware(t *testing.T) { //nolint:gocognit // assert profile-specific schema and facet outcomes.
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:simpleType name="item">
+    <xs:restriction base="xs:precisionDecimal">
+      <xs:minScale value="-2"/>
+      <xs:maxScale value="4"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`
+	for _, profile := range []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	} {
+		t.Run(profile.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if profile.policy == Strict10 {
+				if err == nil || schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+					t.Fatal("Strict10 precisionDecimal was accepted or returned a schema")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != diagnosticSchemaPrecisionDecimalVersionCode {
+					t.Fatalf("diagnostic = %s/%q/%q, want precisionDecimal version mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
+				}
+				if diagnostic.SpecRef() != "xsd11-datatypes#dt-primitive" || diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 3 || diagnostic.Loc().Column() != 5 {
+					t.Fatalf("diagnostic metadata = %s/%q, want xsd11 precisionDecimal mismatch at root.xsd:3:5", diagnostic, diagnostic.SpecRef())
+				}
+				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errLanguagePolicyMismatch) {
+					t.Fatalf("precisionDecimal mismatch lost unsupported or policy cause: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			definition, ok := schema.Components()[0].SimpleType()
+			if !ok || !definition.HasPrecisionDecimalFacets() {
+				t.Fatal("precisionDecimal facets are missing")
+			}
+			facets := definition.PrecisionDecimalFacets()
+			if minScale, present := facets.MinScale(); !present || minScale.Canonical() != "-2" {
+				t.Fatalf("minScale = %s/%t, want -2/true", minScale.Canonical(), present)
+			}
+			if maxScale, present := facets.MaxScale(); !present || maxScale.Canonical() != "4" {
+				t.Fatalf("maxScale = %s/%t, want 4/true", maxScale.Canonical(), present)
+			}
+		})
+	}
+}
+
+func TestSimpleContentPrecisionDecimalScaleSignsRemainRecognizedInBridgeFalsePath(t *testing.T) { //nolint:gocognit // assert bridge-false policy and cause combinations.
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="item">
+    <xs:simpleContent>
+      <xs:restriction base="xs:precisionDecimal">
+        <xs:minScale value="-1"/>
+      </xs:restriction>
+    </xs:simpleContent>
+  </xs:complexType>
+</xs:schema>`
+	for _, profile := range []struct {
+		name         string
+		policy       LanguagePolicy
+		wantMismatch bool
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10, wantMismatch: true},
+		{name: "Strict11", policy: Strict11},
+	} {
+		t.Run(profile.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err == nil || schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+				t.Fatal("simpleContent scale facet was accepted or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != UnsupportedDatatypeFacetCode {
+				t.Fatalf("diagnostic = %s/%q/%q, want datatype facet unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code())
+			}
+			if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 5 || diagnostic.Loc().Column() != 9 {
+				t.Fatalf("diagnostic location = %s, want root.xsd:5:9", diagnostic.Loc())
+			}
+			if errors.Is(err, errLanguagePolicyMismatch) != profile.wantMismatch {
+				t.Fatalf("policy mismatch = %t, want %t: %v", errors.Is(err, errLanguagePolicyMismatch), profile.wantMismatch, err)
+			}
+			if !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("unsupported cause was not preserved: %v", err)
+			}
+		})
+	}
+}
+
 func TestStrict10RecognizedXSD11ConstructsAreLocatedUnsupported(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -649,7 +858,7 @@ func TestStrict10InlineAndOuterMismatchLocationsRemainExact(t *testing.T) {
 			code:      UnsupportedSchemaSyntaxCode,
 			specRef:   "xsd11-structures#cSchemaDocument",
 			line:      2,
-			column:    71,
+			column:    87,
 			wantCause: true,
 		},
 		{
@@ -661,7 +870,7 @@ func TestStrict10InlineAndOuterMismatchLocationsRemainExact(t *testing.T) {
 			code:      UnsupportedSchemaSyntaxCode,
 			specRef:   "xsd11-structures#cSchemaDocument",
 			line:      2,
-			column:    31,
+			column:    53,
 			wantCause: true,
 		},
 	}
@@ -897,30 +1106,35 @@ func TestStrict10AllChildMismatchUsesLexicalAttributeOrder(t *testing.T) {
 		child       string
 		wantCode    string
 		wantMessage string
+		wantColumn  int
 	}{
 		{
 			name:        "element targetNamespace before maxOccurs",
 			child:       `<xs:element name="v" targetNamespace="urn:t" maxOccurs="2"/>`,
 			wantCode:    UnsupportedSchemaSyntaxCode,
 			wantMessage: "local element targetNamespace is an XSD 1.1-only construct",
+			wantColumn:  60,
 		},
 		{
 			name:        "element maxOccurs before targetNamespace",
 			child:       `<xs:element name="v" maxOccurs="2" targetNamespace="urn:t"/>`,
 			wantCode:    diagnosticSchemaAllOccurrenceVersionCode,
 			wantMessage: "all element maxOccurs greater than 1 is an XSD 1.1-only construct",
+			wantColumn:  60,
 		},
 		{
 			name:        "any notNamespace before maxOccurs",
 			child:       `<xs:any notNamespace="##local" maxOccurs="2"/>`,
 			wantCode:    UnsupportedSchemaSyntaxCode,
 			wantMessage: "any notNamespace is an XSD 1.1-only construct",
+			wantColumn:  47,
 		},
 		{
 			name:        "any maxOccurs before notNamespace",
 			child:       `<xs:any maxOccurs="2" notNamespace="##local"/>`,
 			wantCode:    diagnosticSchemaAllOccurrenceVersionCode,
 			wantMessage: "all any maxOccurs greater than 1 is an XSD 1.1-only construct",
+			wantColumn:  47,
 		},
 	}
 	for _, test := range tests {
@@ -942,8 +1156,8 @@ func TestStrict10AllChildMismatchUsesLexicalAttributeOrder(t *testing.T) {
 			if diagnostic.SpecRef() != "xsd11-structures#cSchemaDocument" {
 				t.Fatalf("diagnostic spec ref = %q, want xsd11-structures#cSchemaDocument", diagnostic.SpecRef())
 			}
-			if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() != 39 {
-				t.Fatalf("diagnostic location = %s, want root.xsd:2:39", diagnostic.Loc())
+			if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() != test.wantColumn {
+				t.Fatalf("diagnostic location = %s, want root.xsd:2:%d", diagnostic.Loc(), test.wantColumn)
 			}
 			if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
 				t.Fatalf("diagnostic lost mismatch or unsupported cause: %v", err)
@@ -964,13 +1178,13 @@ func TestStrict10AllChildOccurrencePrecedesLaterNestedMismatch(t *testing.T) {
 			name:        "element inline complexType",
 			child:       `<xs:element name="v" maxOccurs="2"><xs:complexType defaultAttributesApply="false"/></xs:element>`,
 			wantMessage: "all element maxOccurs greater than 1 is an XSD 1.1-only construct",
-			wantColumn:  39,
+			wantColumn:  60,
 		},
 		{
 			name:        "any annotation XML Base",
 			child:       `<xs:any maxOccurs="2"><xs:annotation xml:base="urn:test"/></xs:any>`,
 			wantMessage: "all any maxOccurs greater than 1 is an XSD 1.1-only construct",
-			wantColumn:  39,
+			wantColumn:  47,
 		},
 	}
 	for _, test := range tests {
@@ -2051,8 +2265,8 @@ func TestStrict10AlternativeMismatchPreservesEarlierChildMismatch(t *testing.T) 
 	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.SpecRef() != "xsd11-structures#cSchemaDocument" {
 		t.Fatalf("diagnostic = %s/%q/%q/%q, want inline child mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code(), diagnostic.SpecRef())
 	}
-	if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() != 79 {
-		t.Fatalf("diagnostic location = %s, want inline complexType at root.xsd:2:79", diagnostic.Loc())
+	if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() != 95 {
+		t.Fatalf("diagnostic location = %s, want inline complexType attribute at root.xsd:2:95", diagnostic.Loc())
 	}
 	if !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("alternative mismatch lost cause: %v", err)
