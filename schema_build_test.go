@@ -643,8 +643,8 @@ func TestSchemaBridgeRejectsNamesAndUnsupportedDirectRoots(t *testing.T) {
 		t.Fatal("discoverSchema returned a partial schema for redefine")
 	}
 	diagnostic := requireDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
-		t.Fatalf("redefine diagnostic = %s, want schema syntax unsupported", diagnostic)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != MissingSchemaLocationCode {
+		t.Fatalf("redefine diagnostic = %s, want missing schemaLocation", diagnostic)
 	}
 }
 
@@ -995,7 +995,7 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 		},
 		{
 			name:    "default open content is unsupported",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:defaultOpenContent/></xs:schema>`,
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:defaultOpenContent mode="interleave"><xs:any/></xs:defaultOpenContent></xs:schema>`,
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
 		},
@@ -1277,12 +1277,13 @@ func TestSchemaBridgeClassifiesVersionedChoiceElementSyntax(t *testing.T) {
 			specRef:  "xsd11-structures#cSchemaDocument",
 		},
 		{
-			name:     "XSD 1.0 local target namespace is invalid",
+			name:     "XSD 1.0 local target namespace is a strict mismatch",
 			version:  XSDVersion10,
 			policy:   Strict10,
 			particle: `<xs:element name="value" type="xs:integer" targetNamespace="urn:qualified"/>`,
-			class:    FailureInvalid,
-			code:     invalidSchemaCompositionCode,
+			class:    FailureUnsupported,
+			code:     UnsupportedSchemaSyntaxCode,
+			specRef:  "xsd11-structures#cSchemaDocument",
 		},
 		{
 			name:     "XSD 1.1 element alternative is unsupported",
@@ -1293,12 +1294,13 @@ func TestSchemaBridgeClassifiesVersionedChoiceElementSyntax(t *testing.T) {
 			specRef:  "xsd11-structures#cSchemaDocument",
 		},
 		{
-			name:     "XSD 1.0 element alternative is invalid",
+			name:     "XSD 1.0 element alternative is a strict mismatch",
 			version:  XSDVersion10,
 			policy:   Strict10,
 			particle: `<xs:element name="value"><xs:alternative type="xs:integer"/></xs:element>`,
-			class:    FailureInvalid,
-			code:     invalidSchemaCompositionCode,
+			class:    FailureUnsupported,
+			code:     UnsupportedSchemaSyntaxCode,
+			specRef:  "xsd11-structures#cSchemaDocument",
 		},
 		{
 			name:     "target namespace lexical failure remains invalid",
@@ -1528,11 +1530,12 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:   "explicitTimezone is invalid in XSD 1.0",
-			root:   wrapper(` version="1.0"`, `<xs:simpleType><xs:restriction base="xs:dateTime"><xs:explicitTimezone value="required"/></xs:restriction></xs:simpleType>`),
-			policy: Strict10,
-			class:  FailureInvalid,
-			code:   invalidSchemaCompositionCode,
+			name:    "explicitTimezone is a strict XSD 1.0 mismatch",
+			root:    wrapper(` version="1.0"`, `<xs:simpleType><xs:restriction base="xs:dateTime"><xs:explicitTimezone value="required"/></xs:restriction></xs:simpleType>`),
+			policy:  Strict10,
+			class:   FailureUnsupported,
+			feature: FeatureDatatypeFacets,
+			code:    UnsupportedDatatypeFacetCode,
 		},
 		{
 			name:  "minScale cannot be negative",
@@ -1648,11 +1651,12 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:   "XSD 1.0 all rejects zero max occurrences",
-			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:all minOccurs="0" maxOccurs="0"><xs:element name="item" type="xs:string"/></xs:all></xs:complexType>`),
-			policy: Strict10,
-			class:  FailureInvalid,
-			code:   invalidSchemaCompositionCode,
+			name:    "XSD 1.0 all zero max occurrences is a strict mismatch",
+			root:    wrapper(` version="1.0"`, `<xs:complexType><xs:all minOccurs="0" maxOccurs="0"><xs:element name="item" type="xs:string"/></xs:all></xs:complexType>`),
+			policy:  Strict10,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
 		},
 		{
 			name:   "XSD 1.0 all child occurrences are restricted",
@@ -1662,18 +1666,20 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:   invalidSchemaCompositionCode,
 		},
 		{
-			name:   "XSD 1.0 all rejects any children",
-			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:any/></xs:all></xs:complexType>`),
-			policy: Strict10,
-			class:  FailureInvalid,
-			code:   invalidSchemaCompositionCode,
+			name:    "XSD 1.0 all any child is a strict mismatch",
+			root:    wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:any/></xs:all></xs:complexType>`),
+			policy:  Strict10,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
 		},
 		{
-			name:   "XSD 1.0 all rejects group children",
-			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:group ref="xs:group"/></xs:all></xs:complexType>`),
-			policy: Strict10,
-			class:  FailureInvalid,
-			code:   invalidSchemaCompositionCode,
+			name:    "XSD 1.0 all group child is a strict mismatch",
+			root:    wrapper(` version="1.0"`, `<xs:complexType><xs:all><xs:group ref="xs:group"/></xs:all></xs:complexType>`),
+			policy:  Strict10,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
 		},
 		{
 			name:    "XSD 1.1 all permits any children as unfinished",
@@ -1872,11 +1878,12 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:   "inline complexType defaultAttributesApply is invalid in XSD 1.0",
-			root:   wrapper(` version="1.0"`, `<xs:complexType defaultAttributesApply="true"><xs:sequence/></xs:complexType>`),
-			policy: Strict10,
-			class:  FailureInvalid,
-			code:   invalidSchemaCompositionCode,
+			name:    "inline complexType defaultAttributesApply is a strict mismatch",
+			root:    wrapper(` version="1.0"`, `<xs:complexType defaultAttributesApply="true"><xs:sequence/></xs:complexType>`),
+			policy:  Strict10,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
 		},
 		{
 			name:    "inline complexType defaultAttributesApply is unsupported in XSD 1.1",
@@ -1934,11 +1941,12 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:   "local attribute targetNamespace is invalid in XSD 1.0",
-			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:attribute name="item" targetNamespace="urn:item"/></xs:complexType>`),
-			policy: Strict10,
-			class:  FailureInvalid,
-			code:   invalidSchemaCompositionCode,
+			name:    "local attribute targetNamespace is a strict mismatch",
+			root:    wrapper(` version="1.0"`, `<xs:complexType><xs:attribute name="item" targetNamespace="urn:item"/></xs:complexType>`),
+			policy:  Strict10,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
 		},
 		{
 			name:    "local attribute targetNamespace is unsupported in XSD 1.1",
@@ -1971,11 +1979,12 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:   "anyAttribute notQName is invalid in XSD 1.0",
-			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:anyAttribute notQName="xs:integer"/></xs:complexType>`),
-			policy: Strict10,
-			class:  FailureInvalid,
-			code:   invalidSchemaCompositionCode,
+			name:    "anyAttribute notQName is a strict mismatch",
+			root:    wrapper(` version="1.0"`, `<xs:complexType><xs:anyAttribute notQName="xs:integer"/></xs:complexType>`),
+			policy:  Strict10,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
 		},
 		{
 			name:    "anyAttribute wildcard is unsupported",
@@ -2002,11 +2011,12 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:   "any particle notQName is invalid in XSD 1.0",
-			root:   wrapper(` version="1.0"`, `<xs:complexType><xs:choice><xs:any notQName="xs:integer"/></xs:choice></xs:complexType>`),
-			policy: Strict10,
-			class:  FailureInvalid,
-			code:   invalidSchemaCompositionCode,
+			name:    "any particle notQName is a strict mismatch",
+			root:    wrapper(` version="1.0"`, `<xs:complexType><xs:choice><xs:any notQName="xs:integer"/></xs:choice></xs:complexType>`),
+			policy:  Strict10,
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+			code:    UnsupportedSchemaSyntaxCode,
 		},
 		{
 			name:  "local element abstract is forbidden",
@@ -3184,7 +3194,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 			code:    diagnosticSchemaElementTypeUnresolvedCode,
 			specRef: schemaElementTypeXSD10SpecRef,
 			cause:   errSchemaElementTypeUnresolved,
-			primary: mustTestLoc(t, "root.xsd", 2, 3),
+			primary: mustTestLoc(t, "root.xsd", 2, 27),
 		},
 		{
 			name: "malformed QName",
@@ -3193,7 +3203,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 </xs:schema>`,
 			class:   FailureInvalid,
 			code:    invalidSchemaConditionalCode,
-			primary: mustTestLoc(t, "root.xsd", 2, 3),
+			primary: mustTestLoc(t, "root.xsd", 2, 27),
 		},
 		{
 			name: "unbound QName",
@@ -3202,7 +3212,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 </xs:schema>`,
 			class:   FailureInvalid,
 			code:    invalidSchemaConditionalCode,
-			primary: mustTestLoc(t, "root.xsd", 2, 3),
+			primary: mustTestLoc(t, "root.xsd", 2, 27),
 		},
 		{
 			name: "empty QName",
@@ -3211,7 +3221,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 </xs:schema>`,
 			class:   FailureInvalid,
 			code:    invalidSchemaCompositionCode,
-			primary: mustTestLoc(t, "root.xsd", 2, 3),
+			primary: mustTestLoc(t, "root.xsd", 2, 27),
 		},
 		{
 			name: "wrong kind",
@@ -3223,7 +3233,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 			code:    diagnosticSchemaElementTypeWrongKindCode,
 			specRef: schemaElementTypeXSD11SpecRef,
 			cause:   errSchemaElementTypeWrongKind,
-			primary: mustTestLoc(t, "root.xsd", 3, 3),
+			primary: mustTestLoc(t, "root.xsd", 3, 27),
 			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3)},
 		},
 		{
@@ -3237,7 +3247,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 			code:    diagnosticSchemaElementTypeAmbiguousCode,
 			specRef: schemaElementTypeXSD11SpecRef,
 			cause:   errSchemaElementTypeAmbiguous,
-			primary: mustTestLoc(t, "root.xsd", 4, 3),
+			primary: mustTestLoc(t, "root.xsd", 4, 27),
 			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3), mustTestLoc(t, "root.xsd", 3, 3)},
 		},
 		{
@@ -3251,7 +3261,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 			code:    diagnosticSchemaElementTypeAmbiguousCode,
 			specRef: schemaElementTypeXSD11SpecRef,
 			cause:   errSchemaElementTypeAmbiguous,
-			primary: mustTestLoc(t, "root.xsd", 4, 3),
+			primary: mustTestLoc(t, "root.xsd", 4, 27),
 			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3), mustTestLoc(t, "root.xsd", 3, 3)},
 		},
 		{
@@ -3262,7 +3272,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 </xs:schema>`,
 			class:       FailureUnsupported,
 			feature:     FeatureSchemaSyntax,
-			primary:     mustTestLoc(t, "root.xsd", 3, 3),
+			primary:     mustTestLoc(t, "root.xsd", 3, 27),
 			unsupported: true,
 		},
 		{
@@ -3272,7 +3282,7 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 </xs:schema>`,
 			class:       FailureUnsupported,
 			feature:     FeatureSchemaSyntax,
-			primary:     mustTestLoc(t, "root.xsd", 2, 3),
+			primary:     mustTestLoc(t, "root.xsd", 2, 27),
 			unsupported: true,
 		},
 	}

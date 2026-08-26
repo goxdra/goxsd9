@@ -20,6 +20,7 @@ const (
 	diagnosticSchemaElementTypeAmbiguousCode    = "XSD3021"
 	diagnosticSchemaElementTypeUnsupportedCode  = "XSD3022"
 	diagnosticSchemaPrecisionDecimalVersionCode = "XSD3030"
+	diagnosticSchemaAllOccurrenceVersionCode    = diagnosticSchemaPrecisionDecimalVersionCode
 	diagnosticSchemaBridgeInvariantCode         = "GOXSD9025"
 )
 
@@ -39,6 +40,7 @@ var (
 	errSchemaElementTypeWrongKind     = errors.New("element type has the wrong kind")
 	errSchemaElementTypeAmbiguous     = errors.New("element type is ambiguous")
 	errSchemaPrecisionDecimalVersion  = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
+	errLanguagePolicyMismatch         = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
 type schemaTargetNamespace struct {
@@ -87,14 +89,14 @@ func newSchemaFromDiscoveryWithPolicy(discovery syntaxDiscoveryResult, policy La
 }
 
 func schemaDiscoveryNamespacesWithPolicy(documents []*syntaxDocument, policy LanguagePolicy) ([]schemaTargetNamespace, map[SourceID]int, error) {
-	version, err := xsdVersionForLanguagePolicy(policy)
+	err := validateLanguagePolicy(policy)
 	if err != nil {
 		return nil, nil, invalidLanguagePolicyDiagnostic(policy, err)
 	}
 	namespaces := make([]schemaTargetNamespace, len(documents))
 	sourceIndices := make(map[SourceID]int, len(documents))
 	for index, document := range documents {
-		if err := validateDiscoveredDocument(document, sourceIndices, version); err != nil {
+		if err := validateDiscoveredDocument(document, sourceIndices, policy); err != nil {
 			return nil, nil, err
 		}
 		namespace, err := syntaxDocumentTargetNamespace(document)
@@ -107,7 +109,7 @@ func schemaDiscoveryNamespacesWithPolicy(documents []*syntaxDocument, policy Lan
 	return namespaces, sourceIndices, nil
 }
 
-func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[SourceID]int, version XSDVersion) error {
+func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[SourceID]int, policy LanguagePolicy) error {
 	if document == nil || document.root == nil {
 		return newDiagnostic(
 			FailureInternal,
@@ -135,7 +137,7 @@ func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[Sour
 			nil,
 		)
 	}
-	return validateSyntaxDocumentStructureWithPolicy(document, version)
+	return validateSyntaxDocumentStructureWithPolicy(document, policy)
 }
 
 func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTargetNamespace) ([]schemaDocumentInput, error) {
@@ -1246,14 +1248,14 @@ func resolveBuiltinSchemaSimpleTypeBase(input *schemaSimpleTypeInput, version XS
 }
 
 func precisionDecimalSchemaVersionDiagnostic(loc Loc, name QName) Diagnostic {
-	return Diagnostic{
-		class:   FailureInvalid,
-		code:    diagnosticSchemaPrecisionDecimalVersionCode,
-		loc:     loc,
-		message: fmt.Sprintf("precisionDecimal type %q is not available under the selected XSD 1.0 policy", name),
-		specRef: "xsd11-datatypes#dt-primitive",
-		cause:   fmt.Errorf("%w: %q", errSchemaPrecisionDecimalVersion, name),
-	}
+	return newXSD11FeatureMismatchAtReference(
+		FeatureDatatypeFacets,
+		diagnosticSchemaPrecisionDecimalVersionCode,
+		loc,
+		fmt.Sprintf("precisionDecimal type %q is not available under the selected XSD 1.0 policy", name),
+		"xsd11-datatypes#dt-primitive",
+		fmt.Errorf("%w: %q", errSchemaPrecisionDecimalVersion, name),
+	)
 }
 
 func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeBase(input *schemaSimpleTypeInput, version XSDVersion) (schemaSimpleTypeBase, error) {
@@ -1467,8 +1469,16 @@ func schemaFacetValueLocation(input schemaFacetInput) Loc {
 }
 
 func unsupportedSchemaDatatypeFacet(input schemaFacetInput, version XSDVersion) error {
-	if err := validateOrdinarySchemaFacetInput(input, version); err != nil {
+	if err := validateOrdinarySchemaFacetInput(input); err != nil {
 		return err
+	}
+	if version == XSDVersion10 && isXSD11SimpleTypeFacet(schemaFacetName(input.kind)) {
+		return newXSD11FeatureMismatch(
+			FeatureDatatypeFacets,
+			UnsupportedDatatypeFacetCode,
+			input.loc,
+			fmt.Sprintf("simple type restriction facet <%s> is an XSD 1.1-only construct", schemaFacetName(input.kind)),
+		)
 	}
 	feature, ok := LookupUnsupportedFeature(FeatureDatatypeFacets)
 	if !ok {
@@ -1489,11 +1499,8 @@ func unsupportedSchemaDatatypeFacet(input schemaFacetInput, version XSDVersion) 
 	)
 }
 
-func validateOrdinarySchemaFacetInput(input schemaFacetInput, version XSDVersion) error {
+func validateOrdinarySchemaFacetInput(input schemaFacetInput) error {
 	valueLoc := schemaFacetValueLocation(input)
-	if version == XSDVersion10 && isXSD11SimpleTypeFacet(schemaFacetName(input.kind)) {
-		return newSchemaCompositionDiagnostic(input.loc, fmt.Sprintf("simple type restriction facet <%s> is not permitted in XSD 1.0", schemaFacetName(input.kind)))
-	}
 	switch input.kind {
 	case schemaFacetMinScale, schemaFacetMaxScale:
 		value, err := ParseStrictInteger(collapseXMLWhitespace(input.lexical), valueLoc)
@@ -1620,4 +1627,34 @@ func newSchemaSyntaxUnsupportedForVersion(loc Loc, message string, version XSDVe
 		)
 	}
 	return newUnsupportedForVersion(feature, UnsupportedSchemaSyntaxCode, loc, message, version)
+}
+
+func newXSD11FeatureMismatch(featureID FeatureID, code string, loc Loc, message string) Diagnostic {
+	return newXSD11FeatureMismatchAtReference(featureID, code, loc, message, "", nil)
+}
+
+func newXSD11FeatureMismatchAtReference(featureID FeatureID, code string, loc Loc, message, specRef string, cause error) Diagnostic {
+	feature, ok := LookupUnsupportedFeature(featureID)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticUnregisteredFeatureCode,
+			loc,
+			fmt.Sprintf("unsupported diagnostic references unregistered feature %q", featureID),
+			cause,
+		)
+	}
+	mismatchCause := fmt.Errorf("%w: feature %q is not available in the selected XSD 1.0 profile", errLanguagePolicyMismatch, featureID)
+	if cause != nil {
+		cause = errors.Join(cause, mismatchCause)
+	}
+	if cause == nil {
+		cause = mismatchCause
+	}
+	diagnostic := newUnsupportedForVersionWithCause(feature, code, loc, message, XSDVersion11, cause)
+	if diagnostic.Class() != FailureUnsupported || specRef == "" {
+		return diagnostic
+	}
+	diagnostic.specRef = specRef
+	return diagnostic
 }

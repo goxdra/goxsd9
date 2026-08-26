@@ -135,7 +135,7 @@ func TestParseSchemaWithPolicyUsesUniformGrammarAcrossGraph(t *testing.T) {
 		wantSource goxsd9.SourceID
 	}{
 		{name: "Compatibility", policy: goxsd9.Compatibility, class: goxsd9.FailureUnsupported, feature: goxsd9.FeatureSchemaSyntax, wantCode: goxsd9.UnsupportedSchemaSyntaxCode, wantSource: "child.xsd"},
-		{name: "Strict10", policy: goxsd9.Strict10, class: goxsd9.FailureInvalid, wantCode: "XSD3010", wantSource: "child.xsd"},
+		{name: "Strict10", policy: goxsd9.Strict10, class: goxsd9.FailureUnsupported, feature: goxsd9.FeatureSchemaSyntax, wantCode: goxsd9.UnsupportedSchemaSyntaxCode, wantSource: "child.xsd"},
 		{name: "Strict11", policy: goxsd9.Strict11, class: goxsd9.FailureUnsupported, feature: goxsd9.FeatureSchemaSyntax, wantCode: goxsd9.UnsupportedSchemaSyntaxCode, wantSource: "child.xsd"},
 	}
 	for _, test := range tests {

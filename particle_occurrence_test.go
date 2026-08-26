@@ -307,11 +307,14 @@ func TestParticleOccurrenceEditionRules(t *testing.T) {
 		maxPresent   bool
 		max          string
 		wantError    bool
+		wantClass    FailureClass
+		wantCode     string
+		wantMismatch bool
 		wantMessage  string
 		wantLocation string
 	}{
 		{
-			name:         "xsd10 all member rejects fixed maximum zero",
+			name:         "xsd10 all member reports fixed maximum zero as edition mismatch",
 			version:      XSDVersion10,
 			rule:         particleOccurrenceAllMemberRule,
 			minPresent:   true,
@@ -319,7 +322,10 @@ func TestParticleOccurrenceEditionRules(t *testing.T) {
 			maxPresent:   true,
 			max:          "0",
 			wantError:    true,
-			wantMessage:  "all element maxOccurs must be 1",
+			wantClass:    FailureUnsupported,
+			wantCode:     diagnosticSchemaAllOccurrenceVersionCode,
+			wantMismatch: true,
+			wantMessage:  "all element maxOccurs=0 is an XSD 1.1-only construct",
 			wantLocation: "maxOccurs",
 		},
 		{
@@ -354,11 +360,11 @@ func TestParticleOccurrenceEditionRules(t *testing.T) {
 			wantLocation: "element",
 		},
 		{
-			name:         "xsd10 all rejects group members",
+			name:         "xsd10 malformed all group member remains invalid",
 			version:      XSDVersion10,
 			rule:         particleOccurrenceAllGroupChildRule,
 			wantError:    true,
-			wantMessage:  "XSD 1.0 all particle permits only element children",
+			wantMessage:  "group particle requires a ref attribute",
 			wantLocation: "group",
 		},
 		{
@@ -412,7 +418,7 @@ func TestParticleOccurrenceEditionRules(t *testing.T) {
 			case particleOccurrenceAllParticleRule:
 				err = validateAllParticleOccurrences(element, "all particle", test.version)
 			case particleOccurrenceAllMemberRule:
-				err = validateAllParticleOccurrences(element, "all element", test.version)
+				err = validateAllChildParticleOccurrences(element, "all element", test.version)
 			case particleOccurrenceAllGroupRule:
 				err = validateAllGroupOccurrences(element, test.version)
 			case particleOccurrenceAllGroupChildRule:
@@ -433,8 +439,16 @@ func TestParticleOccurrenceEditionRules(t *testing.T) {
 			if !errors.As(err, &diagnostic) {
 				t.Fatalf("edition rule error = %v, want located diagnostic", err)
 			}
-			if diagnostic.Code() != invalidSchemaCompositionCode {
-				t.Fatalf("edition rule code = %s, want %s", diagnostic.Code(), invalidSchemaCompositionCode)
+			wantClass := test.wantClass
+			if wantClass == "" {
+				wantClass = FailureInvalid
+			}
+			wantCode := test.wantCode
+			if wantCode == "" {
+				wantCode = invalidSchemaCompositionCode
+			}
+			if diagnostic.Class() != wantClass || diagnostic.Code() != wantCode {
+				t.Fatalf("edition rule diagnostic = %s/%s, want %s/%s", diagnostic.Class(), diagnostic.Code(), wantClass, wantCode)
 			}
 			if diagnostic.Message() != test.wantMessage {
 				t.Fatalf("edition rule message = %q, want %q", diagnostic.Message(), test.wantMessage)
@@ -455,6 +469,9 @@ func TestParticleOccurrenceEditionRules(t *testing.T) {
 			}
 			if diagnostic.Loc() != wantLoc {
 				t.Fatalf("edition rule location = %s, want %s", diagnostic.Loc(), wantLoc)
+			}
+			if errors.Is(err, errLanguagePolicyMismatch) != test.wantMismatch {
+				t.Fatalf("edition rule policy mismatch = %t, want %t: %v", errors.Is(err, errLanguagePolicyMismatch), test.wantMismatch, err)
 			}
 		})
 	}
