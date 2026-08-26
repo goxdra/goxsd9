@@ -165,7 +165,7 @@ type evaluationResolution struct {
 
 type evaluationConvergenceSource struct {
 	CommentID           int64     `json:"commentID,omitempty"`
-	CommentIndex        int       `json:"commentIndex"`
+	CommentIndex        int       `json:"commentIndex,omitempty"` // Legacy data; CommentID is the stable identity.
 	CommentSHA256       string    `json:"commentSHA256"`
 	CommentCreatedAt    time.Time `json:"commentCreatedAt"`
 	ReceiptMarkerSHA256 string    `json:"receiptMarkerSHA256"`
@@ -487,7 +487,6 @@ func orderedEvaluationReceiptRecords(records []evaluationReceiptRecord) ([]evalu
 func evaluationConvergenceSourceForRecord(record evaluationReceiptRecord) evaluationConvergenceSource {
 	return evaluationConvergenceSource{
 		CommentID:           record.comment.ID,
-		CommentIndex:        record.commentIndex,
 		CommentSHA256:       sha256Hex([]byte(record.comment.Body)),
 		CommentCreatedAt:    record.comment.CreatedAt,
 		ReceiptMarkerSHA256: sha256Hex(record.marker),
@@ -502,29 +501,37 @@ func evaluationConvergenceSourceValid(source evaluationConvergenceSource) bool {
 }
 
 func evaluationConvergenceSourceMatchesRecord(source evaluationConvergenceSource, record evaluationReceiptRecord) bool {
-	return source.CommentID == record.comment.ID && source.CommentIndex == record.commentIndex &&
+	return source.CommentID == record.comment.ID &&
 		source.CommentSHA256 == sha256Hex([]byte(record.comment.Body)) &&
 		source.CommentCreatedAt.Equal(record.comment.CreatedAt) &&
 		source.ReceiptMarkerSHA256 == sha256Hex(record.marker) &&
 		source.RecordedAt.Equal(record.receipt.RecordedAt)
 }
 
-func evaluationReceiptRecordByCommentIndex(history evaluationHistory, commentIndex int) (evaluationReceiptRecord, bool) {
-	for _, record := range history.receipts {
-		if record.commentIndex == commentIndex {
-			return record, true
-		}
+func evaluationReceiptRecordByCommentID(history evaluationHistory, commentID int64) (evaluationReceiptRecord, bool) {
+	if commentID <= 0 {
+		return evaluationReceiptRecord{}, false
 	}
-	return evaluationReceiptRecord{}, false
+	var found evaluationReceiptRecord
+	for _, record := range history.receipts {
+		if record.comment.ID != commentID {
+			continue
+		}
+		if found.comment.ID != 0 {
+			return evaluationReceiptRecord{}, false
+		}
+		found = record
+	}
+	return found, found.comment.ID != 0
 }
 
-func evaluationConvergenceClosesReceipt(history evaluationHistory, facts evaluationReceiptFacts, commentIndex int) bool {
+func evaluationConvergenceClosesReceipt(history evaluationHistory, facts evaluationReceiptFacts, commentID int64) bool {
 	for _, record := range history.convergences {
 		if !equalEvaluationReceiptFacts(evaluationReceiptFactsForConvergence(record.convergence), facts) {
 			continue
 		}
 		for _, source := range record.convergence.Closed {
-			if source.CommentIndex == commentIndex {
+			if source.CommentID == commentID {
 				return true
 			}
 		}
@@ -593,7 +600,6 @@ func validateEvaluationConvergenceSources(history evaluationHistory, record eval
 	convergence := record.convergence
 	canonical := ordered[0]
 	if !evaluationConvergenceSourceValid(convergence.Canonical) ||
-		convergence.Canonical.CommentIndex != canonical.commentIndex ||
 		!evaluationConvergenceSourceMatchesRecord(convergence.Canonical, canonical) {
 		return errors.New("evaluation convergence canonical source does not bind the earliest trusted receipt")
 	}
@@ -650,13 +656,16 @@ func validateEvaluationConvergenceClosedSource(history evaluationHistory, record
 	if !evaluationConvergenceSourceValid(source) {
 		return evaluationReceiptRecord{}, errors.New("evaluation convergence contains an invalid trusted receipt source")
 	}
-	if source.CommentIndex == canonical.commentIndex || source.CommentIndex >= record.commentIndex {
+	if source.CommentID == canonical.comment.ID || source.CommentID == record.comment.ID {
 		return evaluationReceiptRecord{}, errors.New("evaluation convergence closes an invalid receipt position")
 	}
-	closed, found := evaluationReceiptRecordByCommentIndex(history, source.CommentIndex)
+	closed, found := evaluationReceiptRecordByCommentID(history, source.CommentID)
 	if !found || !evaluationReceiptsEquivalent(closed.receipt, canonical.receipt) ||
 		!evaluationConvergenceSourceMatchesRecord(source, closed) {
 		return evaluationReceiptRecord{}, errors.New("evaluation convergence source does not bind an equivalent trusted receipt")
+	}
+	if closed.commentIndex >= record.commentIndex {
+		return evaluationReceiptRecord{}, errors.New("evaluation convergence closes an invalid receipt position")
 	}
 	if source.CommentCreatedAt.After(record.comment.CreatedAt) {
 		return evaluationReceiptRecord{}, errors.New("evaluation convergence comment precedes a closed receipt")
@@ -698,7 +707,7 @@ func evaluationConvergenceMatchCount(convergences []evaluationConvergenceRecord,
 func validateEvaluationReceiptGroupClosure(history evaluationHistory, group evaluationReceiptGroup,
 	facts evaluationReceiptFacts, ordered []evaluationReceiptRecord) error {
 	for _, record := range ordered[1:] {
-		if !evaluationConvergenceClosesReceipt(history, facts, record.commentIndex) {
+		if !evaluationConvergenceClosesReceipt(history, facts, record.comment.ID) {
 			return &evaluationEquivalentReceiptError{group: group}
 		}
 	}
@@ -1701,7 +1710,7 @@ func evaluationHistoryConvergesFacts(history evaluationHistory, facts evaluation
 		return false
 	}
 	for _, record := range ordered[1:] {
-		if !evaluationConvergenceClosesReceipt(history, facts, record.commentIndex) {
+		if !evaluationConvergenceClosesReceipt(history, facts, record.comment.ID) {
 			return false
 		}
 	}

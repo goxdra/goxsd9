@@ -52,20 +52,26 @@ func TestEvaluationReceiptEquivalenceUsesOnlyAuthenticatedFacts(t *testing.T) {
 func TestEvaluationEquivalentReceiptsConvergeAndRemainInPhysicalHistory(t *testing.T) {
 	backend, application, stdout := newConvergenceWorkflowFixture(t)
 	challenge := requestTestChallenge(t, application, stdout)
+	appendOrdinaryWorkflowComment(t, backend, "ordinary comment before the first receipt")
 	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
 	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
 		t.Fatalf("record initial evaluation: %v", err)
 	}
+	firstReceipt := backend.comments[len(backend.comments)-1]
+	appendOrdinaryWorkflowComment(t, backend, "ordinary comment between equivalent receipts")
 	appendEquivalentWorkflowReceipt(t, backend)
-	physicalBodies := []string{backend.comments[1].Body, backend.comments[2].Body}
+	secondReceipt := backend.comments[len(backend.comments)-1]
+	physicalBodies := []string{firstReceipt.Body, secondReceipt.Body}
 	stdout.Reset()
 	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
 		t.Fatalf("converge equivalent evaluations: %v", err)
 	}
-	if got, want := len(backend.comments), 4; got != want {
+	if got, want := len(backend.comments), 6; got != want {
 		t.Fatalf("physical comment count = %d, want %d including convergence record", got, want)
 	}
-	if backend.comments[1].Body != physicalBodies[0] || backend.comments[2].Body != physicalBodies[1] {
+	if backend.comments[2].Body != physicalBodies[0] || backend.comments[4].Body != physicalBodies[1] ||
+		backend.comments[1].Body != "ordinary comment before the first receipt" ||
+		backend.comments[3].Body != "ordinary comment between equivalent receipts" {
 		t.Fatal("convergence rewrote or deleted an authenticated receipt comment")
 	}
 	history := workflowEvaluationHistory(t, backend, 14)
@@ -74,10 +80,13 @@ func TestEvaluationEquivalentReceiptsConvergeAndRemainInPhysicalHistory(t *testi
 			len(history.receipts), len(history.convergences))
 	}
 	convergence := history.convergences[0]
-	if convergence.convergence.Canonical.CommentID != backend.comments[1].ID ||
+	if convergence.convergence.Canonical.CommentID != firstReceipt.ID ||
 		len(convergence.convergence.Closed) != 1 ||
-		convergence.convergence.Closed[0].CommentID != backend.comments[2].ID {
+		convergence.convergence.Closed[0].CommentID != secondReceipt.ID {
 		t.Fatalf("convergence sources = %#v, want exact receipt comment IDs", convergence.convergence)
+	}
+	if strings.Contains(backend.comments[5].Body, `"commentIndex"`) {
+		t.Fatal("new convergence source persisted the filtered-slice index")
 	}
 	receipts, err := evaluationReceipts(physicalWorkflowComments(t, backend))
 	if err != nil {
@@ -92,6 +101,15 @@ func TestEvaluationEquivalentReceiptsConvergeAndRemainInPhysicalHistory(t *testi
 	}
 	if len(status.recordedRounds) != 1 || len(status.challenges) != 1 || !status.challenges[0].resolved {
 		t.Fatalf("converged status = %#v, want one resolved logical round", status)
+	}
+	packets, err := application.collectHistoryEvaluations(backend.root, []pullRequestSummary{
+		{Number: 14, MergedAt: time.Now().UTC().Add(time.Hour)},
+	})
+	if err != nil {
+		t.Fatalf("collect interleaved converged history: %v", err)
+	}
+	if len(packets) != 1 || len(packets[0].rounds) != 1 || packets[0].rounds[0].round != 1 {
+		t.Fatalf("interleaved history packets = %#v, want one logical round", packets)
 	}
 	stdout.Reset()
 	if err = application.runEvaluation([]string{"status", "14"}); err != nil {
@@ -124,7 +142,7 @@ func TestEvaluationEquivalentReceiptsConvergeAndRemainInPhysicalHistory(t *testi
 	if err = application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
 		t.Fatalf("idempotent convergence retry: %v", err)
 	}
-	if backend.commentPostCount != postCount || len(backend.comments) != 4 {
+	if backend.commentPostCount != postCount || len(backend.comments) != 6 {
 		t.Fatalf("idempotent retry mutated history: posts %d->%d comments=%d", postCount,
 			backend.commentPostCount, len(backend.comments))
 	}
@@ -224,10 +242,40 @@ func newConvergenceWorkflowFixture(t *testing.T) (*workflowBackend, *app, *bytes
 
 func appendEquivalentWorkflowReceipt(t *testing.T, backend *workflowBackend) {
 	t.Helper()
-	duplicate := backend.comments[1]
-	duplicate.ID = backend.comments[1].ID + 1
-	duplicate.CreatedAt = backend.comments[1].CreatedAt
+	receiptIndex := -1
+	for index, comment := range backend.comments {
+		if hasMarker(comment.Body, evaluationMarker) {
+			receiptIndex = index
+		}
+	}
+	if receiptIndex < 0 {
+		t.Fatal("equivalent receipt fixture has no receipt comment")
+	}
+	duplicate := backend.comments[receiptIndex]
+	duplicate.ID = nextWorkflowCommentID(backend.comments)
+	duplicate.CreatedAt = backend.comments[receiptIndex].CreatedAt
 	backend.comments = append(backend.comments, duplicate)
+}
+
+func appendOrdinaryWorkflowComment(t *testing.T, backend *workflowBackend, body string) {
+	t.Helper()
+	comment := issueCommentAPI{
+		ID:        nextWorkflowCommentID(backend.comments),
+		Body:      body,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+	}
+	comment.User.Login = owner
+	backend.comments = append(backend.comments, comment)
+}
+
+func nextWorkflowCommentID(comments []issueCommentAPI) int64 {
+	var next int64 = 1
+	for _, comment := range comments {
+		if comment.ID >= next {
+			next = comment.ID + 1
+		}
+	}
+	return next
 }
 
 func physicalWorkflowComments(t *testing.T, backend *workflowBackend) []pullRequestComment {
