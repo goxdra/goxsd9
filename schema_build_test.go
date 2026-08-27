@@ -2310,6 +2310,76 @@ func TestSchemaBridgeIgnoresForeignLocalNameCollisions(t *testing.T) {
 	}
 }
 
+func TestSchemaBridgeRejectsDuplicateGlobalElements(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:m="urn:missing" targetNamespace="urn:root">
+  <xs:element name="item"/>
+  <xs:element name="item"/>
+  <xs:element name="unresolved" type="m:Missing"/>
+</xs:schema>`
+	firstLoc := mustTestLoc(t, "root.xsd", 2, 3)
+	laterLoc := mustTestLoc(t, "root.xsd", 3, 3)
+	for _, test := range []struct {
+		name    string
+		policy  LanguagePolicy
+		specRef string
+	}{
+		{name: "Compatibility", policy: Compatibility, specRef: schemaElementDuplicateXSD11SpecRef},
+		{name: "Strict10", policy: Strict10, specRef: schemaElementDuplicateXSD10SpecRef},
+		{name: "Strict11", policy: Strict11, specRef: schemaElementDuplicateXSD11SpecRef},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var first Diagnostic
+			for iteration := 0; iteration < 3; iteration++ {
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+				diagnostic := requireSchemaElementDuplicateDiagnostic(t, schema, err, laterLoc, []Loc{firstLoc}, test.specRef)
+				if iteration == 0 {
+					first = diagnostic
+					continue
+				}
+				assertSameSchemaDiagnostic(t, first, diagnostic)
+			}
+		})
+	}
+
+	root = `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root">
+  <xs:include schemaLocation="child.xsd"/>
+  <xs:element name="item"/>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+		"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root">
+  <xs:element name="item"/>
+</xs:schema>`},
+	}, Strict11)
+	if diagnostic := requireSchemaElementDuplicateDiagnostic(t, schema, err, mustTestLoc(t, "child.xsd", 2, 3), []Loc{mustTestLoc(t, "root.xsd", 3, 3)}, schemaElementDuplicateXSD11SpecRef); diagnostic.Code() != diagnosticSchemaElementDuplicateCode {
+		t.Fatalf("composed diagnostic code = %q, want %q", diagnostic.Code(), diagnosticSchemaElementDuplicateCode)
+	}
+}
+
+func TestSchemaBridgeAcceptsGlobalElementNamesAcrossNamespaces(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root">
+  <xs:import namespace="urn:child" schemaLocation="child.xsd"/>
+  <xs:element name="item"/>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, map[string]discoveryFixture{
+		"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:child">
+  <xs:element name="item"/>
+</xs:schema>`},
+	})
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	if got, want := len(components), 2; got != want {
+		t.Fatalf("component count = %d, want %d", got, want)
+	}
+	if components[0].Name().Local() != components[1].Name().Local() {
+		t.Fatalf("local names = %q/%q, want equal names", components[0].Name().Local(), components[1].Name().Local())
+	}
+	if components[0].Name().Namespace() == components[1].Name().Namespace() {
+		t.Fatalf("namespaces = %q/%q, want distinct namespaces", components[0].Name().Namespace(), components[1].Name().Namespace())
+	}
+}
+
 func TestSchemaBridgeRejectsXMLNamespaceAliases(t *testing.T) {
 	for _, declaration := range []string{
 		`xmlns:xmlish="` + xmlNamespaceURI + `"`,

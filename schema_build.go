@@ -19,16 +19,19 @@ const (
 	diagnosticSchemaElementTypeWrongKindCode    = "XSD3020"
 	diagnosticSchemaElementTypeAmbiguousCode    = "XSD3021"
 	diagnosticSchemaElementTypeUnsupportedCode  = "XSD3022"
+	diagnosticSchemaElementDuplicateCode        = "XSD3023"
 	diagnosticSchemaPrecisionDecimalVersionCode = "XSD3030"
 	diagnosticSchemaAllOccurrenceVersionCode    = diagnosticSchemaPrecisionDecimalVersionCode
 	diagnosticSchemaBridgeInvariantCode         = "GOXSD9025"
 )
 
 const (
-	schemaSimpleTypeXSD10SpecRef  = "xsd10-structures#Simple_Type_Definitions"
-	schemaSimpleTypeXSD11SpecRef  = "xsd11-structures#Simple_Type_Definition"
-	schemaElementTypeXSD10SpecRef = "xsd10-structures#Element_Declaration_details"
-	schemaElementTypeXSD11SpecRef = "xsd11-structures#Element_Declaration_details"
+	schemaSimpleTypeXSD10SpecRef       = "xsd10-structures#Simple_Type_Definitions"
+	schemaSimpleTypeXSD11SpecRef       = "xsd11-structures#Simple_Type_Definition"
+	schemaElementTypeXSD10SpecRef      = "xsd10-structures#Element_Declaration_details"
+	schemaElementTypeXSD11SpecRef      = "xsd11-structures#Element_Declaration_details"
+	schemaElementDuplicateXSD10SpecRef = "xsd10-structures#c-nmd"
+	schemaElementDuplicateXSD11SpecRef = "xsd11-structures#c-nmd"
 )
 
 var (
@@ -39,6 +42,7 @@ var (
 	errSchemaElementTypeUnresolved    = errors.New("element type is unresolved")
 	errSchemaElementTypeWrongKind     = errors.New("element type has the wrong kind")
 	errSchemaElementTypeAmbiguous     = errors.New("element type is ambiguous")
+	errSchemaElementDuplicate         = errors.New("global element declaration is duplicated")
 	errSchemaPrecisionDecimalVersion  = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
 	errLanguagePolicyMismatch         = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
@@ -1279,6 +1283,25 @@ func unresolvedSchemaElementType(input *schemaElementInput, version XSDVersion) 
 		version,
 		errSchemaElementTypeUnresolved,
 	)
+}
+
+func newSchemaElementDuplicateDiagnostic(later, earliest schemaComponentRecord, version XSDVersion) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaElementDuplicateCode,
+		loc:     later.loc,
+		message: fmt.Sprintf("global element declaration %q is duplicated", later.name),
+		related: []Loc{earliest.loc},
+		specRef: schemaElementDuplicateSpecRef(version),
+		cause:   errSchemaElementDuplicate,
+	}
+}
+
+func schemaElementDuplicateSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaElementDuplicateXSD10SpecRef
+	}
+	return schemaElementDuplicateXSD11SpecRef
 }
 
 func wrongKindSchemaElementType(input *schemaElementInput, related []Loc, version XSDVersion) (schemaElementTypeResult, error) {

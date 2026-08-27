@@ -933,6 +933,9 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 	if err != nil {
 		return Schema{}, err
 	}
+	if duplicateErr := rejectDuplicateSchemaElements(records, version); duplicateErr != nil {
+		return Schema{}, duplicateErr
+	}
 	simpleTypes, err := resolveSchemaSimpleTypes(records, byName, version)
 	if err != nil {
 		return Schema{}, err
@@ -960,6 +963,21 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 		storage:   storage,
 		policy:    policy,
 	}, nil
+}
+
+func rejectDuplicateSchemaElements(records []schemaComponentRecord, version XSDVersion) error {
+	earliest := make(map[QName]int)
+	for index, record := range records {
+		if record.kind != ComponentKindElementDeclaration {
+			continue
+		}
+		first, ok := earliest[record.name]
+		if ok {
+			return newSchemaElementDuplicateDiagnostic(record, records[first], version)
+		}
+		earliest[record.name] = index
+	}
+	return nil
 }
 
 func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []schemaComponentRecord, map[QName][]int, error) {
