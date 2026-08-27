@@ -76,7 +76,11 @@ func newSchemaFromDiscoveryWithPolicy(discovery syntaxDiscoveryResult, policy La
 		return Schema{}, err
 	}
 
-	inputs, err := schemaDocumentInputs(discovery.documents, namespaces)
+	version, err := xsdVersionForLanguagePolicy(policy)
+	if err != nil {
+		return Schema{}, invalidLanguagePolicyDiagnostic(policy, err)
+	}
+	inputs, err := schemaDocumentInputs(discovery.documents, namespaces, version)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -140,10 +144,10 @@ func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[Sour
 	return validateSyntaxDocumentStructureWithPolicy(document, policy)
 }
 
-func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTargetNamespace) ([]schemaDocumentInput, error) {
+func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTargetNamespace, version XSDVersion) ([]schemaDocumentInput, error) {
 	inputs := make([]schemaDocumentInput, 0, len(documents))
 	for index, document := range documents {
-		declarations, err := schemaDocumentDeclarations(document, namespaces[index].value)
+		declarations, err := schemaDocumentDeclarations(document, namespaces[index].value, version)
 		if err != nil {
 			return nil, err
 		}
@@ -278,10 +282,10 @@ func validateSchemaImport(
 	return nil
 }
 
-func schemaDocumentDeclarations(document *syntaxDocument, targetNamespace string) ([]schemaComponentInput, error) {
+func schemaDocumentDeclarations(document *syntaxDocument, targetNamespace string, version XSDVersion) ([]schemaComponentInput, error) {
 	declarations := make([]schemaComponentInput, 0)
 	for _, node := range document.root.children {
-		declaration, present, err := schemaDocumentDeclaration(node, targetNamespace)
+		declaration, present, err := schemaDocumentDeclaration(node, targetNamespace, version)
 		if err != nil {
 			return nil, err
 		}
@@ -294,7 +298,7 @@ func schemaDocumentDeclarations(document *syntaxDocument, targetNamespace string
 }
 
 //nolint:gocognit // Keep root declaration classification and phase-specific input explicit.
-func schemaDocumentDeclaration(node syntaxNode, targetNamespace string) (schemaComponentInput, bool, error) {
+func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version XSDVersion) (schemaComponentInput, bool, error) {
 	textNode, ok := node.(syntaxText)
 	if ok {
 		if xmlWhitespace([]byte(textNode.data)) {
@@ -347,7 +351,7 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string) (schemaC
 		declaration.element = elementType
 	}
 	if kind == ComponentKindComplexTypeDefinition {
-		complexType, complexErr := schemaComplexTypeInputFromElement(element)
+		complexType, complexErr := schemaComplexTypeInputFromElement(element, version)
 		if complexErr != nil {
 			return schemaComponentInput{}, false, complexErr
 		}
@@ -382,29 +386,51 @@ func schemaElementTypeInput(element *syntaxElement) (*schemaElementInput, error)
 	}, nil
 }
 
-func schemaComplexTypeInputFromElement(element *syntaxElement) (*schemaComplexTypeInput, error) {
-	var choice *syntaxElement
+//nolint:gocognit // Keep choice and sequence input construction together.
+func schemaComplexTypeInputFromElement(element *syntaxElement, version XSDVersion) (*schemaComplexTypeInput, error) {
+	var model *syntaxElement
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
-		if !ok || child.name.local != "choice" {
+		if !ok || child.name.local != "choice" && child.name.local != "sequence" {
 			continue
 		}
-		choice = child
+		model = child
 		break
 	}
-	if choice == nil {
+	if model == nil {
 		return nil, nil
 	}
 
-	input := &schemaComplexTypeInput{
-		particle: &schemaChoiceParticleInput{
-			loc:          choice.loc,
-			minOccurs:    1,
-			maxOccurs:    1,
-			alternatives: make([]schemaElementParticleInput, 0),
-		},
+	occurrences, err := schemaParticleOccurrenceRange(model, version)
+	if err != nil {
+		return nil, err
 	}
-	for _, node := range choice.children {
+	if model.name.local == "choice" {
+		input := &schemaChoiceParticleInput{
+			loc:          model.loc,
+			occurrences:  occurrences,
+			alternatives: make([]schemaElementParticleInput, 0),
+		}
+		for _, node := range model.children {
+			child, ok := node.(*syntaxElement)
+			if !ok || child.name.local != "element" {
+				continue
+			}
+			alternative, err := schemaElementParticleInputFromElement(child, version)
+			if err != nil {
+				return nil, err
+			}
+			input.alternatives = append(input.alternatives, alternative)
+		}
+		return &schemaComplexTypeInput{particle: input}, nil
+	}
+
+	input := &schemaSequenceParticleInput{
+		loc:         model.loc,
+		occurrences: occurrences,
+		elements:    make([]schemaElementParticleInput, 0),
+	}
+	for _, node := range model.children {
 		child, ok := node.(*syntaxElement)
 		if !ok {
 			continue
@@ -412,35 +438,40 @@ func schemaComplexTypeInputFromElement(element *syntaxElement) (*schemaComplexTy
 		if child.name.local != "element" {
 			continue
 		}
-		alternative, err := schemaElementParticleInputFromElement(child)
+		alternative, err := schemaElementParticleInputFromElement(child, version)
 		if err != nil {
 			return nil, err
 		}
-		input.particle.alternatives = append(input.particle.alternatives, alternative)
+		input.elements = append(input.elements, alternative)
 	}
-	return input, nil
+	return &schemaComplexTypeInput{particle: input}, nil
 }
 
-func schemaElementParticleInputFromElement(element *syntaxElement) (schemaElementParticleInput, error) {
+func schemaElementParticleInputFromElement(element *syntaxElement, version XSDVersion) (schemaElementParticleInput, error) {
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
+	if err != nil {
+		return schemaElementParticleInput{}, err
+	}
 	nameAttributes := syntaxAttributesByLocal(element, "name")
 	if len(nameAttributes) != 1 {
-		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "choice element input has an invalid name attribute")
+		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "local element input has an invalid name attribute")
 	}
 	local := collapseXMLWhitespace(nameAttributes[0].value)
 	name, err := NewQName("", local)
 	if err != nil {
-		return schemaElementParticleInput{}, newSchemaBridgeInvariant(nameAttributes[0].loc, "construct local choice element name")
+		return schemaElementParticleInput{}, newSchemaBridgeInvariant(nameAttributes[0].loc, "construct local element name")
 	}
 	input := schemaElementParticleInput{
-		loc:  element.loc,
-		name: name,
+		loc:         element.loc,
+		name:        name,
+		occurrences: occurrences,
 	}
 	typeAttributes := syntaxAttributesByLocal(element, "type")
 	if len(typeAttributes) == 0 {
 		return input, nil
 	}
 	if len(typeAttributes) != 1 {
-		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "choice element type attribute is not unique")
+		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "local element type attribute is not unique")
 	}
 	declaredType, err := expandSchemaQName(element, typeAttributes[0])
 	if err != nil {
@@ -1056,48 +1087,157 @@ func resolveSchemaComplexTypes(
 		if record.complexType.particle == nil {
 			return nil, newSchemaBridgeInvariant(record.loc, "complex type resolution has no particle input")
 		}
-		alternatives := make([]Particle, 0, len(record.complexType.particle.alternatives))
-		for _, input := range record.complexType.particle.alternatives {
-			if input.typeInput == nil {
-				return nil, newSchemaSyntaxUnsupported(
-					input.loc,
-					"local choice elements without declared types are not implemented",
-				)
-			}
-			resolved, err := resolveSchemaScalarType(
-				input.typeInput,
-				records,
-				byName,
-				simpleTypes,
-				version,
-				"for local choice elements",
-			)
-			if err != nil {
-				return nil, err
-			}
-			facts := &schemaElementParticle{
-				loc:          input.loc,
-				minOccurs:    1,
-				maxOccurs:    1,
-				name:         input.name,
-				declaredType: resolved.declaredType,
-				typeID:       resolved.typeID,
-				hasTypeID:    resolved.hasTypeID,
-			}
-			alternatives = append(alternatives, ElementParticle{facts: facts})
-		}
-		choice := &schemaChoiceParticle{
-			loc:          record.complexType.particle.loc,
-			minOccurs:    record.complexType.particle.minOccurs,
-			maxOccurs:    record.complexType.particle.maxOccurs,
-			alternatives: alternatives,
+		particle, err := resolveSchemaComplexTypeParticle(
+			record.complexType.particle,
+			records,
+			byName,
+			simpleTypes,
+			version,
+		)
+		if err != nil {
+			return nil, err
 		}
 		results[index] = schemaComplexTypeResult{
 			present:  true,
-			particle: ChoiceParticle{facts: choice},
+			particle: particle,
 		}
 	}
 	return results, nil
+}
+
+func resolveSchemaComplexTypeParticle(
+	input schemaComplexTypeParticleInput,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
+) (Particle, error) {
+	switch particle := input.(type) {
+	case *schemaChoiceParticleInput:
+		if particle == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "choice particle input is nil")
+		}
+		return resolveSchemaChoiceParticle(particle, records, byName, simpleTypes, version)
+	case *schemaSequenceParticleInput:
+		if particle == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "sequence particle input is nil")
+		}
+		return resolveSchemaSequenceParticle(particle, records, byName, simpleTypes, version)
+	default:
+		return nil, newSchemaBridgeInvariant(Loc{}, "complex type has an unknown particle input")
+	}
+}
+
+func resolveSchemaChoiceParticle(
+	input *schemaChoiceParticleInput,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
+) (Particle, error) {
+	alternatives := make([]Particle, 0, len(input.alternatives))
+	for _, elementInput := range input.alternatives {
+		element, err := resolveSchemaElementParticle(
+			elementInput,
+			records,
+			byName,
+			simpleTypes,
+			version,
+			"choice",
+		)
+		if err != nil {
+			return nil, err
+		}
+		if element == nil {
+			continue
+		}
+		alternatives = append(alternatives, element)
+	}
+	choice := &schemaChoiceParticle{
+		loc:          input.loc,
+		occurrences:  input.occurrences.clone(),
+		alternatives: alternatives,
+	}
+	return ChoiceParticle{facts: choice}, nil
+}
+
+func resolveSchemaSequenceParticle(
+	input *schemaSequenceParticleInput,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
+) (Particle, error) {
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	elements := make([]ElementParticle, 0, len(input.elements))
+	for _, elementInput := range input.elements {
+		element, err := resolveSchemaElementParticle(
+			elementInput,
+			records,
+			byName,
+			simpleTypes,
+			version,
+			"sequence",
+		)
+		if err != nil {
+			return nil, err
+		}
+		if element == nil {
+			continue
+		}
+		resolved, ok := element.(ElementParticle)
+		if !ok {
+			return nil, newSchemaBridgeInvariant(input.loc, "sequence element resolution produced a non-element particle")
+		}
+		elements = append(elements, resolved)
+	}
+	sequence := &schemaSequenceParticle{
+		loc:         input.loc,
+		occurrences: input.occurrences.clone(),
+		elements:    elements,
+	}
+	return SequenceParticle{facts: sequence}, nil
+}
+
+func resolveSchemaElementParticle(
+	input schemaElementParticleInput,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
+	model string,
+) (Particle, error) {
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	if input.typeInput == nil {
+		return nil, newSchemaSyntaxUnsupported(
+			input.loc,
+			fmt.Sprintf("local %s elements without declared types are not implemented", model),
+		)
+	}
+	resolved, err := resolveSchemaScalarType(
+		input.typeInput,
+		records,
+		byName,
+		simpleTypes,
+		version,
+		"for local "+model+" elements",
+	)
+	if err != nil {
+		return nil, err
+	}
+	facts := &schemaElementParticle{
+		loc:          input.loc,
+		occurrences:  input.occurrences.clone(),
+		name:         input.name,
+		declaredType: resolved.declaredType,
+		typeID:       resolved.typeID,
+		hasTypeID:    resolved.hasTypeID,
+	}
+	return ElementParticle{facts: facts}, nil
 }
 
 func unresolvedSchemaElementType(input *schemaElementInput, version XSDVersion) (schemaElementTypeResult, error) {

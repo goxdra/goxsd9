@@ -267,7 +267,7 @@ func instanceSchemaElement(schema Schema, rootName QName, loc Loc) (ElementDecla
 	return declaration, nil
 }
 
-//nolint:gocognit,funlen // Keep complete choice-program validation in one phase.
+//nolint:funlen // Keep complete choice-program validation in one phase.
 func instanceChoiceProgramFor(
 	schema Schema,
 	declaration ElementDeclaration,
@@ -296,10 +296,11 @@ func instanceChoiceProgramFor(
 		)
 	}
 	related = appendInstanceRelated(relCopy(related), choice.Loc())
-	if choice.MinOccurs() != 1 || choice.MaxOccurs() != 1 {
+	choiceOccurrences := choice.Occurrences()
+	if !choiceOccurrences.IsDefault() {
 		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
 			choice.Loc(),
-			fmt.Sprintf("choice particle occurrence bounds %d/%d are outside instance validation", choice.MinOccurs(), choice.MaxOccurs()),
+			fmt.Sprintf("choice particle occurrence bounds %s are outside instance validation", choiceOccurrences),
 			related,
 			version,
 			errInstanceChoiceParticle,
@@ -319,10 +320,11 @@ func instanceChoiceProgramFor(
 				errInstanceChoiceParticle,
 			)
 		}
-		if element.MinOccurs() != 1 || element.MaxOccurs() != 1 {
+		elementOccurrences := element.Occurrences()
+		if !elementOccurrences.IsDefault() {
 			return instanceChoiceProgram{}, newInstanceValidationUnsupported(
 				element.Loc(),
-				fmt.Sprintf("choice alternative occurrence bounds %d/%d are outside instance validation", element.MinOccurs(), element.MaxOccurs()),
+				fmt.Sprintf("choice alternative occurrence bounds %s are outside instance validation", elementOccurrences),
 				appendInstanceRelated(relCopy(related), element.Loc()),
 				version,
 				errInstanceChoiceParticle,

@@ -97,16 +97,16 @@ each document. `Components`, `Documents`, `Find`, and `Walk` preserve that
 order; returned slices are copies. Component IDs combine a resolver source
 identity with a one-based declaration ordinal, while lookup maps are private
 indexes and never define observable order. Local particle components will be
-walked through a separate scoped model. The schema stores only component facts
-and lookup indexes, leaving validator and code-generator structures to be
-calculated on demand.
+walked through a separate scoped model. It stores component facts and lookup
+indexes; validator and generator state is calculated on demand.
 
-The model stores fundamental facts, not redundant flags. For example, primitive
-status is derived from the type relation rather than stored separately.
+The model stores fundamental facts; primitive status is derived from type
+relations.
 
-Particle alternatives are concrete types so callers and generated code can use
-Go type switches for element, sequence, choice, all, wildcard, and future
-variants.
+The current model exposes concrete `element`, `sequence`, and `choice` particles
+for type switches; broader variants remain future. Named complex types may
+expose one ordered sequence of local scalar elements with exact immutable
+occurrence ranges.
 
 ## Datatypes
 
@@ -129,9 +129,9 @@ behavior.
 `ValidateInstance` supports text-only built-in/named `integer`/`decimal`/
 `precisionDecimal` globals and global named-complex elements having one direct
 choice of local `integer`/`decimal`/`precisionDecimal` elements. Named types use
-`TypeID`/`Lookup`; built-ins use XSD 1.1 compatibility/default.
-Attributes, broader particles, and other staged semantics remain unsupported;
-instance locations are primary.
+`TypeID`/`Lookup`; built-ins use policy defaults. Direct scalar sequences are
+parsed and queryable but not validated. Attributes and broader particles remain
+unsupported; instance locations are primary.
 
 Code generation consumes only the public schema model. It produces deterministic
 formatted Go, uses type switches for choices, and never depends on map order.
