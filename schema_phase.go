@@ -1411,7 +1411,7 @@ func validateElementGlobalChildren(parent *syntaxElement, children []*syntaxElem
 			if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
 				return err
 			}
-			if !candidate.present {
+			if child.name.local == "complexType" && !candidate.present {
 				candidate.consider(child, parent.name.local)
 			}
 		case "alternative":
@@ -1623,7 +1623,7 @@ func validateSimpleTypeList(element *syntaxElement, version XSDVersion) error {
 	if candidate.present {
 		return candidate.err()
 	}
-	return newSchemaSyntaxUnsupported(element.loc, "simple type lists are not implemented")
+	return nil
 }
 
 func validateSimpleTypeListAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
@@ -1720,7 +1720,7 @@ func validateSimpleTypeUnion(element *syntaxElement, version XSDVersion) error {
 	if candidate.present {
 		return candidate.err()
 	}
-	return newSchemaSyntaxUnsupported(element.loc, "simple type unions are not implemented")
+	return nil
 }
 
 func validateSimpleTypeUnionAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
@@ -1896,7 +1896,7 @@ func validateSimpleTypeRestrictionChild(child *syntaxElement, annotationSeen, co
 		if err := validateInlineSchemaType(child, version); err != nil {
 			return err
 		}
-		return newSchemaSyntaxUnsupported(child.loc, "inline anonymous simple types in restrictions are not implemented")
+		return nil
 	}
 	return validateSimpleTypeRestrictionFacet(child, totalSeen, fractionSeen, facetSeen, version, bridgeFacets, enforceNonNegativeScale)
 }

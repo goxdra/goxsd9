@@ -53,6 +53,35 @@ func TestDecodeSyntaxBuildsOrderedLocatedTree(t *testing.T) {
 	}
 }
 
+func TestDecodeSyntaxAcceptsSimpleTypeUnion(t *testing.T) {
+	document := decodeTestSource(t, &trackingSource{data: []byte(
+		`<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="value"><xs:union memberTypes="xs:string"/></xs:simpleType></xs:schema>`,
+	)})
+	if len(document.root.children) != 1 {
+		t.Fatalf("root child count = %d, want 1", len(document.root.children))
+	}
+	simpleType, ok := document.root.children[0].(*syntaxElement)
+	if !ok {
+		t.Fatalf("root child = %T, want *syntaxElement", document.root.children[0])
+	}
+	if simpleType.name.local != "simpleType" {
+		t.Fatalf("root child name = %q, want simpleType", simpleType.name.local)
+	}
+	if len(simpleType.children) != 1 {
+		t.Fatalf("simpleType child count = %d, want 1", len(simpleType.children))
+	}
+	union, ok := simpleType.children[0].(*syntaxElement)
+	if !ok {
+		t.Fatalf("simpleType child = %T, want *syntaxElement", simpleType.children[0])
+	}
+	if union.name.local != "union" {
+		t.Fatalf("simpleType child name = %q, want union", union.name.local)
+	}
+	if union.loc.IsZero() {
+		t.Fatal("union location is missing")
+	}
+}
+
 func TestDecodeSyntaxRecordsExactAttributeNameLocations(t *testing.T) {
 	document := decodeTestSource(t, &trackingSource{data: []byte(
 		`<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"/>`,

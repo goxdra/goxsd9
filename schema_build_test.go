@@ -2426,11 +2426,6 @@ func TestSchemaBridgeEnforcesGlobalChildModels(t *testing.T) {
 			class: FailureInvalid,
 		},
 		{
-			name:  "simple type model is unsupported after grammar validation",
-			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:string"/></xs:simpleType></xs:schema>`,
-			class: FailureUnsupported,
-		},
-		{
 			name:  "simple type name is required before unsupported child",
 			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType></xs:schema>`,
 			class: FailureInvalid,
@@ -2882,16 +2877,6 @@ func TestSchemaBridgeReportsUnsupportedSimpleTypeFeatures(t *testing.T) {
 		specRef string
 	}{
 		{
-			name:    "list remains schema syntax",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:list itemType="xs:integer"/></xs:simpleType></xs:schema>`,
-			feature: FeatureSchemaSyntax,
-		},
-		{
-			name:    "union remains schema syntax",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:union memberTypes="xs:integer xs:decimal"/></xs:simpleType></xs:schema>`,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:    "XSD 1.0 datatype facet",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.0"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:pattern value="[0-9]+"/></xs:restriction></xs:simpleType></xs:schema>`,
 			policy:  Strict10,
@@ -2949,21 +2934,26 @@ func assertUnsupportedSimpleTypeFeature(t *testing.T, root string, policy Langua
 	}
 }
 
-func TestSchemaBridgeRejectsInlineSimpleTypeRestrictionAsUnsupported(t *testing.T) {
+func TestSchemaBridgeBuildsInlineSimpleTypeRestriction(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:restriction></xs:simpleType></xs:schema>`
 	schema, err := discoverTestSchema(t, root, nil)
-	if err == nil {
-		t.Fatal("discoverSchema accepted an unsupported inline simple type restriction")
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
 	}
-	if schema.storage != nil {
-		t.Fatal("discoverSchema returned a partial schema")
+	definition, ok := schema.Components()[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("simple type view is missing")
 	}
-	diagnostic := requireDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
-		t.Fatalf("diagnostic = %s (%q), want unsupported schema syntax", diagnostic, diagnostic.Feature())
+	base, ok := definition.BaseReference()
+	if !ok || !base.IsAnonymous() {
+		t.Fatalf("base reference = %#v, want anonymous", base)
 	}
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+	anonymous, ok := base.AnonymousType()
+	if !ok || !anonymous.IsAnonymous() || anonymous.Base().Local() != "integer" {
+		t.Fatalf("anonymous base model = %#v/%t", anonymous, ok)
+	}
+	if definition.Base().IsZero() == false {
+		t.Fatal("anonymous base unexpectedly exposed a named QName")
 	}
 }
 

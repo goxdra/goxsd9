@@ -471,6 +471,24 @@ func codegenNamedScalarKind(component Component) (DigitDatatype, error) {
 			"",
 		)
 	}
+	if definition.Variety() != SimpleTypeVarietyAtomicRestriction {
+		return "", newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has variety %q outside scalar Go generation", component.Name(), definition.Variety()),
+			appendCodegenRelated(nil, definition.VarietyLoc()),
+			fmt.Errorf("%w: simple type variety %q", errCodegenUnsupported, definition.Variety()),
+			codegenElementDefaultVersion,
+		)
+	}
+	if definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal {
+		return "", newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
+			appendCodegenRelated(nil, definition.BaseLoc()),
+			fmt.Errorf("%w: atomic datatype is outside scalar Go generation", errCodegenUnsupported),
+			codegenElementDefaultVersion,
+		)
+	}
 	facets := definition.DigitFacets()
 	if facets.Kind() != DigitDatatypeInteger && facets.Kind() != DigitDatatypeDecimal {
 		return "", newCodegenUnsupported(
