@@ -84,11 +84,10 @@ boundary:
 The current schema preflight uses this exact private range to validate lexical
 occurrence input. A named global complex type with one direct sequence of local
 named integer/decimal scalar elements maps the completed range and its ordered
-children into the public schema. Direct sequence precisionDecimal children
-remain unsupported under XSD 1.1 and Compatibility. An effective `0/0`
-sequence or child maps to absence. The same exact representation is retained
-for choice facts so explicit choice occurrences remain unsupported without
-narrowing their diagnostics.
+children into the public schema. An effective `0/0` sequence or child maps to
+absence. The same exact representation is retained for choice facts so
+explicit choice occurrences remain unsupported without narrowing their
+diagnostics.
 
 ## Public API migration
 
