@@ -518,3 +518,218 @@ func TestValidateInstanceRejectsBoundaryInputsAndDoesNotMutateSchema(t *testing.
 		t.Fatal("validation mutated the completed schema")
 	}
 }
+
+func TestValidateInstanceEnforcesAllNamedIntegerAndDecimalBounds(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">
+  <xs:element name="intMinInclusive" type="r:IntMinInclusive"/>
+  <xs:element name="intMinExclusive" type="r:IntMinExclusive"/>
+  <xs:element name="intMaxInclusive" type="r:IntMaxInclusive"/>
+  <xs:element name="intMaxExclusive" type="r:IntMaxExclusive"/>
+  <xs:element name="decimalMinInclusive" type="r:DecimalMinInclusive"/>
+  <xs:element name="decimalMinExclusive" type="r:DecimalMinExclusive"/>
+  <xs:element name="decimalMaxInclusive" type="r:DecimalMaxInclusive"/>
+  <xs:element name="decimalMaxExclusive" type="r:DecimalMaxExclusive"/>
+  <xs:element name="intRange" type="r:IntRange"/>
+  <xs:element name="decimalRange" type="r:DecimalRange"/>
+  <xs:simpleType name="IntMinInclusive"><xs:restriction base="xs:integer"><xs:minInclusive value="10"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="IntMinExclusive"><xs:restriction base="xs:integer"><xs:minExclusive value="10"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="IntMaxInclusive"><xs:restriction base="xs:integer"><xs:maxInclusive value="10"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="IntMaxExclusive"><xs:restriction base="xs:integer"><xs:maxExclusive value="10"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="DecimalMinInclusive"><xs:restriction base="xs:decimal"><xs:minInclusive value="10.00"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="DecimalMinExclusive"><xs:restriction base="xs:decimal"><xs:minExclusive value="10.00"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="DecimalMaxInclusive"><xs:restriction base="xs:decimal"><xs:maxInclusive value="10.00"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="DecimalMaxExclusive"><xs:restriction base="xs:decimal"><xs:maxExclusive value="10.00"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="IntRange"><xs:restriction base="xs:integer"><xs:minInclusive value="10"/><xs:maxExclusive value="20"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="DecimalRange"><xs:restriction base="xs:decimal"><xs:minExclusive value="1.20"/><xs:maxInclusive value="2.30"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	schema := validationTestSchema(t, root, nil)
+
+	valid := []struct {
+		name  string
+		value string
+	}{
+		{name: "intMinInclusive", value: "10"},
+		{name: "intMinExclusive", value: "11"},
+		{name: "intMaxInclusive", value: "10"},
+		{name: "intMaxExclusive", value: "9"},
+		{name: "decimalMinInclusive", value: "10.000"},
+		{name: "decimalMinExclusive", value: "10.01"},
+		{name: "decimalMaxInclusive", value: "10.000"},
+		{name: "decimalMaxExclusive", value: "9.99"},
+		{name: "intRange", value: "10"},
+		{name: "intRange", value: "19"},
+		{name: "decimalRange", value: "1.2001"},
+		{name: "decimalRange", value: "2.300"},
+	}
+	for _, test := range valid {
+		t.Run("valid/"+test.name+"/"+test.value, func(t *testing.T) {
+			input := `<` + test.name + ` xmlns="urn:root">` + test.value + `</` + test.name + `>`
+			if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+				t.Fatalf("ValidateInstance(%q): %v", input, err)
+			}
+		})
+	}
+
+	invalid := []struct {
+		name  string
+		value string
+	}{
+		{name: "intMinInclusive", value: "9"},
+		{name: "intMinExclusive", value: "10"},
+		{name: "intMaxInclusive", value: "11"},
+		{name: "intMaxExclusive", value: "10"},
+		{name: "decimalMinInclusive", value: "9.99"},
+		{name: "decimalMinExclusive", value: "10.00"},
+		{name: "decimalMaxInclusive", value: "10.01"},
+		{name: "decimalMaxExclusive", value: "10.00"},
+		{name: "intRange", value: "20"},
+		{name: "decimalRange", value: "1.20"},
+		{name: "decimalRange", value: "2.31"},
+	}
+	for _, test := range invalid {
+		t.Run("invalid/"+test.name+"/"+test.value, func(t *testing.T) {
+			input := `<` + test.name + ` xmlns="urn:root">` + test.value + `</` + test.name + `>`
+			diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+			if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != goxsd9.BoundValueViolationCode {
+				t.Fatalf("diagnostic = %s, want invalid bound-value violation", diagnostic)
+			}
+			if diagnostic.Loc() != validationTestTextLoc(t, input) {
+				t.Fatalf("Loc() = %s, want candidate text location", diagnostic.Loc())
+			}
+			if diagnostic.Unwrap() == nil {
+				t.Fatal("bound diagnostic lost its cause")
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep exact values, diagnostics, and deterministic validation checks together.
+func TestValidateInstancePreservesBoundDiagnosticsAndExactNumericValues(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="amount" type="r:Amount"/>
+  <xs:element name="hugeInteger" type="r:HugeInteger"/>
+  <xs:element name="zero" type="r:Zero"/>
+  <xs:simpleType name="Amount"><xs:restriction base="xs:decimal"><xs:minInclusive value="123456789012345678901234567890.120000"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="HugeInteger"><xs:restriction base="xs:integer"><xs:minInclusive value="999999999999999999999999999999999999"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="Zero"><xs:restriction base="xs:decimal"><xs:minInclusive value="-0.00"/><xs:maxInclusive value="0.000"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	schema := validationTestSchema(t, root, nil)
+
+	for _, input := range []string{
+		`<amount xmlns="urn:root">123456789012345678901234567890.12</amount>`,
+		`<hugeInteger xmlns="urn:root">+0999999999999999999999999999999999999</hugeInteger>`,
+		`<zero xmlns="urn:root">-0.000000</zero>`,
+	} {
+		if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+			t.Fatalf("ValidateInstance(%q): %v", input, err)
+		}
+	}
+
+	input := `<amount xmlns="urn:root">123456789012345678901234567890.119999</amount>`
+	diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+	if diagnostic.Code() != goxsd9.BoundValueViolationCode || diagnostic.SpecRef() != "xsd11-datatypes#cvc-minInclusive-valid" {
+		t.Fatalf("diagnostic = %s (%q), want XSD 1.1 minInclusive value violation", diagnostic, diagnostic.SpecRef())
+	}
+	if diagnostic.Loc() != validationTestTextLoc(t, input) {
+		t.Fatalf("Loc() = %s, want candidate text location", diagnostic.Loc())
+	}
+	amountName := validationTestQName(t, "amount")
+	amountDeclarations := schema.FindKind(goxsd9.ComponentKindElementDeclaration, amountName)
+	amountTypeName := validationTestQName(t, "Amount")
+	amountTypes := schema.FindKind(goxsd9.ComponentKindSimpleTypeDefinition, amountTypeName)
+	if len(amountDeclarations) != 1 || len(amountTypes) != 1 {
+		t.Fatalf("amount evidence declarations/types = %d/%d, want one each", len(amountDeclarations), len(amountTypes))
+	}
+	amountDefinition, ok := amountTypes[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("Amount simple type view is missing")
+	}
+	amountBounds, present := amountDefinition.DecimalBounds()
+	if !present || len(amountBounds.Bounds()) != 1 {
+		t.Fatalf("Amount bounds = %#v/%t, want one bound", amountBounds.Bounds(), present)
+	}
+	wantRelated := []goxsd9.Loc{amountDeclarations[0].Loc(), amountTypes[0].Loc(), amountBounds.Bounds()[0].Loc()}
+	if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+		t.Fatalf("Related() = %v, want %v", diagnostic.Related(), wantRelated)
+	}
+	if diagnostic.Unwrap() == nil {
+		t.Fatal("bound diagnostic does not expose its preserved cause")
+	}
+
+	before := schema.Components()
+	first := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+	second := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+	if first.Code() != second.Code() || first.Loc() != second.Loc() || !reflect.DeepEqual(first.Related(), second.Related()) || first.SpecRef() != second.SpecRef() || first.Error() != second.Error() {
+		t.Fatalf("repeated bound diagnostics differ: first %v, second %v", first, second)
+	}
+	if !reflect.DeepEqual(before, schema.Components()) {
+		t.Fatal("bound validation mutated the completed schema")
+	}
+}
+
+func TestValidateInstanceEnforcesBoundsInDirectScalarChoices(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">
+  <xs:element name="choiceRoot" type="r:Choice"/>
+  <xs:complexType name="Choice"><xs:choice><xs:element name="bounded" type="r:Bounded"/></xs:choice></xs:complexType>
+  <xs:simpleType name="Bounded"><xs:restriction base="xs:integer"><xs:minExclusive value="10"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	schema := validationTestSchema(t, root, nil)
+	input := `<choiceRoot xmlns="urn:root"><bounded xmlns="">10</bounded></choiceRoot>`
+	diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+	if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != goxsd9.BoundValueViolationCode {
+		t.Fatalf("diagnostic = %s, want invalid bound-value violation", diagnostic)
+	}
+	if diagnostic.Loc() != validationChoiceElementTextLoc(t, input, "bounded") {
+		t.Fatalf("Loc() = %s, want selected scalar text location", diagnostic.Loc())
+	}
+	if diagnostic.SpecRef() != "xsd11-datatypes#cvc-minExclusive-valid" {
+		t.Fatalf("SpecRef() = %q, want xsd11 minExclusive value reference", diagnostic.SpecRef())
+	}
+	choiceName := validationTestQName(t, "Choice")
+	choiceComponents := schema.FindKind(goxsd9.ComponentKindComplexTypeDefinition, choiceName)
+	boundedName := validationTestQName(t, "Bounded")
+	boundedTypes := schema.FindKind(goxsd9.ComponentKindSimpleTypeDefinition, boundedName)
+	if len(choiceComponents) != 1 || len(boundedTypes) != 1 {
+		t.Fatalf("choice evidence complex/types = %d/%d, want one each", len(choiceComponents), len(boundedTypes))
+	}
+	choiceDefinition, ok := choiceComponents[0].ComplexTypeDefinition()
+	if !ok {
+		t.Fatal("Choice complex type view is missing")
+	}
+	choice, ok := choiceDefinition.Particle().(goxsd9.ChoiceParticle)
+	if !ok || len(choice.Alternatives()) != 1 {
+		t.Fatal("Choice particle evidence is incomplete")
+	}
+	boundedElement, ok := choice.Alternatives()[0].(goxsd9.ElementParticle)
+	if !ok {
+		t.Fatal("bounded choice alternative is not an element")
+	}
+	boundedDefinition, ok := boundedTypes[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("Bounded simple type view is missing")
+	}
+	bounds, present := boundedDefinition.IntegerBounds()
+	if !present || len(bounds.Bounds()) != 1 {
+		t.Fatal("Bounded integer bounds are missing")
+	}
+	wantRelated := []goxsd9.Loc{
+		schema.FindKind(goxsd9.ComponentKindElementDeclaration, validationTestQName(t, "choiceRoot"))[0].Loc(),
+		choiceComponents[0].Loc(),
+		choice.Loc(),
+		boundedElement.Loc(),
+		boundedTypes[0].Loc(),
+		bounds.Bounds()[0].Loc(),
+	}
+	if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+		t.Fatalf("Related() = %v, want %v", diagnostic.Related(), wantRelated)
+	}
+}
+
+func validationTestQName(t *testing.T, local string) goxsd9.QName {
+	t.Helper()
+	name, err := goxsd9.NewQName("urn:root", local)
+	if err != nil {
+		t.Fatalf("NewQName: %v", err)
+	}
+	return name
+}

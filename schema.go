@@ -275,6 +275,32 @@ func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 	return facets.value
 }
 
+// IntegerBounds returns the effective ordered integer bounds and their
+// presence for an integer restriction.
+func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool) {
+	if definition.facts == nil {
+		return IntegerBoundFacets{}, false
+	}
+	facets, ok := definition.facts.facets.(schemaDigitFacetVariant)
+	if !ok || facets.value.Kind() != DigitDatatypeInteger {
+		return IntegerBoundFacets{}, false
+	}
+	return facets.integerBounds, true
+}
+
+// DecimalBounds returns the effective ordered decimal bounds and their
+// presence for a decimal restriction.
+func (definition SimpleTypeDefinition) DecimalBounds() (DecimalBoundFacets, bool) {
+	if definition.facts == nil {
+		return DecimalBoundFacets{}, false
+	}
+	facets, ok := definition.facts.facets.(schemaDigitFacetVariant)
+	if !ok || facets.value.Kind() != DigitDatatypeDecimal {
+		return DecimalBoundFacets{}, false
+	}
+	return facets.decimalBounds, true
+}
+
 // PrecisionDecimalFacets returns the effective precisionDecimal facets. It
 // returns the zero value for an integer or decimal simple type.
 func (definition SimpleTypeDefinition) PrecisionDecimalFacets() PrecisionDecimalFacets {
@@ -831,7 +857,9 @@ type schemaSimpleTypeFacetVariant interface {
 }
 
 type schemaDigitFacetVariant struct {
-	value DigitFacets
+	value         DigitFacets
+	integerBounds IntegerBoundFacets
+	decimalBounds DecimalBoundFacets
 }
 
 func (schemaDigitFacetVariant) schemaSimpleTypeFacetVariant() {}

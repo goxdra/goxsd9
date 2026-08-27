@@ -115,8 +115,10 @@ conformance claim or a substitute for the per-call resource contract.
 
 The completed optional precisionDecimal boundary covers exact precisionDecimal
 library values and applicable facets, partial comparison, bounded canonical
-output, and immutable schema facts. Assertions and exact-decimal facet work
-remain separate.
+output, and immutable schema facts. Assertions and any remaining
+precisionDecimal-specific facet work remain separate; integer/decimal
+ordered-bound parsing, effective schema facts, and scalar validation are
+integrated.
 
 Pinned catalog’s [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references the accepted,
 undisputed auxiliary groups [`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)

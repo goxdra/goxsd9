@@ -1416,13 +1416,21 @@ func resolveBuiltinSchemaSimpleTypeBase(input *schemaSimpleTypeInput, version XS
 		if err != nil {
 			return schemaSimpleTypeBase{}, err
 		}
-		return schemaSimpleTypeBase{facets: schemaDigitFacetVariant{value: facets}}, nil
+		bounds, err := NewIntegerBoundFacets(nil, version)
+		if err != nil {
+			return schemaSimpleTypeBase{}, err
+		}
+		return schemaSimpleTypeBase{facets: schemaDigitFacetVariant{value: facets, integerBounds: bounds}}, nil
 	case "decimal":
 		facets, err := NewDecimalDigitFacets(nil, nil, version)
 		if err != nil {
 			return schemaSimpleTypeBase{}, err
 		}
-		return schemaSimpleTypeBase{facets: schemaDigitFacetVariant{value: facets}}, nil
+		bounds, err := NewDecimalBoundFacets(nil, version)
+		if err != nil {
+			return schemaSimpleTypeBase{}, err
+		}
+		return schemaSimpleTypeBase{facets: schemaDigitFacetVariant{value: facets, decimalBounds: bounds}}, nil
 	case "precisionDecimal":
 		if version == XSDVersion10 {
 			return schemaSimpleTypeBase{}, precisionDecimalSchemaVersionDiagnostic(input.baseLoc, input.base)
@@ -1513,6 +1521,7 @@ func ambiguousSchemaSimpleTypeBase(input *schemaSimpleTypeInput, related []Loc, 
 	)
 }
 
+//nolint:gocognit // Keep numeric and precision facet construction in one phase.
 func restrictSchemaSimpleTypeFacets(
 	base schemaSimpleTypeFacetVariant,
 	inputs []schemaFacetInput,
@@ -1520,15 +1529,32 @@ func restrictSchemaSimpleTypeFacets(
 ) (schemaSimpleTypeFacetVariant, error) {
 	switch typed := base.(type) {
 	case schemaDigitFacetVariant:
-		local, err := schemaDigitFacetDeclarations(inputs, version)
+		local, err := schemaDigitFacetDeclarations(inputs, typed.value.Kind(), version)
 		if err != nil {
 			return nil, err
 		}
-		facets, err := RestrictDigitFacets(typed.value, local)
+		facets, err := RestrictDigitFacets(typed.value, local.digit)
 		if err != nil {
 			return nil, err
 		}
-		return schemaDigitFacetVariant{value: facets}, nil
+		variant := schemaDigitFacetVariant{value: facets}
+		switch facets.Kind() {
+		case DigitDatatypeInteger:
+			bounds, boundErr := RestrictIntegerBoundFacets(typed.integerBounds, local.integerBounds)
+			if boundErr != nil {
+				return nil, boundErr
+			}
+			variant.integerBounds = bounds
+		case DigitDatatypeDecimal:
+			bounds, boundErr := RestrictDecimalBoundFacets(typed.decimalBounds, local.decimalBounds)
+			if boundErr != nil {
+				return nil, boundErr
+			}
+			variant.decimalBounds = bounds
+		default:
+			return nil, newSchemaBridgeInvariant(Loc{}, "simple type facet resolution has an unknown digit datatype")
+		}
+		return variant, nil
 	case schemaPrecisionDecimalFacetVariant:
 		local, err := schemaPrecisionDecimalFacetDeclarations(inputs)
 		if err != nil {
@@ -1544,34 +1570,86 @@ func restrictSchemaSimpleTypeFacets(
 	}
 }
 
-func schemaDigitFacetDeclarations(inputs []schemaFacetInput, version XSDVersion) (DigitFacetDeclarations, error) {
+type schemaDigitFacetDeclarationSet struct {
+	digit         DigitFacetDeclarations
+	integerBounds IntegerBoundFacetDeclarations
+	decimalBounds DecimalBoundFacetDeclarations
+}
+
+//nolint:gocognit // Keep the supported numeric facet parsers in one lexical pass.
+func schemaDigitFacetDeclarations(inputs []schemaFacetInput, kind DigitDatatype, version XSDVersion) (schemaDigitFacetDeclarationSet, error) {
 	var totalDigits *TotalDigitsFacet
 	var fractionDigits *FractionDigitsFacet
+	integerBounds := make([]IntegerBoundFacet, 0)
+	decimalBounds := make([]DecimalBoundFacet, 0)
+	if kind != DigitDatatypeInteger && kind != DigitDatatypeDecimal {
+		return schemaDigitFacetDeclarationSet{}, newSchemaBridgeInvariant(Loc{}, "simple type facet collection has an unknown digit datatype")
+	}
 	for _, input := range inputs {
 		loc := schemaFacetValueLocation(input)
 		switch input.kind {
 		case schemaFacetTotalDigits:
 			facet, err := ParseTotalDigitsFacetWithFixed(input.lexical, loc, input.fixed, version)
 			if err != nil {
-				return DigitFacetDeclarations{}, err
+				return schemaDigitFacetDeclarationSet{}, err
 			}
 			totalDigits = &facet
 		case schemaFacetFractionDigits:
 			facet, err := ParseFractionDigitsFacetWithFixed(input.lexical, loc, input.fixed, version)
 			if err != nil {
-				return DigitFacetDeclarations{}, err
+				return schemaDigitFacetDeclarationSet{}, err
 			}
 			fractionDigits = &facet
+		case schemaFacetMinInclusive, schemaFacetMinExclusive, schemaFacetMaxInclusive, schemaFacetMaxExclusive:
+			boundKind, ok := schemaBoundKindFromFacet(input.kind)
+			if !ok {
+				return schemaDigitFacetDeclarationSet{}, newSchemaBridgeInvariant(input.loc, "simple type bound facet has an unknown kind")
+			}
+			if kind == DigitDatatypeInteger {
+				facet, err := ParseIntegerBoundFacetWithFixed(boundKind, input.lexical, loc, input.fixed, version)
+				if err != nil {
+					return schemaDigitFacetDeclarationSet{}, err
+				}
+				integerBounds = append(integerBounds, facet)
+				continue
+			}
+			facet, err := ParseDecimalBoundFacetWithFixed(boundKind, input.lexical, loc, input.fixed, version)
+			if err != nil {
+				return schemaDigitFacetDeclarationSet{}, err
+			}
+			decimalBounds = append(decimalBounds, facet)
 		case schemaFacetMinScale, schemaFacetMaxScale, schemaFacetPattern, schemaFacetEnumeration,
-			schemaFacetMinInclusive, schemaFacetMinExclusive, schemaFacetMaxInclusive, schemaFacetMaxExclusive,
 			schemaFacetWhiteSpace, schemaFacetLength, schemaFacetMinLength, schemaFacetMaxLength,
 			schemaFacetPrecision, schemaFacetExplicitTimezone:
-			return DigitFacetDeclarations{}, unsupportedSchemaDatatypeFacet(input, version)
+			return schemaDigitFacetDeclarationSet{}, unsupportedSchemaDatatypeFacet(input, version)
 		default:
-			return DigitFacetDeclarations{}, newSchemaBridgeInvariant(input.loc, "simple type facet has an unknown kind")
+			return schemaDigitFacetDeclarationSet{}, newSchemaBridgeInvariant(input.loc, "simple type facet has an unknown kind")
 		}
 	}
-	return NewDigitFacetDeclarations(totalDigits, fractionDigits), nil
+	return schemaDigitFacetDeclarationSet{
+		digit:         NewDigitFacetDeclarations(totalDigits, fractionDigits),
+		integerBounds: NewIntegerBoundFacetDeclarations(integerBounds),
+		decimalBounds: NewDecimalBoundFacetDeclarations(decimalBounds),
+	}, nil
+}
+
+func schemaBoundKindFromFacet(kind schemaFacetKind) (BoundKind, bool) {
+	switch kind {
+	case schemaFacetMinInclusive:
+		return BoundMinInclusive, true
+	case schemaFacetMinExclusive:
+		return BoundMinExclusive, true
+	case schemaFacetMaxInclusive:
+		return BoundMaxInclusive, true
+	case schemaFacetMaxExclusive:
+		return BoundMaxExclusive, true
+	case schemaFacetTotalDigits, schemaFacetFractionDigits, schemaFacetMinScale, schemaFacetMaxScale,
+		schemaFacetPattern, schemaFacetEnumeration, schemaFacetWhiteSpace, schemaFacetLength,
+		schemaFacetMinLength, schemaFacetMaxLength, schemaFacetPrecision, schemaFacetExplicitTimezone:
+		return 0, false
+	default:
+		return 0, false
+	}
 }
 
 //nolint:funlen // Keep the facet-kind to parser mapping explicit and located.
