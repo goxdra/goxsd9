@@ -30,6 +30,8 @@ const (
 	schemaSimpleTypeXSD11SpecRef       = "xsd11-structures#Simple_Type_Definition"
 	schemaElementTypeXSD10SpecRef      = "xsd10-structures#Element_Declaration_details"
 	schemaElementTypeXSD11SpecRef      = "xsd11-structures#Element_Declaration_details"
+	schemaBooleanDatatypeXSD10SpecRef  = "xsd10-datatypes#boolean"
+	schemaBooleanDatatypeXSD11SpecRef  = "xsd11-datatypes#boolean"
 	schemaElementDuplicateXSD10SpecRef = "xsd10-structures#c-nmd"
 	schemaElementDuplicateXSD11SpecRef = "xsd11-structures#c-nmd"
 )
@@ -909,6 +911,17 @@ type schemaElementTypeResult struct {
 	hasTypeID    bool
 }
 
+type schemaScalarTypeScope uint8
+
+const (
+	schemaScalarTypeGlobalElement schemaScalarTypeScope = iota + 1
+	schemaScalarTypeLocalParticle
+)
+
+func (scope schemaScalarTypeScope) allowsBoolean() bool {
+	return scope == schemaScalarTypeGlobalElement
+}
+
 func resolveSchemaElementTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
@@ -946,7 +959,7 @@ func resolveSchemaElementType(
 		return schemaElementTypeResult{}, newSchemaBridgeInvariant(record.loc, "element type resolution has no type input")
 	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveSchemaScalarType(input, records, byName, simpleTypes, version, "for global elements", true)
+		return resolveSchemaScalarType(input, records, byName, simpleTypes, version, "for global elements", schemaScalarTypeGlobalElement, true)
 	}
 
 	candidates := byName[input.declaredType]
@@ -1004,10 +1017,11 @@ func resolveSchemaScalarType(
 	simpleTypes []schemaSimpleTypeResult,
 	version XSDVersion,
 	complexTargetSuffix string,
+	scope schemaScalarTypeScope,
 	allowPrecisionDecimal bool,
 ) (schemaElementTypeResult, error) {
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveBuiltinSchemaScalarType(input, version, allowPrecisionDecimal)
+		return resolveBuiltinSchemaScalarType(input, version, complexTargetSuffix, scope, allowPrecisionDecimal)
 	}
 
 	candidates := byName[input.declaredType]
@@ -1042,7 +1056,7 @@ func resolveSchemaScalarType(
 			"element type resolution has an incomplete simple type result",
 		)
 	}
-	if err := rejectSequencePrecisionDecimalType(input, simpleTypes[candidate], version, allowPrecisionDecimal); err != nil {
+	if err := rejectUnsupportedLocalScalarType(input, simpleTypes[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
 		return schemaElementTypeResult{}, err
 	}
 	return schemaElementTypeResult{
@@ -1053,9 +1067,17 @@ func resolveSchemaScalarType(
 	}, nil
 }
 
-func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
+func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
 	case "integer", "decimal":
+		return schemaElementTypeResult{
+			present:      true,
+			declaredType: input.declaredType,
+		}, nil
+	case "boolean":
+		if !scope.allowsBoolean() {
+			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
+		}
 		return schemaElementTypeResult{
 			present:      true,
 			declaredType: input.declaredType,
@@ -1080,7 +1102,13 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 	}
 }
 
-func rejectSequencePrecisionDecimalType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, allowPrecisionDecimal bool) error {
+func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
+	if scope != schemaScalarTypeLocalParticle {
+		return nil
+	}
+	if _, ok := simpleType.facets.(schemaBooleanFacetVariant); ok {
+		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
+	}
 	if allowPrecisionDecimal {
 		return nil
 	}
@@ -1088,6 +1116,14 @@ func rejectSequencePrecisionDecimalType(input *schemaElementInput, simpleType sc
 		return nil
 	}
 	return unsupportedSequencePrecisionDecimal(input, version)
+}
+
+func unsupportedLocalSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string) Diagnostic {
+	return newSchemaSyntaxUnsupportedForVersion(
+		input.typeLoc,
+		fmt.Sprintf("element type %q is not implemented %s", input.declaredType, complexTargetSuffix),
+		version,
+	)
 }
 
 func unsupportedSequencePrecisionDecimal(input *schemaElementInput, version XSDVersion) Diagnostic {
@@ -1258,6 +1294,7 @@ func resolveSchemaElementParticle(
 		simpleTypes,
 		version,
 		"for local "+model+" elements",
+		schemaScalarTypeLocalParticle,
 		model != "sequence",
 	)
 	if err != nil {
@@ -1440,6 +1477,8 @@ func resolveBuiltinSchemaSimpleTypeBase(input *schemaSimpleTypeInput, version XS
 			return schemaSimpleTypeBase{}, err
 		}
 		return schemaSimpleTypeBase{facets: schemaPrecisionDecimalFacetVariant{value: facets}}, nil
+	case "boolean":
+		return schemaSimpleTypeBase{facets: schemaBooleanFacetVariant{}}, nil
 	default:
 		return schemaSimpleTypeBase{}, newSchemaSyntaxUnsupported(
 			input.baseLoc,
@@ -1565,9 +1604,106 @@ func restrictSchemaSimpleTypeFacets(
 			return nil, err
 		}
 		return schemaPrecisionDecimalFacetVariant{value: facets}, nil
+	case schemaBooleanFacetVariant:
+		return restrictSchemaBooleanFacets(typed, inputs, version)
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "simple type facet resolution has an unknown datatype variant")
 	}
+}
+
+func restrictSchemaBooleanFacets(base schemaBooleanFacetVariant, inputs []schemaFacetInput, version XSDVersion) (schemaSimpleTypeFacetVariant, error) {
+	if len(inputs) == 0 {
+		return base, nil
+	}
+
+	var unsupported error
+	for _, input := range inputs {
+		err := unsupportedSchemaBooleanFacet(input, version)
+		if err == nil {
+			return nil, newSchemaBridgeInvariant(input.loc, "boolean facet restriction produced no result")
+		}
+		var diagnostic Diagnostic
+		if !errors.As(err, &diagnostic) {
+			return nil, err
+		}
+		if diagnostic.Class() != FailureUnsupported {
+			return nil, err
+		}
+		if unsupported == nil {
+			unsupported = err
+		}
+	}
+	return nil, unsupported
+}
+
+func unsupportedSchemaBooleanFacet(input schemaFacetInput, version XSDVersion) error {
+	if err := validateSchemaBooleanFacetInput(input, version); err != nil {
+		return err
+	}
+	err := unsupportedSchemaDatatypeFacet(input, version)
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+		return err
+	}
+	diagnostic.specRef = schemaBooleanDatatypeSpecRef(version)
+	return diagnostic
+}
+
+func validateSchemaBooleanFacetInput(input schemaFacetInput, version XSDVersion) error {
+	if err := validateOrdinarySchemaFacetInput(input); err != nil {
+		return err
+	}
+	valueLoc := schemaFacetValueLocation(input)
+	switch input.kind {
+	case schemaFacetEnumeration, schemaFacetMinInclusive, schemaFacetMinExclusive, schemaFacetMaxInclusive, schemaFacetMaxExclusive:
+		_, err := ParseStrictBooleanFor(version, input.lexical, valueLoc)
+		return err
+	case schemaFacetTotalDigits:
+		_, err := ParseTotalDigitsFor(version, input.lexical, valueLoc)
+		return err
+	case schemaFacetFractionDigits:
+		_, err := ParseFractionDigitsFor(version, input.lexical, valueLoc)
+		return err
+	case schemaFacetLength, schemaFacetMinLength, schemaFacetMaxLength:
+		value, err := ParseStrictInteger(input.lexical, valueLoc)
+		if err != nil {
+			return err
+		}
+		if value.Sign() < 0 {
+			return newSchemaCompositionDiagnostic(valueLoc, schemaFacetName(input.kind)+" facet value must be non-negative")
+		}
+		return nil
+	case schemaFacetWhiteSpace:
+		return validateSchemaBooleanFacetEnum(input, "collapse")
+	case schemaFacetExplicitTimezone:
+		return validateSchemaBooleanFacetEnum(input, "prohibited", "optional", "required")
+	case schemaFacetPattern:
+		return nil
+	case schemaFacetMinScale, schemaFacetMaxScale, schemaFacetPrecision:
+		return nil
+	default:
+		return newSchemaBridgeInvariant(input.loc, "boolean facet has an unknown kind")
+	}
+}
+
+func validateSchemaBooleanFacetEnum(input schemaFacetInput, values ...string) error {
+	value := collapseXMLWhitespace(input.lexical)
+	for _, allowed := range values {
+		if value == allowed {
+			return nil
+		}
+	}
+	return newSchemaCompositionDiagnostic(
+		schemaFacetValueLocation(input),
+		schemaFacetName(input.kind)+" facet value is invalid",
+	)
+}
+
+func schemaBooleanDatatypeSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaBooleanDatatypeXSD10SpecRef
+	}
+	return schemaBooleanDatatypeXSD11SpecRef
 }
 
 type schemaDigitFacetDeclarationSet struct {
