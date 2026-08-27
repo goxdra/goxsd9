@@ -18,9 +18,9 @@
 // identities; repeated and cyclic identities are closed without decoding.
 //
 // The schema model also exposes one direct ordered sequence of local named
-// scalar elements for a named global complex type, including exact immutable
-// occurrence ranges. Sequence particles are query-only until validation
-// repetition is implemented.
+// integer/decimal scalar elements for a named global complex type, including exact
+// immutable occurrence ranges. Sequence particles are query-only until
+// validation repetition is implemented.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:integer/xs:decimal/xs:precisionDecimal, or

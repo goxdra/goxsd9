@@ -942,7 +942,7 @@ func resolveSchemaElementType(
 		return schemaElementTypeResult{}, newSchemaBridgeInvariant(record.loc, "element type resolution has no type input")
 	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveSchemaScalarType(input, records, byName, simpleTypes, version, "for global elements")
+		return resolveSchemaScalarType(input, records, byName, simpleTypes, version, "for global elements", true)
 	}
 
 	candidates := byName[input.declaredType]
@@ -1000,29 +1000,10 @@ func resolveSchemaScalarType(
 	simpleTypes []schemaSimpleTypeResult,
 	version XSDVersion,
 	complexTargetSuffix string,
+	allowPrecisionDecimal bool,
 ) (schemaElementTypeResult, error) {
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		switch input.declaredType.Local() {
-		case "integer", "decimal":
-			return schemaElementTypeResult{
-				present:      true,
-				declaredType: input.declaredType,
-			}, nil
-		case "precisionDecimal":
-			if version == XSDVersion10 {
-				return schemaElementTypeResult{}, precisionDecimalSchemaVersionDiagnostic(input.typeLoc, input.declaredType)
-			}
-			return schemaElementTypeResult{
-				present:      true,
-				declaredType: input.declaredType,
-			}, nil
-		default:
-			return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
-				input.typeLoc,
-				fmt.Sprintf("element type %q is not implemented", input.declaredType),
-				version,
-			)
-		}
+		return resolveBuiltinSchemaScalarType(input, version, allowPrecisionDecimal)
 	}
 
 	candidates := byName[input.declaredType]
@@ -1057,12 +1038,60 @@ func resolveSchemaScalarType(
 			"element type resolution has an incomplete simple type result",
 		)
 	}
+	if err := rejectSequencePrecisionDecimalType(input, simpleTypes[candidate], version, allowPrecisionDecimal); err != nil {
+		return schemaElementTypeResult{}, err
+	}
 	return schemaElementTypeResult{
 		present:      true,
 		declaredType: input.declaredType,
 		typeID:       records[candidate].id,
 		hasTypeID:    true,
 	}, nil
+}
+
+func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
+	switch input.declaredType.Local() {
+	case "integer", "decimal":
+		return schemaElementTypeResult{
+			present:      true,
+			declaredType: input.declaredType,
+		}, nil
+	case "precisionDecimal":
+		if version == XSDVersion10 {
+			return schemaElementTypeResult{}, precisionDecimalSchemaVersionDiagnostic(input.typeLoc, input.declaredType)
+		}
+		if !allowPrecisionDecimal {
+			return schemaElementTypeResult{}, unsupportedSequencePrecisionDecimal(input, version)
+		}
+		return schemaElementTypeResult{
+			present:      true,
+			declaredType: input.declaredType,
+		}, nil
+	default:
+		return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
+			input.typeLoc,
+			fmt.Sprintf("element type %q is not implemented", input.declaredType),
+			version,
+		)
+	}
+}
+
+func rejectSequencePrecisionDecimalType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, allowPrecisionDecimal bool) error {
+	if allowPrecisionDecimal {
+		return nil
+	}
+	if _, ok := simpleType.facets.(schemaPrecisionDecimalFacetVariant); !ok {
+		return nil
+	}
+	return unsupportedSequencePrecisionDecimal(input, version)
+}
+
+func unsupportedSequencePrecisionDecimal(input *schemaElementInput, version XSDVersion) Diagnostic {
+	return newSchemaSyntaxUnsupportedForVersion(
+		input.typeLoc,
+		fmt.Sprintf("element type %q is not implemented for local sequence elements", input.declaredType),
+		version,
+	)
 }
 
 type schemaComplexTypeResult struct {
@@ -1225,6 +1254,7 @@ func resolveSchemaElementParticle(
 		simpleTypes,
 		version,
 		"for local "+model+" elements",
+		model != "sequence",
 	)
 	if err != nil {
 		return nil, err

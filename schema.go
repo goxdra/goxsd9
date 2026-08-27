@@ -426,6 +426,8 @@ func (occurrences ParticleOccurrenceRange) String() string {
 // Particle is a concrete immutable content-model alternative.
 type Particle interface {
 	Loc() Loc
+	MinOccurs() uint64
+	MaxOccurs() uint64
 	Occurrences() ParticleOccurrenceRange
 	particle()
 }
@@ -577,6 +579,28 @@ func (particle SequenceParticle) Occurrences() ParticleOccurrenceRange {
 		return ParticleOccurrenceRange{}
 	}
 	return newPublicParticleOccurrenceRange(particle.facts.occurrences)
+}
+
+// MinOccurs returns the default minimum occurrence bound.
+//
+// Deprecated: use Occurrences().Minimum(). This compatibility accessor is
+// defined only for default-only sequence particles and returns zero otherwise.
+func (particle SequenceParticle) MinOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// MaxOccurs returns the default maximum occurrence bound.
+//
+// Deprecated: use Occurrences().Maximum(). This compatibility accessor is
+// defined only for default-only sequence particles and returns zero otherwise.
+func (particle SequenceParticle) MaxOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
 }
 
 // Elements returns direct local element particles in lexical declaration

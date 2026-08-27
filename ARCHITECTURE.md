@@ -103,10 +103,10 @@ indexes; validator and generator state is calculated on demand.
 The model stores fundamental facts; primitive status is derived from type
 relations.
 
-The current model exposes concrete `element`, `sequence`, and `choice` particles
+The model exposes concrete `element`, `sequence`, and `choice` particles
 for type switches; broader variants remain future. Named complex types may
-expose one ordered sequence of local scalar elements with exact immutable
-occurrence ranges.
+expose one ordered sequence of local integer/decimal scalar elements with exact
+immutable occurrence ranges.
 
 ## Datatypes
 
