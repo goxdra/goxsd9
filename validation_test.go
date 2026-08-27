@@ -125,13 +125,13 @@ func validationTestLoc(t *testing.T, source goxsd9.SourceID, line, column int) g
 	return loc
 }
 
-func validationTestTextLoc(t *testing.T, source goxsd9.SourceID, input string) goxsd9.Loc {
+func validationTestTextLoc(t *testing.T, input string) goxsd9.Loc {
 	t.Helper()
 	end := strings.IndexByte(input, '>')
 	if end < 0 {
 		t.Fatalf("input has no root start-tag end: %q", input)
 	}
-	return validationTestLoc(t, source, 1, end+2)
+	return validationTestLoc(t, "instance.xml", 1, end+2)
 }
 
 func validationTestHasRelated(locations []goxsd9.Loc, want goxsd9.Loc) bool {
@@ -180,93 +180,6 @@ func TestValidateInstanceSupportsBuiltInNamedForwardAndCrossDocumentScalars(t *t
 	}
 }
 
-func TestValidateInstanceReportsNamedPrecisionDecimalUnsupported(t *testing.T) {
-	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:t="urn:t" targetNamespace="urn:t">
-  <xs:simpleType name="P"><xs:restriction base="xs:precisionDecimal"/></xs:simpleType>
-  <xs:element name="item" type="t:P"/>
-</xs:schema>`
-	schema := validationTestSchema(t, root, nil)
-	input := `<item xmlns="urn:t">1</item>`
-	validationErr := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
-	diagnostic := validationTestDiagnostic(t, validationErr)
-	if got, want := diagnostic.Class(), goxsd9.FailureUnsupported; got != want {
-		t.Fatalf("Class() = %q, want %q", got, want)
-	}
-	if got, want := diagnostic.Code(), goxsd9.UnsupportedInstanceValidationCode; got != want {
-		t.Fatalf("Code() = %q, want %q", got, want)
-	}
-	if got, want := diagnostic.Feature(), goxsd9.FeatureInstanceValidation; got != want {
-		t.Fatalf("Feature() = %q, want %q", got, want)
-	}
-	if got, want := diagnostic.SpecRef(), "xsd11-structures#cvc-elt"; got != want {
-		t.Fatalf("SpecRef() = %q, want %q", got, want)
-	}
-	if got, want := diagnostic.Loc(), validationTestLoc(t, "instance.xml", 1, 1); got != want {
-		t.Fatalf("Loc() = %s, want %s", got, want)
-	}
-	itemName, err := goxsd9.NewQName("urn:t", "item")
-	if err != nil {
-		t.Fatalf("NewQName(item): %v", err)
-	}
-	items := schema.FindKind(goxsd9.ComponentKindElementDeclaration, itemName)
-	if len(items) != 1 {
-		t.Fatalf("item declarations = %d, want 1", len(items))
-	}
-	if !validationTestHasRelated(diagnostic.Related(), items[0].Loc()) {
-		t.Fatalf("Related() = %v, want item declaration location %v", diagnostic.Related(), items[0].Loc())
-	}
-	typeName, err := goxsd9.NewQName("urn:t", "P")
-	if err != nil {
-		t.Fatalf("NewQName(P): %v", err)
-	}
-	types := schema.FindKind(goxsd9.ComponentKindSimpleTypeDefinition, typeName)
-	if len(types) != 1 {
-		t.Fatalf("P definitions = %d, want 1", len(types))
-	}
-	if !validationTestHasRelated(diagnostic.Related(), types[0].Loc()) {
-		t.Fatalf("Related() = %v, want P definition location %v", diagnostic.Related(), types[0].Loc())
-	}
-	if !errors.Is(validationErr, goxsd9.ErrUnsupported) {
-		t.Fatal("error does not match ErrUnsupported")
-	}
-}
-
-func TestValidateInstanceReportsBuiltInPrecisionDecimalUnsupported(t *testing.T) {
-	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" targetNamespace="urn:t">
-  <xs:element name="item" type="xs:precisionDecimal"/>
-</xs:schema>`
-	schema := validationTestSchema(t, root, nil)
-	input := `<item xmlns="urn:t">1</item>`
-	validationErr := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
-	diagnostic := validationTestDiagnostic(t, validationErr)
-	if got, want := diagnostic.Class(), goxsd9.FailureUnsupported; got != want {
-		t.Fatalf("Class() = %q, want %q", got, want)
-	}
-	if got, want := diagnostic.Code(), goxsd9.UnsupportedInstanceValidationCode; got != want {
-		t.Fatalf("Code() = %q, want %q", got, want)
-	}
-	if got, want := diagnostic.Feature(), goxsd9.FeatureInstanceValidation; got != want {
-		t.Fatalf("Feature() = %q, want %q", got, want)
-	}
-	if got, want := diagnostic.SpecRef(), "xsd11-structures#cvc-elt"; got != want {
-		t.Fatalf("SpecRef() = %q, want %q", got, want)
-	}
-	if got, want := diagnostic.Loc(), validationTestLoc(t, "instance.xml", 1, 1); got != want {
-		t.Fatalf("Loc() = %s, want %s", got, want)
-	}
-	itemName, err := goxsd9.NewQName("urn:t", "item")
-	if err != nil {
-		t.Fatalf("NewQName(item): %v", err)
-	}
-	items := schema.FindKind(goxsd9.ComponentKindElementDeclaration, itemName)
-	if len(items) != 1 || !validationTestHasRelated(diagnostic.Related(), items[0].Loc()) {
-		t.Fatalf("Related() = %v, want item declaration location", diagnostic.Related())
-	}
-	if !errors.Is(validationErr, goxsd9.ErrUnsupported) {
-		t.Fatal("error does not match ErrUnsupported")
-	}
-}
-
 func TestValidateInstanceExpandsNamespacesAndConcatenatesDecodedText(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" targetNamespace="urn:root">
   <xs:element name="count" type="xs:integer"/>
@@ -304,7 +217,7 @@ func TestValidateInstanceReportsLexicalAndFacetDiagnosticsWithSchemaEvidence(t *
 	if got, want := diagnostic.Code(), goxsd9.InvalidIntegerLexicalCode; got != want {
 		t.Fatalf("Code() = %q, want %q", got, want)
 	}
-	if got, want := diagnostic.Loc(), validationTestTextLoc(t, "instance.xml", input); got != want {
+	if got, want := diagnostic.Loc(), validationTestTextLoc(t, input); got != want {
 		t.Fatalf("Loc() = %s, want %s", got, want)
 	}
 	if got, want := diagnostic.SpecRef(), "xsd11-datatypes#integer"; got != want {
@@ -328,7 +241,7 @@ func TestValidateInstanceReportsLexicalAndFacetDiagnosticsWithSchemaEvidence(t *
 	if got, want := diagnostic.Code(), goxsd9.DigitFacetValueViolationCode; got != want {
 		t.Fatalf("Code() = %q, want %q", got, want)
 	}
-	if got, want := diagnostic.Loc(), validationTestTextLoc(t, "instance.xml", failing); got != want {
+	if got, want := diagnostic.Loc(), validationTestTextLoc(t, failing); got != want {
 		t.Fatalf("Loc() = %s, want %s", got, want)
 	}
 	if got, want := diagnostic.SpecRef(), "xsd10-datatypes#cvc-fractionDigits-valid"; got != want {

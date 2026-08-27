@@ -120,16 +120,17 @@ numeric canonical forms. PrecisionDecimal exposes exact finite/special values,
 partial comparison, applicable facets, and bounded canonical output; immutable
 schema components retain effective facets when it is explicitly named under
 Compatibility or Strict11. It remains implementation-defined and optional,
-not a mandatory XSD 1.1 claim. Instance validation, code generation, temporal
-distinctions, and broader value spaces remain staged capabilities and report
-unsupported behavior.
+not a mandatory XSD 1.1 claim. Code generation, temporal distinctions, and
+broader value spaces remain staged capabilities and report unsupported
+behavior.
 
 ## Validation and code generation
 
-`ValidateInstance` supports text-only built-in/named `integer`/`decimal` globals and
-global named-complex elements having one direct choice of local `integer`/`decimal`
-elements. Named types use `TypeID`/`Lookup`; built-ins use XSD 1.1
-compatibility/default. Attributes, broader particles, and semantics unsupported;
+`ValidateInstance` supports text-only built-in/named `integer`/`decimal`/
+`precisionDecimal` globals and global named-complex elements having one direct
+choice of local `integer`/`decimal`/`precisionDecimal` elements. Named types use
+`TypeID`/`Lookup`; built-ins use XSD 1.1 compatibility/default.
+Attributes, broader particles, and other staged semantics remain unsupported;
 instance locations are primary.
 
 Code generation consumes only the public schema model. It produces deterministic

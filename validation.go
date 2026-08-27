@@ -65,11 +65,26 @@ var (
 )
 
 type instanceScalarType struct {
-	kind    DigitDatatype
+	value   instanceScalarValue
 	version XSDVersion
-	facets  DigitFacets
 	related []Loc
 }
+
+type instanceScalarValue interface {
+	instanceScalarValue()
+}
+
+type instanceDigitScalar struct {
+	facets DigitFacets
+}
+
+func (instanceDigitScalar) instanceScalarValue() {}
+
+type instancePrecisionDecimalScalar struct {
+	facets PrecisionDecimalFacets
+}
+
+func (instancePrecisionDecimalScalar) instanceScalarValue() {}
 
 type instanceChoiceAlternative struct {
 	name   QName
@@ -86,8 +101,9 @@ type instanceChoiceProgram struct {
 // ValidateInstance consumes, drains, and closes reader exactly once, then
 // validates one XML instance against schema. The supported semantic slice is
 // a single global element whose declared type is built-in or named XSD
-// integer or decimal, or a named complex type with one direct scalar choice.
-// Comments and processing instructions are ignored by the decoder.
+// integer, decimal, or precisionDecimal, or a named complex type with one
+// direct scalar choice. Comments and processing instructions are ignored by
+// the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint
 // uses the repository's compatibility/default XSD 1.1-compatible datatype
@@ -535,33 +551,65 @@ func validateScalarStructure(root *instanceElement, scalar instanceScalarType) e
 
 func validateScalarValue(root *instanceElement, scalar instanceScalarType) error {
 	lexical, valueLoc := instanceScalarText(root)
-	switch scalar.kind {
-	case DigitDatatypeInteger:
-		value, parseErr := ParseStrictInteger(lexical, valueLoc)
-		if parseErr != nil {
-			return instanceDecorateDiagnostic(parseErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
-		}
-		if facetErr := scalar.facets.ValidateInteger(value, valueLoc); facetErr != nil {
-			return instanceDecorateDiagnostic(facetErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
-		}
-		return nil
-	case DigitDatatypeDecimal:
-		value, parseErr := ParseStrictDecimalFor(scalar.version, lexical, valueLoc)
-		if parseErr != nil {
-			return instanceDecorateDiagnostic(parseErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
-		}
-		if facetErr := scalar.facets.ValidateDecimal(value, valueLoc); facetErr != nil {
-			return instanceDecorateDiagnostic(facetErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
-		}
-		return nil
+	switch typed := scalar.value.(type) {
+	case instanceDigitScalar:
+		return validateDigitScalarValue(root, lexical, valueLoc, scalar, typed)
+	case instancePrecisionDecimalScalar:
+		return validatePrecisionDecimalScalarValue(lexical, valueLoc, scalar, typed)
 	default:
 		return newInstanceValidationInternal(
 			valueLoc,
-			fmt.Sprintf("global element %q has an unknown scalar datatype %q", renderSyntaxName(root.name), scalar.kind),
+			fmt.Sprintf("global element %q has an unknown scalar value representation", renderSyntaxName(root.name)),
 			scalar.related,
 			errInstanceValidationInvariant,
 		)
 	}
+}
+
+func validateDigitScalarValue(root *instanceElement, lexical string, valueLoc Loc, scalar instanceScalarType, typed instanceDigitScalar) error {
+	switch typed.facets.Kind() {
+	case DigitDatatypeInteger:
+		return validateIntegerScalarValue(lexical, valueLoc, scalar, typed.facets)
+	case DigitDatatypeDecimal:
+		return validateDecimalScalarValue(lexical, valueLoc, scalar, typed.facets)
+	default:
+		return newInstanceValidationInternal(
+			valueLoc,
+			fmt.Sprintf("global element %q has an unknown scalar datatype %q", renderSyntaxName(root.name), typed.facets.Kind()),
+			scalar.related,
+			errInstanceValidationInvariant,
+		)
+	}
+}
+
+func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, facets DigitFacets) error {
+	value, parseErr := ParseStrictInteger(lexical, valueLoc)
+	if parseErr != nil {
+		return instanceDecorateDiagnostic(parseErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+	}
+	if facetErr := facets.ValidateInteger(value, valueLoc); facetErr != nil {
+		return instanceDecorateDiagnostic(facetErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+	}
+	return nil
+}
+
+func validateDecimalScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, facets DigitFacets) error {
+	value, parseErr := ParseStrictDecimalFor(scalar.version, lexical, valueLoc)
+	if parseErr != nil {
+		return instanceDecorateDiagnostic(parseErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
+	}
+	if facetErr := facets.ValidateDecimal(value, valueLoc); facetErr != nil {
+		return instanceDecorateDiagnostic(facetErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
+	}
+	return nil
+}
+
+func validatePrecisionDecimalScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, typed instancePrecisionDecimalScalar) error {
+	facetErr := typed.facets.Validate(lexical, valueLoc)
+	if facetErr == nil {
+		return nil
+	}
+	return instanceDecorateDiagnostic(facetErr, scalar.related, precisionDecimalLexicalSpecRef, valueLoc)
 }
 
 func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Loc) (instanceScalarType, error) {
@@ -636,13 +684,11 @@ func instanceScalarTypeForTarget(
 		)
 	}
 	if definition.HasPrecisionDecimalFacets() {
-		return instanceScalarType{}, newInstanceValidationUnsupported(
-			loc,
-			fmt.Sprintf("named simple type %q uses unsupported precisionDecimal validation", definition.Name()),
-			related,
-			fallbackVersion,
-			errInstanceUnsupportedType,
-		)
+		return instanceScalarType{
+			value:   instancePrecisionDecimalScalar{facets: definition.PrecisionDecimalFacets()},
+			version: fallbackVersion,
+			related: related,
+		}, nil
 	}
 	facets := definition.DigitFacets()
 	if facets.Kind() != DigitDatatypeInteger && facets.Kind() != DigitDatatypeDecimal {
@@ -662,9 +708,8 @@ func instanceScalarTypeForTarget(
 		)
 	}
 	return instanceScalarType{
-		kind:    facets.Kind(),
+		value:   instanceDigitScalar{facets: facets},
 		version: facets.Version(),
-		facets:  facets,
 		related: related,
 	}, nil
 }
@@ -677,9 +722,8 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc) (inst
 			return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in integer digit facets", related, err)
 		}
 		return instanceScalarType{
-			kind:    DigitDatatypeInteger,
+			value:   instanceDigitScalar{facets: facets},
 			version: instanceBuiltInValidationVersion,
-			facets:  facets,
 			related: related,
 		}, nil
 	case "decimal":
@@ -688,9 +732,18 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc) (inst
 			return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in decimal digit facets", related, err)
 		}
 		return instanceScalarType{
-			kind:    DigitDatatypeDecimal,
+			value:   instanceDigitScalar{facets: facets},
 			version: instanceBuiltInValidationVersion,
-			facets:  facets,
+			related: related,
+		}, nil
+	case "precisionDecimal":
+		facets, err := NewPrecisionDecimalFacetsFromDeclarations(PrecisionDecimalFacetDeclarations{})
+		if err != nil {
+			return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in precisionDecimal facets", related, err)
+		}
+		return instanceScalarType{
+			value:   instancePrecisionDecimalScalar{facets: facets},
+			version: instanceBuiltInValidationVersion,
 			related: related,
 		}, nil
 	default:
