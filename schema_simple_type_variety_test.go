@@ -37,12 +37,24 @@ func TestSchemaSimpleTypeVarietiesExposeOrderedResolvedReferences(t *testing.T) 
 	if atomicID.IsZero() {
 		t.Fatal("atomic component identity is missing")
 	}
+	if atomicID.Source() != atomicComponent.Document() || atomicID.Ordinal() == 0 {
+		t.Fatalf("atomic component ID facts = %q/%d", atomicID.Source(), atomicID.Ordinal())
+	}
 	if nodeID, nodeOK := atomic.NodeID(); !nodeOK || nodeID.IsZero() {
 		t.Fatal("atomic model-node identity is missing")
 	}
 	base, ok := atomic.BaseReference()
 	if !ok || base.Kind() != SimpleTypeReferenceBuiltin || base.Name().Local() != "decimal" {
 		t.Fatalf("atomic base reference = %#v, want built-in decimal", base)
+	}
+	if base.QName() != base.Name() || base.Variety() != SimpleTypeVarietyAtomicRestriction || base.VarietyLoc().IsZero() {
+		t.Fatalf("atomic base reference facts = %q/%q/%s", base.QName(), base.Variety(), base.VarietyLoc())
+	}
+	if !base.IsBuiltin() || base.IsNamed() || base.IsAnonymous() {
+		t.Fatalf("atomic base reference kind predicates are inconsistent")
+	}
+	if _, hasID := base.ID(); hasID {
+		t.Fatal("built-in base unexpectedly has an ID alias")
 	}
 	if _, componentOK := base.ComponentID(); componentOK {
 		t.Fatal("built-in base unexpectedly has a component identity")
@@ -68,9 +80,18 @@ func TestSchemaSimpleTypeVarietiesExposeOrderedResolvedReferences(t *testing.T) 
 	if members[1].Kind() != SimpleTypeReferenceNamed || members[1].Name().Local() != "Atomic" {
 		t.Fatalf("member 1 = %q/%q, want named Atomic", members[1].Kind(), members[1].Name())
 	}
+	if !members[1].IsNamed() || members[1].IsBuiltin() || members[1].IsAnonymous() || members[1].QName() != members[1].Name() {
+		t.Fatal("named union member kind facts are inconsistent")
+	}
 	memberID, ok := members[1].ComponentID()
 	if !ok || memberID != atomicID {
 		t.Fatalf("member 1 component ID = %v/%t, want %v/true", memberID, ok, atomicID)
+	}
+	if aliasID, aliasOK := members[1].ID(); !aliasOK || aliasID != memberID {
+		t.Fatalf("member 1 ID alias = %v/%t, want %v/true", aliasID, aliasOK, memberID)
+	}
+	if _, hasAnonymousType := members[1].AnonymousType(); hasAnonymousType {
+		t.Fatal("named union member unexpectedly exposes an anonymous model")
 	}
 	if members[2].Kind() != SimpleTypeReferenceAnonymous {
 		t.Fatalf("member 2 kind = %q, want anonymous", members[2].Kind())
@@ -119,6 +140,12 @@ func TestSchemaSimpleTypeVarietiesExposeOrderedResolvedReferences(t *testing.T) 
 	namedItem, ok := namedList.ItemType()
 	if !ok || namedItem.Kind() != SimpleTypeReferenceNamed || namedItem.Name().Local() != "Atomic" {
 		t.Fatalf("named list item = %q/%q/%t", namedItem.Kind(), namedItem.Name(), ok)
+	}
+	if aliasItem, aliasOK := namedList.ListItemType(); !aliasOK || aliasItem.Name() != namedItem.Name() {
+		t.Fatalf("named list item alias = %q/%t, want %q/true", aliasItem.Name(), aliasOK, namedItem.Name())
+	}
+	if aliasMembers := forward.UnionMemberTypes(); len(aliasMembers) != len(members) {
+		t.Fatalf("union member alias count = %d, want %d", len(aliasMembers), len(members))
 	}
 
 	members[0] = SimpleTypeReference{}
@@ -283,5 +310,70 @@ func TestGlobalElementInlineSimpleTypePreservesAnonymousReference(t *testing.T) 
 	}
 	if inline.Variety() != SimpleTypeVarietyAtomicRestriction {
 		t.Fatalf("inline element variety = %q, want atomic restriction", inline.Variety())
+	}
+}
+
+//nolint:gocognit // Keep the zero-value API contract assertions together.
+func TestSimpleTypeModelZeroViewsRemainSafe(t *testing.T) {
+	var id SimpleTypeID
+	if id.Source() != "" || id.Ordinal() != 0 || !id.IsZero() {
+		t.Fatalf("zero simple type ID facts = %q/%d/%t", id.Source(), id.Ordinal(), id.IsZero())
+	}
+
+	var reference SimpleTypeReference
+	if reference.Kind() != "" || !reference.Name().IsZero() || !reference.QName().IsZero() || !reference.Loc().IsZero() || reference.Variety() != "" || !reference.VarietyLoc().IsZero() {
+		t.Fatal("zero simple type reference facts are not empty")
+	}
+	if componentID, ok := reference.ComponentID(); ok || !componentID.IsZero() {
+		t.Fatalf("zero reference component ID = %v/%t", componentID, ok)
+	}
+	if componentID, ok := reference.ID(); ok || !componentID.IsZero() {
+		t.Fatalf("zero reference ID alias = %v/%t", componentID, ok)
+	}
+	if anonymousID, ok := reference.AnonymousID(); ok || !anonymousID.IsZero() {
+		t.Fatalf("zero reference anonymous ID = %v/%t", anonymousID, ok)
+	}
+	if _, ok := reference.AnonymousType(); ok || reference.IsBuiltin() || reference.IsNamed() || reference.IsAnonymous() {
+		t.Fatal("zero reference kind predicates are not empty")
+	}
+
+	var declaration ElementDeclaration
+	if !declaration.DeclaredType().IsZero() {
+		t.Fatal("zero element declaration has a declared type")
+	}
+	if componentID, ok := declaration.TypeID(); ok || !componentID.IsZero() {
+		t.Fatalf("zero element type ID = %v/%t", componentID, ok)
+	}
+	if _, ok := declaration.TypeReference(); ok {
+		t.Fatal("zero element declaration has a type reference")
+	}
+	if _, ok := declaration.InlineSimpleType(); ok {
+		t.Fatal("zero element declaration has an inline type")
+	}
+
+	var definition SimpleTypeDefinition
+	if definition.ID() != (ComponentID{}) || !definition.Name().IsZero() || !definition.Loc().IsZero() || definition.IsAnonymous() || definition.Variety() != "" || !definition.VarietyLoc().IsZero() || !definition.Base().IsZero() || !definition.BaseLoc().IsZero() {
+		t.Fatal("zero simple type definition facts are not empty")
+	}
+	if nodeID, ok := definition.NodeID(); ok || !nodeID.IsZero() {
+		t.Fatalf("zero definition node ID = %v/%t", nodeID, ok)
+	}
+	if componentID, ok := definition.BaseID(); ok || !componentID.IsZero() {
+		t.Fatalf("zero definition base ID = %v/%t", componentID, ok)
+	}
+	if _, ok := definition.BaseReference(); ok {
+		t.Fatal("zero definition has a base reference")
+	}
+	if _, ok := definition.ItemType(); ok {
+		t.Fatal("zero definition has a list item")
+	}
+	if _, ok := definition.ListItemType(); ok {
+		t.Fatal("zero definition has a list item alias")
+	}
+	if definition.MemberTypes() != nil || definition.UnionMemberTypes() != nil || definition.DigitFacets().Kind() != "" || definition.HasPrecisionDecimalFacets() {
+		t.Fatal("zero definition has non-empty variety facts")
+	}
+	if totalDigits, ok := definition.PrecisionDecimalFacets().TotalDigits(); ok || !totalDigits.IsZero() {
+		t.Fatal("zero definition has precisionDecimal facets")
 	}
 }
