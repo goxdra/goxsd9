@@ -75,7 +75,9 @@ type instanceScalarValue interface {
 }
 
 type instanceDigitScalar struct {
-	facets DigitFacets
+	facets        DigitFacets
+	integerBounds IntegerBoundFacets
+	decimalBounds DecimalBoundFacets
 }
 
 func (instanceDigitScalar) instanceScalarValue() {}
@@ -571,9 +573,9 @@ func validateScalarValue(root *instanceElement, scalar instanceScalarType) error
 func validateDigitScalarValue(root *instanceElement, lexical string, valueLoc Loc, scalar instanceScalarType, typed instanceDigitScalar) error {
 	switch typed.facets.Kind() {
 	case DigitDatatypeInteger:
-		return validateIntegerScalarValue(lexical, valueLoc, scalar, typed.facets)
+		return validateIntegerScalarValue(lexical, valueLoc, scalar, typed.facets, typed.integerBounds)
 	case DigitDatatypeDecimal:
-		return validateDecimalScalarValue(lexical, valueLoc, scalar, typed.facets)
+		return validateDecimalScalarValue(lexical, valueLoc, scalar, typed.facets, typed.decimalBounds)
 	default:
 		return newInstanceValidationInternal(
 			valueLoc,
@@ -584,7 +586,7 @@ func validateDigitScalarValue(root *instanceElement, lexical string, valueLoc Lo
 	}
 }
 
-func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, facets DigitFacets) error {
+func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, facets DigitFacets, bounds IntegerBoundFacets) error {
 	value, parseErr := ParseStrictInteger(lexical, valueLoc)
 	if parseErr != nil {
 		return instanceDecorateDiagnostic(parseErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
@@ -592,16 +594,22 @@ func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceSca
 	if facetErr := facets.ValidateInteger(value, valueLoc); facetErr != nil {
 		return instanceDecorateDiagnostic(facetErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
 	}
+	if boundErr := bounds.ValidateInteger(value, valueLoc); boundErr != nil {
+		return instanceDecorateDiagnostic(boundErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+	}
 	return nil
 }
 
-func validateDecimalScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, facets DigitFacets) error {
+func validateDecimalScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, facets DigitFacets, bounds DecimalBoundFacets) error {
 	value, parseErr := ParseStrictDecimalFor(scalar.version, lexical, valueLoc)
 	if parseErr != nil {
 		return instanceDecorateDiagnostic(parseErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
 	}
 	if facetErr := facets.ValidateDecimal(value, valueLoc); facetErr != nil {
 		return instanceDecorateDiagnostic(facetErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
+	}
+	if boundErr := bounds.ValidateDecimal(value, valueLoc); boundErr != nil {
+		return instanceDecorateDiagnostic(boundErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
 	}
 	return nil
 }
@@ -627,6 +635,7 @@ func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Lo
 	)
 }
 
+//nolint:gocognit,funlen // Keep target resolution and scalar-plan construction ordered.
 func instanceScalarTypeForTarget(
 	schema Schema,
 	declaredType QName,
@@ -709,8 +718,40 @@ func instanceScalarTypeForTarget(
 			errInstanceValidationInvariant,
 		)
 	}
+	var digitScalar instanceDigitScalar
+	switch facets.Kind() {
+	case DigitDatatypeInteger:
+		bounds, hasBounds := definition.IntegerBounds()
+		if !hasBounds || bounds.Version() != facets.Version() {
+			return instanceScalarType{}, newInstanceValidationInternal(
+				loc,
+				fmt.Sprintf("named simple type %q has incomplete integer bounds", definition.Name()),
+				related,
+				errInstanceValidationInvariant,
+			)
+		}
+		digitScalar = instanceDigitScalar{facets: facets, integerBounds: bounds}
+	case DigitDatatypeDecimal:
+		bounds, hasBounds := definition.DecimalBounds()
+		if !hasBounds || bounds.Version() != facets.Version() {
+			return instanceScalarType{}, newInstanceValidationInternal(
+				loc,
+				fmt.Sprintf("named simple type %q has incomplete decimal bounds", definition.Name()),
+				related,
+				errInstanceValidationInvariant,
+			)
+		}
+		digitScalar = instanceDigitScalar{facets: facets, decimalBounds: bounds}
+	default:
+		return instanceScalarType{}, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("named simple type %q has an unknown digit datatype", definition.Name()),
+			related,
+			errInstanceValidationInvariant,
+		)
+	}
 	return instanceScalarType{
-		value:   instanceDigitScalar{facets: facets},
+		value:   digitScalar,
 		version: facets.Version(),
 		related: related,
 	}, nil
@@ -723,8 +764,12 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc) (inst
 		if err != nil {
 			return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in integer digit facets", related, err)
 		}
+		bounds, err := NewIntegerBoundFacets(nil, instanceBuiltInValidationVersion)
+		if err != nil {
+			return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in integer bounds", related, err)
+		}
 		return instanceScalarType{
-			value:   instanceDigitScalar{facets: facets},
+			value:   instanceDigitScalar{facets: facets, integerBounds: bounds},
 			version: instanceBuiltInValidationVersion,
 			related: related,
 		}, nil
@@ -733,8 +778,12 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc) (inst
 		if err != nil {
 			return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in decimal digit facets", related, err)
 		}
+		bounds, err := NewDecimalBoundFacets(nil, instanceBuiltInValidationVersion)
+		if err != nil {
+			return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in decimal bounds", related, err)
+		}
 		return instanceScalarType{
-			value:   instanceDigitScalar{facets: facets},
+			value:   instanceDigitScalar{facets: facets, decimalBounds: bounds},
 			version: instanceBuiltInValidationVersion,
 			related: related,
 		}, nil

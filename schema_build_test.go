@@ -3458,6 +3458,274 @@ func TestSchemaBridgeDoesNotCompleteElementFromFailedSimpleType(t *testing.T) {
 	}
 }
 
+//nolint:gocognit,funlen // Keep typed accessors, effective bounds, and ownership checks together.
+func TestSchemaBridgeBuildsTypedOrderedBoundsAndImmutableAccessors(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="1.1">
+  <xs:simpleType name="intMinInclusive"><xs:restriction base="xs:integer"><xs:minInclusive value="10" fixed="true"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="intMinExclusive"><xs:restriction base="xs:integer"><xs:minExclusive value="10"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="intMaxInclusive"><xs:restriction base="xs:integer"><xs:maxInclusive value="10"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="intMaxExclusive"><xs:restriction base="xs:integer"><xs:maxExclusive value="10"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="decimalMinInclusive"><xs:restriction base="xs:decimal"><xs:minInclusive value="10.00"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="decimalMinExclusive"><xs:restriction base="xs:decimal"><xs:minExclusive value="10.00"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="decimalMaxInclusive"><xs:restriction base="xs:decimal"><xs:maxInclusive value="10.00"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="decimalMaxExclusive"><xs:restriction base="xs:decimal"><xs:maxExclusive value="10.00"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="emptyInteger"><xs:restriction base="xs:integer"/></xs:simpleType>
+  <xs:simpleType name="emptyDecimal"><xs:restriction base="xs:decimal"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		integer     bool
+		kind        BoundKind
+		value       string
+		fixed       bool
+		wantValue   string
+		wantVersion XSDVersion
+	}{
+		{name: "intMinInclusive", integer: true, kind: BoundMinInclusive, value: "10", fixed: true, wantValue: "10", wantVersion: XSDVersion11},
+		{name: "intMinExclusive", integer: true, kind: BoundMinExclusive, value: "10", wantValue: "10", wantVersion: XSDVersion11},
+		{name: "intMaxInclusive", integer: true, kind: BoundMaxInclusive, value: "10", wantValue: "10", wantVersion: XSDVersion11},
+		{name: "intMaxExclusive", integer: true, kind: BoundMaxExclusive, value: "10", wantValue: "10", wantVersion: XSDVersion11},
+		{name: "decimalMinInclusive", kind: BoundMinInclusive, value: "10.00", wantValue: "10.0", wantVersion: XSDVersion11},
+		{name: "decimalMinExclusive", kind: BoundMinExclusive, value: "10.00", wantValue: "10.0", wantVersion: XSDVersion11},
+		{name: "decimalMaxInclusive", kind: BoundMaxInclusive, value: "10.00", wantValue: "10.0", wantVersion: XSDVersion11},
+		{name: "decimalMaxExclusive", kind: BoundMaxExclusive, value: "10.00", wantValue: "10.0", wantVersion: XSDVersion11},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			component := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", test.name))
+			if len(component) != 1 {
+				t.Fatalf("simple type matches = %d, want 1", len(component))
+			}
+			definition, ok := component[0].SimpleTypeDefinition()
+			if !ok {
+				t.Fatal("simple type view is missing")
+			}
+			if test.integer {
+				bounds, present := definition.IntegerBounds()
+				if !present || bounds.Version() != test.wantVersion {
+					t.Fatalf("IntegerBounds() = %v/%t, want version %q and present", bounds.Version(), present, test.wantVersion)
+				}
+				if _, present := definition.DecimalBounds(); present {
+					t.Fatal("decimal bounds unexpectedly present on integer type")
+				}
+				integer := bounds.Bounds()
+				if len(integer) != 1 || integer[0].Kind() != test.kind || integer[0].Value().Canonical() != test.wantValue || integer[0].Fixed() != test.fixed || integer[0].Loc().IsZero() {
+					t.Fatalf("integer bounds = %#v, want one exact located bound", integer)
+				}
+				first := bounds.Bounds()
+				first[0] = first[0].WithFixed(!test.fixed)
+				second := bounds.Bounds()
+				if second[0].Fixed() != test.fixed {
+					t.Fatal("mutating returned integer bound slice changed schema state")
+				}
+				return
+			}
+
+			bounds, present := definition.DecimalBounds()
+			if !present || bounds.Version() != test.wantVersion {
+				t.Fatalf("DecimalBounds() = %v/%t, want version %q and present", bounds.Version(), present, test.wantVersion)
+			}
+			if _, present := definition.IntegerBounds(); present {
+				t.Fatal("integer bounds unexpectedly present on decimal type")
+			}
+			decimal := bounds.Bounds()
+			if len(decimal) != 1 || decimal[0].Kind() != test.kind || decimal[0].Value().Canonical() != test.wantValue || decimal[0].Fixed() != test.fixed || decimal[0].Loc().IsZero() {
+				t.Fatalf("decimal bounds = %#v, want one exact located bound", decimal)
+			}
+			first := bounds.Bounds()
+			first[0] = first[0].WithFixed(!test.fixed)
+			second := bounds.Bounds()
+			if second[0].Fixed() != test.fixed {
+				t.Fatal("mutating returned decimal bound slice changed schema state")
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name    string
+		kind    DigitDatatype
+		version XSDVersion
+	}{
+		{name: "emptyInteger", kind: DigitDatatypeInteger, version: XSDVersion11},
+		{name: "emptyDecimal", kind: DigitDatatypeDecimal, version: XSDVersion11},
+	} {
+		component := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", test.name))
+		if len(component) != 1 {
+			t.Fatalf("%s matches = %d, want 1", test.name, len(component))
+		}
+		definition, ok := component[0].SimpleTypeDefinition()
+		if !ok {
+			t.Fatalf("%s simple type view is missing", test.name)
+		}
+		if definition.DigitFacets().Kind() != test.kind {
+			t.Fatalf("%s digit kind = %q, want %q", test.name, definition.DigitFacets().Kind(), test.kind)
+		}
+		if test.kind == DigitDatatypeInteger {
+			bounds, present := definition.IntegerBounds()
+			if !present || bounds.Version() != test.version || len(bounds.Bounds()) != 0 {
+				t.Fatalf("%s empty integer bounds = %v/%t, want version %q and no bounds", test.name, bounds.Version(), present, test.version)
+			}
+			continue
+		}
+		bounds, present := definition.DecimalBounds()
+		if !present || bounds.Version() != test.version || len(bounds.Bounds()) != 0 {
+			t.Fatalf("%s empty decimal bounds = %v/%t, want version %q and no bounds", test.name, bounds.Version(), present, test.version)
+		}
+	}
+}
+
+//nolint:gocognit // Keep cross-document effective-bound evidence together.
+func TestSchemaBridgeInheritsBoundsAcrossForwardAndImportedBases(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root" version="1.0">
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:simpleType name="ForwardDerived"><xs:restriction base="r:ForwardBase"><xs:maxExclusive value="100"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="ForwardBase"><xs:restriction base="xs:integer"><xs:minInclusive value="10"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="CrossDerived"><xs:restriction base="o:CrossBase"><xs:minExclusive value="-1.00"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="1.1">
+  <xs:simpleType name="CrossBase"><xs:restriction base="xs:decimal"><xs:maxInclusive value="100.00"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+		"other.xsd": {id: "other.xsd", contents: other},
+	}, Strict10)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+
+	forward := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:root", "ForwardDerived"))
+	if len(forward) != 1 {
+		t.Fatalf("ForwardDerived matches = %d, want 1", len(forward))
+	}
+	forwardDefinition, ok := forward[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("ForwardDerived simple type view is missing")
+	}
+	forwardBounds, present := forwardDefinition.IntegerBounds()
+	if !present || len(forwardBounds.Bounds()) != 2 {
+		t.Fatalf("ForwardDerived bounds = %#v/%t, want inherited lower and local upper", forwardBounds.Bounds(), present)
+	}
+	if got := forwardBounds.Bounds()[0].Value().Canonical(); got != "10" {
+		t.Fatalf("ForwardDerived lower bound = %q, want 10", got)
+	}
+	if got := forwardBounds.Bounds()[1].Value().Canonical(); got != "100" {
+		t.Fatalf("ForwardDerived upper bound = %q, want 100", got)
+	}
+	baseID, baseIDPresent := forwardDefinition.BaseID()
+	if !baseIDPresent || baseID.Source() != "root.xsd" || baseID.Ordinal() != 2 {
+		t.Fatalf("ForwardDerived base ID = %v/%t, want root.xsd:2", baseID, baseIDPresent)
+	}
+
+	cross := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:root", "CrossDerived"))
+	if len(cross) != 1 {
+		t.Fatalf("CrossDerived matches = %d, want 1", len(cross))
+	}
+	crossDefinition, ok := cross[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("CrossDerived simple type view is missing")
+	}
+	crossBounds, present := crossDefinition.DecimalBounds()
+	if !present || len(crossBounds.Bounds()) != 2 {
+		t.Fatalf("CrossDerived bounds = %#v/%t, want local lower and inherited upper", crossBounds.Bounds(), present)
+	}
+	if got := crossBounds.Bounds()[0].Value().Canonical(); got != "-1.0" {
+		t.Fatalf("CrossDerived lower bound = %q, want -1.0", got)
+	}
+	if got := crossBounds.Bounds()[1].Value().Canonical(); got != "100.0" {
+		t.Fatalf("CrossDerived upper bound = %q, want 100.0", got)
+	}
+	crossBaseID, crossBaseIDPresent := crossDefinition.BaseID()
+	if !crossBaseIDPresent || crossBaseID.Source() != "other.xsd" || crossBaseID.Ordinal() != 1 {
+		t.Fatalf("CrossDerived base ID = %v/%t, want other.xsd:1", crossBaseID, crossBaseIDPresent)
+	}
+}
+
+//nolint:gocognit // Keep bound diagnostic and no-partial-schema checks together.
+func TestSchemaBridgeRejectsInvalidBoundRestrictionsWithoutSchema(t *testing.T) {
+	tests := []struct {
+		name  string
+		root  string
+		code  string
+		cause error
+	}{
+		{
+			name:  "opposite lower bounds in one step",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:integer"><xs:minInclusive value="5"/><xs:minExclusive value="6"/></xs:restriction></xs:simpleType></xs:schema>`,
+			code:  InvalidBoundCombinationCode,
+			cause: errInvalidBoundCombination,
+		},
+		{
+			name:  "empty equal exclusive interval",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:minInclusive value="5.00"/><xs:maxExclusive value="5.0"/></xs:restriction></xs:simpleType></xs:schema>`,
+			code:  InvalidBoundCombinationCode,
+			cause: errInvalidBoundCombination,
+		},
+		{
+			name:  "less restrictive derived lower bound",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="base"><xs:restriction base="xs:integer"><xs:minInclusive value="5"/></xs:restriction></xs:simpleType><xs:simpleType name="derived"><xs:restriction base="base"><xs:minInclusive value="4"/></xs:restriction></xs:simpleType></xs:schema>`,
+			code:  InvalidBoundRestrictionCode,
+			cause: errInvalidBoundRestriction,
+		},
+		{
+			name:  "fixed derived upper bound changes value",
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="base"><xs:restriction base="xs:decimal"><xs:maxExclusive value="5.00" fixed="true"/></xs:restriction></xs:simpleType><xs:simpleType name="derived"><xs:restriction base="base"><xs:maxExclusive value="4.00"/></xs:restriction></xs:simpleType></xs:schema>`,
+			code:  InvalidBoundRestrictionCode,
+			cause: errInvalidBoundRestriction,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted an invalid bound restriction")
+			}
+			if schema.storage != nil || len(schema.Components()) != 0 {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
+			}
+			if diagnostic.Loc().IsZero() || len(diagnostic.Related()) == 0 {
+				t.Fatalf("diagnostic evidence = %s/%v, want primary and related locations", diagnostic, diagnostic.Related())
+			}
+			if !errors.Is(err, test.cause) {
+				t.Fatalf("diagnostic does not preserve cause %v: %v", test.cause, err)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeKeepsExcludedNumericFacetsUnsupported(t *testing.T) {
+	for _, facet := range []string{
+		`<xs:pattern value="[0-9]+"/>`,
+		`<xs:enumeration value="1"/>`,
+		`<xs:whiteSpace value="collapse"/>`,
+	} {
+		t.Run(facet, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:integer"><xs:minInclusive value="1"/>` + facet + `</xs:restriction></xs:simpleType></xs:schema>`
+			schema, err := discoverTestSchema(t, root, nil)
+			if err == nil {
+				t.Fatal("discoverSchema accepted an excluded numeric facet")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != UnsupportedDatatypeFacetCode {
+				t.Fatalf("diagnostic = %s, want datatype facet unsupported", diagnostic)
+			}
+			if !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("unsupported diagnostic does not match ErrUnsupported: %v", err)
+			}
+		})
+	}
+}
+
 func assertSchemaFacetValue(t *testing.T, value StrictInteger, present bool, want, label string) {
 	t.Helper()
 	if !present {
