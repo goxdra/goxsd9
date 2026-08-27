@@ -72,38 +72,43 @@ boundary:
    constructs a tagged finite or max-only unbounded bound. The range
    constructor owns copies and rejects an unbounded minimum or finite
    `min > max`.
-3. The future mapping phase derives `mapsToParticle` from exact `0/0`; it does
-   not store an `absent` flag alongside the two bounds.
-4. Only a later completed schema phase may copy the range into an immutable
-   public component. No public occurrence type is added by this decision.
+3. The sequence mapping phase derives `mapsToParticle` from exact `0/0`; it
+   does not store an `absent` flag alongside the two bounds.
+4. The completed schema phase copies the range into an immutable public
+   occurrence view. Its minimum is an owned `StrictInteger`; its maximum is a
+   tagged finite or unbounded value. Queries clone exact finite values at the
+   ownership boundary.
 5. Validator and code-generator plans consume exact bounds on demand; they do
    not cache derived repetition programs in the schema.
 
 The current schema preflight uses this exact private range to validate lexical
-occurrence input while explicit occurrence syntax remains unsupported. Existing
-default-only choice and sequence construction, `Particle` alternatives, and
-the `uint64` `MinOccurs`/`MaxOccurs` accessors remain unchanged. Explicit
-occurrence values do not reach public particles.
+occurrence input. A named global complex type with one direct sequence of local
+named integer/decimal scalar elements maps the completed range and its ordered
+children into the public schema. An effective `0/0` sequence or child maps to
+absence. The same exact representation is retained for choice facts so
+explicit choice occurrences remain unsupported without narrowing their
+diagnostics.
 
 ## Public API migration
 
-The current `MinOccurs() uint64` and `MaxOccurs() uint64` methods are a
-default-only compatibility surface, not a lossy representation of future
-schema values. The migration sequence is:
+`Particle` exposes `Occurrences()`, `MinOccurs() uint64`, and
+`MaxOccurs() uint64`. `Occurrences()` is the exact public occurrence view. The
+two `uint64` methods remain only as a default-only compatibility surface, not a
+representation of arbitrary schema values. Every concrete particle returns
+`1` from both methods only for an exact default `1/1` range and returns `0` for
+a non-default range; callers that need an exact value must use the occurrence
+view. The migration boundary is:
 
-1. Keep the exact range private while all public particles remain default-only.
-   Do not make an above-`uint64` or unbounded value look like zero, a capped
-   integer, or a `uint64` wraparound.
-2. Add a documented immutable exact occurrence view before exposing any
-   non-default public particle. Its minimum is an owned `StrictInteger`; its
-   maximum is a complete tagged finite/unbounded value. Migrate schema,
-   validator, and generator callers to that view first.
-3. Deprecate the two `uint64` methods during the compatibility window, with
-   documentation that they apply only to the still-default-only model.
-4. Remove those methods in the next breaking API release before publishing
-   non-default occurrence values. There is no lossless compatibility adapter
+1. Keep exact values in `particleOccurrenceRange` through syntax, resolution,
+   and completed facts. Do not make an above-`uint64` or unbounded value look
+   like a capped integer or a `uint64` wraparound.
+2. Expose non-default sequence particles only through the documented exact
+   view. The sequence child collection is an owned ordered copy of completed
+   `ElementParticle` facts.
+3. Keep the deprecated `uint64` methods during the compatibility window for
+   existing default-only callers. There is no lossless compatibility adapter
    for arbitrary integers or `unbounded`; callers must migrate to the exact
-   view.
+   view before relying on non-default particles.
 
 ## Consumer policy and diagnostics
 
@@ -122,12 +127,16 @@ location. An error-level diagnostic returns no schema.
 
 ## Non-goals, risks, and follow-up
 
-Currently, explicit occurrence syntax remains unsupported: no new public API is
-exposed, default-only choice and sequence behavior is unchanged, repetition is
-not implemented in validation, repeated Go fields are not generated, effective
-total ranges are not calculated, and the parser does not support `all` mapping.
-The exact value has no fixed resource limit; later phases must set bounded input
-and materialization policies.
+Currently, the supported occurrence boundary is one named global complex type
+with one direct sequence of direct local named integer/decimal scalar elements
+in XSD 1.0 and 1.1. Direct sequence precisionDecimal children remain
+unsupported even under XSD 1.1 and Compatibility. Choice occurrence attributes
+remain unsupported, as do `all`, groups, wildcards, references, nested
+particles, attributes, and other composition. Repetition is not implemented in
+validation, repeated Go fields are not generated, effective total ranges are
+not calculated, and the parser does not support `all` mapping. The exact value
+has no fixed resource limit; later phases must set bounded input and
+materialization policies.
 
 The main risks are memory proportional to hostile finite lexicals, a breaking
 API migration if exact accessors are delayed, and accidentally treating the
@@ -135,9 +144,9 @@ semantic `0/0` absence as a public zero-valued component. The range
 constructor, ownership tests, and mapping proof guard the latter two; future
 resource policy must guard the first.
 
-Public occurrence accessors and retirement of the `uint64` methods belong to the
-schema API migration boundary. Schema mapping, including `0/0` absence, belongs
-to component construction; bounded materialization and repetition belong to
-validation; bounded repeated emission belongs to code generation. These
-responsibilities preserve the phase boundaries and edition-specific `all` rules
-recorded here.
+The exact occurrence accessors and the temporary `uint64` compatibility methods
+belong to the schema API boundary. Schema mapping, including `0/0` absence,
+belongs to component construction; bounded materialization and repetition
+belong to validation; bounded repeated emission belongs to code generation.
+These responsibilities preserve the phase boundaries and edition-specific
+`all` rules recorded here.

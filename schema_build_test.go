@@ -1054,8 +1054,8 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:    "complex type sequence is unsupported",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item"><xs:sequence/></xs:complexType></xs:schema>`,
+			name:    "complex type nested sequence model is unsupported",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item"><xs:sequence><xs:choice/></xs:sequence></xs:complexType></xs:schema>`,
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
 		},

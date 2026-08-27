@@ -2371,7 +2371,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			if err := validateOpenContent(child, version); err != nil && !candidate.considerError(err) {
 				return err
 			}
-		case "group", "all", "sequence":
+		case "group", "all":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
 			}
@@ -2382,6 +2382,18 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				}
 			}
 			if !candidate.present {
+				candidate.consider(child, parent.name.local)
+			}
+		case "sequence":
+			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
+				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
+			}
+			modelSeen = true
+			sequenceErr := validateComplexTypeSequenceParticle(parent, child, version)
+			if sequenceErr != nil && !candidate.considerError(sequenceErr) {
+				return sequenceErr
+			}
+			if len(syntaxAttributesByLocal(parent, "name")) != 1 && !candidate.present {
 				candidate.consider(child, parent.name.local)
 			}
 		case "choice":
@@ -3241,8 +3253,12 @@ func validateChoiceParticle(element *syntaxElement, version XSDVersion) error {
 	return candidate.err()
 }
 
-//nolint:gocognit // Keep the shared model-particle grammar and diagnostics together.
 func validateModelParticleChildren(element *syntaxElement, model string, version XSDVersion) (schemaChildUnsupportedCandidate, error) {
+	return validateModelParticleChildrenWithOptions(element, model, version, false)
+}
+
+//nolint:gocognit // Keep the supported direct-sequence grammar in the shared traversal.
+func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences bool) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
 	annotationSeen := false
 	contentSeen := false
@@ -3274,7 +3290,7 @@ func validateModelParticleChildren(element *syntaxElement, model string, version
 		contentSeen = true
 		switch child.name.local {
 		case "element":
-			localCandidate, err := validateChoiceElementParticle(child, version)
+			localCandidate, err := validateLocalElementParticle(child, version, allowElementOccurrences, model)
 			if err != nil {
 				return candidate, err
 			}
@@ -3301,8 +3317,12 @@ func validateModelParticleChildren(element *syntaxElement, model string, version
 	return candidate, nil
 }
 
-//nolint:gocognit // Keep particle attribute validation and support classification together.
 func validateSchemaParticleAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate, version XSDVersion) error {
+	return validateSchemaParticleAttributesWithOccurrencePolicy(element, candidate, version, false)
+}
+
+//nolint:gocognit // Keep particle attribute validation and occurrence policy together.
+func validateSchemaParticleAttributesWithOccurrencePolicy(element *syntaxElement, candidate *schemaChildUnsupportedCandidate, version XSDVersion, allowOccurrences bool) error {
 	if err := validateSchemaParticleOccurrences(element, version); err != nil {
 		return err
 	}
@@ -3327,7 +3347,9 @@ func validateSchemaParticleAttributes(element *syntaxElement, candidate *schemaC
 				return newSchemaCompositionDiagnostic(attribute.loc, "particle id must be a valid NCName")
 			}
 		case "minOccurs", "maxOccurs":
-			candidate.considerAt(attribute.loc, fmt.Sprintf("particle attribute %q is not implemented", attribute.name.local))
+			if !allowOccurrences {
+				candidate.considerAt(attribute.loc, fmt.Sprintf("particle attribute %q is not implemented", attribute.name.local))
+			}
 		default:
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("%s has forbidden attribute %q", element.name.local, attribute.name.local))
 		}
@@ -3590,8 +3612,12 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 	return nil
 }
 
-//nolint:gocognit,funlen // Keep local element grammar, lexical checks, and support boundaries together.
 func validateChoiceElementParticle(element *syntaxElement, version XSDVersion) (schemaChildUnsupportedCandidate, error) {
+	return validateLocalElementParticle(element, version, false, "choice")
+}
+
+//nolint:gocognit,funlen // Keep local element grammar, lexical checks, and support boundaries together.
+func validateLocalElementParticle(element *syntaxElement, version XSDVersion, allowOccurrences bool, model string) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
 	nameAttributes := syntaxAttributesByLocal(element, "name")
 	refAttributes := syntaxAttributesByLocal(element, "ref")
@@ -3656,7 +3682,9 @@ func validateChoiceElementParticle(element *syntaxElement, version XSDVersion) (
 			if err := validateSchemaParticleOccurrences(element, version); err != nil {
 				return candidate, err
 			}
-			candidate.considerAt(attribute.loc, fmt.Sprintf("local element attribute %q is not implemented", attribute.name.local))
+			if !allowOccurrences {
+				candidate.considerAt(attribute.loc, fmt.Sprintf("local element attribute %q is not implemented", attribute.name.local))
+			}
 		case "id":
 			if !validNCName(collapseXMLWhitespace(attribute.value)) {
 				return candidate, newSchemaCompositionDiagnostic(attribute.loc, "local element id must be a valid NCName")
@@ -3773,7 +3801,7 @@ func validateChoiceElementParticle(element *syntaxElement, version XSDVersion) (
 	if refSeen || typeSeen || typeChildSeen {
 		return candidate, nil
 	}
-	candidate.considerAt(element.loc, "local choice elements without declared types are not implemented")
+	candidate.considerAt(element.loc, fmt.Sprintf("local %s elements without declared types are not implemented", model))
 	return candidate, nil
 }
 
@@ -3816,7 +3844,27 @@ func validateSequenceParticle(element *syntaxElement, version XSDVersion) error 
 	return candidate.err()
 }
 
-//nolint:gocognit // Keep group particle grammar and unsupported classification together.
+func validateSupportedSequenceParticle(element *syntaxElement, version XSDVersion) error {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
+		return err
+	}
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true)
+	if err != nil {
+		return err
+	}
+	candidate.merge(childrenCandidate)
+	return candidate.err()
+}
+
+func validateComplexTypeSequenceParticle(parent, sequence *syntaxElement, version XSDVersion) error {
+	if len(syntaxAttributesByLocal(parent, "name")) != 1 {
+		return validateUnsupportedParticle(sequence, version)
+	}
+	return validateSupportedSequenceParticle(sequence, version)
+}
+
+//nolint:gocognit // Keep group particle grammar and support classification together.
 func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateSchemaParticleOccurrences(element, version); err != nil {
