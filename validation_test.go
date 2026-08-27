@@ -337,14 +337,13 @@ func TestValidateInstanceAppliesNamedAndBuiltInDecimalVersionRules(t *testing.T)
 	}
 }
 
-func TestValidateInstanceRejectsUnknownAndAmbiguousSchemaRoots(t *testing.T) {
+func TestValidateInstanceRejectsUnknownSchemaRoot(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" targetNamespace="urn:root">
   <xs:include schemaLocation="child.xsd"/>
   <xs:element name="known" type="xs:integer"/>
-  <xs:element name="duplicate" type="xs:integer"/>
 </xs:schema>`
 	child := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" targetNamespace="urn:root">
-  <xs:element name="duplicate" type="xs:integer"/>
+  <xs:element name="child" type="xs:integer"/>
 </xs:schema>`
 	schema := validationTestSchema(t, root, map[string]validationTestFixture{
 		"child.xsd": {id: "child.xsd", contents: child},
@@ -364,22 +363,6 @@ func TestValidateInstanceRejectsUnknownAndAmbiguousSchemaRoots(t *testing.T) {
 	}
 	if diagnostic.Unwrap() == nil {
 		t.Fatal("unknown root diagnostic lost its cause")
-	}
-
-	ambiguous := `<duplicate xmlns="urn:root">1</duplicate>`
-	err = goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(ambiguous)))
-	diagnostic = validationTestDiagnostic(t, err)
-	if got, want := diagnostic.Code(), goxsd9.AmbiguousInstanceSchemaRootCode; got != want {
-		t.Fatalf("ambiguous root Code() = %q, want %q", got, want)
-	}
-	if got, want := len(diagnostic.Related()), 2; got != want {
-		t.Fatalf("ambiguous root related locations = %d, want %d", got, want)
-	}
-	if got, want := diagnostic.Related()[0].Source(), goxsd9.SourceID("root.xsd"); got != want {
-		t.Fatalf("first ambiguous related source = %q, want %q", got, want)
-	}
-	if got, want := diagnostic.Related()[1].Source(), goxsd9.SourceID("child.xsd"); got != want {
-		t.Fatalf("second ambiguous related source = %q, want %q", got, want)
 	}
 }
 

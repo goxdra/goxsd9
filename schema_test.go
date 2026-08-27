@@ -145,42 +145,147 @@ func TestSchemaQueryAndCollectionsOwnTheirReturnedValues(t *testing.T) {
 	}
 }
 
-func TestSchemaDuplicateNamesRemainInWalkOrder(t *testing.T) {
+func TestSchemaRejectsDuplicateGlobalElements(t *testing.T) {
 	name, err := NewQName("urn:test", "item")
 	if err != nil {
 		t.Fatalf("NewQName: %v", err)
 	}
 	oneRootLoc := mustTestLoc(t, "one.xsd", 1, 1)
 	twoRootLoc := mustTestLoc(t, "two.xsd", 1, 1)
-	schema, err := newSchema([]schemaDocumentInput{
+	firstLoc := mustTestLoc(t, "one.xsd", 2, 3)
+	laterLoc := mustTestLoc(t, "one.xsd", 3, 3)
+	thirdLoc := mustTestLoc(t, "one.xsd", 4, 3)
+	unresolvedLoc := mustTestLoc(t, "one.xsd", 5, 27)
+	inputs := []schemaDocumentInput{
 		{
 			source:  "one.xsd",
 			rootLoc: oneRootLoc,
 			declarations: []schemaComponentInput{
-				{kind: ComponentKindElementDeclaration, name: name},
+				{kind: ComponentKindElementDeclaration, name: name, loc: firstLoc},
+				{kind: ComponentKindElementDeclaration, name: name, loc: laterLoc},
+				{kind: ComponentKindElementDeclaration, name: name, loc: thirdLoc},
+				{
+					kind: ComponentKindElementDeclaration,
+					name: mustTestQName(t, "urn:test", "unresolved"),
+					loc:  mustTestLoc(t, "one.xsd", 5, 3),
+					element: &schemaElementInput{
+						declaredType: mustTestQName(t, "urn:missing", "Type"),
+						typeLoc:      unresolvedLoc,
+					},
+				},
 			},
+		},
+	}
+	for _, test := range []struct {
+		name    string
+		policy  LanguagePolicy
+		specRef string
+	}{
+		{name: "Strict10", policy: Strict10, specRef: schemaElementDuplicateXSD10SpecRef},
+		{name: "Strict11", policy: Strict11, specRef: schemaElementDuplicateXSD11SpecRef},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var first Diagnostic
+			for iteration := 0; iteration < 5; iteration++ {
+				schema, constructionErr := newSchemaWithPolicy(inputs, test.policy)
+				diagnostic := requireSchemaElementDuplicateDiagnostic(t, schema, constructionErr, laterLoc, []Loc{firstLoc}, test.specRef)
+				if iteration == 0 {
+					first = diagnostic
+					continue
+				}
+				assertSameSchemaDiagnostic(t, first, diagnostic)
+			}
+		})
+	}
+
+	composition, constructionErr := newSchemaWithPolicy([]schemaDocumentInput{
+		{
+			source:          "one.xsd",
+			rootLoc:         oneRootLoc,
+			targetNamespace: "urn:test",
+			declarations:    []schemaComponentInput{{kind: ComponentKindElementDeclaration, name: name, loc: firstLoc}},
 		},
 		{
-			source:  "two.xsd",
-			rootLoc: twoRootLoc,
-			declarations: []schemaComponentInput{
-				{kind: ComponentKindElementDeclaration, name: name},
+			source:          "two.xsd",
+			rootLoc:         twoRootLoc,
+			targetNamespace: "urn:test",
+			declarations:    []schemaComponentInput{{kind: ComponentKindElementDeclaration, name: name, loc: mustTestLoc(t, "two.xsd", 2, 3)}},
+		},
+	}, Strict11)
+	if diagnostic := requireSchemaElementDuplicateDiagnostic(t, composition, constructionErr, mustTestLoc(t, "two.xsd", 2, 3), []Loc{firstLoc}, schemaElementDuplicateXSD11SpecRef); diagnostic.Code() != diagnosticSchemaElementDuplicateCode {
+		t.Fatalf("composed diagnostic code = %q, want %q", diagnostic.Code(), diagnosticSchemaElementDuplicateCode)
+	}
+}
+
+func TestSchemaAcceptsEqualNamesAcrossDistinctSymbolSpaces(t *testing.T) {
+	name := mustTestQName(t, "urn:test", "item")
+	rootLoc := mustTestLoc(t, "schema.xsd", 1, 1)
+	declarationLoc := mustTestLoc(t, "schema.xsd", 2, 3)
+	schema, err := newSchema([]schemaDocumentInput{{
+		source:  "schema.xsd",
+		rootLoc: rootLoc,
+		declarations: []schemaComponentInput{
+			{kind: ComponentKindElementDeclaration, name: name, loc: declarationLoc},
+			{kind: ComponentKindAttributeDeclaration, name: name, loc: declarationLoc},
+			{
+				kind: ComponentKindSimpleTypeDefinition,
+				name: name,
+				loc:  declarationLoc,
+				simpleType: &schemaSimpleTypeInput{
+					base:    mustTestQName(t, xsdNamespaceURI, "integer"),
+					baseLoc: declarationLoc,
+				},
 			},
 		},
-	})
+	}})
 	if err != nil {
 		t.Fatalf("newSchema: %v", err)
 	}
-
-	found := schema.Find(name)
-	if got, want := len(found), 2; got != want {
+	if got, want := len(schema.Find(name)), 3; got != want {
 		t.Fatalf("Find() length = %d, want %d", got, want)
 	}
-	if got, want := found[0].Document(), SourceID("one.xsd"); got != want {
-		t.Fatalf("Find()[0] document = %q, want %q", got, want)
+	for _, kind := range []ComponentKind{
+		ComponentKindElementDeclaration,
+		ComponentKindAttributeDeclaration,
+		ComponentKindSimpleTypeDefinition,
+	} {
+		if got := schema.FindKind(kind, name); len(got) != 1 {
+			t.Fatalf("FindKind(%q) length = %d, want 1", kind, len(got))
+		}
 	}
-	if got, want := found[1].Document(), SourceID("two.xsd"); got != want {
-		t.Fatalf("Find()[1] document = %q, want %q", got, want)
+}
+
+func requireSchemaElementDuplicateDiagnostic(t *testing.T, schema Schema, err error, primary Loc, related []Loc, specRef string) Diagnostic {
+	t.Helper()
+	if err == nil {
+		t.Fatal("schema construction accepted duplicate global elements")
+	}
+	if schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+		t.Fatal("schema construction returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaElementDuplicateCode {
+		t.Fatalf("diagnostic = %s, want invalid %s", diagnostic, diagnosticSchemaElementDuplicateCode)
+	}
+	if diagnostic.Loc() != primary {
+		t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), primary)
+	}
+	if got := diagnostic.Related(); !reflect.DeepEqual(got, related) {
+		t.Fatalf("diagnostic related locations = %v, want %v", got, related)
+	}
+	if diagnostic.SpecRef() != specRef {
+		t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), specRef)
+	}
+	if !errors.Is(err, errSchemaElementDuplicate) {
+		t.Fatalf("diagnostic does not preserve duplicate cause: %v", err)
+	}
+	return diagnostic
+}
+
+func assertSameSchemaDiagnostic(t *testing.T, first, current Diagnostic) {
+	t.Helper()
+	if first.Class() != current.Class() || first.Code() != current.Code() || first.Feature() != current.Feature() || first.Loc() != current.Loc() || first.Message() != current.Message() || first.SpecRef() != current.SpecRef() || !reflect.DeepEqual(first.Related(), current.Related()) {
+		t.Fatalf("repeated diagnostic changed: first %v, current %v", first, current)
 	}
 }
 
