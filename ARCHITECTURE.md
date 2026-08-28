@@ -7,8 +7,8 @@ queries/walks, XML validation, and Go generation. The schema model is the leaf
 dependency: validation and generation depend on it, but it has no validator or
 generator caches.
 
-Implementation uses the Go standard library; development-only lint tooling
-is an approved exception. Other dependencies require a human-reviewed issue.
+Runtime implementation uses only standard-library facilities; development
+tooling remains outside the library dependency graph.
 
 ## Deterministic phase pipeline
 
