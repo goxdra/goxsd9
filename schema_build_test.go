@@ -3019,8 +3019,16 @@ func assertUnsupportedSimpleTypeFeature(t *testing.T, root string, policy Langua
 	}
 }
 
-func TestSchemaBridgeReportsNamedListBuildBoundaryUnsupported(t *testing.T) {
-	tests := []struct {
+func TestSchemaBridgeReportsNamedSimpleTypeModelBuildBoundaryUnsupported(t *testing.T) {
+	models := []struct {
+		name     string
+		typeName string
+		child    string
+	}{
+		{name: "list", typeName: "List", child: `<xs:list itemType="xs:boolean"/>`},
+		{name: "union", typeName: "Union", child: `<xs:union memberTypes="xs:boolean"/>`},
+	}
+	versions := []struct {
 		name    string
 		version XSDVersion
 		specRef string
@@ -3028,19 +3036,19 @@ func TestSchemaBridgeReportsNamedListBuildBoundaryUnsupported(t *testing.T) {
 		{name: "XSD 1.0", version: XSDVersion10, specRef: "xsd10-structures#schema-document"},
 		{name: "XSD 1.1", version: XSDVersion11, specRef: "xsd11-structures#cSchemaDocument"},
 	}
-	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
-  <xs:simpleType name="List"><xs:list itemType="xs:boolean"/></xs:simpleType>
-</xs:schema>`
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			simpleType := schemaBuildTestRootChild(t, root)
-			list := schemaBuildTestChild(t, simpleType, "list")
-			assertSchemaBuildBoundaryUnsupported(t, simpleType, list, test.version, test.specRef)
-		})
+	for _, model := range models {
+		for _, version := range versions {
+			t.Run(model.name+"/"+version.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="` + model.typeName + `">` + model.child + `</xs:simpleType></xs:schema>`
+				simpleType := schemaBuildTestRootChild(t, root)
+				child := schemaBuildTestChild(t, simpleType, model.name)
+				assertSchemaBuildBoundaryUnsupported(t, simpleType, child, version.version, version.specRef)
+			})
+		}
 	}
 }
 
-func TestSchemaBridgeKeepsMalformedNamedListsInvalidAtBuildBoundary(t *testing.T) {
+func TestSchemaBridgeKeepsMalformedNamedSimpleTypeModelsInvalidAtBuildBoundary(t *testing.T) {
 	tests := []struct {
 		name string
 		root string
@@ -3059,6 +3067,21 @@ func TestSchemaBridgeKeepsMalformedNamedListsInvalidAtBuildBoundary(t *testing.T
 		{
 			name: "both sources",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="List"><xs:list itemType="xs:boolean"><xs:simpleType><xs:restriction base="xs:boolean"/></xs:simpleType></xs:list></xs:simpleType></xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "union missing source",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Union"><xs:union/></xs:simpleType></xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "union malformed memberTypes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Union"><xs:union memberTypes="bad:q:name"/></xs:simpleType></xs:schema>`,
+			code: invalidSchemaConditionalCode,
+		},
+		{
+			name: "union memberTypes is empty",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Union"><xs:union memberTypes=""/></xs:simpleType></xs:schema>`,
 			code: invalidSchemaCompositionCode,
 		},
 	}
@@ -3168,7 +3191,10 @@ func assertSchemaBuildBoundaryUnsupported(t *testing.T, declaration, expectedLoc
 
 func schemaBuildTestRootChild(t *testing.T, root string) *syntaxElement {
 	t.Helper()
-	document := decodeTestSource(t, &trackingSource{data: []byte(root)})
+	document, err := decodeResolvedSyntaxForDiscovery(newTestSource(t, &trackingSource{data: []byte(root)}))
+	if err != nil {
+		t.Fatalf("decodeResolvedSyntaxForDiscovery: %v", err)
+	}
 	for _, node := range document.root.children {
 		child, ok := node.(*syntaxElement)
 		if ok {

@@ -505,7 +505,7 @@ func schemaElementParticleInputFromElement(element *syntaxElement, version XSDVe
 }
 
 func schemaSimpleTypeRestrictionInput(element *syntaxElement, version XSDVersion) (*schemaSimpleTypeInput, error) {
-	restriction, list, err := schemaSimpleTypeModelInputs(element)
+	restriction, list, union, err := schemaSimpleTypeModelInputs(element)
 	if err != nil {
 		return nil, err
 	}
@@ -513,12 +513,15 @@ func schemaSimpleTypeRestrictionInput(element *syntaxElement, version XSDVersion
 		return schemaRestrictionInput(restriction)
 	}
 	if list == nil {
-		return nil, newSchemaBridgeInvariant(element.loc, "supported simple type has no restriction")
+		if union == nil {
+			return nil, newSchemaBridgeInvariant(element.loc, "supported simple type has no restriction")
+		}
+		return nil, unsupportedSchemaSimpleTypeUnion(union, version)
 	}
 	return nil, unsupportedSchemaSimpleTypeList(list, version)
 }
 
-func schemaSimpleTypeModelInputs(element *syntaxElement) (*syntaxElement, *syntaxElement, error) {
+func schemaSimpleTypeModelInputs(element *syntaxElement) (*syntaxElement, *syntaxElement, *syntaxElement, error) {
 	var model *syntaxElement
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
@@ -528,35 +531,46 @@ func schemaSimpleTypeModelInputs(element *syntaxElement) (*syntaxElement, *synta
 		switch child.name.local {
 		case "restriction", "list", "union":
 			if model != nil {
-				return nil, nil, newSchemaCompositionDiagnostic(child.loc, "simpleType requires exactly one model child")
+				return nil, nil, nil, newSchemaCompositionDiagnostic(child.loc, "simpleType requires exactly one model child")
 			}
 			model = child
 		}
 	}
 	if model == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	if model.name.local == "restriction" {
-		return model, nil, nil
+		return model, nil, nil, nil
 	}
 	if model.name.local == "list" {
-		return nil, model, nil
+		return nil, model, nil, nil
 	}
-	return nil, nil, nil
+	if model.name.local == "union" {
+		return nil, nil, model, nil
+	}
+	return nil, nil, nil, nil
 }
 
 func unsupportedSchemaSimpleTypeList(element *syntaxElement, version XSDVersion) error {
-	listErr := validateSimpleTypeList(element, version)
-	if listErr == nil {
-		return newSchemaSyntaxUnsupportedForVersion(element.loc, "simple type lists are not implemented", version)
+	return unsupportedSchemaSimpleTypeModel(element, version, validateSimpleTypeList, "simple type lists are not implemented")
+}
+
+func unsupportedSchemaSimpleTypeUnion(element *syntaxElement, version XSDVersion) error {
+	return unsupportedSchemaSimpleTypeModel(element, version, validateSimpleTypeUnion, "simple type unions are not implemented")
+}
+
+func unsupportedSchemaSimpleTypeModel(element *syntaxElement, version XSDVersion, validate func(*syntaxElement, XSDVersion) error, message string) error {
+	modelErr := validate(element, version)
+	if modelErr == nil {
+		return newSchemaSyntaxUnsupportedForVersion(element.loc, message, version)
 	}
 	var diagnostic Diagnostic
-	if !errors.As(listErr, &diagnostic) || diagnostic.Class() != FailureUnsupported ||
+	if !errors.As(modelErr, &diagnostic) || diagnostic.Class() != FailureUnsupported ||
 		diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
 		diagnostic.Loc() != element.loc {
-		return listErr
+		return modelErr
 	}
-	return newSchemaSyntaxUnsupportedForVersion(element.loc, "simple type lists are not implemented", version)
+	return newSchemaSyntaxUnsupportedForVersion(element.loc, message, version)
 }
 
 func schemaRestrictionInput(element *syntaxElement) (*schemaSimpleTypeInput, error) {
