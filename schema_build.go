@@ -26,14 +26,15 @@ const (
 )
 
 const (
-	schemaSimpleTypeXSD10SpecRef       = "xsd10-structures#Simple_Type_Definitions"
-	schemaSimpleTypeXSD11SpecRef       = "xsd11-structures#Simple_Type_Definition"
-	schemaElementTypeXSD10SpecRef      = "xsd10-structures#Element_Declaration_details"
-	schemaElementTypeXSD11SpecRef      = "xsd11-structures#Element_Declaration_details"
-	schemaBooleanDatatypeXSD10SpecRef  = "xsd10-datatypes#boolean"
-	schemaBooleanDatatypeXSD11SpecRef  = "xsd11-datatypes#boolean"
-	schemaElementDuplicateXSD10SpecRef = "xsd10-structures#c-nmd"
-	schemaElementDuplicateXSD11SpecRef = "xsd11-structures#c-nmd"
+	schemaSimpleTypeXSD10SpecRef             = "xsd10-structures#Simple_Type_Definitions"
+	schemaSimpleTypeXSD11SpecRef             = "xsd11-structures#Simple_Type_Definition"
+	schemaElementTypeXSD10SpecRef            = "xsd10-structures#Element_Declaration_details"
+	schemaElementTypeXSD11SpecRef            = "xsd11-structures#Element_Declaration_details"
+	schemaElementTargetNamespaceXSD11SpecRef = "xsd11-structures#dcl.elt.local"
+	schemaBooleanDatatypeXSD10SpecRef        = "xsd10-datatypes#boolean"
+	schemaBooleanDatatypeXSD11SpecRef        = "xsd11-datatypes#boolean"
+	schemaElementDuplicateXSD10SpecRef       = "xsd10-structures#c-nmd"
+	schemaElementDuplicateXSD11SpecRef       = "xsd11-structures#c-nmd"
 )
 
 var (
@@ -45,6 +46,7 @@ var (
 	errSchemaElementTypeWrongKind     = errors.New("element type has the wrong kind")
 	errSchemaElementTypeAmbiguous     = errors.New("element type is ambiguous")
 	errSchemaElementDuplicate         = errors.New("global element declaration is duplicated")
+	errSchemaElementTargetNamespace   = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
 	errSchemaPrecisionDecimalVersion  = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
 	errLanguagePolicyMismatch         = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
@@ -52,6 +54,12 @@ var (
 type schemaTargetNamespace struct {
 	value   string
 	present bool
+	loc     Loc
+}
+
+type schemaDocumentFacts struct {
+	targetNamespace             schemaTargetNamespace
+	elementFormDefaultQualified bool
 }
 
 // discoverSchema completes the internal pipeline used by ParseSchema.
@@ -153,7 +161,15 @@ func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[Sour
 func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTargetNamespace, version XSDVersion) ([]schemaDocumentInput, error) {
 	inputs := make([]schemaDocumentInput, 0, len(documents))
 	for index, document := range documents {
-		declarations, err := schemaDocumentDeclarations(document, namespaces[index].value, version)
+		elementFormDefaultQualified, err := syntaxDocumentElementFormDefault(document)
+		if err != nil {
+			return nil, err
+		}
+		facts := schemaDocumentFacts{
+			targetNamespace:             namespaces[index],
+			elementFormDefaultQualified: elementFormDefaultQualified,
+		}
+		declarations, err := schemaDocumentDeclarationsWithFacts(document, facts, version)
 		if err != nil {
 			return nil, err
 		}
@@ -165,6 +181,23 @@ func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTarget
 		})
 	}
 	return inputs, nil
+}
+
+func syntaxDocumentElementFormDefault(document *syntaxDocument) (bool, error) {
+	if document == nil || document.root == nil {
+		return false, newSchemaBridgeInvariant(Loc{}, "schema document has no root while reading elementFormDefault")
+	}
+	attributes := syntaxAttributesByLocal(document.root, "elementFormDefault")
+	if len(attributes) == 0 {
+		return false, nil
+	}
+	if len(attributes) != 1 {
+		return false, newSchemaCompositionDiagnostic(attributes[1].loc, "attribute \"elementFormDefault\" must be unique")
+	}
+	if err := validateSchemaEnum(attributes[0], "qualified", "unqualified"); err != nil {
+		return false, err
+	}
+	return collapseXMLWhitespace(attributes[0].value) == "qualified", nil
 }
 
 func syntaxDocumentTargetNamespace(document *syntaxDocument) (schemaTargetNamespace, error) {
@@ -195,6 +228,7 @@ func syntaxDocumentTargetNamespace(document *syntaxDocument) (schemaTargetNamesp
 	return schemaTargetNamespace{
 		value:   value,
 		present: true,
+		loc:     attribute.loc,
 	}, nil
 }
 
@@ -288,10 +322,10 @@ func validateSchemaImport(
 	return nil
 }
 
-func schemaDocumentDeclarations(document *syntaxDocument, targetNamespace string, version XSDVersion) ([]schemaComponentInput, error) {
+func schemaDocumentDeclarationsWithFacts(document *syntaxDocument, facts schemaDocumentFacts, version XSDVersion) ([]schemaComponentInput, error) {
 	declarations := make([]schemaComponentInput, 0)
 	for _, node := range document.root.children {
-		declaration, present, err := schemaDocumentDeclaration(node, targetNamespace, version)
+		declaration, present, err := schemaDocumentDeclarationWithFacts(node, facts, version)
 		if err != nil {
 			return nil, err
 		}
@@ -303,14 +337,35 @@ func schemaDocumentDeclarations(document *syntaxDocument, targetNamespace string
 	return declarations, nil
 }
 
-//nolint:gocognit // Keep root declaration classification and phase-specific input explicit.
 func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version XSDVersion) (schemaComponentInput, bool, error) {
+	facts := schemaDocumentFacts{
+		targetNamespace: schemaTargetNamespace{value: targetNamespace, present: targetNamespace != ""},
+	}
+	return schemaDocumentDeclarationWithFacts(node, facts, version)
+}
+
+func schemaDocumentDeclarationWithFacts(node syntaxNode, facts schemaDocumentFacts, version XSDVersion) (schemaComponentInput, bool, error) {
+	element, kind, present, err := schemaDocumentDeclarationSyntax(node)
+	if err != nil {
+		return schemaComponentInput{}, false, err
+	}
+	if !present {
+		return schemaComponentInput{}, false, nil
+	}
+	declaration, err := schemaDocumentDeclarationInput(element, kind, facts, version)
+	if err != nil {
+		return schemaComponentInput{}, false, err
+	}
+	return declaration, true, nil
+}
+
+func schemaDocumentDeclarationSyntax(node syntaxNode) (*syntaxElement, ComponentKind, bool, error) {
 	textNode, ok := node.(syntaxText)
 	if ok {
 		if xmlWhitespace([]byte(textNode.data)) {
-			return schemaComponentInput{}, false, nil
+			return nil, "", false, nil
 		}
-		return schemaComponentInput{}, false, newDiagnostic(
+		return nil, "", false, newDiagnostic(
 			FailureInvalid,
 			invalidSchemaCompositionCode,
 			textNode.loc,
@@ -320,29 +375,32 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version 
 	}
 	element, ok := node.(*syntaxElement)
 	if !ok {
-		return schemaComponentInput{}, false, newSchemaBridgeInvariant(Loc{}, "schema root contains an unknown syntax node")
+		return nil, "", false, newSchemaBridgeInvariant(Loc{}, "schema root contains an unknown syntax node")
 	}
 	if element.name.namespace != xsdNamespaceURI {
-		return schemaComponentInput{}, false, newSchemaSyntaxUnsupported(element.loc, "schema root contains an unsupported non-XSD construct")
+		return nil, "", false, newSchemaSyntaxUnsupported(element.loc, "schema root contains an unsupported non-XSD construct")
 	}
 	kind, named := schemaDeclarationKind(element.name.local)
 	if !named {
 		ignored, err := schemaRootChildIgnored(element)
 		if err != nil {
-			return schemaComponentInput{}, false, err
+			return nil, "", false, err
 		}
 		if ignored {
-			return schemaComponentInput{}, false, nil
+			return nil, "", false, nil
 		}
-		return schemaComponentInput{}, false, newSchemaSyntaxUnsupported(
+		return nil, "", false, newSchemaSyntaxUnsupported(
 			element.loc,
 			fmt.Sprintf("XSD schema child <%s> is not implemented", element.name.local),
 		)
 	}
+	return element, kind, true, nil
+}
 
-	name, err := schemaDeclarationName(element, targetNamespace)
+func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, facts schemaDocumentFacts, version XSDVersion) (schemaComponentInput, error) {
+	name, err := schemaDeclarationName(element, facts.targetNamespace.value)
 	if err != nil {
-		return schemaComponentInput{}, false, err
+		return schemaComponentInput{}, err
 	}
 	declaration := schemaComponentInput{
 		kind: kind,
@@ -352,26 +410,26 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version 
 	if kind == ComponentKindElementDeclaration {
 		elementType, elementErr := schemaElementTypeInput(element, version)
 		if elementErr != nil {
-			return schemaComponentInput{}, false, elementErr
+			return schemaComponentInput{}, elementErr
 		}
 		declaration.element = elementType
 	}
 	if kind == ComponentKindComplexTypeDefinition {
-		complexType, complexErr := schemaComplexTypeInputFromElement(element, version)
+		complexType, complexErr := schemaComplexTypeInputFromElementWithFacts(element, facts, version)
 		if complexErr != nil {
-			return schemaComponentInput{}, false, complexErr
+			return schemaComponentInput{}, complexErr
 		}
 		declaration.complexType = complexType
 	}
 	if kind != ComponentKindSimpleTypeDefinition {
-		return declaration, true, nil
+		return declaration, nil
 	}
 	simpleType, err := schemaSimpleTypeRestrictionInput(element, version)
 	if err != nil {
-		return schemaComponentInput{}, false, err
+		return schemaComponentInput{}, err
 	}
 	declaration.simpleType = simpleType
-	return declaration, true, nil
+	return declaration, nil
 }
 
 func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schemaElementInput, error) {
@@ -406,17 +464,8 @@ func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schema
 	}, nil
 }
 
-//nolint:gocognit // Keep choice and sequence input construction together.
-func schemaComplexTypeInputFromElement(element *syntaxElement, version XSDVersion) (*schemaComplexTypeInput, error) {
-	var model *syntaxElement
-	for _, node := range element.children {
-		child, ok := node.(*syntaxElement)
-		if !ok || child.name.local != "choice" && child.name.local != "sequence" {
-			continue
-		}
-		model = child
-		break
-	}
+func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
+	model := schemaComplexTypeModel(element)
 	if model == nil {
 		return nil, nil
 	}
@@ -426,25 +475,49 @@ func schemaComplexTypeInputFromElement(element *syntaxElement, version XSDVersio
 		return nil, err
 	}
 	if model.name.local == "choice" {
-		input := &schemaChoiceParticleInput{
-			loc:          model.loc,
-			occurrences:  occurrences,
-			alternatives: make([]schemaElementParticleInput, 0),
-		}
-		for _, node := range model.children {
-			child, ok := node.(*syntaxElement)
-			if !ok || child.name.local != "element" {
-				continue
-			}
-			alternative, err := schemaElementParticleInputFromElement(child, version)
-			if err != nil {
-				return nil, err
-			}
-			input.alternatives = append(input.alternatives, alternative)
-		}
-		return &schemaComplexTypeInput{particle: input}, nil
+		return schemaChoiceComplexTypeInput(model, occurrences, facts, version)
 	}
+	if facts.elementFormDefaultQualified && schemaModelHasElementChild(model) {
+		return nil, newSchemaSyntaxUnsupported(
+			model.loc,
+			"schema elementFormDefault=qualified is not implemented for local sequence elements",
+		)
+	}
+	return schemaSequenceComplexTypeInput(model, occurrences, facts, version)
+}
 
+func schemaComplexTypeModel(element *syntaxElement) *syntaxElement {
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local != "choice" && child.name.local != "sequence" {
+			continue
+		}
+		return child
+	}
+	return nil
+}
+
+func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
+	input := &schemaChoiceParticleInput{
+		loc:          model.loc,
+		occurrences:  occurrences,
+		alternatives: make([]schemaElementParticleInput, 0),
+	}
+	for _, node := range model.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local != "element" {
+			continue
+		}
+		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, true)
+		if err != nil {
+			return nil, err
+		}
+		input.alternatives = append(input.alternatives, alternative)
+	}
+	return &schemaComplexTypeInput{particle: input}, nil
+}
+
+func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
 	input := &schemaSequenceParticleInput{
 		loc:         model.loc,
 		occurrences: occurrences,
@@ -458,7 +531,7 @@ func schemaComplexTypeInputFromElement(element *syntaxElement, version XSDVersio
 		if child.name.local != "element" {
 			continue
 		}
-		alternative, err := schemaElementParticleInputFromElement(child, version)
+		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, false)
 		if err != nil {
 			return nil, err
 		}
@@ -467,7 +540,7 @@ func schemaComplexTypeInputFromElement(element *syntaxElement, version XSDVersio
 	return &schemaComplexTypeInput{particle: input}, nil
 }
 
-func schemaElementParticleInputFromElement(element *syntaxElement, version XSDVersion) (schemaElementParticleInput, error) {
+func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, allowNamespacePolicy bool) (schemaElementParticleInput, error) {
 	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
 		return schemaElementParticleInput{}, err
@@ -477,9 +550,9 @@ func schemaElementParticleInputFromElement(element *syntaxElement, version XSDVe
 		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "local element input has an invalid name attribute")
 	}
 	local := collapseXMLWhitespace(nameAttributes[0].value)
-	name, err := NewQName("", local)
+	name, err := schemaLocalElementParticleName(element, local, facts, version, allowNamespacePolicy)
 	if err != nil {
-		return schemaElementParticleInput{}, newSchemaBridgeInvariant(nameAttributes[0].loc, "construct local element name")
+		return schemaElementParticleInput{}, err
 	}
 	input := schemaElementParticleInput{
 		loc:         element.loc,
@@ -502,6 +575,78 @@ func schemaElementParticleInputFromElement(element *syntaxElement, version XSDVe
 		typeLoc:      typeAttributes[0].loc,
 	}
 	return input, nil
+}
+
+func schemaModelHasElementChild(model *syntaxElement) bool {
+	for _, node := range model.children {
+		child, ok := node.(*syntaxElement)
+		if ok && child.name.namespace == xsdNamespaceURI && child.name.local == "element" {
+			return true
+		}
+	}
+	return false
+}
+
+func schemaLocalElementParticleName(element *syntaxElement, local string, facts schemaDocumentFacts, version XSDVersion, allowNamespacePolicy bool) (QName, error) {
+	namespace, err := schemaLocalElementParticleNamespace(element, facts, version, allowNamespacePolicy)
+	if err != nil {
+		return QName{}, err
+	}
+	name, err := NewQName(namespace, local)
+	if err != nil {
+		return QName{}, newSchemaBridgeInvariant(element.loc, "construct local element name")
+	}
+	return name, nil
+}
+
+func schemaLocalElementParticleNamespace(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, allowNamespacePolicy bool) (string, error) {
+	if !allowNamespacePolicy {
+		return "", nil
+	}
+	targetNamespaceAttributes := syntaxAttributesByLocal(element, "targetNamespace")
+	if len(targetNamespaceAttributes) > 0 {
+		return schemaLocalElementTargetNamespace(targetNamespaceAttributes[0], facts, version)
+	}
+	if schemaLocalElementIsQualified(element, facts) {
+		return facts.targetNamespace.value, nil
+	}
+	return "", nil
+}
+
+func schemaLocalElementTargetNamespace(attribute syntaxAttribute, facts schemaDocumentFacts, version XSDVersion) (string, error) {
+	targetNamespace := collapseXMLWhitespace(attribute.value)
+	if version == XSDVersion11 && (!facts.targetNamespace.present || targetNamespace != facts.targetNamespace.value) {
+		return "", invalidSchemaLocalElementTargetNamespace(attribute, facts.targetNamespace)
+	}
+	return targetNamespace, nil
+}
+
+func schemaLocalElementIsQualified(element *syntaxElement, facts schemaDocumentFacts) bool {
+	formAttributes := syntaxAttributesByLocal(element, "form")
+	if len(formAttributes) == 1 {
+		return collapseXMLWhitespace(formAttributes[0].value) == "qualified"
+	}
+	return facts.elementFormDefaultQualified
+}
+
+func invalidSchemaLocalElementTargetNamespace(attribute syntaxAttribute, targetNamespace schemaTargetNamespace) Diagnostic {
+	message := "local element targetNamespace requires a containing schema targetNamespace"
+	if targetNamespace.present {
+		message = "local element targetNamespace must match the containing schema targetNamespace"
+	}
+	related := make([]Loc, 0, 1)
+	if targetNamespace.loc != (Loc{}) {
+		related = append(related, targetNamespace.loc)
+	}
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    invalidSchemaCompositionCode,
+		loc:     attribute.loc,
+		message: message,
+		related: related,
+		specRef: schemaElementTargetNamespaceXSD11SpecRef,
+		cause:   errSchemaElementTargetNamespace,
+	}
 }
 
 func schemaSimpleTypeRestrictionInput(element *syntaxElement, version XSDVersion) (*schemaSimpleTypeInput, error) {

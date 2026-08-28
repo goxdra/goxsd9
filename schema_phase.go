@@ -719,11 +719,13 @@ func validateSchemaRootUnqualifiedAttribute(element *syntaxElement, attribute sy
 		}
 	case "version":
 		_ = collapseXMLWhitespace(attribute.value)
-	case "attributeFormDefault", "elementFormDefault":
+	case "attributeFormDefault":
 		if err := validateSchemaEnum(attribute, "qualified", "unqualified"); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("schema root attribute %q is not implemented", attribute.name.local), nil
+	case "elementFormDefault":
+		return "", validateSchemaEnum(attribute, "qualified", "unqualified")
 	case "blockDefault":
 		if err := validateSchemaRestrictionList(attribute, "extension", "restriction", "substitution"); err != nil {
 			return "", err
@@ -2401,7 +2403,8 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			if err := validateChoiceParticle(child, version); err != nil {
+			allowNamespacePolicy := len(syntaxAttributesByLocal(parent, "name")) == 1
+			if err := validateChoiceParticleWithNamespacePolicy(child, version, allowNamespacePolicy); err != nil {
 				if !candidate.considerError(err) {
 					return err
 				}
@@ -2644,7 +2647,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			if err := validateChoiceParticle(child, version); err != nil && !candidate.considerError(err) {
+			if err := validateChoiceParticleWithNamespacePolicy(child, version, false); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "attribute", "attributeGroup":
@@ -3240,12 +3243,12 @@ func validateComplexTypeAssert(element *syntaxElement, version XSDVersion) error
 	return newSchemaSyntaxUnsupportedForVersion(element.loc, "assertions are not implemented", version)
 }
 
-func validateChoiceParticle(element *syntaxElement, version XSDVersion) error {
+func validateChoiceParticleWithNamespacePolicy(element *syntaxElement, version XSDVersion, allowNamespacePolicy bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateSchemaParticleAttributes(element, &candidate, version); err != nil {
 		return err
 	}
-	childrenCandidate, err := validateModelParticleChildren(element, "choice", version)
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "choice", version, false, allowNamespacePolicy)
 	if err != nil {
 		return err
 	}
@@ -3254,11 +3257,11 @@ func validateChoiceParticle(element *syntaxElement, version XSDVersion) error {
 }
 
 func validateModelParticleChildren(element *syntaxElement, model string, version XSDVersion) (schemaChildUnsupportedCandidate, error) {
-	return validateModelParticleChildrenWithOptions(element, model, version, false)
+	return validateModelParticleChildrenWithOptions(element, model, version, false, false)
 }
 
 //nolint:gocognit // Keep the supported direct-sequence grammar in the shared traversal.
-func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences bool) (schemaChildUnsupportedCandidate, error) {
+func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences, allowNamespacePolicy bool) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
 	annotationSeen := false
 	contentSeen := false
@@ -3290,7 +3293,7 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 		contentSeen = true
 		switch child.name.local {
 		case "element":
-			localCandidate, err := validateLocalElementParticle(child, version, allowElementOccurrences, model)
+			localCandidate, err := validateLocalElementParticle(child, version, allowElementOccurrences, model, allowNamespacePolicy)
 			if err != nil {
 				return candidate, err
 			}
@@ -3612,12 +3615,8 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 	return nil
 }
 
-func validateChoiceElementParticle(element *syntaxElement, version XSDVersion) (schemaChildUnsupportedCandidate, error) {
-	return validateLocalElementParticle(element, version, false, "choice")
-}
-
 //nolint:gocognit,funlen // Keep local element grammar, lexical checks, and support boundaries together.
-func validateLocalElementParticle(element *syntaxElement, version XSDVersion, allowOccurrences bool, model string) (schemaChildUnsupportedCandidate, error) {
+func validateLocalElementParticle(element *syntaxElement, version XSDVersion, allowOccurrences bool, model string, allowNamespacePolicy bool) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
 	nameAttributes := syntaxAttributesByLocal(element, "name")
 	refAttributes := syntaxAttributesByLocal(element, "ref")
@@ -3673,7 +3672,9 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			if err := validateSchemaEnum(attribute, "qualified", "unqualified"); err != nil {
 				return candidate, err
 			}
-			candidate.considerAt(attribute.loc, "local element form policy is not implemented")
+			if !allowNamespacePolicy {
+				candidate.considerAt(attribute.loc, "local element form policy is not implemented")
+			}
 		case "targetNamespace":
 			if err := validateSchemaAnyURI(attribute); err != nil {
 				return candidate, err
@@ -3732,7 +3733,7 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 				"local element targetNamespace is an XSD 1.1-only construct",
 			), element, attributeIndex)
 		}
-		if version != XSDVersion10 {
+		if version != XSDVersion10 && !allowNamespacePolicy {
 			candidate.considerAtVersion(targetNamespaceAttributes[0].loc, "local element targetNamespace is not implemented", version)
 		}
 	}
@@ -3808,7 +3809,7 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 func validateUnsupportedParticle(element *syntaxElement, version XSDVersion) error {
 	switch element.name.local {
 	case "choice":
-		return validateChoiceParticle(element, version)
+		return validateChoiceParticleWithNamespacePolicy(element, version, false)
 	case "sequence":
 		return validateSequenceParticle(element, version)
 	case "group":
@@ -3849,7 +3850,7 @@ func validateSupportedSequenceParticle(element *syntaxElement, version XSDVersio
 	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
 		return err
 	}
-	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true)
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, false)
 	if err != nil {
 		return err
 	}
@@ -3992,7 +3993,7 @@ func validateAllParticleChild(node syntaxNode, version XSDVersion, annotationSee
 func validateAllParticleContentChild(child *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate) error {
 	switch child.name.local {
 	case "element":
-		localCandidate, err := validateChoiceElementParticle(child, version)
+		localCandidate, err := validateLocalElementParticle(child, version, false, "all", false)
 		if err != nil {
 			if !localCandidate.considerError(err) {
 				return err
