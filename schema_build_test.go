@@ -1128,8 +1128,8 @@ func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:    "element form policy is unsupported after lexical validation",
-			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" form="unqualified"/></xs:choice>`),
+			name:    "nested element form policy remains unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:sequence><xs:element name="value" type="xs:integer" form="unqualified"/></xs:sequence></xs:choice>`),
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
 		},
@@ -1269,12 +1269,12 @@ func TestSchemaBridgeClassifiesVersionedChoiceElementSyntax(t *testing.T) {
 		specRef  string
 	}{
 		{
-			name:     "XSD 1.1 local target namespace is unsupported",
+			name:     "XSD 1.1 local target namespace requires a containing target",
 			version:  XSDVersion11,
 			particle: `<xs:element name="value" type="xs:integer" targetNamespace="urn:qualified"/>`,
-			class:    FailureUnsupported,
-			code:     UnsupportedSchemaSyntaxCode,
-			specRef:  "xsd11-structures#cSchemaDocument",
+			class:    FailureInvalid,
+			code:     invalidSchemaCompositionCode,
+			specRef:  schemaElementTargetNamespaceXSD11SpecRef,
 		},
 		{
 			name:     "XSD 1.0 local target namespace is a strict mismatch",
