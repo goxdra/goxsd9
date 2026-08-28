@@ -956,6 +956,41 @@ type schemaComponentRecord struct {
 	complexType *schemaComplexTypeInput
 }
 
+type schemaSymbolSpace uint8
+
+const (
+	schemaSymbolSpaceElement schemaSymbolSpace = iota + 1
+	schemaSymbolSpaceAttribute
+	schemaSymbolSpaceType
+	schemaSymbolSpaceModelGroup
+	schemaSymbolSpaceAttributeGroup
+	schemaSymbolSpaceNotation
+)
+
+type schemaSymbolKey struct {
+	space schemaSymbolSpace
+	name  QName
+}
+
+func schemaSymbolSpaceForComponentKind(kind ComponentKind) (schemaSymbolSpace, bool) {
+	switch kind {
+	case ComponentKindElementDeclaration:
+		return schemaSymbolSpaceElement, true
+	case ComponentKindAttributeDeclaration:
+		return schemaSymbolSpaceAttribute, true
+	case ComponentKindSimpleTypeDefinition, ComponentKindComplexTypeDefinition:
+		return schemaSymbolSpaceType, true
+	case ComponentKindModelGroupDefinition:
+		return schemaSymbolSpaceModelGroup, true
+	case ComponentKindAttributeGroupDefinition:
+		return schemaSymbolSpaceAttributeGroup, true
+	case ComponentKindNotationDeclaration:
+		return schemaSymbolSpaceNotation, true
+	default:
+		return 0, false
+	}
+}
+
 // newSchema completes the ordered component representation after discovery
 // and declaration phases have supplied all document identities and facts.
 // Input slices are consumed only for construction; the returned schema owns
@@ -975,7 +1010,7 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 	if err != nil {
 		return Schema{}, err
 	}
-	if duplicateErr := rejectDuplicateSchemaElements(records, version); duplicateErr != nil {
+	if duplicateErr := rejectDuplicateSchemaDeclarations(records, version); duplicateErr != nil {
 		return Schema{}, duplicateErr
 	}
 	simpleTypes, err := resolveSchemaSimpleTypes(records, byName, version)
@@ -1007,17 +1042,19 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 	}, nil
 }
 
-func rejectDuplicateSchemaElements(records []schemaComponentRecord, version XSDVersion) error {
-	earliest := make(map[QName]int)
+func rejectDuplicateSchemaDeclarations(records []schemaComponentRecord, version XSDVersion) error {
+	earliest := make(map[schemaSymbolKey]int)
 	for index, record := range records {
-		if record.kind != ComponentKindElementDeclaration {
+		space, ok := schemaSymbolSpaceForComponentKind(record.kind)
+		if !ok {
 			continue
 		}
-		first, ok := earliest[record.name]
+		key := schemaSymbolKey{space: space, name: record.name}
+		first, ok := earliest[key]
 		if ok {
-			return newSchemaElementDuplicateDiagnostic(record, records[first], version)
+			return newSchemaDuplicateDiagnostic(record, records[first], space, version)
 		}
-		earliest[record.name] = index
+		earliest[key] = index
 	}
 	return nil
 }

@@ -19,7 +19,8 @@ const (
 	diagnosticSchemaElementTypeWrongKindCode    = "XSD3020"
 	diagnosticSchemaElementTypeAmbiguousCode    = "XSD3021"
 	diagnosticSchemaElementTypeUnsupportedCode  = "XSD3022"
-	diagnosticSchemaElementDuplicateCode        = "XSD3023"
+	diagnosticSchemaGlobalDuplicateCode         = "XSD3023"
+	diagnosticSchemaElementDuplicateCode        = diagnosticSchemaGlobalDuplicateCode
 	diagnosticSchemaPrecisionDecimalVersionCode = "XSD3030"
 	diagnosticSchemaAllOccurrenceVersionCode    = diagnosticSchemaPrecisionDecimalVersionCode
 	diagnosticSchemaBridgeInvariantCode         = "GOXSD9025"
@@ -33,22 +34,25 @@ const (
 	schemaElementTargetNamespaceXSD11SpecRef = "xsd11-structures#dcl.elt.local"
 	schemaBooleanDatatypeXSD10SpecRef        = "xsd10-datatypes#boolean"
 	schemaBooleanDatatypeXSD11SpecRef        = "xsd11-datatypes#boolean"
-	schemaElementDuplicateXSD10SpecRef       = "xsd10-structures#c-nmd"
-	schemaElementDuplicateXSD11SpecRef       = "xsd11-structures#c-nmd"
+	schemaGlobalDuplicateXSD10SpecRef        = "xsd10-structures#c-nmd"
+	schemaGlobalDuplicateXSD11SpecRef        = "xsd11-structures#c-nmd"
+	schemaElementDuplicateXSD10SpecRef       = schemaGlobalDuplicateXSD10SpecRef
+	schemaElementDuplicateXSD11SpecRef       = schemaGlobalDuplicateXSD11SpecRef
 )
 
 var (
-	errSchemaSimpleTypeBaseUnresolved = errors.New("simple type base is unresolved")
-	errSchemaSimpleTypeBaseWrongKind  = errors.New("simple type base has the wrong kind")
-	errSchemaSimpleTypeBaseAmbiguous  = errors.New("simple type base is ambiguous")
-	errSchemaSimpleTypeBaseCycle      = errors.New("simple type base is cyclic")
-	errSchemaElementTypeUnresolved    = errors.New("element type is unresolved")
-	errSchemaElementTypeWrongKind     = errors.New("element type has the wrong kind")
-	errSchemaElementTypeAmbiguous     = errors.New("element type is ambiguous")
-	errSchemaElementDuplicate         = errors.New("global element declaration is duplicated")
-	errSchemaElementTargetNamespace   = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
-	errSchemaPrecisionDecimalVersion  = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
-	errLanguagePolicyMismatch         = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
+	errSchemaSimpleTypeBaseUnresolved   = errors.New("simple type base is unresolved")
+	errSchemaSimpleTypeBaseWrongKind    = errors.New("simple type base has the wrong kind")
+	errSchemaSimpleTypeBaseAmbiguous    = errors.New("simple type base is ambiguous")
+	errSchemaSimpleTypeBaseCycle        = errors.New("simple type base is cyclic")
+	errSchemaElementTypeUnresolved      = errors.New("element type is unresolved")
+	errSchemaElementTypeWrongKind       = errors.New("element type has the wrong kind")
+	errSchemaElementTypeAmbiguous       = errors.New("element type is ambiguous")
+	errSchemaGlobalDeclarationDuplicate = errors.New("global declaration is duplicated")
+	errSchemaElementDuplicate           = errors.New("global element declaration is duplicated")
+	errSchemaElementTargetNamespace     = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
+	errSchemaPrecisionDecimalVersion    = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
+	errLanguagePolicyMismatch           = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
 type schemaTargetNamespace struct {
@@ -1532,6 +1536,21 @@ func unresolvedSchemaElementType(input *schemaElementInput, version XSDVersion) 
 	)
 }
 
+func newSchemaDuplicateDiagnostic(later, earliest schemaComponentRecord, space schemaSymbolSpace, version XSDVersion) Diagnostic {
+	if space == schemaSymbolSpaceElement {
+		return newSchemaElementDuplicateDiagnostic(later, earliest, version)
+	}
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaGlobalDuplicateCode,
+		loc:     later.loc,
+		message: fmt.Sprintf("global %s %q is duplicated", schemaSymbolSpaceDescription(space), later.name),
+		related: []Loc{earliest.loc},
+		specRef: schemaGlobalDuplicateSpecRef(version),
+		cause:   errSchemaGlobalDeclarationDuplicate,
+	}
+}
+
 func newSchemaElementDuplicateDiagnostic(later, earliest schemaComponentRecord, version XSDVersion) Diagnostic {
 	return Diagnostic{
 		class:   FailureInvalid,
@@ -1544,11 +1563,34 @@ func newSchemaElementDuplicateDiagnostic(later, earliest schemaComponentRecord, 
 	}
 }
 
-func schemaElementDuplicateSpecRef(version XSDVersion) string {
-	if version == XSDVersion10 {
-		return schemaElementDuplicateXSD10SpecRef
+func schemaSymbolSpaceDescription(space schemaSymbolSpace) string {
+	switch space {
+	case schemaSymbolSpaceElement:
+		return "element declaration"
+	case schemaSymbolSpaceAttribute:
+		return "attribute declaration"
+	case schemaSymbolSpaceType:
+		return "type definition"
+	case schemaSymbolSpaceModelGroup:
+		return "model group definition"
+	case schemaSymbolSpaceAttributeGroup:
+		return "attribute group definition"
+	case schemaSymbolSpaceNotation:
+		return "notation declaration"
+	default:
+		return "declaration"
 	}
-	return schemaElementDuplicateXSD11SpecRef
+}
+
+func schemaGlobalDuplicateSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaGlobalDuplicateXSD10SpecRef
+	}
+	return schemaGlobalDuplicateXSD11SpecRef
+}
+
+func schemaElementDuplicateSpecRef(version XSDVersion) string {
+	return schemaGlobalDuplicateSpecRef(version)
 }
 
 func wrongKindSchemaElementType(input *schemaElementInput, related []Loc, version XSDVersion) (schemaElementTypeResult, error) {
