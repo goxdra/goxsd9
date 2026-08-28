@@ -401,6 +401,9 @@ func requireSchemaDuplicateDiagnostic(t *testing.T, schema Schema, err error, pr
 	if diagnostic.SpecRef() != specRef {
 		t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), specRef)
 	}
+	if diagnostic.Feature() != "" {
+		t.Fatalf("diagnostic feature = %q, want no feature", diagnostic.Feature())
+	}
 	if diagnostic.Message() != message {
 		t.Fatalf("diagnostic message = %q, want %q", diagnostic.Message(), message)
 	}
@@ -491,6 +494,9 @@ func requireSchemaElementDuplicateDiagnostic(t *testing.T, schema Schema, err er
 
 func assertSameSchemaDiagnostic(t *testing.T, first, current Diagnostic) {
 	t.Helper()
+	if first.Error() != current.Error() {
+		t.Fatalf("repeated diagnostic bytes changed: first %q, current %q", first.Error(), current.Error())
+	}
 	if first.Class() != current.Class() || first.Code() != current.Code() || first.Feature() != current.Feature() || first.Loc() != current.Loc() || first.Message() != current.Message() || first.SpecRef() != current.SpecRef() || !reflect.DeepEqual(first.Related(), current.Related()) {
 		t.Fatalf("repeated diagnostic changed: first %v, current %v", first, current)
 	}
