@@ -3019,6 +3019,204 @@ func assertUnsupportedSimpleTypeFeature(t *testing.T, root string, policy Langua
 	}
 }
 
+func TestSchemaBridgeReportsNamedSimpleTypeModelBuildBoundaryUnsupported(t *testing.T) {
+	models := []struct {
+		name     string
+		typeName string
+		child    string
+	}{
+		{name: "list", typeName: "List", child: `<xs:list itemType="xs:boolean"/>`},
+		{name: "union", typeName: "Union", child: `<xs:union memberTypes="xs:boolean"/>`},
+	}
+	versions := []struct {
+		name    string
+		version XSDVersion
+		specRef string
+	}{
+		{name: "XSD 1.0", version: XSDVersion10, specRef: "xsd10-structures#schema-document"},
+		{name: "XSD 1.1", version: XSDVersion11, specRef: "xsd11-structures#cSchemaDocument"},
+	}
+	for _, model := range models {
+		for _, version := range versions {
+			t.Run(model.name+"/"+version.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="` + model.typeName + `">` + model.child + `</xs:simpleType></xs:schema>`
+				simpleType := schemaBuildTestRootChild(t, root)
+				child := schemaBuildTestChild(t, simpleType, model.name)
+				assertSchemaBuildBoundaryUnsupported(t, simpleType, child, version.version, version.specRef)
+			})
+		}
+	}
+}
+
+func TestSchemaBridgeKeepsMalformedNamedSimpleTypeModelsInvalidAtBuildBoundary(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+		code string
+	}{
+		{
+			name: "missing source",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="List"><xs:list/></xs:simpleType></xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "malformed itemType",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="List"><xs:list itemType="bad:q:name"/></xs:simpleType></xs:schema>`,
+			code: invalidSchemaConditionalCode,
+		},
+		{
+			name: "both sources",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="List"><xs:list itemType="xs:boolean"><xs:simpleType><xs:restriction base="xs:boolean"/></xs:simpleType></xs:list></xs:simpleType></xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "union missing source",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Union"><xs:union/></xs:simpleType></xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "union malformed memberTypes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Union"><xs:union memberTypes="bad:q:name"/></xs:simpleType></xs:schema>`,
+			code: invalidSchemaConditionalCode,
+		},
+		{
+			name: "union memberTypes is empty",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Union"><xs:union memberTypes=""/></xs:simpleType></xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			simpleType := schemaBuildTestRootChild(t, test.root)
+			_, present, err := schemaDocumentDeclaration(simpleType, "", XSDVersion11)
+			if err == nil {
+				t.Fatal("schemaDocumentDeclaration accepted a malformed named list")
+			}
+			if present {
+				t.Fatal("schemaDocumentDeclaration returned a declaration with an error")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
+			}
+			if errors.Is(err, ErrUnsupported) {
+				t.Fatalf("malformed list retained an unsupported classification: %v", err)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeReportsGlobalInlineSimpleTypeBuildBoundaryUnsupported(t *testing.T) {
+	tests := []struct {
+		name    string
+		version XSDVersion
+		specRef string
+	}{
+		{name: "XSD 1.0", version: XSDVersion10, specRef: "xsd10-structures#schema-document"},
+		{name: "XSD 1.1", version: XSDVersion11, specRef: "xsd11-structures#cSchemaDocument"},
+	}
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="root"><xs:simpleType><xs:restriction base="xs:boolean"/></xs:simpleType></xs:element>
+</xs:schema>`
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			element := schemaBuildTestRootChild(t, root)
+			inline := schemaBuildTestChild(t, element, "simpleType")
+			assertSchemaBuildBoundaryUnsupported(t, element, inline, test.version, test.specRef)
+		})
+	}
+}
+
+func TestSchemaBridgeKeepsMalformedGlobalInlineSimpleTypesInvalidAtBuildBoundary(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+		code string
+	}{
+		{
+			name: "empty simpleType",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="root"><xs:simpleType/></xs:element></xs:schema>`,
+			code: invalidSchemaCompositionCode,
+		},
+		{
+			name: "malformed restriction base",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="root"><xs:simpleType><xs:restriction base="bad:q:name"/></xs:simpleType></xs:element></xs:schema>`,
+			code: invalidSchemaConditionalCode,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			element := schemaBuildTestRootChild(t, test.root)
+			_, present, err := schemaDocumentDeclaration(element, "", XSDVersion11)
+			if err == nil {
+				t.Fatal("schemaDocumentDeclaration accepted a malformed global inline simple type")
+			}
+			if present {
+				t.Fatal("schemaDocumentDeclaration returned a declaration with an error")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+				t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
+			}
+			if errors.Is(err, ErrUnsupported) {
+				t.Fatalf("malformed inline simple type retained an unsupported classification: %v", err)
+			}
+		})
+	}
+}
+
+func assertSchemaBuildBoundaryUnsupported(t *testing.T, declaration, expectedLocation *syntaxElement, version XSDVersion, specRef string) {
+	t.Helper()
+	_, present, err := schemaDocumentDeclaration(declaration, "", version)
+	if err == nil {
+		t.Fatal("schemaDocumentDeclaration accepted unsupported syntax")
+	}
+	if present {
+		t.Fatal("schemaDocumentDeclaration returned a declaration with an error")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+		t.Fatalf("diagnostic = %s, want unsupported schema syntax", diagnostic)
+	}
+	if diagnostic.SpecRef() != specRef {
+		t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), specRef)
+	}
+	if diagnostic.Loc() != expectedLocation.loc {
+		t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), expectedLocation.loc)
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+	}
+}
+
+func schemaBuildTestRootChild(t *testing.T, root string) *syntaxElement {
+	t.Helper()
+	document, err := decodeResolvedSyntaxForDiscovery(newTestSource(t, &trackingSource{data: []byte(root)}))
+	if err != nil {
+		t.Fatalf("decodeResolvedSyntaxForDiscovery: %v", err)
+	}
+	for _, node := range document.root.children {
+		child, ok := node.(*syntaxElement)
+		if ok {
+			return child
+		}
+	}
+	t.Fatal("schema test root has no element child")
+	return nil
+}
+
+func schemaBuildTestChild(t *testing.T, parent *syntaxElement, local string) *syntaxElement {
+	t.Helper()
+	for _, node := range parent.children {
+		child, ok := node.(*syntaxElement)
+		if ok && child.name.namespace == xsdNamespaceURI && child.name.local == local {
+			return child
+		}
+	}
+	t.Fatalf("schema test element has no <%s> child", local)
+	return nil
+}
+
 func TestSchemaBridgeRejectsInlineSimpleTypeRestrictionAsUnsupported(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:restriction></xs:simpleType></xs:schema>`
 	schema, err := discoverTestSchema(t, root, nil)

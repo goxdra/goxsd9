@@ -3,12 +3,12 @@
 ## Boundaries
 
 goxsd9 has four user-facing capabilities: schema parsing, immutable schema
-queries and walks, XML instance validation, and Go code generation. The schema
-model is the leaf dependency: validation and code generation depend on it, but
-it contains no validator or generator caches.
+queries/walks, XML validation, and Go generation. The schema model is the leaf
+dependency: validation and generation depend on it, but it has no validator or
+generator caches.
 
-The implementation uses the Go standard library. Development-only lint tooling
-is an approved exception. Any other dependency requires a human-reviewed issue.
+Runtime implementation uses only standard-library facilities; development
+tooling remains outside the library dependency graph.
 
 ## Deterministic phase pipeline
 
@@ -24,24 +24,23 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Each phase consumes a complete prior result and produces a new result. Local
-construction may append to unexported slices or populate lookup tables, but a
-completed component is never mutated or backpatched. Document identities are
-interned before discovery. Repeated includes and imports reuse that identity,
-so document cycles do not recurse. Dependencies required to be acyclic are
-processed in stable topological order.
+Each phase consumes a complete prior result and produces a new one. Local
+construction may append to unexported slices or populate lookup tables, but
+completed components are never mutated or backpatched. Document identities are
+interned before discovery. Repeated includes/imports reuse that identity, so
+cycles do not recurse. Acyclic dependencies are processed in stable topological
+order.
 
-Maps may support lookup, but ordered slices are the primary representation for
-observable walks and output. Every fallback ordering uses explicit stable keys.
+Maps support lookup, but ordered slices are primary for observable walks and
+output. Every fallback ordering uses explicit stable keys.
 
 ## Input and resolution
 
 The entrypoint is `ParseSchema(root ResolvedSource, resolver Resolver)`.
 The caller creates root `ResolvedSource` with `NewResolvedSource`; the
 resolver creates referenced sources and supplies resolution policy. Parsing
-closes root and every resolver-supplied stream. It drains and decodes only
-unseen identities; repeated/cyclic identities are closed without
-decoding.
+closes root and every resolver-supplied stream; it drains and decodes only
+unseen identities. Repeated/cyclic identities are closed without decoding.
 
 ```go
 type Resolver interface {
@@ -53,33 +52,32 @@ type Resolver interface {
 }
 ```
 
-Each result carries an opaque source identity, a reader-closer, and a child
-context. A resolver can store typed private base-location state in that context.
-Discovery passes the parent context to each FIFO call and preserves the
-returned child context for nested references. Source identities and lexical
-schema locations remain opaque; the parser never interprets paths, opens files,
-or performs network requests. Resolver calls are sequential.
+Each result carries an opaque source identity, reader-closer, and child context.
+Resolvers can store typed private base-location state there. Discovery passes
+parent context to each FIFO call and preserves returned child context for nested
+references. Source identities and lexical schema locations remain opaque; the
+parser never interprets paths, opens files, or performs network requests.
+Resolver calls are sequential.
 
-The decoder captures one-based line and Unicode-code-point column positions as
-it streams. Syntax nodes and final components retain `Loc` values, not source
-bytes or excerpts.
+The decoder captures one-based line and Unicode-code-point columns
+while streaming. Syntax nodes and final components retain `Loc` values, not
+source bytes or excerpts.
 
 ## Diagnostics
 
-Structured diagnostics are deterministically ordered and classify failures as:
+Structured diagnostics are deterministic and classify failures as:
 
 - invalid schema or instance input;
 - unsupported specification behavior;
 - source resolution failure; or
 - internal invariant failure.
 
-Every diagnostic has a stable code, primary `Loc`, optional related locations,
-and an applicable specification reference. Errors preserve their causes as
-they cross package boundaries. Error-level diagnostics prevent a schema from
-being returned.
+Each diagnostic has a stable code, primary `Loc`, optional related locations,
+and an applicable specification reference. Causes survive package boundaries.
+Error-level diagnostics prevent a schema from being returned.
 
 Unsupported features have stable identifiers. Conformance reports aggregate
-those identifiers to show which implementation work unlocks the most tests.
+them to show which implementation work unlocks the most tests.
 
 ## Schema model
 
@@ -90,23 +88,24 @@ lexical declaration order; specification-defined unordered sets use documented
 stable sorting.
 
 The schema skeleton exposes `Schema`, `SchemaDocument`, `Component`,
-`ComponentID`, and expanded `QName` values. A schema stores documents in
-identity-discovery order (the root document first, followed by resolver queue
-order) and named schema-level declarations in lexical declaration order within
-each document. `Components`, `Documents`, `Find`, and `Walk` preserve that
-order; returned slices are copies. Component IDs combine a resolver source
-identity with a one-based declaration ordinal, while lookup maps are private
-indexes and never define observable order. Local particle components will be
-walked through a separate scoped model. It stores component facts and lookup
-indexes; validator and generator state is calculated on demand.
+`ComponentID`, and expanded `QName` values. Documents follow identity-
+discovery order (root first, then resolver queue order); named schema-level
+declarations follow lexical order within each document. `Components`,
+`Documents`, `Find`, and `Walk` preserve those orders; returned slices are
+copies. Component IDs combine resolver source identity with one-based
+declaration ordinals; private lookup maps never define observable order. Local
+particle components use a separate scoped model. It stores component facts and
+lookup indexes; validator and generator state is calculated on demand.
 
-The model stores fundamental facts; primitive status is derived from type
-relations.
+The model stores fundamental facts; primitive status follows type
+relations. Direct global `xs:boolean` elements retain expanded `DeclaredType`
+facts; named boolean restrictions expose immutable
+`SimpleTypeDefinition.IsBoolean()` facts; built-ins lack synthetic IDs.
 
 The model exposes concrete `element`, `sequence`, and `choice` particles
 for type switches; broader variants remain future. Named complex types may
 expose one ordered sequence of local integer/decimal scalar elements with exact
-immutable occurrence ranges.
+immutable occurrence ranges. Local boolean particles remain unsupported.
 
 ## Datatypes
 
@@ -120,9 +119,10 @@ numeric canonical forms. PrecisionDecimal exposes exact finite/special values,
 partial comparison, applicable facets, and bounded canonical output; immutable
 schema components retain effective facets when it is explicitly named under
 Compatibility or Strict11. It remains implementation-defined and optional,
-not a mandatory XSD 1.1 claim. Code generation, temporal distinctions, and
-broader value spaces remain staged capabilities and report unsupported
-behavior.
+not a mandatory XSD 1.1 claim. Boolean whitespace collapse is datatype
+behavior, not stored facet state; boolean facets unsupported.
+Code generation, temporal distinctions, and broader value spaces remain staged
+capabilities and report unsupported behavior.
 
 ## Validation and code generation
 
@@ -130,11 +130,13 @@ behavior.
 `precisionDecimal` globals and global named-complex elements having one direct
 choice of local `integer`/`decimal`/`precisionDecimal` elements. Named types use
 `TypeID`/`Lookup`; built-ins use policy defaults. Direct scalar sequences are
-parsed and queryable but not validated. Attributes and broader particles remain
-unsupported; instance locations are primary.
+parsed and queryable but not validated. Boolean globals and named restrictions
+remain unsupported in instance validation; attributes and broader
+particles remain unsupported; instance locations are primary.
 
 Code generation consumes only the public schema model. It produces deterministic
 formatted Go, uses type switches for choices, and never depends on map order.
+Boolean generation remains unsupported.
 
 ## Conformance
 

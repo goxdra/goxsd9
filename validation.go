@@ -701,6 +701,15 @@ func instanceScalarTypeForTarget(
 			related: related,
 		}, nil
 	}
+	if definition.IsBoolean() {
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()),
+			related,
+			fallbackVersion,
+			errInstanceUnsupportedType,
+		)
+	}
 	facets := definition.DigitFacets()
 	if facets.Kind() != DigitDatatypeInteger && facets.Kind() != DigitDatatypeDecimal {
 		return instanceScalarType{}, newInstanceValidationInternal(

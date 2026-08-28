@@ -263,6 +263,16 @@ func (definition SimpleTypeDefinition) BaseID() (ComponentID, bool) {
 	return definition.facts.baseID, true
 }
 
+// IsBoolean reports whether the simple type is derived from the XSD boolean
+// datatype.
+func (definition SimpleTypeDefinition) IsBoolean() bool {
+	if definition.facts == nil {
+		return false
+	}
+	_, ok := definition.facts.facets.(schemaBooleanFacetVariant)
+	return ok
+}
+
 // DigitFacets returns the effective totalDigits and fractionDigits facets.
 func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 	if definition.facts == nil {
@@ -869,6 +879,10 @@ type schemaPrecisionDecimalFacetVariant struct {
 }
 
 func (schemaPrecisionDecimalFacetVariant) schemaSimpleTypeFacetVariant() {}
+
+type schemaBooleanFacetVariant struct{}
+
+func (schemaBooleanFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
 	particle schemaComplexTypeParticleInput
