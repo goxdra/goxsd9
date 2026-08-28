@@ -190,9 +190,9 @@ func TestSchemaBridgeBooleanBaseFailuresRetainDiagnosticContract(t *testing.T) {
 		{
 			name:    "ambiguous",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:boolean"/></xs:simpleType><xs:simpleType name="item"><xs:restriction base="xs:boolean"/></xs:simpleType><xs:simpleType name="derived"><xs:restriction base="item"/></xs:simpleType></xs:schema>`,
-			code:    diagnosticSchemaSimpleTypeAmbiguousCode,
-			cause:   errSchemaSimpleTypeBaseAmbiguous,
-			related: 2,
+			code:    diagnosticSchemaGlobalDuplicateCode,
+			cause:   errSchemaGlobalDeclarationDuplicate,
+			related: 1,
 		},
 		{
 			name:    "cyclic",
@@ -223,8 +223,12 @@ func TestSchemaBridgeBooleanBaseFailuresRetainDiagnosticContract(t *testing.T) {
 				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
 					t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
 				}
-				if diagnostic.SpecRef() != schemaSimpleTypeSpecRef(policy.version) {
-					t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), schemaSimpleTypeSpecRef(policy.version))
+				wantSpecRef := schemaSimpleTypeSpecRef(policy.version)
+				if test.code == diagnosticSchemaGlobalDuplicateCode {
+					wantSpecRef = schemaGlobalDuplicateSpecRef(policy.version)
+				}
+				if diagnostic.SpecRef() != wantSpecRef {
+					t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), wantSpecRef)
 				}
 				if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
 					t.Fatalf("diagnostic location = %v, want a root.xsd location", diagnostic.Loc())

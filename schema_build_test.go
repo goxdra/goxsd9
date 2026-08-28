@@ -2162,10 +2162,10 @@ func TestSchemaBridgePreservesChoiceElementTypeDiagnostics(t *testing.T) {
 			name:       "ambiguous",
 			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Amount"><xs:restriction base="xs:decimal"/></xs:simpleType><xs:simpleType name="Amount"><xs:restriction base="xs:integer"/></xs:simpleType><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="Amount"/></xs:choice></xs:complexType></xs:schema>`,
 			class:      FailureInvalid,
-			code:       diagnosticSchemaElementTypeAmbiguousCode,
-			cause:      errSchemaElementTypeAmbiguous,
-			specRef:    schemaElementTypeXSD11SpecRef,
-			relatedMin: 2,
+			code:       diagnosticSchemaGlobalDuplicateCode,
+			cause:      errSchemaGlobalDeclarationDuplicate,
+			specRef:    schemaGlobalDuplicateXSD11SpecRef,
+			relatedMin: 1,
 		},
 		{
 			name:    "named complex type",
@@ -2377,6 +2377,107 @@ func TestSchemaBridgeAcceptsGlobalElementNamesAcrossNamespaces(t *testing.T) {
 	}
 	if components[0].Name().Namespace() == components[1].Name().Namespace() {
 		t.Fatalf("namespaces = %q/%q, want distinct namespaces", components[0].Name().Namespace(), components[1].Name().Namespace())
+	}
+}
+
+func TestSchemaBridgeRejectsDuplicateNonElementGlobalDeclarations(t *testing.T) {
+	tests := []struct {
+		name    string
+		root    string
+		message string
+	}{
+		{
+			name: "attributes",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
+  <xs:attribute name="item"/>
+  <xs:attribute name="item"/>
+</xs:schema>`,
+			message: `global attribute declaration "{urn:test}item" is duplicated`,
+		},
+		{
+			name: "simple types",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
+  <xs:simpleType name="item"><xs:restriction base="xs:integer"/></xs:simpleType>
+  <xs:simpleType name="item"><xs:restriction base="xs:integer"/></xs:simpleType>
+</xs:schema>`,
+			message: `global type definition "{urn:test}item" is duplicated`,
+		},
+		{
+			name: "complex types",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
+  <xs:complexType name="item"/>
+  <xs:complexType name="item"/>
+</xs:schema>`,
+			message: `global type definition "{urn:test}item" is duplicated`,
+		},
+		{
+			name: "attribute groups",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
+  <xs:attributeGroup name="item"/>
+  <xs:attributeGroup name="item"/>
+</xs:schema>`,
+			message: `global attribute group definition "{urn:test}item" is duplicated`,
+		},
+		{
+			name: "notations",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
+  <xs:notation name="item"/>
+  <xs:notation name="item"/>
+</xs:schema>`,
+			message: `global notation declaration "{urn:test}item" is duplicated`,
+		},
+	}
+	for _, policy := range []struct {
+		name    string
+		value   LanguagePolicy
+		specRef string
+	}{
+		{name: "XSD 1.0", value: Strict10, specRef: schemaGlobalDuplicateXSD10SpecRef},
+		{name: "XSD 1.1", value: Strict11, specRef: schemaGlobalDuplicateXSD11SpecRef},
+	} {
+		for _, test := range tests {
+			t.Run(policy.name+"/"+test.name, func(t *testing.T) {
+				firstLoc := mustTestLoc(t, "root.xsd", 2, 3)
+				laterLoc := mustTestLoc(t, "root.xsd", 3, 3)
+				var first Diagnostic
+				for iteration := 0; iteration < 3; iteration++ {
+					schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, policy.value)
+					diagnostic := requireSchemaDuplicateDiagnostic(t, schema, err, laterLoc, []Loc{firstLoc}, policy.specRef, test.message, errSchemaGlobalDeclarationDuplicate)
+					if iteration == 0 {
+						first = diagnostic
+						continue
+					}
+					assertSameSchemaDiagnostic(t, first, diagnostic)
+				}
+			})
+		}
+	}
+}
+
+func TestSchemaBridgeRejectsComposedDuplicateGlobalAttributesInDiscoveryOrder(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
+  <xs:include schemaLocation="first.xsd"/>
+  <xs:include schemaLocation="second.xsd"/>
+</xs:schema>`
+	fixtures := map[string]discoveryFixture{
+		"first.xsd": {id: "first.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
+  <xs:attribute name="item"/>
+</xs:schema>`},
+		"second.xsd": {id: "second.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
+  <xs:attribute name="item"/>
+</xs:schema>`},
+	}
+	firstLoc := mustTestLoc(t, "first.xsd", 2, 3)
+	laterLoc := mustTestLoc(t, "second.xsd", 2, 3)
+	var first Diagnostic
+	for iteration := 0; iteration < 3; iteration++ {
+		schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, Strict11)
+		diagnostic := requireSchemaDuplicateDiagnostic(t, schema, err, laterLoc, []Loc{firstLoc}, schemaGlobalDuplicateXSD11SpecRef, `global attribute declaration "{urn:test}item" is duplicated`, errSchemaGlobalDeclarationDuplicate)
+		if iteration == 0 {
+			first = diagnostic
+			continue
+		}
+		assertSameSchemaDiagnostic(t, first, diagnostic)
 	}
 }
 
@@ -2831,10 +2932,10 @@ func TestSchemaBridgeRejectsSimpleTypeBaseFailuresWithoutSchema(t *testing.T) {
 			name:       "ambiguous",
 			root:       `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:integer"/></xs:simpleType><xs:simpleType name="item"><xs:restriction base="xs:integer"/></xs:simpleType><xs:simpleType name="derived"><xs:restriction base="item"/></xs:simpleType></xs:schema>`,
 			class:      FailureInvalid,
-			code:       diagnosticSchemaSimpleTypeAmbiguousCode,
-			cause:      errSchemaSimpleTypeBaseAmbiguous,
-			specRef:    "xsd11-structures#Simple_Type_Definition",
-			relatedMin: 2,
+			code:       diagnosticSchemaGlobalDuplicateCode,
+			cause:      errSchemaGlobalDeclarationDuplicate,
+			specRef:    schemaGlobalDuplicateXSD11SpecRef,
+			relatedMin: 1,
 		},
 		{
 			name:       "cyclic",
@@ -3512,11 +3613,11 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
   <xs:element name="item" type="Amount"/>
 </xs:schema>`,
 			class:   FailureInvalid,
-			code:    diagnosticSchemaElementTypeAmbiguousCode,
-			specRef: schemaElementTypeXSD11SpecRef,
-			cause:   errSchemaElementTypeAmbiguous,
-			primary: mustTestLoc(t, "root.xsd", 4, 27),
-			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3), mustTestLoc(t, "root.xsd", 3, 3)},
+			code:    diagnosticSchemaGlobalDuplicateCode,
+			specRef: schemaGlobalDuplicateXSD11SpecRef,
+			cause:   errSchemaGlobalDeclarationDuplicate,
+			primary: mustTestLoc(t, "root.xsd", 3, 3),
+			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3)},
 		},
 		{
 			name: "simple and complex definitions are ambiguous",
@@ -3526,11 +3627,11 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
   <xs:element name="item" type="Amount"/>
 </xs:schema>`,
 			class:   FailureInvalid,
-			code:    diagnosticSchemaElementTypeAmbiguousCode,
-			specRef: schemaElementTypeXSD11SpecRef,
-			cause:   errSchemaElementTypeAmbiguous,
-			primary: mustTestLoc(t, "root.xsd", 4, 27),
-			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3), mustTestLoc(t, "root.xsd", 3, 3)},
+			code:    diagnosticSchemaGlobalDuplicateCode,
+			specRef: schemaGlobalDuplicateXSD11SpecRef,
+			cause:   errSchemaGlobalDeclarationDuplicate,
+			primary: mustTestLoc(t, "root.xsd", 3, 3),
+			related: []Loc{mustTestLoc(t, "root.xsd", 2, 3)},
 		},
 		{
 			name: "named complex type is unsupported",
