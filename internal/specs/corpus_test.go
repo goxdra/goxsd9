@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -126,6 +127,114 @@ func TestRepresentationConversionRequiresPinnedWrapper(t *testing.T) {
 		t.Fatal("convert() error = nil for unsupported representation")
 	}
 	assertErrorCode(t, err, "specs.conversion.representation")
+}
+
+func TestGenerateValidatesBootstrapXMLAndPreservesConvertedBytes(t *testing.T) {
+	content := []byte("<?xml version=\"1.0\"?>\n<!-- before -->\n<!DOCTYPE root SYSTEM \"root.dtd\">\n<root><![CDATA[ \t]]><?inside?><child/></root><!-- after -->\n")
+	tests := []struct {
+		name           string
+		representation string
+		raw            []byte
+		want           []byte
+	}{
+		{
+			name:           "xml",
+			representation: "xml",
+			raw:            content,
+			want:           content,
+		},
+		{
+			name:           "html-cdata-pre",
+			representation: "html-cdata-pre",
+			raw:            bootstrapXMLWrappedContent(content),
+			want:           content,
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			entry := testEntry(test.representation, testDigest(test.raw))
+			entry.Kind = KindBootstrapArtifact
+			document, err := Generate(context.Background(), responseClient(http.StatusOK, test.raw), entry)
+			if err != nil {
+				t.Fatalf("Generate() error = %v", err)
+			}
+			if !bytes.Equal(document.Data, test.want) {
+				t.Fatalf("Generate() data = %q, want %q", document.Data, test.want)
+			}
+		})
+	}
+}
+
+func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
+	tests := []bootstrapXMLInvalidCase{
+		{name: "unclosed element", representation: "xml", content: "<root>"},
+		{name: "trailing text", representation: "xml", content: "<root/>text"},
+		{name: "second root", representation: "xml", content: "<one/><two/>"},
+		{name: "late declaration", representation: "xml", content: "<root/><?xml version=\"1.0\"?>"},
+		{name: "doctype after root", representation: "xml", content: "<root/><!DOCTYPE root>"},
+		{name: "doctype before declaration", representation: "xml", content: "<!DOCTYPE root><?xml version=\"1.0\"?><root/>"},
+		{name: "character data before root", representation: "xml", content: "text<root/>"},
+		{name: "empty CDATA before root", representation: "xml", content: "<![CDATA[]]><root/>"},
+		{name: "whitespace CDATA before root", representation: "xml", content: "<![CDATA[ \t\r\n]]><root/>"},
+		{name: "whitespace CDATA after root", representation: "xml", content: "<root/><![CDATA[ \t\r\n]]>"},
+		{name: "invalid directive", representation: "xml", content: "<!ENTITY root><root/>"},
+		{name: "missing root", representation: "xml", content: "<!-- no root -->"},
+		{name: "html-cdata-pre trailing text", representation: "html-cdata-pre", content: "<root/>text"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			assertRejectedBootstrapXML(t, test)
+		})
+	}
+}
+
+type bootstrapXMLInvalidCase struct {
+	name           string
+	representation string
+	content        string
+}
+
+func assertRejectedBootstrapXML(t *testing.T, test bootstrapXMLInvalidCase) {
+	t.Helper()
+	raw := bootstrapXMLRaw(test.representation, []byte(test.content))
+	entry := testEntry(test.representation, testDigest(raw))
+	entry.Kind = KindBootstrapArtifact
+	document, err := Generate(context.Background(), responseClient(http.StatusOK, raw), entry)
+	if err == nil {
+		t.Fatal("Generate() error = nil")
+	}
+	if document.Data != nil || document.Index != nil || document.Entry.ID != "" {
+		t.Fatalf("Generate() document = %#v, want zero document", document)
+	}
+	assertErrorCode(t, err, bootstrapXMLDocumentCode)
+	var corpusErr *Error
+	if !errors.As(err, &corpusErr) {
+		t.Fatalf("Generate() error = %v, want *Error", err)
+	}
+	if corpusErr.ID != entry.ID || corpusErr.URL != entry.URL {
+		t.Fatalf("Generate() corpus location = %q / %q, want %q / %q", corpusErr.ID, corpusErr.URL, entry.ID, entry.URL)
+	}
+	var syntaxErr *xml.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("Generate() error = %v, want encoding/xml cause", err)
+	}
+	if !errors.Is(err, syntaxErr) {
+		t.Fatalf("Generate() error = %v, does not unwrap encoding/xml cause", err)
+	}
+}
+
+func bootstrapXMLRaw(representation string, content []byte) []byte {
+	if representation != "html-cdata-pre" {
+		return append([]byte(nil), content...)
+	}
+	return bootstrapXMLWrappedContent(content)
+}
+
+func bootstrapXMLWrappedContent(content []byte) []byte {
+	raw := append([]byte(cdataPrefix), content...)
+	return append(raw, []byte(cdataSuffix+"\n")...)
 }
 
 func TestXHTMLRenderingPreservesNavigationAndIndexesFragments(t *testing.T) {

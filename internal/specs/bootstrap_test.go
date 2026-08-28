@@ -3,6 +3,7 @@ package specs
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"net/http"
@@ -203,6 +204,43 @@ func TestGenerateBootstrapReturnsNoPartialDocumentsAndPreservesCause(t *testing.
 	}
 	wantCalls := []string{leaf.URL, root.URL}
 	if !slices.Equal(transport.calls, wantCalls) {
+		t.Fatalf("GenerateBootstrap() request order = %#v, want %#v", transport.calls, wantCalls)
+	}
+}
+
+func TestGenerateBootstrapReturnsNoDocumentsForMalformedLaterArtifact(t *testing.T) {
+	leafBody := []byte("<root/>\n")
+	rootBody := []byte("<root/><second/>\n")
+	root := bootstrapArtifact("root", []string{"1.0"}, true, []string{"leaf"})
+	leaf := bootstrapArtifact("leaf", []string{"1.0"}, false, nil)
+	root.SHA256 = testDigest(rootBody)
+	leaf.SHA256 = testDigest(leafBody)
+	manifest := Manifest{BootstrapArtifacts: []BootstrapArtifact{root, leaf}}
+	transport := &bootstrapResponseTransport{bodies: map[string][]byte{
+		leaf.URL: leafBody,
+		root.URL: rootBody,
+	}}
+
+	documents, err := GenerateBootstrap(context.Background(), &http.Client{Transport: transport}, manifest, "1.0")
+	if err == nil {
+		t.Fatal("GenerateBootstrap() error = nil")
+	}
+	if documents != nil {
+		t.Fatalf("GenerateBootstrap() documents = %#v, want nil after failure", documents)
+	}
+	assertErrorCode(t, err, bootstrapXMLDocumentCode)
+	var corpusErr *Error
+	if !errors.As(err, &corpusErr) {
+		t.Fatalf("GenerateBootstrap() error = %v, want *Error", err)
+	}
+	if corpusErr.ID != root.ID || corpusErr.URL != root.URL {
+		t.Fatalf("GenerateBootstrap() corpus location = %q / %q, want %q / %q", corpusErr.ID, corpusErr.URL, root.ID, root.URL)
+	}
+	var syntaxErr *xml.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("GenerateBootstrap() error = %v, want encoding/xml cause", err)
+	}
+	if wantCalls := []string{leaf.URL, root.URL}; !slices.Equal(transport.calls, wantCalls) {
 		t.Fatalf("GenerateBootstrap() request order = %#v, want %#v", transport.calls, wantCalls)
 	}
 }

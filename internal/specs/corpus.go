@@ -21,6 +21,8 @@ import (
 
 const (
 	manifestHTMLRepresentation = "html"
+	bootstrapXMLDocumentCode   = "specs.conversion.xml"
+	bootstrapXMLCDATAPrefix    = "<![CDATA["
 	cdataPrefix                = "<pre><![CDATA["
 	cdataSuffix                = "]]></pre>"
 )
@@ -93,7 +95,7 @@ func Fetch(ctx context.Context, client *http.Client, entry Entry) ([]byte, error
 	return data, nil
 }
 
-// Generate downloads, verifies, and converts one manifest entry.
+// Generate downloads, verifies, converts, and validates one manifest entry.
 func Generate(ctx context.Context, client *http.Client, entry Entry) (Document, error) {
 	raw, err := Fetch(ctx, client, entry)
 	if err != nil {
@@ -102,6 +104,11 @@ func Generate(ctx context.Context, client *http.Client, entry Entry) (Document, 
 	converted, err := convert(entry, raw)
 	if err != nil {
 		return Document{}, err
+	}
+	if entry.Kind == KindBootstrapArtifact {
+		if validationErr := validateBootstrapXML(entry, converted); validationErr != nil {
+			return Document{}, validationErr
+		}
 	}
 	document := Document{Data: converted, Entry: entry}
 	if !document.IsMarkdown() {
@@ -114,6 +121,162 @@ func Generate(ctx context.Context, client *http.Client, entry Entry) (Document, 
 	document.Data = index.data
 	document.Index = index.entries
 	return document, nil
+}
+
+type bootstrapXMLValidator struct {
+	depth       int
+	seenDoctype bool
+	seenRoot    bool
+	seenToken   bool
+}
+
+func validateBootstrapXML(entry Entry, data []byte) error {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	decoder.Strict = true
+	validator := bootstrapXMLValidator{}
+
+	for {
+		tokenStart := decoder.InputOffset()
+		token, err := decoder.Token()
+		tokenEnd := decoder.InputOffset()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return corpusError(bootstrapXMLDocumentCode, entry.ID, entry.URL, err)
+		}
+		if validationErr := validator.accept(entry, decoder, token, data, tokenStart, tokenEnd); validationErr != nil {
+			return validationErr
+		}
+	}
+	if !validator.seenRoot {
+		return bootstrapXMLDocumentError(entry, decoder, "XML document has no root element")
+	}
+	return nil
+}
+
+func (validator *bootstrapXMLValidator) accept(
+	entry Entry,
+	decoder *xml.Decoder,
+	token xml.Token,
+	data []byte,
+	tokenStart, tokenEnd int64,
+) error {
+	switch value := token.(type) {
+	case xml.StartElement:
+		return validator.startElement(entry, decoder)
+	case xml.EndElement:
+		return validator.endElement(entry, decoder)
+	case xml.CharData:
+		return validator.characterData(entry, decoder, value, data, tokenStart, tokenEnd)
+	case xml.Comment:
+		validator.seenToken = true
+		return nil
+	case xml.ProcInst:
+		return validator.processingInstruction(entry, decoder, value)
+	case xml.Directive:
+		return validator.directive(entry, decoder, value)
+	default:
+		return bootstrapXMLDocumentError(entry, decoder,
+			fmt.Sprintf("XML decoder returned unsupported token %T", token))
+	}
+}
+
+func (validator *bootstrapXMLValidator) startElement(entry Entry, decoder *xml.Decoder) error {
+	if validator.depth == 0 {
+		if validator.seenRoot {
+			return bootstrapXMLDocumentError(entry, decoder, "XML document has more than one root element")
+		}
+		validator.seenRoot = true
+	}
+	validator.depth++
+	validator.seenToken = true
+	return nil
+}
+
+func (validator *bootstrapXMLValidator) endElement(entry Entry, decoder *xml.Decoder) error {
+	if validator.depth == 0 {
+		return bootstrapXMLDocumentError(entry, decoder, "XML document has an unexpected end element")
+	}
+	validator.depth--
+	validator.seenToken = true
+	return nil
+}
+
+func (validator *bootstrapXMLValidator) characterData(
+	entry Entry,
+	decoder *xml.Decoder,
+	data xml.CharData,
+	raw []byte,
+	tokenStart, tokenEnd int64,
+) error {
+	if validator.depth == 0 && (len(data) == 0 || !bootstrapXMLWhitespace(data) ||
+		bootstrapXMLTokenIsCDATA(raw, tokenStart, tokenEnd)) {
+		return bootstrapXMLDocumentError(entry, decoder, "XML document has non-whitespace character data outside the root element")
+	}
+	validator.seenToken = true
+	return nil
+}
+
+func (validator *bootstrapXMLValidator) processingInstruction(entry Entry, decoder *xml.Decoder, value xml.ProcInst) error {
+	if !strings.EqualFold(value.Target, "xml") {
+		validator.seenToken = true
+		return nil
+	}
+	if value.Target != "xml" || validator.seenToken {
+		return bootstrapXMLDocumentError(entry, decoder, "XML declaration must be the first document token")
+	}
+	validator.seenToken = true
+	return nil
+}
+
+func (validator *bootstrapXMLValidator) directive(entry Entry, decoder *xml.Decoder, value xml.Directive) error {
+	if !bootstrapXMLDoctype(value) {
+		return bootstrapXMLDocumentError(entry, decoder, "XML document has an invalid directive")
+	}
+	if validator.depth != 0 || validator.seenRoot || validator.seenDoctype {
+		return bootstrapXMLDocumentError(entry, decoder, "XML document doctype is not in the prolog")
+	}
+	validator.seenDoctype = true
+	validator.seenToken = true
+	return nil
+}
+
+func bootstrapXMLDocumentError(entry Entry, decoder *xml.Decoder, message string) error {
+	line, _ := decoder.InputPos()
+	return corpusError(bootstrapXMLDocumentCode, entry.ID, entry.URL,
+		&xml.SyntaxError{Msg: message, Line: line})
+}
+
+func bootstrapXMLDoctype(directive xml.Directive) bool {
+	const keyword = "DOCTYPE"
+	if !bytes.HasPrefix(directive, []byte(keyword)) {
+		return false
+	}
+	if len(directive) == len(keyword) || !bootstrapXMLSpace(directive[len(keyword)]) {
+		return false
+	}
+	return true
+}
+
+func bootstrapXMLTokenIsCDATA(data []byte, start, end int64) bool {
+	if start < 0 || end < start || end > int64(len(data)) {
+		return false
+	}
+	return bytes.HasPrefix(data[start:end], []byte(bootstrapXMLCDATAPrefix))
+}
+
+func bootstrapXMLWhitespace(data xml.CharData) bool {
+	for _, value := range data {
+		if !bootstrapXMLSpace(value) {
+			return false
+		}
+	}
+	return true
+}
+
+func bootstrapXMLSpace(value byte) bool {
+	return value == ' ' || value == '\t' || value == '\r' || value == '\n'
 }
 
 // Write writes a document and, for Markdown, its compact section index.
