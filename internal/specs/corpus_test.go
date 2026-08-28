@@ -115,7 +115,7 @@ func TestRepresentationConversionRequiresPinnedWrapper(t *testing.T) {
 		append([]byte(cdataPrefix), []byte("body"+cdataSuffix+"\n\n")...),
 	} {
 		entry.SHA256 = testDigest(malformed)
-		_, generateErr := Generate(context.Background(), responseClient(http.StatusOK, malformed), entry)
+		_, generateErr := Generate(context.Background(), responseClient(malformed), entry)
 		if generateErr == nil {
 			t.Fatal("Generate() error = nil for malformed html-cdata-pre response")
 		}
@@ -155,12 +155,37 @@ func TestGenerateValidatesBootstrapXMLAndPreservesConvertedBytes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			entry := testEntry(test.representation, testDigest(test.raw))
 			entry.Kind = KindBootstrapArtifact
-			document, err := Generate(context.Background(), responseClient(http.StatusOK, test.raw), entry)
+			document, err := Generate(context.Background(), responseClient(test.raw), entry)
 			if err != nil {
 				t.Fatalf("Generate() error = %v", err)
 			}
 			if !bytes.Equal(document.Data, test.want) {
 				t.Fatalf("Generate() data = %q, want %q", document.Data, test.want)
+			}
+		})
+	}
+}
+
+func TestGenerateAcceptsBootstrapXMLDeclarationAndDoctypeForms(t *testing.T) {
+	contents := []string{
+		`<?xml version="1.0"?><root/>`,
+		`<?xml version = '1.0' encoding = "UTF-8" standalone = 'yes'?>
+<root/>`,
+		`<!DOCTYPE root><root/>`,
+		`<!DOCTYPE root SYSTEM "root.dtd"><root/>`,
+		`<!DOCTYPE root PUBLIC "-//Example//DTD Root 1.0//EN" "root.dtd"><root/>`,
+		`<!DOCTYPE root [<!-- DTD comment --><?dtd instruction?><!ELEMENT root EMPTY>]><root/>`,
+	}
+	for _, content := range contents {
+		t.Run(fmt.Sprintf("%q", content), func(t *testing.T) {
+			entry := testEntry("xml", testDigest([]byte(content)))
+			entry.Kind = KindBootstrapArtifact
+			document, err := Generate(context.Background(), responseClient([]byte(content)), entry)
+			if err != nil {
+				t.Fatalf("Generate() error = %v", err)
+			}
+			if !bytes.Equal(document.Data, []byte(content)) {
+				t.Fatalf("Generate() data = %q, want %q", document.Data, content)
 			}
 		})
 	}
@@ -181,6 +206,14 @@ func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
 		{name: "invalid directive", representation: "xml", content: "<!ENTITY root><root/>"},
 		{name: "missing root", representation: "xml", content: "<!-- no root -->"},
 		{name: "html-cdata-pre trailing text", representation: "html-cdata-pre", content: "<root/>text"},
+		{name: "empty declaration", representation: "xml", content: "<?xml?><root/>"},
+		{name: "empty declaration before newline", representation: "xml", content: "<?xml?>\n<root/>"},
+		{name: "declaration without version", representation: "xml", content: "<?xml encoding=\"UTF-8\"?><root/>"},
+		{name: "declaration with unknown field", representation: "xml", content: "<?xml version=\"1.0\" extra=\"value\"?><root/>"},
+		{name: "empty doctype", representation: "xml", content: "<!DOCTYPE >\n<root/>"},
+		{name: "doctype without external literal", representation: "xml", content: "<!DOCTYPE root SYSTEM><root/>"},
+		{name: "duplicate attribute", representation: "xml", content: `<root id="one" id="two"/>`},
+		{name: "duplicate expanded attribute", representation: "xml", content: `<root xmlns:a="urn:a" a:id="one" a:id="two"/>`},
 	}
 	for _, test := range tests {
 		test := test
@@ -201,7 +234,7 @@ func assertRejectedBootstrapXML(t *testing.T, test bootstrapXMLInvalidCase) {
 	raw := bootstrapXMLRaw(test.representation, []byte(test.content))
 	entry := testEntry(test.representation, testDigest(raw))
 	entry.Kind = KindBootstrapArtifact
-	document, err := Generate(context.Background(), responseClient(http.StatusOK, raw), entry)
+	document, err := Generate(context.Background(), responseClient(raw), entry)
 	if err == nil {
 		t.Fatal("Generate() error = nil")
 	}
@@ -423,9 +456,9 @@ func testResponse(status int, body []byte) *http.Response {
 	}
 }
 
-func responseClient(status int, body []byte) *http.Client {
+func responseClient(body []byte) *http.Client {
 	return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return testResponse(status, body), nil
+		return testResponse(http.StatusOK, body), nil
 	})}
 }
 

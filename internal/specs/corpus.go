@@ -164,6 +164,9 @@ func (validator *bootstrapXMLValidator) accept(
 ) error {
 	switch value := token.(type) {
 	case xml.StartElement:
+		if validationErr := bootstrapXMLAttributes(entry, decoder, value.Attr); validationErr != nil {
+			return validationErr
+		}
 		return validator.startElement(entry, decoder)
 	case xml.EndElement:
 		return validator.endElement(entry, decoder)
@@ -173,9 +176,9 @@ func (validator *bootstrapXMLValidator) accept(
 		validator.seenToken = true
 		return nil
 	case xml.ProcInst:
-		return validator.processingInstruction(entry, decoder, value)
+		return validator.processingInstruction(entry, decoder, value, data, tokenStart, tokenEnd)
 	case xml.Directive:
-		return validator.directive(entry, decoder, value)
+		return validator.directive(entry, decoder, value, data, tokenStart, tokenEnd)
 	default:
 		return bootstrapXMLDocumentError(entry, decoder,
 			fmt.Sprintf("XML decoder returned unsupported token %T", token))
@@ -218,7 +221,13 @@ func (validator *bootstrapXMLValidator) characterData(
 	return nil
 }
 
-func (validator *bootstrapXMLValidator) processingInstruction(entry Entry, decoder *xml.Decoder, value xml.ProcInst) error {
+func (validator *bootstrapXMLValidator) processingInstruction(
+	entry Entry,
+	decoder *xml.Decoder,
+	value xml.ProcInst,
+	raw []byte,
+	tokenStart, tokenEnd int64,
+) error {
 	if !strings.EqualFold(value.Target, "xml") {
 		validator.seenToken = true
 		return nil
@@ -226,12 +235,23 @@ func (validator *bootstrapXMLValidator) processingInstruction(entry Entry, decod
 	if value.Target != "xml" || validator.seenToken {
 		return bootstrapXMLDocumentError(entry, decoder, "XML declaration must be the first document token")
 	}
+	token, ok := bootstrapXMLTokenBytes(raw, tokenStart, tokenEnd)
+	if !ok || !bootstrapXMLDeclaration(token) {
+		return bootstrapXMLDocumentError(entry, decoder, "invalid XML declaration")
+	}
 	validator.seenToken = true
 	return nil
 }
 
-func (validator *bootstrapXMLValidator) directive(entry Entry, decoder *xml.Decoder, value xml.Directive) error {
-	if !bootstrapXMLDoctype(value) {
+func (validator *bootstrapXMLValidator) directive(
+	entry Entry,
+	decoder *xml.Decoder,
+	value xml.Directive,
+	raw []byte,
+	tokenStart, tokenEnd int64,
+) error {
+	token, ok := bootstrapXMLTokenBytes(raw, tokenStart, tokenEnd)
+	if !ok || !bootstrapXMLDoctype(value) || !bootstrapXMLDoctypeSyntax(token) {
 		return bootstrapXMLDocumentError(entry, decoder, "XML document has an invalid directive")
 	}
 	if validator.depth != 0 || validator.seenRoot || validator.seenDoctype {
@@ -257,6 +277,498 @@ func bootstrapXMLDoctype(directive xml.Directive) bool {
 		return false
 	}
 	return true
+}
+
+func bootstrapXMLAttributes(entry Entry, decoder *xml.Decoder, attributes []xml.Attr) error {
+	seen := make(map[xml.Name]struct{}, len(attributes))
+	for _, attribute := range attributes {
+		if _, exists := seen[attribute.Name]; exists {
+			return bootstrapXMLDocumentError(entry, decoder,
+				fmt.Sprintf("duplicate XML attribute %q", bootstrapXMLAttributeName(attribute.Name)))
+		}
+		seen[attribute.Name] = struct{}{}
+	}
+	return nil
+}
+
+func bootstrapXMLAttributeName(name xml.Name) string {
+	if name.Space == "" {
+		return name.Local
+	}
+	return name.Space + ":" + name.Local
+}
+
+func bootstrapXMLTokenBytes(data []byte, start, end int64) ([]byte, bool) {
+	if start < 0 || end < start || end > int64(len(data)) {
+		return nil, false
+	}
+	return data[start:end], true
+}
+
+func bootstrapXMLDeclaration(raw []byte) bool {
+	const prefix = "<?xml"
+	if len(raw) < len(prefix)+2 || !bytes.HasPrefix(raw, []byte(prefix)) || !bytes.HasSuffix(raw, []byte("?>")) {
+		return false
+	}
+	data := raw[len(prefix) : len(raw)-2]
+	if len(data) == 0 || !bootstrapXMLSpace(data[0]) {
+		return false
+	}
+	for len(data) > 0 && bootstrapXMLSpace(data[0]) {
+		data = data[1:]
+	}
+	if len(data) == 0 {
+		return false
+	}
+	return bootstrapXMLDeclarationFields(data)
+}
+
+func bootstrapXMLDeclarationFields(data []byte) bool {
+	index := 0
+	field := 0
+	encodingSeen := false
+	standaloneSeen := false
+	for {
+		if !bootstrapXMLDeclarationField(data, &index, field, &encodingSeen, &standaloneSeen) {
+			return false
+		}
+		if index == len(data) {
+			return true
+		}
+		field++
+	}
+}
+
+func bootstrapXMLDeclarationField(data []byte, index *int, field int, encodingSeen, standaloneSeen *bool) bool {
+	if field > 0 && !bootstrapXMLConsumeSpace(data, index) {
+		return false
+	}
+	if *index == len(data) {
+		return field > 0
+	}
+	name, ok := bootstrapXMLDeclarationFieldName(data, index)
+	if !ok || !bootstrapXMLDeclarationFieldAllowed(name, field, encodingSeen, standaloneSeen) {
+		return false
+	}
+	value, ok := bootstrapXMLDeclarationValue(data, index)
+	return ok && bootstrapXMLDeclarationValueAllowed(name, value)
+}
+
+func bootstrapXMLDeclarationFieldName(data []byte, index *int) (string, bool) {
+	start := *index
+	for *index < len(data) && bootstrapXMLDeclarationNameByte(data[*index]) {
+		(*index)++
+	}
+	if start == *index {
+		return "", false
+	}
+	return string(data[start:*index]), true
+}
+
+func bootstrapXMLDeclarationFieldAllowed(name string, field int, encodingSeen, standaloneSeen *bool) bool {
+	switch field {
+	case 0:
+		return name == "version"
+	case 1:
+		if name == "encoding" {
+			if *encodingSeen {
+				return false
+			}
+			*encodingSeen = true
+			return true
+		}
+		if name != "standalone" || *standaloneSeen {
+			return false
+		}
+		*standaloneSeen = true
+		return true
+	case 2:
+		if name != "standalone" || *standaloneSeen {
+			return false
+		}
+		*standaloneSeen = true
+		return true
+	default:
+		return false
+	}
+}
+
+func bootstrapXMLDeclarationValue(data []byte, index *int) (string, bool) {
+	bootstrapXMLConsumeSpace(data, index)
+	if *index >= len(data) || data[*index] != '=' {
+		return "", false
+	}
+	(*index)++
+	bootstrapXMLConsumeSpace(data, index)
+	if *index >= len(data) || data[*index] != '\'' && data[*index] != '"' {
+		return "", false
+	}
+	quote := data[*index]
+	(*index)++
+	valueStart := *index
+	for *index < len(data) && data[*index] != quote {
+		(*index)++
+	}
+	if *index >= len(data) {
+		return "", false
+	}
+	value := string(data[valueStart:*index])
+	(*index)++
+	return value, true
+}
+
+func bootstrapXMLDeclarationValueAllowed(name, value string) bool {
+	switch name {
+	case "version":
+		return value == "1.0"
+	case "encoding":
+		return bootstrapXMLEncodingName(value)
+	case "standalone":
+		return value == "yes" || value == "no"
+	default:
+		return false
+	}
+}
+
+func bootstrapXMLEncodingName(value string) bool {
+	if value == "" || !bootstrapXMLEncodingNameStart(value[0]) {
+		return false
+	}
+	for index := 1; index < len(value); index++ {
+		if !bootstrapXMLEncodingNameChar(value[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func bootstrapXMLEncodingNameStart(value byte) bool {
+	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+}
+
+func bootstrapXMLEncodingNameChar(value byte) bool {
+	return bootstrapXMLEncodingNameStart(value) || value >= '0' && value <= '9' ||
+		value == '.' || value == '_' || value == '-'
+}
+
+func bootstrapXMLDoctypeSyntax(raw []byte) bool {
+	const prefix = "<!DOCTYPE"
+	if len(raw) < len(prefix)+2 || !bytes.HasPrefix(raw, []byte(prefix)) || !bytes.HasSuffix(raw, []byte{'>'}) {
+		return false
+	}
+	if !bootstrapXMLValidCharacters(raw) {
+		return false
+	}
+	body := raw[len("<!") : len(raw)-1]
+	index := len("DOCTYPE")
+	if index == len(body) || !bootstrapXMLSpace(body[index]) {
+		return false
+	}
+	bootstrapXMLConsumeSpace(body, &index)
+	if !bootstrapXMLName(body, &index) {
+		return false
+	}
+	bootstrapXMLConsumeSpace(body, &index)
+	if index == len(body) {
+		return true
+	}
+	if body[index] != '[' {
+		var ok bool
+		index, ok = bootstrapXMLDoctypeExternalID(body, index)
+		if !ok {
+			return false
+		}
+		bootstrapXMLConsumeSpace(body, &index)
+		if index == len(body) {
+			return true
+		}
+		if body[index] != '[' {
+			return false
+		}
+	}
+	return bootstrapXMLDoctypeSubset(body, index)
+}
+
+func bootstrapXMLDoctypeExternalID(body []byte, index int) (int, bool) {
+	keywordStart := index
+	for index < len(body) && !bootstrapXMLSpace(body[index]) && body[index] != '[' {
+		index++
+	}
+	keyword := string(body[keywordStart:index])
+	if keyword != "SYSTEM" && keyword != "PUBLIC" {
+		return 0, false
+	}
+	if !bootstrapXMLConsumeSpace(body, &index) || !bootstrapXMLLiteral(body, &index, keyword == "PUBLIC") {
+		return 0, false
+	}
+	if keyword == "PUBLIC" && (!bootstrapXMLConsumeSpace(body, &index) || !bootstrapXMLLiteral(body, &index, false)) {
+		return 0, false
+	}
+	return index, true
+}
+
+func bootstrapXMLLiteral(data []byte, index *int, publicID bool) bool {
+	if *index >= len(data) || data[*index] != '\'' && data[*index] != '"' {
+		return false
+	}
+	quote := data[*index]
+	(*index)++
+	valueStart := *index
+	for *index < len(data) && data[*index] != quote {
+		(*index)++
+	}
+	if *index >= len(data) {
+		return false
+	}
+	if publicID && !bootstrapXMLPublicID(data[valueStart:*index]) {
+		return false
+	}
+	*index++
+	return true
+}
+
+func bootstrapXMLPublicID(data []byte) bool {
+	for _, value := range string(data) {
+		switch {
+		case value == ' ' || value == '\r' || value == '\n':
+		case value >= 'a' && value <= 'z', value >= 'A' && value <= 'Z', value >= '0' && value <= '9':
+		case strings.ContainsRune("-'()+,./:=?;!*#@$_%", value):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func bootstrapXMLDoctypeSubset(body []byte, index int) bool {
+	if index >= len(body) || body[index] != '[' {
+		return false
+	}
+	index++
+	for index < len(body) {
+		if bootstrapXMLConsumeSpace(body, &index) {
+			continue
+		}
+		if body[index] == ']' {
+			index++
+			bootstrapXMLConsumeSpace(body, &index)
+			return index == len(body)
+		}
+		next, ok := bootstrapXMLDoctypeSubsetItem(body, index)
+		if !ok {
+			return false
+		}
+		index = next
+	}
+	return false
+}
+
+func bootstrapXMLDoctypeSubsetItem(body []byte, index int) (int, bool) {
+	if bytes.HasPrefix(body[index:], []byte("<!--")) {
+		return bootstrapXMLDoctypeComment(body, index)
+	}
+	if bytes.HasPrefix(body[index:], []byte("<?")) {
+		return bootstrapXMLDoctypePI(body, index)
+	}
+	if body[index] == '%' {
+		return bootstrapXMLDoctypePEReference(body, index)
+	}
+	if bytes.HasPrefix(body[index:], []byte("<!")) {
+		return bootstrapXMLDoctypeMarkup(body, index)
+	}
+	return 0, false
+}
+
+func bootstrapXMLDoctypeComment(body []byte, index int) (int, bool) {
+	commentEnd := bytes.Index(body[index+4:], []byte("-->"))
+	if commentEnd < 0 {
+		return 0, false
+	}
+	comment := body[index+4 : index+4+commentEnd]
+	if bytes.Contains(comment, []byte("--")) || bytes.HasSuffix(comment, []byte{'-'}) {
+		return 0, false
+	}
+	return index + 4 + commentEnd + len("-->"), true
+}
+
+func bootstrapXMLDoctypePI(body []byte, index int) (int, bool) {
+	nameStart := index + len("<?")
+	nameEnd := nameStart
+	for nameEnd < len(body) && !bootstrapXMLSpace(body[nameEnd]) && body[nameEnd] != '?' && body[nameEnd] != '>' {
+		nameEnd++
+	}
+	if nameStart == nameEnd || !bootstrapXMLNameValue(body[nameStart:nameEnd]) ||
+		strings.EqualFold(string(body[nameStart:nameEnd]), "xml") {
+		return 0, false
+	}
+	if nameEnd == len(body) {
+		return 0, false
+	}
+	if body[nameEnd] == '?' {
+		if nameEnd+1 >= len(body) || body[nameEnd+1] != '>' {
+			return 0, false
+		}
+		return nameEnd + 2, true
+	}
+	if body[nameEnd] == '>' || !bootstrapXMLSpace(body[nameEnd]) {
+		return 0, false
+	}
+	end := bytes.Index(body[nameEnd:], []byte("?>"))
+	if end < 0 {
+		return 0, false
+	}
+	return nameEnd + end + len("?>"), true
+}
+
+func bootstrapXMLDoctypePEReference(body []byte, index int) (int, bool) {
+	nameStart := index + 1
+	nameEnd := bytes.IndexByte(body[nameStart:], ';')
+	if nameEnd < 0 {
+		return 0, false
+	}
+	nameEnd += nameStart
+	if !bootstrapXMLNameValue(body[nameStart:nameEnd]) {
+		return 0, false
+	}
+	return nameEnd + 1, true
+}
+
+func bootstrapXMLDoctypeMarkup(body []byte, index int) (int, bool) {
+	if !bytes.HasPrefix(body[index:], []byte("<!")) {
+		return 0, false
+	}
+	index += len("<!")
+	keywordStart := index
+	for index < len(body) && body[index] >= 'A' && body[index] <= 'Z' {
+		index++
+	}
+	keyword := string(body[keywordStart:index])
+	if keyword == "" || !bootstrapXMLConsumeSpace(body, &index) {
+		return 0, false
+	}
+	if keyword != "ELEMENT" && keyword != "ATTLIST" && keyword != "ENTITY" && keyword != "NOTATION" {
+		return 0, false
+	}
+	return bootstrapXMLDoctypeMarkupEnd(body, index)
+}
+
+func bootstrapXMLDoctypeMarkupEnd(body []byte, index int) (int, bool) {
+	quote := byte(0)
+	for index < len(body) {
+		value := body[index]
+		if quote != 0 {
+			if value == quote {
+				quote = 0
+			}
+			index++
+			continue
+		}
+		if value == '\'' || value == '"' {
+			quote = value
+			index++
+			continue
+		}
+		if value == '>' {
+			return index + 1, true
+		}
+		index++
+	}
+	return 0, false
+}
+
+func bootstrapXMLName(body []byte, index *int) bool {
+	start := *index
+	for *index < len(body) {
+		value, size := utf8.DecodeRune(body[*index:])
+		if value == utf8.RuneError && size == 1 {
+			return false
+		}
+		if !bootstrapXMLNameChar(value) {
+			break
+		}
+		*index += size
+	}
+	if start == *index {
+		return false
+	}
+	value, _ := utf8.DecodeRune(body[start:])
+	return bootstrapXMLNameStart(value)
+}
+
+func bootstrapXMLNameValue(value []byte) bool {
+	index := 0
+	if !bootstrapXMLName(value, &index) {
+		return false
+	}
+	return index == len(value)
+}
+
+func bootstrapXMLDeclarationNameByte(value byte) bool {
+	return value >= 'a' && value <= 'z'
+}
+
+type bootstrapXMLNameRange struct {
+	first rune
+	last  rune
+}
+
+var bootstrapXMLNameStartRanges = [...]bootstrapXMLNameRange{
+	{first: 0xC0, last: 0xD6},
+	{first: 0xD8, last: 0xF6},
+	{first: 0xF8, last: 0x2FF},
+	{first: 0x370, last: 0x37D},
+	{first: 0x37F, last: 0x1FFF},
+	{first: 0x200C, last: 0x200D},
+	{first: 0x2070, last: 0x218F},
+	{first: 0x2C00, last: 0x2FEF},
+	{first: 0x3001, last: 0xD7FF},
+	{first: 0xF900, last: 0xFDCF},
+	{first: 0xFDF0, last: 0xFFFD},
+	{first: 0x10000, last: 0xEFFFF},
+}
+
+func bootstrapXMLNameStart(value rune) bool {
+	if value == ':' || value == '_' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z' {
+		return true
+	}
+	for _, validRange := range bootstrapXMLNameStartRanges {
+		if value >= validRange.first && value <= validRange.last {
+			return true
+		}
+	}
+	return false
+}
+
+func bootstrapXMLNameChar(value rune) bool {
+	if bootstrapXMLNameStart(value) {
+		return true
+	}
+	return value == '-' || value == '.' || value >= '0' && value <= '9' ||
+		value == 0xB7 || value >= 0x300 && value <= 0x36F || value >= 0x203F && value <= 0x2040
+}
+
+func bootstrapXMLValidCharacters(data []byte) bool {
+	for len(data) > 0 {
+		value, size := utf8.DecodeRune(data)
+		if value == utf8.RuneError && size == 1 || !bootstrapXMLCharacter(value) {
+			return false
+		}
+		data = data[size:]
+	}
+	return true
+}
+
+func bootstrapXMLCharacter(value rune) bool {
+	return value == 0x09 || value == 0x0A || value == 0x0D || value >= 0x20 && value <= 0xD7FF ||
+		value >= 0xE000 && value <= 0xFFFD || value >= 0x10000 && value <= 0x10FFFF
+}
+
+func bootstrapXMLConsumeSpace(data []byte, index *int) bool {
+	start := *index
+	for *index < len(data) && bootstrapXMLSpace(data[*index]) {
+		*index++
+	}
+	return *index != start
 }
 
 func bootstrapXMLTokenIsCDATA(data []byte, start, end int64) bool {
