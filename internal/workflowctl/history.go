@@ -208,6 +208,13 @@ func historyTrustedComments(comments []pullRequestComment) []pullRequestComment 
 		if hasMarker(comment.Body, evaluationResolutionMarker) || strings.Contains(comment.Body, evaluationResolutionHeading) {
 			continue
 		}
+		if hasMarker(comment.Body, evaluationChallengeClosureMarker) || strings.Contains(comment.Body, evaluationChallengeClosureHeading) {
+			continue
+		}
+		if hasMarker(comment.Body, evaluationConvergenceMarker) || strings.Contains(comment.Body, evaluationConvergenceHeading) {
+			trusted = append(trusted, comment)
+			continue
+		}
 		comment.Author.Login = trustedActor
 		trusted = append(trusted, comment)
 	}
@@ -282,7 +289,11 @@ func invalidHistoryRepairRound(history evaluationHistory, repair evaluationRepai
 
 func historyEvaluationPacketForPR(pullRequest pullRequestSummary, history evaluationHistory) (historyEvaluationPacket, error) {
 	packet := historyEvaluationPacket{number: pullRequest.Number}
-	for _, record := range history.receipts {
+	receipts, err := logicalEvaluationReceiptRecords(history)
+	if err != nil {
+		return historyEvaluationPacket{}, err
+	}
+	for _, record := range receipts {
 		round, include, err := historyEvaluationRoundForPR(pullRequest, record)
 		if err != nil {
 			return historyEvaluationPacket{}, err

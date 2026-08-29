@@ -184,6 +184,12 @@ func validateMergeBoundaryHistory(history evaluationHistory, mergeAt time.Time) 
 	if err := validateMergeBoundaryReceipts(history.receipts, mergeAt); err != nil {
 		return err
 	}
+	if err := validateMergeBoundaryConvergences(history.convergences, mergeAt); err != nil {
+		return err
+	}
+	if err := validateMergeBoundaryChallengeClosures(history.closures, mergeAt); err != nil {
+		return err
+	}
 	return validateMergeBoundaryResolutions(history.resolutions, mergeAt)
 }
 
@@ -209,6 +215,27 @@ func validateMergeBoundaryReceipts(receipts []evaluationReceiptRecord, mergeAt t
 	return nil
 }
 
+func validateMergeBoundaryConvergences(convergences []evaluationConvergenceRecord, mergeAt time.Time) error {
+	for _, record := range convergences {
+		if record.comment.CreatedAt.IsZero() || record.comment.CreatedAt.After(mergeAt) {
+			return errors.New("trusted evaluation convergence was created after the merge boundary")
+		}
+	}
+	return nil
+}
+
+func validateMergeBoundaryChallengeClosures(closures []evaluationChallengeClosureRecord, mergeAt time.Time) error {
+	for _, record := range closures {
+		if record.comment.CreatedAt.IsZero() || record.comment.CreatedAt.After(mergeAt) {
+			return errors.New("trusted evaluation challenge closure was created after the merge boundary")
+		}
+		if record.closure.ClosedAt.After(mergeAt) {
+			return errors.New("evaluation challenge closure time is after the merge boundary")
+		}
+	}
+	return nil
+}
+
 func validateMergeBoundaryResolutions(resolutions []evaluationResolutionRecord, mergeAt time.Time) error {
 	for _, record := range resolutions {
 		if record.comment.CreatedAt.IsZero() || record.comment.CreatedAt.After(mergeAt) {
@@ -222,28 +249,29 @@ func validateMergeBoundaryResolutions(resolutions []evaluationResolutionRecord, 
 }
 
 func latestMergeBoundaryReceipt(history evaluationHistory) (evaluationReceiptRecord, error) {
-	outstanding := outstandingEvaluationChallenges(history)
+	outstanding, err := outstandingEvaluationChallenges(history)
+	if err != nil {
+		return evaluationReceiptRecord{}, err
+	}
 	if len(outstanding) != 0 {
 		first := outstanding[0].challenge
 		return evaluationReceiptRecord{}, fmt.Errorf("pre-merge evaluation proof has %d outstanding trusted Examiner challenge(s), including %q; every challenge needs exactly one attested receipt or no-verdict resolution before recovery", len(outstanding), first.Challenge)
 	}
-	if len(history.receipts) == 0 {
+	records, err := logicalEvaluationReceiptRecords(history)
+	if err != nil {
+		return evaluationReceiptRecord{}, err
+	}
+	if len(records) == 0 {
 		return evaluationReceiptRecord{}, errors.New("no trusted evaluation receipt proves an immutable pre-merge head")
 	}
-	selected := history.receipts[0]
-	for _, record := range history.receipts[1:] {
-		if record.comment.CreatedAt.After(selected.comment.CreatedAt) {
-			selected = record
-			continue
-		}
-		if record.comment.CreatedAt.Equal(selected.comment.CreatedAt) {
-			return evaluationReceiptRecord{}, errors.New("pre-merge evaluation proof has ambiguous receipts at the merge boundary")
-		}
+	ordered, err := orderedEvaluationReceiptRecords(records)
+	if err != nil {
+		return evaluationReceiptRecord{}, fmt.Errorf("pre-merge evaluation proof has ambiguous receipt ordering: %w", err)
 	}
 	if !latestEvaluationReceiptClosesLatestChallenge(history) {
 		return evaluationReceiptRecord{}, errors.New("latest challenge was not closed by a passing attested receipt; a no-verdict resolution cannot prove merge")
 	}
-	return selected, nil
+	return ordered[len(ordered)-1], nil
 }
 
 func validateMergeBoundaryReceipt(receipt evaluationReceipt, number int) error {
