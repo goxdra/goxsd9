@@ -313,6 +313,215 @@ func TestSchemaSimpleTypeVarietyAllowsUnionListItems(t *testing.T) {
 	}
 }
 
+func TestSchemaSimpleTypeVarietyAllowsUnionListItemsInStrict10(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
+  <xs:simpleType name="ItemUnion"><xs:union memberTypes="xs:string xs:negativeInteger"/></xs:simpleType>
+  <xs:simpleType name="UnionList"><xs:list itemType="t:ItemUnion"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err != nil {
+		t.Fatalf("discoverTestSchema: %v", err)
+	}
+	components := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "UnionList"))
+	if len(components) != 1 {
+		t.Fatalf("UnionList matches = %d, want 1", len(components))
+	}
+	definition, ok := components[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("UnionList simple type view is missing")
+	}
+	item, ok := definition.ItemType()
+	if !ok || item.Kind() != SimpleTypeReferenceNamed || item.Name().Local() != "ItemUnion" || item.Variety() != SimpleTypeVarietyUnion {
+		t.Fatalf("UnionList item = %q/%q/%q/%t, want named union", item.Kind(), item.Name(), item.Variety(), ok)
+	}
+}
+
+func TestSchemaSimpleTypeVarietyStrict10AllowsListValuedUnionMember(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
+  <xs:simpleType name="InnerList"><xs:list itemType="xs:integer"/></xs:simpleType>
+  <xs:simpleType name="ItemUnion"><xs:union memberTypes="t:InnerList xs:string"/></xs:simpleType>
+  <xs:simpleType name="OuterList"><xs:list itemType="t:ItemUnion"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err != nil {
+		t.Fatalf("discoverTestSchema: %v", err)
+	}
+	inner := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "InnerList"))
+	union := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "ItemUnion"))
+	outer := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "OuterList"))
+	if len(inner) != 1 || len(union) != 1 || len(outer) != 1 {
+		t.Fatalf("list-union components = %d/%d/%d, want one each", len(inner), len(union), len(outer))
+	}
+
+	innerDefinition, ok := inner[0].SimpleTypeDefinition()
+	if !ok || innerDefinition.Variety() != SimpleTypeVarietyList {
+		t.Fatalf("InnerList definition = %#v/%t, want list", innerDefinition, ok)
+	}
+	innerItem, ok := innerDefinition.ItemType()
+	if !ok || !innerItem.IsBuiltin() || innerItem.Name().Local() != "integer" || innerItem.Variety() != SimpleTypeVarietyAtomicRestriction {
+		t.Fatalf("InnerList item = %q/%q/%q/%t, want built-in atomic integer", innerItem.Kind(), innerItem.Name(), innerItem.Variety(), ok)
+	}
+
+	unionDefinition, ok := union[0].SimpleTypeDefinition()
+	if !ok || unionDefinition.Variety() != SimpleTypeVarietyUnion {
+		t.Fatalf("ItemUnion definition = %#v/%t, want union", unionDefinition, ok)
+	}
+	unionMembers := unionDefinition.MemberTypes()
+	if len(unionMembers) != 2 || !unionMembers[0].IsNamed() || unionMembers[0].Name().Local() != "InnerList" || unionMembers[0].Variety() != SimpleTypeVarietyList {
+		t.Fatalf("ItemUnion member 0 = %#v, want named list", unionMembers)
+	}
+	if memberID, hasID := unionMembers[0].ComponentID(); !hasID || memberID != inner[0].ID() {
+		t.Fatalf("ItemUnion list member identity = %v/%t, want %v/true", memberID, hasID, inner[0].ID())
+	}
+	if unionMembers[1].Kind() != SimpleTypeReferenceBuiltin || unionMembers[1].Name().Local() != "string" || unionMembers[1].Variety() != SimpleTypeVarietyAtomicRestriction {
+		t.Fatalf("ItemUnion member 1 = %q/%q/%q, want built-in atomic string", unionMembers[1].Kind(), unionMembers[1].Name(), unionMembers[1].Variety())
+	}
+
+	outerDefinition, ok := outer[0].SimpleTypeDefinition()
+	if !ok || outerDefinition.Variety() != SimpleTypeVarietyList {
+		t.Fatalf("OuterList definition = %#v/%t, want list", outerDefinition, ok)
+	}
+	outerItem, ok := outerDefinition.ItemType()
+	if !ok || !outerItem.IsNamed() || outerItem.Name().Local() != "ItemUnion" || outerItem.Variety() != SimpleTypeVarietyUnion {
+		t.Fatalf("OuterList item = %q/%q/%q/%t, want named union", outerItem.Kind(), outerItem.Name(), outerItem.Variety(), ok)
+	}
+	if itemID, hasID := outerItem.ComponentID(); !hasID || itemID != union[0].ID() {
+		t.Fatalf("OuterList union item identity = %v/%t, want %v/true", itemID, hasID, union[0].ID())
+	}
+}
+
+//nolint:gocognit // Keep the edition-specific invalid diagnostic matrix together.
+func TestSchemaSimpleTypeVarietyRejectsNonAtomicTransitiveUnionListMembers(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
+  <xs:simpleType name="InnerList"><xs:list itemType="xs:integer"/></xs:simpleType>
+  <xs:simpleType name="BadUnion"><xs:union memberTypes="t:InnerList xs:string"/></xs:simpleType>
+  <xs:simpleType name="BadList"><xs:list itemType="t:BadUnion"/></xs:simpleType>
+</xs:schema>`
+	for _, test := range []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict11", policy: Strict11},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+			if err == nil {
+				t.Fatal("discoverTestSchema accepted a non-atomic transitive list member")
+			}
+			if schema.storage != nil {
+				t.Fatal("discoverTestSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaSimpleTypeBaseCode {
+				t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, diagnosticSchemaSimpleTypeBaseCode)
+			}
+			if diagnostic.Loc().IsZero() || len(diagnostic.Related()) < 2 {
+				t.Fatalf("diagnostic locations = %v related %v, want primary and definition/variety locations", diagnostic.Loc(), diagnostic.Related())
+			}
+			if !errors.Is(err, errSchemaSimpleTypeInvalidDerivation) {
+				t.Fatalf("diagnostic lost invalid-derivation cause: %v", err)
+			}
+		})
+	}
+}
+
+func TestSchemaSimpleTypeVarietyRejectsNestedUnionMembersInStrict10(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
+  <xs:simpleType name="Inner"><xs:union memberTypes="xs:string"/></xs:simpleType>
+  <xs:simpleType name="Outer"><xs:union memberTypes="t:Inner xs:integer"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err == nil {
+		t.Fatal("Strict10 accepted a nested union member")
+	}
+	if schema.storage != nil {
+		t.Fatal("Strict10 returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaSimpleTypeBaseCode {
+		t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, diagnosticSchemaSimpleTypeBaseCode)
+	}
+	if diagnostic.Loc().IsZero() || len(diagnostic.Related()) < 2 {
+		t.Fatalf("diagnostic locations = %v related %v, want primary and definition/variety locations", diagnostic.Loc(), diagnostic.Related())
+	}
+	if !errors.Is(err, errSchemaSimpleTypeInvalidDerivation) {
+		t.Fatalf("diagnostic lost invalid-derivation cause: %v", err)
+	}
+}
+
+//nolint:gocognit // Keep named and anonymous nested-union identity coverage together.
+func TestSchemaSimpleTypeVarietyPreservesNestedUnionIdentityByEdition(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
+  <xs:simpleType name="Inner"><xs:union memberTypes="xs:string xs:integer"/></xs:simpleType>
+  <xs:simpleType name="Outer"><xs:union memberTypes="t:Inner xs:boolean"/></xs:simpleType>
+  <xs:simpleType name="NamedUnionList"><xs:list itemType="t:Outer"/></xs:simpleType>
+  <xs:simpleType name="AnonymousOuter"><xs:union><xs:simpleType><xs:union memberTypes="xs:string xs:integer"/></xs:simpleType><xs:simpleType><xs:restriction base="xs:boolean"/></xs:simpleType></xs:union></xs:simpleType>
+  <xs:simpleType name="AnonymousUnionList"><xs:list itemType="t:AnonymousOuter"/></xs:simpleType>
+</xs:schema>`
+	for _, test := range []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict11", policy: Strict11},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchema: %v", err)
+			}
+			inner := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "Inner"))
+			outer := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "Outer"))
+			if len(inner) != 1 || len(outer) != 1 {
+				t.Fatalf("nested union matches = %d/%d, want one each", len(inner), len(outer))
+			}
+			innerID := inner[0].ID()
+			outerDefinition, ok := outer[0].SimpleTypeDefinition()
+			if !ok {
+				t.Fatal("Outer simple type view is missing")
+			}
+			outerMembers := outerDefinition.MemberTypes()
+			if len(outerMembers) != 2 || outerMembers[0].Kind() != SimpleTypeReferenceNamed || outerMembers[0].Name().Local() != "Inner" || outerMembers[0].Variety() != SimpleTypeVarietyUnion {
+				t.Fatalf("Outer member 0 = %#v, want named nested union", outerMembers)
+			}
+			if memberID, hasID := outerMembers[0].ComponentID(); !hasID || memberID != innerID {
+				t.Fatalf("Outer nested union identity = %v/%t, want %v/true", memberID, hasID, innerID)
+			}
+
+			namedList := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "NamedUnionList"))
+			if len(namedList) != 1 {
+				t.Fatalf("NamedUnionList matches = %d, want 1", len(namedList))
+			}
+			namedListDefinition, ok := namedList[0].SimpleTypeDefinition()
+			if !ok {
+				t.Fatal("NamedUnionList simple type view is missing")
+			}
+			namedItem, ok := namedListDefinition.ItemType()
+			if !ok || namedItem.Name().Local() != "Outer" || namedItem.Variety() != SimpleTypeVarietyUnion {
+				t.Fatalf("NamedUnionList item = %q/%q/%t, want named union", namedItem.Name(), namedItem.Variety(), ok)
+			}
+
+			anonymousOuter := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "AnonymousOuter"))
+			if len(anonymousOuter) != 1 {
+				t.Fatalf("AnonymousOuter matches = %d, want 1", len(anonymousOuter))
+			}
+			anonymousDefinition, ok := anonymousOuter[0].SimpleTypeDefinition()
+			if !ok {
+				t.Fatal("AnonymousOuter simple type view is missing")
+			}
+			anonymousMembers := anonymousDefinition.MemberTypes()
+			if len(anonymousMembers) != 2 || !anonymousMembers[0].IsAnonymous() || anonymousMembers[0].Variety() != SimpleTypeVarietyUnion {
+				t.Fatalf("AnonymousOuter member 0 = %#v, want anonymous nested union", anonymousMembers)
+			}
+			anonymousUnion, ok := anonymousMembers[0].AnonymousType()
+			if !ok || anonymousUnion.Variety() != SimpleTypeVarietyUnion || len(anonymousUnion.MemberTypes()) != 2 {
+				t.Fatalf("AnonymousOuter nested model = %#v/%t, want union with two atomic members", anonymousUnion, ok)
+			}
+		})
+	}
+}
+
 func TestSchemaSimpleTypePrecisionDecimalPolicyRemainsBounded(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.0"><xs:simpleType name="item"><xs:union memberTypes="xs:precisionDecimal xs:string"/></xs:simpleType></xs:schema>`
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)

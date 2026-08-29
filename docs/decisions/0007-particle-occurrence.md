@@ -135,12 +135,13 @@ boolean-restriction, integer, or decimal scalar elements in XSD 1.0 and 1.1.
 Direct choices likewise model local built-in `xs:boolean` and named
 boolean-restriction elements. Direct sequence precisionDecimal children remain
 unsupported even under XSD 1.1 and Compatibility. Choice occurrence attributes
-remain unsupported, as do boolean facets, anonymous types, references, nested or
-broader particles, attributes, and other composition. Boolean validation and Go
-generation remain unsupported; repetition is not implemented, effective total
-ranges are not calculated, and the parser does not support `all` mapping. The
-exact value has no fixed resource limit; later phases must set bounded input and
-materialization policies.
+remain unsupported. Boolean facets, anonymous/ref/nested/broader particles,
+attributes, and other composition remain unsupported; anonymous simple-type
+models and resolved built-in, named, and anonymous simple-type references are
+modeled. Boolean validation and Go generation remain unsupported; repetition is
+not implemented, effective total ranges are not calculated, and the parser does
+not support `all` mapping. The exact value has no fixed resource limit; later
+phases must set bounded input and materialization policies.
 
 The main risks are memory proportional to hostile finite lexicals, a breaking
 API migration if exact accessors are delayed, and accidentally treating the

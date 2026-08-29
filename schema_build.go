@@ -1499,9 +1499,15 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 		if !scope.allowsBoolean() {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
+		reference, err := builtinSchemaElementTypeReference(input, version)
+		if err != nil {
+			return schemaElementTypeResult{}, err
+		}
 		return schemaElementTypeResult{
-			present:      true,
-			declaredType: input.declaredType,
+			present:          true,
+			declaredType:     input.declaredType,
+			typeReference:    reference,
+			hasTypeReference: true,
 		}, nil
 	case "precisionDecimal":
 		if version == XSDVersion10 {
@@ -2023,9 +2029,14 @@ func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTy
 		return schemaSimpleTypeResult{}, invalidSimpleTypeDerivation(
 			model.itemType.loc,
 			fmt.Sprintf("simple type list item type %q has variety %q", itemType.name, itemType.variety),
-			[]Loc{itemType.varietyLoc},
+			resolver.simpleTypeReferenceRelatedLocations(itemType),
 			version,
 		)
+	}
+	if version == XSDVersion11 && itemType.variety == SimpleTypeVarietyUnion {
+		if err := resolver.validateAtomicUnionMembers(itemType, version, make(map[schemaSimpleTypeReferenceIdentity]struct{})); err != nil {
+			return schemaSimpleTypeResult{}, err
+		}
 	}
 	return schemaSimpleTypeResult{
 		loc:         input.loc,
@@ -2034,6 +2045,117 @@ func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTy
 		itemType:    itemType,
 		hasItemType: true,
 	}, nil
+}
+
+type schemaSimpleTypeReferenceIdentity struct {
+	kind        SimpleTypeReferenceKind
+	name        QName
+	id          ComponentID
+	anonymousID SimpleTypeID
+}
+
+func simpleTypeReferenceIdentity(reference schemaSimpleTypeReferenceComponent) schemaSimpleTypeReferenceIdentity {
+	return schemaSimpleTypeReferenceIdentity{
+		kind:        reference.kind,
+		name:        reference.name,
+		id:          reference.id,
+		anonymousID: reference.anonymousID,
+	}
+}
+
+func (resolver *schemaSimpleTypeResolver) validateAtomicUnionMembers(
+	reference schemaSimpleTypeReferenceComponent,
+	version XSDVersion,
+	seen map[schemaSimpleTypeReferenceIdentity]struct{},
+) error {
+	identity := simpleTypeReferenceIdentity(reference)
+	if _, ok := seen[identity]; ok {
+		return nil
+	}
+	seen[identity] = struct{}{}
+	if reference.variety == SimpleTypeVarietyAtomicRestriction {
+		return nil
+	}
+	if reference.variety != SimpleTypeVarietyUnion {
+		return invalidSimpleTypeDerivation(
+			reference.loc,
+			fmt.Sprintf("simple type list item type %q has non-atomic transitive member variety %q", reference.name, reference.variety),
+			resolver.simpleTypeReferenceRelatedLocations(reference),
+			version,
+		)
+	}
+	memberTypes, err := resolver.simpleTypeUnionMembers(reference, version)
+	if err != nil {
+		return err
+	}
+	for _, member := range memberTypes {
+		if member.variety == SimpleTypeVarietyAtomicRestriction {
+			continue
+		}
+		if err := resolver.validateAtomicUnionMembers(member, version, seen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (resolver *schemaSimpleTypeResolver) simpleTypeUnionMembers(
+	reference schemaSimpleTypeReferenceComponent,
+	version XSDVersion,
+) ([]schemaSimpleTypeReferenceComponent, error) {
+	if reference.kind == SimpleTypeReferenceAnonymous {
+		if reference.anonymous == nil {
+			return nil, newSchemaBridgeInvariant(reference.loc, "anonymous union reference has no model")
+		}
+		return reference.anonymous.memberTypes, nil
+	}
+	if reference.kind != SimpleTypeReferenceNamed {
+		return nil, newSchemaBridgeInvariant(reference.loc, "union reference is not named or anonymous")
+	}
+	if !reference.hasID || reference.id.IsZero() {
+		return nil, newSchemaBridgeInvariant(reference.loc, "named union reference has no component identity")
+	}
+	for index, record := range resolver.records {
+		if record.id != reference.id {
+			continue
+		}
+		result, err := resolver.resolve(index, version)
+		if err != nil {
+			return nil, err
+		}
+		return result.memberTypes, nil
+	}
+	return nil, newSchemaBridgeInvariant(reference.loc, "named union reference component identity is unresolved")
+}
+
+func (resolver *schemaSimpleTypeResolver) simpleTypeReferenceDefinitionLoc(reference schemaSimpleTypeReferenceComponent) Loc {
+	if reference.kind == SimpleTypeReferenceAnonymous {
+		if reference.anonymous != nil {
+			return reference.anonymous.loc
+		}
+		return Loc{}
+	}
+	if reference.kind != SimpleTypeReferenceNamed || !reference.hasID {
+		return Loc{}
+	}
+	for _, record := range resolver.records {
+		if record.id == reference.id {
+			return record.loc
+		}
+	}
+	return Loc{}
+}
+
+func (resolver *schemaSimpleTypeResolver) simpleTypeReferenceRelatedLocations(reference schemaSimpleTypeReferenceComponent) []Loc {
+	related := make([]Loc, 0, 2)
+	definitionLoc := resolver.simpleTypeReferenceDefinitionLoc(reference)
+	if !definitionLoc.IsZero() && definitionLoc != reference.loc {
+		related = append(related, definitionLoc)
+	}
+	if !reference.varietyLoc.IsZero() && reference.varietyLoc != reference.loc && reference.varietyLoc != definitionLoc {
+		related = append(related, reference.varietyLoc)
+	}
+	return related
 }
 
 func unsupportedSimpleTypeRestriction(loc Loc, base schemaSimpleTypeReferenceComponent, version XSDVersion) Diagnostic {
@@ -2077,6 +2199,14 @@ func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleT
 		resolved, err := resolver.resolveReference(member, version)
 		if err != nil {
 			return schemaSimpleTypeResult{}, err
+		}
+		if version == XSDVersion10 && resolved.variety == SimpleTypeVarietyUnion {
+			return schemaSimpleTypeResult{}, invalidSimpleTypeDerivation(
+				member.loc,
+				fmt.Sprintf("simple type union member type %q has variety %q", resolved.name, resolved.variety),
+				resolver.simpleTypeReferenceRelatedLocations(resolved),
+				version,
+			)
 		}
 		members = append(members, resolved)
 	}
