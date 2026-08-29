@@ -1,6 +1,6 @@
 # Scheduled operations
 
-Paseo schedules externally. Jobs start from clean coordination checkout in America/New_York. Skills are executable procedures; this is operator contract.
+Paseo schedules externally. Jobs start from clean coordination checkout in America/New_York.
 | Job | Schedule | Agent | Prompt |
 | --- | --- | --- | --- |
 | Develop | 00:00, then every 3 hours | Luna, maximum effort | `Run $develop for this repository.` |
@@ -40,8 +40,8 @@ challenges bind body/evidence digests. Before Examiner, `evaluation challenge`
 records one-use head-bound challenge; Examiner JSON is versioned;
 `workflowctl` rejects wrong-head, stale, reused, malformed, or caller-selected
 results. Fresh context; receipts are evidence, not identity proof.
-Unresolved challenges survive snapshot-changes; complete-equivalent trusted Examiner receipts form one round; GitHub retains original challenge/comments/auth-records. Two-hour expiry: `go tool workflowctl evaluation resolve PR --challenge ID --reason-file FILE` records authenticated-no-verdict resolution, neither verdict nor merge-proof; convergence grants no verdict/merge authority.
-Packet-scoped cleanup inventories claims, checks inherited-trailer-ownership, preserves artifacts; unrelated-refs untouched; exact deletion, idempotent recovery, merge-proofed claim-pruning.
+Unresolved challenges survive snapshots; complete-equivalent trusted Examiner receipts form rounds; original GitHub comments/authenticated records remain immutable history. Two-hour expiry: `go tool workflowctl evaluation resolve PR --challenge ID --reason-file FILE` records authenticated-no-verdict resolution; convergence alone grants no verdict/merge authority; an underlying authenticated passing receipt remains required merge proof.
+Packet cleanup inventories claims, checks inherited-trailer-ownership, preserves artifacts; unrelated-refs untouched; exact deletion, idempotent recovery, merge-proofed claim-pruning.
 
 GraphQL fallback: identical-head REST, fresh Examiner.
 GitHub-effective references validate close; exact merge proof binds primary to
