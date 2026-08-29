@@ -3,11 +3,13 @@
 // instances.
 //
 // ParseSchema accepts a caller-created ResolvedSource and a Resolver. The
-// current subset discovers mixed XSD 1.0 and XSD 1.1 schema graphs, builds
-// supported schema-level components and simple-type restrictions, including
-// global xs:boolean declarations and named restrictions with a boolean base,
-// and exposes deterministic queries and walks. SimpleTypeDefinition.IsBoolean
-// reports that immutable kind fact. ParseSchema uses graph-wide Compatibility;
+// current subset discovers mixed XSD 1.0 and XSD 1.1 schema graphs and builds
+// supported schema-level components, including simple-type atomic restrictions,
+// lists, and unions. Anonymous simple types and resolved built-in, named, and
+// anonymous simple-type references are modeled, along with global xs:boolean
+// declarations and named restrictions with a boolean base. Queries and walks
+// are deterministic. SimpleTypeDefinition.IsBoolean reports that immutable
+// kind fact. ParseSchema uses graph-wide Compatibility;
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
 // The unqualified schema/@version is an inert optional xs:token label: absent,
 // empty, arbitrary, "1.0", and "1.1" values never select or mismatch a policy.
@@ -23,8 +25,8 @@
 // xs:boolean, named boolean-restriction, integer, and decimal scalar elements
 // for a named global complex type, including exact immutable occurrence ranges.
 // Direct choices likewise model local built-in xs:boolean and named
-// boolean-restriction elements. Anonymous types, references, nested and broader
-// particles remain unsupported.
+// boolean-restriction elements. Anonymous, ref, nested, and broader particles
+// remain unsupported.
 // Sequence particles are query-only until validation repetition is implemented.
 //
 // ValidateInstance supports one complete instance rooted at a global element
