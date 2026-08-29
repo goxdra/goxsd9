@@ -19,9 +19,12 @@
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
 //
-// The schema model also exposes one direct ordered sequence of local named
-// integer/decimal scalar elements for a named global complex type, including exact
-// immutable occurrence ranges. Local boolean particles remain unsupported.
+// The schema model also exposes one direct ordered sequence of local built-in
+// xs:boolean, named boolean-restriction, integer, and decimal scalar elements
+// for a named global complex type, including exact immutable occurrence ranges.
+// Direct choices likewise model local built-in xs:boolean and named
+// boolean-restriction elements. Anonymous types, references, nested and broader
+// particles remain unsupported.
 // Sequence particles are query-only until validation repetition is implemented.
 //
 // ValidateInstance supports one complete instance rooted at a global element

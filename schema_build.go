@@ -1133,7 +1133,7 @@ const (
 )
 
 func (scope schemaScalarTypeScope) allowsBoolean() bool {
-	return scope == schemaScalarTypeGlobalElement
+	return scope == schemaScalarTypeGlobalElement || scope == schemaScalarTypeLocalParticle
 }
 
 func resolveSchemaElementTypes(
@@ -1270,7 +1270,7 @@ func resolveSchemaScalarType(
 			"element type resolution has an incomplete simple type result",
 		)
 	}
-	if err := rejectUnsupportedLocalScalarType(input, simpleTypes[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
+	if err := rejectUnsupportedLocalScalarType(input, simpleTypes[candidate], version, scope, allowPrecisionDecimal); err != nil {
 		return schemaElementTypeResult{}, err
 	}
 	return schemaElementTypeResult{
@@ -1316,12 +1316,9 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 	}
 }
 
-func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
+func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
 	if scope != schemaScalarTypeLocalParticle {
 		return nil
-	}
-	if _, ok := simpleType.facets.(schemaBooleanFacetVariant); ok {
-		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	}
 	if allowPrecisionDecimal {
 		return nil
