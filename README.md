@@ -6,7 +6,7 @@ goxsd9 targets XSD 1.1/1.0 parsing, XML validation, and Go code generation; unsu
 
 `ParseSchema` exposes immutable components; callers provide `ResolvedSource` and a `Resolver`. Calls are sequential; source locations stay opaque.
 
-Mixed XSD 1.0/1.1 graphs, restrictions, ordered bounds, and optional `xs:precisionDecimal` work. Direct global `xs:boolean` declarations and named boolean restrictions are modeled; boolean facets and local boolean particles remain unsupported. Named global complex types expose direct ordered integer/decimal scalar sequences with exact immutable occurrence ranges. `Compatibility`/`Strict11` permit precisionDecimal elsewhere; direct sequence precisionDecimal children remain unsupported. `Strict10` reports XSD 1.1 constructs as unsupported. Malformed input is invalid; `totalDigits`/`fractionDigits` work. `ParseSchema` defaults to `Compatibility`; `ParseSchemaWithPolicy` chooses. Errors return no schema. `ValidateInstance` supports built-in/named numeric globals and direct, non-repeating scalar choices in named complex globals; boolean validation and sequences remain unsupported. `GenerateGo` emits deterministic scalar/choice Go; boolean generation unsupported. [Direct-choice example](direct_choice_example_test.go) uses [fixtures](examples/direct-choice/); run `go test ./... -run '^Example_directChoice$'`: invalid `XSD2001` at `examples/direct-choice/invalid.xml:2:19` (`xsd11-datatypes#integer`). [Scalar quickstart](library_example_test.go) is library-only.
+Mixed XSD 1.0/1.1 graphs, restrictions, and ordered bounds work; `xs:precisionDecimal` remains limited. Direct global booleans and named complex scalar sequences are modeled; boolean facets, local boolean particles, and direct sequence precisionDecimal remain unsupported. `Strict10` reports XSD 1.1 constructs as unsupported. Malformed input is invalid; digit facets work. `ParseSchema` defaults to `Compatibility`; `ParseSchemaWithPolicy` chooses. Errors return no schema. `ValidateInstance` supports numeric globals and direct scalar choices; boolean validation and sequences remain unsupported. `GenerateGo` emits deterministic scalar/choice Go; boolean generation unsupported. [Direct-choice example](direct_choice_example_test.go) uses [fixtures](examples/direct-choice/); run `go test ./... -run '^Example_directChoice$'`: invalid `XSD2001` at `examples/direct-choice/invalid.xml:2:19` (`xsd11-datatypes#integer`). [Scalar quickstart](library_example_test.go) is library-only.
 
 ## Product CLI
 
@@ -34,12 +34,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [PLAN.md](PLAN.md).
 
 ## Repository checks
 
-Fresh checkout; inventory metadata only:
+Fresh checkout; inventory remains metadata-only. Bounded schema requires exact `-version 1.0` or `-version 1.1` plus `-set` or `-case`; instances never run:
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
 go tool workflowctl check
 go tool conformance inventory
+go tool conformance schema -version 1.0 -set SET -case CASE
 ```
 
 ## Pinned specification corpus
