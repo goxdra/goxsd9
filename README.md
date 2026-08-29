@@ -4,9 +4,10 @@ goxsd9 targets XSD 1.1/1.0 parsing, XML validation, and Go code generation; unsu
 
 ## Schema parsing
 
-`ParseSchema` exposes immutable components; callers provide `ResolvedSource` and a `Resolver`. Calls are sequential; source locations stay opaque.
+`ParseSchema` exposes immutable components; callers provide `ResolvedSource` and a `Resolver`. Calls sequential; locations opaque.
 
-Mixed XSD 1.0/1.1 graphs, restrictions, and ordered bounds work; `xs:precisionDecimal` remains limited. Direct global booleans are modeled; named global complex sequences and choices expose exact ranges. Local boolean particles and direct-sequence `precisionDecimal` remain unsupported. `Strict10` reports XSD 1.1 constructs as unsupported. Malformed input is invalid; digit facets work. `ParseSchema` defaults to `Compatibility`; `ParseSchemaWithPolicy` chooses. Errors return no schema. `ValidateInstance` supports numeric globals and default scalar choices; boolean validation, sequences, and non-default choice repetition remain unsupported. `GenerateGo` emits deterministic scalar/default-choice Go; boolean generation unsupported. [Direct-choice example](direct_choice_example_test.go) uses [fixtures](examples/direct-choice/); run `go test ./... -run '^Example_directChoice$'`: invalid `XSD2001` at `examples/direct-choice/invalid.xml:2:19` (`xsd11-datatypes#integer`). [Scalar quickstart](library_example_test.go) is library-only.
+Mixed XSD 1.0/1.1 graphs, restrictions, ordered bounds work; `xs:precisionDecimal` remains limited. Global booleans and complex direct choice/sequence particles model `xs:boolean`, named boolean-restriction, integer, and decimal elements with exact ranges; `0/0` omitted. XSD 1.1 direct choices allow default `precisionDecimal`; direct-sequence and non-default `precisionDecimal` ranges schema-unsupported. Boolean facets, anonymous/ref/nested/broader particles, and repetition unsupported. `Strict10` reports XSD 1.1 constructs unsupported. Malformed input is invalid; digit facets work. `ParseSchema` defaults to `Compatibility`; `ParseSchemaWithPolicy` chooses; errors return none. `ValidateInstance` supports numeric globals and default scalar choices; boolean validation, sequences, and non-default repetition unsupported. `GenerateGo` deterministic scalar/default-choice Go; boolean unsupported.
+[Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
 
 ## Product CLI
 

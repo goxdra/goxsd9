@@ -1133,7 +1133,7 @@ const (
 )
 
 func (scope schemaScalarTypeScope) allowsBoolean() bool {
-	return scope == schemaScalarTypeGlobalElement
+	return scope == schemaScalarTypeGlobalElement || scope == schemaScalarTypeLocalParticle
 }
 
 func resolveSchemaElementTypes(
@@ -1270,7 +1270,7 @@ func resolveSchemaScalarType(
 			"element type resolution has an incomplete simple type result",
 		)
 	}
-	if err := rejectUnsupportedLocalScalarType(input, simpleTypes[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
+	if err := rejectUnsupportedLocalScalarType(input, simpleTypes[candidate], version, scope, allowPrecisionDecimal); err != nil {
 		return schemaElementTypeResult{}, err
 	}
 	return schemaElementTypeResult{
@@ -1316,12 +1316,9 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 	}
 }
 
-func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
+func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
 	if scope != schemaScalarTypeLocalParticle {
 		return nil
-	}
-	if _, ok := simpleType.facets.(schemaBooleanFacetVariant); ok {
-		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	}
 	if allowPrecisionDecimal {
 		return nil
@@ -1795,6 +1792,7 @@ func (resolver *schemaSimpleTypeResolver) resolveBase(index int, version XSDVers
 	return resolver.resolveNamedSchemaSimpleTypeBase(input, version)
 }
 
+//nolint:gocognit // Keep built-in numeric facet construction explicit.
 func resolveBuiltinSchemaSimpleTypeBase(input *schemaSimpleTypeInput, version XSDVersion) (schemaSimpleTypeBase, error) {
 	switch input.base.Local() {
 	case "integer":
@@ -1802,13 +1800,23 @@ func resolveBuiltinSchemaSimpleTypeBase(input *schemaSimpleTypeInput, version XS
 		if err != nil {
 			return schemaSimpleTypeBase{}, err
 		}
+		enumeration, err := NewIntegerEnumerationFacets(nil, version)
+		if err != nil {
+			return schemaSimpleTypeBase{}, err
+		}
 		bounds, err := NewIntegerBoundFacets(nil, version)
 		if err != nil {
 			return schemaSimpleTypeBase{}, err
 		}
-		return schemaSimpleTypeBase{facets: schemaDigitFacetVariant{value: facets, integerBounds: bounds}}, nil
+		return schemaSimpleTypeBase{
+			facets: schemaIntegerFacetVariant{digits: facets, enumeration: enumeration, bounds: bounds},
+		}, nil
 	case "decimal":
 		facets, err := NewDecimalDigitFacets(nil, nil, version)
+		if err != nil {
+			return schemaSimpleTypeBase{}, err
+		}
+		enumeration, err := NewDecimalEnumerationFacets(nil, version)
 		if err != nil {
 			return schemaSimpleTypeBase{}, err
 		}
@@ -1816,7 +1824,9 @@ func resolveBuiltinSchemaSimpleTypeBase(input *schemaSimpleTypeInput, version XS
 		if err != nil {
 			return schemaSimpleTypeBase{}, err
 		}
-		return schemaSimpleTypeBase{facets: schemaDigitFacetVariant{value: facets, decimalBounds: bounds}}, nil
+		return schemaSimpleTypeBase{
+			facets: schemaDecimalFacetVariant{digits: facets, enumeration: enumeration, bounds: bounds},
+		}, nil
 	case "precisionDecimal":
 		if version == XSDVersion10 {
 			return schemaSimpleTypeBase{}, precisionDecimalSchemaVersionDiagnostic(input.baseLoc, input.base)
@@ -1917,32 +1927,40 @@ func restrictSchemaSimpleTypeFacets(
 ) (schemaSimpleTypeFacetVariant, error) {
 	switch typed := base.(type) {
 	case schemaDigitFacetVariant:
-		local, err := schemaDigitFacetDeclarations(inputs, typed.value.Kind(), version)
-		if err != nil {
-			return nil, err
-		}
-		facets, err := RestrictDigitFacets(typed.value, local.digit)
-		if err != nil {
-			return nil, err
-		}
-		variant := schemaDigitFacetVariant{value: facets}
-		switch facets.Kind() {
+		switch typed.value.Kind() {
 		case DigitDatatypeInteger:
-			bounds, boundErr := RestrictIntegerBoundFacets(typed.integerBounds, local.integerBounds)
-			if boundErr != nil {
-				return nil, boundErr
+			baseEnumeration, err := NewIntegerEnumerationFacets(nil, version)
+			if err != nil {
+				return nil, err
 			}
-			variant.integerBounds = bounds
+			baseBounds, err := NewIntegerBoundFacets(nil, version)
+			if err != nil {
+				return nil, err
+			}
+			if typed.integerBounds.Version() == version {
+				baseBounds = typed.integerBounds
+			}
+			return restrictSchemaIntegerFacets(typed.value, baseBounds, baseEnumeration, inputs, version)
 		case DigitDatatypeDecimal:
-			bounds, boundErr := RestrictDecimalBoundFacets(typed.decimalBounds, local.decimalBounds)
-			if boundErr != nil {
-				return nil, boundErr
+			baseEnumeration, err := NewDecimalEnumerationFacets(nil, version)
+			if err != nil {
+				return nil, err
 			}
-			variant.decimalBounds = bounds
+			baseBounds, err := NewDecimalBoundFacets(nil, version)
+			if err != nil {
+				return nil, err
+			}
+			if typed.decimalBounds.Version() == version {
+				baseBounds = typed.decimalBounds
+			}
+			return restrictSchemaDecimalFacets(typed.value, baseBounds, baseEnumeration, inputs, version)
 		default:
 			return nil, newSchemaBridgeInvariant(Loc{}, "simple type facet resolution has an unknown digit datatype")
 		}
-		return variant, nil
+	case schemaIntegerFacetVariant:
+		return restrictSchemaIntegerFacets(typed.digits, typed.bounds, typed.enumeration, inputs, version)
+	case schemaDecimalFacetVariant:
+		return restrictSchemaDecimalFacets(typed.digits, typed.bounds, typed.enumeration, inputs, version)
 	case schemaPrecisionDecimalFacetVariant:
 		local, err := schemaPrecisionDecimalFacetDeclarations(inputs)
 		if err != nil {
@@ -1958,6 +1976,206 @@ func restrictSchemaSimpleTypeFacets(
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "simple type facet resolution has an unknown datatype variant")
 	}
+}
+
+func restrictSchemaIntegerFacets(
+	base DigitFacets,
+	baseBounds IntegerBoundFacets,
+	baseEnumeration IntegerEnumerationFacets,
+	inputs []schemaFacetInput,
+	version XSDVersion,
+) (schemaSimpleTypeFacetVariant, error) {
+	local, err := schemaNumericFacetDeclarations(inputs, DigitDatatypeInteger, version)
+	if err != nil {
+		return nil, err
+	}
+	digits, err := RestrictDigitFacets(base, local.digits)
+	if err != nil {
+		return nil, err
+	}
+	bounds, err := RestrictIntegerBoundFacets(baseBounds, local.integerBounds)
+	if err != nil {
+		return nil, err
+	}
+	err = validateSchemaIntegerEnumerationBaseValueSpace(base, baseBounds, local.integerEnumeration, version)
+	if err != nil {
+		return nil, err
+	}
+	enumeration, err := RestrictIntegerEnumerationFacets(baseEnumeration, local.integerEnumeration)
+	if err != nil {
+		return nil, err
+	}
+	if local.deferredUnsupported != nil {
+		return nil, local.deferredUnsupported
+	}
+	return schemaIntegerFacetVariant{digits: digits, enumeration: enumeration, bounds: bounds}, nil
+}
+
+func restrictSchemaDecimalFacets(
+	base DigitFacets,
+	baseBounds DecimalBoundFacets,
+	baseEnumeration DecimalEnumerationFacets,
+	inputs []schemaFacetInput,
+	version XSDVersion,
+) (schemaSimpleTypeFacetVariant, error) {
+	local, err := schemaNumericFacetDeclarations(inputs, DigitDatatypeDecimal, version)
+	if err != nil {
+		return nil, err
+	}
+	digits, err := RestrictDigitFacets(base, local.digits)
+	if err != nil {
+		return nil, err
+	}
+	bounds, err := RestrictDecimalBoundFacets(baseBounds, local.decimalBounds)
+	if err != nil {
+		return nil, err
+	}
+	err = validateSchemaDecimalEnumerationBaseValueSpace(base, baseBounds, local.decimalEnumeration, version)
+	if err != nil {
+		return nil, err
+	}
+	enumeration, err := RestrictDecimalEnumerationFacets(baseEnumeration, local.decimalEnumeration)
+	if err != nil {
+		return nil, err
+	}
+	if local.deferredUnsupported != nil {
+		return nil, local.deferredUnsupported
+	}
+	return schemaDecimalFacetVariant{digits: digits, enumeration: enumeration, bounds: bounds}, nil
+}
+
+func validateSchemaIntegerEnumerationBaseValueSpace(
+	base DigitFacets,
+	bounds IntegerBoundFacets,
+	local IntegerEnumerationFacetDeclarations,
+	version XSDVersion,
+) error {
+	if local.Values == nil {
+		return nil
+	}
+	for index := range local.Values {
+		declaration := local.Values[index]
+		err := base.ValidateInteger(declaration.Value(), declaration.Loc())
+		if err != nil {
+			if !errors.Is(err, errDigitFacetValueViolation) {
+				return err
+			}
+			return schemaEnumerationBaseValueSpaceDiagnostic(
+				declaration.Loc(),
+				schemaDigitFacetViolationLocations(base, err),
+				version,
+				"integer",
+				err,
+			)
+		}
+		err = bounds.ValidateInteger(declaration.Value(), declaration.Loc())
+		if err != nil {
+			if !errors.Is(err, errBoundValueViolation) {
+				return err
+			}
+			return schemaEnumerationBaseValueSpaceDiagnostic(
+				declaration.Loc(),
+				schemaFacetViolationLocations(err),
+				version,
+				"integer",
+				err,
+			)
+		}
+	}
+	return nil
+}
+
+func validateSchemaDecimalEnumerationBaseValueSpace(
+	base DigitFacets,
+	bounds DecimalBoundFacets,
+	local DecimalEnumerationFacetDeclarations,
+	version XSDVersion,
+) error {
+	if local.Values == nil {
+		return nil
+	}
+	for index := range local.Values {
+		declaration := local.Values[index]
+		err := base.ValidateDecimal(declaration.Value(), declaration.Loc())
+		if err != nil {
+			if !errors.Is(err, errDigitFacetValueViolation) {
+				return err
+			}
+			return schemaEnumerationBaseValueSpaceDiagnostic(
+				declaration.Loc(),
+				schemaDigitFacetViolationLocations(base, err),
+				version,
+				"decimal",
+				err,
+			)
+		}
+		err = bounds.ValidateDecimal(declaration.Value(), declaration.Loc())
+		if err != nil {
+			if !errors.Is(err, errBoundValueViolation) {
+				return err
+			}
+			return schemaEnumerationBaseValueSpaceDiagnostic(
+				declaration.Loc(),
+				schemaFacetViolationLocations(err),
+				version,
+				"decimal",
+				err,
+			)
+		}
+	}
+	return nil
+}
+
+func schemaFacetViolationLocations(violation error) []Loc {
+	var diagnostic Diagnostic
+	if errors.As(violation, &diagnostic) {
+		return diagnostic.Related()
+	}
+	return nil
+}
+
+func schemaDigitFacetViolationLocations(base DigitFacets, violation error) []Loc {
+	var diagnostic Diagnostic
+	if errors.As(violation, &diagnostic) {
+		if related := diagnostic.Related(); len(related) != 0 {
+			return related
+		}
+	}
+	related := make([]Loc, 0, 2)
+	if loc, ok := base.TotalDigitsLoc(); ok && !loc.IsZero() {
+		related = append(related, loc)
+	}
+	if loc, ok := base.FractionDigitsLoc(); ok && !loc.IsZero() {
+		related = append(related, loc)
+	}
+	return related
+}
+
+func schemaEnumerationBaseValueSpaceDiagnostic(
+	loc Loc,
+	related []Loc,
+	version XSDVersion,
+	datatype string,
+	cause error,
+) error {
+	return newEnumerationDiagnostic(
+		FailureInvalid,
+		InvalidEnumerationRestrictionCode,
+		loc,
+		enumerationSpecRef(version, enumerationRestrictionRule),
+		"local "+datatype+" enumeration value is not in the base value space",
+		related,
+		fmt.Errorf("%w: %w", errInvalidEnumerationRestriction, cause),
+	)
+}
+
+type schemaNumericFacetDeclarationSet struct {
+	digits              DigitFacetDeclarations
+	integerEnumeration  IntegerEnumerationFacetDeclarations
+	decimalEnumeration  DecimalEnumerationFacetDeclarations
+	integerBounds       IntegerBoundFacetDeclarations
+	decimalBounds       DecimalBoundFacetDeclarations
+	deferredUnsupported error
 }
 
 func restrictSchemaBooleanFacets(base schemaBooleanFacetVariant, inputs []schemaFacetInput, version XSDVersion) (schemaSimpleTypeFacetVariant, error) {
@@ -2055,20 +2273,21 @@ func schemaBooleanDatatypeSpecRef(version XSDVersion) string {
 	return schemaBooleanDatatypeXSD11SpecRef
 }
 
-type schemaDigitFacetDeclarationSet struct {
-	digit         DigitFacetDeclarations
-	integerBounds IntegerBoundFacetDeclarations
-	decimalBounds DecimalBoundFacetDeclarations
-}
-
-//nolint:gocognit // Keep the supported numeric facet parsers in one lexical pass.
-func schemaDigitFacetDeclarations(inputs []schemaFacetInput, kind DigitDatatype, version XSDVersion) (schemaDigitFacetDeclarationSet, error) {
+//nolint:gocognit,funlen // Keep the supported numeric facet mapping and unsupported facet boundary in one lexical pass.
+func schemaNumericFacetDeclarations(
+	inputs []schemaFacetInput,
+	kind DigitDatatype,
+	version XSDVersion,
+) (schemaNumericFacetDeclarationSet, error) {
 	var totalDigits *TotalDigitsFacet
 	var fractionDigits *FractionDigitsFacet
-	integerBounds := make([]IntegerBoundFacet, 0)
-	decimalBounds := make([]DecimalBoundFacet, 0)
+	var integerEnumeration []IntegerEnumerationFacet
+	var decimalEnumeration []DecimalEnumerationFacet
+	var integerBounds []IntegerBoundFacet
+	var decimalBounds []DecimalBoundFacet
+	var deferredUnsupported error
 	if kind != DigitDatatypeInteger && kind != DigitDatatypeDecimal {
-		return schemaDigitFacetDeclarationSet{}, newSchemaBridgeInvariant(Loc{}, "simple type facet collection has an unknown digit datatype")
+		return schemaNumericFacetDeclarationSet{}, newSchemaBridgeInvariant(Loc{}, "simple type facet collection has an unknown digit datatype")
 	}
 	for _, input := range inputs {
 		loc := schemaFacetValueLocation(input)
@@ -2076,45 +2295,76 @@ func schemaDigitFacetDeclarations(inputs []schemaFacetInput, kind DigitDatatype,
 		case schemaFacetTotalDigits:
 			facet, err := ParseTotalDigitsFacetWithFixed(input.lexical, loc, input.fixed, version)
 			if err != nil {
-				return schemaDigitFacetDeclarationSet{}, err
+				return schemaNumericFacetDeclarationSet{}, err
 			}
 			totalDigits = &facet
 		case schemaFacetFractionDigits:
 			facet, err := ParseFractionDigitsFacetWithFixed(input.lexical, loc, input.fixed, version)
 			if err != nil {
-				return schemaDigitFacetDeclarationSet{}, err
+				return schemaNumericFacetDeclarationSet{}, err
 			}
 			fractionDigits = &facet
+		case schemaFacetEnumeration:
+			enumerationLoc := input.loc
+			switch kind {
+			case DigitDatatypeInteger:
+				facet, err := ParseIntegerEnumerationFacetFor(version, input.lexical, enumerationLoc)
+				if err != nil {
+					return schemaNumericFacetDeclarationSet{}, err
+				}
+				integerEnumeration = append(integerEnumeration, facet)
+			case DigitDatatypeDecimal:
+				facet, err := ParseDecimalEnumerationFacetFor(version, input.lexical, enumerationLoc)
+				if err != nil {
+					return schemaNumericFacetDeclarationSet{}, err
+				}
+				decimalEnumeration = append(decimalEnumeration, facet)
+			default:
+				return schemaNumericFacetDeclarationSet{}, newSchemaBridgeInvariant(input.loc, "numeric facet declarations have an unknown datatype")
+			}
 		case schemaFacetMinInclusive, schemaFacetMinExclusive, schemaFacetMaxInclusive, schemaFacetMaxExclusive:
 			boundKind, ok := schemaBoundKindFromFacet(input.kind)
 			if !ok {
-				return schemaDigitFacetDeclarationSet{}, newSchemaBridgeInvariant(input.loc, "simple type bound facet has an unknown kind")
+				return schemaNumericFacetDeclarationSet{}, newSchemaBridgeInvariant(input.loc, "simple type bound facet has an unknown kind")
 			}
 			if kind == DigitDatatypeInteger {
 				facet, err := ParseIntegerBoundFacetWithFixed(boundKind, input.lexical, loc, input.fixed, version)
 				if err != nil {
-					return schemaDigitFacetDeclarationSet{}, err
+					return schemaNumericFacetDeclarationSet{}, err
 				}
 				integerBounds = append(integerBounds, facet)
 				continue
 			}
 			facet, err := ParseDecimalBoundFacetWithFixed(boundKind, input.lexical, loc, input.fixed, version)
 			if err != nil {
-				return schemaDigitFacetDeclarationSet{}, err
+				return schemaNumericFacetDeclarationSet{}, err
 			}
 			decimalBounds = append(decimalBounds, facet)
-		case schemaFacetMinScale, schemaFacetMaxScale, schemaFacetPattern, schemaFacetEnumeration,
+		case schemaFacetMinScale, schemaFacetMaxScale, schemaFacetPattern,
 			schemaFacetWhiteSpace, schemaFacetLength, schemaFacetMinLength, schemaFacetMaxLength,
 			schemaFacetPrecision, schemaFacetExplicitTimezone:
-			return schemaDigitFacetDeclarationSet{}, unsupportedSchemaDatatypeFacet(input, version)
+			err := unsupportedSchemaDatatypeFacet(input, version)
+			if err == nil {
+				continue
+			}
+			var diagnostic Diagnostic
+			if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+				return schemaNumericFacetDeclarationSet{}, err
+			}
+			if deferredUnsupported == nil {
+				deferredUnsupported = err
+			}
 		default:
-			return schemaDigitFacetDeclarationSet{}, newSchemaBridgeInvariant(input.loc, "simple type facet has an unknown kind")
+			return schemaNumericFacetDeclarationSet{}, newSchemaBridgeInvariant(input.loc, "simple type facet has an unknown kind")
 		}
 	}
-	return schemaDigitFacetDeclarationSet{
-		digit:         NewDigitFacetDeclarations(totalDigits, fractionDigits),
-		integerBounds: NewIntegerBoundFacetDeclarations(integerBounds),
-		decimalBounds: NewDecimalBoundFacetDeclarations(decimalBounds),
+	return schemaNumericFacetDeclarationSet{
+		digits:              NewDigitFacetDeclarations(totalDigits, fractionDigits),
+		integerEnumeration:  NewIntegerEnumerationFacetDeclarations(integerEnumeration),
+		decimalEnumeration:  NewDecimalEnumerationFacetDeclarations(decimalEnumeration),
+		integerBounds:       NewIntegerBoundFacetDeclarations(integerBounds),
+		decimalBounds:       NewDecimalBoundFacetDeclarations(decimalBounds),
+		deferredUnsupported: deferredUnsupported,
 	}, nil
 }
 

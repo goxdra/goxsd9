@@ -3856,6 +3856,8 @@ func validateUnsupportedModelParticle(element *syntaxElement, version XSDVersion
 	switch element.name.local {
 	case "all":
 		return validateAllParticle(element, version)
+	case "choice":
+		return validateChoiceParticleWithNamespacePolicy(element, version, false)
 	case "sequence", "group":
 		return validateUnsupportedParticle(element, version)
 	default:

@@ -82,31 +82,29 @@ them to show which implementation work unlocks the most tests.
 ## Schema model
 
 Raw XSD syntax is internal. The public model contains immutable schema
-components with direct access to their `Loc`. Query methods use component names
-and identities. Walk methods guarantee document-discovery order followed by
-lexical declaration order; specification-defined unordered sets use documented
-stable sorting.
+components with direct `Loc`; queries use component names and identities.
+Walks preserve document-discovery and lexical declaration order; unordered sets
+use documented stable sorting.
 
 The schema skeleton exposes `Schema`, `SchemaDocument`, `Component`,
-`ComponentID`, and expanded `QName` values. Documents follow identity-
-discovery order (root first, then resolver queue order); named schema-level
-declarations follow lexical order within each document. `Components`,
-`Documents`, `Find`, and `Walk` preserve those orders; returned slices are
-copies. Component IDs combine resolver source identity with one-based
-declaration ordinals; private lookup maps never define observable order. Local
-particles use a scoped model with component facts and lookup indexes; validator
-and generator state is calculated on demand.
+`ComponentID`, and expanded `QName`. Documents follow identity-discovery order
+(root first, then resolver queue); named declarations follow lexical order.
+`Components`, `Documents`, `Find`, and `Walk` return copies. Component IDs combine
+source identity with one-based declaration ordinals; lookup maps never define
+observable order. Local particles use a scoped model with component facts and
+indexes; validator and generator state is on demand.
 
-The model stores facts; primitive status follows type
-relations. Direct global `xs:boolean` elements retain expanded `DeclaredType`
-facts; named boolean restrictions expose immutable
+The model stores facts; primitive status follows type relations. Direct global `xs:boolean`
+elements retain expanded `DeclaredType` facts; named boolean restrictions expose immutable
 `SimpleTypeDefinition.IsBoolean()` facts; built-ins lack synthetic IDs.
 
-The model exposes `element`, `sequence`, and `choice` particles. Named global
-complex types may expose direct sequences of local `integer`/`decimal` scalar
-children or direct choices of local numeric elements with exact ranges. Direct
-choices may include XSD 1.1 `precisionDecimal` only on default-occurrence
-paths; effective `0/0` maps to absence. Local boolean particles remain unsupported.
+Named complex types expose direct `element`, `sequence`, and `choice` particles.
+Supported direct sequences and choices contain local built-in `xs:boolean`, named
+boolean-restriction, `integer`, or `decimal` scalar elements with exact immutable
+occurrence ranges, including arbitrary finite and unbounded values; `0/0` maps
+to absence. XSD 1.1 direct choices may include `precisionDecimal` only when the
+choice and mapped alternatives use default occurrences. Boolean facets and
+anonymous/ref/nested/broader particles remain unsupported.
 
 ## Datatypes
 
@@ -121,24 +119,21 @@ partial comparison, applicable facets, and bounded canonical output; immutable
 schema components retain effective facets when it is explicitly named under
 Compatibility or Strict11. It remains implementation-defined and optional,
 not a mandatory XSD 1.1 claim. Boolean whitespace collapse is datatype
-behavior, not stored facet state; boolean facets unsupported.
-Code generation, temporal distinctions, and broader value spaces remain staged
-capabilities and report unsupported behavior.
+behavior, not stored facet state; boolean facets unsupported. Code generation, temporal distinctions, and broader value spaces remain staged capabilities and report unsupported behavior.
 
 ## Validation and code generation
 
-`ValidateInstance` supports numeric globals and global named-complex elements with
-a default-occurrence direct choice of local `integer`/`decimal`/`precisionDecimal`.
-Direct sequences allow only integer/decimal scalar children; non-default,
-non-0/0 integer/decimal choice/alternative particles are queryable
-but unvalidated. Direct
-sequence `precisionDecimal` and non-default `precisionDecimal` particle ranges are
-schema-unsupported. Boolean globals, named boolean restrictions, attributes,
-and broader particles remain unsupported; locations are primary.
+`ValidateInstance` supports built-in/named scalar `integer`/`decimal`/
+`precisionDecimal` globals and named-complex elements with a direct choice whose
+choice and local alternatives use default occurrences. Named types use
+`TypeID`/`Lookup`; built-ins use policy defaults. Sequences are queryable but
+unvalidated. Non-default integer/decimal choice or alternative ranges stay
+queryable; repetition is unsupported. Non-default `precisionDecimal` ranges
+are schema-unsupported. Boolean globals, named restrictions, and local boolean
+particles are unsupported in instance validation; attributes and broader
+particles are unsupported; locations are primary.
 
-Code generation consumes the public schema model, producing deterministic formatted
-Go with choice type switches; it never depends on map order. Boolean generation
-remains unsupported.
+Code generation is deterministic, uses type switches for choices, and never depends on map order; boolean generation remains unsupported.
 
 ## Conformance
 
