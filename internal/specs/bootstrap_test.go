@@ -179,7 +179,7 @@ func assertBootstrapPlanCopies(t *testing.T, entries []Entry) {
 }
 
 func TestGenerateBootstrapReturnsNoPartialDocumentsAndPreservesCause(t *testing.T) {
-	leafBody := []byte("<xs:schema id=\"leaf\"/>\n")
+	leafBody := []byte("<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" id=\"leaf\"/>\n")
 	root := bootstrapArtifact("root", []string{"1.0"}, true, []string{"leaf"})
 	leaf := bootstrapArtifact("leaf", []string{"1.0"}, false, nil)
 	leaf.SHA256 = testDigest(leafBody)
