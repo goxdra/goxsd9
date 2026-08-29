@@ -61,7 +61,7 @@ func TestSelectionExecuteClassifiesValidityAndDiagnostics(t *testing.T) {
 		{name: "mismatch-invalid", expected: "invalid", actual: ActualValid, outcome: OutcomeConformanceFailure, usable: true, headline: true},
 		{name: "unsupported", expected: "valid", actual: ActualUnknown, actualClass: goxsd9.FailureUnsupported, outcome: OutcomeUnsupported, usable: true, headline: true, diagnostic: goxsd9.FailureUnsupported, wantDiagnostic: true},
 		{name: "nested-resolution", expected: "valid", actual: ActualUnknown, actualClass: goxsd9.FailureResolution, outcome: OutcomeResolutionFailure, usable: true, headline: true, diagnostic: goxsd9.FailureResolution, wantDiagnostic: true},
-		{name: "multi-document", expected: "valid", actual: ActualNotExecuted, outcome: OutcomeNotExecuted, usable: true, headline: true, reason: "multiple-schema-documents"},
+		{name: "multi-document", expected: "valid", actual: ActualValid, outcome: OutcomePass, usable: true, headline: true},
 		{name: "queried", expected: "valid", actual: ActualValid, outcome: OutcomePass, usable: true, headline: false},
 		{name: "disputed-test", expected: "invalid", actual: ActualInvalid, actualClass: goxsd9.FailureInvalid, outcome: OutcomePass, usable: true, headline: false, diagnostic: goxsd9.FailureInvalid, wantDiagnostic: true},
 		{name: "disputed-spec", expected: "invalid", actual: ActualInvalid, actualClass: goxsd9.FailureInvalid, outcome: OutcomePass, usable: true, headline: false, diagnostic: goxsd9.FailureInvalid, wantDiagnostic: true},
@@ -121,12 +121,12 @@ func TestSelectionExecuteClassifiesValidityAndDiagnostics(t *testing.T) {
 		[]string{
 			"sets/valid.xsd", "sets/invalid.xsd", "sets/invalid.xsd", "sets/valid.xsd",
 			"sets/unsupported.xsd", "sets/nested/root.xsd", "sets/nested/child/child.xsd",
-			"sets/valid.xsd", "sets/invalid.xsd", "sets/invalid.xsd",
+			"sets/first.xsd", "sets/second.xsd", "sets/valid.xsd", "sets/invalid.xsd", "sets/invalid.xsd",
 		},
 		[]string{
 			"sets/valid.xsd", "sets/invalid.xsd", "sets/invalid.xsd", "sets/valid.xsd",
 			"sets/unsupported.xsd", "sets/nested/root.xsd", "sets/nested/child/child.xsd",
-			"sets/valid.xsd", "sets/invalid.xsd", "sets/invalid.xsd",
+			"sets/first.xsd", "sets/second.xsd", "sets/valid.xsd", "sets/invalid.xsd", "sets/invalid.xsd",
 		},
 	)
 }
@@ -242,7 +242,8 @@ func TestSelectionRejectsMalformedAndUnknownSelectorsBeforeSourceOpen(t *testing
 	}
 }
 
-func TestSelectionDoesNotSilentlyUseMultipleSchemaDocuments(t *testing.T) {
+//nolint:gocognit // Keep catalog, parser, source-order, closure, and report assertions together.
+func TestSelectionExecutesMultipleSchemaDocumentsAsOneOrderedGraph(t *testing.T) {
 	fsys := executionFixtureFS()
 	inventory, err := Read(fsys)
 	if err != nil {
@@ -271,11 +272,16 @@ func TestSelectionDoesNotSilentlyUseMultipleSchemaDocuments(t *testing.T) {
 	if result.Usable() != true || result.HeadlineEligible() != true {
 		t.Fatalf("catalog facts = usable %t headline %t, want true true", result.Usable(), result.HeadlineEligible())
 	}
-	if result.Actual() != ActualNotExecuted || result.Outcome() != OutcomeNotExecuted || result.ExecutionReason() != "multiple-schema-documents" {
-		t.Fatalf("execution facts = actual %q outcome %q reason %q, want not-executed/not-executed/multiple-schema-documents", result.Actual(), result.Outcome(), result.ExecutionReason())
+	if result.Actual() != ActualValid || result.Outcome() != OutcomePass || result.ExecutionReason() != "" {
+		t.Fatalf("execution facts = actual %q outcome %q reason %q, want valid/pass/empty", result.Actual(), result.Outcome(), result.ExecutionReason())
 	}
-	if len(fsys.opened) != 0 {
-		t.Fatalf("multi-document case opened sources: %v", fsys.opened)
+	if got, want := fsys.opened, []string{"sets/first.xsd", "sets/second.xsd"}; !equalStrings(got, want) {
+		t.Fatalf("multi-document case opened sources: %v, want %v", got, want)
+	}
+	for _, path := range []string{"sets/first.xsd", "sets/second.xsd"} {
+		if got := fsys.closed[path]; got != 1 {
+			t.Fatalf("multi-document case closed[%q] = %d, want 1", path, got)
+		}
 	}
 
 	var first, second bytes.Buffer
@@ -362,6 +368,44 @@ func TestPinnedCatalogBoundedSchemaSmoke(t *testing.T) {
 	result, ok := report.Case(0)
 	if !ok || result.Outcome() != OutcomePass || result.Actual() != ActualValid {
 		t.Fatalf("pinned result = actual %q outcome %q, want valid/pass", result.Actual(), result.Outcome())
+	}
+}
+
+func TestPinnedCatalogExecutesSubsgroupMultiDocumentCase(t *testing.T) {
+	root := filepath.Join("..", "..", "testdata", "w3c", "xsdtests")
+	resources := os.DirFS(root)
+	inventory, err := Read(resources)
+	if err != nil {
+		t.Fatalf("Read pinned catalog: %v", err)
+	}
+	selection, err := inventory.Select(Selector{
+		Version:  "1.1",
+		SetPath:  "saxonMeta/Subsgroup.testSet",
+		CaseName: "subsgroup003a.xsd",
+	})
+	if err != nil {
+		t.Fatalf("Select pinned Subsgroup case: %v", err)
+	}
+	report, err := selection.Execute(context.Background(), resources)
+	if err != nil {
+		t.Fatalf("Execute pinned Subsgroup case: %v", err)
+	}
+	result, ok := report.Case(0)
+	if !ok {
+		t.Fatal("pinned Subsgroup result missing")
+	}
+	if got, want := result.Documents(), []string{
+		"saxonData/Subsgroup/subsgroup003a.xsd",
+		"saxonData/Subsgroup/subsgroup003b.xsd",
+		"saxonData/Subsgroup/subsgroup003c.xsd",
+	}; !equalStrings(got, want) {
+		t.Fatalf("pinned Subsgroup documents = %v, want %v", got, want)
+	}
+	if result.Actual() == ActualNotExecuted || result.Outcome() == OutcomeNotExecuted {
+		t.Fatalf("pinned Subsgroup case was not executed: actual %q outcome %q reason %q", result.Actual(), result.Outcome(), result.ExecutionReason())
+	}
+	if result.ActualClass() != goxsd9.FailureUnsupported || result.Outcome() != OutcomeUnsupported || !errors.Is(result.Cause(), goxsd9.ErrUnsupported) {
+		t.Fatalf("pinned Subsgroup facts = actual %q class %q outcome %q cause %v, want unsupported parser outcome", result.Actual(), result.ActualClass(), result.Outcome(), result.Cause())
 	}
 }
 
@@ -458,8 +502,8 @@ func executionFixtureFS() *executionTrackingFS {
 			"sets/unsupported.xsd":        &fstest.MapFile{Data: []byte(executionUnsupportedSchema)},
 			"sets/nested/root.xsd":        &fstest.MapFile{Data: []byte(executionNestedRootSchema)},
 			"sets/nested/child/child.xsd": &fstest.MapFile{Data: []byte(executionNestedChildSchema)},
-			"sets/first.xsd":              &fstest.MapFile{Data: []byte(executionValidSchema)},
-			"sets/second.xsd":             &fstest.MapFile{Data: []byte(executionValidSchema)},
+			"sets/first.xsd":              &fstest.MapFile{Data: []byte(executionMultiFirstSchema)},
+			"sets/second.xsd":             &fstest.MapFile{Data: []byte(executionMultiSecondSchema)},
 			"sets/instance.xml":           &fstest.MapFile{Data: []byte("<instance/>")},
 		},
 		closed:   make(map[string]int),
@@ -596,3 +640,7 @@ const executionUnsupportedSchema = `<xs:schema xmlns:xs="http://www.w3.org/2001/
 const executionNestedRootSchema = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:include schemaLocation="child/child.xsd"/></xs:schema>`
 
 const executionNestedChildSchema = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:include schemaLocation="../missing.xsd"/></xs:schema>`
+
+const executionMultiFirstSchema = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:multi:first"><xs:element name="first"/></xs:schema>`
+
+const executionMultiSecondSchema = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:multi:second"><xs:import namespace="urn:multi:first" schemaLocation="first.xsd"/><xs:element name="second"/></xs:schema>`

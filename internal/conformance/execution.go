@@ -1,7 +1,9 @@
 package conformance
 
 import (
+	"bytes"
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -432,43 +434,17 @@ func executeCase(ctx context.Context, fsys fs.FS, resolver pinnedResolver, polic
 		result.executionReason = "schema-document-missing"
 		return result
 	}
-	if len(caseValue.documents) != 1 {
-		result.executionReason = "multiple-schema-documents"
+
+	root, graphResolver, sourceClass, sourceErr := openSchemaGraph(ctx, fsys, resolver, caseValue.documents)
+	if sourceErr != nil {
+		result.actual = ActualUnknown
+		result.actualClass = sourceClass
+		result.outcome = executionFailureOutcome(sourceClass)
+		result.err = sourceErr
 		return result
 	}
 
-	rootPath := caseValue.documents[0]
-	file, err := fsys.Open(rootPath)
-	if err != nil {
-		result.actual = ActualUnknown
-		result.actualClass = goxsd9.FailureResolution
-		result.outcome = OutcomeResolutionFailure
-		result.err = executionErrorFor("execution.source", rootPath, err)
-		return result
-	}
-	if file == nil {
-		result.actual = ActualUnknown
-		result.actualClass = goxsd9.FailureInternal
-		result.outcome = OutcomeInternalFailure
-		result.err = executionErrorFor("execution.source", rootPath, errors.New("pinned filesystem returned a nil schema file"))
-		return result
-	}
-
-	rootContext := context.WithValue(ctx, pinnedSourceContextKey{}, rootPath)
-	root, err := goxsd9.NewResolvedSource(rootContext, goxsd9.SourceID(rootPath), file)
-	if err != nil {
-		closeErr := file.Close()
-		if closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("close schema source after construction failure: %w", closeErr))
-		}
-		result.actual = ActualUnknown
-		result.actualClass = goxsd9.FailureInternal
-		result.outcome = OutcomeInternalFailure
-		result.err = executionErrorFor("execution.source", rootPath, err)
-		return result
-	}
-
-	_, parseErr := goxsd9.ParseSchemaWithPolicy(root, resolver, policy)
+	_, parseErr := goxsd9.ParseSchemaWithPolicy(root, graphResolver, policy)
 	if parseErr == nil {
 		result.actual = ActualValid
 		result.outcome = compareExpectedValidity(expectedValidity, result.actual)
@@ -479,6 +455,230 @@ func executeCase(ctx context.Context, fsys fs.FS, resolver pinnedResolver, polic
 	result.diagnostics = parserDiagnostics(parseErr)
 	result.actual, result.actualClass, result.outcome = classifyParserFailure(result.diagnostics, expectedValidity)
 	return result
+}
+
+const (
+	multiDocumentRootPath = "__goxsd9_conformance_multi_document_root__.xsd"
+	xsdNamespaceURI       = "http://www.w3.org/2001/XMLSchema"
+)
+
+type preparedSchemaDocuments struct {
+	documents []preparedSchemaDocument
+	sources   map[string]preparedSchemaSource
+	failures  map[string]error
+}
+
+type preparedSchemaDocument struct {
+	path                   string
+	targetNamespace        string
+	targetNamespacePresent bool
+}
+
+type preparedSchemaSource struct {
+	data                   []byte
+	readErr                error
+	closeErr               error
+	targetNamespace        string
+	targetNamespacePresent bool
+}
+
+func (source preparedSchemaSource) reader() io.ReadCloser {
+	return &preparedSchemaReader{
+		Reader:   bytes.NewReader(source.data),
+		readErr:  source.readErr,
+		closeErr: source.closeErr,
+	}
+}
+
+type preparedSchemaReader struct {
+	*bytes.Reader
+	readErr           error
+	closeErr          error
+	readErrorReturned bool
+	closed            bool
+}
+
+func (reader *preparedSchemaReader) Read(buffer []byte) (int, error) {
+	read, err := reader.Reader.Read(buffer)
+	if err != io.EOF || reader.readErr == nil || reader.readErrorReturned {
+		return read, err
+	}
+	reader.readErrorReturned = true
+	return read, reader.readErr
+}
+
+func (reader *preparedSchemaReader) Close() error {
+	if reader.closed {
+		return nil
+	}
+	reader.closed = true
+	return reader.closeErr
+}
+
+func openSchemaGraph(ctx context.Context, fsys fs.FS, resolver pinnedResolver, documents []string) (
+	goxsd9.ResolvedSource, pinnedResolver, goxsd9.FailureClass, error,
+) {
+	if len(documents) == 1 {
+		root, class, err := openSingleSchemaSource(ctx, fsys, documents[0])
+		return root, resolver, class, err
+	}
+
+	prepared := prepareSchemaDocuments(fsys, documents)
+	rootContents, err := multiDocumentRootContents(prepared.documents)
+	if err != nil {
+		return goxsd9.ResolvedSource{}, resolver, goxsd9.FailureInternal,
+			executionErrorFor("execution.source", multiDocumentRootPath, err)
+	}
+	rootReader := io.NopCloser(strings.NewReader(rootContents))
+	rootContext := context.WithValue(ctx, pinnedSourceContextKey{}, multiDocumentRootPath)
+	root, err := goxsd9.NewResolvedSource(rootContext, goxsd9.SourceID(multiDocumentRootPath), rootReader)
+	if err != nil {
+		closeErr := rootReader.Close()
+		if closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close schema source after construction failure: %w", closeErr))
+		}
+		return goxsd9.ResolvedSource{}, resolver, goxsd9.FailureInternal,
+			executionErrorFor("execution.source", multiDocumentRootPath, err)
+	}
+	resolver.prepared = prepared.sources
+	resolver.failures = prepared.failures
+	return root, resolver, "", nil
+}
+
+func openSingleSchemaSource(ctx context.Context, fsys fs.FS, rootPath string) (goxsd9.ResolvedSource, goxsd9.FailureClass, error) {
+	file, err := fsys.Open(rootPath)
+	if err != nil {
+		return goxsd9.ResolvedSource{}, goxsd9.FailureResolution, executionErrorFor("execution.source", rootPath, err)
+	}
+	if file == nil {
+		return goxsd9.ResolvedSource{}, goxsd9.FailureInternal,
+			executionErrorFor("execution.source", rootPath, errors.New("pinned filesystem returned a nil schema file"))
+	}
+
+	rootContext := context.WithValue(ctx, pinnedSourceContextKey{}, rootPath)
+	root, err := goxsd9.NewResolvedSource(rootContext, goxsd9.SourceID(rootPath), file)
+	if err == nil {
+		return root, "", nil
+	}
+	closeErr := file.Close()
+	if closeErr != nil {
+		err = errors.Join(err, fmt.Errorf("close schema source after construction failure: %w", closeErr))
+	}
+	return goxsd9.ResolvedSource{}, goxsd9.FailureInternal, executionErrorFor("execution.source", rootPath, err)
+}
+
+func executionFailureOutcome(class goxsd9.FailureClass) Outcome {
+	switch class {
+	case goxsd9.FailureResolution:
+		return OutcomeResolutionFailure
+	case goxsd9.FailureInternal:
+		return OutcomeInternalFailure
+	case goxsd9.FailureInvalid, goxsd9.FailureUnsupported:
+		return OutcomeInternalFailure
+	}
+	return OutcomeInternalFailure
+}
+
+func prepareSchemaDocuments(fsys fs.FS, paths []string) preparedSchemaDocuments {
+	prepared := preparedSchemaDocuments{
+		documents: make([]preparedSchemaDocument, 0, len(paths)),
+		sources:   make(map[string]preparedSchemaSource, len(paths)),
+		failures:  make(map[string]error),
+	}
+	for index, documentPath := range paths {
+		if source, ok := prepared.sources[documentPath]; ok {
+			prepared.documents = append(prepared.documents, preparedSchemaDocument{
+				path:                   documentPath,
+				targetNamespace:        source.targetNamespace,
+				targetNamespacePresent: source.targetNamespacePresent,
+			})
+			continue
+		}
+		source, err := readPreparedSchemaSource(fsys, documentPath)
+		if err != nil {
+			prepared.failures[documentPath] = err
+			prepared.documents = append(prepared.documents, preparedSchemaDocument{path: documentPath})
+			appendUnpreparedSchemaDocuments(&prepared, paths[index+1:])
+			break
+		}
+		source.targetNamespace, source.targetNamespacePresent = schemaTargetNamespace(source.data)
+		prepared.sources[documentPath] = source
+		prepared.documents = append(prepared.documents, preparedSchemaDocument{
+			path:                   documentPath,
+			targetNamespace:        source.targetNamespace,
+			targetNamespacePresent: source.targetNamespacePresent,
+		})
+		if source.readErr != nil || source.closeErr != nil {
+			appendUnpreparedSchemaDocuments(&prepared, paths[index+1:])
+			break
+		}
+	}
+	return prepared
+}
+
+func appendUnpreparedSchemaDocuments(prepared *preparedSchemaDocuments, paths []string) {
+	for _, documentPath := range paths {
+		prepared.documents = append(prepared.documents, preparedSchemaDocument{path: documentPath})
+	}
+}
+
+func readPreparedSchemaSource(fsys fs.FS, documentPath string) (preparedSchemaSource, error) {
+	file, err := fsys.Open(documentPath)
+	if err != nil {
+		return preparedSchemaSource{}, fmt.Errorf("open pinned schema resource %q: %w", documentPath, err)
+	}
+	if file == nil {
+		return preparedSchemaSource{}, fmt.Errorf("open pinned schema resource %q: nil file", documentPath)
+	}
+	data, readErr := io.ReadAll(file)
+	closeErr := file.Close()
+	return preparedSchemaSource{data: data, readErr: readErr, closeErr: closeErr}, nil
+}
+
+func schemaTargetNamespace(data []byte) (string, bool) {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return "", false
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if start.Name.Space != xsdNamespaceURI || start.Name.Local != "schema" {
+			return "", false
+		}
+		for _, attribute := range start.Attr {
+			if attribute.Name.Space == "" && attribute.Name.Local == "targetNamespace" {
+				return attribute.Value, true
+			}
+		}
+		return "", true
+	}
+}
+
+func multiDocumentRootContents(documents []preparedSchemaDocument) (string, error) {
+	var builder strings.Builder
+	builder.WriteString(`<xs:schema xmlns:xs="` + xsdNamespaceURI + `">`)
+	for _, document := range documents {
+		if document.targetNamespacePresent && strings.TrimSpace(document.targetNamespace) != "" {
+			builder.WriteString(`<xs:import namespace="`)
+			if err := xml.EscapeText(&builder, []byte(document.targetNamespace)); err != nil {
+				return "", fmt.Errorf("escape target namespace %q: %w", document.targetNamespace, err)
+			}
+			builder.WriteString(`" schemaLocation="`)
+		}
+		if !document.targetNamespacePresent || strings.TrimSpace(document.targetNamespace) == "" {
+			builder.WriteString(`<xs:include schemaLocation="`)
+		}
+		if err := xml.EscapeText(&builder, []byte(document.path)); err != nil {
+			return "", fmt.Errorf("escape schema document path %q: %w", document.path, err)
+		}
+		builder.WriteString(`"/>`)
+	}
+	builder.WriteString(`</xs:schema>`)
+	return builder.String(), nil
 }
 
 func compareExpectedValidity(expected string, actual ActualResult) Outcome {
@@ -570,7 +770,9 @@ func parserDiagnostics(err error) []goxsd9.Diagnostic {
 type pinnedSourceContextKey struct{}
 
 type pinnedResolver struct {
-	fsys fs.FS
+	fsys     fs.FS
+	prepared map[string]preparedSchemaSource
+	failures map[string]error
 }
 
 func (resolver pinnedResolver) Resolve(ctx context.Context, _ string, schemaLocation string) (goxsd9.ResolvedSource, error) {
@@ -582,6 +784,13 @@ func (resolver pinnedResolver) Resolve(ctx context.Context, _ string, schemaLoca
 	if err != nil {
 		return goxsd9.ResolvedSource{}, fmt.Errorf("resolve pinned schema location %q: %w", schemaLocation, err)
 	}
+	if failure, ok := resolver.failures[resolvedPath]; ok {
+		return goxsd9.ResolvedSource{}, failure
+	}
+	childContext := context.WithValue(ctx, pinnedSourceContextKey{}, resolvedPath)
+	if prepared, ok := resolver.prepared[resolvedPath]; ok {
+		return newPinnedResolvedSource(childContext, resolvedPath, prepared.reader())
+	}
 	file, err := resolver.fsys.Open(resolvedPath)
 	if err != nil {
 		return goxsd9.ResolvedSource{}, fmt.Errorf("open pinned schema resource %q: %w", resolvedPath, err)
@@ -589,14 +798,17 @@ func (resolver pinnedResolver) Resolve(ctx context.Context, _ string, schemaLoca
 	if file == nil {
 		return goxsd9.ResolvedSource{}, fmt.Errorf("open pinned schema resource %q: nil file", resolvedPath)
 	}
-	childContext := context.WithValue(ctx, pinnedSourceContextKey{}, resolvedPath)
-	source, err := goxsd9.NewResolvedSource(childContext, goxsd9.SourceID(resolvedPath), file)
+	return newPinnedResolvedSource(childContext, resolvedPath, file)
+}
+
+func newPinnedResolvedSource(ctx context.Context, path string, reader io.ReadCloser) (goxsd9.ResolvedSource, error) {
+	source, err := goxsd9.NewResolvedSource(ctx, goxsd9.SourceID(path), reader)
 	if err == nil {
 		return source, nil
 	}
-	closeErr := file.Close()
+	closeErr := reader.Close()
 	if closeErr != nil {
-		return goxsd9.ResolvedSource{}, errors.Join(err, fmt.Errorf("close pinned schema resource %q: %w", resolvedPath, closeErr))
+		return goxsd9.ResolvedSource{}, errors.Join(err, fmt.Errorf("close pinned schema resource %q: %w", path, closeErr))
 	}
 	return goxsd9.ResolvedSource{}, err
 }
