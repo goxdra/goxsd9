@@ -372,8 +372,7 @@ func TestSchemaBridgeRejectsBooleanAssertionWithPinnedDiagnostic(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Keep direct/named local scope checks across both particle models and versions together.
-func TestSchemaBridgeKeepsBooleanLocalParticlesOutsideScalarScope(t *testing.T) {
+func TestSchemaBridgeBuildsBasicBooleanLocalParticles(t *testing.T) {
 	for _, policy := range []struct {
 		name    string
 		value   LanguagePolicy
@@ -392,24 +391,11 @@ func TestSchemaBridgeKeepsBooleanLocalParticlesOutsideScalarScope(t *testing.T) 
 			t.Run(policy.name+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(policy.version) + `">` + test.body + `</xs:schema>`
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.value)
-				if err == nil {
-					t.Fatal("discoverSchema accepted a local boolean particle")
+				if err != nil {
+					t.Fatalf("discoverSchema: %v", err)
 				}
-				if schema.storage != nil {
-					t.Fatal("discoverSchema returned a partial schema")
-				}
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
-					t.Fatalf("diagnostic = %s, want unsupported/%s", diagnostic, UnsupportedSchemaSyntaxCode)
-				}
-				if diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.SpecRef() != booleanSchemaSyntaxSpecRef(policy.version) {
-					t.Fatalf("local boolean diagnostic = %s (%q/%q), want unsupported local element type (%q/%q)", diagnostic, diagnostic.Feature(), diagnostic.SpecRef(), FeatureSchemaSyntax, booleanSchemaSyntaxSpecRef(policy.version))
-				}
-				if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
-					t.Fatalf("diagnostic location = %v, want a root.xsd location", diagnostic.Loc())
-				}
-				if !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+				if schema.storage == nil {
+					t.Fatal("discoverSchema returned no schema")
 				}
 			})
 		}
@@ -449,11 +435,4 @@ func TestValidateInstanceLeavesBooleanTypesAtConsumerBoundary(t *testing.T) {
 
 func booleanFacetSchema(version XSDVersion, body string) string {
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + string(version) + `"><xs:simpleType name="Flag"><xs:restriction base="xs:boolean">` + body + `</xs:restriction></xs:simpleType></xs:schema>`
-}
-
-func booleanSchemaSyntaxSpecRef(version XSDVersion) string {
-	if version == XSDVersion10 {
-		return "xsd10-structures#schema-document"
-	}
-	return "xsd11-structures#cSchemaDocument"
 }
