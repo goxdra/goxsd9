@@ -21,16 +21,22 @@
 //
 // The schema model also exposes one direct ordered sequence of local built-in
 // xs:boolean, named boolean-restriction, integer, and decimal scalar elements
-// for a named global complex type, including exact immutable occurrence ranges.
-// Direct choices likewise model local built-in xs:boolean and named
-// boolean-restriction elements. Anonymous types, references, nested and broader
-// particles remain unsupported.
+// for a named global complex type, and direct choices of those scalar elements,
+// including exact immutable occurrence ranges. Effective 0/0 sequence, choice,
+// and child ranges map to absence. Non-0/0 integer/decimal choice and
+// alternative ranges are queryable, but repetition is not implemented.
+// XSD 1.1 precisionDecimal is supported in direct choices only when the choice
+// and each mapped precisionDecimal alternative use default occurrences;
+// non-default precisionDecimal choice or alternative ranges that map to
+// particles, and direct-sequence precisionDecimal, are schema-unsupported.
+// Anonymous types, references, nested and broader particles remain unsupported.
 // Sequence particles are query-only until validation repetition is implemented.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:integer/xs:decimal/xs:precisionDecimal, or
-// as a named complex type whose one direct choice contains local built-in or
-// named integer/decimal/precisionDecimal elements. Scalar elements contain
+// as a named complex type whose one direct choice and its scalar alternatives
+// use default occurrences and contain local built-in or named
+// integer/decimal/precisionDecimal elements. Scalar elements contain
 // only character data; boolean instance validation, attributes, broader
 // particles, and other semantics remain explicit unsupported behavior.
 // GenerateGo produces deterministic Go source for the supported scalar schema
