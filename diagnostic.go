@@ -127,6 +127,10 @@ func newDiagnostic(class FailureClass, code string, loc Loc, message string, cau
 }
 
 func newUnsupported(feature UnsupportedFeature, code string, loc Loc, message string) Diagnostic {
+	return newUnsupportedWithCause(feature, code, loc, message, nil)
+}
+
+func newUnsupportedWithCause(feature UnsupportedFeature, code string, loc Loc, message string, cause error) Diagnostic {
 	if !feature.Registered() {
 		return newDiagnostic(FailureInternal, diagnosticUnregisteredFeatureCode, loc,
 			fmt.Sprintf("unsupported diagnostic references unregistered feature %q", feature.ID()), nil)
@@ -138,11 +142,16 @@ func newUnsupported(feature UnsupportedFeature, code string, loc Loc, message st
 		loc:     loc,
 		message: message,
 		specRef: feature.SpecRef(),
+		cause:   cause,
 	}
 }
 
 func newUnsupportedForVersion(feature UnsupportedFeature, code string, loc Loc, message string, version XSDVersion) Diagnostic {
-	diagnostic := newUnsupported(feature, code, loc, message)
+	return newUnsupportedForVersionWithCause(feature, code, loc, message, version, nil)
+}
+
+func newUnsupportedForVersionWithCause(feature UnsupportedFeature, code string, loc Loc, message string, version XSDVersion, cause error) Diagnostic {
+	diagnostic := newUnsupportedWithCause(feature, code, loc, message, cause)
 	if diagnostic.Class() != FailureUnsupported {
 		return diagnostic
 	}

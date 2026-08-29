@@ -235,7 +235,6 @@ func validateMergeBoundaryChallengeClosures(closures []evaluationChallengeClosur
 	}
 	return nil
 }
-
 func validateMergeBoundaryResolutions(resolutions []evaluationResolutionRecord, mergeAt time.Time) error {
 	for _, record := range resolutions {
 		if record.comment.CreatedAt.IsZero() || record.comment.CreatedAt.After(mergeAt) {

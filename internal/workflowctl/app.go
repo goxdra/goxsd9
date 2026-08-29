@@ -23,6 +23,7 @@ type app struct {
 	executeCommand                  commandExecutor
 	executeCommandWithEnv           commandEnvironmentExecutor
 	executeCommandWithContextAndEnv commandContextEnvironmentExecutor
+	executeCommandCapture           commandCaptureExecutor
 	fuzzMakeTempDir                 func(pattern string) (string, error)
 	fuzzCopyWorktree                func(source, destination string) error
 	fuzzRemoveAll                   func(path string) error

@@ -479,7 +479,7 @@ func resolutionTestComment(t *testing.T, challenge evaluationChallenge, resolved
 }
 
 func workflowCommentAPI(comment pullRequestComment) issueCommentAPI {
-	apiComment := issueCommentAPI{Body: comment.Body, CreatedAt: comment.CreatedAt}
+	apiComment := issueCommentAPI{ID: comment.ID, Body: comment.Body, CreatedAt: comment.CreatedAt}
 	apiComment.User.Login = comment.Author.Login
 	return apiComment
 }
@@ -498,6 +498,7 @@ func writeResolutionReason(t *testing.T, reason string) string {
 	return path
 }
 
+//nolint:unparam // All workflow fixtures exercise the fixed PR #14 backend.
 func workflowEvaluationHistory(t *testing.T, backend *workflowBackend, number int) evaluationHistory {
 	t.Helper()
 	comments := pullRequestCommentsFromAPI(t, backend.comments)

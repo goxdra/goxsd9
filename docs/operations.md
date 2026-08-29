@@ -1,6 +1,6 @@
 # Scheduled operations
 
-Paseo schedules outside this repository. Jobs start from clean coordination checkout in America/New_York. Skills are executable procedures; this is the operator contract.
+Paseo schedules externally. Jobs start from clean coordination checkout in America/New_York.
 | Job | Schedule | Agent | Prompt |
 | --- | --- | --- | --- |
 | Develop | 00:00, then every 3 hours | Luna, maximum effort | `Run $develop for this repository.` |
@@ -34,15 +34,14 @@ is current-head validated; checked-in corpus replay is distinct.
 JSON exact deltas/targets; fuzz health, not conformance. Before
 evidence update, challenge, or finish, workflowctl resolves exact REST base/head,
 requires matching commits, recomputes v2 signals/policy, compares canonical
-payload. Evidence updates preserve non-owned PR body bytes.
+payload. Exact `pending`/`evidence-ready` lines; evidence update rewrites workflow-owned state slots, authenticated evidence block, preserving non-owned PR-body bytes.
 Challenge/finish require REST base/head, audit, Curator/no-doc result;
 challenges bind body/evidence digests. Before Examiner, `evaluation challenge`
 records one-use head-bound challenge; Examiner JSON is versioned;
 `workflowctl` rejects wrong-head, stale, reused, malformed, or caller-selected
 results. Fresh context; receipts are evidence, not identity proof.
-Unresolved challenges survive snapshot changes. After two hours, `workflowctl evaluation resolve PR --challenge ID --reason-file FILE` records authenticated
-no-verdict resolution; never pass/fail or merge proof.
-REST squash-merge SHA-bound. Cleanup scopes inventory by packet, proves branch-bounded run identity, rejects inherited-trailer ownership; preserves artifacts, archives/unrelated refs. Exact deletion, idempotent `pr recover`, merged-proof `claim prune`.
+Unresolved challenges survive snapshots; complete-equivalent trusted Examiner receipts form rounds; original GitHub comments/authenticated records remain immutable history. Two-hour expiry: `go tool workflowctl evaluation resolve PR --challenge ID --reason-file FILE` records authenticated-no-verdict resolution; convergence alone grants no verdict/merge authority; an underlying authenticated passing receipt remains required merge proof.
+Packet cleanup inventories claims, checks inherited-trailer-ownership, preserves artifacts; unrelated-refs untouched; exact deletion, idempotent recovery, merge-proofed claim-pruning.
 
 GraphQL fallback: identical-head REST, fresh Examiner.
 GitHub-effective references validate close; exact merge proof binds primary to
@@ -55,6 +54,5 @@ rationale, invariants, process learning; omit status, commands, claim/review
 metadata. It validates squash body; history reads it.
 Use Markdown evidence body files.
 
-Summary is non-empty UTF-8 text in a file of at most 8 KiB, LF-only; one final LF
-is accepted. Surrounding/line-trailing whitespace, control, format, other
-line-separator characters, and generated claim trailers are rejected.
+Summary: non-empty UTF-8 text; max 8 KiB, LF-only; one final LF accepted.
+Reject surrounding/line-trailing whitespace, controls, Unicode format characters, other line-separators, generated claim-trailers.

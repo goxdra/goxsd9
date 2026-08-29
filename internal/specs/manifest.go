@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	goxsd9 "github.com/goxdra/goxsd9"
 )
 
 const (
@@ -69,6 +71,8 @@ type Entry struct {
 	Title          string
 	URL            string
 	XSDVersions    []string
+	policy         goxsd9.LanguagePolicy
+	policyErr      error
 }
 
 // Error classifies a corpus failure with a stable code.
@@ -164,7 +168,7 @@ func (manifest Manifest) Find(id string) (Entry, error) {
 }
 
 func sourceEntry(source Source, kind EntryKind) Entry {
-	return Entry{
+	return newEntry(Entry{
 		Dependencies:   cloneStrings(source.Dependencies),
 		ID:             source.ID,
 		Kind:           kind,
@@ -173,11 +177,11 @@ func sourceEntry(source Source, kind EntryKind) Entry {
 		Title:          source.Title,
 		URL:            source.URL,
 		XSDVersions:    cloneStrings(source.XSDVersions),
-	}
+	})
 }
 
 func artifactEntry(artifact BootstrapArtifact) Entry {
-	return Entry{
+	return newEntry(Entry{
 		Aliases:        cloneStrings(artifact.Aliases),
 		Dependencies:   cloneStrings(artifact.Dependencies),
 		Entry:          artifact.Entry,
@@ -188,7 +192,12 @@ func artifactEntry(artifact BootstrapArtifact) Entry {
 		Title:          artifact.Title,
 		URL:            artifact.URL,
 		XSDVersions:    cloneStrings(artifact.XSDVersions),
-	}
+	})
+}
+
+func newEntry(entry Entry) Entry {
+	entry.policy, entry.policyErr = LanguagePolicyForXSDVersions(entry.XSDVersions)
+	return entry
 }
 
 func cloneStrings(values []string) []string {

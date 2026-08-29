@@ -127,7 +127,13 @@ func TestSchemaBridgeIntegratesOptionalPrecisionDecimal(t *testing.T) {
 		t.Fatal("Strict10 accepted precisionDecimal or returned a partial schema")
 	}
 	diagnostic := mustDiagnostic(t, err)
-	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaPrecisionDecimalVersionCode {
-		t.Fatalf("Strict10 diagnostic = %s, want version-policy invalid diagnostic", diagnostic)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticSchemaPrecisionDecimalVersionCode {
+		t.Fatalf("Strict10 diagnostic = %s, want located version-policy unsupported diagnostic", diagnostic)
+	}
+	if diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.SpecRef() != "xsd11-datatypes#dt-primitive" {
+		t.Fatalf("Strict10 diagnostic feature/ref = %q/%q, want datatype facets/XSD 1.1 precisionDecimal", diagnostic.Feature(), diagnostic.SpecRef())
+	}
+	if !errors.Is(err, errSchemaPrecisionDecimalVersion) || !errors.Is(err, errLanguagePolicyMismatch) {
+		t.Fatalf("Strict10 diagnostic did not preserve precisionDecimal and policy causes: %v", err)
 	}
 }

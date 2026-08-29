@@ -104,9 +104,8 @@ type instanceDecodeConfig struct {
 }
 
 type instanceLexicalReader struct {
-	positions    *syntaxPositionReader
-	capture      []byte
-	captureStart int64
+	positions *syntaxPositionReader
+	lexical   *xmlLexicalReader
 
 	doctype                   bool
 	doctypeDepth              int
@@ -120,21 +119,33 @@ type instanceLexicalReader struct {
 	doctypeProbe              int
 }
 
+func newInstanceLexicalReader(positions *syntaxPositionReader) *instanceLexicalReader {
+	return &instanceLexicalReader{
+		positions: positions,
+		lexical:   newXMLLexicalReader(positions),
+	}
+}
+
+func (reader *instanceLexicalReader) base() *xmlLexicalReader {
+	if reader.lexical == nil {
+		reader.lexical = newXMLLexicalReader(reader.positions)
+	}
+	return reader.lexical
+}
+
 func (reader *instanceLexicalReader) ReadByte() (byte, error) {
-	value, err := reader.positions.ReadByte()
+	value, err := reader.base().ReadByte()
 	if err != nil {
 		return 0, err
 	}
-	reader.captureByte(value)
 	return reader.transformByte(value), nil
 }
 
 func (reader *instanceLexicalReader) Read(buffer []byte) (int, error) {
-	n, err := reader.positions.Read(buffer)
+	position := reader.base()
+	n, err := position.Read(buffer)
 	for index := 0; index < n; index++ {
-		value := buffer[index]
-		reader.captureByte(value)
-		buffer[index] = reader.transformByte(value)
+		buffer[index] = reader.transformByte(buffer[index])
 	}
 	return n, err
 }
@@ -260,8 +271,7 @@ func (reader *instanceLexicalReader) resetDoctypeHistory() {
 }
 
 func (reader *instanceLexicalReader) beginCapture(logicalOffset int64) {
-	reader.capture = reader.capture[:0]
-	reader.captureStart = logicalOffset
+	reader.base().beginCapture(logicalOffset)
 	reader.doctype = false
 	reader.doctypeDepth = 0
 	reader.doctypeQuote = 0
@@ -272,24 +282,12 @@ func (reader *instanceLexicalReader) beginCapture(logicalOffset int64) {
 	reader.resetDoctypeHistory()
 	missing := reader.positions.offset - logicalOffset
 	if missing == 1 {
-		reader.capture = append(reader.capture, '<')
 		reader.doctypeProbe = 1
 	}
 }
 
-func (reader *instanceLexicalReader) captureByte(value byte) {
-	reader.capture = append(reader.capture, value)
-}
-
 func (reader *instanceLexicalReader) endCapture(logicalOffset int64) []byte {
-	defer func() {
-		reader.capture = nil
-	}()
-	length := logicalOffset - reader.captureStart
-	if length < 0 || length > int64(len(reader.capture)) {
-		return nil
-	}
-	return append([]byte(nil), reader.capture[:length]...)
+	return reader.base().endCapture(logicalOffset)
 }
 
 // decodeInstance drains and closes reader, returning an instance only after
@@ -306,7 +304,7 @@ func decodeInstance(reader io.ReadCloser, config instanceDecodeConfig) (document
 	}
 
 	positions := newSyntaxPositionReader(config.sourceID, reader)
-	lexical := &instanceLexicalReader{positions: positions}
+	lexical := newInstanceLexicalReader(positions)
 	decoder := xml.NewDecoder(lexical)
 	decoder.Strict = true
 	decoder.CharsetReader = func(charset string, _ io.Reader) (io.Reader, error) {
@@ -1953,125 +1951,23 @@ func normalizeInstanceXMLAttributeValue(value string) string {
 }
 
 func instanceRawStartTagAttributes(raw []byte, start Loc) ([]instanceRawAttribute, bool) {
-	if len(raw) < 2 || raw[0] != '<' {
+	attributes, ok := rawXMLStartTagAttributes(raw, start)
+	if !ok {
 		return nil, false
 	}
-	index := 1
-	index = skipInstanceRawStartName(raw, index)
-	values := make([]instanceRawAttribute, 0)
-	for {
-		value, done, ok := readInstanceRawAttribute(raw, &index, start)
-		if !ok {
-			return nil, false
-		}
-		if done {
-			return values, true
-		}
-		values = append(values, value)
+	values := make([]instanceRawAttribute, len(attributes))
+	for index, attribute := range attributes {
+		values[index] = instanceRawAttribute(attribute)
 	}
-}
-
-func skipInstanceRawStartName(raw []byte, index int) int {
-	for index < len(raw) && !isInstanceXMLSpace(raw[index]) && raw[index] != '/' && raw[index] != '>' {
-		index++
-	}
-	return index
-}
-
-func readInstanceRawAttribute(raw []byte, index *int, start Loc) (instanceRawAttribute, bool, bool) {
-	hadSpace := skipInstanceRawSpace(raw, index)
-	if *index >= len(raw) || raw[*index] == '>' {
-		return instanceRawAttribute{}, true, true
-	}
-	if raw[*index] == '/' {
-		if *index+1 < len(raw) && raw[*index+1] == '>' {
-			return instanceRawAttribute{}, true, true
-		}
-		return instanceRawAttribute{}, false, false
-	}
-	if !hadSpace {
-		return instanceRawAttribute{}, false, false
-	}
-	nameStart := *index
-	skipInstanceRawName(raw, index)
-	skipInstanceRawSpace(raw, index)
-	if *index >= len(raw) || raw[*index] != '=' {
-		return instanceRawAttribute{}, false, false
-	}
-	(*index)++
-	skipInstanceRawSpace(raw, index)
-	if *index >= len(raw) || (raw[*index] != '\'' && raw[*index] != '"') {
-		return instanceRawAttribute{}, false, false
-	}
-	quote := raw[*index]
-	(*index)++
-	valueStart := *index
-	for *index < len(raw) && raw[*index] != quote {
-		(*index)++
-	}
-	if *index >= len(raw) {
-		return instanceRawAttribute{}, false, false
-	}
-	value := string(raw[valueStart:*index])
-	(*index)++
-	return instanceRawAttribute{
-		value: value,
-		loc:   instanceRawAttributeLoc(start, raw, nameStart),
-	}, false, true
+	return values, true
 }
 
 func instanceRawAttributeLoc(start Loc, raw []byte, offset int) Loc {
-	if start.IsZero() || offset < 0 || offset > len(raw) {
-		return start
-	}
-	line := start.line
-	column := start.column
-	previousCR := false
-	for len(raw) > 0 && offset > 0 {
-		value := raw[0]
-		if value == '\r' {
-			raw = raw[1:]
-			offset--
-			line++
-			column = 1
-			previousCR = true
-			continue
-		}
-		if value == '\n' {
-			raw = raw[1:]
-			offset--
-			if previousCR {
-				previousCR = false
-				continue
-			}
-			line++
-			column = 1
-			continue
-		}
-		previousCR = false
-		_, size := utf8.DecodeRune(raw)
-		if size > offset {
-			size = 1
-		}
-		raw = raw[size:]
-		offset -= size
-		column++
-	}
-	return Loc{source: start.source, line: line, column: column}
+	return rawXMLAttributeLoc(start, raw, offset)
 }
 
 func skipInstanceRawSpace(raw []byte, index *int) bool {
-	start := *index
-	for *index < len(raw) && isInstanceXMLSpace(raw[*index]) {
-		(*index)++
-	}
-	return *index != start
-}
-
-func skipInstanceRawName(raw []byte, index *int) {
-	for *index < len(raw) && !isInstanceXMLSpace(raw[*index]) && raw[*index] != '=' && raw[*index] != '>' {
-		(*index)++
-	}
+	return skipRawXMLSpace(raw, index)
 }
 
 func normalizeInstanceXMLAttributeLexeme(value string) (string, bool) {

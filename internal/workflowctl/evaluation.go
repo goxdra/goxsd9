@@ -296,7 +296,6 @@ type evaluationChallengeClosureRecord struct {
 	commentIndex int
 	closure      evaluationChallengeClosure
 }
-
 type evaluationHistory struct {
 	challenges   []evaluationChallengeRecord
 	receipts     []evaluationReceiptRecord
@@ -2452,7 +2451,6 @@ func parseEvaluationChallengeClosure(body string) (evaluationChallengeClosure, b
 	}
 	return closure, true
 }
-
 func parseEvaluationConvergence(body string) (evaluationConvergence, bool) {
 	value, ok := markerBytes(body, evaluationConvergenceMarker)
 	if !ok || !strings.Contains(body, evaluationConvergenceHeading) {
@@ -2508,7 +2506,6 @@ func evaluationChallengeClosureCommentIsValid(comment pullRequestComment) bool {
 	return comment.Body == evaluationChallengeClosureComment(marker, closure.CanonicalChallenge,
 		closure.DuplicateChallenge)
 }
-
 func evaluationConvergenceComment(marker []byte) string {
 	return fmt.Sprintf("<!-- %s%s -->\n%sEquivalent trusted Examiner receipts are represented by one logical round; all original comments remain authoritative history.\n",
 		evaluationConvergenceMarker, marker, evaluationConvergenceHeading)
@@ -2796,6 +2793,14 @@ func evaluationChallengeByID(history evaluationHistory, challengeID string) (eva
 	return found, matches == 1
 }
 
+func evaluationChallengeClosureCounts(history evaluationHistory, challenge evaluationChallengeRecord) (int, int, error) {
+	receipts, err := logicalEvaluationReceiptRecords(history)
+	if err != nil {
+		return 0, 0, err
+	}
+	receiptMatches, resolutionMatches := evaluationChallengeClosureCountsForReceipts(receipts, history.resolutions, challenge)
+	return receiptMatches, resolutionMatches, nil
+}
 func evaluationChallengeClosureCountsForReceipts(receipts []evaluationReceiptRecord,
 	resolutions []evaluationResolutionRecord, challenge evaluationChallengeRecord) (int, int) {
 	receiptMatches := 0

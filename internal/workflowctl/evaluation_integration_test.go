@@ -1628,7 +1628,7 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 	if err := os.WriteFile(summaryFile, []byte(summary+"\n"), 0o600); err != nil {
 		t.Fatalf("write summary: %v", err)
 	}
-	body := prReviewStateToken(prReviewStateEvidenceReady) + "\n## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n"
+	body := testPRReviewStateFrame(t, prReviewStateEvidenceReady) + "\n## Outcome\n\nExercise evaluation flow.\n\n## Work packet\n\nCloses #13\n"
 	evidence := testWorkflowPREvidence("evaluated-head")
 	block, err := renderPREvidenceBlock(evidence)
 	if err != nil {
