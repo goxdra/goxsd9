@@ -2,10 +2,9 @@
 
 ## Boundaries
 
-goxsd9 has four user-facing capabilities: schema parsing, immutable schema
-queries/walks, XML validation, and Go generation. The schema model is the leaf
-dependency: validation and generation depend on it, but it has no validator or
-generator caches.
+goxsd9 exposes schema parsing, immutable queries/walks, XML validation, and Go
+generation. The schema model is the leaf dependency for validation and generation
+and has no validator/generator caches.
 
 Runtime implementation uses only standard-library facilities; development
 tooling remains outside the library dependency graph.
@@ -82,31 +81,30 @@ them to show which implementation work unlocks the most tests.
 ## Schema model
 
 Raw XSD syntax is internal. The public model contains immutable schema
-components with direct access to their `Loc`. Query methods use component names
-and identities. Walk methods guarantee document-discovery order followed by
-lexical declaration order; specification-defined unordered sets use documented
-stable sorting.
+components with direct `Loc`; queries use component names and identities.
+Walks preserve document-discovery and lexical declaration order; unordered sets
+use documented stable sorting.
 
 The schema skeleton exposes `Schema`, `SchemaDocument`, `Component`,
-`ComponentID`, and expanded `QName` values. Documents follow identity-
-discovery order (root first, then resolver queue order); named schema-level
-declarations follow lexical order within each document. `Components`,
-`Documents`, `Find`, and `Walk` preserve those orders; returned slices are
-copies. Component IDs combine resolver source identity with one-based
-declaration ordinals; private lookup maps never define observable order. Local
-particle components use a separate scoped model. It stores component facts and
-lookup indexes; validator and generator state is calculated on demand.
+`ComponentID`, and expanded `QName`. Documents follow identity-discovery order
+(root first, then resolver queue); named declarations follow lexical order.
+`Components`, `Documents`, `Find`, and `Walk` return copies. Component IDs combine
+source identity with one-based declaration ordinals; lookup maps never define
+observable order. Local particles use a scoped model with component facts and
+indexes; validator and generator state is on demand.
 
-The model stores fundamental facts; primitive status follows type
-relations. Direct global `xs:boolean` elements retain expanded `DeclaredType`
-facts; named boolean restrictions expose immutable
+The model stores facts; primitive status follows type relations. Direct global `xs:boolean`
+elements retain expanded `DeclaredType` facts; named boolean restrictions expose immutable
 `SimpleTypeDefinition.IsBoolean()` facts; built-ins lack synthetic IDs.
 
-Named complex types expose concrete direct `element`, `sequence`, and `choice`
-particles; local built-in `xs:boolean` and named boolean-restriction elements
-join existing integer/decimal sequence elements with exact immutable
-occurrences. Boolean facets, anonymous/ref/nested/broader particles remain
-unsupported.
+Named complex types expose direct `element`, `sequence`, and `choice` particles.
+Supported direct sequences/choices contain local built-in `xs:boolean`, named
+boolean-restriction, `integer`, or `decimal` scalar elements with exact immutable
+arbitrary finite and unbounded ranges; `0/0` maps to absence. XSD 1.1 direct
+choices may include `precisionDecimal` only when the choice and each mapped
+`precisionDecimal` alternative use default occurrences; non-precision
+alternatives may retain non-default queryable ranges. Boolean facets and
+anonymous/ref/nested/broader particles remain unsupported.
 
 ## Datatypes
 
@@ -116,29 +114,29 @@ value.
 
 The strict datatype library implements XSD integer, decimal, boolean, and
 optional precisionDecimal mappings with arbitrary precision and lossless
-numeric canonical forms. PrecisionDecimal exposes exact finite/special values,
+canonical forms. PrecisionDecimal exposes exact finite/special values,
 partial comparison, applicable facets, and bounded canonical output; immutable
 schema components retain effective facets when it is explicitly named under
 Compatibility or Strict11. It remains implementation-defined and optional,
 not a mandatory XSD 1.1 claim. Boolean whitespace collapse is datatype
-behavior, not stored facet state; boolean facets unsupported.
-Code generation, temporal distinctions, and broader value spaces remain staged
-capabilities and report unsupported behavior.
+behavior, not stored facet state; boolean facets unsupported. Code generation,
+temporal distinctions, and broader value spaces remain staged and report
+unsupported behavior.
 
 ## Validation and code generation
 
-`ValidateInstance` supports text-only built-in/named `integer`/`decimal`/
-`precisionDecimal` globals and global named-complex elements having one direct
-choice of local `integer`/`decimal`/`precisionDecimal` elements. Named types use
-`TypeID`/`Lookup`; built-ins use policy defaults. Direct scalar sequences are
-parsed and queryable but not validated. Boolean globals, named restrictions,
-and local boolean particles remain unsupported in instance validation;
-attributes and broader particles remain unsupported; instance locations are
-primary.
+`ValidateInstance` supports built-in/named scalar `integer`/`decimal`/
+`precisionDecimal` globals and named-complex elements with a direct choice whose
+choice and local alternatives use default occurrences. Named types use
+`TypeID`/`Lookup`; built-ins use policy defaults. Sequences are queryable but
+unvalidated. Non-default, non-`0/0` integer/decimal choice or alternative ranges
+stay queryable; repetition is unsupported. Non-default `precisionDecimal` choice
+or alternative ranges that map to a particle are schema-unsupported. Boolean
+globals, named restrictions, and local boolean
+particles are unsupported in instance validation; attributes and broader
+particles are unsupported; locations are primary.
 
-Code generation consumes only the public schema model. It produces deterministic
-formatted Go, uses type switches for choices, and never depends on map order.
-Boolean generation remains unsupported.
+Code generation is deterministic, uses type switches for choices, and ignores map order; boolean generation remains unsupported.
 
 ## Conformance
 

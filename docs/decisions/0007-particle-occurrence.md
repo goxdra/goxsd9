@@ -72,8 +72,9 @@ boundary:
    constructs a tagged finite or max-only unbounded bound. The range
    constructor owns copies and rejects an unbounded minimum or finite
    `min > max`.
-3. The sequence mapping phase derives `mapsToParticle` from exact `0/0`; it
-   does not store an `absent` flag alongside the two bounds.
+3. The particle mapping phase applies the shared exact `0/0` absence rule to
+   sequence, choice, and child occurrences. It derives `mapsToParticle` from
+   exact `0/0`; it does not store an `absent` flag alongside the two bounds.
 4. The completed schema phase copies the range into an immutable public
    occurrence view. Its minimum is an owned `StrictInteger`; its maximum is a
    tagged finite or unbounded value. Queries clone exact finite values at the
@@ -84,12 +85,17 @@ boundary:
 The current schema preflight uses this exact private range to validate lexical
 occurrence input. A named global complex type with one direct sequence of local
 built-in `xs:boolean`, named boolean-restriction, integer, or decimal scalar
-elements maps the completed range and its ordered children into the public
-schema. Direct choices likewise model local built-in `xs:boolean` and named
-boolean-restriction elements. An effective `0/0` sequence, choice, or child maps
-to absence. The same exact representation is retained for choice facts so
-explicit choice occurrences remain unsupported without narrowing their
-diagnostics.
+elements, or one direct choice of those scalar elements, maps the completed
+range and ordered children into the public schema. The shared effective `0/0`
+mapping for sequence, choice, and child particles precedes type-specific
+support gating and maps to absence. The same exact representation is retained
+for choice facts while repetition consumers remain unsupported. XSD 1.1
+default-occurrence direct choices may use `precisionDecimal` only when the
+choice and each mapped `precisionDecimal` alternative use default occurrences;
+non-precision alternatives may retain non-default ranges for queries. Non-`0/0`
+`precisionDecimal` choice or alternative ranges that map to a particle are
+schema-unsupported, as are non-`0/0` direct-sequence `precisionDecimal` ranges
+that map to a particle.
 
 ## Public API migration
 
@@ -124,23 +130,38 @@ emission remain disabled until their consumers have such a policy.
 
 Malformed and negative lexicals are invalid input at their source attribute;
 the stable schema-composition diagnostic preserves the underlying lexical or
-negative-value cause. A finite ordering error is invalid input at the particle
-location. An error-level diagnostic returns no schema.
+negative-value cause and carries the edition-specific
+`xsd10-datatypes#nonNegativeInteger` or
+`xsd11-datatypes#nonNegativeInteger` reference. `unbounded` in `minOccurs` is
+invalid at the source attribute and carries the corresponding
+`xsd10-structures#p-min_occurs` or `xsd11-structures#p-min_occurs` reference.
+A finite ordering error is invalid input at the particle location, retains
+explicit bound locations, and carries the corresponding
+`xsd10-structures#coss-particle` or `xsd11-structures#coss-particle` reference.
+Duplicate XML attributes remain syntax errors with the existing `XSD3001`
+behavior. An error-level diagnostic returns no schema.
 
 ## Non-goals, risks, and follow-up
 
 Currently, the supported occurrence boundary is one named global complex type
-with one direct sequence of direct local built-in `xs:boolean`, named
+with one direct sequence or direct choice of local built-in `xs:boolean`, named
 boolean-restriction, integer, or decimal scalar elements in XSD 1.0 and 1.1.
-Direct choices likewise model local built-in `xs:boolean` and named
-boolean-restriction elements. Direct sequence precisionDecimal children remain
-unsupported even under XSD 1.1 and Compatibility. Choice occurrence attributes
-remain unsupported, as do boolean facets, anonymous types, references, nested or
-broader particles, attributes, and other composition. Boolean validation and Go
-generation remain unsupported; repetition is not implemented, effective total
-ranges are not calculated, and the parser does not support `all` mapping. The
-exact value has no fixed resource limit; later phases must set bounded input and
-materialization policies.
+Direct choices may also include XSD 1.1 `precisionDecimal` elements only when
+the choice and each mapped `precisionDecimal` alternative use default
+occurrences. Non-precision alternatives may retain non-default ranges for
+queries. Non-`0/0` direct-sequence `precisionDecimal` ranges that map to a
+particle remain unsupported even under XSD 1.1 and Compatibility. An effective
+`0/0` sequence, choice, or child maps to absence before type-specific support
+gating. Nested choices, `all`, groups, wildcards, references,
+nested particles, attributes, and other composition remain unsupported.
+Non-`0/0` choice and alternative ranges are parsed and queryable, but
+repetition is not implemented in validation, repeated Go fields are not
+generated, and effective total ranges are not calculated. Non-default
+`precisionDecimal` choice and alternative ranges that map to a particle are
+schema-unsupported. Boolean validation and Go generation remain unsupported;
+the parser does not support `all` mapping. The exact value has no fixed
+resource limit; later phases must set bounded input and materialization
+policies.
 
 The main risks are memory proportional to hostile finite lexicals, a breaking
 API migration if exact accessors are delayed, and accidentally treating the
