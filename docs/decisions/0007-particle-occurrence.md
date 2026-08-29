@@ -82,12 +82,13 @@ boundary:
    not cache derived repetition programs in the schema.
 
 The current schema preflight uses this exact private range to validate lexical
-occurrence input. A named global complex type with one direct sequence of local
-named integer/decimal scalar elements maps the completed range and its ordered
-children into the public schema. An effective `0/0` sequence or child maps to
-absence. The same exact representation is retained for choice facts so
-explicit choice occurrences remain unsupported without narrowing their
-diagnostics.
+occurrence input. A named global complex type with one direct sequence or
+choice of local named integer/decimal scalar elements maps the completed range
+and its ordered children into the public schema. An effective `0/0` sequence,
+choice, or child maps to absence. The same exact representation is retained for
+choice facts while repetition consumers remain unsupported. The existing
+default direct-choice `precisionDecimal` path is unchanged; non-default
+`precisionDecimal` choice and alternative ranges remain explicitly unsupported.
 
 ## Public API migration
 
@@ -122,21 +123,29 @@ emission remain disabled until their consumers have such a policy.
 
 Malformed and negative lexicals are invalid input at their source attribute;
 the stable schema-composition diagnostic preserves the underlying lexical or
-negative-value cause. A finite ordering error is invalid input at the particle
-location. An error-level diagnostic returns no schema.
+negative-value cause and carries the edition-specific
+`xsd10-datatypes#nonNegativeInteger` or
+`xsd11-datatypes#nonNegativeInteger` reference. `unbounded` in `minOccurs` is
+invalid at the source attribute and carries the corresponding
+`xsd10-structures#p-min_occurs` or `xsd11-structures#p-min_occurs` reference.
+A finite ordering error is invalid input at the particle location, retains
+explicit bound locations, and carries the corresponding
+`xsd10-structures#coss-particle` or `xsd11-structures#coss-particle` reference.
+Duplicate XML attributes remain syntax errors with the existing `XSD3001`
+behavior. An error-level diagnostic returns no schema.
 
 ## Non-goals, risks, and follow-up
 
 Currently, the supported occurrence boundary is one named global complex type
-with one direct sequence of direct local named integer/decimal scalar elements
-in XSD 1.0 and 1.1. Direct sequence precisionDecimal children remain
-unsupported even under XSD 1.1 and Compatibility. Choice occurrence attributes
-remain unsupported, as do `all`, groups, wildcards, references, nested
-particles, attributes, and other composition. Repetition is not implemented in
-validation, repeated Go fields are not generated, effective total ranges are
-not calculated, and the parser does not support `all` mapping. The exact value
-has no fixed resource limit; later phases must set bounded input and
-materialization policies.
+with one direct sequence or direct choice of local named integer/decimal scalar
+elements in XSD 1.0 and 1.1. Direct sequence precisionDecimal children remain
+unsupported even under XSD 1.1 and Compatibility. Nested choices, `all`, groups,
+wildcards, references, nested particles, attributes, and other composition
+remain unsupported. Non-default choice and alternative ranges are parsed and
+queryable, but repetition is not implemented in validation, repeated Go fields
+are not generated, effective total ranges are not calculated, and the parser
+does not support `all` mapping. The exact value has no fixed resource limit;
+later phases must set bounded input and materialization policies.
 
 The main risks are memory proportional to hostile finite lexicals, a breaking
 API migration if exact accessors are delayed, and accidentally treating the

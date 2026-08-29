@@ -1418,8 +1418,27 @@ func resolveSchemaChoiceParticle(
 	simpleTypes []schemaSimpleTypeResult,
 	version XSDVersion,
 ) (Particle, error) {
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
 	alternatives := make([]Particle, 0, len(input.alternatives))
 	for _, elementInput := range input.alternatives {
+		if !input.occurrences.isDefault() && elementInput.occurrences.mapsToParticle() && elementInput.typeInput != nil {
+			isPrecisionDecimal, err := schemaScalarTypeIsPrecisionDecimal(
+				elementInput.typeInput.declaredType,
+				records,
+				byName,
+				simpleTypes,
+				elementInput.loc,
+				version,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if isPrecisionDecimal {
+				return nil, unsupportedChoicePrecisionDecimalParticle(input, version)
+			}
+		}
 		element, err := resolveSchemaElementParticle(
 			elementInput,
 			records,
@@ -1495,6 +1514,22 @@ func resolveSchemaElementParticle(
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
+	if model == "choice" && !input.occurrences.isDefault() && input.typeInput != nil {
+		isPrecisionDecimal, err := schemaScalarTypeIsPrecisionDecimal(
+			input.typeInput.declaredType,
+			records,
+			byName,
+			simpleTypes,
+			input.loc,
+			version,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if isPrecisionDecimal {
+			return nil, unsupportedChoicePrecisionDecimalAlternative(input, version)
+		}
+	}
 	if input.typeInput == nil {
 		return nil, newSchemaSyntaxUnsupported(
 			input.loc,
@@ -1523,6 +1558,68 @@ func resolveSchemaElementParticle(
 		hasTypeID:    resolved.hasTypeID,
 	}
 	return ElementParticle{facts: facts}, nil
+}
+
+// schemaScalarTypeIsPrecisionDecimal derives the resolved scalar relation
+// from the declaration QName and type records; completed particles do not
+// duplicate this phase-local fact.
+func schemaScalarTypeIsPrecisionDecimal(
+	declaredType QName,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	simpleTypes []schemaSimpleTypeResult,
+	loc Loc,
+	version XSDVersion,
+) (bool, error) {
+	if declaredType.Namespace() == xsdNamespaceURI {
+		return version != XSDVersion10 && declaredType.Local() == "precisionDecimal", nil
+	}
+
+	typeCandidate := -1
+	for _, candidate := range byName[declaredType] {
+		if candidate < 0 || candidate >= len(records) {
+			return false, newSchemaBridgeInvariant(loc, "precisionDecimal type lookup has an invalid record index")
+		}
+		kind := records[candidate].kind
+		if kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
+			continue
+		}
+		if typeCandidate >= 0 {
+			return false, nil
+		}
+		typeCandidate = candidate
+	}
+	if typeCandidate < 0 || records[typeCandidate].kind != ComponentKindSimpleTypeDefinition {
+		return false, nil
+	}
+	if typeCandidate >= len(simpleTypes) {
+		return false, newSchemaBridgeInvariant(loc, "precisionDecimal type lookup has an incomplete simple type result")
+	}
+	if !simpleTypes[typeCandidate].present {
+		return false, nil
+	}
+	_, ok := simpleTypes[typeCandidate].facets.(schemaPrecisionDecimalFacetVariant)
+	return ok, nil
+}
+
+func unsupportedChoicePrecisionDecimalParticle(input *schemaChoiceParticleInput, version XSDVersion) Diagnostic {
+	return newSchemaSyntaxUnsupportedForVersion(
+		input.loc,
+		fmt.Sprintf("non-default choice occurrence range %s with precisionDecimal alternatives is not implemented", input.occurrences),
+		version,
+	)
+}
+
+func unsupportedChoicePrecisionDecimalAlternative(input schemaElementParticleInput, version XSDVersion) Diagnostic {
+	loc := input.loc
+	if input.typeInput != nil {
+		loc = input.typeInput.typeLoc
+	}
+	return newSchemaSyntaxUnsupportedForVersion(
+		loc,
+		fmt.Sprintf("non-default choice alternative occurrence range %s for precisionDecimal is not implemented", input.occurrences),
+		version,
+	)
 }
 
 func unresolvedSchemaElementType(input *schemaElementInput, version XSDVersion) (schemaElementTypeResult, error) {
