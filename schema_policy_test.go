@@ -125,7 +125,7 @@ func assertParseSchemaVersionLabel(t *testing.T, attribute string, policy goxsd9
 //nolint:gocognit // Keep policy, graph, diagnostic, and closure assertions together.
 func TestParseSchemaWithPolicyUsesUniformGrammarAcrossGraph(t *testing.T) {
 	rootContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" version="1.0"><xs:include schemaLocation="child.xsd"/></xs:schema>`
-	childContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" version="1.1"><xs:complexType name="item"><xs:choice><xs:element name="value" type="xs:integer" targetNamespace="urn:qualified"/></xs:choice></xs:complexType></xs:schema>`
+	childContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" version="1.1"><xs:complexType name="item"><xs:choice><xs:element name="value" type="xs:integer"><xs:alternative type="xs:integer"/></xs:element></xs:choice></xs:complexType></xs:schema>`
 	tests := []struct {
 		name       string
 		policy     goxsd9.LanguagePolicy
@@ -135,7 +135,7 @@ func TestParseSchemaWithPolicyUsesUniformGrammarAcrossGraph(t *testing.T) {
 		wantSource goxsd9.SourceID
 	}{
 		{name: "Compatibility", policy: goxsd9.Compatibility, class: goxsd9.FailureUnsupported, feature: goxsd9.FeatureSchemaSyntax, wantCode: goxsd9.UnsupportedSchemaSyntaxCode, wantSource: "child.xsd"},
-		{name: "Strict10", policy: goxsd9.Strict10, class: goxsd9.FailureInvalid, wantCode: "XSD3010", wantSource: "child.xsd"},
+		{name: "Strict10", policy: goxsd9.Strict10, class: goxsd9.FailureUnsupported, feature: goxsd9.FeatureSchemaSyntax, wantCode: goxsd9.UnsupportedSchemaSyntaxCode, wantSource: "child.xsd"},
 		{name: "Strict11", policy: goxsd9.Strict11, class: goxsd9.FailureUnsupported, feature: goxsd9.FeatureSchemaSyntax, wantCode: goxsd9.UnsupportedSchemaSyntaxCode, wantSource: "child.xsd"},
 	}
 	for _, test := range tests {

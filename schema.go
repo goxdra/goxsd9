@@ -263,6 +263,16 @@ func (definition SimpleTypeDefinition) BaseID() (ComponentID, bool) {
 	return definition.facts.baseID, true
 }
 
+// IsBoolean reports whether the simple type is derived from the XSD boolean
+// datatype.
+func (definition SimpleTypeDefinition) IsBoolean() bool {
+	if definition.facts == nil {
+		return false
+	}
+	_, ok := definition.facts.facets.(schemaBooleanFacetVariant)
+	return ok
+}
+
 // DigitFacets returns the effective totalDigits and fractionDigits facets.
 func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 	if definition.facts == nil {
@@ -273,6 +283,32 @@ func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 		return DigitFacets{}
 	}
 	return facets.value
+}
+
+// IntegerBounds returns the effective ordered integer bounds and their
+// presence for an integer restriction.
+func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool) {
+	if definition.facts == nil {
+		return IntegerBoundFacets{}, false
+	}
+	facets, ok := definition.facts.facets.(schemaDigitFacetVariant)
+	if !ok || facets.value.Kind() != DigitDatatypeInteger {
+		return IntegerBoundFacets{}, false
+	}
+	return facets.integerBounds, true
+}
+
+// DecimalBounds returns the effective ordered decimal bounds and their
+// presence for a decimal restriction.
+func (definition SimpleTypeDefinition) DecimalBounds() (DecimalBoundFacets, bool) {
+	if definition.facts == nil {
+		return DecimalBoundFacets{}, false
+	}
+	facets, ok := definition.facts.facets.(schemaDigitFacetVariant)
+	if !ok || facets.value.Kind() != DigitDatatypeDecimal {
+		return DecimalBoundFacets{}, false
+	}
+	return facets.decimalBounds, true
 }
 
 // PrecisionDecimalFacets returns the effective precisionDecimal facets. It
@@ -351,11 +387,84 @@ func (definition ComplexTypeDefinition) Particle() Particle {
 	return definition.facts.particle
 }
 
+// ParticleOccurrenceMaximumKind identifies the complete maximum occurrence
+// variant exposed by a particle occurrence range.
+type ParticleOccurrenceMaximumKind uint8
+
+const (
+	// ParticleOccurrenceMaximumFinite identifies an exact finite maximum.
+	ParticleOccurrenceMaximumFinite ParticleOccurrenceMaximumKind = iota + 1
+	// ParticleOccurrenceMaximumUnbounded identifies an unbounded maximum.
+	ParticleOccurrenceMaximumUnbounded
+)
+
+// ParticleOccurrenceMaximum is the exact maximum occurrence value. A finite
+// value is arbitrary precision; the unbounded variant has no numeric value.
+type ParticleOccurrenceMaximum struct {
+	value particleOccurrence
+}
+
+// Kind reports whether the maximum is finite or unbounded.
+func (maximum ParticleOccurrenceMaximum) Kind() ParticleOccurrenceMaximumKind {
+	if maximum.value.isUnbounded() {
+		return ParticleOccurrenceMaximumUnbounded
+	}
+	return ParticleOccurrenceMaximumFinite
+}
+
+// IsUnbounded reports whether the maximum has the distinct unbounded value.
+func (maximum ParticleOccurrenceMaximum) IsUnbounded() bool {
+	return maximum.value.isUnbounded()
+}
+
+// Finite returns an owned exact maximum when the value is finite.
+func (maximum ParticleOccurrenceMaximum) Finite() (StrictInteger, bool) {
+	return maximum.value.finiteValue()
+}
+
+// String returns the canonical finite value or the unbounded keyword.
+func (maximum ParticleOccurrenceMaximum) String() string {
+	return maximum.value.String()
+}
+
+// ParticleOccurrenceRange is an immutable exact particle occurrence range.
+// Its minimum is always finite and its maximum is finite or unbounded.
+type ParticleOccurrenceRange struct {
+	value particleOccurrenceRange
+}
+
+// Minimum returns an owned exact finite minimum occurrence value.
+func (occurrences ParticleOccurrenceRange) Minimum() StrictInteger {
+	minimum, ok := occurrences.value.minimumOccurrence().finiteValue()
+	if !ok {
+		return StrictInteger{}
+	}
+	return minimum
+}
+
+// Maximum returns the complete finite or unbounded maximum occurrence value.
+func (occurrences ParticleOccurrenceRange) Maximum() ParticleOccurrenceMaximum {
+	return ParticleOccurrenceMaximum{
+		value: occurrences.value.maximumOccurrence(),
+	}
+}
+
+// IsDefault reports whether the effective range is the default 1/1 range.
+func (occurrences ParticleOccurrenceRange) IsDefault() bool {
+	return occurrences.value.isDefault()
+}
+
+// String returns the canonical minimum/maximum range.
+func (occurrences ParticleOccurrenceRange) String() string {
+	return occurrences.value.String()
+}
+
 // Particle is a concrete immutable content-model alternative.
 type Particle interface {
 	Loc() Loc
 	MinOccurs() uint64
 	MaxOccurs() uint64
+	Occurrences() ParticleOccurrenceRange
 	particle()
 }
 
@@ -375,20 +484,34 @@ func (particle ChoiceParticle) Loc() Loc {
 	return particle.facts.loc
 }
 
-// MinOccurs returns the effective minimum occurrence bound.
-func (particle ChoiceParticle) MinOccurs() uint64 {
+// Occurrences returns the exact immutable occurrence range.
+func (particle ChoiceParticle) Occurrences() ParticleOccurrenceRange {
 	if particle.facts == nil {
-		return 0
+		return ParticleOccurrenceRange{}
 	}
-	return particle.facts.minOccurs
+	return newPublicParticleOccurrenceRange(particle.facts.occurrences)
 }
 
-// MaxOccurs returns the effective maximum occurrence bound.
-func (particle ChoiceParticle) MaxOccurs() uint64 {
-	if particle.facts == nil {
+// MinOccurs returns the default minimum occurrence bound.
+//
+// Deprecated: use Occurrences().Minimum(). This compatibility accessor is
+// defined only for default-only choice particles and returns zero otherwise.
+func (particle ChoiceParticle) MinOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
 		return 0
 	}
-	return particle.facts.maxOccurs
+	return 1
+}
+
+// MaxOccurs returns the default maximum occurrence bound.
+//
+// Deprecated: use Occurrences().Maximum(). This compatibility accessor is
+// defined only for default-only choice particles and returns zero otherwise.
+func (particle ChoiceParticle) MaxOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
 }
 
 // Alternatives returns the choice alternatives in lexical declaration order.
@@ -415,20 +538,34 @@ func (particle ElementParticle) Loc() Loc {
 	return particle.facts.loc
 }
 
-// MinOccurs returns the effective minimum occurrence bound.
-func (particle ElementParticle) MinOccurs() uint64 {
+// Occurrences returns the exact immutable occurrence range.
+func (particle ElementParticle) Occurrences() ParticleOccurrenceRange {
 	if particle.facts == nil {
-		return 0
+		return ParticleOccurrenceRange{}
 	}
-	return particle.facts.minOccurs
+	return newPublicParticleOccurrenceRange(particle.facts.occurrences)
 }
 
-// MaxOccurs returns the effective maximum occurrence bound.
-func (particle ElementParticle) MaxOccurs() uint64 {
-	if particle.facts == nil {
+// MinOccurs returns the default minimum occurrence bound.
+//
+// Deprecated: use Occurrences().Minimum(). This compatibility accessor is
+// defined only for default-only element particles and returns zero otherwise.
+func (particle ElementParticle) MinOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
 		return 0
 	}
-	return particle.facts.maxOccurs
+	return 1
+}
+
+// MaxOccurs returns the default maximum occurrence bound.
+//
+// Deprecated: use Occurrences().Maximum(). This compatibility accessor is
+// defined only for default-only element particles and returns zero otherwise.
+func (particle ElementParticle) MaxOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
 }
 
 // Name returns the expanded name of the local element declaration.
@@ -455,6 +592,60 @@ func (particle ElementParticle) TypeID() (ComponentID, bool) {
 		return ComponentID{}, false
 	}
 	return particle.facts.typeID, true
+}
+
+// SequenceParticle is an ordered direct sequence of local element particles.
+type SequenceParticle struct {
+	facts *schemaSequenceParticle
+}
+
+func (SequenceParticle) particle() {}
+
+// Loc returns the location of the sequence particle.
+func (particle SequenceParticle) Loc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.loc
+}
+
+// Occurrences returns the exact immutable occurrence range.
+func (particle SequenceParticle) Occurrences() ParticleOccurrenceRange {
+	if particle.facts == nil {
+		return ParticleOccurrenceRange{}
+	}
+	return newPublicParticleOccurrenceRange(particle.facts.occurrences)
+}
+
+// MinOccurs returns the default minimum occurrence bound.
+//
+// Deprecated: use Occurrences().Minimum(). This compatibility accessor is
+// defined only for default-only sequence particles and returns zero otherwise.
+func (particle SequenceParticle) MinOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// MaxOccurs returns the default maximum occurrence bound.
+//
+// Deprecated: use Occurrences().Maximum(). This compatibility accessor is
+// defined only for default-only sequence particles and returns zero otherwise.
+func (particle SequenceParticle) MaxOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// Elements returns direct local element particles in lexical declaration
+// order. The returned slice is independent of the completed schema.
+func (particle SequenceParticle) Elements() []ElementParticle {
+	if particle.facts == nil || len(particle.facts.elements) == 0 {
+		return nil
+	}
+	return append([]ElementParticle(nil), particle.facts.elements...)
 }
 
 // SchemaDocument is an immutable document in a Schema's discovery order.
@@ -676,7 +867,9 @@ type schemaSimpleTypeFacetVariant interface {
 }
 
 type schemaDigitFacetVariant struct {
-	value DigitFacets
+	value         DigitFacets
+	integerBounds IntegerBoundFacets
+	decimalBounds DecimalBoundFacets
 }
 
 func (schemaDigitFacetVariant) schemaSimpleTypeFacetVariant() {}
@@ -687,21 +880,39 @@ type schemaPrecisionDecimalFacetVariant struct {
 
 func (schemaPrecisionDecimalFacetVariant) schemaSimpleTypeFacetVariant() {}
 
+type schemaBooleanFacetVariant struct{}
+
+func (schemaBooleanFacetVariant) schemaSimpleTypeFacetVariant() {}
+
 type schemaComplexTypeInput struct {
-	particle *schemaChoiceParticleInput
+	particle schemaComplexTypeParticleInput
+}
+
+type schemaComplexTypeParticleInput interface {
+	schemaComplexTypeParticleInput()
 }
 
 type schemaChoiceParticleInput struct {
 	loc          Loc
-	minOccurs    uint64
-	maxOccurs    uint64
+	occurrences  particleOccurrenceRange
 	alternatives []schemaElementParticleInput
 }
 
+func (*schemaChoiceParticleInput) schemaComplexTypeParticleInput() {}
+
+type schemaSequenceParticleInput struct {
+	loc         Loc
+	occurrences particleOccurrenceRange
+	elements    []schemaElementParticleInput
+}
+
+func (*schemaSequenceParticleInput) schemaComplexTypeParticleInput() {}
+
 type schemaElementParticleInput struct {
-	loc       Loc
-	name      QName
-	typeInput *schemaElementInput
+	loc         Loc
+	name        QName
+	occurrences particleOccurrenceRange
+	typeInput   *schemaElementInput
 }
 
 type schemaElementComponent struct {
@@ -716,19 +927,23 @@ type schemaComplexTypeComponent struct {
 
 type schemaChoiceParticle struct {
 	loc          Loc
-	minOccurs    uint64
-	maxOccurs    uint64
+	occurrences  particleOccurrenceRange
 	alternatives []Particle
 }
 
 type schemaElementParticle struct {
 	loc          Loc
-	minOccurs    uint64
-	maxOccurs    uint64
+	occurrences  particleOccurrenceRange
 	name         QName
 	declaredType QName
 	typeID       ComponentID
 	hasTypeID    bool
+}
+
+type schemaSequenceParticle struct {
+	loc         Loc
+	occurrences particleOccurrenceRange
+	elements    []ElementParticle
 }
 
 type schemaComponentRecord struct {
@@ -739,6 +954,41 @@ type schemaComponentRecord struct {
 	element     *schemaElementInput
 	simpleType  *schemaSimpleTypeInput
 	complexType *schemaComplexTypeInput
+}
+
+type schemaSymbolSpace uint8
+
+const (
+	schemaSymbolSpaceElement schemaSymbolSpace = iota + 1
+	schemaSymbolSpaceAttribute
+	schemaSymbolSpaceType
+	schemaSymbolSpaceModelGroup
+	schemaSymbolSpaceAttributeGroup
+	schemaSymbolSpaceNotation
+)
+
+type schemaSymbolKey struct {
+	space schemaSymbolSpace
+	name  QName
+}
+
+func schemaSymbolSpaceForComponentKind(kind ComponentKind) (schemaSymbolSpace, bool) {
+	switch kind {
+	case ComponentKindElementDeclaration:
+		return schemaSymbolSpaceElement, true
+	case ComponentKindAttributeDeclaration:
+		return schemaSymbolSpaceAttribute, true
+	case ComponentKindSimpleTypeDefinition, ComponentKindComplexTypeDefinition:
+		return schemaSymbolSpaceType, true
+	case ComponentKindModelGroupDefinition:
+		return schemaSymbolSpaceModelGroup, true
+	case ComponentKindAttributeGroupDefinition:
+		return schemaSymbolSpaceAttributeGroup, true
+	case ComponentKindNotationDeclaration:
+		return schemaSymbolSpaceNotation, true
+	default:
+		return 0, false
+	}
 }
 
 // newSchema completes the ordered component representation after discovery
@@ -759,6 +1009,9 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 	documents, records, byName, err := allocateSchemaRecords(inputs)
 	if err != nil {
 		return Schema{}, err
+	}
+	if duplicateErr := rejectDuplicateSchemaDeclarations(records, version); duplicateErr != nil {
+		return Schema{}, duplicateErr
 	}
 	simpleTypes, err := resolveSchemaSimpleTypes(records, byName, version)
 	if err != nil {
@@ -787,6 +1040,23 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 		storage:   storage,
 		policy:    policy,
 	}, nil
+}
+
+func rejectDuplicateSchemaDeclarations(records []schemaComponentRecord, version XSDVersion) error {
+	earliest := make(map[schemaSymbolKey]int)
+	for index, record := range records {
+		space, ok := schemaSymbolSpaceForComponentKind(record.kind)
+		if !ok {
+			continue
+		}
+		key := schemaSymbolKey{space: space, name: record.name}
+		first, ok := earliest[key]
+		if ok {
+			return newSchemaDuplicateDiagnostic(record, records[first], space, version)
+		}
+		earliest[key] = index
+	}
+	return nil
 }
 
 func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []schemaComponentRecord, map[QName][]int, error) {
@@ -963,23 +1233,43 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 	if input == nil {
 		return nil
 	}
-	clone := &schemaComplexTypeInput{}
-	if input.particle == nil {
-		return clone
-	}
-	clone.particle = &schemaChoiceParticleInput{
-		loc:       input.particle.loc,
-		minOccurs: input.particle.minOccurs,
-		maxOccurs: input.particle.maxOccurs,
-	}
-	clone.particle.alternatives = make([]schemaElementParticleInput, len(input.particle.alternatives))
-	for index, alternative := range input.particle.alternatives {
-		clone.particle.alternatives[index] = alternative
-		if alternative.typeInput == nil {
-			continue
+	clone := &schemaComplexTypeInput{particle: input.particle}
+	switch particle := input.particle.(type) {
+	case *schemaChoiceParticleInput:
+		if particle == nil {
+			return clone
 		}
-		typeInput := *alternative.typeInput
-		clone.particle.alternatives[index].typeInput = &typeInput
+		clone.particle = &schemaChoiceParticleInput{
+			loc:          particle.loc,
+			occurrences:  particle.occurrences.clone(),
+			alternatives: cloneSchemaElementParticleInputs(particle.alternatives),
+		}
+	case *schemaSequenceParticleInput:
+		if particle == nil {
+			return clone
+		}
+		clone.particle = &schemaSequenceParticleInput{
+			loc:         particle.loc,
+			occurrences: particle.occurrences.clone(),
+			elements:    cloneSchemaElementParticleInputs(particle.elements),
+		}
 	}
 	return clone
+}
+
+func cloneSchemaElementParticleInputs(inputs []schemaElementParticleInput) []schemaElementParticleInput {
+	if len(inputs) == 0 {
+		return nil
+	}
+	clones := make([]schemaElementParticleInput, len(inputs))
+	for index, input := range inputs {
+		clones[index] = input
+		clones[index].occurrences = input.occurrences.clone()
+		if input.typeInput == nil {
+			continue
+		}
+		typeInput := *input.typeInput
+		clones[index].typeInput = &typeInput
+	}
+	return clones
 }

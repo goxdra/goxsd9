@@ -53,6 +53,35 @@ func TestDecodeSyntaxBuildsOrderedLocatedTree(t *testing.T) {
 	}
 }
 
+func TestDecodeSyntaxRecordsExactAttributeNameLocations(t *testing.T) {
+	document := decodeTestSource(t, &trackingSource{data: []byte(
+		`<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"/>`,
+	)})
+	if got, want := len(document.root.attrs), 1; got != want {
+		t.Fatalf("root attribute count = %d, want %d", got, want)
+	}
+	if got, want := document.root.attrs[0].name.local, "targetNamespace"; got != want {
+		t.Fatalf("root attribute name = %q, want %q", got, want)
+	}
+	assertLoc(t, document.root.attrs[0].loc, 1, 56)
+
+	input := `<xs:schema xmlns:xs="` + testXSDNamespace + `">` + "\r\n" +
+		`😀<xs:element` + "\r\n" +
+		`  α="1"` + "\r\n" +
+		`  name="root"/>` + "\r\n" +
+		`</xs:schema>`
+	document = decodeTestSource(t, &trackingSource{data: []byte(input)})
+	element, ok := document.root.children[1].(*syntaxElement)
+	if !ok {
+		t.Fatalf("root child 1 = %T, want *syntaxElement", document.root.children[1])
+	}
+	if got, want := len(element.attrs), 2; got != want {
+		t.Fatalf("element attribute count = %d, want %d", got, want)
+	}
+	assertLoc(t, element.attrs[0].loc, 3, 3)
+	assertLoc(t, element.attrs[1].loc, 4, 3)
+}
+
 func TestDecodeSyntaxCountsUnicodeCodePointColumns(t *testing.T) {
 	input := "<xs:schema xmlns:xs=\"" + testXSDNamespace + "\">\n" +
 		"😀<xs:assertion/>\n</xs:schema>"
@@ -222,8 +251,8 @@ func TestParseSchemaReportsXMLBaseAsUnsupportedResolution(t *testing.T) {
 	if diagnostic.SpecRef() != "xmlbase#matching" {
 		t.Fatalf("diagnostic spec ref = %q, want xmlbase#matching", diagnostic.SpecRef())
 	}
-	if diagnostic.Loc().Source() != "schema.xsd" || diagnostic.Loc().Line() != 1 || diagnostic.Loc().Column() != 1 {
-		t.Fatalf("diagnostic location = %s, want schema.xsd:1:1", diagnostic.Loc())
+	if diagnostic.Loc().Source() != "schema.xsd" || diagnostic.Loc().Line() != 1 || diagnostic.Loc().Column() != 56 {
+		t.Fatalf("diagnostic location = %s, want schema.xsd:1:56", diagnostic.Loc())
 	}
 	if len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
 		t.Fatalf("schema after XML Base error = %#v, want zero schema", schema)

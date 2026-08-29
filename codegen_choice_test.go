@@ -330,7 +330,8 @@ func TestCodegenDirectChoiceSourceRevalidatesSchemaOccurrenceBounds(t *testing.T
 		{
 			name: "choice",
 			mutate: func(schema Schema) {
-				codegenDirectChoiceTestChoice(schema).facts.minOccurs = 0
+				choice := codegenDirectChoiceTestChoice(schema)
+				choice.facts.occurrences = codegenTestParticleOccurrenceRange(t, "0", "1")
 			},
 			loc: func(schema Schema) Loc {
 				return codegenDirectChoiceTestChoice(schema).Loc()
@@ -339,7 +340,8 @@ func TestCodegenDirectChoiceSourceRevalidatesSchemaOccurrenceBounds(t *testing.T
 		{
 			name: "element",
 			mutate: func(schema Schema) {
-				codegenDirectChoiceTestElement(codegenDirectChoiceTestChoice(schema)).facts.maxOccurs = 2
+				element := codegenDirectChoiceTestElement(codegenDirectChoiceTestChoice(schema))
+				element.facts.occurrences = codegenTestParticleOccurrenceRange(t, "1", "2")
 			},
 			loc: func(schema Schema) Loc {
 				return codegenDirectChoiceTestElement(codegenDirectChoiceTestChoice(schema)).Loc()
@@ -756,7 +758,7 @@ func TestPlanCodegenDirectChoicesReturnsZeroPlanWithLocatedCauses(t *testing.T) 
 			name: "unsupported bounds",
 			mutate: func(schema Schema) {
 				choice := codegenDirectChoiceTestChoice(schema)
-				choice.facts.minOccurs = 0
+				choice.facts.occurrences = codegenTestParticleOccurrenceRange(t, "0", "1")
 			},
 			wantClass: FailureUnsupported,
 			wantCode:  diagnosticCodegenUnsupported,
@@ -1037,9 +1039,8 @@ func codegenDirectChoiceCollisionSchema(t *testing.T) Schema {
 					name: mustTestQName(t, "urn:owner", "runtime"),
 					loc:  mustTestLoc(t, "owner.xsd", 2, 3),
 					complexType: &schemaComplexTypeInput{particle: &schemaChoiceParticleInput{
-						loc:       choiceLoc,
-						minOccurs: 1,
-						maxOccurs: 1,
+						loc:         choiceLoc,
+						occurrences: codegenTestParticleOccurrenceRange(t, "1", "1"),
 						alternatives: []schemaElementParticleInput{
 							codegenDirectChoiceElementInput(t, "line-item", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "owner.xsd", 5, 7)),
 							codegenDirectChoiceElementInput(t, "LINE_ITEM", mustTestQName(t, testXSDNamespace, "decimal"), mustTestLoc(t, "owner.xsd", 6, 7)),
@@ -1073,8 +1074,7 @@ func codegenDirectChoiceFailureSchema(t *testing.T) Schema {
 			loc:  mustTestLoc(t, "choice.xsd", 2, 3),
 			complexType: &schemaComplexTypeInput{particle: &schemaChoiceParticleInput{
 				loc:          mustTestLoc(t, "choice.xsd", 3, 5),
-				minOccurs:    1,
-				maxOccurs:    1,
+				occurrences:  codegenTestParticleOccurrenceRange(t, "1", "1"),
 				alternatives: []schemaElementParticleInput{codegenDirectChoiceElementInput(t, "value", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "choice.xsd", 4, 7))},
 			}},
 		}},
@@ -1097,13 +1097,31 @@ func codegenDirectChoiceTwoOwnerSchema(t *testing.T) Schema {
 func codegenDirectChoiceElementInput(t *testing.T, local string, declaredType QName, loc Loc) schemaElementParticleInput {
 	t.Helper()
 	return schemaElementParticleInput{
-		loc:  loc,
-		name: mustTestQName(t, "", local),
+		loc:         loc,
+		name:        mustTestQName(t, "", local),
+		occurrences: codegenTestParticleOccurrenceRange(t, "1", "1"),
 		typeInput: &schemaElementInput{
 			declaredType: declaredType,
 			typeLoc:      loc,
 		},
 	}
+}
+
+func codegenTestParticleOccurrenceRange(t *testing.T, minimum, maximum string) particleOccurrenceRange {
+	t.Helper()
+	minimumValue, err := parseParticleOccurrence(minimum, false, Loc{})
+	if err != nil {
+		t.Fatalf("parse test minimum occurrence: %v", err)
+	}
+	maximumValue, err := parseParticleOccurrence(maximum, true, Loc{})
+	if err != nil {
+		t.Fatalf("parse test maximum occurrence: %v", err)
+	}
+	occurrences, err := newParticleOccurrenceRange(minimumValue, maximumValue)
+	if err != nil {
+		t.Fatalf("construct test particle occurrence range: %v", err)
+	}
+	return occurrences
 }
 
 func codegenDirectChoiceSimpleTypeInput(t *testing.T, source SourceID, line int, base QName) *schemaSimpleTypeInput {

@@ -41,8 +41,10 @@ var evaluationEvidenceReservedSequences = [...]evaluationEvidenceReservedSequenc
 	{value: "<!-- workflowctl-evaluation-repair-v1 ", receiptEvidence: true},
 	{value: "<!-- workflowctl-evaluation-challenge ", receiptEvidence: false},
 	{value: "<!-- workflowctl-evaluation-resolution-v1 ", receiptEvidence: true},
+	{value: "<!-- workflowctl-evaluation-convergence-v1 ", receiptEvidence: true},
 	{value: "## Examiner evaluation — round receipt\n\n", receiptEvidence: true},
 	{value: "## Examiner evaluation — no-verdict resolution\n\n", receiptEvidence: true},
+	{value: "## Examiner evaluation convergence\n\n", receiptEvidence: true},
 }
 
 const (
@@ -183,6 +185,7 @@ type evaluationEvidenceCommentSemantics struct {
 	challenge      *evaluationEvidenceChallengeRecord
 	receipt        *evaluationEvidenceReceipt
 	repair         *evaluationEvidenceRepairRecord
+	convergence    bool
 	classification evaluationEvidenceClassification
 }
 
@@ -225,7 +228,7 @@ func expectedEvaluationEvidence(input []byte) (evaluationEvidenceExpectation, bo
 }
 
 func independentlyValidateEvaluationEvidence(frame evaluationEvidenceFrame) evaluationEvidenceSemantics {
-	challenges, receipts, repairs, classification := expectedEvaluationEvidenceRecords(frame)
+	challenges, receipts, repairs, convergence, classification := expectedEvaluationEvidenceRecords(frame)
 	if classification != 0 {
 		return evaluationEvidenceSemantics{
 			expectation: evaluationEvidenceExpectation{classification: classification},
@@ -243,6 +246,14 @@ func independentlyValidateEvaluationEvidence(frame evaluationEvidenceFrame) eval
 	}
 
 	if !expectedEvaluationEvidenceHistoryValid(challenges, receipts, repairs) {
+		return evaluationEvidenceSemantics{
+			expectation: evaluationEvidenceExpectation{
+				classification: evaluationEvidenceHistoryRejected,
+				recovered:      recovered,
+			},
+		}
+	}
+	if convergence {
 		return evaluationEvidenceSemantics{
 			expectation: evaluationEvidenceExpectation{
 				classification: evaluationEvidenceHistoryRejected,
@@ -285,14 +296,15 @@ func independentlyValidateEvaluationEvidence(frame evaluationEvidenceFrame) eval
 
 func expectedEvaluationEvidenceRecords(frame evaluationEvidenceFrame) (
 	[]evaluationEvidenceChallengeRecord, []evaluationEvidenceReceipt, []evaluationEvidenceRepairRecord,
-	evaluationEvidenceClassification) {
+	bool, evaluationEvidenceClassification) {
 	var challenges []evaluationEvidenceChallengeRecord
 	var receipts []evaluationEvidenceReceipt
 	var repairs []evaluationEvidenceRepairRecord
+	convergence := false
 	for index := range frame.bodies {
 		comment := expectedEvaluationEvidenceCommentSemantics(frame, index)
 		if comment.classification != 0 {
-			return challenges, receipts, repairs, comment.classification
+			return challenges, receipts, repairs, convergence, comment.classification
 		}
 		if comment.challenge != nil {
 			challenges = append(challenges, *comment.challenge)
@@ -303,14 +315,19 @@ func expectedEvaluationEvidenceRecords(frame evaluationEvidenceFrame) (
 		if comment.repair != nil {
 			repairs = append(repairs, *comment.repair)
 		}
+		convergence = convergence || comment.convergence
 	}
-	return challenges, receipts, repairs, 0
+	return challenges, receipts, repairs, convergence, 0
 }
 
 func expectedEvaluationEvidenceCommentSemantics(frame evaluationEvidenceFrame, index int) evaluationEvidenceCommentSemantics {
 	body := frame.bodies[index]
 	if frame.authorTags[index] != 'T' {
 		return expectedEvaluationEvidenceUntrustedCommentSemantics(body)
+	}
+	if expectedEvaluationEvidenceHasMarker(body, evaluationConvergenceMarker) ||
+		bytes.Contains(body, []byte(evaluationConvergenceHeading)) {
+		return expectedEvaluationEvidenceConvergenceSemantics(body)
 	}
 	if expectedEvaluationEvidenceHasMarker(body, evaluationChallengeMarker) {
 		return expectedEvaluationEvidenceChallengeSemantics(frame, index)
@@ -325,7 +342,32 @@ func expectedEvaluationEvidenceUntrustedCommentSemantics(body []byte) evaluation
 	if expectedEvaluationEvidenceHasMarker(body, evaluationChallengeMarker) {
 		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
 	}
+	if expectedEvaluationEvidenceHasMarker(body, evaluationConvergenceMarker) ||
+		bytes.Contains(body, []byte(evaluationConvergenceHeading)) {
+		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
+	}
 	return evaluationEvidenceCommentSemantics{}
+}
+
+func expectedEvaluationEvidenceConvergenceSemantics(body []byte) evaluationEvidenceCommentSemantics {
+	if expectedEvaluationEvidenceHasReceipt(body) ||
+		expectedEvaluationEvidenceHasMarker(body, evaluationChallengeMarker) ||
+		expectedEvaluationEvidenceHasMarker(body, evaluationRepairMarker) ||
+		expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarker) ||
+		bytes.Contains(body, []byte(evaluationResolutionHeading)) {
+		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
+	}
+	value, found, valid := expectedEvaluationEvidenceMarker(body, evaluationConvergenceMarker)
+	if !found || !valid || !bytes.Contains(body, []byte(evaluationConvergenceHeading)) ||
+		!expectedEvaluationEvidenceJSON(value, &map[string]any{}, []string{
+			"attestationSHA256", "baseRefName", "canonical", "challenge", "claimProofs", "closed",
+			"closingIssues", "controller", "evaluator", "evaluatorRunID", "head", "headRefName",
+			"bodySHA256", "evidenceSHA256", "pullRequest", "reportSHA256", "reportTransport", "round",
+			"schema", "verdict",
+		}, nil) {
+		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
+	}
+	return evaluationEvidenceCommentSemantics{convergence: true}
 }
 
 func expectedEvaluationEvidenceChallengeSemantics(frame evaluationEvidenceFrame, index int) evaluationEvidenceCommentSemantics {
@@ -371,7 +413,9 @@ func expectedEvaluationEvidenceRepairSemantics(frame evaluationEvidenceFrame, in
 func expectedEvaluationEvidenceTrustedCommentSemantics(frame evaluationEvidenceFrame, index int) evaluationEvidenceCommentSemantics {
 	body := frame.bodies[index]
 	if expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarker) ||
-		bytes.Contains(body, []byte(evaluationResolutionHeading)) {
+		bytes.Contains(body, []byte(evaluationResolutionHeading)) ||
+		expectedEvaluationEvidenceHasMarker(body, evaluationConvergenceMarker) ||
+		bytes.Contains(body, []byte(evaluationConvergenceHeading)) {
 		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
 	}
 	if !expectedEvaluationEvidenceHasReceipt(body) {
@@ -413,7 +457,9 @@ func expectedEvaluationEvidenceHasAttestationEvidence(body []byte) bool {
 		expectedEvaluationEvidenceHasMarker(body, evaluationAttestationBase64Marker) ||
 		expectedEvaluationEvidenceHasMarker(body, evaluationAttestationMarker) ||
 		expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarker) ||
-		bytes.Contains(body, []byte(evaluationResolutionHeading))
+		bytes.Contains(body, []byte(evaluationResolutionHeading)) ||
+		expectedEvaluationEvidenceHasMarker(body, evaluationConvergenceMarker) ||
+		bytes.Contains(body, []byte(evaluationConvergenceHeading))
 }
 
 func expectedEvaluationEvidenceHasRawAttestation(body []byte) bool {

@@ -133,9 +133,20 @@ func (occurrences particleOccurrenceRange) maximumOccurrence() particleOccurrenc
 	return occurrences.maximum.clone()
 }
 
+func (occurrences particleOccurrenceRange) clone() particleOccurrenceRange {
+	return particleOccurrenceRange{
+		minimum: occurrences.minimum.clone(),
+		maximum: occurrences.maximum.clone(),
+	}
+}
+
 func (occurrences particleOccurrenceRange) mapsToParticle() bool {
 	return !occurrences.minimum.Equal(particleOccurrence{}) ||
 		!occurrences.maximum.Equal(particleOccurrence{})
+}
+
+func (occurrences particleOccurrenceRange) isDefault() bool {
+	return occurrences.minimum.String() == "1" && occurrences.maximum.String() == "1"
 }
 
 func (occurrences particleOccurrenceRange) Equal(other particleOccurrenceRange) bool {
@@ -144,4 +155,8 @@ func (occurrences particleOccurrenceRange) Equal(other particleOccurrenceRange) 
 
 func (occurrences particleOccurrenceRange) String() string {
 	return occurrences.minimum.String() + "/" + occurrences.maximum.String()
+}
+
+func newPublicParticleOccurrenceRange(occurrences particleOccurrenceRange) ParticleOccurrenceRange {
+	return ParticleOccurrenceRange{value: occurrences.clone()}
 }
