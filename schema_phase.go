@@ -723,6 +723,9 @@ func validateSchemaRootUnqualifiedAttribute(element *syntaxElement, attribute sy
 		if err := validateSchemaEnum(attribute, "qualified", "unqualified"); err != nil {
 			return "", err
 		}
+		if collapseXMLWhitespace(attribute.value) == "unqualified" {
+			return "", nil
+		}
 		return fmt.Sprintf("schema root attribute %q is not implemented", attribute.name.local), nil
 	case "elementFormDefault":
 		return "", validateSchemaEnum(attribute, "qualified", "unqualified")
