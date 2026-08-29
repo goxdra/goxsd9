@@ -129,10 +129,11 @@ capabilities and report unsupported behavior.
 
 `ValidateInstance` supports numeric globals and global named-complex elements with
 a default-occurrence direct choice of local `integer`/`decimal`/`precisionDecimal`.
-Direct sequences allow only integer/decimal scalar children; non-default
-integer/decimal choice/alternative ranges are queryable but not validated. Direct
+Direct sequences allow only integer/decimal scalar children; non-default,
+non-0/0 integer/decimal choice/alternative particles are queryable
+but unvalidated. Direct
 sequence `precisionDecimal` and non-default `precisionDecimal` particle ranges are
-schema-unsupported. Boolean globals, named restrictions, attributes,
+schema-unsupported. Boolean globals, named boolean restrictions, attributes,
 and broader particles remain unsupported; locations are primary.
 
 Code generation consumes the public schema model, producing deterministic formatted
