@@ -183,6 +183,117 @@ func TestEvaluationChallengeInitialPostTransportLossRetriesWithoutRepost(t *test
 	}
 }
 
+//nolint:gocognit // Keep final-read mutation variants and zero-output assertions together.
+func TestEvaluationChallengeFinalReadRejectsCurrentStateDrift(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, *workflowBackend)
+		want   string
+	}{
+		{name: "head", mutate: func(_ *testing.T, backend *workflowBackend) {
+			backend.head = "drifted-head"
+		}, want: "head changed"},
+		{name: "body", mutate: func(_ *testing.T, backend *workflowBackend) {
+			backend.body += "\nFinal body drift.\n"
+		}, want: "body or evidence changed"},
+		{name: "evidence", mutate: mutateFinalEvaluationEvidence, want: "body or evidence changed"},
+		{name: "additional outstanding challenge", mutate: appendFinalOutstandingChallenge, want: "sole current logical outstanding challenge"},
+		{name: "unclosed equivalent challenge", mutate: appendFinalEquivalentChallenge, want: "unclosed equivalent challenge"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			var stdout bytes.Buffer
+			application := newResolutionWorkflowApplication(backend, &stdout)
+			prReads := 0
+			application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+				if name == "gh" && strings.Join(args, " ") == "api repos/goxdra/goxsd9/pulls/14" {
+					prReads++
+					if prReads == 3 {
+						test.mutate(t, backend)
+					}
+				}
+				return backend.execute(dir, input, name, args...)
+			}
+
+			if err := application.runEvaluation([]string{"challenge", "14"}); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("final %s drift error = %v, want %q", test.name, err, test.want)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("final %s drift emitted marker %q", test.name, stdout.String())
+			}
+			if prReads != 3 {
+				t.Fatalf("PR reads = %d, want final-read mutation at read 3", prReads)
+			}
+			if backend.commentPostCount != 1 {
+				t.Fatalf("final %s drift comment POST count = %d, want initial challenge only", test.name, backend.commentPostCount)
+			}
+		})
+	}
+}
+
+func mutateFinalEvaluationEvidence(t *testing.T, backend *workflowBackend) {
+	t.Helper()
+	parsed, err := parsePREvidenceBody(backend.body)
+	if err != nil {
+		t.Fatalf("parse final evidence: %v", err)
+	}
+	parsed.evidence.Curator.Summary = "No managed-document change; final evidence drift."
+	block, err := renderPREvidenceBlock(parsed.evidence)
+	if err != nil {
+		t.Fatalf("render final evidence: %v", err)
+	}
+	backend.body, err = replacePREvidenceBlock(backend.body, block)
+	if err != nil {
+		t.Fatalf("replace final evidence: %v", err)
+	}
+}
+
+func appendFinalOutstandingChallenge(t *testing.T, backend *workflowBackend) {
+	t.Helper()
+	challenge := evaluationChallenge{
+		Challenge:      "late-current-challenge",
+		Head:           backend.head,
+		Repository:     repositoryKey,
+		PR:             14,
+		BodySHA256:     strings.Repeat("a", 64),
+		EvidenceSHA256: strings.Repeat("b", 64),
+		RequestedAt:    time.Now().UTC().Truncate(time.Second),
+	}
+	marker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode final outstanding challenge: %v", err)
+	}
+	comment := issueCommentAPI{
+		ID:        int64(len(backend.comments) + 1),
+		Body:      fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n", evaluationChallengeMarker, marker, challenge.Head),
+		CreatedAt: challenge.RequestedAt,
+	}
+	comment.User.Login = trustedActor
+	backend.comments = append(backend.comments, comment)
+}
+
+func appendFinalEquivalentChallenge(t *testing.T, backend *workflowBackend) {
+	t.Helper()
+	challenge, ok := parseEvaluationChallenge(backend.comments[0].Body)
+	if !ok {
+		t.Fatal("parse initial challenge for final equivalent challenge")
+	}
+	challenge.Challenge = "late-equivalent-challenge"
+	challenge.RequestedAt = challenge.RequestedAt.Add(time.Second)
+	marker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode final equivalent challenge: %v", err)
+	}
+	comment := issueCommentAPI{
+		ID:        int64(len(backend.comments) + 1),
+		Body:      fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n", evaluationChallengeMarker, marker, challenge.Head),
+		CreatedAt: challenge.RequestedAt,
+	}
+	comment.User.Login = trustedActor
+	backend.comments = append(backend.comments, comment)
+}
+
 func TestEvaluationChallengeAndReceiptConvergencePhasesProgress(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer

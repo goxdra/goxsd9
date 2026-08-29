@@ -1451,19 +1451,69 @@ func (a app) completeEvaluationChallenge(root string, number int, challenge eval
 	if err != nil {
 		return fmt.Errorf("reread PR #%d challenge history after convergence: %w", number, err)
 	}
-	projection, err := evaluationChallengeOnlyProjectionForHistory(finalHistory)
+	logical, err := validateFinalEvaluationChallengeHistory(number, challenge, finalHistory)
 	if err != nil {
-		return fmt.Errorf("project PR #%d challenge history after convergence: %w", number, err)
+		return fmt.Errorf("validate PR #%d challenge state after convergence: %w", number, err)
 	}
-	logical, ok := projection.challengeForID(challenge.Challenge)
-	if !ok {
-		return fmt.Errorf("PR #%d challenge %q disappeared during convergence", number, challenge.Challenge)
+	challengeErr := validateEvaluationChallengeView(finalView, number, challenge)
+	if challengeErr != nil {
+		return fmt.Errorf("PR #%d evaluation challenge changed before output: %w", number, challengeErr)
+	}
+	canonicalErr := validateEvaluationChallengeView(finalView, number, logical.canonical.challenge)
+	if canonicalErr != nil {
+		return fmt.Errorf("PR #%d canonical evaluation challenge changed before output: %w", number, canonicalErr)
 	}
 	canonicalMarker, err := json.Marshal(logical.canonical.challenge)
 	if err != nil {
 		return fmt.Errorf("encode canonical evaluation challenge: %w", err)
 	}
 	return writeLine(a.stdout, "%s", canonicalMarker)
+}
+
+func validateFinalEvaluationChallengeHistory(number int, challenge evaluationChallenge,
+	finalHistory evaluationHistory) (evaluationLogicalChallenge, error) {
+	if challenge.Repository != repositoryKey || challenge.PR != number {
+		return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q identity is not bound to PR #%d",
+			challenge.Challenge, number)
+	}
+	projection, err := evaluationLogicalProjectionForHistory(finalHistory, false)
+	if err != nil {
+		return evaluationLogicalChallenge{}, fmt.Errorf("project challenge history: %w", err)
+	}
+	logical, ok := projection.challengeForID(challenge.Challenge)
+	if !ok {
+		return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q disappeared during convergence", challenge.Challenge)
+	}
+	finalChallenge, ok := evaluationChallengeByID(finalHistory, challenge.Challenge)
+	if !ok || !evaluationChallengeIdentityMatches(finalChallenge.challenge, challenge) {
+		return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q identity changed before output", challenge.Challenge)
+	}
+	if logical.hasReceipt || logical.hasResolution {
+		return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q is no longer the current logical outstanding challenge",
+			challenge.Challenge)
+	}
+	outstanding, err := outstandingEvaluationChallenges(finalHistory)
+	if err != nil {
+		return evaluationLogicalChallenge{}, fmt.Errorf("project outstanding challenges: %w", err)
+	}
+	if len(outstanding) != 1 || outstanding[0].challenge.Challenge != logical.canonical.challenge.Challenge {
+		return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q is not the sole current logical outstanding challenge",
+			challenge.Challenge)
+	}
+	for _, member := range logical.members[1:] {
+		if !hasChallengeClosureForID(logical, member.challenge.Challenge) {
+			return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q has an unclosed equivalent challenge after convergence",
+				member.challenge.Challenge)
+		}
+	}
+	return logical, nil
+}
+
+func evaluationChallengeIdentityMatches(left, right evaluationChallenge) bool {
+	return left.Challenge == right.Challenge && left.Head == right.Head &&
+		left.Repository == right.Repository && left.PR == right.PR &&
+		left.BodySHA256 == right.BodySHA256 && left.EvidenceSHA256 == right.EvidenceSHA256 &&
+		left.RequestedAt.Equal(right.RequestedAt)
 }
 
 //nolint:funlen,gocognit // Keep attestation recording's validation and retry phases in order.
