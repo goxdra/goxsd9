@@ -1346,7 +1346,6 @@ func validateRepairHistory(history evaluationHistory, candidate evaluationReceip
 	return nil
 }
 
-//nolint:funlen,gocognit // Keep challenge posting and post-verification phases explicit.
 func (a app) requestEvaluation(number int) error {
 	root, view, _, err := a.readEvaluationTarget(number)
 	if err != nil {
@@ -1368,6 +1367,9 @@ func (a app) requestEvaluation(number int) error {
 		return stateError("PR #%d has invalid logical evaluation history: %v", number, err)
 	}
 	if len(outstanding) != 0 {
+		if retry, ok := evaluationRetryChallengeForView(outstanding, number, view); ok {
+			return a.completeEvaluationChallenge(root, number, retry.challenge, view, history)
+		}
 		first := outstanding[0].challenge
 		return stateError("PR #%d has %d outstanding trusted Examiner challenge(s), including %q; no new challenge was posted. Record its exact attested receipt or, after the two-hour expiry at %s, run `go tool workflowctl evaluation resolve %d --challenge %s --reason-file FILE`",
 			number, len(outstanding), first.Challenge, first.RequestedAt.Add(evaluationChallengeDuration).Format(time.RFC3339Nano),
@@ -1409,7 +1411,35 @@ func (a app) requestEvaluation(number int) error {
 		return fmt.Errorf("evaluation challenge POST response was ambiguous; do not repost blindly, retry the exact challenge command after inspection: %w",
 			postErr)
 	}
-	convergenceErr := a.convergeEvaluationChallengeClosures(root, number, challenge, verifiedView, verifiedHistory)
+	return a.completeEvaluationChallenge(root, number, challenge, verifiedView, verifiedHistory)
+}
+
+func evaluationRetryChallengeForView(outstanding []evaluationChallengeRecord, number int, view pullRequestView) (
+	evaluationChallengeRecord, bool) {
+	if len(outstanding) != 1 {
+		return evaluationChallengeRecord{}, false
+	}
+	challenge := outstanding[0]
+	key, complete := evaluationChallengeKeyFor(challenge.challenge)
+	if !complete || key.pr != number || key.head != view.HeadRefOID ||
+		!evaluationChallengeRecordValidAt(challenge, time.Now().UTC()) {
+		return evaluationChallengeRecord{}, false
+	}
+	parsedEvidence, err := validatePREvidenceForView(view)
+	if err != nil {
+		return evaluationChallengeRecord{}, false
+	}
+	bodySHA256, evidenceSHA256 := currentPREvidenceDigest(view, parsedEvidence)
+	if key.bodySHA256 != bodySHA256 || key.evidenceSHA256 != evidenceSHA256 {
+		return evaluationChallengeRecord{}, false
+	}
+	return challenge, true
+}
+
+func (a app) completeEvaluationChallenge(root string, number int, challenge evaluationChallenge,
+	view pullRequestView, history evaluationHistory,
+) error {
+	convergenceErr := a.convergeEvaluationChallengeClosures(root, number, challenge, view, history)
 	if convergenceErr != nil {
 		return convergenceErr
 	}
@@ -2793,14 +2823,6 @@ func evaluationChallengeByID(history evaluationHistory, challengeID string) (eva
 	return found, matches == 1
 }
 
-func evaluationChallengeClosureCounts(history evaluationHistory, challenge evaluationChallengeRecord) (int, int, error) {
-	receipts, err := logicalEvaluationReceiptRecords(history)
-	if err != nil {
-		return 0, 0, err
-	}
-	receiptMatches, resolutionMatches := evaluationChallengeClosureCountsForReceipts(receipts, history.resolutions, challenge)
-	return receiptMatches, resolutionMatches, nil
-}
 func evaluationChallengeClosureCountsForReceipts(receipts []evaluationReceiptRecord,
 	resolutions []evaluationResolutionRecord, challenge evaluationChallengeRecord) (int, int) {
 	receiptMatches := 0

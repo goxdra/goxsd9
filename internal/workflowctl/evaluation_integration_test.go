@@ -142,6 +142,47 @@ func TestEvaluationChallengeReturnsEarlierCanonicalMarker(t *testing.T) {
 	}
 }
 
+func TestEvaluationChallengeInitialPostTransportLossRetriesWithoutRepost(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	backend.postCommentResponseMode = "transport"
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+
+	err := application.runEvaluation([]string{"challenge", "14"})
+	if err == nil || !strings.Contains(err.Error(), "do not repost blindly") {
+		t.Fatalf("initial challenge transport error = %v, want retry guidance", err)
+	}
+	if got, want := backend.commentPostCount, 1; got != want {
+		t.Fatalf("initial challenge POST count = %d, want %d", got, want)
+	}
+	if got, want := len(backend.comments), 1; got != want {
+		t.Fatalf("initial challenge history comments = %d, want %d", got, want)
+	}
+
+	backend.postCommentResponseMode = ""
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"challenge", "14"}); err != nil {
+		t.Fatalf("retry initial challenge transport loss: %v", err)
+	}
+	if got, want := backend.commentPostCount, 1; got != want {
+		t.Fatalf("retry reposted initial challenge = %d POSTs, want %d", got, want)
+	}
+	if got, want := len(backend.comments), 1; got != want {
+		t.Fatalf("retry changed initial challenge history comments = %d, want %d", got, want)
+	}
+	var returned evaluationChallenge
+	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &returned); err != nil {
+		t.Fatalf("decode retried challenge output: %v", err)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.challenges) != 1 {
+		t.Fatalf("retried challenge history = %d challenges, want 1", len(history.challenges))
+	}
+	if returned.Challenge != history.challenges[0].challenge.Challenge || returned.BodySHA256 == "" || returned.EvidenceSHA256 == "" {
+		t.Fatalf("retried challenge output = %#v, want authenticated digest-bound history marker", returned)
+	}
+}
+
 func TestEvaluationChallengeAndReceiptConvergencePhasesProgress(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer
