@@ -2403,8 +2403,8 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			allowNamespacePolicy := len(syntaxAttributesByLocal(parent, "name")) == 1
-			if err := validateChoiceParticleWithNamespacePolicy(child, version, allowNamespacePolicy); err != nil {
+			allowOccurrences := len(syntaxAttributesByLocal(parent, "name")) == 1
+			if err := validateChoiceParticleWithNamespacePolicy(child, version, allowOccurrences, allowOccurrences); err != nil {
 				if !candidate.considerError(err) {
 					return err
 				}
@@ -2647,7 +2647,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			if err := validateChoiceParticleWithNamespacePolicy(child, version, false); err != nil && !candidate.considerError(err) {
+			if err := validateChoiceParticleWithNamespacePolicy(child, version, false, false); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "attribute", "attributeGroup":
@@ -3243,12 +3243,12 @@ func validateComplexTypeAssert(element *syntaxElement, version XSDVersion) error
 	return newSchemaSyntaxUnsupportedForVersion(element.loc, "assertions are not implemented", version)
 }
 
-func validateChoiceParticleWithNamespacePolicy(element *syntaxElement, version XSDVersion, allowNamespacePolicy bool) error {
+func validateChoiceParticleWithNamespacePolicy(element *syntaxElement, version XSDVersion, allowOccurrences, allowNamespacePolicy bool) error {
 	var candidate schemaChildUnsupportedCandidate
-	if err := validateSchemaParticleAttributes(element, &candidate, version); err != nil {
+	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, allowOccurrences); err != nil {
 		return err
 	}
-	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "choice", version, false, allowNamespacePolicy)
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "choice", version, allowOccurrences, allowNamespacePolicy)
 	if err != nil {
 		return err
 	}
@@ -3399,11 +3399,11 @@ func schemaParticleOccurrenceRange(element *syntaxElement, version XSDVersion) (
 
 	minimumValue, err := parseParticleOccurrence(minimum.lexical, false, minimum.loc)
 	if err != nil {
-		return particleOccurrenceRange{}, invalidSchemaParticleOccurrence("minOccurs", minimum.loc, err)
+		return particleOccurrenceRange{}, invalidSchemaParticleOccurrence("minOccurs", minimum.lexical, minimum.loc, version, err)
 	}
 	maximumValue, err := parseParticleOccurrence(maximum.lexical, true, maximum.loc)
 	if err != nil {
-		return particleOccurrenceRange{}, invalidSchemaParticleOccurrence("maxOccurs", maximum.loc, err)
+		return particleOccurrenceRange{}, invalidSchemaParticleOccurrence("maxOccurs", maximum.lexical, maximum.loc, version, err)
 	}
 	occurrences, err := newParticleOccurrenceRange(minimumValue, maximumValue)
 	if errors.Is(err, errParticleOccurrenceMinimumExceedsMaximum) {
@@ -3448,20 +3448,47 @@ func schemaParticleCorrectSpecRef(version XSDVersion) string {
 	case XSDVersion10:
 		return "xsd10-structures#coss-particle"
 	case XSDVersion11:
-		return "xsd11-structures#cvc-particle"
+		return "xsd11-structures#coss-particle"
 	default:
 		return ""
 	}
 }
 
-func invalidSchemaParticleOccurrence(name string, loc Loc, cause error) Diagnostic {
-	return newDiagnostic(
-		FailureInvalid,
-		invalidSchemaCompositionCode,
-		loc,
-		fmt.Sprintf("attribute %q has an invalid occurrence value", name),
-		cause,
-	)
+func invalidSchemaParticleOccurrence(name, lexical string, loc Loc, version XSDVersion, cause error) Diagnostic {
+	specRef := schemaParticleOccurrenceDatatypeSpecRef(version)
+	if name == "minOccurs" && collapseXMLWhitespace(lexical) == "unbounded" {
+		specRef = schemaParticleMinimumOccurrenceSpecRef(version)
+	}
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    invalidSchemaCompositionCode,
+		loc:     loc,
+		message: fmt.Sprintf("attribute %q has an invalid occurrence value", name),
+		specRef: specRef,
+		cause:   cause,
+	}
+}
+
+func schemaParticleOccurrenceDatatypeSpecRef(version XSDVersion) string {
+	switch version {
+	case XSDVersion10:
+		return "xsd10-datatypes#nonNegativeInteger"
+	case XSDVersion11:
+		return "xsd11-datatypes#nonNegativeInteger"
+	default:
+		return ""
+	}
+}
+
+func schemaParticleMinimumOccurrenceSpecRef(version XSDVersion) string {
+	switch version {
+	case XSDVersion10:
+		return "xsd10-structures#p-min_occurs"
+	case XSDVersion11:
+		return "xsd11-structures#p-min_occurs"
+	default:
+		return ""
+	}
 }
 
 //nolint:gocognit,funlen // Keep XSD 1.1 alternative lexical and structural checks together.
@@ -3809,7 +3836,7 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 func validateUnsupportedParticle(element *syntaxElement, version XSDVersion) error {
 	switch element.name.local {
 	case "choice":
-		return validateChoiceParticleWithNamespacePolicy(element, version, false)
+		return validateChoiceParticleWithNamespacePolicy(element, version, false, false)
 	case "sequence":
 		return validateSequenceParticle(element, version)
 	case "group":

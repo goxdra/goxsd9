@@ -408,7 +408,6 @@ func TestSchemaBuildKeepsDirectChoiceUnsupportedShapes(t *testing.T) {
 		name  string
 		model string
 	}{
-		{name: "non-default choice occurrence", model: `<xs:choice minOccurs="0"><xs:element name="value" type="xs:integer"/></xs:choice>`},
 		{name: "nested sequence", model: `<xs:choice><xs:sequence/></xs:choice>`},
 		{name: "wildcard", model: `<xs:choice><xs:any/></xs:choice>`},
 		{name: "element reference", model: `<xs:choice><xs:element ref="r:value"/></xs:choice>`},

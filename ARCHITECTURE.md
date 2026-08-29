@@ -102,10 +102,10 @@ relations. Direct global `xs:boolean` elements retain expanded `DeclaredType`
 facts; named boolean restrictions expose immutable
 `SimpleTypeDefinition.IsBoolean()` facts; built-ins lack synthetic IDs.
 
-The model exposes concrete `element`, `sequence`, and `choice` particles
-for type switches; broader variants remain future. Named complex types may
-expose one ordered sequence of local integer/decimal scalar elements with exact
-immutable occurrence ranges. Local boolean particles remain unsupported.
+The model exposes `element`, `sequence`, and `choice` particles for
+type switches. Named complex types may expose one ordered sequence or direct
+choice of local integer/decimal scalar elements with exact immutable occurrence
+ranges; local boolean particles remain unsupported.
 
 ## Datatypes
 
@@ -127,12 +127,14 @@ capabilities and report unsupported behavior.
 ## Validation and code generation
 
 `ValidateInstance` supports text-only built-in/named `integer`/`decimal`/
-`precisionDecimal` globals and global named-complex elements having one direct
-choice of local `integer`/`decimal`/`precisionDecimal` elements. Named types use
-`TypeID`/`Lookup`; built-ins use policy defaults. Direct scalar sequences are
-parsed and queryable but not validated. Boolean globals and named restrictions
-remain unsupported in instance validation; attributes and broader
-particles remain unsupported; instance locations are primary.
+`precisionDecimal` globals and global named-complex elements having one
+default-occurrence direct choice of local `integer`/`decimal`/`precisionDecimal`
+elements. Named types use `TypeID`/`Lookup`; built-ins use policy defaults.
+Direct scalar sequences and non-default integer/decimal choice/alternative
+ranges are parsed/queryable but not validated; non-default `precisionDecimal`
+choice/alternative ranges remain schema-unsupported. Boolean globals and named
+restrictions remain unsupported in validation; attributes and particles remain
+unsupported; locations are primary.
 
 Code generation consumes only the public schema model. It produces deterministic
 formatted Go, uses type switches for choices, and never depends on map order.

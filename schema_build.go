@@ -1119,10 +1119,11 @@ func resolveSchemaSimpleTypes(
 }
 
 type schemaElementTypeResult struct {
-	present      bool
-	declaredType QName
-	typeID       ComponentID
-	hasTypeID    bool
+	present          bool
+	declaredType     QName
+	typeID           ComponentID
+	hasTypeID        bool
+	precisionDecimal bool
 }
 
 type schemaScalarTypeScope uint8
@@ -1217,10 +1218,11 @@ func resolveSchemaElementType(
 		)
 	}
 	return schemaElementTypeResult{
-		present:      true,
-		declaredType: input.declaredType,
-		typeID:       records[candidate].id,
-		hasTypeID:    true,
+		present:          true,
+		declaredType:     input.declaredType,
+		typeID:           records[candidate].id,
+		hasTypeID:        true,
+		precisionDecimal: isPrecisionDecimalSimpleType(simpleTypes[candidate]),
 	}, nil
 }
 
@@ -1274,10 +1276,11 @@ func resolveSchemaScalarType(
 		return schemaElementTypeResult{}, err
 	}
 	return schemaElementTypeResult{
-		present:      true,
-		declaredType: input.declaredType,
-		typeID:       records[candidate].id,
-		hasTypeID:    true,
+		present:          true,
+		declaredType:     input.declaredType,
+		typeID:           records[candidate].id,
+		hasTypeID:        true,
+		precisionDecimal: isPrecisionDecimalSimpleType(simpleTypes[candidate]),
 	}, nil
 }
 
@@ -1304,8 +1307,9 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 			return schemaElementTypeResult{}, unsupportedSequencePrecisionDecimal(input, version)
 		}
 		return schemaElementTypeResult{
-			present:      true,
-			declaredType: input.declaredType,
+			present:          true,
+			declaredType:     input.declaredType,
+			precisionDecimal: true,
 		}, nil
 	default:
 		return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
@@ -1330,6 +1334,11 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 		return nil
 	}
 	return unsupportedSequencePrecisionDecimal(input, version)
+}
+
+func isPrecisionDecimalSimpleType(simpleType schemaSimpleTypeResult) bool {
+	_, ok := simpleType.facets.(schemaPrecisionDecimalFacetVariant)
+	return ok
 }
 
 func unsupportedLocalSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string) Diagnostic {
@@ -1418,6 +1427,9 @@ func resolveSchemaChoiceParticle(
 	simpleTypes []schemaSimpleTypeResult,
 	version XSDVersion,
 ) (Particle, error) {
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
 	alternatives := make([]Particle, 0, len(input.alternatives))
 	for _, elementInput := range input.alternatives {
 		element, err := resolveSchemaElementParticle(
@@ -1434,7 +1446,17 @@ func resolveSchemaChoiceParticle(
 		if element == nil {
 			continue
 		}
-		alternatives = append(alternatives, element)
+		resolved, ok := element.(ElementParticle)
+		if !ok {
+			return nil, newSchemaBridgeInvariant(input.loc, "choice alternative resolution produced a non-element particle")
+		}
+		if resolved.facts == nil {
+			return nil, newSchemaBridgeInvariant(input.loc, "choice alternative resolution produced empty element facts")
+		}
+		if err := rejectUnsupportedSchemaChoiceOccurrence(input, elementInput, resolved, version); err != nil {
+			return nil, err
+		}
+		alternatives = append(alternatives, resolved)
 	}
 	choice := &schemaChoiceParticle{
 		loc:          input.loc,
@@ -1442,6 +1464,27 @@ func resolveSchemaChoiceParticle(
 		alternatives: alternatives,
 	}
 	return ChoiceParticle{facts: choice}, nil
+}
+
+func rejectUnsupportedSchemaChoiceOccurrence(input *schemaChoiceParticleInput, elementInput schemaElementParticleInput, alternative ElementParticle, version XSDVersion) error {
+	if !alternative.facts.precisionDecimal {
+		return nil
+	}
+	if !input.occurrences.isDefault() {
+		return newSchemaSyntaxUnsupportedForVersion(
+			input.loc,
+			"direct choice occurrence ranges with precisionDecimal alternatives are not implemented",
+			version,
+		)
+	}
+	if !elementInput.occurrences.isDefault() {
+		return newSchemaSyntaxUnsupportedForVersion(
+			elementInput.loc,
+			"precisionDecimal choice alternative occurrence ranges are not implemented",
+			version,
+		)
+	}
+	return nil
 }
 
 func resolveSchemaSequenceParticle(
@@ -1515,12 +1558,13 @@ func resolveSchemaElementParticle(
 		return nil, err
 	}
 	facts := &schemaElementParticle{
-		loc:          input.loc,
-		occurrences:  input.occurrences.clone(),
-		name:         input.name,
-		declaredType: resolved.declaredType,
-		typeID:       resolved.typeID,
-		hasTypeID:    resolved.hasTypeID,
+		loc:              input.loc,
+		occurrences:      input.occurrences.clone(),
+		name:             input.name,
+		declaredType:     resolved.declaredType,
+		typeID:           resolved.typeID,
+		hasTypeID:        resolved.hasTypeID,
+		precisionDecimal: resolved.precisionDecimal,
 	}
 	return ElementParticle{facts: facts}, nil
 }

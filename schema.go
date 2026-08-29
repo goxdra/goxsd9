@@ -932,12 +932,13 @@ type schemaChoiceParticle struct {
 }
 
 type schemaElementParticle struct {
-	loc          Loc
-	occurrences  particleOccurrenceRange
-	name         QName
-	declaredType QName
-	typeID       ComponentID
-	hasTypeID    bool
+	loc              Loc
+	occurrences      particleOccurrenceRange
+	name             QName
+	declaredType     QName
+	typeID           ComponentID
+	hasTypeID        bool
+	precisionDecimal bool
 }
 
 type schemaSequenceParticle struct {

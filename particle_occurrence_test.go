@@ -146,32 +146,52 @@ func TestParticleOccurrenceNormativeRows(t *testing.T) {
 			wantPublic: true,
 		},
 		{
-			name:       "xsd10 malformed minimum is invalid",
-			version:    XSDVersion10,
-			minPresent: true,
-			min:        "maybe",
-			wantError:  particleOccurrenceInvalidLexical,
+			name:        "xsd10 malformed minimum is invalid",
+			version:     XSDVersion10,
+			minPresent:  true,
+			min:         "maybe",
+			wantError:   particleOccurrenceInvalidLexical,
+			wantSpecRef: "xsd10-datatypes#nonNegativeInteger",
 		},
 		{
-			name:       "xsd11 malformed maximum is invalid",
-			version:    XSDVersion11,
-			maxPresent: true,
-			max:        "1.0",
-			wantError:  particleOccurrenceInvalidLexical,
+			name:        "xsd11 malformed maximum is invalid",
+			version:     XSDVersion11,
+			maxPresent:  true,
+			max:         "1.0",
+			wantError:   particleOccurrenceInvalidLexical,
+			wantSpecRef: "xsd11-datatypes#nonNegativeInteger",
 		},
 		{
-			name:       "xsd10 negative minimum is invalid",
-			version:    XSDVersion10,
-			minPresent: true,
-			min:        "-1",
-			wantError:  particleOccurrenceNegative,
+			name:        "xsd10 negative minimum is invalid",
+			version:     XSDVersion10,
+			minPresent:  true,
+			min:         "-1",
+			wantError:   particleOccurrenceNegative,
+			wantSpecRef: "xsd10-datatypes#nonNegativeInteger",
 		},
 		{
-			name:       "xsd11 negative maximum is invalid",
-			version:    XSDVersion11,
-			maxPresent: true,
-			max:        "-1",
-			wantError:  particleOccurrenceNegative,
+			name:        "xsd11 negative maximum is invalid",
+			version:     XSDVersion11,
+			maxPresent:  true,
+			max:         "-1",
+			wantError:   particleOccurrenceNegative,
+			wantSpecRef: "xsd11-datatypes#nonNegativeInteger",
+		},
+		{
+			name:        "xsd10 unbounded minimum is invalid",
+			version:     XSDVersion10,
+			minPresent:  true,
+			min:         "unbounded",
+			wantError:   particleOccurrenceInvalidLexical,
+			wantSpecRef: "xsd10-structures#p-min_occurs",
+		},
+		{
+			name:        "xsd11 unbounded minimum is invalid",
+			version:     XSDVersion11,
+			minPresent:  true,
+			min:         "unbounded",
+			wantError:   particleOccurrenceInvalidLexical,
+			wantSpecRef: "xsd11-structures#p-min_occurs",
 		},
 		{
 			name:        "xsd10 finite minimum above maximum is invalid",
@@ -191,7 +211,7 @@ func TestParticleOccurrenceNormativeRows(t *testing.T) {
 			maxPresent:  true,
 			max:         "1",
 			wantError:   particleOccurrenceInvalidRange,
-			wantSpecRef: "xsd11-structures#cvc-particle",
+			wantSpecRef: "xsd11-structures#coss-particle",
 		},
 		{
 			name:       "xsd11 unbounded bypasses numeric comparison",
@@ -241,6 +261,9 @@ func assertParticleOccurrenceTableError(t *testing.T, err error, want particleOc
 	if diagnostic.Code() != invalidSchemaCompositionCode {
 		t.Fatalf("diagnostic code = %s, want %s", diagnostic.Code(), invalidSchemaCompositionCode)
 	}
+	if diagnostic.SpecRef() != wantSpecRef {
+		t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), wantSpecRef)
+	}
 	if want == particleOccurrenceInvalidRange && diagnostic.Loc() != loc {
 		t.Fatalf("range diagnostic location = %s, want %s", diagnostic.Loc(), loc)
 	}
@@ -260,9 +283,6 @@ func assertParticleOccurrenceTableError(t *testing.T, err error, want particleOc
 	case particleOccurrenceInvalidRange:
 		if diagnostic.Message() != "particle minOccurs cannot exceed maxOccurs" {
 			t.Fatalf("range diagnostic message = %q", diagnostic.Message())
-		}
-		if diagnostic.SpecRef() != wantSpecRef {
-			t.Fatalf("range diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), wantSpecRef)
 		}
 		related := diagnostic.Related()
 		wantRelated := []Loc{
