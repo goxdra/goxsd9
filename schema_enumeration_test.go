@@ -99,6 +99,93 @@ func TestSchemaBridgeBuildsExactNumericEnumerationRestrictions(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep exact facet and related-diagnostic locations together.
+func TestSchemaBridgePreservesNumericFacetValueLocations(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="1.1">
+  <xs:simpleType name="Digits">
+    <xs:restriction base="xs:decimal">
+      <xs:totalDigits value="3"/>
+      <xs:fractionDigits value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="IntegerBound">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="DecimalBound">
+    <xs:restriction base="xs:decimal">
+      <xs:maxExclusive value="2.0"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+
+	digits := schemaEnumerationTestDefinition(t, schema, "Digits").DigitFacets()
+	totalDigitsLoc := mustTestLoc(t, "root.xsd", 4, 23)
+	if got, ok := digits.TotalDigitsLoc(); !ok || got != totalDigitsLoc {
+		t.Fatalf("totalDigits Loc() = %s/%t, want %s/true", got, ok, totalDigitsLoc)
+	}
+	fractionDigitsLoc := mustTestLoc(t, "root.xsd", 5, 26)
+	if got, ok := digits.FractionDigitsLoc(); !ok || got != fractionDigitsLoc {
+		t.Fatalf("fractionDigits Loc() = %s/%t, want %s/true", got, ok, fractionDigitsLoc)
+	}
+
+	decimalValue, err := ParseStrictDecimal("1234", mustTestLoc(t, "instance.xml", 1, 1), XSDVersion11)
+	if err != nil {
+		t.Fatalf("ParseStrictDecimal: %v", err)
+	}
+	diagnostic := requireDiagnostic(t, digits.ValidateDecimal(decimalValue, mustTestLoc(t, "instance.xml", 1, 1)))
+	if got, want := diagnostic.Related(), []Loc{totalDigitsLoc}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("totalDigits diagnostic Related() = %v, want %v", got, want)
+	}
+	decimalValue, err = ParseStrictDecimal("1.23", mustTestLoc(t, "instance.xml", 1, 1), XSDVersion11)
+	if err != nil {
+		t.Fatalf("ParseStrictDecimal: %v", err)
+	}
+	diagnostic = requireDiagnostic(t, digits.ValidateDecimal(decimalValue, mustTestLoc(t, "instance.xml", 1, 1)))
+	if got, want := diagnostic.Related(), []Loc{fractionDigitsLoc}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("fractionDigits diagnostic Related() = %v, want %v", got, want)
+	}
+
+	integerBounds, ok := schemaEnumerationTestDefinition(t, schema, "IntegerBound").IntegerBounds()
+	if !ok || len(integerBounds.Bounds()) != 1 {
+		t.Fatalf("IntegerBound bounds = %#v/%t, want one bound", integerBounds.Bounds(), ok)
+	}
+	integerBoundLoc := mustTestLoc(t, "root.xsd", 10, 24)
+	if got := integerBounds.Bounds()[0].Loc(); got != integerBoundLoc {
+		t.Fatalf("integer bound Loc() = %s, want %s", got, integerBoundLoc)
+	}
+	integerValue, err := ParseStrictInteger("0", mustTestLoc(t, "instance.xml", 1, 1))
+	if err != nil {
+		t.Fatalf("ParseStrictInteger: %v", err)
+	}
+	diagnostic = requireDiagnostic(t, integerBounds.ValidateInteger(integerValue, mustTestLoc(t, "instance.xml", 1, 1)))
+	if got, want := diagnostic.Related(), []Loc{integerBoundLoc}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("integer bound diagnostic Related() = %v, want %v", got, want)
+	}
+
+	decimalBounds, ok := schemaEnumerationTestDefinition(t, schema, "DecimalBound").DecimalBounds()
+	if !ok || len(decimalBounds.Bounds()) != 1 {
+		t.Fatalf("DecimalBound bounds = %#v/%t, want one bound", decimalBounds.Bounds(), ok)
+	}
+	decimalBoundLoc := mustTestLoc(t, "root.xsd", 15, 24)
+	if got := decimalBounds.Bounds()[0].Loc(); got != decimalBoundLoc {
+		t.Fatalf("decimal bound Loc() = %s, want %s", got, decimalBoundLoc)
+	}
+	decimalValue, err = ParseStrictDecimal("2.0", mustTestLoc(t, "instance.xml", 1, 1), XSDVersion11)
+	if err != nil {
+		t.Fatalf("ParseStrictDecimal: %v", err)
+	}
+	diagnostic = requireDiagnostic(t, decimalBounds.ValidateDecimal(decimalValue, mustTestLoc(t, "instance.xml", 1, 1)))
+	if got, want := diagnostic.Related(), []Loc{decimalBoundLoc}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("decimal bound diagnostic Related() = %v, want %v", got, want)
+	}
+}
+
 func TestSchemaBridgeResolvesNumericEnumerationsAcrossMixedGraphs(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:o="urn:other" targetNamespace="urn:root" version="1.1">
   <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
@@ -367,7 +454,7 @@ func schemaEnumerationBaseDigitSpaceCases(t *testing.T) []schemaEnumerationBaseD
   </xs:simpleType>
 </xs:schema>`,
 			valueLoc: mustTestLoc(t, "root.xsd", 9, 7),
-			related:  []Loc{mustTestLoc(t, "root.xsd", 4, 7)},
+			related:  []Loc{mustTestLoc(t, "root.xsd", 4, 23)},
 			datatype: "integer",
 		},
 		{
@@ -385,7 +472,7 @@ func schemaEnumerationBaseDigitSpaceCases(t *testing.T) []schemaEnumerationBaseD
   </xs:simpleType>
 </xs:schema>`,
 			valueLoc: mustTestLoc(t, "root.xsd", 9, 7),
-			related:  []Loc{mustTestLoc(t, "root.xsd", 4, 7)},
+			related:  []Loc{mustTestLoc(t, "root.xsd", 4, 23)},
 			datatype: "decimal",
 		},
 	}

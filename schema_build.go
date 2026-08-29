@@ -2196,7 +2196,7 @@ func schemaNumericFacetDeclarations(
 		return schemaNumericFacetDeclarationSet{}, newSchemaBridgeInvariant(Loc{}, "simple type facet collection has an unknown digit datatype")
 	}
 	for _, input := range inputs {
-		loc := input.loc
+		loc := schemaFacetValueLocation(input)
 		switch input.kind {
 		case schemaFacetTotalDigits:
 			facet, err := ParseTotalDigitsFacetWithFixed(input.lexical, loc, input.fixed, version)
