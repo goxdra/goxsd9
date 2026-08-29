@@ -22,8 +22,13 @@
 // The schema model also exposes one direct ordered sequence or choice of local
 // named integer/decimal scalar elements for a named global complex type,
 // including exact immutable occurrence ranges. Local boolean particles remain
-// unsupported. Sequence particles and non-default choice and alternative
-// ranges are query-only until validation repetition is implemented.
+// unsupported. Sequence particles remain query-only until validation
+// repetition is implemented. Non-0/0 integer/decimal choice and alternative
+// ranges are queryable, but repetition is not implemented. Non-default
+// precisionDecimal choice or alternative ranges that map to particles are
+// schema-unsupported. XSD 1.1 precisionDecimal is supported in direct choices
+// only when the choice and each mapped precisionDecimal alternative use
+// default occurrences.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:integer/xs:decimal/xs:precisionDecimal, or
