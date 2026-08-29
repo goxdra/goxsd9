@@ -65,10 +65,27 @@ var (
 )
 
 type instanceScalarType struct {
-	value   instanceScalarValue
-	version XSDVersion
-	related []Loc
+	value       instanceScalarValue
+	enumeration instanceEnumerationFacet
+	version     XSDVersion
+	related     []Loc
 }
+
+type instanceEnumerationFacet interface {
+	instanceEnumerationFacet()
+}
+
+type instanceIntegerEnumerationFacet struct {
+	facets IntegerEnumerationFacets
+}
+
+func (instanceIntegerEnumerationFacet) instanceEnumerationFacet() {}
+
+type instanceDecimalEnumerationFacet struct {
+	facets DecimalEnumerationFacets
+}
+
+func (instanceDecimalEnumerationFacet) instanceEnumerationFacet() {}
 
 type instanceScalarValue interface {
 	instanceScalarValue()
@@ -597,6 +614,9 @@ func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceSca
 	if boundErr := bounds.ValidateInteger(value, valueLoc); boundErr != nil {
 		return instanceDecorateDiagnostic(boundErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
 	}
+	if enumerationErr := validateIntegerEnumerationValue(value, valueLoc, scalar); enumerationErr != nil {
+		return instanceDecorateDiagnostic(enumerationErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+	}
 	return nil
 }
 
@@ -611,7 +631,42 @@ func validateDecimalScalarValue(lexical string, valueLoc Loc, scalar instanceSca
 	if boundErr := bounds.ValidateDecimal(value, valueLoc); boundErr != nil {
 		return instanceDecorateDiagnostic(boundErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
 	}
+	if enumerationErr := validateDecimalEnumerationValue(value, valueLoc, scalar); enumerationErr != nil {
+		return instanceDecorateDiagnostic(enumerationErr, scalar.related, instanceDecimalSpecRef(scalar.version), valueLoc)
+	}
 	return nil
+}
+
+func validateIntegerEnumerationValue(value StrictInteger, valueLoc Loc, scalar instanceScalarType) error {
+	if scalar.enumeration == nil {
+		return nil
+	}
+	enumeration, ok := scalar.enumeration.(instanceIntegerEnumerationFacet)
+	if !ok {
+		return newInstanceValidationInternal(
+			valueLoc,
+			"integer scalar validation has a non-integer enumeration facet",
+			scalar.related,
+			errInstanceValidationInvariant,
+		)
+	}
+	return enumeration.facets.ValidateInteger(value, valueLoc)
+}
+
+func validateDecimalEnumerationValue(value StrictDecimal, valueLoc Loc, scalar instanceScalarType) error {
+	if scalar.enumeration == nil {
+		return nil
+	}
+	enumeration, ok := scalar.enumeration.(instanceDecimalEnumerationFacet)
+	if !ok {
+		return newInstanceValidationInternal(
+			valueLoc,
+			"decimal scalar validation has a non-decimal enumeration facet",
+			scalar.related,
+			errInstanceValidationInvariant,
+		)
+	}
+	return enumeration.facets.ValidateDecimal(value, valueLoc)
 }
 
 func validatePrecisionDecimalScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, typed instancePrecisionDecimalScalar) error {
@@ -778,11 +833,36 @@ func instanceScalarTypeForTarget(
 			errInstanceValidationInvariant,
 		)
 	}
-	return instanceScalarType{
+	scalar := instanceScalarType{
 		value:   digitScalar,
 		version: facets.Version(),
 		related: related,
-	}, nil
+	}
+	var enumerationLocations []Loc
+	scalar.enumeration, enumerationLocations = instanceScalarEnumerationFor(definition, facets.Kind())
+	for _, location := range enumerationLocations {
+		scalar.related = appendInstanceRelated(scalar.related, location)
+	}
+	return scalar, nil
+}
+
+func instanceScalarEnumerationFor(definition SimpleTypeDefinition, kind DigitDatatype) (instanceEnumerationFacet, []Loc) {
+	switch kind {
+	case DigitDatatypeInteger:
+		enumeration := definition.IntegerEnumerationFacets()
+		if !enumeration.HasEnumeration() {
+			return nil, nil
+		}
+		return instanceIntegerEnumerationFacet{facets: enumeration}, enumeration.Locations()
+	case DigitDatatypeDecimal:
+		enumeration := definition.DecimalEnumerationFacets()
+		if !enumeration.HasEnumeration() {
+			return nil, nil
+		}
+		return instanceDecimalEnumerationFacet{facets: enumeration}, enumeration.Locations()
+	default:
+		return nil, nil
+	}
 }
 
 func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc) (instanceScalarType, error) {

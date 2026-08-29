@@ -83,9 +83,11 @@ boundary:
 
 The current schema preflight uses this exact private range to validate lexical
 occurrence input. A named global complex type with one direct sequence of local
-named integer/decimal scalar elements maps the completed range and its ordered
-children into the public schema. An effective `0/0` sequence or child maps to
-absence. The same exact representation is retained for choice facts so
+built-in `xs:boolean`, named boolean-restriction, integer, or decimal scalar
+elements maps the completed range and its ordered children into the public
+schema. Direct choices likewise model local built-in `xs:boolean` and named
+boolean-restriction elements. An effective `0/0` sequence, choice, or child maps
+to absence. The same exact representation is retained for choice facts so
 explicit choice occurrences remain unsupported without narrowing their
 diagnostics.
 
@@ -128,14 +130,16 @@ location. An error-level diagnostic returns no schema.
 ## Non-goals, risks, and follow-up
 
 Currently, the supported occurrence boundary is one named global complex type
-with one direct sequence of direct local named integer/decimal scalar elements
-in XSD 1.0 and 1.1. Direct sequence precisionDecimal children remain
+with one direct sequence of direct local built-in `xs:boolean`, named
+boolean-restriction, integer, or decimal scalar elements in XSD 1.0 and 1.1.
+Direct choices likewise model local built-in `xs:boolean` and named
+boolean-restriction elements. Direct sequence precisionDecimal children remain
 unsupported even under XSD 1.1 and Compatibility. Choice occurrence attributes
-remain unsupported, as do `all`, groups, wildcards, references, nested
-particles, attributes, and other composition. Repetition is not implemented in
-validation, repeated Go fields are not generated, effective total ranges are
-not calculated, and the parser does not support `all` mapping. The exact value
-has no fixed resource limit; later phases must set bounded input and
+remain unsupported, as do boolean facets, anonymous types, references, nested or
+broader particles, attributes, and other composition. Boolean validation and Go
+generation remain unsupported; repetition is not implemented, effective total
+ranges are not calculated, and the parser does not support `all` mapping. The
+exact value has no fixed resource limit; later phases must set bounded input and
 materialization policies.
 
 The main risks are memory proportional to hostile finite lexicals, a breaking

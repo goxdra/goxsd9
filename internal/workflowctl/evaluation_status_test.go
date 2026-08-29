@@ -347,7 +347,7 @@ func newEvaluationStatusBackend(t *testing.T, number int, head string, comments 
 	t.Helper()
 	apiComments := make([]issueCommentAPI, 0, len(comments))
 	for _, comment := range comments {
-		apiComment := issueCommentAPI{Body: comment.Body, CreatedAt: comment.CreatedAt}
+		apiComment := issueCommentAPI{ID: comment.ID, Body: comment.Body, CreatedAt: comment.CreatedAt}
 		apiComment.User.Login = comment.Author.Login
 		apiComments = append(apiComments, apiComment)
 	}

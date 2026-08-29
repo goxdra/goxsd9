@@ -102,10 +102,11 @@ relations. Direct global `xs:boolean` elements retain expanded `DeclaredType`
 facts; named boolean restrictions expose immutable
 `SimpleTypeDefinition.IsBoolean()` facts; built-ins lack synthetic IDs.
 
-The model exposes concrete `element`, `sequence`, and `choice` particles
-for type switches; broader variants remain future. Named complex types may
-expose one ordered sequence of local integer/decimal scalar elements with exact
-immutable occurrence ranges. Local boolean particles remain unsupported.
+Named complex types expose concrete direct `element`, `sequence`, and `choice`
+particles; local built-in `xs:boolean` and named boolean-restriction elements
+join existing integer/decimal sequence elements with exact immutable
+occurrences. Boolean facets, anonymous/ref/nested/broader particles remain
+unsupported.
 
 ## Datatypes
 
@@ -130,9 +131,10 @@ capabilities and report unsupported behavior.
 `precisionDecimal` globals and global named-complex elements having one direct
 choice of local `integer`/`decimal`/`precisionDecimal` elements. Named types use
 `TypeID`/`Lookup`; built-ins use policy defaults. Direct scalar sequences are
-parsed and queryable but not validated. Boolean globals and named restrictions
-remain unsupported in instance validation; attributes and broader
-particles remain unsupported; instance locations are primary.
+parsed and queryable but not validated. Boolean globals, named restrictions,
+and local boolean particles remain unsupported in instance validation;
+attributes and broader particles remain unsupported; instance locations are
+primary.
 
 Code generation consumes only the public schema model. It produces deterministic
 formatted Go, uses type switches for choices, and never depends on map order.
