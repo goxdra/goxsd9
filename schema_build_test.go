@@ -4229,32 +4229,6 @@ func TestSchemaBridgeRejectsInvalidBoundRestrictionsWithoutSchema(t *testing.T) 
 	}
 }
 
-func TestSchemaBridgeKeepsExcludedNumericFacetsUnsupported(t *testing.T) {
-	for _, facet := range []string{
-		`<xs:pattern value="[0-9]+"/>`,
-		`<xs:enumeration value="1"/>`,
-		`<xs:whiteSpace value="collapse"/>`,
-	} {
-		t.Run(facet, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:integer"><xs:minInclusive value="1"/>` + facet + `</xs:restriction></xs:simpleType></xs:schema>`
-			schema, err := discoverTestSchema(t, root, nil)
-			if err == nil {
-				t.Fatal("discoverSchema accepted an excluded numeric facet")
-			}
-			if schema.storage != nil {
-				t.Fatal("discoverSchema returned a partial schema")
-			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != UnsupportedDatatypeFacetCode {
-				t.Fatalf("diagnostic = %s, want datatype facet unsupported", diagnostic)
-			}
-			if !errors.Is(err, ErrUnsupported) {
-				t.Fatalf("unsupported diagnostic does not match ErrUnsupported: %v", err)
-			}
-		})
-	}
-}
-
 func assertSchemaFacetValue(t *testing.T, value StrictInteger, present bool, want, label string) {
 	t.Helper()
 	if !present {

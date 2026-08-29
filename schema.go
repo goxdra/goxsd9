@@ -278,11 +278,42 @@ func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 	if definition.facts == nil {
 		return DigitFacets{}
 	}
-	facets, ok := definition.facts.facets.(schemaDigitFacetVariant)
-	if !ok {
+	switch facets := definition.facts.facets.(type) {
+	case schemaDigitFacetVariant:
+		return facets.value
+	case schemaIntegerFacetVariant:
+		return facets.digits
+	case schemaDecimalFacetVariant:
+		return facets.digits
+	default:
 		return DigitFacets{}
 	}
-	return facets.value
+}
+
+// IntegerEnumerationFacets returns the effective integer enumeration facets.
+// It returns the zero value for a decimal or precisionDecimal simple type.
+func (definition SimpleTypeDefinition) IntegerEnumerationFacets() IntegerEnumerationFacets {
+	if definition.facts == nil {
+		return IntegerEnumerationFacets{}
+	}
+	facets, ok := definition.facts.facets.(schemaIntegerFacetVariant)
+	if !ok {
+		return IntegerEnumerationFacets{}
+	}
+	return facets.enumeration
+}
+
+// DecimalEnumerationFacets returns the effective decimal enumeration facets.
+// It returns the zero value for an integer or precisionDecimal simple type.
+func (definition SimpleTypeDefinition) DecimalEnumerationFacets() DecimalEnumerationFacets {
+	if definition.facts == nil {
+		return DecimalEnumerationFacets{}
+	}
+	facets, ok := definition.facts.facets.(schemaDecimalFacetVariant)
+	if !ok {
+		return DecimalEnumerationFacets{}
+	}
+	return facets.enumeration
 }
 
 // IntegerBounds returns the effective ordered integer bounds and their
@@ -291,11 +322,17 @@ func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool
 	if definition.facts == nil {
 		return IntegerBoundFacets{}, false
 	}
-	facets, ok := definition.facts.facets.(schemaDigitFacetVariant)
-	if !ok || facets.value.Kind() != DigitDatatypeInteger {
+	switch facets := definition.facts.facets.(type) {
+	case schemaDigitFacetVariant:
+		if facets.value.Kind() != DigitDatatypeInteger {
+			return IntegerBoundFacets{}, false
+		}
+		return facets.integerBounds, true
+	case schemaIntegerFacetVariant:
+		return facets.bounds, true
+	default:
 		return IntegerBoundFacets{}, false
 	}
-	return facets.integerBounds, true
 }
 
 // DecimalBounds returns the effective ordered decimal bounds and their
@@ -304,11 +341,17 @@ func (definition SimpleTypeDefinition) DecimalBounds() (DecimalBoundFacets, bool
 	if definition.facts == nil {
 		return DecimalBoundFacets{}, false
 	}
-	facets, ok := definition.facts.facets.(schemaDigitFacetVariant)
-	if !ok || facets.value.Kind() != DigitDatatypeDecimal {
+	switch facets := definition.facts.facets.(type) {
+	case schemaDigitFacetVariant:
+		if facets.value.Kind() != DigitDatatypeDecimal {
+			return DecimalBoundFacets{}, false
+		}
+		return facets.decimalBounds, true
+	case schemaDecimalFacetVariant:
+		return facets.bounds, true
+	default:
 		return DecimalBoundFacets{}, false
 	}
-	return facets.decimalBounds, true
 }
 
 // PrecisionDecimalFacets returns the effective precisionDecimal facets. It
@@ -873,6 +916,22 @@ type schemaDigitFacetVariant struct {
 }
 
 func (schemaDigitFacetVariant) schemaSimpleTypeFacetVariant() {}
+
+type schemaIntegerFacetVariant struct {
+	digits      DigitFacets
+	enumeration IntegerEnumerationFacets
+	bounds      IntegerBoundFacets
+}
+
+func (schemaIntegerFacetVariant) schemaSimpleTypeFacetVariant() {}
+
+type schemaDecimalFacetVariant struct {
+	digits      DigitFacets
+	enumeration DecimalEnumerationFacets
+	bounds      DecimalBoundFacets
+}
+
+func (schemaDecimalFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaPrecisionDecimalFacetVariant struct {
 	value PrecisionDecimalFacets
