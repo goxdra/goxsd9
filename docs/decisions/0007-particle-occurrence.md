@@ -72,8 +72,9 @@ boundary:
    constructs a tagged finite or max-only unbounded bound. The range
    constructor owns copies and rejects an unbounded minimum or finite
    `min > max`.
-3. The sequence mapping phase derives `mapsToParticle` from exact `0/0`; it
-   does not store an `absent` flag alongside the two bounds.
+3. The particle mapping phase applies the shared exact `0/0` absence rule to
+   sequence, choice, and child occurrences. It derives `mapsToParticle` from
+   exact `0/0`; it does not store an `absent` flag alongside the two bounds.
 4. The completed schema phase copies the range into an immutable public
    occurrence view. Its minimum is an owned `StrictInteger`; its maximum is a
    tagged finite or unbounded value. Queries clone exact finite values at the
@@ -82,13 +83,13 @@ boundary:
    not cache derived repetition programs in the schema.
 
 The current schema preflight uses this exact private range to validate lexical
-occurrence input. A named global complex type with one direct sequence or
-choice of local named integer/decimal scalar elements maps the completed range
-and its ordered children into the public schema. An effective `0/0` sequence,
-choice, or child maps to absence. The same exact representation is retained for
-choice facts while repetition consumers remain unsupported. The existing
-default direct-choice `precisionDecimal` path is unchanged; non-default
-`precisionDecimal` choice and alternative ranges remain explicitly unsupported.
+occurrence input. A named global complex type with one direct sequence or choice
+of local named `integer`/`decimal` scalar elements maps the completed range and
+ordered children into the public schema. An effective `0/0` sequence, choice, or
+child maps to absence. The same exact representation is retained for choice
+facts while repetition consumers remain unsupported. XSD 1.1 default-occurrence
+direct choices may use `precisionDecimal`; non-default `precisionDecimal` choice
+or alternative ranges that map to a particle are schema-unsupported.
 
 ## Public API migration
 
@@ -138,14 +139,18 @@ behavior. An error-level diagnostic returns no schema.
 
 Currently, the supported occurrence boundary is one named global complex type
 with one direct sequence or direct choice of local named integer/decimal scalar
-elements in XSD 1.0 and 1.1. Direct sequence precisionDecimal children remain
-unsupported even under XSD 1.1 and Compatibility. Nested choices, `all`, groups,
-wildcards, references, nested particles, attributes, and other composition
-remain unsupported. Non-default choice and alternative ranges are parsed and
-queryable, but repetition is not implemented in validation, repeated Go fields
-are not generated, effective total ranges are not calculated, and the parser
-does not support `all` mapping. The exact value has no fixed resource limit;
-later phases must set bounded input and materialization policies.
+elements in XSD 1.0 and 1.1. XSD 1.1 default-occurrence direct choices may also
+use `precisionDecimal`; direct sequence `precisionDecimal` children remain
+unsupported even under XSD 1.1 and Compatibility. An effective `0/0` sequence,
+choice, or child maps to absence. Nested choices, `all`, groups, wildcards,
+references, nested particles, attributes, and other composition remain
+unsupported. Non-`0/0` integer/decimal choice and alternative ranges are parsed
+and queryable, but repetition is not implemented in validation, repeated Go
+fields are not generated, and effective total ranges are not calculated;
+non-default `precisionDecimal` choice and alternative ranges that map to a
+particle are schema-unsupported. The parser does not support `all` mapping.
+The exact value has no fixed resource limit; later phases must set bounded input
+and materialization policies.
 
 The main risks are memory proportional to hostile finite lexicals, a breaking
 API migration if exact accessors are delayed, and accidentally treating the
