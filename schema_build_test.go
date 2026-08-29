@@ -1080,12 +1080,6 @@ func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
 	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Choice">%s</xs:complexType></xs:schema>`
 	assertSchemaBridgeDiagnosticCases(t, []schemaBridgeDiagnosticCase{
 		{
-			name:    "choice occurrence is unsupported after lexical validation",
-			root:    fmt.Sprintf(base, `<xs:choice minOccurs="0">`+`<xs:element name="value" type="xs:integer"/>`+`</xs:choice>`),
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:  "choice min occurrence exceeds omitted max default",
 			root:  fmt.Sprintf(base, `<xs:choice minOccurs="2"><xs:element name="value" type="xs:integer"/></xs:choice>`),
 			class: FailureInvalid,
@@ -1098,18 +1092,6 @@ func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:    "choice unbounded max remains lexically valid",
-			root:    fmt.Sprintf(base, `<xs:choice minOccurs="2" maxOccurs="unbounded"><xs:element name="value" type="xs:integer"/></xs:choice>`),
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
-			name:    "element occurrence is unsupported after lexical validation",
-			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" minOccurs="0"/></xs:choice>`),
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:  "element min occurrence exceeds omitted max default",
 			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" minOccurs="2"/></xs:choice>`),
 			class: FailureInvalid,
@@ -1120,12 +1102,6 @@ func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
 			root:  fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" maxOccurs="0"/></xs:choice>`),
 			class: FailureInvalid,
 			code:  invalidSchemaCompositionCode,
-		},
-		{
-			name:    "element unbounded max remains lexically valid",
-			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value" type="xs:integer" minOccurs="2" maxOccurs="unbounded"/></xs:choice>`),
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
 		},
 		{
 			name:    "nested element form policy remains unsupported",

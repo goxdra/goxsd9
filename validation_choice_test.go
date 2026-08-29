@@ -47,6 +47,75 @@ func TestValidateInstanceSupportsGlobalDirectScalarChoices(t *testing.T) {
 	}
 }
 
+type nonDefaultDirectChoiceCase struct {
+	name          string
+	choiceAttrs   string
+	elementAttrs  string
+	wantElementAt bool
+}
+
+func TestValidateInstanceKeepsNonDefaultDirectChoiceUnsupported(t *testing.T) {
+	cases := []nonDefaultDirectChoiceCase{
+		{name: "choice occurrence", choiceAttrs: ` minOccurs="0"`},
+		{name: "alternative occurrence", elementAttrs: ` minOccurs="0"`, wantElementAt: true},
+	}
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			for _, test := range cases {
+				t.Run(test.name, func(t *testing.T) {
+					assertNonDefaultDirectChoiceUnsupported(t, policy, test)
+				})
+			}
+		})
+	}
+}
+
+func assertNonDefaultDirectChoiceUnsupported(t *testing.T, policy goxsd9.LanguagePolicy, test nonDefaultDirectChoiceCase) {
+	t.Helper()
+	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationChoiceRootNamespace + `" targetNamespace="` + validationChoiceRootNamespace + `">
+  <xs:complexType name="Choice"><xs:choice` + test.choiceAttrs + `><xs:element name="value" type="xs:integer"` + test.elementAttrs + `/></xs:choice></xs:complexType>
+  <xs:element name="choiceRoot" type="r:Choice"/>
+</xs:schema>`
+	schema := validationTestSchemaWithPolicy(t, root, nil, policy)
+	before := schema.Components()
+	evidence := validationChoiceEvidenceFor(t, schema)
+	input := validationChoiceInstance("value", "1")
+	diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+	assertNonDefaultDirectChoiceDiagnostic(t, diagnostic, policy, test, evidence)
+	if !reflect.DeepEqual(before, schema.Components()) {
+		t.Fatal("non-default occurrence validation mutated the completed schema")
+	}
+}
+
+func assertNonDefaultDirectChoiceDiagnostic(t *testing.T, diagnostic goxsd9.Diagnostic, policy goxsd9.LanguagePolicy, test nonDefaultDirectChoiceCase, evidence validationChoiceEvidence) {
+	t.Helper()
+	if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedInstanceValidationCode || diagnostic.Feature() != goxsd9.FeatureInstanceValidation {
+		t.Fatalf("diagnostic = %s/%q/%q, want unsupported/%s/%q", diagnostic, diagnostic.Code(), diagnostic.Feature(), goxsd9.UnsupportedInstanceValidationCode, goxsd9.FeatureInstanceValidation)
+	}
+	if !errors.Is(diagnostic, goxsd9.ErrUnsupported) {
+		t.Fatalf("diagnostic does not match ErrUnsupported: %v", diagnostic)
+	}
+	wantLoc := evidence.choice
+	wantRelated := []goxsd9.Loc{evidence.declaration, evidence.complex, evidence.choice}
+	if test.wantElementAt {
+		wantLoc = evidence.byChild["value"][3]
+		wantRelated = evidence.byChild["value"]
+	}
+	if diagnostic.Loc() != wantLoc {
+		t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+	}
+	if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+		t.Fatalf("diagnostic related = %v, want %v", diagnostic.Related(), wantRelated)
+	}
+	wantSpec := "xsd11-structures#cvc-elt"
+	if policy == goxsd9.Strict10 {
+		wantSpec = "xsd10-structures#cvc-elt"
+	}
+	if diagnostic.SpecRef() != wantSpec {
+		t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), wantSpec)
+	}
+}
+
 func validationChoiceSchema(t *testing.T, policy goxsd9.LanguagePolicy) goxsd9.Schema {
 	t.Helper()
 	version := "1.1"
@@ -408,7 +477,6 @@ func TestSchemaBuildKeepsDirectChoiceUnsupportedShapes(t *testing.T) {
 		name  string
 		model string
 	}{
-		{name: "non-default choice occurrence", model: `<xs:choice minOccurs="0"><xs:element name="value" type="xs:integer"/></xs:choice>`},
 		{name: "nested sequence", model: `<xs:choice><xs:sequence/></xs:choice>`},
 		{name: "wildcard", model: `<xs:choice><xs:any/></xs:choice>`},
 		{name: "element reference", model: `<xs:choice><xs:element ref="r:value"/></xs:choice>`},

@@ -336,6 +336,7 @@ func TestSchemaSimpleTypeVarietyAllowsUnionListItemsInStrict10(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the strict XSD 1.0 list/union/list identity proof together.
 func TestSchemaSimpleTypeVarietyStrict10AllowsListValuedUnionMember(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
   <xs:simpleType name="InnerList"><xs:list itemType="xs:integer"/></xs:simpleType>
