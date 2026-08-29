@@ -210,7 +210,7 @@ func (validator *bootstrapXMLValidator) accept(
 		}
 		return validator.endElement(entry, decoder, value, raw, tokenStart, tokenEnd)
 	case xml.CharData:
-		return validator.characterData(entry, decoder, value, data, tokenStart, tokenEnd)
+		return validator.characterData(entry, decoder, data, tokenStart, tokenEnd)
 	case xml.Comment:
 		validator.seenToken = true
 		return nil
@@ -387,7 +387,6 @@ func (validator *bootstrapXMLValidator) endElement(
 func (validator *bootstrapXMLValidator) characterData(
 	entry Entry,
 	decoder *xml.Decoder,
-	data xml.CharData,
 	raw []byte,
 	tokenStart, tokenEnd int64,
 ) error {
