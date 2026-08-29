@@ -205,7 +205,7 @@ func TestSchemaBridgeRejectsInvalidNumericEnumerationDeclarations(t *testing.T) 
 	}
 }
 
-//nolint:gocognit // Keep order, classification, location, and cause assertions together.
+//nolint:gocognit,funlen // Keep order, classification, location, and cause assertions together.
 func TestSchemaBridgeCompletesNumericEnumerationBeforeUnsupportedFacet(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -260,6 +260,46 @@ func TestSchemaBridgeCompletesNumericEnumerationBeforeUnsupportedFacet(t *testin
 			class:       FailureUnsupported,
 			loc:         mustTestLoc(t, "root.xsd", 4, 7),
 			unsupported: true,
+		},
+		{
+			name: "excluded facet before invalid derived enumeration",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="1.1">
+  <xs:simpleType name="base">
+    <xs:restriction base="xs:integer">
+      <xs:enumeration value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="child">
+    <xs:restriction base="t:base">
+      <xs:pattern value="x"/>
+      <xs:enumeration value="2"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`,
+			code:  InvalidEnumerationRestrictionCode,
+			class: FailureInvalid,
+			loc:   mustTestLoc(t, "root.xsd", 10, 7),
+			cause: errInvalidEnumerationRestriction,
+		},
+		{
+			name: "invalid derived enumeration before excluded facet",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="1.1">
+  <xs:simpleType name="base">
+    <xs:restriction base="xs:integer">
+      <xs:enumeration value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="child">
+    <xs:restriction base="t:base">
+      <xs:enumeration value="2"/>
+      <xs:pattern value="x"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`,
+			code:  InvalidEnumerationRestrictionCode,
+			class: FailureInvalid,
+			loc:   mustTestLoc(t, "root.xsd", 9, 7),
+			cause: errInvalidEnumerationRestriction,
 		},
 	}
 	for _, test := range tests {
@@ -389,10 +429,15 @@ func assertSchemaEnumerationBaseDigitSpaceRejected(
 	}
 }
 
+//nolint:gocognit // Keep unsupported-facet classification and no-partial-schema assertions together.
 func TestSchemaBridgeKeepsExcludedNumericFacetsUnsupported(t *testing.T) {
-	for _, facet := range []string{"pattern", "minInclusive", "maxExclusive"} {
+	for _, facet := range []string{"pattern", "whiteSpace", "length"} {
 		t.Run(facet, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:` + facet + ` value="1"/></xs:restriction></xs:simpleType></xs:schema>`
+			value := "1"
+			if facet == "whiteSpace" {
+				value = "collapse"
+			}
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:` + facet + ` value="` + value + `"/></xs:restriction></xs:simpleType></xs:schema>`
 			schema, err := discoverTestSchema(t, root, nil)
 			if err == nil {
 				t.Fatal("discoverSchema accepted an excluded numeric facet")

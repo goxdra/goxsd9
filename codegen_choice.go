@@ -204,8 +204,7 @@ func collectCodegenDirectChoices(
 			)
 		}
 		if err := validateCodegenDirectChoiceBounds(
-			choice.MinOccurs(),
-			choice.MaxOccurs(),
+			choice.facts.occurrences,
 			choice.Loc(),
 			"choice",
 			version,
@@ -275,8 +274,7 @@ func collectCodegenDirectChoices(
 				)
 			}
 			if err := validateCodegenDirectChoiceBounds(
-				element.MinOccurs(),
-				element.MaxOccurs(),
+				element.facts.occurrences,
 				element.Loc(),
 				"choice element",
 				version,
@@ -307,6 +305,8 @@ func directChoiceTypedNilParticle(particle Particle) bool {
 	case *ChoiceParticle:
 		return concrete == nil
 	case *ElementParticle:
+		return concrete == nil
+	case *SequenceParticle:
 		return concrete == nil
 	default:
 		return false
@@ -353,12 +353,12 @@ func codegenDirectChoicePath(index int) ([]uint32, error) {
 }
 
 func validateCodegenDirectChoiceBounds(
-	minimum, maximum uint64,
+	occurrences particleOccurrenceRange,
 	loc Loc,
 	context string,
 	version XSDVersion,
 ) error {
-	if minimum > maximum {
+	if !occurrences.maximum.isUnbounded() && occurrences.minimum.Compare(occurrences.maximum) > 0 {
 		return newCodegenInternal(
 			loc,
 			context+" occurrence bounds are inconsistent",
@@ -366,12 +366,12 @@ func validateCodegenDirectChoiceBounds(
 			errCodegenDirectChoiceParticle,
 		)
 	}
-	if minimum == 1 && maximum == 1 {
+	if occurrences.isDefault() {
 		return nil
 	}
 	return newCodegenDirectChoiceUnsupported(
 		loc,
-		fmt.Sprintf("%s occurrence bounds %d/%d are outside direct choice generation", context, minimum, maximum),
+		fmt.Sprintf("%s occurrence bounds %s are outside direct choice generation", context, occurrences),
 		nil,
 		fmt.Errorf("%w: non-default %s occurrence bounds", errCodegenUnsupported, context),
 		version,

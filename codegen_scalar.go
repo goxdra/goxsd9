@@ -151,6 +151,7 @@ func planCodegenSourceWithChoicePlan(
 			runtimeAlias,
 			hasRuntimeAlias,
 			policyVersion,
+			choicePlan != nil,
 		)
 		if err != nil {
 			return codegenSourcePlan{}, err
@@ -244,6 +245,7 @@ func planCodegenComponent(
 	runtimeAlias string,
 	hasRuntimeAlias bool,
 	policyVersion XSDVersion,
+	allowComplexElementType bool,
 ) (string, bool, error) {
 	switch component.Kind() {
 	case ComponentKindSimpleTypeDefinition:
@@ -257,7 +259,7 @@ func planCodegenComponent(
 		}
 		return fieldType, true, nil
 	case ComponentKindElementDeclaration:
-		return codegenElementFieldType(schema, names, component, runtimeAlias, hasRuntimeAlias, policyVersion)
+		return codegenElementFieldType(schema, names, component, runtimeAlias, hasRuntimeAlias, policyVersion, allowComplexElementType)
 	case ComponentKindAttributeDeclaration,
 		ComponentKindComplexTypeDefinition,
 		ComponentKindModelGroupDefinition,
@@ -533,6 +535,7 @@ func codegenElementFieldType(
 	runtimeAlias string,
 	hasRuntimeAlias bool,
 	version XSDVersion,
+	allowComplexElementType bool,
 ) (string, bool, error) {
 	declaration, ok := component.ElementDeclaration()
 	if !ok {
@@ -557,7 +560,7 @@ func codegenElementFieldType(
 	if declaredType.Namespace() == xsdNamespaceURI {
 		return codegenBuiltinElementFieldType(component, declaration, runtimeAlias, hasRuntimeAlias, version)
 	}
-	return codegenNamedElementFieldType(schema, names, component, declaration, version)
+	return codegenNamedElementFieldType(schema, names, component, declaration, version, allowComplexElementType)
 }
 
 func codegenBuiltinElementFieldType(
@@ -600,6 +603,7 @@ func codegenNamedElementFieldType(
 	component Component,
 	declaration ElementDeclaration,
 	version XSDVersion,
+	allowComplexElementType bool,
 ) (string, bool, error) {
 	declaredType := declaration.DeclaredType()
 	typeID, hasTypeID := declaration.TypeID()
@@ -628,6 +632,17 @@ func codegenNamedElementFieldType(
 			related,
 			errCodegenElementType,
 		)
+	}
+	if target.Kind() == ComponentKindComplexTypeDefinition && allowComplexElementType {
+		identifier, nameOK := names.componentName(typeID)
+		if !nameOK {
+			return "", false, newCodegenNamingInvariant(
+				component.Loc(),
+				fmt.Sprintf("named global element type %s has no generated name", typeID.Source()),
+				errCodegenNamingMisaligned,
+			)
+		}
+		return identifier, false, nil
 	}
 	if target.Kind() != ComponentKindSimpleTypeDefinition {
 		return "", false, newCodegenElementUnsupported(

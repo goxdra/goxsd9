@@ -12,6 +12,11 @@ import (
 
 const fixtureNamespace = testSuiteNamespace
 
+const (
+	precisionDecimalSaxonSetPath = "saxonMeta/PDecimal.testSet"
+	precisionDecimalIBMSetPath   = "ibmMeta/precisionDecimal.testSet"
+)
+
 type originCaseExpectation struct {
 	setPath string
 	name    string
@@ -19,6 +24,89 @@ type originCaseExpectation struct {
 	status  catalogStatus
 	outcome string
 	usable  bool
+}
+
+type precisionDecimalInstanceLedgerRow struct {
+	setPath      string
+	groupName    string
+	schemaPath   string
+	instancePath string
+	outcome      string
+	owner        int
+}
+
+// Paths are relative to testdata/w3c/xsdtests. Keep this exact issue #196
+// oracle in catalog order; outcomes are catalog metadata, not execution.
+var precisionDecimalAuxiliaryInstanceLedger = []precisionDecimalInstanceLedgerRow{
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal001", schemaPath: "saxonData/PDecimal/pdecimal001.xsd", instancePath: "saxonData/PDecimal/pdecimal001.v1.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal001", schemaPath: "saxonData/PDecimal/pdecimal001.xsd", instancePath: "saxonData/PDecimal/pdecimal001.v2.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal001", schemaPath: "saxonData/PDecimal/pdecimal001.xsd", instancePath: "saxonData/PDecimal/pdecimal001.n1.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal001", schemaPath: "saxonData/PDecimal/pdecimal001.xsd", instancePath: "saxonData/PDecimal/pdecimal001.n2.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal001", schemaPath: "saxonData/PDecimal/pdecimal001.xsd", instancePath: "saxonData/PDecimal/pdecimal001.n3.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal001", schemaPath: "saxonData/PDecimal/pdecimal001.xsd", instancePath: "saxonData/PDecimal/pdecimal001.n4.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal001", schemaPath: "saxonData/PDecimal/pdecimal001.xsd", instancePath: "saxonData/PDecimal/pdecimal001.n5.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal002", schemaPath: "saxonData/PDecimal/pdecimal002.xsd", instancePath: "saxonData/PDecimal/pdecimal002.v1.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal002", schemaPath: "saxonData/PDecimal/pdecimal002.xsd", instancePath: "saxonData/PDecimal/pdecimal002.n1.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal002", schemaPath: "saxonData/PDecimal/pdecimal002.xsd", instancePath: "saxonData/PDecimal/pdecimal002.n2.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal002", schemaPath: "saxonData/PDecimal/pdecimal002.xsd", instancePath: "saxonData/PDecimal/pdecimal002.n3.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal003", schemaPath: "saxonData/PDecimal/pdecimal003.xsd", instancePath: "saxonData/PDecimal/pdecimal003.v1.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal003", schemaPath: "saxonData/PDecimal/pdecimal003.xsd", instancePath: "saxonData/PDecimal/pdecimal003.n1.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal003", schemaPath: "saxonData/PDecimal/pdecimal003.xsd", instancePath: "saxonData/PDecimal/pdecimal003.n2.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal003", schemaPath: "saxonData/PDecimal/pdecimal003.xsd", instancePath: "saxonData/PDecimal/pdecimal003.n3.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal003", schemaPath: "saxonData/PDecimal/pdecimal003.xsd", instancePath: "saxonData/PDecimal/pdecimal003.n4.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal004", schemaPath: "saxonData/PDecimal/pdecimal004.xsd", instancePath: "saxonData/PDecimal/pdecimal004.v1.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal004", schemaPath: "saxonData/PDecimal/pdecimal004.xsd", instancePath: "saxonData/PDecimal/pdecimal004.n1.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal004", schemaPath: "saxonData/PDecimal/pdecimal004.xsd", instancePath: "saxonData/PDecimal/pdecimal004.n2.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal004", schemaPath: "saxonData/PDecimal/pdecimal004.xsd", instancePath: "saxonData/PDecimal/pdecimal004.n3.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal005", schemaPath: "saxonData/PDecimal/pdecimal005.xsd", instancePath: "saxonData/PDecimal/pdecimal005.v1.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal005", schemaPath: "saxonData/PDecimal/pdecimal005.xsd", instancePath: "saxonData/PDecimal/pdecimal005.n1.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal005", schemaPath: "saxonData/PDecimal/pdecimal005.xsd", instancePath: "saxonData/PDecimal/pdecimal005.n2.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal005", schemaPath: "saxonData/PDecimal/pdecimal005.xsd", instancePath: "saxonData/PDecimal/pdecimal005.n3.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal006", schemaPath: "saxonData/PDecimal/pdecimal006.xsd", instancePath: "saxonData/PDecimal/pdecimal006.v1.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal006", schemaPath: "saxonData/PDecimal/pdecimal006.xsd", instancePath: "saxonData/PDecimal/pdecimal006.n1.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal006", schemaPath: "saxonData/PDecimal/pdecimal006.xsd", instancePath: "saxonData/PDecimal/pdecimal006.n2.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal007", schemaPath: "saxonData/PDecimal/pdecimal007.xsd", instancePath: "saxonData/PDecimal/pdecimal007.v1.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal007", schemaPath: "saxonData/PDecimal/pdecimal007.xsd", instancePath: "saxonData/PDecimal/pdecimal007.n1.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal008", schemaPath: "saxonData/PDecimal/pdecimal008.xsd", instancePath: "saxonData/PDecimal/pdecimal008.v1.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal008", schemaPath: "saxonData/PDecimal/pdecimal008.xsd", instancePath: "saxonData/PDecimal/pdecimal008.n1.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal008", schemaPath: "saxonData/PDecimal/pdecimal008.xsd", instancePath: "saxonData/PDecimal/pdecimal008.n2.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal008", schemaPath: "saxonData/PDecimal/pdecimal008.xsd", instancePath: "saxonData/PDecimal/pdecimal008.n3.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal008", schemaPath: "saxonData/PDecimal/pdecimal008.xsd", instancePath: "saxonData/PDecimal/pdecimal008.n4.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal008", schemaPath: "saxonData/PDecimal/pdecimal008.xsd", instancePath: "saxonData/PDecimal/pdecimal008.n5.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal010", schemaPath: "saxonData/PDecimal/pdecimal010.xsd", instancePath: "saxonData/PDecimal/pdecimal010.v1.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal010", schemaPath: "saxonData/PDecimal/pdecimal010.xsd", instancePath: "saxonData/PDecimal/pdecimal010.n1.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal010", schemaPath: "saxonData/PDecimal/pdecimal010.xsd", instancePath: "saxonData/PDecimal/pdecimal010.n2.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal010", schemaPath: "saxonData/PDecimal/pdecimal010.xsd", instancePath: "saxonData/PDecimal/pdecimal010.n3.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal010", schemaPath: "saxonData/PDecimal/pdecimal010.xsd", instancePath: "saxonData/PDecimal/pdecimal010.n4.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal010", schemaPath: "saxonData/PDecimal/pdecimal010.xsd", instancePath: "saxonData/PDecimal/pdecimal010.n5.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal016", schemaPath: "saxonData/PDecimal/pdecimal016.xsd", instancePath: "saxonData/PDecimal/pdecimal016.v1.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal016", schemaPath: "saxonData/PDecimal/pdecimal016.xsd", instancePath: "saxonData/PDecimal/pdecimal016.n1.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal016", schemaPath: "saxonData/PDecimal/pdecimal016.xsd", instancePath: "saxonData/PDecimal/pdecimal016.n2.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal016", schemaPath: "saxonData/PDecimal/pdecimal016.xsd", instancePath: "saxonData/PDecimal/pdecimal016.n3.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal016", schemaPath: "saxonData/PDecimal/pdecimal016.xsd", instancePath: "saxonData/PDecimal/pdecimal016.n4.xml", outcome: "invalid", owner: 217},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal019", schemaPath: "saxonData/PDecimal/pdecimal019.xsd", instancePath: "saxonData/PDecimal/pdecimal019.v1.xml", outcome: "valid", owner: 218},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal019", schemaPath: "saxonData/PDecimal/pdecimal019.xsd", instancePath: "saxonData/PDecimal/pdecimal019.n1.xml", outcome: "invalid", owner: 218},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal020", schemaPath: "saxonData/PDecimal/pdecimal020.xsd", instancePath: "saxonData/PDecimal/pdecimal020.v1.xml", outcome: "valid", owner: 218},
+	{setPath: precisionDecimalSaxonSetPath, groupName: "pdecimal020", schemaPath: "saxonData/PDecimal/pdecimal020.xsd", instancePath: "saxonData/PDecimal/pdecimal020.n1.xml", outcome: "invalid", owner: 218},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4v14", schemaPath: "ibmData/valid/D3_3_4/d3_3_4v14.xsd", instancePath: "ibmData/valid/D3_3_4/d3_3_4v14.xml", outcome: "valid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4v15", schemaPath: "ibmData/valid/D3_3_4/d3_3_4v15.xsd", instancePath: "ibmData/valid/D3_3_4/d3_3_4v15.xml", outcome: "valid", owner: 217},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4v16", schemaPath: "ibmData/valid/D3_3_4/d3_3_4v16.xsd", instancePath: "ibmData/valid/D3_3_4/d3_3_4v16.xml", outcome: "valid", owner: 218},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4v17", schemaPath: "ibmData/valid/D3_3_4/d3_3_4v17.xsd", instancePath: "ibmData/valid/D3_3_4/d3_3_4v17.xml", outcome: "valid", owner: 218},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4v18", schemaPath: "ibmData/valid/D3_3_4/d3_3_4v18.xsd", instancePath: "ibmData/valid/D3_3_4/d3_3_4v18.xml", outcome: "valid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4v19", schemaPath: "ibmData/valid/D3_3_4/d3_3_4v19.xsd", instancePath: "ibmData/valid/D3_3_4/d3_3_4v19.xml", outcome: "valid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4v20", schemaPath: "ibmData/valid/D3_3_4/d3_3_4v20.xsd", instancePath: "ibmData/valid/D3_3_4/d3_3_4v20.xml", outcome: "valid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4v21", schemaPath: "ibmData/valid/D3_3_4/d3_3_4v21.xsd", instancePath: "ibmData/valid/D3_3_4/d3_3_4v21.xml", outcome: "valid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4v22", schemaPath: "ibmData/valid/D3_3_4/d3_3_4v22.xsd", instancePath: "ibmData/valid/D3_3_4/d3_3_4v22.xml", outcome: "valid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4v23", schemaPath: "ibmData/valid/D3_3_4/d3_3_4v23.xsd", instancePath: "ibmData/valid/D3_3_4/d3_3_4v23.xml", outcome: "valid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4v24", schemaPath: "ibmData/valid/D3_3_4/d3_3_4v24.xsd", instancePath: "ibmData/valid/D3_3_4/d3_3_4v24.xml", outcome: "valid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4ii01", schemaPath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01.xsd", instancePath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01.xml", outcome: "invalid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4ii01", schemaPath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01.xsd", instancePath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01a.xml", outcome: "invalid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4ii01", schemaPath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01.xsd", instancePath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01b.xml", outcome: "invalid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4ii01", schemaPath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01.xsd", instancePath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01c.xml", outcome: "invalid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4ii01", schemaPath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01.xsd", instancePath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01d.xml", outcome: "invalid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4ii01", schemaPath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01.xsd", instancePath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01e.xml", outcome: "invalid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4ii01", schemaPath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01.xsd", instancePath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii01f.xml", outcome: "invalid", owner: 216},
+	{setPath: precisionDecimalIBMSetPath, groupName: "d3_3_4ii02", schemaPath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii02.xsd", instancePath: "ibmData/instance_invalid/D3_3_4/d3_3_4ii02.xml", outcome: "invalid", owner: 216},
 }
 
 func TestReadDeduplicatesCatalogRootsAndReportsIndependentDimensions(t *testing.T) {
@@ -203,6 +291,242 @@ func TestPinnedCatalogBaseline(t *testing.T) {
 		"auxiliary 1.1 schema 53 25 28 0 0 53 0 0 0 0 0 0 0",
 		"auxiliary 1.1 instance 69 24 45 0 0 69 0 0 0 0 0 0 0",
 	})
+}
+
+//nolint:gocognit,funlen // Keep the complete ordered ledger and exclusion proof together.
+func TestPinnedAuxiliaryPrecisionDecimalInstanceLedger(t *testing.T) {
+	root := filepath.Join("..", "..", "testdata", "w3c", "xsdtests")
+	inventory, err := ReadDirectory(root)
+	if err != nil {
+		t.Fatalf("ReadDirectory: %v", err)
+	}
+
+	type groupKey struct {
+		setPath   string
+		groupName string
+	}
+
+	// These slices retain Inventory.cases order; the ledger is compared by
+	// index so additions, omissions, and reorderings fail independently.
+	instanceCases := make([]catalogCase, 0, len(precisionDecimalAuxiliaryInstanceLedger))
+	schemaByGroup := make(map[groupKey]catalogCase, 54)
+	targetCaseCount := 0
+	schemaCaseCount := 0
+	saxonSchemaCount := 0
+	ibmSchemaCount := 0
+	saxonInstanceCount := 0
+	ibmInstanceCount := 0
+	for inventoryIndex, caseValue := range inventory.cases {
+		switch caseValue.setPath {
+		case precisionDecimalSaxonSetPath, precisionDecimalIBMSetPath:
+		default:
+			continue
+		}
+		targetCaseCount++
+		if caseValue.origin != originAuxiliary {
+			t.Fatalf("catalog case index %d %q origin = %q, want auxiliary", inventoryIndex, caseValue.name, caseValue.origin)
+		}
+		if caseValue.status != statusAccepted {
+			t.Fatalf("catalog case index %d %q status = %q, want accepted", inventoryIndex, caseValue.name, caseValue.status)
+		}
+		if caseValue.isGloballyUnusable() {
+			t.Fatalf("catalog case index %d %q is unusable", inventoryIndex, caseValue.name)
+		}
+
+		switch caseValue.kind {
+		case schemaKind:
+			schemaCaseCount++
+			key := groupKey{setPath: caseValue.setPath, groupName: caseValue.groupName}
+			if _, ok := schemaByGroup[key]; ok {
+				t.Fatalf("catalog case index %d repeats schema sibling for %s/%s", inventoryIndex, key.setPath, key.groupName)
+			}
+			schemaByGroup[key] = caseValue
+			switch caseValue.setPath {
+			case precisionDecimalSaxonSetPath:
+				saxonSchemaCount++
+			case precisionDecimalIBMSetPath:
+				ibmSchemaCount++
+			}
+		case instanceKind:
+			instanceCases = append(instanceCases, caseValue)
+			switch caseValue.setPath {
+			case precisionDecimalSaxonSetPath:
+				saxonInstanceCount++
+			case precisionDecimalIBMSetPath:
+				ibmInstanceCount++
+			}
+		default:
+			t.Fatalf("catalog case index %d %q kind = %q, want schema or instance", inventoryIndex, caseValue.name, caseValue.kind)
+		}
+	}
+
+	if got, want := targetCaseCount, 123; got != want {
+		t.Fatalf("target auxiliary case count = %d, want %d", got, want)
+	}
+	if got, want := schemaCaseCount, 54; got != want {
+		t.Fatalf("target schema case count = %d, want %d schema-only siblings", got, want)
+	}
+	if got, want := len(schemaByGroup), schemaCaseCount; got != want {
+		t.Fatalf("schema sibling key count = %d, want %d", got, want)
+	}
+	if got, want := len(instanceCases), len(precisionDecimalAuxiliaryInstanceLedger); got != want {
+		t.Fatalf("selected instance case count = %d, want %d", got, want)
+	}
+	if saxonSchemaCount != 21 || ibmSchemaCount != 33 {
+		t.Fatalf("target schema cases = %d Saxon, %d IBM; want 21, 33", saxonSchemaCount, ibmSchemaCount)
+	}
+	if saxonInstanceCount != 50 || ibmInstanceCount != 19 {
+		t.Fatalf("target instance cases = %d Saxon, %d IBM; want 50, 19", saxonInstanceCount, ibmInstanceCount)
+	}
+
+	seenInstancePaths := make(map[string]int, len(instanceCases))
+	validCount := 0
+	invalidCount := 0
+	owner216Count := 0
+	owner217Count := 0
+	owner218Count := 0
+	for index, want := range precisionDecimalAuxiliaryInstanceLedger {
+		rowNumber := index + 1
+		actual := instanceCases[index]
+		if actual.setPath != want.setPath || actual.groupName != want.groupName {
+			t.Fatalf("ledger row %d catalog group = %s/%s, want %s/%s", rowNumber, actual.setPath, actual.groupName, want.setPath, want.groupName)
+		}
+		if actual.kind != instanceKind {
+			t.Fatalf("ledger row %d %s/%s kind = %q, want instance", rowNumber, actual.setPath, actual.groupName, actual.kind)
+		}
+		if actual.origin != originAuxiliary {
+			t.Fatalf("ledger row %d %s/%s origin = %q, want auxiliary", rowNumber, actual.setPath, actual.groupName, actual.origin)
+		}
+		if actual.status != statusAccepted {
+			t.Fatalf("ledger row %d %s/%s status = %q, want accepted and not queried", rowNumber, actual.setPath, actual.groupName, actual.status)
+		}
+		assertPrecisionDecimalOneOneApplicability(t, rowNumber, actual)
+		if len(actual.usableReasons) != 0 || actual.isUnusable("1.1") || actual.isGloballyUnusable() {
+			t.Fatalf("ledger row %d instance %q is unusable: %v", rowNumber, actual.name, actual.usableReasons)
+		}
+		if len(actual.documents) != 1 {
+			t.Fatalf("ledger row %d %q document count = %d, want 1", rowNumber, actual.name, len(actual.documents))
+		}
+		if actual.documents[0] != want.instancePath {
+			t.Fatalf("ledger row %d instance path = %q, want %q", rowNumber, actual.documents[0], want.instancePath)
+		}
+		if len(actual.expectations) != 1 {
+			t.Fatalf("ledger row %d %q expected metadata count = %d, want 1", rowNumber, actual.name, len(actual.expectations))
+		}
+		expected := actual.expectations[0]
+		if expected.validity != want.outcome || expected.explicit || len(expected.versions) != 0 {
+			t.Fatalf("ledger row %d %q expected metadata = %#v, want implicit %q", rowNumber, actual.name, expected, want.outcome)
+		}
+		if outcome, ok := actual.outcome("1.1"); !ok || outcome != want.outcome {
+			t.Fatalf("ledger row %d %q outcome = %q, %t; want %q for 1.1", rowNumber, actual.name, outcome, ok, want.outcome)
+		}
+		if outcome, ok := actual.outcome("1.0"); ok {
+			t.Fatalf("ledger row %d %q has XSD 1.0 outcome %q, want no applicability", rowNumber, actual.name, outcome)
+		}
+
+		key := groupKey{setPath: want.setPath, groupName: want.groupName}
+		schema, ok := schemaByGroup[key]
+		if !ok {
+			t.Fatalf("ledger row %d %s/%s has no sibling schema case", rowNumber, want.setPath, want.groupName)
+		}
+		assertPrecisionDecimalSchemaSibling(t, rowNumber, want, schema)
+
+		if previous, ok := seenInstancePaths[actual.documents[0]]; ok {
+			t.Fatalf("ledger row %d instance path %q duplicates row %d", rowNumber, actual.documents[0], previous)
+		}
+		seenInstancePaths[actual.documents[0]] = rowNumber
+
+		switch want.outcome {
+		case "valid":
+			validCount++
+		case "invalid":
+			invalidCount++
+		default:
+			t.Fatalf("ledger row %d has unsupported oracle outcome %q", rowNumber, want.outcome)
+		}
+		switch want.owner {
+		case 216:
+			owner216Count++
+		case 217:
+			owner217Count++
+		case 218:
+			owner218Count++
+		default:
+			t.Fatalf("ledger row %d has unsupported owner #%d", rowNumber, want.owner)
+		}
+	}
+
+	if len(seenInstancePaths) != 69 {
+		t.Fatalf("unique instance path count = %d, want 69", len(seenInstancePaths))
+	}
+	if _, ok := seenInstancePaths["saxonData/PDecimal/pdecimal001.n6.xml"]; ok {
+		t.Fatal("uncataloged Saxon pdecimal001.n6.xml was included")
+	}
+	if validCount != 24 || invalidCount != 45 {
+		t.Fatalf("ledger outcomes = %d valid, %d invalid; want 24, 45", validCount, invalidCount)
+	}
+	if owner216Count != 16 || owner217Count != 47 || owner218Count != 6 {
+		t.Fatalf("ledger owners = #%d: %d, #%d: %d, #%d: %d; want 16, 47, 6", 216, owner216Count, 217, owner217Count, 218, owner218Count)
+	}
+
+	output := inventoryOutput(t, inventory)
+	assertOutputContains(t, output, []string{
+		"auxiliary 1.1 instance 69 24 45 0 0 69 0 0 0 0 0 0 0\n",
+	})
+}
+
+func assertPrecisionDecimalOneOneApplicability(t *testing.T, rowNumber int, caseValue catalogCase) {
+	t.Helper()
+	if len(caseValue.parentVersions) != 1 || caseValue.parentVersions[0] != "1.1" {
+		t.Fatalf("ledger row %d %q parent versions = %v, want [1.1]", rowNumber, caseValue.name, caseValue.parentVersions)
+	}
+	if !caseApplies(caseValue, "1.1") {
+		t.Fatalf("ledger row %d %q does not apply to XSD 1.1", rowNumber, caseValue.name)
+	}
+	if caseApplies(caseValue, "1.0") {
+		t.Fatalf("ledger row %d %q applies to XSD 1.0, want 1.1 only", rowNumber, caseValue.name)
+	}
+}
+
+func assertPrecisionDecimalSchemaSibling(t *testing.T, rowNumber int,
+	want precisionDecimalInstanceLedgerRow, schema catalogCase,
+) {
+	t.Helper()
+	if schema.kind != schemaKind {
+		t.Fatalf("ledger row %d sibling %s/%s kind = %q, want schema", rowNumber, want.setPath, want.groupName, schema.kind)
+	}
+	if schema.setPath != want.setPath || schema.groupName != want.groupName {
+		t.Fatalf("ledger row %d sibling group = %s/%s, want %s/%s", rowNumber, schema.setPath, schema.groupName, want.setPath, want.groupName)
+	}
+	if schema.origin != originAuxiliary {
+		t.Fatalf("ledger row %d sibling schema origin = %q, want auxiliary", rowNumber, schema.origin)
+	}
+	if schema.status != statusAccepted {
+		t.Fatalf("ledger row %d sibling schema status = %q, want accepted", rowNumber, schema.status)
+	}
+	assertPrecisionDecimalOneOneApplicability(t, rowNumber, schema)
+	if len(schema.usableReasons) != 0 || schema.isUnusable("1.1") {
+		t.Fatalf("ledger row %d sibling schema %q is unusable: %v", rowNumber, schema.name, schema.usableReasons)
+	}
+	if len(schema.documents) != 1 {
+		t.Fatalf("ledger row %d sibling schema %q document count = %d, want 1", rowNumber, schema.name, len(schema.documents))
+	}
+	if schema.documents[0] != want.schemaPath {
+		t.Fatalf("ledger row %d sibling schema path = %q, want %q", rowNumber, schema.documents[0], want.schemaPath)
+	}
+	if len(schema.expectations) != 1 {
+		t.Fatalf("ledger row %d sibling schema %q expected metadata count = %d, want 1", rowNumber, schema.name, len(schema.expectations))
+	}
+	expected := schema.expectations[0]
+	if expected.validity != "valid" || expected.explicit || len(expected.versions) != 0 {
+		t.Fatalf("ledger row %d sibling schema %q expected metadata = %#v, want implicit valid", rowNumber, schema.name, expected)
+	}
+	if outcome, ok := schema.outcome("1.1"); !ok || outcome != "valid" {
+		t.Fatalf("ledger row %d sibling schema %q outcome = %q, %t; want valid for 1.1", rowNumber, schema.name, outcome, ok)
+	}
+	if outcome, ok := schema.outcome("1.0"); ok {
+		t.Fatalf("ledger row %d sibling schema %q has XSD 1.0 outcome %q, want no applicability", rowNumber, schema.name, outcome)
+	}
 }
 
 func assertPinnedSharedSetIsMain(t *testing.T, cases []catalogCase) {

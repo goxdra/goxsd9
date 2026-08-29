@@ -1,6 +1,6 @@
 <!-- Title: <type>(<optional-scope>): <lowercase imperative summary> -->
 <!-- goxsd9/pr-review-state/v1 pending -->
-<!-- This Markdown body is review evidence. Write the squash summary separately at finalization. -->
+<!-- This Markdown body is review evidence. Write the squash summary separately. -->
 
 ## Outcome
 
@@ -12,25 +12,23 @@
 
 ## Consultation
 
-<!-- Summarize Scribe and Mason input, or justify a mechanical exemption. -->
-<!-- Add Curator run, head, verdict, and outcome when the documentation audit requires review. -->
+<!-- Summarize Scribe/Mason input or a mechanical exemption; include Curator details when needed. -->
 
 ## Verification
 
 <!-- List exact deterministic commands and results. -->
 
 ### Development signals
-
-<!-- Provide exact development-signals v2 JSON/deltas or selected targets; state
-     `no-relevant-target` explicitly. Distinguish automatic policy fuzz,
-     optional current-head additional fuzz, and separately requested checked-in
-     corpus replay. Fuzz is engineering health, not conformance; evidence is
-     independently recomputed at exact REST base/head. -->
+<!-- goxsd9/pr-review-state/v1 slot development-signals -->
+Pending exact-base/head development signals.
+<!-- Add exact v2 signals or `no-relevant-target`; workflowctl recomputes the current exact base/head. -->
 
 ## Conformance and documentation
-
-<!-- Record affected feature IDs, tests unlocked, exact docs audit, and current docs changed. -->
+<!-- goxsd9/pr-review-state/v1 slot conformance-documentation -->
+Pending exact-base documentation audit and Curator result.
+<!-- Record feature IDs, unlocked tests, exact docs audit, and changed docs. -->
 
 ## Evaluation
-
+<!-- goxsd9/pr-review-state/v1 slot evaluation -->
+Pending evidence update before a fresh challenge-bound Examiner evaluation.
 <!-- workflowctl records the fresh Examiner receipt after review. -->

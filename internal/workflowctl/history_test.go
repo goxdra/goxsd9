@@ -859,7 +859,7 @@ func historyTestCommentJSON(t *testing.T, comments []pullRequestComment) string 
 	t.Helper()
 	responses := make([]issueCommentAPI, 0, len(comments))
 	for _, comment := range comments {
-		response := issueCommentAPI{Body: comment.Body, CreatedAt: comment.CreatedAt}
+		response := issueCommentAPI{ID: comment.ID, Body: comment.Body, CreatedAt: comment.CreatedAt}
 		response.User.Login = comment.Author.Login
 		responses = append(responses, response)
 	}

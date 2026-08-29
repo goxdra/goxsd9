@@ -126,18 +126,18 @@ validation; it never selects a policy and never mismatches a policy by itself.
 | `version="1.1"` | `Strict10` | Use strict XSD 1.0 rules. The label does not upgrade the graph. No mismatch. |
 | Root label `"1.0"`, resolver-supplied import label `"1.1"` | `Compatibility` | Allow the mixed graph and use one compatibility policy for both documents, including cycles and repeated identities. Do not switch policy at the import. |
 
-### Future contract examples
+### Implemented integration examples
 
 Catalog or manifest edition integration and strict-profile feature mismatch
-handling are future work and non-goals of the current implementation. The
-following rows describe their intended contract only:
+handling follow the same explicit policy boundary as the parser. The following
+rows describe the implemented contract:
 
 | Example | Selected policy | Result |
 | --- | --- | --- |
 | A catalog entry selects XSD 1.0 or XSD 1.1 from manifest edition metadata | `Strict10` or `Strict11` respectively | Select the strict policy before parsing. Ignore every schema label in the root and resolver graph; labels cannot override catalog selection. |
 | `Strict10` encounters a recognized XSD 1.1-only feature such as `<xs:assert>` that must be processed | `Strict10` | Report an actual strict-profile feature mismatch at the construct’s source `Loc` as explicit unsupported behavior, with the registered feature, stable code, and pinned XSD 1.1 reference. Return no schema. |
 
-The future strict-profile row is a mismatch because the source invokes
+The current strict-profile row is a mismatch because the source invokes
 behavior outside the selected strict profile, not because it contains a
 particular label. A well-formed graph whose documents merely use different
 labels is not a strict mismatch. Conversely, malformed representation input,
@@ -146,7 +146,7 @@ policy mismatch.
 
 ## Lifecycle and diagnostics
 
-Future implementation packets preserve these invariants:
+The implementation preserves these invariants:
 
 1. Validate the policy before discovery and before any resolver call. An
    invalid policy configuration uses the dedicated stable parser-policy code
@@ -184,8 +184,9 @@ default, and `ParseSchemaWithPolicy` applies the validated policy to every
 root, include, import, repeat, and cycle. Absent, empty, arbitrary, `"1.0"`,
 and `"1.1"` labels do not select or mismatch a policy. Conditional capability
 and supported grammar, component, and digit-facet behavior are derived from
-that policy. Strict-profile feature mismatch rules and catalog or manifest
-edition integration remain future work.
+that policy. Recognized strict-profile feature mismatches and exact catalog or
+manifest edition selection are implemented at their respective boundaries;
+broader conformance execution and feature support remain future work.
 
 The implementation boundary is limited to constructing and validating the
 policy, propagating it through the schema graph, deriving version-sensitive

@@ -4,13 +4,13 @@ goxsd9 targets XSD 1.1/1.0 parsing, XML validation, and Go code generation; unsu
 
 ## Schema parsing
 
-`ParseSchema` exposes immutable components. Callers create `ResolvedSource`; `Resolver` supplies sources/policy. Calls are sequential; contexts/locations stay opaque, paths/URLs unopened. Parsing closes unseen streams; repeated/cyclic identities close without decoding.
+`ParseSchema` exposes immutable components; callers provide `ResolvedSource` and a `Resolver`. Calls are sequential; source locations stay opaque.
 
-Mixed XSD 1.0/1.1 graphs, declarations, restrictions, digit facets, and `xs:precisionDecimal` are supported; precisionDecimal is optional under `Compatibility`/`Strict11`, and `Strict10` rejects it. Chameleon/redefine/override/defaultOpenContent/assertions and broader facets remain unsupported. `ParseSchema` defaults to `Compatibility`; `ParseSchemaWithPolicy` selects a policy. `schema/@version` is inert. Errors omit schema. `ValidateInstance` supports text-only built-in/named integer/decimal globals and named complex globals with one direct local integer/decimal choice; precisionDecimal instance validation, attributes, particles, and semantics remain unsupported. `GenerateGo` emits deterministic scalar/choice Go; broader generation is staged. [Scalar library quickstart](library_example_test.go) is library-only.
+Mixed XSD 1.0/1.1 graphs, restrictions, and ordered bounds work; `xs:precisionDecimal` remains limited. Direct global booleans and named complex scalar sequences are modeled; boolean facets, local boolean particles, and direct sequence precisionDecimal remain unsupported. `Strict10` reports XSD 1.1 constructs as unsupported. Malformed input is invalid; digit facets work. `ParseSchema` defaults to `Compatibility`; `ParseSchemaWithPolicy` chooses. Errors return no schema. `ValidateInstance` supports numeric globals and direct scalar choices; boolean validation and sequences remain unsupported. `GenerateGo` emits deterministic scalar/choice Go; boolean generation unsupported. [Direct-choice example](direct_choice_example_test.go) uses [fixtures](examples/direct-choice/); run `go test ./... -run '^Example_directChoice$'`: invalid `XSD2001` at `examples/direct-choice/invalid.xml:2:19` (`xsd11-datatypes#integer`). [Scalar quickstart](library_example_test.go) is library-only.
 
 ## Product CLI
 
-`parse`, `validate`, and `generate` work; `generate` uses public `GenerateGo`, writing Go to stdout or `--output FILE`. [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
+`parse`, `validate`, and `generate` use public APIs; [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines the CLI contract.
 [`examples/root.xsd`](examples/root.xsd), [`examples/valid.xml`](examples/valid.xml), [`examples/invalid.xml`](examples/invalid.xml)
 
 ```console
@@ -23,7 +23,7 @@ exit status 1
 $ go run ./cmd/goxsd9 generate --package sample examples/root.xsd > generated.go
 ```
 
-Parse summarizes to stdout; validation is silent (exit 0). Invalid exits 1 with empty stdout and a located stderr diagnostic; `go run` adds `exit status 1`. Usage is 2; unsupported behavior is explicit, with no broader conformance claim.
+Parse writes stdout; validation is silent on success. Invalid validation exits 1 with a located diagnostic; usage is 2.
 
 ## Design goals
 
@@ -34,26 +34,28 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [PLAN.md](PLAN.md).
 
 ## Repository checks
 
-Fresh checkout; inventory reports metadata only, not tests:
+Fresh checkout; inventory remains metadata-only. Bounded schema requires exact `-version 1.0` or `-version 1.1` plus `-set` or `-case`; instances never run:
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
 go tool workflowctl check
 go tool conformance inventory
+go tool conformance schema -version 1.0 -set SET -case CASE
 ```
 
 ## Pinned specification corpus
 
-Build/search a verified `.cache` entry:
+Corpus commands:
 ```sh
 go tool specs build -id xsd11-structures
 go tool specs search -id xsd11-structures -query "content model"
+go tool specs bootstrap -version 1.1
 ```
-Use `-root`, `-output`, and `-index`; the [schema bootstrap contract](docs/decisions/0003-schema-bootstrap.md) covers digests, conversion, and artifacts.
+Use `-root`, `-output`, and `-index`; `bootstrap` previews without fetching.
 
 ## Project workflow
 
-Work uses [GitHub Issues](https://github.com/goxdra/goxsd9/issues) and the [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1); agents use worktrees/workflow skills—see [operations](docs/operations.md) and [AGENTS.md](AGENTS.md) for workflow rules.
+See [GitHub Issues](https://github.com/goxdra/goxsd9/issues), the [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), and [AGENTS.md](AGENTS.md) for workflow rules.
 
 ## Test data licensing
 

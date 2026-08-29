@@ -176,7 +176,7 @@ func assertEnumerationInstanceViolation(
 	if diagnostic.SpecRef() != specRef {
 		t.Fatalf("SpecRef() = %q, want %q", diagnostic.SpecRef(), specRef)
 	}
-	if diagnostic.Loc() != validationTestTextLoc(t, "instance.xml", input) {
+	if diagnostic.Loc() != validationTestTextLoc(t, input) {
 		t.Fatalf("Loc() = %s, want instance text location", diagnostic.Loc())
 	}
 	if diagnostic.Unwrap() == nil {
