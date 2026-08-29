@@ -21,52 +21,33 @@ owns Saxon rows 1–46 plus IBM row 52 (47); [#218](https://github.com/goxdra/go
 owns Saxon rows 47–50 plus IBM rows 53–54 (6); and [#216](https://github.com/goxdra/goxsd9/issues/216)
 owns IBM rows 51 and 55–69 (16).
 
-[#210](https://github.com/goxdra/goxsd9/issues/210) resolved the two apparent
-catalog conflicts without changing the pinned catalog or fixtures:
+The two catalog interpretations are:
 
-- Saxon row 27, `pdecimal006.n2.xml`, remains source-catalog invalid but is
-  effectively valid for XSD 1.1 replay. Its `NaN` value is identical to the
-  schema's `NaN` enumeration member under final XSD 1.1
-  [`cvc-enumeration-valid`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#cvc-enumeration-valid)
-  and [`identity`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#identity).
-  This enumeration-membership identity rule does not change general `NaN`
-  equality or partial comparison.
-- IBM row 51, `d3_3_4v14.xml`, is source-catalog and effectively valid. The
-  instance `1.001e3` and enumerated `10.01e2` both have numerical value 1001,
-  so numeric equality applies and no replay override exists.
+- Saxon row 27, `pdecimal006.n2.xml`, is source-catalog invalid and
+  effective-replay valid.
+- IBM row 51, `d3_3_4v14.xml`, is source-catalog and effective-replay valid;
+  it has no override.
 
-The catalog outcome remains immutable historical provenance. A runner must
-derive the effective expectation on demand from the catalog plus a sparse,
-version-scoped policy: one explicit row-27 invalid-to-valid override guarded by
-the expected source value, and no row-51 override. The guard detects source
-drift; it is not a second catalog oracle. The policy must be injected and
-opt-in, use the complete case identity rather than a case name alone, validate
-the entire replay plan before executing any instance, and reject duplicate or
-unknown keys, source-validity drift, a wrong version or origin, and a missing
-paired valid schema without returning a partial report.
+[0002](0002-precision-decimal.md) is the semantic authority for these outcomes;
+[#210](https://github.com/goxdra/goxsd9/issues/210) preserves their full case
+evidence and resolution history.
 
-[#211](https://github.com/goxdra/goxsd9/issues/211) owns this executable runner
-and effective-expectation policy. Reports expose source expected, effective
-expected, actual, and outcome independently; they distinguish historical-source
-and effective-replay mismatches. They never overwrite catalog expectations,
-change the 24-valid/45-invalid source split, promote auxiliary rows to headline
-conformance, or materialize a duplicate 69-row effective table. [#216](https://github.com/goxdra/goxsd9/issues/216)
-and [#217](https://github.com/goxdra/goxsd9/issues/217) retain their row counts
-after #210; [#218](https://github.com/goxdra/goxsd9/issues/218) has no affected
-catalog contradiction.
+Catalog outcomes are immutable historical provenance. Effective expectations
+are derived on demand from the catalog plus a sparse, version-scoped policy:
+one explicit row-27 invalid-to-valid override guarded by its source outcome,
+and no row-51 override. [#211](https://github.com/goxdra/goxsd9/issues/211)
+owns the injected policy and executable runner. It validates the complete plan
+before any instance executes and returns no partial report; its detailed
+validation and reporting contract remains in that issue.
 
 [#83](https://github.com/goxdra/goxsd9/issues/83) and [#186](https://github.com/goxdra/goxsd9/issues/186)
 are schema-only tracks and are not coupled to the instance runner. Local
 attributes are distinct from global attribute work in
 [#198](https://github.com/goxdra/goxsd9/issues/198).
 
-This decision records catalog classification and replay policy; it does not
-execute auxiliary instances. The runner must preserve catalog order, exact
-lexical and value representations, source locations, causes, explicit
-unsupported behavior, and deterministic output. Packet detail remains in
-[#196](https://github.com/goxdra/goxsd9/issues/196) and [#211](https://github.com/goxdra/goxsd9/issues/211);
-execution must not skip, approximate, relabel, or promote auxiliary evidence
-into conformance.
+This decision fixes the evidence boundary; it does not execute auxiliary
+instances. Catalog order and the 24-valid/45-invalid source split remain
+unchanged, and auxiliary evidence is never promoted to headline conformance.
 
 The canonical catalog sources are [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml),
 which references [`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)
