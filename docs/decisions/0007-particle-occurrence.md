@@ -86,12 +86,16 @@ The current schema preflight uses this exact private range to validate lexical
 occurrence input. A named global complex type with one direct sequence of local
 built-in `xs:boolean`, named boolean-restriction, integer, or decimal scalar
 elements, or one direct choice of those scalar elements, maps the completed
-range and ordered children into the public schema. An effective `0/0` sequence,
-choice, or child maps to absence. The same exact representation is retained for
-choice facts while repetition consumers remain unsupported. XSD 1.1
-default-occurrence direct choices may use `precisionDecimal`; non-default
+range and ordered children into the public schema. The shared effective `0/0`
+mapping for sequence, choice, and child particles precedes type-specific
+support gating and maps to absence. The same exact representation is retained
+for choice facts while repetition consumers remain unsupported. XSD 1.1
+default-occurrence direct choices may use `precisionDecimal` only when the
+choice and each mapped `precisionDecimal` alternative use default occurrences;
+non-precision alternatives may retain non-default ranges for queries. Non-`0/0`
 `precisionDecimal` choice or alternative ranges that map to a particle are
-schema-unsupported, as are direct-sequence `precisionDecimal` elements.
+schema-unsupported, as are non-`0/0` direct-sequence `precisionDecimal` ranges
+that map to a particle.
 
 ## Public API migration
 
@@ -143,10 +147,12 @@ Currently, the supported occurrence boundary is one named global complex type
 with one direct sequence or direct choice of local built-in `xs:boolean`, named
 boolean-restriction, integer, or decimal scalar elements in XSD 1.0 and 1.1.
 Direct choices may also include XSD 1.1 `precisionDecimal` elements only when
-the choice and each mapped precisionDecimal alternative use default
-occurrences. Direct sequence `precisionDecimal` children remain unsupported
-even under XSD 1.1 and Compatibility. An effective `0/0` sequence, choice, or
-child maps to absence. Nested choices, `all`, groups, wildcards, references,
+the choice and each mapped `precisionDecimal` alternative use default
+occurrences. Non-precision alternatives may retain non-default ranges for
+queries. Non-`0/0` direct-sequence `precisionDecimal` ranges that map to a
+particle remain unsupported even under XSD 1.1 and Compatibility. An effective
+`0/0` sequence, choice, or child maps to absence before type-specific support
+gating. Nested choices, `all`, groups, wildcards, references,
 nested particles, attributes, and other composition remain unsupported.
 Non-`0/0` choice and alternative ranges are parsed and queryable, but
 repetition is not implemented in validation, repeated Go fields are not

@@ -1,17 +1,17 @@
 # goxsd9
 
-goxsd9 targets XSD 1.1/1.0 parsing, XML validation, and Go code generation; unsupported behavior is explicit.
+goxsd9 targets XSD 1.1/1.0 parsing, XML validation, Go generation; unsupported behavior is explicit.
 
 ## Schema parsing
 
-`ParseSchema` exposes immutable components; callers provide `ResolvedSource` and a `Resolver`. Calls sequential; locations opaque.
+`ParseSchema` exposes immutable components; callers provide `ResolvedSource` and `Resolver`. Calls sequential; locations opaque.
 
-Mixed XSD 1.0/1.1 graphs, restrictions, ordered bounds work; `xs:precisionDecimal` remains limited. Global booleans and complex direct choice/sequence particles model `xs:boolean`, named boolean-restriction, integer, and decimal elements with exact ranges; `0/0` omitted. XSD 1.1 direct choices allow default `precisionDecimal`; direct-sequence and non-default `precisionDecimal` ranges schema-unsupported. Boolean facets, anonymous/ref/nested/broader particles, and repetition unsupported. `Strict10` reports XSD 1.1 constructs unsupported. Malformed input is invalid; digit facets work. `ParseSchema` defaults to `Compatibility`; `ParseSchemaWithPolicy` chooses; errors return none. `ValidateInstance` supports numeric globals and default scalar choices; boolean validation, sequences, and non-default repetition unsupported. `GenerateGo` deterministic scalar/default-choice Go; boolean unsupported.
+Mixed XSD 1.0/1.1 graphs, restrictions, ordered bounds work; `xs:precisionDecimal` remains limited. Global booleans and direct choice/sequence particles model `xs:boolean`, named boolean-restriction, integer, and decimal elements with exact ranges; effective `0/0` omitted. XSD 1.1 direct choices allow default `precisionDecimal`; non-`0/0` direct-sequence `precisionDecimal` ranges and non-default `precisionDecimal` choice/alternative ranges that map to a particle are schema-unsupported. Boolean facets, anonymous/ref/nested/broader particles, and repetition unsupported. `Strict10` reports XSD 1.1 constructs unsupported. Malformed input is invalid; digit facets work. `ParseSchema` defaults to `Compatibility`; `ParseSchemaWithPolicy` chooses; errors return none. `ValidateInstance` supports numeric globals and default scalar choices; boolean validation, sequences, and non-default repetition unsupported. `GenerateGo` deterministic scalar/default-choice Go; boolean unsupported.
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
 
 ## Product CLI
 
-`parse`, `validate`, and `generate` use public APIs; [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines the CLI contract.
+`parse`, `validate`, and `generate` use public APIs; [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
 [`examples/root.xsd`](examples/root.xsd), [`examples/valid.xml`](examples/valid.xml), [`examples/invalid.xml`](examples/invalid.xml)
 
 ```console
@@ -24,7 +24,7 @@ exit status 1
 $ go run ./cmd/goxsd9 generate --package sample examples/root.xsd > generated.go
 ```
 
-Parse writes stdout; validation is silent on success. Invalid validation exits 1 with a located diagnostic; usage is 2.
+Parse writes stdout; validation is silent on success. Invalid validation exits 1 with a located diagnostic; usage 2.
 
 ## Design goals
 
@@ -52,12 +52,12 @@ go tool specs build -id xsd11-structures
 go tool specs search -id xsd11-structures -query "content model"
 go tool specs bootstrap -version 1.1
 ```
-Use `-root`, `-output`, and `-index`; `bootstrap` previews without fetching.
+Use `-root`, `-output`, `-index`; `bootstrap` previews without fetching.
 
 ## Project workflow
 
-See [GitHub Issues](https://github.com/goxdra/goxsd9/issues), the [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), and [AGENTS.md](AGENTS.md) for workflow rules.
+See [GitHub Issues](https://github.com/goxdra/goxsd9/issues), [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), and [AGENTS.md](AGENTS.md) for workflow rules.
 
 ## Test data licensing
 
-The W3C submodule keeps `00COPYRIGHT`, not Apache-2.0; the repository is Apache-2.0 ([LICENSE](LICENSE)).
+W3C submodule keeps `00COPYRIGHT`, not Apache-2.0; repository is Apache-2.0 ([LICENSE](LICENSE)).
