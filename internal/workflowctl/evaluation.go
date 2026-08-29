@@ -1463,6 +1463,11 @@ func (a app) completeEvaluationChallenge(root string, number int, challenge eval
 	if canonicalErr != nil {
 		return fmt.Errorf("PR #%d canonical evaluation challenge changed before output: %w", number, canonicalErr)
 	}
+	finalAt := time.Now().UTC()
+	expiryErr := validateFinalEvaluationChallengeExpiry(finalHistory, challenge, logical, finalAt)
+	if expiryErr != nil {
+		return fmt.Errorf("PR #%d evaluation challenge expired before output: %w", number, expiryErr)
+	}
 	canonicalMarker, err := json.Marshal(logical.canonical.challenge)
 	if err != nil {
 		return fmt.Errorf("encode canonical evaluation challenge: %w", err)
@@ -1507,6 +1512,21 @@ func validateFinalEvaluationChallengeHistory(number int, challenge evaluationCha
 		}
 	}
 	return logical, nil
+}
+
+func validateFinalEvaluationChallengeExpiry(history evaluationHistory, challenge evaluationChallenge,
+	logical evaluationLogicalChallenge, at time.Time) error {
+	expected, ok := evaluationChallengeRecordForID(history.challenges, challenge.Challenge)
+	if !ok || !evaluationChallengeRecordValidAt(expected, at) {
+		return fmt.Errorf("challenge %q is not valid at final output time", challenge.Challenge)
+	}
+	canonical, ok := evaluationChallengeRecordForID(history.challenges,
+		logical.canonical.challenge.Challenge)
+	if !ok || !evaluationChallengeRecordValidAt(canonical, at) {
+		return fmt.Errorf("canonical challenge %q is not valid at final output time",
+			logical.canonical.challenge.Challenge)
+	}
+	return nil
 }
 
 func evaluationChallengeIdentityMatches(left, right evaluationChallenge) bool {
@@ -1962,9 +1982,17 @@ func (a app) postEvaluationResolution(number int, challengeID, reason string) er
 	if err != nil {
 		return usageError("evaluation resolve: %v", err)
 	}
-	history, historyErr := readEvaluationMutationHistory(number, view.Comments)
+	history, historyErr := readEvaluationMutationHistoryForConvergence(number, view.Comments)
 	if historyErr != nil {
 		return stateError("PR #%d has invalid evaluation history: %v", number, historyErr)
+	}
+	view, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
+	if err != nil {
+		return stateError("PR #%d equivalent evaluation challenges could not be converged: %v", number, err)
+	}
+	history, historyErr = readEvaluationMutationHistory(number, view.Comments)
+	if historyErr != nil {
+		return stateError("PR #%d has invalid evaluation history after convergence: %v", number, historyErr)
 	}
 	challenge, alreadyResolved, targetErr := evaluationResolutionTarget(history, number, challengeID, canonicalReason)
 	if targetErr != nil {

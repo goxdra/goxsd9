@@ -183,6 +183,149 @@ func TestEvaluationChallengeInitialPostTransportLossRetriesWithoutRepost(t *test
 	}
 }
 
+func TestEvaluationChallengeConvergenceClosesStaleDuplicateAfterPRAdvance(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+
+	canonical := requestTestChallenge(t, &application, &stdout)
+	expireWorkflowChallenge(t, backend, canonical.Challenge)
+	appendFinalEquivalentChallenge(t, backend)
+	advanceWorkflowPRHead(t, backend, "advanced-head")
+	reasonFile := writeResolutionReason(t, "The stale challenge expired before the PR advanced.")
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"resolve", "14", "--challenge", canonical.Challenge, "--reason-file", reasonFile}); err != nil {
+		t.Fatalf("resolve stale challenge after PR advance: %v", err)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.challenges) != 2 || len(history.closures) != 1 || len(history.resolutions) != 1 {
+		t.Fatalf("stale challenge history = challenges %d closures %d resolutions %d, want 2, 1, 1",
+			len(history.challenges), len(history.closures), len(history.resolutions))
+	}
+	if got, want := backend.commentPostCount, 3; got != want {
+		t.Fatalf("stale challenge resolution POST count = %d, want %d", got, want)
+	}
+
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"status", "14"}); err != nil {
+		t.Fatalf("status after stale challenge resolution: %v", err)
+	}
+	status := stdout.String()
+	for _, expected := range []string{"Trusted challenges: 2", "Outstanding challenges: 0", "No-verdict resolutions: 1", "resolved by no-verdict resolution"} {
+		if !strings.Contains(status, expected) {
+			t.Fatalf("status after stale challenge resolution = %q, want %q", status, expected)
+		}
+	}
+
+	stdout.Reset()
+	fresh := requestTestChallenge(t, &application, &stdout)
+	if fresh.Challenge == canonical.Challenge || fresh.Head != backend.head {
+		t.Fatalf("fresh challenge = %#v, want new identity on advanced head", fresh)
+	}
+	if got, want := backend.commentPostCount, 4; got != want {
+		t.Fatalf("stale challenge replacement POST count = %d, want %d", got, want)
+	}
+}
+
+func expireWorkflowChallenge(t *testing.T, backend *workflowBackend, challengeID string) {
+	t.Helper()
+	for index := range backend.comments {
+		challenge, ok := parseEvaluationChallenge(backend.comments[index].Body)
+		if !ok || challenge.Challenge != challengeID {
+			continue
+		}
+		challenge.RequestedAt = time.Now().UTC().Truncate(time.Second).Add(-evaluationChallengeDuration - time.Minute)
+		marker, err := json.Marshal(challenge)
+		if err != nil {
+			t.Fatalf("encode expired challenge: %v", err)
+		}
+		backend.comments[index].Body = fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n",
+			evaluationChallengeMarker, marker, challenge.Head)
+		backend.comments[index].CreatedAt = challenge.RequestedAt
+		return
+	}
+	t.Fatalf("challenge %q was not found to expire", challengeID)
+}
+
+func advanceWorkflowPRHead(t *testing.T, backend *workflowBackend, head string) {
+	t.Helper()
+	parsed, err := parsePREvidenceBody(backend.body)
+	if err != nil {
+		t.Fatalf("parse PR evidence before head advance: %v", err)
+	}
+	parsed.evidence = testWorkflowPREvidence(head)
+	block, err := renderPREvidenceBlock(parsed.evidence)
+	if err != nil {
+		t.Fatalf("render PR evidence after head advance: %v", err)
+	}
+	backend.body, err = replacePREvidenceBlock(backend.body, block)
+	if err != nil {
+		t.Fatalf("replace PR evidence after head advance: %v", err)
+	}
+	backend.head = head
+}
+
+//nolint:gocognit // Keep expected and canonical final-expiry cases together.
+func TestEvaluationChallengeFinalReadRejectsExpiredChallenge(t *testing.T) {
+	tests := []struct {
+		name             string
+		canonicalExpired bool
+	}{
+		{name: "expected challenge", canonicalExpired: false},
+		{name: "canonical challenge", canonicalExpired: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			var stdout bytes.Buffer
+			application := newResolutionWorkflowApplication(backend, &stdout)
+			view, err := application.readPullRequest(backend.root, 14)
+			if err != nil {
+				t.Fatalf("read PR for expired challenge: %v", err)
+			}
+			parsedEvidence, err := validatePREvidenceForView(view)
+			if err != nil {
+				t.Fatalf("validate PR evidence for expired challenge: %v", err)
+			}
+			bodySHA256, evidenceSHA256 := currentPREvidenceDigest(view, parsedEvidence)
+			now := time.Now().UTC().Truncate(time.Second)
+			expiredAt := now.Add(-evaluationChallengeDuration - time.Minute)
+			canonical := evaluationChallenge{
+				BodySHA256: bodySHA256, Challenge: "expired-canonical", EvidenceSHA256: evidenceSHA256,
+				Head: backend.head, PR: 14, Repository: repositoryKey, RequestedAt: expiredAt,
+			}
+			challenge := canonical
+			if !test.canonicalExpired {
+				challenge.Challenge = "expired-expected"
+			}
+			if test.canonicalExpired {
+				challenge = canonical
+				challenge.Challenge = "fresh-expected"
+				challenge.RequestedAt = now.Add(-time.Minute)
+			}
+			if test.canonicalExpired {
+				appendWorkflowEvaluationComment(t, backend, testEvaluationChallengeComment(t, canonical))
+			}
+			appendWorkflowEvaluationComment(t, backend, testEvaluationChallengeComment(t, challenge))
+			view, err = application.readPullRequest(backend.root, 14)
+			if err != nil {
+				t.Fatalf("reread PR for expired challenge: %v", err)
+			}
+			history, err := readEvaluationMutationHistoryForConvergence(14, view.Comments)
+			if err != nil {
+				t.Fatalf("read expired challenge history: %v", err)
+			}
+			if err := application.completeEvaluationChallenge(backend.root, 14, challenge, view, history); err == nil ||
+				!strings.Contains(err.Error(), "expired before output") {
+				t.Fatalf("expired challenge output error = %v, want final expiry rejection", err)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("expired challenge emitted marker %q", stdout.String())
+			}
+		})
+	}
+}
+
 //nolint:gocognit // Keep final-read mutation variants and zero-output assertions together.
 func TestEvaluationChallengeFinalReadRejectsCurrentStateDrift(t *testing.T) {
 	tests := []struct {
@@ -1922,6 +2065,27 @@ func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
 }
 
 func (b *workflowBackend) executeGitArtifact(command string) (string, bool) {
+	if command == "merge-base --is-ancestor "+b.head+" "+b.head {
+		return "", true
+	}
+	if command == "cat-file -e "+b.head+"^{commit}" {
+		return "", true
+	}
+	if command == "merge-base base-sha "+b.head {
+		return "merge-sha", true
+	}
+	if command == "diff --name-status -z --no-renames merge-sha "+b.head+" --" {
+		if b.managedDocumentChange {
+			return "D\x00README.md\x00", true
+		}
+		return "", true
+	}
+	if command == "diff --numstat -z --no-renames merge-sha "+b.head+" --" {
+		if b.managedDocumentChange {
+			return "0\t1\tREADME.md\x00", true
+		}
+		return "", true
+	}
 	switch command {
 	case "status --porcelain":
 		return "", true
@@ -1976,6 +2140,11 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 	joined := strings.Join(args, " ")
 	if output, handled, err := b.executeGitHubIssue13(input, joined); handled {
 		return output, err
+	}
+	if strings.HasPrefix(joined, "api --paginate repos/goxdra/goxsd9/commits/") &&
+		strings.HasSuffix(joined, "/check-runs?per_page=100") {
+		return "{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"docs\",\"status\":\"completed\"}]}" +
+			"{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"quality\",\"status\":\"completed\"}]}", nil
 	}
 	switch joined {
 	case "api repos/goxdra/goxsd9/pulls/14":

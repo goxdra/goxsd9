@@ -466,15 +466,44 @@ func validateEvaluationChallengeView(view pullRequestView, number int,
 	return nil
 }
 
-//nolint:funlen,gocognit // Keep challenge convergence's read, mutation, and verification boundary explicit.
+func evaluationChallengeKeyForView(number int, view pullRequestView) (evaluationChallengeKey, bool) {
+	parsedEvidence, err := validatePREvidenceForView(view)
+	if err != nil {
+		return evaluationChallengeKey{}, false
+	}
+	bodySHA256, evidenceSHA256 := currentPREvidenceDigest(view, parsedEvidence)
+	return evaluationChallengeKeyFor(evaluationChallenge{
+		BodySHA256:     bodySHA256,
+		EvidenceSHA256: evidenceSHA256,
+		Head:           view.HeadRefOID,
+		PR:             number,
+		Repository:     repositoryKey,
+	})
+}
+
 func (a app) convergeEvaluationChallengeClosures(root string, number int,
 	challenge evaluationChallenge, view pullRequestView, history evaluationHistory) error {
+	return a.convergeEvaluationChallengeClosuresMode(root, number, challenge, view, history, true)
+}
+
+func (a app) convergeEvaluationChallengeClosuresByIdentity(root string, number int,
+	challenge evaluationChallenge, view pullRequestView, history evaluationHistory) error {
+	return a.convergeEvaluationChallengeClosuresMode(root, number, challenge,
+		view, history, false)
+}
+
+//nolint:funlen,gocognit // Keep challenge convergence's read, mutation, and verification boundary explicit.
+func (a app) convergeEvaluationChallengeClosuresMode(root string, number int,
+	challenge evaluationChallenge, view pullRequestView, history evaluationHistory,
+	validateCurrentView bool) error {
 	if challenge.Repository != repositoryKey {
 		return fmt.Errorf("PR #%d challenge has no authenticated repository identity", number)
 	}
 	for attempt := 0; attempt < 100; attempt++ {
-		if err := validateEvaluationChallengeView(view, number, challenge); err != nil {
-			return err
+		if validateCurrentView {
+			if err := validateEvaluationChallengeView(view, number, challenge); err != nil {
+				return err
+			}
 		}
 		projection, err := evaluationChallengeOnlyProjectionForHistory(history)
 		if err != nil {
@@ -567,9 +596,11 @@ func (a app) convergeEvaluationChallengeClosures(root string, number int,
 			return fmt.Errorf("challenge closure POST response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
 				postErr)
 		}
-		if err := validateEvaluationChallengeView(verifiedView, number, challenge); err != nil {
-			return fmt.Errorf("challenge closure POST changed the evaluated PR: %w",
-				errors.Join(postErr, err))
+		if validateCurrentView {
+			if err := validateEvaluationChallengeView(verifiedView, number, challenge); err != nil {
+				return fmt.Errorf("challenge closure POST changed the evaluated PR: %w",
+					errors.Join(postErr, err))
+			}
 		}
 		view = verifiedView
 		history = verifiedHistory
@@ -587,6 +618,7 @@ func (a app) convergeEvaluationChallengeHistory(root string, number int,
 			return pullRequestView{}, evaluationHistory{}, err
 		}
 		var target evaluationChallenge
+		var targetKey evaluationChallengeKey
 		found := false
 		for _, logical := range projection.challenges {
 			if !logical.keyComplete {
@@ -597,6 +629,7 @@ func (a app) convergeEvaluationChallengeHistory(root string, number int,
 					continue
 				}
 				target = logical.canonical.challenge
+				targetKey = logical.key
 				found = true
 				break
 			}
@@ -607,7 +640,14 @@ func (a app) convergeEvaluationChallengeHistory(root string, number int,
 		if !found {
 			return view, history, nil
 		}
-		convergenceErr := a.convergeEvaluationChallengeClosures(root, number, target, view, history)
+		currentKey, currentKeyComplete := evaluationChallengeKeyForView(number, view)
+		var convergenceErr error
+		if currentKeyComplete && equalEvaluationChallengeKeys(currentKey, targetKey) {
+			convergenceErr = a.convergeEvaluationChallengeClosures(root, number, target, view, history)
+		}
+		if !currentKeyComplete || !equalEvaluationChallengeKeys(currentKey, targetKey) {
+			convergenceErr = a.convergeEvaluationChallengeClosuresByIdentity(root, number, target, view, history)
+		}
 		if convergenceErr != nil {
 			return pullRequestView{}, evaluationHistory{}, convergenceErr
 		}
