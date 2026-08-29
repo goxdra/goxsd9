@@ -166,6 +166,19 @@ func TestGenerateValidatesBootstrapXMLAndPreservesConvertedBytes(t *testing.T) {
 	}
 }
 
+func TestGenerateAcceptsLeadingUTF8BOM(t *testing.T) {
+	content := append([]byte(bootstrapXMLUTF8BOM), []byte(`<?xml version="1.0"?><root/>`)...)
+	entry := testEntry("xml", testDigest(content))
+	entry.Kind = KindBootstrapArtifact
+	document, err := Generate(context.Background(), responseClient(content), entry)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if !bytes.Equal(document.Data, content) {
+		t.Fatalf("Generate() data = %q, want %q", document.Data, content)
+	}
+}
+
 func TestGenerateAcceptsBootstrapXMLDeclarationAndDoctypeForms(t *testing.T) {
 	contents := []string{
 		`<?xml version="1.0"?><root/>`,
@@ -224,6 +237,10 @@ func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
 		{name: "doctype after root", representation: "xml", content: "<root/><!DOCTYPE root>"},
 		{name: "doctype before declaration", representation: "xml", content: "<!DOCTYPE root><?xml version=\"1.0\"?><root/>"},
 		{name: "character data before root", representation: "xml", content: "text<root/>"},
+		{name: "numeric whitespace before root", representation: "xml", content: "&#x20;<root/>"},
+		{name: "numeric whitespace after root", representation: "xml", content: "<root/>&#x20;"},
+		{name: "general entity whitespace before root", representation: "xml", content: `<!DOCTYPE root [<!ENTITY e " ">]>&e;<root/>`},
+		{name: "general entity whitespace after root", representation: "xml", content: `<!DOCTYPE root [<!ENTITY e " ">]><root/>&e;`},
 		{name: "empty CDATA before root", representation: "xml", content: "<![CDATA[]]><root/>"},
 		{name: "whitespace CDATA before root", representation: "xml", content: "<![CDATA[ \t\r\n]]><root/>"},
 		{name: "whitespace CDATA after root", representation: "xml", content: "<root/><![CDATA[ \t\r\n]]>"},

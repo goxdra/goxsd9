@@ -23,6 +23,7 @@ const (
 	manifestHTMLRepresentation = "html"
 	bootstrapXMLDocumentCode   = "specs.conversion.xml"
 	bootstrapXMLCDATAPrefix    = "<![CDATA["
+	bootstrapXMLUTF8BOM        = "\xEF\xBB\xBF"
 	bootstrapXMLNamespaceURI   = "http://www.w3.org/XML/1998/namespace"
 	bootstrapXMLNSNamespaceURI = "http://www.w3.org/2000/xmlns/"
 	cdataPrefix                = "<pre><![CDATA["
@@ -397,8 +398,20 @@ func (validator *bootstrapXMLValidator) characterData(
 	if !bootstrapXMLTokenIsCDATA(raw, tokenStart, tokenEnd) && !bootstrapXMLNumericReferencesValid(token) {
 		return bootstrapXMLDocumentError(entry, decoder, "XML document has an invalid character reference")
 	}
-	if validator.depth == 0 && (len(data) == 0 || !bootstrapXMLWhitespace(data) ||
-		bootstrapXMLTokenIsCDATA(raw, tokenStart, tokenEnd)) {
+	if validator.depth != 0 {
+		validator.seenToken = true
+		return nil
+	}
+	if bootstrapXMLTokenIsCDATA(raw, tokenStart, tokenEnd) {
+		return bootstrapXMLDocumentError(entry, decoder, "XML document has non-whitespace character data outside the root element")
+	}
+	if tokenStart == 0 && bytes.HasPrefix(token, []byte(bootstrapXMLUTF8BOM)) {
+		token = token[len(bootstrapXMLUTF8BOM):]
+		if len(token) == 0 {
+			return nil
+		}
+	}
+	if !bootstrapXMLLiteralWhitespace(token) {
 		return bootstrapXMLDocumentError(entry, decoder, "XML document has non-whitespace character data outside the root element")
 	}
 	validator.seenToken = true
@@ -1880,7 +1893,7 @@ func bootstrapXMLNumericReference(data []byte, index int) (int, bool) {
 	return end, true
 }
 
-func bootstrapXMLWhitespace(data xml.CharData) bool {
+func bootstrapXMLLiteralWhitespace(data []byte) bool {
 	for _, value := range data {
 		if !bootstrapXMLSpace(value) {
 			return false
