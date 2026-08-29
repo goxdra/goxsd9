@@ -135,6 +135,17 @@ type bootstrapXMLValidator struct {
 	namespace   *bootstrapXMLNamespaceScope
 }
 
+const bootstrapXMLMaxEntityValueLength = 1 << 20
+
+type bootstrapXMLEntityResolution uint8
+
+const (
+	bootstrapXMLEntityResolved bootstrapXMLEntityResolution = iota
+	bootstrapXMLEntityUnavailable
+	bootstrapXMLEntityInvalid
+	bootstrapXMLEntityResolving
+)
+
 type bootstrapXMLElement struct {
 	name      xml.Name
 	qname     bootstrapXMLQName
@@ -424,7 +435,7 @@ func (validator *bootstrapXMLValidator) directive(
 	tokenStart, tokenEnd int64,
 ) error {
 	token, ok := bootstrapXMLTokenBytes(raw, tokenStart, tokenEnd)
-	doctypeName, syntaxOK := bootstrapXMLDoctypeSyntax(token)
+	doctypeName, entities, syntaxOK := bootstrapXMLDoctypeSyntaxWithEntities(token)
 	if !ok || !bootstrapXMLDoctype(value) || !syntaxOK {
 		return bootstrapXMLDocumentError(entry, decoder, "XML document has an invalid directive")
 	}
@@ -434,6 +445,7 @@ func (validator *bootstrapXMLValidator) directive(
 	validator.doctypeName = doctypeName
 	validator.seenDoctype = true
 	validator.seenToken = true
+	decoder.Entity = entities
 	return nil
 }
 
@@ -854,43 +866,227 @@ func bootstrapXMLEncodingNameChar(value byte) bool {
 }
 
 func bootstrapXMLDoctypeSyntax(raw []byte) (string, bool) {
+	name, _, ok := bootstrapXMLDoctypeSyntaxWithEntities(raw)
+	return name, ok
+}
+
+func bootstrapXMLDoctypeSyntaxWithEntities(raw []byte) (string, map[string]string, bool) {
 	const prefix = "<!DOCTYPE"
 	if len(raw) < len(prefix)+2 || !bytes.HasPrefix(raw, []byte(prefix)) || !bytes.HasSuffix(raw, []byte{'>'}) {
-		return "", false
+		return "", nil, false
 	}
 	if !bootstrapXMLValidCharacters(raw) {
-		return "", false
+		return "", nil, false
 	}
-	parser := bootstrapXMLDTDParser{data: raw[len("<!") : len(raw)-1]}
+	parser := bootstrapXMLDTDParser{
+		data:          raw[len("<!") : len(raw)-1],
+		entityIndexes: make(map[string]int),
+	}
 	if !parser.consumeLiteral("DOCTYPE") || !parser.requireSpace() {
-		return "", false
+		return "", nil, false
 	}
 	name, ok := parser.parseName()
 	if !ok {
-		return "", false
+		return "", nil, false
 	}
 	parser.skipSpace()
 	if parser.atEnd() {
-		return name, true
+		entities, entitiesOK := parser.entityMap()
+		return name, entities, entitiesOK
 	}
 	if parser.peek() != '[' {
 		if !parser.parseExternalID() {
-			return "", false
+			return "", nil, false
 		}
 		parser.skipSpace()
 		if parser.atEnd() {
-			return name, true
+			entities, entitiesOK := parser.entityMap()
+			return name, entities, entitiesOK
 		}
 	}
 	if !parser.parseInternalSubset() || !parser.atEnd() {
-		return "", false
+		return "", nil, false
 	}
-	return name, true
+	entities, entitiesOK := parser.entityMap()
+	return name, entities, entitiesOK
 }
 
 type bootstrapXMLDTDParser struct {
-	data  []byte
-	index int
+	data          []byte
+	index         int
+	entities      []bootstrapXMLEntityDeclaration
+	entityIndexes map[string]int
+}
+
+type bootstrapXMLEntityDeclaration struct {
+	name     string
+	value    string
+	external bool
+}
+
+type bootstrapXMLEntityReplacement struct {
+	value  string
+	markup bool
+}
+
+func (parser *bootstrapXMLDTDParser) entityMap() (map[string]string, bool) {
+	entities := make(map[string]string, len(parser.entities))
+	replacements := make(map[string]bootstrapXMLEntityReplacement, len(parser.entities))
+	resolutions := make(map[string]bootstrapXMLEntityResolution, len(parser.entities))
+	for _, declaration := range parser.entities {
+		if declaration.external {
+			continue
+		}
+		replacement, resolution := parser.resolveEntity(declaration.name, replacements, resolutions)
+		if resolution == bootstrapXMLEntityInvalid {
+			return nil, false
+		}
+		if resolution == bootstrapXMLEntityResolved && !replacement.markup {
+			entities[declaration.name] = replacement.value
+		}
+	}
+	return entities, true
+}
+
+func (parser *bootstrapXMLDTDParser) resolveEntity(
+	name string,
+	replacements map[string]bootstrapXMLEntityReplacement,
+	resolutions map[string]bootstrapXMLEntityResolution,
+) (bootstrapXMLEntityReplacement, bootstrapXMLEntityResolution) {
+	if replacement, ok := replacements[name]; ok {
+		return replacement, bootstrapXMLEntityResolved
+	}
+	declarationIndex, ok := parser.entityIndexes[name]
+	if !ok || declarationIndex < 0 || declarationIndex >= len(parser.entities) {
+		return bootstrapXMLEntityReplacement{}, bootstrapXMLEntityInvalid
+	}
+	if resolution, ok := resolutions[name]; ok {
+		if resolution == bootstrapXMLEntityResolving {
+			return bootstrapXMLEntityReplacement{}, bootstrapXMLEntityInvalid
+		}
+		return bootstrapXMLEntityReplacement{}, resolution
+	}
+	declaration := parser.entities[declarationIndex]
+	if declaration.external {
+		resolutions[name] = bootstrapXMLEntityUnavailable
+		return bootstrapXMLEntityReplacement{}, bootstrapXMLEntityUnavailable
+	}
+	resolutions[name] = bootstrapXMLEntityResolving
+	replacement, resolution := parser.expandEntityValue(declaration.value, replacements, resolutions)
+	resolutions[name] = resolution
+	if resolution != bootstrapXMLEntityResolved {
+		return bootstrapXMLEntityReplacement{}, resolution
+	}
+	replacements[name] = replacement
+	return replacement, bootstrapXMLEntityResolved
+}
+
+func (parser *bootstrapXMLDTDParser) expandEntityValue(
+	value string,
+	replacements map[string]bootstrapXMLEntityReplacement,
+	resolutions map[string]bootstrapXMLEntityResolution,
+) (bootstrapXMLEntityReplacement, bootstrapXMLEntityResolution) {
+	var expanded strings.Builder
+	markup := false
+	for index := 0; index < len(value); {
+		next, itemMarkup, resolution := parser.expandEntityValueItem(value, index, &expanded, replacements, resolutions)
+		if resolution != bootstrapXMLEntityResolved {
+			return bootstrapXMLEntityReplacement{}, resolution
+		}
+		markup = markup || itemMarkup
+		index = next
+	}
+	result := expanded.String()
+	if strings.Contains(result, "]]>") {
+		return bootstrapXMLEntityReplacement{}, bootstrapXMLEntityUnavailable
+	}
+	return bootstrapXMLEntityReplacement{value: result, markup: markup}, bootstrapXMLEntityResolved
+}
+
+func (parser *bootstrapXMLDTDParser) expandEntityValueItem(
+	value string,
+	index int,
+	expanded *strings.Builder,
+	replacements map[string]bootstrapXMLEntityReplacement,
+	resolutions map[string]bootstrapXMLEntityResolution,
+) (int, bool, bootstrapXMLEntityResolution) {
+	if value[index] == '&' {
+		end := strings.IndexByte(value[index+1:], ';')
+		if end < 0 {
+			return 0, false, bootstrapXMLEntityInvalid
+		}
+		end += index + 1
+		replacement, resolution := parser.expandEntityReference(value[index+1:end], replacements, resolutions)
+		if resolution != bootstrapXMLEntityResolved {
+			return 0, false, resolution
+		}
+		if !bootstrapXMLAppendEntityText(expanded, replacement.value) {
+			return 0, false, bootstrapXMLEntityInvalid
+		}
+		return end + 1, replacement.markup, bootstrapXMLEntityResolved
+	}
+	if value[index] == '%' {
+		return 0, false, bootstrapXMLEntityUnavailable
+	}
+	character, size := utf8.DecodeRuneInString(value[index:])
+	if character == utf8.RuneError && size == 1 || !bootstrapXMLCharacter(character) {
+		return 0, false, bootstrapXMLEntityInvalid
+	}
+	if !bootstrapXMLAppendEntityRune(expanded, character, size) {
+		return 0, false, bootstrapXMLEntityInvalid
+	}
+	return index + size, character == '<', bootstrapXMLEntityResolved
+}
+
+func (parser *bootstrapXMLDTDParser) expandEntityReference(
+	reference string,
+	replacements map[string]bootstrapXMLEntityReplacement,
+	resolutions map[string]bootstrapXMLEntityResolution,
+) (bootstrapXMLEntityReplacement, bootstrapXMLEntityResolution) {
+	if strings.HasPrefix(reference, "#") {
+		value, ok := bootstrapXMLCharacterReferenceValue(reference[1:])
+		if !ok {
+			return bootstrapXMLEntityReplacement{}, bootstrapXMLEntityInvalid
+		}
+		return bootstrapXMLEntityReplacement{value: value}, bootstrapXMLEntityResolved
+	}
+	if value, ok := bootstrapXMLPredefinedEntity(reference); ok {
+		return bootstrapXMLEntityReplacement{value: value}, bootstrapXMLEntityResolved
+	}
+	return parser.resolveEntity(reference, replacements, resolutions)
+}
+
+func bootstrapXMLAppendEntityText(expanded *strings.Builder, value string) bool {
+	if len(value) > bootstrapXMLMaxEntityValueLength-expanded.Len() {
+		return false
+	}
+	_, err := expanded.WriteString(value)
+	return err == nil
+}
+
+func bootstrapXMLAppendEntityRune(expanded *strings.Builder, value rune, size int) bool {
+	if size > bootstrapXMLMaxEntityValueLength-expanded.Len() {
+		return false
+	}
+	_, err := expanded.WriteRune(value)
+	return err == nil
+}
+
+func bootstrapXMLPredefinedEntity(name string) (string, bool) {
+	switch name {
+	case "lt":
+		return "<", true
+	case "gt":
+		return ">", true
+	case "amp":
+		return "&", true
+	case "apos":
+		return "'", true
+	case "quot":
+		return "\"", true
+	default:
+		return "", false
+	}
 }
 
 func (parser *bootstrapXMLDTDParser) atEnd() bool {
@@ -1285,11 +1481,24 @@ func (parser *bootstrapXMLDTDParser) parseEntityDeclaration() bool {
 	if !ok {
 		return false
 	}
-	if _, ok := parser.parseName(); !ok || !parser.requireSpace() {
+	name, ok := parser.parseName()
+	if !ok || !parser.requireSpace() {
 		return false
 	}
 	if parser.peek() == '\'' || parser.peek() == '"' {
-		return parser.finishEntityValue()
+		valueStart := parser.index + 1
+		if !parser.parseEntityValue() {
+			return false
+		}
+		valueEnd := parser.index - 1
+		parser.skipSpace()
+		if !parser.consume('>') {
+			return false
+		}
+		if parameter {
+			return true
+		}
+		return parser.declareEntity(name, string(parser.data[valueStart:valueEnd]), false)
 	}
 	if !parser.parseExternalID() {
 		return false
@@ -1298,7 +1507,29 @@ func (parser *bootstrapXMLDTDParser) parseEntityDeclaration() bool {
 		return false
 	}
 	parser.skipSpace()
-	return parser.consume('>')
+	if !parser.consume('>') {
+		return false
+	}
+	if parameter {
+		return true
+	}
+	return parser.declareEntity(name, "", true)
+}
+
+func (parser *bootstrapXMLDTDParser) declareEntity(name, value string, external bool) bool {
+	if parser.entityIndexes == nil {
+		parser.entityIndexes = make(map[string]int)
+	}
+	if _, exists := parser.entityIndexes[name]; exists {
+		return true
+	}
+	parser.entityIndexes[name] = len(parser.entities)
+	parser.entities = append(parser.entities, bootstrapXMLEntityDeclaration{
+		name:     name,
+		value:    value,
+		external: external,
+	})
+	return true
 }
 
 func (parser *bootstrapXMLDTDParser) parseEntityKind() (bool, bool) {
@@ -1306,14 +1537,6 @@ func (parser *bootstrapXMLDTDParser) parseEntityKind() (bool, bool) {
 		return false, true
 	}
 	return true, parser.requireSpace()
-}
-
-func (parser *bootstrapXMLDTDParser) finishEntityValue() bool {
-	if !parser.parseEntityValue() {
-		return false
-	}
-	parser.skipSpace()
-	return parser.consume('>')
 }
 
 func (parser *bootstrapXMLDTDParser) finishExternalEntity(parameter bool) bool {
@@ -1406,7 +1629,8 @@ func (parser *bootstrapXMLDTDParser) parseEntityValue() bool {
 func (parser *bootstrapXMLDTDParser) parseEntityValueItem() bool {
 	switch parser.peek() {
 	case '<':
-		return false
+		parser.index++
+		return true
 	case '&':
 		return parser.parseReference()
 	case '%':
@@ -1458,7 +1682,7 @@ func (parser *bootstrapXMLDTDParser) parseReference() bool {
 
 func (parser *bootstrapXMLDTDParser) parseCharacterReference() bool {
 	base := 10
-	if parser.consume('x') || parser.consume('X') {
+	if parser.consume('x') {
 		base = 16
 	}
 	start := parser.index
@@ -1468,11 +1692,33 @@ func (parser *bootstrapXMLDTDParser) parseCharacterReference() bool {
 	if start == parser.index || !parser.consume(';') {
 		return false
 	}
-	value, err := strconv.ParseUint(string(parser.data[start:parser.index-1]), base, 32)
-	if err != nil || value > uint64(utf8.MaxRune) {
-		return false
+	reference := string(parser.data[start : parser.index-1])
+	if base == 16 {
+		reference = "x" + reference
 	}
-	return bootstrapXMLCharacter(rune(value))
+	_, ok := bootstrapXMLCharacterReferenceValue(reference)
+	return ok
+}
+
+func bootstrapXMLCharacterReferenceValue(reference string) (string, bool) {
+	base := 10
+	if strings.HasPrefix(reference, "x") {
+		base = 16
+		reference = reference[1:]
+	}
+	if reference == "" {
+		return "", false
+	}
+	for index := 0; index < len(reference); index++ {
+		if !bootstrapXMLReferenceDigit(reference[index], base) {
+			return "", false
+		}
+	}
+	value, err := strconv.ParseUint(reference, base, 32)
+	if err != nil || value > uint64(utf8.MaxRune) || !bootstrapXMLCharacter(rune(value)) {
+		return "", false
+	}
+	return string(rune(value)), true
 }
 
 func (parser *bootstrapXMLDTDParser) parseNamedReference() bool {
@@ -1616,7 +1862,7 @@ func bootstrapXMLNumericReferencesValid(data []byte) bool {
 func bootstrapXMLNumericReference(data []byte, index int) (int, bool) {
 	end := index + 2
 	base := 10
-	if end < len(data) && (data[end] == 'x' || data[end] == 'X') {
+	if end < len(data) && data[end] == 'x' {
 		base = 16
 		end++
 	}

@@ -177,6 +177,12 @@ func TestGenerateAcceptsBootstrapXMLDeclarationAndDoctypeForms(t *testing.T) {
 		`<!DOCTYPE root [<!-- DTD comment --><?dtd instruction?><!ELEMENT root EMPTY>]><root/>`,
 		`<!DOCTYPE root [<!ELEMENT root (child|other)*><!ATTLIST root id CDATA #IMPLIED><!ENTITY name "value"><!NOTATION image SYSTEM "image">]><root/>`,
 		`<!DOCTYPE root [<!ELEMENT root ((child|other),child?)><!ELEMENT child EMPTY><!ELEMENT other EMPTY><!ATTLIST root id ID #IMPLIED mode (one|two) "one" kind NOTATION (image|text) #FIXED "image"><!ENTITY name "hello &amp; world"><!ENTITY external SYSTEM "root.ent"><!ENTITY % parameter SYSTEM "parameter.ent"><!NOTATION image PUBLIC "-//Example//Image//EN" "image.bin"><!NOTATION text PUBLIC "-//Example//Text//EN">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY markup '<child/>'>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY e 'ok'>]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY e '&#x41;'>]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY e '&lt;&amp;&gt;&apos;&quot;'>]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY e 'first'><!ENTITY e SYSTEM 'root.ent'>]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY external SYSTEM 'root.ent'><!ENTITY internal '&external;'>]><root/>`,
 		`<p:root xmlns:p="urn:root"/>`,
 		`<root xmlns:p="urn:root" p:id="one"/>`,
 		`<root xmlns="urn:root"><child/></root>`,
@@ -199,6 +205,13 @@ func TestGenerateAcceptsBootstrapXMLDeclarationAndDoctypeForms(t *testing.T) {
 				t.Fatalf("Generate() data = %q, want %q", document.Data, content)
 			}
 		})
+	}
+}
+
+func TestBootstrapXMLDoctypeSyntaxRetainsCompatibilityHelper(t *testing.T) {
+	name, ok := bootstrapXMLDoctypeSyntax([]byte("<!DOCTYPE root [<!ENTITY e 'ok'>]>"))
+	if !ok || name != "root" {
+		t.Fatalf("bootstrapXMLDoctypeSyntax() = %q, %v, want root, true", name, ok)
 	}
 }
 
@@ -229,6 +242,14 @@ func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
 		{name: "attlist without default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root id CDATA>]><root/>"},
 		{name: "truncated entity declaration", representation: "xml", content: "<!DOCTYPE root [<!ENTITY name \"value>]><root/>"},
 		{name: "malformed entity declaration", representation: "xml", content: "<!DOCTYPE root [<!ENTITY name>]><root/>"},
+		{name: "uppercase hexadecimal character reference", representation: "xml", content: "<!DOCTYPE root [<!ENTITY name '&#X41;'>]><root/>"},
+		{name: "uppercase hexadecimal character reference in content", representation: "xml", content: "<root>&#X41;</root>"},
+		{name: "undeclared entity use", representation: "xml", content: "<root>&missing;</root>"},
+		{name: "external entity use", representation: "xml", content: "<!DOCTYPE root [<!ENTITY external SYSTEM 'root.ent'>]><root>&external;</root>"},
+		{name: "internal entity with external dependency", representation: "xml", content: "<!DOCTYPE root [<!ENTITY external SYSTEM 'root.ent'><!ENTITY internal '&external;'>]><root>&internal;</root>"},
+		{name: "cyclic entity declaration", representation: "xml", content: "<!DOCTYPE root [<!ENTITY first '&second;'><!ENTITY second '&first;'>]><root/>"},
+		{name: "markup-bearing entity use", representation: "xml", content: "<!DOCTYPE root [<!ENTITY markup '<child/>'>]><root>&markup;</root>"},
+		{name: "less-than in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '<'>]><root/>"},
 		{name: "truncated notation declaration", representation: "xml", content: "<!DOCTYPE root [<!NOTATION image SYSTEM>]><root/>"},
 		{name: "malformed notation declaration", representation: "xml", content: "<!DOCTYPE root [<!NOTATION image>]><root/>"},
 		{name: "duplicate attribute", representation: "xml", content: `<root id="one" id="two"/>`},
