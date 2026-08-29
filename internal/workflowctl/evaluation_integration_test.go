@@ -514,6 +514,44 @@ func TestEvaluationChallengeClosurePartialRetryProgresses(t *testing.T) {
 	}
 }
 
+func TestEvaluationChallengeClosureDuplicateVisibilityFailsClosed(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+
+	canonical := requestTestChallenge(t, &application, &stdout)
+	appendFinalEquivalentChallenge(t, backend)
+	_, attestationFile := writeTestAttestation(t, backend.head, canonical)
+
+	backend.duplicateClosurePost = true
+	err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+	if err == nil || !strings.Contains(err.Error(), "multiple authenticated controller closures") {
+		t.Fatalf("duplicate closure visibility error = %v, want fail-closed duplicate rejection", err)
+	}
+	commentCount := len(backend.comments)
+	postCount := backend.commentPostCount
+	if got, want := commentCount, 4; got != want {
+		t.Fatalf("duplicate closure visibility comments = %d, want %d", got, want)
+	}
+	history, err := parseEvaluationHistory(pullRequestCommentsFromAPI(t, backend.comments))
+	if err != nil {
+		t.Fatalf("parse duplicate closure visibility history: %v", err)
+	}
+	if got, want := len(history.closures), 2; got != want {
+		t.Fatalf("duplicate closure visibility closures = %d, want %d preserved records", got, want)
+	}
+
+	stdout.Reset()
+	err = application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+	if err == nil || !strings.Contains(err.Error(), "multiple authenticated controller closures") {
+		t.Fatalf("duplicate closure retry error = %v, want fail-closed duplicate rejection", err)
+	}
+	if len(backend.comments) != commentCount || backend.commentPostCount != postCount {
+		t.Fatalf("duplicate closure retry mutated history: comments=%d (want %d), posts=%d (want %d)",
+			len(backend.comments), commentCount, backend.commentPostCount, postCount)
+	}
+}
+
 func TestThirdFailureProjectTransitionRetryConvergesWithoutReceipt(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	backend.projectStatus = "Ready"
@@ -1883,6 +1921,7 @@ type workflowBackend struct {
 	commentPostCount                 int
 	duplicateReceiptPost             bool
 	duplicateConvergencePost         bool
+	duplicateClosurePost             bool
 	postCommentResponseMode          string
 	postCommentAuthor                string
 	duplicateChallengeOnNextPost     bool
@@ -2304,6 +2343,7 @@ func (b *workflowBackend) postComment(data []byte) (string, error) {
 		comment.ID = int64(len(b.comments) + 1)
 	}
 	b.comments = append(b.comments, comment)
+	b.maybeDuplicateClosure(request.Body, comment)
 	if b.duplicateReceiptPost && hasMarker(request.Body, evaluationMarker) {
 		duplicate := comment
 		duplicate.ID++
@@ -2338,6 +2378,16 @@ func (b *workflowBackend) postComment(data []byte) (string, error) {
 		return "", errors.New("simulated lost comment response")
 	}
 	return `{}`, nil
+}
+
+func (b *workflowBackend) maybeDuplicateClosure(body string, comment issueCommentAPI) {
+	if !b.duplicateClosurePost || !hasMarker(body, evaluationChallengeClosureMarker) {
+		return
+	}
+	b.duplicateClosurePost = false
+	duplicate := comment
+	duplicate.ID++
+	b.comments = append(b.comments, duplicate)
 }
 
 func (b *workflowBackend) merge(data []byte) (string, error) {

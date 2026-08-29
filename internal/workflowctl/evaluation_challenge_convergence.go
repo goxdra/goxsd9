@@ -114,22 +114,22 @@ func evaluationLogicalChallengeHasID(challenge evaluationLogicalChallenge, chall
 }
 
 func hasChallengeClosureForID(challenge evaluationLogicalChallenge, challengeID string) bool {
-	for _, closure := range challenge.closures {
-		if closure.closure.DuplicateChallenge == challengeID {
-			return true
-		}
-	}
-	return false
+	_, ok := evaluationChallengeClosureForID(challenge, challengeID)
+	return ok
 }
 
 func evaluationChallengeClosureForID(challenge evaluationLogicalChallenge, challengeID string) (
 	evaluationChallengeClosure, bool) {
+	var found evaluationChallengeClosure
+	matches := 0
 	for _, closure := range challenge.closures {
-		if closure.closure.DuplicateChallenge == challengeID {
-			return closure.closure, true
+		if closure.closure.DuplicateChallenge != challengeID {
+			continue
 		}
+		found = closure.closure
+		matches++
 	}
-	return evaluationChallengeClosure{}, false
+	return found, matches == 1
 }
 
 func evaluationChallengeRecordForID(records []evaluationChallengeRecord, challengeID string) (
@@ -315,6 +315,13 @@ func evaluationLogicalProjectionForHistoryMode(history evaluationHistory, requir
 			closure.closure.EvidenceSHA256 != canonicalKey.evidenceSHA256 {
 			return evaluationLogicalProjection{}, errors.New(
 				"evaluation challenge closure does not bind the exact challenge identity")
+		}
+		for _, existing := range group.closures {
+			if existing.closure.DuplicateChallenge == closure.closure.DuplicateChallenge {
+				return evaluationLogicalProjection{}, fmt.Errorf(
+					"evaluation challenge %q has multiple authenticated controller closures",
+					duplicate.challenge.Challenge)
+			}
 		}
 		group.closures = append(group.closures, closure)
 	}
@@ -584,13 +591,13 @@ func (a app) convergeEvaluationChallengeClosuresMode(root string, number int,
 				verified++
 			}
 		}
-		if verified == 0 {
-			err := errors.New("authenticated challenge closure is absent")
+		if verified != 1 {
+			err := fmt.Errorf("authenticated challenge closure count is %d; want exactly one", verified)
 			if postErr != nil {
 				return fmt.Errorf("challenge closure POST response was ambiguous; do not repost blindly: %w",
 					errors.Join(postErr, err))
 			}
-			return fmt.Errorf("challenge closure POST was not authenticated in complete history: %w", err)
+			return fmt.Errorf("challenge closure POST was not authenticated exactly once in complete history: %w", err)
 		}
 		if postErr != nil {
 			return fmt.Errorf("challenge closure POST response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",

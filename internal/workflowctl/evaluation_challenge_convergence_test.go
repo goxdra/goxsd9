@@ -120,6 +120,17 @@ func TestEvaluationLogicalChallengeProjectionConvergesEquivalentHistory(t *testi
 	if len(outstanding) != 6 || outstanding[0].challenge.Challenge != first.Challenge {
 		t.Fatalf("logical outstanding challenges = %#v, want canonical and non-equivalent challenges", outstanding)
 	}
+
+	duplicateClosureComment := closureComment
+	duplicateClosureComment.ID = 109
+	history, err = parseEvaluationHistory(append(comments, closureComment, duplicateClosureComment))
+	if err != nil {
+		t.Fatalf("parse duplicate closed challenge history: %v", err)
+	}
+	if _, err := evaluationChallengeOnlyProjectionForHistory(history); err == nil ||
+		!strings.Contains(err.Error(), "multiple authenticated controller closures") {
+		t.Fatalf("duplicate challenge closure projection error = %v, want duplicate closure rejection", err)
+	}
 }
 
 func TestEvaluationChallengeClosureRejectsUntrustedOrMismatchedHistory(t *testing.T) {
