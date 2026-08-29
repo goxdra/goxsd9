@@ -12,8 +12,7 @@ datatype and work in progress; it is not a mandatory XSD 1.1 conformance
 requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/)
 §2.5.1 (primitive datatypes; `#dt-primitive`) and [§H.1](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#impl-def)
 permit, but do not require, primitive datatypes outside the standard set. The
-project implements this datatype as an explicit opt-in library/schema boundary
-and keeps it optional.
+project implements this datatype as an explicit opt-in library/schema boundary.
 
 The source is pinned as `xsd-precisionDecimal` in [`specs/manifest.json`](../../specs/manifest.json),
 including its digest: [An XSD datatype for IEEE floating-point decimal](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/).
@@ -29,6 +28,11 @@ has finite decimal values with [numerical value](https://www.w3.org/TR/2011/NOTE
 [integer scale](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#vp-pd-precision), plus `+INF`/`INF`,
 `-INF`, and `NaN`. Signed zeros are distinct but numerically equal; `NaN` is incomparable, including with itself.
 +INF is above finite values and -INF; -INF is below finite values and +INF. This is a partial, not total, order.
+
+Final XSD 1.1 [`cvc-enumeration-valid`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#cvc-enumeration-valid)
+uses `equal or identical` membership; [`identity`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#identity) permits a `NaN`
+enumeration member to accept `NaN` by value identity. In general equality/partial comparison, `NaN` remains unordered
+and not equal to itself; signed zero and finite lexical variants use numeric equality. The datatype remains optional.
 
 The [§3.2 lexical mapping](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#pD-lexical-mapping),
 its [`pDecimalRep`](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#nt-precDecRep) grammar, and
@@ -51,7 +55,7 @@ The Note’s [§3.3 facet declaration](https://www.w3.org/TR/2011/NOTE-xsd-preci
 [totalDigits](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#rf-totalDigits), [maxScale](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#rf-maxScale),
 [minScale](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#rf-minScale), and [§4 facet rules](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#facets)
 exclude `fractionDigits`, `length`, `minLength`, and `maxLength`. Fixed whitespace is pre-lexical; `pattern`
-examines normalized lexical form; other listed facets constrain a complete value, never a partial parse.
+examines normalized lexical form; other facets constrain a complete value, never a partial parse.
 
 The [canonical mapping](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#f-precDecCanmap) has no
 resolved zero branch in the pinned Note. The project chooses these non-normative, sign-preserving spellings:
@@ -108,24 +112,21 @@ Construction remains sequential and phase-specific:
 
 Comparison must not use `sort.Interface` or manufacture a total order. The Note’s [§5.1 implementation limits](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#implementation-limits)
 give a 16-totalDigits, maxScale 369, minScale -398 minimum envelope and recommend a decimal128-like 34-totalDigits,
-maxScale 6111, minScale -6176 envelope. These non-mandatory numbers are implementation guidance, not a current
+maxScale 6111, minScale -6176 envelope. These non-mandatory numbers are implementation guidance, not a
 conformance claim or a substitute for the per-call resource contract.
 
 ## Bounded follow-up and corpus evidence
 
 The completed optional precisionDecimal boundary covers exact precisionDecimal
 library values and applicable facets, partial comparison, bounded canonical
-output, and immutable schema facts. Assertions and any remaining
+output, and immutable schema facts. Assertions and remaining
 precisionDecimal-specific facet work remain separate; integer/decimal
 ordered-bound parsing, effective schema facts, and scalar validation are
 integrated.
 
-Pinned catalog’s [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references the accepted,
-undisputed auxiliary groups [`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)
+Pinned catalog’s [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary groups
+[`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)
 and [`ibmMeta/precisionDecimal.testSet`](../../testdata/w3c/xsdtests/ibmMeta/precisionDecimal.testSet).
-[`internal/conformance/catalog_test.go`](../../internal/conformance/catalog_test.go) records 123 accepted,
-non-queried auxiliary cases: 47 validation and 76 facet cases, split 71 Saxon and 52 IBM. The groups cover
-lexical and special values, signed zero, bounds, enumeration and pattern, totalDigits, scale/derivation, and
-invalid facet declarations. [`internal/conformance/catalog.go`](../../internal/conformance/catalog.go) keeps
-auxiliary cases out of headline coverage. They are evidence for bounded testing only; they do not prove mandatory
-XSD 1.1 precisionDecimal conformance.
+[#210](https://github.com/goxdra/goxsd9/issues/210) owns resolved auxiliary outcomes; [#196](https://github.com/goxdra/goxsd9/issues/196)
+and [#211](https://github.com/goxdra/goxsd9/issues/211) own the source ledger and executable effective-expectation policy; the pinned
+catalog remains provenance, and auxiliary results stay outside headline conformance.
