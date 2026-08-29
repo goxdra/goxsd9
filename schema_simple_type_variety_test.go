@@ -2,6 +2,7 @@ package goxsd9
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -244,6 +245,189 @@ func TestSchemaSimpleTypePrecisionDecimalPolicyRemainsBounded(t *testing.T) {
 	}
 	if !errors.Is(err, errSchemaPrecisionDecimalVersion) {
 		t.Fatalf("diagnostic lost precisionDecimal policy cause: %v", err)
+	}
+}
+
+//nolint:gocognit // Keep versioned built-in identity and bound assertions together.
+func TestSchemaBuiltInReferencesRetainVersionedBoundsAndBooleanIdentity(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
+  <xs:simpleType name="Integer"><xs:restriction base="xs:integer"/></xs:simpleType>
+  <xs:simpleType name="Decimal"><xs:restriction base="xs:decimal"/></xs:simpleType>
+  <xs:simpleType name="Boolean"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`
+	for _, test := range []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "XSD 1.0", policy: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", policy: Strict11, version: XSDVersion11},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchema: %v", err)
+			}
+
+			integer := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "Integer"))
+			decimal := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "Decimal"))
+			boolean := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "Boolean"))
+			if len(integer) != 1 || len(decimal) != 1 || len(boolean) != 1 {
+				t.Fatalf("built-in base definitions = %d/%d/%d, want one each", len(integer), len(decimal), len(boolean))
+			}
+
+			integerDefinition, ok := integer[0].SimpleTypeDefinition()
+			if !ok {
+				t.Fatal("integer simple type view is missing")
+			}
+			integerReference, ok := integerDefinition.BaseReference()
+			if !ok || integerReference.Kind() != SimpleTypeReferenceBuiltin || integerReference.Name().Local() != "integer" {
+				t.Fatalf("integer base reference = %#v/%t, want built-in integer", integerReference, ok)
+			}
+			if _, hasID := integerReference.ComponentID(); hasID {
+				t.Fatal("built-in integer reference unexpectedly has a component identity")
+			}
+			integerFacets, ok := integerReference.facts.facets.(schemaDigitFacetVariant)
+			if !ok || integerFacets.integerBounds.Version() != test.version || len(integerFacets.integerBounds.Bounds()) != 0 {
+				t.Fatalf("integer reference bounds = %#v/%t, want empty versioned bounds", integerFacets.integerBounds, ok)
+			}
+
+			decimalDefinition, ok := decimal[0].SimpleTypeDefinition()
+			if !ok {
+				t.Fatal("decimal simple type view is missing")
+			}
+			decimalReference, ok := decimalDefinition.BaseReference()
+			if !ok || decimalReference.Kind() != SimpleTypeReferenceBuiltin || decimalReference.Name().Local() != "decimal" {
+				t.Fatalf("decimal base reference = %#v/%t, want built-in decimal", decimalReference, ok)
+			}
+			if _, hasID := decimalReference.ComponentID(); hasID {
+				t.Fatal("built-in decimal reference unexpectedly has a component identity")
+			}
+			decimalFacets, ok := decimalReference.facts.facets.(schemaDigitFacetVariant)
+			if !ok || decimalFacets.decimalBounds.Version() != test.version || len(decimalFacets.decimalBounds.Bounds()) != 0 {
+				t.Fatalf("decimal reference bounds = %#v/%t, want empty versioned bounds", decimalFacets.decimalBounds, ok)
+			}
+
+			booleanDefinition, ok := boolean[0].SimpleTypeDefinition()
+			if !ok {
+				t.Fatal("boolean simple type view is missing")
+			}
+			booleanReference, ok := booleanDefinition.BaseReference()
+			if !ok || booleanReference.Kind() != SimpleTypeReferenceBuiltin || booleanReference.Name().Local() != "boolean" {
+				t.Fatalf("boolean base reference = %#v/%t, want built-in boolean", booleanReference, ok)
+			}
+			if _, hasID := booleanReference.ComponentID(); hasID {
+				t.Fatal("built-in boolean reference unexpectedly has a component identity")
+			}
+			if _, ok := booleanReference.facts.facets.(schemaBooleanFacetVariant); !ok {
+				t.Fatalf("boolean reference facets = %T, want boolean variant", booleanReference.facts.facets)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep duplicate reference order and repeated-build checks together.
+func TestSchemaSimpleTypeVarietyRetainsDuplicateReferencesDeterministically(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
+  <xs:simpleType name="Atomic"><xs:restriction base="xs:integer"/></xs:simpleType>
+  <xs:simpleType name="ListA"><xs:list itemType="t:Atomic"/></xs:simpleType>
+  <xs:simpleType name="ListB"><xs:list itemType="t:Atomic"/></xs:simpleType>
+  <xs:simpleType name="Union"><xs:union memberTypes="t:Atomic t:Atomic xs:string"/></xs:simpleType>
+</xs:schema>`
+	var first []Component
+	for iteration := 0; iteration < 3; iteration++ {
+		schema, err := discoverTestSchema(t, root, nil)
+		if err != nil {
+			t.Fatalf("discoverTestSchema iteration %d: %v", iteration, err)
+		}
+		components := schema.Components()
+		if iteration == 0 {
+			first = components
+		}
+		if iteration > 0 && !reflect.DeepEqual(first, components) {
+			t.Fatalf("repeated schema build %d changed component facts", iteration)
+		}
+
+		atomic, ok := components[0].SimpleTypeDefinition()
+		if !ok {
+			t.Fatal("atomic simple type view is missing")
+		}
+		atomicID := atomic.ID()
+		for _, name := range []string{"ListA", "ListB"} {
+			definition, definitionOK := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", name))[0].SimpleTypeDefinition()
+			if !definitionOK {
+				t.Fatalf("%s simple type view is missing", name)
+			}
+			item, itemOK := definition.ItemType()
+			if !itemOK || item.Kind() != SimpleTypeReferenceNamed || item.Name().Local() != "Atomic" {
+				t.Fatalf("%s item reference = %#v/%t, want named Atomic", name, item, itemOK)
+			}
+			if itemID, hasID := item.ComponentID(); !hasID || itemID != atomicID {
+				t.Fatalf("%s item ID = %v/%t, want %v/true", name, itemID, hasID, atomicID)
+			}
+		}
+
+		union, ok := components[3].SimpleTypeDefinition()
+		if !ok {
+			t.Fatal("union simple type view is missing")
+		}
+		members := union.MemberTypes()
+		if len(members) != 3 {
+			t.Fatalf("union member count = %d, want 3", len(members))
+		}
+		for index := 0; index < 2; index++ {
+			if members[index].Kind() != SimpleTypeReferenceNamed || members[index].Name().Local() != "Atomic" {
+				t.Fatalf("union member %d = %q/%q, want named Atomic", index, members[index].Kind(), members[index].Name())
+			}
+			memberID, hasID := members[index].ComponentID()
+			if !hasID || memberID != atomicID {
+				t.Fatalf("union member %d ID = %v/%t, want %v/true", index, memberID, hasID, atomicID)
+			}
+		}
+		if members[2].Kind() != SimpleTypeReferenceBuiltin || members[2].Name().Local() != "string" {
+			t.Fatalf("union member 2 = %q/%q, want built-in string", members[2].Kind(), members[2].Name())
+		}
+	}
+}
+
+func TestSchemaInlinePrecisionDecimalPolicyBoundary(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="inline"><xs:simpleType><xs:restriction base="xs:precisionDecimal"/></xs:simpleType></xs:element>
+</xs:schema>`
+	strict10, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err == nil {
+		t.Fatal("Strict10 accepted inline precisionDecimal")
+	}
+	if strict10.storage != nil {
+		t.Fatal("Strict10 returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticSchemaPrecisionDecimalVersionCode {
+		t.Fatalf("Strict10 diagnostic = %s, want precisionDecimal policy mismatch", diagnostic)
+	}
+	if !errors.Is(err, errSchemaPrecisionDecimalVersion) {
+		t.Fatalf("Strict10 diagnostic lost precisionDecimal cause: %v", err)
+	}
+
+	strict11, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err != nil {
+		t.Fatalf("Strict11 rejected inline precisionDecimal: %v", err)
+	}
+	elements := strict11.Components()
+	if len(elements) != 1 {
+		t.Fatalf("Strict11 component count = %d, want 1", len(elements))
+	}
+	declaration, ok := elements[0].ElementDeclaration()
+	if !ok {
+		t.Fatal("Strict11 global element view is missing")
+	}
+	reference, ok := declaration.TypeReference()
+	if !ok || !reference.IsAnonymous() {
+		t.Fatalf("Strict11 type reference = %#v/%t, want anonymous", reference, ok)
+	}
+	anonymous, ok := reference.AnonymousType()
+	if !ok || !anonymous.HasPrecisionDecimalFacets() {
+		t.Fatalf("Strict11 anonymous type = %#v/%t, want precisionDecimal facets", anonymous, ok)
 	}
 }
 

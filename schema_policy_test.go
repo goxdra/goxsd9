@@ -125,7 +125,7 @@ func assertParseSchemaVersionLabel(t *testing.T, attribute string, policy goxsd9
 //nolint:gocognit // Keep policy, graph, diagnostic, and closure assertions together.
 func TestParseSchemaWithPolicyUsesUniformGrammarAcrossGraph(t *testing.T) {
 	rootContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" version="1.0"><xs:include schemaLocation="child.xsd"/></xs:schema>`
-	childContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" version="1.1"><xs:complexType name="item"><xs:choice><xs:element name="value" type="xs:integer" targetNamespace="urn:qualified"/></xs:choice></xs:complexType></xs:schema>`
+	childContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" version="1.1"><xs:complexType name="item"><xs:choice><xs:element name="value" type="xs:integer"><xs:alternative type="xs:integer"/></xs:element></xs:choice></xs:complexType></xs:schema>`
 	tests := []struct {
 		name       string
 		policy     goxsd9.LanguagePolicy

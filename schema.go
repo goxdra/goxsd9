@@ -511,6 +511,16 @@ func (definition SimpleTypeDefinition) UnionMemberTypes() []SimpleTypeReference 
 	return definition.MemberTypes()
 }
 
+// IsBoolean reports whether the simple type is derived from the XSD boolean
+// datatype.
+func (definition SimpleTypeDefinition) IsBoolean() bool {
+	if definition.facts == nil {
+		return false
+	}
+	_, ok := definition.facts.facets.(schemaBooleanFacetVariant)
+	return ok
+}
+
 // DigitFacets returns the effective totalDigits and fractionDigits facets.
 func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 	if definition.facts == nil {
@@ -521,6 +531,32 @@ func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 		return DigitFacets{}
 	}
 	return facets.value
+}
+
+// IntegerBounds returns the effective ordered integer bounds and their
+// presence for an integer restriction.
+func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool) {
+	if definition.facts == nil {
+		return IntegerBoundFacets{}, false
+	}
+	facets, ok := definition.facts.facets.(schemaDigitFacetVariant)
+	if !ok || facets.value.Kind() != DigitDatatypeInteger {
+		return IntegerBoundFacets{}, false
+	}
+	return facets.integerBounds, true
+}
+
+// DecimalBounds returns the effective ordered decimal bounds and their
+// presence for a decimal restriction.
+func (definition SimpleTypeDefinition) DecimalBounds() (DecimalBoundFacets, bool) {
+	if definition.facts == nil {
+		return DecimalBoundFacets{}, false
+	}
+	facets, ok := definition.facts.facets.(schemaDigitFacetVariant)
+	if !ok || facets.value.Kind() != DigitDatatypeDecimal {
+		return DecimalBoundFacets{}, false
+	}
+	return facets.decimalBounds, true
 }
 
 // PrecisionDecimalFacets returns the effective precisionDecimal facets. It
@@ -1155,7 +1191,9 @@ type schemaSimpleTypeFacetVariant interface {
 }
 
 type schemaDigitFacetVariant struct {
-	value DigitFacets
+	value         DigitFacets
+	integerBounds IntegerBoundFacets
+	decimalBounds DecimalBoundFacets
 }
 
 func (schemaDigitFacetVariant) schemaSimpleTypeFacetVariant() {}
@@ -1169,6 +1207,10 @@ func (schemaPrecisionDecimalFacetVariant) schemaSimpleTypeFacetVariant() {}
 type schemaStringFacetVariant struct{}
 
 func (schemaStringFacetVariant) schemaSimpleTypeFacetVariant() {}
+
+type schemaBooleanFacetVariant struct{}
+
+func (schemaBooleanFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
 	particle schemaComplexTypeParticleInput
@@ -1244,6 +1286,41 @@ type schemaComponentRecord struct {
 	complexType *schemaComplexTypeInput
 }
 
+type schemaSymbolSpace uint8
+
+const (
+	schemaSymbolSpaceElement schemaSymbolSpace = iota + 1
+	schemaSymbolSpaceAttribute
+	schemaSymbolSpaceType
+	schemaSymbolSpaceModelGroup
+	schemaSymbolSpaceAttributeGroup
+	schemaSymbolSpaceNotation
+)
+
+type schemaSymbolKey struct {
+	space schemaSymbolSpace
+	name  QName
+}
+
+func schemaSymbolSpaceForComponentKind(kind ComponentKind) (schemaSymbolSpace, bool) {
+	switch kind {
+	case ComponentKindElementDeclaration:
+		return schemaSymbolSpaceElement, true
+	case ComponentKindAttributeDeclaration:
+		return schemaSymbolSpaceAttribute, true
+	case ComponentKindSimpleTypeDefinition, ComponentKindComplexTypeDefinition:
+		return schemaSymbolSpaceType, true
+	case ComponentKindModelGroupDefinition:
+		return schemaSymbolSpaceModelGroup, true
+	case ComponentKindAttributeGroupDefinition:
+		return schemaSymbolSpaceAttributeGroup, true
+	case ComponentKindNotationDeclaration:
+		return schemaSymbolSpaceNotation, true
+	default:
+		return 0, false
+	}
+}
+
 // newSchema completes the ordered component representation after discovery
 // and declaration phases have supplied all document identities and facts.
 // Input slices are consumed only for construction; the returned schema owns
@@ -1265,6 +1342,9 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 	}
 	if allocationErr := allocateSchemaSimpleTypeNodeIDs(records); allocationErr != nil {
 		return Schema{}, allocationErr
+	}
+	if duplicateErr := rejectDuplicateSchemaDeclarations(records, version); duplicateErr != nil {
+		return Schema{}, duplicateErr
 	}
 	simpleTypes, err := resolveSchemaSimpleTypes(records, byName, version)
 	if err != nil {
@@ -1293,6 +1373,23 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 		storage:   storage,
 		policy:    policy,
 	}, nil
+}
+
+func rejectDuplicateSchemaDeclarations(records []schemaComponentRecord, version XSDVersion) error {
+	earliest := make(map[schemaSymbolKey]int)
+	for index, record := range records {
+		space, ok := schemaSymbolSpaceForComponentKind(record.kind)
+		if !ok {
+			continue
+		}
+		key := schemaSymbolKey{space: space, name: record.name}
+		first, ok := earliest[key]
+		if ok {
+			return newSchemaDuplicateDiagnostic(record, records[first], space, version)
+		}
+		earliest[key] = index
+	}
+	return nil
 }
 
 func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []schemaComponentRecord, map[QName][]int, error) {
