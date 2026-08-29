@@ -200,12 +200,6 @@ func TestSchemaSimpleTypeVarietyRejectsInvalidReferencesAndDerivations(t *testin
 			code:  diagnosticSchemaSimpleTypeBaseCode,
 			cause: errSchemaSimpleTypeInvalidDerivation,
 		},
-		{
-			name:  "restriction cannot derive from list",
-			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:simpleType name="base"><xs:list itemType="xs:integer"/></xs:simpleType><xs:simpleType name="item"><xs:restriction base="t:base"/></xs:simpleType></xs:schema>`,
-			code:  diagnosticSchemaSimpleTypeBaseCode,
-			cause: errSchemaSimpleTypeInvalidDerivation,
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -227,6 +221,95 @@ func TestSchemaSimpleTypeVarietyRejectsInvalidReferencesAndDerivations(t *testin
 				t.Fatalf("diagnostic lost cause %v: %v", test.cause, err)
 			}
 		})
+	}
+}
+
+//nolint:gocognit // Keep valid deferred list/union restriction coverage together.
+func TestSchemaSimpleTypeVarietyDefersListAndUnionRestrictions(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+	}{
+		{
+			name: "list restriction",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:simpleType name="base"><xs:list itemType="xs:integer"/></xs:simpleType><xs:simpleType name="item"><xs:restriction base="t:base"><xs:minLength value="3"/></xs:restriction></xs:simpleType></xs:schema>`,
+		},
+		{
+			name: "union restriction",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:simpleType name="base"><xs:union memberTypes="xs:string xs:integer"/></xs:simpleType><xs:simpleType name="item"><xs:restriction base="t:base"><xs:pattern value="[0-9]+"/></xs:restriction></xs:simpleType></xs:schema>`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Strict11)
+			if err == nil {
+				t.Fatal("discoverTestSchema accepted deferred list/union restriction")
+			}
+			if schema.storage != nil || len(schema.Components()) != 0 {
+				t.Fatal("discoverTestSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+				t.Fatalf("diagnostic = %s, want unsupported/%s", diagnostic, UnsupportedSchemaSyntaxCode)
+			}
+			if diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.SpecRef() != schemaSimpleTypeXSD11SpecRef {
+				t.Fatalf("diagnostic feature/spec ref = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), FeatureSchemaSyntax, schemaSimpleTypeXSD11SpecRef)
+			}
+			if diagnostic.Loc().IsZero() || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleTypeRestrictionUnsupported) {
+				t.Fatalf("diagnostic lost location or cause: %v", err)
+			}
+		})
+	}
+}
+
+func TestSchemaSimpleTypeVarietyAllowsUnionListItems(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="1.1">
+  <xs:simpleType name="ItemUnion"><xs:union memberTypes="xs:string xs:negativeInteger"/></xs:simpleType>
+  <xs:simpleType name="NamedUnionList"><xs:list itemType="t:ItemUnion"/></xs:simpleType>
+  <xs:simpleType name="InlineUnionList"><xs:list><xs:simpleType><xs:union memberTypes="xs:string xs:negativeInteger"/></xs:simpleType></xs:list></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err != nil {
+		t.Fatalf("discoverTestSchema: %v", err)
+	}
+
+	named := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "NamedUnionList"))
+	if len(named) != 1 {
+		t.Fatalf("NamedUnionList matches = %d, want 1", len(named))
+	}
+	namedDefinition, ok := named[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("NamedUnionList simple type view is missing")
+	}
+	item, ok := namedDefinition.ItemType()
+	if !ok || item.Kind() != SimpleTypeReferenceNamed || item.Name().Local() != "ItemUnion" || item.Variety() != SimpleTypeVarietyUnion {
+		t.Fatalf("NamedUnionList item = %q/%q/%q/%t, want named union", item.Kind(), item.Name(), item.Variety(), ok)
+	}
+	itemID, itemIDOK := item.ComponentID()
+	unionID := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "ItemUnion"))[0].ID()
+	if !itemIDOK || itemID != unionID {
+		t.Fatalf("NamedUnionList item ID = %v/%t, want %v/true", itemID, itemIDOK, unionID)
+	}
+
+	inline := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "InlineUnionList"))
+	if len(inline) != 1 {
+		t.Fatalf("InlineUnionList matches = %d, want 1", len(inline))
+	}
+	inlineDefinition, ok := inline[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("InlineUnionList simple type view is missing")
+	}
+	inlineItem, ok := inlineDefinition.ItemType()
+	if !ok || inlineItem.Kind() != SimpleTypeReferenceAnonymous || inlineItem.Variety() != SimpleTypeVarietyUnion {
+		t.Fatalf("InlineUnionList item = %q/%q/%t, want anonymous union", inlineItem.Kind(), inlineItem.Variety(), ok)
+	}
+	anonymous, ok := inlineItem.AnonymousType()
+	if !ok {
+		t.Fatal("InlineUnionList anonymous union model is missing")
+	}
+	members := anonymous.MemberTypes()
+	if len(members) != 2 || members[0].Name().Local() != "string" || members[1].Name().Local() != "negativeInteger" {
+		t.Fatalf("InlineUnionList member order = %#v, want string then negativeInteger", members)
 	}
 }
 
@@ -323,6 +406,60 @@ func TestSchemaBuiltInReferencesRetainVersionedBoundsAndBooleanIdentity(t *testi
 				t.Fatalf("boolean reference facets = %T, want boolean variant", booleanReference.facts.facets)
 			}
 		})
+	}
+}
+
+func TestSchemaNegativeIntegerBoundsPropagateThroughNamedAndAnonymousRestrictions(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="1.1">
+  <xs:simpleType name="NamedNegative"><xs:restriction base="xs:negativeInteger"/></xs:simpleType>
+  <xs:simpleType name="DerivedNegative"><xs:restriction base="t:NamedNegative"/></xs:simpleType>
+  <xs:simpleType name="AnonymousNegative"><xs:union><xs:simpleType><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:union></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err != nil {
+		t.Fatalf("discoverTestSchema: %v", err)
+	}
+
+	for _, name := range []string{"NamedNegative", "DerivedNegative"} {
+		components := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", name))
+		if len(components) != 1 {
+			t.Fatalf("%s matches = %d, want 1", name, len(components))
+		}
+		definition, ok := components[0].SimpleTypeDefinition()
+		if !ok {
+			t.Fatalf("%s simple type view is missing", name)
+		}
+		assertNegativeIntegerUpperBound(t, name, definition)
+	}
+
+	components := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "AnonymousNegative"))
+	if len(components) != 1 {
+		t.Fatalf("AnonymousNegative matches = %d, want 1", len(components))
+	}
+	definition, ok := components[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("AnonymousNegative simple type view is missing")
+	}
+	members := definition.MemberTypes()
+	if len(members) != 1 {
+		t.Fatalf("AnonymousNegative member count = %d, want 1", len(members))
+	}
+	anonymous, ok := members[0].AnonymousType()
+	if !ok {
+		t.Fatal("AnonymousNegative member does not expose its anonymous type")
+	}
+	assertNegativeIntegerUpperBound(t, "AnonymousNegative member", anonymous)
+}
+
+func assertNegativeIntegerUpperBound(t *testing.T, name string, definition SimpleTypeDefinition) {
+	t.Helper()
+	bounds, present := definition.IntegerBounds()
+	if !present {
+		t.Fatalf("%s IntegerBounds() is absent", name)
+	}
+	maximum, present := bounds.MaxInclusive()
+	if !present || maximum.Canonical() != "-1" {
+		t.Fatalf("%s maxInclusive = %q/%t, want -1/true", name, maximum.Canonical(), present)
 	}
 }
 

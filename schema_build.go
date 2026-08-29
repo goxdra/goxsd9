@@ -42,19 +42,20 @@ const (
 )
 
 var (
-	errSchemaSimpleTypeBaseUnresolved    = errors.New("simple type base is unresolved")
-	errSchemaSimpleTypeBaseWrongKind     = errors.New("simple type base has the wrong kind")
-	errSchemaSimpleTypeBaseAmbiguous     = errors.New("simple type base is ambiguous")
-	errSchemaSimpleTypeBaseCycle         = errors.New("simple type base is cyclic")
-	errSchemaSimpleTypeInvalidDerivation = errors.New("simple type derivation is invalid")
-	errSchemaElementTypeUnresolved       = errors.New("element type is unresolved")
-	errSchemaElementTypeWrongKind        = errors.New("element type has the wrong kind")
-	errSchemaElementTypeAmbiguous        = errors.New("element type is ambiguous")
-	errSchemaGlobalDeclarationDuplicate  = errors.New("global declaration is duplicated")
-	errSchemaElementDuplicate            = errors.New("global element declaration is duplicated")
-	errSchemaElementTargetNamespace      = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
-	errSchemaPrecisionDecimalVersion     = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
-	errLanguagePolicyMismatch            = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
+	errSchemaSimpleTypeBaseUnresolved         = errors.New("simple type base is unresolved")
+	errSchemaSimpleTypeBaseWrongKind          = errors.New("simple type base has the wrong kind")
+	errSchemaSimpleTypeBaseAmbiguous          = errors.New("simple type base is ambiguous")
+	errSchemaSimpleTypeBaseCycle              = errors.New("simple type base is cyclic")
+	errSchemaSimpleTypeInvalidDerivation      = errors.New("simple type derivation is invalid")
+	errSchemaSimpleTypeRestrictionUnsupported = errors.New("simple type restriction variety is not implemented")
+	errSchemaElementTypeUnresolved            = errors.New("element type is unresolved")
+	errSchemaElementTypeWrongKind             = errors.New("element type has the wrong kind")
+	errSchemaElementTypeAmbiguous             = errors.New("element type is ambiguous")
+	errSchemaGlobalDeclarationDuplicate       = errors.New("global declaration is duplicated")
+	errSchemaElementDuplicate                 = errors.New("global element declaration is duplicated")
+	errSchemaElementTargetNamespace           = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
+	errSchemaPrecisionDecimalVersion          = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
+	errLanguagePolicyMismatch                 = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
 type schemaTargetNamespace struct {
@@ -1986,10 +1987,9 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 		return schemaSimpleTypeResult{}, err
 	}
 	if base.variety != SimpleTypeVarietyAtomicRestriction {
-		return schemaSimpleTypeResult{}, invalidSimpleTypeDerivation(
+		return schemaSimpleTypeResult{}, unsupportedSimpleTypeRestriction(
 			model.base.loc,
-			fmt.Sprintf("simple type restriction base %q has variety %q", base.name, base.variety),
-			[]Loc{base.varietyLoc},
+			base,
 			version,
 		)
 	}
@@ -2022,7 +2022,7 @@ func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTy
 	if err != nil {
 		return schemaSimpleTypeResult{}, err
 	}
-	if itemType.variety != SimpleTypeVarietyAtomicRestriction {
+	if itemType.variety != SimpleTypeVarietyAtomicRestriction && itemType.variety != SimpleTypeVarietyUnion {
 		return schemaSimpleTypeResult{}, invalidSimpleTypeDerivation(
 			model.itemType.loc,
 			fmt.Sprintf("simple type list item type %q has variety %q", itemType.name, itemType.variety),
@@ -2037,6 +2037,38 @@ func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTy
 		itemType:    itemType,
 		hasItemType: true,
 	}, nil
+}
+
+func unsupportedSimpleTypeRestriction(loc Loc, base schemaSimpleTypeReferenceComponent, version XSDVersion) Diagnostic {
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticUnregisteredFeatureCode,
+			loc,
+			"schema syntax feature is not registered",
+			fmt.Errorf("%w: %s", errSchemaSimpleTypeRestrictionUnsupported, base.variety),
+		)
+	}
+	message := fmt.Sprintf("simple type restriction base %q has variety %q, which is not implemented", base.name, base.variety)
+	if base.name.IsZero() {
+		message = fmt.Sprintf("simple type restriction base has variety %q, which is not implemented", base.variety)
+	}
+	diagnostic := newUnsupportedForVersionWithCause(
+		feature,
+		UnsupportedSchemaSyntaxCode,
+		loc,
+		message,
+		version,
+		fmt.Errorf("%w: %s", errSchemaSimpleTypeRestrictionUnsupported, message),
+	)
+	if diagnostic.Class() == FailureUnsupported {
+		diagnostic.specRef = schemaSimpleTypeSpecRef(version)
+		if !base.varietyLoc.IsZero() && base.varietyLoc != loc {
+			diagnostic.related = []Loc{base.varietyLoc}
+		}
+	}
+	return diagnostic
 }
 
 func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeUnionModelInput, version XSDVersion) (schemaSimpleTypeResult, error) {
@@ -2122,7 +2154,11 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		if err != nil {
 			return schemaSimpleTypeReferenceComponent{}, err
 		}
-		bounds, err := NewIntegerBoundFacets(nil, version)
+		maxInclusive, err := ParseIntegerMaxInclusiveFacet("-1", input.loc, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		bounds, err := NewIntegerBoundFacets([]IntegerBoundFacet{maxInclusive}, version)
 		if err != nil {
 			return schemaSimpleTypeReferenceComponent{}, err
 		}
