@@ -831,7 +831,8 @@ func (component Component) ComplexTypeDefinition() (ComplexTypeDefinition, bool)
 }
 
 // ComplexTypeDefinition is the immutable type-specific view of a supported
-// named complex type with a particle model.
+// named complex type. Its content is either a direct particle model or a
+// simple-content extension, and its attribute uses are kept separately.
 type ComplexTypeDefinition struct {
 	component Component
 	facts     *schemaComplexTypeComponent
@@ -863,6 +864,235 @@ func (definition ComplexTypeDefinition) Particle() Particle {
 		return nil
 	}
 	return definition.facts.particle
+}
+
+// AttributeUseKind identifies the effective use of a direct attribute use.
+type AttributeUseKind string
+
+const (
+	// AttributeUseOptional identifies an optional use, including the default.
+	AttributeUseOptional AttributeUseKind = "optional"
+	// AttributeUseRequired identifies a required use.
+	AttributeUseRequired AttributeUseKind = "required"
+	// AttributeUseProhibited identifies a prohibited use. Prohibited uses remain
+	// in AttributeUses after validation so their source and target facts remain
+	// queryable.
+	AttributeUseProhibited AttributeUseKind = "prohibited"
+)
+
+// AttributeUse is a sealed immutable direct attribute-use fact. The concrete
+// values are LocalAttributeUse and AttributeReferenceUse.
+type AttributeUse interface {
+	Loc() Loc
+	Name() QName
+	Use() AttributeUseKind
+	attributeUse()
+}
+
+// LocalAttributeUse is a scoped local attribute declaration and its use. It
+// does not have a schema component identity.
+type LocalAttributeUse struct {
+	facts *schemaLocalAttributeUse
+}
+
+func (LocalAttributeUse) attributeUse() {}
+
+// Loc returns the location of the local attribute declaration.
+func (use LocalAttributeUse) Loc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.loc
+}
+
+// Name returns the expanded local attribute name.
+func (use LocalAttributeUse) Name() QName {
+	if use.facts == nil {
+		return QName{}
+	}
+	return use.facts.name
+}
+
+// NameLoc returns the location of the local name attribute.
+func (use LocalAttributeUse) NameLoc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.nameLoc
+}
+
+// Use returns the effective local attribute use.
+func (use LocalAttributeUse) Use() AttributeUseKind {
+	if use.facts == nil {
+		return ""
+	}
+	return use.facts.use
+}
+
+// UseLoc returns the location of the explicit use attribute, or zero when the
+// optional default was used.
+func (use LocalAttributeUse) UseLoc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.useLoc
+}
+
+// DeclaredType returns the expanded QName written in the local type
+// attribute. Inline anonymous types have the zero QName.
+func (use LocalAttributeUse) DeclaredType() QName {
+	if use.facts == nil {
+		return QName{}
+	}
+	return use.facts.declaredType
+}
+
+// TypeLoc returns the location of the local type attribute or inline type.
+func (use LocalAttributeUse) TypeLoc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.typeLoc
+}
+
+// TypeID returns the identity of a named local declared type. Built-in and
+// anonymous types do not have component identities.
+func (use LocalAttributeUse) TypeID() (ComponentID, bool) {
+	if use.facts == nil || !use.facts.hasTypeID {
+		return ComponentID{}, false
+	}
+	return use.facts.typeID, true
+}
+
+// TypeReference returns the resolved built-in, named, or anonymous type
+// reference used by the local declaration.
+func (use LocalAttributeUse) TypeReference() (SimpleTypeReference, bool) {
+	if use.facts == nil || !use.facts.hasTypeReference {
+		return SimpleTypeReference{}, false
+	}
+	return SimpleTypeReference{facts: &use.facts.typeReference}, true
+}
+
+// AttributeReferenceUse is a direct use of an existing global attribute
+// declaration. It retains only the reference identity and never copies the
+// target declaration's facts.
+type AttributeReferenceUse struct {
+	facts *schemaAttributeReferenceUse
+}
+
+func (AttributeReferenceUse) attributeUse() {}
+
+// Loc returns the location of the local attribute reference.
+func (use AttributeReferenceUse) Loc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.loc
+}
+
+// Name returns the expanded QName in the ref attribute.
+func (use AttributeReferenceUse) Name() QName {
+	if use.facts == nil {
+		return QName{}
+	}
+	return use.facts.name
+}
+
+// Ref returns the expanded QName in the ref attribute.
+func (use AttributeReferenceUse) Ref() QName {
+	return use.Name()
+}
+
+// RefLoc returns the location of the ref attribute.
+func (use AttributeReferenceUse) RefLoc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.refLoc
+}
+
+// Use returns the effective referenced attribute use.
+func (use AttributeReferenceUse) Use() AttributeUseKind {
+	if use.facts == nil {
+		return ""
+	}
+	return use.facts.use
+}
+
+// UseLoc returns the location of the explicit use attribute, or zero when the
+// optional default was used.
+func (use AttributeReferenceUse) UseLoc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.useLoc
+}
+
+// TargetID returns the identity of the referenced global attribute
+// declaration.
+func (use AttributeReferenceUse) TargetID() ComponentID {
+	if use.facts == nil {
+		return ComponentID{}
+	}
+	return use.facts.targetID
+}
+
+// SimpleContentExtension is the immutable scalar base and direct attribute
+// uses of a supported simpleContent extension.
+type SimpleContentExtension struct {
+	facts *schemaSimpleContentExtension
+}
+
+// Base returns the expanded QName written in the extension's base attribute.
+func (extension SimpleContentExtension) Base() QName {
+	if extension.facts == nil {
+		return QName{}
+	}
+	return extension.facts.base
+}
+
+// BaseLoc returns the location of the extension's base attribute.
+func (extension SimpleContentExtension) BaseLoc() Loc {
+	if extension.facts == nil {
+		return Loc{}
+	}
+	return extension.facts.baseLoc
+}
+
+// TypeReference returns the resolved scalar type used by the extension.
+func (extension SimpleContentExtension) TypeReference() (SimpleTypeReference, bool) {
+	if extension.facts == nil || !extension.facts.hasTypeReference {
+		return SimpleTypeReference{}, false
+	}
+	return SimpleTypeReference{facts: &extension.facts.typeReference}, true
+}
+
+// TypeID returns the identity of a named scalar base type. Built-in bases do
+// not have component identities.
+func (extension SimpleContentExtension) TypeID() (ComponentID, bool) {
+	if extension.facts == nil || !extension.facts.hasTypeID {
+		return ComponentID{}, false
+	}
+	return extension.facts.typeID, true
+}
+
+// AttributeUses returns direct attribute uses, including prohibited uses, in
+// lexical declaration order. The returned slice is independent of the
+// completed schema.
+func (definition ComplexTypeDefinition) AttributeUses() []AttributeUse {
+	if definition.facts == nil || len(definition.facts.attributeUses) == 0 {
+		return nil
+	}
+	return append([]AttributeUse(nil), definition.facts.attributeUses...)
+}
+
+// SimpleContentExtension returns the supported simpleContent extension, when
+// the complex type uses one.
+func (definition ComplexTypeDefinition) SimpleContentExtension() (SimpleContentExtension, bool) {
+	if definition.facts == nil || definition.facts.simpleContent == nil {
+		return SimpleContentExtension{}, false
+	}
+	return SimpleContentExtension{facts: definition.facts.simpleContent}, true
 }
 
 // ParticleOccurrenceMaximumKind identifies the complete maximum occurrence
@@ -1378,8 +1608,8 @@ type schemaDocumentInput struct {
 	source          SourceID
 	rootLoc         Loc
 	targetNamespace string
-	// visibleSources is the ordered set of documents whose global element
-	// declarations may be referenced from this document.
+	// visibleSources is the ordered set of documents whose global declarations
+	// may be referenced from this document.
 	visibleSources []SourceID
 	// declarations contains the named schema-level declarations in lexical
 	// order. Local particle components will use a separate scoped model.
@@ -1585,7 +1815,31 @@ type schemaBooleanFacetVariant struct{}
 func (schemaBooleanFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
-	particle schemaComplexTypeParticleInput
+	particle      schemaComplexTypeParticleInput
+	attributeUses []schemaAttributeUseInput
+	simpleContent *schemaSimpleContentInput
+}
+
+type schemaAttributeUseInput struct {
+	loc          Loc
+	name         QName
+	nameLoc      Loc
+	reference    *schemaAttributeReferenceInput
+	declaredType QName
+	typeLoc      Loc
+	inlineSimple *schemaSimpleTypeInput
+	use          AttributeUseKind
+	useLoc       Loc
+}
+
+type schemaAttributeReferenceInput struct {
+	name QName
+	loc  Loc
+}
+
+type schemaSimpleContentInput struct {
+	base    QName
+	baseLoc Loc
 }
 
 type schemaComplexTypeParticleInput interface {
@@ -1643,6 +1897,38 @@ type schemaAttributeComponent struct {
 	hasTypeID    bool
 }
 
+type schemaLocalAttributeUse struct {
+	loc              Loc
+	name             QName
+	nameLoc          Loc
+	declaredType     QName
+	typeLoc          Loc
+	typeID           ComponentID
+	hasTypeID        bool
+	typeReference    schemaSimpleTypeReferenceComponent
+	hasTypeReference bool
+	use              AttributeUseKind
+	useLoc           Loc
+}
+
+type schemaAttributeReferenceUse struct {
+	loc      Loc
+	name     QName
+	refLoc   Loc
+	use      AttributeUseKind
+	useLoc   Loc
+	targetID ComponentID
+}
+
+type schemaSimpleContentExtension struct {
+	base             QName
+	baseLoc          Loc
+	typeID           ComponentID
+	hasTypeID        bool
+	typeReference    schemaSimpleTypeReferenceComponent
+	hasTypeReference bool
+}
+
 type schemaNotationComponent struct {
 	public    string
 	publicLoc Loc
@@ -1652,7 +1938,9 @@ type schemaNotationComponent struct {
 }
 
 type schemaComplexTypeComponent struct {
-	particle Particle
+	particle      Particle
+	attributeUses []AttributeUse
+	simpleContent *schemaSimpleContentExtension
 }
 
 type schemaChoiceParticle struct {
@@ -1762,6 +2050,9 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	}
 	simpleTypes, err := resolveSchemaSimpleTypes(records, byName, version)
 	if err != nil {
+		if precisionErr := reframeSchemaLocalAttributePrecisionDecimal(records, byName, err, version); precisionErr != nil {
+			return Schema{}, precisionErr
+		}
 		if cycleErr := reframeSchemaAttributeTypeCycle(records, byName, err, version); cycleErr != nil {
 			return Schema{}, cycleErr
 		}
@@ -1771,7 +2062,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
-	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes.results, version)
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, attributes, version)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -2047,7 +2338,9 @@ func completeSchemaComponent(
 	}
 	if complexType.present {
 		component.complexType = &schemaComplexTypeComponent{
-			particle: complexType.particle,
+			particle:      complexType.particle,
+			attributeUses: cloneSchemaAttributeUses(complexType.attributeUses),
+			simpleContent: complexType.simpleContent,
 		}
 	}
 	return component
@@ -2070,7 +2363,16 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 	if input == nil {
 		return nil
 	}
-	clone := &schemaComplexTypeInput{particle: input.particle}
+	clone := &schemaComplexTypeInput{
+		particle:      input.particle,
+		attributeUses: cloneSchemaAttributeUseInputs(input.attributeUses),
+	}
+	if input.simpleContent != nil {
+		clone.simpleContent = &schemaSimpleContentInput{
+			base:    input.simpleContent.base,
+			baseLoc: input.simpleContent.baseLoc,
+		}
+	}
 	switch particle := input.particle.(type) {
 	case *schemaChoiceParticleInput:
 		if particle == nil {
@@ -2132,6 +2434,29 @@ func cloneSchemaAttributeInput(input *schemaAttributeInput) *schemaAttributeInpu
 		declaredType: input.declaredType,
 		typeLoc:      input.typeLoc,
 	}
+}
+
+func cloneSchemaAttributeUseInputs(inputs []schemaAttributeUseInput) []schemaAttributeUseInput {
+	if len(inputs) == 0 {
+		return nil
+	}
+	clones := make([]schemaAttributeUseInput, len(inputs))
+	for index, input := range inputs {
+		clones[index] = input
+		if input.reference != nil {
+			reference := *input.reference
+			clones[index].reference = &reference
+		}
+		clones[index].inlineSimple = cloneSchemaSimpleTypeInput(input.inlineSimple)
+	}
+	return clones
+}
+
+func cloneSchemaAttributeUses(inputs []AttributeUse) []AttributeUse {
+	if len(inputs) == 0 {
+		return nil
+	}
+	return append([]AttributeUse(nil), inputs...)
 }
 
 func cloneSchemaElementSubstitutionGroups(input []schemaElementSubstitutionGroup) []schemaElementSubstitutionGroup {
@@ -2206,6 +2531,7 @@ func cloneSchemaSimpleTypeReferenceComponents(inputs []schemaSimpleTypeReference
 	return clones
 }
 
+//nolint:gocognit // Keep deterministic allocation of component and inline type nodes together.
 func allocateSchemaSimpleTypeNodeIDs(records []schemaComponentRecord) error {
 	nextBySource := make(map[SourceID]uint64)
 	seen := make(map[*schemaSimpleTypeInput]SimpleTypeID)
@@ -2215,11 +2541,21 @@ func allocateSchemaSimpleTypeNodeIDs(records []schemaComponentRecord) error {
 				return err
 			}
 		}
-		if record.element == nil || record.element.inlineSimpleType == nil {
+		if record.element != nil && record.element.inlineSimpleType != nil {
+			if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
+				return err
+			}
+		}
+		if record.complexType == nil {
 			continue
 		}
-		if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
-			return err
+		for _, attributeUse := range record.complexType.attributeUses {
+			if attributeUse.inlineSimple == nil {
+				continue
+			}
+			if err := allocateSchemaSimpleTypeNodeID(attributeUse.inlineSimple, record.id.Source(), nextBySource, seen); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -93,20 +93,18 @@ source identity with one-based declaration ordinals; lookup maps never define
 observable order. Local particles use a scoped model with component facts and
 indexes; validator and generator state is on demand.
 
-The model stores facts; primitive status follows type relations. Direct global `xs:boolean`
-elements retain expanded `DeclaredType` facts; named boolean restrictions expose immutable
-`SimpleTypeDefinition.IsBoolean()` facts; built-ins lack synthetic IDs.
-
-Named complex types expose direct `element`, `sequence`, and `choice` particles.
-Supported direct sequences/choices contain local built-in `xs:boolean`, named
-boolean-restriction, `integer`, or `decimal` scalar elements with exact finite
-and unbounded ranges; `0/0` maps to absence. XSD 1.1 direct choices may include
-`precisionDecimal` only when the choice and each mapped alternative use default
-occurrences; non-precision alternatives may retain non-default queryable ranges.
-Boolean facets and anonymous/nested/broader particles remain unsupported.
-Direct references are immutable queryable particles; validation and code
-generation reject them as unsupported.
-
+The model stores immutable facts; built-ins lack synthetic IDs. Named complex
+types expose direct `element`, `sequence`, and `choice` particles plus ordered
+attribute uses. Supported particles retain exact ranges for local boolean,
+`integer`, and `decimal` scalars; XSD 1.1 `precisionDecimal` choices require
+default occurrences. Direct references and attribute uses are queryable, but
+validation and generation reject them as unsupported.
+Local uses retain expanded names, declared type QNames, scalar references, uses,
+and locations; global references retain target identities without copied facts.
+Prohibited uses remain queryable. One simpleContent extension supports scalar
+bases including built-in `xs:string`; local `precisionDecimal` follows XSD 1.1.
+Defaults/fixed values, groups, wildcards, assertions, and broad derivation remain
+unsupported.
 ## Datatypes
 
 Lexical parsing and value representation are separate. Context-sensitive

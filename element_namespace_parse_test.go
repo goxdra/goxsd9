@@ -484,28 +484,38 @@ func TestParseSchemaAttributeFormDefaultDiagnostics(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep namespace-default boundaries and their classifications together.
 func TestParseSchemaAttributeFormDefaultDoesNotClaimLocalAttributes(t *testing.T) {
 	tests := []struct {
-		name  string
-		child string
+		name            string
+		child           string
+		class           goxsd9.FailureClass
+		code            string
+		wantUnsupported bool
 	}{
-		{name: "local declaration", child: `<xs:attribute name="item" type="xs:string"/>`},
-		{name: "local default", child: `<xs:attribute name="item" default="value"/>`},
-		{name: "local fixed", child: `<xs:attribute name="item" fixed="value"/>`},
-		{name: "local reference", child: `<xs:attribute ref="item"/>`},
-		{name: "attribute group reference", child: `<xs:attributeGroup ref="items"/>`},
+		{name: "local declaration", child: `<xs:attribute name="item" type="xs:string"/>`, class: goxsd9.FailureUnsupported, code: goxsd9.UnsupportedSchemaSyntaxCode, wantUnsupported: true},
+		{name: "local default", child: `<xs:attribute name="item" default="value"/>`, class: goxsd9.FailureUnsupported, code: goxsd9.UnsupportedSchemaSyntaxCode, wantUnsupported: true},
+		{name: "local fixed", child: `<xs:attribute name="item" fixed="value"/>`, class: goxsd9.FailureUnsupported, code: goxsd9.UnsupportedSchemaSyntaxCode, wantUnsupported: true},
+		{name: "local reference", child: `<xs:attribute ref="item"/>`, class: goxsd9.FailureInvalid, code: "XSD3045"},
+		{name: "attribute group reference", child: `<xs:attributeGroup ref="items"/>`, class: goxsd9.FailureUnsupported, code: goxsd9.UnsupportedSchemaSyntaxCode, wantUnsupported: true},
 	}
 	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict10, goxsd9.Strict11} {
 		for _, test := range tests {
 			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" attributeFormDefault="unqualified"><xs:complexType name="Record">` + test.child + `</xs:complexType></xs:schema>`
 				schema, err := parseElementNamespaceSchemaResult(t, policy, root, nil)
-				diagnostic := assertElementNamespaceFailure(t, schema, err, goxsd9.FailureUnsupported)
-				if diagnostic.Feature() != goxsd9.FeatureSchemaSyntax || diagnostic.Code() != goxsd9.UnsupportedSchemaSyntaxCode {
-					t.Fatalf("diagnostic = %s, want schema-syntax unsupported", diagnostic)
+				diagnostic := assertElementNamespaceFailure(t, schema, err, test.class)
+				if diagnostic.Code() != test.code {
+					t.Fatalf("diagnostic code = %q, want %q", diagnostic.Code(), test.code)
 				}
-				if !errors.Is(err, goxsd9.ErrUnsupported) {
-					t.Fatalf("local attribute diagnostic lost ErrUnsupported: %v", err)
+				if test.wantUnsupported {
+					if diagnostic.Feature() != goxsd9.FeatureSchemaSyntax || !errors.Is(err, goxsd9.ErrUnsupported) {
+						t.Fatalf("local attribute diagnostic = %s, want schema-syntax unsupported", diagnostic)
+					}
+					return
+				}
+				if errors.Is(err, goxsd9.ErrUnsupported) {
+					t.Fatalf("local reference diagnostic was classified as unsupported: %v", err)
 				}
 			})
 		}

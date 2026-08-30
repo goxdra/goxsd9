@@ -723,7 +723,7 @@ func validateSchemaRootUnqualifiedAttribute(element *syntaxElement, attribute sy
 		if err := validateSchemaEnum(attribute, "qualified", "unqualified"); err != nil {
 			return "", err
 		}
-		if collapseXMLWhitespace(attribute.value) == "unqualified" {
+		if collapseXMLWhitespace(attribute.value) == "unqualified" || schemaRootContainsDirectAttributeUse(element) {
 			return "", nil
 		}
 		return fmt.Sprintf("schema root attribute %q is not implemented", attribute.name.local), nil
@@ -769,6 +769,44 @@ func validateSchemaRootUnqualifiedAttribute(element *syntaxElement, attribute sy
 		return "", newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("schema root has unknown attribute %q", attribute.name.local))
 	}
 	return "", nil
+}
+
+//nolint:gocognit // Keep qualified-default eligibility scoped to direct complex-type content.
+func schemaRootContainsDirectAttributeUse(root *syntaxElement) bool {
+	if root == nil {
+		return false
+	}
+	for _, node := range root.children {
+		complexType, ok := node.(*syntaxElement)
+		if !ok || complexType.name.namespace != xsdNamespaceURI || complexType.name.local != "complexType" {
+			continue
+		}
+		for _, childNode := range complexType.children {
+			child, ok := childNode.(*syntaxElement)
+			if !ok || child.name.namespace != xsdNamespaceURI {
+				continue
+			}
+			if child.name.local == "attribute" {
+				return true
+			}
+			if child.name.local != "simpleContent" {
+				continue
+			}
+			for _, contentNode := range child.children {
+				content, ok := contentNode.(*syntaxElement)
+				if !ok || content.name.namespace != xsdNamespaceURI || content.name.local != "extension" {
+					continue
+				}
+				for _, extensionNode := range content.children {
+					attributeUse, ok := extensionNode.(*syntaxElement)
+					if ok && attributeUse.name.namespace == xsdNamespaceURI && attributeUse.name.local == "attribute" {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 func validateSchemaEnum(attribute syntaxAttribute, values ...string) error {
@@ -2508,7 +2546,8 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				return newSchemaCompositionDiagnostic(child.loc, "complexType content model is mutually exclusive")
 			}
 			specialSeen = true
-			if err := validateComplexTypeContentChild(child, version); err != nil && !candidate.considerError(err) {
+			allowAttributeUses := len(syntaxAttributesByLocal(parent, "name")) == 1
+			if err := validateComplexTypeContentChild(child, version, allowAttributeUses); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "openContent":
@@ -2563,6 +2602,9 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			childErr := validateAttributeGroupReference(child)
 			if child.name.local == "attribute" {
 				childErr = validateLocalAttribute(child, version)
+				if childErr == nil && len(syntaxAttributesByLocal(parent, "name")) != 1 {
+					candidate.considerAtVersion(child.loc, "local attribute uses in anonymous complex types are not implemented", version)
+				}
 			}
 			if childErr != nil && !candidate.considerError(childErr) {
 				return childErr
@@ -2614,7 +2656,7 @@ func validateComplexTypeMixedAgreement(parent, content *syntaxElement) error {
 }
 
 //nolint:gocognit // Keep the ordered simple/complex content grammar explicit.
-func validateComplexTypeContentChild(element *syntaxElement, version XSDVersion) error {
+func validateComplexTypeContentChild(element *syntaxElement, version XSDVersion, allowAttributeUses bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateComplexTypeContentAttributes(element, &candidate); err != nil {
 		return err
@@ -2625,6 +2667,7 @@ func validateComplexTypeContentChild(element *syntaxElement, version XSDVersion)
 	}
 	annotationSeen := false
 	derivationSeen := false
+	derivationSupported := false
 	for _, child := range children {
 		if child.name.local == "annotation" {
 			if annotationSeen || derivationSeen {
@@ -2640,8 +2683,13 @@ func validateComplexTypeContentChild(element *syntaxElement, version XSDVersion)
 			return newSchemaCompositionDiagnostic(child.loc, element.name.local+" permits exactly one derivation child")
 		}
 		derivationSeen = true
-		if err := validateComplexDerivation(child, version, element.name.local == "complexContent", element.name.local == "simpleContent" && child.name.local == "restriction"); err != nil && !candidate.considerError(err) {
-			return err
+		derivationErr := validateComplexDerivation(child, version, element.name.local == "complexContent", element.name.local == "simpleContent" && child.name.local == "restriction", allowAttributeUses)
+		if derivationErr == nil {
+			derivationSupported = true
+			continue
+		}
+		if !candidate.considerError(derivationErr) {
+			return derivationErr
 		}
 	}
 	if !derivationSeen {
@@ -2649,6 +2697,9 @@ func validateComplexTypeContentChild(element *syntaxElement, version XSDVersion)
 	}
 	if candidate.present {
 		return candidate.err()
+	}
+	if derivationSupported {
+		return nil
 	}
 	return newSchemaSyntaxUnsupported(element.loc, element.name.local+" is not implemented")
 }
@@ -2688,7 +2739,7 @@ func validateComplexTypeContentAttributes(element *syntaxElement, candidate *sch
 }
 
 //nolint:gocognit,funlen // Keep derivation ordering and recursive preflight explicit.
-func validateComplexDerivation(element *syntaxElement, version XSDVersion, complexContent, simpleRestriction bool) error {
+func validateComplexDerivation(element *syntaxElement, version XSDVersion, complexContent, simpleRestriction, allowAttributeUses bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateUniqueSchemaAttributes(element, "base", "id"); err != nil {
 		return err
@@ -2833,6 +2884,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 		return newSchemaCompositionDiagnostic(openContentLoc, "complexContent restriction openContent requires a model particle")
 	}
 	derivationErr := candidate.err()
+	if !complexContent && !simpleRestriction && allowAttributeUses && derivationErr == nil {
+		return nil
+	}
 	if derivationErr == nil {
 		derivationErr = newSchemaSyntaxUnsupported(element.loc, element.name.local+" derivation is not implemented")
 	}
@@ -3028,9 +3082,6 @@ func validateLocalAttribute(element *syntaxElement, version XSDVersion) error {
 					"local attribute targetNamespace is an XSD 1.1-only construct",
 				))
 			}
-			if version != XSDVersion10 {
-				candidate.considerAtVersion(attribute.loc, "local attribute targetNamespace is not implemented", version)
-			}
 		case "inheritable":
 			if err := validateSchemaBoolean(attribute); err != nil {
 				return err
@@ -3117,7 +3168,7 @@ func validateLocalAttribute(element *syntaxElement, version XSDVersion) error {
 	if candidate.present {
 		return candidate.err()
 	}
-	return newSchemaSyntaxUnsupported(element.loc, "local attribute declarations are not implemented")
+	return nil
 }
 
 //nolint:gocognit // Keep nested attribute-group reference grammar explicit.
@@ -4562,6 +4613,9 @@ func validateAttributeGroupGlobalChildren(parent *syntaxElement, children []*syn
 			childErr := validateLocalAttribute(child, version)
 			if child.name.local == "attributeGroup" {
 				childErr = validateAttributeGroupReference(child)
+			}
+			if child.name.local == "attribute" && childErr == nil {
+				candidate.considerAt(child.loc, "local attribute uses in attribute groups are not implemented")
 			}
 			if childErr != nil && !candidate.considerError(childErr) {
 				return childErr
