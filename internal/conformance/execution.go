@@ -430,30 +430,13 @@ func executeCase(ctx context.Context, fsys fs.FS, resolver pinnedResolver, polic
 	if !usable {
 		return result
 	}
-	if len(caseValue.documents) == 0 {
-		result.executionReason = "schema-document-missing"
-		return result
-	}
-
-	root, graphResolver, sourceClass, sourceErr := openSchemaGraph(ctx, fsys, resolver, caseValue.documents)
-	if sourceErr != nil {
-		result.actual = ActualUnknown
-		result.actualClass = sourceClass
-		result.outcome = executionFailureOutcome(sourceClass)
-		result.err = sourceErr
-		return result
-	}
-
-	_, parseErr := goxsd9.ParseSchemaWithPolicy(root, graphResolver, policy)
-	if parseErr == nil {
-		result.actual = ActualValid
-		result.outcome = compareExpectedValidity(expectedValidity, result.actual)
-		return result
-	}
-
-	result.err = parseErr
-	result.diagnostics = parserDiagnostics(parseErr)
-	result.actual, result.actualClass, result.outcome = classifyParserFailure(result.diagnostics, expectedValidity)
+	_, execution := executeSchemaCase(ctx, fsys, resolver, policy, version, caseValue)
+	result.actual = execution.actual
+	result.actualClass = execution.actualClass
+	result.outcome = execution.outcome
+	result.diagnostics = execution.diagnostics
+	result.err = execution.err
+	result.executionReason = execution.executionReason
 	return result
 }
 
