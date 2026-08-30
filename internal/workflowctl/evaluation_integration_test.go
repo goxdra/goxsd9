@@ -552,6 +552,150 @@ func TestEvaluationChallengeClosureDuplicateVisibilityFailsClosed(t *testing.T) 
 	}
 }
 
+func TestEvaluationChallengeConvergenceRejectsAmbiguousTerminalHistory(t *testing.T) {
+	tests := []struct {
+		name   string
+		append func(*testing.T, *workflowBackend, evaluationChallenge, evaluationChallenge)
+		want   string
+	}{
+		{
+			name: "duplicate resolutions",
+			append: func(t *testing.T, backend *workflowBackend, canonical, _ evaluationChallenge) {
+				resolvedAt := canonical.RequestedAt.Add(evaluationChallengeDuration + time.Hour)
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictResolutionComment(t, canonical, resolvedAt, "expired"))
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictResolutionComment(t, canonical, resolvedAt.Add(time.Minute), "expired"))
+			},
+			want: "multiple matching no-verdict resolutions",
+		},
+		{
+			name: "receipt and resolution",
+			append: func(t *testing.T, backend *workflowBackend, canonical, duplicate evaluationChallenge) {
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictReceiptComment(t, canonical, "terminal-receipt", 1,
+						canonical.RequestedAt.Add(time.Hour)))
+				resolvedAt := duplicate.RequestedAt.Add(evaluationChallengeDuration + time.Hour)
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictResolutionComment(t, duplicate, resolvedAt, "expired"))
+			},
+			want: "both an attested receipt and a no-verdict resolution",
+		},
+		{
+			name: "receipts across equivalent challenges",
+			append: func(t *testing.T, backend *workflowBackend, canonical, duplicate evaluationChallenge) {
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictReceiptComment(t, canonical, "terminal-receipt-1", 1,
+						canonical.RequestedAt.Add(time.Hour)))
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictReceiptComment(t, duplicate, "terminal-receipt-2", 2,
+						duplicate.RequestedAt.Add(time.Hour)))
+			},
+			want: "multiple matching trusted receipts",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			var stdout bytes.Buffer
+			application := newResolutionWorkflowApplication(backend, &stdout)
+			base := time.Date(2026, time.August, 20, 10, 0, 0, 0, time.UTC)
+			canonical := evaluationChallenge{
+				Challenge:      "terminal-canonical",
+				Repository:     repositoryKey,
+				Head:           backend.head,
+				PR:             14,
+				BodySHA256:     strings.Repeat("a", 64),
+				EvidenceSHA256: strings.Repeat("b", 64),
+				RequestedAt:    base,
+			}
+			duplicate := canonical
+			duplicate.Challenge = "terminal-duplicate"
+			duplicate.RequestedAt = base.Add(time.Minute)
+			canonicalComment := testEvaluationChallengeComment(t, canonical)
+			canonicalComment.ID = 1
+			duplicateComment := testEvaluationChallengeComment(t, duplicate)
+			duplicateComment.ID = 2
+			appendWorkflowEvaluationComment(t, backend, canonicalComment)
+			appendWorkflowEvaluationComment(t, backend, duplicateComment)
+			test.append(t, backend, canonical, duplicate)
+			initialComments := len(backend.comments)
+
+			_, attestationFile := writeTestAttestation(t, backend.head, canonical)
+			err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ambiguous terminal history error = %v, want %q", err, test.want)
+			}
+			if len(backend.comments) != initialComments || backend.commentPostCount != 0 {
+				t.Fatalf("ambiguous terminal history mutated comments=%d (want %d), posts=%d (want 0)",
+					len(backend.comments), initialComments, backend.commentPostCount)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("ambiguous terminal history emitted output %q", stdout.String())
+			}
+		})
+	}
+}
+
+func evaluationTerminalConflictReceiptComment(t *testing.T, challenge evaluationChallenge, runID string,
+	round int, recordedAt time.Time) pullRequestComment {
+	t.Helper()
+	attestationJSON, _ := writeTestAttestationRun(t, challenge.Head, challenge, runID)
+	var attestation evaluationAttestation
+	if err := json.Unmarshal(attestationJSON, &attestation); err != nil {
+		t.Fatalf("decode terminal conflict attestation: %v", err)
+	}
+	report := canonicalEvaluationReport(renderEvaluationReport(attestation))
+	receipt := evaluationReceipt{
+		AttestationSHA256: sha256Hex(attestationJSON),
+		BaseRefName:       "main",
+		Challenge:         challenge.Challenge,
+		ClaimProofs:       []evaluationClaimProof{{Issue: 13, Branch: "agent/issue-13", SHA: challenge.Head}},
+		ClosingIssues:     []int{13},
+		Evaluator:         "Examiner",
+		EvaluatorRunID:    runID,
+		Head:              challenge.Head,
+		HeadRefName:       "agent/issue-13",
+		BodySHA256:        challenge.BodySHA256,
+		EvidenceSHA256:    challenge.EvidenceSHA256,
+		Repository:        repositoryKey,
+		PR:                challenge.PR,
+		RecordedAt:        recordedAt,
+		ReportSHA256:      sha256Hex(report),
+		ReportTransport:   evaluationReportTransportV1,
+		Round:             round,
+		Verdict:           "pass",
+	}
+	marker, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode terminal conflict receipt: %v", err)
+	}
+	comment := statusComment(evaluationComment(marker, attestationJSON, string(report)), trustedActor, recordedAt)
+	return comment
+}
+
+func evaluationTerminalConflictResolutionComment(t *testing.T, challenge evaluationChallenge,
+	resolvedAt time.Time, reason string) pullRequestComment {
+	t.Helper()
+	resolution := evaluationResolution{
+		BodySHA256:     challenge.BodySHA256,
+		Challenge:      challenge.Challenge,
+		EvidenceSHA256: challenge.EvidenceSHA256,
+		Head:           challenge.Head,
+		Repository:     challenge.Repository,
+		PR:             challenge.PR,
+		Reason:         reason,
+		ResolvedAt:     resolvedAt,
+		Resolver:       trustedActor,
+		Schema:         evaluationResolutionSchema,
+	}
+	marker, err := json.Marshal(resolution)
+	if err != nil {
+		t.Fatalf("encode terminal conflict resolution: %v", err)
+	}
+	return statusComment(evaluationResolutionComment(marker, reason), trustedActor, resolvedAt)
+}
+
 func TestThirdFailureProjectTransitionRetryConvergesWithoutReceipt(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	backend.projectStatus = "Ready"

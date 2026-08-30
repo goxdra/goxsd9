@@ -96,11 +96,13 @@ func (projection evaluationLogicalProjection) challengeForID(challengeID string)
 }
 
 // evaluationChallengeOnlyProjectionForHistory projects challenge identities and
-// controller closures without requiring receipt groups to have converged. A
-// mutation can use this phase to close duplicate challenges before it needs a
-// full terminal-state projection.
+// controller closures without requiring equivalent receipt groups to have
+// converged. Terminal conflicts are still rejected before any mutation.
 func evaluationChallengeOnlyProjectionForHistory(history evaluationHistory) (
 	evaluationLogicalProjection, error) {
+	if err := validateEvaluationTerminalConflicts(history); err != nil {
+		return evaluationLogicalProjection{}, err
+	}
 	return evaluationLogicalProjectionForHistoryMode(history, false, true)
 }
 

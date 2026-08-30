@@ -3286,8 +3286,79 @@ func validateEvaluationHistoryForConvergence(history evaluationHistory) error {
 	if validationErr := validateEvaluationResolutionRecords(history); validationErr != nil {
 		return validationErr
 	}
+	if validationErr := validateEvaluationTerminalConflicts(history); validationErr != nil {
+		return validationErr
+	}
 	_, err = evaluationChallengeOnlyProjectionForHistory(history)
 	return err
+}
+
+// validateEvaluationTerminalConflicts keeps challenge convergence fail-closed
+// while permitting equivalent receipt comments to reach their convergence phase.
+//
+//nolint:gocognit // Match terminal records across deterministic logical challenge groups.
+func validateEvaluationTerminalConflicts(history evaluationHistory) error {
+	groups, err := evaluationLogicalChallengeGroups(history)
+	if err != nil {
+		return err
+	}
+	receiptGroups, err := evaluationReceiptGroups(history.receipts)
+	if err != nil {
+		return err
+	}
+	for _, group := range groups {
+		receiptMatches := 0
+		for _, receiptGroup := range receiptGroups {
+			if !evaluationReceiptGroupMatchesChallenge(group, receiptGroup) {
+				continue
+			}
+			receiptMatches++
+		}
+		resolutionMatches := 0
+		for _, resolution := range history.resolutions {
+			if evaluationResolutionMatchesChallenge(group, resolution) {
+				resolutionMatches++
+			}
+		}
+		if receiptMatches > 1 {
+			return fmt.Errorf("logical evaluation challenge %q has multiple matching trusted receipts",
+				group.canonical.challenge.Challenge)
+		}
+		if resolutionMatches > 1 {
+			return fmt.Errorf("logical evaluation challenge %q has multiple matching no-verdict resolutions",
+				group.canonical.challenge.Challenge)
+		}
+		if receiptMatches != 0 && resolutionMatches != 0 {
+			return fmt.Errorf("logical evaluation challenge %q has both an attested receipt and a no-verdict resolution",
+				group.canonical.challenge.Challenge)
+		}
+	}
+	return nil
+}
+
+func evaluationReceiptGroupMatchesChallenge(challenge evaluationLogicalChallenge,
+	receiptGroup evaluationReceiptGroup) bool {
+	for _, member := range challenge.members {
+		for _, receipt := range receiptGroup.records {
+			if receipt.receipt.AttestationSHA256 == "" {
+				continue
+			}
+			if evaluationChallengeMatchesReceipt(member, receipt) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func evaluationResolutionMatchesChallenge(challenge evaluationLogicalChallenge,
+	resolution evaluationResolutionRecord) bool {
+	for _, member := range challenge.members {
+		if evaluationChallengeMatchesResolution(member, resolution) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateEvaluationRepairsForConvergence(history evaluationHistory) error {
