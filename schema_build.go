@@ -24,6 +24,7 @@ const (
 	diagnosticSchemaElementDuplicateCode        = diagnosticSchemaGlobalDuplicateCode
 	diagnosticSchemaPrecisionDecimalVersionCode = "XSD3030"
 	diagnosticSchemaAllOccurrenceVersionCode    = diagnosticSchemaPrecisionDecimalVersionCode
+	diagnosticSchemaNotationCode                = "XSD3031"
 	diagnosticSchemaBridgeInvariantCode         = "GOXSD9025"
 )
 
@@ -39,6 +40,8 @@ const (
 	schemaGlobalDuplicateXSD11SpecRef        = "xsd11-structures#c-nmd"
 	schemaElementDuplicateXSD10SpecRef       = schemaGlobalDuplicateXSD10SpecRef
 	schemaElementDuplicateXSD11SpecRef       = schemaGlobalDuplicateXSD11SpecRef
+	schemaNotationXSD10SpecRef               = "xsd10-structures#Notation_Declaration_details"
+	schemaNotationXSD11SpecRef               = "xsd11-structures#Notation_Declaration_details"
 )
 
 var (
@@ -55,6 +58,8 @@ var (
 	errSchemaElementDuplicate                 = errors.New("global element declaration is duplicated")
 	errSchemaElementTargetNamespace           = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
 	errSchemaPrecisionDecimalVersion          = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
+	errSchemaNotationPublic                   = errors.New("notation public identifier is invalid")
+	errSchemaNotationSystem                   = errors.New("notation system identifier is invalid")
 	errLanguagePolicyMismatch                 = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
@@ -420,6 +425,13 @@ func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, 
 			return schemaComponentInput{}, elementErr
 		}
 		declaration.element = elementType
+	}
+	if kind == ComponentKindNotationDeclaration {
+		notation, notationErr := schemaNotationInputFromElement(element, version)
+		if notationErr != nil {
+			return schemaComponentInput{}, notationErr
+		}
+		declaration.notation = notation
 	}
 	if kind == ComponentKindComplexTypeDefinition {
 		complexType, complexErr := schemaComplexTypeInputFromElementWithFacts(element, facts, version)
@@ -1154,6 +1166,44 @@ func syntaxAttributesByLocal(element *syntaxElement, local string) []syntaxAttri
 		}
 	}
 	return attributes
+}
+
+func schemaNotationInputFromElement(element *syntaxElement, version XSDVersion) (*schemaNotationInput, error) {
+	publicAttributes := syntaxAttributesByLocal(element, "public")
+	if len(publicAttributes) == 0 {
+		return nil, newSchemaNotationDiagnostic(
+			element.loc,
+			"notation declaration requires a public attribute",
+			version,
+			errSchemaNotationPublic,
+		)
+	}
+	if len(publicAttributes) != 1 {
+		return nil, newSchemaCompositionDiagnostic(publicAttributes[1].loc, "notation public attribute must be unique")
+	}
+	public := publicAttributes[0]
+	if err := validateSchemaNotationAttribute(public, version); err != nil {
+		return nil, err
+	}
+	notation := &schemaNotationInput{
+		public:    collapseXMLWhitespace(public.value),
+		publicLoc: public.loc,
+	}
+	systemAttributes := syntaxAttributesByLocal(element, "system")
+	if len(systemAttributes) == 0 {
+		return notation, nil
+	}
+	if len(systemAttributes) != 1 {
+		return nil, newSchemaCompositionDiagnostic(systemAttributes[1].loc, "notation system attribute must be unique")
+	}
+	system := systemAttributes[0]
+	if err := validateSchemaNotationAttribute(system, version); err != nil {
+		return nil, err
+	}
+	notation.system = collapseXMLWhitespace(system.value)
+	notation.systemLoc = system.loc
+	notation.hasSystem = true
+	return notation, nil
 }
 
 func validNCName(value string) bool {
@@ -2026,6 +2076,24 @@ func schemaElementTypeSpecRef(version XSDVersion) string {
 		return schemaElementTypeXSD10SpecRef
 	}
 	return schemaElementTypeXSD11SpecRef
+}
+
+func newSchemaNotationDiagnostic(loc Loc, message string, version XSDVersion, cause error) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaNotationCode,
+		loc:     loc,
+		message: message,
+		specRef: schemaNotationSpecRef(version),
+		cause:   cause,
+	}
+}
+
+func schemaNotationSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaNotationXSD10SpecRef
+	}
+	return schemaNotationXSD11SpecRef
 }
 
 func precisionDecimalSchemaVersionDiagnostic(loc Loc, name QName) Diagnostic {
