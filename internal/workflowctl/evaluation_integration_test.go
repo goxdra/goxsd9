@@ -71,6 +71,739 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	checkMergeResult(t, backend)
 }
 
+func TestEvaluationChallengeConvergesConcurrentEquivalentComment(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	backend.duplicateChallengeOnNextPost = true
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+
+	canonical := requestTestChallenge(t, &application, &stdout)
+	if got, want := len(backend.comments), 3; got != want {
+		t.Fatalf("converged challenge history comments = %d, want %d", got, want)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.challenges) != 2 || len(history.closures) != 1 {
+		t.Fatalf("converged challenge history = %#v, want two challenges and one closure", history)
+	}
+	outstanding, err := outstandingEvaluationChallenges(history)
+	if err != nil {
+		t.Fatalf("logical outstanding challenges: %v", err)
+	}
+	if len(outstanding) != 1 || outstanding[0].challenge.Challenge != canonical.Challenge {
+		t.Fatalf("logical outstanding challenges = %#v, want canonical challenge only", outstanding)
+	}
+
+	stdout.Reset()
+	if statusErr := application.runEvaluation([]string{"status", "14"}); statusErr != nil {
+		t.Fatalf("status after challenge convergence: %v", statusErr)
+	}
+	status := stdout.String()
+	for _, expected := range []string{"Trusted challenges: 2", "Outstanding challenges: 1", "Recorded rounds: 0", "No-verdict resolutions: 0", "resolved by controller closure"} {
+		if !strings.Contains(status, expected) {
+			t.Fatalf("status = %q, want %q", status, expected)
+		}
+	}
+
+	_, attestationFile := writeTestAttestation(t, backend.head, canonical)
+	stdout.Reset()
+	if recordErr := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); recordErr != nil {
+		t.Fatalf("record canonical attestation after challenge convergence: %v", recordErr)
+	}
+	history = workflowEvaluationHistory(t, backend, 14)
+	if len(history.receipts) != 1 || len(history.closures) != 1 {
+		t.Fatalf("recorded converged history = %#v, want one receipt and one closure", history)
+	}
+	outstanding, err = outstandingEvaluationChallenges(history)
+	if err != nil {
+		t.Fatalf("logical outstanding challenges after receipt: %v", err)
+	}
+	if len(outstanding) != 0 {
+		t.Fatalf("logical outstanding challenges after receipt = %#v, want none", outstanding)
+	}
+}
+
+func TestEvaluationChallengeReturnsEarlierCanonicalMarker(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	backend.duplicateChallengeBeforeNextPost = true
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+
+	returned := requestTestChallenge(t, &application, &stdout)
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.challenges) != 2 || len(history.closures) != 1 {
+		t.Fatalf("earlier-canonical history = challenges %d closures %d; want 2 and 1",
+			len(history.challenges), len(history.closures))
+	}
+	if returned.Challenge != "concurrent-equivalent-challenge" {
+		t.Fatalf("returned challenge = %q, want earlier canonical challenge", returned.Challenge)
+	}
+	if returned.Challenge == "" || returned.Challenge == "concurrent-equivalent-posted-challenge" {
+		t.Fatalf("returned challenge marker was not authenticated canonical output: %#v", returned)
+	}
+}
+
+func TestEvaluationChallengeInitialPostTransportLossRetriesWithoutRepost(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	backend.postCommentResponseMode = "transport"
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+
+	err := application.runEvaluation([]string{"challenge", "14"})
+	if err == nil || !strings.Contains(err.Error(), "do not repost blindly") {
+		t.Fatalf("initial challenge transport error = %v, want retry guidance", err)
+	}
+	if got, want := backend.commentPostCount, 1; got != want {
+		t.Fatalf("initial challenge POST count = %d, want %d", got, want)
+	}
+	if got, want := len(backend.comments), 1; got != want {
+		t.Fatalf("initial challenge history comments = %d, want %d", got, want)
+	}
+
+	backend.postCommentResponseMode = ""
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"challenge", "14"}); err != nil {
+		t.Fatalf("retry initial challenge transport loss: %v", err)
+	}
+	if got, want := backend.commentPostCount, 1; got != want {
+		t.Fatalf("retry reposted initial challenge = %d POSTs, want %d", got, want)
+	}
+	if got, want := len(backend.comments), 1; got != want {
+		t.Fatalf("retry changed initial challenge history comments = %d, want %d", got, want)
+	}
+	var returned evaluationChallenge
+	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &returned); err != nil {
+		t.Fatalf("decode retried challenge output: %v", err)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.challenges) != 1 {
+		t.Fatalf("retried challenge history = %d challenges, want 1", len(history.challenges))
+	}
+	if returned.Challenge != history.challenges[0].challenge.Challenge || returned.BodySHA256 == "" || returned.EvidenceSHA256 == "" {
+		t.Fatalf("retried challenge output = %#v, want authenticated digest-bound history marker", returned)
+	}
+}
+
+func TestEvaluationChallengeConvergenceClosesStaleDuplicateAfterPRAdvance(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+
+	canonical := requestTestChallenge(t, &application, &stdout)
+	expireWorkflowChallenge(t, backend, canonical.Challenge)
+	appendFinalEquivalentChallenge(t, backend)
+	advanceWorkflowPRHead(t, backend, "advanced-head")
+	reasonFile := writeResolutionReason(t, "The stale challenge expired before the PR advanced.")
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"resolve", "14", "--challenge", canonical.Challenge, "--reason-file", reasonFile}); err != nil {
+		t.Fatalf("resolve stale challenge after PR advance: %v", err)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.challenges) != 2 || len(history.closures) != 1 || len(history.resolutions) != 1 {
+		t.Fatalf("stale challenge history = challenges %d closures %d resolutions %d, want 2, 1, 1",
+			len(history.challenges), len(history.closures), len(history.resolutions))
+	}
+	if got, want := backend.commentPostCount, 3; got != want {
+		t.Fatalf("stale challenge resolution POST count = %d, want %d", got, want)
+	}
+
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"status", "14"}); err != nil {
+		t.Fatalf("status after stale challenge resolution: %v", err)
+	}
+	status := stdout.String()
+	for _, expected := range []string{"Trusted challenges: 2", "Outstanding challenges: 0", "No-verdict resolutions: 1", "resolved by no-verdict resolution"} {
+		if !strings.Contains(status, expected) {
+			t.Fatalf("status after stale challenge resolution = %q, want %q", status, expected)
+		}
+	}
+
+	stdout.Reset()
+	fresh := requestTestChallenge(t, &application, &stdout)
+	if fresh.Challenge == canonical.Challenge || fresh.Head != backend.head {
+		t.Fatalf("fresh challenge = %#v, want new identity on advanced head", fresh)
+	}
+	if got, want := backend.commentPostCount, 4; got != want {
+		t.Fatalf("stale challenge replacement POST count = %d, want %d", got, want)
+	}
+}
+
+func expireWorkflowChallenge(t *testing.T, backend *workflowBackend, challengeID string) {
+	t.Helper()
+	for index := range backend.comments {
+		challenge, ok := parseEvaluationChallenge(backend.comments[index].Body)
+		if !ok || challenge.Challenge != challengeID {
+			continue
+		}
+		challenge.RequestedAt = time.Now().UTC().Truncate(time.Second).Add(-evaluationChallengeDuration - time.Minute)
+		marker, err := json.Marshal(challenge)
+		if err != nil {
+			t.Fatalf("encode expired challenge: %v", err)
+		}
+		backend.comments[index].Body = fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n",
+			evaluationChallengeMarker, marker, challenge.Head)
+		backend.comments[index].CreatedAt = challenge.RequestedAt
+		return
+	}
+	t.Fatalf("challenge %q was not found to expire", challengeID)
+}
+
+func advanceWorkflowPRHead(t *testing.T, backend *workflowBackend, head string) {
+	t.Helper()
+	parsed, err := parsePREvidenceBody(backend.body)
+	if err != nil {
+		t.Fatalf("parse PR evidence before head advance: %v", err)
+	}
+	parsed.evidence = testWorkflowPREvidence(head)
+	block, err := renderPREvidenceBlock(parsed.evidence)
+	if err != nil {
+		t.Fatalf("render PR evidence after head advance: %v", err)
+	}
+	backend.body, err = replacePREvidenceBlock(backend.body, block)
+	if err != nil {
+		t.Fatalf("replace PR evidence after head advance: %v", err)
+	}
+	backend.head = head
+}
+
+//nolint:gocognit // Keep expected and canonical final-expiry cases together.
+func TestEvaluationChallengeFinalReadRejectsExpiredChallenge(t *testing.T) {
+	tests := []struct {
+		name             string
+		canonicalExpired bool
+	}{
+		{name: "expected challenge", canonicalExpired: false},
+		{name: "canonical challenge", canonicalExpired: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			var stdout bytes.Buffer
+			application := newResolutionWorkflowApplication(backend, &stdout)
+			view, err := application.readPullRequest(backend.root, 14)
+			if err != nil {
+				t.Fatalf("read PR for expired challenge: %v", err)
+			}
+			parsedEvidence, err := validatePREvidenceForView(view)
+			if err != nil {
+				t.Fatalf("validate PR evidence for expired challenge: %v", err)
+			}
+			bodySHA256, evidenceSHA256 := currentPREvidenceDigest(view, parsedEvidence)
+			now := time.Now().UTC().Truncate(time.Second)
+			expiredAt := now.Add(-evaluationChallengeDuration - time.Minute)
+			canonical := evaluationChallenge{
+				BodySHA256: bodySHA256, Challenge: "expired-canonical", EvidenceSHA256: evidenceSHA256,
+				Head: backend.head, PR: 14, Repository: repositoryKey, RequestedAt: expiredAt,
+			}
+			challenge := canonical
+			if !test.canonicalExpired {
+				challenge.Challenge = "expired-expected"
+			}
+			if test.canonicalExpired {
+				challenge = canonical
+				challenge.Challenge = "fresh-expected"
+				challenge.RequestedAt = now.Add(-time.Minute)
+			}
+			if test.canonicalExpired {
+				appendWorkflowEvaluationComment(t, backend, testEvaluationChallengeComment(t, canonical))
+			}
+			appendWorkflowEvaluationComment(t, backend, testEvaluationChallengeComment(t, challenge))
+			view, err = application.readPullRequest(backend.root, 14)
+			if err != nil {
+				t.Fatalf("reread PR for expired challenge: %v", err)
+			}
+			history, err := readEvaluationMutationHistoryForConvergence(14, view.Comments)
+			if err != nil {
+				t.Fatalf("read expired challenge history: %v", err)
+			}
+			if err := application.completeEvaluationChallenge(backend.root, 14, challenge, view, history); err == nil ||
+				!strings.Contains(err.Error(), "expired before output") {
+				t.Fatalf("expired challenge output error = %v, want final expiry rejection", err)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("expired challenge emitted marker %q", stdout.String())
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep final-read mutation variants and zero-output assertions together.
+func TestEvaluationChallengeFinalReadRejectsCurrentStateDrift(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, *workflowBackend)
+		want   string
+	}{
+		{name: "head", mutate: func(_ *testing.T, backend *workflowBackend) {
+			backend.head = "drifted-head"
+		}, want: "head changed"},
+		{name: "body", mutate: func(_ *testing.T, backend *workflowBackend) {
+			backend.body += "\nFinal body drift.\n"
+		}, want: "body or evidence changed"},
+		{name: "evidence", mutate: mutateFinalEvaluationEvidence, want: "body or evidence changed"},
+		{name: "additional outstanding challenge", mutate: appendFinalOutstandingChallenge, want: "sole current logical outstanding challenge"},
+		{name: "unclosed equivalent challenge", mutate: appendFinalEquivalentChallenge, want: "unclosed equivalent challenge"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			var stdout bytes.Buffer
+			application := newResolutionWorkflowApplication(backend, &stdout)
+			prReads := 0
+			application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+				if name == "gh" && strings.Join(args, " ") == "api repos/goxdra/goxsd9/pulls/14" {
+					prReads++
+					if prReads == 3 {
+						test.mutate(t, backend)
+					}
+				}
+				return backend.execute(dir, input, name, args...)
+			}
+
+			if err := application.runEvaluation([]string{"challenge", "14"}); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("final %s drift error = %v, want %q", test.name, err, test.want)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("final %s drift emitted marker %q", test.name, stdout.String())
+			}
+			if prReads != 3 {
+				t.Fatalf("PR reads = %d, want final-read mutation at read 3", prReads)
+			}
+			if backend.commentPostCount != 1 {
+				t.Fatalf("final %s drift comment POST count = %d, want initial challenge only", test.name, backend.commentPostCount)
+			}
+		})
+	}
+}
+
+func mutateFinalEvaluationEvidence(t *testing.T, backend *workflowBackend) {
+	t.Helper()
+	parsed, err := parsePREvidenceBody(backend.body)
+	if err != nil {
+		t.Fatalf("parse final evidence: %v", err)
+	}
+	parsed.evidence.Curator.Summary = "No managed-document change; final evidence drift."
+	block, err := renderPREvidenceBlock(parsed.evidence)
+	if err != nil {
+		t.Fatalf("render final evidence: %v", err)
+	}
+	backend.body, err = replacePREvidenceBlock(backend.body, block)
+	if err != nil {
+		t.Fatalf("replace final evidence: %v", err)
+	}
+}
+
+func appendFinalOutstandingChallenge(t *testing.T, backend *workflowBackend) {
+	t.Helper()
+	challenge := evaluationChallenge{
+		Challenge:      "late-current-challenge",
+		Head:           backend.head,
+		Repository:     repositoryKey,
+		PR:             14,
+		BodySHA256:     strings.Repeat("a", 64),
+		EvidenceSHA256: strings.Repeat("b", 64),
+		RequestedAt:    time.Now().UTC().Truncate(time.Second),
+	}
+	marker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode final outstanding challenge: %v", err)
+	}
+	comment := issueCommentAPI{
+		ID:        int64(len(backend.comments) + 1),
+		Body:      fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n", evaluationChallengeMarker, marker, challenge.Head),
+		CreatedAt: challenge.RequestedAt,
+	}
+	comment.User.Login = trustedActor
+	backend.comments = append(backend.comments, comment)
+}
+
+func appendFinalEquivalentChallenge(t *testing.T, backend *workflowBackend) {
+	t.Helper()
+	challenge, ok := parseEvaluationChallenge(backend.comments[0].Body)
+	if !ok {
+		t.Fatal("parse initial challenge for final equivalent challenge")
+	}
+	challenge.Challenge = "late-equivalent-challenge"
+	challenge.RequestedAt = challenge.RequestedAt.Add(time.Second)
+	marker, err := json.Marshal(challenge)
+	if err != nil {
+		t.Fatalf("encode final equivalent challenge: %v", err)
+	}
+	comment := issueCommentAPI{
+		ID:        int64(len(backend.comments) + 1),
+		Body:      fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n", evaluationChallengeMarker, marker, challenge.Head),
+		CreatedAt: challenge.RequestedAt,
+	}
+	comment.User.Login = trustedActor
+	backend.comments = append(backend.comments, comment)
+}
+
+func TestEvaluationChallengeAndReceiptConvergencePhasesProgress(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+
+	canonical := requestTestChallenge(t, &application, &stdout)
+	duplicate := canonical
+	duplicate.Challenge = "concurrent-equivalent-challenge"
+	duplicate.RequestedAt = canonical.RequestedAt.Add(time.Second)
+	marker, err := json.Marshal(duplicate)
+	if err != nil {
+		t.Fatalf("encode duplicate challenge: %v", err)
+	}
+	duplicateComment := issueCommentAPI{
+		ID:        int64(len(backend.comments) + 1),
+		Body:      fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n", evaluationChallengeMarker, marker, duplicate.Head),
+		CreatedAt: duplicate.RequestedAt,
+	}
+	duplicateComment.User.Login = trustedActor
+	backend.comments = append(backend.comments, duplicateComment)
+	backend.duplicateReceiptPost = true
+	_, attestationFile := writeTestAttestation(t, backend.head, canonical)
+
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("converge challenge and receipt phases: %v", err)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.challenges) != 2 || len(history.closures) != 1 || len(history.receipts) != 2 ||
+		len(history.convergences) != 1 {
+		t.Fatalf("two-phase convergence history = challenges %d closures %d receipts %d convergences %d; want 2, 1, 2, 1",
+			len(history.challenges), len(history.closures), len(history.receipts), len(history.convergences))
+	}
+}
+
+func TestEvaluationChallengeClosurePartialRetryProgresses(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+
+	canonical := requestTestChallenge(t, &application, &stdout)
+	duplicate := canonical
+	duplicate.Challenge = "concurrent-equivalent-challenge"
+	duplicate.RequestedAt = canonical.RequestedAt.Add(time.Second)
+	marker, err := json.Marshal(duplicate)
+	if err != nil {
+		t.Fatalf("encode duplicate challenge: %v", err)
+	}
+	duplicateComment := issueCommentAPI{
+		ID:        int64(len(backend.comments) + 1),
+		Body:      fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n", evaluationChallengeMarker, marker, duplicate.Head),
+		CreatedAt: duplicate.RequestedAt,
+	}
+	duplicateComment.User.Login = trustedActor
+	backend.comments = append(backend.comments, duplicateComment)
+	_, attestationFile := writeTestAttestation(t, backend.head, canonical)
+
+	backend.postCommentResponseMode = "transport"
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err == nil ||
+		!strings.Contains(err.Error(), "do not repost blindly") {
+		t.Fatalf("partial challenge-closure response error = %v, want retry guidance", err)
+	}
+	if got, want := len(backend.comments), 3; got != want {
+		t.Fatalf("partial challenge-closure history comments = %d, want %d", got, want)
+	}
+
+	backend.postCommentResponseMode = ""
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("retry after partial challenge-closure response: %v", err)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.challenges) != 2 || len(history.closures) != 1 || len(history.receipts) != 1 {
+		t.Fatalf("partial retry history = challenges %d closures %d receipts %d; want 2, 1, 1",
+			len(history.challenges), len(history.closures), len(history.receipts))
+	}
+}
+
+func TestEvaluationRecordRejectsInvalidAttestationBeforeChallengeClosure(t *testing.T) {
+	t.Run("wrong head", func(t *testing.T) {
+		backend, application, stdout := newConvergenceWorkflowFixture(t)
+		canonical := requestTestChallenge(t, application, stdout)
+		appendFinalEquivalentChallenge(t, backend)
+		_, attestationFile := writeTestAttestationRun(t, "different-head", canonical, "invalid-head")
+		assertEvaluationAttestationRejectedBeforeChallengeClosure(t, backend, application, stdout, attestationFile)
+	})
+	t.Run("used challenge", func(t *testing.T) {
+		backend, application, stdout := newConvergenceWorkflowFixture(t)
+		canonical := requestTestChallenge(t, application, stdout)
+		_, firstAttestationFile := writeTestAttestationRun(t, backend.head, canonical, "first-run")
+		if err := application.runEvaluation([]string{"record", "14", "--attestation-file", firstAttestationFile}); err != nil {
+			t.Fatalf("record initial attestation: %v", err)
+		}
+		appendFinalEquivalentChallenge(t, backend)
+		_, attestationFile := writeTestAttestationRun(t, backend.head, canonical, "second-run")
+		assertEvaluationAttestationRejectedBeforeChallengeClosure(t, backend, application, stdout, attestationFile)
+	})
+}
+
+func assertEvaluationAttestationRejectedBeforeChallengeClosure(t *testing.T, backend *workflowBackend,
+	application *app, stdout *bytes.Buffer, attestationFile string) {
+	t.Helper()
+	commentCount := len(backend.comments)
+	postCount := backend.commentPostCount
+	stdout.Reset()
+	err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+	if err == nil {
+		t.Fatal("invalid attestation reached challenge convergence")
+	}
+	if len(backend.comments) != commentCount || backend.commentPostCount != postCount {
+		t.Fatalf("invalid attestation mutated challenge history: comments %d->%d posts %d->%d",
+			commentCount, len(backend.comments), postCount, backend.commentPostCount)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("invalid attestation emitted output %q", stdout.String())
+	}
+}
+
+func TestEvaluationRecordReplaysExpiredExactReceipt(t *testing.T) {
+	backend, application, stdout := newConvergenceWorkflowFixture(t)
+	challenge := requestTestChallenge(t, application, stdout)
+	_, attestationFile := writeTestAttestationRun(t, backend.head, challenge, "expired-replay")
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record initial attestation: %v", err)
+	}
+	expireWorkflowChallenge(t, backend, challenge.Challenge)
+	expiredChallenge, ok := parseEvaluationChallenge(backend.comments[0].Body)
+	if !ok {
+		t.Fatal("expired challenge marker was not parseable")
+	}
+	recordedAt := expiredChallenge.RequestedAt.Add(time.Minute)
+	backend.comments[1].CreatedAt = recordedAt
+	backend.comments[1].Body = replaceTestReceipt(t, backend.comments[1].Body, func(receipt *evaluationReceipt) {
+		receipt.RecordedAt = recordedAt
+	})
+	commentCount := len(backend.comments)
+	postCount := backend.commentPostCount
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("replay expired exact attestation: %v", err)
+	}
+	if len(backend.comments) != commentCount || backend.commentPostCount != postCount {
+		t.Fatalf("expired exact replay mutated history: comments %d->%d posts %d->%d",
+			commentCount, len(backend.comments), postCount, backend.commentPostCount)
+	}
+	if !strings.Contains(stdout.String(), "already recorded") {
+		t.Fatalf("expired exact replay output = %q, want idempotent retry", stdout.String())
+	}
+}
+
+func TestEvaluationRecordReplaysExactReceiptOnNoncanonicalChallenge(t *testing.T) {
+	backend, application, stdout := newConvergenceWorkflowFixture(t)
+	canonical := requestTestChallenge(t, application, stdout)
+	appendFinalEquivalentChallenge(t, backend)
+	duplicate, ok := parseEvaluationChallenge(backend.comments[1].Body)
+	if !ok {
+		t.Fatal("noncanonical challenge marker was not parseable")
+	}
+	recordedAt := duplicate.RequestedAt.Add(time.Minute)
+	receiptComment := evaluationTerminalConflictReceiptComment(t, duplicate, "noncanonical-replay", 1, recordedAt)
+	receiptComment.ID = 3
+	appendWorkflowEvaluationComment(t, backend, receiptComment)
+	_, attestationFile := writeTestAttestationRun(t, backend.head, duplicate, "noncanonical-replay")
+	commentCount := len(backend.comments)
+	postCount := backend.commentPostCount
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("replay exact noncanonical attestation: %v", err)
+	}
+	if len(backend.comments) != commentCount+1 || backend.commentPostCount != postCount+1 {
+		t.Fatalf("noncanonical exact replay convergence = comments %d posts %d, want one closure",
+			len(backend.comments), backend.commentPostCount)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.closures) != 1 || len(history.receipts) != 1 {
+		t.Fatalf("noncanonical exact replay history = closures %d receipts %d, want one each",
+			len(history.closures), len(history.receipts))
+	}
+	if !strings.Contains(stdout.String(), "already recorded") {
+		t.Fatalf("noncanonical exact replay output = %q, want idempotent retry", stdout.String())
+	}
+	if canonical.Challenge == duplicate.Challenge {
+		t.Fatal("noncanonical replay fixture did not retain distinct canonical challenge")
+	}
+}
+
+func TestEvaluationChallengeClosureDuplicateVisibilityFailsClosed(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+
+	canonical := requestTestChallenge(t, &application, &stdout)
+	appendFinalEquivalentChallenge(t, backend)
+	_, attestationFile := writeTestAttestation(t, backend.head, canonical)
+
+	backend.duplicateClosurePost = true
+	err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+	if err == nil || !strings.Contains(err.Error(), "multiple authenticated controller closures") {
+		t.Fatalf("duplicate closure visibility error = %v, want fail-closed duplicate rejection", err)
+	}
+	commentCount := len(backend.comments)
+	postCount := backend.commentPostCount
+	if got, want := commentCount, 4; got != want {
+		t.Fatalf("duplicate closure visibility comments = %d, want %d", got, want)
+	}
+	history, err := parseEvaluationHistory(pullRequestCommentsFromAPI(t, backend.comments))
+	if err != nil {
+		t.Fatalf("parse duplicate closure visibility history: %v", err)
+	}
+	if got, want := len(history.closures), 2; got != want {
+		t.Fatalf("duplicate closure visibility closures = %d, want %d preserved records", got, want)
+	}
+
+	stdout.Reset()
+	err = application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+	if err == nil || !strings.Contains(err.Error(), "multiple authenticated controller closures") {
+		t.Fatalf("duplicate closure retry error = %v, want fail-closed duplicate rejection", err)
+	}
+	if len(backend.comments) != commentCount || backend.commentPostCount != postCount {
+		t.Fatalf("duplicate closure retry mutated history: comments=%d (want %d), posts=%d (want %d)",
+			len(backend.comments), commentCount, backend.commentPostCount, postCount)
+	}
+}
+
+func TestEvaluationChallengeConvergenceRejectsAmbiguousTerminalHistory(t *testing.T) {
+	tests := []struct {
+		name   string
+		append func(*testing.T, *workflowBackend, evaluationChallenge, evaluationChallenge)
+		want   string
+	}{
+		{
+			name: "duplicate resolutions",
+			append: func(t *testing.T, backend *workflowBackend, canonical, _ evaluationChallenge) {
+				resolvedAt := canonical.RequestedAt.Add(evaluationChallengeDuration + time.Hour)
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictResolutionComment(t, canonical, resolvedAt, "expired"))
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictResolutionComment(t, canonical, resolvedAt.Add(time.Minute), "expired"))
+			},
+			want: "multiple matching no-verdict resolutions",
+		},
+		{
+			name: "receipt and resolution",
+			append: func(t *testing.T, backend *workflowBackend, canonical, duplicate evaluationChallenge) {
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictReceiptComment(t, canonical, "terminal-receipt", 1,
+						canonical.RequestedAt.Add(time.Hour)))
+				resolvedAt := duplicate.RequestedAt.Add(evaluationChallengeDuration + time.Hour)
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictResolutionComment(t, duplicate, resolvedAt, "expired"))
+			},
+			want: "both an attested receipt and a no-verdict resolution",
+		},
+		{
+			name: "receipts across equivalent challenges",
+			append: func(t *testing.T, backend *workflowBackend, canonical, duplicate evaluationChallenge) {
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictReceiptComment(t, canonical, "terminal-receipt-1", 1,
+						canonical.RequestedAt.Add(time.Hour)))
+				appendWorkflowEvaluationComment(t, backend,
+					evaluationTerminalConflictReceiptComment(t, duplicate, "terminal-receipt-2", 2,
+						duplicate.RequestedAt.Add(time.Hour)))
+			},
+			want: "multiple matching trusted receipts",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			var stdout bytes.Buffer
+			application := newResolutionWorkflowApplication(backend, &stdout)
+			base := time.Date(2026, time.August, 20, 10, 0, 0, 0, time.UTC)
+			canonical := evaluationChallenge{
+				Challenge:      "terminal-canonical",
+				Repository:     repositoryKey,
+				Head:           backend.head,
+				PR:             14,
+				BodySHA256:     strings.Repeat("a", 64),
+				EvidenceSHA256: strings.Repeat("b", 64),
+				RequestedAt:    base,
+			}
+			duplicate := canonical
+			duplicate.Challenge = "terminal-duplicate"
+			duplicate.RequestedAt = base.Add(time.Minute)
+			canonicalComment := testEvaluationChallengeComment(t, canonical)
+			canonicalComment.ID = 1
+			duplicateComment := testEvaluationChallengeComment(t, duplicate)
+			duplicateComment.ID = 2
+			appendWorkflowEvaluationComment(t, backend, canonicalComment)
+			appendWorkflowEvaluationComment(t, backend, duplicateComment)
+			test.append(t, backend, canonical, duplicate)
+			initialComments := len(backend.comments)
+
+			_, attestationFile := writeTestAttestation(t, backend.head, canonical)
+			err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ambiguous terminal history error = %v, want %q", err, test.want)
+			}
+			if len(backend.comments) != initialComments || backend.commentPostCount != 0 {
+				t.Fatalf("ambiguous terminal history mutated comments=%d (want %d), posts=%d (want 0)",
+					len(backend.comments), initialComments, backend.commentPostCount)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("ambiguous terminal history emitted output %q", stdout.String())
+			}
+		})
+	}
+}
+
+func evaluationTerminalConflictReceiptComment(t *testing.T, challenge evaluationChallenge, runID string,
+	round int, recordedAt time.Time) pullRequestComment {
+	t.Helper()
+	attestationJSON, _ := writeTestAttestationRun(t, challenge.Head, challenge, runID)
+	var attestation evaluationAttestation
+	if err := json.Unmarshal(attestationJSON, &attestation); err != nil {
+		t.Fatalf("decode terminal conflict attestation: %v", err)
+	}
+	report := canonicalEvaluationReport(renderEvaluationReport(attestation))
+	receipt := evaluationReceipt{
+		AttestationSHA256: sha256Hex(attestationJSON),
+		BaseRefName:       "main",
+		Challenge:         challenge.Challenge,
+		ClaimProofs:       []evaluationClaimProof{{Issue: 13, Branch: "agent/issue-13", SHA: challenge.Head}},
+		ClosingIssues:     []int{13},
+		Evaluator:         "Examiner",
+		EvaluatorRunID:    runID,
+		Head:              challenge.Head,
+		HeadRefName:       "agent/issue-13",
+		BodySHA256:        challenge.BodySHA256,
+		EvidenceSHA256:    challenge.EvidenceSHA256,
+		Repository:        repositoryKey,
+		PR:                challenge.PR,
+		RecordedAt:        recordedAt,
+		ReportSHA256:      sha256Hex(report),
+		ReportTransport:   evaluationReportTransportV1,
+		Round:             round,
+		Verdict:           "pass",
+	}
+	marker, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode terminal conflict receipt: %v", err)
+	}
+	comment := statusComment(evaluationComment(marker, attestationJSON, string(report)), trustedActor, recordedAt)
+	return comment
+}
+
+func evaluationTerminalConflictResolutionComment(t *testing.T, challenge evaluationChallenge,
+	resolvedAt time.Time, reason string) pullRequestComment {
+	t.Helper()
+	resolution := evaluationResolution{
+		BodySHA256:     challenge.BodySHA256,
+		Challenge:      challenge.Challenge,
+		EvidenceSHA256: challenge.EvidenceSHA256,
+		Head:           challenge.Head,
+		Repository:     challenge.Repository,
+		PR:             challenge.PR,
+		Reason:         reason,
+		ResolvedAt:     resolvedAt,
+		Resolver:       trustedActor,
+		Schema:         evaluationResolutionSchema,
+	}
+	marker, err := json.Marshal(resolution)
+	if err != nil {
+		t.Fatalf("encode terminal conflict resolution: %v", err)
+	}
+	return statusComment(evaluationResolutionComment(marker, reason), trustedActor, resolvedAt)
+}
+
 func TestThirdFailureProjectTransitionRetryConvergesWithoutReceipt(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	backend.projectStatus = "Ready"
@@ -1426,47 +2159,51 @@ func claimStateCommand(t *testing.T, issue string) commandExecutor {
 }
 
 type workflowBackend struct {
-	t                          *testing.T
-	root                       string
-	branch                     string
-	localBranch                string
-	head                       string
-	title                      string
-	body                       string
-	summary                    string
-	summaryFile                string
-	workCommitLog              string
-	comments                   []issueCommentAPI
-	commentPostCount           int
-	duplicateReceiptPost       bool
-	duplicateConvergencePost   bool
-	postCommentResponseMode    string
-	postCommentAuthor          string
-	needsHuman                 bool
-	projectMember              bool
-	projectItemID              string
-	projectType                string
-	projectRepository          string
-	projectNumber              int
-	projectMalformed           bool
-	projectTransitionFailures  int
-	projectTransitionAttempts  int
-	mergeRequest               mergePullRequestRequest
-	merged                     bool
-	projectDone                bool
-	projectStatus              string
-	issueState                 string
-	issueReadFailures          int
-	issuePatchCount            int
-	issuePatchMode             string
-	mergeResponseMode          string
-	mutatePRBodyAfterMerge     bool
-	delayReceiptAfterMerge     bool
-	managedDocumentChange      bool
-	bodyPatchCount             int
-	mergeSHA                   string
-	mergedAt                   time.Time
-	removeSummaryOnNextCommand bool
+	t                                *testing.T
+	root                             string
+	branch                           string
+	localBranch                      string
+	head                             string
+	title                            string
+	body                             string
+	summary                          string
+	summaryFile                      string
+	workCommitLog                    string
+	comments                         []issueCommentAPI
+	commentPostCount                 int
+	duplicateReceiptPost             bool
+	duplicateConvergencePost         bool
+	duplicateClosurePost             bool
+	postCommentResponseMode          string
+	postCommentAuthor                string
+	closePRBeforeNextCommentPost     bool
+	duplicateChallengeOnNextPost     bool
+	duplicateChallengeBeforeNextPost bool
+	needsHuman                       bool
+	projectMember                    bool
+	projectItemID                    string
+	projectType                      string
+	projectRepository                string
+	projectNumber                    int
+	projectMalformed                 bool
+	projectTransitionFailures        int
+	projectTransitionAttempts        int
+	mergeRequest                     mergePullRequestRequest
+	merged                           bool
+	projectDone                      bool
+	projectStatus                    string
+	issueState                       string
+	issueReadFailures                int
+	issuePatchCount                  int
+	issuePatchMode                   string
+	mergeResponseMode                string
+	mutatePRBodyAfterMerge           bool
+	delayReceiptAfterMerge           bool
+	managedDocumentChange            bool
+	bodyPatchCount                   int
+	mergeSHA                         string
+	mergedAt                         time.Time
+	removeSummaryOnNextCommand       bool
 }
 
 func newWorkflowBackend(t *testing.T) *workflowBackend {
@@ -1620,6 +2357,27 @@ func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
 }
 
 func (b *workflowBackend) executeGitArtifact(command string) (string, bool) {
+	if command == "merge-base --is-ancestor "+b.head+" "+b.head {
+		return "", true
+	}
+	if command == "cat-file -e "+b.head+"^{commit}" {
+		return "", true
+	}
+	if command == "merge-base base-sha "+b.head {
+		return "merge-sha", true
+	}
+	if command == "diff --name-status -z --no-renames merge-sha "+b.head+" --" {
+		if b.managedDocumentChange {
+			return "D\x00README.md\x00", true
+		}
+		return "", true
+	}
+	if command == "diff --numstat -z --no-renames merge-sha "+b.head+" --" {
+		if b.managedDocumentChange {
+			return "0\t1\tREADME.md\x00", true
+		}
+		return "", true
+	}
 	switch command {
 	case "status --porcelain":
 		return "", true
@@ -1674,6 +2432,11 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 	joined := strings.Join(args, " ")
 	if output, handled, err := b.executeGitHubIssue13(input, joined); handled {
 		return output, err
+	}
+	if strings.HasPrefix(joined, "api --paginate repos/goxdra/goxsd9/commits/") &&
+		strings.HasSuffix(joined, "/check-runs?per_page=100") {
+		return "{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"docs\",\"status\":\"completed\"}]}" +
+			"{\"check_runs\":[{\"conclusion\":\"success\",\"name\":\"quality\",\"status\":\"completed\"}]}", nil
 	}
 	switch joined {
 	case "api repos/goxdra/goxsd9/pulls/14":
@@ -1797,6 +2560,7 @@ func (b *workflowBackend) commentsJSON() (string, error) {
 	return first + second, nil
 }
 
+//nolint:gocognit // Exercise the distinct duplicate and transport simulations.
 func (b *workflowBackend) postComment(data []byte) (string, error) {
 	var request struct {
 		Body string `json:"body"`
@@ -1810,7 +2574,30 @@ func (b *workflowBackend) postComment(data []byte) (string, error) {
 	if comment.User.Login == "" {
 		comment.User.Login = trustedActor
 	}
+	b.maybeCloseBeforeCommentPost()
+	if b.duplicateChallengeBeforeNextPost {
+		b.duplicateChallengeBeforeNextPost = false
+		challenge, ok := parseEvaluationChallenge(request.Body)
+		if !ok {
+			return "", errors.New("posted challenge fixture is malformed")
+		}
+		challenge.Challenge = "concurrent-equivalent-challenge"
+		challenge.RequestedAt = challenge.RequestedAt.Add(-time.Second)
+		marker, err := json.Marshal(challenge)
+		if err != nil {
+			return "", fmt.Errorf("encode concurrent challenge fixture: %w", err)
+		}
+		duplicate := issueCommentAPI{
+			ID:        comment.ID,
+			Body:      fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n", evaluationChallengeMarker, marker, challenge.Head),
+			CreatedAt: challenge.RequestedAt,
+		}
+		duplicate.User.Login = trustedActor
+		b.comments = append(b.comments, duplicate)
+		comment.ID = int64(len(b.comments) + 1)
+	}
 	b.comments = append(b.comments, comment)
+	b.maybeDuplicateClosure(request.Body, comment)
 	if b.duplicateReceiptPost && hasMarker(request.Body, evaluationMarker) {
 		duplicate := comment
 		duplicate.ID++
@@ -1821,10 +2608,49 @@ func (b *workflowBackend) postComment(data []byte) (string, error) {
 		duplicate.ID++
 		b.comments = append(b.comments, duplicate)
 	}
+	if b.duplicateChallengeOnNextPost {
+		b.duplicateChallengeOnNextPost = false
+		challenge, ok := parseEvaluationChallenge(request.Body)
+		if !ok {
+			return "", errors.New("posted challenge fixture is malformed")
+		}
+		challenge.Challenge = "concurrent-equivalent-challenge"
+		challenge.RequestedAt = challenge.RequestedAt.Add(time.Second)
+		marker, err := json.Marshal(challenge)
+		if err != nil {
+			return "", fmt.Errorf("encode concurrent challenge fixture: %w", err)
+		}
+		duplicate := issueCommentAPI{
+			ID:        comment.ID + 1,
+			Body:      fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n", evaluationChallengeMarker, marker, challenge.Head),
+			CreatedAt: comment.CreatedAt,
+		}
+		duplicate.User.Login = trustedActor
+		b.comments = append(b.comments, duplicate)
+	}
 	if b.postCommentResponseMode == "transport" {
 		return "", errors.New("simulated lost comment response")
 	}
 	return `{}`, nil
+}
+
+func (b *workflowBackend) maybeDuplicateClosure(body string, comment issueCommentAPI) {
+	if !b.duplicateClosurePost || !hasMarker(body, evaluationChallengeClosureMarker) {
+		return
+	}
+	b.duplicateClosurePost = false
+	duplicate := comment
+	duplicate.ID++
+	b.comments = append(b.comments, duplicate)
+}
+
+func (b *workflowBackend) maybeCloseBeforeCommentPost() {
+	if !b.closePRBeforeNextCommentPost {
+		return
+	}
+	b.closePRBeforeNextCommentPost = false
+	b.merged = true
+	b.mergedAt = time.Now().UTC().Truncate(time.Second)
 }
 
 func (b *workflowBackend) merge(data []byte) (string, error) {
