@@ -1018,9 +1018,6 @@ func isXSD11GlobalSchemaAttribute(kind ComponentKind, local string) bool {
 }
 
 func validateAllowedGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, attribute syntaxAttribute, version XSDVersion) error {
-	if kind == ComponentKindNotationDeclaration {
-		return validateSchemaNotationAttribute(attribute, version)
-	}
 	if attribute.name.local == "name" {
 		if !validNCName(collapseXMLWhitespace(attribute.value)) {
 			return newDiagnostic(FailureInvalid, invalidSchemaDeclarationNameCode, attribute.loc, "schema declaration name must be an unqualified valid NCName", nil)
@@ -1029,6 +1026,9 @@ func validateAllowedGlobalSchemaAttribute(element *syntaxElement, kind Component
 	}
 	if attribute.name.local == "id" && !validNCName(collapseXMLWhitespace(attribute.value)) {
 		return newSchemaCompositionDiagnostic(attribute.loc, "schema declaration id must be a valid NCName")
+	}
+	if kind == ComponentKindNotationDeclaration {
+		return validateSchemaNotationAttribute(attribute, version)
 	}
 	if kind == ComponentKindElementDeclaration && attribute.name.local == "type" {
 		return validateConditionalQNameForSchema(element, attribute)

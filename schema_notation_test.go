@@ -262,6 +262,61 @@ func TestSchemaNotationRejectsInvalidIdentifiers(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep both common-identifier diagnostic dimensions together.
+func TestSchemaNotationValidatesCommonIdentifiers(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+		code string
+		loc  Loc
+	}{
+		{
+			name: "malformed name",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:notation
+    name="bad:name"
+    public="public"/>
+</xs:schema>`,
+			code: invalidSchemaDeclarationNameCode,
+			loc:  mustTestLoc(t, "root.xsd", 3, 5),
+		},
+		{
+			name: "malformed id",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:notation
+    name="item"
+    public="public"
+    id="bad:id"/>
+</xs:schema>`,
+			code: invalidSchemaCompositionCode,
+			loc:  mustTestLoc(t, "root.xsd", 5, 5),
+		},
+	}
+	for _, policy := range []LanguagePolicy{Strict10, Strict11} {
+		for _, test := range tests {
+			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
+				schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, policy)
+				if err == nil || schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+					t.Fatal("invalid notation was accepted or returned a partial schema")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+					t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, test.code)
+				}
+				if diagnostic.Loc() != test.loc {
+					t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), test.loc)
+				}
+				if len(diagnostic.Related()) != 0 {
+					t.Fatalf("diagnostic related locations = %v, want none", diagnostic.Related())
+				}
+				if cause := diagnostic.Unwrap(); cause != nil {
+					t.Fatalf("diagnostic cause = %v, want nil", cause)
+				}
+			})
+		}
+	}
+}
+
 func TestSchemaNotationDuplicateAttributeUsesXMLSyntaxDiagnostic(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
   <xs:notation name="item" public="first"
