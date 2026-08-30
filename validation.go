@@ -865,6 +865,15 @@ func instanceScalarTypeForTarget(
 			errInstanceValidationInvariant,
 		)
 	}
+	if definition.Variety() != SimpleTypeVarietyAtomicRestriction {
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("named simple type %q has variety %q outside scalar validation", definition.Name(), definition.Variety()),
+			related,
+			fallbackVersion,
+			errInstanceUnsupportedType,
+		)
+	}
 	if definition.HasPrecisionDecimalFacets() {
 		return instanceScalarType{
 			value:   instancePrecisionDecimalScalar{facets: definition.PrecisionDecimalFacets()},
@@ -881,13 +890,23 @@ func instanceScalarTypeForTarget(
 			errInstanceUnsupportedType,
 		)
 	}
+	if definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal && definition.facts.atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", definition.Name()),
+			related,
+			fallbackVersion,
+			errInstanceUnsupportedType,
+		)
+	}
 	facets := definition.DigitFacets()
 	if facets.Kind() != DigitDatatypeInteger && facets.Kind() != DigitDatatypeDecimal {
-		return instanceScalarType{}, newInstanceValidationInternal(
+		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
-			fmt.Sprintf("named simple type %q has an unknown digit datatype", definition.Name()),
+			fmt.Sprintf("named simple type %q has unsupported scalar datatype facts", definition.Name()),
 			related,
-			errInstanceValidationInvariant,
+			fallbackVersion,
+			errInstanceUnsupportedType,
 		)
 	}
 	if facets.Version() != XSDVersion10 && facets.Version() != XSDVersion11 {

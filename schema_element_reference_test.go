@@ -295,6 +295,97 @@ func elementReferenceTestAssertMissingImportDiagnostic(t *testing.T) {
 	}
 }
 
+func TestSchemaElementReferenceChameleonRepairsUnqualifiedQName(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + elementReferenceTestXSDNamespace + `" targetNamespace="urn:reference-root"><xs:include schemaLocation="chameleon-ref.xsd"/></xs:schema>`
+	fixtures := map[string]discoveryFixture{
+		"chameleon-ref.xsd": {
+			id: "chameleon-ref.xsd",
+			contents: `<xs:schema xmlns:xs="` + elementReferenceTestXSDNamespace + `">
+  <xs:element name="target" type="xs:integer"/>
+  <xs:complexType name="Container"><xs:sequence><xs:element ref="target"/></xs:sequence></xs:complexType>
+</xs:schema>`,
+		},
+	}
+	schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, Strict11)
+	if err != nil {
+		t.Fatalf("discover chameleon reference schema: %v", err)
+	}
+	documents := schema.Documents()
+	if got, want := documents[1].TargetNamespace(), "urn:reference-root"; got != want {
+		t.Fatalf("chameleon target namespace = %q, want %q", got, want)
+	}
+	container := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:reference-root", "Container"))
+	if len(container) != 1 {
+		t.Fatalf("chameleon complex type count = %d, want 1", len(container))
+	}
+	definition, ok := container[0].ComplexTypeDefinition()
+	if !ok {
+		t.Fatal("chameleon complex type has no definition view")
+	}
+	sequence, ok := definition.Particle().(SequenceParticle)
+	if !ok {
+		t.Fatalf("chameleon particle = %T, want SequenceParticle", definition.Particle())
+	}
+	particles := sequence.Particles()
+	if len(particles) != 1 {
+		t.Fatalf("chameleon particle count = %d, want 1", len(particles))
+	}
+	reference, ok := particles[0].(ElementReferenceParticle)
+	if !ok {
+		t.Fatalf("chameleon particle = %T, want ElementReferenceParticle", particles[0])
+	}
+	targetName := mustTestQName(t, "urn:reference-root", "target")
+	if reference.Name() != targetName || reference.Ref() != targetName {
+		t.Fatalf("chameleon reference name = %q/%q, want %q", reference.Name(), reference.Ref(), targetName)
+	}
+	target := schema.FindKind(ComponentKindElementDeclaration, targetName)
+	if len(target) != 1 {
+		t.Fatalf("chameleon target declaration count = %d, want 1", len(target))
+	}
+	if reference.TargetID() != target[0].ID() {
+		t.Fatalf("chameleon target ID = %v, want %v", reference.TargetID(), target[0].ID())
+	}
+	if reference.RefLoc().Source() != "chameleon-ref.xsd" {
+		t.Fatalf("chameleon reference location = %s, want chameleon-ref.xsd", reference.RefLoc())
+	}
+}
+
+func TestSchemaElementReferenceDoesNotBorrowIncludedImport(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + elementReferenceTestXSDNamespace + `" xmlns:o="urn:reference-other" targetNamespace="urn:reference-root">
+  <xs:include schemaLocation="child-import.xsd"/>
+  <xs:complexType name="Choice"><xs:choice><xs:element ref="o:foreign"/></xs:choice></xs:complexType>
+</xs:schema>`
+	fixtures := map[string]discoveryFixture{
+		"child-import.xsd": {
+			id: "child-import.xsd",
+			contents: `<xs:schema xmlns:xs="` + elementReferenceTestXSDNamespace + `" targetNamespace="urn:reference-root">
+  <xs:import namespace="urn:reference-other" schemaLocation="other-import.xsd"/>
+</xs:schema>`,
+		},
+		"other-import.xsd": {
+			id:       "other-import.xsd",
+			contents: `<xs:schema xmlns:xs="` + elementReferenceTestXSDNamespace + `" targetNamespace="urn:reference-other"><xs:element name="foreign" type="xs:integer"/></xs:schema>`,
+		},
+	}
+	schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, Strict11)
+	if err == nil {
+		t.Fatal("root reference borrowed an import declared only by an included child")
+	}
+	if schema.storage != nil {
+		t.Fatal("included-child import failure returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Code() != diagnosticSchemaElementReferenceNamespaceCode {
+		t.Fatalf("included-child import diagnostic code = %s, want %s", diagnostic.Code(), diagnosticSchemaElementReferenceNamespaceCode)
+	}
+	if diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, "ref=") {
+		t.Fatalf("included-child import diagnostic location = %s, want root ref attribute", diagnostic.Loc())
+	}
+	if !errors.Is(err, errSchemaElementReferenceNamespace) {
+		t.Fatalf("included-child import cause does not match: %v", err)
+	}
+}
+
 func TestSchemaElementReferenceDownstreamConsumersRejectWithoutCopying(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + elementReferenceTestXSDNamespace + `" xmlns:r="urn:reference-root" targetNamespace="urn:reference-root">
   <xs:complexType name="Choice"><xs:choice><xs:element ref="r:item"/></xs:choice></xs:complexType>

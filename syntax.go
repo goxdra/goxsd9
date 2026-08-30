@@ -553,6 +553,7 @@ var supportedSyntaxElements = map[string]struct{}{
 	"totalDigits":      {},
 	"whiteSpace":       {},
 	"unique":           {},
+	"union":            {},
 }
 
 func childSyntaxScopeWithLocations(parent *syntaxScope, attrs []xml.Attr, loc Loc, attributeLocs []Loc) (*syntaxScope, error) {

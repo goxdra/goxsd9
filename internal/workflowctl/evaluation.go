@@ -35,6 +35,9 @@ const (
 	evaluationConvergenceMarker       = "workflowctl-evaluation-convergence-v1 "
 	evaluationConvergenceSchema       = "goxsd9/examiner-evaluation-convergence/v1"
 	evaluationConvergenceHeading      = "## Examiner evaluation convergence\n\n"
+	evaluationChallengeClosureMarker  = "workflowctl-evaluation-challenge-closure-v1 "
+	evaluationChallengeClosureSchema  = "goxsd9/evaluation-challenge-closure/v1"
+	evaluationChallengeClosureHeading = "## workflowctl evaluation challenge closure\n\n"
 )
 
 var evaluationReservedTextSequences = [...]struct {
@@ -49,9 +52,11 @@ var evaluationReservedTextSequences = [...]struct {
 	{name: "challenge marker", value: "<!-- " + evaluationChallengeMarker},
 	{name: "resolution marker", value: "<!-- " + evaluationResolutionMarker},
 	{name: "convergence marker", value: "<!-- " + evaluationConvergenceMarker},
+	{name: "challenge closure marker", value: "<!-- " + evaluationChallengeClosureMarker},
 	{name: "receipt heading", value: evaluationReceiptHeading},
 	{name: "resolution heading", value: evaluationResolutionHeading},
 	{name: "convergence heading", value: evaluationConvergenceHeading},
+	{name: "challenge closure heading", value: evaluationChallengeClosureHeading},
 }
 
 type pullRequestView struct {
@@ -122,6 +127,7 @@ type evaluationReceipt struct {
 	HeadRefName       string                 `json:"headRefName,omitempty"`
 	BodySHA256        string                 `json:"bodySHA256,omitempty"`
 	EvidenceSHA256    string                 `json:"evidenceSHA256,omitempty"`
+	Repository        string                 `json:"repository,omitempty"`
 	PR                int                    `json:"pullRequest,omitempty"`
 	RecordedAt        time.Time              `json:"recordedAt"`
 	ReportSHA256      string                 `json:"reportSHA256"`
@@ -156,6 +162,7 @@ type evaluationResolution struct {
 	Challenge      string    `json:"challenge"`
 	EvidenceSHA256 string    `json:"evidenceSHA256"`
 	Head           string    `json:"head"`
+	Repository     string    `json:"repository,omitempty"`
 	PR             int       `json:"pullRequest"`
 	Reason         string    `json:"reason"`
 	ResolvedAt     time.Time `json:"resolvedAt"`
@@ -198,6 +205,7 @@ type evaluationConvergence struct {
 type evaluationChallenge struct {
 	Challenge      string    `json:"challenge"`
 	Head           string    `json:"head"`
+	Repository     string    `json:"repository,omitempty"`
 	PR             int       `json:"pullRequest"`
 	BodySHA256     string    `json:"bodySHA256,omitempty"`
 	EvidenceSHA256 string    `json:"evidenceSHA256,omitempty"`
@@ -270,12 +278,31 @@ type evaluationConvergenceRecord struct {
 	convergence  evaluationConvergence
 }
 
+type evaluationChallengeClosure struct {
+	BodySHA256         string    `json:"bodySHA256"`
+	CanonicalChallenge string    `json:"canonicalChallenge"`
+	ClosedAt           time.Time `json:"closedAt"`
+	Controller         string    `json:"controller"`
+	DuplicateChallenge string    `json:"duplicateChallenge"`
+	EvidenceSHA256     string    `json:"evidenceSHA256"`
+	Head               string    `json:"head"`
+	PR                 int       `json:"pullRequest"`
+	Repository         string    `json:"repository"`
+	Schema             string    `json:"schema"`
+}
+
+type evaluationChallengeClosureRecord struct {
+	comment      pullRequestComment
+	commentIndex int
+	closure      evaluationChallengeClosure
+}
 type evaluationHistory struct {
 	challenges   []evaluationChallengeRecord
 	receipts     []evaluationReceiptRecord
 	repairs      []evaluationRepairRecord
 	resolutions  []evaluationResolutionRecord
 	convergences []evaluationConvergenceRecord
+	closures     []evaluationChallengeClosureRecord
 }
 
 type evaluationReceiptFacts struct {
@@ -763,13 +790,42 @@ type evaluationStatusChallenge struct {
 	resolvedReceipt      evaluationReceipt
 	resolvedResolution   evaluationResolution
 	resolvedByResolution bool
+	resolvedClosure      evaluationChallengeClosure
+	resolvedByClosure    bool
+	logicalCanonical     bool
+	logicalOutstanding   bool
 }
 
 type evaluationStatusProjection struct {
 	currentHead    string
 	challenges     []evaluationStatusChallenge
+	logical        []evaluationLogicalChallenge
 	recordedRounds []evaluationReceipt
 	resolutions    []evaluationResolution
+}
+
+type evaluationChallengeKey struct {
+	repository     string
+	pr             int
+	head           string
+	bodySHA256     string
+	evidenceSHA256 string
+}
+
+type evaluationLogicalChallenge struct {
+	key           evaluationChallengeKey
+	keyComplete   bool
+	canonical     evaluationChallengeRecord
+	members       []evaluationChallengeRecord
+	closures      []evaluationChallengeClosureRecord
+	receipt       evaluationReceiptRecord
+	hasReceipt    bool
+	resolution    evaluationResolutionRecord
+	hasResolution bool
+}
+
+type evaluationLogicalProjection struct {
+	challenges []evaluationLogicalChallenge
 }
 
 func (a app) runEvaluation(args []string) error {
@@ -844,6 +900,10 @@ func evaluationStatusForPR(number int, view pullRequestView, history evaluationH
 	if err := validateEvaluationStatusHistory(number, history); err != nil {
 		return evaluationStatusProjection{}, err
 	}
+	logicalProjection, err := evaluationLogicalProjectionForHistory(history, true)
+	if err != nil {
+		return evaluationStatusProjection{}, err
+	}
 	receipts, err := logicalEvaluationReceiptRecords(history)
 	if err != nil {
 		return evaluationStatusProjection{}, err
@@ -851,6 +911,7 @@ func evaluationStatusForPR(number int, view pullRequestView, history evaluationH
 	projection := evaluationStatusProjection{
 		currentHead:    view.HeadRefOID,
 		challenges:     make([]evaluationStatusChallenge, 0, len(history.challenges)),
+		logical:        logicalProjection.challenges,
 		recordedRounds: make([]evaluationReceipt, 0, len(receipts)),
 		resolutions:    make([]evaluationResolution, 0, len(history.resolutions)),
 	}
@@ -861,53 +922,15 @@ func evaluationStatusForPR(number int, view pullRequestView, history evaluationH
 		projection.resolutions = append(projection.resolutions, record.resolution)
 	}
 	for _, challenge := range history.challenges {
-		statusChallenge, err := evaluationStatusChallengeForHistory(challenge, history)
-		if err != nil {
-			return evaluationStatusProjection{}, err
+		logical, ok := logicalProjection.challengeForID(challenge.challenge.Challenge)
+		if !ok {
+			return evaluationStatusProjection{}, fmt.Errorf("evaluation challenge %q is absent from logical history",
+				challenge.challenge.Challenge)
 		}
+		statusChallenge := evaluationStatusChallengeForLogical(challenge, logical)
 		projection.challenges = append(projection.challenges, statusChallenge)
 	}
 	return projection, nil
-}
-
-func evaluationStatusChallengeForHistory(challenge evaluationChallengeRecord, history evaluationHistory) (
-	evaluationStatusChallenge, error) {
-	statusChallenge := evaluationStatusChallenge{challenge: challenge}
-	receipts, err := logicalEvaluationReceiptRecords(history)
-	if err != nil {
-		return evaluationStatusChallenge{}, err
-	}
-	receiptMatches := 0
-	for _, receipt := range receipts {
-		if receipt.receipt.AttestationSHA256 == "" || !evaluationChallengeMatchesReceipt(challenge, receipt) {
-			continue
-		}
-		statusChallenge.resolvedReceipt = receipt.receipt
-		receiptMatches++
-	}
-	resolutionMatches := 0
-	for _, resolution := range history.resolutions {
-		if !evaluationChallengeMatchesResolution(challenge, resolution) {
-			continue
-		}
-		statusChallenge.resolvedResolution = resolution.resolution
-		resolutionMatches++
-	}
-	if receiptMatches > 1 {
-		return evaluationStatusChallenge{}, fmt.Errorf("evaluation challenge %q has %d matching trusted receipts",
-			challenge.challenge.Challenge, receiptMatches)
-	}
-	if resolutionMatches > 1 {
-		return evaluationStatusChallenge{}, fmt.Errorf("evaluation challenge %q has %d matching no-verdict resolutions",
-			challenge.challenge.Challenge, resolutionMatches)
-	}
-	if receiptMatches != 0 && resolutionMatches != 0 {
-		return evaluationStatusChallenge{}, fmt.Errorf("evaluation challenge %q has both a trusted receipt and a no-verdict resolution",
-			challenge.challenge.Challenge)
-	}
-	statusChallenge.resolved = receiptMatches == 1 || resolutionMatches == 1
-	statusChallenge.resolvedByResolution = resolutionMatches == 1
-	return statusChallenge, nil
 }
 
 func validateEvaluationStatusHistory(number int, history evaluationHistory) error {
@@ -923,7 +946,31 @@ func validateEvaluationStatusHistory(number int, history evaluationHistory) erro
 	if err := validateEvaluationStatusConvergences(number, history.convergences); err != nil {
 		return err
 	}
-	return validateEvaluationStatusResolutions(number, history.resolutions)
+	if err := validateEvaluationStatusResolutions(number, history.resolutions); err != nil {
+		return err
+	}
+	_, err := evaluationLogicalProjectionForHistory(history, false)
+	return err
+}
+
+func validateEvaluationStatusHistoryForConvergence(number int, history evaluationHistory) error {
+	if err := validateEvaluationStatusChallenges(number, history.challenges); err != nil {
+		return err
+	}
+	if err := validateEvaluationStatusReceipts(number, history.receipts); err != nil {
+		return err
+	}
+	if err := validateEvaluationStatusRepairs(number, history.repairs); err != nil {
+		return err
+	}
+	if err := validateEvaluationStatusConvergences(number, history.convergences); err != nil {
+		return err
+	}
+	if err := validateEvaluationStatusResolutions(number, history.resolutions); err != nil {
+		return err
+	}
+	_, err := evaluationChallengeOnlyProjectionForHistory(history)
+	return err
 }
 
 func validateEvaluationStatusChallenges(number int, challenges []evaluationChallengeRecord) error {
@@ -1000,12 +1047,19 @@ func renderEvaluationStatus(number int, projection evaluationStatusProjection) s
 		fmt.Sprintf("No-verdict resolutions: %d", len(projection.resolutions)),
 		fmt.Sprintf("Recorded pass verdicts: %d", evaluationStatusVerdictCount(projection.recordedRounds, "pass")),
 		fmt.Sprintf("Recorded fail verdicts: %d", evaluationStatusVerdictCount(projection.recordedRounds, "fail")),
-		"State: "+evaluationStatusState(len(projection.challenges), outstanding),
+		"State: "+evaluationStatusState(evaluationStatusChallengeCount(projection), outstanding),
 	)
 	lines = appendEvaluationStatusChallenges(lines, projection.challenges)
 	lines = appendEvaluationStatusResolutions(lines, projection.resolutions)
 	lines = appendEvaluationStatusRounds(lines, projection.recordedRounds)
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func evaluationStatusChallengeCount(projection evaluationStatusProjection) int {
+	if len(projection.logical) != 0 {
+		return len(projection.logical)
+	}
+	return len(projection.challenges)
 }
 
 func evaluationStatusOutstanding(challenges []evaluationStatusChallenge) int {
@@ -1030,6 +1084,12 @@ func appendEvaluationStatusChallenges(lines []string, challenges []evaluationSta
 				challenge.resolvedResolution.Reason)
 		}
 		if challenge.resolved && !challenge.resolvedByResolution {
+			if challenge.resolvedByClosure {
+				status = fmt.Sprintf("resolved by controller closure (canonical challenge %s)",
+					challenge.resolvedClosure.CanonicalChallenge)
+			}
+		}
+		if challenge.resolved && !challenge.resolvedByResolution && !challenge.resolvedByClosure {
 			status = fmt.Sprintf("resolved by round %d (verdict: %s)", challenge.resolvedReceipt.Round,
 				challenge.resolvedReceipt.Verdict)
 		}
@@ -1294,15 +1354,22 @@ func (a app) requestEvaluation(number int) error {
 	if stateErr := requirePRReviewStateReady(view.Body); stateErr != nil {
 		return stateError("PR #%d review state is not evidence-ready: %v", number, stateErr)
 	}
-	history, historyErr := readEvaluationMutationHistory(number, view.Comments)
+	history, historyErr := readEvaluationMutationHistoryForConvergence(number, view.Comments)
 	if historyErr != nil {
 		return stateError("PR #%d has invalid evaluation history: %v", number, historyErr)
+	}
+	view, history, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
+	if err != nil {
+		return stateError("PR #%d equivalent evaluation challenges could not be converged: %v", number, err)
 	}
 	outstanding, err := outstandingEvaluationChallenges(history)
 	if err != nil {
 		return stateError("PR #%d has invalid logical evaluation history: %v", number, err)
 	}
 	if len(outstanding) != 0 {
+		if retry, ok := evaluationRetryChallengeForView(outstanding, number, view); ok {
+			return a.completeEvaluationChallenge(root, number, retry.challenge, view, history)
+		}
 		first := outstanding[0].challenge
 		return stateError("PR #%d has %d outstanding trusted Examiner challenge(s), including %q; no new challenge was posted. Record its exact attested receipt or, after the two-hour expiry at %s, run `go tool workflowctl evaluation resolve %d --challenge %s --reason-file FILE`",
 			number, len(outstanding), first.Challenge, first.RequestedAt.Add(evaluationChallengeDuration).Format(time.RFC3339Nano),
@@ -1320,6 +1387,7 @@ func (a app) requestEvaluation(number int) error {
 	challenge := evaluationChallenge{
 		Challenge:      challengeID,
 		Head:           view.HeadRefOID,
+		Repository:     repositoryKey,
 		PR:             number,
 		BodySHA256:     bodySHA256,
 		EvidenceSHA256: evidenceSHA256,
@@ -1331,13 +1399,158 @@ func (a app) requestEvaluation(number int) error {
 	}
 	body := fmt.Sprintf("<!-- %s%s -->\nExaminer challenge for `%s`.\n", evaluationChallengeMarker, marker,
 		view.HeadRefOID)
-	if err := a.postPullRequestComment(root, number, body); err != nil {
-		return err
+	postErr := a.postPullRequestComment(root, number, body)
+	verifiedView, verifiedHistory, verificationErr := a.readEvaluationChallengeState(root, number, challenge)
+	if verificationErr != nil {
+		if postErr != nil {
+			return fmt.Errorf("post PR #%d evaluation challenge: %w", number, postErr)
+		}
+		return verificationErr
 	}
-	return writeLine(a.stdout, "%s", marker)
+	if postErr != nil {
+		return fmt.Errorf("evaluation challenge POST response was ambiguous; do not repost blindly, retry the exact challenge command after inspection: %w",
+			postErr)
+	}
+	return a.completeEvaluationChallenge(root, number, challenge, verifiedView, verifiedHistory)
 }
 
-//nolint:gocognit // Keep attestation recording's validation and retry phases in order.
+func evaluationRetryChallengeForView(outstanding []evaluationChallengeRecord, number int, view pullRequestView) (
+	evaluationChallengeRecord, bool) {
+	if len(outstanding) != 1 {
+		return evaluationChallengeRecord{}, false
+	}
+	challenge := outstanding[0]
+	history := evaluationHistory{challenges: outstanding}
+	historyPR, contextOK := evaluationChallengeHistoryPR(history)
+	key, complete := evaluationChallengeKeyForPR(challenge.challenge, historyPR, contextOK)
+	if !complete || key.pr != number || key.head != view.HeadRefOID ||
+		!evaluationChallengeRecordValidAt(challenge, time.Now().UTC()) {
+		return evaluationChallengeRecord{}, false
+	}
+	parsedEvidence, err := validatePREvidenceForView(view)
+	if err != nil {
+		return evaluationChallengeRecord{}, false
+	}
+	bodySHA256, evidenceSHA256 := currentPREvidenceDigest(view, parsedEvidence)
+	if key.bodySHA256 != bodySHA256 || key.evidenceSHA256 != evidenceSHA256 {
+		return evaluationChallengeRecord{}, false
+	}
+	return challenge, true
+}
+
+func (a app) completeEvaluationChallenge(root string, number int, challenge evaluationChallenge,
+	view pullRequestView, history evaluationHistory,
+) error {
+	convergenceErr := a.convergeEvaluationChallengeClosures(root, number, challenge, view, history)
+	if convergenceErr != nil {
+		return convergenceErr
+	}
+	finalView, err := a.readPullRequest(root, number)
+	if err != nil {
+		return fmt.Errorf("reread PR #%d after challenge convergence: %w", number, err)
+	}
+	finalHistory, err := readEvaluationMutationHistoryForConvergence(number, finalView.Comments)
+	if err != nil {
+		return fmt.Errorf("reread PR #%d challenge history after convergence: %w", number, err)
+	}
+	logical, err := validateFinalEvaluationChallengeHistory(number, challenge, finalHistory)
+	if err != nil {
+		return fmt.Errorf("validate PR #%d challenge state after convergence: %w", number, err)
+	}
+	challengeErr := validateEvaluationChallengeView(finalView, number, challenge)
+	if challengeErr != nil {
+		return fmt.Errorf("PR #%d evaluation challenge changed before output: %w", number, challengeErr)
+	}
+	canonicalErr := validateEvaluationChallengeView(finalView, number, logical.canonical.challenge)
+	if canonicalErr != nil {
+		return fmt.Errorf("PR #%d canonical evaluation challenge changed before output: %w", number, canonicalErr)
+	}
+	finalAt := time.Now().UTC()
+	expiryErr := validateFinalEvaluationChallengeExpiry(finalHistory, challenge, logical, finalAt)
+	if expiryErr != nil {
+		return fmt.Errorf("PR #%d evaluation challenge expired before output: %w", number, expiryErr)
+	}
+	canonicalMarker, err := json.Marshal(logical.canonical.challenge)
+	if err != nil {
+		return fmt.Errorf("encode canonical evaluation challenge: %w", err)
+	}
+	return writeLine(a.stdout, "%s", canonicalMarker)
+}
+
+func validateFinalEvaluationChallengeHistory(number int, challenge evaluationChallenge,
+	finalHistory evaluationHistory) (evaluationLogicalChallenge, error) {
+	if !evaluationChallengeHasAuthenticatedContext(number, challenge, finalHistory) {
+		return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q identity is not bound to PR #%d",
+			challenge.Challenge, number)
+	}
+	projection, err := evaluationLogicalProjectionForHistory(finalHistory, false)
+	if err != nil {
+		return evaluationLogicalChallenge{}, fmt.Errorf("project challenge history: %w", err)
+	}
+	logical, ok := projection.challengeForID(challenge.Challenge)
+	if !ok {
+		return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q disappeared during convergence", challenge.Challenge)
+	}
+	finalChallenge, ok := evaluationChallengeByID(finalHistory, challenge.Challenge)
+	if !ok || !evaluationChallengeIdentityMatches(finalChallenge.challenge, challenge) {
+		return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q identity changed before output", challenge.Challenge)
+	}
+	if logical.hasReceipt || logical.hasResolution {
+		return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q is no longer the current logical outstanding challenge",
+			challenge.Challenge)
+	}
+	outstanding, err := outstandingEvaluationChallenges(finalHistory)
+	if err != nil {
+		return evaluationLogicalChallenge{}, fmt.Errorf("project outstanding challenges: %w", err)
+	}
+	if len(outstanding) != 1 || outstanding[0].challenge.Challenge != logical.canonical.challenge.Challenge {
+		return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q is not the sole current logical outstanding challenge",
+			challenge.Challenge)
+	}
+	for _, member := range logical.members[1:] {
+		if !hasChallengeClosureForID(logical, member.challenge.Challenge) {
+			return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q has an unclosed equivalent challenge after convergence",
+				member.challenge.Challenge)
+		}
+	}
+	return logical, nil
+}
+
+func evaluationChallengeHasAuthenticatedContext(number int, challenge evaluationChallenge,
+	finalHistory evaluationHistory) bool {
+	if challenge.PR != number {
+		return false
+	}
+	if challenge.Repository == repositoryKey {
+		return true
+	}
+	_, ok := evaluationChallengeForHistory(finalHistory, challenge)
+	return ok
+}
+
+func validateFinalEvaluationChallengeExpiry(history evaluationHistory, challenge evaluationChallenge,
+	logical evaluationLogicalChallenge, at time.Time) error {
+	expected, ok := evaluationChallengeRecordForID(history.challenges, challenge.Challenge)
+	if !ok || !evaluationChallengeRecordValidAt(expected, at) {
+		return fmt.Errorf("challenge %q is not valid at final output time", challenge.Challenge)
+	}
+	canonical, ok := evaluationChallengeRecordForID(history.challenges,
+		logical.canonical.challenge.Challenge)
+	if !ok || !evaluationChallengeRecordValidAt(canonical, at) {
+		return fmt.Errorf("canonical challenge %q is not valid at final output time",
+			logical.canonical.challenge.Challenge)
+	}
+	return nil
+}
+
+func evaluationChallengeIdentityMatches(left, right evaluationChallenge) bool {
+	return left.Challenge == right.Challenge && left.Head == right.Head &&
+		left.Repository == right.Repository && left.PR == right.PR &&
+		left.BodySHA256 == right.BodySHA256 && left.EvidenceSHA256 == right.EvidenceSHA256 &&
+		left.RequestedAt.Equal(right.RequestedAt)
+}
+
+//nolint:funlen,gocognit // Keep attestation recording's validation and retry phases in order.
 func (a app) postEvaluation(number int, attestationFile string) error {
 	root, view, primary, err := a.readEvaluationTarget(number)
 	if err != nil {
@@ -1346,28 +1559,54 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 	if stateErr := requirePRReviewStateReady(view.Body); stateErr != nil {
 		return stateError("PR #%d review state is not evidence-ready: %v", number, stateErr)
 	}
+	if _, evidenceErr := a.validatePREvidenceForPR(root, number, view); evidenceErr != nil {
+		return evidenceErr
+	}
+	attestation, attestationJSON, err := readEvaluationAttestation(attestationFile)
+	if err != nil {
+		return err
+	}
+	history, historyErr := readEvaluationMutationHistoryForConvergence(number, view.Comments)
+	if historyErr != nil {
+		return stateError("PR #%d has invalid evaluation history: %v", number, historyErr)
+	}
+	replay, replayErr := authenticateEvaluationAttestationReplay(attestation, attestationJSON,
+		number, view, history)
+	if replayErr != nil {
+		return stateError("reject Examiner attestation: %v", replayErr)
+	}
+	if validationErr := validateEvaluationAttestationBeforeConvergence(attestation, attestationJSON,
+		number, view, history, time.Now().UTC(), replay); validationErr != nil {
+		return stateError("reject Examiner attestation: %v", validationErr)
+	}
+	view, history, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
+	if err != nil {
+		return stateError("PR #%d equivalent evaluation challenges could not be converged: %v", number, err)
+	}
+	if _, receiptErr := logicalEvaluationReceiptRecords(history); receiptErr != nil {
+		var duplicateErr *evaluationEquivalentReceiptError
+		if !errors.As(receiptErr, &duplicateErr) {
+			return stateError("PR #%d has invalid logical evaluation history: %v", number, receiptErr)
+		}
+		view, history, err = a.convergeEvaluationReceiptGroup(root, number, view,
+			duplicateErr.group, attestation, attestationJSON)
+		if err != nil {
+			return stateError("PR #%d equivalent evaluation receipts could not be converged: %v", number, err)
+		}
+		view, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
+		if err != nil {
+			return stateError("PR #%d equivalent evaluation challenges could not be converged: %v", number, err)
+		}
+	}
+	history, err = readEvaluationMutationHistory(number, view.Comments)
+	if err != nil {
+		return stateError("PR #%d has invalid evaluation history after convergence: %v", number, err)
+	}
 	parsedEvidence, err := a.validatePREvidenceForPR(root, number, view)
 	if err != nil {
 		return err
 	}
 	bodySHA256, evidenceSHA256 := currentPREvidenceDigest(view, parsedEvidence)
-	attestation, attestationJSON, err := readEvaluationAttestation(attestationFile)
-	if err != nil {
-		return err
-	}
-	history, historyErr := readEvaluationMutationHistory(number, view.Comments)
-	if historyErr != nil {
-		var duplicateErr *evaluationEquivalentReceiptError
-		if !errors.As(historyErr, &duplicateErr) {
-			return stateError("PR #%d has invalid evaluation history: %v", number, historyErr)
-		}
-		verifiedView, verifiedHistory, convergenceErr := a.convergeEvaluationReceiptGroup(root, number, view,
-			duplicateErr.group, attestation, attestationJSON)
-		if convergenceErr != nil {
-			return stateError("PR #%d equivalent evaluation receipts could not be converged: %v", number, convergenceErr)
-		}
-		return a.reconcileConvergedEvaluation(root, number, primary, verifiedView, verifiedHistory, attestation, attestationJSON)
-	}
 	receipts, err := evaluationReceiptsFromHistory(history)
 	if err != nil {
 		return stateError("PR #%d has invalid logical evaluation history: %v", number, err)
@@ -1386,6 +1625,31 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 	if resolvedByResolution {
 		return stateError("PR #%d challenge %q was already closed by a no-verdict resolution; request a fresh challenge before recording an Examiner receipt",
 			number, attestation.Challenge)
+	}
+	projection, projectionErr := evaluationLogicalProjectionForHistory(history, false)
+	if projectionErr != nil {
+		return stateError("PR #%d has invalid evaluation history: %v", number, projectionErr)
+	}
+	challenge, challengeOK := evaluationChallengeByID(history, attestation.Challenge)
+	if !challengeOK {
+		return stateError("reject Examiner attestation: challenge is not a unique trusted challenge")
+	}
+	logical, logicalOK := projection.challengeForID(attestation.Challenge)
+	if !logicalOK {
+		return stateError("reject Examiner attestation: challenge is not in the logical evaluation history")
+	}
+	if logical.hasReceipt {
+		return stateError("reject Examiner attestation: equivalent challenge class already has an attested receipt")
+	}
+	if logical.hasResolution {
+		return stateError("reject Examiner attestation: equivalent challenge class was already closed by a no-verdict resolution")
+	}
+	if challenge.challenge.Challenge != logical.canonical.challenge.Challenge {
+		if hasChallengeClosureForID(logical, attestation.Challenge) {
+			return stateError("reject Examiner attestation: equivalent duplicate challenge was already closed by the workflow controller")
+		}
+		return stateError("reject Examiner attestation: equivalent duplicate challenge is not canonical; use challenge %q",
+			logical.canonical.challenge.Challenge)
 	}
 	failedRounds := evaluationFailureCount(receipts)
 	if failedRounds >= 3 {
@@ -1413,6 +1677,7 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 		HeadRefName:       view.HeadRefName,
 		BodySHA256:        bodySHA256,
 		EvidenceSHA256:    evidenceSHA256,
+		Repository:        repositoryKey,
 		PR:                attestation.PR,
 		RecordedAt:        time.Now().UTC().Truncate(time.Second),
 		ReportSHA256:      sha256Hex(canonicalReport),
@@ -1489,6 +1754,7 @@ func validateExactEvaluationAttestation(attestation evaluationAttestation, attes
 	return validateEvaluationAttestationText(attestation)
 }
 
+//nolint:gocognit // Keep receipt post, duplicate convergence, and verification explicit.
 func (a app) postAndVerifyEvaluationReceipt(root string, number, primary int,
 	receipt evaluationReceipt, attestation evaluationAttestation,
 	attestationJSON []byte, body string) error {
@@ -1538,6 +1804,10 @@ func (a app) postAndVerifyEvaluationReceipt(root string, number, primary int,
 	if !found || verifiedReceipt.RecordedAt.IsZero() {
 		return fmt.Errorf("post PR #%d evaluation receipt was not authenticated in complete paginated history; retry the exact recording command: %w",
 			number, errors.Join(postErr, errors.New("recorded receipt is absent")))
+	}
+	if postErr != nil {
+		return fmt.Errorf("post PR #%d evaluation receipt response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
+			number, postErr)
 	}
 	if receipt.Verdict == "fail" && evaluationFailureCount(verifiedReceipts) >= 3 {
 		return a.reconcileRecordedNeedsHuman(root, number, primary, verifiedView, verifiedReceipts, attestation, attestationJSON)
@@ -1735,9 +2005,17 @@ func (a app) postEvaluationResolution(number int, challengeID, reason string) er
 	if err != nil {
 		return usageError("evaluation resolve: %v", err)
 	}
-	history, historyErr := readEvaluationMutationHistory(number, view.Comments)
+	history, historyErr := readEvaluationMutationHistoryForConvergence(number, view.Comments)
 	if historyErr != nil {
 		return stateError("PR #%d has invalid evaluation history: %v", number, historyErr)
+	}
+	view, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
+	if err != nil {
+		return stateError("PR #%d equivalent evaluation challenges could not be converged: %v", number, err)
+	}
+	history, historyErr = readEvaluationMutationHistory(number, view.Comments)
+	if historyErr != nil {
+		return stateError("PR #%d has invalid evaluation history after convergence: %v", number, historyErr)
 	}
 	challenge, alreadyResolved, targetErr := evaluationResolutionTarget(history, number, challengeID, canonicalReason)
 	if targetErr != nil {
@@ -1761,6 +2039,7 @@ func (a app) postEvaluationResolution(number int, challengeID, reason string) er
 		Challenge:      challenge.challenge.Challenge,
 		EvidenceSHA256: challenge.challenge.EvidenceSHA256,
 		Head:           challenge.challenge.Head,
+		Repository:     challenge.challenge.Repository,
 		PR:             challenge.challenge.PR,
 		Reason:         canonicalReason,
 		ResolvedAt:     resolvedAt,
@@ -1801,18 +2080,28 @@ func evaluationResolutionTarget(history evaluationHistory, number int, challenge
 		return evaluationChallengeRecord{}, false, stateError("PR #%d has no unique trusted challenge %q to resolve; inspect `workflowctl evaluation status %d` and preserve the original challenge marker",
 			number, challengeID, number)
 	}
-	receiptMatches, resolutionMatches, err := evaluationChallengeClosureCounts(history, challenge)
+	projection, err := evaluationLogicalProjectionForHistory(history, true)
 	if err != nil {
 		return evaluationChallengeRecord{}, false, stateError("PR #%d has invalid logical evaluation history: %v", number, err)
 	}
-	if receiptMatches != 0 {
+	logical, ok := projection.challengeForID(challengeID)
+	if !ok {
+		return evaluationChallengeRecord{}, false, stateError("PR #%d has no logical challenge %q to resolve; preserve the original challenge marker",
+			number, challengeID)
+	}
+	if challenge.challenge.Challenge != logical.canonical.challenge.Challenge &&
+		hasChallengeClosureForID(logical, challengeID) {
+		return evaluationChallengeRecord{}, false, stateError("PR #%d challenge %q was already closed by the workflow controller; resolve its canonical challenge %q instead",
+			number, challengeID, logical.canonical.challenge.Challenge)
+	}
+	if logical.hasReceipt {
 		return evaluationChallengeRecord{}, false, stateError("PR #%d challenge %q already has an attested Examiner receipt; a no-verdict resolution cannot replace it",
 			number, challengeID)
 	}
-	if resolutionMatches == 0 {
+	if !logical.hasResolution {
 		return challenge, false, nil
 	}
-	resolution := evaluationResolutionForChallenge(history, challenge)
+	resolution := logical.resolution.resolution
 	if resolution.Reason != reason {
 		return evaluationChallengeRecord{}, false, stateError("PR #%d challenge %q already has a different no-verdict resolution reason; conflicting retries fail closed",
 			number, challengeID)
@@ -2071,6 +2360,23 @@ func requireAttestationJSONEnd(decoder *json.Decoder) error {
 
 func validateEvaluationAttestation(attestation evaluationAttestation, number int, view pullRequestView,
 	receipts []evaluationReceipt, now time.Time) error {
+	challenge, err := validateEvaluationAttestationIdentityAndFreshness(attestation, number, view, now)
+	if err != nil {
+		return err
+	}
+	for _, receipt := range receipts {
+		if receipt.Challenge == challenge.Challenge {
+			return errors.New("challenge was already used")
+		}
+		if receipt.EvaluatorRunID == attestation.RunID {
+			return errors.New("examiner run ID was already used")
+		}
+	}
+	return nil
+}
+
+func validateEvaluationAttestationIdentity(attestation evaluationAttestation, number int,
+	view pullRequestView) error {
 	if attestation.Schema != evaluationAttestationSchema {
 		return fmt.Errorf("schema is %q, want %q", attestation.Schema, evaluationAttestationSchema)
 	}
@@ -2090,16 +2396,134 @@ func validateEvaluationAttestation(attestation evaluationAttestation, number int
 	if err := validateEvaluationAttestationText(attestation); err != nil {
 		return err
 	}
+	return nil
+}
+
+func validateEvaluationAttestationIdentityAndFreshness(attestation evaluationAttestation, number int,
+	view pullRequestView, now time.Time) (evaluationChallenge, error) {
+	if err := validateEvaluationAttestationIdentity(attestation, number, view); err != nil {
+		return evaluationChallenge{}, err
+	}
 	challenge, ok := trustedEvaluationChallengeForView(view, attestation.Challenge, number, now)
+	if !ok {
+		return evaluationChallenge{}, errors.New("challenge is missing, stale, untrusted, or for another head")
+	}
+	return challenge, nil
+}
+
+// validateEvaluationAttestationBeforeConvergence validates the complete
+// attestation binding before a challenge-closure POST. An exact existing
+// receipt remains an idempotent retry, while a different use of its challenge
+// or Examiner run ID is rejected without mutating history.
+func validateEvaluationAttestationBeforeConvergence(attestation evaluationAttestation, attestationJSON []byte,
+	number int, view pullRequestView, history evaluationHistory, now time.Time, replay bool) error {
+	challengeRecord, ok := evaluationChallengeByID(history, attestation.Challenge)
 	if !ok {
 		return errors.New("challenge is missing, stale, untrusted, or for another head")
 	}
-	for _, receipt := range receipts {
+	challenge := challengeRecord.challenge
+	if !replay {
+		var err error
+		challenge, err = validateEvaluationAttestationIdentityAndFreshness(attestation, number, view, now)
+		if err != nil {
+			return err
+		}
+	}
+	digest := sha256Hex(attestationJSON)
+	if err := validateEvaluationAttestationReceiptReuse(attestation, challenge, digest, replay, history); err != nil {
+		return err
+	}
+	var err error
+	projection, err := evaluationChallengeOnlyProjectionForHistory(history)
+	if err != nil {
+		return fmt.Errorf("project challenge history: %w", err)
+	}
+	logical, ok := projection.challengeForID(challenge.Challenge)
+	if !ok {
+		return errors.New("challenge is not in the logical evaluation history")
+	}
+	if !replay && challengeRecord.challenge.Challenge != logical.canonical.challenge.Challenge {
+		return fmt.Errorf("equivalent duplicate challenge is not canonical; use challenge %q",
+			logical.canonical.challenge.Challenge)
+	}
+	return validateEvaluationAttestationLogicalReuse(logical, digest, replay, history)
+}
+
+func authenticateEvaluationAttestationReplay(attestation evaluationAttestation, attestationJSON []byte,
+	number int, view pullRequestView, history evaluationHistory) (bool, error) {
+	digest := sha256Hex(attestationJSON)
+	found := false
+	for _, record := range history.receipts {
+		receipt := record.receipt
+		if receipt.AttestationSHA256 != digest {
+			continue
+		}
+		if validationErr := validateExactEvaluationAttestation(attestation, attestationJSON, receipt, number); validationErr != nil {
+			return false, fmt.Errorf("attestation digest matches a receipt but authenticated identity differs: %w", validationErr)
+		}
+		expectedReport := canonicalEvaluationReport(renderEvaluationReport(attestation))
+		if record.comment.Body != evaluationComment(record.marker, attestationJSON, string(expectedReport)) {
+			return false, errors.New("recorded receipt comment differs from its authenticated attestation or report projection")
+		}
+		if err := validateEvaluationAttestationIdentity(attestation, number, view); err != nil {
+			return false, err
+		}
+		if err := evaluationReceiptMatchesCurrentPR(receipt, view); err != nil {
+			return false, err
+		}
+		if err := evaluationReceiptMatchesCurrentEvidence(receipt, view); err != nil {
+			return false, err
+		}
+		found = true
+	}
+	return found, nil
+}
+
+func validateEvaluationAttestationReceiptReuse(attestation evaluationAttestation, challenge evaluationChallenge,
+	digest string, replay bool, history evaluationHistory) error {
+	for _, record := range history.receipts {
+		receipt := record.receipt
+		if receipt.AttestationSHA256 == digest {
+			if replay {
+				continue
+			}
+			return errors.New("attestation digest unexpectedly matches an existing receipt")
+		}
 		if receipt.Challenge == challenge.Challenge {
 			return errors.New("challenge was already used")
 		}
 		if receipt.EvaluatorRunID == attestation.RunID {
 			return errors.New("examiner run ID was already used")
+		}
+	}
+	return nil
+}
+
+func validateEvaluationAttestationLogicalReuse(logical evaluationLogicalChallenge, digest string,
+	replay bool, history evaluationHistory) error {
+	for _, member := range logical.members {
+		if err := validateEvaluationAttestationMemberReuse(member, digest, replay, history); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateEvaluationAttestationMemberReuse(member evaluationChallengeRecord, digest string,
+	replay bool, history evaluationHistory) error {
+	for _, record := range history.receipts {
+		if record.receipt.AttestationSHA256 == "" ||
+			!evaluationChallengeMatchesReceiptForHistory(history, member, record) {
+			continue
+		}
+		if replay && record.receipt.AttestationSHA256 == digest {
+			continue
+		}
+		return errors.New("equivalent challenge class already has an attested receipt")
+	}
+	for _, record := range history.resolutions {
+		if evaluationChallengeMatchesResolutionForHistory(history, member, record) {
+			return errors.New("equivalent challenge class was already closed by a no-verdict resolution")
 		}
 	}
 	return nil
@@ -2224,6 +2648,9 @@ func parseEvaluationChallenge(body string) (evaluationChallenge, bool) {
 	if challenge.Challenge == "" || challenge.Head == "" || challenge.PR < 1 || challenge.RequestedAt.IsZero() {
 		return evaluationChallenge{}, false
 	}
+	if challenge.Repository != "" && challenge.Repository != repositoryKey {
+		return evaluationChallenge{}, false
+	}
 	if (challenge.BodySHA256 == "") != (challenge.EvidenceSHA256 == "") ||
 		(challenge.BodySHA256 != "" && (!validSHA256(challenge.BodySHA256) || !validSHA256(challenge.EvidenceSHA256))) {
 		return evaluationChallenge{}, false
@@ -2254,6 +2681,9 @@ func parseEvaluationResolution(body string) (evaluationResolution, bool) {
 		!validSHA256(resolution.EvidenceSHA256) {
 		return evaluationResolution{}, false
 	}
+	if resolution.Repository != "" && resolution.Repository != repositoryKey {
+		return evaluationResolution{}, false
+	}
 	canonicalReason, err := validateEvaluationResolutionReason(resolution.Reason)
 	if err != nil || canonicalReason != resolution.Reason {
 		return evaluationResolution{}, false
@@ -2261,6 +2691,32 @@ func parseEvaluationResolution(body string) (evaluationResolution, bool) {
 	return resolution, true
 }
 
+func parseEvaluationChallengeClosure(body string) (evaluationChallengeClosure, bool) {
+	value, ok := markerBytes(body, evaluationChallengeClosureMarker)
+	if !ok || !strings.Contains(body, evaluationChallengeClosureHeading) {
+		return evaluationChallengeClosure{}, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	if rejectDuplicateJSONKeys(value) != nil {
+		return evaluationChallengeClosure{}, false
+	}
+	decoder.DisallowUnknownFields()
+	var closure evaluationChallengeClosure
+	if err := decoder.Decode(&closure); err != nil {
+		return evaluationChallengeClosure{}, false
+	}
+	if err := requireJSONEnd(decoder); err != nil {
+		return evaluationChallengeClosure{}, false
+	}
+	if closure.Schema != evaluationChallengeClosureSchema || closure.Controller != trustedActor ||
+		closure.CanonicalChallenge == "" || closure.DuplicateChallenge == "" ||
+		closure.CanonicalChallenge == closure.DuplicateChallenge || closure.PR < 1 ||
+		closure.Head == "" || closure.Repository != repositoryKey || closure.ClosedAt.IsZero() ||
+		!validSHA256(closure.BodySHA256) || !validSHA256(closure.EvidenceSHA256) {
+		return evaluationChallengeClosure{}, false
+	}
+	return closure, true
+}
 func parseEvaluationConvergence(body string) (evaluationConvergence, bool) {
 	value, ok := markerBytes(body, evaluationConvergenceMarker)
 	if !ok || !strings.Contains(body, evaluationConvergenceHeading) {
@@ -2296,6 +2752,26 @@ func evaluationResolutionComment(marker []byte, reason string) string {
 		evaluationResolutionHeading, reason)
 }
 
+func evaluationChallengeClosureComment(marker []byte, canonical, duplicate string) string {
+	return fmt.Sprintf("<!-- %s%s -->\n%sCanonical challenge `%s` retains the logical evaluation; equivalent duplicate `%s` is closed by workflowctl.\n",
+		evaluationChallengeClosureMarker, marker, evaluationChallengeClosureHeading, canonical, duplicate)
+}
+
+func evaluationChallengeClosureCommentIsValid(comment pullRequestComment) bool {
+	if comment.Author.Login != trustedActor {
+		return false
+	}
+	marker, ok := markerBytes(comment.Body, evaluationChallengeClosureMarker)
+	if !ok {
+		return false
+	}
+	closure, ok := parseEvaluationChallengeClosure(comment.Body)
+	if !ok {
+		return false
+	}
+	return comment.Body == evaluationChallengeClosureComment(marker, closure.CanonicalChallenge,
+		closure.DuplicateChallenge)
+}
 func evaluationConvergenceComment(marker []byte) string {
 	return fmt.Sprintf("<!-- %s%s -->\n%sEquivalent trusted Examiner receipts are represented by one logical round; all original comments remain authoritative history.\n",
 		evaluationConvergenceMarker, marker, evaluationConvergenceHeading)
@@ -2557,16 +3033,46 @@ func readEvaluationMutationHistory(number int, comments []pullRequestComment) (e
 }
 
 func outstandingEvaluationChallenges(history evaluationHistory) ([]evaluationChallengeRecord, error) {
-	receipts, err := logicalEvaluationReceiptRecords(history)
+	projection, err := evaluationLogicalProjectionForHistory(history, false)
 	if err != nil {
 		return nil, err
 	}
 	outstanding := make([]evaluationChallengeRecord, 0)
-	for _, challenge := range history.challenges {
-		receiptMatches, resolutionMatches := evaluationChallengeClosureCountsForReceipts(receipts, history.resolutions, challenge)
-		if receiptMatches == 0 && resolutionMatches == 0 {
-			outstanding = append(outstanding, challenge)
+	for _, logical := range projection.challenges {
+		if !logical.hasReceipt && !logical.hasResolution {
+			outstanding = append(outstanding, logical.canonical)
 		}
+	}
+	return outstanding, nil
+}
+
+// historicalOutstandingEvaluationChallenges keeps only the latest logical
+// challenge group active. Earlier groups are stale after a later challenge
+// was requested; historical readers may project them without a controller
+// closure while active mutation paths remain strict.
+func historicalOutstandingEvaluationChallenges(number int, history evaluationHistory) ([]evaluationChallengeRecord, error) {
+	if err := validateEvaluationHistoryPRScope(number, history); err != nil {
+		return nil, err
+	}
+	projection, err := evaluationLogicalProjectionForHistory(history, false)
+	if err != nil {
+		return nil, err
+	}
+	latestComplete := -1
+	for index, logical := range projection.challenges {
+		if logical.keyComplete {
+			latestComplete = index
+		}
+	}
+	outstanding := make([]evaluationChallengeRecord, 0, len(projection.challenges))
+	for index, logical := range projection.challenges {
+		if logical.keyComplete && index < latestComplete {
+			continue
+		}
+		if logical.hasReceipt || logical.hasResolution {
+			continue
+		}
+		outstanding = append(outstanding, logical.canonical)
 	}
 	return outstanding, nil
 }
@@ -2584,48 +3090,34 @@ func evaluationChallengeByID(history evaluationHistory, challengeID string) (eva
 	return found, matches == 1
 }
 
-func evaluationChallengeClosureCounts(history evaluationHistory, challenge evaluationChallengeRecord) (int, int, error) {
-	receipts, err := logicalEvaluationReceiptRecords(history)
-	if err != nil {
-		return 0, 0, err
-	}
-	receiptMatches, resolutionMatches := evaluationChallengeClosureCountsForReceipts(receipts, history.resolutions, challenge)
-	return receiptMatches, resolutionMatches, nil
-}
-
-func evaluationChallengeClosureCountsForReceipts(receipts []evaluationReceiptRecord,
-	resolutions []evaluationResolutionRecord, challenge evaluationChallengeRecord) (int, int) {
+func evaluationChallengeClosureCountsForHistory(history evaluationHistory,
+	receipts []evaluationReceiptRecord, challenge evaluationChallengeRecord) (int, int) {
 	receiptMatches := 0
 	for _, receipt := range receipts {
-		if receipt.receipt.AttestationSHA256 != "" && evaluationChallengeMatchesReceipt(challenge, receipt) {
+		if receipt.receipt.AttestationSHA256 != "" &&
+			evaluationChallengeMatchesReceiptForHistory(history, challenge, receipt) {
 			receiptMatches++
 		}
 	}
 	resolutionMatches := 0
-	for _, resolution := range resolutions {
-		if evaluationChallengeMatchesResolution(challenge, resolution) {
+	for _, resolution := range history.resolutions {
+		if evaluationChallengeMatchesResolutionForHistory(history, challenge, resolution) {
 			resolutionMatches++
 		}
 	}
 	return receiptMatches, resolutionMatches
 }
 
-func evaluationResolutionForChallenge(history evaluationHistory, challenge evaluationChallengeRecord) evaluationResolution {
-	for _, resolution := range history.resolutions {
-		if evaluationChallengeMatchesResolution(challenge, resolution) {
-			return resolution.resolution
-		}
-	}
-	return evaluationResolution{}
-}
-
 func evaluationChallengeResolvedByResolution(history evaluationHistory, challengeID string) (bool, error) {
-	challenge, ok := evaluationChallengeByID(history, challengeID)
+	projection, err := evaluationLogicalProjectionForHistory(history, false)
+	if err != nil {
+		return false, err
+	}
+	logical, ok := projection.challengeForID(challengeID)
 	if !ok {
 		return false, nil
 	}
-	_, resolutions, err := evaluationChallengeClosureCounts(history, challenge)
-	return resolutions == 1, err
+	return logical.hasResolution, nil
 }
 
 func parseEvaluationHistory(comments []pullRequestComment) (evaluationHistory, error) {
@@ -2643,6 +3135,9 @@ func appendEvaluationHistoryComment(history *evaluationHistory, comment pullRequ
 	if comment.Author.Login != trustedActor {
 		if hasMarker(comment.Body, evaluationChallengeMarker) {
 			return errors.New("evaluation challenge marker has an untrusted author")
+		}
+		if hasMarker(comment.Body, evaluationChallengeClosureMarker) || strings.Contains(comment.Body, evaluationChallengeClosureHeading) {
+			return errors.New("evaluation challenge closure marker has an untrusted author")
 		}
 		if hasMarker(comment.Body, evaluationResolutionMarker) || strings.Contains(comment.Body, evaluationResolutionHeading) {
 			return errors.New("evaluation resolution marker has an untrusted author")
@@ -2666,6 +3161,14 @@ func appendEvaluationHistoryComment(history *evaluationHistory, comment pullRequ
 	}
 	if found {
 		history.challenges = append(history.challenges, *challenge)
+		return nil
+	}
+	closure, found, err := parseEvaluationChallengeClosureRecord(comment, commentIndex)
+	if err != nil {
+		return err
+	}
+	if found {
+		history.closures = append(history.closures, *closure)
 		return nil
 	}
 	resolution, found, err := parseEvaluationResolutionRecord(comment, commentIndex)
@@ -2714,7 +3217,38 @@ func evaluationChallengeContainsReceiptEvidence(body string) bool {
 		strings.Contains(body, evaluationReceiptHeading) || hasMarker(body, evaluationReportBase64Marker) ||
 		hasMarker(body, evaluationAttestationBase64Marker) || hasMarker(body, evaluationAttestationMarker) ||
 		hasMarker(body, evaluationResolutionMarker) || strings.Contains(body, evaluationResolutionHeading) ||
-		hasMarker(body, evaluationConvergenceMarker) || strings.Contains(body, evaluationConvergenceHeading)
+		hasMarker(body, evaluationConvergenceMarker) || strings.Contains(body, evaluationConvergenceHeading) ||
+		hasMarker(body, evaluationChallengeClosureMarker) || strings.Contains(body, evaluationChallengeClosureHeading)
+}
+
+func parseEvaluationChallengeClosureRecord(comment pullRequestComment, commentIndex int) (
+	*evaluationChallengeClosureRecord, bool, error) {
+	hasMarkerValue := hasMarker(comment.Body, evaluationChallengeClosureMarker)
+	hasHeading := strings.Contains(comment.Body, evaluationChallengeClosureHeading)
+	if !hasMarkerValue && !hasHeading {
+		return nil, false, nil
+	}
+	if !hasMarkerValue {
+		return nil, false, errors.New("trusted evaluation challenge closure heading has no marker")
+	}
+	if hasMarker(comment.Body, evaluationChallengeMarker) || hasMarker(comment.Body, evaluationMarker) ||
+		hasMarker(comment.Body, evaluationRepairMarker) || hasMarker(comment.Body, evaluationReportBase64Marker) ||
+		hasMarker(comment.Body, evaluationAttestationBase64Marker) || hasMarker(comment.Body, evaluationAttestationMarker) ||
+		hasMarker(comment.Body, evaluationResolutionMarker) || hasMarker(comment.Body, evaluationConvergenceMarker) ||
+		strings.Contains(comment.Body, evaluationReceiptHeading) || strings.Contains(comment.Body, evaluationResolutionHeading) ||
+		strings.Contains(comment.Body, evaluationConvergenceHeading) {
+		return nil, false, errors.New("trusted evaluation challenge closure also contains other evaluation evidence")
+	}
+	closure, ok := parseEvaluationChallengeClosure(comment.Body)
+	if !ok {
+		return nil, false, errors.New("trusted evaluation challenge closure marker is malformed")
+	}
+	if !evaluationChallengeClosureCommentIsValid(comment) {
+		return nil, false, errors.New("trusted evaluation challenge closure comment is not machine-generated")
+	}
+	return &evaluationChallengeClosureRecord{
+		comment: comment, commentIndex: commentIndex, closure: closure,
+	}, true, nil
 }
 
 func parseEvaluationRecordMarker(comment pullRequestComment, marker, heading, kind string,
@@ -2741,16 +3275,18 @@ func evaluationResolutionContainsOtherEvidence(body string) bool {
 	return hasMarker(body, evaluationChallengeMarker) || hasMarker(body, evaluationMarker) ||
 		hasMarker(body, evaluationRepairMarker) || hasMarker(body, evaluationReportBase64Marker) ||
 		hasMarker(body, evaluationAttestationBase64Marker) || hasMarker(body, evaluationAttestationMarker) ||
-		hasMarker(body, evaluationConvergenceMarker) || strings.Contains(body, evaluationReceiptHeading) ||
-		strings.Contains(body, evaluationConvergenceHeading)
+		hasMarker(body, evaluationConvergenceMarker) || hasMarker(body, evaluationChallengeClosureMarker) ||
+		strings.Contains(body, evaluationReceiptHeading) || strings.Contains(body, evaluationConvergenceHeading) ||
+		strings.Contains(body, evaluationChallengeClosureHeading)
 }
 
 func evaluationConvergenceContainsOtherEvidence(body string) bool {
 	return hasMarker(body, evaluationChallengeMarker) || hasMarker(body, evaluationMarker) ||
 		hasMarker(body, evaluationRepairMarker) || hasMarker(body, evaluationReportBase64Marker) ||
 		hasMarker(body, evaluationAttestationBase64Marker) || hasMarker(body, evaluationAttestationMarker) ||
-		hasMarker(body, evaluationResolutionMarker) || strings.Contains(body, evaluationReceiptHeading) ||
-		strings.Contains(body, evaluationResolutionHeading)
+		hasMarker(body, evaluationResolutionMarker) || hasMarker(body, evaluationChallengeClosureMarker) ||
+		strings.Contains(body, evaluationReceiptHeading) || strings.Contains(body, evaluationResolutionHeading) ||
+		strings.Contains(body, evaluationChallengeClosureHeading)
 }
 
 func parseEvaluationResolutionRecord(comment pullRequestComment, commentIndex int) (
@@ -2795,17 +3331,20 @@ func parseEvaluationConvergenceRecord(comment pullRequestComment, commentIndex i
 	}, true, nil
 }
 
+//nolint:gocognit // Preserve the explicit precedence among trusted marker kinds.
 func parseTrustedEvaluationComment(comment pullRequestComment, commentIndex int) (*evaluationReceiptRecord, *evaluationRepairRecord, error) {
 	hasRepairMarker := hasMarker(comment.Body, evaluationRepairMarker)
 	hasReceiptMarker := hasMarker(comment.Body, evaluationMarker)
 	hasReceiptHeading := strings.Contains(comment.Body, evaluationReceiptHeading)
 	hasResolutionHeading := strings.Contains(comment.Body, evaluationResolutionHeading)
+	hasClosureHeading := strings.Contains(comment.Body, evaluationChallengeClosureHeading)
 	hasReceipt := hasReceiptMarker || hasReceiptHeading
 	hasReportEvidence := hasMarker(comment.Body, evaluationReportBase64Marker) ||
 		hasMarker(comment.Body, evaluationAttestationBase64Marker) ||
 		hasMarker(comment.Body, evaluationAttestationMarker)
 	hasResolutionMarker := hasMarker(comment.Body, evaluationResolutionMarker)
-	if hasResolutionHeading || hasResolutionMarker {
+	hasClosureMarker := hasMarker(comment.Body, evaluationChallengeClosureMarker)
+	if hasResolutionHeading || hasResolutionMarker || hasClosureHeading || hasClosureMarker {
 		return nil, nil, errors.New("trusted evaluation resolution was not parsed as its own record")
 	}
 	if hasRepairMarker {
@@ -2821,6 +3360,9 @@ func parseTrustedEvaluationComment(comment pullRequestComment, commentIndex int)
 	if !hasReceipt {
 		if hasReportEvidence {
 			return nil, nil, errors.New("trusted evaluation evidence has no receipt")
+		}
+		if hasClosureMarker || hasClosureHeading {
+			return nil, nil, errors.New("trusted evaluation challenge closure was not parsed as its own record")
 		}
 		return nil, nil, nil
 	}
@@ -2848,10 +3390,12 @@ func rejectUntrustedEvaluationEvidence(comments []pullRequestComment) error {
 			hasMarker(comment.Body, evaluationAttestationBase64Marker) ||
 			hasMarker(comment.Body, evaluationAttestationMarker) ||
 			hasMarker(comment.Body, evaluationChallengeMarker) ||
+			hasMarker(comment.Body, evaluationChallengeClosureMarker) ||
 			hasMarker(comment.Body, evaluationResolutionMarker) ||
 			strings.Contains(comment.Body, evaluationResolutionHeading) ||
 			hasMarker(comment.Body, evaluationConvergenceMarker) ||
-			strings.Contains(comment.Body, evaluationConvergenceHeading) {
+			strings.Contains(comment.Body, evaluationConvergenceHeading) ||
+			strings.Contains(comment.Body, evaluationChallengeClosureHeading) {
 			return errors.New("structured receipt, report, attestation, repair, challenge, or resolution marker has an untrusted author")
 		}
 	}
@@ -2874,10 +3418,44 @@ func evaluationRepairCommentIsValid(comment pullRequestComment) bool {
 }
 
 func validateEvaluationHistory(history evaluationHistory) error {
-	return validateEvaluationHistoryExcept(history, 0)
+	return validateEvaluationHistoryWithClosureMode(history, 0, true)
 }
 
 func validateEvaluationHistoryExcept(history evaluationHistory, exceptRound int) error {
+	return validateEvaluationHistoryWithClosureMode(history, exceptRound, true)
+}
+
+// validateEvaluationHistoryForHistoricalProjection validates immutable
+// records while allowing legacy equivalent challenge comments that predate
+// controller closures. Active mutation and status paths retain strict mode.
+func validateEvaluationHistoryForHistoricalProjection(number int, history evaluationHistory) error {
+	if err := validateEvaluationHistoryWithClosureMode(history, 0, false); err != nil {
+		return err
+	}
+	return validateEvaluationHistoryPRScope(number, history)
+}
+
+func validateEvaluationHistoryPRScope(number int, history evaluationHistory) error {
+	if err := validateEvaluationStatusChallenges(number, history.challenges); err != nil {
+		return err
+	}
+	if err := validateEvaluationStatusReceipts(number, history.receipts); err != nil {
+		return err
+	}
+	if err := validateEvaluationStatusRepairs(number, history.repairs); err != nil {
+		return err
+	}
+	if err := validateEvaluationStatusConvergences(number, history.convergences); err != nil {
+		return err
+	}
+	return validateEvaluationStatusResolutions(number, history.resolutions)
+}
+
+func validateEvaluationHistoryWithClosureMode(history evaluationHistory, exceptRound int,
+	requireClosures bool) error {
+	if err := validateEvaluationHistoryCommentIDs(history); err != nil {
+		return err
+	}
 	if err := validateEvaluationChallenges(history); err != nil {
 		return err
 	}
@@ -2890,9 +3468,183 @@ func validateEvaluationHistoryExcept(history evaluationHistory, exceptRound int)
 	if err := validateEvaluationRepairs(history); err != nil {
 		return err
 	}
-	return validateEvaluationResolutions(history)
+	if err := validateEvaluationResolutions(history); err != nil {
+		return err
+	}
+	_, err := evaluationLogicalProjectionForHistory(history, requireClosures)
+	return err
 }
 
+// validateEvaluationHistoryForConvergence checks every record independently
+// while allowing equivalent receipt groups to remain pending. Challenge
+// closures and receipt convergence are separate mutation phases, so the full
+// projection cannot be required until both phases have completed.
+func validateEvaluationHistoryForConvergence(history evaluationHistory) error {
+	if err := validateEvaluationHistoryCommentIDs(history); err != nil {
+		return err
+	}
+	if err := validateEvaluationChallenges(history); err != nil {
+		return err
+	}
+	if err := validateEvaluationReceiptsExcept(history, 0); err != nil {
+		return err
+	}
+	groups, err := evaluationReceiptGroups(history.receipts)
+	if err != nil {
+		return err
+	}
+	if validationErr := validateEvaluationConvergenceRecordSet(history, groups); validationErr != nil {
+		return validationErr
+	}
+	if validationErr := validateEvaluationRepairsForConvergence(history); validationErr != nil {
+		return validationErr
+	}
+	if validationErr := validateEvaluationResolutionRecords(history); validationErr != nil {
+		return validationErr
+	}
+	if validationErr := validateEvaluationTerminalConflicts(history); validationErr != nil {
+		return validationErr
+	}
+	_, err = evaluationChallengeOnlyProjectionForHistory(history)
+	return err
+}
+
+// validateEvaluationTerminalConflicts keeps challenge convergence fail-closed
+// while permitting equivalent receipt comments to reach their convergence phase.
+//
+//nolint:gocognit // Match terminal records across deterministic logical challenge groups.
+func validateEvaluationTerminalConflicts(history evaluationHistory) error {
+	groups, err := evaluationLogicalChallengeGroups(history)
+	if err != nil {
+		return err
+	}
+	receiptGroups, err := evaluationReceiptGroups(history.receipts)
+	if err != nil {
+		return err
+	}
+	for _, group := range groups {
+		receiptMatches := 0
+		for _, receiptGroup := range receiptGroups {
+			if !evaluationReceiptGroupMatchesChallengeForHistory(history, group, receiptGroup) {
+				continue
+			}
+			receiptMatches++
+		}
+		resolutionMatches := 0
+		for _, resolution := range history.resolutions {
+			if evaluationResolutionMatchesChallengeForHistory(history, group, resolution) {
+				resolutionMatches++
+			}
+		}
+		if receiptMatches > 1 {
+			return fmt.Errorf("logical evaluation challenge %q has multiple matching trusted receipts",
+				group.canonical.challenge.Challenge)
+		}
+		if resolutionMatches > 1 {
+			return fmt.Errorf("logical evaluation challenge %q has multiple matching no-verdict resolutions",
+				group.canonical.challenge.Challenge)
+		}
+		if receiptMatches != 0 && resolutionMatches != 0 {
+			return fmt.Errorf("logical evaluation challenge %q has both an attested receipt and a no-verdict resolution",
+				group.canonical.challenge.Challenge)
+		}
+	}
+	return nil
+}
+
+func evaluationReceiptGroupMatchesChallengeForHistory(history evaluationHistory,
+	challenge evaluationLogicalChallenge, receiptGroup evaluationReceiptGroup) bool {
+	for _, member := range challenge.members {
+		for _, receipt := range receiptGroup.records {
+			if receipt.receipt.AttestationSHA256 == "" {
+				continue
+			}
+			if evaluationChallengeMatchesReceiptForHistory(history, member, receipt) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func evaluationResolutionMatchesChallengeForHistory(history evaluationHistory,
+	challenge evaluationLogicalChallenge, resolution evaluationResolutionRecord) bool {
+	for _, member := range challenge.members {
+		if evaluationChallengeMatchesResolutionForHistory(history, member, resolution) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateEvaluationRepairsForConvergence(history evaluationHistory) error {
+	for _, repair := range history.repairs {
+		if !evaluationRepairCommentIsValid(repair.comment) {
+			return errors.New("evaluation repair comment is not machine-generated")
+		}
+		matches := 0
+		for _, record := range history.receipts {
+			if evaluationRepairMatchesRecord(record, repair) {
+				matches++
+			}
+		}
+		if matches != 1 {
+			return errors.New("evaluation repair does not supersede exactly one receipt")
+		}
+	}
+	return nil
+}
+
+//nolint:gocognit // Check every structured record type before projection.
+func validateEvaluationHistoryCommentIDs(history evaluationHistory) error {
+	seen := make(map[int64]string)
+	check := func(id int64, kind string) error {
+		if id < 0 {
+			return fmt.Errorf("evaluation %s has an invalid GitHub comment ID", kind)
+		}
+		if id == 0 {
+			return nil
+		}
+		if previous, ok := seen[id]; ok {
+			return fmt.Errorf("evaluation GitHub comment ID %d is reused by %s and %s", id, previous, kind)
+		}
+		seen[id] = kind
+		return nil
+	}
+	for _, record := range history.challenges {
+		if err := check(record.comment.ID, "challenge"); err != nil {
+			return err
+		}
+	}
+	for _, record := range history.receipts {
+		if err := check(record.comment.ID, "receipt"); err != nil {
+			return err
+		}
+	}
+	for _, record := range history.repairs {
+		if err := check(record.comment.ID, "repair"); err != nil {
+			return err
+		}
+	}
+	for _, record := range history.resolutions {
+		if err := check(record.comment.ID, "resolution"); err != nil {
+			return err
+		}
+	}
+	for _, record := range history.convergences {
+		if err := check(record.comment.ID, "convergence"); err != nil {
+			return err
+		}
+	}
+	for _, record := range history.closures {
+		if err := check(record.comment.ID, "challenge closure"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+//nolint:gocognit // Validate every challenge invariant at one history boundary.
 func validateEvaluationChallenges(history evaluationHistory) error {
 	seenChallenges := make(map[string]struct{}, len(history.challenges))
 	for _, record := range history.challenges {
@@ -2909,6 +3661,9 @@ func validateEvaluationChallenges(history evaluationHistory) error {
 		}
 		if challenge.BodySHA256 != "" && (!validSHA256(challenge.BodySHA256) || !validSHA256(challenge.EvidenceSHA256)) {
 			return fmt.Errorf("evaluation challenge %q has invalid body/evidence digest snapshot", challenge.Challenge)
+		}
+		if challenge.Repository != "" && challenge.Repository != repositoryKey {
+			return fmt.Errorf("evaluation challenge %q has an invalid repository identity", challenge.Challenge)
 		}
 		if record.comment.CreatedAt.IsZero() || !commentTimeMatches(record.comment.CreatedAt, challenge.RequestedAt) {
 			return fmt.Errorf("evaluation challenge %q timestamp does not match its comment", challenge.Challenge)
@@ -2963,7 +3718,7 @@ func validateEvaluationReceiptChallenge(history evaluationHistory, record evalua
 	}
 	matches := 0
 	for _, challenge := range history.challenges {
-		if evaluationChallengeMatchesReceipt(challenge, record) {
+		if evaluationChallengeMatchesReceiptForHistory(history, challenge, record) {
 			matches++
 		}
 	}
@@ -2973,13 +3728,35 @@ func validateEvaluationReceiptChallenge(history evaluationHistory, record evalua
 	return nil
 }
 
+//nolint:gocognit // Check the complete challenge identity and historical timing together.
 func evaluationChallengeMatchesReceipt(challenge evaluationChallengeRecord, receipt evaluationReceiptRecord) bool {
-	if challenge.challenge.Challenge != receipt.receipt.Challenge ||
-		challenge.challenge.PR != receipt.receipt.PR || challenge.challenge.Head != receipt.receipt.Head {
+	if (challenge.challenge.Repository != "" && challenge.challenge.Repository != repositoryKey) ||
+		(receipt.receipt.Repository != "" && receipt.receipt.Repository != repositoryKey) {
 		return false
 	}
-	if challenge.challenge.BodySHA256 != "" || challenge.challenge.EvidenceSHA256 != "" ||
-		receipt.receipt.EvidenceSHA256 != "" {
+	if challenge.challenge.Challenge != receipt.receipt.Challenge ||
+		challenge.challenge.PR != receipt.receipt.PR || challenge.challenge.Head != receipt.receipt.Head ||
+		challenge.challenge.Repository != receipt.receipt.Repository {
+		return false
+	}
+	// A complete receipt carries both snapshots.  Keep incomplete body-only
+	// metadata compatible with legacy recovery records, but never let a
+	// digest-empty challenge match a digest-bound receipt.
+	if receipt.receipt.EvidenceSHA256 != "" {
+		challengeHasDigests := challenge.challenge.BodySHA256 != "" || challenge.challenge.EvidenceSHA256 != ""
+		receiptHasDigests := receipt.receipt.BodySHA256 != "" || receipt.receipt.EvidenceSHA256 != ""
+		if challengeHasDigests != receiptHasDigests {
+			return false
+		}
+	}
+	if challengeKey, complete := evaluationChallengeKeyFor(challenge.challenge); complete {
+		if receipt.receipt.Repository != challengeKey.repository ||
+			receipt.receipt.BodySHA256 != challengeKey.bodySHA256 ||
+			receipt.receipt.EvidenceSHA256 != challengeKey.evidenceSHA256 {
+			return false
+		}
+	}
+	if challenge.challenge.BodySHA256 != "" || challenge.challenge.EvidenceSHA256 != "" {
 		if challenge.challenge.BodySHA256 != receipt.receipt.BodySHA256 ||
 			challenge.challenge.EvidenceSHA256 != receipt.receipt.EvidenceSHA256 {
 			return false
@@ -2994,9 +3771,14 @@ func evaluationChallengeMatchesReceipt(challenge evaluationChallengeRecord, rece
 
 func evaluationChallengeMatchesResolution(challenge evaluationChallengeRecord,
 	resolution evaluationResolutionRecord) bool {
+	if (challenge.challenge.Repository != "" && challenge.challenge.Repository != repositoryKey) ||
+		(resolution.resolution.Repository != "" && resolution.resolution.Repository != repositoryKey) {
+		return false
+	}
 	if challenge.challenge.Challenge != resolution.resolution.Challenge ||
 		challenge.challenge.PR != resolution.resolution.PR ||
 		challenge.challenge.Head != resolution.resolution.Head ||
+		challenge.challenge.Repository != resolution.resolution.Repository ||
 		challenge.challenge.BodySHA256 != resolution.resolution.BodySHA256 ||
 		challenge.challenge.EvidenceSHA256 != resolution.resolution.EvidenceSHA256 {
 		return false
@@ -3059,7 +3841,7 @@ func validateEvaluationResolutionRecords(history evaluationHistory) error {
 		}
 		matches := 0
 		for _, challenge := range history.challenges {
-			if evaluationChallengeMatchesResolution(challenge, record) {
+			if evaluationChallengeMatchesResolutionForHistory(history, challenge, record) {
 				matches++
 			}
 		}
@@ -3077,7 +3859,7 @@ func validateEvaluationResolutionClosures(history evaluationHistory) error {
 		return err
 	}
 	for _, challenge := range history.challenges {
-		receiptMatches, resolutionMatches := evaluationChallengeClosureCountsForReceipts(receipts, history.resolutions, challenge)
+		receiptMatches, resolutionMatches := evaluationChallengeClosureCountsForHistory(history, receipts, challenge)
 		if receiptMatches > 1 {
 			return fmt.Errorf("evaluation challenge %q has %d matching trusted receipts", challenge.challenge.Challenge, receiptMatches)
 		}
@@ -3526,15 +4308,30 @@ func latestPassingEvaluationReceipt(view pullRequestView, number int) (evaluatio
 }
 
 func latestEvaluationReceiptClosesLatestChallenge(history evaluationHistory) bool {
-	records, err := logicalEvaluationReceiptRecords(history)
+	projection, err := evaluationLogicalProjectionForHistory(history, true)
 	if err != nil {
 		return false
 	}
-	if len(history.challenges) == 0 || len(records) == 0 {
-		return len(history.challenges) == 0
+	if len(projection.challenges) == 0 {
+		return true
 	}
-	return evaluationChallengeMatchesReceipt(history.challenges[len(history.challenges)-1],
-		records[len(records)-1])
+	latest := projection.challenges[len(projection.challenges)-1]
+	return latest.hasReceipt
+}
+
+func latestHistoricalEvaluationReceiptClosesLatestChallenge(number int, history evaluationHistory) bool {
+	if err := validateEvaluationHistoryPRScope(number, history); err != nil {
+		return false
+	}
+	projection, err := evaluationLogicalProjectionForHistory(history, false)
+	if err != nil {
+		return false
+	}
+	if len(projection.challenges) == 0 {
+		return true
+	}
+	latest := projection.challenges[len(projection.challenges)-1]
+	return latest.hasReceipt
 }
 
 func evaluationReceiptMatchesCurrentPR(receipt evaluationReceipt, view pullRequestView) error {

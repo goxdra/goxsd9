@@ -110,6 +110,65 @@ func TestSchemaBridgeExposesGlobalElementBooleanFacts(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the edition and lexical inline-type matrix together.
+func TestSchemaBridgeExposesInlineGlobalElementBooleanFacts(t *testing.T) {
+	policies := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "XSD 1.0", policy: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", policy: Strict11, version: XSDVersion11},
+	}
+	lexicals := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "true", value: "true", want: true},
+		{name: "false", value: "false", want: false},
+		{name: "one", value: "1", want: true},
+		{name: "zero", value: "0", want: false},
+	}
+	for _, fact := range []string{"abstract", "nillable"} {
+		for _, lexical := range lexicals {
+			for _, policy := range policies {
+				t.Run(fact+"/"+lexical.name+"/"+policy.name, func(t *testing.T) {
+					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + string(policy.version) + `">
+  <xs:element name="inline" ` + fact + `="` + lexical.value + `"><xs:simpleType><xs:restriction base="xs:boolean"/></xs:simpleType></xs:element>
+</xs:schema>`
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
+					if err != nil {
+						t.Fatalf("discoverSchema: %v", err)
+					}
+					components := schema.Components()
+					if len(components) != 1 {
+						t.Fatalf("component count = %d, want 1", len(components))
+					}
+					declaration, ok := components[0].ElementDeclaration()
+					if !ok {
+						t.Fatal("global inline element view is missing")
+					}
+					if got := declaration.IsAbstract(); got != (fact == "abstract" && lexical.want) {
+						t.Fatalf("IsAbstract() = %t, want %t", got, fact == "abstract" && lexical.want)
+					}
+					if got := declaration.IsNillable(); got != (fact == "nillable" && lexical.want) {
+						t.Fatalf("IsNillable() = %t, want %t", got, fact == "nillable" && lexical.want)
+					}
+					reference, ok := declaration.TypeReference()
+					if !ok || !reference.IsAnonymous() {
+						t.Fatalf("type reference = %#v/%t, want anonymous", reference, ok)
+					}
+					anonymous, ok := reference.AnonymousType()
+					if !ok || !anonymous.IsBoolean() {
+						t.Fatalf("anonymous boolean model = %#v/%t, want boolean", anonymous, ok)
+					}
+				})
+			}
+		}
+	}
+}
+
 //nolint:gocognit // Keep forward and cross-document identity assertions together.
 func TestSchemaBridgePreservesGlobalElementFactsAcrossForwardAndCrossDocumentTypes(t *testing.T) {
 	for _, policy := range []struct {

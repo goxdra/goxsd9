@@ -886,7 +886,7 @@ func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion)
 			candidate.considerAt(attribute.loc, message)
 		}
 	}
-	if err := validateGlobalSchemaNamePresence(element); err != nil {
+	if err := validateGlobalSchemaDeclarationRequirements(element, kind, version); err != nil {
 		return err
 	}
 	if err := validateGlobalSchemaAttributeCooccurrence(element); err != nil {
@@ -911,6 +911,13 @@ func validateGlobalSchemaNamePresence(element *syntaxElement) error {
 		return newDiagnostic(FailureInvalid, invalidSchemaDeclarationNameCode, element.loc, "schema declaration name must be unique", nil)
 	}
 	return nil
+}
+
+func validateGlobalSchemaDeclarationRequirements(element *syntaxElement, kind ComponentKind, version XSDVersion) error {
+	if err := validateGlobalSchemaNamePresence(element); err != nil {
+		return err
+	}
+	return validateSchemaNotationPublicPresence(element, kind, version)
 }
 
 func preferSchemaUnsupported(err error, loc Loc, message string) error {
@@ -952,13 +959,13 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		}
 		return "", nil
 	}
-	if kind == ComponentKindElementDeclaration && (attribute.name.local == "abstract" || attribute.name.local == "nillable") && len(syntaxAttributesByLocal(element, "type")) == 1 {
+	if implementedGlobalElementBooleanAttribute(element, kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
 	status := globalSchemaAttributeStatus(kind, attribute.name.local)
 	switch status {
 	case schemaAttributeAllowed:
-		return "", validateAllowedGlobalSchemaAttribute(element, kind, attribute)
+		return "", validateAllowedGlobalSchemaAttribute(element, kind, attribute, version)
 	case schemaAttributeUnsupported:
 		if err := validateRecognizedUnsupportedAttribute(element, attribute); err != nil {
 			return "", err
@@ -979,6 +986,19 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	}
 }
 
+func implementedGlobalElementBooleanAttribute(element *syntaxElement, kind ComponentKind, local string) bool {
+	if kind != ComponentKindElementDeclaration {
+		return false
+	}
+	if local != "abstract" && local != "nillable" {
+		return false
+	}
+	if len(syntaxAttributesByLocal(element, "type")) == 1 {
+		return true
+	}
+	return inlineSimpleTypeChild(element) != nil
+}
+
 func isXSD11GlobalSchemaAttribute(kind ComponentKind, local string) bool {
 	switch kind {
 	case ComponentKindElementDeclaration:
@@ -997,7 +1017,7 @@ func isXSD11GlobalSchemaAttribute(kind ComponentKind, local string) bool {
 	}
 }
 
-func validateAllowedGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, attribute syntaxAttribute) error {
+func validateAllowedGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, attribute syntaxAttribute, version XSDVersion) error {
 	if attribute.name.local == "name" {
 		if !validNCName(collapseXMLWhitespace(attribute.value)) {
 			return newDiagnostic(FailureInvalid, invalidSchemaDeclarationNameCode, attribute.loc, "schema declaration name must be an unqualified valid NCName", nil)
@@ -1006,6 +1026,9 @@ func validateAllowedGlobalSchemaAttribute(element *syntaxElement, kind Component
 	}
 	if attribute.name.local == "id" && !validNCName(collapseXMLWhitespace(attribute.value)) {
 		return newSchemaCompositionDiagnostic(attribute.loc, "schema declaration id must be a valid NCName")
+	}
+	if kind == ComponentKindNotationDeclaration {
+		return validateSchemaNotationAttribute(attribute, version)
 	}
 	if kind == ComponentKindElementDeclaration && attribute.name.local == "type" {
 		return validateConditionalQNameForSchema(element, attribute)
@@ -1034,10 +1057,53 @@ func globalSchemaAttributeStatus(kind ComponentKind, local string) schemaAttribu
 		return schemaAttributeForbidden
 	case ComponentKindNotationDeclaration:
 		if local == "public" || local == "system" {
-			return schemaAttributeUnsupported
+			return schemaAttributeAllowed
 		}
 	}
 	return schemaAttributeForbidden
+}
+
+func validateSchemaNotationPublicPresence(element *syntaxElement, kind ComponentKind, version XSDVersion) error {
+	if kind != ComponentKindNotationDeclaration {
+		return nil
+	}
+	attributes := syntaxAttributesByLocal(element, "public")
+	if len(attributes) == 0 {
+		return newSchemaNotationDiagnostic(
+			element.loc,
+			"notation declaration requires a public attribute",
+			version,
+			errSchemaNotationPublic,
+		)
+	}
+	if len(attributes) != 1 {
+		return newSchemaCompositionDiagnostic(attributes[1].loc, "notation public attribute must be unique")
+	}
+	return nil
+}
+
+func validateSchemaNotationAttribute(attribute syntaxAttribute, version XSDVersion) error {
+	switch attribute.name.local {
+	case "public":
+		if collapseXMLWhitespace(attribute.value) == "" {
+			return newSchemaNotationDiagnostic(
+				attribute.loc,
+				"notation public identifier must be non-empty",
+				version,
+				errSchemaNotationPublic,
+			)
+		}
+	case "system":
+		if err := validateSchemaAnyURI(attribute); err != nil {
+			return newSchemaNotationDiagnostic(
+				attribute.loc,
+				fmt.Sprintf("attribute %q has an invalid anyURI value", attribute.name.local),
+				version,
+				errors.Join(errSchemaNotationSystem, err),
+			)
+		}
+	}
+	return nil
 }
 
 func elementSchemaAttributeStatus(local string) schemaAttributeStatus {
@@ -1419,7 +1485,7 @@ func validateElementGlobalChildren(parent *syntaxElement, children []*syntaxElem
 			if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
 				return err
 			}
-			if !candidate.present {
+			if child.name.local == "complexType" && !candidate.present {
 				candidate.consider(child, parent.name.local)
 			}
 		case "alternative":
@@ -1634,7 +1700,7 @@ func validateSimpleTypeList(element *syntaxElement, version XSDVersion) error {
 	if candidate.present {
 		return candidate.err()
 	}
-	return newSchemaSyntaxUnsupported(element.loc, "simple type lists are not implemented")
+	return nil
 }
 
 func validateSimpleTypeListAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
@@ -1731,7 +1797,7 @@ func validateSimpleTypeUnion(element *syntaxElement, version XSDVersion) error {
 	if candidate.present {
 		return candidate.err()
 	}
-	return newSchemaSyntaxUnsupported(element.loc, "simple type unions are not implemented")
+	return nil
 }
 
 func validateSimpleTypeUnionAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
@@ -1907,7 +1973,7 @@ func validateSimpleTypeRestrictionChild(child *syntaxElement, annotationSeen, co
 		if err := validateInlineSchemaType(child, version); err != nil {
 			return err
 		}
-		return newSchemaSyntaxUnsupported(child.loc, "inline anonymous simple types in restrictions are not implemented")
+		return nil
 	}
 	return validateSimpleTypeRestrictionFacet(child, totalSeen, fractionSeen, facetSeen, version, bridgeFacets, enforceNonNegativeScale)
 }
