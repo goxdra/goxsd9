@@ -124,6 +124,102 @@ func TestPRReviewStateLifecycleRejectsMalformedOwnedFrames(t *testing.T) {
 	}
 }
 
+func reservedPRReviewStateStatuses(t *testing.T) []struct {
+	name   string
+	status string
+} {
+	t.Helper()
+	statuses := make([]struct {
+		name   string
+		status string
+	}, 0, 2*len(prReviewStateSlotSpecs))
+	for _, spec := range prReviewStateSlotSpecs {
+		for _, state := range []string{prReviewStatePending, prReviewStateEvidenceReady} {
+			status, err := prReviewStateStatusLine(spec.slot, state)
+			if err != nil {
+				t.Fatalf("status line for %s/%s: %v", spec.slot, state, err)
+			}
+			statuses = append(statuses, struct {
+				name   string
+				status string
+			}{name: spec.slot + "/" + state, status: status})
+		}
+	}
+	return statuses
+}
+
+func TestPRReviewStateLifecycleRejectsReservedStatusOutsideMatchingSlot(t *testing.T) {
+	frame := testPRReviewStateFrame(t, prReviewStatePending)
+	for _, reserved := range reservedPRReviewStateStatuses(t) {
+		t.Run(reserved.name, func(t *testing.T) {
+			body := frame + "\n" + reserved.status
+			if _, err := parsePRReviewStateLifecycle(body); err == nil || !strings.Contains(err.Error(), "reserved status") {
+				t.Fatalf("reserved status outside lifecycle error = %v", err)
+			}
+		})
+	}
+}
+
+func TestPRReviewStateLifecycleRejectsReservedStatusInWrongSlot(t *testing.T) {
+	frame := testPRReviewStateFrame(t, prReviewStatePending)
+	for sourceIndex, sourceSpec := range prReviewStateSlotSpecs {
+		for _, state := range []string{prReviewStatePending, prReviewStateEvidenceReady} {
+			sourceStatus, err := prReviewStateStatusLine(sourceSpec.slot, state)
+			if err != nil {
+				t.Fatalf("source status line for %s/%s: %v", sourceSpec.slot, state, err)
+			}
+			targetIndex := (sourceIndex + 1) % len(prReviewStateSlotSpecs)
+			targetSpec := prReviewStateSlotSpecs[targetIndex]
+			targetStatus, err := prReviewStateStatusLine(targetSpec.slot, prReviewStatePending)
+			if err != nil {
+				t.Fatalf("target status line for %s: %v", targetSpec.slot, err)
+			}
+			t.Run(sourceSpec.slot+"/"+state+"-in-"+targetSpec.slot, func(t *testing.T) {
+				body := strings.Replace(frame, targetStatus, sourceStatus, 1)
+				if _, err := parsePRReviewStateLifecycle(body); err == nil || !strings.Contains(err.Error(), "reserved status") {
+					t.Fatalf("wrong-slot reserved status error = %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestPRReviewStateLifecycleConvergesStructurallyValidStatusDrift(t *testing.T) {
+	pending := testPRReviewStateFrame(t, prReviewStatePending)
+	developmentReady, err := prReviewStateStatusLine(prReviewStateSlotSpecs[0].slot, prReviewStateEvidenceReady)
+	if err != nil {
+		t.Fatalf("development evidence-ready status: %v", err)
+	}
+	evaluationReady, err := prReviewStateStatusLine(prReviewStateSlotSpecs[2].slot, prReviewStateEvidenceReady)
+	if err != nil {
+		t.Fatalf("evaluation evidence-ready status: %v", err)
+	}
+	drifted := strings.Replace(pending, prReviewStateSlotSpecs[0].pendingStatus, developmentReady, 1)
+	drifted = strings.Replace(drifted, prReviewStateSlotSpecs[2].pendingStatus, evaluationReady, 1)
+	body := "Opaque prefix.\n" + drifted + "\nOpaque suffix.\n"
+	if _, parseErr := parsePRReviewStateLifecycle(body); parseErr != nil {
+		t.Fatalf("structurally valid status drift rejected: %v", parseErr)
+	}
+	want := "Opaque prefix.\n" + testPRReviewStateFrame(t, prReviewStateEvidenceReady) + "\nOpaque suffix.\n"
+	got, err := replacePRReviewState(body, prReviewStateEvidenceReady)
+	if err != nil {
+		t.Fatalf("converge status drift: %v", err)
+	}
+	if got != want {
+		t.Fatalf("converged body = %q, want %q", got, want)
+	}
+}
+
+func TestPRReviewStateAllowsNonExactQuotedAndFreeformPendingProse(t *testing.T) {
+	body := testPRReviewStateFrame(t, prReviewStateEvidenceReady) + "\n" +
+		"Quoted: \"Pending evidence update before a fresh challenge-bound Examiner evaluation.\"\n" +
+		"> Pending evidence update before a fresh challenge-bound Examiner evaluation.\n" +
+		"Fresh Examiner receipt/evaluation pending in the operator's note.\n"
+	if err := requirePRReviewStateReady(body); err != nil {
+		t.Fatalf("non-exact, quoted, or freeform Examiner-pending prose rejected: %v", err)
+	}
+}
+
 func TestPRReviewStateLifecycleReplacementIsCanonicalAndBytePreserving(t *testing.T) {
 	pending := testPRReviewStateFrame(t, prReviewStatePending)
 	ready := testPRReviewStateFrame(t, prReviewStateEvidenceReady)
@@ -248,6 +344,61 @@ func TestReviewStateGateRejectsBeforeChallengeAndFinishMutation(t *testing.T) {
 		t.Run(test.name+" finish", func(t *testing.T) {
 			assertReviewStateGateRejects(t, test.body, "finish")
 		})
+	}
+}
+
+func TestReservedStatusOutsideLifecycleRejectsOpenBeforeMutation(t *testing.T) {
+	for _, reserved := range reservedPRReviewStateStatuses(t) {
+		t.Run(reserved.name, func(t *testing.T) {
+			body := testPRReviewStateFrame(t, prReviewStateEvidenceReady) +
+				"\n## Work packet\n\nCloses #13\n\n" + reserved.status
+			_, mutations, err := runOpenLifecycleCommand(t, body)
+			if err == nil || !strings.Contains(err.Error(), "review-state") {
+				t.Fatalf("open error = %v, want reserved review-state rejection", err)
+			}
+			if len(mutations) != 0 {
+				t.Fatalf("rejected open reached remote mutation: %v", mutations)
+			}
+		})
+	}
+}
+
+func TestReservedStatusOutsideLifecycleRejectsEvidenceUpdateBeforePatch(t *testing.T) {
+	for _, reserved := range reservedPRReviewStateStatuses(t) {
+		t.Run(reserved.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			backend.body += "\n" + reserved.status
+			evidence := testWorkflowPREvidence(backend.head)
+			signalsPath := writePREvidenceJSONSource(t, "signals.json", evidence.DevelopmentSignals)
+			auditPath := writePREvidenceJSONSource(t, "audit.json", evidence.DocumentationAudit)
+			application := app{
+				ctx:                            context.Background(),
+				executeCommand:                 backend.execute,
+				verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+				stdout:                         new(bytes.Buffer),
+				stderr:                         new(bytes.Buffer),
+			}
+			beforeBody := backend.body
+			err := application.runPREvidence([]string{"update", "14", "--signals-file", signalsPath, "--docs-audit-file", auditPath})
+			if err == nil || !strings.Contains(err.Error(), "review-state") {
+				t.Fatalf("evidence update error = %v, want reserved review-state rejection", err)
+			}
+			if backend.body != beforeBody || backend.bodyPatchCount != 0 {
+				t.Fatalf("rejected evidence update changed body: patches=%d body=%q", backend.bodyPatchCount, backend.body)
+			}
+		})
+	}
+}
+
+func TestReservedStatusOutsideLifecycleRejectsChallengeAndFinishBeforeMutation(t *testing.T) {
+	for _, reserved := range reservedPRReviewStateStatuses(t) {
+		for _, command := range []string{"challenge", "finish"} {
+			t.Run(reserved.name+"/"+command, func(t *testing.T) {
+				assertReviewStateGateRejects(t, func(body string) string {
+					return body + "\n" + reserved.status
+				}, command)
+			})
+		}
 	}
 }
 
