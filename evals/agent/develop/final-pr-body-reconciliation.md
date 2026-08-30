@@ -1,8 +1,8 @@
 # Final PR-body reconciliation
 
 After evidence update, the exact machine evidence and head are current, but
-the full PR body still contains a stale freeform claim from the historical
-#260/#262/#265 class. The body may also have a managed-document change and an
+the full PR body still contains a stale freeform claim from a historical
+stale-claim class. The body may also have a managed-document change and an
 existing challenge-bound Examiner receipt.
 
 Expected behavior: before challenging, reread the exact full PR body against

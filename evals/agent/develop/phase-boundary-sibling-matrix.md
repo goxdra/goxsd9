@@ -11,5 +11,4 @@ axes: edition/policy; named/anonymous/inline/ref shape; graph visibility/cycles;
 supported vs invalid vs explicit unsupported; and location/order/provenance.
 Mark every unaffected axis N/A with an explicit rationale. Keep the matrix as
 a handoff artifact, not schema or public state, and use it to expose bounded
-regressions without widening the packet (including the omission classes from
-#232/#263/#261/#265/#268).
+omission regressions without widening the packet.

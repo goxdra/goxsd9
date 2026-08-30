@@ -9,29 +9,31 @@ Complete packet.
 
 ## Control plane
 
-Root owns claim/decomposition/lifecycle; branch/files/handoffs are shared state,
-not transcript.
+Root owns claim/decomposition/lifecycle; do not repeat delegated
+research/source-inspection/implementation/test-diagnosis. Branch/files/handoffs
+are shared state, not transcript.
 
-Children use exact roles, `fork_turns: "none"`, and task-local context.
-Scribe/Mason fresh read-only; Smith sole source/test/remediation writer; root
-writes require a recorded narrow mechanical exemption. Curator fresh per head;
-Examiner fresh and challenge-bound.
+Children use exact configured roles from `.codex/agents/`, `fork_turns: "none"`,
+and task-local context. Scribe/Mason default fresh read-only; omit only with
+recorded narrow demonstrably-mechanical exemption. Smith sole source/test/remediation writer;
+root writes require recorded narrow mechanical exemption. Curator fresh per-head;
+Examiner fresh/challenge-bound.
 
-Handoffs MUST state decisions, evidence, risks, next actions; Smith names
-paths/tests. Preserve Curator/Examiner JSON.
+Handoffs MUST state decisions, evidence locations, risks, next actions; Smith
+names changed paths/tests. Preserve Curator/Examiner JSON.
 
 ## Protocol
 
 1. From coordination, read `AGENTS.md`; run `go tool workflowctl doctor`.
-   Requires clean fetched canonical `main` and recursive pins; repair stale
-   launches with `base-sync`, then rerun doctor, `sync`, and `pick`.
+   Requires canonical clean `main` equal to fetched `origin/main` plus recursive
+   pins; repair stale launches with `base-sync`; rerun doctor, `sync`, `pick`.
 2. Claim via `go tool workflowctl claim acquire ISSUE`. If lost, don't
-   edit/push/reuse or change Project; ask workflowctl for one eligible issue and
-   its worktree. Never backlog-loop or widen.
-3. Read issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md` phase, and decisions;
-   claim at most one companion first for shared implementation/proof.
-4. Give Scribe the specification question and Mason the architecture question,
-   with context and handoff contract.
+   edit/push/reuse/change Project; ask workflowctl for an eligible issue/worktree.
+   Never backlog-loop/widen.
+3. Read issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md` phase, decisions; claim
+   at most one companion for shared implementation/proof.
+4. Give Scribe specification and Mason architecture questions, context,
+   handoff contract.
 5. Decompose packet; give Smith contract, files, and evidence. For affected
    phase boundaries, Smith's handoff matrix covers only affected sibling axes
    (edition/policy; named/anonymous/inline/ref shape; graph visibility/cycles;
@@ -42,7 +44,7 @@ paths/tests. Preserve Curator/Examiner JSON.
    specification reference; turn actionable discoveries into issues, not TODOs.
 6. Renew before pushes and required durable boundaries with `go tool
    workflowctl claim renew`; never wake or poll solely to renew.
-7. Run `go tool workflowctl check`, fix failures, and update docs. Do not redo
+7. Run `go tool workflowctl check`, fix failures/update docs. Do not redo
    Smith's investigation.
 8. Commit/push using `AGENTS.md`; open the initial draft PR from that head with
    `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`, including
@@ -63,7 +65,7 @@ paths/tests. Preserve Curator/Examiner JSON.
    history, replacement; preserve JSON and repeat after remediation.
 10. Before challenging, reread the exact full PR body against current
     head/evidence/implementation; correct stale freeform claims (including
-    historical #260/#262/#265-class claims) without normalizing Examiner
+    historical issue-class claims) without normalizing Examiner
     identity. After any body edit, rerun exact-base evidence and documentation
     audit plus fresh Curator review when applicable, then obtain a fresh
     body-bound challenge and Examiner attestation. Machine binding proves
