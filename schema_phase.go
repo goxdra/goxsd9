@@ -952,6 +952,9 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		}
 		return "", nil
 	}
+	if kind == ComponentKindElementDeclaration && (attribute.name.local == "abstract" || attribute.name.local == "nillable") && len(syntaxAttributesByLocal(element, "type")) == 1 {
+		return "", validateSchemaBoolean(attribute)
+	}
 	status := globalSchemaAttributeStatus(kind, attribute.name.local)
 	switch status {
 	case schemaAttributeAllowed:
@@ -1426,6 +1429,9 @@ func validateElementGlobalChildren(parent *syntaxElement, children []*syntaxElem
 			phase = elementGlobalAlternativePhase
 			if err := validateChoiceElementAlternative(child, version); err != nil && !candidate.considerError(err) {
 				return err
+			}
+			if !candidate.present {
+				candidate.considerAtVersion(child.loc, "global element alternatives are not implemented", version)
 			}
 		case "unique", "key", "keyref":
 			phase = elementGlobalConstraintPhase

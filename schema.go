@@ -184,6 +184,22 @@ func (declaration ElementDeclaration) DeclaredType() QName {
 	return declaration.facts.declaredType
 }
 
+// IsAbstract reports the effective abstract fact of the element declaration.
+func (declaration ElementDeclaration) IsAbstract() bool {
+	if declaration.facts == nil {
+		return false
+	}
+	return declaration.facts.abstract
+}
+
+// IsNillable reports the effective nillable fact of the element declaration.
+func (declaration ElementDeclaration) IsNillable() bool {
+	if declaration.facts == nil {
+		return false
+	}
+	return declaration.facts.nillable
+}
+
 // TypeID returns the identity of a named declared type. Built-in datatypes do
 // not have synthetic component identities and return the zero ID.
 func (declaration ElementDeclaration) TypeID() (ComponentID, bool) {
@@ -860,6 +876,8 @@ type schemaComponentInput struct {
 type schemaElementInput struct {
 	declaredType QName
 	typeLoc      Loc
+	abstract     bool
+	nillable     bool
 }
 
 type schemaSimpleTypeInput struct {
@@ -978,6 +996,8 @@ type schemaElementComponent struct {
 	declaredType QName
 	typeID       ComponentID
 	hasTypeID    bool
+	abstract     bool
+	nillable     bool
 }
 
 type schemaComplexTypeComponent struct {
@@ -1269,6 +1289,8 @@ func completeSchemaComponent(
 			declaredType: element.declaredType,
 			typeID:       element.typeID,
 			hasTypeID:    element.hasTypeID,
+			abstract:     element.abstract,
+			nillable:     element.nillable,
 		}
 	}
 	if simpleType.present {

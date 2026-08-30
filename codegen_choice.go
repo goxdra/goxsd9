@@ -113,6 +113,9 @@ func planCodegenDirectChoices(schema Schema, packageName string) (codegenDirectC
 	if err != nil {
 		return codegenDirectChoicePlan{}, err
 	}
+	if factErr := rejectCodegenElementFacts(components, version); factErr != nil {
+		return codegenDirectChoicePlan{}, factErr
+	}
 	collected, err := collectCodegenDirectChoices(schema, components, version)
 	if err != nil {
 		return codegenDirectChoicePlan{}, err

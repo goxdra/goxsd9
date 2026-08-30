@@ -437,21 +437,18 @@ func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, 
 }
 
 func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schemaElementInput, error) {
+	abstract, abstractPresent, abstractLoc, err := schemaElementBooleanAttribute(element, "abstract")
+	if err != nil {
+		return nil, err
+	}
+	nillable, nillablePresent, nillableLoc, err := schemaElementBooleanAttribute(element, "nillable")
+	if err != nil {
+		return nil, err
+	}
 	attributes := syntaxAttributesByLocal(element, "type")
 	if len(attributes) == 0 {
-		for _, node := range element.children {
-			child, ok := node.(*syntaxElement)
-			if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "simpleType" {
-				continue
-			}
-			if err := validateInlineSchemaType(child, version); err != nil {
-				return nil, err
-			}
-			return nil, newSchemaSyntaxUnsupportedForVersion(
-				child.loc,
-				"inline anonymous simple types in global elements are not implemented",
-				version,
-			)
+		if noTypeErr := validateSchemaElementWithoutDeclaredType(element, version, abstractPresent, abstractLoc, nillablePresent, nillableLoc); noTypeErr != nil {
+			return nil, noTypeErr
 		}
 		return nil, nil
 	}
@@ -465,7 +462,54 @@ func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schema
 	return &schemaElementInput{
 		declaredType: declaredType,
 		typeLoc:      attributes[0].loc,
+		abstract:     abstract,
+		nillable:     nillable,
 	}, nil
+}
+
+func validateSchemaElementWithoutDeclaredType(element *syntaxElement, version XSDVersion, abstractPresent bool, abstractLoc Loc, nillablePresent bool, nillableLoc Loc) error {
+	if abstractPresent {
+		return newSchemaSyntaxUnsupported(
+			abstractLoc,
+			"global element abstract is not implemented without a declared type",
+		)
+	}
+	if nillablePresent {
+		return newSchemaSyntaxUnsupported(
+			nillableLoc,
+			"global element nillable is not implemented without a declared type",
+		)
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "simpleType" {
+			continue
+		}
+		if inlineErr := validateInlineSchemaType(child, version); inlineErr != nil {
+			return inlineErr
+		}
+		return newSchemaSyntaxUnsupportedForVersion(
+			child.loc,
+			"inline anonymous simple types in global elements are not implemented",
+			version,
+		)
+	}
+	return nil
+}
+
+func schemaElementBooleanAttribute(element *syntaxElement, local string) (bool, bool, Loc, error) {
+	attributes := syntaxAttributesByLocal(element, local)
+	if len(attributes) == 0 {
+		return false, false, Loc{}, nil
+	}
+	if len(attributes) != 1 {
+		return false, true, element.loc, newSchemaCompositionDiagnostic(
+			element.loc,
+			fmt.Sprintf("element %s attribute %q must be unique", element.name.local, local),
+		)
+	}
+	value, err := schemaBooleanValue(attributes[0])
+	return value, true, attributes[0].loc, err
 }
 
 func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
@@ -1123,6 +1167,19 @@ type schemaElementTypeResult struct {
 	declaredType QName
 	typeID       ComponentID
 	hasTypeID    bool
+	abstract     bool
+	nillable     bool
+}
+
+func resolvedSchemaElementTypeResult(input *schemaElementInput, typeID ComponentID, hasTypeID bool) schemaElementTypeResult {
+	return schemaElementTypeResult{
+		present:      true,
+		declaredType: input.declaredType,
+		typeID:       typeID,
+		hasTypeID:    hasTypeID,
+		abstract:     input.abstract,
+		nillable:     input.nillable,
+	}
 }
 
 type schemaScalarTypeScope uint8
@@ -1203,12 +1260,7 @@ func resolveSchemaElementType(
 				version,
 			)
 		}
-		return schemaElementTypeResult{
-			present:      true,
-			declaredType: input.declaredType,
-			typeID:       records[candidate].id,
-			hasTypeID:    true,
-		}, nil
+		return resolvedSchemaElementTypeResult(input, records[candidate].id, true), nil
 	}
 	if !simpleTypes[candidate].present {
 		return schemaElementTypeResult{}, newSchemaBridgeInvariant(
@@ -1216,12 +1268,7 @@ func resolveSchemaElementType(
 			"element type resolution has an incomplete simple type result",
 		)
 	}
-	return schemaElementTypeResult{
-		present:      true,
-		declaredType: input.declaredType,
-		typeID:       records[candidate].id,
-		hasTypeID:    true,
-	}, nil
+	return resolvedSchemaElementTypeResult(input, records[candidate].id, true), nil
 }
 
 func resolveSchemaScalarType(
@@ -1273,29 +1320,18 @@ func resolveSchemaScalarType(
 	if err := rejectUnsupportedLocalScalarType(input, simpleTypes[candidate], version, scope, allowPrecisionDecimal); err != nil {
 		return schemaElementTypeResult{}, err
 	}
-	return schemaElementTypeResult{
-		present:      true,
-		declaredType: input.declaredType,
-		typeID:       records[candidate].id,
-		hasTypeID:    true,
-	}, nil
+	return resolvedSchemaElementTypeResult(input, records[candidate].id, true), nil
 }
 
 func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
 	case "integer", "decimal":
-		return schemaElementTypeResult{
-			present:      true,
-			declaredType: input.declaredType,
-		}, nil
+		return resolvedSchemaElementTypeResult(input, ComponentID{}, false), nil
 	case "boolean":
 		if !scope.allowsBoolean() {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
-		return schemaElementTypeResult{
-			present:      true,
-			declaredType: input.declaredType,
-		}, nil
+		return resolvedSchemaElementTypeResult(input, ComponentID{}, false), nil
 	case "precisionDecimal":
 		if version == XSDVersion10 {
 			return schemaElementTypeResult{}, precisionDecimalSchemaVersionDiagnostic(input.typeLoc, input.declaredType)
@@ -1303,10 +1339,7 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 		if !allowPrecisionDecimal {
 			return schemaElementTypeResult{}, unsupportedSequencePrecisionDecimal(input, version)
 		}
-		return schemaElementTypeResult{
-			present:      true,
-			declaredType: input.declaredType,
-		}, nil
+		return resolvedSchemaElementTypeResult(input, ComponentID{}, false), nil
 	default:
 		return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
 			input.typeLoc,
