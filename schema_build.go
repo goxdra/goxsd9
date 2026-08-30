@@ -752,42 +752,21 @@ func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schema
 		return nil, newSchemaCompositionDiagnostic(element.loc, "element type attribute must be unique")
 	}
 	if len(attributes) == 0 && inline == nil {
-		if noTypeErr := validateSchemaElementWithoutDeclaredType(element, version, abstractPresent, abstractLoc, nillablePresent, nillableLoc); noTypeErr != nil {
-			return nil, noTypeErr
-		}
-		if len(substitutionGroup) > 0 {
-			return nil, newSchemaSyntaxUnsupportedForVersion(
-				substitutionGroup[0].loc,
-				"substitutionGroup affiliations for global elements without a declared type are not implemented",
-				version,
-			)
-		}
-		return nil, nil
+		return schemaElementTypeInputWithoutDeclaredType(
+			element,
+			version,
+			abstractPresent,
+			abstractLoc,
+			nillablePresent,
+			nillableLoc,
+			substitutionGroup,
+		)
 	}
 	if len(attributes) == 1 && inline != nil {
 		return nil, newSchemaCompositionDiagnostic(inline.loc, "element cannot combine type attribute with an inline simpleType")
 	}
 	if inline != nil {
-		if len(substitutionGroup) > 0 {
-			return nil, newSchemaSyntaxUnsupportedForVersion(
-				substitutionGroup[0].loc,
-				"substitutionGroup affiliations for inline global elements are not implemented",
-				version,
-			)
-		}
-		if inlineErr := validateInlineSchemaType(inline, version); inlineErr != nil {
-			return nil, inlineErr
-		}
-		simpleType, simpleTypeErr := schemaSimpleTypeInputFromElement(inline)
-		if simpleTypeErr != nil {
-			return nil, simpleTypeErr
-		}
-		return &schemaElementInput{
-			typeLoc:          inline.loc,
-			inlineSimpleType: simpleType,
-			abstract:         abstract,
-			nillable:         nillable,
-		}, nil
+		return schemaElementTypeInputForInline(inline, version, abstract, nillable, substitutionGroup)
 	}
 	declaredType, err := expandSchemaQName(element, attributes[0])
 	if err != nil {
@@ -799,6 +778,57 @@ func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schema
 		abstract:          abstract,
 		nillable:          nillable,
 		substitutionGroup: substitutionGroup,
+	}, nil
+}
+
+func schemaElementTypeInputWithoutDeclaredType(
+	element *syntaxElement,
+	version XSDVersion,
+	abstractPresent bool,
+	abstractLoc Loc,
+	nillablePresent bool,
+	nillableLoc Loc,
+	substitutionGroup []schemaElementSubstitutionGroupInput,
+) (*schemaElementInput, error) {
+	if noTypeErr := validateSchemaElementWithoutDeclaredType(element, version, abstractPresent, abstractLoc, nillablePresent, nillableLoc); noTypeErr != nil {
+		return nil, noTypeErr
+	}
+	if len(substitutionGroup) == 0 {
+		return nil, nil
+	}
+	return nil, newSchemaSyntaxUnsupportedForVersion(
+		substitutionGroup[0].loc,
+		"substitutionGroup affiliations for global elements without a declared type are not implemented",
+		version,
+	)
+}
+
+func schemaElementTypeInputForInline(
+	inline *syntaxElement,
+	version XSDVersion,
+	abstract bool,
+	nillable bool,
+	substitutionGroup []schemaElementSubstitutionGroupInput,
+) (*schemaElementInput, error) {
+	if len(substitutionGroup) > 0 {
+		return nil, newSchemaSyntaxUnsupportedForVersion(
+			substitutionGroup[0].loc,
+			"substitutionGroup affiliations for inline global elements are not implemented",
+			version,
+		)
+	}
+	if inlineErr := validateInlineSchemaType(inline, version); inlineErr != nil {
+		return nil, inlineErr
+	}
+	simpleType, simpleTypeErr := schemaSimpleTypeInputFromElement(inline)
+	if simpleTypeErr != nil {
+		return nil, simpleTypeErr
+	}
+	return &schemaElementInput{
+		typeLoc:          inline.loc,
+		inlineSimpleType: simpleType,
+		abstract:         abstract,
+		nillable:         nillable,
 	}, nil
 }
 
@@ -1995,6 +2025,56 @@ func resolveSchemaElementSubstitutionGroupForInputs(
 	return affiliations, nil
 }
 
+func schemaSubstitutionGroupHeadIndex(
+	input schemaElementSubstitutionGroupInput,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	version XSDVersion,
+) (int, error) {
+	candidates := byName[input.name]
+	if len(candidates) == 0 {
+		return 0, newSchemaSubstitutionGroupDiagnostic(
+			diagnosticSchemaSubstitutionUnresolvedCode,
+			input.loc,
+			fmt.Sprintf("substitutionGroup head %q cannot be resolved", input.name),
+			nil,
+			errSchemaSubstitutionUnresolved,
+			schemaSubstitutionResolveSpecRef(version),
+		)
+	}
+	elementCandidates := make([]int, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate < 0 || candidate >= len(records) {
+			return 0, newSchemaBridgeInvariant(input.loc, "substitution-group head lookup has an invalid record index")
+		}
+		if records[candidate].kind != ComponentKindElementDeclaration {
+			continue
+		}
+		elementCandidates = append(elementCandidates, candidate)
+	}
+	if len(elementCandidates) == 0 {
+		return 0, newSchemaSubstitutionGroupDiagnostic(
+			diagnosticSchemaSubstitutionWrongKindCode,
+			input.loc,
+			fmt.Sprintf("substitutionGroup head %q is not a global element declaration", input.name),
+			schemaComponentLocations(records, candidates),
+			errSchemaSubstitutionWrongKind,
+			schemaSubstitutionResolveSpecRef(version),
+		)
+	}
+	if len(elementCandidates) > 1 {
+		return 0, newSchemaSubstitutionGroupDiagnostic(
+			diagnosticSchemaSubstitutionAmbiguousCode,
+			input.loc,
+			fmt.Sprintf("substitutionGroup head %q is ambiguous", input.name),
+			schemaComponentLocations(records, elementCandidates),
+			errSchemaSubstitutionAmbiguous,
+			schemaSubstitutionResolveSpecRef(version),
+		)
+	}
+	return elementCandidates[0], nil
+}
+
 func resolveSchemaElementSubstitutionGroupInput(
 	sourceIndex int,
 	source schemaComponentRecord,
@@ -2007,48 +2087,10 @@ func resolveSchemaElementSubstitutionGroupInput(
 	elements []schemaElementTypeResult,
 	version XSDVersion,
 ) (schemaElementSubstitutionGroup, error) {
-	candidates := byName[input.name]
-	if len(candidates) == 0 {
-		return schemaElementSubstitutionGroup{}, newSchemaSubstitutionGroupDiagnostic(
-			diagnosticSchemaSubstitutionUnresolvedCode,
-			input.loc,
-			fmt.Sprintf("substitutionGroup head %q cannot be resolved", input.name),
-			nil,
-			errSchemaSubstitutionUnresolved,
-			schemaSubstitutionResolveSpecRef(version),
-		)
+	targetIndex, err := schemaSubstitutionGroupHeadIndex(input, records, byName, version)
+	if err != nil {
+		return schemaElementSubstitutionGroup{}, err
 	}
-	elementCandidates := make([]int, 0, len(candidates))
-	for _, candidate := range candidates {
-		if candidate < 0 || candidate >= len(records) {
-			return schemaElementSubstitutionGroup{}, newSchemaBridgeInvariant(input.loc, "substitution-group head lookup has an invalid record index")
-		}
-		if records[candidate].kind != ComponentKindElementDeclaration {
-			continue
-		}
-		elementCandidates = append(elementCandidates, candidate)
-	}
-	if len(elementCandidates) == 0 {
-		return schemaElementSubstitutionGroup{}, newSchemaSubstitutionGroupDiagnostic(
-			diagnosticSchemaSubstitutionWrongKindCode,
-			input.loc,
-			fmt.Sprintf("substitutionGroup head %q is not a global element declaration", input.name),
-			schemaComponentLocations(records, candidates),
-			errSchemaSubstitutionWrongKind,
-			schemaSubstitutionResolveSpecRef(version),
-		)
-	}
-	if len(elementCandidates) > 1 {
-		return schemaElementSubstitutionGroup{}, newSchemaSubstitutionGroupDiagnostic(
-			diagnosticSchemaSubstitutionAmbiguousCode,
-			input.loc,
-			fmt.Sprintf("substitutionGroup head %q is ambiguous", input.name),
-			schemaComponentLocations(records, elementCandidates),
-			errSchemaSubstitutionAmbiguous,
-			schemaSubstitutionResolveSpecRef(version),
-		)
-	}
-	targetIndex := elementCandidates[0]
 	if targetIndex == sourceIndex {
 		return schemaElementSubstitutionGroup{}, newSchemaSubstitutionGroupDiagnostic(
 			diagnosticSchemaSubstitutionSelfCode,
@@ -2120,31 +2162,72 @@ func schemaSubstitutionTypeRelationFor(
 	if sourceType == targetType {
 		return schemaSubstitutionTypeRelationValid
 	}
-	if sourceClass == schemaSubstitutionTypeBoolean || targetClass == schemaSubstitutionTypeBoolean {
-		if sourceClass == schemaSubstitutionTypeBoolean && targetClass == schemaSubstitutionTypeBoolean {
-			if sourceType.Namespace() != xsdNamespaceURI && targetType.Namespace() == xsdNamespaceURI {
-				return schemaSubstitutionTypeRelationValid
-			}
-			return schemaSubstitutionTypeRelationUnknown
-		}
-		return schemaSubstitutionTypeRelationInvalid
+	if relation, handled := schemaSubstitutionBooleanRelation(sourceType, targetType, sourceClass, targetClass); handled {
+		return relation
 	}
-	if sourceClass == targetClass && sourceType.Namespace() != xsdNamespaceURI && targetType.Namespace() == xsdNamespaceURI {
-		return schemaSubstitutionTypeRelationValid
+	if relation, handled := schemaSubstitutionSameClassRelation(sourceType, targetType, sourceClass, targetClass); handled {
+		return relation
 	}
+	if relation, handled := schemaSubstitutionNumericRelation(sourceType, targetType, sourceClass, targetClass); handled {
+		return relation
+	}
+	return schemaSubstitutionTypeRelationUnknown
+}
+
+func schemaSubstitutionBooleanRelation(
+	sourceType QName,
+	targetType QName,
+	sourceClass schemaSubstitutionTypeClass,
+	targetClass schemaSubstitutionTypeClass,
+) (schemaSubstitutionTypeRelation, bool) {
+	sourceBoolean := sourceClass == schemaSubstitutionTypeBoolean
+	targetBoolean := targetClass == schemaSubstitutionTypeBoolean
+	if !sourceBoolean && !targetBoolean {
+		return schemaSubstitutionTypeRelationUnknown, false
+	}
+	if sourceBoolean != targetBoolean {
+		return schemaSubstitutionTypeRelationInvalid, true
+	}
+	if sourceType.Namespace() != xsdNamespaceURI && targetType.Namespace() == xsdNamespaceURI {
+		return schemaSubstitutionTypeRelationValid, true
+	}
+	return schemaSubstitutionTypeRelationUnknown, true
+}
+
+func schemaSubstitutionSameClassRelation(
+	sourceType QName,
+	targetType QName,
+	sourceClass schemaSubstitutionTypeClass,
+	targetClass schemaSubstitutionTypeClass,
+) (schemaSubstitutionTypeRelation, bool) {
+	if sourceClass != targetClass {
+		return schemaSubstitutionTypeRelationUnknown, false
+	}
+	if sourceType.Namespace() != xsdNamespaceURI && targetType.Namespace() == xsdNamespaceURI {
+		return schemaSubstitutionTypeRelationValid, true
+	}
+	return schemaSubstitutionTypeRelationUnknown, true
+}
+
+func schemaSubstitutionNumericRelation(
+	sourceType QName,
+	targetType QName,
+	sourceClass schemaSubstitutionTypeClass,
+	targetClass schemaSubstitutionTypeClass,
+) (schemaSubstitutionTypeRelation, bool) {
 	if sourceClass == schemaSubstitutionTypeInteger && targetClass == schemaSubstitutionTypeDecimal {
 		if targetType.Namespace() == xsdNamespaceURI && targetType.Local() == "decimal" {
-			return schemaSubstitutionTypeRelationValid
+			return schemaSubstitutionTypeRelationValid, true
 		}
-		return schemaSubstitutionTypeRelationUnknown
+		return schemaSubstitutionTypeRelationUnknown, true
 	}
 	if sourceClass == schemaSubstitutionTypeDecimal && targetClass == schemaSubstitutionTypeInteger {
 		if sourceType.Namespace() == xsdNamespaceURI && sourceType.Local() == "decimal" {
-			return schemaSubstitutionTypeRelationInvalid
+			return schemaSubstitutionTypeRelationInvalid, true
 		}
-		return schemaSubstitutionTypeRelationUnknown
+		return schemaSubstitutionTypeRelationUnknown, true
 	}
-	return schemaSubstitutionTypeRelationUnknown
+	return schemaSubstitutionTypeRelationUnknown, false
 }
 
 func schemaSubstitutionNamespacePermitted(version XSDVersion, namespace string) bool {
@@ -2172,6 +2255,15 @@ func hasDirectSchemaImport(edges []syntaxDocumentEdge, source SourceID, namespac
 	return false
 }
 
+type schemaSubstitutionCycleChecker struct {
+	elements  []schemaElementTypeResult
+	indices   map[ComponentID]int
+	state     []uint8
+	pathNodes []int
+	pathEdges []schemaElementSubstitutionGroup
+	version   XSDVersion
+}
+
 func rejectSchemaSubstitutionCycles(records []schemaComponentRecord, elements []schemaElementTypeResult, version XSDVersion) error {
 	if len(records) != len(elements) {
 		return newSchemaBridgeInvariant(Loc{}, "substitution-group cycle check has incomplete element results")
@@ -2180,67 +2272,83 @@ func rejectSchemaSubstitutionCycles(records []schemaComponentRecord, elements []
 	for index, record := range records {
 		indices[record.id] = index
 	}
-	state := make([]uint8, len(records))
-	pathNodes := make([]int, 0)
-	pathEdges := make([]schemaElementSubstitutionGroup, 0)
-	var visit func(int) error
-	visit = func(index int) error {
-		if state[index] == 2 {
-			return nil
-		}
-		state[index] = 1
-		pathNodes = append(pathNodes, index)
-		for _, affiliation := range elements[index].substitutionGroup {
-			target, ok := indices[affiliation.targetID]
-			if !ok {
-				return newSchemaBridgeInvariant(affiliation.loc, "substitution-group target ID is not allocated")
-			}
-			if state[target] == 1 {
-				cycleStart := 0
-				for position, node := range pathNodes {
-					if node == target {
-						cycleStart = position
-						break
-					}
-				}
-				related := make([]Loc, 0, len(pathEdges)-cycleStart)
-				for _, edge := range pathEdges[cycleStart:] {
-					if edge.loc.IsZero() || edge.loc == affiliation.loc {
-						continue
-					}
-					related = append(related, edge.loc)
-				}
-				return newSchemaSubstitutionGroupDiagnostic(
-					diagnosticSchemaSubstitutionCycleCode,
-					affiliation.loc,
-					"substitutionGroup affiliations form a cycle",
-					related,
-					errSchemaSubstitutionCycle,
-					schemaSubstitutionConstraintSpecRef(version),
-				)
-			}
-			if state[target] != 0 {
-				continue
-			}
-			pathEdges = append(pathEdges, affiliation)
-			if err := visit(target); err != nil {
-				return err
-			}
-			pathEdges = pathEdges[:len(pathEdges)-1]
-		}
-		pathNodes = pathNodes[:len(pathNodes)-1]
-		state[index] = 2
-		return nil
+	checker := schemaSubstitutionCycleChecker{
+		elements:  elements,
+		indices:   indices,
+		state:     make([]uint8, len(records)),
+		pathNodes: make([]int, 0),
+		pathEdges: make([]schemaElementSubstitutionGroup, 0),
+		version:   version,
 	}
 	for index := range records {
-		if state[index] != 0 || len(elements[index].substitutionGroup) == 0 {
+		if checker.state[index] != 0 || len(elements[index].substitutionGroup) == 0 {
 			continue
 		}
-		if err := visit(index); err != nil {
+		if err := checker.visit(index); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (checker *schemaSubstitutionCycleChecker) visit(index int) error {
+	if checker.state[index] == 2 {
+		return nil
+	}
+	checker.state[index] = 1
+	checker.pathNodes = append(checker.pathNodes, index)
+	if err := checker.visitAffiliations(index); err != nil {
+		return err
+	}
+	checker.pathNodes = checker.pathNodes[:len(checker.pathNodes)-1]
+	checker.state[index] = 2
+	return nil
+}
+
+func (checker *schemaSubstitutionCycleChecker) visitAffiliations(index int) error {
+	for _, affiliation := range checker.elements[index].substitutionGroup {
+		target, ok := checker.indices[affiliation.targetID]
+		if !ok {
+			return newSchemaBridgeInvariant(affiliation.loc, "substitution-group target ID is not allocated")
+		}
+		if checker.state[target] == 1 {
+			return checker.cycleDiagnostic(target, affiliation)
+		}
+		if checker.state[target] != 0 {
+			continue
+		}
+		checker.pathEdges = append(checker.pathEdges, affiliation)
+		if err := checker.visit(target); err != nil {
+			return err
+		}
+		checker.pathEdges = checker.pathEdges[:len(checker.pathEdges)-1]
+	}
+	return nil
+}
+
+func (checker *schemaSubstitutionCycleChecker) cycleDiagnostic(target int, affiliation schemaElementSubstitutionGroup) error {
+	cycleStart := 0
+	for position, node := range checker.pathNodes {
+		if node == target {
+			cycleStart = position
+			break
+		}
+	}
+	related := make([]Loc, 0, len(checker.pathEdges)-cycleStart)
+	for _, edge := range checker.pathEdges[cycleStart:] {
+		if edge.loc.IsZero() || edge.loc == affiliation.loc {
+			continue
+		}
+		related = append(related, edge.loc)
+	}
+	return newSchemaSubstitutionGroupDiagnostic(
+		diagnosticSchemaSubstitutionCycleCode,
+		affiliation.loc,
+		"substitutionGroup affiliations form a cycle",
+		related,
+		errSchemaSubstitutionCycle,
+		schemaSubstitutionConstraintSpecRef(checker.version),
+	)
 }
 
 //nolint:funlen,gocognit // Keep the ordered global element type branches together.

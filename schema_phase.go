@@ -946,7 +946,6 @@ func validateGlobalSchemaAttributeCooccurrence(element *syntaxElement) error {
 	return nil
 }
 
-//nolint:gocognit // Keep global attribute policy dispatch in declaration order.
 func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, attribute syntaxAttribute, version XSDVersion) (string, error) {
 	if attribute.name.namespace == xsdVersioningNamespaceURI {
 		return "", nil
