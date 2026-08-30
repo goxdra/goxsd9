@@ -667,6 +667,40 @@ func TestValidateInstancePreservesBoundDiagnosticsAndExactNumericValues(t *testi
 	}
 }
 
+func TestValidateInstanceUsesBoundedSimpleTypeReference(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="value" type="r:Bounded"/>
+  <xs:simpleType name="Bounded"><xs:restriction base="xs:integer"><xs:minInclusive value="10"/><xs:maxExclusive value="20"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	schema := validationTestSchemaWithPolicy(t, root, nil, goxsd9.Strict11)
+	name := validationTestQName(t, "value")
+	declarations := schema.FindKind(goxsd9.ComponentKindElementDeclaration, name)
+	if len(declarations) != 1 {
+		t.Fatalf("value declarations = %d, want 1", len(declarations))
+	}
+	declaration, ok := declarations[0].ElementDeclaration()
+	if !ok {
+		t.Fatal("value element view is missing")
+	}
+	reference, ok := declaration.TypeReference()
+	if !ok || !reference.IsNamed() || reference.Name() != validationTestQName(t, "Bounded") {
+		t.Fatalf("value type reference = %#v/%t, want named Bounded", reference, ok)
+	}
+	if typeID, hasTypeID := reference.ComponentID(); !hasTypeID || typeID.IsZero() {
+		t.Fatalf("value type reference ID = %v/%t, want a named component identity", typeID, hasTypeID)
+	}
+
+	valid := `<value xmlns="urn:root">10</value>`
+	if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(valid))); err != nil {
+		t.Fatalf("ValidateInstance(valid): %v", err)
+	}
+	invalid := `<value xmlns="urn:root">20</value>`
+	diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(invalid))))
+	if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != goxsd9.BoundValueViolationCode {
+		t.Fatalf("ValidateInstance(invalid) diagnostic = %s, want invalid bound-value violation", diagnostic)
+	}
+}
+
 func TestValidateInstanceEnforcesBoundsInDirectScalarChoices(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">
   <xs:element name="choiceRoot" type="r:Choice"/>

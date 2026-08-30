@@ -952,7 +952,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		}
 		return "", nil
 	}
-	if kind == ComponentKindElementDeclaration && (attribute.name.local == "abstract" || attribute.name.local == "nillable") && len(syntaxAttributesByLocal(element, "type")) == 1 {
+	if implementedGlobalElementBooleanAttribute(element, kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
 	status := globalSchemaAttributeStatus(kind, attribute.name.local)
@@ -977,6 +977,19 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	default:
 		return "", newSchemaBridgeInvariant(attribute.loc, "global declaration attribute has an unknown status")
 	}
+}
+
+func implementedGlobalElementBooleanAttribute(element *syntaxElement, kind ComponentKind, local string) bool {
+	if kind != ComponentKindElementDeclaration {
+		return false
+	}
+	if local != "abstract" && local != "nillable" {
+		return false
+	}
+	if len(syntaxAttributesByLocal(element, "type")) == 1 {
+		return true
+	}
+	return inlineSimpleTypeChild(element) != nil
 }
 
 func isXSD11GlobalSchemaAttribute(kind ComponentKind, local string) bool {
@@ -1419,7 +1432,7 @@ func validateElementGlobalChildren(parent *syntaxElement, children []*syntaxElem
 			if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
 				return err
 			}
-			if !candidate.present {
+			if child.name.local == "complexType" && !candidate.present {
 				candidate.consider(child, parent.name.local)
 			}
 		case "alternative":
@@ -1634,7 +1647,7 @@ func validateSimpleTypeList(element *syntaxElement, version XSDVersion) error {
 	if candidate.present {
 		return candidate.err()
 	}
-	return newSchemaSyntaxUnsupported(element.loc, "simple type lists are not implemented")
+	return nil
 }
 
 func validateSimpleTypeListAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
@@ -1731,7 +1744,7 @@ func validateSimpleTypeUnion(element *syntaxElement, version XSDVersion) error {
 	if candidate.present {
 		return candidate.err()
 	}
-	return newSchemaSyntaxUnsupported(element.loc, "simple type unions are not implemented")
+	return nil
 }
 
 func validateSimpleTypeUnionAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
@@ -1907,7 +1920,7 @@ func validateSimpleTypeRestrictionChild(child *syntaxElement, annotationSeen, co
 		if err := validateInlineSchemaType(child, version); err != nil {
 			return err
 		}
-		return newSchemaSyntaxUnsupported(child.loc, "inline anonymous simple types in restrictions are not implemented")
+		return nil
 	}
 	return validateSimpleTypeRestrictionFacet(child, totalSeen, fractionSeen, facetSeen, version, bridgeFacets, enforceNonNegativeScale)
 }
