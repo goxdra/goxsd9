@@ -959,6 +959,9 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		}
 		return "", nil
 	}
+	if kind == ComponentKindElementDeclaration && attribute.name.local == "substitutionGroup" {
+		return "", validateSchemaElementSubstitutionGroupAttribute(element, attribute, version)
+	}
 	if implementedGlobalElementBooleanAttribute(element, kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
@@ -1161,6 +1164,72 @@ func validateRecognizedUnsupportedAttribute(element *syntaxElement, attribute sy
 		_ = collapseXMLWhitespace(attribute.value)
 	}
 	return nil
+}
+
+func validateSchemaElementSubstitutionGroupAttribute(element *syntaxElement, attribute syntaxAttribute, version XSDVersion) error {
+	items, err := schemaElementSubstitutionGroupTokens(attribute, version)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if err := validateSchemaElementSubstitutionGroupQName(element, attribute, item, version); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func schemaElementSubstitutionGroupTokens(attribute syntaxAttribute, version XSDVersion) ([]string, error) {
+	lexeme := collapseXMLWhitespace(attribute.value)
+	if lexeme == "" {
+		if version == XSDVersion11 {
+			return nil, nil
+		}
+		return nil, newSchemaSubstitutionGroupCardinalityDiagnostic(
+			attribute.loc,
+			"substitutionGroup must contain one non-empty QName in XSD 1.0",
+			version,
+			fmt.Errorf("%w: empty substitutionGroup", errSchemaSubstitutionCardinality),
+		)
+	}
+	items := strings.Split(lexeme, " ")
+	if version == XSDVersion10 && len(items) != 1 {
+		return nil, newSchemaSubstitutionGroupCardinalityDiagnostic(
+			attribute.loc,
+			"substitutionGroup must contain exactly one QName in XSD 1.0",
+			version,
+			fmt.Errorf("%w: %d QNames", errSchemaSubstitutionCardinality, len(items)),
+		)
+	}
+	return items, nil
+}
+
+func validateSchemaElementSubstitutionGroupQName(element *syntaxElement, attribute syntaxAttribute, item string, version XSDVersion) error {
+	prefix, local, ok := splitConditionalQName(item)
+	if !ok || !validNCName(local) || prefix != "" && !validNCName(prefix) {
+		return newSchemaSubstitutionGroupQNameDiagnostic(
+			attribute.loc,
+			fmt.Sprintf("substitutionGroup QName %q is malformed", item),
+			version,
+			fmt.Errorf("%w: %q", errSchemaSubstitutionQName, item),
+		)
+	}
+	if prefix == "" {
+		return nil
+	}
+	if element == nil {
+		return newSchemaBridgeInvariant(attribute.loc, "substitutionGroup QName validation has no element scope")
+	}
+	_, bound := element.scope.lookup(prefix)
+	if bound {
+		return nil
+	}
+	return newSchemaSubstitutionGroupQNameDiagnosticAtReference(
+		attribute.loc,
+		fmt.Sprintf("substitutionGroup QName prefix %q is unbound", prefix),
+		fmt.Errorf("%w: prefix %q", errSchemaSubstitutionQName, prefix),
+		schemaSubstitutionResolveSpecRef(version),
+	)
 }
 
 func validateConditionalQName(element *syntaxElement, attribute syntaxAttribute) error {

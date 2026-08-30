@@ -363,6 +363,33 @@ func (declaration ElementDeclaration) TypeID() (ComponentID, bool) {
 	return declaration.facts.typeID, true
 }
 
+// SubstitutionGroupAffiliations returns direct substitution-group head IDs in
+// lexical affiliation order. The returned slice is independent of the schema.
+func (declaration ElementDeclaration) SubstitutionGroupAffiliations() []ComponentID {
+	if declaration.facts == nil || len(declaration.facts.substitutionGroup) == 0 {
+		return nil
+	}
+	ids := make([]ComponentID, len(declaration.facts.substitutionGroup))
+	for index, affiliation := range declaration.facts.substitutionGroup {
+		ids[index] = affiliation.targetID
+	}
+	return ids
+}
+
+// SubstitutionGroupAffiliationLocations returns direct affiliation attribute
+// locations in lexical affiliation order. The returned slice is independent
+// of the schema.
+func (declaration ElementDeclaration) SubstitutionGroupAffiliationLocations() []Loc {
+	if declaration.facts == nil || len(declaration.facts.substitutionGroup) == 0 {
+		return nil
+	}
+	locations := make([]Loc, len(declaration.facts.substitutionGroup))
+	for index, affiliation := range declaration.facts.substitutionGroup {
+		locations[index] = affiliation.loc
+	}
+	return locations
+}
+
 // TypeReference returns the resolved simple-type reference used by the
 // declaration, when it has one.
 func (declaration ElementDeclaration) TypeReference() (SimpleTypeReference, bool) {
@@ -1306,11 +1333,17 @@ type schemaComponentInput struct {
 }
 
 type schemaElementInput struct {
-	declaredType     QName
-	typeLoc          Loc
-	inlineSimpleType *schemaSimpleTypeInput
-	abstract         bool
-	nillable         bool
+	declaredType      QName
+	typeLoc           Loc
+	inlineSimpleType  *schemaSimpleTypeInput
+	abstract          bool
+	nillable          bool
+	substitutionGroup []schemaElementSubstitutionGroupInput
+}
+
+type schemaElementSubstitutionGroupInput struct {
+	name QName
+	loc  Loc
 }
 
 type schemaNotationInput struct {
@@ -1519,13 +1552,19 @@ type schemaElementReferenceInput struct {
 }
 
 type schemaElementComponent struct {
-	declaredType     QName
-	typeID           ComponentID
-	hasTypeID        bool
-	typeReference    schemaSimpleTypeReferenceComponent
-	hasTypeReference bool
-	abstract         bool
-	nillable         bool
+	declaredType      QName
+	typeID            ComponentID
+	hasTypeID         bool
+	typeReference     schemaSimpleTypeReferenceComponent
+	hasTypeReference  bool
+	abstract          bool
+	nillable          bool
+	substitutionGroup []schemaElementSubstitutionGroup
+}
+
+type schemaElementSubstitutionGroup struct {
+	targetID ComponentID
+	loc      Loc
 }
 
 type schemaNotationComponent struct {
@@ -1626,6 +1665,10 @@ func newSchema(inputs []schemaDocumentInput) (Schema, error) {
 // newSchemaWithPolicy derives the construction version once from the validated
 // graph policy and passes it through component resolution.
 func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (Schema, error) {
+	return newSchemaWithPolicyAndEdges(inputs, nil, policy)
+}
+
+func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDocumentEdge, policy LanguagePolicy) (Schema, error) {
 	version, err := xsdVersionForLanguagePolicy(policy)
 	if err != nil {
 		return Schema{}, invalidLanguagePolicyDiagnostic(policy, err)
@@ -1649,6 +1692,23 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 		return Schema{}, err
 	}
 	elements, err := resolveSchemaElementTypes(records, byName, simpleTypes, complexTypes, version)
+	if err != nil {
+		return Schema{}, err
+	}
+	sourceNamespaces := make(map[SourceID]string, len(inputs))
+	for _, input := range inputs {
+		sourceNamespaces[input.source] = input.targetNamespace
+	}
+	elements, err = resolveSchemaElementSubstitutionGroups(
+		records,
+		byName,
+		visibleSources,
+		simpleTypes,
+		elements,
+		edges,
+		sourceNamespaces,
+		version,
+	)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -1851,13 +1911,14 @@ func completeSchemaComponent(
 	}
 	if element.present {
 		component.element = &schemaElementComponent{
-			declaredType:     element.declaredType,
-			typeID:           element.typeID,
-			hasTypeID:        element.hasTypeID,
-			typeReference:    element.typeReference,
-			hasTypeReference: element.hasTypeReference,
-			abstract:         element.abstract,
-			nillable:         element.nillable,
+			declaredType:      element.declaredType,
+			typeID:            element.typeID,
+			hasTypeID:         element.hasTypeID,
+			typeReference:     element.typeReference,
+			hasTypeReference:  element.hasTypeReference,
+			abstract:          element.abstract,
+			nillable:          element.nillable,
+			substitutionGroup: cloneSchemaElementSubstitutionGroups(element.substitutionGroup),
 		}
 	}
 	if record.notation != nil {
@@ -1960,12 +2021,27 @@ func cloneSchemaElementInput(input *schemaElementInput) *schemaElementInput {
 		return nil
 	}
 	return &schemaElementInput{
-		declaredType:     input.declaredType,
-		typeLoc:          input.typeLoc,
-		inlineSimpleType: cloneSchemaSimpleTypeInput(input.inlineSimpleType),
-		abstract:         input.abstract,
-		nillable:         input.nillable,
+		declaredType:      input.declaredType,
+		typeLoc:           input.typeLoc,
+		inlineSimpleType:  cloneSchemaSimpleTypeInput(input.inlineSimpleType),
+		abstract:          input.abstract,
+		nillable:          input.nillable,
+		substitutionGroup: cloneSchemaElementSubstitutionGroupInputs(input.substitutionGroup),
 	}
+}
+
+func cloneSchemaElementSubstitutionGroups(input []schemaElementSubstitutionGroup) []schemaElementSubstitutionGroup {
+	if len(input) == 0 {
+		return nil
+	}
+	return append([]schemaElementSubstitutionGroup(nil), input...)
+}
+
+func cloneSchemaElementSubstitutionGroupInputs(input []schemaElementSubstitutionGroupInput) []schemaElementSubstitutionGroupInput {
+	if len(input) == 0 {
+		return nil
+	}
+	return append([]schemaElementSubstitutionGroupInput(nil), input...)
 }
 
 func cloneSchemaSimpleTypeModelInput(input schemaSimpleTypeModelInput) schemaSimpleTypeModelInput {
