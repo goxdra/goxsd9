@@ -110,7 +110,7 @@ func TestSchemaBridgeExposesGlobalElementBooleanFacts(t *testing.T) {
 	}
 }
 
-//nolint:gocognit,funlen // Keep the edition and lexical inline-type matrix together.
+//nolint:gocognit // Keep the edition and lexical inline-type matrix together.
 func TestSchemaBridgeExposesInlineGlobalElementBooleanFacts(t *testing.T) {
 	policies := []struct {
 		name    string

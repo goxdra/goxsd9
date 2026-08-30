@@ -952,9 +952,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		}
 		return "", nil
 	}
-	if kind == ComponentKindElementDeclaration &&
-		(attribute.name.local == "abstract" || attribute.name.local == "nillable") &&
-		(len(syntaxAttributesByLocal(element, "type")) == 1 || inlineSimpleTypeChild(element) != nil) {
+	if implementedGlobalElementBooleanAttribute(element, kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
 	status := globalSchemaAttributeStatus(kind, attribute.name.local)
@@ -979,6 +977,19 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	default:
 		return "", newSchemaBridgeInvariant(attribute.loc, "global declaration attribute has an unknown status")
 	}
+}
+
+func implementedGlobalElementBooleanAttribute(element *syntaxElement, kind ComponentKind, local string) bool {
+	if kind != ComponentKindElementDeclaration {
+		return false
+	}
+	if local != "abstract" && local != "nillable" {
+		return false
+	}
+	if len(syntaxAttributesByLocal(element, "type")) == 1 {
+		return true
+	}
+	return inlineSimpleTypeChild(element) != nil
 }
 
 func isXSD11GlobalSchemaAttribute(kind ComponentKind, local string) bool {
