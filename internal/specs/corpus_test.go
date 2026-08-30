@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -114,7 +115,7 @@ func TestRepresentationConversionRequiresPinnedWrapper(t *testing.T) {
 		append([]byte(cdataPrefix), []byte("body"+cdataSuffix+"\n\n")...),
 	} {
 		entry.SHA256 = testDigest(malformed)
-		_, generateErr := Generate(context.Background(), responseClient(http.StatusOK, malformed), entry)
+		_, generateErr := Generate(context.Background(), responseClient(malformed), entry)
 		if generateErr == nil {
 			t.Fatal("Generate() error = nil for malformed html-cdata-pre response")
 		}
@@ -126,6 +127,248 @@ func TestRepresentationConversionRequiresPinnedWrapper(t *testing.T) {
 		t.Fatal("convert() error = nil for unsupported representation")
 	}
 	assertErrorCode(t, err, "specs.conversion.representation")
+}
+
+func TestGenerateValidatesBootstrapXMLAndPreservesConvertedBytes(t *testing.T) {
+	content := []byte("<?xml version=\"1.0\"?>\n<!-- before -->\n<!DOCTYPE root SYSTEM \"root.dtd\">\n<root><![CDATA[ \t]]><?inside?><child/></root><!-- after -->\n")
+	tests := []struct {
+		name           string
+		representation string
+		raw            []byte
+		want           []byte
+	}{
+		{
+			name:           "xml",
+			representation: "xml",
+			raw:            content,
+			want:           content,
+		},
+		{
+			name:           "html-cdata-pre",
+			representation: "html-cdata-pre",
+			raw:            bootstrapXMLWrappedContent(content),
+			want:           content,
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			entry := testEntry(test.representation, testDigest(test.raw))
+			entry.Kind = KindBootstrapArtifact
+			document, err := Generate(context.Background(), responseClient(test.raw), entry)
+			if err != nil {
+				t.Fatalf("Generate() error = %v", err)
+			}
+			if !bytes.Equal(document.Data, test.want) {
+				t.Fatalf("Generate() data = %q, want %q", document.Data, test.want)
+			}
+		})
+	}
+}
+
+func TestGenerateAcceptsLeadingUTF8BOM(t *testing.T) {
+	content := append([]byte(bootstrapXMLUTF8BOM), []byte(`<?xml version="1.0"?><root/>`)...)
+	entry := testEntry("xml", testDigest(content))
+	entry.Kind = KindBootstrapArtifact
+	document, err := Generate(context.Background(), responseClient(content), entry)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if !bytes.Equal(document.Data, content) {
+		t.Fatalf("Generate() data = %q, want %q", document.Data, content)
+	}
+}
+
+func TestGenerateAcceptsBootstrapXMLDeclarationAndDoctypeForms(t *testing.T) {
+	contents := []string{
+		`<?xml version="1.0"?><root/>`,
+		`<?xml version = '1.0' encoding = "UTF-8" standalone = 'yes'?>
+<root/>`,
+		`<!DOCTYPE root><root/>`,
+		`<!DOCTYPE root SYSTEM "root.dtd"><root/>`,
+		`<!DOCTYPE root PUBLIC "-//Example//DTD Root 1.0//EN" "root.dtd"><root/>`,
+		`<!DOCTYPE root [<!-- DTD comment --><?dtd instruction?><!ELEMENT root EMPTY>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root (child|other)*><!ATTLIST root id CDATA #IMPLIED><!ENTITY name "value"><!NOTATION image SYSTEM "image">]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root ((child|other),child?)><!ELEMENT child EMPTY><!ELEMENT other EMPTY><!ATTLIST root id ID #IMPLIED mode (one|two) "one" kind NOTATION (image|text) #FIXED "image"><!ENTITY name "hello &amp; world"><!ENTITY external SYSTEM "root.ent"><!ENTITY % parameter SYSTEM "parameter.ent"><!NOTATION image PUBLIC "-//Example//Image//EN" "image.bin"><!NOTATION text PUBLIC "-//Example//Text//EN">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY markup '<child/>'>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY e 'ok'>]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY e '&#x41;'>]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY e '&lt;&amp;&gt;&apos;&quot;'>]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY e 'first'><!ENTITY e SYSTEM 'root.ent'>]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY external SYSTEM 'root.ent'><!ENTITY internal '&external;'>]><root/>`,
+		`<!DOCTYPE root [<!ATTLIST root value CDATA '&value;'><!ENTITY value 'forward'>]><root/>`,
+		`<!DOCTYPE root [<!ATTLIST root value CDATA '&value;'><!ENTITY value 'first'><!ENTITY value 'second'>]><root/>`,
+		`<!DOCTYPE root [<!ATTLIST root value CDATA '&amp;&#x41;&#65;'>]><root/>`,
+		`<p:root xmlns:p="urn:root"/>`,
+		`<root xmlns:p="urn:root" p:id="one"/>`,
+		`<root xmlns="urn:root"><child/></root>`,
+		`<root xmlns="urn:root"><child xmlns=""/></root>`,
+		`<a></a>`,
+		`<root xml:lang="en"/>`,
+		`<root id = "one"/>`,
+		`<root xmlns:p="https://example.test/日本語"><p:item/></root>`,
+		`<root xmlns:p="urn:example:%C3%A9"><p:item/></root>`,
+	}
+	for _, content := range contents {
+		t.Run(fmt.Sprintf("%q", content), func(t *testing.T) {
+			entry := testEntry("xml", testDigest([]byte(content)))
+			entry.Kind = KindBootstrapArtifact
+			document, err := Generate(context.Background(), responseClient([]byte(content)), entry)
+			if err != nil {
+				t.Fatalf("Generate() error = %v", err)
+			}
+			if !bytes.Equal(document.Data, []byte(content)) {
+				t.Fatalf("Generate() data = %q, want %q", document.Data, content)
+			}
+		})
+	}
+}
+
+func TestBootstrapXMLDoctypeSyntaxRetainsCompatibilityHelper(t *testing.T) {
+	name, ok := bootstrapXMLDoctypeSyntax([]byte("<!DOCTYPE root [<!ENTITY e 'ok'>]>"))
+	if !ok || name != "root" {
+		t.Fatalf("bootstrapXMLDoctypeSyntax() = %q, %v, want root, true", name, ok)
+	}
+}
+
+func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
+	tests := []bootstrapXMLInvalidCase{
+		{name: "unclosed element", representation: "xml", content: "<root>"},
+		{name: "trailing text", representation: "xml", content: "<root/>text"},
+		{name: "second root", representation: "xml", content: "<one/><two/>"},
+		{name: "late declaration", representation: "xml", content: "<root/><?xml version=\"1.0\"?>"},
+		{name: "doctype after root", representation: "xml", content: "<root/><!DOCTYPE root>"},
+		{name: "doctype before declaration", representation: "xml", content: "<!DOCTYPE root><?xml version=\"1.0\"?><root/>"},
+		{name: "character data before root", representation: "xml", content: "text<root/>"},
+		{name: "numeric whitespace before root", representation: "xml", content: "&#x20;<root/>"},
+		{name: "numeric whitespace after root", representation: "xml", content: "<root/>&#x20;"},
+		{name: "general entity whitespace before root", representation: "xml", content: `<!DOCTYPE root [<!ENTITY e " ">]>&e;<root/>`},
+		{name: "general entity whitespace after root", representation: "xml", content: `<!DOCTYPE root [<!ENTITY e " ">]><root/>&e;`},
+		{name: "empty CDATA before root", representation: "xml", content: "<![CDATA[]]><root/>"},
+		{name: "whitespace CDATA before root", representation: "xml", content: "<![CDATA[ \t\r\n]]><root/>"},
+		{name: "whitespace CDATA after root", representation: "xml", content: "<root/><![CDATA[ \t\r\n]]>"},
+		{name: "invalid directive", representation: "xml", content: "<!ENTITY root><root/>"},
+		{name: "missing root", representation: "xml", content: "<!-- no root -->"},
+		{name: "html-cdata-pre trailing text", representation: "html-cdata-pre", content: "<root/>text"},
+		{name: "empty declaration", representation: "xml", content: "<?xml?><root/>"},
+		{name: "empty declaration before newline", representation: "xml", content: "<?xml?>\n<root/>"},
+		{name: "declaration without version", representation: "xml", content: "<?xml encoding=\"UTF-8\"?><root/>"},
+		{name: "declaration with unknown field", representation: "xml", content: "<?xml version=\"1.0\" extra=\"value\"?><root/>"},
+		{name: "empty doctype", representation: "xml", content: "<!DOCTYPE >\n<root/>"},
+		{name: "doctype without external literal", representation: "xml", content: "<!DOCTYPE root SYSTEM><root/>"},
+		{name: "doctype root mismatch", representation: "xml", content: "<!DOCTYPE other><root/>"},
+		{name: "malformed element declaration", representation: "xml", content: "<!DOCTYPE root [<!ELEMENT root>]><root/>"},
+		{name: "malformed attlist declaration", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root id>]><root/>"},
+		{name: "attlist without default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root id CDATA>]><root/>"},
+		{name: "truncated entity declaration", representation: "xml", content: "<!DOCTYPE root [<!ENTITY name \"value>]><root/>"},
+		{name: "malformed entity declaration", representation: "xml", content: "<!DOCTYPE root [<!ENTITY name>]><root/>"},
+		{name: "uppercase hexadecimal character reference", representation: "xml", content: "<!DOCTYPE root [<!ENTITY name '&#X41;'>]><root/>"},
+		{name: "uppercase hexadecimal character reference in content", representation: "xml", content: "<root>&#X41;</root>"},
+		{name: "undeclared entity use", representation: "xml", content: "<root>&missing;</root>"},
+		{name: "external entity use", representation: "xml", content: "<!DOCTYPE root [<!ENTITY external SYSTEM 'root.ent'>]><root>&external;</root>"},
+		{name: "internal entity with external dependency", representation: "xml", content: "<!DOCTYPE root [<!ENTITY external SYSTEM 'root.ent'><!ENTITY internal '&external;'>]><root>&internal;</root>"},
+		{name: "cyclic entity declaration", representation: "xml", content: "<!DOCTYPE root [<!ENTITY first '&second;'><!ENTITY second '&first;'>]><root/>"},
+		{name: "markup-bearing entity use", representation: "xml", content: "<!DOCTYPE root [<!ENTITY markup '<child/>'>]><root>&markup;</root>"},
+		{name: "less-than in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '<'>]><root/>"},
+		{name: "undeclared entity in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&missing;'>]><root/>"},
+		{name: "external entity in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&external;'><!ENTITY external SYSTEM 'root.ent'>]><root/>"},
+		{name: "markup-bearing entity in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&markup;'><!ENTITY markup '<child/>'>]><root/>"},
+		{name: "cyclic entity in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&first;'><!ENTITY first '&second;'><!ENTITY second '&first;'>]><root/>"},
+		{name: "undeclared entity in fixed attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA #FIXED '&missing;'>]><root/>"},
+		{name: "external entity in fixed attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA #FIXED '&external;'><!ENTITY external SYSTEM 'root.ent'>]><root/>"},
+		{name: "markup-bearing entity in fixed attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA #FIXED '&markup;'><!ENTITY markup '<child/>'>]><root/>"},
+		{name: "cyclic entity in fixed attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA #FIXED '&first;'><!ENTITY first '&second;'><!ENTITY second '&first;'>]><root/>"},
+		{name: "truncated notation declaration", representation: "xml", content: "<!DOCTYPE root [<!NOTATION image SYSTEM>]><root/>"},
+		{name: "malformed notation declaration", representation: "xml", content: "<!DOCTYPE root [<!NOTATION image>]><root/>"},
+		{name: "duplicate attribute", representation: "xml", content: `<root id="one" id="two"/>`},
+		{name: "attributes without separator", representation: "xml", content: `<root id="one"name="two"/>`},
+		{name: "invalid character reference", representation: "xml", content: `<root>&#xD800;</root>`},
+		{name: "invalid attribute character reference", representation: "xml", content: `<root value="&#xD800;"/>`},
+		{name: "duplicate expanded attribute", representation: "xml", content: `<root xmlns:a="urn:a" a:id="one" a:id="two"/>`},
+		{name: "unbound element prefix", representation: "xml", content: "<p:root/>"},
+		{name: "unbound attribute prefix", representation: "xml", content: `<root p:id="one"/>`},
+		{name: "invalid element QName", representation: "xml", content: "<a::root/>"},
+		{name: "reserved xml binding", representation: "xml", content: `<root xmlns:xml="urn:wrong"/>`},
+		{name: "reserved xml prefix", representation: "xml", content: `<root xmlns:xmlfoo="urn:wrong"/>`},
+		{name: "reserved xmlns binding", representation: "xml", content: `<root xmlns:xmlns="urn:wrong"/>`},
+		{name: "reserved namespace URI", representation: "xml", content: `<root xmlns:p="http://www.w3.org/2000/xmlns/"/>`},
+		{name: "reserved xml namespace URI", representation: "xml", content: `<root xmlns:p="http://www.w3.org/XML/1998/namespace"/>`},
+		{name: "invalid namespace URI", representation: "xml", content: `<root xmlns:p="urn:with space"/>`},
+		{name: "invalid namespace URI percent escape", representation: "xml", content: `<root xmlns:p="urn:bad%zz"/>`},
+		{name: "invalid namespace URI control", representation: "xml", content: "<root xmlns:p=\"urn:bad\x7furi\"/>"},
+		{name: "prefixed namespace undeclaration", representation: "xml", content: `<root xmlns:p="urn:p"><child xmlns:p=""><p:item/></child></root>`},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			assertRejectedBootstrapXML(t, test)
+		})
+	}
+}
+
+func TestGenerateRejectsOverLimitEntityInAttributeDefaults(t *testing.T) {
+	largeValue := strings.Repeat("x", bootstrapXMLMaxEntityValueLength+1)
+	for _, fixed := range []bool{false, true} {
+		defaultDeclaration := "CDATA "
+		if fixed {
+			defaultDeclaration += "#FIXED "
+		}
+		content := "<!DOCTYPE root [<!ATTLIST root value " + defaultDeclaration + "'&large;'><!ENTITY large '" + largeValue + "'>]><root/>"
+		t.Run(defaultDeclaration, func(t *testing.T) {
+			assertRejectedBootstrapXML(t, bootstrapXMLInvalidCase{
+				name:           "over-limit entity in attribute default",
+				representation: "xml",
+				content:        content,
+			})
+		})
+	}
+}
+
+type bootstrapXMLInvalidCase struct {
+	name           string
+	representation string
+	content        string
+}
+
+func assertRejectedBootstrapXML(t *testing.T, test bootstrapXMLInvalidCase) {
+	t.Helper()
+	raw := bootstrapXMLRaw(test.representation, []byte(test.content))
+	entry := testEntry(test.representation, testDigest(raw))
+	entry.Kind = KindBootstrapArtifact
+	document, err := Generate(context.Background(), responseClient(raw), entry)
+	if err == nil {
+		t.Fatal("Generate() error = nil")
+	}
+	if document.Data != nil || document.Index != nil || document.Entry.ID != "" {
+		t.Fatalf("Generate() document = %#v, want zero document", document)
+	}
+	assertErrorCode(t, err, bootstrapXMLDocumentCode)
+	var corpusErr *Error
+	if !errors.As(err, &corpusErr) {
+		t.Fatalf("Generate() error = %v, want *Error", err)
+	}
+	if corpusErr.ID != entry.ID || corpusErr.URL != entry.URL {
+		t.Fatalf("Generate() corpus location = %q / %q, want %q / %q", corpusErr.ID, corpusErr.URL, entry.ID, entry.URL)
+	}
+	var syntaxErr *xml.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("Generate() error = %v, want encoding/xml cause", err)
+	}
+	if !errors.Is(err, syntaxErr) {
+		t.Fatalf("Generate() error = %v, does not unwrap encoding/xml cause", err)
+	}
+}
+
+func bootstrapXMLRaw(representation string, content []byte) []byte {
+	if representation != "html-cdata-pre" {
+		return append([]byte(nil), content...)
+	}
+	return bootstrapXMLWrappedContent(content)
+}
+
+func bootstrapXMLWrappedContent(content []byte) []byte {
+	raw := append([]byte(cdataPrefix), content...)
+	return append(raw, []byte(cdataSuffix+"\n")...)
 }
 
 func TestXHTMLRenderingPreservesNavigationAndIndexesFragments(t *testing.T) {
@@ -314,9 +557,9 @@ func testResponse(status int, body []byte) *http.Response {
 	}
 }
 
-func responseClient(status int, body []byte) *http.Client {
+func responseClient(body []byte) *http.Client {
 	return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return testResponse(status, body), nil
+		return testResponse(http.StatusOK, body), nil
 	})}
 }
 
