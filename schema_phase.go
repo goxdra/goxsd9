@@ -952,7 +952,9 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		}
 		return "", nil
 	}
-	if kind == ComponentKindElementDeclaration && (attribute.name.local == "abstract" || attribute.name.local == "nillable") && len(syntaxAttributesByLocal(element, "type")) == 1 {
+	if kind == ComponentKindElementDeclaration &&
+		(attribute.name.local == "abstract" || attribute.name.local == "nillable") &&
+		(len(syntaxAttributesByLocal(element, "type")) == 1 || inlineSimpleTypeChild(element) != nil) {
 		return "", validateSchemaBoolean(attribute)
 	}
 	status := globalSchemaAttributeStatus(kind, attribute.name.local)
