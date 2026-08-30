@@ -126,32 +126,20 @@ func Generate(ctx context.Context, client *http.Client, entry Entry) (Document, 
 	return document, nil
 }
 
-type bootstrapXMLValidator struct {
-	doctypeName string
-	elements    []bootstrapXMLElement
-	depth       int
-	seenDoctype bool
-	seenRoot    bool
-	seenToken   bool
-	namespace   *bootstrapXMLNamespaceScope
-}
-
-const bootstrapXMLMaxEntityValueLength = 1 << 20
-
-type bootstrapXMLEntityResolution uint8
-
 const (
-	bootstrapXMLEntityResolved bootstrapXMLEntityResolution = iota
-	bootstrapXMLEntityUnavailable
-	bootstrapXMLEntityInvalid
-	bootstrapXMLEntityResolving
+	bootstrapXMLMaxEntityValueLength = 1 << 20
+	bootstrapXMLMaxEntityDepth       = 128
+	bootstrapXMLMaxContentGroupDepth = 128
 )
 
-type bootstrapXMLElement struct {
-	name      xml.Name
-	qname     bootstrapXMLQName
-	namespace *bootstrapXMLNamespaceScope
-}
+var (
+	errBootstrapXMLParameterEntityUnsupported = errors.New("bootstrap XML parameter entity expansion is unsupported")
+	errBootstrapXMLResourceLimit              = errors.New("bootstrap XML validation exceeds resource limits")
+	errBootstrapXMLExternalEntityUnsupported  = errors.New("bootstrap XML external entity resolution is unsupported")
+	errBootstrapXMLUnknownEntity              = errors.New("bootstrap XML entity reference is undeclared")
+	errBootstrapXMLCyclicEntity               = errors.New("bootstrap XML entity reference is cyclic")
+	errBootstrapXMLPredefinedEntityInvalid    = errors.New("bootstrap XML predefined entity declaration is invalid")
+)
 
 type bootstrapXMLNamespaceScope struct {
 	bindings map[string]string
@@ -162,414 +150,6 @@ type bootstrapXMLQName struct {
 	local  string
 	prefix string
 	raw    string
-}
-
-type bootstrapXMLRawAttribute struct {
-	qname bootstrapXMLQName
-}
-
-func validateBootstrapXML(entry Entry, data []byte) error {
-	decoder := xml.NewDecoder(bytes.NewReader(data))
-	decoder.Strict = true
-	validator := bootstrapXMLValidator{}
-
-	for {
-		tokenStart := decoder.InputOffset()
-		token, err := decoder.Token()
-		tokenEnd := decoder.InputOffset()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return corpusError(bootstrapXMLDocumentCode, entry.ID, entry.URL, err)
-		}
-		if validationErr := validator.accept(entry, decoder, token, data, tokenStart, tokenEnd); validationErr != nil {
-			return validationErr
-		}
-	}
-	if !validator.seenRoot {
-		return bootstrapXMLDocumentError(entry, decoder, "XML document has no root element")
-	}
-	return nil
-}
-
-func (validator *bootstrapXMLValidator) accept(
-	entry Entry,
-	decoder *xml.Decoder,
-	token xml.Token,
-	data []byte,
-	tokenStart, tokenEnd int64,
-) error {
-	switch value := token.(type) {
-	case xml.StartElement:
-		return validator.startElement(entry, decoder, value, data, tokenStart, tokenEnd)
-	case xml.EndElement:
-		raw, ok := bootstrapXMLTokenBytes(data, tokenStart, tokenEnd)
-		if !ok {
-			raw = nil
-		}
-		return validator.endElement(entry, decoder, value, raw, tokenStart, tokenEnd)
-	case xml.CharData:
-		return validator.characterData(entry, decoder, data, tokenStart, tokenEnd)
-	case xml.Comment:
-		validator.seenToken = true
-		return nil
-	case xml.ProcInst:
-		return validator.processingInstruction(entry, decoder, value, data, tokenStart, tokenEnd)
-	case xml.Directive:
-		return validator.directive(entry, decoder, value, data, tokenStart, tokenEnd)
-	default:
-		return bootstrapXMLDocumentError(entry, decoder,
-			fmt.Sprintf("XML decoder returned unsupported token %T", token))
-	}
-}
-
-func (validator *bootstrapXMLValidator) startElement(
-	entry Entry,
-	decoder *xml.Decoder,
-	value xml.StartElement,
-	data []byte,
-	tokenStart, tokenEnd int64,
-) error {
-	qname, attributes, err := bootstrapXMLStartElementParts(entry, decoder, value, data, tokenStart, tokenEnd)
-	if err != nil {
-		return err
-	}
-	if validationErr := bootstrapXMLAttributes(entry, decoder, value.Attr); validationErr != nil {
-		return validationErr
-	}
-	namespace, err := bootstrapXMLStartNamespace(entry, decoder, value, attributes, validator.namespace)
-	if err != nil {
-		return err
-	}
-	if err := bootstrapXMLValidateStartNames(entry, decoder, value, qname, attributes, namespace); err != nil {
-		return err
-	}
-	if validator.depth == 0 {
-		if err := validator.validateRootStart(entry, decoder, qname); err != nil {
-			return err
-		}
-	}
-	if validator.depth == 0 {
-		validator.seenRoot = true
-	}
-	validator.elements = append(validator.elements, bootstrapXMLElement{
-		name:      value.Name,
-		qname:     qname,
-		namespace: namespace,
-	})
-	validator.namespace = namespace
-	validator.depth++
-	validator.seenToken = true
-	return nil
-}
-
-func bootstrapXMLStartElementParts(
-	entry Entry,
-	decoder *xml.Decoder,
-	value xml.StartElement,
-	data []byte,
-	tokenStart, tokenEnd int64,
-) (bootstrapXMLQName, []bootstrapXMLRawAttribute, error) {
-	raw, ok := bootstrapXMLTokenBytes(data, tokenStart, tokenEnd)
-	qname, attributes, _, parseOK := bootstrapXMLStartTag(raw)
-	if !ok || !parseOK || len(attributes) != len(value.Attr) {
-		return bootstrapXMLQName{}, nil,
-			bootstrapXMLDocumentError(entry, decoder, "XML document has an invalid start element")
-	}
-	return qname, attributes, nil
-}
-
-func bootstrapXMLStartNamespace(
-	entry Entry,
-	decoder *xml.Decoder,
-	value xml.StartElement,
-	attributes []bootstrapXMLRawAttribute,
-	parent *bootstrapXMLNamespaceScope,
-) (*bootstrapXMLNamespaceScope, error) {
-	namespace := &bootstrapXMLNamespaceScope{
-		bindings: make(map[string]string),
-		parent:   parent,
-	}
-	for index, attribute := range attributes {
-		if !bootstrapXMLNamespaceDeclaration(attribute.qname) {
-			continue
-		}
-		prefix := bootstrapXMLNamespacePrefix(attribute.qname)
-		if _, exists := namespace.bindings[prefix]; exists {
-			return nil, bootstrapXMLDocumentError(entry, decoder,
-				fmt.Sprintf("duplicate namespace declaration %q", prefix))
-		}
-		if !bootstrapXMLNamespaceBindingAllowed(prefix, value.Attr[index].Value) {
-			return nil, bootstrapXMLDocumentError(entry, decoder,
-				fmt.Sprintf("invalid namespace declaration for prefix %q", prefix))
-		}
-		namespace.bindings[prefix] = value.Attr[index].Value
-	}
-	return namespace, nil
-}
-
-func bootstrapXMLValidateStartNames(
-	entry Entry,
-	decoder *xml.Decoder,
-	value xml.StartElement,
-	qname bootstrapXMLQName,
-	attributes []bootstrapXMLRawAttribute,
-	namespace *bootstrapXMLNamespaceScope,
-) error {
-	nameSpace, valid := bootstrapXMLQNameNamespace(qname, namespace, false)
-	if !valid || value.Name != (xml.Name{Space: nameSpace, Local: qname.local}) {
-		return bootstrapXMLDocumentError(entry, decoder,
-			fmt.Sprintf("invalid namespace prefix %q on element %q", qname.prefix, qname.raw))
-	}
-	for index, attribute := range attributes {
-		if bootstrapXMLNamespaceDeclaration(attribute.qname) {
-			continue
-		}
-		nameSpace, valid := bootstrapXMLQNameNamespace(attribute.qname, namespace, true)
-		if !valid || value.Attr[index].Name != (xml.Name{Space: nameSpace, Local: attribute.qname.local}) {
-			return bootstrapXMLDocumentError(entry, decoder,
-				fmt.Sprintf("invalid namespace prefix %q on attribute %q", attribute.qname.prefix, attribute.qname.raw))
-		}
-	}
-	return nil
-}
-
-func (validator *bootstrapXMLValidator) validateRootStart(
-	entry Entry,
-	decoder *xml.Decoder,
-	qname bootstrapXMLQName,
-) error {
-	if validator.seenRoot {
-		return bootstrapXMLDocumentError(entry, decoder, "XML document has more than one root element")
-	}
-	if validator.doctypeName != "" && validator.doctypeName != qname.raw {
-		return bootstrapXMLDocumentError(entry, decoder,
-			fmt.Sprintf("XML document root %q does not match doctype %q", qname.raw, validator.doctypeName))
-	}
-	return nil
-}
-
-func (validator *bootstrapXMLValidator) endElement(
-	entry Entry,
-	decoder *xml.Decoder,
-	value xml.EndElement,
-	raw []byte,
-	tokenStart, tokenEnd int64,
-) error {
-	if validator.depth == 0 {
-		return bootstrapXMLDocumentError(entry, decoder, "XML document has an unexpected end element")
-	}
-	last := validator.elements[len(validator.elements)-1]
-	if tokenStart != tokenEnd {
-		endName, ok := bootstrapXMLEndTag(raw)
-		if !ok {
-			return bootstrapXMLDocumentError(entry, decoder, "XML document has an invalid end element")
-		}
-		nameSpace, valid := bootstrapXMLQNameNamespace(endName, last.namespace, false)
-		if !valid || value.Name != (xml.Name{Space: nameSpace, Local: endName.local}) ||
-			last.name != value.Name {
-			return bootstrapXMLDocumentError(entry, decoder,
-				fmt.Sprintf("XML document end element %q does not match start element %q", endName.raw, last.qname.raw))
-		}
-	}
-	if value.Name != last.name {
-		return bootstrapXMLDocumentError(entry, decoder,
-			fmt.Sprintf("XML document end element does not match start element %q", last.qname.raw))
-	}
-	validator.elements = validator.elements[:len(validator.elements)-1]
-	validator.namespace = last.namespace.parent
-	validator.depth--
-	validator.seenToken = true
-	return nil
-}
-
-func (validator *bootstrapXMLValidator) characterData(
-	entry Entry,
-	decoder *xml.Decoder,
-	raw []byte,
-	tokenStart, tokenEnd int64,
-) error {
-	token, tokenOK := bootstrapXMLTokenBytes(raw, tokenStart, tokenEnd)
-	if !tokenOK {
-		return bootstrapXMLDocumentError(entry, decoder, "XML document has an invalid character data token")
-	}
-	if !bootstrapXMLTokenIsCDATA(raw, tokenStart, tokenEnd) && !bootstrapXMLNumericReferencesValid(token) {
-		return bootstrapXMLDocumentError(entry, decoder, "XML document has an invalid character reference")
-	}
-	if validator.depth != 0 {
-		validator.seenToken = true
-		return nil
-	}
-	if bootstrapXMLTokenIsCDATA(raw, tokenStart, tokenEnd) {
-		return bootstrapXMLDocumentError(entry, decoder, "XML document has non-whitespace character data outside the root element")
-	}
-	if tokenStart == 0 && bytes.HasPrefix(token, []byte(bootstrapXMLUTF8BOM)) {
-		token = token[len(bootstrapXMLUTF8BOM):]
-		if len(token) == 0 {
-			return nil
-		}
-	}
-	if !bootstrapXMLLiteralWhitespace(token) {
-		return bootstrapXMLDocumentError(entry, decoder, "XML document has non-whitespace character data outside the root element")
-	}
-	validator.seenToken = true
-	return nil
-}
-
-func (validator *bootstrapXMLValidator) processingInstruction(
-	entry Entry,
-	decoder *xml.Decoder,
-	value xml.ProcInst,
-	raw []byte,
-	tokenStart, tokenEnd int64,
-) error {
-	if !strings.EqualFold(value.Target, "xml") {
-		validator.seenToken = true
-		return nil
-	}
-	if value.Target != "xml" || validator.seenToken {
-		return bootstrapXMLDocumentError(entry, decoder, "XML declaration must be the first document token")
-	}
-	token, ok := bootstrapXMLTokenBytes(raw, tokenStart, tokenEnd)
-	if !ok || !bootstrapXMLDeclaration(token) {
-		return bootstrapXMLDocumentError(entry, decoder, "invalid XML declaration")
-	}
-	validator.seenToken = true
-	return nil
-}
-
-func (validator *bootstrapXMLValidator) directive(
-	entry Entry,
-	decoder *xml.Decoder,
-	value xml.Directive,
-	raw []byte,
-	tokenStart, tokenEnd int64,
-) error {
-	token, ok := bootstrapXMLTokenBytes(raw, tokenStart, tokenEnd)
-	doctypeName, entities, syntaxOK := bootstrapXMLDoctypeSyntaxWithEntities(token)
-	if !ok || !bootstrapXMLDoctype(value) || !syntaxOK {
-		return bootstrapXMLDocumentError(entry, decoder, "XML document has an invalid directive")
-	}
-	if validator.depth != 0 || validator.seenRoot || validator.seenDoctype {
-		return bootstrapXMLDocumentError(entry, decoder, "XML document doctype is not in the prolog")
-	}
-	validator.doctypeName = doctypeName
-	validator.seenDoctype = true
-	validator.seenToken = true
-	decoder.Entity = entities
-	return nil
-}
-
-func bootstrapXMLDocumentError(entry Entry, decoder *xml.Decoder, message string) error {
-	line, _ := decoder.InputPos()
-	return corpusError(bootstrapXMLDocumentCode, entry.ID, entry.URL,
-		&xml.SyntaxError{Msg: message, Line: line})
-}
-
-func bootstrapXMLDoctype(directive xml.Directive) bool {
-	const keyword = "DOCTYPE"
-	if !bytes.HasPrefix(directive, []byte(keyword)) {
-		return false
-	}
-	if len(directive) == len(keyword) || !bootstrapXMLSpace(directive[len(keyword)]) {
-		return false
-	}
-	return true
-}
-
-func bootstrapXMLStartTag(raw []byte) (
-	bootstrapXMLQName,
-	[]bootstrapXMLRawAttribute,
-	bool,
-	bool,
-) {
-	if len(raw) < 3 || raw[0] != '<' || raw[1] == '/' || raw[1] == '!' || raw[1] == '?' {
-		return bootstrapXMLQName{}, nil, false, false
-	}
-	index := 1
-	name, ok := bootstrapXMLQNameAt(raw, &index)
-	if !ok {
-		return bootstrapXMLQName{}, nil, false, false
-	}
-	return bootstrapXMLStartTagAttributes(raw, index, name)
-}
-
-func bootstrapXMLStartTagAttributes(
-	raw []byte,
-	index int,
-	name bootstrapXMLQName,
-) (bootstrapXMLQName, []bootstrapXMLRawAttribute, bool, bool) {
-	attributes := make([]bootstrapXMLRawAttribute, 0)
-	for {
-		spaced := bootstrapXMLConsumeSpace(raw, &index)
-		if index >= len(raw) {
-			return bootstrapXMLQName{}, nil, false, false
-		}
-		if raw[index] == '>' {
-			return name, attributes, false, index+1 == len(raw)
-		}
-		if raw[index] == '/' {
-			if index+2 != len(raw) || raw[index+1] != '>' {
-				return bootstrapXMLQName{}, nil, false, false
-			}
-			return name, attributes, true, true
-		}
-		if !spaced {
-			return bootstrapXMLQName{}, nil, false, false
-		}
-		attribute, ok := bootstrapXMLStartTagAttribute(raw, &index)
-		if !ok {
-			return bootstrapXMLQName{}, nil, false, false
-		}
-		attributes = append(attributes, bootstrapXMLRawAttribute{qname: attribute})
-	}
-}
-
-func bootstrapXMLStartTagAttribute(raw []byte, index *int) (bootstrapXMLQName, bool) {
-	attribute, ok := bootstrapXMLQNameAt(raw, index)
-	if !ok {
-		return bootstrapXMLQName{}, false
-	}
-	bootstrapXMLConsumeSpace(raw, index)
-	if *index >= len(raw) || raw[*index] != '=' {
-		return bootstrapXMLQName{}, false
-	}
-	(*index)++
-	bootstrapXMLConsumeSpace(raw, index)
-	if *index >= len(raw) || raw[*index] != '\'' && raw[*index] != '"' {
-		return bootstrapXMLQName{}, false
-	}
-	quote := raw[*index]
-	(*index)++
-	valueStart := *index
-	for *index < len(raw) && raw[*index] != quote {
-		(*index)++
-	}
-	if *index >= len(raw) {
-		return bootstrapXMLQName{}, false
-	}
-	if !bootstrapXMLNumericReferencesValid(raw[valueStart:*index]) {
-		return bootstrapXMLQName{}, false
-	}
-	(*index)++
-	return attribute, true
-}
-
-func bootstrapXMLEndTag(raw []byte) (bootstrapXMLQName, bool) {
-	if len(raw) < 4 || raw[0] != '<' || raw[1] != '/' {
-		return bootstrapXMLQName{}, false
-	}
-	index := 2
-	name, ok := bootstrapXMLQNameAt(raw, &index)
-	if !ok {
-		return bootstrapXMLQName{}, false
-	}
-	bootstrapXMLConsumeSpace(raw, &index)
-	if index+1 != len(raw) || raw[index] != '>' {
-		return bootstrapXMLQName{}, false
-	}
-	return name, true
 }
 
 func bootstrapXMLQNameAt(data []byte, index *int) (bootstrapXMLQName, bool) {
@@ -635,10 +215,10 @@ func bootstrapXMLQNameNamespace(
 		}
 		return "", true
 	}
-	if bootstrapXMLReservedPrefix(qname.prefix) {
+	if strings.EqualFold(qname.prefix, "xml") {
 		return bootstrapXMLNamespaceURI, qname.prefix == "xml"
 	}
-	if qname.prefix == "xmlns" {
+	if qname.prefix == "xmlns" || bootstrapXMLReservedPrefix(qname.prefix) {
 		return "", false
 	}
 	namespace, ok := scope.lookup(qname.prefix)
@@ -705,30 +285,1029 @@ func (scope *bootstrapXMLNamespaceScope) lookup(prefix string) (string, bool) {
 	return "", false
 }
 
-func bootstrapXMLAttributes(entry Entry, decoder *xml.Decoder, attributes []xml.Attr) error {
-	seen := make(map[xml.Name]struct{}, len(attributes))
-	for _, attribute := range attributes {
-		if _, exists := seen[attribute.Name]; exists {
-			return bootstrapXMLDocumentError(entry, decoder,
-				fmt.Sprintf("duplicate XML attribute %q", bootstrapXMLAttributeName(attribute.Name)))
+type bootstrapXMLSource struct {
+	data       []byte
+	activeAmp  []bool
+	numericAmp []bool
+	markup     []bool
+}
+
+func (source bootstrapXMLSource) ampersandActive(index int) bool {
+	if index < 0 || index >= len(source.data) || source.data[index] != '&' {
+		return false
+	}
+	if source.activeAmp == nil {
+		return true
+	}
+	return source.activeAmp[index]
+}
+
+func (source bootstrapXMLSource) referenceCandidate(index int) bool {
+	if source.ampersandActive(index) {
+		return true
+	}
+	if index < 0 || index >= len(source.numericAmp) || !source.numericAmp[index] {
+		return false
+	}
+	return true
+}
+
+func (source bootstrapXMLSource) lessThanMarkup(index int) bool {
+	if index < 0 || index >= len(source.data) || source.data[index] != '<' {
+		return false
+	}
+	if source.markup == nil {
+		return true
+	}
+	return source.markup[index]
+}
+
+func (source bootstrapXMLSource) slice(start, end int) bootstrapXMLSource {
+	if start < 0 || end < start || end > len(source.data) {
+		return bootstrapXMLSource{}
+	}
+	result := bootstrapXMLSource{data: source.data[start:end]}
+	if source.activeAmp != nil {
+		result.activeAmp = source.activeAmp[start:end]
+	}
+	if source.numericAmp != nil {
+		result.numericAmp = source.numericAmp[start:end]
+	}
+	if source.markup != nil {
+		result.markup = source.markup[start:end]
+	}
+	return result
+}
+
+type bootstrapXMLParseError struct {
+	offset  int
+	message string
+	cause   error
+}
+
+func (err *bootstrapXMLParseError) Error() string {
+	return err.message
+}
+
+func (err *bootstrapXMLParseError) Unwrap() error {
+	return err.cause
+}
+
+type bootstrapXMLBudget struct {
+	used int
+}
+
+func (budget *bootstrapXMLBudget) consume(amount int) bool {
+	if amount < 0 || amount > bootstrapXMLMaxEntityValueLength-budget.used {
+		budget.used = bootstrapXMLMaxEntityValueLength
+		return false
+	}
+	budget.used += amount
+	return true
+}
+
+type bootstrapXMLParsedAttribute struct {
+	qname      bootstrapXMLQName
+	value      bootstrapXMLSource
+	startIndex int
+}
+
+type bootstrapXMLParsedElement struct {
+	qname     bootstrapXMLQName
+	name      xml.Name
+	namespace *bootstrapXMLNamespaceScope
+}
+
+type bootstrapXMLDocumentParser struct {
+	source      bootstrapXMLSource
+	data        []byte
+	index       int
+	dtd         *bootstrapXMLDTD
+	doctypeName string
+	stack       []bootstrapXMLParsedElement
+	namespace   *bootstrapXMLNamespaceScope
+	seenDoctype bool
+	seenRoot    bool
+	seenToken   bool
+	fragment    bool
+	entityDepth int
+	entityStack []string
+	budget      *bootstrapXMLBudget
+}
+
+type bootstrapXMLDTD struct {
+	entities       []bootstrapXMLEntityDeclaration
+	entityIndexes  map[string]int
+	externalSubset bool
+}
+
+type bootstrapXMLAttValueDefault struct {
+	value       string
+	entityLimit int
+}
+
+func lenBootstrapXMLEntities(dtd *bootstrapXMLDTD) int {
+	if dtd == nil {
+		return 0
+	}
+	return len(dtd.entities)
+}
+
+func (dtd *bootstrapXMLDTD) entity(name string, limit int) (bootstrapXMLEntityDeclaration, bool) {
+	if dtd == nil || limit < 0 {
+		return bootstrapXMLEntityDeclaration{}, false
+	}
+	if limit > len(dtd.entities) {
+		limit = len(dtd.entities)
+	}
+	index, ok := dtd.entityIndexes[name]
+	if !ok || index >= limit {
+		return bootstrapXMLEntityDeclaration{}, false
+	}
+	return dtd.entities[index], true
+}
+
+func (parser *bootstrapXMLDocumentParser) parse() error { //nolint:gocognit // The ordered document state machine keeps XML phase checks together.
+	if parser.budget == nil {
+		parser.budget = &bootstrapXMLBudget{}
+	}
+	if parser.data == nil {
+		parser.data = parser.source.data
+	}
+	if len(parser.data) == 0 {
+		if parser.fragment {
+			return nil
 		}
-		seen[attribute.Name] = struct{}{}
+		return parser.fail("XML document has no root element", nil)
+	}
+	if !parser.fragment && bytes.HasPrefix(parser.data, []byte(bootstrapXMLUTF8BOM)) {
+		parser.index = len(bootstrapXMLUTF8BOM)
+		parser.seenToken = false
+	}
+	for parser.index < len(parser.source.data) {
+		if parser.source.data[parser.index] == '<' && parser.source.lessThanMarkup(parser.index) {
+			if err := parser.parseMarkup(); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := parser.parseCharacterData(); err != nil {
+			return err
+		}
+	}
+	if parser.fragment {
+		if len(parser.stack) != 0 {
+			return parser.fail("entity replacement is not a complete content fragment", nil)
+		}
+		return nil
+	}
+	if len(parser.stack) != 0 {
+		return parser.fail("XML document has an unclosed element", nil)
+	}
+	if !parser.seenRoot {
+		return parser.fail("XML document has no root element", nil)
 	}
 	return nil
 }
 
-func bootstrapXMLAttributeName(name xml.Name) string {
-	if name.Space == "" {
-		return name.Local
+func (parser *bootstrapXMLDocumentParser) fail(message string, cause error) error {
+	offset := parser.index
+	if offset < 0 {
+		offset = 0
 	}
-	return name.Space + ":" + name.Local
+	if offset > len(parser.data) {
+		offset = len(parser.data)
+	}
+	return &bootstrapXMLParseError{offset: offset, message: message, cause: cause}
 }
 
-func bootstrapXMLTokenBytes(data []byte, start, end int64) ([]byte, bool) {
-	if start < 0 || end < start || end > int64(len(data)) {
-		return nil, false
+func (parser *bootstrapXMLDocumentParser) failAt(offset int, message string, cause error) error {
+	parser.index = offset
+	return parser.fail(message, cause)
+}
+
+func (parser *bootstrapXMLDocumentParser) corpusError(entry Entry, err error) error {
+	var parseErr *bootstrapXMLParseError
+	if !errors.As(err, &parseErr) {
+		parseErr = &bootstrapXMLParseError{offset: parser.index, message: "invalid XML document", cause: err}
 	}
-	return data[start:end], true
+	offset := parseErr.offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(parser.data) {
+		offset = len(parser.data)
+	}
+	line := 1 + bytes.Count(parser.data[:offset], []byte{'\n'})
+	syntaxErr := &xml.SyntaxError{Msg: parseErr.message, Line: line}
+	if parseErr.cause == nil {
+		return corpusError(bootstrapXMLDocumentCode, entry.ID, entry.URL, syntaxErr)
+	}
+	return corpusError(bootstrapXMLDocumentCode, entry.ID, entry.URL, errors.Join(syntaxErr, parseErr.cause))
+}
+
+func (parser *bootstrapXMLDocumentParser) parseMarkup() error {
+	start := parser.index
+	if bytes.HasPrefix(parser.source.data[start:], []byte("<!--")) {
+		return parser.parseComment()
+	}
+	if bytes.HasPrefix(parser.source.data[start:], []byte("<?")) {
+		return parser.parseProcessingInstruction()
+	}
+	if bytes.HasPrefix(parser.source.data[start:], []byte("<![CDATA[")) {
+		return parser.parseCDATA()
+	}
+	if bytes.HasPrefix(parser.source.data[start:], []byte("<!DOCTYPE")) {
+		if parser.fragment {
+			return parser.fail("entity replacement contains a nested directive", nil)
+		}
+		return parser.parseDoctype()
+	}
+	if bytes.HasPrefix(parser.source.data[start:], []byte("</")) {
+		return parser.parseEndElement()
+	}
+	if bytes.HasPrefix(parser.source.data[start:], []byte("<!")) {
+		return parser.fail("XML document has an invalid directive", nil)
+	}
+	return parser.parseStartElement()
+}
+
+func (parser *bootstrapXMLDocumentParser) parseComment() error {
+	start := parser.index
+	end := bytes.Index(parser.source.data[start+len("<!--"):], []byte("-->"))
+	if end < 0 {
+		return parser.fail("XML comment is not terminated", nil)
+	}
+	end += start + len("<!--")
+	comment := parser.source.data[start+len("<!--") : end]
+	if bytes.Contains(comment, []byte("--")) || bytes.HasSuffix(comment, []byte{'-'}) ||
+		!bootstrapXMLValidCharacters(comment) {
+		return parser.fail("XML comment is invalid", nil)
+	}
+	parser.index = end + len("-->")
+	parser.seenToken = true
+	return nil
+}
+
+func (parser *bootstrapXMLDocumentParser) parseProcessingInstruction() error {
+	start := parser.index
+	end := bytes.Index(parser.source.data[start+2:], []byte("?>"))
+	if end < 0 {
+		return parser.fail("XML processing instruction is not terminated", nil)
+	}
+	end += start + 2
+	body := parser.source.data[start+2 : end]
+	index := 0
+	nameStart := index
+	ok := bootstrapXMLName(body, &index)
+	if !ok {
+		return parser.fail("XML processing instruction target is invalid", nil)
+	}
+	name := string(body[nameStart:index])
+	if strings.EqualFold(name, "xml") {
+		if parser.fragment || name != "xml" || parser.seenToken || !bootstrapXMLDeclaration(parser.source.data[start:end+len("?>")]) {
+			return parser.fail("XML processing instruction target is invalid", nil)
+		}
+		parser.index = end + len("?>")
+		parser.seenToken = true
+		return nil
+	}
+	if index < len(body) && !bootstrapXMLSpace(body[index]) {
+		return parser.fail("XML processing instruction target is not separated", nil)
+	}
+	if !bootstrapXMLValidCharacters(body[index:]) {
+		return parser.fail("XML processing instruction is invalid", nil)
+	}
+	parser.index = end + len("?>")
+	parser.seenToken = true
+	return nil
+}
+
+func (parser *bootstrapXMLDocumentParser) parseCDATA() error {
+	start := parser.index
+	end := bytes.Index(parser.source.data[start+len("<![CDATA["):], []byte("]]>"))
+	if end < 0 {
+		return parser.fail("CDATA section is not terminated", nil)
+	}
+	end += start + len("<![CDATA[")
+	if !bootstrapXMLValidCharacters(parser.source.data[start+len("<![CDATA[") : end]) {
+		return parser.fail("CDATA section contains an invalid character", nil)
+	}
+	if !parser.fragment && len(parser.stack) == 0 {
+		return parser.fail("XML document has character data outside the root element", nil)
+	}
+	parser.index = end + len("]]>")
+	parser.seenToken = true
+	return nil
+}
+
+func (parser *bootstrapXMLDocumentParser) parseCharacterData() error {
+	start := parser.index
+	for parser.index < len(parser.source.data) {
+		if parser.source.data[parser.index] == '<' && parser.source.lessThanMarkup(parser.index) {
+			break
+		}
+		if parser.source.data[parser.index] == '&' && parser.source.referenceCandidate(parser.index) {
+			if err := parser.consumeCharacterData(start, parser.index); err != nil {
+				return err
+			}
+			return parser.parseCharacterReferenceOrEntity()
+		}
+		parser.index++
+	}
+	return parser.consumeCharacterData(start, parser.index)
+}
+
+func (parser *bootstrapXMLDocumentParser) consumeCharacterData(start, end int) error {
+	if end <= start {
+		return nil
+	}
+	value := parser.source.data[start:end]
+	if bytes.Contains(value, []byte("]]>")) {
+		return parser.fail("unescaped ]]> is not allowed in character data", nil)
+	}
+	if !bootstrapXMLValidCharacters(value) {
+		return parser.fail("character data contains an invalid character", nil)
+	}
+	if parser.fragment || len(parser.stack) != 0 {
+		parser.seenToken = true
+		return nil
+	}
+	if !bootstrapXMLLiteralWhitespace(value) {
+		return parser.fail("XML document has non-whitespace character data outside the root element", nil)
+	}
+	parser.seenToken = true
+	return nil
+}
+
+func (parser *bootstrapXMLDocumentParser) parseCharacterReferenceOrEntity() error {
+	start := parser.index
+	name, reference, end, kind, ok := parser.sourceReference(parser.index)
+	if !ok {
+		return parser.fail("XML document has an invalid character reference", nil)
+	}
+	parser.index = end
+	if kind == bootstrapXMLSourceCharacterReference {
+		value, ok := bootstrapXMLCharacterReferenceValue(reference[1:])
+		if !ok {
+			return parser.fail("XML document has an invalid character reference", nil)
+		}
+		return parser.consumeGeneratedCharacterData(value)
+	}
+	if kind == bootstrapXMLSourcePredefinedReference {
+		return parser.consumeGeneratedCharacterData(name)
+	}
+	if !parser.fragment && len(parser.stack) == 0 {
+		return parser.failAt(start, "XML document has an entity reference outside element content", nil)
+	}
+	return parser.useEntityContent(name, start)
+}
+
+func (parser *bootstrapXMLDocumentParser) consumeGeneratedCharacterData(value string) error {
+	if !parser.fragment && len(parser.stack) == 0 {
+		return parser.fail("XML document has character data outside the root element", nil)
+	}
+	if !bootstrapXMLValidCharacters([]byte(value)) {
+		return parser.fail("character data contains an invalid character", nil)
+	}
+	parser.seenToken = true
+	return nil
+}
+
+type bootstrapXMLSourceReferenceKind uint8
+
+const (
+	bootstrapXMLSourceCharacterReference bootstrapXMLSourceReferenceKind = iota
+	bootstrapXMLSourcePredefinedReference
+	bootstrapXMLSourceEntityReference
+)
+
+func (parser *bootstrapXMLDocumentParser) sourceReference(index int) (string, string, int, bootstrapXMLSourceReferenceKind, bool) {
+	return bootstrapXMLSourceReferenceAt(parser.source, index)
+}
+
+func bootstrapXMLSourceReferenceAt(source bootstrapXMLSource, index int) (string, string, int, bootstrapXMLSourceReferenceKind, bool) { //nolint:gocognit // Character and named reference grammar share one deterministic scanner.
+	if index < 0 || index >= len(source.data) || !source.referenceCandidate(index) {
+		return "", "", 0, 0, false
+	}
+	end := index + 1
+	if end >= len(source.data) {
+		return "", "", 0, 0, false
+	}
+	if source.data[end] == '#' {
+		end++
+		if end < len(source.data) && source.data[end] == 'x' {
+			end++
+		}
+		start := end
+		base := 10
+		if index+2 < len(source.data) && source.data[index+2] == 'x' {
+			base = 16
+		}
+		for end < len(source.data) && bootstrapXMLReferenceDigit(source.data[end], base) {
+			end++
+		}
+		if start == end || end >= len(source.data) || source.data[end] != ';' {
+			return "", "", 0, 0, false
+		}
+		referenceStart := index + 1
+		return "", string(source.data[referenceStart:end]), end + 1,
+			bootstrapXMLSourceCharacterReference, true
+	}
+	start := end
+	for end < len(source.data) {
+		value, size := utf8.DecodeRune(source.data[end:])
+		if value == utf8.RuneError && size == 1 || !bootstrapXMLNameChar(value) {
+			break
+		}
+		end += size
+	}
+	if start == end || end >= len(source.data) || source.data[end] != ';' {
+		return "", "", 0, 0, false
+	}
+	name := string(source.data[start:end])
+	if predefined, ok := bootstrapXMLPredefinedEntity(name); ok {
+		return predefined, name, end + 1, bootstrapXMLSourcePredefinedReference, true
+	}
+	return name, name, end + 1, bootstrapXMLSourceEntityReference, true
+}
+
+func (parser *bootstrapXMLDocumentParser) parseStartElement() error { //nolint:gocognit // Start-tag lexical states must remain ordered.
+	start := parser.index
+	parser.index++
+	qname, ok := bootstrapXMLQNameAt(parser.source.data, &parser.index)
+	if !ok {
+		return parser.failAt(start, "XML document has an invalid start element", nil)
+	}
+	attributes := make([]bootstrapXMLParsedAttribute, 0)
+	for {
+		spaced := parser.consumeSpace()
+		if parser.index >= len(parser.source.data) {
+			return parser.fail("XML document has an unterminated start element", nil)
+		}
+		if parser.source.data[parser.index] == '>' {
+			parser.index++
+			return parser.finishStartElement(qname, attributes, false)
+		}
+		if parser.source.data[parser.index] == '/' {
+			if parser.index+1 >= len(parser.source.data) || parser.source.data[parser.index+1] != '>' {
+				return parser.fail("XML document has an invalid empty start element", nil)
+			}
+			parser.index += 2
+			return parser.finishStartElement(qname, attributes, true)
+		}
+		if !spaced {
+			return parser.fail("XML document has an invalid start element", nil)
+		}
+		attribute, err := parser.parseAttribute()
+		if err != nil {
+			return err
+		}
+		attributes = append(attributes, attribute)
+	}
+}
+
+func (parser *bootstrapXMLDocumentParser) parseAttribute() (bootstrapXMLParsedAttribute, error) {
+	start := parser.index
+	qname, ok := bootstrapXMLQNameAt(parser.source.data, &parser.index)
+	if !ok {
+		return bootstrapXMLParsedAttribute{}, parser.failAt(start, "XML document has an invalid attribute name", nil)
+	}
+	parser.consumeSpace()
+	if parser.index >= len(parser.source.data) || parser.source.data[parser.index] != '=' {
+		return bootstrapXMLParsedAttribute{}, parser.fail("XML attribute has no equals sign", nil)
+	}
+	parser.index++
+	parser.consumeSpace()
+	if parser.index >= len(parser.source.data) || parser.source.data[parser.index] != '\'' &&
+		parser.source.data[parser.index] != '"' {
+		return bootstrapXMLParsedAttribute{}, parser.fail("XML attribute value is not quoted", nil)
+	}
+	quote := parser.source.data[parser.index]
+	parser.index++
+	valueStart := parser.index
+	for parser.index < len(parser.source.data) {
+		if parser.source.data[parser.index] == quote {
+			value := parser.source.slice(valueStart, parser.index)
+			if err := parser.validateAttributeSyntax(value); err != nil {
+				return bootstrapXMLParsedAttribute{}, err
+			}
+			parser.index++
+			return bootstrapXMLParsedAttribute{qname: qname, value: value, startIndex: start}, nil
+		}
+		if parser.source.data[parser.index] == '<' && parser.source.lessThanMarkup(parser.index) {
+			return bootstrapXMLParsedAttribute{}, parser.fail("XML attribute value contains '<'", nil)
+		}
+		parser.index++
+	}
+	return bootstrapXMLParsedAttribute{}, parser.fail("XML attribute value is not terminated", nil)
+}
+
+func (parser *bootstrapXMLDocumentParser) validateAttributeSyntax(source bootstrapXMLSource) error {
+	if !bootstrapXMLValidCharacters(source.data) {
+		return parser.fail("XML attribute value contains an invalid character", nil)
+	}
+	for index := 0; index < len(source.data); {
+		if source.data[index] != '&' || !source.referenceCandidate(index) {
+			index++
+			continue
+		}
+		_, _, end, _, ok := bootstrapXMLSourceReferenceAt(source, index)
+		if !ok {
+			return parser.fail("XML attribute value has an invalid entity reference", nil)
+		}
+		index = end
+	}
+	return nil
+}
+
+func (parser *bootstrapXMLDocumentParser) finishStartElement( //nolint:gocognit // Namespace declarations must precede all expanded-name checks.
+	qname bootstrapXMLQName,
+	attributes []bootstrapXMLParsedAttribute,
+	empty bool,
+) error {
+	namespace := &bootstrapXMLNamespaceScope{
+		bindings: make(map[string]string),
+		parent:   parser.namespace,
+	}
+	values := make([]string, len(attributes))
+	for index, attribute := range attributes {
+		value, err := parser.expandAttributeSource(attribute.value, lenBootstrapXMLEntities(parser.dtd))
+		if err != nil {
+			return parser.failAt(attribute.startIndex, "XML attribute entity expansion failed", err)
+		}
+		values[index] = value
+	}
+	for index, attribute := range attributes {
+		if !bootstrapXMLNamespaceDeclaration(attribute.qname) {
+			continue
+		}
+		prefix := bootstrapXMLNamespacePrefix(attribute.qname)
+		if _, exists := namespace.bindings[prefix]; exists {
+			return parser.fail("duplicate namespace declaration", nil)
+		}
+		if !bootstrapXMLNamespaceBindingAllowed(prefix, values[index]) {
+			return parser.fail(fmt.Sprintf("invalid namespace declaration for prefix %q", prefix), nil)
+		}
+		namespace.bindings[prefix] = values[index]
+	}
+	nameSpace, valid := bootstrapXMLQNameNamespace(qname, namespace, false)
+	if !valid {
+		return parser.fail(fmt.Sprintf("invalid namespace prefix %q on element %q", qname.prefix, qname.raw), nil)
+	}
+	name := xml.Name{Space: nameSpace, Local: qname.local}
+	seen := make(map[xml.Name]struct{}, len(attributes))
+	for _, attribute := range attributes {
+		if bootstrapXMLNamespaceDeclaration(attribute.qname) {
+			continue
+		}
+		attributeSpace, attributeValid := bootstrapXMLQNameNamespace(attribute.qname, namespace, true)
+		if !attributeValid {
+			return parser.fail(fmt.Sprintf("invalid namespace prefix %q on attribute %q", attribute.qname.prefix, attribute.qname.raw), nil)
+		}
+		attributeName := xml.Name{Space: attributeSpace, Local: attribute.qname.local}
+		if _, exists := seen[attributeName]; exists {
+			return parser.fail(fmt.Sprintf("duplicate XML attribute %q", attribute.qname.raw), nil)
+		}
+		seen[attributeName] = struct{}{}
+	}
+	if len(parser.stack) == 0 && !parser.fragment {
+		if parser.seenRoot {
+			return parser.fail("XML document has more than one root element", nil)
+		}
+		if parser.doctypeName != "" && parser.doctypeName != qname.raw {
+			return parser.fail(fmt.Sprintf("XML document root %q does not match doctype %q", qname.raw, parser.doctypeName), nil)
+		}
+		parser.seenRoot = true
+	}
+	parser.seenToken = true
+	if empty {
+		return nil
+	}
+	parser.stack = append(parser.stack, bootstrapXMLParsedElement{
+		qname:     qname,
+		name:      name,
+		namespace: namespace,
+	})
+	parser.namespace = namespace
+	return nil
+}
+
+func (parser *bootstrapXMLDocumentParser) parseEndElement() error {
+	start := parser.index
+	parser.index += 2
+	qname, ok := bootstrapXMLQNameAt(parser.source.data, &parser.index)
+	if !ok {
+		return parser.failAt(start, "XML document has an invalid end element", nil)
+	}
+	parser.consumeSpace()
+	if parser.index >= len(parser.source.data) || parser.source.data[parser.index] != '>' {
+		return parser.fail("XML end element is not terminated", nil)
+	}
+	parser.index++
+	if len(parser.stack) == 0 {
+		return parser.failAt(start, "XML document has an unexpected end element", nil)
+	}
+	last := parser.stack[len(parser.stack)-1]
+	nameSpace, valid := bootstrapXMLQNameNamespace(qname, last.namespace, false)
+	endName := xml.Name{Space: nameSpace, Local: qname.local}
+	if !valid || qname.raw != last.qname.raw || endName != last.name {
+		return parser.failAt(start, fmt.Sprintf("XML document end element %q does not match start element %q", qname.raw, last.qname.raw), nil)
+	}
+	parser.stack = parser.stack[:len(parser.stack)-1]
+	parser.namespace = last.namespace.parent
+	parser.seenToken = true
+	return nil
+}
+
+func (parser *bootstrapXMLDocumentParser) consumeSpace() bool {
+	start := parser.index
+	for parser.index < len(parser.source.data) && bootstrapXMLSpace(parser.source.data[parser.index]) {
+		parser.index++
+	}
+	return start != parser.index
+}
+
+func (parser *bootstrapXMLDocumentParser) expandAttributeSource(source bootstrapXMLSource, entityLimit int) (string, error) { //nolint:gocognit // Attribute provenance and entity context are validated in one pass.
+	var expanded strings.Builder
+	for index := 0; index < len(source.data); {
+		if source.data[index] == '<' && source.lessThanMarkup(index) {
+			return "", parser.fail("XML attribute value expands to '<'", nil)
+		}
+		if source.data[index] == '&' && source.referenceCandidate(index) {
+			value, reference, end, kind, ok := bootstrapXMLSourceReferenceAt(source, index)
+			if !ok {
+				return "", parser.fail("XML attribute value has an invalid entity reference", nil)
+			}
+			index = end
+			switch kind {
+			case bootstrapXMLSourceCharacterReference:
+				value, ok = bootstrapXMLCharacterReferenceValue(reference[1:])
+				if !ok {
+					return "", parser.fail("XML attribute value has an invalid character reference", nil)
+				}
+			case bootstrapXMLSourcePredefinedReference:
+				// value is already the predefined replacement text.
+			case bootstrapXMLSourceEntityReference:
+				var err error
+				value, err = parser.expandEntityAttribute(value, entityLimit)
+				if err != nil {
+					return "", err
+				}
+			}
+			if _, err := expanded.WriteString(value); err != nil {
+				return "", parser.fail("XML attribute value expansion failed", err)
+			}
+			continue
+		}
+		value, size := utf8.DecodeRune(source.data[index:])
+		if value == utf8.RuneError && size == 1 || !bootstrapXMLCharacter(value) {
+			return "", parser.fail("XML attribute value contains an invalid character", nil)
+		}
+		if value == '\r' {
+			value = '\n'
+			size = 1
+		}
+		if _, err := expanded.WriteRune(value); err != nil {
+			return "", parser.fail("XML attribute value expansion failed", err)
+		}
+		index += size
+	}
+	return expanded.String(), nil
+}
+
+func (parser *bootstrapXMLDocumentParser) expandEntityAttribute(name string, entityLimit int) (string, error) {
+	if parser.dtd == nil {
+		return "", parser.fail("XML document has an undeclared entity reference", errBootstrapXMLUnknownEntity)
+	}
+	declaration, ok := parser.dtd.entity(name, entityLimit)
+	if !ok {
+		cause := errBootstrapXMLUnknownEntity
+		if parser.dtd.externalSubset {
+			cause = errBootstrapXMLExternalEntityUnsupported
+		}
+		return "", parser.fail("XML document has an undeclared entity reference", cause)
+	}
+	if declaration.external {
+		return "", parser.fail("XML document uses an external entity", errBootstrapXMLExternalEntityUnsupported)
+	}
+	if parser.entityDepth >= bootstrapXMLMaxEntityDepth {
+		return "", parser.fail("XML document entity depth exceeds the limit", errBootstrapXMLResourceLimit)
+	}
+	for _, active := range parser.entityStack {
+		if active == name {
+			return "", parser.fail("XML document entity reference is cyclic", errBootstrapXMLCyclicEntity)
+		}
+	}
+	if !parser.budget.consume(maxBootstrapXMLBudgetAmount(len(declaration.parts.data))) {
+		return "", parser.fail("XML document entity expansion exceeds the limit", errBootstrapXMLResourceLimit)
+	}
+	parser.entityDepth++
+	parser.entityStack = append(parser.entityStack, name)
+	value, err := parser.expandAttributeSource(declaration.parts, entityLimit)
+	parser.entityStack = parser.entityStack[:len(parser.entityStack)-1]
+	parser.entityDepth--
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func maxBootstrapXMLBudgetAmount(amount int) int {
+	if amount < 1 {
+		return 1
+	}
+	return amount
+}
+
+func (parser *bootstrapXMLDocumentParser) useEntityContent(name string, referenceStart int) error {
+	if parser.dtd == nil {
+		return parser.failAt(referenceStart, "XML document has an undeclared entity reference", errBootstrapXMLUnknownEntity)
+	}
+	declaration, ok := parser.dtd.entity(name, lenBootstrapXMLEntities(parser.dtd))
+	if !ok {
+		cause := errBootstrapXMLUnknownEntity
+		if parser.dtd.externalSubset {
+			cause = errBootstrapXMLExternalEntityUnsupported
+		}
+		return parser.failAt(referenceStart, "XML document has an undeclared entity reference", cause)
+	}
+	if declaration.external {
+		return parser.failAt(referenceStart, "XML document uses an external entity", errBootstrapXMLExternalEntityUnsupported)
+	}
+	if parser.entityDepth >= bootstrapXMLMaxEntityDepth {
+		return parser.failAt(referenceStart, "XML document entity depth exceeds the limit", errBootstrapXMLResourceLimit)
+	}
+	for _, active := range parser.entityStack {
+		if active == name {
+			return parser.failAt(referenceStart, "XML document entity reference is cyclic", errBootstrapXMLCyclicEntity)
+		}
+	}
+	if !parser.budget.consume(maxBootstrapXMLBudgetAmount(len(declaration.parts.data))) {
+		return parser.failAt(referenceStart, "XML document entity expansion exceeds the limit", errBootstrapXMLResourceLimit)
+	}
+	child := bootstrapXMLDocumentParser{
+		source:      declaration.parts,
+		data:        declaration.parts.data,
+		dtd:         parser.dtd,
+		namespace:   parser.namespace,
+		fragment:    true,
+		entityDepth: parser.entityDepth + 1,
+		budget:      parser.budget,
+		entityStack: append(append([]string(nil), parser.entityStack...), name),
+	}
+	if err := child.parse(); err != nil {
+		return parser.failAt(referenceStart, "XML document entity replacement is invalid", err)
+	}
+	parser.seenToken = true
+	return nil
+}
+
+func (parser *bootstrapXMLDocumentParser) parseDoctype() error {
+	start := parser.index
+	end, ok := bootstrapXMLDoctypeEnd(parser.source.data, start)
+	if !ok {
+		return parser.fail("XML document has an unterminated doctype", nil)
+	}
+	raw := parser.source.data[start:end]
+	name, dtdParser, syntaxOK, syntaxErr := bootstrapXMLParseDoctype(raw)
+	if !syntaxOK {
+		return parser.failAt(start, "XML document has an invalid directive", syntaxErr)
+	}
+	if parser.seenDoctype || parser.seenRoot || len(parser.stack) != 0 {
+		return parser.failAt(start, "XML document doctype is not in the prolog", nil)
+	}
+	parser.index = end
+	parser.doctypeName = name
+	parser.dtd = bootstrapXMLDTDFromParser(dtdParser)
+	if err := parser.validateDTDDefaults(dtdParser.attValueDefaults); err != nil {
+		return parser.failAt(start, "XML document has an invalid DTD default value", err)
+	}
+	parser.seenDoctype = true
+	parser.seenToken = true
+	return nil
+}
+
+func bootstrapXMLDoctypeEnd(data []byte, start int) (int, bool) { //nolint:gocognit // Quote, comment, PI, and subset states delimit one directive.
+	if start < 0 || start+len("<!DOCTYPE") > len(data) || !bytes.HasPrefix(data[start:], []byte("<!DOCTYPE")) {
+		return 0, false
+	}
+	quote := byte(0)
+	internal := false
+	for index := start + len("<!DOCTYPE"); index < len(data); index++ {
+		value := data[index]
+		if quote != 0 {
+			if value == quote {
+				quote = 0
+			}
+			continue
+		}
+		if bytes.HasPrefix(data[index:], []byte("<!--")) {
+			commentEnd := bytes.Index(data[index+len("<!--"):], []byte("-->"))
+			if commentEnd < 0 {
+				return 0, false
+			}
+			index += len("<!--") + commentEnd + len("-->") - 1
+			continue
+		}
+		if bytes.HasPrefix(data[index:], []byte("<?")) {
+			piEnd := bytes.Index(data[index+len("<?"):], []byte("?>"))
+			if piEnd < 0 {
+				return 0, false
+			}
+			index += len("<?") + piEnd + len("?>") - 1
+			continue
+		}
+		if value == '\'' || value == '"' {
+			quote = value
+			continue
+		}
+		switch value {
+		case '[':
+			internal = true
+		case ']':
+			if internal {
+				internal = false
+			}
+		case '>':
+			if !internal {
+				return index + 1, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func bootstrapXMLDTDFromParser(parser *bootstrapXMLDTDParser) *bootstrapXMLDTD {
+	dtd := &bootstrapXMLDTD{
+		entities:       append([]bootstrapXMLEntityDeclaration(nil), parser.entities...),
+		entityIndexes:  make(map[string]int, len(parser.entities)),
+		externalSubset: parser.externalSubset,
+	}
+	for index, declaration := range dtd.entities {
+		dtd.entityIndexes[declaration.name] = index
+	}
+	return dtd
+}
+
+func (parser *bootstrapXMLDocumentParser) validateDTDDefaults(defaults []bootstrapXMLAttValueDefault) error {
+	for _, declaration := range defaults {
+		source := bootstrapXMLSourceFromRaw([]byte(declaration.value))
+		if _, err := parser.expandAttributeSource(source, declaration.entityLimit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func bootstrapXMLSourceFromRaw(data []byte) bootstrapXMLSource {
+	return bootstrapXMLSource{data: append([]byte(nil), data...)}
+}
+
+func bootstrapXMLCompileEntityValue(value string) (bootstrapXMLSource, bool) { //nolint:gocognit // EntityValue provenance is classified while preserving lexical order.
+	source := bootstrapXMLSource{
+		data:       make([]byte, 0, len(value)),
+		activeAmp:  make([]bool, 0, len(value)),
+		numericAmp: make([]bool, 0, len(value)),
+		markup:     make([]bool, 0, len(value)),
+	}
+	appendBytes := func(data []byte, activeAmp, numericAmp, markup bool) {
+		for _, value := range data {
+			source.data = append(source.data, value)
+			source.activeAmp = append(source.activeAmp, activeAmp && value == '&')
+			source.numericAmp = append(source.numericAmp, numericAmp && value == '&')
+			source.markup = append(source.markup, markup && value == '<')
+		}
+	}
+	for index := 0; index < len(value); {
+		if value[index] == '&' {
+			end := strings.IndexByte(value[index+1:], ';')
+			if end < 0 {
+				return bootstrapXMLSource{}, false
+			}
+			end += index + 1
+			reference := value[index+1 : end]
+			if strings.HasPrefix(reference, "#") {
+				character, ok := bootstrapXMLCharacterReferenceValue(reference[1:])
+				if !ok {
+					return bootstrapXMLSource{}, false
+				}
+				appendBytes([]byte(character), false, character == "&", character == "<")
+				index = end + 1
+				continue
+			}
+			if !bootstrapXMLNameValue([]byte(reference)) {
+				return bootstrapXMLSource{}, false
+			}
+			appendBytes([]byte(value[index:end+1]), true, false, false)
+			index = end + 1
+			continue
+		}
+		character, size := utf8.DecodeRuneInString(value[index:])
+		if character == utf8.RuneError && size == 1 || !bootstrapXMLCharacter(character) {
+			return bootstrapXMLSource{}, false
+		}
+		appendBytes([]byte(value[index:index+size]), false, false, character == '<')
+		index += size
+	}
+	return source, true
+}
+
+func bootstrapXMLPredefinedEntityDeclarationValid(name, value string) bool {
+	var required rune
+	switch name {
+	case "lt":
+		required = '<'
+	case "amp":
+		required = '&'
+	case "gt":
+		required = '>'
+	case "apos":
+		required = '\''
+	case "quot":
+		required = '"'
+	default:
+		return true
+	}
+	source, ok := bootstrapXMLCompileEntityValue(value)
+	if !ok {
+		return false
+	}
+	if name == "lt" || name == "amp" {
+		if len(source.data) == 0 || !source.numericAmp[0] {
+			return false
+		}
+		_, reference, end, kind, ok := bootstrapXMLSourceReferenceAt(source, 0)
+		if !ok || kind != bootstrapXMLSourceCharacterReference || end != len(source.data) {
+			return false
+		}
+		character, ok := bootstrapXMLCharacterReferenceValue(reference[1:])
+		return ok && len([]rune(character)) == 1 && []rune(character)[0] == required
+	}
+	if len(source.data) != utf8.RuneLen(required) || string(source.data) != string(required) {
+		return false
+	}
+	return true
+}
+
+func bootstrapXMLParseDoctype(raw []byte) (string, *bootstrapXMLDTDParser, bool, error) { //nolint:gocognit // DTD prolog phases and their failure causes stay ordered.
+	const prefix = "<!DOCTYPE"
+	if len(raw) < len(prefix)+2 || !bytes.HasPrefix(raw, []byte(prefix)) || !bytes.HasSuffix(raw, []byte{'>'}) {
+		return "", nil, false, nil
+	}
+	if !bootstrapXMLValidCharacters(raw) {
+		return "", nil, false, nil
+	}
+	parser := &bootstrapXMLDTDParser{
+		data:          raw[len("<!") : len(raw)-1],
+		entityIndexes: make(map[string]int),
+	}
+	if !parser.consumeLiteral("DOCTYPE") || !parser.requireSpace() {
+		return "", parser, false, parser.failure
+	}
+	name, ok := parser.parseName()
+	if !ok {
+		return "", parser, false, parser.failure
+	}
+	parser.skipSpace()
+	if parser.atEnd() {
+		if parser.failure != nil {
+			return "", parser, false, parser.failure
+		}
+		return name, parser, true, parser.failure
+	}
+	if parser.peek() != '[' {
+		if !parser.parseExternalID() {
+			return "", parser, false, parser.failure
+		}
+		parser.externalSubset = true
+		parser.skipSpace()
+		if parser.atEnd() {
+			if parser.failure != nil {
+				return "", parser, false, parser.failure
+			}
+			return name, parser, true, parser.failure
+		}
+	}
+	if !parser.parseInternalSubset() || !parser.atEnd() {
+		return "", parser, false, parser.failure
+	}
+	if parser.failure != nil {
+		return "", parser, false, parser.failure
+	}
+	return name, parser, true, parser.failure
+}
+
+func validateBootstrapXML(entry Entry, data []byte) error {
+	parser := bootstrapXMLDocumentParser{
+		data:   data,
+		source: bootstrapXMLSourceFromRaw(data),
+		budget: &bootstrapXMLBudget{},
+	}
+	if err := parser.parse(); err != nil {
+		return parser.corpusError(entry, err)
+	}
+	return nil
 }
 
 func bootstrapXMLDeclaration(raw []byte) bool {
@@ -877,218 +1456,23 @@ func bootstrapXMLEncodingNameChar(value byte) bool {
 		value == '.' || value == '_' || value == '-'
 }
 
-func bootstrapXMLDoctypeSyntax(raw []byte) (string, bool) {
-	name, _, ok := bootstrapXMLDoctypeSyntaxWithEntities(raw)
-	return name, ok
-}
-
-func bootstrapXMLDoctypeSyntaxWithEntities(raw []byte) (string, map[string]string, bool) {
-	const prefix = "<!DOCTYPE"
-	if len(raw) < len(prefix)+2 || !bytes.HasPrefix(raw, []byte(prefix)) || !bytes.HasSuffix(raw, []byte{'>'}) {
-		return "", nil, false
-	}
-	if !bootstrapXMLValidCharacters(raw) {
-		return "", nil, false
-	}
-	parser := bootstrapXMLDTDParser{
-		data:          raw[len("<!") : len(raw)-1],
-		entityIndexes: make(map[string]int),
-	}
-	if !parser.consumeLiteral("DOCTYPE") || !parser.requireSpace() {
-		return "", nil, false
-	}
-	name, ok := parser.parseName()
-	if !ok {
-		return "", nil, false
-	}
-	parser.skipSpace()
-	if parser.atEnd() {
-		entities, entitiesOK := parser.entityMap()
-		return name, entities, entitiesOK
-	}
-	if parser.peek() != '[' {
-		if !parser.parseExternalID() {
-			return "", nil, false
-		}
-		parser.skipSpace()
-		if parser.atEnd() {
-			entities, entitiesOK := parser.entityMap()
-			return name, entities, entitiesOK
-		}
-	}
-	if !parser.parseInternalSubset() || !parser.atEnd() {
-		return "", nil, false
-	}
-	entities, entitiesOK := parser.entityMap()
-	return name, entities, entitiesOK
-}
-
 type bootstrapXMLDTDParser struct {
-	data               []byte
-	index              int
-	entities           []bootstrapXMLEntityDeclaration
-	entityIndexes      map[string]int
-	attValueReferences []string
+	data              []byte
+	index             int
+	entities          []bootstrapXMLEntityDeclaration
+	entityIndexes     map[string]int
+	attValueDefaults  []bootstrapXMLAttValueDefault
+	failure           error
+	contentGroupDepth int
+	inInternalSubset  bool
+	externalSubset    bool
 }
 
 type bootstrapXMLEntityDeclaration struct {
 	name     string
 	value    string
 	external bool
-}
-
-type bootstrapXMLEntityReplacement struct {
-	value  string
-	markup bool
-}
-
-func (parser *bootstrapXMLDTDParser) entityMap() (map[string]string, bool) {
-	entities := make(map[string]string, len(parser.entities))
-	replacements := make(map[string]bootstrapXMLEntityReplacement, len(parser.entities))
-	resolutions := make(map[string]bootstrapXMLEntityResolution, len(parser.entities))
-	for _, declaration := range parser.entities {
-		if declaration.external {
-			continue
-		}
-		replacement, resolution := parser.resolveEntity(declaration.name, replacements, resolutions)
-		if resolution == bootstrapXMLEntityInvalid {
-			return nil, false
-		}
-		if resolution == bootstrapXMLEntityResolved && !replacement.markup {
-			entities[declaration.name] = replacement.value
-		}
-	}
-	for _, reference := range parser.attValueReferences {
-		replacement, resolution := parser.expandEntityReference(reference, replacements, resolutions)
-		if resolution != bootstrapXMLEntityResolved || replacement.markup {
-			return nil, false
-		}
-	}
-	return entities, true
-}
-
-func (parser *bootstrapXMLDTDParser) resolveEntity(
-	name string,
-	replacements map[string]bootstrapXMLEntityReplacement,
-	resolutions map[string]bootstrapXMLEntityResolution,
-) (bootstrapXMLEntityReplacement, bootstrapXMLEntityResolution) {
-	if replacement, ok := replacements[name]; ok {
-		return replacement, bootstrapXMLEntityResolved
-	}
-	declarationIndex, ok := parser.entityIndexes[name]
-	if !ok || declarationIndex < 0 || declarationIndex >= len(parser.entities) {
-		return bootstrapXMLEntityReplacement{}, bootstrapXMLEntityInvalid
-	}
-	if resolution, ok := resolutions[name]; ok {
-		if resolution == bootstrapXMLEntityResolving {
-			return bootstrapXMLEntityReplacement{}, bootstrapXMLEntityInvalid
-		}
-		return bootstrapXMLEntityReplacement{}, resolution
-	}
-	declaration := parser.entities[declarationIndex]
-	if declaration.external {
-		resolutions[name] = bootstrapXMLEntityUnavailable
-		return bootstrapXMLEntityReplacement{}, bootstrapXMLEntityUnavailable
-	}
-	resolutions[name] = bootstrapXMLEntityResolving
-	replacement, resolution := parser.expandEntityValue(declaration.value, replacements, resolutions)
-	resolutions[name] = resolution
-	if resolution != bootstrapXMLEntityResolved {
-		return bootstrapXMLEntityReplacement{}, resolution
-	}
-	replacements[name] = replacement
-	return replacement, bootstrapXMLEntityResolved
-}
-
-func (parser *bootstrapXMLDTDParser) expandEntityValue(
-	value string,
-	replacements map[string]bootstrapXMLEntityReplacement,
-	resolutions map[string]bootstrapXMLEntityResolution,
-) (bootstrapXMLEntityReplacement, bootstrapXMLEntityResolution) {
-	var expanded strings.Builder
-	markup := false
-	for index := 0; index < len(value); {
-		next, itemMarkup, resolution := parser.expandEntityValueItem(value, index, &expanded, replacements, resolutions)
-		if resolution != bootstrapXMLEntityResolved {
-			return bootstrapXMLEntityReplacement{}, resolution
-		}
-		markup = markup || itemMarkup
-		index = next
-	}
-	result := expanded.String()
-	if strings.Contains(result, "]]>") {
-		return bootstrapXMLEntityReplacement{}, bootstrapXMLEntityUnavailable
-	}
-	return bootstrapXMLEntityReplacement{value: result, markup: markup}, bootstrapXMLEntityResolved
-}
-
-func (parser *bootstrapXMLDTDParser) expandEntityValueItem(
-	value string,
-	index int,
-	expanded *strings.Builder,
-	replacements map[string]bootstrapXMLEntityReplacement,
-	resolutions map[string]bootstrapXMLEntityResolution,
-) (int, bool, bootstrapXMLEntityResolution) {
-	if value[index] == '&' {
-		end := strings.IndexByte(value[index+1:], ';')
-		if end < 0 {
-			return 0, false, bootstrapXMLEntityInvalid
-		}
-		end += index + 1
-		replacement, resolution := parser.expandEntityReference(value[index+1:end], replacements, resolutions)
-		if resolution != bootstrapXMLEntityResolved {
-			return 0, false, resolution
-		}
-		if !bootstrapXMLAppendEntityText(expanded, replacement.value) {
-			return 0, false, bootstrapXMLEntityInvalid
-		}
-		return end + 1, replacement.markup, bootstrapXMLEntityResolved
-	}
-	if value[index] == '%' {
-		return 0, false, bootstrapXMLEntityUnavailable
-	}
-	character, size := utf8.DecodeRuneInString(value[index:])
-	if character == utf8.RuneError && size == 1 || !bootstrapXMLCharacter(character) {
-		return 0, false, bootstrapXMLEntityInvalid
-	}
-	if !bootstrapXMLAppendEntityRune(expanded, character, size) {
-		return 0, false, bootstrapXMLEntityInvalid
-	}
-	return index + size, character == '<', bootstrapXMLEntityResolved
-}
-
-func (parser *bootstrapXMLDTDParser) expandEntityReference(
-	reference string,
-	replacements map[string]bootstrapXMLEntityReplacement,
-	resolutions map[string]bootstrapXMLEntityResolution,
-) (bootstrapXMLEntityReplacement, bootstrapXMLEntityResolution) {
-	if strings.HasPrefix(reference, "#") {
-		value, ok := bootstrapXMLCharacterReferenceValue(reference[1:])
-		if !ok {
-			return bootstrapXMLEntityReplacement{}, bootstrapXMLEntityInvalid
-		}
-		return bootstrapXMLEntityReplacement{value: value}, bootstrapXMLEntityResolved
-	}
-	if value, ok := bootstrapXMLPredefinedEntity(reference); ok {
-		return bootstrapXMLEntityReplacement{value: value}, bootstrapXMLEntityResolved
-	}
-	return parser.resolveEntity(reference, replacements, resolutions)
-}
-
-func bootstrapXMLAppendEntityText(expanded *strings.Builder, value string) bool {
-	if len(value) > bootstrapXMLMaxEntityValueLength-expanded.Len() {
-		return false
-	}
-	_, err := expanded.WriteString(value)
-	return err == nil
-}
-
-func bootstrapXMLAppendEntityRune(expanded *strings.Builder, value rune, size int) bool {
-	if size > bootstrapXMLMaxEntityValueLength-expanded.Len() {
-		return false
-	}
-	_, err := expanded.WriteRune(value)
-	return err == nil
+	parts    bootstrapXMLSource
 }
 
 func bootstrapXMLPredefinedEntity(name string) (string, bool) {
@@ -1108,8 +1492,19 @@ func bootstrapXMLPredefinedEntity(name string) (string, bool) {
 	}
 }
 
+func bootstrapXMLPredefinedEntityName(name string) bool {
+	_, ok := bootstrapXMLPredefinedEntity(name)
+	return ok
+}
+
 func (parser *bootstrapXMLDTDParser) atEnd() bool {
 	return parser.index == len(parser.data)
+}
+
+func (parser *bootstrapXMLDTDParser) setFailure(cause error) {
+	if parser.failure == nil {
+		parser.failure = cause
+	}
 }
 
 func (parser *bootstrapXMLDTDParser) peek() byte {
@@ -1158,8 +1553,16 @@ func (parser *bootstrapXMLDTDParser) skipSpace() bool {
 	return parser.index != start
 }
 
+func (parser *bootstrapXMLDTDParser) skipSpaceInDTD() bool {
+	spaced := parser.skipSpace()
+	if parser.inInternalSubset {
+		parser.rejectParameterEntityReference()
+	}
+	return spaced
+}
+
 func (parser *bootstrapXMLDTDParser) requireSpace() bool {
-	return parser.skipSpace()
+	return parser.skipSpaceInDTD()
 }
 
 func (parser *bootstrapXMLDTDParser) parseName() (string, bool) {
@@ -1186,9 +1589,14 @@ func (parser *bootstrapXMLDTDParser) parseInternalSubset() bool {
 	if !parser.consume('[') {
 		return false
 	}
+	parser.inInternalSubset = true
 	for !parser.atEnd() {
 		parser.skipSpace()
+		if parser.failure != nil {
+			return false
+		}
 		if parser.consume(']') {
+			parser.inInternalSubset = false
 			parser.skipSpace()
 			return true
 		}
@@ -1239,7 +1647,7 @@ func (parser *bootstrapXMLDTDParser) parsePI() bool {
 	if parser.consumeLiteral("?>") {
 		return true
 	}
-	if !parser.requireSpace() {
+	if !parser.skipSpace() {
 		return false
 	}
 	end := bytes.Index(parser.data[parser.index:], []byte("?>"))
@@ -1257,7 +1665,24 @@ func (parser *bootstrapXMLDTDParser) parsePEReference() bool {
 	if _, ok := parser.parseName(); !ok {
 		return false
 	}
-	return parser.consume(';')
+	if !parser.consume(';') {
+		return false
+	}
+	parser.setFailure(errBootstrapXMLParameterEntityUnsupported)
+	return false
+}
+
+func (parser *bootstrapXMLDTDParser) rejectParameterEntityReference() bool {
+	if parser.peek() != '%' {
+		return false
+	}
+	index := parser.index + 1
+	if !bootstrapXMLName(parser.data, &index) || index >= len(parser.data) || parser.data[index] != ';' {
+		return false
+	}
+	parser.index = index + 1
+	parser.setFailure(errBootstrapXMLParameterEntityUnsupported)
+	return true
 }
 
 func (parser *bootstrapXMLDTDParser) parseMarkupDeclaration() bool {
@@ -1287,21 +1712,29 @@ func (parser *bootstrapXMLDTDParser) parseMarkupDeclaration() bool {
 }
 
 func (parser *bootstrapXMLDTDParser) parseElementDeclaration() bool {
+	if parser.peek() == '%' {
+		parser.parsePEReference()
+		return false
+	}
 	if _, ok := parser.parseName(); !ok || !parser.requireSpace() {
 		return false
 	}
 	if parser.consumeKeyword("EMPTY") || parser.consumeKeyword("ANY") {
-		parser.skipSpace()
+		parser.skipSpaceInDTD()
 		return parser.consume('>')
 	}
 	if !parser.parseContentSpec() {
 		return false
 	}
-	parser.skipSpace()
+	parser.skipSpaceInDTD()
 	return parser.consume('>')
 }
 
 func (parser *bootstrapXMLDTDParser) parseContentSpec() bool {
+	if parser.peek() == '%' {
+		parser.parsePEReference()
+		return false
+	}
 	if parser.peek() == '(' {
 		if parser.isMixedStart() {
 			return parser.parseMixed()
@@ -1327,11 +1760,11 @@ func (parser *bootstrapXMLDTDParser) parseMixed() bool {
 	if !parser.consume('(') {
 		return false
 	}
-	parser.skipSpace()
+	parser.skipSpaceInDTD()
 	if !parser.consumeKeyword("#PCDATA") {
 		return false
 	}
-	parser.skipSpace()
+	parser.skipSpaceInDTD()
 	if parser.consume(')') {
 		return true
 	}
@@ -1343,11 +1776,15 @@ func (parser *bootstrapXMLDTDParser) parseMixedNames() bool {
 		return false
 	}
 	for {
-		parser.skipSpace()
+		parser.skipSpaceInDTD()
+		if parser.peek() == '%' {
+			parser.parsePEReference()
+			return false
+		}
 		if _, ok := parser.parseName(); !ok {
 			return false
 		}
-		parser.skipSpace()
+		parser.skipSpaceInDTD()
 		if parser.consume(')') {
 			return parser.consume('*')
 		}
@@ -1358,36 +1795,53 @@ func (parser *bootstrapXMLDTDParser) parseMixedNames() bool {
 }
 
 func (parser *bootstrapXMLDTDParser) parseGroup() bool {
+	if parser.contentGroupDepth >= bootstrapXMLMaxContentGroupDepth {
+		parser.setFailure(errBootstrapXMLResourceLimit)
+		return false
+	}
+	parser.contentGroupDepth++
+	parsed := parser.parseGroupBody()
+	parser.contentGroupDepth--
+	return parsed
+}
+
+func (parser *bootstrapXMLDTDParser) parseGroupBody() bool {
 	if !parser.consume('(') {
 		return false
 	}
-	parser.skipSpace()
+	parser.skipSpaceInDTD()
 	if !parser.parseParticle() {
 		return false
 	}
-	parser.skipSpace()
-	if parser.peek() != '|' && parser.peek() != ',' {
-		return false
+	parser.skipSpaceInDTD()
+	if parser.consume(')') {
+		return true
 	}
 	separator := parser.peek()
-	for parser.consume(separator) {
-		parser.skipSpace()
+	if separator != '|' && separator != ',' {
+		return false
+	}
+	for {
+		parser.index++
+		parser.skipSpaceInDTD()
 		if !parser.parseParticle() {
 			return false
 		}
-		parser.skipSpace()
-		if parser.peek() == '|' || parser.peek() == ',' {
-			if parser.peek() != separator {
-				return false
-			}
-			continue
+		parser.skipSpaceInDTD()
+		if parser.consume(')') {
+			return true
 		}
-		return parser.consume(')')
+		if parser.peek() != separator {
+			return false
+		}
 	}
-	return false
 }
 
 func (parser *bootstrapXMLDTDParser) parseParticle() bool {
+	if parser.peek() == '%' {
+		parser.parsePEReference()
+		return false
+	}
 	if parser.peek() == '(' {
 		if parser.isMixedStart() || !parser.parseGroup() {
 			return false
@@ -1409,6 +1863,10 @@ func (parser *bootstrapXMLDTDParser) consumeOccurrence() {
 }
 
 func (parser *bootstrapXMLDTDParser) parseAttlistDeclaration() bool {
+	if parser.peek() == '%' {
+		parser.parsePEReference()
+		return false
+	}
 	if _, ok := parser.parseName(); !ok {
 		return false
 	}
@@ -1422,8 +1880,7 @@ func (parser *bootstrapXMLDTDParser) parseAttlistDeclaration() bool {
 		if parser.consume('>') {
 			return true
 		}
-		if _, ok := parser.parseName(); !ok || !parser.requireSpace() || !parser.parseAttributeType() ||
-			!parser.requireSpace() || !parser.parseDefaultDeclaration() {
+		if !parser.parseAttlistAttribute() {
 			return false
 		}
 		if parser.consume('>') {
@@ -1435,7 +1892,24 @@ func (parser *bootstrapXMLDTDParser) parseAttlistDeclaration() bool {
 	}
 }
 
+func (parser *bootstrapXMLDTDParser) parseAttlistAttribute() bool {
+	if parser.peek() == '%' {
+		parser.parsePEReference()
+		return false
+	}
+	_, ok := parser.parseName()
+	if !ok || !parser.requireSpace() || !parser.parseAttributeType() ||
+		!parser.requireSpace() || !parser.parseDefaultDeclaration() {
+		return false
+	}
+	return true
+}
+
 func (parser *bootstrapXMLDTDParser) parseAttributeType() bool {
+	if parser.peek() == '%' {
+		parser.parsePEReference()
+		return false
+	}
 	for _, keyword := range []string{"NMTOKENS", "NMTOKEN", "IDREFS", "IDREF", "ENTITIES", "ENTITY", "CDATA", "ID"} {
 		if parser.consumeKeyword(keyword) {
 			return true
@@ -1465,21 +1939,29 @@ func (parser *bootstrapXMLDTDParser) parseEnumeration(item func() bool) bool {
 	if !parser.consume('(') {
 		return false
 	}
-	parser.skipSpace()
+	parser.skipSpaceInDTD()
+	if parser.peek() == '%' {
+		parser.parsePEReference()
+		return false
+	}
 	if !item() {
 		return false
 	}
 	for {
-		parser.skipSpace()
+		parser.skipSpaceInDTD()
 		if !parser.consume('|') {
 			break
 		}
-		parser.skipSpace()
+		parser.skipSpaceInDTD()
+		if parser.peek() == '%' {
+			parser.parsePEReference()
+			return false
+		}
 		if !item() {
 			return false
 		}
 	}
-	parser.skipSpace()
+	parser.skipSpaceInDTD()
 	return parser.consume(')')
 }
 
@@ -1496,6 +1978,11 @@ func (parser *bootstrapXMLDTDParser) parseDefaultDeclaration() bool {
 }
 
 func (parser *bootstrapXMLDTDParser) parseEntityDeclaration() bool {
+	if parser.peek() == '%' {
+		if parser.rejectParameterEntityReference() {
+			return false
+		}
+	}
 	parameter, ok := parser.parseEntityKind()
 	if !ok {
 		return false
@@ -1505,32 +1992,39 @@ func (parser *bootstrapXMLDTDParser) parseEntityDeclaration() bool {
 		return false
 	}
 	if parser.peek() == '\'' || parser.peek() == '"' {
-		valueStart := parser.index + 1
-		if !parser.parseEntityValue() {
-			return false
-		}
-		valueEnd := parser.index - 1
-		parser.skipSpace()
-		if !parser.consume('>') {
-			return false
-		}
-		if parameter {
-			return true
-		}
-		return parser.declareEntity(name, string(parser.data[valueStart:valueEnd]), false)
+		return parser.parseInternalEntityDeclaration(name, parameter)
 	}
-	if !parser.parseExternalID() {
+	return parser.parseExternalEntityDeclaration(name, parameter)
+}
+
+func (parser *bootstrapXMLDTDParser) parseInternalEntityDeclaration(name string, parameter bool) bool {
+	valueStart := parser.index + 1
+	if !parser.parseEntityValue() {
 		return false
 	}
-	if !parser.finishExternalEntity(parameter) {
-		return false
-	}
-	parser.skipSpace()
+	valueEnd := parser.index - 1
+	parser.skipSpaceInDTD()
 	if !parser.consume('>') {
 		return false
 	}
 	if parameter {
-		return true
+		parser.setFailure(errBootstrapXMLParameterEntityUnsupported)
+		return false
+	}
+	return parser.declareEntity(name, string(parser.data[valueStart:valueEnd]), false)
+}
+
+func (parser *bootstrapXMLDTDParser) parseExternalEntityDeclaration(name string, parameter bool) bool {
+	if !parser.parseExternalID() || !parser.finishExternalEntity(parameter) {
+		return false
+	}
+	parser.skipSpaceInDTD()
+	if !parser.consume('>') {
+		return false
+	}
+	if parameter {
+		parser.setFailure(errBootstrapXMLParameterEntityUnsupported)
+		return false
 	}
 	return parser.declareEntity(name, "", true)
 }
@@ -1539,14 +2033,28 @@ func (parser *bootstrapXMLDTDParser) declareEntity(name, value string, external 
 	if parser.entityIndexes == nil {
 		parser.entityIndexes = make(map[string]int)
 	}
+	if bootstrapXMLPredefinedEntityName(name) &&
+		(external || !bootstrapXMLPredefinedEntityDeclarationValid(name, value)) {
+		parser.setFailure(errBootstrapXMLPredefinedEntityInvalid)
+		return false
+	}
 	if _, exists := parser.entityIndexes[name]; exists {
 		return true
+	}
+	parts := bootstrapXMLSource{}
+	if !external {
+		var ok bool
+		parts, ok = bootstrapXMLCompileEntityValue(value)
+		if !ok {
+			return false
+		}
 	}
 	parser.entityIndexes[name] = len(parser.entities)
 	parser.entities = append(parser.entities, bootstrapXMLEntityDeclaration{
 		name:     name,
 		value:    value,
 		external: external,
+		parts:    parts,
 	})
 	return true
 }
@@ -1570,6 +2078,10 @@ func (parser *bootstrapXMLDTDParser) finishExternalEntity(parameter bool) bool {
 }
 
 func (parser *bootstrapXMLDTDParser) parseNotationDeclaration() bool {
+	if parser.peek() == '%' {
+		parser.parsePEReference()
+		return false
+	}
 	if _, ok := parser.parseName(); !ok || !parser.requireSpace() {
 		return false
 	}
@@ -1670,6 +2182,7 @@ func (parser *bootstrapXMLDTDParser) parseAttValue() bool {
 		return false
 	}
 	parser.index++
+	valueStart := parser.index
 	for parser.index < len(parser.data) && parser.data[parser.index] != quote {
 		switch parser.peek() {
 		case '<':
@@ -1686,7 +2199,15 @@ func (parser *bootstrapXMLDTDParser) parseAttValue() bool {
 			parser.index += size
 		}
 	}
-	return parser.consume(quote)
+	valueEnd := parser.index
+	if !parser.consume(quote) {
+		return false
+	}
+	parser.attValueDefaults = append(parser.attValueDefaults, bootstrapXMLAttValueDefault{
+		value:       string(parser.data[valueStart:valueEnd]),
+		entityLimit: len(parser.entities),
+	})
+	return true
 }
 
 func (parser *bootstrapXMLDTDParser) parseAttValueReference() bool {
@@ -1700,7 +2221,9 @@ func (parser *bootstrapXMLDTDParser) parseAttValueReference() bool {
 	if !ok || !parser.consume(';') {
 		return false
 	}
-	parser.attValueReferences = append(parser.attValueReferences, name)
+	if bootstrapXMLPredefinedEntityName(name) {
+		return true
+	}
 	return true
 }
 
@@ -1773,7 +2296,7 @@ func bootstrapXMLReferenceDigit(value byte, base int) bool {
 }
 
 func (parser *bootstrapXMLDTDParser) finishMarkup() bool {
-	parser.skipSpace()
+	parser.skipSpaceInDTD()
 	return parser.consume('>')
 }
 
@@ -1870,48 +2393,6 @@ func bootstrapXMLConsumeSpace(data []byte, index *int) bool {
 		*index++
 	}
 	return *index != start
-}
-
-func bootstrapXMLTokenIsCDATA(data []byte, start, end int64) bool {
-	if start < 0 || end < start || end > int64(len(data)) {
-		return false
-	}
-	return bytes.HasPrefix(data[start:end], []byte(bootstrapXMLCDATAPrefix))
-}
-
-func bootstrapXMLNumericReferencesValid(data []byte) bool {
-	for index := 0; index+2 < len(data); index++ {
-		if data[index] != '&' || data[index+1] != '#' {
-			continue
-		}
-		end, ok := bootstrapXMLNumericReference(data, index)
-		if !ok {
-			return false
-		}
-		index = end
-	}
-	return true
-}
-
-func bootstrapXMLNumericReference(data []byte, index int) (int, bool) {
-	end := index + 2
-	base := 10
-	if end < len(data) && data[end] == 'x' {
-		base = 16
-		end++
-	}
-	digits := end
-	for end < len(data) && bootstrapXMLReferenceDigit(data[end], base) {
-		end++
-	}
-	if digits == end || end >= len(data) || data[end] != ';' {
-		return 0, false
-	}
-	value, err := strconv.ParseUint(string(data[digits:end]), base, 32)
-	if err != nil || value > uint64(utf8.MaxRune) || !bootstrapXMLCharacter(rune(value)) {
-		return 0, false
-	}
-	return end, true
 }
 
 func bootstrapXMLLiteralWhitespace(data []byte) bool {

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -188,17 +189,32 @@ func TestGenerateAcceptsBootstrapXMLDeclarationAndDoctypeForms(t *testing.T) {
 		`<!DOCTYPE root SYSTEM "root.dtd"><root/>`,
 		`<!DOCTYPE root PUBLIC "-//Example//DTD Root 1.0//EN" "root.dtd"><root/>`,
 		`<!DOCTYPE root [<!-- DTD comment --><?dtd instruction?><!ELEMENT root EMPTY>]><root/>`,
+		`<!DOCTYPE root [<?pi %literal;?>]><root/>`,
 		`<!DOCTYPE root [<!ELEMENT root (child|other)*><!ATTLIST root id CDATA #IMPLIED><!ENTITY name "value"><!NOTATION image SYSTEM "image">]><root/>`,
-		`<!DOCTYPE root [<!ELEMENT root ((child|other),child?)><!ELEMENT child EMPTY><!ELEMENT other EMPTY><!ATTLIST root id ID #IMPLIED mode (one|two) "one" kind NOTATION (image|text) #FIXED "image"><!ENTITY name "hello &amp; world"><!ENTITY external SYSTEM "root.ent"><!ENTITY % parameter SYSTEM "parameter.ent"><!NOTATION image PUBLIC "-//Example//Image//EN" "image.bin"><!NOTATION text PUBLIC "-//Example//Text//EN">]><root/>`,
-		`<!DOCTYPE root [<!ENTITY markup '<child/>'>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root (child)>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root (child)?>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root (((child)))>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root ((child|other),child?)><!ELEMENT child EMPTY><!ELEMENT other EMPTY><!ATTLIST root id ID #IMPLIED mode (one|two) "one" kind NOTATION (image|text) #FIXED "image"><!ENTITY name "hello &amp; world"><!ENTITY external SYSTEM "root.ent"><!NOTATION image PUBLIC "-//Example//Image//EN" "image.bin"><!NOTATION text PUBLIC "-//Example//Text//EN">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY markup '<child/>'>]><root>&markup;</root>`,
+		`<!DOCTYPE root [<!ENTITY markup '&#60;child/>'>]><root>&markup;</root>`,
+		`<!DOCTYPE root [<!ENTITY markup '<p:child xmlns:p="urn:p" id="one"/>'>]><root>&markup;</root>`,
+		`<!DOCTYPE root [<!ENTITY cdata '<![CDATA[<]]>'>]><root>&cdata;</root>`,
 		`<!DOCTYPE root [<!ENTITY e 'ok'>]><root>&e;</root>`,
 		`<!DOCTYPE root [<!ENTITY e '&#x41;'>]><root>&e;</root>`,
-		`<!DOCTYPE root [<!ENTITY e '&lt;&amp;&gt;&apos;&quot;'>]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY e '&amp;&gt;&apos;&quot;'>]><root>&e;</root>`,
+		`<?a:b:c data?><root/>`,
+		`<root>&lt;&#60;</root>`,
+		`<root value="&lt;&#60;"/>`,
+		`<!DOCTYPE root [<!ATTLIST root value CDATA '&lt;'><!ATTLIST root numeric CDATA '&#60;'>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY e '&#38;#60;'>]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY e '&#38;#60;'>]><root value="&e;"/>`,
+		`<!DOCTYPE root [<!ENTITY e '&amp;#60;'>]><root>&e;</root>`,
+		`<root>%text;</root>`,
 		`<!DOCTYPE root [<!ENTITY e 'first'><!ENTITY e SYSTEM 'root.ent'>]><root>&e;</root>`,
 		`<!DOCTYPE root [<!ENTITY external SYSTEM 'root.ent'><!ENTITY internal '&external;'>]><root/>`,
-		`<!DOCTYPE root [<!ATTLIST root value CDATA '&value;'><!ENTITY value 'forward'>]><root/>`,
-		`<!DOCTYPE root [<!ATTLIST root value CDATA '&value;'><!ENTITY value 'first'><!ENTITY value 'second'>]><root/>`,
 		`<!DOCTYPE root [<!ATTLIST root value CDATA '&amp;&#x41;&#65;'>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY uri 'urn:p'>]><root xmlns:p="&uri;"><p:item/></root>`,
+		`<!DOCTYPE root [<!ENTITY unused '&missing;'><!ENTITY external SYSTEM 'root.ent'><!ENTITY cycle '&cycle;'>]><root/>`,
 		`<p:root xmlns:p="urn:root"/>`,
 		`<root xmlns:p="urn:root" p:id="one"/>`,
 		`<root xmlns="urn:root"><child/></root>`,
@@ -224,14 +240,7 @@ func TestGenerateAcceptsBootstrapXMLDeclarationAndDoctypeForms(t *testing.T) {
 	}
 }
 
-func TestBootstrapXMLDoctypeSyntaxRetainsCompatibilityHelper(t *testing.T) {
-	name, ok := bootstrapXMLDoctypeSyntax([]byte("<!DOCTYPE root [<!ENTITY e 'ok'>]>"))
-	if !ok || name != "root" {
-		t.Fatalf("bootstrapXMLDoctypeSyntax() = %q, %v, want root, true", name, ok)
-	}
-}
-
-func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
+func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) { //nolint:funlen // The table keeps the bootstrap XML rejection contract together.
 	tests := []bootstrapXMLInvalidCase{
 		{name: "unclosed element", representation: "xml", content: "<root>"},
 		{name: "trailing text", representation: "xml", content: "<root/>text"},
@@ -267,8 +276,25 @@ func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
 		{name: "undeclared entity use", representation: "xml", content: "<root>&missing;</root>"},
 		{name: "external entity use", representation: "xml", content: "<!DOCTYPE root [<!ENTITY external SYSTEM 'root.ent'>]><root>&external;</root>"},
 		{name: "internal entity with external dependency", representation: "xml", content: "<!DOCTYPE root [<!ENTITY external SYSTEM 'root.ent'><!ENTITY internal '&external;'>]><root>&internal;</root>"},
-		{name: "cyclic entity declaration", representation: "xml", content: "<!DOCTYPE root [<!ENTITY first '&second;'><!ENTITY second '&first;'>]><root/>"},
-		{name: "markup-bearing entity use", representation: "xml", content: "<!DOCTYPE root [<!ENTITY markup '<child/>'>]><root>&markup;</root>"},
+		{name: "cyclic entity use", representation: "xml", content: "<!DOCTYPE root [<!ENTITY first '&second;'><!ENTITY second '&first;'>]><root>&first;</root>"},
+		{name: "forward entity default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&value;'><!ENTITY value 'forward'>]><root/>"},
+		{name: "choice requires a second particle", representation: "xml", content: "<!DOCTYPE root [<!ELEMENT root (child|)>]><root/>"},
+		{name: "declared parameter entity", representation: "xml", content: "<!DOCTYPE root [<!ENTITY % parameter 'value'>]><root/>"},
+		{name: "undeclared parameter entity", representation: "xml", content: "<!DOCTYPE root [%parameter;]><root/>"},
+		{name: "expanded markup duplicate attribute", representation: "xml", content: `<!DOCTYPE root [<!ENTITY markup '<child id="one" id="two"/>'>]><root>&markup;</root>`},
+		{name: "expanded markup unbound prefix", representation: "xml", content: `<!DOCTYPE root [<!ENTITY markup '<p:child/>'>]><root>&markup;</root>`},
+		{name: "expanded markup nested doctype", representation: "xml", content: `<!DOCTYPE root [<!ENTITY markup '<!DOCTYPE nested><child/>'>]><root>&markup;</root>`},
+		{name: "expanded markup nested directive", representation: "xml", content: `<!DOCTYPE root [<!ENTITY markup '<!ENTITY nested "value">'>]><root>&markup;</root>`},
+		{name: "expanded markup XML processing instruction", representation: "xml", content: `<!DOCTYPE root [<!ENTITY markup '<?xml version="1.0"?>'>]><root>&markup;</root>`},
+		{name: "unescaped entity replacement end", representation: "xml", content: `<!DOCTYPE root [<!ENTITY value ']]>'>]><root>&value;</root>`},
+		{name: "literal less-than entity in content", representation: "xml", content: "<!DOCTYPE root [<!ENTITY less '<'>]><root>&less;</root>"},
+		{name: "character-reference less-than entity in content", representation: "xml", content: "<!DOCTYPE root [<!ENTITY less '&#60;'>]><root>&less;</root>"},
+		{name: "literal less-than entity in actual attribute", representation: "xml", content: `<!DOCTYPE root [<!ENTITY less '<'>]><root value='&less;'/>`},
+		{name: "character-reference less-than in actual attribute", representation: "xml", content: `<!DOCTYPE root [<!ENTITY less '&#60;'>]><root value='&less;'/>`},
+		{name: "markup-bearing entity in actual attribute", representation: "xml", content: `<!DOCTYPE root [<!ENTITY markup '<child/>'>]><root value='&markup;'></root>`},
+		{name: "character-reference less-than in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&less;'><!ENTITY less '&#60;'>]><root/>"},
+		{name: "character-reference less-than in fixed attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA #FIXED '&less;'><!ENTITY less '&#60;'>]><root/>"},
+		{name: "literal less-than in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&less;'><!ENTITY less '<'>]><root/>"},
 		{name: "less-than in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '<'>]><root/>"},
 		{name: "undeclared entity in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&missing;'>]><root/>"},
 		{name: "external entity in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&external;'><!ENTITY external SYSTEM 'root.ent'>]><root/>"},
@@ -287,6 +313,8 @@ func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
 		{name: "duplicate expanded attribute", representation: "xml", content: `<root xmlns:a="urn:a" a:id="one" a:id="two"/>`},
 		{name: "unbound element prefix", representation: "xml", content: "<p:root/>"},
 		{name: "unbound attribute prefix", representation: "xml", content: `<root p:id="one"/>`},
+		{name: "reserved element prefix", representation: "xml", content: "<xmlfoo:root/>"},
+		{name: "reserved xmlns element prefix", representation: "xml", content: "<xmlns:root/>"},
 		{name: "invalid element QName", representation: "xml", content: "<a::root/>"},
 		{name: "reserved xml binding", representation: "xml", content: `<root xmlns:xml="urn:wrong"/>`},
 		{name: "reserved xml prefix", representation: "xml", content: `<root xmlns:xmlfoo="urn:wrong"/>`},
@@ -306,6 +334,188 @@ func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
 	}
 }
 
+func TestGenerateRejectsBootstrapXMLParameterEntitiesWithStableCause(t *testing.T) {
+	contents := []string{
+		`<!DOCTYPE root [<!ENTITY % parameter 'value'>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY % parameter SYSTEM 'parameter.ent'>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY %parameter;>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY value '%parameter;'>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY value 'text' %parameter;>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root (%parameter;)>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root (child %parameter;)>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root (child|%parameter;)>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root (#PCDATA|%parameter;)*>]><root/>`,
+		`<!DOCTYPE root [<!ELEMENT root EMPTY %parameter;>]><root/>`,
+		`<!DOCTYPE root [<!ATTLIST root %parameter;>]><root/>`,
+		`<!DOCTYPE root [<!ATTLIST root id %parameter; #IMPLIED>]><root/>`,
+		`<!DOCTYPE root [<!ATTLIST root id (one|%parameter;) #IMPLIED>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY value SYSTEM 'value.ent' %parameter;>]><root/>`,
+		`<!DOCTYPE root [<!NOTATION image SYSTEM 'image' %parameter;>]><root/>`,
+		`<!DOCTYPE root [%parameter;]><root/>`,
+	}
+	for _, content := range contents {
+		t.Run(content, func(t *testing.T) {
+			assertBootstrapXMLFailureCause(t, content, errBootstrapXMLParameterEntityUnsupported)
+		})
+	}
+}
+
+func TestGenerateRejectsExternalSubsetEntityUseWithStableCause(t *testing.T) {
+	assertBootstrapXMLFailureCause(t, `<!DOCTYPE root SYSTEM "root.dtd"><root>&external;</root>`,
+		errBootstrapXMLExternalEntityUnsupported)
+}
+
+func TestBootstrapXMLAttributeDefaultEntityCutoff(t *testing.T) {
+	assertAcceptedBootstrapXML(t,
+		`<!DOCTYPE root [<!ENTITY value "ready"><!ENTITY alias "&value;"><!ATTLIST root data CDATA "&alias;">]><root/>`)
+	assertBootstrapXMLFailureCause(t,
+		`<!DOCTYPE root [<!ENTITY alias "&value;"><!ATTLIST root data CDATA "&alias;"><!ENTITY value "late">]><root/>`,
+		errBootstrapXMLUnknownEntity)
+	assertBootstrapXMLFailureCause(t,
+		`<!DOCTYPE root SYSTEM "root.dtd" [<!ATTLIST root data CDATA "&missing;">]><root/>`,
+		errBootstrapXMLExternalEntityUnsupported)
+}
+
+func TestBootstrapXMLPredefinedEntityDeclarations(t *testing.T) {
+	valid := []string{
+		`<!DOCTYPE root [<!ENTITY lt "&#38;#60;"><!ENTITY amp "&#38;#38;"><!ENTITY gt ">"><!ENTITY apos "'"><!ENTITY quot '"'>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY lt "&#x26;#x3C;"><!ENTITY amp "&#x26;#x26;"><!ENTITY gt "&#x3E;"><!ENTITY apos "&#x27;"><!ENTITY quot "&#x22;">]><root/>`,
+	}
+	for _, content := range valid {
+		t.Run("valid/"+strconv.Itoa(len(content)), func(t *testing.T) {
+			assertAcceptedBootstrapXML(t, content)
+		})
+	}
+	invalid := []string{
+		`<!DOCTYPE root [<!ENTITY lt "<">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY lt "&#60;">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY lt "&lt;">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY lt SYSTEM "lt.ent">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY amp "&#38;">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY amp "&#38;#60;">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY gt "&gt;">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY gt "&#38;#62;">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY apos "&#34;">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY quot "&#39;">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY lt "&#38;#60;"><!ENTITY lt "<">]><root/>`,
+	}
+	for _, content := range invalid {
+		t.Run("invalid/"+strconv.Itoa(len(content)), func(t *testing.T) {
+			assertRejectedBootstrapXML(t, bootstrapXMLInvalidCase{
+				name:           "predefined entity declaration",
+				representation: "xml",
+				content:        content,
+			})
+		})
+	}
+}
+
+func TestGenerateRemapsEntityFragmentFailureToOuterLocation(t *testing.T) {
+	content := "<!DOCTYPE root [<!ENTITY fragment '<child>'>]>" + "\n" + "<root>&fragment;</root>"
+	raw := []byte(content)
+	entry := testEntry("xml", testDigest(raw))
+	entry.Kind = KindBootstrapArtifact
+	_, err := Generate(context.Background(), responseClient(raw), entry)
+	if err == nil {
+		t.Fatal("Generate() error = nil")
+	}
+	var syntaxErr *xml.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("Generate() error = %v, want XML syntax cause", err)
+	}
+	if syntaxErr.Line != 2 {
+		t.Fatalf("Generate() syntax line = %d, want 2", syntaxErr.Line)
+	}
+	var corpusErr *Error
+	if !errors.As(err, &corpusErr) || corpusErr.ID != entry.ID || corpusErr.URL != entry.URL {
+		t.Fatalf("Generate() error = %v, want outer entry location", err)
+	}
+}
+
+func TestGenerateBootstrapXMLDepthLimitsPreserveResourceCause(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{
+			name:    "general entity chain",
+			content: bootstrapXMLDeepEntityDocument(bootstrapXMLMaxEntityDepth),
+		},
+		{
+			name:    "nested content groups",
+			content: bootstrapXMLDeepGroupDocument(bootstrapXMLMaxContentGroupDepth + 1),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertBootstrapXMLFailureCause(t, test.content, errBootstrapXMLResourceLimit)
+		})
+	}
+}
+
+func TestGenerateAcceptsBootstrapXMLAtDepthLimits(t *testing.T) {
+	contents := []string{
+		bootstrapXMLDeepEntityDocument(bootstrapXMLMaxEntityDepth - 1),
+		bootstrapXMLDeepGroupDocument(bootstrapXMLMaxContentGroupDepth - 1),
+	}
+	for _, content := range contents {
+		t.Run(fmt.Sprintf("length=%d", len(content)), func(t *testing.T) {
+			entry := testEntry("xml", testDigest([]byte(content)))
+			entry.Kind = KindBootstrapArtifact
+			document, err := Generate(context.Background(), responseClient([]byte(content)), entry)
+			if err != nil {
+				t.Fatalf("Generate() error = %v", err)
+			}
+			if !bytes.Equal(document.Data, []byte(content)) {
+				t.Fatalf("Generate() data = %q, want %q", document.Data, content)
+			}
+		})
+	}
+}
+
+func TestGenerateRejectsRepeatedEntityExpansionOverSharedBudget(t *testing.T) {
+	content := "<!DOCTYPE root [<!ENTITY e 'x'>]><root>" + strings.Repeat("&e;", bootstrapXMLMaxEntityValueLength+1) + "</root>"
+	assertBootstrapXMLFailureCause(t, content, errBootstrapXMLResourceLimit)
+}
+
+func assertBootstrapXMLFailureCause(t *testing.T, content string, cause error) {
+	t.Helper()
+	raw := []byte(content)
+	entry := testEntry("xml", testDigest(raw))
+	entry.Kind = KindBootstrapArtifact
+	document, err := Generate(context.Background(), responseClient(raw), entry)
+	if err == nil {
+		t.Fatal("Generate() error = nil")
+	}
+	if document.Data != nil || document.Index != nil || document.Entry.ID != "" {
+		t.Fatalf("Generate() document = %#v, want zero document", document)
+	}
+	assertErrorCode(t, err, bootstrapXMLDocumentCode)
+	if !errors.Is(err, cause) {
+		t.Fatalf("Generate() error = %v, want cause %v", err, cause)
+	}
+}
+
+func bootstrapXMLDeepEntityDocument(depth int) string {
+	var declarations strings.Builder
+	for index := depth; index >= 0; index-- {
+		if index == 0 {
+			declarations.WriteString("<!ENTITY e0 'ok'>")
+			continue
+		}
+		declarations.WriteString("<!ENTITY e" + strconv.Itoa(index) + " '&e" + strconv.Itoa(index-1) + ";'>")
+	}
+	return fmt.Sprintf("<!DOCTYPE root [%s]><root>&e%d;</root>", declarations.String(), depth)
+}
+
+func bootstrapXMLDeepGroupDocument(depth int) string {
+	content := "child"
+	for index := 0; index < depth; index++ {
+		content = "(" + content + ")"
+	}
+	return "<!DOCTYPE root [<!ELEMENT root " + content + ">]><root/>"
+}
+
 func TestGenerateRejectsOverLimitEntityInAttributeDefaults(t *testing.T) {
 	largeValue := strings.Repeat("x", bootstrapXMLMaxEntityValueLength+1)
 	for _, fixed := range []bool{false, true} {
@@ -321,6 +531,79 @@ func TestGenerateRejectsOverLimitEntityInAttributeDefaults(t *testing.T) {
 				content:        content,
 			})
 		})
+	}
+}
+
+func TestBootstrapXMLEntityUseContexts(t *testing.T) {
+	valid := []string{
+		`<!DOCTYPE root [<!ENTITY lt "&#38;#60;"><!ENTITY numeric "&#38;#60;"><!ENTITY escaped "&amp;#60;"><!ENTITY foo "declared"><!ENTITY unknown "&#38;foo;"><!ENTITY missing "&not-declared;"><!ENTITY external SYSTEM "external.ent"><!ENTITY cycle "&cycle;"><!ENTITY fragment "<p:item/>"><!ENTITY uri "urn:p"><!ENTITY comment "<!-- &not-declared; -->"><!ENTITY pi "<?p &not-declared;?>"><!ENTITY cdata "<![CDATA[&not-declared;]]>">]><root xmlns:p="&uri;" a="&lt;" b="&#38;#60;" c="&amp;#60;" d="&unknown;">&lt;&#60;&lt;&numeric;&escaped;&unknown;&fragment;&comment;&pi;&cdata;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<p:item/>">]><root xmlns:p="urn:p"><holder>&fragment;</holder></root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<p:item xmlns:p='urn:inner'/>">]><root xmlns:p="urn:outer">&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY x "&lt;"><!ENTITY numeric "&#38;#60;"><!ATTLIST root a CDATA "&x;">]><root a="&x;" b="&numeric;">&x;&numeric;</root>`,
+		`<root><!-- &missing; --><child><?pi &missing;?></child><![CDATA[&missing;]]></root>`,
+		`<root>]]&gt;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "]]">]><root>&fragment;></root>`,
+		`<!DOCTYPE root [<!ENTITY left "]"><!ENTITY right "]">]><root>&left;&right;></root>`,
+		`<!DOCTYPE root [<!ENTITY end "&gt;">]><root>]]&end;</root>`,
+		`<!DOCTYPE root [<!ENTITY end ">">]><root>]]&end;</root>`,
+		`<!DOCTYPE root [<!ENTITY end "&#62;">]><root>]]&end;</root>`,
+		`<!DOCTYPE root [<!ENTITY end "&#38;#62;">]><root>]]&end;</root>`,
+	}
+	for _, content := range valid {
+		t.Run("valid/"+strconv.Itoa(len(content)), func(t *testing.T) {
+			assertAcceptedBootstrapXML(t, content)
+		})
+	}
+
+	invalid := []string{
+		`<!DOCTYPE root [<!ENTITY fragment "<root/>">]>&fragment;`,
+		`<!DOCTYPE root [<!ENTITY nested "<root/>"><!ENTITY fragment "&nested;">]>&fragment;`,
+		`<!DOCTYPE root [<!ENTITY empty ""><!ENTITY comment "<!-- comment -->"><!ENTITY pi "<?p &missing;?>">]>&comment;&empty;<root/>&pi;`,
+		`<!DOCTYPE root [<!ENTITY literal "<"><!ENTITY numeric "&#60;">]><root a="&literal;"/>`,
+		`<!DOCTYPE root [<!ENTITY literal "<"><!ENTITY numeric "&#60;">]><root a="&numeric;"/>`,
+		`<!DOCTYPE root [<!ENTITY literal "<"><!ATTLIST root a CDATA "&literal;">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY numeric "&#60;"><!ATTLIST root a CDATA "&numeric;">]><root/>`,
+		`<!DOCTYPE root [<!ENTITY missing "&not-declared;">]><root>&missing;</root>`,
+		`<!DOCTYPE root [<!ENTITY e "&#38;foo;">]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY e "&#38;x">]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY e "&#38;">]><root>&e;</root>`,
+		`<!DOCTYPE root [<!ENTITY external SYSTEM "external.ent">]><root>&external;</root>`,
+		`<!DOCTYPE root [<!ENTITY first "&second;"><!ENTITY second "&first;">]><root>&first;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<p:item/>">]><root>&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<child>">]><root>&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<other/>">]>&fragment;`,
+		`<!DOCTYPE root [<!ENTITY fragment "<p:item/>">]><root xmlns:q="urn:p">&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY uri "urn:bad space">]><root xmlns:p="&uri;"/>`,
+		`<!DOCTYPE root [<!ENTITY uri "&missing;">]><root xmlns:p="&uri;"/>`,
+		`<!DOCTYPE root [<!ENTITY fragment '<p:item xmlns:p="urn:p" p:id="one" q:id="two" xmlns:q="urn:p"/>'>]><root>&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<!DOCTYPE nested><child/>">]><root>&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<!ENTITY nested 'value'>">]><root>&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<?xml version='1.0'?>">]><root>&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<!-- --&gt;">]><root>&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<?pi ?&gt;">]><root>&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<![CDATA[]]&gt;">]><root>&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "]]>">]><root>&fragment;</root>`,
+		`<!DOCTYPE root [<!ENTITY fragment "<![CDATA[]]><root/>">]>&fragment;`,
+	}
+	for index, content := range invalid {
+		content := content
+		t.Run("invalid/"+strconv.Itoa(index)+"/"+strconv.Itoa(len(content)), func(t *testing.T) {
+			assertRejectedBootstrapXML(t, bootstrapXMLInvalidCase{name: "entity context", representation: "xml", content: content})
+		})
+	}
+}
+
+func assertAcceptedBootstrapXML(t *testing.T, content string) {
+	t.Helper()
+	raw := []byte(content)
+	entry := testEntry("xml", testDigest(raw))
+	entry.Kind = KindBootstrapArtifact
+	document, err := Generate(context.Background(), responseClient(raw), entry)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if !bytes.Equal(document.Data, raw) {
+		t.Fatalf("Generate() data = %q, want %q", document.Data, raw)
 	}
 }
 
