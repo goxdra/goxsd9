@@ -240,7 +240,7 @@ func TestGenerateAcceptsBootstrapXMLDeclarationAndDoctypeForms(t *testing.T) {
 	}
 }
 
-func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) { //nolint:funlen // The table keeps the bootstrap XML rejection contract together.
+func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
 	tests := []bootstrapXMLInvalidCase{
 		{name: "unclosed element", representation: "xml", content: "<root>"},
 		{name: "trailing text", representation: "xml", content: "<root/>text"},
@@ -279,7 +279,6 @@ func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) { //nolint:funlen //
 		{name: "cyclic entity use", representation: "xml", content: "<!DOCTYPE root [<!ENTITY first '&second;'><!ENTITY second '&first;'>]><root>&first;</root>"},
 		{name: "forward entity default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&value;'><!ENTITY value 'forward'>]><root/>"},
 		{name: "choice requires a second particle", representation: "xml", content: "<!DOCTYPE root [<!ELEMENT root (child|)>]><root/>"},
-		{name: "declared parameter entity", representation: "xml", content: "<!DOCTYPE root [<!ENTITY % parameter 'value'>]><root/>"},
 		{name: "undeclared parameter entity", representation: "xml", content: "<!DOCTYPE root [%parameter;]><root/>"},
 		{name: "expanded markup duplicate attribute", representation: "xml", content: `<!DOCTYPE root [<!ENTITY markup '<child id="one" id="two"/>'>]><root>&markup;</root>`},
 		{name: "expanded markup unbound prefix", representation: "xml", content: `<!DOCTYPE root [<!ENTITY markup '<p:child/>'>]><root>&markup;</root>`},
@@ -336,9 +335,9 @@ func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) { //nolint:funlen //
 
 func TestGenerateRejectsBootstrapXMLParameterEntitiesWithStableCause(t *testing.T) {
 	contents := []string{
-		`<!DOCTYPE root [<!ENTITY % parameter 'value'>]><root/>`,
-		`<!DOCTYPE root [<!ENTITY % parameter SYSTEM 'parameter.ent'>]><root/>`,
 		`<!DOCTYPE root [<!ENTITY %parameter;>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY % parameter 'value'>%parameter;]><root/>`,
+		`<!DOCTYPE root [<!ENTITY % parameter SYSTEM 'parameter.ent'>%parameter;]><root/>`,
 		`<!DOCTYPE root [<!ENTITY value '%parameter;'>]><root/>`,
 		`<!DOCTYPE root [<!ENTITY value 'text' %parameter;>]><root/>`,
 		`<!DOCTYPE root [<!ELEMENT root (%parameter;)>]><root/>`,
@@ -356,6 +355,19 @@ func TestGenerateRejectsBootstrapXMLParameterEntitiesWithStableCause(t *testing.
 	for _, content := range contents {
 		t.Run(content, func(t *testing.T) {
 			assertBootstrapXMLFailureCause(t, content, errBootstrapXMLParameterEntityUnsupported)
+		})
+	}
+}
+
+func TestGenerateAcceptsUnusedParameterEntityDeclarations(t *testing.T) {
+	contents := []string{
+		`<!DOCTYPE root [<!ENTITY % parameter 'value'>]><root/>`,
+		`<!DOCTYPE root [<!ENTITY % parameter SYSTEM 'parameter.ent'>]><root/>`,
+		`<!DOCTYPE schema [<!ENTITY % schemaAttrs 'xmlns:hfp CDATA #IMPLIED'><!ELEMENT schema EMPTY>]><schema/>`,
+	}
+	for _, content := range contents {
+		t.Run(strconv.Itoa(len(content)), func(t *testing.T) {
+			assertAcceptedBootstrapXML(t, content)
 		})
 	}
 }

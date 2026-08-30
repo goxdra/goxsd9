@@ -2008,8 +2008,7 @@ func (parser *bootstrapXMLDTDParser) parseInternalEntityDeclaration(name string,
 		return false
 	}
 	if parameter {
-		parser.setFailure(errBootstrapXMLParameterEntityUnsupported)
-		return false
+		return true
 	}
 	return parser.declareEntity(name, string(parser.data[valueStart:valueEnd]), false)
 }
@@ -2023,8 +2022,7 @@ func (parser *bootstrapXMLDTDParser) parseExternalEntityDeclaration(name string,
 		return false
 	}
 	if parameter {
-		parser.setFailure(errBootstrapXMLParameterEntityUnsupported)
-		return false
+		return true
 	}
 	return parser.declareEntity(name, "", true)
 }
