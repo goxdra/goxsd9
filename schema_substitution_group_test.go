@@ -11,7 +11,7 @@ func TestSchemaDirectSubstitutionGroupXSD10PreservesHeadIDAndLocation(t *testing
 	memberLine := `  <xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>`
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.0">
 ` + memberLine + `
-	  <xs:element name="head" type="xs:integer"/>
+  <xs:element name="head" type="xs:integer"/>
 </xs:schema>`
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
 	if err != nil {
@@ -49,13 +49,28 @@ func TestSchemaDirectSubstitutionGroupXSD10RejectsImportedUntypedHead(t *testing
 	schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
 		"child.xsd": {id: "child.xsd", contents: child},
 	}, Strict10)
-	assertSchemaSubstitutionFailure(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, "", 0)
+	diagnostic := assertSchemaSubstitutionFailure(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, "", 0)
+	if diagnostic.Feature() != FeatureSchemaSyntax || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("untyped-head diagnostic = %s/%v, want schema syntax unsupported", diagnostic, err)
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupRejectsExplicitUntypedSource(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="member" substitutionGroup="r:head"/>
+  <xs:element name="head" type="xs:integer"/>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	diagnostic := assertSchemaSubstitutionFailure(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, "", 0)
+	if diagnostic.Feature() != FeatureSchemaSyntax || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("untyped-source diagnostic = %s/%v, want schema syntax unsupported", diagnostic, err)
+	}
 }
 
 func TestSchemaDirectSubstitutionGroupXSD10ResolvesBackwardDeclaration(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.0">
-	  <xs:element name="head" type="xs:integer"/>
-	  <xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>
+  <xs:element name="head" type="xs:integer"/>
+  <xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>
 </xs:schema>`
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
 	if err != nil {
@@ -73,8 +88,8 @@ func TestSchemaDirectSubstitutionGroupXSD10ResolvesBackwardDeclaration(t *testin
 func TestSchemaDirectSubstitutionGroupXSD11PreservesOrderedHeadsAndEmptyAbsence(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
   <xs:element name="member" type="xs:integer" substitutionGroup="r:second r:first"/>
-	  <xs:element name="second" type="xs:integer"/>
-	  <xs:element name="first" type="xs:integer"/>
+  <xs:element name="second" type="xs:integer"/>
+  <xs:element name="first" type="xs:integer"/>
   <xs:element name="empty" type="xs:boolean" substitutionGroup="   "/>
   <xs:element name="absent" type="xs:integer"/>
 </xs:schema>`
@@ -316,7 +331,6 @@ func TestSchemaDirectSubstitutionGroupRejectsMalformedAndUnboundQNames(t *testin
 	}
 }
 
-//nolint:gocognit // Keep the edition and diagnostic precedence matrix together.
 func TestSchemaDirectSubstitutionGroupReportsDeterministicHeadErrors(t *testing.T) {
 	for _, edition := range []struct {
 		name    string
@@ -433,7 +447,7 @@ func TestSchemaDirectSubstitutionGroupRequiresDirectForeignImport(t *testing.T) 
 			bridge := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:bridge" version="` + edition.version + `">
   <xs:import namespace="urn:foreign" schemaLocation="foreign.xsd"/>
 </xs:schema>`
-			foreign := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:foreign" version="` + edition.version + `"><xs:element name="head"/></xs:schema>`
+			foreign := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:foreign" version="` + edition.version + `"><xs:element name="head" type="xs:integer"/></xs:schema>`
 			schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
 				"bridge.xsd":  {id: "bridge.xsd", contents: bridge},
 				"foreign.xsd": {id: "foreign.xsd", contents: foreign},
@@ -441,6 +455,45 @@ func TestSchemaDirectSubstitutionGroupRequiresDirectForeignImport(t *testing.T) 
 			diagnostic := assertSchemaSubstitutionFailure(t, schema, err, FailureInvalid, diagnosticSchemaSubstitutionImportCode, schemaSubstitutionConstraintSpecRef(XSDVersion(edition.version)), 1)
 			if diagnostic.Unwrap() == nil {
 				t.Fatal("foreign-import diagnostic has no cause")
+			}
+		})
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupReportsDuplicateHeadBeforeResolution(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>
+  <xs:element name="head" type="xs:integer"/>
+  <xs:element name="head" type="xs:integer"/>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	diagnostic := assertSchemaSubstitutionFailure(t, schema, err, FailureInvalid, diagnosticSchemaGlobalDuplicateCode, schemaElementDuplicateSpecRef(XSDVersion11), 1)
+	if !errors.Is(err, errSchemaElementDuplicate) {
+		t.Fatalf("duplicate-head diagnostic cause = %v, want errSchemaElementDuplicate", err)
+	}
+	if diagnostic.Loc() != mustTestLoc(t, "root.xsd", 4, 3) {
+		t.Fatalf("duplicate-head diagnostic location = %s, want later head declaration", diagnostic.Loc())
+	}
+	if got, want := diagnostic.Related(), []Loc{mustTestLoc(t, "root.xsd", 3, 3)}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("duplicate-head related locations = %#v, want %#v", got, want)
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupNamespacePolicyExceptions(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		version   XSDVersion
+		namespace string
+		want      bool
+	}{
+		{name: "XSD 1.1 schema namespace", version: XSDVersion11, namespace: xsdNamespaceURI, want: true},
+		{name: "XSD 1.1 instance namespace", version: XSDVersion11, namespace: schemaInstanceNamespaceURI, want: true},
+		{name: "XSD 1.0 schema namespace", version: XSDVersion10, namespace: xsdNamespaceURI, want: false},
+		{name: "XSD 1.0 instance namespace", version: XSDVersion10, namespace: schemaInstanceNamespaceURI, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := schemaSubstitutionNamespacePermitted(test.version, test.namespace); got != test.want {
+				t.Fatalf("schemaSubstitutionNamespacePermitted(%q, %q) = %t, want %t", test.version, test.namespace, got, test.want)
 			}
 		})
 	}
