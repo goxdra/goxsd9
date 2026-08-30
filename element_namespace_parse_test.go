@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -280,19 +281,234 @@ func TestParseSchemaDirectChoiceTargetNamespacePolicy(t *testing.T) {
 	}
 }
 
-func TestParseSchemaValidatesElementFormDefaultAndRetainsAttributeDefaultUnsupported(t *testing.T) {
-	malformed := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" elementFormDefault="maybe"/>`
-	schema, err := parseElementNamespaceSchemaResult(t, goxsd9.Strict11, malformed, nil)
-	diagnostic := assertElementNamespaceFailure(t, schema, err, goxsd9.FailureInvalid)
-	if diagnostic.Code() != "XSD3010" || !strings.Contains(diagnostic.Message(), "elementFormDefault") {
-		t.Fatalf("malformed default diagnostic = %s, want invalid elementFormDefault diagnostic", diagnostic)
-	}
+type attributeFormDefaultComponentQuery struct {
+	id           goxsd9.ComponentID
+	kind         goxsd9.ComponentKind
+	name         goxsd9.QName
+	loc          goxsd9.Loc
+	declaredType goxsd9.QName
+}
 
-	unsupported := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" attributeFormDefault="unqualified"/>`
-	schema, err = parseElementNamespaceSchemaResult(t, goxsd9.Strict11, unsupported, nil)
-	diagnostic = assertElementNamespaceFailure(t, schema, err, goxsd9.FailureUnsupported)
-	if diagnostic.Feature() != goxsd9.FeatureSchemaSyntax || !errors.Is(err, goxsd9.ErrUnsupported) {
-		t.Fatalf("attributeFormDefault diagnostic = %s, want schema-syntax unsupported", diagnostic)
+type attributeFormDefaultDocumentQuery struct {
+	source          goxsd9.SourceID
+	rootLoc         goxsd9.Loc
+	targetNamespace string
+	components      []attributeFormDefaultComponentQuery
+}
+
+type attributeFormDefaultSchemaQuery struct {
+	documents  []attributeFormDefaultDocumentQuery
+	components []attributeFormDefaultComponentQuery
+	found      []attributeFormDefaultComponentQuery
+	lookup     attributeFormDefaultComponentQuery
+}
+
+func attributeFormDefaultComponentQueries(components []goxsd9.Component) []attributeFormDefaultComponentQuery {
+	queries := make([]attributeFormDefaultComponentQuery, 0, len(components))
+	for _, component := range components {
+		query := attributeFormDefaultComponentQuery{
+			id:   component.ID(),
+			kind: component.Kind(),
+			name: component.Name(),
+			loc:  component.Loc(),
+		}
+		if declaration, ok := component.Element(); ok {
+			query.declaredType = declaration.DeclaredType()
+		}
+		queries = append(queries, query)
+	}
+	return queries
+}
+
+func attributeFormDefaultQuerySnapshot(t *testing.T, schema goxsd9.Schema) attributeFormDefaultSchemaQuery {
+	t.Helper()
+	documents := schema.Documents()
+	components := schema.Components()
+	if len(documents) != 1 || len(components) != 1 {
+		t.Fatalf("schema queries = %d documents/%d components, want 1/1", len(documents), len(components))
+	}
+	name, err := goxsd9.NewQName("urn:root", "item")
+	if err != nil {
+		t.Fatalf("NewQName: %v", err)
+	}
+	found := schema.FindKind(goxsd9.ComponentKindElementDeclaration, name)
+	if len(found) != 1 {
+		t.Fatalf("FindKind item count = %d, want 1", len(found))
+	}
+	lookup, ok := schema.Lookup(components[0].ID())
+	if !ok {
+		t.Fatal("Lookup did not find the declared component")
+	}
+	return attributeFormDefaultSchemaQuery{
+		documents: []attributeFormDefaultDocumentQuery{{
+			source:          documents[0].Source(),
+			rootLoc:         documents[0].RootLoc(),
+			targetNamespace: documents[0].TargetNamespace(),
+			components:      attributeFormDefaultComponentQueries(documents[0].Components()),
+		}},
+		components: attributeFormDefaultComponentQueries(components),
+		found:      attributeFormDefaultComponentQueries(found),
+		lookup:     attributeFormDefaultComponentQueries([]goxsd9.Component{lookup})[0],
+	}
+}
+
+func attributeFormDefaultSchemaRoot(attribute string) string {
+	return `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" targetNamespace="urn:root"` + attribute + `>
+  <xs:element name="item" type="xs:integer"/>
+</xs:schema>`
+}
+
+func attributeFormDefaultLocation(t *testing.T, root string) goxsd9.Loc {
+	t.Helper()
+	index := strings.LastIndex(root, "attributeFormDefault")
+	if index < 0 {
+		t.Fatalf("root does not contain attributeFormDefault: %q", root)
+	}
+	loc, err := goxsd9.NewLoc("root.xsd", 1, index+1)
+	if err != nil {
+		t.Fatalf("NewLoc: %v", err)
+	}
+	return loc
+}
+
+type attributeFormDefaultDiagnosticCase struct {
+	name      string
+	attribute string
+	class     goxsd9.FailureClass
+	code      string
+	feature   goxsd9.FeatureID
+	message   string
+}
+
+func assertAttributeFormDefaultDiagnostic(t *testing.T, policy goxsd9.LanguagePolicy, test attributeFormDefaultDiagnosticCase) {
+	t.Helper()
+	root := attributeFormDefaultSchemaRoot(test.attribute)
+	schema, err := parseElementNamespaceSchemaResult(t, policy, root, nil)
+	diagnostic := assertElementNamespaceFailure(t, schema, err, test.class)
+	if diagnostic.Code() != test.code || diagnostic.Message() != test.message {
+		t.Fatalf("diagnostic = %s, want %s/%s", diagnostic, test.code, test.message)
+	}
+	if diagnostic.Loc() != attributeFormDefaultLocation(t, root) {
+		t.Fatalf("diagnostic location = %s, want attribute location", diagnostic.Loc())
+	}
+	if test.feature != "" && diagnostic.Feature() != test.feature {
+		t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), test.feature)
+	}
+	if test.class == goxsd9.FailureUnsupported {
+		if !errors.Is(err, goxsd9.ErrUnsupported) {
+			t.Fatalf("unsupported diagnostic lost ErrUnsupported: %v", err)
+		}
+		return
+	}
+	if errors.Is(err, goxsd9.ErrUnsupported) || diagnostic.Unwrap() != nil {
+		t.Fatalf("invalid diagnostic retained an unsupported cause: %v", err)
+	}
+}
+
+func TestParseSchemaAcceptsAttributeFormDefaultUnqualifiedAsDefault(t *testing.T) {
+	tests := []struct {
+		name      string
+		attribute string
+	}{
+		{name: "absent"},
+		{name: "explicit unqualified", attribute: ` attributeFormDefault="unqualified"`},
+		{name: "XML-whitespace-padded unqualified", attribute: " attributeFormDefault=\" \t unqualified \t \""},
+	}
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict10, goxsd9.Strict11} {
+		var want attributeFormDefaultSchemaQuery
+		for index, test := range tests {
+			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
+				root := attributeFormDefaultSchemaRoot(test.attribute)
+				schema, err := parseElementNamespaceSchemaResult(t, policy, root, nil)
+				if err != nil {
+					t.Fatalf("ParseSchemaWithPolicy: %v", err)
+				}
+				got := attributeFormDefaultQuerySnapshot(t, schema)
+				if index == 0 {
+					want = got
+					return
+				}
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("public schema queries differ from absent default:\n got: %#v\nwant: %#v", got, want)
+				}
+			})
+		}
+	}
+}
+
+func TestParseSchemaAttributeFormDefaultDiagnostics(t *testing.T) {
+	tests := []attributeFormDefaultDiagnosticCase{
+		{
+			name:      "XML-whitespace-padded qualified remains unsupported",
+			attribute: " attributeFormDefault=\" \t qualified \t \"",
+			class:     goxsd9.FailureUnsupported,
+			code:      goxsd9.UnsupportedSchemaSyntaxCode,
+			feature:   goxsd9.FeatureSchemaSyntax,
+			message:   `schema root attribute "attributeFormDefault" is not implemented`,
+		},
+		{
+			name:      "empty value remains invalid",
+			attribute: ` attributeFormDefault=""`,
+			class:     goxsd9.FailureInvalid,
+			code:      "XSD3010",
+			message:   `attribute "attributeFormDefault" has an invalid value`,
+		},
+		{
+			name:      "XML-whitespace-only value remains invalid",
+			attribute: " attributeFormDefault=\" \t \t \"",
+			class:     goxsd9.FailureInvalid,
+			code:      "XSD3010",
+			message:   `attribute "attributeFormDefault" has an invalid value`,
+		},
+		{
+			name:      "malformed value remains invalid",
+			attribute: ` attributeFormDefault="maybe"`,
+			class:     goxsd9.FailureInvalid,
+			code:      "XSD3010",
+			message:   `attribute "attributeFormDefault" has an invalid value`,
+		},
+		{
+			name:      "duplicate expanded root attribute takes precedence",
+			attribute: ` attributeFormDefault="unqualified" attributeFormDefault="qualified"`,
+			class:     goxsd9.FailureInvalid,
+			code:      goxsd9.InvalidXMLSyntaxCode,
+			message:   `duplicate attribute "attributeFormDefault"`,
+		},
+	}
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict10, goxsd9.Strict11} {
+		for _, test := range tests {
+			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
+				assertAttributeFormDefaultDiagnostic(t, policy, test)
+			})
+		}
+	}
+}
+
+func TestParseSchemaAttributeFormDefaultDoesNotClaimLocalAttributes(t *testing.T) {
+	tests := []struct {
+		name  string
+		child string
+	}{
+		{name: "local declaration", child: `<xs:attribute name="item" type="xs:string"/>`},
+		{name: "local default", child: `<xs:attribute name="item" default="value"/>`},
+		{name: "local fixed", child: `<xs:attribute name="item" fixed="value"/>`},
+		{name: "local reference", child: `<xs:attribute ref="item"/>`},
+		{name: "attribute group reference", child: `<xs:attributeGroup ref="items"/>`},
+	}
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict10, goxsd9.Strict11} {
+		for _, test := range tests {
+			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" attributeFormDefault="unqualified"><xs:complexType name="Record">` + test.child + `</xs:complexType></xs:schema>`
+				schema, err := parseElementNamespaceSchemaResult(t, policy, root, nil)
+				diagnostic := assertElementNamespaceFailure(t, schema, err, goxsd9.FailureUnsupported)
+				if diagnostic.Feature() != goxsd9.FeatureSchemaSyntax || diagnostic.Code() != goxsd9.UnsupportedSchemaSyntaxCode {
+					t.Fatalf("diagnostic = %s, want schema-syntax unsupported", diagnostic)
+				}
+				if !errors.Is(err, goxsd9.ErrUnsupported) {
+					t.Fatalf("local attribute diagnostic lost ErrUnsupported: %v", err)
+				}
+			})
+		}
 	}
 }
 
