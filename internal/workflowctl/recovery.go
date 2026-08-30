@@ -160,14 +160,14 @@ func mergeBoundaryEvaluationReceipt(view pullRequestView, number int) (evaluatio
 	if err != nil {
 		return evaluationReceipt{}, fmt.Errorf("read immutable pre-merge evaluation proof: %w", err)
 	}
-	if historyErr := validateEvaluationHistory(history); historyErr != nil {
+	if historyErr := validateEvaluationHistoryForHistoricalProjection(number, history); historyErr != nil {
 		return evaluationReceipt{}, fmt.Errorf("read immutable pre-merge evaluation proof: %w", historyErr)
 	}
 	mergeAt := view.MergedAt.UTC()
 	if boundaryErr := validateMergeBoundaryHistory(history, mergeAt); boundaryErr != nil {
 		return evaluationReceipt{}, boundaryErr
 	}
-	selected, err := latestMergeBoundaryReceipt(history)
+	selected, err := latestMergeBoundaryReceipt(number, history)
 	if err != nil {
 		return evaluationReceipt{}, err
 	}
@@ -247,8 +247,8 @@ func validateMergeBoundaryResolutions(resolutions []evaluationResolutionRecord, 
 	return nil
 }
 
-func latestMergeBoundaryReceipt(history evaluationHistory) (evaluationReceiptRecord, error) {
-	outstanding, err := outstandingEvaluationChallenges(history)
+func latestMergeBoundaryReceipt(number int, history evaluationHistory) (evaluationReceiptRecord, error) {
+	outstanding, err := historicalOutstandingEvaluationChallenges(number, history)
 	if err != nil {
 		return evaluationReceiptRecord{}, err
 	}
@@ -267,7 +267,7 @@ func latestMergeBoundaryReceipt(history evaluationHistory) (evaluationReceiptRec
 	if err != nil {
 		return evaluationReceiptRecord{}, fmt.Errorf("pre-merge evaluation proof has ambiguous receipt ordering: %w", err)
 	}
-	if !latestEvaluationReceiptClosesLatestChallenge(history) {
+	if !latestHistoricalEvaluationReceiptClosesLatestChallenge(number, history) {
 		return evaluationReceiptRecord{}, errors.New("latest challenge was not closed by a passing attested receipt; a no-verdict resolution cannot prove merge")
 	}
 	return ordered[len(ordered)-1], nil

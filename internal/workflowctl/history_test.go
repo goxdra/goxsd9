@@ -403,6 +403,146 @@ func TestHistoryEvaluationMetricsUseValidatedReceiptsAndStableOrder(t *testing.T
 	}
 }
 
+func TestHistoricalProjectionAllowsLegacyStaleEquivalentChallenges(t *testing.T) {
+	base := time.Date(2026, time.August, 22, 4, 0, 0, 0, time.UTC)
+	bodySHA256 := strings.Repeat("a", 64)
+	evidenceSHA256 := strings.Repeat("b", 64)
+	old := evaluationChallenge{
+		Challenge:      "legacy-old-canonical",
+		Head:           "old-head",
+		PR:             145,
+		BodySHA256:     bodySHA256,
+		EvidenceSHA256: evidenceSHA256,
+		RequestedAt:    base,
+	}
+	oldDuplicate := old
+	oldDuplicate.Challenge = "legacy-old-duplicate"
+	oldDuplicate.RequestedAt = base.Add(time.Minute)
+	latest := evaluationChallenge{
+		Challenge:      "legacy-latest-canonical",
+		Head:           "latest-head",
+		PR:             145,
+		BodySHA256:     strings.Repeat("c", 64),
+		EvidenceSHA256: strings.Repeat("d", 64),
+		RequestedAt:    base.Add(2 * time.Hour),
+	}
+	latestDuplicate := latest
+	latestDuplicate.Challenge = "legacy-latest-duplicate"
+	latestDuplicate.RequestedAt = latest.RequestedAt.Add(time.Minute)
+	oldComment := evaluationChallengeProjectionComment(t, old, 1451)
+	oldDuplicateComment := evaluationChallengeProjectionComment(t, oldDuplicate, 1452)
+	latestComment := evaluationChallengeProjectionComment(t, latest, 1453)
+	latestDuplicateComment := evaluationChallengeProjectionComment(t, latestDuplicate, 1454)
+	latestReceipt := historyTestEvaluation(t, latestDuplicateComment, "legacy-latest-run", 1, "pass", 0,
+		historyTestCurrentBase64, trustedActor, latestDuplicate.RequestedAt.Add(time.Minute))
+	latestReceipt.ID = 1455
+	latestReceipt.Body = replaceTestReceipt(t, latestReceipt.Body, func(receipt *evaluationReceipt) {
+		receipt.BaseRefName = "main"
+		receipt.BodySHA256 = latest.BodySHA256
+		receipt.ClosingIssues = []int{145}
+		receipt.EvidenceSHA256 = latest.EvidenceSHA256
+		receipt.HeadRefName = "agent/issue-145"
+		receipt.Repository = repositoryKey
+	})
+	comments := []pullRequestComment{
+		oldComment, oldDuplicateComment, latestComment, latestDuplicateComment, latestReceipt,
+	}
+	history, err := parseEvaluationHistory(comments)
+	if err != nil {
+		t.Fatalf("parse legacy stale challenge history: %v", err)
+	}
+	strictErr := validateEvaluationHistory(history)
+	if strictErr == nil || !strings.Contains(strictErr.Error(), "no authenticated controller closure") {
+		t.Fatalf("strict legacy stale history error = %v, want missing-closure refusal", strictErr)
+	}
+	_, activeErr := readEvaluationMutationHistory(145, comments)
+	if activeErr == nil || !strings.Contains(activeErr.Error(), "no authenticated controller closure") {
+		t.Fatalf("strict active history error = %v, want missing-closure refusal", activeErr)
+	}
+	historicalErr := validateEvaluationHistoryForHistoricalProjection(145, history)
+	if historicalErr != nil {
+		t.Fatalf("historical legacy stale projection: %v", historicalErr)
+	}
+	outstanding, err := historicalOutstandingEvaluationChallenges(145, history)
+	if err != nil {
+		t.Fatalf("historical outstanding challenges: %v", err)
+	}
+	if len(outstanding) != 0 {
+		t.Fatalf("historical outstanding challenges = %#v, want none after latest receipt", outstanding)
+	}
+	packet, err := historyEvaluationPacketForPR(
+		pullRequestSummary{Number: 145, MergedAt: latestReceipt.CreatedAt.Add(time.Hour)}, history)
+	if err != nil {
+		t.Fatalf("historical legacy stale packet: %v", err)
+	}
+	if len(packet.rounds) != 1 || packet.rounds[0].round != 1 || packet.rounds[0].verdict != "pass" {
+		t.Fatalf("historical legacy stale rounds = %#v, want one passing round", packet.rounds)
+	}
+	mergedAt := latestReceipt.CreatedAt.Add(time.Hour)
+	view := pullRequestView{Comments: comments, Merged: true, MergedAt: &mergedAt}
+	if _, err := mergeTimeEvaluationProof(view, 145); err != nil {
+		t.Fatalf("historical legacy stale merge proof: %v", err)
+	}
+}
+
+func TestHistoricalProjectionRejectsMixedPRChallengeHistory(t *testing.T) {
+	base := time.Date(2026, time.August, 22, 4, 0, 0, 0, time.UTC)
+	target := evaluationChallenge{
+		Challenge:      "target-unresolved",
+		Repository:     repositoryKey,
+		Head:           "target-head",
+		PR:             145,
+		BodySHA256:     strings.Repeat("a", 64),
+		EvidenceSHA256: strings.Repeat("b", 64),
+		RequestedAt:    base,
+	}
+	foreign := target
+	foreign.Challenge = "foreign-latest"
+	foreign.Repository = repositoryKey
+	foreign.Head = "foreign-head"
+	foreign.PR = 146
+	foreign.BodySHA256 = strings.Repeat("c", 64)
+	foreign.EvidenceSHA256 = strings.Repeat("d", 64)
+	foreign.RequestedAt = base.Add(time.Hour)
+	targetComment := evaluationChallengeProjectionComment(t, target, 1461)
+	foreignComment := evaluationChallengeProjectionComment(t, foreign, 1462)
+	foreignReceipt := historyTestEvaluation(t, foreignComment, "foreign-run", 1, "pass", 0,
+		historyTestCurrentBase64, trustedActor, foreign.RequestedAt.Add(time.Minute))
+	foreignReceipt.ID = 1463
+	foreignReceipt.Body = replaceTestReceipt(t, foreignReceipt.Body, func(receipt *evaluationReceipt) {
+		receipt.BaseRefName = "main"
+		receipt.BodySHA256 = foreign.BodySHA256
+		receipt.ClosingIssues = []int{146}
+		receipt.EvidenceSHA256 = foreign.EvidenceSHA256
+		receipt.HeadRefName = "agent/issue-146"
+		receipt.Repository = repositoryKey
+	})
+	comments := []pullRequestComment{targetComment, foreignComment, foreignReceipt}
+	history, err := parseEvaluationHistory(comments)
+	if err != nil {
+		t.Fatalf("parse mixed PR history: %v", err)
+	}
+	if _, err := historicalOutstandingEvaluationChallenges(145, history); err == nil ||
+		!strings.Contains(err.Error(), "targets PR #146") {
+		t.Fatalf("mixed PR historical outstanding error = %v, want PR-scope refusal", err)
+	}
+	if err := validateEvaluationHistoryForHistoricalProjection(145, history); err == nil ||
+		!strings.Contains(err.Error(), "targets PR #146") {
+		t.Fatalf("mixed PR historical validation error = %v, want PR-scope refusal", err)
+	}
+	if _, err := historyEvaluationPacketForPR(
+		pullRequestSummary{Number: 145, MergedAt: foreignReceipt.CreatedAt.Add(time.Hour)}, history); err == nil ||
+		!strings.Contains(err.Error(), "targets PR #146") {
+		t.Fatalf("mixed PR history packet error = %v, want PR-scope refusal", err)
+	}
+	mergedAt := foreignReceipt.CreatedAt.Add(time.Hour)
+	if _, err := mergeTimeEvaluationProof(pullRequestView{
+		Comments: comments, Merged: true, MergedAt: &mergedAt,
+	}, 145); err == nil || !strings.Contains(err.Error(), "targets PR #146") {
+		t.Fatalf("mixed PR merge proof error = %v, want PR-scope refusal", err)
+	}
+}
+
 func TestHistoryRetainsAttestationSummaryAndSuppressesPassSummary(t *testing.T) {
 	base := time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC)
 	failedSummary := "The exact failed summary remains trusted data."

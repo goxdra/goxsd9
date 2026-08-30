@@ -514,6 +514,114 @@ func TestEvaluationChallengeClosurePartialRetryProgresses(t *testing.T) {
 	}
 }
 
+func TestEvaluationRecordRejectsInvalidAttestationBeforeChallengeClosure(t *testing.T) {
+	t.Run("wrong head", func(t *testing.T) {
+		backend, application, stdout := newConvergenceWorkflowFixture(t)
+		canonical := requestTestChallenge(t, application, stdout)
+		appendFinalEquivalentChallenge(t, backend)
+		_, attestationFile := writeTestAttestationRun(t, "different-head", canonical, "invalid-head")
+		assertEvaluationAttestationRejectedBeforeChallengeClosure(t, backend, application, stdout, attestationFile)
+	})
+	t.Run("used challenge", func(t *testing.T) {
+		backend, application, stdout := newConvergenceWorkflowFixture(t)
+		canonical := requestTestChallenge(t, application, stdout)
+		_, firstAttestationFile := writeTestAttestationRun(t, backend.head, canonical, "first-run")
+		if err := application.runEvaluation([]string{"record", "14", "--attestation-file", firstAttestationFile}); err != nil {
+			t.Fatalf("record initial attestation: %v", err)
+		}
+		appendFinalEquivalentChallenge(t, backend)
+		_, attestationFile := writeTestAttestationRun(t, backend.head, canonical, "second-run")
+		assertEvaluationAttestationRejectedBeforeChallengeClosure(t, backend, application, stdout, attestationFile)
+	})
+}
+
+func assertEvaluationAttestationRejectedBeforeChallengeClosure(t *testing.T, backend *workflowBackend,
+	application *app, stdout *bytes.Buffer, attestationFile string) {
+	t.Helper()
+	commentCount := len(backend.comments)
+	postCount := backend.commentPostCount
+	stdout.Reset()
+	err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+	if err == nil {
+		t.Fatal("invalid attestation reached challenge convergence")
+	}
+	if len(backend.comments) != commentCount || backend.commentPostCount != postCount {
+		t.Fatalf("invalid attestation mutated challenge history: comments %d->%d posts %d->%d",
+			commentCount, len(backend.comments), postCount, backend.commentPostCount)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("invalid attestation emitted output %q", stdout.String())
+	}
+}
+
+func TestEvaluationRecordReplaysExpiredExactReceipt(t *testing.T) {
+	backend, application, stdout := newConvergenceWorkflowFixture(t)
+	challenge := requestTestChallenge(t, application, stdout)
+	_, attestationFile := writeTestAttestationRun(t, backend.head, challenge, "expired-replay")
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record initial attestation: %v", err)
+	}
+	expireWorkflowChallenge(t, backend, challenge.Challenge)
+	expiredChallenge, ok := parseEvaluationChallenge(backend.comments[0].Body)
+	if !ok {
+		t.Fatal("expired challenge marker was not parseable")
+	}
+	recordedAt := expiredChallenge.RequestedAt.Add(time.Minute)
+	backend.comments[1].CreatedAt = recordedAt
+	backend.comments[1].Body = replaceTestReceipt(t, backend.comments[1].Body, func(receipt *evaluationReceipt) {
+		receipt.RecordedAt = recordedAt
+	})
+	commentCount := len(backend.comments)
+	postCount := backend.commentPostCount
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("replay expired exact attestation: %v", err)
+	}
+	if len(backend.comments) != commentCount || backend.commentPostCount != postCount {
+		t.Fatalf("expired exact replay mutated history: comments %d->%d posts %d->%d",
+			commentCount, len(backend.comments), postCount, backend.commentPostCount)
+	}
+	if !strings.Contains(stdout.String(), "already recorded") {
+		t.Fatalf("expired exact replay output = %q, want idempotent retry", stdout.String())
+	}
+}
+
+func TestEvaluationRecordReplaysExactReceiptOnNoncanonicalChallenge(t *testing.T) {
+	backend, application, stdout := newConvergenceWorkflowFixture(t)
+	canonical := requestTestChallenge(t, application, stdout)
+	appendFinalEquivalentChallenge(t, backend)
+	duplicate, ok := parseEvaluationChallenge(backend.comments[1].Body)
+	if !ok {
+		t.Fatal("noncanonical challenge marker was not parseable")
+	}
+	recordedAt := duplicate.RequestedAt.Add(time.Minute)
+	receiptComment := evaluationTerminalConflictReceiptComment(t, duplicate, "noncanonical-replay", 1, recordedAt)
+	receiptComment.ID = 3
+	appendWorkflowEvaluationComment(t, backend, receiptComment)
+	_, attestationFile := writeTestAttestationRun(t, backend.head, duplicate, "noncanonical-replay")
+	commentCount := len(backend.comments)
+	postCount := backend.commentPostCount
+	stdout.Reset()
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("replay exact noncanonical attestation: %v", err)
+	}
+	if len(backend.comments) != commentCount+1 || backend.commentPostCount != postCount+1 {
+		t.Fatalf("noncanonical exact replay convergence = comments %d posts %d, want one closure",
+			len(backend.comments), backend.commentPostCount)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.closures) != 1 || len(history.receipts) != 1 {
+		t.Fatalf("noncanonical exact replay history = closures %d receipts %d, want one each",
+			len(history.closures), len(history.receipts))
+	}
+	if !strings.Contains(stdout.String(), "already recorded") {
+		t.Fatalf("noncanonical exact replay output = %q, want idempotent retry", stdout.String())
+	}
+	if canonical.Challenge == duplicate.Challenge {
+		t.Fatal("noncanonical replay fixture did not retain distinct canonical challenge")
+	}
+}
+
 func TestEvaluationChallengeClosureDuplicateVisibilityFailsClosed(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer
@@ -2068,6 +2176,7 @@ type workflowBackend struct {
 	duplicateClosurePost             bool
 	postCommentResponseMode          string
 	postCommentAuthor                string
+	closePRBeforeNextCommentPost     bool
 	duplicateChallengeOnNextPost     bool
 	duplicateChallengeBeforeNextPost bool
 	needsHuman                       bool
@@ -2465,6 +2574,7 @@ func (b *workflowBackend) postComment(data []byte) (string, error) {
 	if comment.User.Login == "" {
 		comment.User.Login = trustedActor
 	}
+	b.maybeCloseBeforeCommentPost()
 	if b.duplicateChallengeBeforeNextPost {
 		b.duplicateChallengeBeforeNextPost = false
 		challenge, ok := parseEvaluationChallenge(request.Body)
@@ -2532,6 +2642,15 @@ func (b *workflowBackend) maybeDuplicateClosure(body string, comment issueCommen
 	duplicate := comment
 	duplicate.ID++
 	b.comments = append(b.comments, duplicate)
+}
+
+func (b *workflowBackend) maybeCloseBeforeCommentPost() {
+	if !b.closePRBeforeNextCommentPost {
+		return
+	}
+	b.closePRBeforeNextCommentPost = false
+	b.merged = true
+	b.mergedAt = time.Now().UTC().Truncate(time.Second)
 }
 
 func (b *workflowBackend) merge(data []byte) (string, error) {

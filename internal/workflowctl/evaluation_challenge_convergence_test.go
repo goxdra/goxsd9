@@ -361,6 +361,58 @@ func TestEvaluationLegacyDigestBoundChallengesUseAuthenticatedRepositoryContext(
 	}
 }
 
+func TestEvaluationIdentityChallengeClosureRevalidatesOpenPR(t *testing.T) {
+	backend, application, stdout := newConvergenceWorkflowFixture(t)
+	canonical := requestTestChallenge(t, application, stdout)
+	appendFinalEquivalentChallenge(t, backend)
+	view, err := application.readPullRequest(backend.root, 14)
+	if err != nil {
+		t.Fatalf("read PR before stale closure: %v", err)
+	}
+	history, err := readEvaluationMutationHistoryForConvergence(14, view.Comments)
+	if err != nil {
+		t.Fatalf("read challenge history before stale closure: %v", err)
+	}
+	backend.merged = true
+	backend.mergedAt = time.Now().UTC().Truncate(time.Second)
+	commentCount := len(backend.comments)
+	postCount := backend.commentPostCount
+	if err := application.convergeEvaluationChallengeClosuresByIdentity(backend.root, 14,
+		canonical, view, history); err == nil || !strings.Contains(err.Error(), "closure was not posted") {
+		t.Fatalf("closed PR stale closure error = %v, want no-post refusal", err)
+	}
+	if len(backend.comments) != commentCount || backend.commentPostCount != postCount {
+		t.Fatalf("closed PR stale closure mutated history: comments %d->%d posts %d->%d",
+			commentCount, len(backend.comments), postCount, backend.commentPostCount)
+	}
+}
+
+func TestEvaluationIdentityChallengeClosureRejectsPRClosedAfterRevalidation(t *testing.T) {
+	backend, application, stdout := newConvergenceWorkflowFixture(t)
+	canonical := requestTestChallenge(t, application, stdout)
+	appendFinalEquivalentChallenge(t, backend)
+	view, err := application.readPullRequest(backend.root, 14)
+	if err != nil {
+		t.Fatalf("read PR before interleaved stale closure: %v", err)
+	}
+	history, err := readEvaluationMutationHistoryForConvergence(14, view.Comments)
+	if err != nil {
+		t.Fatalf("read challenge history before interleaved stale closure: %v", err)
+	}
+	backend.closePRBeforeNextCommentPost = true
+	commentCount := len(backend.comments)
+	postCount := backend.commentPostCount
+	err = application.convergeEvaluationChallengeClosuresByIdentity(backend.root, 14,
+		canonical, view, history)
+	if err == nil || !strings.Contains(err.Error(), "cannot authorize a CLOSED PR") {
+		t.Fatalf("interleaved closed PR stale closure error = %v, want post-verification refusal", err)
+	}
+	if backend.commentPostCount != postCount+1 || len(backend.comments) != commentCount+1 {
+		t.Fatalf("interleaved stale closure POST = comments %d posts %d, want one attempted mutation",
+			len(backend.comments), backend.commentPostCount)
+	}
+}
+
 func TestEvaluationChallengeReceiptDigestPresenceMustMatch(t *testing.T) {
 	base := time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
 	receipt := evaluationReceipt{

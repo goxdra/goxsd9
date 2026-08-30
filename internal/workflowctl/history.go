@@ -180,7 +180,7 @@ func (a app) collectHistoryEvaluations(root string, pullRequests []pullRequestSu
 		if err != nil {
 			return nil, decorateHistoryEvaluationParseError(pullRequest.Number, err)
 		}
-		if validationErr := validateEvaluationHistory(history); validationErr != nil {
+		if validationErr := validateEvaluationHistoryForHistoricalProjection(pullRequest.Number, history); validationErr != nil {
 			return nil, decorateHistoryEvaluationValidationError(pullRequest.Number, history, validationErr)
 		}
 		packet, err := historyEvaluationPacketForPR(pullRequest, history)
@@ -288,6 +288,9 @@ func invalidHistoryRepairRound(history evaluationHistory, repair evaluationRepai
 }
 
 func historyEvaluationPacketForPR(pullRequest pullRequestSummary, history evaluationHistory) (historyEvaluationPacket, error) {
+	if err := validateEvaluationHistoryPRScope(pullRequest.Number, history); err != nil {
+		return historyEvaluationPacket{}, err
+	}
 	packet := historyEvaluationPacket{number: pullRequest.Number}
 	receipts, err := logicalEvaluationReceiptRecords(history)
 	if err != nil {

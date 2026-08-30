@@ -673,11 +673,24 @@ func (a app) convergeEvaluationChallengeClosuresMode(root string, number int,
 		if _, err := readEvaluationMutationHistoryForConvergence(number, generated); err != nil {
 			return fmt.Errorf("generated evaluation challenge closure is not authenticated: %w", err)
 		}
+		if !validateCurrentView {
+			currentView, err := a.readPullRequest(root, number)
+			if err != nil {
+				return fmt.Errorf("revalidate PR #%d before stale challenge closure: %w", number, err)
+			}
+			if currentView.State != "OPEN" {
+				return fmt.Errorf("PR #%d is %s; stale challenge closure was not posted", number, currentView.State)
+			}
+		}
 		postErr := a.postPullRequestComment(root, number, body)
 		verifiedView, readErr := a.readPullRequest(root, number)
 		if readErr != nil {
 			return fmt.Errorf("challenge closure POST could not be verified; preserve history and retry after inspection: %w",
 				errors.Join(postErr, readErr))
+		}
+		if verifiedView.State != "OPEN" {
+			return fmt.Errorf("challenge closure POST cannot authorize a %s PR; preserve the comments and retry after inspection: %w",
+				verifiedView.State, errors.Join(postErr, errors.New("PR is not open")))
 		}
 		verifiedHistory, historyErr := readEvaluationMutationHistoryForConvergence(number,
 			verifiedView.Comments)
