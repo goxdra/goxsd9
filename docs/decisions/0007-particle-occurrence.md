@@ -152,8 +152,9 @@ occurrences. Non-precision alternatives may retain non-default ranges for
 queries. Non-`0/0` direct-sequence `precisionDecimal` ranges that map to a
 particle remain unsupported even under XSD 1.1 and Compatibility. An effective
 `0/0` sequence, choice, or child maps to absence before type-specific support
-gating. Nested choices, `all`, groups, wildcards, references,
-nested particles, attributes, and other composition remain unsupported.
+gating. Nested choices, `all`, model-group references, wildcards, and
+element-reference forms outside the supported direct local choice/sequence
+model, nested particles, attributes, and other composition remain unsupported.
 Non-`0/0` choice and alternative ranges are parsed and queryable, but
 repetition is not implemented in validation, repeated Go fields are not
 generated, and effective total ranges are not calculated. Non-default
