@@ -886,7 +886,7 @@ func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion)
 			candidate.considerAt(attribute.loc, message)
 		}
 	}
-	if err := validateGlobalSchemaNamePresence(element); err != nil {
+	if err := validateGlobalSchemaDeclarationRequirements(element, kind, version); err != nil {
 		return err
 	}
 	if err := validateGlobalSchemaAttributeCooccurrence(element); err != nil {
@@ -911,6 +911,13 @@ func validateGlobalSchemaNamePresence(element *syntaxElement) error {
 		return newDiagnostic(FailureInvalid, invalidSchemaDeclarationNameCode, element.loc, "schema declaration name must be unique", nil)
 	}
 	return nil
+}
+
+func validateGlobalSchemaDeclarationRequirements(element *syntaxElement, kind ComponentKind, version XSDVersion) error {
+	if err := validateGlobalSchemaNamePresence(element); err != nil {
+		return err
+	}
+	return validateSchemaNotationPublicPresence(element, kind, version)
 }
 
 func preferSchemaUnsupported(err error, loc Loc, message string) error {
@@ -958,7 +965,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	status := globalSchemaAttributeStatus(kind, attribute.name.local)
 	switch status {
 	case schemaAttributeAllowed:
-		return "", validateAllowedGlobalSchemaAttribute(element, kind, attribute)
+		return "", validateAllowedGlobalSchemaAttribute(element, kind, attribute, version)
 	case schemaAttributeUnsupported:
 		if err := validateRecognizedUnsupportedAttribute(element, attribute); err != nil {
 			return "", err
@@ -1010,7 +1017,7 @@ func isXSD11GlobalSchemaAttribute(kind ComponentKind, local string) bool {
 	}
 }
 
-func validateAllowedGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, attribute syntaxAttribute) error {
+func validateAllowedGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, attribute syntaxAttribute, version XSDVersion) error {
 	if attribute.name.local == "name" {
 		if !validNCName(collapseXMLWhitespace(attribute.value)) {
 			return newDiagnostic(FailureInvalid, invalidSchemaDeclarationNameCode, attribute.loc, "schema declaration name must be an unqualified valid NCName", nil)
@@ -1019,6 +1026,9 @@ func validateAllowedGlobalSchemaAttribute(element *syntaxElement, kind Component
 	}
 	if attribute.name.local == "id" && !validNCName(collapseXMLWhitespace(attribute.value)) {
 		return newSchemaCompositionDiagnostic(attribute.loc, "schema declaration id must be a valid NCName")
+	}
+	if kind == ComponentKindNotationDeclaration {
+		return validateSchemaNotationAttribute(attribute, version)
 	}
 	if kind == ComponentKindElementDeclaration && attribute.name.local == "type" {
 		return validateConditionalQNameForSchema(element, attribute)
@@ -1047,10 +1057,53 @@ func globalSchemaAttributeStatus(kind ComponentKind, local string) schemaAttribu
 		return schemaAttributeForbidden
 	case ComponentKindNotationDeclaration:
 		if local == "public" || local == "system" {
-			return schemaAttributeUnsupported
+			return schemaAttributeAllowed
 		}
 	}
 	return schemaAttributeForbidden
+}
+
+func validateSchemaNotationPublicPresence(element *syntaxElement, kind ComponentKind, version XSDVersion) error {
+	if kind != ComponentKindNotationDeclaration {
+		return nil
+	}
+	attributes := syntaxAttributesByLocal(element, "public")
+	if len(attributes) == 0 {
+		return newSchemaNotationDiagnostic(
+			element.loc,
+			"notation declaration requires a public attribute",
+			version,
+			errSchemaNotationPublic,
+		)
+	}
+	if len(attributes) != 1 {
+		return newSchemaCompositionDiagnostic(attributes[1].loc, "notation public attribute must be unique")
+	}
+	return nil
+}
+
+func validateSchemaNotationAttribute(attribute syntaxAttribute, version XSDVersion) error {
+	switch attribute.name.local {
+	case "public":
+		if collapseXMLWhitespace(attribute.value) == "" {
+			return newSchemaNotationDiagnostic(
+				attribute.loc,
+				"notation public identifier must be non-empty",
+				version,
+				errSchemaNotationPublic,
+			)
+		}
+	case "system":
+		if err := validateSchemaAnyURI(attribute); err != nil {
+			return newSchemaNotationDiagnostic(
+				attribute.loc,
+				fmt.Sprintf("attribute %q has an invalid anyURI value", attribute.name.local),
+				version,
+				errors.Join(errSchemaNotationSystem, err),
+			)
+		}
+	}
+	return nil
 }
 
 func elementSchemaAttributeStatus(local string) schemaAttributeStatus {

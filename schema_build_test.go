@@ -17,7 +17,7 @@ func TestDiscoverSchemaBuildsOrderedImmutableDeclarations(t *testing.T) {
   <xs:attribute name="rootAttribute"/>
   <xs:complexType name="rootComplex"/>
   <xs:attributeGroup name="rootAttributes"/>
-	  <xs:notation name="rootNotation"/>
+	  <xs:notation name="rootNotation" public="root-public"/>
 </xs:schema>`
 	root, err := NewResolvedSource(context.Background(), "root.xsd", &discoveryReader{data: []byte(rootContents)})
 	if err != nil {
@@ -1042,12 +1042,6 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:    "notation public is unsupported",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item" public="public"/></xs:schema>`,
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:  "element sequence is structurally forbidden",
 			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item"><xs:sequence/></xs:element></xs:schema>`,
 			class: FailureInvalid,
@@ -1067,7 +1061,7 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 		},
 		{
 			name:  "notation element is structurally forbidden",
-			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item"><xs:element/></xs:notation></xs:schema>`,
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item" public="public"><xs:element/></xs:notation></xs:schema>`,
 			class: FailureInvalid,
 			code:  invalidSchemaCompositionCode,
 		},
@@ -2251,7 +2245,7 @@ func TestSchemaBridgeRejectsRootAndGlobalLexicalBoundaries(t *testing.T) {
 		},
 		{
 			name:  "notation system validates URI",
-			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item" system="http://[bad"/></xs:schema>`,
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item" public="public" system="http://[bad"/></xs:schema>`,
 			class: FailureInvalid,
 		},
 		{
@@ -2397,8 +2391,8 @@ func TestSchemaBridgeRejectsDuplicateNonElementGlobalDeclarations(t *testing.T) 
 		{
 			name: "notations",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
-  <xs:notation name="item"/>
-  <xs:notation name="item"/>
+  <xs:notation name="item" public="first"/>
+  <xs:notation name="item" public="later"/>
 </xs:schema>`,
 			message: `global notation declaration "{urn:test}item" is duplicated`,
 		},
@@ -2458,8 +2452,8 @@ func TestSchemaBridgeRejectsComposedDuplicateNonElementGlobalDeclarations(t *tes
 		},
 		{
 			name:                "notations",
-			earliestDeclaration: "  <xs:notation name=\"item\"/>\n",
-			laterDeclaration:    "  <xs:notation name=\"item\"/>\n",
+			earliestDeclaration: "  <xs:notation name=\"item\" public=\"first\"/>\n",
+			laterDeclaration:    "  <xs:notation name=\"item\" public=\"later\"/>\n",
 			message:             `global notation declaration "{urn:test}item" is duplicated`,
 		},
 	}

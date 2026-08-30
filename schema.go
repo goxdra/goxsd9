@@ -254,6 +254,7 @@ type Component struct {
 	name        QName
 	loc         Loc
 	element     *schemaElementComponent
+	notation    *schemaNotationComponent
 	simpleType  *schemaSimpleTypeComponent
 	complexType *schemaComplexTypeComponent
 }
@@ -379,6 +380,85 @@ func (declaration ElementDeclaration) InlineSimpleType() (SimpleTypeDefinition, 
 		return SimpleTypeDefinition{}, false
 	}
 	return reference.AnonymousType()
+}
+
+// Notation returns the immutable notation-declaration view for a global
+// notation declaration.
+func (component Component) Notation() (NotationDeclaration, bool) {
+	if component.notation == nil {
+		return NotationDeclaration{}, false
+	}
+	return NotationDeclaration{
+		component: component,
+		facts:     component.notation,
+	}, true
+}
+
+// NotationDeclaration returns the immutable notation-declaration view for a
+// global notation declaration.
+func (component Component) NotationDeclaration() (NotationDeclaration, bool) {
+	return component.Notation()
+}
+
+// NotationDeclaration is the immutable type-specific view of a global
+// notation declaration.
+type NotationDeclaration struct {
+	component Component
+	facts     *schemaNotationComponent
+}
+
+// Component returns the generic component represented by the view.
+func (declaration NotationDeclaration) Component() Component {
+	return declaration.component
+}
+
+// ID returns the stable identity of the notation declaration.
+func (declaration NotationDeclaration) ID() ComponentID {
+	return declaration.component.ID()
+}
+
+// Name returns the expanded QName of the notation declaration.
+func (declaration NotationDeclaration) Name() QName {
+	return declaration.component.Name()
+}
+
+// Loc returns the declaration location of the notation declaration.
+func (declaration NotationDeclaration) Loc() Loc {
+	return declaration.component.Loc()
+}
+
+// Public returns the collapsed public identifier value.
+func (declaration NotationDeclaration) Public() string {
+	if declaration.facts == nil {
+		return ""
+	}
+	return declaration.facts.public
+}
+
+// PublicLoc returns the source location of the public identifier.
+func (declaration NotationDeclaration) PublicLoc() Loc {
+	if declaration.facts == nil {
+		return Loc{}
+	}
+	return declaration.facts.publicLoc
+}
+
+// System returns the collapsed optional system identifier and whether it was
+// present in the source declaration.
+func (declaration NotationDeclaration) System() (string, bool) {
+	if declaration.facts == nil || !declaration.facts.hasSystem {
+		return "", false
+	}
+	return declaration.facts.system, true
+}
+
+// SystemLoc returns the source location of the optional system identifier and
+// whether it was present in the source declaration.
+func (declaration NotationDeclaration) SystemLoc() (Loc, bool) {
+	if declaration.facts == nil || !declaration.facts.hasSystem {
+		return Loc{}, false
+	}
+	return declaration.facts.systemLoc, true
 }
 
 // SimpleType returns the immutable simple-type view for a supported simple
@@ -1117,6 +1197,7 @@ type schemaComponentInput struct {
 	name        QName
 	loc         Loc
 	element     *schemaElementInput
+	notation    *schemaNotationInput
 	simpleType  *schemaSimpleTypeInput
 	complexType *schemaComplexTypeInput
 }
@@ -1127,6 +1208,14 @@ type schemaElementInput struct {
 	inlineSimpleType *schemaSimpleTypeInput
 	abstract         bool
 	nillable         bool
+}
+
+type schemaNotationInput struct {
+	public    string
+	publicLoc Loc
+	system    string
+	systemLoc Loc
+	hasSystem bool
 }
 
 type schemaSimpleTypeInput struct {
@@ -1330,6 +1419,14 @@ type schemaElementComponent struct {
 	nillable         bool
 }
 
+type schemaNotationComponent struct {
+	public    string
+	publicLoc Loc
+	system    string
+	systemLoc Loc
+	hasSystem bool
+}
+
 type schemaComplexTypeComponent struct {
 	particle Particle
 }
@@ -1361,6 +1458,7 @@ type schemaComponentRecord struct {
 	name        QName
 	loc         Loc
 	element     *schemaElementInput
+	notation    *schemaNotationInput
 	simpleType  *schemaSimpleTypeInput
 	complexType *schemaComplexTypeInput
 }
@@ -1570,6 +1668,7 @@ func newSchemaComponentRecord(source SourceID, declarationIndex int, declaration
 		name:        declaration.name,
 		loc:         declaration.loc,
 		element:     cloneSchemaElementInput(declaration.element),
+		notation:    cloneSchemaNotationInput(declaration.notation),
 		simpleType:  cloneSchemaSimpleTypeInput(declaration.simpleType),
 		complexType: cloneSchemaComplexTypeInput(declaration.complexType),
 	}, nil
@@ -1628,6 +1727,15 @@ func completeSchemaComponent(
 			nillable:         element.nillable,
 		}
 	}
+	if record.notation != nil {
+		component.notation = &schemaNotationComponent{
+			public:    record.notation.public,
+			publicLoc: record.notation.publicLoc,
+			system:    record.notation.system,
+			systemLoc: record.notation.systemLoc,
+			hasSystem: record.notation.hasSystem,
+		}
+	}
 	if simpleType.present {
 		component.simpleType = &schemaSimpleTypeComponent{
 			loc:              simpleType.loc,
@@ -1655,6 +1763,19 @@ func completeSchemaComponent(
 		}
 	}
 	return component
+}
+
+func cloneSchemaNotationInput(input *schemaNotationInput) *schemaNotationInput {
+	if input == nil {
+		return nil
+	}
+	return &schemaNotationInput{
+		public:    input.public,
+		publicLoc: input.publicLoc,
+		system:    input.system,
+		systemLoc: input.systemLoc,
+		hasSystem: input.hasSystem,
+	}
 }
 
 func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTypeInput {
