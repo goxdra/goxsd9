@@ -7,23 +7,27 @@ import (
 )
 
 const (
-	invalidSchemaTargetNamespaceCode            = "XSD3009"
-	invalidSchemaCompositionCode                = "XSD3010"
-	invalidSchemaDeclarationNameCode            = "XSD3011"
-	diagnosticSchemaSimpleTypeUnresolvedCode    = "XSD3014"
-	diagnosticSchemaSimpleTypeWrongKindCode     = "XSD3015"
-	diagnosticSchemaSimpleTypeAmbiguousCode     = "XSD3016"
-	diagnosticSchemaSimpleTypeCycleCode         = "XSD3017"
-	diagnosticSchemaSimpleTypeBaseCode          = "XSD3018"
-	diagnosticSchemaElementTypeUnresolvedCode   = "XSD3019"
-	diagnosticSchemaElementTypeWrongKindCode    = "XSD3020"
-	diagnosticSchemaElementTypeAmbiguousCode    = "XSD3021"
-	diagnosticSchemaElementTypeUnsupportedCode  = "XSD3022"
-	diagnosticSchemaGlobalDuplicateCode         = "XSD3023"
-	diagnosticSchemaElementDuplicateCode        = diagnosticSchemaGlobalDuplicateCode
-	diagnosticSchemaPrecisionDecimalVersionCode = "XSD3030"
-	diagnosticSchemaAllOccurrenceVersionCode    = diagnosticSchemaPrecisionDecimalVersionCode
-	diagnosticSchemaBridgeInvariantCode         = "GOXSD9025"
+	invalidSchemaTargetNamespaceCode               = "XSD3009"
+	invalidSchemaCompositionCode                   = "XSD3010"
+	invalidSchemaDeclarationNameCode               = "XSD3011"
+	diagnosticSchemaSimpleTypeUnresolvedCode       = "XSD3014"
+	diagnosticSchemaSimpleTypeWrongKindCode        = "XSD3015"
+	diagnosticSchemaSimpleTypeAmbiguousCode        = "XSD3016"
+	diagnosticSchemaSimpleTypeCycleCode            = "XSD3017"
+	diagnosticSchemaSimpleTypeBaseCode             = "XSD3018"
+	diagnosticSchemaElementTypeUnresolvedCode      = "XSD3019"
+	diagnosticSchemaElementTypeWrongKindCode       = "XSD3020"
+	diagnosticSchemaElementTypeAmbiguousCode       = "XSD3021"
+	diagnosticSchemaElementTypeUnsupportedCode     = "XSD3022"
+	diagnosticSchemaGlobalDuplicateCode            = "XSD3023"
+	diagnosticSchemaElementDuplicateCode           = diagnosticSchemaGlobalDuplicateCode
+	diagnosticSchemaElementReferenceUnresolvedCode = "XSD3024"
+	diagnosticSchemaElementReferenceWrongKindCode  = "XSD3025"
+	diagnosticSchemaElementReferenceAmbiguousCode  = "XSD3026"
+	diagnosticSchemaElementReferenceNamespaceCode  = "XSD3027"
+	diagnosticSchemaPrecisionDecimalVersionCode    = "XSD3030"
+	diagnosticSchemaAllOccurrenceVersionCode       = diagnosticSchemaPrecisionDecimalVersionCode
+	diagnosticSchemaBridgeInvariantCode            = "GOXSD9025"
 )
 
 const (
@@ -38,6 +42,10 @@ const (
 	schemaGlobalDuplicateXSD11SpecRef        = "xsd11-structures#c-nmd"
 	schemaElementDuplicateXSD10SpecRef       = schemaGlobalDuplicateXSD10SpecRef
 	schemaElementDuplicateXSD11SpecRef       = schemaGlobalDuplicateXSD11SpecRef
+	schemaElementReferenceXSD10SpecRef       = "xsd10-structures#src-resolve"
+	schemaElementReferenceXSD11SpecRef       = "xsd11-structures#src-resolve"
+	schemaElementReferenceImportXSD10SpecRef = "xsd10-structures#composition-importLicenseReferences"
+	schemaElementReferenceImportXSD11SpecRef = "xsd11-structures#composition-importLicenseReferences"
 )
 
 var (
@@ -48,6 +56,10 @@ var (
 	errSchemaElementTypeUnresolved      = errors.New("element type is unresolved")
 	errSchemaElementTypeWrongKind       = errors.New("element type has the wrong kind")
 	errSchemaElementTypeAmbiguous       = errors.New("element type is ambiguous")
+	errSchemaElementReferenceUnresolved = errors.New("element reference is unresolved")
+	errSchemaElementReferenceWrongKind  = errors.New("element reference has the wrong target kind")
+	errSchemaElementReferenceAmbiguous  = errors.New("element reference is ambiguous")
+	errSchemaElementReferenceNamespace  = errors.New("element reference namespace is not imported")
 	errSchemaGlobalDeclarationDuplicate = errors.New("global declaration is duplicated")
 	errSchemaElementDuplicate           = errors.New("global element declaration is duplicated")
 	errSchemaElementTargetNamespace     = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
@@ -84,12 +96,20 @@ func newSchemaFromDiscovery(discovery syntaxDiscoveryResult) (Schema, error) {
 }
 
 func newSchemaFromDiscoveryWithPolicy(discovery syntaxDiscoveryResult, policy LanguagePolicy) (Schema, error) {
-	namespaces, sourceIndices, err := schemaDiscoveryNamespacesWithPolicy(discovery.documents, policy)
+	declaredNamespaces, sourceIndices, err := schemaDiscoveryNamespacesWithPolicy(discovery.documents, policy)
 	if err != nil {
 		return Schema{}, err
 	}
 
-	err = validateSchemaComposition(discovery.edges, sourceIndices, namespaces)
+	namespaces, err := schemaEffectiveTargetNamespaces(discovery.edges, sourceIndices, declaredNamespaces)
+	if err != nil {
+		return Schema{}, err
+	}
+	err = validateSchemaComposition(discovery.edges, sourceIndices, declaredNamespaces, namespaces)
+	if err != nil {
+		return Schema{}, err
+	}
+	visibleSources, err := schemaDocumentVisibleSources(discovery.documents, discovery.edges, sourceIndices)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -98,7 +118,7 @@ func newSchemaFromDiscoveryWithPolicy(discovery syntaxDiscoveryResult, policy La
 	if err != nil {
 		return Schema{}, invalidLanguagePolicyDiagnostic(policy, err)
 	}
-	inputs, err := schemaDocumentInputs(discovery.documents, namespaces, version)
+	inputs, err := schemaDocumentInputs(discovery.documents, namespaces, visibleSources, version)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -162,29 +182,61 @@ func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[Sour
 	return validateSyntaxDocumentStructureWithPolicy(document, policy)
 }
 
-func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTargetNamespace, version XSDVersion) ([]schemaDocumentInput, error) {
+func schemaDocumentInputs(documents []*syntaxDocument, namespaces []schemaTargetNamespace, visibleSources map[SourceID][]SourceID, version XSDVersion) ([]schemaDocumentInput, error) {
 	inputs := make([]schemaDocumentInput, 0, len(documents))
 	for index, document := range documents {
-		elementFormDefaultQualified, err := syntaxDocumentElementFormDefault(document)
+		input, err := schemaDocumentInputAt(document, index, namespaces, visibleSources, version)
 		if err != nil {
 			return nil, err
 		}
-		facts := schemaDocumentFacts{
-			targetNamespace:             namespaces[index],
-			elementFormDefaultQualified: elementFormDefaultQualified,
-		}
-		declarations, err := schemaDocumentDeclarationsWithFacts(document, facts, version)
-		if err != nil {
-			return nil, err
-		}
-		inputs = append(inputs, schemaDocumentInput{
-			source:          document.source,
-			rootLoc:         document.root.loc,
-			targetNamespace: namespaces[index].value,
-			declarations:    declarations,
-		})
+		inputs = append(inputs, input)
 	}
 	return inputs, nil
+}
+
+func schemaDocumentInputAt(
+	document *syntaxDocument,
+	index int,
+	namespaces []schemaTargetNamespace,
+	visibleSources map[SourceID][]SourceID,
+	version XSDVersion,
+) (schemaDocumentInput, error) {
+	if document == nil {
+		return schemaDocumentInput{}, newSchemaBridgeInvariant(Loc{}, "schema document input has no root")
+	}
+	if document.root == nil {
+		return schemaDocumentInput{}, newSchemaBridgeInvariant(Loc{}, "schema document input has no root")
+	}
+	if index >= len(namespaces) {
+		return schemaDocumentInput{}, newSchemaBridgeInvariant(document.root.loc, "schema document input has no target namespace")
+	}
+	elementFormDefaultQualified, err := syntaxDocumentElementFormDefault(document)
+	if err != nil {
+		return schemaDocumentInput{}, err
+	}
+	facts := schemaDocumentFacts{
+		targetNamespace:             namespaces[index],
+		elementFormDefaultQualified: elementFormDefaultQualified,
+	}
+	declarations, err := schemaDocumentDeclarationsWithFacts(document, facts, version)
+	if err != nil {
+		return schemaDocumentInput{}, err
+	}
+	input := schemaDocumentInput{
+		source:          document.source,
+		rootLoc:         document.root.loc,
+		targetNamespace: namespaces[index].value,
+		declarations:    declarations,
+	}
+	if visibleSources == nil {
+		return input, nil
+	}
+	visible, ok := visibleSources[document.source]
+	if !ok {
+		return schemaDocumentInput{}, newSchemaBridgeInvariant(document.root.loc, "schema document input has no visibility entry")
+	}
+	input.visibleSources = append([]SourceID(nil), visible...)
+	return input, nil
 }
 
 func syntaxDocumentElementFormDefault(document *syntaxDocument) (bool, error) {
@@ -236,13 +288,69 @@ func syntaxDocumentTargetNamespace(document *syntaxDocument) (schemaTargetNamesp
 	}, nil
 }
 
+func schemaEffectiveTargetNamespaces(
+	edges []syntaxDocumentEdge,
+	sourceIndices map[SourceID]int,
+	declared []schemaTargetNamespace,
+) ([]schemaTargetNamespace, error) {
+	if len(declared) == 0 {
+		return nil, nil
+	}
+	effective := append([]schemaTargetNamespace(nil), declared...)
+	for changed := true; changed; {
+		changed = false
+		for _, edge := range edges {
+			if edge.kind != syntaxReferenceInclude {
+				continue
+			}
+			applied, err := schemaApplyChameleonInclude(edge, sourceIndices, declared, effective)
+			if err != nil {
+				return nil, err
+			}
+			changed = changed || applied
+		}
+	}
+	return effective, nil
+}
+
+func schemaApplyChameleonInclude(
+	edge syntaxDocumentEdge,
+	sourceIndices map[SourceID]int,
+	declared []schemaTargetNamespace,
+	effective []schemaTargetNamespace,
+) (bool, error) {
+	sourceIndex, targetIndex, err := schemaCompositionEdgeIndices(edge, sourceIndices, len(declared))
+	if err != nil {
+		return false, err
+	}
+	if declared[targetIndex].present || !effective[sourceIndex].present {
+		return false, nil
+	}
+	if effective[targetIndex].present {
+		if effective[targetIndex].value != effective[sourceIndex].value {
+			return false, newSchemaCompositionDiagnostic(
+				edge.loc,
+				fmt.Sprintf("chameleon include target namespace %q conflicts with including namespace %q", effective[targetIndex].value, effective[sourceIndex].value),
+			)
+		}
+		return false, nil
+	}
+	effective[targetIndex] = schemaTargetNamespace{
+		value:   effective[sourceIndex].value,
+		present: true,
+		loc:     effective[sourceIndex].loc,
+	}
+	return true, nil
+}
+
 func validateSchemaComposition(
 	edges []syntaxDocumentEdge,
 	sourceIndices map[SourceID]int,
-	namespaces []schemaTargetNamespace,
+	declared []schemaTargetNamespace,
+	effective []schemaTargetNamespace,
 ) error {
 	for _, edge := range edges {
-		if err := validateSchemaCompositionEdge(edge, sourceIndices, namespaces); err != nil {
+		if err := validateSchemaCompositionEdge(edge, sourceIndices, declared, effective); err != nil {
 			return err
 		}
 	}
@@ -252,24 +360,21 @@ func validateSchemaComposition(
 func validateSchemaCompositionEdge(
 	edge syntaxDocumentEdge,
 	sourceIndices map[SourceID]int,
-	namespaces []schemaTargetNamespace,
+	declared []schemaTargetNamespace,
+	effective []schemaTargetNamespace,
 ) error {
-	sourceIndex, ok := sourceIndices[edge.source]
-	if !ok {
-		return newSchemaBridgeInvariant(edge.loc, fmt.Sprintf("schema edge source %q is unknown", edge.source))
+	sourceIndex, targetIndex, err := schemaCompositionEdgeIndices(edge, sourceIndices, len(declared))
+	if err != nil {
+		return err
 	}
-	targetIndex, ok := sourceIndices[edge.target]
-	if !ok {
-		return newSchemaBridgeInvariant(edge.loc, fmt.Sprintf("schema edge target %q is unknown", edge.target))
+	if len(effective) != len(declared) {
+		return newSchemaBridgeInvariant(edge.loc, "schema composition namespace tables have different lengths")
 	}
-	if sourceIndex < 0 || targetIndex < 0 || sourceIndex >= len(namespaces) || targetIndex >= len(namespaces) {
-		return newSchemaBridgeInvariant(edge.loc, "schema edge points outside the namespace table")
-	}
-	parent := namespaces[sourceIndex]
-	child := namespaces[targetIndex]
+	parent := effective[sourceIndex]
+	child := declared[targetIndex]
 	switch edge.kind {
 	case syntaxReferenceInclude:
-		return validateSchemaInclude(edge, parent, child)
+		return validateSchemaInclude(edge, parent, child, effective[targetIndex])
 	case syntaxReferenceImport:
 		return validateSchemaImport(edge, parent, child)
 	default:
@@ -277,21 +382,43 @@ func validateSchemaCompositionEdge(
 	}
 }
 
+func schemaCompositionEdgeIndices(edge syntaxDocumentEdge, sourceIndices map[SourceID]int, namespaceCount int) (int, int, error) {
+	sourceIndex, ok := sourceIndices[edge.source]
+	if !ok {
+		return 0, 0, newSchemaBridgeInvariant(edge.loc, fmt.Sprintf("schema edge source %q is unknown", edge.source))
+	}
+	targetIndex, ok := sourceIndices[edge.target]
+	if !ok {
+		return 0, 0, newSchemaBridgeInvariant(edge.loc, fmt.Sprintf("schema edge target %q is unknown", edge.target))
+	}
+	if sourceIndex < 0 || targetIndex < 0 || sourceIndex >= namespaceCount || targetIndex >= namespaceCount {
+		return 0, 0, newSchemaBridgeInvariant(edge.loc, "schema edge points outside the namespace table")
+	}
+	return sourceIndex, targetIndex, nil
+}
+
 func validateSchemaInclude(
 	edge syntaxDocumentEdge,
 	parent schemaTargetNamespace,
-	child schemaTargetNamespace,
+	declaredChild schemaTargetNamespace,
+	effectiveChild schemaTargetNamespace,
 ) error {
-	if parent.present && !child.present {
-		return newSchemaSyntaxUnsupported(edge.loc, "chameleon schema inclusion is not implemented")
-	}
-	if !parent.present && child.present {
+	if !parent.present && declaredChild.present {
 		return newSchemaCompositionDiagnostic(edge.loc, "schema include adds a target namespace to a no-namespace document")
 	}
-	if parent.present && child.present && parent.value != child.value {
+	if declaredChild.present && parent.present && parent.value != declaredChild.value {
 		return newSchemaCompositionDiagnostic(
 			edge.loc,
-			fmt.Sprintf("schema include target namespace %q does not match including namespace %q", child.value, parent.value),
+			fmt.Sprintf("schema include target namespace %q does not match including namespace %q", declaredChild.value, parent.value),
+		)
+	}
+	if parent.present && !effectiveChild.present {
+		return newSchemaBridgeInvariant(edge.loc, "chameleon include has no effective target namespace")
+	}
+	if parent.present && effectiveChild.value != parent.value {
+		return newSchemaCompositionDiagnostic(
+			edge.loc,
+			fmt.Sprintf("chameleon include target namespace %q does not match including namespace %q", effectiveChild.value, parent.value),
 		)
 	}
 	return nil
@@ -324,6 +451,128 @@ func validateSchemaImport(
 		return newSchemaCompositionDiagnostic(edge.loc, "schema import without a namespace requires a no-namespace document")
 	}
 	return nil
+}
+
+func schemaDocumentVisibleSources(
+	documents []*syntaxDocument,
+	edges []syntaxDocumentEdge,
+	sourceIndices map[SourceID]int,
+) (map[SourceID][]SourceID, error) {
+	visible := make(map[SourceID][]SourceID, len(documents))
+	if len(documents) == 0 {
+		return visible, nil
+	}
+	parents, err := schemaVisibilityParents(documents, edges, sourceIndices)
+	if err != nil {
+		return nil, err
+	}
+	members := schemaVisibilityMembers(documents, parents)
+	for index, document := range documents {
+		available, err := schemaDocumentVisibleSourcesAt(index, members, parents, edges, sourceIndices)
+		if err != nil {
+			return nil, err
+		}
+		visible[document.source] = available
+	}
+	return visible, nil
+}
+
+func schemaVisibilityParents(
+	documents []*syntaxDocument,
+	edges []syntaxDocumentEdge,
+	sourceIndices map[SourceID]int,
+) ([]int, error) {
+	parents := make([]int, len(documents))
+	for index, document := range documents {
+		if document == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "schema visibility contains a document without a root")
+		}
+		if document.root == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "schema visibility contains a document without a root")
+		}
+		parents[index] = index
+	}
+	for _, edge := range edges {
+		if edge.kind != syntaxReferenceInclude {
+			continue
+		}
+		sourceIndex, targetIndex, err := schemaCompositionEdgeIndices(edge, sourceIndices, len(documents))
+		if err != nil {
+			return nil, err
+		}
+		schemaVisibilityUnion(parents, sourceIndex, targetIndex)
+	}
+	return parents, nil
+}
+
+func schemaVisibilityMembers(documents []*syntaxDocument, parents []int) [][]SourceID {
+	members := make([][]SourceID, len(documents))
+	for index, document := range documents {
+		root := schemaVisibilityFind(parents, index)
+		members[root] = append(members[root], document.source)
+	}
+	return members
+}
+
+func schemaDocumentVisibleSourcesAt(
+	index int,
+	members [][]SourceID,
+	parents []int,
+	edges []syntaxDocumentEdge,
+	sourceIndices map[SourceID]int,
+) ([]SourceID, error) {
+	root := schemaVisibilityFind(parents, index)
+	available := append([]SourceID(nil), members[root]...)
+	for _, edge := range edges {
+		if edge.kind != syntaxReferenceImport {
+			continue
+		}
+		sourceIndex, targetIndex, err := schemaCompositionEdgeIndices(edge, sourceIndices, len(parents))
+		if err != nil {
+			return nil, err
+		}
+		if schemaVisibilityFind(parents, sourceIndex) != root {
+			continue
+		}
+		targetRoot := schemaVisibilityFind(parents, targetIndex)
+		for _, source := range members[targetRoot] {
+			if sourceIDInList(available, source) {
+				continue
+			}
+			available = append(available, source)
+		}
+	}
+	return available, nil
+}
+
+func schemaVisibilityFind(parents []int, index int) int {
+	for parents[index] != index {
+		parents[index] = parents[parents[index]]
+		index = parents[index]
+	}
+	return index
+}
+
+func schemaVisibilityUnion(parents []int, left, right int) {
+	leftRoot := schemaVisibilityFind(parents, left)
+	rightRoot := schemaVisibilityFind(parents, right)
+	if leftRoot == rightRoot {
+		return
+	}
+	if leftRoot < rightRoot {
+		parents[rightRoot] = leftRoot
+		return
+	}
+	parents[leftRoot] = rightRoot
+}
+
+func sourceIDInList(sources []SourceID, wanted SourceID) bool {
+	for _, source := range sources {
+		if source == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func schemaDocumentDeclarationsWithFacts(document *syntaxDocument, facts schemaDocumentFacts, version XSDVersion) ([]schemaComponentInput, error) {
@@ -592,6 +841,21 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
 		return schemaElementParticleInput{}, err
+	}
+	refAttributes := syntaxAttributesByLocal(element, "ref")
+	if len(refAttributes) == 1 {
+		ref, refErr := expandSchemaQName(element, refAttributes[0])
+		if refErr != nil {
+			return schemaElementParticleInput{}, refErr
+		}
+		return schemaElementParticleInput{
+			loc:         element.loc,
+			reference:   &schemaElementReferenceInput{name: ref, loc: refAttributes[0].loc},
+			occurrences: occurrences,
+		}, nil
+	}
+	if len(refAttributes) > 1 {
+		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "local element ref attribute is not unique")
 	}
 	nameAttributes := syntaxAttributesByLocal(element, "name")
 	if len(nameAttributes) != 1 {
@@ -1386,6 +1650,7 @@ type schemaComplexTypeResult struct {
 func resolveSchemaComplexTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
 	simpleTypes []schemaSimpleTypeResult,
 	version XSDVersion,
 ) ([]schemaComplexTypeResult, error) {
@@ -1402,8 +1667,10 @@ func resolveSchemaComplexTypes(
 		}
 		particle, err := resolveSchemaComplexTypeParticle(
 			record.complexType.particle,
+			record,
 			records,
 			byName,
+			visibleSources,
 			simpleTypes,
 			version,
 		)
@@ -1420,8 +1687,10 @@ func resolveSchemaComplexTypes(
 
 func resolveSchemaComplexTypeParticle(
 	input schemaComplexTypeParticleInput,
+	owner schemaComponentRecord,
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
 	simpleTypes []schemaSimpleTypeResult,
 	version XSDVersion,
 ) (Particle, error) {
@@ -1430,12 +1699,12 @@ func resolveSchemaComplexTypeParticle(
 		if particle == nil {
 			return nil, newSchemaBridgeInvariant(Loc{}, "choice particle input is nil")
 		}
-		return resolveSchemaChoiceParticle(particle, records, byName, simpleTypes, version)
+		return resolveSchemaChoiceParticle(particle, owner, records, byName, visibleSources, simpleTypes, version)
 	case *schemaSequenceParticleInput:
 		if particle == nil {
 			return nil, newSchemaBridgeInvariant(Loc{}, "sequence particle input is nil")
 		}
-		return resolveSchemaSequenceParticle(particle, records, byName, simpleTypes, version)
+		return resolveSchemaSequenceParticle(particle, owner, records, byName, visibleSources, simpleTypes, version)
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "complex type has an unknown particle input")
 	}
@@ -1443,8 +1712,10 @@ func resolveSchemaComplexTypeParticle(
 
 func resolveSchemaChoiceParticle(
 	input *schemaChoiceParticleInput,
+	owner schemaComponentRecord,
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
 	simpleTypes []schemaSimpleTypeResult,
 	version XSDVersion,
 ) (Particle, error) {
@@ -1471,8 +1742,10 @@ func resolveSchemaChoiceParticle(
 		}
 		element, err := resolveSchemaElementParticle(
 			elementInput,
+			owner,
 			records,
 			byName,
+			visibleSources,
 			simpleTypes,
 			version,
 			"choice",
@@ -1495,20 +1768,24 @@ func resolveSchemaChoiceParticle(
 
 func resolveSchemaSequenceParticle(
 	input *schemaSequenceParticleInput,
+	owner schemaComponentRecord,
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
 	simpleTypes []schemaSimpleTypeResult,
 	version XSDVersion,
 ) (Particle, error) {
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
-	elements := make([]ElementParticle, 0, len(input.elements))
+	particles := make([]Particle, 0, len(input.elements))
 	for _, elementInput := range input.elements {
 		element, err := resolveSchemaElementParticle(
 			elementInput,
+			owner,
 			records,
 			byName,
+			visibleSources,
 			simpleTypes,
 			version,
 			"sequence",
@@ -1519,30 +1796,31 @@ func resolveSchemaSequenceParticle(
 		if element == nil {
 			continue
 		}
-		resolved, ok := element.(ElementParticle)
-		if !ok {
-			return nil, newSchemaBridgeInvariant(input.loc, "sequence element resolution produced a non-element particle")
-		}
-		elements = append(elements, resolved)
+		particles = append(particles, element)
 	}
 	sequence := &schemaSequenceParticle{
 		loc:         input.loc,
 		occurrences: input.occurrences.clone(),
-		elements:    elements,
+		particles:   particles,
 	}
 	return SequenceParticle{facts: sequence}, nil
 }
 
 func resolveSchemaElementParticle(
 	input schemaElementParticleInput,
+	owner schemaComponentRecord,
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
 	simpleTypes []schemaSimpleTypeResult,
 	version XSDVersion,
 	model string,
 ) (Particle, error) {
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
+	}
+	if input.reference != nil {
+		return resolveSchemaElementReferenceParticle(input, owner, records, byName, visibleSources, version)
 	}
 	if model == "choice" && !input.occurrences.isDefault() && input.typeInput != nil {
 		isPrecisionDecimal, err := schemaScalarTypeIsPrecisionDecimal(
@@ -1588,6 +1866,136 @@ func resolveSchemaElementParticle(
 		hasTypeID:    resolved.hasTypeID,
 	}
 	return ElementParticle{facts: facts}, nil
+}
+
+func resolveSchemaElementReferenceParticle(
+	input schemaElementParticleInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	version XSDVersion,
+) (Particle, error) {
+	if input.reference == nil {
+		return nil, newSchemaBridgeInvariant(input.loc, "element reference input is nil")
+	}
+	reference := input.reference
+	candidates := byName[reference.name]
+	if len(candidates) == 0 {
+		return nil, newSchemaElementReferenceDiagnostic(
+			diagnosticSchemaElementReferenceUnresolvedCode,
+			reference.loc,
+			fmt.Sprintf("element reference %q is unresolved", reference.name),
+			nil,
+			version,
+			errSchemaElementReferenceUnresolved,
+		)
+	}
+	elementCandidates, err := schemaElementReferenceElementCandidates(candidates, records, reference.loc)
+	if err != nil {
+		return nil, err
+	}
+	if len(elementCandidates) == 0 {
+		return nil, newSchemaElementReferenceDiagnostic(
+			diagnosticSchemaElementReferenceWrongKindCode,
+			reference.loc,
+			fmt.Sprintf("element reference %q does not name a global element declaration", reference.name),
+			schemaComponentLocations(records, candidates),
+			version,
+			errSchemaElementReferenceWrongKind,
+		)
+	}
+	visible, err := schemaElementReferenceVisibleCandidates(elementCandidates, owner, records, visibleSources)
+	if err != nil {
+		return nil, err
+	}
+	if len(visible) == 0 {
+		return nil, schemaElementReferenceVisibilityDiagnostic(reference, owner, records, elementCandidates, version)
+	}
+	if len(visible) > 1 {
+		return nil, newSchemaElementReferenceDiagnostic(
+			diagnosticSchemaElementReferenceAmbiguousCode,
+			reference.loc,
+			fmt.Sprintf("element reference %q is ambiguous", reference.name),
+			schemaComponentLocations(records, visible),
+			version,
+			errSchemaElementReferenceAmbiguous,
+		)
+	}
+	facts := &schemaElementReferenceParticle{
+		loc:         input.loc,
+		occurrences: input.occurrences.clone(),
+		name:        reference.name,
+		refLoc:      reference.loc,
+		targetID:    records[visible[0]].id,
+	}
+	return ElementReferenceParticle{facts: facts}, nil
+}
+
+func schemaElementReferenceElementCandidates(
+	candidates []int,
+	records []schemaComponentRecord,
+	loc Loc,
+) ([]int, error) {
+	elementCandidates := make([]int, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate < 0 || candidate >= len(records) {
+			return nil, newSchemaBridgeInvariant(loc, "element reference lookup has an invalid record index")
+		}
+		if records[candidate].kind != ComponentKindElementDeclaration {
+			continue
+		}
+		elementCandidates = append(elementCandidates, candidate)
+	}
+	return elementCandidates, nil
+}
+
+func schemaElementReferenceVisibleCandidates(
+	elementCandidates []int,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	visibleSources map[SourceID][]SourceID,
+) ([]int, error) {
+	available, ok := visibleSources[owner.id.Source()]
+	if !ok {
+		return nil, newSchemaBridgeInvariant(owner.loc, "element reference owner has no visibility entry")
+	}
+	visible := make([]int, 0, len(elementCandidates))
+	for _, candidate := range elementCandidates {
+		if !sourceIDInList(available, records[candidate].id.Source()) {
+			continue
+		}
+		visible = append(visible, candidate)
+	}
+	return visible, nil
+}
+
+func schemaElementReferenceVisibilityDiagnostic(
+	reference *schemaElementReferenceInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	elementCandidates []int,
+	version XSDVersion,
+) error {
+	related := schemaComponentLocations(records, elementCandidates)
+	if reference.name.Namespace() != owner.name.Namespace() {
+		return newSchemaElementReferenceImportDiagnostic(
+			diagnosticSchemaElementReferenceNamespaceCode,
+			reference.loc,
+			fmt.Sprintf("element reference %q names a namespace that is not imported into %q", reference.name, owner.name.Namespace()),
+			related,
+			version,
+			errSchemaElementReferenceNamespace,
+		)
+	}
+	return newSchemaElementReferenceDiagnostic(
+		diagnosticSchemaElementReferenceUnresolvedCode,
+		reference.loc,
+		fmt.Sprintf("element reference %q is not visible from its schema document", reference.name),
+		related,
+		version,
+		errSchemaElementReferenceUnresolved,
+	)
 }
 
 // schemaScalarTypeIsPrecisionDecimal derives the resolved scalar relation
@@ -1759,6 +2167,52 @@ func schemaElementTypeSpecRef(version XSDVersion) string {
 		return schemaElementTypeXSD10SpecRef
 	}
 	return schemaElementTypeXSD11SpecRef
+}
+
+func newSchemaElementReferenceDiagnostic(
+	code string,
+	loc Loc,
+	message string,
+	related []Loc,
+	version XSDVersion,
+	cause error,
+) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    code,
+		loc:     loc,
+		message: message,
+		related: append([]Loc(nil), related...),
+		specRef: schemaElementReferenceSpecRef(version),
+		cause:   cause,
+	}
+}
+
+func newSchemaElementReferenceImportDiagnostic(
+	code string,
+	loc Loc,
+	message string,
+	related []Loc,
+	version XSDVersion,
+	cause error,
+) Diagnostic {
+	diagnostic := newSchemaElementReferenceDiagnostic(code, loc, message, related, version, cause)
+	diagnostic.specRef = schemaElementReferenceImportSpecRef(version)
+	return diagnostic
+}
+
+func schemaElementReferenceSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaElementReferenceXSD10SpecRef
+	}
+	return schemaElementReferenceXSD11SpecRef
+}
+
+func schemaElementReferenceImportSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaElementReferenceImportXSD10SpecRef
+	}
+	return schemaElementReferenceImportXSD11SpecRef
 }
 
 func (resolver *schemaSimpleTypeResolver) resolve(index int, version XSDVersion) (schemaSimpleTypeResult, error) {

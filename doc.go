@@ -29,7 +29,9 @@
 // and each mapped precisionDecimal alternative use default occurrences;
 // non-default precisionDecimal choice or alternative ranges that map to
 // particles, and direct-sequence precisionDecimal, are schema-unsupported.
-// Anonymous types, references, nested and broader particles remain unsupported.
+// Anonymous types, nested and broader particles remain unsupported. Direct
+// local element references are queryable immutable particles; validation and
+// code generation reject them explicitly as unsupported.
 // Sequence particles are query-only until validation repetition is implemented.
 //
 // ValidateInstance supports one complete instance rooted at a global element

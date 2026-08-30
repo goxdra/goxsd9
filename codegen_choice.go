@@ -240,6 +240,17 @@ func collectCodegenDirectChoices(
 					errCodegenDirectChoiceParticle,
 				)
 			}
+			if reference, referenceOK := elementReferenceParticleValue(alternative); referenceOK {
+				if reference.facts == nil {
+					return nil, newCodegenInternal(
+						choice.Loc(),
+						"direct-choice element reference has incomplete particle facts",
+						nil,
+						errCodegenDirectChoiceParticle,
+					)
+				}
+				return nil, codegenDirectChoiceReferenceUnsupported(schema, reference, version)
+			}
 			path, pathErr := codegenDirectChoicePath(index)
 			if pathErr != nil {
 				return nil, newCodegenInternal(
@@ -309,6 +320,8 @@ func directChoiceTypedNilParticle(particle Particle) bool {
 		return concrete == nil
 	case *ElementParticle:
 		return concrete == nil
+	case *ElementReferenceParticle:
+		return concrete == nil
 	case *SequenceParticle:
 		return concrete == nil
 	default:
@@ -342,6 +355,25 @@ func directChoiceValueElement(particle Particle) (ElementParticle, bool) {
 	default:
 		return ElementParticle{}, false
 	}
+}
+
+func codegenDirectChoiceReferenceUnsupported(schema Schema, reference ElementReferenceParticle, version XSDVersion) error {
+	primary := reference.RefLoc()
+	if primary.IsZero() {
+		primary = reference.Loc()
+	}
+	related := appendCodegenRelated(nil, reference.Loc())
+	if target, ok := schema.Lookup(reference.TargetID()); ok {
+		related = appendCodegenRelated(related, target.Loc())
+	}
+	return newCodegenDirectChoiceUnsupported(
+		primary,
+		"direct choice element reference particles are outside Go code generation",
+		related,
+		fmt.Errorf("%w: element reference particle", errCodegenUnsupported),
+		version,
+		codegenDirectChoiceElementChoiceReference,
+	)
 }
 
 func directChoiceNestedChoice(particle Particle) (ChoiceParticle, bool) {
@@ -562,7 +594,6 @@ func codegenDirectChoiceSpecReference(version XSDVersion, reference codegenDirec
 	}
 }
 
-//nolint:unparam // The private helper keeps related locations aligned with the shared diagnostic boundary.
 func newCodegenDirectChoiceUnsupported(
 	loc Loc,
 	message string,
@@ -1397,6 +1428,17 @@ func codegenDirectChoicePlanTargetAt(
 			nil,
 			errCodegenDirectChoiceParticle,
 		)
+	}
+	if reference, referenceOK := elementReferenceParticleValue(particleAlternative); referenceOK {
+		if reference.facts == nil {
+			return QName{}, nil, newCodegenInternal(
+				loc,
+				"schema direct-choice element reference has incomplete particle facts",
+				nil,
+				errCodegenDirectChoiceParticle,
+			)
+		}
+		return QName{}, nil, codegenDirectChoiceReferenceUnsupported(schema, reference, version)
 	}
 	element, ok := directChoiceValueElement(particleAlternative)
 	if !ok || element.facts == nil {
