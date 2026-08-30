@@ -924,10 +924,11 @@ func bootstrapXMLDoctypeSyntaxWithEntities(raw []byte) (string, map[string]strin
 }
 
 type bootstrapXMLDTDParser struct {
-	data          []byte
-	index         int
-	entities      []bootstrapXMLEntityDeclaration
-	entityIndexes map[string]int
+	data               []byte
+	index              int
+	entities           []bootstrapXMLEntityDeclaration
+	entityIndexes      map[string]int
+	attValueReferences []string
 }
 
 type bootstrapXMLEntityDeclaration struct {
@@ -955,6 +956,12 @@ func (parser *bootstrapXMLDTDParser) entityMap() (map[string]string, bool) {
 		}
 		if resolution == bootstrapXMLEntityResolved && !replacement.markup {
 			entities[declaration.name] = replacement.value
+		}
+	}
+	for _, reference := range parser.attValueReferences {
+		replacement, resolution := parser.expandEntityReference(reference, replacements, resolutions)
+		if resolution != bootstrapXMLEntityResolved || replacement.markup {
+			return nil, false
 		}
 	}
 	return entities, true
@@ -1668,7 +1675,7 @@ func (parser *bootstrapXMLDTDParser) parseAttValue() bool {
 		case '<':
 			return false
 		case '&':
-			if !parser.parseReference() {
+			if !parser.parseAttValueReference() {
 				return false
 			}
 		default:
@@ -1680,6 +1687,21 @@ func (parser *bootstrapXMLDTDParser) parseAttValue() bool {
 		}
 	}
 	return parser.consume(quote)
+}
+
+func (parser *bootstrapXMLDTDParser) parseAttValueReference() bool {
+	if !parser.consume('&') {
+		return false
+	}
+	if parser.consume('#') {
+		return parser.parseCharacterReference()
+	}
+	name, ok := parser.parseName()
+	if !ok || !parser.consume(';') {
+		return false
+	}
+	parser.attValueReferences = append(parser.attValueReferences, name)
+	return true
 }
 
 func (parser *bootstrapXMLDTDParser) parseReference() bool {

@@ -196,6 +196,9 @@ func TestGenerateAcceptsBootstrapXMLDeclarationAndDoctypeForms(t *testing.T) {
 		`<!DOCTYPE root [<!ENTITY e '&lt;&amp;&gt;&apos;&quot;'>]><root>&e;</root>`,
 		`<!DOCTYPE root [<!ENTITY e 'first'><!ENTITY e SYSTEM 'root.ent'>]><root>&e;</root>`,
 		`<!DOCTYPE root [<!ENTITY external SYSTEM 'root.ent'><!ENTITY internal '&external;'>]><root/>`,
+		`<!DOCTYPE root [<!ATTLIST root value CDATA '&value;'><!ENTITY value 'forward'>]><root/>`,
+		`<!DOCTYPE root [<!ATTLIST root value CDATA '&value;'><!ENTITY value 'first'><!ENTITY value 'second'>]><root/>`,
+		`<!DOCTYPE root [<!ATTLIST root value CDATA '&amp;&#x41;&#65;'>]><root/>`,
 		`<p:root xmlns:p="urn:root"/>`,
 		`<root xmlns:p="urn:root" p:id="one"/>`,
 		`<root xmlns="urn:root"><child/></root>`,
@@ -267,6 +270,14 @@ func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
 		{name: "cyclic entity declaration", representation: "xml", content: "<!DOCTYPE root [<!ENTITY first '&second;'><!ENTITY second '&first;'>]><root/>"},
 		{name: "markup-bearing entity use", representation: "xml", content: "<!DOCTYPE root [<!ENTITY markup '<child/>'>]><root>&markup;</root>"},
 		{name: "less-than in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '<'>]><root/>"},
+		{name: "undeclared entity in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&missing;'>]><root/>"},
+		{name: "external entity in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&external;'><!ENTITY external SYSTEM 'root.ent'>]><root/>"},
+		{name: "markup-bearing entity in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&markup;'><!ENTITY markup '<child/>'>]><root/>"},
+		{name: "cyclic entity in attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA '&first;'><!ENTITY first '&second;'><!ENTITY second '&first;'>]><root/>"},
+		{name: "undeclared entity in fixed attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA #FIXED '&missing;'>]><root/>"},
+		{name: "external entity in fixed attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA #FIXED '&external;'><!ENTITY external SYSTEM 'root.ent'>]><root/>"},
+		{name: "markup-bearing entity in fixed attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA #FIXED '&markup;'><!ENTITY markup '<child/>'>]><root/>"},
+		{name: "cyclic entity in fixed attribute default", representation: "xml", content: "<!DOCTYPE root [<!ATTLIST root value CDATA #FIXED '&first;'><!ENTITY first '&second;'><!ENTITY second '&first;'>]><root/>"},
 		{name: "truncated notation declaration", representation: "xml", content: "<!DOCTYPE root [<!NOTATION image SYSTEM>]><root/>"},
 		{name: "malformed notation declaration", representation: "xml", content: "<!DOCTYPE root [<!NOTATION image>]><root/>"},
 		{name: "duplicate attribute", representation: "xml", content: `<root id="one" id="two"/>`},
@@ -291,6 +302,24 @@ func TestGenerateRejectsMalformedBootstrapXML(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			assertRejectedBootstrapXML(t, test)
+		})
+	}
+}
+
+func TestGenerateRejectsOverLimitEntityInAttributeDefaults(t *testing.T) {
+	largeValue := strings.Repeat("x", bootstrapXMLMaxEntityValueLength+1)
+	for _, fixed := range []bool{false, true} {
+		defaultDeclaration := "CDATA "
+		if fixed {
+			defaultDeclaration += "#FIXED "
+		}
+		content := "<!DOCTYPE root [<!ATTLIST root value " + defaultDeclaration + "'&large;'><!ENTITY large '" + largeValue + "'>]><root/>"
+		t.Run(defaultDeclaration, func(t *testing.T) {
+			assertRejectedBootstrapXML(t, bootstrapXMLInvalidCase{
+				name:           "over-limit entity in attribute default",
+				representation: "xml",
+				content:        content,
+			})
 		})
 	}
 }
