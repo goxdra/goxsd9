@@ -61,6 +61,7 @@ var (
 	errInstanceChoiceNested        = errors.New("choice instance has nested element content")
 	errInstanceChoiceParticle      = errors.New("choice type has an unsupported particle")
 	errInstanceChoiceTarget        = errors.New("choice alternative has an unsupported target")
+	errInstanceElementFacts        = errors.New("global element abstract and nillable facts are outside instance validation")
 	errInstanceValidationInvariant = errors.New("scalar validation invariant is broken")
 )
 
@@ -197,6 +198,9 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 	if err != nil {
 		return err
 	}
+	if factsErr := rejectUnsupportedInstanceElementFacts(schema, declaration, root.loc); factsErr != nil {
+		return factsErr
+	}
 	if declaration.DeclaredType().Namespace() != xsdNamespaceURI {
 		typeID, hasTypeID := declaration.TypeID()
 		if !hasTypeID || typeID.IsZero() {
@@ -242,6 +246,30 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 		return err
 	}
 	return validateScalarValue(root, scalar)
+}
+
+func rejectUnsupportedInstanceElementFacts(schema Schema, declaration ElementDeclaration, loc Loc) error {
+	version := instanceSchemaValidationVersion(schema)
+	related := []Loc{declaration.Loc()}
+	if declaration.IsAbstract() {
+		return newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("global element %q has abstract=true outside instance validation", declaration.Name()),
+			related,
+			version,
+			errInstanceElementFacts,
+		)
+	}
+	if declaration.IsNillable() {
+		return newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("global element %q has nillable=true outside instance validation", declaration.Name()),
+			related,
+			version,
+			errInstanceElementFacts,
+		)
+	}
+	return nil
 }
 
 func instanceSchemaElement(schema Schema, rootName QName, loc Loc) (ElementDeclaration, error) {

@@ -114,6 +114,9 @@ func planCodegenSourceWithChoicePlan(
 	if versionErr != nil {
 		return codegenSourcePlan{}, versionErr
 	}
+	if err := rejectCodegenElementFacts(components, policyVersion); err != nil {
+		return codegenSourcePlan{}, err
+	}
 	for _, component := range components {
 		identifier, ok := names.componentName(component.ID())
 		if !ok {
@@ -163,6 +166,37 @@ func planCodegenSourceWithChoicePlan(
 		})
 	}
 	return plan, nil
+}
+
+func rejectCodegenElementFacts(components []Component, version XSDVersion) error {
+	for _, component := range components {
+		if component.Kind() != ComponentKindElementDeclaration {
+			continue
+		}
+		declaration, ok := component.ElementDeclaration()
+		if !ok {
+			continue
+		}
+		if declaration.IsAbstract() {
+			return newCodegenElementUnsupported(
+				declaration.Loc(),
+				fmt.Sprintf("global element %q has abstract=true outside Go generation", declaration.Name()),
+				nil,
+				fmt.Errorf("%w: non-default abstract element fact", errCodegenUnsupported),
+				version,
+			)
+		}
+		if declaration.IsNillable() {
+			return newCodegenElementUnsupported(
+				declaration.Loc(),
+				fmt.Sprintf("global element %q has nillable=true outside Go generation", declaration.Name()),
+				nil,
+				fmt.Errorf("%w: non-default nillable element fact", errCodegenUnsupported),
+				version,
+			)
+		}
+	}
+	return nil
 }
 
 func planCodegenSourceChoice(owner codegenDirectChoiceOwner, runtimeAlias string) (codegenSourceChoice, bool, error) {
