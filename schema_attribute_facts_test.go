@@ -475,3 +475,38 @@ func TestSchemaBridgeGlobalAttributeDiagnosticsRepeatDeterministically(t *testin
 		t.Fatalf("repeated diagnostics differ: first=%s related=%v second=%s related=%v", first, first.Related(), second, second.Related())
 	}
 }
+
+func TestSchemaBridgeGlobalAttributeCycleDiagnosticMatchesResolverCycle(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">
+  <xs:attribute name="first" type="r:FirstOne"/>
+  <xs:attribute name="second" type="r:SecondOne"/>
+  <xs:simpleType name="SecondOne"><xs:restriction base="r:SecondTwo"/></xs:simpleType>
+  <xs:simpleType name="SecondTwo"><xs:restriction base="r:SecondOne"/></xs:simpleType>
+  <xs:simpleType name="FirstOne"><xs:restriction base="r:FirstTwo"/></xs:simpleType>
+  <xs:simpleType name="FirstTwo"><xs:restriction base="r:FirstOne"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err == nil || schema.storage != nil {
+		t.Fatal("discoverSchema accepted independent cyclic attribute types or returned a schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Code() != diagnosticSchemaAttributeTypeCycleCode || !errors.Is(err, errSchemaSimpleTypeBaseCycle) {
+		t.Fatalf("diagnostic = %s, want attribute cycle with shared cycle cause", diagnostic)
+	}
+	if diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, `type="r:SecondOne"`) {
+		t.Fatalf("diagnostic location = %s, want second attribute type", diagnostic.Loc())
+	}
+	if diagnostic.Message() != `attribute type "{urn:root}SecondOne" resolves through cyclic simple type definitions` {
+		t.Fatalf("diagnostic message = %q, want SecondOne cycle", diagnostic.Message())
+	}
+	for _, unrelated := range []string{
+		`<xs:attribute name="first"`,
+		`<xs:simpleType name="FirstOne"`,
+		`<xs:simpleType name="FirstTwo"`,
+	} {
+		unrelatedLoc := elementReferenceTestAttributeLoc(t, root, unrelated)
+		if schemaLocationListContains(diagnostic.Related(), unrelatedLoc) {
+			t.Fatalf("diagnostic related locations = %v, unexpectedly contain unrelated cycle location %s", diagnostic.Related(), unrelatedLoc)
+		}
+	}
+}

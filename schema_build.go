@@ -2028,6 +2028,10 @@ func reframeSchemaAttributeTypeCycle(records []schemaComponentRecord, byName map
 	if !errors.Is(err, errSchemaSimpleTypeBaseCycle) {
 		return nil
 	}
+	var cycleDiagnostic Diagnostic
+	if !errors.As(err, &cycleDiagnostic) {
+		return nil
+	}
 	for _, record := range records {
 		input := record.attribute
 		if input == nil || input.declaredType.Namespace() == xsdNamespaceURI {
@@ -2037,13 +2041,17 @@ func reframeSchemaAttributeTypeCycle(records []schemaComponentRecord, byName map
 		if len(candidates) != 1 {
 			continue
 		}
-		states := make([]uint8, len(records))
-		if !schemaSimpleTypeGraphHasCycle(candidates[0], records, byName, states) {
+		graphLocations := make([]Loc, 0, 4)
+		collectSchemaSimpleTypeGraphLocations(
+			candidates[0],
+			records,
+			byName,
+			input.typeLoc,
+			&graphLocations,
+			make([]uint8, len(records)),
+		)
+		if !schemaLocationListContains(graphLocations, cycleDiagnostic.Loc()) {
 			continue
-		}
-		var cycleDiagnostic Diagnostic
-		if !errors.As(err, &cycleDiagnostic) {
-			return nil
 		}
 		related := make([]Loc, 0, len(cycleDiagnostic.Related())+4)
 		related = appendSchemaRelatedLocation(related, record.loc, input.typeLoc)
@@ -2051,7 +2059,9 @@ func reframeSchemaAttributeTypeCycle(records []schemaComponentRecord, byName map
 		for _, relatedLoc := range cycleDiagnostic.Related() {
 			related = appendSchemaRelatedLocation(related, relatedLoc, input.typeLoc)
 		}
-		collectSchemaSimpleTypeGraphLocations(candidates[0], records, byName, input.typeLoc, &related, make([]uint8, len(records)))
+		for _, graphLoc := range graphLocations {
+			related = appendSchemaRelatedLocation(related, graphLoc, input.typeLoc)
+		}
 		return newSchemaAttributeTypeDiagnostic(
 			diagnosticSchemaAttributeTypeCycleCode,
 			input.typeLoc,
@@ -2064,6 +2074,15 @@ func reframeSchemaAttributeTypeCycle(records []schemaComponentRecord, byName map
 	return nil
 }
 
+func schemaLocationListContains(locations []Loc, wanted Loc) bool {
+	for _, loc := range locations {
+		if loc == wanted {
+			return true
+		}
+	}
+	return false
+}
+
 func schemaSimpleTypeRecordIndices(name QName, records []schemaComponentRecord, byName map[QName][]int) []int {
 	candidates := byName[name]
 	indices := make([]int, 0, len(candidates))
@@ -2073,38 +2092,6 @@ func schemaSimpleTypeRecordIndices(name QName, records []schemaComponentRecord, 
 		}
 	}
 	return indices
-}
-
-func schemaSimpleTypeGraphHasCycle(index int, records []schemaComponentRecord, byName map[QName][]int, states []uint8) bool {
-	if index < 0 || index >= len(records) || records[index].simpleType == nil {
-		return false
-	}
-	if states[index] == 1 {
-		return true
-	}
-	if states[index] == 2 {
-		return false
-	}
-	states[index] = 1
-	for _, dependency := range schemaSimpleTypeDependencies(records[index].simpleType, records, byName) {
-		if schemaSimpleTypeGraphHasCycle(dependency, records, byName, states) {
-			return true
-		}
-	}
-	states[index] = 2
-	return false
-}
-
-func schemaSimpleTypeDependencies(input *schemaSimpleTypeInput, records []schemaComponentRecord, byName map[QName][]int) []int {
-	refs := schemaSimpleTypeReferences(input)
-	dependencies := make([]int, 0, len(refs))
-	for _, reference := range refs {
-		if reference.kind != schemaSimpleTypeQNameReferenceInput || reference.name.Namespace() == xsdNamespaceURI {
-			continue
-		}
-		dependencies = append(dependencies, schemaSimpleTypeRecordIndices(reference.name, records, byName)...)
-	}
-	return dependencies
 }
 
 func collectSchemaSimpleTypeGraphLocations(
