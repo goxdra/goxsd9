@@ -3769,7 +3769,6 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			if err := validateConditionalQNameForSchema(element, attribute); err != nil {
 				return candidate, err
 			}
-			candidate.considerAt(attribute.loc, "local element ref particles are not implemented")
 		case "type":
 			if err := validateConditionalQNameForSchema(element, attribute); err != nil {
 				return candidate, err

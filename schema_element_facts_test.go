@@ -289,11 +289,6 @@ func TestSchemaBridgeKeepsElementFactExclusionsUnsupported(t *testing.T) {
 			version: XSDVersion11,
 		},
 		{
-			name:    "local reference",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:complexType name="Record"><xs:choice><xs:element ref="r:item"/></xs:choice></xs:complexType></xs:schema>`,
-			version: XSDVersion11,
-		},
-		{
 			name:    "value constraint",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" type="xs:integer" abstract="true" default="1"/></xs:schema>`,
 			version: XSDVersion11,

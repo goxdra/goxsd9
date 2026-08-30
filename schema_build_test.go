@@ -514,15 +514,6 @@ func TestSchemaBridgeRejectsCompositionWithoutPartialSchema(t *testing.T) {
 			code:  invalidSchemaTargetNamespaceCode,
 		},
 		{
-			name: "chameleon include",
-			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd"/></xs:schema>`,
-			fixtures: map[string]discoveryFixture{
-				"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"/>`},
-			},
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name: "include adds namespace",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:include schemaLocation="child.xsd"/></xs:schema>`,
 			fixtures: map[string]discoveryFixture{
@@ -1116,10 +1107,10 @@ func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:    "element reference is unsupported",
-			root:    fmt.Sprintf(base, `<xs:choice><xs:element ref="value"/></xs:choice>`),
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
+			name:  "unresolved element reference is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element ref="value"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  diagnosticSchemaElementReferenceUnresolvedCode,
 		},
 		{
 			name:    "inline type is unsupported",

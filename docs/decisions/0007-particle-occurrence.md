@@ -157,12 +157,14 @@ alternative ranges are parsed and queryable, but repetition is not implemented
 in validation, repeated Go fields are not generated, and effective total ranges
 are not calculated. Non-default `precisionDecimal` choice and alternative
 ranges that map to a particle are schema-unsupported. Boolean facets and
-anonymous, referenced, nested, or broader particles, including nested choices,
-`all`, groups, wildcards, and attributes, remain unsupported; anonymous
+anonymous, nested, or broader particles, including nested choices, `all`,
+groups, wildcards, and attributes, remain unsupported; anonymous
 simple-type models and resolved built-in, named, and anonymous simple-type
-references are modeled. Boolean validation and Go generation remain
-unsupported; the parser does not support `all` mapping. The exact value has no
-fixed resource limit; later phases must set bounded input and materialization
+references are modeled. Direct element-reference particles are supported for
+direct local choice and sequence children; other element-reference forms
+remain unsupported. Boolean validation and Go generation remain unsupported;
+the parser does not support `all` mapping. The exact value has no fixed
+resource limit; later phases must set bounded input and materialization
 policies.
 
 The main risks are memory proportional to hostile finite lexicals, a breaking

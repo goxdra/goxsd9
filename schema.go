@@ -981,7 +981,86 @@ func (particle ElementParticle) TypeID() (ComponentID, bool) {
 	return particle.facts.typeID, true
 }
 
-// SequenceParticle is an ordered direct sequence of local element particles.
+// ElementReferenceParticle is a local element reference particle. It retains
+// the expanded QName and source location of ref, plus the identity of the
+// referenced global element. It does not copy declaration facts from that
+// global element.
+type ElementReferenceParticle struct {
+	facts *schemaElementReferenceParticle
+}
+
+func (ElementReferenceParticle) particle() {}
+
+// Loc returns the location of the local element reference particle.
+func (particle ElementReferenceParticle) Loc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.loc
+}
+
+// Occurrences returns the exact immutable occurrence range.
+func (particle ElementReferenceParticle) Occurrences() ParticleOccurrenceRange {
+	if particle.facts == nil {
+		return ParticleOccurrenceRange{}
+	}
+	return newPublicParticleOccurrenceRange(particle.facts.occurrences)
+}
+
+// MinOccurs returns the default minimum occurrence bound.
+//
+// Deprecated: use Occurrences().Minimum(). This compatibility accessor is
+// defined only for default-only reference particles and returns zero
+// otherwise.
+func (particle ElementReferenceParticle) MinOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// MaxOccurs returns the default maximum occurrence bound.
+//
+// Deprecated: use Occurrences().Maximum(). This compatibility accessor is
+// defined only for default-only reference particles and returns zero
+// otherwise.
+func (particle ElementReferenceParticle) MaxOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// Name returns the expanded QName in the ref attribute.
+func (particle ElementReferenceParticle) Name() QName {
+	if particle.facts == nil {
+		return QName{}
+	}
+	return particle.facts.name
+}
+
+// Ref returns the expanded QName in the ref attribute.
+func (particle ElementReferenceParticle) Ref() QName {
+	return particle.Name()
+}
+
+// RefLoc returns the location of the ref attribute.
+func (particle ElementReferenceParticle) RefLoc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.refLoc
+}
+
+// TargetID returns the identity of the referenced global element declaration.
+func (particle ElementReferenceParticle) TargetID() ComponentID {
+	if particle.facts == nil {
+		return ComponentID{}
+	}
+	return particle.facts.targetID
+}
+
+// SequenceParticle is an ordered direct sequence of element particles.
 type SequenceParticle struct {
 	facts *schemaSequenceParticle
 }
@@ -1029,10 +1108,31 @@ func (particle SequenceParticle) MaxOccurs() uint64 {
 // Elements returns direct local element particles in lexical declaration
 // order. The returned slice is independent of the completed schema.
 func (particle SequenceParticle) Elements() []ElementParticle {
-	if particle.facts == nil || len(particle.facts.elements) == 0 {
+	if particle.facts == nil || len(particle.facts.particles) == 0 {
 		return nil
 	}
-	return append([]ElementParticle(nil), particle.facts.elements...)
+	elements := make([]ElementParticle, 0, len(particle.facts.particles))
+	for _, child := range particle.facts.particles {
+		element, ok := elementParticleValue(child)
+		if !ok {
+			continue
+		}
+		elements = append(elements, element)
+	}
+	if len(elements) == 0 {
+		return nil
+	}
+	return elements
+}
+
+// Particles returns direct sequence particles in lexical declaration order.
+// The returned slice is independent of the completed schema and may contain
+// both ElementParticle and ElementReferenceParticle values.
+func (particle SequenceParticle) Particles() []Particle {
+	if particle.facts == nil || len(particle.facts.particles) == 0 {
+		return nil
+	}
+	return append([]Particle(nil), particle.facts.particles...)
 }
 
 // SchemaDocument is an immutable document in a Schema's discovery order.
@@ -1187,6 +1287,9 @@ type schemaDocumentInput struct {
 	source          SourceID
 	rootLoc         Loc
 	targetNamespace string
+	// visibleSources is the ordered set of documents whose global element
+	// declarations may be referenced from this document.
+	visibleSources []SourceID
 	// declarations contains the named schema-level declarations in lexical
 	// order. Local particle components will use a separate scoped model.
 	declarations []schemaComponentInput
@@ -1405,8 +1508,14 @@ func (*schemaSequenceParticleInput) schemaComplexTypeParticleInput() {}
 type schemaElementParticleInput struct {
 	loc         Loc
 	name        QName
+	reference   *schemaElementReferenceInput
 	occurrences particleOccurrenceRange
 	typeInput   *schemaElementInput
+}
+
+type schemaElementReferenceInput struct {
+	name QName
+	loc  Loc
 }
 
 type schemaElementComponent struct {
@@ -1446,10 +1555,18 @@ type schemaElementParticle struct {
 	hasTypeID    bool
 }
 
+type schemaElementReferenceParticle struct {
+	loc         Loc
+	occurrences particleOccurrenceRange
+	name        QName
+	refLoc      Loc
+	targetID    ComponentID
+}
+
 type schemaSequenceParticle struct {
 	loc         Loc
 	occurrences particleOccurrenceRange
-	elements    []ElementParticle
+	particles   []Particle
 }
 
 type schemaComponentRecord struct {
@@ -1513,7 +1630,7 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 	if err != nil {
 		return Schema{}, invalidLanguagePolicyDiagnostic(policy, err)
 	}
-	documents, records, byName, err := allocateSchemaRecords(inputs)
+	documents, records, byName, visibleSources, err := allocateSchemaRecords(inputs)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -1527,7 +1644,7 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 	if err != nil {
 		return Schema{}, err
 	}
-	complexTypes, err := resolveSchemaComplexTypes(records, byName, simpleTypes.results, version)
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes.results, version)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -1569,23 +1686,25 @@ func rejectDuplicateSchemaDeclarations(records []schemaComponentRecord, version 
 	return nil
 }
 
-func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []schemaComponentRecord, map[QName][]int, error) {
+func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []schemaComponentRecord, map[QName][]int, map[SourceID][]SourceID, error) {
 	documents := make([]SchemaDocument, 0, len(inputs))
 	records := make([]schemaComponentRecord, 0)
 	byName := make(map[QName][]int)
 	seenSources := make(map[SourceID]struct{}, len(inputs))
+	sources := make([]SourceID, 0, len(inputs))
 
 	for _, input := range inputs {
 		if err := validateSchemaDocumentInput(input, seenSources); err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		seenSources[input.source] = struct{}{}
+		sources = append(sources, input.source)
 
 		documentStart := len(records)
 		for declarationIndex, declaration := range input.declarations {
 			record, err := newSchemaComponentRecord(input.source, declarationIndex, declaration)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 			byName[record.name] = append(byName[record.name], len(records))
 			records = append(records, record)
@@ -1599,7 +1718,21 @@ func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []sc
 			count:           len(records) - documentStart,
 		})
 	}
-	return documents, records, byName, nil
+	visibleSources := make(map[SourceID][]SourceID, len(inputs))
+	for _, input := range inputs {
+		if input.visibleSources == nil {
+			visibleSources[input.source] = append([]SourceID(nil), sources...)
+			continue
+		}
+		visibleSources[input.source] = append([]SourceID(nil), input.visibleSources...)
+		if !sourceIDInList(visibleSources[input.source], input.source) {
+			return nil, nil, nil, nil, newSchemaBridgeInvariant(
+				input.rootLoc,
+				fmt.Sprintf("schema document %q visibility does not include itself", input.source),
+			)
+		}
+	}
+	return documents, records, byName, visibleSources, nil
 }
 
 func validateSchemaDocumentInput(input schemaDocumentInput, seenSources map[SourceID]struct{}) error {
@@ -1981,10 +2114,42 @@ func cloneSchemaElementParticleInputs(inputs []schemaElementParticleInput) []sch
 	for index, input := range inputs {
 		clones[index] = input
 		clones[index].occurrences = input.occurrences.clone()
+		if input.reference != nil {
+			reference := *input.reference
+			clones[index].reference = &reference
+		}
 		if input.typeInput == nil {
 			continue
 		}
 		clones[index].typeInput = cloneSchemaElementInput(input.typeInput)
 	}
 	return clones
+}
+
+func elementParticleValue(particle Particle) (ElementParticle, bool) {
+	switch concrete := particle.(type) {
+	case ElementParticle:
+		return concrete, true
+	case *ElementParticle:
+		if concrete == nil {
+			return ElementParticle{}, false
+		}
+		return *concrete, true
+	default:
+		return ElementParticle{}, false
+	}
+}
+
+func elementReferenceParticleValue(particle Particle) (ElementReferenceParticle, bool) {
+	switch concrete := particle.(type) {
+	case ElementReferenceParticle:
+		return concrete, true
+	case *ElementReferenceParticle:
+		if concrete == nil {
+			return ElementReferenceParticle{}, false
+		}
+		return *concrete, true
+	default:
+		return ElementReferenceParticle{}, false
+	}
 }
