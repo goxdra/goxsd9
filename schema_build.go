@@ -814,7 +814,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	if model.name.local == "choice" {
 		return schemaChoiceComplexTypeInput(model, occurrences, facts, version)
 	}
-	if facts.elementFormDefaultQualified && schemaModelHasElementChild(model) {
+	if facts.elementFormDefaultQualified && schemaModelHasNamedElementChild(model) {
 		return nil, newSchemaSyntaxUnsupported(
 			model.loc,
 			"schema elementFormDefault=qualified is not implemented for local sequence elements",
@@ -989,10 +989,13 @@ func schemaSimpleTypeInputFromElement(element *syntaxElement) (*schemaSimpleType
 	return input, nil
 }
 
-func schemaModelHasElementChild(model *syntaxElement) bool {
+func schemaModelHasNamedElementChild(model *syntaxElement) bool {
 	for _, node := range model.children {
 		child, ok := node.(*syntaxElement)
-		if ok && child.name.namespace == xsdNamespaceURI && child.name.local == "element" {
+		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "element" {
+			continue
+		}
+		if len(syntaxAttributesByLocal(child, "name")) > 0 {
 			return true
 		}
 	}

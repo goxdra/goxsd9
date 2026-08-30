@@ -386,6 +386,88 @@ func TestSchemaElementReferenceDoesNotBorrowIncludedImport(t *testing.T) {
 	}
 }
 
+func TestSchemaElementReferenceSequenceAllowsQualifiedDefault(t *testing.T) {
+	policies := []LanguagePolicy{Compatibility, Strict10, Strict11}
+	for _, policy := range policies {
+		t.Run(string(policy), func(t *testing.T) {
+			schema := elementReferenceTestQualifiedSequenceSchema(t, policy)
+			elementReferenceTestAssertQualifiedSequence(t, schema)
+			elementReferenceTestAssertQualifiedMixedSequenceRejected(t, policy)
+		})
+	}
+}
+
+func elementReferenceTestQualifiedSequenceSchema(t *testing.T, policy LanguagePolicy) Schema {
+	t.Helper()
+	schema, err := discoverTestSchemaWithPolicy(t, elementReferenceTestQualifiedSequenceRoot(false), nil, policy)
+	if err != nil {
+		t.Fatalf("discover qualified reference sequence: %v", err)
+	}
+	return schema
+}
+
+func elementReferenceTestAssertQualifiedSequence(t *testing.T, schema Schema) {
+	t.Helper()
+	name := mustTestQName(t, "urn:reference-root", "Sequence")
+	components := schema.FindKind(ComponentKindComplexTypeDefinition, name)
+	if len(components) != 1 {
+		t.Fatalf("qualified reference sequence type count = %d, want 1", len(components))
+	}
+	definition, ok := components[0].ComplexTypeDefinition()
+	if !ok {
+		t.Fatal("qualified reference sequence has no definition view")
+	}
+	sequence, ok := definition.Particle().(SequenceParticle)
+	if !ok {
+		t.Fatalf("qualified reference particle = %T, want SequenceParticle", definition.Particle())
+	}
+	particles := sequence.Particles()
+	if len(particles) != 1 {
+		t.Fatalf("qualified reference particle count = %d, want 1", len(particles))
+	}
+	reference, ok := particles[0].(ElementReferenceParticle)
+	if !ok {
+		t.Fatalf("qualified sequence child = %T, want ElementReferenceParticle", particles[0])
+	}
+	targetName := mustTestQName(t, "urn:reference-root", "target")
+	if reference.Ref() != targetName || reference.Name() != targetName {
+		t.Fatalf("qualified sequence reference name = %q/%q, want %q", reference.Name(), reference.Ref(), targetName)
+	}
+	target := schema.FindKind(ComponentKindElementDeclaration, targetName)
+	if len(target) != 1 {
+		t.Fatalf("qualified sequence target count = %d, want 1", len(target))
+	}
+	if reference.TargetID() != target[0].ID() {
+		t.Fatalf("qualified sequence target ID = %v, want %v", reference.TargetID(), target[0].ID())
+	}
+}
+
+func elementReferenceTestAssertQualifiedMixedSequenceRejected(t *testing.T, policy LanguagePolicy) {
+	t.Helper()
+	mixedSchema, mixedErr := discoverTestSchemaWithPolicy(t, elementReferenceTestQualifiedSequenceRoot(true), nil, policy)
+	if mixedErr == nil {
+		t.Fatal("qualified mixed sequence with a local name declaration was accepted")
+	}
+	if mixedSchema.storage != nil {
+		t.Fatal("qualified mixed sequence failure returned a partial schema")
+	}
+	mixedDiagnostic := requireDiagnostic(t, mixedErr)
+	if mixedDiagnostic.Class() != FailureUnsupported || mixedDiagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("qualified mixed sequence diagnostic = %s, want schema-syntax unsupported", mixedDiagnostic)
+	}
+}
+
+func elementReferenceTestQualifiedSequenceRoot(includeLocal bool) string {
+	local := ""
+	if includeLocal {
+		local = `<xs:element name="local" type="xs:integer"/>`
+	}
+	return `<xs:schema xmlns:xs="` + elementReferenceTestXSDNamespace + `" xmlns:r="urn:reference-root" targetNamespace="urn:reference-root" elementFormDefault="qualified">
+  <xs:element name="target" type="xs:integer"/>
+  <xs:complexType name="Sequence"><xs:sequence><xs:element ref="r:target"/>` + local + `</xs:sequence></xs:complexType>
+</xs:schema>`
+}
+
 func TestSchemaElementReferenceDownstreamConsumersRejectWithoutCopying(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + elementReferenceTestXSDNamespace + `" xmlns:r="urn:reference-root" targetNamespace="urn:reference-root">
   <xs:complexType name="Choice"><xs:choice><xs:element ref="r:item"/></xs:choice></xs:complexType>
