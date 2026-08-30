@@ -21,6 +21,62 @@ func evaluationChallengeKeyFor(challenge evaluationChallenge) (evaluationChallen
 	}, true
 }
 
+// evaluationChallengeHistoryPR identifies the single PR represented by an
+// already authenticated challenge history. A history fetched for one PR is
+// the only context in which a legacy marker may omit its repository field.
+func evaluationChallengeHistoryPR(history evaluationHistory) (int, bool) {
+	var number int
+	for _, record := range history.challenges {
+		challenge := record.challenge
+		if record.comment.Author.Login != trustedActor || challenge.PR < 1 ||
+			(challenge.Repository != "" && challenge.Repository != repositoryKey) {
+			return 0, false
+		}
+		if number == 0 {
+			number = challenge.PR
+			continue
+		}
+		if challenge.PR != number {
+			return 0, false
+		}
+	}
+	return number, number > 0
+}
+
+// evaluationChallengeKeyForPR keeps the strict key primitive intact while
+// accepting digest-bound legacy markers only in one known PR context.
+func evaluationChallengeKeyForPR(challenge evaluationChallenge, number int, contextOK bool) (
+	evaluationChallengeKey, bool) {
+	if challenge.Repository == repositoryKey {
+		return evaluationChallengeKeyFor(challenge)
+	}
+	if challenge.Repository != "" || !contextOK || challenge.PR != number {
+		return evaluationChallengeKey{}, false
+	}
+	normalized := challenge
+	normalized.Repository = repositoryKey
+	return evaluationChallengeKeyFor(normalized)
+}
+
+func evaluationChallengeKeyForHistory(history evaluationHistory, challenge evaluationChallenge) (
+	evaluationChallengeKey, bool) {
+	number, contextOK := evaluationChallengeHistoryPR(history)
+	return evaluationChallengeKeyForPR(challenge, number, contextOK)
+}
+
+// evaluationChallengeForHistory returns a temporary repository-bound copy.
+// The source record and its original comment remain unchanged.
+func evaluationChallengeForHistory(history evaluationHistory, challenge evaluationChallenge) (
+	evaluationChallenge, bool) {
+	key, complete := evaluationChallengeKeyForHistory(history, challenge)
+	if !complete {
+		return evaluationChallenge{}, false
+	}
+	normalized := challenge
+	normalized.Repository = key.repository
+	return normalized, true
+}
+
 func equalEvaluationChallengeKeys(left, right evaluationChallengeKey) bool {
 	return left == right
 }
@@ -196,9 +252,10 @@ func evaluationLogicalChallengeGroups(history evaluationHistory) (
 	if err != nil {
 		return nil, err
 	}
+	historyPR, contextOK := evaluationChallengeHistoryPR(history)
 	groups := make([]evaluationLogicalChallenge, 0, len(ordered))
 	for _, record := range ordered {
-		key, complete := evaluationChallengeKeyFor(record.challenge)
+		key, complete := evaluationChallengeKeyForPR(record.challenge, historyPR, contextOK)
 		groupIndex := -1
 		if complete {
 			for index := range groups {
@@ -234,7 +291,7 @@ func evaluationChallengeGroupHasTerminalBefore(history evaluationHistory,
 			if receipt.receipt.AttestationSHA256 == "" || receipt.commentIndex >= commentIndex {
 				continue
 			}
-			if evaluationChallengeMatchesReceipt(member, receipt) {
+			if evaluationChallengeMatchesReceiptForHistory(history, member, receipt) {
 				return true
 			}
 		}
@@ -242,12 +299,46 @@ func evaluationChallengeGroupHasTerminalBefore(history evaluationHistory,
 			if resolution.commentIndex >= commentIndex {
 				continue
 			}
-			if evaluationChallengeMatchesResolution(member, resolution) {
+			if evaluationChallengeMatchesResolutionForHistory(history, member, resolution) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func evaluationChallengeMatchesReceiptForHistory(history evaluationHistory,
+	challenge evaluationChallengeRecord, receipt evaluationReceiptRecord) bool {
+	normalizedChallenge, complete := evaluationChallengeForHistory(history, challenge.challenge)
+	if !complete {
+		return evaluationChallengeMatchesReceipt(challenge, receipt)
+	}
+	normalizedReceipt := receipt.receipt
+	if normalizedReceipt.Repository == "" {
+		normalizedReceipt.Repository = repositoryKey
+	}
+	normalizedChallengeRecord := challenge
+	normalizedChallengeRecord.challenge = normalizedChallenge
+	normalizedReceiptRecord := receipt
+	normalizedReceiptRecord.receipt = normalizedReceipt
+	return evaluationChallengeMatchesReceipt(normalizedChallengeRecord, normalizedReceiptRecord)
+}
+
+func evaluationChallengeMatchesResolutionForHistory(history evaluationHistory,
+	challenge evaluationChallengeRecord, resolution evaluationResolutionRecord) bool {
+	normalizedChallenge, complete := evaluationChallengeForHistory(history, challenge.challenge)
+	if !complete {
+		return evaluationChallengeMatchesResolution(challenge, resolution)
+	}
+	normalizedResolution := resolution.resolution
+	if normalizedResolution.Repository == "" {
+		normalizedResolution.Repository = repositoryKey
+	}
+	normalizedChallengeRecord := challenge
+	normalizedChallengeRecord.challenge = normalizedChallenge
+	normalizedResolutionRecord := resolution
+	normalizedResolutionRecord.resolution = normalizedResolution
+	return evaluationChallengeMatchesResolution(normalizedChallengeRecord, normalizedResolutionRecord)
 }
 
 func evaluationLogicalProjectionForHistory(history evaluationHistory, requireClosures bool) (
@@ -263,6 +354,7 @@ func evaluationLogicalProjectionForHistoryMode(history evaluationHistory, requir
 	if err != nil {
 		return evaluationLogicalProjection{}, err
 	}
+	historyPR, contextOK := evaluationChallengeHistoryPR(history)
 	for _, closure := range history.closures {
 		canonical, canonicalOK := evaluationChallengeRecordForID(history.challenges,
 			closure.closure.CanonicalChallenge)
@@ -272,8 +364,8 @@ func evaluationLogicalProjectionForHistoryMode(history evaluationHistory, requir
 			return evaluationLogicalProjection{}, errors.New(
 				"evaluation challenge closure references a non-unique trusted challenge")
 		}
-		canonicalKey, canonicalComplete := evaluationChallengeKeyFor(canonical.challenge)
-		duplicateKey, duplicateComplete := evaluationChallengeKeyFor(duplicate.challenge)
+		canonicalKey, canonicalComplete := evaluationChallengeKeyForPR(canonical.challenge, historyPR, contextOK)
+		duplicateKey, duplicateComplete := evaluationChallengeKeyForPR(duplicate.challenge, historyPR, contextOK)
 		if !canonicalComplete || !duplicateComplete ||
 			!equalEvaluationChallengeKeys(canonicalKey, duplicateKey) {
 			return evaluationLogicalProjection{}, errors.New(
@@ -350,7 +442,7 @@ func evaluationLogicalProjectionForHistoryMode(history evaluationHistory, requir
 		for _, member := range groups[index].members {
 			for _, receipt := range receipts {
 				if receipt.receipt.AttestationSHA256 == "" ||
-					!evaluationChallengeMatchesReceipt(member, receipt) {
+					!evaluationChallengeMatchesReceiptForHistory(history, member, receipt) {
 					continue
 				}
 				if groups[index].hasReceipt {
@@ -361,7 +453,7 @@ func evaluationLogicalProjectionForHistoryMode(history evaluationHistory, requir
 				groups[index].receipt = receipt
 			}
 			for _, resolution := range history.resolutions {
-				if !evaluationChallengeMatchesResolution(member, resolution) {
+				if !evaluationChallengeMatchesResolutionForHistory(history, member, resolution) {
 					continue
 				}
 				if groups[index].hasResolution {
@@ -505,8 +597,15 @@ func (a app) convergeEvaluationChallengeClosuresByIdentity(root string, number i
 func (a app) convergeEvaluationChallengeClosuresMode(root string, number int,
 	challenge evaluationChallenge, view pullRequestView, history evaluationHistory,
 	validateCurrentView bool) error {
+	if challenge.PR != number {
+		return fmt.Errorf("PR #%d challenge has no authenticated PR identity", number)
+	}
 	if challenge.Repository != repositoryKey {
-		return fmt.Errorf("PR #%d challenge has no authenticated repository identity", number)
+		normalized, ok := evaluationChallengeForHistory(history, challenge)
+		if !ok {
+			return fmt.Errorf("PR #%d challenge has no authenticated repository identity", number)
+		}
+		challenge = normalized
 	}
 	for attempt := 0; attempt < 100; attempt++ {
 		if validateCurrentView {

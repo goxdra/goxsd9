@@ -1,6 +1,7 @@
 package workflowctl
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -190,6 +191,173 @@ func TestEvaluationChallengeClosureRejectsUntrustedOrMismatchedHistory(t *testin
 	}
 	if _, err := evaluationLogicalProjectionForHistory(history, false); err == nil {
 		t.Fatal("mismatched challenge closure was accepted")
+	}
+}
+
+//nolint:funlen,gocognit // Keep the PR #193 marker, closure, and rejection cases together.
+func TestEvaluationLegacyDigestBoundChallengesUseAuthenticatedRepositoryContext(t *testing.T) {
+	base := time.Date(2026, time.August, 25, 14, 19, 36, 0, time.UTC)
+	bodySHA256 := "6832e3f73637ae82c04de364bfa321e97a446180d330bfd8ed8c034deecc175d"
+	evidenceSHA256 := "353b9f85fd4c6d5fc69f9d0b56c96daa3c474d9441d232bb77d6e2c78c89506e"
+	canonical := evaluationChallenge{
+		Challenge:      "run-910151a400a4b444",
+		Head:           "a09c6cd75817159c2dbb834ddffbbc4e520c35e0",
+		PR:             193,
+		BodySHA256:     bodySHA256,
+		EvidenceSHA256: evidenceSHA256,
+		RequestedAt:    base,
+	}
+	duplicate := canonical
+	duplicate.Challenge = "run-c5551427586e8057"
+	duplicate.RequestedAt = base.Add(54 * time.Second)
+	canonicalComment := evaluationChallengeProjectionComment(t, canonical, 1931)
+	duplicateComment := evaluationChallengeProjectionComment(t, duplicate, 1932)
+	history, err := parseEvaluationHistory([]pullRequestComment{canonicalComment, duplicateComment})
+	if err != nil {
+		t.Fatalf("parse PR #193-shaped challenge history: %v", err)
+	}
+	if strings.Contains(canonicalComment.Body, "\"repository\"") ||
+		strings.Contains(duplicateComment.Body, "\"repository\"") {
+		t.Fatal("PR #193-shaped challenge marker unexpectedly acquired a repository field")
+	}
+	projection, err := evaluationLogicalProjectionForHistory(history, false)
+	if err != nil {
+		t.Fatalf("project PR #193-shaped challenge history: %v", err)
+	}
+	if got, want := len(projection.challenges), 1; got != want {
+		t.Fatalf("PR #193-shaped logical challenge groups = %d, want %d", got, want)
+	}
+	logical := projection.challenges[0]
+	if logical.key.repository != repositoryKey || len(logical.members) != 2 ||
+		logical.canonical.challenge.Challenge != canonical.Challenge {
+		t.Fatalf("PR #193-shaped logical challenge = %#v, want repository-bound canonical pair", logical)
+	}
+	if history.challenges[0].comment.Body != canonicalComment.Body ||
+		history.challenges[1].comment.Body != duplicateComment.Body ||
+		history.challenges[0].challenge.Repository != "" || history.challenges[1].challenge.Repository != "" {
+		t.Fatal("legacy challenge records were rewritten while deriving effective identity")
+	}
+
+	closure := evaluationChallengeClosure{
+		BodySHA256:         bodySHA256,
+		CanonicalChallenge: canonical.Challenge,
+		ClosedAt:           base.Add(2 * time.Minute),
+		Controller:         trustedActor,
+		DuplicateChallenge: duplicate.Challenge,
+		EvidenceSHA256:     evidenceSHA256,
+		Head:               canonical.Head,
+		PR:                 canonical.PR,
+		Repository:         repositoryKey,
+		Schema:             evaluationChallengeClosureSchema,
+	}
+	marker, err := json.Marshal(closure)
+	if err != nil {
+		t.Fatalf("encode legacy challenge closure: %v", err)
+	}
+	closureComment := pullRequestComment{
+		Body:      evaluationChallengeClosureComment(marker, canonical.Challenge, duplicate.Challenge),
+		CreatedAt: closure.ClosedAt,
+		ID:        1933,
+	}
+	closureComment.Author.Login = trustedActor
+	history, err = parseEvaluationHistory(append([]pullRequestComment{canonicalComment, duplicateComment}, closureComment))
+	if err != nil {
+		t.Fatalf("parse legacy challenge closure history: %v", err)
+	}
+	projection, err = evaluationLogicalProjectionForHistory(history, true)
+	if err != nil {
+		t.Fatalf("project legacy challenge closure history: %v", err)
+	}
+	logical = projection.challenges[0]
+	if len(logical.closures) != 1 || logical.closures[0].closure.Repository != repositoryKey {
+		t.Fatalf("legacy challenge closure = %#v, want repository-bound closure", logical.closures)
+	}
+	if history.challenges[0].comment.Body != canonicalComment.Body || history.challenges[1].comment.Body != duplicateComment.Body {
+		t.Fatal("legacy challenge marker bytes changed after closure projection")
+	}
+	if _, validationErr := validateFinalEvaluationChallengeHistory(canonical.PR, canonical, history); validationErr != nil {
+		t.Fatalf("validate omitted-repository canonical after closure: %v", validationErr)
+	}
+
+	legacyCanonical := canonical
+	legacyCanonical.PR = 14
+	legacyDuplicate := duplicate
+	legacyDuplicate.PR = 14
+	legacyCanonicalComment := evaluationChallengeProjectionComment(t, legacyCanonical, 1931)
+	legacyDuplicateComment := evaluationChallengeProjectionComment(t, legacyDuplicate, 1932)
+	backend := newWorkflowBackend(t)
+	backend.comments = []issueCommentAPI{
+		workflowCommentAPI(legacyCanonicalComment), workflowCommentAPI(legacyDuplicateComment),
+	}
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+	view, err := application.readPullRequest(backend.root, 14)
+	if err != nil {
+		t.Fatalf("read legacy challenge PR for closure generation: %v", err)
+	}
+	legacyHistory, err := readEvaluationMutationHistoryForConvergence(14, view.Comments)
+	if err != nil {
+		t.Fatalf("read legacy challenge history for closure generation: %v", err)
+	}
+	if closureErr := application.convergeEvaluationChallengeClosuresByIdentity(backend.root, 14,
+		legacyCanonical, view, legacyHistory); closureErr != nil {
+		t.Fatalf("converge legacy challenge closure: %v", closureErr)
+	}
+	legacyHistory = workflowEvaluationHistory(t, backend, 14)
+	if len(legacyHistory.closures) != 1 || legacyHistory.closures[0].closure.Repository != repositoryKey {
+		t.Fatalf("generated legacy challenge closure = %#v, want repository-bound closure", legacyHistory.closures)
+	}
+	if backend.comments[0].Body != legacyCanonicalComment.Body || backend.comments[1].Body != legacyDuplicateComment.Body {
+		t.Fatal("legacy challenge closure generation rewrote an original marker")
+	}
+
+	digestEmpty := canonical
+	digestEmpty.Challenge = "legacy-empty-challenge"
+	digestEmpty.BodySHA256 = ""
+	digestEmpty.EvidenceSHA256 = ""
+	digestEmptyComment := evaluationChallengeProjectionComment(t, digestEmpty, 1934)
+	digestEmptyDuplicate := digestEmpty
+	digestEmptyDuplicate.Challenge = "legacy-empty-duplicate"
+	digestEmptyDuplicate.RequestedAt = base.Add(2 * time.Second)
+	digestEmptyDuplicateComment := evaluationChallengeProjectionComment(t, digestEmptyDuplicate, 1935)
+	digestEmptyHistory, err := parseEvaluationHistory([]pullRequestComment{
+		digestEmptyComment, digestEmptyDuplicateComment,
+	})
+	if err != nil {
+		t.Fatalf("parse digest-empty legacy challenge history: %v", err)
+	}
+	digestEmptyProjection, err := evaluationLogicalProjectionForHistory(digestEmptyHistory, false)
+	if err != nil {
+		t.Fatalf("project digest-empty legacy challenge history: %v", err)
+	}
+	if got, want := len(digestEmptyProjection.challenges), 2; got != want {
+		t.Fatalf("digest-empty legacy logical groups = %d, want %d", got, want)
+	}
+
+	wrongRepository := canonical
+	wrongRepository.Challenge = "wrong-repository-challenge"
+	wrongRepository.Repository = "other/repository"
+	wrongRepositoryComment := evaluationChallengeProjectionComment(t, wrongRepository, 1936)
+	if _, parseErr := parseEvaluationHistory([]pullRequestComment{wrongRepositoryComment}); parseErr == nil {
+		t.Fatal("wrong nonempty repository challenge was accepted")
+	}
+	wrongRecord := evaluationChallengeRecord{
+		comment:      wrongRepositoryComment,
+		commentIndex: 1,
+		challenge:    wrongRepository,
+	}
+	validRecord := evaluationChallengeRecord{
+		comment:      canonicalComment,
+		commentIndex: 0,
+		challenge:    canonical,
+	}
+	wrongHistory := evaluationHistory{challenges: []evaluationChallengeRecord{validRecord, wrongRecord}}
+	wrongProjection, err := evaluationLogicalProjectionForHistory(wrongHistory, false)
+	if err != nil {
+		t.Fatalf("project wrong-repository challenge history: %v", err)
+	}
+	if got, want := len(wrongProjection.challenges), 2; got != want {
+		t.Fatalf("wrong-repository logical groups = %d, want %d", got, want)
 	}
 }
 

@@ -1420,7 +1420,9 @@ func evaluationRetryChallengeForView(outstanding []evaluationChallengeRecord, nu
 		return evaluationChallengeRecord{}, false
 	}
 	challenge := outstanding[0]
-	key, complete := evaluationChallengeKeyFor(challenge.challenge)
+	history := evaluationHistory{challenges: outstanding}
+	historyPR, contextOK := evaluationChallengeHistoryPR(history)
+	key, complete := evaluationChallengeKeyForPR(challenge.challenge, historyPR, contextOK)
 	if !complete || key.pr != number || key.head != view.HeadRefOID ||
 		!evaluationChallengeRecordValidAt(challenge, time.Now().UTC()) {
 		return evaluationChallengeRecord{}, false
@@ -1477,7 +1479,7 @@ func (a app) completeEvaluationChallenge(root string, number int, challenge eval
 
 func validateFinalEvaluationChallengeHistory(number int, challenge evaluationChallenge,
 	finalHistory evaluationHistory) (evaluationLogicalChallenge, error) {
-	if challenge.Repository != repositoryKey || challenge.PR != number {
+	if !evaluationChallengeHasAuthenticatedContext(number, challenge, finalHistory) {
 		return evaluationLogicalChallenge{}, fmt.Errorf("challenge %q identity is not bound to PR #%d",
 			challenge.Challenge, number)
 	}
@@ -1512,6 +1514,18 @@ func validateFinalEvaluationChallengeHistory(number int, challenge evaluationCha
 		}
 	}
 	return logical, nil
+}
+
+func evaluationChallengeHasAuthenticatedContext(number int, challenge evaluationChallenge,
+	finalHistory evaluationHistory) bool {
+	if challenge.PR != number {
+		return false
+	}
+	if challenge.Repository == repositoryKey {
+		return true
+	}
+	_, ok := evaluationChallengeForHistory(finalHistory, challenge)
+	return ok
 }
 
 func validateFinalEvaluationChallengeExpiry(history evaluationHistory, challenge evaluationChallenge,
@@ -2901,17 +2915,18 @@ func evaluationChallengeByID(history evaluationHistory, challengeID string) (eva
 	return found, matches == 1
 }
 
-func evaluationChallengeClosureCountsForReceipts(receipts []evaluationReceiptRecord,
-	resolutions []evaluationResolutionRecord, challenge evaluationChallengeRecord) (int, int) {
+func evaluationChallengeClosureCountsForHistory(history evaluationHistory,
+	receipts []evaluationReceiptRecord, challenge evaluationChallengeRecord) (int, int) {
 	receiptMatches := 0
 	for _, receipt := range receipts {
-		if receipt.receipt.AttestationSHA256 != "" && evaluationChallengeMatchesReceipt(challenge, receipt) {
+		if receipt.receipt.AttestationSHA256 != "" &&
+			evaluationChallengeMatchesReceiptForHistory(history, challenge, receipt) {
 			receiptMatches++
 		}
 	}
 	resolutionMatches := 0
-	for _, resolution := range resolutions {
-		if evaluationChallengeMatchesResolution(challenge, resolution) {
+	for _, resolution := range history.resolutions {
+		if evaluationChallengeMatchesResolutionForHistory(history, challenge, resolution) {
 			resolutionMatches++
 		}
 	}
@@ -3309,14 +3324,14 @@ func validateEvaluationTerminalConflicts(history evaluationHistory) error {
 	for _, group := range groups {
 		receiptMatches := 0
 		for _, receiptGroup := range receiptGroups {
-			if !evaluationReceiptGroupMatchesChallenge(group, receiptGroup) {
+			if !evaluationReceiptGroupMatchesChallengeForHistory(history, group, receiptGroup) {
 				continue
 			}
 			receiptMatches++
 		}
 		resolutionMatches := 0
 		for _, resolution := range history.resolutions {
-			if evaluationResolutionMatchesChallenge(group, resolution) {
+			if evaluationResolutionMatchesChallengeForHistory(history, group, resolution) {
 				resolutionMatches++
 			}
 		}
@@ -3336,14 +3351,14 @@ func validateEvaluationTerminalConflicts(history evaluationHistory) error {
 	return nil
 }
 
-func evaluationReceiptGroupMatchesChallenge(challenge evaluationLogicalChallenge,
-	receiptGroup evaluationReceiptGroup) bool {
+func evaluationReceiptGroupMatchesChallengeForHistory(history evaluationHistory,
+	challenge evaluationLogicalChallenge, receiptGroup evaluationReceiptGroup) bool {
 	for _, member := range challenge.members {
 		for _, receipt := range receiptGroup.records {
 			if receipt.receipt.AttestationSHA256 == "" {
 				continue
 			}
-			if evaluationChallengeMatchesReceipt(member, receipt) {
+			if evaluationChallengeMatchesReceiptForHistory(history, member, receipt) {
 				return true
 			}
 		}
@@ -3351,10 +3366,10 @@ func evaluationReceiptGroupMatchesChallenge(challenge evaluationLogicalChallenge
 	return false
 }
 
-func evaluationResolutionMatchesChallenge(challenge evaluationLogicalChallenge,
-	resolution evaluationResolutionRecord) bool {
+func evaluationResolutionMatchesChallengeForHistory(history evaluationHistory,
+	challenge evaluationLogicalChallenge, resolution evaluationResolutionRecord) bool {
 	for _, member := range challenge.members {
-		if evaluationChallengeMatchesResolution(member, resolution) {
+		if evaluationChallengeMatchesResolutionForHistory(history, member, resolution) {
 			return true
 		}
 	}
@@ -3502,7 +3517,7 @@ func validateEvaluationReceiptChallenge(history evaluationHistory, record evalua
 	}
 	matches := 0
 	for _, challenge := range history.challenges {
-		if evaluationChallengeMatchesReceipt(challenge, record) {
+		if evaluationChallengeMatchesReceiptForHistory(history, challenge, record) {
 			matches++
 		}
 	}
@@ -3514,6 +3529,10 @@ func validateEvaluationReceiptChallenge(history evaluationHistory, record evalua
 
 //nolint:gocognit // Check the complete challenge identity and historical timing together.
 func evaluationChallengeMatchesReceipt(challenge evaluationChallengeRecord, receipt evaluationReceiptRecord) bool {
+	if (challenge.challenge.Repository != "" && challenge.challenge.Repository != repositoryKey) ||
+		(receipt.receipt.Repository != "" && receipt.receipt.Repository != repositoryKey) {
+		return false
+	}
 	if challenge.challenge.Challenge != receipt.receipt.Challenge ||
 		challenge.challenge.PR != receipt.receipt.PR || challenge.challenge.Head != receipt.receipt.Head ||
 		challenge.challenge.Repository != receipt.receipt.Repository {
@@ -3551,6 +3570,10 @@ func evaluationChallengeMatchesReceipt(challenge evaluationChallengeRecord, rece
 
 func evaluationChallengeMatchesResolution(challenge evaluationChallengeRecord,
 	resolution evaluationResolutionRecord) bool {
+	if (challenge.challenge.Repository != "" && challenge.challenge.Repository != repositoryKey) ||
+		(resolution.resolution.Repository != "" && resolution.resolution.Repository != repositoryKey) {
+		return false
+	}
 	if challenge.challenge.Challenge != resolution.resolution.Challenge ||
 		challenge.challenge.PR != resolution.resolution.PR ||
 		challenge.challenge.Head != resolution.resolution.Head ||
@@ -3617,7 +3640,7 @@ func validateEvaluationResolutionRecords(history evaluationHistory) error {
 		}
 		matches := 0
 		for _, challenge := range history.challenges {
-			if evaluationChallengeMatchesResolution(challenge, record) {
+			if evaluationChallengeMatchesResolutionForHistory(history, challenge, record) {
 				matches++
 			}
 		}
@@ -3635,7 +3658,7 @@ func validateEvaluationResolutionClosures(history evaluationHistory) error {
 		return err
 	}
 	for _, challenge := range history.challenges {
-		receiptMatches, resolutionMatches := evaluationChallengeClosureCountsForReceipts(receipts, history.resolutions, challenge)
+		receiptMatches, resolutionMatches := evaluationChallengeClosureCountsForHistory(history, receipts, challenge)
 		if receiptMatches > 1 {
 			return fmt.Errorf("evaluation challenge %q has %d matching trusted receipts", challenge.challenge.Challenge, receiptMatches)
 		}
