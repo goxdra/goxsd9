@@ -232,6 +232,32 @@ func validatePRReviewStateSlots(seen [len(prReviewStateSlotSpecs)]bool) error {
 	return nil
 }
 
+func validatePRReviewStateReservedStatusLines(body string, lifecycle prReviewStateLifecycle) error {
+	lineStart := 0
+	for lineStart <= len(body) {
+		relativeLineEnd := strings.IndexByte(body[lineStart:], '\n')
+		lineEnd := len(body)
+		if relativeLineEnd >= 0 {
+			lineEnd = lineStart + relativeLineEnd
+		}
+		line := body[lineStart:lineEnd]
+		for index, spec := range prReviewStateSlotSpecs {
+			if line != spec.pendingStatus && line != spec.evidenceStatus {
+				continue
+			}
+			slot := lifecycle.slots[index]
+			if lineStart != slot.statusStart || lineEnd != slot.statusEnd {
+				return fmt.Errorf("PR review-state reserved status line for slot %q is outside its matching status span", spec.slot)
+			}
+		}
+		if lineEnd == len(body) {
+			break
+		}
+		lineStart = lineEnd + 1
+	}
+	return nil
+}
+
 func consumePRReviewStateMarker(body string, scan prReviewStateMarkerScan, lifecycle *prReviewStateLifecycle,
 	seenGlobal *bool, seenSlots *[len(prReviewStateSlotSpecs)]bool, nextSlot int,
 ) (int, error) {
@@ -283,6 +309,9 @@ func parsePRReviewStateLifecycle(body string) (prReviewStateLifecycle, error) {
 		return prReviewStateLifecycle{}, errors.New("PR review-state marker is missing")
 	}
 	if err := validatePRReviewStateSlots(seenSlots); err != nil {
+		return prReviewStateLifecycle{}, err
+	}
+	if err := validatePRReviewStateReservedStatusLines(body, lifecycle); err != nil {
 		return prReviewStateLifecycle{}, err
 	}
 	return lifecycle, nil
