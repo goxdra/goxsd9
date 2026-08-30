@@ -1863,6 +1863,7 @@ const (
 func resolveSchemaElementSubstitutionGroups(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
 	simpleTypes schemaSimpleTypeResolution,
 	elements []schemaElementTypeResult,
 	edges []syntaxDocumentEdge,
@@ -1907,6 +1908,7 @@ func resolveSchemaElementSubstitutionGroups(
 			input.substitutionGroup,
 			edges,
 			sourceNamespaces,
+			visibleSources,
 			sourceClass,
 			results,
 			version,
@@ -1968,6 +1970,14 @@ func resolveSchemaElementSubstitutionGroup(
 	if source.element == nil {
 		return nil, newSchemaBridgeInvariant(source.loc, "substitution-group source has no element input")
 	}
+	allSources := make([]SourceID, 0, len(records))
+	for _, record := range records {
+		candidateSource := record.id.Source()
+		if sourceIDInList(allSources, candidateSource) {
+			continue
+		}
+		allSources = append(allSources, candidateSource)
+	}
 	return resolveSchemaElementSubstitutionGroupForInputs(
 		sourceIndex,
 		source,
@@ -1976,6 +1986,7 @@ func resolveSchemaElementSubstitutionGroup(
 		source.element.substitutionGroup,
 		edges,
 		sourceNamespaces,
+		map[SourceID][]SourceID{source.id.Source(): allSources},
 		schemaSubstitutionTypeUnknown,
 		make([]schemaElementTypeResult, len(records)),
 		version,
@@ -1990,6 +2001,7 @@ func resolveSchemaElementSubstitutionGroupForInputs(
 	inputs []schemaElementSubstitutionGroupInput,
 	edges []syntaxDocumentEdge,
 	sourceNamespaces map[SourceID]string,
+	visibleSources map[SourceID][]SourceID,
 	sourceClass schemaSubstitutionTypeClass,
 	elements []schemaElementTypeResult,
 	version XSDVersion,
@@ -2013,6 +2025,7 @@ func resolveSchemaElementSubstitutionGroupForInputs(
 			byName,
 			edges,
 			sourceNamespace,
+			visibleSources,
 			sourceClass,
 			elements,
 			version,
@@ -2027,8 +2040,11 @@ func resolveSchemaElementSubstitutionGroupForInputs(
 
 func schemaSubstitutionGroupHeadIndex(
 	input schemaElementSubstitutionGroupInput,
+	source schemaComponentRecord,
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	sourceNamespace string,
 	version XSDVersion,
 ) (int, error) {
 	candidates := byName[input.name]
@@ -2062,17 +2078,53 @@ func schemaSubstitutionGroupHeadIndex(
 			schemaSubstitutionResolveSpecRef(version),
 		)
 	}
-	if len(elementCandidates) > 1 {
+	visibleCandidates, err := schemaElementReferenceVisibleCandidates(elementCandidates, source, records, visibleSources)
+	if err != nil {
+		return 0, err
+	}
+	if len(visibleCandidates) == 0 {
+		return 0, schemaSubstitutionGroupVisibilityDiagnostic(input, source, sourceNamespace, records, elementCandidates, version)
+	}
+	if len(visibleCandidates) > 1 {
 		return 0, newSchemaSubstitutionGroupDiagnostic(
 			diagnosticSchemaSubstitutionAmbiguousCode,
 			input.loc,
 			fmt.Sprintf("substitutionGroup head %q is ambiguous", input.name),
-			schemaComponentLocations(records, elementCandidates),
+			schemaComponentLocations(records, visibleCandidates),
 			errSchemaSubstitutionAmbiguous,
 			schemaSubstitutionResolveSpecRef(version),
 		)
 	}
-	return elementCandidates[0], nil
+	return visibleCandidates[0], nil
+}
+
+func schemaSubstitutionGroupVisibilityDiagnostic(
+	input schemaElementSubstitutionGroupInput,
+	source schemaComponentRecord,
+	sourceNamespace string,
+	records []schemaComponentRecord,
+	elementCandidates []int,
+	version XSDVersion,
+) error {
+	related := schemaComponentLocations(records, elementCandidates)
+	if input.name.Namespace() != sourceNamespace {
+		return newSchemaSubstitutionGroupDiagnostic(
+			diagnosticSchemaSubstitutionImportCode,
+			input.loc,
+			fmt.Sprintf("substitutionGroup head %q is not visible from schema document %q", input.name, source.id.Source()),
+			related,
+			errSchemaSubstitutionImport,
+			schemaSubstitutionConstraintSpecRef(version),
+		)
+	}
+	return newSchemaSubstitutionGroupDiagnostic(
+		diagnosticSchemaSubstitutionUnresolvedCode,
+		input.loc,
+		fmt.Sprintf("substitutionGroup head %q is not visible from schema document %q", input.name, source.id.Source()),
+		related,
+		errSchemaSubstitutionUnresolved,
+		schemaSubstitutionResolveSpecRef(version),
+	)
 }
 
 func resolveSchemaElementSubstitutionGroupInput(
@@ -2083,11 +2135,12 @@ func resolveSchemaElementSubstitutionGroupInput(
 	byName map[QName][]int,
 	edges []syntaxDocumentEdge,
 	sourceNamespace string,
+	visibleSources map[SourceID][]SourceID,
 	sourceClass schemaSubstitutionTypeClass,
 	elements []schemaElementTypeResult,
 	version XSDVersion,
 ) (schemaElementSubstitutionGroup, error) {
-	targetIndex, err := schemaSubstitutionGroupHeadIndex(input, records, byName, version)
+	targetIndex, err := schemaSubstitutionGroupHeadIndex(input, source, records, byName, visibleSources, sourceNamespace, version)
 	if err != nil {
 		return schemaElementSubstitutionGroup{}, err
 	}

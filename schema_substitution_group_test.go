@@ -460,6 +460,64 @@ func TestSchemaDirectSubstitutionGroupRequiresDirectForeignImport(t *testing.T) 
 	}
 }
 
+func TestSchemaDirectSubstitutionGroupRejectsInvisibleForeignHead(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:f="urn:foreign" xmlns:g="urn:bridge" targetNamespace="urn:root" version="1.1">
+  <xs:import namespace="urn:foreign" schemaLocation="f1.xsd"/>
+  <xs:import namespace="urn:bridge" schemaLocation="g.xsd"/>
+  <xs:element name="member" type="xs:integer" substitutionGroup="f:head"/>
+</xs:schema>`
+	f1 := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:foreign" version="1.1">
+</xs:schema>`
+	g := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:bridge" version="1.1">
+  <xs:import namespace="urn:foreign" schemaLocation="f2.xsd"/>
+</xs:schema>`
+	f2 := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:foreign" version="1.1">
+  <xs:element name="head" type="xs:integer"/>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+		"f1.xsd": {id: "f1.xsd", contents: f1},
+		"g.xsd":  {id: "g.xsd", contents: g},
+		"f2.xsd": {id: "f2.xsd", contents: f2},
+	}, Strict11)
+	diagnostic := assertSchemaSubstitutionFailure(t, schema, err, FailureInvalid, diagnosticSchemaSubstitutionImportCode, schemaSubstitutionConstraintSpecRef(XSDVersion11), 1)
+	if !errors.Is(err, errSchemaSubstitutionImport) {
+		t.Fatalf("invisible foreign-head diagnostic cause = %v, want errSchemaSubstitutionImport", err)
+	}
+	if !strings.Contains(diagnostic.Message(), "not visible") {
+		t.Fatalf("invisible foreign-head diagnostic message = %q, want visibility explanation", diagnostic.Message())
+	}
+	if got, want := diagnostic.Related(), []Loc{mustTestLoc(t, "f2.xsd", 2, 3)}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("invisible foreign-head related locations = %#v, want %#v", got, want)
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupRejectsInvisibleSameNamespaceHead(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:b="urn:bridge" targetNamespace="urn:root" version="1.1">
+  <xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/>
+  <xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>
+</xs:schema>`
+	bridge := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:bridge" version="1.1">
+  <xs:import namespace="urn:root" schemaLocation="head.xsd"/>
+</xs:schema>`
+	head := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="1.1">
+  <xs:element name="head" type="xs:integer"/>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+		"bridge.xsd": {id: "bridge.xsd", contents: bridge},
+		"head.xsd":   {id: "head.xsd", contents: head},
+	}, Strict11)
+	diagnostic := assertSchemaSubstitutionFailure(t, schema, err, FailureInvalid, diagnosticSchemaSubstitutionUnresolvedCode, schemaSubstitutionResolveXSD11SpecRef, 1)
+	if !errors.Is(err, errSchemaSubstitutionUnresolved) {
+		t.Fatalf("invisible same-namespace diagnostic cause = %v, want errSchemaSubstitutionUnresolved", err)
+	}
+	if !strings.Contains(diagnostic.Message(), "not visible") {
+		t.Fatalf("invisible same-namespace diagnostic message = %q, want visibility explanation", diagnostic.Message())
+	}
+	if got, want := diagnostic.Related(), []Loc{mustTestLoc(t, "head.xsd", 2, 3)}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("invisible same-namespace related locations = %#v, want %#v", got, want)
+	}
+}
+
 func TestSchemaDirectSubstitutionGroupReportsDuplicateHeadBeforeResolution(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
   <xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>

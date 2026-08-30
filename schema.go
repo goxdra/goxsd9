@@ -1702,6 +1702,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	elements, err = resolveSchemaElementSubstitutionGroups(
 		records,
 		byName,
+		visibleSources,
 		simpleTypes,
 		elements,
 		edges,
