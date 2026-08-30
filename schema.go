@@ -254,6 +254,7 @@ type Component struct {
 	name        QName
 	loc         Loc
 	element     *schemaElementComponent
+	attribute   *schemaAttributeComponent
 	notation    *schemaNotationComponent
 	simpleType  *schemaSimpleTypeComponent
 	complexType *schemaComplexTypeComponent
@@ -300,6 +301,69 @@ func (component Component) Element() (ElementDeclaration, bool) {
 // supported global element with a resolved type.
 func (component Component) ElementDeclaration() (ElementDeclaration, bool) {
 	return component.Element()
+}
+
+// Attribute returns the immutable attribute-declaration view for a supported
+// global attribute with a resolved scalar type.
+func (component Component) Attribute() (AttributeDeclaration, bool) {
+	if component.attribute == nil {
+		return AttributeDeclaration{}, false
+	}
+	return AttributeDeclaration{
+		component: component,
+		facts:     component.attribute,
+	}, true
+}
+
+// AttributeDeclaration returns the immutable attribute-declaration view for a
+// supported global attribute with a resolved scalar type.
+func (component Component) AttributeDeclaration() (AttributeDeclaration, bool) {
+	return component.Attribute()
+}
+
+// AttributeDeclaration is the immutable type-specific view of a supported
+// global attribute declaration with a resolved scalar type.
+type AttributeDeclaration struct {
+	component Component
+	facts     *schemaAttributeComponent
+}
+
+// Component returns the generic component represented by the view.
+func (declaration AttributeDeclaration) Component() Component {
+	return declaration.component
+}
+
+// ID returns the stable identity of the attribute declaration.
+func (declaration AttributeDeclaration) ID() ComponentID {
+	return declaration.component.ID()
+}
+
+// Name returns the expanded name of the attribute declaration.
+func (declaration AttributeDeclaration) Name() QName {
+	return declaration.component.Name()
+}
+
+// Loc returns the declaration location of the attribute declaration.
+func (declaration AttributeDeclaration) Loc() Loc {
+	return declaration.component.Loc()
+}
+
+// DeclaredType returns the expanded QName written in the attribute's type
+// attribute.
+func (declaration AttributeDeclaration) DeclaredType() QName {
+	if declaration.facts == nil {
+		return QName{}
+	}
+	return declaration.facts.declaredType
+}
+
+// TypeID returns the identity of a named declared type. Built-in datatypes do
+// not have synthetic component identities and return the zero ID.
+func (declaration AttributeDeclaration) TypeID() (ComponentID, bool) {
+	if declaration.facts == nil || !declaration.facts.hasTypeID {
+		return ComponentID{}, false
+	}
+	return declaration.facts.typeID, true
 }
 
 // ElementDeclaration is the immutable type-specific view of a supported
@@ -1327,6 +1391,7 @@ type schemaComponentInput struct {
 	name        QName
 	loc         Loc
 	element     *schemaElementInput
+	attribute   *schemaAttributeInput
 	notation    *schemaNotationInput
 	simpleType  *schemaSimpleTypeInput
 	complexType *schemaComplexTypeInput
@@ -1344,6 +1409,11 @@ type schemaElementInput struct {
 type schemaElementSubstitutionGroupInput struct {
 	name QName
 	loc  Loc
+}
+
+type schemaAttributeInput struct {
+	declaredType QName
+	typeLoc      Loc
 }
 
 type schemaNotationInput struct {
@@ -1567,6 +1637,12 @@ type schemaElementSubstitutionGroup struct {
 	loc      Loc
 }
 
+type schemaAttributeComponent struct {
+	declaredType QName
+	typeID       ComponentID
+	hasTypeID    bool
+}
+
 type schemaNotationComponent struct {
 	public    string
 	publicLoc Loc
@@ -1614,6 +1690,7 @@ type schemaComponentRecord struct {
 	name        QName
 	loc         Loc
 	element     *schemaElementInput
+	attribute   *schemaAttributeInput
 	notation    *schemaNotationInput
 	simpleType  *schemaSimpleTypeInput
 	complexType *schemaComplexTypeInput
@@ -1685,6 +1762,13 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	}
 	simpleTypes, err := resolveSchemaSimpleTypes(records, byName, version)
 	if err != nil {
+		if cycleErr := reframeSchemaAttributeTypeCycle(records, byName, err, version); cycleErr != nil {
+			return Schema{}, cycleErr
+		}
+		return Schema{}, err
+	}
+	attributes, err := resolveSchemaAttributeTypes(records, byName, simpleTypes, version)
+	if err != nil {
 		return Schema{}, err
 	}
 	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes.results, version)
@@ -1712,7 +1796,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
-	components, byID := completeSchemaComponents(records, simpleTypes.results, elements, complexTypes)
+	components, byID := completeSchemaComponents(records, simpleTypes.results, attributes, elements, complexTypes)
 	storage := &schemaStorage{
 		components: components,
 		byID:       byID,
@@ -1861,6 +1945,7 @@ func newSchemaComponentRecord(source SourceID, declarationIndex int, declaration
 		name:        declaration.name,
 		loc:         declaration.loc,
 		element:     cloneSchemaElementInput(declaration.element),
+		attribute:   cloneSchemaAttributeInput(declaration.attribute),
 		notation:    cloneSchemaNotationInput(declaration.notation),
 		simpleType:  cloneSchemaSimpleTypeInput(declaration.simpleType),
 		complexType: cloneSchemaComplexTypeInput(declaration.complexType),
@@ -1884,13 +1969,14 @@ func schemaComponentOrdinal(declarationIndex int, loc Loc) (uint64, error) {
 func completeSchemaComponents(
 	records []schemaComponentRecord,
 	simpleTypes []schemaSimpleTypeResult,
+	attributes []schemaAttributeTypeResult,
 	elements []schemaElementTypeResult,
 	complexTypes []schemaComplexTypeResult,
 ) ([]Component, map[ComponentID]int) {
 	components := make([]Component, 0, len(records))
 	byID := make(map[ComponentID]int, len(records))
 	for index, record := range records {
-		component := completeSchemaComponent(record, simpleTypes[index], elements[index], complexTypes[index])
+		component := completeSchemaComponent(record, simpleTypes[index], attributes[index], elements[index], complexTypes[index])
 		byID[record.id] = len(components)
 		components = append(components, component)
 	}
@@ -1900,6 +1986,7 @@ func completeSchemaComponents(
 func completeSchemaComponent(
 	record schemaComponentRecord,
 	simpleType schemaSimpleTypeResult,
+	attribute schemaAttributeTypeResult,
 	element schemaElementTypeResult,
 	complexType schemaComplexTypeResult,
 ) Component {
@@ -1919,6 +2006,13 @@ func completeSchemaComponent(
 			abstract:          element.abstract,
 			nillable:          element.nillable,
 			substitutionGroup: cloneSchemaElementSubstitutionGroups(element.substitutionGroup),
+		}
+	}
+	if attribute.present {
+		component.attribute = &schemaAttributeComponent{
+			declaredType: attribute.declaredType,
+			typeID:       attribute.typeID,
+			hasTypeID:    attribute.hasTypeID,
 		}
 	}
 	if record.notation != nil {
@@ -2027,6 +2121,16 @@ func cloneSchemaElementInput(input *schemaElementInput) *schemaElementInput {
 		abstract:          input.abstract,
 		nillable:          input.nillable,
 		substitutionGroup: cloneSchemaElementSubstitutionGroupInputs(input.substitutionGroup),
+	}
+}
+
+func cloneSchemaAttributeInput(input *schemaAttributeInput) *schemaAttributeInput {
+	if input == nil {
+		return nil
+	}
+	return &schemaAttributeInput{
+		declaredType: input.declaredType,
+		typeLoc:      input.typeLoc,
 	}
 }
 

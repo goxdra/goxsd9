@@ -1033,7 +1033,7 @@ func validateAllowedGlobalSchemaAttribute(element *syntaxElement, kind Component
 	if kind == ComponentKindNotationDeclaration {
 		return validateSchemaNotationAttribute(attribute, version)
 	}
-	if kind == ComponentKindElementDeclaration && attribute.name.local == "type" {
+	if (kind == ComponentKindElementDeclaration || kind == ComponentKindAttributeDeclaration) && attribute.name.local == "type" {
 		return validateConditionalQNameForSchema(element, attribute)
 	}
 	return nil
@@ -1122,8 +1122,10 @@ func elementSchemaAttributeStatus(local string) schemaAttributeStatus {
 
 func attributeSchemaAttributeStatus(local string) schemaAttributeStatus {
 	switch local {
-	case "default", "fixed", "targetNamespace", "type", "inheritable":
+	case "default", "fixed", "targetNamespace", "inheritable":
 		return schemaAttributeUnsupported
+	case "type":
+		return schemaAttributeAllowed
 	default:
 		return schemaAttributeForbidden
 	}
