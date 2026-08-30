@@ -1751,16 +1751,7 @@ func resolveSchemaAttributeType(
 		return schemaAttributeTypeResult{}, newSchemaBridgeInvariant(record.loc, "attribute type resolution has no type input")
 	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		switch input.declaredType.Local() {
-		case "integer", "decimal":
-			return resolvedSchemaAttributeTypeResult(input, ComponentID{}, false), nil
-		default:
-			return schemaAttributeTypeResult{}, unsupportedSchemaAttributeType(
-				input,
-				version,
-				fmt.Sprintf("attribute type %q is not implemented", input.declaredType),
-			)
-		}
+		return resolveBuiltinSchemaAttributeType(input, version)
 	}
 
 	// Match the existing simple-type resolver's graph-wide index. Import
@@ -1800,6 +1791,22 @@ func resolveSchemaAttributeType(
 		)
 	}
 	return resolvedSchemaAttributeTypeResult(input, records[candidate].id, true), nil
+}
+
+func resolveBuiltinSchemaAttributeType(input *schemaAttributeInput, version XSDVersion) (schemaAttributeTypeResult, error) {
+	switch input.declaredType.Local() {
+	case "integer", "decimal":
+		return resolvedSchemaAttributeTypeResult(input, ComponentID{}, false), nil
+	case "precisionDecimal":
+		if version == XSDVersion10 {
+			return schemaAttributeTypeResult{}, precisionDecimalSchemaVersionDiagnostic(input.typeLoc, input.declaredType)
+		}
+	}
+	return schemaAttributeTypeResult{}, unsupportedSchemaAttributeType(
+		input,
+		version,
+		fmt.Sprintf("attribute type %q is not implemented", input.declaredType),
+	)
 }
 
 func unresolvedSchemaAttributeType(input *schemaAttributeInput, version XSDVersion) (schemaAttributeTypeResult, error) {

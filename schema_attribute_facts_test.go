@@ -333,6 +333,24 @@ func TestSchemaBridgeGlobalAttributeUnsupportedTypesAndExcludedShapes(t *testing
 	testSchemaBridgeGlobalAttributeExcludedShapes(t)
 }
 
+func TestSchemaBridgeGlobalAttributePrecisionDecimalStrict10Policy(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:precisionDecimal"/></xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
+		t.Fatal("Strict10 accepted precisionDecimal or returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticSchemaPrecisionDecimalVersionCode || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.SpecRef() != "xsd11-datatypes#dt-primitive" {
+		t.Fatalf("Strict10 diagnostic = %s/%q/%q/%q, want precisionDecimal policy mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code(), diagnostic.SpecRef())
+	}
+	if diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, "type=") {
+		t.Fatalf("Strict10 diagnostic location = %s, want type attribute location", diagnostic.Loc())
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaPrecisionDecimalVersion) || !errors.Is(err, errLanguagePolicyMismatch) {
+		t.Fatalf("Strict10 diagnostic lost precisionDecimal policy causes: %v", err)
+	}
+}
+
 func testSchemaBridgeGlobalAttributeUnsupportedTypes(t *testing.T) {
 	unsupportedTypes := []string{"string", "boolean", "precisionDecimal"}
 	for _, local := range unsupportedTypes {
