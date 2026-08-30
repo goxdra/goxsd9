@@ -11,7 +11,7 @@ func TestSchemaDirectSubstitutionGroupXSD10PreservesHeadIDAndLocation(t *testing
 	memberLine := `  <xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>`
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.0">
 ` + memberLine + `
-  <xs:element name="head" type="xs:boolean"/>
+	  <xs:element name="head" type="xs:integer"/>
 </xs:schema>`
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
 	if err != nil {
@@ -38,7 +38,7 @@ func TestSchemaDirectSubstitutionGroupXSD10PreservesHeadIDAndLocation(t *testing
 	}
 }
 
-func TestSchemaDirectSubstitutionGroupXSD10SupportsImportedUntypedHead(t *testing.T) {
+func TestSchemaDirectSubstitutionGroupXSD10RejectsImportedUntypedHead(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:c="urn:child" targetNamespace="urn:root" version="1.0">
   <xs:import namespace="urn:child" schemaLocation="child.xsd"/>
   <xs:element name="member" type="xs:boolean" substitutionGroup="c:head"/>
@@ -49,29 +49,13 @@ func TestSchemaDirectSubstitutionGroupXSD10SupportsImportedUntypedHead(t *testin
 	schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
 		"child.xsd": {id: "child.xsd", contents: child},
 	}, Strict10)
-	if err != nil {
-		t.Fatalf("discoverSchema: %v", err)
-	}
-	components := schema.Components()
-	if got, want := len(components), 2; got != want {
-		t.Fatalf("component count = %d, want %d", got, want)
-	}
-	member, ok := components[0].ElementDeclaration()
-	if !ok {
-		t.Fatal("member has no element view")
-	}
-	if _, ok := components[1].ElementDeclaration(); ok {
-		t.Fatal("untyped imported head unexpectedly has an element view")
-	}
-	if got, want := member.SubstitutionGroupAffiliations(), []ComponentID{components[1].ID()}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("member affiliations = %#v, want %#v", got, want)
-	}
+	assertSchemaSubstitutionFailure(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, "", 0)
 }
 
 func TestSchemaDirectSubstitutionGroupXSD10ResolvesBackwardDeclaration(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.0">
-  <xs:element name="head" type="xs:integer"/>
-  <xs:element name="member" type="xs:boolean" substitutionGroup="r:head"/>
+	  <xs:element name="head" type="xs:integer"/>
+	  <xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>
 </xs:schema>`
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
 	if err != nil {
@@ -89,8 +73,8 @@ func TestSchemaDirectSubstitutionGroupXSD10ResolvesBackwardDeclaration(t *testin
 func TestSchemaDirectSubstitutionGroupXSD11PreservesOrderedHeadsAndEmptyAbsence(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
   <xs:element name="member" type="xs:integer" substitutionGroup="r:second r:first"/>
-  <xs:element name="second" type="xs:boolean"/>
-  <xs:element name="first" type="xs:integer"/>
+	  <xs:element name="second" type="xs:integer"/>
+	  <xs:element name="first" type="xs:integer"/>
   <xs:element name="empty" type="xs:boolean" substitutionGroup="   "/>
   <xs:element name="absent" type="xs:integer"/>
 </xs:schema>`
@@ -136,6 +120,161 @@ func TestSchemaDirectSubstitutionGroupXSD11PreservesOrderedHeadsAndEmptyAbsence(
 	}
 	if got := member.SubstitutionGroupAffiliationLocations(); got[0].IsZero() {
 		t.Fatal("member affiliation location changed after slice mutation")
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupXSD11DeduplicatesExpandedQNames(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:alias="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="member" type="xs:integer" substitutionGroup="r:head alias:head r:head"/>
+  <xs:element name="head" type="xs:integer"/>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	member, ok := components[0].ElementDeclaration()
+	if !ok {
+		t.Fatal("member has no element view")
+	}
+	if got, want := member.SubstitutionGroupAffiliations(), []ComponentID{components[1].ID()}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("deduplicated affiliations = %#v, want %#v", got, want)
+	}
+	if got := member.SubstitutionGroupAffiliationLocations(); len(got) != 1 || got[0].IsZero() {
+		t.Fatalf("deduplicated affiliation locations = %#v, want one located first occurrence", got)
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupAcceptsProvenIntegerToDecimal(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		policy LanguagePolicy
+		ver    string
+	}{
+		{name: "XSD 1.0", policy: Strict10, ver: "1.0"},
+		{name: "XSD 1.1", policy: Strict11, ver: "1.1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + test.ver + `">
+  <xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>
+  <xs:element name="head" type="xs:decimal"/>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+			components := schema.Components()
+			member, ok := components[0].ElementDeclaration()
+			if !ok {
+				t.Fatal("member has no element view")
+			}
+			if got, want := member.SubstitutionGroupAffiliations(), []ComponentID{components[1].ID()}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("integer-to-decimal affiliations = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupAcceptsNamedRestrictionToBuiltinBase(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="member" type="r:Boolean" substitutionGroup="r:head"/>
+  <xs:element name="head" type="xs:boolean"/>
+  <xs:simpleType name="Boolean"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	member, ok := components[0].ElementDeclaration()
+	if !ok {
+		t.Fatal("member has no element view")
+	}
+	if got, want := member.SubstitutionGroupAffiliations(), []ComponentID{components[1].ID()}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("named restriction affiliations = %#v, want %#v", got, want)
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupRejectsProvenDecimalToInteger(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="member" type="xs:decimal" substitutionGroup="r:head"/>
+  <xs:element name="head" type="xs:integer"/>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	diagnostic := assertSchemaSubstitutionFailure(t, schema, err, FailureInvalid, diagnosticSchemaSubstitutionTypeCode, schemaSubstitutionConstraintSpecRef(XSDVersion11), 1)
+	if !errors.Is(err, errSchemaSubstitutionTypeInvalid) {
+		t.Fatalf("decimal-to-integer diagnostic cause = %v, want errSchemaSubstitutionTypeInvalid", err)
+	}
+	if diagnostic.Loc().Source() != "root.xsd" {
+		t.Fatalf("decimal-to-integer diagnostic location = %s, want root.xsd", diagnostic.Loc())
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupRejectsCrossFamilyTypes(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		memberType string
+		headType   string
+	}{
+		{name: "integer member and boolean head", memberType: "integer", headType: "boolean"},
+		{name: "boolean member and integer head", memberType: "boolean", headType: "integer"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="member" type="xs:` + test.memberType + `" substitutionGroup="r:head"/>
+  <xs:element name="head" type="xs:` + test.headType + `"/>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+			diagnostic := assertSchemaSubstitutionFailure(t, schema, err, FailureInvalid, diagnosticSchemaSubstitutionTypeCode, schemaSubstitutionConstraintSpecRef(XSDVersion11), 1)
+			if !errors.Is(err, errSchemaSubstitutionTypeInvalid) {
+				t.Fatalf("cross-family diagnostic cause = %v, want errSchemaSubstitutionTypeInvalid", err)
+			}
+			if diagnostic.Loc().Source() != "root.xsd" {
+				t.Fatalf("cross-family diagnostic location = %s, want root.xsd", diagnostic.Loc())
+			}
+		})
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupKeepsUnknownNumericDerivationUnsupported(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="member" type="r:Integer" substitutionGroup="r:head"/>
+  <xs:element name="head" type="r:Decimal"/>
+  <xs:simpleType name="Integer"><xs:restriction base="xs:integer"/></xs:simpleType>
+  <xs:simpleType name="Decimal"><xs:restriction base="xs:decimal"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	diagnostic := assertSchemaSubstitutionFailure(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, "", 0)
+	if diagnostic.Feature() != FeatureSchemaSyntax || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSubstitutionTypeUnsupported) {
+		t.Fatalf("unknown numeric derivation diagnostic = %s/%v, want schema syntax unsupported with cause", diagnostic, err)
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupRejectsMultiNodeCycle(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="first" type="xs:integer" substitutionGroup="r:second"/>
+  <xs:element name="second" type="xs:integer" substitutionGroup="r:third"/>
+  <xs:element name="third" type="xs:integer" substitutionGroup="r:first"/>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	diagnostic := assertSchemaSubstitutionFailure(t, schema, err, FailureInvalid, diagnosticSchemaSubstitutionCycleCode, schemaSubstitutionConstraintSpecRef(XSDVersion11), 2)
+	if !errors.Is(err, errSchemaSubstitutionCycle) {
+		t.Fatalf("cycle diagnostic cause = %v, want errSchemaSubstitutionCycle", err)
+	}
+	if diagnostic.Loc() != mustTestLoc(t, "root.xsd", 4, strings.Index(`  <xs:element name="third" type="xs:integer" substitutionGroup="r:first"/>`, "substitutionGroup")+1) {
+		t.Fatalf("cycle diagnostic location = %s, want third affiliation", diagnostic.Loc())
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupRejectsInlineSource(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="member" substitutionGroup="r:head"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>
+  <xs:element name="head" type="xs:integer"/>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	diagnostic := assertSchemaSubstitutionFailure(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, "", 0)
+	if diagnostic.Feature() != FeatureSchemaSyntax || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("inline-source diagnostic = %s/%v, want schema syntax unsupported", diagnostic, err)
 	}
 }
 
@@ -214,21 +353,6 @@ func TestSchemaDirectSubstitutionGroupReportsDeterministicHeadErrors(t *testing.
 					related:       1,
 					constraintRef: true,
 				},
-			}
-			if edition.policy == Strict11 {
-				cases = append(cases, struct {
-					name          string
-					declarations  string
-					code          string
-					related       int
-					constraintRef bool
-				}{
-					name:          "duplicate",
-					declarations:  `<xs:element name="member" type="xs:integer" substitutionGroup="r:head r:head"/><xs:element name="head"/>`,
-					code:          diagnosticSchemaSubstitutionDuplicateCode,
-					related:       1,
-					constraintRef: true,
-				})
 			}
 			for _, test := range cases {
 				t.Run(test.name, func(t *testing.T) {
@@ -319,6 +443,30 @@ func TestSchemaDirectSubstitutionGroupRequiresDirectForeignImport(t *testing.T) 
 				t.Fatal("foreign-import diagnostic has no cause")
 			}
 		})
+	}
+}
+
+func TestSchemaDirectSubstitutionGroupResolvesDirectForeignImport(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:f="urn:foreign" targetNamespace="urn:root" version="1.1">
+  <xs:import namespace="urn:foreign" schemaLocation="foreign.xsd"/>
+  <xs:element name="member" type="xs:integer" substitutionGroup="f:head"/>
+</xs:schema>`
+	foreign := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:foreign" version="1.1">
+  <xs:element name="head" type="xs:integer"/>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+		"foreign.xsd": {id: "foreign.xsd", contents: foreign},
+	}, Strict11)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	components := schema.Components()
+	member, ok := components[0].ElementDeclaration()
+	if !ok {
+		t.Fatal("member has no element view")
+	}
+	if got, want := member.SubstitutionGroupAffiliations(), []ComponentID{components[1].ID()}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("foreign affiliations = %#v, want %#v", got, want)
 	}
 }
 

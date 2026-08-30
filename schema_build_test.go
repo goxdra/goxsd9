@@ -17,7 +17,7 @@ func TestDiscoverSchemaBuildsOrderedImmutableDeclarations(t *testing.T) {
   <xs:attribute name="rootAttribute"/>
   <xs:complexType name="rootComplex"/>
   <xs:attributeGroup name="rootAttributes"/>
-	  <xs:notation name="rootNotation"/>
+	  <xs:notation name="rootNotation" public="root-public"/>
 </xs:schema>`
 	root, err := NewResolvedSource(context.Background(), "root.xsd", &discoveryReader{data: []byte(rootContents)})
 	if err != nil {
@@ -512,15 +512,6 @@ func TestSchemaBridgeRejectsCompositionWithoutPartialSchema(t *testing.T) {
 			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace=""/>`,
 			class: FailureInvalid,
 			code:  invalidSchemaTargetNamespaceCode,
-		},
-		{
-			name: "chameleon include",
-			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd"/></xs:schema>`,
-			fixtures: map[string]discoveryFixture{
-				"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"/>`},
-			},
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
 		},
 		{
 			name: "include adds namespace",
@@ -1042,12 +1033,6 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:    "notation public is unsupported",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item" public="public"/></xs:schema>`,
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:  "element sequence is structurally forbidden",
 			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item"><xs:sequence/></xs:element></xs:schema>`,
 			class: FailureInvalid,
@@ -1067,7 +1052,7 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 		},
 		{
 			name:  "notation element is structurally forbidden",
-			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item"><xs:element/></xs:notation></xs:schema>`,
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item" public="public"><xs:element/></xs:notation></xs:schema>`,
 			class: FailureInvalid,
 			code:  invalidSchemaCompositionCode,
 		},
@@ -1122,10 +1107,10 @@ func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:    "element reference is unsupported",
-			root:    fmt.Sprintf(base, `<xs:choice><xs:element ref="value"/></xs:choice>`),
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
+			name:  "unresolved element reference is invalid",
+			root:  fmt.Sprintf(base, `<xs:choice><xs:element ref="value"/></xs:choice>`),
+			class: FailureInvalid,
+			code:  diagnosticSchemaElementReferenceUnresolvedCode,
 		},
 		{
 			name:    "inline type is unsupported",
@@ -2251,7 +2236,7 @@ func TestSchemaBridgeRejectsRootAndGlobalLexicalBoundaries(t *testing.T) {
 		},
 		{
 			name:  "notation system validates URI",
-			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item" system="http://[bad"/></xs:schema>`,
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="item" public="public" system="http://[bad"/></xs:schema>`,
 			class: FailureInvalid,
 		},
 		{
@@ -2397,8 +2382,8 @@ func TestSchemaBridgeRejectsDuplicateNonElementGlobalDeclarations(t *testing.T) 
 		{
 			name: "notations",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
-  <xs:notation name="item"/>
-  <xs:notation name="item"/>
+  <xs:notation name="item" public="first"/>
+  <xs:notation name="item" public="later"/>
 </xs:schema>`,
 			message: `global notation declaration "{urn:test}item" is duplicated`,
 		},
@@ -2458,8 +2443,8 @@ func TestSchemaBridgeRejectsComposedDuplicateNonElementGlobalDeclarations(t *tes
 		},
 		{
 			name:                "notations",
-			earliestDeclaration: "  <xs:notation name=\"item\"/>\n",
-			laterDeclaration:    "  <xs:notation name=\"item\"/>\n",
+			earliestDeclaration: "  <xs:notation name=\"item\" public=\"first\"/>\n",
+			laterDeclaration:    "  <xs:notation name=\"item\" public=\"later\"/>\n",
 			message:             `global notation declaration "{urn:test}item" is duplicated`,
 		},
 	}
@@ -2780,11 +2765,6 @@ func TestSchemaBridgeEnforcesGlobalChildModels(t *testing.T) {
 			name:  "attribute group anyAttribute is last",
 			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attributeGroup name="item"><xs:anyAttribute/><xs:attribute name="nested"/></xs:attributeGroup></xs:schema>`,
 			class: FailureInvalid,
-		},
-		{
-			name:  "simple type model is unsupported after grammar validation",
-			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction base="xs:string"/></xs:simpleType></xs:schema>`,
-			class: FailureUnsupported,
 		},
 		{
 			name:  "simple type name is required before unsupported child",
@@ -3259,16 +3239,6 @@ func TestSchemaBridgeReportsUnsupportedSimpleTypeFeatures(t *testing.T) {
 		specRef string
 	}{
 		{
-			name:    "list remains schema syntax",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:list itemType="xs:integer"/></xs:simpleType></xs:schema>`,
-			feature: FeatureSchemaSyntax,
-		},
-		{
-			name:    "union remains schema syntax",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:union memberTypes="xs:integer xs:decimal"/></xs:simpleType></xs:schema>`,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:    "XSD 1.0 datatype facet",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.0"><xs:simpleType name="item"><xs:restriction base="xs:decimal"><xs:pattern value="[0-9]+"/></xs:restriction></xs:simpleType></xs:schema>`,
 			policy:  Strict10,
@@ -3326,7 +3296,8 @@ func assertUnsupportedSimpleTypeFeature(t *testing.T, root string, policy Langua
 	}
 }
 
-func TestSchemaBridgeReportsNamedSimpleTypeModelBuildBoundaryUnsupported(t *testing.T) {
+//nolint:gocognit // Keep the named list/union build-boundary matrix together.
+func TestSchemaBridgeBuildsNamedSimpleTypeModelsAtBuildBoundary(t *testing.T) {
 	models := []struct {
 		name     string
 		typeName string
@@ -3348,8 +3319,23 @@ func TestSchemaBridgeReportsNamedSimpleTypeModelBuildBoundaryUnsupported(t *test
 			t.Run(model.name+"/"+version.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="` + model.typeName + `">` + model.child + `</xs:simpleType></xs:schema>`
 				simpleType := schemaBuildTestRootChild(t, root)
-				child := schemaBuildTestChild(t, simpleType, model.name)
-				assertSchemaBuildBoundaryUnsupported(t, simpleType, child, version.version, version.specRef)
+				declaration, present, err := schemaDocumentDeclaration(simpleType, "", version.version)
+				if err != nil {
+					t.Fatalf("schemaDocumentDeclaration: %v", err)
+				}
+				if !present || declaration.simpleType == nil {
+					t.Fatal("schemaDocumentDeclaration did not retain the named simple type model")
+				}
+				switch model.name {
+				case "list":
+					if _, ok := declaration.simpleType.model.(*schemaSimpleTypeListModelInput); !ok {
+						t.Fatalf("simple type model = %T, want list", declaration.simpleType.model)
+					}
+				case "union":
+					if _, ok := declaration.simpleType.model.(*schemaSimpleTypeUnionModelInput); !ok {
+						t.Fatalf("simple type model = %T, want union", declaration.simpleType.model)
+					}
+				}
 			})
 		}
 	}
@@ -3413,23 +3399,40 @@ func TestSchemaBridgeKeepsMalformedNamedSimpleTypeModelsInvalidAtBuildBoundary(t
 	}
 }
 
-func TestSchemaBridgeReportsGlobalInlineSimpleTypeBuildBoundaryUnsupported(t *testing.T) {
+//nolint:gocognit // Keep both strict-policy inline boolean cases together.
+func TestSchemaBridgeBuildsGlobalInlineBooleanSimpleType(t *testing.T) {
 	tests := []struct {
-		name    string
-		version XSDVersion
-		specRef string
+		name   string
+		policy LanguagePolicy
 	}{
-		{name: "XSD 1.0", version: XSDVersion10, specRef: "xsd10-structures#schema-document"},
-		{name: "XSD 1.1", version: XSDVersion11, specRef: "xsd11-structures#cSchemaDocument"},
+		{name: "XSD 1.0", policy: Strict10},
+		{name: "XSD 1.1", policy: Strict11},
 	}
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
   <xs:element name="root"><xs:simpleType><xs:restriction base="xs:boolean"/></xs:simpleType></xs:element>
 </xs:schema>`
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			element := schemaBuildTestRootChild(t, root)
-			inline := schemaBuildTestChild(t, element, "simpleType")
-			assertSchemaBuildBoundaryUnsupported(t, element, inline, test.version, test.specRef)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchema: %v", err)
+			}
+			elements := schema.Components()
+			if len(elements) != 1 {
+				t.Fatalf("component count = %d, want 1", len(elements))
+			}
+			declaration, ok := elements[0].ElementDeclaration()
+			if !ok {
+				t.Fatal("global element view is missing")
+			}
+			reference, ok := declaration.TypeReference()
+			if !ok || !reference.IsAnonymous() {
+				t.Fatalf("type reference = %#v/%t, want anonymous", reference, ok)
+			}
+			anonymous, ok := reference.AnonymousType()
+			if !ok || !anonymous.IsBoolean() {
+				t.Fatalf("anonymous boolean model = %#v/%t, want boolean", anonymous, ok)
+			}
 		})
 	}
 }
@@ -3472,30 +3475,6 @@ func TestSchemaBridgeKeepsMalformedGlobalInlineSimpleTypesInvalidAtBuildBoundary
 	}
 }
 
-func assertSchemaBuildBoundaryUnsupported(t *testing.T, declaration, expectedLocation *syntaxElement, version XSDVersion, specRef string) {
-	t.Helper()
-	_, present, err := schemaDocumentDeclaration(declaration, "", version)
-	if err == nil {
-		t.Fatal("schemaDocumentDeclaration accepted unsupported syntax")
-	}
-	if present {
-		t.Fatal("schemaDocumentDeclaration returned a declaration with an error")
-	}
-	diagnostic := requireDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
-		t.Fatalf("diagnostic = %s, want unsupported schema syntax", diagnostic)
-	}
-	if diagnostic.SpecRef() != specRef {
-		t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), specRef)
-	}
-	if diagnostic.Loc() != expectedLocation.loc {
-		t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), expectedLocation.loc)
-	}
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
-	}
-}
-
 func schemaBuildTestRootChild(t *testing.T, root string) *syntaxElement {
 	t.Helper()
 	document, err := decodeResolvedSyntaxForDiscovery(newTestSource(t, &trackingSource{data: []byte(root)}))
@@ -3512,33 +3491,26 @@ func schemaBuildTestRootChild(t *testing.T, root string) *syntaxElement {
 	return nil
 }
 
-func schemaBuildTestChild(t *testing.T, parent *syntaxElement, local string) *syntaxElement {
-	t.Helper()
-	for _, node := range parent.children {
-		child, ok := node.(*syntaxElement)
-		if ok && child.name.namespace == xsdNamespaceURI && child.name.local == local {
-			return child
-		}
-	}
-	t.Fatalf("schema test element has no <%s> child", local)
-	return nil
-}
-
-func TestSchemaBridgeRejectsInlineSimpleTypeRestrictionAsUnsupported(t *testing.T) {
+func TestSchemaBridgeBuildsInlineSimpleTypeRestriction(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item"><xs:restriction><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:restriction></xs:simpleType></xs:schema>`
 	schema, err := discoverTestSchema(t, root, nil)
-	if err == nil {
-		t.Fatal("discoverSchema accepted an unsupported inline simple type restriction")
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
 	}
-	if schema.storage != nil {
-		t.Fatal("discoverSchema returned a partial schema")
+	definition, ok := schema.Components()[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("simple type view is missing")
 	}
-	diagnostic := requireDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
-		t.Fatalf("diagnostic = %s (%q), want unsupported schema syntax", diagnostic, diagnostic.Feature())
+	base, ok := definition.BaseReference()
+	if !ok || !base.IsAnonymous() {
+		t.Fatalf("base reference = %#v, want anonymous", base)
 	}
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+	anonymous, ok := base.AnonymousType()
+	if !ok || !anonymous.IsAnonymous() || anonymous.Base().Local() != "integer" {
+		t.Fatalf("anonymous base model = %#v/%t", anonymous, ok)
+	}
+	if definition.Base().IsZero() == false {
+		t.Fatal("anonymous base unexpectedly exposed a named QName")
 	}
 }
 

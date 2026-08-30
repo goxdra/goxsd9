@@ -57,10 +57,14 @@ resolved beneath the root. Any URI scheme, including `file:`, `http:`, and
 other search paths, is rejected by CLI resolution policy. This does not change
 XSD meaning. A valid document that is inaccessible or cannot be retrieved
 under this policy is a resolution/resource failure, never invalid XSD.
-`include` is distinct from `import`: the library retains include
+`include` is distinct from `import`: the library implements include
 target-namespace compatibility, including the specification's
-no-target-namespace/chameleon rule; current unsupported chameleon behavior
-remains an explicit library boundary. Normatively, XSD 1.0/1.1 treat
+no-target-namespace/chameleon rule, and repairs unqualified direct
+element-reference QNames in supported included particles. Direct-reference
+visibility includes the include closure and imports declared by the referring
+document; an import declared only by an included child is not inherited by its
+includer. The CLI's local/offline resolver applies its own path and access
+policy without changing this library composition behavior. Normatively, XSD 1.0/1.1 treat
 `schemaLocation` on `include` and `redefine`, and XSD 1.1 `override`, as
 dereference expectations rather than namespace lookup hints. This first-slice
 CLI boundary covers only the currently handled `include`/`import` references.

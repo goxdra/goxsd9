@@ -99,18 +99,18 @@ elements retain expanded `DeclaredType` facts; named boolean restrictions expose
 
 Named complex types expose direct `element`, `sequence`, and `choice` particles.
 Supported direct sequences/choices contain local built-in `xs:boolean`, named
-boolean-restriction, `integer`, or `decimal` scalar elements with exact immutable
-arbitrary finite and unbounded ranges; `0/0` maps to absence. XSD 1.1 direct
-choices may include `precisionDecimal` only when the choice and each mapped
-`precisionDecimal` alternative use default occurrences; non-precision
-alternatives may retain non-default queryable ranges. Boolean facets and
-anonymous/ref/nested/broader particles remain unsupported.
+boolean-restriction, `integer`, or `decimal` scalar elements with exact finite
+and unbounded ranges; `0/0` maps to absence. XSD 1.1 direct choices may include
+`precisionDecimal` only when the choice and each mapped alternative use default
+occurrences; non-precision alternatives may retain non-default queryable ranges.
+Boolean facets and anonymous/nested/broader particles remain unsupported.
+Direct references are immutable queryable particles; validation and code
+generation reject them as unsupported.
 
 ## Datatypes
 
 Lexical parsing and value representation are separate. Context-sensitive
-lexical values such as QName carry the namespace context needed to construct a
-value.
+lexical values such as QName carry namespace context needed to construct a value.
 
 The strict datatype library implements XSD integer, decimal, boolean, and
 optional precisionDecimal mappings with arbitrary precision and lossless
@@ -119,9 +119,8 @@ partial comparison, applicable facets, and bounded canonical output; immutable
 schema components retain effective facets when it is explicitly named under
 Compatibility or Strict11. It remains implementation-defined and optional,
 not a mandatory XSD 1.1 claim. Boolean whitespace collapse is datatype
-behavior, not stored facet state; boolean facets unsupported. Code generation,
-temporal distinctions, and broader value spaces remain staged and report
-unsupported behavior.
+behavior; boolean facets unsupported. Temporal distinctions and broader value
+spaces remain staged and report unsupported behavior.
 
 ## Validation and code generation
 
@@ -136,7 +135,8 @@ globals, named restrictions, and local boolean
 particles are unsupported in instance validation; attributes and broader
 particles are unsupported; locations are primary.
 
-Code generation is deterministic, uses type switches for choices, and ignores map order; boolean generation remains unsupported.
+Code generation is deterministic, uses choice type switches, and leaves
+boolean unsupported.
 
 ## Conformance
 

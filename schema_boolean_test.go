@@ -75,6 +75,16 @@ func TestSchemaBridgeBuildsBooleanTypesAndPreservesFacts(t *testing.T) {
 			if typeID, hasTypeID := direct.TypeID(); hasTypeID || !typeID.IsZero() {
 				t.Fatalf("direct boolean type ID = (%v, %t), want zero,false", typeID, hasTypeID)
 			}
+			directReference, hasDirectReference := direct.TypeReference()
+			if !hasDirectReference || !directReference.IsBuiltin() || directReference.Name() != mustTestQName(t, testXSDNamespace, "boolean") {
+				t.Fatalf("direct boolean type reference = %q/%q/%t, want built-in boolean", directReference.Kind(), directReference.Name(), hasDirectReference)
+			}
+			if directReference.Variety() != SimpleTypeVarietyAtomicRestriction || directReference.VarietyLoc().IsZero() {
+				t.Fatalf("direct boolean type reference facts = %q/%s, want atomic with location", directReference.Variety(), directReference.VarietyLoc())
+			}
+			if referenceID, hasReferenceID := directReference.ComponentID(); hasReferenceID || !referenceID.IsZero() {
+				t.Fatalf("direct boolean type reference ID = (%v, %t), want zero,false", referenceID, hasReferenceID)
+			}
 
 			named, ok := components[1].ElementDeclaration()
 			if !ok {

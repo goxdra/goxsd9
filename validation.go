@@ -314,7 +314,6 @@ func instanceSchemaElement(schema Schema, rootName QName, loc Loc) (ElementDecla
 	return declaration, nil
 }
 
-//nolint:funlen // Keep complete choice-program validation in one phase.
 func instanceChoiceProgramFor(
 	schema Schema,
 	declaration ElementDeclaration,
@@ -323,10 +322,40 @@ func instanceChoiceProgramFor(
 ) (instanceChoiceProgram, error) {
 	version := instanceSchemaValidationVersion(schema)
 	related := []Loc{declaration.Loc(), definition.Loc()}
+	choice, related, err := instanceChoiceParticleFor(definition, loc, related, version)
+	if err != nil {
+		return instanceChoiceProgram{}, err
+	}
+	elements, related, err := instanceChoiceElementsFor(schema, choice, related, version)
+	if err != nil {
+		return instanceChoiceProgram{}, err
+	}
+
+	program := instanceChoiceProgram{
+		version:      version,
+		related:      related,
+		alternatives: make([]instanceChoiceAlternative, 0, len(elements)),
+	}
+	for _, element := range elements {
+		alternative, err := instanceChoiceAlternativeFor(schema, declaration, definition, choice, element, version)
+		if err != nil {
+			return instanceChoiceProgram{}, err
+		}
+		program.alternatives = append(program.alternatives, alternative)
+	}
+	return program, nil
+}
+
+func instanceChoiceParticleFor(
+	definition ComplexTypeDefinition,
+	loc Loc,
+	related []Loc,
+	version XSDVersion,
+) (ChoiceParticle, []Loc, error) {
 	particle := definition.Particle()
 	choice, ok := particle.(ChoiceParticle)
 	if !ok {
-		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+		return ChoiceParticle{}, nil, newInstanceValidationUnsupported(
 			loc,
 			fmt.Sprintf("named complex type %q does not have a direct choice particle", definition.Name()),
 			related,
@@ -335,7 +364,7 @@ func instanceChoiceProgramFor(
 		)
 	}
 	if choice.facts == nil {
-		return instanceChoiceProgram{}, newInstanceValidationInternal(
+		return ChoiceParticle{}, nil, newInstanceValidationInternal(
 			loc,
 			fmt.Sprintf("named complex type %q has an incomplete choice particle", definition.Name()),
 			related,
@@ -345,7 +374,7 @@ func instanceChoiceProgramFor(
 	related = appendInstanceRelated(relCopy(related), choice.Loc())
 	choiceOccurrences := choice.Occurrences()
 	if !choiceOccurrences.IsDefault() {
-		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+		return ChoiceParticle{}, nil, newInstanceValidationUnsupported(
 			choice.Loc(),
 			fmt.Sprintf("choice particle occurrence bounds %s are outside instance validation", choiceOccurrences),
 			related,
@@ -353,69 +382,128 @@ func instanceChoiceProgramFor(
 			errInstanceChoiceParticle,
 		)
 	}
+	return choice, related, nil
+}
 
+func instanceChoiceElementsFor(
+	schema Schema,
+	choice ChoiceParticle,
+	related []Loc,
+	version XSDVersion,
+) ([]ElementParticle, []Loc, error) {
 	particleAlternatives := choice.Alternatives()
 	elements := make([]ElementParticle, 0, len(particleAlternatives))
 	for _, particleAlternative := range particleAlternatives {
-		element, ok := particleAlternative.(ElementParticle)
-		if !ok || element.facts == nil {
-			return instanceChoiceProgram{}, newInstanceValidationUnsupported(
-				choice.Loc(),
-				"direct choice contains a non-element alternative",
-				related,
-				version,
-				errInstanceChoiceParticle,
-			)
-		}
-		elementOccurrences := element.Occurrences()
-		if !elementOccurrences.IsDefault() {
-			return instanceChoiceProgram{}, newInstanceValidationUnsupported(
-				element.Loc(),
-				fmt.Sprintf("choice alternative occurrence bounds %s are outside instance validation", elementOccurrences),
-				appendInstanceRelated(relCopy(related), element.Loc()),
-				version,
-				errInstanceChoiceParticle,
-			)
-		}
-		if element.Name().IsZero() {
-			return instanceChoiceProgram{}, newInstanceValidationInternal(
-				element.Loc(),
-				"direct choice element has no expanded name",
-				appendInstanceRelated(relCopy(related), element.Loc()),
-				errInstanceValidationInvariant,
-			)
+		element, err := instanceChoiceElementFor(schema, choice, particleAlternative, related, version)
+		if err != nil {
+			return nil, nil, err
 		}
 		elements = append(elements, element)
 		related = appendInstanceRelated(related, element.Loc())
 	}
+	return elements, related, nil
+}
 
-	program := instanceChoiceProgram{
-		version:      version,
-		related:      related,
-		alternatives: make([]instanceChoiceAlternative, 0, len(elements)),
+func instanceChoiceElementFor(
+	schema Schema,
+	choice ChoiceParticle,
+	particleAlternative Particle,
+	related []Loc,
+	version XSDVersion,
+) (ElementParticle, error) {
+	if reference, referenceOK := elementReferenceParticleValue(particleAlternative); referenceOK {
+		return ElementParticle{}, instanceChoiceReferenceUnsupported(schema, choice, reference, related, version)
 	}
-	for _, element := range elements {
-		alternativeRelated := []Loc{declaration.Loc(), definition.Loc(), choice.Loc(), element.Loc()}
-		typeID, hasTypeID := element.TypeID()
-		scalar, err := instanceScalarTypeForTarget(
-			schema,
-			element.DeclaredType(),
-			typeID,
-			hasTypeID,
-			alternativeRelated,
-			element.Loc(),
+	element, ok := particleAlternative.(ElementParticle)
+	if !ok || element.facts == nil {
+		return ElementParticle{}, newInstanceValidationUnsupported(
+			choice.Loc(),
+			"direct choice contains a non-element alternative",
+			related,
 			version,
+			errInstanceChoiceParticle,
 		)
-		if err != nil {
-			return instanceChoiceProgram{}, err
-		}
-		program.alternatives = append(program.alternatives, instanceChoiceAlternative{
-			name:   element.Name(),
-			loc:    element.Loc(),
-			scalar: scalar,
-		})
 	}
-	return program, nil
+	elementOccurrences := element.Occurrences()
+	if !elementOccurrences.IsDefault() {
+		return ElementParticle{}, newInstanceValidationUnsupported(
+			element.Loc(),
+			fmt.Sprintf("choice alternative occurrence bounds %s are outside instance validation", elementOccurrences),
+			appendInstanceRelated(relCopy(related), element.Loc()),
+			version,
+			errInstanceChoiceParticle,
+		)
+	}
+	if element.Name().IsZero() {
+		return ElementParticle{}, newInstanceValidationInternal(
+			element.Loc(),
+			"direct choice element has no expanded name",
+			appendInstanceRelated(relCopy(related), element.Loc()),
+			errInstanceValidationInvariant,
+		)
+	}
+	return element, nil
+}
+
+func instanceChoiceReferenceUnsupported(
+	schema Schema,
+	choice ChoiceParticle,
+	reference ElementReferenceParticle,
+	related []Loc,
+	version XSDVersion,
+) error {
+	if reference.facts == nil {
+		return newInstanceValidationInternal(
+			choice.Loc(),
+			"direct choice element reference has incomplete particle facts",
+			related,
+			errInstanceValidationInvariant,
+		)
+	}
+	referenceRelated := appendInstanceRelated(relCopy(related), reference.Loc())
+	if target, targetOK := schema.Lookup(reference.TargetID()); targetOK {
+		referenceRelated = appendInstanceRelated(referenceRelated, target.Loc())
+	}
+	refLoc := reference.RefLoc()
+	if refLoc.IsZero() {
+		refLoc = reference.Loc()
+	}
+	return newInstanceValidationUnsupported(
+		refLoc,
+		"direct choice element reference particles are outside instance validation",
+		referenceRelated,
+		version,
+		errInstanceChoiceTarget,
+	)
+}
+
+func instanceChoiceAlternativeFor(
+	schema Schema,
+	declaration ElementDeclaration,
+	definition ComplexTypeDefinition,
+	choice ChoiceParticle,
+	element ElementParticle,
+	version XSDVersion,
+) (instanceChoiceAlternative, error) {
+	alternativeRelated := []Loc{declaration.Loc(), definition.Loc(), choice.Loc(), element.Loc()}
+	typeID, hasTypeID := element.TypeID()
+	scalar, err := instanceScalarTypeForTarget(
+		schema,
+		element.DeclaredType(),
+		typeID,
+		hasTypeID,
+		alternativeRelated,
+		element.Loc(),
+		version,
+	)
+	if err != nil {
+		return instanceChoiceAlternative{}, err
+	}
+	return instanceChoiceAlternative{
+		name:   element.Name(),
+		loc:    element.Loc(),
+		scalar: scalar,
+	}, nil
 }
 
 //nolint:gocognit,funlen // Keep direct-child selection and selected scalar validation ordered.
@@ -777,6 +865,15 @@ func instanceScalarTypeForTarget(
 			errInstanceValidationInvariant,
 		)
 	}
+	if definition.Variety() != SimpleTypeVarietyAtomicRestriction {
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("named simple type %q has variety %q outside scalar validation", definition.Name(), definition.Variety()),
+			related,
+			fallbackVersion,
+			errInstanceUnsupportedType,
+		)
+	}
 	if definition.HasPrecisionDecimalFacets() {
 		return instanceScalarType{
 			value:   instancePrecisionDecimalScalar{facets: definition.PrecisionDecimalFacets()},
@@ -793,13 +890,23 @@ func instanceScalarTypeForTarget(
 			errInstanceUnsupportedType,
 		)
 	}
+	if definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal && definition.facts.atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", definition.Name()),
+			related,
+			fallbackVersion,
+			errInstanceUnsupportedType,
+		)
+	}
 	facets := definition.DigitFacets()
 	if facets.Kind() != DigitDatatypeInteger && facets.Kind() != DigitDatatypeDecimal {
-		return instanceScalarType{}, newInstanceValidationInternal(
+		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
-			fmt.Sprintf("named simple type %q has an unknown digit datatype", definition.Name()),
+			fmt.Sprintf("named simple type %q has unsupported scalar datatype facts", definition.Name()),
 			related,
-			errInstanceValidationInvariant,
+			fallbackVersion,
+			errInstanceUnsupportedType,
 		)
 	}
 	if facets.Version() != XSDVersion10 && facets.Version() != XSDVersion11 {

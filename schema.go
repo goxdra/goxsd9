@@ -93,6 +93,159 @@ func (id ComponentID) IsZero() bool {
 	return id == ComponentID{}
 }
 
+// SimpleTypeID is the stable identity of a simple-type model node. Named
+// nodes also have a ComponentID; anonymous nodes use this identity because
+// they are not schema components.
+type SimpleTypeID struct {
+	source  SourceID
+	ordinal uint64
+}
+
+// Source returns the identity of the document containing the model node.
+func (id SimpleTypeID) Source() SourceID {
+	return id.source
+}
+
+// Ordinal returns the one-based model-node ordinal within the source
+// document, or zero for the zero ID.
+func (id SimpleTypeID) Ordinal() uint64 {
+	return id.ordinal
+}
+
+// IsZero reports whether the ID does not identify a model node.
+func (id SimpleTypeID) IsZero() bool {
+	return id == SimpleTypeID{}
+}
+
+// SimpleTypeVariety identifies the model of a simple type.
+type SimpleTypeVariety string
+
+const (
+	// SimpleTypeVarietyAtomicRestriction identifies an atomic restriction.
+	SimpleTypeVarietyAtomicRestriction SimpleTypeVariety = "atomic-restriction"
+	// SimpleTypeVarietyList identifies a list variety.
+	SimpleTypeVarietyList SimpleTypeVariety = "list"
+	// SimpleTypeVarietyUnion identifies a union variety.
+	SimpleTypeVarietyUnion SimpleTypeVariety = "union"
+
+	// SimpleTypeVarietyAtomic is a concise alias for an atomic restriction.
+	SimpleTypeVarietyAtomic = SimpleTypeVarietyAtomicRestriction
+	// SimpleTypeVarietyRestriction is a compatibility alias for an atomic
+	// restriction.
+	SimpleTypeVarietyRestriction = SimpleTypeVarietyAtomicRestriction
+)
+
+// SimpleTypeReferenceKind identifies how a simple-type reference is resolved.
+type SimpleTypeReferenceKind string
+
+const (
+	// SimpleTypeReferenceBuiltin identifies an XSD built-in datatype.
+	SimpleTypeReferenceBuiltin SimpleTypeReferenceKind = "builtin"
+	// SimpleTypeReferenceNamed identifies a named schema simple type.
+	SimpleTypeReferenceNamed SimpleTypeReferenceKind = "named"
+	// SimpleTypeReferenceAnonymous identifies an inline simple type.
+	SimpleTypeReferenceAnonymous SimpleTypeReferenceKind = "anonymous"
+)
+
+// SimpleTypeReference is an immutable resolved simple-type reference. Named
+// references retain only their QName and component identity; anonymous
+// references expose their owned model node through AnonymousType.
+type SimpleTypeReference struct {
+	facts *schemaSimpleTypeReferenceComponent
+}
+
+// Kind returns the resolved reference kind.
+func (reference SimpleTypeReference) Kind() SimpleTypeReferenceKind {
+	if reference.facts == nil {
+		return ""
+	}
+	return reference.facts.kind
+}
+
+// Name returns the expanded QName of a built-in or named reference. Anonymous
+// references have no QName and return the zero QName.
+func (reference SimpleTypeReference) Name() QName {
+	if reference.facts == nil {
+		return QName{}
+	}
+	return reference.facts.name
+}
+
+// QName returns the expanded QName of a built-in or named reference.
+func (reference SimpleTypeReference) QName() QName {
+	return reference.Name()
+}
+
+// Loc returns the source location of the reference expression.
+func (reference SimpleTypeReference) Loc() Loc {
+	if reference.facts == nil {
+		return Loc{}
+	}
+	return reference.facts.loc
+}
+
+// Variety returns the resolved variety of the referenced simple type.
+func (reference SimpleTypeReference) Variety() SimpleTypeVariety {
+	if reference.facts == nil {
+		return ""
+	}
+	return reference.facts.variety
+}
+
+// VarietyLoc returns the location of the referenced type's model child.
+func (reference SimpleTypeReference) VarietyLoc() Loc {
+	if reference.facts == nil {
+		return Loc{}
+	}
+	return reference.facts.varietyLoc
+}
+
+// ComponentID returns the schema component identity of a named reference.
+// Built-ins and anonymous references do not have component identities.
+func (reference SimpleTypeReference) ComponentID() (ComponentID, bool) {
+	if reference.facts == nil || !reference.facts.hasID {
+		return ComponentID{}, false
+	}
+	return reference.facts.id, true
+}
+
+// ID is an alias for ComponentID.
+func (reference SimpleTypeReference) ID() (ComponentID, bool) {
+	return reference.ComponentID()
+}
+
+// AnonymousID returns the model-node identity of an anonymous reference.
+func (reference SimpleTypeReference) AnonymousID() (SimpleTypeID, bool) {
+	if reference.facts == nil || !reference.facts.hasAnonymousID {
+		return SimpleTypeID{}, false
+	}
+	return reference.facts.anonymousID, true
+}
+
+// AnonymousType returns the immutable inline model node referenced by an
+// anonymous reference.
+func (reference SimpleTypeReference) AnonymousType() (SimpleTypeDefinition, bool) {
+	if reference.facts == nil || reference.facts.kind != SimpleTypeReferenceAnonymous || reference.facts.anonymous == nil {
+		return SimpleTypeDefinition{}, false
+	}
+	return SimpleTypeDefinition{facts: reference.facts.anonymous}, true
+}
+
+// IsBuiltin reports whether the reference names an XSD built-in datatype.
+func (reference SimpleTypeReference) IsBuiltin() bool {
+	return reference.Kind() == SimpleTypeReferenceBuiltin
+}
+
+// IsNamed reports whether the reference names a schema component.
+func (reference SimpleTypeReference) IsNamed() bool {
+	return reference.Kind() == SimpleTypeReferenceNamed
+}
+
+// IsAnonymous reports whether the reference points to an inline model node.
+func (reference SimpleTypeReference) IsAnonymous() bool {
+	return reference.Kind() == SimpleTypeReferenceAnonymous
+}
+
 // Component is an immutable schema component identity and its fundamental
 // source facts. Derived validator and code-generator state is not stored here.
 type Component struct {
@@ -101,6 +254,7 @@ type Component struct {
 	name        QName
 	loc         Loc
 	element     *schemaElementComponent
+	notation    *schemaNotationComponent
 	simpleType  *schemaSimpleTypeComponent
 	complexType *schemaComplexTypeComponent
 }
@@ -131,7 +285,7 @@ func (component Component) Document() SourceID {
 }
 
 // Element returns the immutable element-declaration view for a supported
-// global element with a declared type.
+// global element with a resolved type.
 func (component Component) Element() (ElementDeclaration, bool) {
 	if component.element == nil {
 		return ElementDeclaration{}, false
@@ -143,13 +297,13 @@ func (component Component) Element() (ElementDeclaration, bool) {
 }
 
 // ElementDeclaration returns the immutable element-declaration view for a
-// supported global element with a declared type.
+// supported global element with a resolved type.
 func (component Component) ElementDeclaration() (ElementDeclaration, bool) {
 	return component.Element()
 }
 
 // ElementDeclaration is the immutable type-specific view of a supported
-// global element declaration.
+// global element declaration with a resolved type.
 type ElementDeclaration struct {
 	component Component
 	facts     *schemaElementComponent
@@ -236,8 +390,106 @@ func (declaration ElementDeclaration) SubstitutionGroupAffiliationLocations() []
 	return locations
 }
 
-// SimpleType returns the immutable simple-type view for a supported named
-// simple type definition.
+// TypeReference returns the resolved simple-type reference used by the
+// declaration, when it has one.
+func (declaration ElementDeclaration) TypeReference() (SimpleTypeReference, bool) {
+	if declaration.facts == nil || !declaration.facts.hasTypeReference {
+		return SimpleTypeReference{}, false
+	}
+	return SimpleTypeReference{facts: &declaration.facts.typeReference}, true
+}
+
+// InlineSimpleType returns the anonymous simple type declared inside the
+// element, when it has one.
+func (declaration ElementDeclaration) InlineSimpleType() (SimpleTypeDefinition, bool) {
+	reference, ok := declaration.TypeReference()
+	if !ok {
+		return SimpleTypeDefinition{}, false
+	}
+	return reference.AnonymousType()
+}
+
+// Notation returns the immutable notation-declaration view for a global
+// notation declaration.
+func (component Component) Notation() (NotationDeclaration, bool) {
+	if component.notation == nil {
+		return NotationDeclaration{}, false
+	}
+	return NotationDeclaration{
+		component: component,
+		facts:     component.notation,
+	}, true
+}
+
+// NotationDeclaration returns the immutable notation-declaration view for a
+// global notation declaration.
+func (component Component) NotationDeclaration() (NotationDeclaration, bool) {
+	return component.Notation()
+}
+
+// NotationDeclaration is the immutable type-specific view of a global
+// notation declaration.
+type NotationDeclaration struct {
+	component Component
+	facts     *schemaNotationComponent
+}
+
+// Component returns the generic component represented by the view.
+func (declaration NotationDeclaration) Component() Component {
+	return declaration.component
+}
+
+// ID returns the stable identity of the notation declaration.
+func (declaration NotationDeclaration) ID() ComponentID {
+	return declaration.component.ID()
+}
+
+// Name returns the expanded QName of the notation declaration.
+func (declaration NotationDeclaration) Name() QName {
+	return declaration.component.Name()
+}
+
+// Loc returns the declaration location of the notation declaration.
+func (declaration NotationDeclaration) Loc() Loc {
+	return declaration.component.Loc()
+}
+
+// Public returns the collapsed public identifier value.
+func (declaration NotationDeclaration) Public() string {
+	if declaration.facts == nil {
+		return ""
+	}
+	return declaration.facts.public
+}
+
+// PublicLoc returns the source location of the public identifier.
+func (declaration NotationDeclaration) PublicLoc() Loc {
+	if declaration.facts == nil {
+		return Loc{}
+	}
+	return declaration.facts.publicLoc
+}
+
+// System returns the collapsed optional system identifier and whether it was
+// present in the source declaration.
+func (declaration NotationDeclaration) System() (string, bool) {
+	if declaration.facts == nil || !declaration.facts.hasSystem {
+		return "", false
+	}
+	return declaration.facts.system, true
+}
+
+// SystemLoc returns the source location of the optional system identifier and
+// whether it was present in the source declaration.
+func (declaration NotationDeclaration) SystemLoc() (Loc, bool) {
+	if declaration.facts == nil || !declaration.facts.hasSystem {
+		return Loc{}, false
+	}
+	return declaration.facts.systemLoc, true
+}
+
+// SimpleType returns the immutable simple-type view for a supported simple
+// type definition.
 func (component Component) SimpleType() (SimpleTypeDefinition, bool) {
 	if component.simpleType == nil {
 		return SimpleTypeDefinition{}, false
@@ -249,13 +501,13 @@ func (component Component) SimpleType() (SimpleTypeDefinition, bool) {
 }
 
 // SimpleTypeDefinition returns the immutable simple-type view for a supported
-// named simple type definition.
+// simple type definition.
 func (component Component) SimpleTypeDefinition() (SimpleTypeDefinition, bool) {
 	return component.SimpleType()
 }
 
 // SimpleTypeDefinition is the immutable type-specific view of a supported
-// named simple type restriction.
+// simple type model node.
 type SimpleTypeDefinition struct {
 	component Component
 	facts     *schemaSimpleTypeComponent
@@ -271,17 +523,54 @@ func (definition SimpleTypeDefinition) ID() ComponentID {
 	return definition.component.ID()
 }
 
+// NodeID returns the stable identity of the simple-type model node.
+func (definition SimpleTypeDefinition) NodeID() (SimpleTypeID, bool) {
+	if definition.facts == nil || !definition.facts.hasNodeID {
+		return SimpleTypeID{}, false
+	}
+	return definition.facts.nodeID, true
+}
+
 // Name returns the expanded name of the simple type definition.
 func (definition SimpleTypeDefinition) Name() QName {
+	if definition.facts != nil && definition.facts.anonymous {
+		return QName{}
+	}
 	return definition.component.Name()
 }
 
 // Loc returns the declaration location of the simple type definition.
 func (definition SimpleTypeDefinition) Loc() Loc {
+	if definition.facts != nil && definition.facts.anonymous {
+		return definition.facts.loc
+	}
 	return definition.component.Loc()
 }
 
+// IsAnonymous reports whether this definition is an inline simple type.
+func (definition SimpleTypeDefinition) IsAnonymous() bool {
+	return definition.facts != nil && definition.facts.anonymous
+}
+
+// Variety returns the one resolved simple-type variety.
+func (definition SimpleTypeDefinition) Variety() SimpleTypeVariety {
+	if definition.facts == nil {
+		return ""
+	}
+	return definition.facts.variety
+}
+
+// VarietyLoc returns the source location of the restriction, list, or union
+// model child.
+func (definition SimpleTypeDefinition) VarietyLoc() Loc {
+	if definition.facts == nil {
+		return Loc{}
+	}
+	return definition.facts.varietyLoc
+}
+
 // Base returns the expanded name written in the restriction's base attribute.
+// It returns the zero QName when the restriction derives from an inline type.
 func (definition SimpleTypeDefinition) Base() QName {
 	if definition.facts == nil {
 		return QName{}
@@ -289,7 +578,7 @@ func (definition SimpleTypeDefinition) Base() QName {
 	return definition.facts.base
 }
 
-// BaseLoc returns the location of the restriction's base attribute.
+// BaseLoc returns the location of the restriction's base expression.
 func (definition SimpleTypeDefinition) BaseLoc() Loc {
 	if definition.facts == nil {
 		return Loc{}
@@ -304,6 +593,45 @@ func (definition SimpleTypeDefinition) BaseID() (ComponentID, bool) {
 		return ComponentID{}, false
 	}
 	return definition.facts.baseID, true
+}
+
+// BaseReference returns the resolved restriction base reference.
+func (definition SimpleTypeDefinition) BaseReference() (SimpleTypeReference, bool) {
+	if definition.facts == nil || !definition.facts.hasBaseReference {
+		return SimpleTypeReference{}, false
+	}
+	return SimpleTypeReference{facts: &definition.facts.baseReference}, true
+}
+
+// ItemType returns the resolved list item type.
+func (definition SimpleTypeDefinition) ItemType() (SimpleTypeReference, bool) {
+	if definition.facts == nil || !definition.facts.hasItemType {
+		return SimpleTypeReference{}, false
+	}
+	return SimpleTypeReference{facts: &definition.facts.itemType}, true
+}
+
+// ListItemType is an alias for ItemType.
+func (definition SimpleTypeDefinition) ListItemType() (SimpleTypeReference, bool) {
+	return definition.ItemType()
+}
+
+// MemberTypes returns union members in schema lexical order. The returned
+// slice is independent of the completed schema.
+func (definition SimpleTypeDefinition) MemberTypes() []SimpleTypeReference {
+	if definition.facts == nil || len(definition.facts.memberTypes) == 0 {
+		return nil
+	}
+	members := make([]SimpleTypeReference, len(definition.facts.memberTypes))
+	for index := range definition.facts.memberTypes {
+		members[index] = SimpleTypeReference{facts: &definition.facts.memberTypes[index]}
+	}
+	return members
+}
+
+// UnionMemberTypes is an alias for MemberTypes.
+func (definition SimpleTypeDefinition) UnionMemberTypes() []SimpleTypeReference {
+	return definition.MemberTypes()
 }
 
 // IsBoolean reports whether the simple type is derived from the XSD boolean
@@ -680,7 +1008,86 @@ func (particle ElementParticle) TypeID() (ComponentID, bool) {
 	return particle.facts.typeID, true
 }
 
-// SequenceParticle is an ordered direct sequence of local element particles.
+// ElementReferenceParticle is a local element reference particle. It retains
+// the expanded QName and source location of ref, plus the identity of the
+// referenced global element. It does not copy declaration facts from that
+// global element.
+type ElementReferenceParticle struct {
+	facts *schemaElementReferenceParticle
+}
+
+func (ElementReferenceParticle) particle() {}
+
+// Loc returns the location of the local element reference particle.
+func (particle ElementReferenceParticle) Loc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.loc
+}
+
+// Occurrences returns the exact immutable occurrence range.
+func (particle ElementReferenceParticle) Occurrences() ParticleOccurrenceRange {
+	if particle.facts == nil {
+		return ParticleOccurrenceRange{}
+	}
+	return newPublicParticleOccurrenceRange(particle.facts.occurrences)
+}
+
+// MinOccurs returns the default minimum occurrence bound.
+//
+// Deprecated: use Occurrences().Minimum(). This compatibility accessor is
+// defined only for default-only reference particles and returns zero
+// otherwise.
+func (particle ElementReferenceParticle) MinOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// MaxOccurs returns the default maximum occurrence bound.
+//
+// Deprecated: use Occurrences().Maximum(). This compatibility accessor is
+// defined only for default-only reference particles and returns zero
+// otherwise.
+func (particle ElementReferenceParticle) MaxOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// Name returns the expanded QName in the ref attribute.
+func (particle ElementReferenceParticle) Name() QName {
+	if particle.facts == nil {
+		return QName{}
+	}
+	return particle.facts.name
+}
+
+// Ref returns the expanded QName in the ref attribute.
+func (particle ElementReferenceParticle) Ref() QName {
+	return particle.Name()
+}
+
+// RefLoc returns the location of the ref attribute.
+func (particle ElementReferenceParticle) RefLoc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.refLoc
+}
+
+// TargetID returns the identity of the referenced global element declaration.
+func (particle ElementReferenceParticle) TargetID() ComponentID {
+	if particle.facts == nil {
+		return ComponentID{}
+	}
+	return particle.facts.targetID
+}
+
+// SequenceParticle is an ordered direct sequence of element particles.
 type SequenceParticle struct {
 	facts *schemaSequenceParticle
 }
@@ -728,10 +1135,31 @@ func (particle SequenceParticle) MaxOccurs() uint64 {
 // Elements returns direct local element particles in lexical declaration
 // order. The returned slice is independent of the completed schema.
 func (particle SequenceParticle) Elements() []ElementParticle {
-	if particle.facts == nil || len(particle.facts.elements) == 0 {
+	if particle.facts == nil || len(particle.facts.particles) == 0 {
 		return nil
 	}
-	return append([]ElementParticle(nil), particle.facts.elements...)
+	elements := make([]ElementParticle, 0, len(particle.facts.particles))
+	for _, child := range particle.facts.particles {
+		element, ok := elementParticleValue(child)
+		if !ok {
+			continue
+		}
+		elements = append(elements, element)
+	}
+	if len(elements) == 0 {
+		return nil
+	}
+	return elements
+}
+
+// Particles returns direct sequence particles in lexical declaration order.
+// The returned slice is independent of the completed schema and may contain
+// both ElementParticle and ElementReferenceParticle values.
+func (particle SequenceParticle) Particles() []Particle {
+	if particle.facts == nil || len(particle.facts.particles) == 0 {
+		return nil
+	}
+	return append([]Particle(nil), particle.facts.particles...)
 }
 
 // SchemaDocument is an immutable document in a Schema's discovery order.
@@ -886,6 +1314,9 @@ type schemaDocumentInput struct {
 	source          SourceID
 	rootLoc         Loc
 	targetNamespace string
+	// visibleSources is the ordered set of documents whose global element
+	// declarations may be referenced from this document.
+	visibleSources []SourceID
 	// declarations contains the named schema-level declarations in lexical
 	// order. Local particle components will use a separate scoped model.
 	declarations []schemaComponentInput
@@ -896,6 +1327,7 @@ type schemaComponentInput struct {
 	name        QName
 	loc         Loc
 	element     *schemaElementInput
+	notation    *schemaNotationInput
 	simpleType  *schemaSimpleTypeInput
 	complexType *schemaComplexTypeInput
 }
@@ -903,6 +1335,7 @@ type schemaComponentInput struct {
 type schemaElementInput struct {
 	declaredType      QName
 	typeLoc           Loc
+	inlineSimpleType  *schemaSimpleTypeInput
 	abstract          bool
 	nillable          bool
 	substitutionGroup []schemaElementSubstitutionGroupInput
@@ -913,11 +1346,67 @@ type schemaElementSubstitutionGroupInput struct {
 	loc  Loc
 }
 
+type schemaNotationInput struct {
+	public    string
+	publicLoc Loc
+	system    string
+	systemLoc Loc
+	hasSystem bool
+}
+
 type schemaSimpleTypeInput struct {
+	loc       Loc
+	nodeID    SimpleTypeID
+	hasNodeID bool
+	model     schemaSimpleTypeModelInput
+
+	// These fields keep the phase-local construction helpers used by existing
+	// callers source-compatible. New syntax construction stores the tagged
+	// model above; resolution normalizes this legacy restriction shape.
 	base    QName
 	baseLoc Loc
 	facets  []schemaFacetInput
 }
+
+type schemaSimpleTypeReferenceInputKind uint8
+
+const (
+	schemaSimpleTypeQNameReferenceInput schemaSimpleTypeReferenceInputKind = iota + 1
+	schemaSimpleTypeAnonymousReferenceInput
+)
+
+type schemaSimpleTypeReferenceInput struct {
+	kind      schemaSimpleTypeReferenceInputKind
+	name      QName
+	loc       Loc
+	anonymous *schemaSimpleTypeInput
+}
+
+type schemaSimpleTypeModelInput interface {
+	schemaSimpleTypeModelInput()
+}
+
+type schemaSimpleTypeRestrictionModelInput struct {
+	loc    Loc
+	base   schemaSimpleTypeReferenceInput
+	facets []schemaFacetInput
+}
+
+func (*schemaSimpleTypeRestrictionModelInput) schemaSimpleTypeModelInput() {}
+
+type schemaSimpleTypeListModelInput struct {
+	loc      Loc
+	itemType schemaSimpleTypeReferenceInput
+}
+
+func (*schemaSimpleTypeListModelInput) schemaSimpleTypeModelInput() {}
+
+type schemaSimpleTypeUnionModelInput struct {
+	loc     Loc
+	members []schemaSimpleTypeReferenceInput
+}
+
+func (*schemaSimpleTypeUnionModelInput) schemaSimpleTypeModelInput() {}
 
 type schemaFacetKind uint8
 
@@ -948,12 +1437,39 @@ type schemaFacetInput struct {
 	fixed    bool
 }
 
+type schemaSimpleTypeReferenceComponent struct {
+	kind           SimpleTypeReferenceKind
+	name           QName
+	loc            Loc
+	id             ComponentID
+	hasID          bool
+	anonymousID    SimpleTypeID
+	hasAnonymousID bool
+	anonymous      *schemaSimpleTypeComponent
+	variety        SimpleTypeVariety
+	varietyLoc     Loc
+	atomicKind     schemaSimpleTypeAtomicKind
+	facets         schemaSimpleTypeFacetVariant
+}
+
 type schemaSimpleTypeComponent struct {
-	base      QName
-	baseLoc   Loc
-	baseID    ComponentID
-	hasBaseID bool
-	facets    schemaSimpleTypeFacetVariant
+	loc              Loc
+	nodeID           SimpleTypeID
+	hasNodeID        bool
+	anonymous        bool
+	variety          SimpleTypeVariety
+	varietyLoc       Loc
+	atomicKind       schemaSimpleTypeAtomicKind
+	base             QName
+	baseLoc          Loc
+	baseID           ComponentID
+	hasBaseID        bool
+	baseReference    schemaSimpleTypeReferenceComponent
+	hasBaseReference bool
+	itemType         schemaSimpleTypeReferenceComponent
+	hasItemType      bool
+	memberTypes      []schemaSimpleTypeReferenceComponent
+	facets           schemaSimpleTypeFacetVariant
 }
 
 type schemaSimpleTypeFacetVariant interface {
@@ -990,6 +1506,10 @@ type schemaPrecisionDecimalFacetVariant struct {
 
 func (schemaPrecisionDecimalFacetVariant) schemaSimpleTypeFacetVariant() {}
 
+type schemaStringFacetVariant struct{}
+
+func (schemaStringFacetVariant) schemaSimpleTypeFacetVariant() {}
+
 type schemaBooleanFacetVariant struct{}
 
 func (schemaBooleanFacetVariant) schemaSimpleTypeFacetVariant() {}
@@ -1021,23 +1541,38 @@ func (*schemaSequenceParticleInput) schemaComplexTypeParticleInput() {}
 type schemaElementParticleInput struct {
 	loc         Loc
 	name        QName
+	reference   *schemaElementReferenceInput
 	occurrences particleOccurrenceRange
 	typeInput   *schemaElementInput
+}
+
+type schemaElementReferenceInput struct {
+	name QName
+	loc  Loc
 }
 
 type schemaElementComponent struct {
 	declaredType      QName
 	typeID            ComponentID
 	hasTypeID         bool
+	typeReference     schemaSimpleTypeReferenceComponent
+	hasTypeReference  bool
 	abstract          bool
 	nillable          bool
 	substitutionGroup []schemaElementSubstitutionGroup
 }
 
 type schemaElementSubstitutionGroup struct {
-	name     QName
 	targetID ComponentID
 	loc      Loc
+}
+
+type schemaNotationComponent struct {
+	public    string
+	publicLoc Loc
+	system    string
+	systemLoc Loc
+	hasSystem bool
 }
 
 type schemaComplexTypeComponent struct {
@@ -1059,10 +1594,18 @@ type schemaElementParticle struct {
 	hasTypeID    bool
 }
 
+type schemaElementReferenceParticle struct {
+	loc         Loc
+	occurrences particleOccurrenceRange
+	name        QName
+	refLoc      Loc
+	targetID    ComponentID
+}
+
 type schemaSequenceParticle struct {
 	loc         Loc
 	occurrences particleOccurrenceRange
-	elements    []ElementParticle
+	particles   []Particle
 }
 
 type schemaComponentRecord struct {
@@ -1071,6 +1614,7 @@ type schemaComponentRecord struct {
 	name        QName
 	loc         Loc
 	element     *schemaElementInput
+	notation    *schemaNotationInput
 	simpleType  *schemaSimpleTypeInput
 	complexType *schemaComplexTypeInput
 }
@@ -1129,9 +1673,12 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, invalidLanguagePolicyDiagnostic(policy, err)
 	}
-	documents, records, byName, err := allocateSchemaRecords(inputs)
+	documents, records, byName, visibleSources, err := allocateSchemaRecords(inputs)
 	if err != nil {
 		return Schema{}, err
+	}
+	if allocationErr := allocateSchemaSimpleTypeNodeIDs(records); allocationErr != nil {
+		return Schema{}, allocationErr
 	}
 	if duplicateErr := rejectDuplicateSchemaDeclarations(records, version); duplicateErr != nil {
 		return Schema{}, duplicateErr
@@ -1140,7 +1687,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
-	complexTypes, err := resolveSchemaComplexTypes(records, byName, simpleTypes, version)
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes.results, version)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -1164,7 +1711,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
-	components, byID := completeSchemaComponents(records, simpleTypes, elements, complexTypes)
+	components, byID := completeSchemaComponents(records, simpleTypes.results, elements, complexTypes)
 	storage := &schemaStorage{
 		components: components,
 		byID:       byID,
@@ -1198,23 +1745,25 @@ func rejectDuplicateSchemaDeclarations(records []schemaComponentRecord, version 
 	return nil
 }
 
-func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []schemaComponentRecord, map[QName][]int, error) {
+func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []schemaComponentRecord, map[QName][]int, map[SourceID][]SourceID, error) {
 	documents := make([]SchemaDocument, 0, len(inputs))
 	records := make([]schemaComponentRecord, 0)
 	byName := make(map[QName][]int)
 	seenSources := make(map[SourceID]struct{}, len(inputs))
+	sources := make([]SourceID, 0, len(inputs))
 
 	for _, input := range inputs {
 		if err := validateSchemaDocumentInput(input, seenSources); err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		seenSources[input.source] = struct{}{}
+		sources = append(sources, input.source)
 
 		documentStart := len(records)
 		for declarationIndex, declaration := range input.declarations {
 			record, err := newSchemaComponentRecord(input.source, declarationIndex, declaration)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 			byName[record.name] = append(byName[record.name], len(records))
 			records = append(records, record)
@@ -1228,7 +1777,21 @@ func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []sc
 			count:           len(records) - documentStart,
 		})
 	}
-	return documents, records, byName, nil
+	visibleSources := make(map[SourceID][]SourceID, len(inputs))
+	for _, input := range inputs {
+		if input.visibleSources == nil {
+			visibleSources[input.source] = append([]SourceID(nil), sources...)
+			continue
+		}
+		visibleSources[input.source] = append([]SourceID(nil), input.visibleSources...)
+		if !sourceIDInList(visibleSources[input.source], input.source) {
+			return nil, nil, nil, nil, newSchemaBridgeInvariant(
+				input.rootLoc,
+				fmt.Sprintf("schema document %q visibility does not include itself", input.source),
+			)
+		}
+	}
+	return documents, records, byName, visibleSources, nil
 }
 
 func validateSchemaDocumentInput(input schemaDocumentInput, seenSources map[SourceID]struct{}) error {
@@ -1297,18 +1860,10 @@ func newSchemaComponentRecord(source SourceID, declarationIndex int, declaration
 		name:        declaration.name,
 		loc:         declaration.loc,
 		element:     cloneSchemaElementInput(declaration.element),
-		simpleType:  declaration.simpleType,
+		notation:    cloneSchemaNotationInput(declaration.notation),
+		simpleType:  cloneSchemaSimpleTypeInput(declaration.simpleType),
 		complexType: cloneSchemaComplexTypeInput(declaration.complexType),
 	}, nil
-}
-
-func cloneSchemaElementInput(input *schemaElementInput) *schemaElementInput {
-	if input == nil {
-		return nil
-	}
-	clone := *input
-	clone.substitutionGroup = cloneSchemaElementSubstitutionGroupInputs(input.substitutionGroup)
-	return &clone
 }
 
 func schemaComponentOrdinal(declarationIndex int, loc Loc) (uint64, error) {
@@ -1358,18 +1913,41 @@ func completeSchemaComponent(
 			declaredType:      element.declaredType,
 			typeID:            element.typeID,
 			hasTypeID:         element.hasTypeID,
+			typeReference:     element.typeReference,
+			hasTypeReference:  element.hasTypeReference,
 			abstract:          element.abstract,
 			nillable:          element.nillable,
 			substitutionGroup: cloneSchemaElementSubstitutionGroups(element.substitutionGroup),
 		}
 	}
+	if record.notation != nil {
+		component.notation = &schemaNotationComponent{
+			public:    record.notation.public,
+			publicLoc: record.notation.publicLoc,
+			system:    record.notation.system,
+			systemLoc: record.notation.systemLoc,
+			hasSystem: record.notation.hasSystem,
+		}
+	}
 	if simpleType.present {
 		component.simpleType = &schemaSimpleTypeComponent{
-			base:      simpleType.base,
-			baseLoc:   simpleType.baseLoc,
-			baseID:    simpleType.baseID,
-			hasBaseID: simpleType.hasBaseID,
-			facets:    simpleType.facets,
+			loc:              simpleType.loc,
+			nodeID:           simpleType.nodeID,
+			hasNodeID:        simpleType.hasNodeID,
+			anonymous:        simpleType.anonymous,
+			variety:          simpleType.variety,
+			varietyLoc:       simpleType.varietyLoc,
+			atomicKind:       simpleType.atomicKind,
+			base:             simpleType.base,
+			baseLoc:          simpleType.baseLoc,
+			baseID:           simpleType.baseID,
+			hasBaseID:        simpleType.hasBaseID,
+			baseReference:    simpleType.baseReference,
+			hasBaseReference: simpleType.hasBaseReference,
+			itemType:         simpleType.itemType,
+			hasItemType:      simpleType.hasItemType,
+			memberTypes:      cloneSchemaSimpleTypeReferenceComponents(simpleType.memberTypes),
+			facets:           simpleType.facets,
 		}
 	}
 	if complexType.present {
@@ -1380,18 +1958,17 @@ func completeSchemaComponent(
 	return component
 }
 
-func cloneSchemaElementSubstitutionGroups(input []schemaElementSubstitutionGroup) []schemaElementSubstitutionGroup {
-	if len(input) == 0 {
+func cloneSchemaNotationInput(input *schemaNotationInput) *schemaNotationInput {
+	if input == nil {
 		return nil
 	}
-	return append([]schemaElementSubstitutionGroup(nil), input...)
-}
-
-func cloneSchemaElementSubstitutionGroupInputs(input []schemaElementSubstitutionGroupInput) []schemaElementSubstitutionGroupInput {
-	if len(input) == 0 {
-		return nil
+	return &schemaNotationInput{
+		public:    input.public,
+		publicLoc: input.publicLoc,
+		system:    input.system,
+		systemLoc: input.systemLoc,
+		hasSystem: input.hasSystem,
 	}
-	return append([]schemaElementSubstitutionGroupInput(nil), input...)
 }
 
 func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTypeInput {
@@ -1422,6 +1999,188 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 	return clone
 }
 
+func cloneSchemaSimpleTypeInput(input *schemaSimpleTypeInput) *schemaSimpleTypeInput {
+	if input == nil {
+		return nil
+	}
+	clone := &schemaSimpleTypeInput{
+		loc:       input.loc,
+		nodeID:    input.nodeID,
+		hasNodeID: input.hasNodeID,
+		base:      input.base,
+		baseLoc:   input.baseLoc,
+		facets:    cloneSchemaFacetInputs(input.facets),
+	}
+	clone.model = cloneSchemaSimpleTypeModelInput(input.model)
+	return clone
+}
+
+func cloneSchemaElementInput(input *schemaElementInput) *schemaElementInput {
+	if input == nil {
+		return nil
+	}
+	return &schemaElementInput{
+		declaredType:      input.declaredType,
+		typeLoc:           input.typeLoc,
+		inlineSimpleType:  cloneSchemaSimpleTypeInput(input.inlineSimpleType),
+		abstract:          input.abstract,
+		nillable:          input.nillable,
+		substitutionGroup: cloneSchemaElementSubstitutionGroupInputs(input.substitutionGroup),
+	}
+}
+
+func cloneSchemaElementSubstitutionGroups(input []schemaElementSubstitutionGroup) []schemaElementSubstitutionGroup {
+	if len(input) == 0 {
+		return nil
+	}
+	return append([]schemaElementSubstitutionGroup(nil), input...)
+}
+
+func cloneSchemaElementSubstitutionGroupInputs(input []schemaElementSubstitutionGroupInput) []schemaElementSubstitutionGroupInput {
+	if len(input) == 0 {
+		return nil
+	}
+	return append([]schemaElementSubstitutionGroupInput(nil), input...)
+}
+
+func cloneSchemaSimpleTypeModelInput(input schemaSimpleTypeModelInput) schemaSimpleTypeModelInput {
+	switch model := input.(type) {
+	case *schemaSimpleTypeRestrictionModelInput:
+		if model == nil {
+			return (*schemaSimpleTypeRestrictionModelInput)(nil)
+		}
+		return &schemaSimpleTypeRestrictionModelInput{
+			loc:    model.loc,
+			base:   cloneSchemaSimpleTypeReferenceInput(model.base),
+			facets: cloneSchemaFacetInputs(model.facets),
+		}
+	case *schemaSimpleTypeListModelInput:
+		if model == nil {
+			return (*schemaSimpleTypeListModelInput)(nil)
+		}
+		return &schemaSimpleTypeListModelInput{
+			loc:      model.loc,
+			itemType: cloneSchemaSimpleTypeReferenceInput(model.itemType),
+		}
+	case *schemaSimpleTypeUnionModelInput:
+		if model == nil {
+			return (*schemaSimpleTypeUnionModelInput)(nil)
+		}
+		members := make([]schemaSimpleTypeReferenceInput, len(model.members))
+		for index, member := range model.members {
+			members[index] = cloneSchemaSimpleTypeReferenceInput(member)
+		}
+		return &schemaSimpleTypeUnionModelInput{
+			loc:     model.loc,
+			members: members,
+		}
+	default:
+		return nil
+	}
+}
+
+func cloneSchemaSimpleTypeReferenceInput(input schemaSimpleTypeReferenceInput) schemaSimpleTypeReferenceInput {
+	clone := input
+	clone.anonymous = cloneSchemaSimpleTypeInput(input.anonymous)
+	return clone
+}
+
+func cloneSchemaFacetInputs(inputs []schemaFacetInput) []schemaFacetInput {
+	if len(inputs) == 0 {
+		return nil
+	}
+	return append([]schemaFacetInput(nil), inputs...)
+}
+
+func cloneSchemaSimpleTypeReferenceComponents(inputs []schemaSimpleTypeReferenceComponent) []schemaSimpleTypeReferenceComponent {
+	if len(inputs) == 0 {
+		return nil
+	}
+	clones := make([]schemaSimpleTypeReferenceComponent, len(inputs))
+	copy(clones, inputs)
+	return clones
+}
+
+func allocateSchemaSimpleTypeNodeIDs(records []schemaComponentRecord) error {
+	nextBySource := make(map[SourceID]uint64)
+	seen := make(map[*schemaSimpleTypeInput]SimpleTypeID)
+	for _, record := range records {
+		if record.simpleType != nil {
+			if err := allocateSchemaSimpleTypeNodeID(record.simpleType, record.id.Source(), nextBySource, seen); err != nil {
+				return err
+			}
+		}
+		if record.element == nil || record.element.inlineSimpleType == nil {
+			continue
+		}
+		if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+//nolint:gocognit // Keep deterministic recursive model-node allocation explicit.
+func allocateSchemaSimpleTypeNodeID(
+	input *schemaSimpleTypeInput,
+	source SourceID,
+	nextBySource map[SourceID]uint64,
+	seen map[*schemaSimpleTypeInput]SimpleTypeID,
+) error {
+	if input == nil {
+		return newSchemaBridgeInvariant(Loc{}, "simple type node allocation received a nil input")
+	}
+	if assigned, ok := seen[input]; ok {
+		if assigned.Source() != source {
+			return newSchemaBridgeInvariant(input.loc, "simple type node is shared across source documents")
+		}
+		return nil
+	}
+	next := nextBySource[source]
+	if next == 0 {
+		next = 1
+	}
+	if next == ^uint64(0) {
+		return newSchemaBridgeInvariant(input.loc, "simple type node ordinal overflows uint64")
+	}
+	input.nodeID = SimpleTypeID{source: source, ordinal: next}
+	input.hasNodeID = true
+	seen[input] = input.nodeID
+	nextBySource[source] = next + 1
+
+	model := input.model
+	if model == nil {
+		return nil
+	}
+	switch typed := model.(type) {
+	case *schemaSimpleTypeRestrictionModelInput:
+		if typed == nil || typed.base.kind != schemaSimpleTypeAnonymousReferenceInput {
+			return nil
+		}
+		return allocateSchemaSimpleTypeNodeID(typed.base.anonymous, source, nextBySource, seen)
+	case *schemaSimpleTypeListModelInput:
+		if typed == nil || typed.itemType.kind != schemaSimpleTypeAnonymousReferenceInput {
+			return nil
+		}
+		return allocateSchemaSimpleTypeNodeID(typed.itemType.anonymous, source, nextBySource, seen)
+	case *schemaSimpleTypeUnionModelInput:
+		if typed == nil {
+			return nil
+		}
+		for _, member := range typed.members {
+			if member.kind != schemaSimpleTypeAnonymousReferenceInput {
+				continue
+			}
+			if err := allocateSchemaSimpleTypeNodeID(member.anonymous, source, nextBySource, seen); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return newSchemaBridgeInvariant(input.loc, "simple type node allocation has an unknown model")
+	}
+}
+
 func cloneSchemaElementParticleInputs(inputs []schemaElementParticleInput) []schemaElementParticleInput {
 	if len(inputs) == 0 {
 		return nil
@@ -1430,11 +2189,42 @@ func cloneSchemaElementParticleInputs(inputs []schemaElementParticleInput) []sch
 	for index, input := range inputs {
 		clones[index] = input
 		clones[index].occurrences = input.occurrences.clone()
+		if input.reference != nil {
+			reference := *input.reference
+			clones[index].reference = &reference
+		}
 		if input.typeInput == nil {
 			continue
 		}
-		typeInput := *input.typeInput
-		clones[index].typeInput = &typeInput
+		clones[index].typeInput = cloneSchemaElementInput(input.typeInput)
 	}
 	return clones
+}
+
+func elementParticleValue(particle Particle) (ElementParticle, bool) {
+	switch concrete := particle.(type) {
+	case ElementParticle:
+		return concrete, true
+	case *ElementParticle:
+		if concrete == nil {
+			return ElementParticle{}, false
+		}
+		return *concrete, true
+	default:
+		return ElementParticle{}, false
+	}
+}
+
+func elementReferenceParticleValue(particle Particle) (ElementReferenceParticle, bool) {
+	switch concrete := particle.(type) {
+	case ElementReferenceParticle:
+		return concrete, true
+	case *ElementReferenceParticle:
+		if concrete == nil {
+			return ElementReferenceParticle{}, false
+		}
+		return *concrete, true
+	default:
+		return ElementReferenceParticle{}, false
+	}
 }

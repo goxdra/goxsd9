@@ -3,17 +3,21 @@
 // instances.
 //
 // ParseSchema accepts a caller-created ResolvedSource and a Resolver. The
-// current subset discovers mixed XSD 1.0 and XSD 1.1 schema graphs, builds
-// supported schema-level components and simple-type restrictions, including
-// global xs:boolean declarations and named restrictions with a boolean base,
-// and exposes deterministic queries and walks. SimpleTypeDefinition.IsBoolean
-// reports that immutable kind fact. ParseSchema uses graph-wide Compatibility;
+// current subset discovers mixed XSD 1.0 and XSD 1.1 schema graphs and builds
+// supported schema-level components, including simple-type atomic restrictions,
+// lists, and unions. Anonymous simple types and resolved built-in, named, and
+// anonymous simple-type references are modeled, along with global xs:boolean
+// declarations and named restrictions with a boolean base. Queries and walks
+// are deterministic. SimpleTypeDefinition.IsBoolean reports that immutable
+// kind fact. ParseSchema uses graph-wide Compatibility;
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
 // The unqualified schema/@version is an inert optional xs:token label: absent,
 // empty, arbitrary, "1.0", and "1.1" values never select or mismatch a policy.
-// Chameleon includes, redefine/override/defaultOpenContent, assertions, and
-// Boolean facets and datatype facets outside the supported integer/decimal and
-// optional precisionDecimal boundaries return explicit unsupported diagnostics.
+// Chameleon includes adopt the including target namespace and repair
+// unqualified direct element-reference QNames in supported particles.
+// Redefine/override/defaultOpenContent, assertions, and Boolean facets and
+// datatype facets outside the supported integer/decimal and optional
+// precisionDecimal boundaries return explicit unsupported diagnostics.
 // precisionDecimal is available only when explicitly named under Compatibility
 // or Strict11; Strict10 reports a located policy diagnostic. Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
@@ -27,9 +31,13 @@
 // alternative ranges are queryable, but repetition is not implemented.
 // XSD 1.1 precisionDecimal is supported in direct choices only when the choice
 // and each mapped precisionDecimal alternative use default occurrences;
-// non-default precisionDecimal choice or alternative ranges that map to
-// particles, and direct-sequence precisionDecimal, are schema-unsupported.
-// Anonymous types, references, nested and broader particles remain unsupported.
+// non-default precisionDecimal choice or alternative ranges and non-0/0
+// direct-sequence precisionDecimal ranges that map to particles are
+// schema-unsupported. Anonymous, nested, and broader particles remain
+// unsupported; anonymous simple-type models and resolved built-in, named, and
+// anonymous simple-type references are modeled. Direct local element
+// references are queryable immutable particles; validation and code generation
+// reject them explicitly as unsupported.
 // Sequence particles are query-only until validation repetition is implemented.
 //
 // ValidateInstance supports one complete instance rooted at a global element
