@@ -209,6 +209,33 @@ func (declaration ElementDeclaration) TypeID() (ComponentID, bool) {
 	return declaration.facts.typeID, true
 }
 
+// SubstitutionGroupAffiliations returns direct substitution-group head IDs in
+// lexical affiliation order. The returned slice is independent of the schema.
+func (declaration ElementDeclaration) SubstitutionGroupAffiliations() []ComponentID {
+	if declaration.facts == nil || len(declaration.facts.substitutionGroup) == 0 {
+		return nil
+	}
+	ids := make([]ComponentID, len(declaration.facts.substitutionGroup))
+	for index, affiliation := range declaration.facts.substitutionGroup {
+		ids[index] = affiliation.targetID
+	}
+	return ids
+}
+
+// SubstitutionGroupAffiliationLocations returns direct affiliation attribute
+// locations in lexical affiliation order. The returned slice is independent
+// of the schema.
+func (declaration ElementDeclaration) SubstitutionGroupAffiliationLocations() []Loc {
+	if declaration.facts == nil || len(declaration.facts.substitutionGroup) == 0 {
+		return nil
+	}
+	locations := make([]Loc, len(declaration.facts.substitutionGroup))
+	for index, affiliation := range declaration.facts.substitutionGroup {
+		locations[index] = affiliation.loc
+	}
+	return locations
+}
+
 // SimpleType returns the immutable simple-type view for a supported named
 // simple type definition.
 func (component Component) SimpleType() (SimpleTypeDefinition, bool) {
@@ -874,10 +901,16 @@ type schemaComponentInput struct {
 }
 
 type schemaElementInput struct {
-	declaredType QName
-	typeLoc      Loc
-	abstract     bool
-	nillable     bool
+	declaredType      QName
+	typeLoc           Loc
+	abstract          bool
+	nillable          bool
+	substitutionGroup []schemaElementSubstitutionGroupInput
+}
+
+type schemaElementSubstitutionGroupInput struct {
+	name QName
+	loc  Loc
 }
 
 type schemaSimpleTypeInput struct {
@@ -993,11 +1026,18 @@ type schemaElementParticleInput struct {
 }
 
 type schemaElementComponent struct {
-	declaredType QName
-	typeID       ComponentID
-	hasTypeID    bool
-	abstract     bool
-	nillable     bool
+	declaredType      QName
+	typeID            ComponentID
+	hasTypeID         bool
+	abstract          bool
+	nillable          bool
+	substitutionGroup []schemaElementSubstitutionGroup
+}
+
+type schemaElementSubstitutionGroup struct {
+	name     QName
+	targetID ComponentID
+	loc      Loc
 }
 
 type schemaComplexTypeComponent struct {
@@ -1081,6 +1121,10 @@ func newSchema(inputs []schemaDocumentInput) (Schema, error) {
 // newSchemaWithPolicy derives the construction version once from the validated
 // graph policy and passes it through component resolution.
 func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (Schema, error) {
+	return newSchemaWithPolicyAndEdges(inputs, nil, policy)
+}
+
+func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDocumentEdge, policy LanguagePolicy) (Schema, error) {
 	version, err := xsdVersionForLanguagePolicy(policy)
 	if err != nil {
 		return Schema{}, invalidLanguagePolicyDiagnostic(policy, err)
@@ -1101,6 +1145,22 @@ func newSchemaWithPolicy(inputs []schemaDocumentInput, policy LanguagePolicy) (S
 		return Schema{}, err
 	}
 	elements, err := resolveSchemaElementTypes(records, byName, simpleTypes, complexTypes, version)
+	if err != nil {
+		return Schema{}, err
+	}
+	sourceNamespaces := make(map[SourceID]string, len(inputs))
+	for _, input := range inputs {
+		sourceNamespaces[input.source] = input.targetNamespace
+	}
+	elements, err = resolveSchemaElementSubstitutionGroups(
+		records,
+		byName,
+		simpleTypes,
+		elements,
+		edges,
+		sourceNamespaces,
+		version,
+	)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -1236,10 +1296,19 @@ func newSchemaComponentRecord(source SourceID, declarationIndex int, declaration
 		kind:        declaration.kind,
 		name:        declaration.name,
 		loc:         declaration.loc,
-		element:     declaration.element,
+		element:     cloneSchemaElementInput(declaration.element),
 		simpleType:  declaration.simpleType,
 		complexType: cloneSchemaComplexTypeInput(declaration.complexType),
 	}, nil
+}
+
+func cloneSchemaElementInput(input *schemaElementInput) *schemaElementInput {
+	if input == nil {
+		return nil
+	}
+	clone := *input
+	clone.substitutionGroup = cloneSchemaElementSubstitutionGroupInputs(input.substitutionGroup)
+	return &clone
 }
 
 func schemaComponentOrdinal(declarationIndex int, loc Loc) (uint64, error) {
@@ -1286,11 +1355,12 @@ func completeSchemaComponent(
 	}
 	if element.present {
 		component.element = &schemaElementComponent{
-			declaredType: element.declaredType,
-			typeID:       element.typeID,
-			hasTypeID:    element.hasTypeID,
-			abstract:     element.abstract,
-			nillable:     element.nillable,
+			declaredType:      element.declaredType,
+			typeID:            element.typeID,
+			hasTypeID:         element.hasTypeID,
+			abstract:          element.abstract,
+			nillable:          element.nillable,
+			substitutionGroup: cloneSchemaElementSubstitutionGroups(element.substitutionGroup),
 		}
 	}
 	if simpleType.present {
@@ -1308,6 +1378,20 @@ func completeSchemaComponent(
 		}
 	}
 	return component
+}
+
+func cloneSchemaElementSubstitutionGroups(input []schemaElementSubstitutionGroup) []schemaElementSubstitutionGroup {
+	if len(input) == 0 {
+		return nil
+	}
+	return append([]schemaElementSubstitutionGroup(nil), input...)
+}
+
+func cloneSchemaElementSubstitutionGroupInputs(input []schemaElementSubstitutionGroupInput) []schemaElementSubstitutionGroupInput {
+	if len(input) == 0 {
+		return nil
+	}
+	return append([]schemaElementSubstitutionGroupInput(nil), input...)
 }
 
 func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTypeInput {
