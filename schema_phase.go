@@ -730,10 +730,7 @@ func validateSchemaRootUnqualifiedAttribute(element *syntaxElement, attribute sy
 	case "elementFormDefault":
 		return "", validateSchemaEnum(attribute, "qualified", "unqualified")
 	case "blockDefault":
-		if err := validateSchemaRestrictionList(attribute, "extension", "restriction", "substitution"); err != nil {
-			return "", err
-		}
-		return "schema root attribute \"blockDefault\" is not implemented", nil
+		return "", validateSchemaBlockAttribute(attribute, schemaBlockAll, version, schemaBlockDocumentDefault)
 	case "finalDefault":
 		if err := validateSchemaRestrictionList(attribute, "extension", "restriction", "list", "union"); err != nil {
 			return "", err
@@ -823,6 +820,11 @@ func validateSchemaRestrictionList(attribute syntaxAttribute, values ...string) 
 		}
 	}
 	return nil
+}
+
+func validateSchemaBlockAttribute(attribute syntaxAttribute, allowed schemaBlockSet, version XSDVersion, scope schemaBlockPolicyScope) error {
+	_, err := schemaBlockPolicyFromAttribute(attribute, allowed, version, scope)
+	return err
 }
 
 func validateSchemaXPathDefaultNamespace(attribute syntaxAttribute) error {
@@ -970,7 +972,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	case schemaAttributeAllowed:
 		return "", validateAllowedGlobalSchemaAttribute(element, kind, attribute, version)
 	case schemaAttributeUnsupported:
-		if err := validateRecognizedUnsupportedAttribute(element, attribute); err != nil {
+		if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
 			return "", err
 		}
 		if version == XSDVersion10 && isXSD11GlobalSchemaAttribute(kind, attribute.name.local) {
@@ -1029,6 +1031,15 @@ func validateAllowedGlobalSchemaAttribute(element *syntaxElement, kind Component
 	}
 	if attribute.name.local == "id" && !validNCName(collapseXMLWhitespace(attribute.value)) {
 		return newSchemaCompositionDiagnostic(attribute.loc, "schema declaration id must be a valid NCName")
+	}
+	if attribute.name.local == "block" {
+		allowed := schemaBlockElementMask
+		scope := schemaBlockElement
+		if kind == ComponentKindComplexTypeDefinition {
+			allowed = schemaBlockComplexMask
+			scope = schemaBlockComplex
+		}
+		return validateSchemaBlockAttribute(attribute, allowed, version, scope)
 	}
 	if kind == ComponentKindNotationDeclaration {
 		return validateSchemaNotationAttribute(attribute, version)
@@ -1111,8 +1122,10 @@ func validateSchemaNotationAttribute(attribute syntaxAttribute, version XSDVersi
 
 func elementSchemaAttributeStatus(local string) schemaAttributeStatus {
 	switch local {
-	case "abstract", "block", "default", "fixed", "nillable", "substitutionGroup", "targetNamespace", "final":
+	case "abstract", "default", "fixed", "nillable", "substitutionGroup", "targetNamespace", "final":
 		return schemaAttributeUnsupported
+	case "block":
+		return schemaAttributeAllowed
 	case "type":
 		return schemaAttributeAllowed
 	default:
@@ -1133,14 +1146,16 @@ func attributeSchemaAttributeStatus(local string) schemaAttributeStatus {
 
 func complexTypeSchemaAttributeStatus(local string) schemaAttributeStatus {
 	switch local {
-	case "abstract", "block", "final", "mixed", "defaultAttributesApply":
+	case "abstract", "final", "mixed", "defaultAttributesApply":
 		return schemaAttributeUnsupported
+	case "block":
+		return schemaAttributeAllowed
 	default:
 		return schemaAttributeForbidden
 	}
 }
 
-func validateRecognizedUnsupportedAttribute(element *syntaxElement, attribute syntaxAttribute) error {
+func validateRecognizedUnsupportedAttribute(element *syntaxElement, attribute syntaxAttribute, version XSDVersion) error {
 	switch attribute.name.local {
 	case "type", "ref", "itemType", "base":
 		return validateConditionalQName(element, attribute)
@@ -1152,9 +1167,9 @@ func validateRecognizedUnsupportedAttribute(element *syntaxElement, attribute sy
 		return validateSchemaBoolean(attribute)
 	case "block":
 		if element.name.local == "element" {
-			return validateSchemaRestrictionList(attribute, "extension", "restriction", "substitution")
+			return validateSchemaBlockAttribute(attribute, schemaBlockElementMask, version, schemaBlockElement)
 		}
-		return validateSchemaRestrictionList(attribute, "extension", "restriction")
+		return validateSchemaBlockAttribute(attribute, schemaBlockComplexMask, version, schemaBlockComplex)
 	case "final":
 		if element.name.local == "simpleType" {
 			return validateSchemaRestrictionList(attribute, "extension", "restriction", "list", "union")
@@ -3923,7 +3938,7 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 		case "abstract", "substitutionGroup":
 			return candidate, newSchemaCompositionDiagnostic(attribute.loc, "local element has forbidden attribute "+attribute.name.local)
 		case "default", "fixed", "block", "nillable":
-			if err := validateRecognizedUnsupportedAttribute(element, attribute); err != nil {
+			if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
 				return candidate, err
 			}
 			candidate.considerAt(attribute.loc, fmt.Sprintf("local element attribute %q is not implemented", attribute.name.local))

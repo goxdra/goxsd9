@@ -418,6 +418,25 @@ func (declaration ElementDeclaration) IsNillable() bool {
 	return declaration.facts.nillable
 }
 
+// DisallowedSubstitutions returns the effective substitution methods disallowed
+// for this element in specification order. The returned slice is independent
+// of the schema.
+func (declaration ElementDeclaration) DisallowedSubstitutions() []string {
+	if declaration.facts == nil {
+		return nil
+	}
+	return declaration.facts.disallowedSubstitutions.set.values()
+}
+
+// DisallowedSubstitutionsLoc returns the source location of the explicit block
+// or blockDefault attribute that supplied the effective fact.
+func (declaration ElementDeclaration) DisallowedSubstitutionsLoc() Loc {
+	if declaration.facts == nil {
+		return Loc{}
+	}
+	return declaration.facts.disallowedSubstitutions.loc
+}
+
 // TypeID returns the identity of a named declared type. Built-in datatypes do
 // not have synthetic component identities and return the zero ID.
 func (declaration ElementDeclaration) TypeID() (ComponentID, bool) {
@@ -876,6 +895,25 @@ func (definition ComplexTypeDefinition) Particle() Particle {
 		return nil
 	}
 	return definition.facts.particle
+}
+
+// ProhibitedSubstitutions returns the effective derivation methods prohibited
+// for this complex type in specification order. The returned slice is
+// independent of the schema.
+func (definition ComplexTypeDefinition) ProhibitedSubstitutions() []string {
+	if definition.facts == nil {
+		return nil
+	}
+	return definition.facts.prohibitedSubstitutions.set.values()
+}
+
+// ProhibitedSubstitutionsLoc returns the source location of the explicit block
+// or blockDefault attribute that supplied the effective fact.
+func (definition ComplexTypeDefinition) ProhibitedSubstitutionsLoc() Loc {
+	if definition.facts == nil {
+		return Loc{}
+	}
+	return definition.facts.prohibitedSubstitutions.loc
 }
 
 // ParticleOccurrenceMaximumKind identifies the complete maximum occurrence
@@ -1416,6 +1454,7 @@ type schemaElementInput struct {
 	inlineSimpleType  *schemaSimpleTypeInput
 	abstract          bool
 	nillable          bool
+	block             schemaBlockPolicy
 	substitutionGroup []schemaElementSubstitutionGroupInput
 }
 
@@ -1600,7 +1639,8 @@ type schemaBooleanFacetVariant struct{}
 func (schemaBooleanFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
-	particle schemaComplexTypeParticleInput
+	particle                schemaComplexTypeParticleInput
+	prohibitedSubstitutions schemaBlockPolicy
 }
 
 type schemaComplexTypeParticleInput interface {
@@ -1637,14 +1677,15 @@ type schemaElementReferenceInput struct {
 }
 
 type schemaElementComponent struct {
-	declaredType      QName
-	typeID            ComponentID
-	hasTypeID         bool
-	typeReference     schemaSimpleTypeReferenceComponent
-	hasTypeReference  bool
-	abstract          bool
-	nillable          bool
-	substitutionGroup []schemaElementSubstitutionGroup
+	declaredType            QName
+	typeID                  ComponentID
+	hasTypeID               bool
+	typeReference           schemaSimpleTypeReferenceComponent
+	hasTypeReference        bool
+	abstract                bool
+	nillable                bool
+	disallowedSubstitutions schemaBlockPolicy
+	substitutionGroup       []schemaElementSubstitutionGroup
 }
 
 type schemaElementSubstitutionGroup struct {
@@ -1667,7 +1708,8 @@ type schemaNotationComponent struct {
 }
 
 type schemaComplexTypeComponent struct {
-	particle Particle
+	particle                Particle
+	prohibitedSubstitutions schemaBlockPolicy
 }
 
 type schemaChoiceParticle struct {
@@ -2013,14 +2055,15 @@ func completeSchemaComponent(
 	}
 	if element.present {
 		component.element = &schemaElementComponent{
-			declaredType:      element.declaredType,
-			typeID:            element.typeID,
-			hasTypeID:         element.hasTypeID,
-			typeReference:     element.typeReference,
-			hasTypeReference:  element.hasTypeReference,
-			abstract:          element.abstract,
-			nillable:          element.nillable,
-			substitutionGroup: cloneSchemaElementSubstitutionGroups(element.substitutionGroup),
+			declaredType:            element.declaredType,
+			typeID:                  element.typeID,
+			hasTypeID:               element.hasTypeID,
+			typeReference:           element.typeReference,
+			hasTypeReference:        element.hasTypeReference,
+			abstract:                element.abstract,
+			nillable:                element.nillable,
+			disallowedSubstitutions: element.block,
+			substitutionGroup:       cloneSchemaElementSubstitutionGroups(element.substitutionGroup),
 		}
 	}
 	if attribute.present {
@@ -2062,7 +2105,8 @@ func completeSchemaComponent(
 	}
 	if complexType.present {
 		component.complexType = &schemaComplexTypeComponent{
-			particle: complexType.particle,
+			particle:                complexType.particle,
+			prohibitedSubstitutions: complexType.prohibitedSubstitutions,
 		}
 	}
 	return component
@@ -2085,7 +2129,10 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 	if input == nil {
 		return nil
 	}
-	clone := &schemaComplexTypeInput{particle: input.particle}
+	clone := &schemaComplexTypeInput{
+		particle:                input.particle,
+		prohibitedSubstitutions: input.prohibitedSubstitutions,
+	}
 	switch particle := input.particle.(type) {
 	case *schemaChoiceParticleInput:
 		if particle == nil {
@@ -2135,6 +2182,7 @@ func cloneSchemaElementInput(input *schemaElementInput) *schemaElementInput {
 		inlineSimpleType:  cloneSchemaSimpleTypeInput(input.inlineSimpleType),
 		abstract:          input.abstract,
 		nillable:          input.nillable,
+		block:             input.block,
 		substitutionGroup: cloneSchemaElementSubstitutionGroupInputs(input.substitutionGroup),
 	}
 }

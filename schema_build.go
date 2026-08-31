@@ -40,6 +40,7 @@ const (
 	diagnosticSchemaSubstitutionImportCode         = "XSD3042"
 	diagnosticSchemaSubstitutionTypeCode           = "XSD3043"
 	diagnosticSchemaSubstitutionCycleCode          = "XSD3044"
+	diagnosticSchemaBlockCode                      = "XSD3045"
 	diagnosticSchemaBridgeInvariantCode            = "GOXSD9025"
 )
 
@@ -71,6 +72,10 @@ const (
 	schemaSubstitutionResolveXSD11SpecRef     = "xsd11-structures#src-resolve"
 	schemaSubstitutionConstraintXSD10SpecRef  = "xsd10-structures#coss-element"
 	schemaSubstitutionConstraintXSD11SpecRef  = "xsd11-structures#coss-element"
+	schemaBlockComplexXSD10SpecRef            = "xsd10-structures#Complex_Type_Definition_details"
+	schemaBlockComplexXSD11SpecRef            = "xsd11-structures#Complex_Type_Definition_details"
+	schemaBlockDefaultXSD10SpecRef            = "xsd10-structures#element-schema"
+	schemaBlockDefaultXSD11SpecRef            = "xsd11-structures#element-schema"
 )
 
 var (
@@ -107,6 +112,7 @@ var (
 	errSchemaSubstitutionTypeInvalid          = errors.New("substitution-group type derivation is invalid")
 	errSchemaSubstitutionTypeUnsupported      = errors.New("substitution-group type derivation is not implemented")
 	errSchemaSubstitutionCycle                = errors.New("substitution-group affiliations form a cycle")
+	errSchemaBlock                            = errors.New("schema block value is invalid")
 	errLanguagePolicyMismatch                 = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
@@ -121,7 +127,201 @@ type schemaTargetNamespace struct {
 type schemaDocumentFacts struct {
 	targetNamespace             schemaTargetNamespace
 	elementFormDefaultQualified bool
+	blockDefault                schemaBlockPolicy
 	chameleon                   bool
+}
+
+type schemaBlockSet uint8
+
+const (
+	schemaBlockExtension schemaBlockSet = 1 << iota
+	schemaBlockRestriction
+	schemaBlockSubstitution
+	schemaBlockAll = schemaBlockExtension | schemaBlockRestriction | schemaBlockSubstitution
+)
+
+const (
+	schemaBlockElementMask = schemaBlockAll
+	schemaBlockComplexMask = schemaBlockExtension | schemaBlockRestriction
+)
+
+type schemaBlockPolicy struct {
+	set     schemaBlockSet
+	loc     Loc
+	present bool
+}
+
+var schemaBlockValueOrder = [...]struct {
+	bit   schemaBlockSet
+	value string
+}{
+	{bit: schemaBlockExtension, value: "extension"},
+	{bit: schemaBlockRestriction, value: "restriction"},
+	{bit: schemaBlockSubstitution, value: "substitution"},
+}
+
+func (set schemaBlockSet) values() []string {
+	if set == 0 {
+		return nil
+	}
+	values := make([]string, 0, len(schemaBlockValueOrder))
+	for _, item := range schemaBlockValueOrder {
+		if set&item.bit == 0 {
+			continue
+		}
+		values = append(values, item.value)
+	}
+	return values
+}
+
+func (policy schemaBlockPolicy) project(mask schemaBlockSet) schemaBlockPolicy {
+	policy.set &= mask
+	return policy
+}
+
+type schemaBlockPolicyScope uint8
+
+const (
+	schemaBlockDocumentDefault schemaBlockPolicyScope = iota + 1
+	schemaBlockElement
+	schemaBlockComplex
+)
+
+func schemaBlockSpecRef(version XSDVersion, scope schemaBlockPolicyScope) string {
+	switch scope {
+	case schemaBlockDocumentDefault:
+		if version == XSDVersion10 {
+			return schemaBlockDefaultXSD10SpecRef
+		}
+		if version == XSDVersion11 {
+			return schemaBlockDefaultXSD11SpecRef
+		}
+	case schemaBlockElement:
+		if version == XSDVersion10 {
+			return schemaElementTypeXSD10SpecRef
+		}
+		if version == XSDVersion11 {
+			return schemaElementTypeXSD11SpecRef
+		}
+	case schemaBlockComplex:
+		if version == XSDVersion10 {
+			return schemaBlockComplexXSD10SpecRef
+		}
+		if version == XSDVersion11 {
+			return schemaBlockComplexXSD11SpecRef
+		}
+	}
+	return ""
+}
+
+func newSchemaBlockDiagnostic(attribute syntaxAttribute, message string, version XSDVersion, scope schemaBlockPolicyScope, cause error) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaBlockCode,
+		loc:     attribute.loc,
+		message: message,
+		specRef: schemaBlockSpecRef(version, scope),
+		cause:   cause,
+	}
+}
+
+func schemaBlockValueDiagnostic(attribute syntaxAttribute, message string, version XSDVersion, scope schemaBlockPolicyScope) Diagnostic {
+	return newSchemaBlockDiagnostic(
+		attribute,
+		message,
+		version,
+		scope,
+		fmt.Errorf("%w: %s", errSchemaBlock, message),
+	)
+}
+
+func schemaBlockPolicyFromAttribute(attribute syntaxAttribute, allowed schemaBlockSet, version XSDVersion, scope schemaBlockPolicyScope) (schemaBlockPolicy, error) {
+	lexeme := collapseXMLWhitespace(attribute.value)
+	if lexeme == "" {
+		return schemaBlockPolicy{loc: attribute.loc, present: true}, nil
+	}
+	tokens := strings.Split(lexeme, " ")
+	if len(tokens) != 1 {
+		for _, token := range tokens {
+			if token != "#all" {
+				continue
+			}
+			return schemaBlockPolicy{}, schemaBlockValueDiagnostic(
+				attribute,
+				fmt.Sprintf("attribute %q cannot combine #all with other values", attribute.name.local),
+				version,
+				scope,
+			)
+		}
+	}
+	if len(tokens) == 1 && tokens[0] == "#all" {
+		return schemaBlockPolicy{set: allowed, loc: attribute.loc, present: true}, nil
+	}
+	var set schemaBlockSet
+	for _, token := range tokens {
+		var bit schemaBlockSet
+		switch token {
+		case "extension":
+			bit = schemaBlockExtension
+		case "restriction":
+			bit = schemaBlockRestriction
+		case "substitution":
+			bit = schemaBlockSubstitution
+		default:
+			return schemaBlockPolicy{}, schemaBlockValueDiagnostic(
+				attribute,
+				fmt.Sprintf("attribute %q has an invalid block value %q", attribute.name.local, token),
+				version,
+				scope,
+			)
+		}
+		if allowed&bit == 0 {
+			return schemaBlockPolicy{}, schemaBlockValueDiagnostic(
+				attribute,
+				fmt.Sprintf("attribute %q has an invalid block value %q", attribute.name.local, token),
+				version,
+				scope,
+			)
+		}
+		set |= bit
+	}
+	return schemaBlockPolicy{set: set, loc: attribute.loc, present: true}, nil
+}
+
+func syntaxDocumentBlockDefaultPolicy(document *syntaxDocument, version XSDVersion) (schemaBlockPolicy, error) {
+	if document == nil || document.root == nil {
+		return schemaBlockPolicy{}, newSchemaBridgeInvariant(Loc{}, "schema document has no root while reading blockDefault")
+	}
+	attributes := syntaxAttributesByLocal(document.root, "blockDefault")
+	if len(attributes) == 0 {
+		return schemaBlockPolicy{}, nil
+	}
+	if len(attributes) != 1 {
+		return schemaBlockPolicy{}, schemaBlockValueDiagnostic(
+			attributes[1],
+			"schema root attribute \"blockDefault\" must be unique",
+			version,
+			schemaBlockDocumentDefault,
+		)
+	}
+	return schemaBlockPolicyFromAttribute(attributes[0], schemaBlockAll, version, schemaBlockDocumentDefault)
+}
+
+func schemaDeclarationBlockPolicy(element *syntaxElement, defaultPolicy schemaBlockPolicy, allowed schemaBlockSet, version XSDVersion, scope schemaBlockPolicyScope) (schemaBlockPolicy, bool, error) {
+	attributes := syntaxAttributesByLocal(element, "block")
+	if len(attributes) > 1 {
+		return schemaBlockPolicy{}, true, schemaBlockValueDiagnostic(
+			attributes[1],
+			element.name.local+" attribute \"block\" must be unique",
+			version,
+			scope,
+		)
+	}
+	if len(attributes) == 1 {
+		policy, err := schemaBlockPolicyFromAttribute(attributes[0], allowed, version, scope)
+		return policy, true, err
+	}
+	return defaultPolicy.project(allowed), false, nil
 }
 
 // discoverSchema completes the internal pipeline used by ParseSchema.
@@ -264,9 +464,14 @@ func schemaDocumentInputAt(
 	if err != nil {
 		return schemaDocumentInput{}, err
 	}
+	blockDefault, err := syntaxDocumentBlockDefaultPolicy(document, version)
+	if err != nil {
+		return schemaDocumentInput{}, err
+	}
 	facts := schemaDocumentFacts{
 		targetNamespace:             namespaces[index],
 		elementFormDefaultQualified: elementFormDefaultQualified,
+		blockDefault:                blockDefault,
 		chameleon:                   !declaredNamespace.present && namespaces[index].present,
 	}
 	declarations, err := schemaDocumentDeclarationsWithFacts(document, facts, version)
@@ -739,7 +944,7 @@ func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, 
 		loc:  element.loc,
 	}
 	if kind == ComponentKindElementDeclaration {
-		elementType, elementErr := schemaElementTypeInput(element, version)
+		elementType, elementErr := schemaElementTypeInput(element, facts, version)
 		if elementErr != nil {
 			return schemaComponentInput{}, elementErr
 		}
@@ -812,7 +1017,7 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 	}, nil
 }
 
-func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schemaElementInput, error) {
+func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaElementInput, error) {
 	abstract, abstractPresent, abstractLoc, err := schemaElementBooleanAttribute(element, "abstract")
 	if err != nil {
 		return nil, err
@@ -822,6 +1027,16 @@ func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schema
 		return nil, err
 	}
 	substitutionGroup, err := schemaElementSubstitutionGroupInputs(element, version)
+	if err != nil {
+		return nil, err
+	}
+	block, explicitBlock, err := schemaDeclarationBlockPolicy(
+		element,
+		facts.blockDefault,
+		schemaBlockElementMask,
+		version,
+		schemaBlockElement,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -839,13 +1054,15 @@ func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schema
 			nillablePresent,
 			nillableLoc,
 			substitutionGroup,
+			block,
+			explicitBlock,
 		)
 	}
 	if len(attributes) == 1 && inline != nil {
 		return nil, newSchemaCompositionDiagnostic(inline.loc, "element cannot combine type attribute with an inline simpleType")
 	}
 	if inline != nil {
-		return schemaElementTypeInputForInline(inline, version, abstract, nillable, substitutionGroup)
+		return schemaElementTypeInputForInline(inline, version, abstract, nillable, substitutionGroup, block)
 	}
 	declaredType, err := expandSchemaQName(element, attributes[0])
 	if err != nil {
@@ -856,6 +1073,7 @@ func schemaElementTypeInput(element *syntaxElement, version XSDVersion) (*schema
 		typeLoc:           attributes[0].loc,
 		abstract:          abstract,
 		nillable:          nillable,
+		block:             block,
 		substitutionGroup: substitutionGroup,
 	}, nil
 }
@@ -868,9 +1086,22 @@ func schemaElementTypeInputWithoutDeclaredType(
 	nillablePresent bool,
 	nillableLoc Loc,
 	substitutionGroup []schemaElementSubstitutionGroupInput,
+	block schemaBlockPolicy,
+	explicitBlock bool,
 ) (*schemaElementInput, error) {
 	if noTypeErr := validateSchemaElementWithoutDeclaredType(element, version, abstractPresent, abstractLoc, nillablePresent, nillableLoc); noTypeErr != nil {
 		return nil, noTypeErr
+	}
+	if explicitBlock || block.set != 0 {
+		loc := block.loc
+		if loc.IsZero() {
+			loc = element.loc
+		}
+		return nil, newSchemaSyntaxUnsupportedForVersion(
+			loc,
+			"block facts for global elements without a supported declared type are not implemented",
+			version,
+		)
 	}
 	if len(substitutionGroup) == 0 {
 		return nil, nil
@@ -888,6 +1119,7 @@ func schemaElementTypeInputForInline(
 	abstract bool,
 	nillable bool,
 	substitutionGroup []schemaElementSubstitutionGroupInput,
+	block schemaBlockPolicy,
 ) (*schemaElementInput, error) {
 	if len(substitutionGroup) > 0 {
 		return nil, newSchemaSyntaxUnsupportedForVersion(
@@ -908,6 +1140,7 @@ func schemaElementTypeInputForInline(
 		inlineSimpleType: simpleType,
 		abstract:         abstract,
 		nillable:         nillable,
+		block:            block,
 	}, nil
 }
 
@@ -991,8 +1224,29 @@ func schemaElementBooleanAttribute(element *syntaxElement, local string) (bool, 
 }
 
 func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
+	block, explicitBlock, err := schemaDeclarationBlockPolicy(
+		element,
+		facts.blockDefault,
+		schemaBlockComplexMask,
+		version,
+		schemaBlockComplex,
+	)
+	if err != nil {
+		return nil, err
+	}
 	model := schemaComplexTypeModel(element)
 	if model == nil {
+		if explicitBlock || block.set != 0 {
+			loc := block.loc
+			if loc.IsZero() {
+				loc = element.loc
+			}
+			return nil, newSchemaSyntaxUnsupportedForVersion(
+				loc,
+				"block facts for global complex types without a supported particle model are not implemented",
+				version,
+			)
+		}
 		return nil, nil
 	}
 
@@ -1001,7 +1255,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 		return nil, err
 	}
 	if model.name.local == "choice" {
-		return schemaChoiceComplexTypeInput(model, occurrences, facts, version)
+		return schemaChoiceComplexTypeInput(model, occurrences, facts, version, block)
 	}
 	if facts.elementFormDefaultQualified && schemaModelHasNamedElementChild(model) {
 		return nil, newSchemaSyntaxUnsupported(
@@ -1009,7 +1263,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 			"schema elementFormDefault=qualified is not implemented for local sequence elements",
 		)
 	}
-	return schemaSequenceComplexTypeInput(model, occurrences, facts, version)
+	return schemaSequenceComplexTypeInput(model, occurrences, facts, version, block)
 }
 
 func schemaComplexTypeModel(element *syntaxElement) *syntaxElement {
@@ -1023,7 +1277,7 @@ func schemaComplexTypeModel(element *syntaxElement) *syntaxElement {
 	return nil
 }
 
-func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
+func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
 	input := &schemaChoiceParticleInput{
 		loc:          model.loc,
 		occurrences:  occurrences,
@@ -1040,10 +1294,10 @@ func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccu
 		}
 		input.alternatives = append(input.alternatives, alternative)
 	}
-	return &schemaComplexTypeInput{particle: input}, nil
+	return &schemaComplexTypeInput{particle: input, prohibitedSubstitutions: block}, nil
 }
 
-func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
+func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
 	input := &schemaSequenceParticleInput{
 		loc:         model.loc,
 		occurrences: occurrences,
@@ -1063,7 +1317,7 @@ func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOc
 		}
 		input.elements = append(input.elements, alternative)
 	}
-	return &schemaComplexTypeInput{particle: input}, nil
+	return &schemaComplexTypeInput{particle: input, prohibitedSubstitutions: block}, nil
 }
 
 func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, allowNamespacePolicy bool) (schemaElementParticleInput, error) {
@@ -2207,6 +2461,7 @@ type schemaElementTypeResult struct {
 	hasTypeReference  bool
 	abstract          bool
 	nillable          bool
+	block             schemaBlockPolicy
 	substitutionGroup []schemaElementSubstitutionGroup
 }
 
@@ -2218,6 +2473,7 @@ func resolvedSchemaElementTypeResult(input *schemaElementInput, typeID Component
 		hasTypeID:    hasTypeID,
 		abstract:     input.abstract,
 		nillable:     input.nillable,
+		block:        input.block,
 	}
 }
 
@@ -2854,6 +3110,7 @@ func resolveSchemaElementType(
 			present:  true,
 			abstract: input.abstract,
 			nillable: input.nillable,
+			block:    input.block,
 			typeReference: schemaSimpleTypeReferenceComponent{
 				kind:           SimpleTypeReferenceAnonymous,
 				loc:            input.typeLoc,
@@ -2936,6 +3193,7 @@ func resolveSchemaElementType(
 		hasTypeReference: true,
 		abstract:         input.abstract,
 		nillable:         input.nillable,
+		block:            input.block,
 	}, nil
 }
 
@@ -3032,6 +3290,7 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 			hasTypeReference: true,
 			abstract:         input.abstract,
 			nillable:         input.nillable,
+			block:            input.block,
 		}, nil
 	case "boolean":
 		if !scope.allowsBoolean() {
@@ -3048,6 +3307,7 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 			hasTypeReference: true,
 			abstract:         input.abstract,
 			nillable:         input.nillable,
+			block:            input.block,
 		}, nil
 	case "precisionDecimal":
 		if version == XSDVersion10 {
@@ -3067,6 +3327,7 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 			hasTypeReference: true,
 			abstract:         input.abstract,
 			nillable:         input.nillable,
+			block:            input.block,
 		}, nil
 	default:
 		return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
@@ -3115,8 +3376,9 @@ func unsupportedSequencePrecisionDecimal(input *schemaElementInput, version XSDV
 }
 
 type schemaComplexTypeResult struct {
-	present  bool
-	particle Particle
+	present                 bool
+	particle                Particle
+	prohibitedSubstitutions schemaBlockPolicy
 }
 
 func resolveSchemaComplexTypes(
@@ -3150,8 +3412,9 @@ func resolveSchemaComplexTypes(
 			return nil, err
 		}
 		results[index] = schemaComplexTypeResult{
-			present:  true,
-			particle: particle,
+			present:                 true,
+			particle:                particle,
+			prohibitedSubstitutions: record.complexType.prohibitedSubstitutions,
 		}
 	}
 	return results, nil

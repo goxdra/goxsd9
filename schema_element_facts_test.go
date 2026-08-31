@@ -299,8 +299,8 @@ func TestSchemaBridgeKeepsElementFactExclusionsUnsupported(t *testing.T) {
 			version: XSDVersion11,
 		},
 		{
-			name:    "block",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" type="xs:integer" abstract="true" block="extension"/></xs:schema>`,
+			name:    "untyped block",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" block="extension"/></xs:schema>`,
 			version: XSDVersion11,
 		},
 		{
