@@ -12,11 +12,12 @@ import (
 const baseSyncCommand = "go tool workflowctl base-sync"
 
 type gitWorktree struct {
-	path   string
-	head   string
-	branch string
-	locked bool
-	bare   bool
+	path     string
+	head     string
+	branch   string
+	locked   bool
+	bare     bool
+	prunable string
 }
 
 type repositoryLayout struct {
@@ -87,6 +88,10 @@ func (a app) repositoryLayout(callerRoot string) (repositoryLayout, error) {
 	if err != nil {
 		return repositoryLayout{}, err
 	}
+	preflightErr := preflightRegisteredWorktreePaths(worktrees)
+	if preflightErr != nil {
+		return repositoryLayout{}, preflightErr
+	}
 	primaryIndex, err := a.canonicalPrimaryIndex(callerRoot, common, worktrees)
 	if err != nil {
 		return repositoryLayout{}, err
@@ -125,6 +130,28 @@ func (a app) readWorktreeInventory(root string) ([]gitWorktree, error) {
 		worktrees[index].path = path
 	}
 	return worktrees, nil
+}
+
+func preflightRegisteredWorktreePaths(worktrees []gitWorktree) error {
+	for _, worktree := range worktrees {
+		_, err := os.Stat(worktree.path)
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect registered Git worktree %q: %w", worktree.path, err)
+		}
+		return missingWorktreeRegistrationError(worktree)
+	}
+	return nil
+}
+
+func missingWorktreeRegistrationError(worktree gitWorktree) error {
+	remediation := "inspect with `git worktree prune --dry-run --verbose`; after confirming this exact path is stale, manually run `git worktree prune --verbose` from the repository"
+	if worktree.prunable == "" {
+		return stateError("Git worktree registration %q has a missing path; %s", worktree.path, remediation)
+	}
+	return stateError("Git worktree registration %q has a missing path; Git reported prunable reason %q; %s", worktree.path, worktree.prunable, remediation)
 }
 
 func (a app) canonicalPrimaryIndex(root, common string, worktrees []gitWorktree) (int, error) {
@@ -182,6 +209,9 @@ func parseWorktreeInventory(output string) ([]gitWorktree, error) {
 				worktree.bare = true
 			case strings.HasPrefix(line, "locked"):
 				worktree.locked = true
+			case line == "prunable" || strings.HasPrefix(line, "prunable "):
+				worktree.prunable = strings.TrimPrefix(line, "prunable")
+				worktree.prunable = strings.TrimPrefix(worktree.prunable, " ")
 			}
 		}
 		if worktree.path == "" {

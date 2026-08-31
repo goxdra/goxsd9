@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -45,21 +46,25 @@ func TestAddClaimWorktreeUsesRunLocalBranchAfterFixedRemoteWins(t *testing.T) {
 		remoteBranch = "agent/issue-70"
 		localBranch  = "agent/issue-70-run-test"
 	)
+	primary := t.TempDir()
+	stale := t.TempDir()
+	common := filepath.Join(primary, ".git")
+	runLocal := claimWorktreePath(primary, localBranch)
 	var added string
 	application := app{
 		executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 			command := name + " " + strings.Join(args, " ")
 			switch command {
 			case "git rev-parse --path-format=absolute --git-common-dir":
-				return "/repo/.git", nil
+				return common, nil
 			case "git worktree list --porcelain":
-				return "worktree /repo\nHEAD base\nbranch refs/heads/main\n\n" +
-					"worktree /repo-worktrees/issue-70\nHEAD stale\nbranch refs/heads/agent/issue-70\n", nil
-			case "git -C /repo rev-parse --path-format=absolute --git-dir":
-				return "/repo/.git", nil
-			case "git -C /repo-worktrees/issue-70 rev-parse --path-format=absolute --git-dir":
-				return "/repo/.git/worktrees/issue-70", nil
-			case "git worktree add -b agent/issue-70-run-test /repo-worktrees/issue-70-run-test origin/agent/issue-70":
+				return fmt.Sprintf("worktree %s\nHEAD base\nbranch refs/heads/main\n\n"+
+					"worktree %s\nHEAD stale\nbranch refs/heads/agent/issue-70\n", primary, stale), nil
+			case "git -C " + primary + " rev-parse --path-format=absolute --git-dir":
+				return common, nil
+			case "git -C " + stale + " rev-parse --path-format=absolute --git-dir":
+				return filepath.Join(common, "worktrees", filepath.Base(stale)), nil
+			case "git worktree add -b " + localBranch + " " + runLocal + " origin/" + remoteBranch:
 				added = command
 				return "", nil
 			default:
@@ -67,12 +72,12 @@ func TestAddClaimWorktreeUsesRunLocalBranchAfterFixedRemoteWins(t *testing.T) {
 			}
 		},
 	}
-	worktree, err := application.addClaimWorktree("/repo", remoteBranch, localBranch)
+	worktree, err := application.addClaimWorktree(primary, remoteBranch, localBranch)
 	if err != nil {
 		t.Fatalf("addClaimWorktree: %v", err)
 	}
-	if worktree != "/repo-worktrees/issue-70-run-test" {
-		t.Fatalf("worktree = %q, want run-local path", worktree)
+	if worktree != runLocal {
+		t.Fatalf("worktree = %q, want %q", worktree, runLocal)
 	}
 	if added == "" {
 		t.Fatal("run-local worktree was not added")
