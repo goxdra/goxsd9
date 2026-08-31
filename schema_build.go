@@ -626,6 +626,33 @@ func sourceIDInList(sources []SourceID, wanted SourceID) bool {
 	return false
 }
 
+func schemaVisibleCandidates(
+	candidates []int,
+	referringSource SourceID,
+	records []schemaComponentRecord,
+	visibleSources map[SourceID][]SourceID,
+	loc Loc,
+) ([]int, error) {
+	available, ok := visibleSources[referringSource]
+	if !ok {
+		return nil, newSchemaBridgeInvariant(
+			loc,
+			fmt.Sprintf("schema document %q has no visibility entry", referringSource),
+		)
+	}
+	visible := make([]int, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate < 0 || candidate >= len(records) {
+			return nil, newSchemaBridgeInvariant(loc, "schema type lookup has an invalid record index")
+		}
+		if !sourceIDInList(available, records[candidate].id.Source()) {
+			continue
+		}
+		visible = append(visible, candidate)
+	}
+	return visible, nil
+}
+
 func schemaDocumentDeclarationsWithFacts(document *syntaxDocument, facts schemaDocumentFacts, version XSDVersion) ([]schemaComponentInput, error) {
 	declarations := make([]schemaComponentInput, 0)
 	for _, node := range document.root.children {
@@ -1788,6 +1815,7 @@ const (
 type schemaSimpleTypeResolver struct {
 	records          []schemaComponentRecord
 	byName           map[QName][]int
+	visibleSources   map[SourceID][]SourceID
 	states           map[*schemaSimpleTypeInput]schemaSimpleTypeState
 	inputResults     map[*schemaSimpleTypeInput]schemaSimpleTypeResult
 	results          []schemaSimpleTypeResult
@@ -1803,11 +1831,13 @@ type schemaSimpleTypeResolution struct {
 func resolveSchemaSimpleTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
 	version XSDVersion,
 ) (schemaSimpleTypeResolution, error) {
 	resolver := schemaSimpleTypeResolver{
 		records:          records,
 		byName:           byName,
+		visibleSources:   visibleSources,
 		states:           make(map[*schemaSimpleTypeInput]schemaSimpleTypeState),
 		inputResults:     make(map[*schemaSimpleTypeInput]schemaSimpleTypeResult),
 		results:          make([]schemaSimpleTypeResult, len(records)),
@@ -1826,7 +1856,7 @@ func resolveSchemaSimpleTypes(
 		if record.element == nil || record.element.inlineSimpleType == nil {
 			continue
 		}
-		if _, err := resolver.resolveInput(record.element.inlineSimpleType, record.element.inlineSimpleType.loc, true, version); err != nil {
+		if _, err := resolver.resolveInput(record.element.inlineSimpleType, record.element.inlineSimpleType.loc, true, record.id.Source(), version); err != nil {
 			return schemaSimpleTypeResolution{}, err
 		}
 	}
@@ -2205,6 +2235,7 @@ func (scope schemaScalarTypeScope) allowsBoolean() bool {
 func resolveSchemaElementTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
 	simpleTypes schemaSimpleTypeResolution,
 	complexTypes []schemaComplexTypeResult,
 	version XSDVersion,
@@ -2217,7 +2248,7 @@ func resolveSchemaElementTypes(
 		if record.element == nil {
 			continue
 		}
-		result, err := resolveSchemaElementType(record, records, byName, simpleTypes, complexTypes, version)
+		result, err := resolveSchemaElementType(record, records, byName, visibleSources, simpleTypes, complexTypes, version)
 		if err != nil {
 			return nil, err
 		}
@@ -2793,6 +2824,7 @@ func resolveSchemaElementType(
 	record schemaComponentRecord,
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
 	simpleTypes schemaSimpleTypeResolution,
 	complexTypes []schemaComplexTypeResult,
 	version XSDVersion,
@@ -2837,15 +2869,22 @@ func resolveSchemaElementType(
 		}, nil
 	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveSchemaScalarType(input, records, byName, simpleTypes.results, version, "for global elements", schemaScalarTypeGlobalElement, true)
+		return resolveSchemaScalarType(input, records, byName, visibleSources, record.id.Source(), simpleTypes.results, version, "for global elements", schemaScalarTypeGlobalElement, true)
 	}
 
 	candidates := byName[input.declaredType]
 	if len(candidates) == 0 {
 		return unresolvedSchemaElementType(input, version)
 	}
-	typeCandidates := make([]int, 0, len(candidates))
-	for _, candidate := range candidates {
+	visibleCandidates, err := schemaVisibleCandidates(candidates, record.id.Source(), records, visibleSources, input.typeLoc)
+	if err != nil {
+		return schemaElementTypeResult{}, err
+	}
+	if len(visibleCandidates) == 0 {
+		return unresolvedSchemaElementType(input, version)
+	}
+	typeCandidates := make([]int, 0, len(visibleCandidates))
+	for _, candidate := range visibleCandidates {
 		kind := records[candidate].kind
 		if kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
 			continue
@@ -2856,7 +2895,7 @@ func resolveSchemaElementType(
 		return ambiguousSchemaElementType(input, schemaComponentLocations(records, typeCandidates), version)
 	}
 	if len(typeCandidates) == 0 {
-		return wrongKindSchemaElementType(input, schemaComponentLocations(records, candidates), version)
+		return wrongKindSchemaElementType(input, schemaComponentLocations(records, visibleCandidates), version)
 	}
 	candidate := typeCandidates[0]
 	if records[candidate].kind == ComponentKindComplexTypeDefinition {
@@ -2904,6 +2943,8 @@ func resolveSchemaScalarType(
 	input *schemaElementInput,
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	referringSource SourceID,
 	simpleTypes []schemaSimpleTypeResult,
 	version XSDVersion,
 	complexTargetSuffix string,
@@ -2918,8 +2959,15 @@ func resolveSchemaScalarType(
 	if len(candidates) == 0 {
 		return unresolvedSchemaElementType(input, version)
 	}
+	visibleCandidates, err := schemaVisibleCandidates(candidates, referringSource, records, visibleSources, input.typeLoc)
+	if err != nil {
+		return schemaElementTypeResult{}, err
+	}
+	if len(visibleCandidates) == 0 {
+		return unresolvedSchemaElementType(input, version)
+	}
 	typeCandidates := make([]int, 0, len(candidates))
-	for _, candidate := range candidates {
+	for _, candidate := range visibleCandidates {
 		kind := records[candidate].kind
 		if kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
 			continue
@@ -2930,7 +2978,7 @@ func resolveSchemaScalarType(
 		return ambiguousSchemaElementType(input, schemaComponentLocations(records, typeCandidates), version)
 	}
 	if len(typeCandidates) == 0 {
-		return wrongKindSchemaElementType(input, schemaComponentLocations(records, candidates), version)
+		return wrongKindSchemaElementType(input, schemaComponentLocations(records, visibleCandidates), version)
 	}
 	candidate := typeCandidates[0]
 	if records[candidate].kind == ComponentKindComplexTypeDefinition {
@@ -3153,6 +3201,8 @@ func resolveSchemaChoiceParticle(
 				elementInput.typeInput.declaredType,
 				records,
 				byName,
+				owner.id.Source(),
+				visibleSources,
 				simpleTypes,
 				elementInput.loc,
 				version,
@@ -3251,6 +3301,8 @@ func resolveSchemaElementParticle(
 			input.typeInput.declaredType,
 			records,
 			byName,
+			owner.id.Source(),
+			visibleSources,
 			simpleTypes,
 			input.loc,
 			version,
@@ -3272,6 +3324,8 @@ func resolveSchemaElementParticle(
 		input.typeInput,
 		records,
 		byName,
+		visibleSources,
+		owner.id.Source(),
 		simpleTypes,
 		version,
 		"for local "+model+" elements",
@@ -3380,18 +3434,7 @@ func schemaElementReferenceVisibleCandidates(
 	records []schemaComponentRecord,
 	visibleSources map[SourceID][]SourceID,
 ) ([]int, error) {
-	available, ok := visibleSources[owner.id.Source()]
-	if !ok {
-		return nil, newSchemaBridgeInvariant(owner.loc, "element reference owner has no visibility entry")
-	}
-	visible := make([]int, 0, len(elementCandidates))
-	for _, candidate := range elementCandidates {
-		if !sourceIDInList(available, records[candidate].id.Source()) {
-			continue
-		}
-		visible = append(visible, candidate)
-	}
-	return visible, nil
+	return schemaVisibleCandidates(elementCandidates, owner.id.Source(), records, visibleSources, owner.loc)
 }
 
 func schemaElementReferenceVisibilityDiagnostic(
@@ -3429,6 +3472,8 @@ func schemaScalarTypeIsPrecisionDecimal(
 	declaredType QName,
 	records []schemaComponentRecord,
 	byName map[QName][]int,
+	referringSource SourceID,
+	visibleSources map[SourceID][]SourceID,
 	simpleTypes []schemaSimpleTypeResult,
 	loc Loc,
 	version XSDVersion,
@@ -3437,11 +3482,16 @@ func schemaScalarTypeIsPrecisionDecimal(
 		return version != XSDVersion10 && declaredType.Local() == "precisionDecimal", nil
 	}
 
+	candidates := byName[declaredType]
+	if len(candidates) == 0 {
+		return false, nil
+	}
+	visibleCandidates, err := schemaVisibleCandidates(candidates, referringSource, records, visibleSources, loc)
+	if err != nil {
+		return false, err
+	}
 	typeCandidate := -1
-	for _, candidate := range byName[declaredType] {
-		if candidate < 0 || candidate >= len(records) {
-			return false, newSchemaBridgeInvariant(loc, "precisionDecimal type lookup has an invalid record index")
-		}
+	for _, candidate := range visibleCandidates {
 		kind := records[candidate].kind
 		if kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
 			continue
@@ -3766,7 +3816,7 @@ func (resolver *schemaSimpleTypeResolver) resolve(index int, version XSDVersion)
 			"simple type resolution has no model input",
 		)
 	}
-	result, err := resolver.resolveInput(input, resolver.records[index].loc, false, version)
+	result, err := resolver.resolveInput(input, resolver.records[index].loc, false, resolver.records[index].id.Source(), version)
 	if err != nil {
 		return schemaSimpleTypeResult{}, err
 	}
@@ -3774,7 +3824,7 @@ func (resolver *schemaSimpleTypeResolver) resolve(index int, version XSDVersion)
 	return result, nil
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveInput(input *schemaSimpleTypeInput, fallbackLoc Loc, anonymous bool, version XSDVersion) (schemaSimpleTypeResult, error) {
+func (resolver *schemaSimpleTypeResolver) resolveInput(input *schemaSimpleTypeInput, fallbackLoc Loc, anonymous bool, source SourceID, version XSDVersion) (schemaSimpleTypeResult, error) {
 	if input == nil {
 		return schemaSimpleTypeResult{}, newSchemaBridgeInvariant(fallbackLoc, "simple type resolution received a nil model input")
 	}
@@ -3794,7 +3844,7 @@ func (resolver *schemaSimpleTypeResolver) resolveInput(input *schemaSimpleTypeIn
 	resolver.states[input] = schemaSimpleTypeVisiting
 	resolver.stack = append(resolver.stack, input)
 	resolver.stackFallbackLoc = append(resolver.stackFallbackLoc, fallbackLoc)
-	result, err := resolver.resolveModel(input, model, version)
+	result, err := resolver.resolveModel(input, model, source, version)
 	if err != nil {
 		if popErr := resolver.popInput(input, fallbackLoc); popErr != nil {
 			return schemaSimpleTypeResult{}, popErr
@@ -3848,30 +3898,30 @@ func schemaSimpleTypeModel(input *schemaSimpleTypeInput) (schemaSimpleTypeModelI
 	}, nil
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveModel(input *schemaSimpleTypeInput, model schemaSimpleTypeModelInput, version XSDVersion) (schemaSimpleTypeResult, error) {
+func (resolver *schemaSimpleTypeResolver) resolveModel(input *schemaSimpleTypeInput, model schemaSimpleTypeModelInput, source SourceID, version XSDVersion) (schemaSimpleTypeResult, error) {
 	switch typed := model.(type) {
 	case *schemaSimpleTypeRestrictionModelInput:
 		if typed == nil {
 			return schemaSimpleTypeResult{}, newSchemaBridgeInvariant(input.loc, "simple type restriction model is nil")
 		}
-		return resolver.resolveRestrictionModel(input, typed, version)
+		return resolver.resolveRestrictionModel(input, typed, source, version)
 	case *schemaSimpleTypeListModelInput:
 		if typed == nil {
 			return schemaSimpleTypeResult{}, newSchemaBridgeInvariant(input.loc, "simple type list model is nil")
 		}
-		return resolver.resolveListModel(input, typed, version)
+		return resolver.resolveListModel(input, typed, source, version)
 	case *schemaSimpleTypeUnionModelInput:
 		if typed == nil {
 			return schemaSimpleTypeResult{}, newSchemaBridgeInvariant(input.loc, "simple type union model is nil")
 		}
-		return resolver.resolveUnionModel(input, typed, version)
+		return resolver.resolveUnionModel(input, typed, source, version)
 	default:
 		return schemaSimpleTypeResult{}, newSchemaBridgeInvariant(input.loc, "simple type has an unknown tagged model")
 	}
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeRestrictionModelInput, version XSDVersion) (schemaSimpleTypeResult, error) {
-	base, err := resolver.resolveReference(model.base, version)
+func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeRestrictionModelInput, source SourceID, version XSDVersion) (schemaSimpleTypeResult, error) {
+	base, err := resolver.resolveReference(model.base, source, version)
 	if err != nil {
 		return schemaSimpleTypeResult{}, err
 	}
@@ -3906,8 +3956,8 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 	return result, nil
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeListModelInput, version XSDVersion) (schemaSimpleTypeResult, error) {
-	itemType, err := resolver.resolveReference(model.itemType, version)
+func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeListModelInput, source SourceID, version XSDVersion) (schemaSimpleTypeResult, error) {
+	itemType, err := resolver.resolveReference(model.itemType, source, version)
 	if err != nil {
 		return schemaSimpleTypeResult{}, err
 	}
@@ -4076,13 +4126,13 @@ func unsupportedSimpleTypeRestriction(loc Loc, base schemaSimpleTypeReferenceCom
 	return diagnostic
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeUnionModelInput, version XSDVersion) (schemaSimpleTypeResult, error) {
+func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeUnionModelInput, source SourceID, version XSDVersion) (schemaSimpleTypeResult, error) {
 	if len(model.members) == 0 {
 		return schemaSimpleTypeResult{}, newSchemaCompositionDiagnostic(model.loc, "simple type union requires at least one member type")
 	}
 	members := make([]schemaSimpleTypeReferenceComponent, 0, len(model.members))
 	for _, member := range model.members {
-		resolved, err := resolver.resolveReference(member, version)
+		resolved, err := resolver.resolveReference(member, source, version)
 		if err != nil {
 			return schemaSimpleTypeResult{}, err
 		}
@@ -4104,13 +4154,13 @@ func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleT
 	}, nil
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+func (resolver *schemaSimpleTypeResolver) resolveReference(input schemaSimpleTypeReferenceInput, source SourceID, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
 	switch input.kind {
 	case schemaSimpleTypeAnonymousReferenceInput:
 		if input.anonymous == nil {
 			return schemaSimpleTypeReferenceComponent{}, newSchemaBridgeInvariant(input.loc, "anonymous simple type reference has no model")
 		}
-		result, err := resolver.resolveInput(input.anonymous, input.loc, true, version)
+		result, err := resolver.resolveInput(input.anonymous, input.loc, true, source, version)
 		if err != nil {
 			return schemaSimpleTypeReferenceComponent{}, err
 		}
@@ -4135,7 +4185,7 @@ func (resolver *schemaSimpleTypeResolver) resolveReference(input schemaSimpleTyp
 		if input.name.Namespace() == xsdNamespaceURI {
 			return resolveBuiltinSchemaSimpleTypeReference(input, version)
 		}
-		return resolver.resolveNamedSchemaSimpleTypeReference(input, version)
+		return resolver.resolveNamedSchemaSimpleTypeReference(input, source, version)
 	default:
 		return schemaSimpleTypeReferenceComponent{}, newSchemaBridgeInvariant(input.loc, "simple type reference has an unknown kind")
 	}
@@ -4217,7 +4267,7 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 	}, nil
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, source SourceID, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
 	candidates := resolver.byName[input.name]
 	if len(candidates) == 0 {
 		return schemaSimpleTypeReferenceComponent{}, newSchemaSimpleTypeDiagnostic(
@@ -4229,8 +4279,22 @@ func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeReference(
 			errSchemaSimpleTypeBaseUnresolved,
 		)
 	}
-	simpleCandidates := make([]int, 0, len(candidates))
-	for _, candidate := range candidates {
+	visibleCandidates, err := schemaVisibleCandidates(candidates, source, resolver.records, resolver.visibleSources, input.loc)
+	if err != nil {
+		return schemaSimpleTypeReferenceComponent{}, err
+	}
+	if len(visibleCandidates) == 0 {
+		return schemaSimpleTypeReferenceComponent{}, newSchemaSimpleTypeDiagnostic(
+			diagnosticSchemaSimpleTypeUnresolvedCode,
+			input.loc,
+			fmt.Sprintf("simple type reference %q cannot be resolved", input.name),
+			nil,
+			version,
+			errSchemaSimpleTypeBaseUnresolved,
+		)
+	}
+	simpleCandidates := make([]int, 0, len(visibleCandidates))
+	for _, candidate := range visibleCandidates {
 		if resolver.records[candidate].kind != ComponentKindSimpleTypeDefinition {
 			continue
 		}
@@ -4241,7 +4305,7 @@ func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeReference(
 			diagnosticSchemaSimpleTypeWrongKindCode,
 			input.loc,
 			fmt.Sprintf("simple type reference %q does not name a simple type", input.name),
-			schemaComponentLocations(resolver.records, candidates),
+			schemaComponentLocations(resolver.records, visibleCandidates),
 			version,
 			fmt.Errorf("%w: %q", errSchemaSimpleTypeBaseWrongKind, input.name),
 		)

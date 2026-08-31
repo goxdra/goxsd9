@@ -1378,7 +1378,7 @@ type schemaDocumentInput struct {
 	source          SourceID
 	rootLoc         Loc
 	targetNamespace string
-	// visibleSources is the ordered set of documents whose global element
+	// visibleSources is the ordered set of documents whose global
 	// declarations may be referenced from this document.
 	visibleSources []SourceID
 	// declarations contains the named schema-level declarations in lexical
@@ -1760,7 +1760,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if duplicateErr := rejectDuplicateSchemaDeclarations(records, version); duplicateErr != nil {
 		return Schema{}, duplicateErr
 	}
-	simpleTypes, err := resolveSchemaSimpleTypes(records, byName, version)
+	simpleTypes, err := resolveSchemaSimpleTypes(records, byName, visibleSources, version)
 	if err != nil {
 		if cycleErr := reframeSchemaAttributeTypeCycle(records, byName, err, version); cycleErr != nil {
 			return Schema{}, cycleErr
@@ -1775,7 +1775,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
-	elements, err := resolveSchemaElementTypes(records, byName, simpleTypes, complexTypes, version)
+	elements, err := resolveSchemaElementTypes(records, byName, visibleSources, simpleTypes, complexTypes, version)
 	if err != nil {
 		return Schema{}, err
 	}
