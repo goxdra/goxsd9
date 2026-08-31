@@ -3,6 +3,7 @@ package goxsd9
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -96,6 +97,471 @@ func TestSchemaBridgeBuildsExactNumericEnumerationRestrictions(t *testing.T) {
 				t.Fatalf("integer declarations were not owned: first value = %q", got)
 			}
 		})
+	}
+}
+
+//nolint:gocognit,funlen // Keep the edition and schema-graph enumeration matrix together.
+func TestSchemaBridgeBuildsOrderedStringEnumerationFactsAcrossGraphs(t *testing.T) {
+	for _, policy := range []struct {
+		name    string
+		value   LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "XSD 1.0", value: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", value: Strict11, version: XSDVersion11},
+	} {
+		t.Run(policy.name, func(t *testing.T) {
+			root := stringEnumerationSchemaRoot(policy.version)
+			other := stringEnumerationOtherDocument(policy.version)
+			xmlSchema := stringEnumerationXMLSchema(policy.version)
+			schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+				"other.xsd": {id: "other.xsd", contents: other},
+				"xml.xsd":   {id: "xml.xsd", contents: xmlSchema},
+			}, policy.value)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+
+			base := schemaEnumerationTestDefinition(t, schema, "base")
+			assertStringEnumerationFacts(t, base.StringEnumerationFacets(), policy.version, []string{" first ", "", "first", "first"}, []Loc{
+				mustSchemaTokenLoc(t, "root.xsd", root, 6, "value"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 7, "value"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 8, "value"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 9, "value"),
+			})
+			child := schemaEnumerationTestDefinition(t, schema, "child")
+			assertStringEnumerationFacts(t, child.StringEnumerationFacets(), policy.version, []string{"", " first "}, []Loc{
+				mustSchemaTokenLoc(t, "root.xsd", root, 14, "value"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 15, "value"),
+			})
+			forward := schemaEnumerationTestDefinition(t, schema, "forwardChild")
+			assertStringEnumerationFacts(t, forward.StringEnumerationFacets(), policy.version, []string{"forward", ""}, []Loc{
+				mustSchemaTokenLoc(t, "root.xsd", root, 23, "value"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 24, "value"),
+			})
+			remote := schemaEnumerationTestDefinition(t, schema, "remoteChild")
+			assertStringEnumerationFacts(t, remote.StringEnumerationFacets(), policy.version, []string{" remote "}, []Loc{
+				mustSchemaTokenLoc(t, "root.xsd", root, 29, "value"),
+			})
+			remoteBase := schemaEnumerationTestDefinitionInNamespace(t, schema, "urn:other", "remote")
+			assertStringEnumerationFacts(t, remoteBase.StringEnumerationFacets(), policy.version, []string{" remote ", ""}, []Loc{
+				mustSchemaTokenLoc(t, "other.xsd", other, 4, "value"),
+				mustSchemaTokenLoc(t, "other.xsd", other, 5, "value"),
+			})
+			xmlLang := schemaEnumerationTestDefinitionInNamespace(t, schema, "http://www.w3.org/XML/1998/namespace", "lang")
+			assertStringEnumerationFacts(t, xmlLang.StringEnumerationFacets(), policy.version, []string{"en", ""}, []Loc{
+				mustSchemaTokenLoc(t, "xml.xsd", xmlSchema, 4, "value"),
+				mustSchemaTokenLoc(t, "xml.xsd", xmlSchema, 5, "value"),
+			})
+
+			unconstrained := schemaEnumerationTestDefinition(t, schema, "unconstrained")
+			if unconstrained.StringEnumerationFacets().HasEnumeration() || unconstrained.StringEnumerationFacets().Values() != nil {
+				t.Fatal("omitted built-in string enumeration was published as a present facet")
+			}
+			if base.IntegerEnumerationFacets().HasEnumeration() || base.DecimalEnumerationFacets().HasEnumeration() {
+				t.Fatal("string definition exposed a numeric enumeration family")
+			}
+
+			components := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:test", "inline"))
+			if len(components) != 1 {
+				t.Fatalf("inline element matches = %d, want one", len(components))
+			}
+			declaration, ok := components[0].ElementDeclaration()
+			if !ok {
+				t.Fatal("inline element declaration view is missing")
+			}
+			reference, ok := declaration.TypeReference()
+			if !ok || !reference.IsAnonymous() {
+				t.Fatalf("inline element type reference = %#v/%t, want anonymous", reference, ok)
+			}
+			anonymous, ok := reference.AnonymousType()
+			if !ok {
+				t.Fatal("inline element anonymous type is missing")
+			}
+			assertStringEnumerationFacts(t, anonymous.StringEnumerationFacets(), policy.version, []string{"inline", ""}, []Loc{
+				mustSchemaTokenLoc(t, "root.xsd", root, 38, "value"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 39, "value"),
+			})
+
+			namedValues := base.StringEnumerationFacets().Values()
+			namedValues[0] = "changed"
+			namedFacts := base.StringEnumerationFacets().Values()
+			if !reflect.DeepEqual(namedFacts, []string{" first ", "", "first", "first"}) {
+				t.Fatalf("named string enumeration changed through returned values: %#v", namedFacts)
+			}
+			anonymousValues := anonymous.StringEnumerationFacets().Values()
+			anonymousValues[0] = "changed"
+			anonymousFacts := anonymous.StringEnumerationFacets().Values()
+			if !reflect.DeepEqual(anonymousFacts, []string{"inline", ""}) {
+				t.Fatalf("anonymous string enumeration changed through returned values: %#v", anonymousFacts)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeBuildsInlineStringEnumerationFromNamedAndAnonymousBases(t *testing.T) {
+	for _, policy := range []struct {
+		name    string
+		value   LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "XSD 1.0", value: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", value: Strict11, version: XSDVersion11},
+	} {
+		t.Run(policy.name, func(t *testing.T) {
+			root := inlineStringEnumerationSchemaRoot(policy.version)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.value)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+
+			named := schemaEnumerationTestInlineElementType(t, schema, "namedInline")
+			assertStringEnumerationFacts(t, named.StringEnumerationFacets(), policy.version, []string{"", "named"}, []Loc{
+				mustSchemaTokenLoc(t, "root.xsd", root, 11, "value"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 12, "value"),
+			})
+
+			anonymous := schemaEnumerationTestInlineElementType(t, schema, "anonymousInline")
+			assertStringEnumerationFacts(t, anonymous.StringEnumerationFacets(), policy.version, []string{"anonymous"}, []Loc{
+				mustSchemaTokenLoc(t, "root.xsd", root, 24, "value"),
+			})
+			base, ok := anonymous.BaseReference()
+			if !ok || !base.IsAnonymous() {
+				t.Fatalf("anonymous inline base = %#v/%t, want anonymous", base, ok)
+			}
+			anonymousBase, ok := base.AnonymousType()
+			if !ok {
+				t.Fatal("anonymous inline base model is missing")
+			}
+			assertStringEnumerationFacts(t, anonymousBase.StringEnumerationFacets(), policy.version, []string{"anonymous"}, []Loc{
+				mustSchemaTokenLoc(t, "root.xsd", root, 21, "value"),
+			})
+		})
+	}
+}
+
+func schemaEnumerationTestInlineElementType(t *testing.T, schema Schema, local string) SimpleTypeDefinition {
+	t.Helper()
+	components := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:test", local))
+	if len(components) != 1 {
+		t.Fatalf("%s element matches = %d, want one", local, len(components))
+	}
+	element, ok := components[0].ElementDeclaration()
+	if !ok {
+		t.Fatalf("%s element declaration view is missing", local)
+	}
+	definition, ok := element.InlineSimpleType()
+	if !ok {
+		t.Fatalf("%s inline simple type is missing", local)
+	}
+	return definition
+}
+
+func TestSchemaBridgeKeepsNamedNonStringInlineEnumerationUnsupported(t *testing.T) {
+	for _, policy := range []struct {
+		name    string
+		value   LanguagePolicy
+		version XSDVersion
+		specRef string
+	}{
+		{name: "XSD 1.0", value: Strict10, version: XSDVersion10, specRef: "xsd10-datatypes#decimal"},
+		{name: "XSD 1.1", value: Strict11, version: XSDVersion11, specRef: "xsd11-datatypes#decimal"},
+	} {
+		t.Run(policy.name, func(t *testing.T) {
+			assertNamedNonStringInlineEnumerationUnsupported(t, policy.value, policy.version, policy.specRef)
+		})
+	}
+}
+
+func assertNamedNonStringInlineEnumerationUnsupported(t *testing.T, policy LanguagePolicy, version XSDVersion, specRef string) {
+	t.Helper()
+	root := namedNonStringInlineEnumerationSchemaRoot(version)
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+	if err == nil {
+		t.Fatal("discoverSchema accepted an enumeration on a non-string inline base")
+	}
+	if schema.storage != nil {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != UnsupportedDatatypeFacetCode {
+		t.Fatalf("diagnostic = %s, want unsupported datatype facet", diagnostic)
+	}
+	if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 8, "<xs:enumeration") {
+		t.Fatalf("diagnostic location = %s, want enumeration location", diagnostic.Loc())
+	}
+	if diagnostic.SpecRef() != specRef {
+		t.Fatalf("diagnostic SpecRef() = %q, want %q", diagnostic.SpecRef(), specRef)
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+	}
+}
+
+func namedNonStringInlineEnumerationSchemaRoot(version XSDVersion) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(version) + `">
+  <xs:simpleType name="integerBase">
+    <xs:restriction base="xs:integer"/>
+  </xs:simpleType>
+  <xs:element name="inline">
+    <xs:simpleType>
+      <xs:restriction base="t:integerBase">
+        <xs:enumeration value="1"/>
+      </xs:restriction>
+    </xs:simpleType>
+  </xs:element>
+</xs:schema>`
+}
+
+func inlineStringEnumerationSchemaRoot(version XSDVersion) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(version) + `">
+  <xs:simpleType name="namedBase">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="named"/>
+      <xs:enumeration value=""/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:element name="namedInline">
+    <xs:simpleType>
+      <xs:restriction base="t:namedBase">
+        <xs:enumeration value=""/>
+        <xs:enumeration value="named"/>
+      </xs:restriction>
+    </xs:simpleType>
+  </xs:element>
+  <xs:element name="anonymousInline">
+    <xs:simpleType>
+      <xs:restriction>
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="anonymous"/>
+          </xs:restriction>
+        </xs:simpleType>
+        <xs:enumeration value="anonymous"/>
+      </xs:restriction>
+    </xs:simpleType>
+  </xs:element>
+</xs:schema>`
+}
+
+func stringEnumerationSchemaRoot(version XSDVersion) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" xmlns:o="urn:other" targetNamespace="urn:test" version="` + string(version) + `">
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:import namespace="http://www.w3.org/XML/1998/namespace" schemaLocation="xml.xsd"/>
+  <xs:simpleType name="base">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value=" first "/>
+      <xs:enumeration value=""/>
+      <xs:enumeration value="first"/>
+      <xs:enumeration value="first"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="child">
+    <xs:restriction base="t:base">
+      <xs:enumeration value=""/>
+      <xs:enumeration value=" first "/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="forwardChild">
+    <xs:restriction base="t:forwardBase"/>
+  </xs:simpleType>
+  <xs:simpleType name="forwardBase">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="forward"/>
+      <xs:enumeration value=""/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="remoteChild">
+    <xs:restriction base="o:remote">
+      <xs:enumeration value=" remote "/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="unconstrained">
+    <xs:restriction base="xs:string"/>
+  </xs:simpleType>
+  <xs:element name="inline">
+    <xs:simpleType>
+      <xs:restriction base="xs:string">
+        <xs:enumeration value="inline"/>
+        <xs:enumeration value=""/>
+      </xs:restriction>
+    </xs:simpleType>
+  </xs:element>
+</xs:schema>`
+}
+
+func stringEnumerationOtherDocument(version XSDVersion) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="` + string(version) + `">
+  <xs:simpleType name="remote">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value=" remote "/>
+      <xs:enumeration value=""/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`
+}
+
+func stringEnumerationXMLSchema(version XSDVersion) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="http://www.w3.org/XML/1998/namespace" version="` + string(version) + `">
+  <xs:simpleType name="lang">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="en"/>
+      <xs:enumeration value=""/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`
+}
+
+//nolint:gocognit,funlen // Keep the invalid declaration matrix and provenance assertions together.
+func TestSchemaBridgeRejectsInvalidStringEnumerationDeclarations(t *testing.T) {
+	for _, policy := range []struct {
+		name    string
+		value   LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "XSD 1.0", value: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", value: Strict11, version: XSDVersion11},
+	} {
+		t.Run(policy.name, func(t *testing.T) {
+			for _, test := range []struct {
+				name      string
+				body      string
+				valueLine int
+				code      string
+				spec      string
+				cause     error
+			}{
+				{
+					name: "missing value",
+					body: `
+  <xs:simpleType name="item">
+    <xs:restriction base="xs:string">
+      <xs:enumeration/>
+    </xs:restriction>
+  </xs:simpleType>
+`, valueLine: 4, code: InvalidEnumerationCode, spec: "rf-enumeration", cause: errInvalidEnumerationValue,
+				},
+				{
+					name: "direct simpleType placement",
+					body: `
+  <xs:simpleType name="item">
+    <xs:enumeration value="item"/>
+  </xs:simpleType>
+`, valueLine: 3, code: InvalidEnumerationCode, spec: "rf-enumeration", cause: errInvalidEnumerationValue,
+				},
+				{
+					name: "list placement",
+					body: `
+  <xs:simpleType name="item">
+    <xs:list>
+      <xs:enumeration value="item"/>
+    </xs:list>
+  </xs:simpleType>
+`, valueLine: 4, code: InvalidEnumerationCode, spec: "rf-enumeration", cause: errInvalidEnumerationValue,
+				},
+				{
+					name: "union placement",
+					body: `
+  <xs:simpleType name="item">
+    <xs:union>
+      <xs:enumeration value="item"/>
+    </xs:union>
+  </xs:simpleType>
+`, valueLine: 4, code: InvalidEnumerationCode, spec: "rf-enumeration", cause: errInvalidEnumerationValue,
+				},
+				{
+					name: "prohibited inherited value",
+					body: `
+  <xs:simpleType name="base">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="allowed"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="child">
+    <xs:restriction base="t:base">
+      <xs:enumeration value="blocked"/>
+    </xs:restriction>
+  </xs:simpleType>
+`, valueLine: 9, code: InvalidEnumerationRestrictionCode, spec: "enumeration-valid-restriction", cause: errInvalidEnumerationRestriction,
+				},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					root := stringEnumerationDiagnosticSchema(policy.version, test.body)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.value)
+					if err == nil {
+						t.Fatal("discoverSchema accepted invalid string enumeration behavior")
+					}
+					if schema.storage != nil {
+						t.Fatal("discoverSchema returned a partial schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					valueLoc := mustSchemaTokenLoc(t, "root.xsd", root, test.valueLine, "<xs:enumeration")
+					if test.name == "prohibited inherited value" {
+						valueLoc = mustSchemaTokenLoc(t, "root.xsd", root, test.valueLine, "value")
+					}
+					if diagnostic.Code() != test.code || diagnostic.Loc() != valueLoc || diagnostic.SpecRef() != versionedEnumerationSpecRef(policy.version, test.spec) {
+						t.Fatalf("diagnostic = %s, want %s at %s with %s", diagnostic, test.code, valueLoc, versionedEnumerationSpecRef(policy.version, test.spec))
+					}
+					if !errors.Is(err, test.cause) {
+						t.Fatalf("diagnostic lost cause %v: %v", test.cause, err)
+					}
+					if test.name == "prohibited inherited value" {
+						related := []Loc{mustSchemaTokenLoc(t, "root.xsd", root, 4, "value")}
+						if got := diagnostic.Related(); !reflect.DeepEqual(got, related) {
+							t.Fatalf("diagnostic Related() = %v, want %v", got, related)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func stringEnumerationDiagnosticSchema(version XSDVersion, body string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(version) + `">` + body + `</xs:schema>`
+}
+
+func TestSchemaBridgeKeepsStringPatternUnsupported(t *testing.T) {
+	for _, policy := range []struct {
+		name    string
+		value   LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "XSD 1.0", value: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", value: Strict11, version: XSDVersion11},
+	} {
+		t.Run(policy.name, func(t *testing.T) {
+			assertStringPatternUnsupported(t, policy.value, policy.version)
+		})
+	}
+}
+
+func assertStringPatternUnsupported(t *testing.T, policy LanguagePolicy, version XSDVersion) {
+	t.Helper()
+	root := stringEnumerationDiagnosticSchema(version, `
+  <xs:simpleType name="item">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="item"/>
+      <xs:enumeration value="item"/>
+    </xs:restriction>
+  </xs:simpleType>
+`)
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+	if err == nil {
+		t.Fatal("discoverSchema accepted an unsupported string pattern")
+	}
+	if schema.storage != nil {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedDatatypeFacetCode {
+		t.Fatalf("diagnostic = %s, want unsupported datatype facet", diagnostic)
+	}
+	if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 4, "<xs:pattern") {
+		t.Fatalf("diagnostic Loc() = %s, want pattern location", diagnostic.Loc())
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
 	}
 }
 
@@ -602,4 +1068,36 @@ func assertDecimalEnumerationFacts(t *testing.T, facets DecimalEnumerationFacets
 			t.Fatalf("decimal declaration %d = (%q, %s), want value equivalent to (%q, %s)", index, declaration.Value().Canonical(), declaration.Loc(), value, locations[index])
 		}
 	}
+}
+
+func assertStringEnumerationFacts(t *testing.T, facets StringEnumerationFacets, version XSDVersion, values []string, locations []Loc) {
+	t.Helper()
+	if !facets.HasEnumeration() || facets.Len() != len(values) || facets.Version() != version {
+		t.Fatalf("string enumeration facts = (has=%t, len=%d, version=%q), want (true, %d, %q)", facets.HasEnumeration(), facets.Len(), facets.Version(), len(values), version)
+	}
+	if got := facets.Values(); !reflect.DeepEqual(got, values) {
+		t.Fatalf("string enumeration values = %#v, want %#v", got, values)
+	}
+	if got := facets.Locations(); !reflect.DeepEqual(got, locations) {
+		t.Fatalf("string enumeration locations = %#v, want %#v", got, locations)
+	}
+	declarations := facets.Declarations()
+	for index, value := range values {
+		if declarations[index].Value() != value || declarations[index].Loc() != locations[index] {
+			t.Fatalf("string declaration %d = (%q, %s), want (%q, %s)", index, declarations[index].Value(), declarations[index].Loc(), value, locations[index])
+		}
+	}
+}
+
+func mustSchemaTokenLoc(t *testing.T, source SourceID, contents string, line int, token string) Loc {
+	t.Helper()
+	lines := strings.Split(contents, "\n")
+	if line < 1 || line > len(lines) {
+		t.Fatalf("line %d is outside source with %d lines", line, len(lines))
+	}
+	column := strings.Index(lines[line-1], token)
+	if column < 0 {
+		t.Fatalf("source line %d does not contain %q: %q", line, token, lines[line-1])
+	}
+	return mustTestLoc(t, source, line, column+1)
 }

@@ -88,6 +88,32 @@ func (facet DecimalEnumerationFacet) Version() XSDVersion {
 	return facet.version
 }
 
+// StringEnumerationFacet is one immutable string enumeration declaration.
+type StringEnumerationFacet struct {
+	value   string
+	loc     Loc
+	version XSDVersion
+}
+
+// StringEnumerationValue is an alternate name for a string enumeration
+// declaration.
+type StringEnumerationValue = StringEnumerationFacet
+
+// Value returns the lexical string enumeration value without normalization.
+func (facet StringEnumerationFacet) Value() string {
+	return facet.value
+}
+
+// Loc returns the source location of the enumeration declaration.
+func (facet StringEnumerationFacet) Loc() Loc {
+	return facet.loc
+}
+
+// Version reports the XSD version policy used for the declaration.
+func (facet StringEnumerationFacet) Version() XSDVersion {
+	return facet.version
+}
+
 // ParseIntegerEnumerationFacet parses one integer enumeration declaration.
 func ParseIntegerEnumerationFacet(lexical string, loc Loc, versions ...XSDVersion) (IntegerEnumerationFacet, error) {
 	version, err := selectEnumerationVersion(versions)
@@ -156,6 +182,31 @@ func NewDecimalEnumerationFacet(value StrictDecimal, loc Loc, versions ...XSDVer
 	return newDecimalEnumerationFacet(value, loc, version), nil
 }
 
+// ParseStringEnumerationFacet parses one string enumeration declaration.
+func ParseStringEnumerationFacet(lexical string, loc Loc, versions ...XSDVersion) (StringEnumerationFacet, error) {
+	version, err := selectEnumerationVersion(versions)
+	if err != nil {
+		return StringEnumerationFacet{}, invalidEnumerationVersionDiagnostic(loc, err)
+	}
+	return newStringEnumerationFacet(lexical, loc, version), nil
+}
+
+// ParseStringEnumerationFacetFor parses one string enumeration declaration
+// with an explicit XSD version.
+func ParseStringEnumerationFacetFor(version XSDVersion, lexical string, loc Loc) (StringEnumerationFacet, error) {
+	return ParseStringEnumerationFacet(lexical, loc, version)
+}
+
+// NewStringEnumerationFacet constructs one string enumeration declaration
+// from its lexical value without normalization.
+func NewStringEnumerationFacet(value string, loc Loc, versions ...XSDVersion) (StringEnumerationFacet, error) {
+	version, err := selectEnumerationVersion(versions)
+	if err != nil {
+		return StringEnumerationFacet{}, invalidEnumerationVersionDiagnostic(loc, err)
+	}
+	return newStringEnumerationFacet(value, loc, version), nil
+}
+
 // IntegerEnumerationFacetDeclarations contains the ordered local integer
 // enumeration declarations. A nil Values slice means the facet was omitted.
 type IntegerEnumerationFacetDeclarations struct {
@@ -178,6 +229,18 @@ type DecimalEnumerationFacetDeclarations struct {
 // enumeration declarations.
 func NewDecimalEnumerationFacetDeclarations(values []DecimalEnumerationFacet) DecimalEnumerationFacetDeclarations {
 	return DecimalEnumerationFacetDeclarations{Values: cloneDecimalEnumerationFacets(values)}
+}
+
+// StringEnumerationFacetDeclarations contains the ordered local string
+// enumeration declarations. A nil Values slice means the facet was omitted.
+type StringEnumerationFacetDeclarations struct {
+	Values []StringEnumerationFacet
+}
+
+// NewStringEnumerationFacetDeclarations makes an owned copy of local string
+// enumeration declarations.
+func NewStringEnumerationFacetDeclarations(values []StringEnumerationFacet) StringEnumerationFacetDeclarations {
+	return StringEnumerationFacetDeclarations{Values: cloneStringEnumerationFacets(values)}
 }
 
 // IntegerEnumerationFacets is an immutable effective integer enumeration set.
@@ -405,12 +468,129 @@ func ValidateDecimalEnumerationFacets(value StrictDecimal, facets DecimalEnumera
 	return facets.ValidateDecimal(value, valueLoc)
 }
 
+// StringEnumerationFacets is an immutable effective string enumeration set.
+type StringEnumerationFacets struct {
+	version XSDVersion
+	values  []StringEnumerationFacet
+}
+
+// NewStringEnumerationFacets constructs effective string enumeration facets
+// from ordered local declarations.
+func NewStringEnumerationFacets(values []StringEnumerationFacet, versions ...XSDVersion) (StringEnumerationFacets, error) {
+	local := NewStringEnumerationFacetDeclarations(values)
+	version, err := resolveStringEnumerationVersion(versions, local.Values)
+	if err != nil {
+		return StringEnumerationFacets{}, invalidEnumerationVersionDiagnostic(stringEnumerationVersionLoc(local.Values), err)
+	}
+	base := StringEnumerationFacets{version: version}
+	return completeStringEnumerationFacets(base, local, false)
+}
+
+// NewStringEnumerationFacetsFromDeclarations constructs effective string
+// enumeration facets from local declarations.
+func NewStringEnumerationFacetsFromDeclarations(local StringEnumerationFacetDeclarations, versions ...XSDVersion) (StringEnumerationFacets, error) {
+	return NewStringEnumerationFacets(local.Values, versions...)
+}
+
+// RestrictStringEnumerationFacets inherits an omitted enumeration from base
+// and validates a present local enumeration as a value-space restriction.
+func RestrictStringEnumerationFacets(base StringEnumerationFacets, local StringEnumerationFacetDeclarations) (StringEnumerationFacets, error) {
+	if err := base.validate(); err != nil {
+		return StringEnumerationFacets{}, err
+	}
+	return completeStringEnumerationFacets(base, NewStringEnumerationFacetDeclarations(local.Values), true)
+}
+
+// ConstructStringEnumerationFacets is the phase-oriented name for
+// RestrictStringEnumerationFacets.
+func ConstructStringEnumerationFacets(base StringEnumerationFacets, local StringEnumerationFacetDeclarations) (StringEnumerationFacets, error) {
+	return RestrictStringEnumerationFacets(base, local)
+}
+
+// Version reports the explicit XSD version policy of the effective set.
+func (facets StringEnumerationFacets) Version() XSDVersion {
+	return facets.version
+}
+
+// HasEnumeration reports whether the effective set contains an enumeration
+// facet. An omitted facet is distinct from a present declaration set.
+func (facets StringEnumerationFacets) HasEnumeration() bool {
+	return facets.values != nil
+}
+
+// Len reports the number of ordered effective declarations.
+func (facets StringEnumerationFacets) Len() int {
+	return len(facets.values)
+}
+
+// Values returns lexical string values in declaration order.
+func (facets StringEnumerationFacets) Values() []string {
+	if facets.values == nil {
+		return nil
+	}
+	values := make([]string, len(facets.values))
+	for index := range facets.values {
+		values[index] = facets.values[index].Value()
+	}
+	return values
+}
+
+// Locations returns effective declaration locations in declaration order.
+func (facets StringEnumerationFacets) Locations() []Loc {
+	if facets.values == nil {
+		return nil
+	}
+	locations := make([]Loc, len(facets.values))
+	for index := range facets.values {
+		locations[index] = facets.values[index].Loc()
+	}
+	return locations
+}
+
+// Declarations returns owned effective declarations in declaration order.
+func (facets StringEnumerationFacets) Declarations() []StringEnumerationFacet {
+	return cloneStringEnumerationFacets(facets.values)
+}
+
+// ValidateString validates a lexical string against the effective
+// enumeration. valueLoc is the primary location for a value violation.
+func (facets StringEnumerationFacets) ValidateString(value string, valueLoc Loc) error {
+	if err := facets.validate(); err != nil {
+		return err
+	}
+	if facets.values == nil {
+		return nil
+	}
+	for index := range facets.values {
+		if value == facets.values[index].value {
+			return nil
+		}
+	}
+	return enumerationValueViolationDiagnostic(valueLoc, facets.Locations(), facets.version, "string")
+}
+
+// ValidateStringEnumeration validates a lexical string against effective
+// enumeration facets.
+func ValidateStringEnumeration(value string, facets StringEnumerationFacets, valueLoc Loc) error {
+	return facets.ValidateString(value, valueLoc)
+}
+
+// ValidateStringEnumerationFacets validates a lexical string against
+// effective enumeration facets.
+func ValidateStringEnumerationFacets(value string, facets StringEnumerationFacets, valueLoc Loc) error {
+	return facets.ValidateString(value, valueLoc)
+}
+
 func newIntegerEnumerationFacet(value StrictInteger, loc Loc, version XSDVersion) IntegerEnumerationFacet {
 	return IntegerEnumerationFacet{value: cloneStrictInteger(value), loc: loc, version: version}
 }
 
 func newDecimalEnumerationFacet(value StrictDecimal, loc Loc, version XSDVersion) DecimalEnumerationFacet {
 	return DecimalEnumerationFacet{value: cloneStrictDecimal(value), loc: loc, version: version}
+}
+
+func newStringEnumerationFacet(value string, loc Loc, version XSDVersion) StringEnumerationFacet {
+	return StringEnumerationFacet{value: value, loc: loc, version: version}
 }
 
 func cloneIntegerEnumerationFacet(facet IntegerEnumerationFacet) IntegerEnumerationFacet {
@@ -441,6 +621,21 @@ func cloneDecimalEnumerationFacets(values []DecimalEnumerationFacet) []DecimalEn
 	owned := make([]DecimalEnumerationFacet, len(values))
 	for index := range values {
 		owned[index] = cloneDecimalEnumerationFacet(values[index])
+	}
+	return owned
+}
+
+func cloneStringEnumerationFacet(facet StringEnumerationFacet) StringEnumerationFacet {
+	return facet
+}
+
+func cloneStringEnumerationFacets(values []StringEnumerationFacet) []StringEnumerationFacet {
+	if values == nil {
+		return nil
+	}
+	owned := make([]StringEnumerationFacet, len(values))
+	for index := range values {
+		owned[index] = cloneStringEnumerationFacet(values[index])
 	}
 	return owned
 }
@@ -477,6 +672,25 @@ func resolveIntegerEnumerationVersion(versions []XSDVersion, values []IntegerEnu
 }
 
 func resolveDecimalEnumerationVersion(versions []XSDVersion, values []DecimalEnumerationFacet) (XSDVersion, error) {
+	if len(versions) != 0 {
+		return selectEnumerationVersion(versions)
+	}
+	if len(values) == 0 {
+		return XSDVersion11, nil
+	}
+	version := values[0].Version()
+	if version != XSDVersion10 && version != XSDVersion11 {
+		return "", fmt.Errorf("%w: %q", errInvalidEnumerationVersion, version)
+	}
+	for index := 1; index < len(values); index++ {
+		if values[index].Version() != version {
+			return "", fmt.Errorf("%w: declarations use %q and %q", errInvalidEnumerationVersion, version, values[index].Version())
+		}
+	}
+	return version, nil
+}
+
+func resolveStringEnumerationVersion(versions []XSDVersion, values []StringEnumerationFacet) (XSDVersion, error) {
 	if len(versions) != 0 {
 		return selectEnumerationVersion(versions)
 	}
@@ -559,6 +773,38 @@ func completeDecimalEnumerationFacets(base DecimalEnumerationFacets, local Decim
 	return effective, nil
 }
 
+func completeStringEnumerationFacets(base StringEnumerationFacets, local StringEnumerationFacetDeclarations, derived bool) (StringEnumerationFacets, error) {
+	if err := base.validateForConstruction(); err != nil {
+		return StringEnumerationFacets{}, err
+	}
+	if err := validateStringEnumerationDeclarations(local, base.version); err != nil {
+		return StringEnumerationFacets{}, err
+	}
+
+	effective := StringEnumerationFacets{
+		version: base.version,
+		values:  cloneStringEnumerationFacets(base.values),
+	}
+	if local.Values == nil {
+		return effective, nil
+	}
+	if derived && base.values != nil {
+		for index := range local.Values {
+			if stringEnumerationContains(base.values, local.Values[index].value) {
+				continue
+			}
+			return StringEnumerationFacets{}, enumerationRestrictionDiagnostic(
+				local.Values[index].Loc(),
+				stringEnumerationLocations(base.values),
+				base.version,
+				"string",
+			)
+		}
+	}
+	effective.values = cloneStringEnumerationFacets(local.Values)
+	return effective, nil
+}
+
 func validateIntegerEnumerationDeclarations(local IntegerEnumerationFacetDeclarations, version XSDVersion) error {
 	if local.Values == nil {
 		return nil
@@ -576,6 +822,22 @@ func validateIntegerEnumerationDeclarations(local IntegerEnumerationFacetDeclara
 }
 
 func validateDecimalEnumerationDeclarations(local DecimalEnumerationFacetDeclarations, version XSDVersion) error {
+	if local.Values == nil {
+		return nil
+	}
+	if len(local.Values) == 0 {
+		return invalidEnumerationDeclarationDiagnostic(Loc{}, version, "enumeration declaration has no values")
+	}
+	for index := range local.Values {
+		if local.Values[index].Version() == version {
+			continue
+		}
+		return invalidEnumerationVersionDiagnostic(local.Values[index].Loc(), fmt.Errorf("%w: declaration uses %q, want %q", errInvalidEnumerationVersion, local.Values[index].Version(), version))
+	}
+	return nil
+}
+
+func validateStringEnumerationDeclarations(local StringEnumerationFacetDeclarations, version XSDVersion) error {
 	if local.Values == nil {
 		return nil
 	}
@@ -685,6 +947,53 @@ func (facets DecimalEnumerationFacets) validate() error {
 	return facets.validateForConstruction()
 }
 
+func (facets StringEnumerationFacets) validateForConstruction() error {
+	if facets.version != XSDVersion10 && facets.version != XSDVersion11 {
+		return newEnumerationDiagnostic(
+			FailureInternal,
+			diagnosticEnumerationEffectiveVersionCode,
+			Loc{},
+			"",
+			"completed string enumeration facets have an unknown XSD version",
+			nil,
+			errInvalidEnumerationState,
+		)
+	}
+	if facets.values == nil {
+		return nil
+	}
+	if len(facets.values) == 0 {
+		return newEnumerationDiagnostic(
+			FailureInternal,
+			diagnosticEnumerationEffectiveStateCode,
+			Loc{},
+			enumerationSpecRef(facets.version, enumerationDefinitionRule),
+			"completed string enumeration facets contain no declarations",
+			nil,
+			errInvalidEnumerationState,
+		)
+	}
+	for index := range facets.values {
+		if facets.values[index].Version() == facets.version {
+			continue
+		}
+		return newEnumerationDiagnostic(
+			FailureInternal,
+			diagnosticEnumerationEffectiveStateCode,
+			facets.values[index].Loc(),
+			enumerationSpecRef(facets.version, enumerationDefinitionRule),
+			"completed string enumeration declaration uses an incompatible XSD version",
+			nil,
+			errInvalidEnumerationState,
+		)
+	}
+	return nil
+}
+
+func (facets StringEnumerationFacets) validate() error {
+	return facets.validateForConstruction()
+}
+
 func integerEnumerationContains(values []IntegerEnumerationFacet, candidate StrictInteger) bool {
 	for index := range values {
 		if candidate.Equal(values[index].value) {
@@ -697,6 +1006,15 @@ func integerEnumerationContains(values []IntegerEnumerationFacet, candidate Stri
 func decimalEnumerationContains(values []DecimalEnumerationFacet, candidate StrictDecimal) bool {
 	for index := range values {
 		if candidate.Equal(values[index].value) {
+			return true
+		}
+	}
+	return false
+}
+
+func stringEnumerationContains(values []StringEnumerationFacet, candidate string) bool {
+	for index := range values {
+		if candidate == values[index].value {
 			return true
 		}
 	}
@@ -725,6 +1043,17 @@ func decimalEnumerationLocations(values []DecimalEnumerationFacet) []Loc {
 	return locations
 }
 
+func stringEnumerationLocations(values []StringEnumerationFacet) []Loc {
+	locations := make([]Loc, 0, len(values))
+	for index := range values {
+		if values[index].Loc().IsZero() {
+			continue
+		}
+		locations = append(locations, values[index].Loc())
+	}
+	return locations
+}
+
 func integerEnumerationVersionLoc(values []IntegerEnumerationFacet) Loc {
 	if len(values) == 0 {
 		return Loc{}
@@ -733,6 +1062,13 @@ func integerEnumerationVersionLoc(values []IntegerEnumerationFacet) Loc {
 }
 
 func decimalEnumerationVersionLoc(values []DecimalEnumerationFacet) Loc {
+	if len(values) == 0 {
+		return Loc{}
+	}
+	return values[0].Loc()
+}
+
+func stringEnumerationVersionLoc(values []StringEnumerationFacet) Loc {
 	if len(values) == 0 {
 		return Loc{}
 	}

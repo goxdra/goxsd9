@@ -751,6 +751,19 @@ func (definition SimpleTypeDefinition) DecimalEnumerationFacets() DecimalEnumera
 	return facets.enumeration
 }
 
+// StringEnumerationFacets returns the effective lexical string enumeration
+// facets. It returns the zero value for a non-string simple type.
+func (definition SimpleTypeDefinition) StringEnumerationFacets() StringEnumerationFacets {
+	if definition.facts == nil {
+		return StringEnumerationFacets{}
+	}
+	facets, ok := definition.facts.facets.(schemaStringFacetVariant)
+	if !ok {
+		return StringEnumerationFacets{}
+	}
+	return facets.enumeration
+}
+
 // IntegerBounds returns the effective ordered integer bounds and their
 // presence for an integer restriction.
 func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool) {
@@ -1576,7 +1589,9 @@ type schemaPrecisionDecimalFacetVariant struct {
 
 func (schemaPrecisionDecimalFacetVariant) schemaSimpleTypeFacetVariant() {}
 
-type schemaStringFacetVariant struct{}
+type schemaStringFacetVariant struct {
+	enumeration StringEnumerationFacets
+}
 
 func (schemaStringFacetVariant) schemaSimpleTypeFacetVariant() {}
 

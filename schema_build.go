@@ -3844,7 +3844,7 @@ func (resolver *schemaSimpleTypeResolver) resolveInput(input *schemaSimpleTypeIn
 	resolver.states[input] = schemaSimpleTypeVisiting
 	resolver.stack = append(resolver.stack, input)
 	resolver.stackFallbackLoc = append(resolver.stackFallbackLoc, fallbackLoc)
-	result, err := resolver.resolveModel(input, model, source, version)
+	result, err := resolver.resolveModel(input, model, source, version, anonymous)
 	if err != nil {
 		if popErr := resolver.popInput(input, fallbackLoc); popErr != nil {
 			return schemaSimpleTypeResult{}, popErr
@@ -3898,13 +3898,13 @@ func schemaSimpleTypeModel(input *schemaSimpleTypeInput) (schemaSimpleTypeModelI
 	}, nil
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveModel(input *schemaSimpleTypeInput, model schemaSimpleTypeModelInput, source SourceID, version XSDVersion) (schemaSimpleTypeResult, error) {
+func (resolver *schemaSimpleTypeResolver) resolveModel(input *schemaSimpleTypeInput, model schemaSimpleTypeModelInput, source SourceID, version XSDVersion, anonymous bool) (schemaSimpleTypeResult, error) {
 	switch typed := model.(type) {
 	case *schemaSimpleTypeRestrictionModelInput:
 		if typed == nil {
 			return schemaSimpleTypeResult{}, newSchemaBridgeInvariant(input.loc, "simple type restriction model is nil")
 		}
-		return resolver.resolveRestrictionModel(input, typed, source, version)
+		return resolver.resolveRestrictionModel(input, typed, source, version, anonymous)
 	case *schemaSimpleTypeListModelInput:
 		if typed == nil {
 			return schemaSimpleTypeResult{}, newSchemaBridgeInvariant(input.loc, "simple type list model is nil")
@@ -3920,7 +3920,7 @@ func (resolver *schemaSimpleTypeResolver) resolveModel(input *schemaSimpleTypeIn
 	}
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeRestrictionModelInput, source SourceID, version XSDVersion) (schemaSimpleTypeResult, error) {
+func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeRestrictionModelInput, source SourceID, version XSDVersion, anonymous bool) (schemaSimpleTypeResult, error) {
 	base, err := resolver.resolveReference(model.base, source, version)
 	if err != nil {
 		return schemaSimpleTypeResult{}, err
@@ -3931,6 +3931,9 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 			base,
 			version,
 		)
+	}
+	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
+		return schemaSimpleTypeResult{}, enumerationErr
 	}
 	facets, err := restrictSchemaSimpleTypeFacets(base.facets, model.facets, version)
 	if err != nil {
@@ -3954,6 +3957,21 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 		result.hasBaseID = true
 	}
 	return result, nil
+}
+
+func rejectAnonymousNonStringEnumeration(base schemaSimpleTypeReferenceComponent, inputs []schemaFacetInput, version XSDVersion, anonymous bool) error {
+	if !anonymous {
+		return nil
+	}
+	if _, ok := base.facets.(schemaStringFacetVariant); ok {
+		return nil
+	}
+	for _, input := range inputs {
+		if input.kind == schemaFacetEnumeration {
+			return unsupportedSchemaDatatypeFacet(input, version)
+		}
+	}
+	return nil
 }
 
 func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeListModelInput, source SourceID, version XSDVersion) (schemaSimpleTypeResult, error) {
@@ -4199,8 +4217,7 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 	}
 	switch input.name.Local() {
 	case "string":
-		result.atomicKind = schemaSimpleTypeAtomicString
-		result.facets = schemaStringFacetVariant{}
+		return resolveBuiltinStringSchemaSimpleTypeReference(input, version)
 	case "integer":
 		facets, err := NewIntegerDigitFacets(nil, version)
 		if err != nil {
@@ -4264,6 +4281,22 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		varietyLoc: result.varietyLoc,
 		atomicKind: result.atomicKind,
 		facets:     result.facets,
+	}, nil
+}
+
+func resolveBuiltinStringSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+	enumeration, err := NewStringEnumerationFacets(nil, version)
+	if err != nil {
+		return schemaSimpleTypeReferenceComponent{}, err
+	}
+	return schemaSimpleTypeReferenceComponent{
+		kind:       SimpleTypeReferenceBuiltin,
+		name:       input.name,
+		loc:        input.loc,
+		variety:    SimpleTypeVarietyAtomicRestriction,
+		varietyLoc: input.loc,
+		atomicKind: schemaSimpleTypeAtomicString,
+		facets:     schemaStringFacetVariant{enumeration: enumeration},
 	}, nil
 }
 
@@ -4431,15 +4464,30 @@ func restrictSchemaSimpleTypeFacets(
 		}
 		return schemaPrecisionDecimalFacetVariant{value: facets}, nil
 	case schemaStringFacetVariant:
-		if len(inputs) == 0 {
-			return typed, nil
-		}
-		return nil, unsupportedSchemaDatatypeFacet(inputs[0], version)
+		return restrictSchemaStringFacets(typed, inputs, version)
 	case schemaBooleanFacetVariant:
 		return restrictSchemaBooleanFacets(typed, inputs, version)
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "simple type facet resolution has an unknown datatype variant")
 	}
+}
+
+func restrictSchemaStringFacets(base schemaStringFacetVariant, inputs []schemaFacetInput, version XSDVersion) (schemaSimpleTypeFacetVariant, error) {
+	if len(inputs) == 0 {
+		return base, nil
+	}
+	local, err := schemaStringFacetDeclarations(inputs, version)
+	if err != nil {
+		return nil, err
+	}
+	enumeration, err := RestrictStringEnumerationFacets(base.enumeration, local.enumeration)
+	if err != nil {
+		return nil, err
+	}
+	if local.deferredUnsupported != nil {
+		return nil, local.deferredUnsupported
+	}
+	return schemaStringFacetVariant{enumeration: enumeration}, nil
 }
 
 func restrictSchemaIntegerFacets(
@@ -4631,6 +4679,45 @@ func schemaEnumerationBaseValueSpaceDiagnostic(
 		related,
 		fmt.Errorf("%w: %w", errInvalidEnumerationRestriction, cause),
 	)
+}
+
+type schemaStringFacetDeclarationSet struct {
+	enumeration         StringEnumerationFacetDeclarations
+	deferredUnsupported error
+}
+
+func schemaStringFacetDeclarations(inputs []schemaFacetInput, version XSDVersion) (schemaStringFacetDeclarationSet, error) {
+	var enumeration []StringEnumerationFacet
+	var deferredUnsupported error
+	for _, input := range inputs {
+		if input.kind == schemaFacetEnumeration {
+			facet, err := ParseStringEnumerationFacetFor(version, input.lexical, schemaFacetValueLocation(input))
+			if err != nil {
+				return schemaStringFacetDeclarationSet{}, err
+			}
+			enumeration = append(enumeration, facet)
+			continue
+		}
+		err := unsupportedSchemaDatatypeFacet(input, version)
+		if err == nil {
+			continue
+		}
+		if !isUnsupportedSchemaDatatypeFacetError(err) {
+			return schemaStringFacetDeclarationSet{}, err
+		}
+		if deferredUnsupported == nil {
+			deferredUnsupported = err
+		}
+	}
+	return schemaStringFacetDeclarationSet{
+		enumeration:         NewStringEnumerationFacetDeclarations(enumeration),
+		deferredUnsupported: deferredUnsupported,
+	}, nil
+}
+
+func isUnsupportedSchemaDatatypeFacetError(err error) bool {
+	var diagnostic Diagnostic
+	return errors.As(err, &diagnostic) && diagnostic.Class() == FailureUnsupported
 }
 
 type schemaNumericFacetDeclarationSet struct {
