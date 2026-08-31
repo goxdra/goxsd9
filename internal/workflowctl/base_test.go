@@ -220,6 +220,19 @@ func TestDoctorDiagnosesMissingCoverageRegistrationBeforeGitInspection(t *testin
 	}
 }
 
+func TestDoctorDiagnosesMissingCallerRootRegistrationBeforeGitInspection(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing-caller")
+	registered := t.TempDir()
+	inventory := fmt.Sprintf("worktree %s\nHEAD linked\ndetached\n\nworktree %s\nHEAD caller\nbranch refs/heads/main\n", registered, root)
+	var calls []string
+	application := scriptedWorktreeApplication(root, inventory, nil, &calls)
+
+	_, err := application.repositoryLayout(root)
+	assertMissingWorktreeDiagnosticError(t, err, root)
+	assertNoFollowUpWorktreeCommands(t, calls)
+	assertMissingWorktreePathUnchanged(t, root)
+}
+
 type missingWorktreeDiagnosticCase struct {
 	name     string
 	path     func(string) string
@@ -519,20 +532,25 @@ func writeFixtureFile(t *testing.T, root, name, content string) {
 }
 
 func TestRepositoryLayoutRejectsAmbiguousInventory(t *testing.T) {
+	primary := t.TempDir()
+	other := t.TempDir()
+	caller := t.TempDir()
+	common := filepath.Join(primary, ".git")
+	inventory := fmt.Sprintf("worktree %s\nHEAD one\nbranch refs/heads/main\n\nworktree %s\nHEAD two\nbranch refs/heads/main\n", primary, other)
 	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
 		switch command {
 		case "git rev-parse --path-format=absolute --git-common-dir":
-			return "/repo/.git", nil
+			return common, nil
 		case "git worktree list --porcelain":
-			return "worktree /repo\nHEAD one\nbranch refs/heads/main\n\nworktree /other\nHEAD two\nbranch refs/heads/main\n", nil
-		case "git -C /repo rev-parse --path-format=absolute --git-dir", "git -C /other rev-parse --path-format=absolute --git-dir":
-			return "/repo/.git", nil
+			return inventory, nil
+		case "git -C " + primary + " rev-parse --path-format=absolute --git-dir", "git -C " + other + " rev-parse --path-format=absolute --git-dir":
+			return common, nil
 		default:
 			return "", fmt.Errorf("unexpected command: %s", command)
 		}
 	}}
-	_, err := application.repositoryLayout("/caller")
+	_, err := application.repositoryLayout(caller)
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("ambiguous layout error = %v", err)
 	}

@@ -88,7 +88,7 @@ func (a app) repositoryLayout(callerRoot string) (repositoryLayout, error) {
 	if err != nil {
 		return repositoryLayout{}, err
 	}
-	preflightErr := preflightRegisteredWorktreePaths(callerRoot, worktrees)
+	preflightErr := preflightRegisteredWorktreePaths(worktrees)
 	if preflightErr != nil {
 		return repositoryLayout{}, preflightErr
 	}
@@ -132,13 +132,7 @@ func (a app) readWorktreeInventory(root string) ([]gitWorktree, error) {
 	return worktrees, nil
 }
 
-func preflightRegisteredWorktreePaths(root string, worktrees []gitWorktree) error {
-	if _, err := os.Stat(root); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("inspect repository root %q: %w", root, err)
-	}
+func preflightRegisteredWorktreePaths(worktrees []gitWorktree) error {
 	for _, worktree := range worktrees {
 		_, err := os.Stat(worktree.path)
 		if err == nil {
