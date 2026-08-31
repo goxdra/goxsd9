@@ -1661,6 +1661,9 @@ func validateSimpleTypeGlobalModelChild(parent, child *syntaxElement, modelSeen 
 		}
 		return validateSimpleTypeUnion(child, version)
 	default:
+		if child.name.local == "enumeration" {
+			return invalidEnumerationDeclarationDiagnostic(child.loc, version, "enumeration facet is only permitted as a restriction child")
+		}
 		if err := forbiddenGlobalSchemaChild(parent.name.local, child); err != nil {
 			return err
 		}
@@ -1747,6 +1750,9 @@ func validateSimpleTypeList(element *syntaxElement, version XSDVersion) error {
 		}
 		contentSeen = true
 		if child.name.local != "simpleType" {
+			if child.name.local == "enumeration" {
+				return invalidEnumerationDeclarationDiagnostic(child.loc, version, "enumeration facet is only permitted as a restriction child")
+			}
 			if isKnownSchemaElement(child.name.local) {
 				return newSchemaCompositionDiagnostic(child.loc, fmt.Sprintf("simple type list contains forbidden child <%s>", child.name.local))
 			}
@@ -1849,6 +1855,9 @@ func validateSimpleTypeUnion(element *syntaxElement, version XSDVersion) error {
 		}
 		contentSeen = true
 		if child.name.local != "simpleType" {
+			if child.name.local == "enumeration" {
+				return invalidEnumerationDeclarationDiagnostic(child.loc, version, "enumeration facet is only permitted as a restriction child")
+			}
 			if isKnownSchemaElement(child.name.local) {
 				return newSchemaCompositionDiagnostic(child.loc, fmt.Sprintf("simple type union contains forbidden child <%s>", child.name.local))
 			}
@@ -2089,7 +2098,7 @@ func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractio
 			}
 			facetSeen[child.name.local] = true
 			var candidate schemaChildUnsupportedCandidate
-			if err := validateSimpleTypeFacetAttributes(child, &candidate, enforceNonNegativeScale); err != nil {
+			if err := validateSimpleTypeFacetAttributes(child, &candidate, enforceNonNegativeScale, version); err != nil {
 				return err
 			}
 			if err := validateSimpleTypeFacetChildren(child, &candidate); err != nil {
@@ -2275,12 +2284,15 @@ func repeatedSimpleTypeFacetAllowed(local string, version XSDVersion) bool {
 }
 
 //nolint:gocognit,funlen // Keep recognized facet attribute and value checks together.
-func validateSimpleTypeFacetAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate, enforceNonNegativeScale bool) error {
+func validateSimpleTypeFacetAttributes(element *syntaxElement, candidate *schemaChildUnsupportedCandidate, enforceNonNegativeScale bool, version XSDVersion) error {
 	if err := validateUniqueSchemaAttributes(element, "value", "fixed", "id"); err != nil {
 		return err
 	}
 	valueAttributes := syntaxAttributesByLocal(element, "value")
 	if len(valueAttributes) == 0 {
+		if element.name.local == "enumeration" && enumerationValueOnlyMissing(element) {
+			return invalidEnumerationDeclarationDiagnostic(element.loc, version, "enumeration facet requires a value attribute")
+		}
 		return newSchemaCompositionDiagnostic(element.loc, element.name.local+" facet requires a value attribute")
 	}
 	for _, attribute := range element.attrs {
@@ -2357,6 +2369,19 @@ func validateSimpleTypeFacetAttributes(element *syntaxElement, candidate *schema
 		}
 	}
 	return nil
+}
+
+func enumerationValueOnlyMissing(element *syntaxElement) bool {
+	for _, attribute := range element.attrs {
+		if attribute.name.namespace == xsdVersioningNamespaceURI {
+			continue
+		}
+		if attribute.name.namespace == "" && attribute.name.local == "id" {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validateSimpleTypeFacetChildren(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
@@ -3781,7 +3806,8 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 			candidate.considerAt(attribute.loc, message)
 		}
 	}
-	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, false); err != nil {
+	bridgeFacets := element.name.local == "simpleType" && inlineSimpleTypeHasStringRestrictionBase(element)
+	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, bridgeFacets); err != nil {
 		if !candidate.considerError(err) {
 			return err
 		}
@@ -3790,6 +3816,28 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 		return candidate.err()
 	}
 	return nil
+}
+
+func inlineSimpleTypeHasStringRestrictionBase(element *syntaxElement) bool {
+	if element == nil || element.name.local != "simpleType" {
+		return false
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "restriction" {
+			continue
+		}
+		baseAttributes := syntaxAttributesByLocal(child, "base")
+		if len(baseAttributes) != 1 {
+			return false
+		}
+		base, err := expandSchemaQName(child, baseAttributes[0])
+		if err != nil {
+			return false
+		}
+		return base.Namespace() == xsdNamespaceURI && base.Local() == "string"
+	}
+	return false
 }
 
 //nolint:gocognit,funlen // Keep local element grammar, lexical checks, and support boundaries together.
