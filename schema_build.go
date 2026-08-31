@@ -3844,7 +3844,7 @@ func (resolver *schemaSimpleTypeResolver) resolveInput(input *schemaSimpleTypeIn
 	resolver.states[input] = schemaSimpleTypeVisiting
 	resolver.stack = append(resolver.stack, input)
 	resolver.stackFallbackLoc = append(resolver.stackFallbackLoc, fallbackLoc)
-	result, err := resolver.resolveModel(input, model, source, version)
+	result, err := resolver.resolveModel(input, model, source, version, anonymous)
 	if err != nil {
 		if popErr := resolver.popInput(input, fallbackLoc); popErr != nil {
 			return schemaSimpleTypeResult{}, popErr
@@ -3898,13 +3898,13 @@ func schemaSimpleTypeModel(input *schemaSimpleTypeInput) (schemaSimpleTypeModelI
 	}, nil
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveModel(input *schemaSimpleTypeInput, model schemaSimpleTypeModelInput, source SourceID, version XSDVersion) (schemaSimpleTypeResult, error) {
+func (resolver *schemaSimpleTypeResolver) resolveModel(input *schemaSimpleTypeInput, model schemaSimpleTypeModelInput, source SourceID, version XSDVersion, anonymous bool) (schemaSimpleTypeResult, error) {
 	switch typed := model.(type) {
 	case *schemaSimpleTypeRestrictionModelInput:
 		if typed == nil {
 			return schemaSimpleTypeResult{}, newSchemaBridgeInvariant(input.loc, "simple type restriction model is nil")
 		}
-		return resolver.resolveRestrictionModel(input, typed, source, version)
+		return resolver.resolveRestrictionModel(input, typed, source, version, anonymous)
 	case *schemaSimpleTypeListModelInput:
 		if typed == nil {
 			return schemaSimpleTypeResult{}, newSchemaBridgeInvariant(input.loc, "simple type list model is nil")
@@ -3920,7 +3920,7 @@ func (resolver *schemaSimpleTypeResolver) resolveModel(input *schemaSimpleTypeIn
 	}
 }
 
-func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeRestrictionModelInput, source SourceID, version XSDVersion) (schemaSimpleTypeResult, error) {
+func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeRestrictionModelInput, source SourceID, version XSDVersion, anonymous bool) (schemaSimpleTypeResult, error) {
 	base, err := resolver.resolveReference(model.base, source, version)
 	if err != nil {
 		return schemaSimpleTypeResult{}, err
@@ -3931,6 +3931,9 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 			base,
 			version,
 		)
+	}
+	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
+		return schemaSimpleTypeResult{}, enumerationErr
 	}
 	facets, err := restrictSchemaSimpleTypeFacets(base.facets, model.facets, version)
 	if err != nil {
@@ -3954,6 +3957,21 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 		result.hasBaseID = true
 	}
 	return result, nil
+}
+
+func rejectAnonymousNonStringEnumeration(base schemaSimpleTypeReferenceComponent, inputs []schemaFacetInput, version XSDVersion, anonymous bool) error {
+	if !anonymous {
+		return nil
+	}
+	if _, ok := base.facets.(schemaStringFacetVariant); ok {
+		return nil
+	}
+	for _, input := range inputs {
+		if input.kind == schemaFacetEnumeration {
+			return unsupportedSchemaDatatypeFacet(input, version)
+		}
+	}
+	return nil
 }
 
 func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTypeInput, model *schemaSimpleTypeListModelInput, source SourceID, version XSDVersion) (schemaSimpleTypeResult, error) {
