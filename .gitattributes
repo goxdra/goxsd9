@@ -4,3 +4,6 @@
 *.xsd text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
+
+# Exact W3C bootstrap responses intentionally retain source whitespace.
+internal/specs/testdata/bootstrap/*.raw whitespace=-trailing-space
