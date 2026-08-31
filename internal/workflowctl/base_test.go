@@ -190,6 +190,219 @@ func TestDoctorLaunchRequiresCanonicalFreshBase(t *testing.T) {
 	}
 }
 
+func TestDoctorDiagnosesMissingCoverageRegistrationBeforeGitInspection(t *testing.T) {
+	root := t.TempDir()
+	registered := filepath.Join(t.TempDir(), "goxsd9-coverage-run-123", "base")
+	reason := "gitdir file points to non-existent location"
+	inventory := fmt.Sprintf("worktree %s\nHEAD primary\nbranch refs/heads/main\n\nworktree %s\nHEAD coverage\ndetached\nprunable %s\n", root, registered, reason)
+	var output bytes.Buffer
+	var calls []string
+	application := scriptedWorktreeApplication(root, inventory, &output, &calls)
+
+	err := application.runDoctor(nil)
+	if err == nil || exitCode(err) != 3 {
+		t.Fatalf("runDoctor error = %v, want state error", err)
+	}
+	want := fmt.Sprintf("[fail] Git base: Git worktree registration %q has a missing path; Git reported prunable reason %q; inspect with `git worktree prune --dry-run --verbose`; after confirming this exact path is stale, manually run `git worktree prune --verbose` from the repository\n", registered, reason)
+	if output.String() != want {
+		t.Fatalf("runDoctor output = %q, want %q", output.String(), want)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("commands before missing-registration failure = %#v, want root, common-dir, and inventory only", calls)
+	}
+	for _, call := range calls {
+		if strings.Contains(call, "git -C ") || strings.Contains(call, "worktree prune") {
+			t.Fatalf("unexpected follow-up command after missing registration: %q", call)
+		}
+	}
+	if _, statErr := os.Stat(registered); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("missing coverage registration path changed: stat error = %v", statErr)
+	}
+}
+
+type missingWorktreeDiagnosticCase struct {
+	name     string
+	path     func(string) string
+	metadata string
+}
+
+func TestMissingWorktreeDiagnosticIsIndependentOfPathNaming(t *testing.T) {
+	for _, test := range missingWorktreeDiagnosticCases() {
+		t.Run(test.name, func(t *testing.T) {
+			assertMissingWorktreeDiagnostic(t, test)
+		})
+	}
+}
+
+func missingWorktreeDiagnosticCases() []missingWorktreeDiagnosticCase {
+	return []missingWorktreeDiagnosticCase{
+		{name: "coverage", path: func(parent string) string {
+			return filepath.Join(parent, "goxsd9-coverage-run-123", "base")
+		}},
+		{name: "claimed issue", path: func(parent string) string {
+			return filepath.Join(parent, "repo-worktrees", "issue-269-run-claimed")
+		}},
+		{name: "active issue", path: func(parent string) string {
+			return filepath.Join(parent, "repo-worktrees", "issue-269")
+		}, metadata: "locked active claim"},
+		{name: "coverage lookalike", path: func(parent string) string {
+			return filepath.Join(parent, "goxsd9-coverage-lookalike", "base")
+		}},
+		{name: "non-temporary", path: func(parent string) string {
+			return filepath.Join(parent, "persistent-worktree")
+		}},
+	}
+}
+
+func assertMissingWorktreeDiagnostic(t *testing.T, test missingWorktreeDiagnosticCase) {
+	t.Helper()
+	root := t.TempDir()
+	registered := test.path(t.TempDir())
+	inventory := missingWorktreeInventory(root, registered, test.metadata)
+	var calls []string
+	application := scriptedWorktreeApplication(root, inventory, nil, &calls)
+
+	_, err := application.repositoryLayout(root)
+	assertMissingWorktreeDiagnosticError(t, err, registered)
+	assertNoFollowUpWorktreeCommands(t, calls)
+	assertMissingWorktreePathUnchanged(t, registered)
+}
+
+func missingWorktreeInventory(root, registered, metadata string) string {
+	if metadata != "" {
+		metadata += "\n"
+	}
+	return fmt.Sprintf("worktree %s\nHEAD primary\nbranch refs/heads/main\n\nworktree %s\nHEAD linked\ndetached\n%s", root, registered, metadata)
+}
+
+func assertMissingWorktreeDiagnosticError(t *testing.T, err error, registered string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("repositoryLayout unexpectedly succeeded")
+	}
+	if exitCode(err) != 3 {
+		t.Fatalf("repositoryLayout error = %v, want state error", err)
+	}
+	want := fmt.Sprintf("Git worktree registration %q has a missing path; inspect with `git worktree prune --dry-run --verbose`; after confirming this exact path is stale, manually run `git worktree prune --verbose` from the repository", registered)
+	if err.Error() != want {
+		t.Fatalf("repositoryLayout error = %q, want %q", err.Error(), want)
+	}
+}
+
+func assertNoFollowUpWorktreeCommands(t *testing.T, calls []string) {
+	t.Helper()
+	if len(calls) != 2 {
+		t.Fatalf("commands before missing-registration failure = %#v, want common-dir and inventory only", calls)
+	}
+	for _, call := range calls {
+		if strings.Contains(call, "git -C ") || strings.Contains(call, "worktree prune") {
+			t.Fatalf("unexpected command after missing registration: %q", call)
+		}
+	}
+}
+
+func assertMissingWorktreePathUnchanged(t *testing.T, registered string) {
+	t.Helper()
+	if _, statErr := os.Stat(registered); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("missing registration path changed: stat error = %v", statErr)
+	}
+}
+
+func TestReadWorktreeInventoryPreservesPrunableReasonAndGitOrder(t *testing.T) {
+	first := filepath.Join(t.TempDir(), "first")
+	second := filepath.Join(t.TempDir(), "second")
+	firstReason := "gitdir file points to non-existent location"
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		if name == "git" && strings.Join(args, " ") == "worktree list --porcelain" {
+			return fmt.Sprintf("worktree %s\nHEAD first\nprunable %s\n\nworktree %s\nHEAD second\nbranch refs/heads/main\n", first, firstReason, second), nil
+		}
+		return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+	}}
+
+	worktrees, err := application.readWorktreeInventory("/repo")
+	if err != nil {
+		t.Fatalf("readWorktreeInventory: %v", err)
+	}
+	if len(worktrees) != 2 {
+		t.Fatalf("worktree count = %d, want 2", len(worktrees))
+	}
+	if worktrees[0].path != first || worktrees[0].prunable != firstReason {
+		t.Fatalf("first worktree = %#v, want path %q and reason %q", worktrees[0], first, firstReason)
+	}
+	if worktrees[1].path != second || worktrees[1].prunable != "" {
+		t.Fatalf("second worktree = %#v, want path %q and no prunable reason", worktrees[1], second)
+	}
+}
+
+func TestReadWorktreeInventoryPreservesGitFailureCause(t *testing.T) {
+	cause := errors.New("worktree inventory unavailable")
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		if name == "git" && strings.Join(args, " ") == "worktree list --porcelain" {
+			return "", cause
+		}
+		return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+	}}
+
+	_, err := application.readWorktreeInventory("/repo")
+	if err == nil || !errors.Is(err, cause) {
+		t.Fatalf("readWorktreeInventory error = %v, want preserved cause %v", err, cause)
+	}
+}
+
+func TestPrunableMetadataDoesNotReplaceFilesystemCheckOrLoseCause(t *testing.T) {
+	root := t.TempDir()
+	lookalike := filepath.Join(t.TempDir(), "goxsd9-coverage-lookalike")
+	if err := os.Mkdir(lookalike, 0o700); err != nil {
+		t.Fatalf("create lookalike worktree: %v", err)
+	}
+	cause := errors.New("corrupt worktree metadata")
+	inventory := fmt.Sprintf("worktree %s\nHEAD primary\nbranch refs/heads/main\n\nworktree %s\nHEAD corrupt\ndetached\nprunable unrelated registration\n", root, lookalike)
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		switch command {
+		case "git rev-parse --path-format=absolute --git-common-dir":
+			return filepath.Join(root, ".git"), nil
+		case "git worktree list --porcelain":
+			return inventory, nil
+		case "git -C " + root + " rev-parse --path-format=absolute --git-dir":
+			return filepath.Join(root, ".git"), nil
+		case "git -C " + lookalike + " rev-parse --path-format=absolute --git-dir":
+			return "", cause
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+
+	_, err := application.repositoryLayout(root)
+	if err == nil || !errors.Is(err, cause) {
+		t.Fatalf("repositoryLayout error = %v, want preserved cause %v", err, cause)
+	}
+	if strings.Contains(err.Error(), "missing path") || strings.Contains(err.Error(), "workflow coverage") {
+		t.Fatalf("existing corrupt registration was misclassified: %v", err)
+	}
+}
+
+func scriptedWorktreeApplication(root, inventory string, stdout io.Writer, calls *[]string) app {
+	return app{
+		ctx:    context.Background(),
+		stdout: stdout,
+		executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+			command := name + " " + strings.Join(args, " ")
+			*calls = append(*calls, command)
+			switch command {
+			case "git rev-parse --show-toplevel":
+				return root, nil
+			case "git rev-parse --path-format=absolute --git-common-dir":
+				return filepath.Join(root, ".git"), nil
+			case "git worktree list --porcelain":
+				return inventory, nil
+			default:
+				return "", fmt.Errorf("unexpected command: %s", command)
+			}
+		},
+	}
+}
+
 func TestDoctorFinalSnapshotRejectsRemoteAdvance(t *testing.T) {
 	fixture := newBaseRepositoryFixture(t, false)
 	fetches := 0
