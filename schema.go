@@ -889,6 +889,15 @@ func (definition ComplexTypeDefinition) Loc() Loc {
 	return definition.component.Loc()
 }
 
+// AnyAttribute returns the immutable direct attribute wildcard fact when the
+// complex type has a supported wildcard.
+func (definition ComplexTypeDefinition) AnyAttribute() (AnyAttribute, bool) {
+	if definition.facts == nil || definition.facts.anyAttribute == nil {
+		return AnyAttribute{}, false
+	}
+	return AnyAttribute{facts: definition.facts.anyAttribute}, true
+}
+
 // Particle returns the immutable content particle of the complex type.
 func (definition ComplexTypeDefinition) Particle() Particle {
 	if definition.facts == nil {
@@ -914,6 +923,52 @@ func (definition ComplexTypeDefinition) ProhibitedSubstitutionsLoc() Loc {
 		return Loc{}
 	}
 	return definition.facts.prohibitedSubstitutions.loc
+}
+
+// AnyAttribute is an immutable direct attribute wildcard fact.
+type AnyAttribute struct {
+	facts *schemaAnyAttributeComponent
+}
+
+// Loc returns the location of the anyAttribute element.
+func (attribute AnyAttribute) Loc() Loc {
+	if attribute.facts == nil {
+		return Loc{}
+	}
+	return attribute.facts.loc
+}
+
+// Namespace returns the normalized namespace constraint.
+func (attribute AnyAttribute) Namespace() string {
+	if attribute.facts == nil {
+		return ""
+	}
+	return attribute.facts.namespace
+}
+
+// NamespaceLoc returns the location of the explicit namespace attribute.
+func (attribute AnyAttribute) NamespaceLoc() Loc {
+	if attribute.facts == nil {
+		return Loc{}
+	}
+	return attribute.facts.namespaceLoc
+}
+
+// ProcessContents returns the normalized processContents mode.
+func (attribute AnyAttribute) ProcessContents() string {
+	if attribute.facts == nil {
+		return ""
+	}
+	return attribute.facts.processContents
+}
+
+// ProcessContentsLoc returns the location of the explicit processContents
+// attribute.
+func (attribute AnyAttribute) ProcessContentsLoc() Loc {
+	if attribute.facts == nil {
+		return Loc{}
+	}
+	return attribute.facts.processContentsLoc
 }
 
 // ParticleOccurrenceMaximumKind identifies the complete maximum occurrence
@@ -1640,7 +1695,16 @@ func (schemaBooleanFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
 	particle                schemaComplexTypeParticleInput
+	anyAttribute            *schemaAnyAttributeInput
 	prohibitedSubstitutions schemaBlockPolicy
+}
+
+type schemaAnyAttributeInput struct {
+	loc                Loc
+	namespace          string
+	namespaceLoc       Loc
+	processContents    string
+	processContentsLoc Loc
 }
 
 type schemaComplexTypeParticleInput interface {
@@ -1709,7 +1773,16 @@ type schemaNotationComponent struct {
 
 type schemaComplexTypeComponent struct {
 	particle                Particle
+	anyAttribute            *schemaAnyAttributeComponent
 	prohibitedSubstitutions schemaBlockPolicy
+}
+
+type schemaAnyAttributeComponent struct {
+	loc                Loc
+	namespace          string
+	namespaceLoc       Loc
+	processContents    string
+	processContentsLoc Loc
 }
 
 type schemaChoiceParticle struct {
@@ -2108,6 +2181,15 @@ func completeSchemaComponent(
 			particle:                complexType.particle,
 			prohibitedSubstitutions: complexType.prohibitedSubstitutions,
 		}
+		if complexType.anyAttribute.present {
+			component.complexType.anyAttribute = &schemaAnyAttributeComponent{
+				loc:                complexType.anyAttribute.loc,
+				namespace:          complexType.anyAttribute.namespace,
+				namespaceLoc:       complexType.anyAttribute.namespaceLoc,
+				processContents:    complexType.anyAttribute.processContents,
+				processContentsLoc: complexType.anyAttribute.processContentsLoc,
+			}
+		}
 	}
 	return component
 }
@@ -2131,6 +2213,7 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 	}
 	clone := &schemaComplexTypeInput{
 		particle:                input.particle,
+		anyAttribute:            cloneSchemaAnyAttributeInput(input.anyAttribute),
 		prohibitedSubstitutions: input.prohibitedSubstitutions,
 	}
 	switch particle := input.particle.(type) {
@@ -2154,6 +2237,19 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 		}
 	}
 	return clone
+}
+
+func cloneSchemaAnyAttributeInput(input *schemaAnyAttributeInput) *schemaAnyAttributeInput {
+	if input == nil {
+		return nil
+	}
+	return &schemaAnyAttributeInput{
+		loc:                input.loc,
+		namespace:          input.namespace,
+		namespaceLoc:       input.namespaceLoc,
+		processContents:    input.processContents,
+		processContentsLoc: input.processContentsLoc,
+	}
 }
 
 func cloneSchemaSimpleTypeInput(input *schemaSimpleTypeInput) *schemaSimpleTypeInput {
