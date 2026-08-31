@@ -76,6 +76,8 @@ const (
 	schemaBlockComplexXSD11SpecRef            = "xsd11-structures#Complex_Type_Definition_details"
 	schemaBlockDefaultXSD10SpecRef            = "xsd10-structures#element-schema"
 	schemaBlockDefaultXSD11SpecRef            = "xsd11-structures#element-schema"
+	schemaAnyAttributeXSD10SpecRef            = "xsd10-structures#element-anyAttribute"
+	schemaAnyAttributeXSD11SpecRef            = "xsd11-structures#element-anyAttribute"
 )
 
 var (
@@ -113,6 +115,7 @@ var (
 	errSchemaSubstitutionTypeUnsupported      = errors.New("substitution-group type derivation is not implemented")
 	errSchemaSubstitutionCycle                = errors.New("substitution-group affiliations form a cycle")
 	errSchemaBlock                            = errors.New("schema block value is invalid")
+	errSchemaAnyAttributeUnsupported          = errors.New("anyAttribute wildcard is not implemented")
 	errLanguagePolicyMismatch                 = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
@@ -1254,8 +1257,12 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	if err != nil {
 		return nil, err
 	}
+	anyAttribute, err := schemaAnyAttributeInputFromElement(element)
+	if err != nil {
+		return nil, err
+	}
 	if model.name.local == "choice" {
-		return schemaChoiceComplexTypeInput(model, occurrences, facts, version, block)
+		return schemaChoiceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
 	}
 	if facts.elementFormDefaultQualified && schemaModelHasNamedElementChild(model) {
 		return nil, newSchemaSyntaxUnsupported(
@@ -1263,7 +1270,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 			"schema elementFormDefault=qualified is not implemented for local sequence elements",
 		)
 	}
-	return schemaSequenceComplexTypeInput(model, occurrences, facts, version, block)
+	return schemaSequenceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
 }
 
 func schemaComplexTypeModel(element *syntaxElement) *syntaxElement {
@@ -1277,7 +1284,7 @@ func schemaComplexTypeModel(element *syntaxElement) *syntaxElement {
 	return nil
 }
 
-func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
+func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy, anyAttribute *schemaAnyAttributeInput) (*schemaComplexTypeInput, error) {
 	input := &schemaChoiceParticleInput{
 		loc:          model.loc,
 		occurrences:  occurrences,
@@ -1294,10 +1301,10 @@ func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccu
 		}
 		input.alternatives = append(input.alternatives, alternative)
 	}
-	return &schemaComplexTypeInput{particle: input, prohibitedSubstitutions: block}, nil
+	return &schemaComplexTypeInput{particle: input, anyAttribute: anyAttribute, prohibitedSubstitutions: block}, nil
 }
 
-func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
+func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy, anyAttribute *schemaAnyAttributeInput) (*schemaComplexTypeInput, error) {
 	input := &schemaSequenceParticleInput{
 		loc:         model.loc,
 		occurrences: occurrences,
@@ -1317,7 +1324,44 @@ func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOc
 		}
 		input.elements = append(input.elements, alternative)
 	}
-	return &schemaComplexTypeInput{particle: input, prohibitedSubstitutions: block}, nil
+	return &schemaComplexTypeInput{particle: input, anyAttribute: anyAttribute, prohibitedSubstitutions: block}, nil
+}
+
+func schemaAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttributeInput, error) {
+	if element == nil {
+		return nil, newSchemaBridgeInvariant(Loc{}, "construct anyAttribute input from a nil element")
+	}
+	var wildcard *syntaxElement
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "anyAttribute" {
+			continue
+		}
+		if wildcard != nil {
+			return nil, newSchemaBridgeInvariant(child.loc, "complex type anyAttribute input is not unique")
+		}
+		wildcard = child
+	}
+	if wildcard == nil {
+		return nil, nil
+	}
+	namespaceAttributes := syntaxAttributesByLocal(wildcard, "namespace")
+	processContentsAttributes := syntaxAttributesByLocal(wildcard, "processContents")
+	if len(namespaceAttributes) != 1 || len(processContentsAttributes) != 1 {
+		return nil, newSchemaBridgeInvariant(wildcard.loc, "supported anyAttribute input lacks explicit constraints")
+	}
+	namespace := collapseXMLWhitespace(namespaceAttributes[0].value)
+	processContents := collapseXMLWhitespace(processContentsAttributes[0].value)
+	if namespace != "##other" || processContents != "lax" {
+		return nil, newSchemaBridgeInvariant(wildcard.loc, "unsupported anyAttribute input reached component construction")
+	}
+	return &schemaAnyAttributeInput{
+		loc:                wildcard.loc,
+		namespace:          namespace,
+		namespaceLoc:       namespaceAttributes[0].loc,
+		processContents:    processContents,
+		processContentsLoc: processContentsAttributes[0].loc,
+	}, nil
 }
 
 func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, allowNamespacePolicy bool) (schemaElementParticleInput, error) {
@@ -3378,7 +3422,17 @@ func unsupportedSequencePrecisionDecimal(input *schemaElementInput, version XSDV
 type schemaComplexTypeResult struct {
 	present                 bool
 	particle                Particle
+	anyAttribute            schemaAnyAttributeResult
 	prohibitedSubstitutions schemaBlockPolicy
+}
+
+type schemaAnyAttributeResult struct {
+	present            bool
+	loc                Loc
+	namespace          string
+	namespaceLoc       Loc
+	processContents    string
+	processContentsLoc Loc
 }
 
 func resolveSchemaComplexTypes(
@@ -3411,9 +3465,21 @@ func resolveSchemaComplexTypes(
 		if err != nil {
 			return nil, err
 		}
+		anyAttribute := schemaAnyAttributeResult{}
+		if record.complexType.anyAttribute != nil {
+			anyAttribute = schemaAnyAttributeResult{
+				present:            true,
+				loc:                record.complexType.anyAttribute.loc,
+				namespace:          record.complexType.anyAttribute.namespace,
+				namespaceLoc:       record.complexType.anyAttribute.namespaceLoc,
+				processContents:    record.complexType.anyAttribute.processContents,
+				processContentsLoc: record.complexType.anyAttribute.processContentsLoc,
+			}
+		}
 		results[index] = schemaComplexTypeResult{
 			present:                 true,
 			particle:                particle,
+			anyAttribute:            anyAttribute,
 			prohibitedSubstitutions: record.complexType.prohibitedSubstitutions,
 		}
 	}
@@ -5482,6 +5548,38 @@ func newSchemaSyntaxUnsupportedForVersion(loc Loc, message string, version XSDVe
 		)
 	}
 	return newUnsupportedForVersion(feature, UnsupportedSchemaSyntaxCode, loc, message, version)
+}
+
+func newSchemaAnyAttributeUnsupported(loc Loc, version XSDVersion) Diagnostic {
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSyntaxFeatureCode,
+			loc,
+			"schema syntax feature is not registered",
+			errSchemaAnyAttributeUnsupported,
+		)
+	}
+	diagnostic := newUnsupportedForVersionWithCause(
+		feature,
+		UnsupportedSchemaSyntaxCode,
+		loc,
+		"anyAttribute wildcards are not implemented",
+		version,
+		errSchemaAnyAttributeUnsupported,
+	)
+	if diagnostic.Class() == FailureUnsupported {
+		diagnostic.specRef = schemaAnyAttributeSpecRef(version)
+	}
+	return diagnostic
+}
+
+func schemaAnyAttributeSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaAnyAttributeXSD10SpecRef
+	}
+	return schemaAnyAttributeXSD11SpecRef
 }
 
 func newXSD11FeatureMismatch(featureID FeatureID, code string, loc Loc, message string) Diagnostic {

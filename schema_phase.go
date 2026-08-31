@@ -2612,7 +2612,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				return newSchemaCompositionDiagnostic(child.loc, "complexType anyAttribute must be unique and last among attributes")
 			}
 			anyAttributeSeen = true
-			if err := validateAnyAttribute(child, version); err != nil && !candidate.considerError(err) {
+			if err := validateDirectNamedComplexTypeAnyAttribute(parent, child, version); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "assert":
@@ -3213,8 +3213,48 @@ func validateAttributeGroupReference(element *syntaxElement) error {
 	return newSchemaSyntaxUnsupported(element.loc, "attributeGroup references are not implemented")
 }
 
-//nolint:gocognit // Keep wildcard lexical/co-occurrence checks together.
 func validateAnyAttribute(element *syntaxElement, version XSDVersion) error {
+	if err := validateAnyAttributeSyntax(element, version); err != nil {
+		return err
+	}
+	return newSchemaAnyAttributeUnsupported(element.loc, version)
+}
+
+func validateDirectNamedComplexTypeAnyAttribute(parent, element *syntaxElement, version XSDVersion) error {
+	if err := validateAnyAttributeSyntax(element, version); err != nil {
+		return err
+	}
+	if !supportsDirectNamedComplexTypeAnyAttribute(parent) || !isSupportedAnyAttribute(element) {
+		return newSchemaAnyAttributeUnsupported(element.loc, version)
+	}
+	return nil
+}
+
+func supportsDirectNamedComplexTypeAnyAttribute(parent *syntaxElement) bool {
+	if parent == nil || parent.name.namespace != xsdNamespaceURI || parent.name.local != "complexType" {
+		return false
+	}
+	if len(syntaxAttributesByLocal(parent, "name")) != 1 {
+		return false
+	}
+	model := schemaComplexTypeModel(parent)
+	if model == nil || model.name.namespace != xsdNamespaceURI {
+		return false
+	}
+	return model.name.local == "sequence" || model.name.local == "choice"
+}
+
+func isSupportedAnyAttribute(element *syntaxElement) bool {
+	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
+	processContentsAttributes := syntaxAttributesByLocal(element, "processContents")
+	if len(namespaceAttributes) != 1 || len(processContentsAttributes) != 1 {
+		return false
+	}
+	return collapseXMLWhitespace(namespaceAttributes[0].value) == "##other" && collapseXMLWhitespace(processContentsAttributes[0].value) == "lax"
+}
+
+//nolint:gocognit // Keep wildcard lexical/co-occurrence checks together.
+func validateAnyAttributeSyntax(element *syntaxElement, version XSDVersion) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateUniqueSchemaAttributes(element, "id", "namespace", "processContents", "notNamespace", "notQName"); err != nil {
 		return err
@@ -3294,7 +3334,7 @@ func validateAnyAttribute(element *syntaxElement, version XSDVersion) error {
 	if candidate.present {
 		return candidate.err()
 	}
-	return newSchemaSyntaxUnsupportedForVersion(element.loc, "anyAttribute wildcards are not implemented", version)
+	return nil
 }
 
 func validateWildcardNamespace(attribute syntaxAttribute) error {
