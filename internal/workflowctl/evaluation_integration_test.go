@@ -2161,6 +2161,7 @@ func claimStateCommand(t *testing.T, issue string) commandExecutor {
 type workflowBackend struct {
 	t                                *testing.T
 	root                             string
+	primaryRoot                      string
 	branch                           string
 	localBranch                      string
 	head                             string
@@ -2208,6 +2209,14 @@ type workflowBackend struct {
 
 func newWorkflowBackend(t *testing.T) *workflowBackend {
 	t.Helper()
+	fixtureRoot := t.TempDir()
+	primaryRoot := filepath.Join(fixtureRoot, "primary")
+	root := claimWorktreePath(primaryRoot, "agent/issue-13")
+	for _, path := range []string{primaryRoot, root} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatalf("create workflow fixture worktree %q: %v", path, err)
+		}
+	}
 	summary := "GitHub currently derives squash bodies from branch commits, so claim\n" +
 		"renewals obscure the implementation outcome. Send this reviewed summary\n" +
 		"explicitly so future workflow sessions receive the durable rationale."
@@ -2223,7 +2232,7 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 	}
 	body += "\n" + string(block)
 	return &workflowBackend{
-		t: t, root: "/primary-worktrees/issue-13", branch: "agent/issue-13", localBranch: "agent/issue-13", head: "evaluated-head",
+		t: t, root: root, primaryRoot: primaryRoot, branch: "agent/issue-13", localBranch: "agent/issue-13", head: "evaluated-head",
 		body:              body,
 		summary:           summary,
 		summaryFile:       summaryFile,
@@ -2303,27 +2312,27 @@ func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
 	if output, ok := b.executeGitArtifact(command); ok {
 		return output, true
 	}
-	if dir == "/primary" && command == "rev-parse HEAD" {
+	if dir == b.primaryRoot && command == "rev-parse HEAD" {
 		return b.mergeSHA, true
 	}
 	switch command {
 	case "rev-parse --show-toplevel":
 		return b.root, true
 	case "rev-parse --path-format=absolute --git-common-dir":
-		return "/primary/.git", true
+		return filepath.Join(b.primaryRoot, ".git"), true
 	case "worktree list --porcelain":
-		return "worktree /primary\nHEAD merge-commit\nbranch refs/heads/main\n\n" +
-			"worktree /primary-worktrees/issue-13\nHEAD evaluated-head\nbranch refs/heads/agent/issue-13\n", true
-	case "-C /primary rev-parse --path-format=absolute --git-dir":
-		return "/primary/.git", true
-	case "-C /primary-worktrees/issue-13 rev-parse --path-format=absolute --git-dir":
-		return "/primary/.git/worktrees/issue-13", true
-	case "-C /primary-worktrees/issue-13 status --porcelain=v1 --untracked-files=all --ignore-submodules=none":
+		return fmt.Sprintf("worktree %s\nHEAD merge-commit\nbranch refs/heads/main\n\n"+
+			"worktree %s\nHEAD evaluated-head\nbranch refs/heads/agent/issue-13\n", b.primaryRoot, b.root), true
+	case "-C " + b.primaryRoot + " rev-parse --path-format=absolute --git-dir":
+		return filepath.Join(b.primaryRoot, ".git"), true
+	case "-C " + b.root + " rev-parse --path-format=absolute --git-dir":
+		return filepath.Join(b.primaryRoot, ".git", "worktrees", filepath.Base(b.root)), true
+	case "-C " + b.root + " status --porcelain=v1 --untracked-files=all --ignore-submodules=none":
 		return "", true
 	case "status --porcelain=v1 --untracked-files=all --ignore-submodules=none":
 		return "", true
 	case "branch --show-current":
-		if dir == "/primary" {
+		if dir == b.primaryRoot {
 			return "main", true
 		}
 		return b.localBranch, true
@@ -2341,7 +2350,7 @@ func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
 		return "", true
 	case "merge --ff-only origin/main":
 		return "", true
-	case "worktree remove --force /primary-worktrees/issue-13":
+	case "worktree remove --force " + b.root:
 		return "", true
 	case "ls-remote --heads origin refs/heads/agent/issue-13":
 		return "evaluated-head refs/heads/agent/issue-13", true
