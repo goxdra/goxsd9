@@ -258,6 +258,7 @@ type Component struct {
 	notation    *schemaNotationComponent
 	simpleType  *schemaSimpleTypeComponent
 	complexType *schemaComplexTypeComponent
+	modelGroup  *schemaModelGroupComponent
 }
 
 // ID returns the stable identity of the component.
@@ -869,6 +870,60 @@ func (component Component) ComplexType() (ComplexTypeDefinition, bool) {
 // supported named complex type definition.
 func (component Component) ComplexTypeDefinition() (ComplexTypeDefinition, bool) {
 	return component.ComplexType()
+}
+
+// ModelGroup returns the immutable model-group definition view for a
+// supported global named model group.
+func (component Component) ModelGroup() (ModelGroupDefinition, bool) {
+	if component.modelGroup == nil {
+		return ModelGroupDefinition{}, false
+	}
+	return ModelGroupDefinition{
+		component: component,
+		facts:     component.modelGroup,
+	}, true
+}
+
+// ModelGroupDefinition returns the immutable model-group definition view for
+// a supported global named model group.
+func (component Component) ModelGroupDefinition() (ModelGroupDefinition, bool) {
+	return component.ModelGroup()
+}
+
+// ModelGroupDefinition is the immutable type-specific view of a supported
+// global named model group.
+type ModelGroupDefinition struct {
+	component Component
+	facts     *schemaModelGroupComponent
+}
+
+// Component returns the generic component represented by the view.
+func (definition ModelGroupDefinition) Component() Component {
+	return definition.component
+}
+
+// ID returns the stable identity of the model-group definition.
+func (definition ModelGroupDefinition) ID() ComponentID {
+	return definition.component.ID()
+}
+
+// Name returns the expanded name of the model-group definition.
+func (definition ModelGroupDefinition) Name() QName {
+	return definition.component.Name()
+}
+
+// Loc returns the declaration location of the model-group definition.
+func (definition ModelGroupDefinition) Loc() Loc {
+	return definition.component.Loc()
+}
+
+// Particle returns the immutable direct-choice particle of the model group.
+// It is nil when the group's choice has exact 0/0 occurrences.
+func (definition ModelGroupDefinition) Particle() Particle {
+	if definition.facts == nil {
+		return nil
+	}
+	return definition.facts.particle
 }
 
 // ComplexTypeDefinition is the immutable type-specific view of a supported
@@ -1516,6 +1571,7 @@ type schemaComponentInput struct {
 	notation    *schemaNotationInput
 	simpleType  *schemaSimpleTypeInput
 	complexType *schemaComplexTypeInput
+	modelGroup  *schemaModelGroupInput
 }
 
 type schemaElementInput struct {
@@ -1722,6 +1778,10 @@ type schemaAnyAttributeInput struct {
 	processContentsLoc Loc
 }
 
+type schemaModelGroupInput struct {
+	particle *schemaChoiceParticleInput
+}
+
 type schemaComplexTypeParticleInput interface {
 	schemaComplexTypeParticleInput()
 }
@@ -1800,6 +1860,10 @@ type schemaAnyAttributeComponent struct {
 	processContentsLoc Loc
 }
 
+type schemaModelGroupComponent struct {
+	particle Particle
+}
+
 type schemaChoiceParticle struct {
 	loc          Loc
 	occurrences  particleOccurrenceRange
@@ -1839,6 +1903,7 @@ type schemaComponentRecord struct {
 	notation    *schemaNotationInput
 	simpleType  *schemaSimpleTypeInput
 	complexType *schemaComplexTypeInput
+	modelGroup  *schemaModelGroupInput
 }
 
 type schemaSymbolSpace uint8
@@ -1920,6 +1985,10 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
+	modelGroups, err := resolveSchemaModelGroups(records, byName, visibleSources, simpleTypes.results, version)
+	if err != nil {
+		return Schema{}, err
+	}
 	elements, err := resolveSchemaElementTypes(records, byName, visibleSources, simpleTypes, complexTypes, version)
 	if err != nil {
 		return Schema{}, err
@@ -1941,7 +2010,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
-	components, byID := completeSchemaComponents(records, simpleTypes.results, attributes, elements, complexTypes)
+	components, byID := completeSchemaComponents(records, simpleTypes.results, attributes, elements, complexTypes, modelGroups)
 	storage := &schemaStorage{
 		components: components,
 		byID:       byID,
@@ -2094,6 +2163,7 @@ func newSchemaComponentRecord(source SourceID, declarationIndex int, declaration
 		notation:    cloneSchemaNotationInput(declaration.notation),
 		simpleType:  cloneSchemaSimpleTypeInput(declaration.simpleType),
 		complexType: cloneSchemaComplexTypeInput(declaration.complexType),
+		modelGroup:  cloneSchemaModelGroupInput(declaration.modelGroup),
 	}, nil
 }
 
@@ -2117,11 +2187,12 @@ func completeSchemaComponents(
 	attributes []schemaAttributeTypeResult,
 	elements []schemaElementTypeResult,
 	complexTypes []schemaComplexTypeResult,
+	modelGroups []schemaModelGroupResult,
 ) ([]Component, map[ComponentID]int) {
 	components := make([]Component, 0, len(records))
 	byID := make(map[ComponentID]int, len(records))
 	for index, record := range records {
-		component := completeSchemaComponent(record, simpleTypes[index], attributes[index], elements[index], complexTypes[index])
+		component := completeSchemaComponent(record, simpleTypes[index], attributes[index], elements[index], complexTypes[index], modelGroups[index])
 		byID[record.id] = len(components)
 		components = append(components, component)
 	}
@@ -2134,6 +2205,7 @@ func completeSchemaComponent(
 	attribute schemaAttributeTypeResult,
 	element schemaElementTypeResult,
 	complexType schemaComplexTypeResult,
+	modelGroup schemaModelGroupResult,
 ) Component {
 	component := Component{
 		id:   record.id,
@@ -2206,6 +2278,9 @@ func completeSchemaComponent(
 			}
 		}
 	}
+	if modelGroup.present {
+		component.modelGroup = &schemaModelGroupComponent{particle: modelGroup.particle}
+	}
 	return component
 }
 
@@ -2265,6 +2340,22 @@ func cloneSchemaAnyAttributeInput(input *schemaAnyAttributeInput) *schemaAnyAttr
 		processContents:    input.processContents,
 		processContentsLoc: input.processContentsLoc,
 	}
+}
+
+func cloneSchemaModelGroupInput(input *schemaModelGroupInput) *schemaModelGroupInput {
+	if input == nil {
+		return nil
+	}
+	clone := &schemaModelGroupInput{}
+	if input.particle == nil {
+		return clone
+	}
+	clone.particle = &schemaChoiceParticleInput{
+		loc:          input.particle.loc,
+		occurrences:  input.particle.occurrences.clone(),
+		alternatives: cloneSchemaElementParticleInputs(input.particle.alternatives),
+	}
+	return clone
 }
 
 func cloneSchemaSimpleTypeInput(input *schemaSimpleTypeInput) *schemaSimpleTypeInput {

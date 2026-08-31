@@ -26,6 +26,7 @@ const (
 	diagnosticSchemaElementReferenceWrongKindCode  = "XSD3025"
 	diagnosticSchemaElementReferenceAmbiguousCode  = "XSD3026"
 	diagnosticSchemaElementReferenceNamespaceCode  = "XSD3027"
+	diagnosticSchemaElementReferenceDuplicateCode  = "XSD3028"
 	diagnosticSchemaPrecisionDecimalVersionCode    = "XSD3030"
 	diagnosticSchemaAllOccurrenceVersionCode       = diagnosticSchemaPrecisionDecimalVersionCode
 	diagnosticSchemaNotationCode                   = "XSD3031"
@@ -45,39 +46,41 @@ const (
 )
 
 const (
-	schemaSimpleTypeXSD10SpecRef              = "xsd10-structures#Simple_Type_Definitions"
-	schemaSimpleTypeXSD11SpecRef              = "xsd11-structures#Simple_Type_Definition"
-	schemaElementTypeXSD10SpecRef             = "xsd10-structures#Element_Declaration_details"
-	schemaElementTypeXSD11SpecRef             = "xsd11-structures#Element_Declaration_details"
-	schemaElementTargetNamespaceXSD11SpecRef  = "xsd11-structures#dcl.elt.local"
-	schemaBooleanDatatypeXSD10SpecRef         = "xsd10-datatypes#boolean"
-	schemaBooleanDatatypeXSD11SpecRef         = "xsd11-datatypes#boolean"
-	schemaGlobalDuplicateXSD10SpecRef         = "xsd10-structures#c-nmd"
-	schemaGlobalDuplicateXSD11SpecRef         = "xsd11-structures#c-nmd"
-	schemaElementDuplicateXSD10SpecRef        = schemaGlobalDuplicateXSD10SpecRef
-	schemaElementDuplicateXSD11SpecRef        = schemaGlobalDuplicateXSD11SpecRef
-	schemaElementReferenceXSD10SpecRef        = "xsd10-structures#src-resolve"
-	schemaElementReferenceXSD11SpecRef        = "xsd11-structures#src-resolve"
-	schemaElementReferenceImportXSD10SpecRef  = "xsd10-structures#composition-importLicenseReferences"
-	schemaElementReferenceImportXSD11SpecRef  = "xsd11-structures#composition-importLicenseReferences"
-	schemaAttributeTypeXSD10SpecRef           = "xsd10-structures#Attribute_Declaration_details"
-	schemaAttributeTypeXSD11SpecRef           = "xsd11-structures#Attribute_Declaration_details"
-	schemaNotationXSD10SpecRef                = "xsd10-structures#Notation_Declaration_details"
-	schemaNotationXSD11SpecRef                = "xsd11-structures#Notation_Declaration_details"
-	schemaSubstitutionAffiliationXSD10SpecRef = "xsd10-structures#Element_Declaration_details"
-	schemaSubstitutionAffiliationXSD11SpecRef = "xsd11-structures#ed-substitution_group_affiliations"
-	schemaSubstitutionQNameXSD10SpecRef       = "xsd10-structures#src-qname"
-	schemaSubstitutionQNameXSD11SpecRef       = "xsd11-structures#src-resolve"
-	schemaSubstitutionResolveXSD10SpecRef     = "xsd10-structures#src-resolve"
-	schemaSubstitutionResolveXSD11SpecRef     = "xsd11-structures#src-resolve"
-	schemaSubstitutionConstraintXSD10SpecRef  = "xsd10-structures#coss-element"
-	schemaSubstitutionConstraintXSD11SpecRef  = "xsd11-structures#coss-element"
-	schemaBlockComplexXSD10SpecRef            = "xsd10-structures#Complex_Type_Definition_details"
-	schemaBlockComplexXSD11SpecRef            = "xsd11-structures#Complex_Type_Definition_details"
-	schemaBlockDefaultXSD10SpecRef            = "xsd10-structures#element-schema"
-	schemaBlockDefaultXSD11SpecRef            = "xsd11-structures#element-schema"
-	schemaAnyAttributeXSD10SpecRef            = "xsd10-structures#element-anyAttribute"
-	schemaAnyAttributeXSD11SpecRef            = "xsd11-structures#element-anyAttribute"
+	schemaSimpleTypeXSD10SpecRef                = "xsd10-structures#Simple_Type_Definitions"
+	schemaSimpleTypeXSD11SpecRef                = "xsd11-structures#Simple_Type_Definition"
+	schemaElementTypeXSD10SpecRef               = "xsd10-structures#Element_Declaration_details"
+	schemaElementTypeXSD11SpecRef               = "xsd11-structures#Element_Declaration_details"
+	schemaElementTargetNamespaceXSD11SpecRef    = "xsd11-structures#dcl.elt.local"
+	schemaBooleanDatatypeXSD10SpecRef           = "xsd10-datatypes#boolean"
+	schemaBooleanDatatypeXSD11SpecRef           = "xsd11-datatypes#boolean"
+	schemaGlobalDuplicateXSD10SpecRef           = "xsd10-structures#c-nmd"
+	schemaGlobalDuplicateXSD11SpecRef           = "xsd11-structures#c-nmd"
+	schemaElementDuplicateXSD10SpecRef          = schemaGlobalDuplicateXSD10SpecRef
+	schemaElementDuplicateXSD11SpecRef          = schemaGlobalDuplicateXSD11SpecRef
+	schemaElementReferenceXSD10SpecRef          = "xsd10-structures#src-resolve"
+	schemaElementReferenceXSD11SpecRef          = "xsd11-structures#src-resolve"
+	schemaElementReferenceDuplicateXSD10SpecRef = "xsd10-structures#coss-particle"
+	schemaElementReferenceDuplicateXSD11SpecRef = "xsd11-structures#coss-particle"
+	schemaElementReferenceImportXSD10SpecRef    = "xsd10-structures#composition-importLicenseReferences"
+	schemaElementReferenceImportXSD11SpecRef    = "xsd11-structures#composition-importLicenseReferences"
+	schemaAttributeTypeXSD10SpecRef             = "xsd10-structures#Attribute_Declaration_details"
+	schemaAttributeTypeXSD11SpecRef             = "xsd11-structures#Attribute_Declaration_details"
+	schemaNotationXSD10SpecRef                  = "xsd10-structures#Notation_Declaration_details"
+	schemaNotationXSD11SpecRef                  = "xsd11-structures#Notation_Declaration_details"
+	schemaSubstitutionAffiliationXSD10SpecRef   = "xsd10-structures#Element_Declaration_details"
+	schemaSubstitutionAffiliationXSD11SpecRef   = "xsd11-structures#ed-substitution_group_affiliations"
+	schemaSubstitutionQNameXSD10SpecRef         = "xsd10-structures#src-qname"
+	schemaSubstitutionQNameXSD11SpecRef         = "xsd11-structures#src-resolve"
+	schemaSubstitutionResolveXSD10SpecRef       = "xsd10-structures#src-resolve"
+	schemaSubstitutionResolveXSD11SpecRef       = "xsd11-structures#src-resolve"
+	schemaSubstitutionConstraintXSD10SpecRef    = "xsd10-structures#coss-element"
+	schemaSubstitutionConstraintXSD11SpecRef    = "xsd11-structures#coss-element"
+	schemaBlockComplexXSD10SpecRef              = "xsd10-structures#Complex_Type_Definition_details"
+	schemaBlockComplexXSD11SpecRef              = "xsd11-structures#Complex_Type_Definition_details"
+	schemaBlockDefaultXSD10SpecRef              = "xsd10-structures#element-schema"
+	schemaBlockDefaultXSD11SpecRef              = "xsd11-structures#element-schema"
+	schemaAnyAttributeXSD10SpecRef              = "xsd10-structures#element-anyAttribute"
+	schemaAnyAttributeXSD11SpecRef              = "xsd11-structures#element-anyAttribute"
 )
 
 var (
@@ -94,6 +97,7 @@ var (
 	errSchemaElementReferenceWrongKind        = errors.New("element reference has the wrong target kind")
 	errSchemaElementReferenceAmbiguous        = errors.New("element reference is ambiguous")
 	errSchemaElementReferenceNamespace        = errors.New("element reference namespace is not imported")
+	errSchemaElementReferenceDuplicate        = errors.New("element reference particle is duplicated")
 	errSchemaAttributeTypeUnresolved          = errors.New("attribute type is unresolved")
 	errSchemaAttributeTypeWrongKind           = errors.New("attribute type has the wrong kind")
 	errSchemaAttributeTypeAmbiguous           = errors.New("attribute type is ambiguous")
@@ -936,7 +940,7 @@ func schemaDocumentDeclarationSyntax(node syntaxNode) (*syntaxElement, Component
 	return element, kind, true, nil
 }
 
-func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, facts schemaDocumentFacts, version XSDVersion) (schemaComponentInput, error) {
+func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, facts schemaDocumentFacts, version XSDVersion) (schemaComponentInput, error) { //nolint:gocognit // Keep declaration-kind dispatch and phase-local input construction together.
 	name, err := schemaDeclarationName(element, facts.targetNamespace.value)
 	if err != nil {
 		return schemaComponentInput{}, err
@@ -973,6 +977,13 @@ func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, 
 			return schemaComponentInput{}, complexErr
 		}
 		declaration.complexType = complexType
+	}
+	if kind == ComponentKindModelGroupDefinition {
+		modelGroup, groupErr := schemaModelGroupInputFromElementWithFacts(element, facts, version)
+		if groupErr != nil {
+			return schemaComponentInput{}, groupErr
+		}
+		declaration.modelGroup = modelGroup
 	}
 	if kind != ComponentKindSimpleTypeDefinition {
 		return declaration, nil
@@ -1282,6 +1293,66 @@ func schemaComplexTypeModel(element *syntaxElement) *syntaxElement {
 		return child
 	}
 	return nil
+}
+
+func schemaModelGroupModel(element *syntaxElement) *syntaxElement {
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local != "all" && child.name.local != "choice" && child.name.local != "sequence" {
+			continue
+		}
+		return child
+	}
+	return nil
+}
+
+func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaModelGroupInput, error) {
+	model := schemaModelGroupModel(element)
+	if model == nil {
+		return nil, newSchemaBridgeInvariant(element.loc, "model group definition has no model child")
+	}
+	if model.name.local != "choice" {
+		return nil, newSchemaSyntaxUnsupportedForVersion(
+			model.loc,
+			fmt.Sprintf("named model-group %s particles are not implemented", model.name.local),
+			version,
+		)
+	}
+	occurrences, err := schemaParticleOccurrenceRange(model, version)
+	if err != nil {
+		return nil, err
+	}
+	choice := &schemaChoiceParticleInput{
+		loc:          model.loc,
+		occurrences:  occurrences,
+		alternatives: make([]schemaElementParticleInput, 0),
+	}
+	for _, node := range model.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local == "annotation" {
+			continue
+		}
+		if child.name.local != "element" {
+			return nil, newSchemaSyntaxUnsupportedForVersion(
+				child.loc,
+				fmt.Sprintf("named model-group choice child <%s> is not implemented", child.name.local),
+				version,
+			)
+		}
+		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, false)
+		if err != nil {
+			return nil, err
+		}
+		if alternative.reference == nil {
+			return nil, newSchemaSyntaxUnsupportedForVersion(
+				child.loc,
+				"named model-group choices require global element references",
+				version,
+			)
+		}
+		choice.alternatives = append(choice.alternatives, alternative)
+	}
+	return &schemaModelGroupInput{particle: choice}, nil
 }
 
 func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy, anyAttribute *schemaAnyAttributeInput) (*schemaComplexTypeInput, error) {
@@ -3456,6 +3527,11 @@ type schemaAnyAttributeResult struct {
 	processContentsLoc Loc
 }
 
+type schemaModelGroupResult struct {
+	present  bool
+	particle Particle
+}
+
 func resolveSchemaComplexTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
@@ -3507,6 +3583,45 @@ func resolveSchemaComplexTypes(
 	return results, nil
 }
 
+func resolveSchemaModelGroups(
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
+) ([]schemaModelGroupResult, error) {
+	if len(simpleTypes) != len(records) {
+		return nil, newSchemaBridgeInvariant(Loc{}, "model group resolution has incomplete simple type results")
+	}
+	results := make([]schemaModelGroupResult, len(records))
+	for index, record := range records {
+		if record.modelGroup == nil {
+			continue
+		}
+		if record.modelGroup.particle == nil {
+			return nil, newSchemaBridgeInvariant(record.loc, "model group resolution has no particle input")
+		}
+		particle, err := resolveSchemaChoiceParticleWithOptions(
+			record.modelGroup.particle,
+			record,
+			records,
+			byName,
+			visibleSources,
+			simpleTypes,
+			version,
+			true,
+		)
+		if err != nil {
+			return nil, err
+		}
+		results[index] = schemaModelGroupResult{
+			present:  true,
+			particle: particle,
+		}
+	}
+	return results, nil
+}
+
 func resolveSchemaComplexTypeParticle(
 	input schemaComplexTypeParticleInput,
 	owner schemaComponentRecord,
@@ -3541,10 +3656,34 @@ func resolveSchemaChoiceParticle(
 	simpleTypes []schemaSimpleTypeResult,
 	version XSDVersion,
 ) (Particle, error) {
+	return resolveSchemaChoiceParticleWithOptions(
+		input,
+		owner,
+		records,
+		byName,
+		visibleSources,
+		simpleTypes,
+		version,
+		false,
+	)
+}
+
+//nolint:gocognit // Keep occurrence-sensitive choice resolution and duplicate checks together.
+func resolveSchemaChoiceParticleWithOptions(
+	input *schemaChoiceParticleInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
+	rejectDuplicateReferences bool,
+) (Particle, error) {
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
 	alternatives := make([]Particle, 0, len(input.alternatives))
+	seenReferences := make(map[QName]Loc)
 	for _, elementInput := range input.alternatives {
 		if !input.occurrences.isDefault() && elementInput.occurrences.mapsToParticle() && elementInput.typeInput != nil {
 			isPrecisionDecimal, err := schemaScalarTypeIsPrecisionDecimal(
@@ -3579,6 +3718,17 @@ func resolveSchemaChoiceParticle(
 		}
 		if element == nil {
 			continue
+		}
+		if rejectDuplicateReferences && elementInput.reference != nil {
+			firstLoc, seen := seenReferences[elementInput.reference.name]
+			if seen {
+				return nil, newSchemaElementReferenceDuplicateDiagnostic(
+					elementInput.reference,
+					firstLoc,
+					version,
+				)
+			}
+			seenReferences[elementInput.reference.name] = elementInput.reference.loc
 		}
 		alternatives = append(alternatives, element)
 	}
@@ -4099,6 +4249,18 @@ func newSchemaElementReferenceDiagnostic(
 	}
 }
 
+func newSchemaElementReferenceDuplicateDiagnostic(reference *schemaElementReferenceInput, firstLoc Loc, version XSDVersion) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaElementReferenceDuplicateCode,
+		loc:     reference.loc,
+		message: fmt.Sprintf("element reference %q is duplicated in the named model-group choice", reference.name),
+		related: []Loc{firstLoc},
+		specRef: schemaElementReferenceDuplicateSpecRef(version),
+		cause:   fmt.Errorf("%w: %q", errSchemaElementReferenceDuplicate, reference.name),
+	}
+}
+
 func newSchemaElementReferenceImportDiagnostic(
 	code string,
 	loc Loc,
@@ -4117,6 +4279,13 @@ func schemaElementReferenceSpecRef(version XSDVersion) string {
 		return schemaElementReferenceXSD10SpecRef
 	}
 	return schemaElementReferenceXSD11SpecRef
+}
+
+func schemaElementReferenceDuplicateSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaElementReferenceDuplicateXSD10SpecRef
+	}
+	return schemaElementReferenceDuplicateXSD11SpecRef
 }
 
 func schemaElementReferenceImportSpecRef(version XSDVersion) string {

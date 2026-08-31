@@ -2564,11 +2564,12 @@ func TestSchemaBridgeKeepsComposedModelGroupCollisionsAtUnsupportedBoundary(t *t
 		"earliest.xsd": {id: "earliest.xsd", contents: group},
 	}
 	for _, policy := range []struct {
-		name  string
-		value LanguagePolicy
+		name    string
+		value   LanguagePolicy
+		specRef string
 	}{
-		{name: "Strict10", value: Strict10},
-		{name: "Strict11", value: Strict11},
+		{name: "Strict10", value: Strict10, specRef: "xsd10-structures#schema-document"},
+		{name: "Strict11", value: Strict11, specRef: "xsd11-structures#cSchemaDocument"},
 	} {
 		t.Run(policy.name, func(t *testing.T) {
 			var first Diagnostic
@@ -2587,8 +2588,8 @@ func TestSchemaBridgeKeepsComposedModelGroupCollisionsAtUnsupportedBoundary(t *t
 				if diagnostic.Message() != "global group child <sequence> is not implemented" {
 					t.Fatalf("diagnostic message = %q, want explicit group boundary", diagnostic.Message())
 				}
-				if diagnostic.SpecRef() != "xsd10-structures#schema-document" {
-					t.Fatalf("diagnostic spec ref = %q, want schema document reference", diagnostic.SpecRef())
+				if diagnostic.SpecRef() != policy.specRef {
+					t.Fatalf("diagnostic spec ref = %q, want %s", diagnostic.SpecRef(), policy.specRef)
 				}
 				if len(diagnostic.Related()) != 0 {
 					t.Fatalf("diagnostic related locations = %v, want none at unsupported boundary", diagnostic.Related())
