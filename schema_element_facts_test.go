@@ -231,6 +231,294 @@ func TestSchemaBridgePreservesGlobalElementFactsAcrossForwardAndCrossDocumentTyp
 	}
 }
 
+//nolint:gocognit,funlen // Keep global string identity, order, and facet facts together.
+func TestSchemaBridgeBuildsGlobalStringElementsAcrossSupportedGraphs(t *testing.T) {
+	for _, policy := range []struct {
+		name    string
+		value   LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "XSD 1.0", value: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", value: Strict11, version: XSDVersion11},
+	} {
+		t.Run(policy.name, func(t *testing.T) {
+			root := globalStringElementSchemaRoot(policy.version)
+			other := globalStringElementOtherSchema(policy.version)
+			schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+				"other.xsd": {id: "other.xsd", contents: other},
+			}, policy.value)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+
+			components := schema.Components()
+			wantNames := []QName{
+				mustTestQName(t, "urn:test", "direct"),
+				mustTestQName(t, "urn:test", "named"),
+				mustTestQName(t, "urn:test", "inherited"),
+				mustTestQName(t, "urn:test", "forward"),
+				mustTestQName(t, "urn:test", "imported"),
+				mustTestQName(t, "urn:test", "inline"),
+				mustTestQName(t, "urn:test", "unconstrained"),
+				mustTestQName(t, "urn:test", "Named"),
+				mustTestQName(t, "urn:test", "Inherited"),
+				mustTestQName(t, "urn:test", "Forward"),
+				mustTestQName(t, "urn:test", "ForwardBase"),
+				mustTestQName(t, "urn:test", "Unconstrained"),
+				mustTestQName(t, "urn:other", "Imported"),
+			}
+			wantLocations := []Loc{
+				mustSchemaTokenLoc(t, "root.xsd", root, 3, "<xs:element"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 4, "<xs:element"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 5, "<xs:element"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 6, "<xs:element"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 7, "<xs:element"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 8, "<xs:element"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 16, "<xs:element"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 17, "<xs:simpleType"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 23, "<xs:simpleType"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 24, "<xs:simpleType"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 25, "<xs:simpleType"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 30, "<xs:simpleType"),
+				mustSchemaTokenLoc(t, "other.xsd", other, 2, "<xs:simpleType"),
+			}
+			if got, want := len(components), len(wantNames); got != want {
+				t.Fatalf("component count = %d, want %d", got, want)
+			}
+			for index, wantName := range wantNames {
+				component := components[index]
+				if component.Name() != wantName || component.Loc() != wantLocations[index] {
+					t.Fatalf("component %d facts = %q at %s, want %q at %s", index, component.Name(), component.Loc(), wantName, wantLocations[index])
+				}
+				wantSource := SourceID("root.xsd")
+				wantOrdinal := uint64(index + 1)
+				if index == len(components)-1 {
+					wantSource = "other.xsd"
+					wantOrdinal = 1
+				}
+				if component.ID().Source() != wantSource || component.ID().Ordinal() != wantOrdinal {
+					t.Fatalf("component %d ID = %s/%d, want %s/%d", index, component.ID().Source(), component.ID().Ordinal(), wantSource, wantOrdinal)
+				}
+			}
+
+			direct, ok := components[0].ElementDeclaration()
+			if !ok {
+				t.Fatal("direct string element view is missing")
+			}
+			if direct.DeclaredType() != mustTestQName(t, testXSDNamespace, "string") || !direct.IsAbstract() || !direct.IsNillable() {
+				t.Fatalf("direct string facts = type %q abstract=%t nillable=%t", direct.DeclaredType(), direct.IsAbstract(), direct.IsNillable())
+			}
+			if typeID, hasTypeID := direct.TypeID(); hasTypeID || !typeID.IsZero() {
+				t.Fatalf("direct string type ID = %v/%t, want zero,false", typeID, hasTypeID)
+			}
+			directReference, ok := direct.TypeReference()
+			if !ok || !directReference.IsBuiltin() || directReference.Name() != direct.DeclaredType() || directReference.Variety() != SimpleTypeVarietyAtomicRestriction {
+				t.Fatalf("direct string reference = %#v/%t, want built-in atomic reference", directReference, ok)
+			}
+			if directReference.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 3, "type") || directReference.VarietyLoc() != directReference.Loc() {
+				t.Fatalf("direct string reference locations = %s/%s, want type attribute", directReference.Loc(), directReference.VarietyLoc())
+			}
+			if typeID, hasTypeID := directReference.ComponentID(); hasTypeID || !typeID.IsZero() {
+				t.Fatalf("direct string reference type ID = %v/%t, want zero,false", typeID, hasTypeID)
+			}
+			if directReference.facts == nil {
+				t.Fatal("direct string reference has no resolved facts")
+			}
+			directFacets, ok := directReference.facts.facets.(schemaStringFacetVariant)
+			if !ok || directFacets.enumeration.HasEnumeration() || directFacets.enumeration.Values() != nil {
+				t.Fatalf("direct string enumeration facts = %#v/%t, want omitted", directFacets.enumeration, ok)
+			}
+
+			type namedElementExpectation struct {
+				index      int
+				elementLoc Loc
+				typeLoc    Loc
+				name       string
+				declared   QName
+				typeIndex  int
+				isAbstract bool
+				isNillable bool
+				values     []string
+				locations  []Loc
+			}
+			for _, want := range []namedElementExpectation{
+				{
+					index:      1,
+					elementLoc: mustSchemaTokenLoc(t, "root.xsd", root, 4, "<xs:element"),
+					typeLoc:    mustSchemaTokenLoc(t, "root.xsd", root, 4, "type"),
+					name:       "named",
+					declared:   mustTestQName(t, "urn:test", "Named"),
+					typeIndex:  7,
+					values:     []string{"named", ""},
+					locations:  []Loc{mustSchemaTokenLoc(t, "root.xsd", root, 19, "value"), mustSchemaTokenLoc(t, "root.xsd", root, 20, "value")},
+				},
+				{
+					index:      2,
+					elementLoc: mustSchemaTokenLoc(t, "root.xsd", root, 5, "<xs:element"),
+					typeLoc:    mustSchemaTokenLoc(t, "root.xsd", root, 5, "type"),
+					name:       "inherited",
+					declared:   mustTestQName(t, "urn:test", "Inherited"),
+					typeIndex:  8,
+					values:     []string{"named", ""},
+					locations:  []Loc{mustSchemaTokenLoc(t, "root.xsd", root, 19, "value"), mustSchemaTokenLoc(t, "root.xsd", root, 20, "value")},
+				},
+				{
+					index:      3,
+					elementLoc: mustSchemaTokenLoc(t, "root.xsd", root, 6, "<xs:element"),
+					typeLoc:    mustSchemaTokenLoc(t, "root.xsd", root, 6, "type"),
+					name:       "forward",
+					declared:   mustTestQName(t, "urn:test", "Forward"),
+					typeIndex:  9,
+					values:     []string{"forward"},
+					locations:  []Loc{mustSchemaTokenLoc(t, "root.xsd", root, 27, "value")},
+				},
+				{
+					index:      4,
+					elementLoc: mustSchemaTokenLoc(t, "root.xsd", root, 7, "<xs:element"),
+					typeLoc:    mustSchemaTokenLoc(t, "root.xsd", root, 7, "type"),
+					name:       "imported",
+					declared:   mustTestQName(t, "urn:other", "Imported"),
+					typeIndex:  12,
+					values:     []string{"imported"},
+					locations:  []Loc{mustSchemaTokenLoc(t, "other.xsd", other, 4, "value")},
+				},
+			} {
+				element, elementOK := components[want.index].ElementDeclaration()
+				if !elementOK {
+					t.Fatalf("%s element view is missing", want.name)
+				}
+				if element.Loc() != want.elementLoc || element.Name().Local() != want.name || element.DeclaredType() != want.declared || element.IsAbstract() != want.isAbstract || element.IsNillable() != want.isNillable {
+					t.Fatalf("%s facts = name %q at %s type %q abstract=%t nillable=%t", want.name, element.Name(), element.Loc(), element.DeclaredType(), element.IsAbstract(), element.IsNillable())
+				}
+				typeID, hasTypeID := element.TypeID()
+				if !hasTypeID || typeID != components[want.typeIndex].ID() {
+					t.Fatalf("%s type ID = %v/%t, want %v/true", want.name, typeID, hasTypeID, components[want.typeIndex].ID())
+				}
+				reference, referenceOK := element.TypeReference()
+				if !referenceOK || !reference.IsNamed() || reference.Name() != want.declared || reference.Variety() != SimpleTypeVarietyAtomicRestriction {
+					t.Fatalf("%s type reference = %#v/%t, want named atomic reference", want.name, reference, referenceOK)
+				}
+				gotTypeID, gotTypeIDOK := reference.ComponentID()
+				if !gotTypeIDOK || gotTypeID != typeID || reference.Loc() != want.typeLoc {
+					t.Fatalf("%s type reference facts = %v/%t at %s, want %v/true at %s", want.name, gotTypeID, gotTypeIDOK, reference.Loc(), typeID, want.typeLoc)
+				}
+				definition, definitionOK := components[want.typeIndex].SimpleTypeDefinition()
+				if !definitionOK {
+					t.Fatalf("%s simple type view is missing", want.name)
+				}
+				assertStringEnumerationFacts(t, definition.StringEnumerationFacets(), policy.version, want.values, want.locations)
+			}
+
+			inline, ok := components[5].ElementDeclaration()
+			if !ok {
+				t.Fatal("inline string element view is missing")
+			}
+			if inline.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 8, "<xs:element") || !inline.DeclaredType().IsZero() || inline.IsAbstract() || !inline.IsNillable() {
+				t.Fatalf("inline string facts = location %s type %q abstract=%t nillable=%t", inline.Loc(), inline.DeclaredType(), inline.IsAbstract(), inline.IsNillable())
+			}
+			if typeID, hasTypeID := inline.TypeID(); hasTypeID || !typeID.IsZero() {
+				t.Fatalf("inline string type ID = %v/%t, want zero,false", typeID, hasTypeID)
+			}
+			inlineReference, ok := inline.TypeReference()
+			if !ok || !inlineReference.IsAnonymous() || inlineReference.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 9, "<xs:simpleType") || inlineReference.VarietyLoc() != mustSchemaTokenLoc(t, "root.xsd", root, 10, "<xs:restriction") {
+				t.Fatalf("inline string reference = %#v/%t at %s/%s, want anonymous restriction", inlineReference, ok, inlineReference.Loc(), inlineReference.VarietyLoc())
+			}
+			if typeID, hasTypeID := inlineReference.ComponentID(); hasTypeID || !typeID.IsZero() {
+				t.Fatalf("inline string reference component ID = %v/%t, want zero,false", typeID, hasTypeID)
+			}
+			anonymousID, ok := inlineReference.AnonymousID()
+			if !ok || anonymousID.IsZero() || anonymousID.Source() != "root.xsd" {
+				t.Fatalf("inline string anonymous ID = %v/%t, want root.xsd identity", anonymousID, ok)
+			}
+			anonymous, ok := inlineReference.AnonymousType()
+			if !ok || !anonymous.IsAnonymous() || anonymous.Loc() != inlineReference.Loc() || anonymous.Variety() != SimpleTypeVarietyAtomicRestriction {
+				t.Fatalf("inline string model = %#v/%t, want anonymous atomic restriction", anonymous, ok)
+			}
+			assertStringEnumerationFacts(t, anonymous.StringEnumerationFacets(), policy.version, []string{"", "inline"}, []Loc{
+				mustSchemaTokenLoc(t, "root.xsd", root, 11, "value"),
+				mustSchemaTokenLoc(t, "root.xsd", root, 12, "value"),
+			})
+
+			unconstrained, ok := components[6].ElementDeclaration()
+			if !ok {
+				t.Fatal("unconstrained string element view is missing")
+			}
+			unconstrainedReference, ok := unconstrained.TypeReference()
+			if !ok || !unconstrainedReference.IsNamed() {
+				t.Fatalf("unconstrained string reference = %#v/%t, want named reference", unconstrainedReference, ok)
+			}
+			unconstrainedType, ok := components[11].SimpleTypeDefinition()
+			if !ok {
+				t.Fatal("unconstrained string type view is missing")
+			}
+			if facets := unconstrainedType.StringEnumerationFacets(); facets.HasEnumeration() || facets.Values() != nil {
+				t.Fatalf("unconstrained string enumeration facts = has=%t values=%#v, want omitted", facets.HasEnumeration(), facets.Values())
+			}
+
+			namedType, ok := components[7].SimpleType()
+			if !ok {
+				t.Fatal("named string type view is missing")
+			}
+			before := schema.Components()
+			values := namedType.StringEnumerationFacets().Values()
+			values[0] = "changed"
+			declarations := namedType.StringEnumerationFacets().Declarations()
+			declarations[0], declarations[1] = declarations[1], declarations[0]
+			if !reflect.DeepEqual(namedType.StringEnumerationFacets().Values(), []string{"named", ""}) {
+				t.Fatal("mutating returned string enumeration facts changed the schema")
+			}
+			components[0] = Component{}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("mutating returned component facts changed the schema")
+			}
+		})
+	}
+}
+
+func globalStringElementSchemaRoot(version XSDVersion) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:test" xmlns:o="urn:other" targetNamespace="urn:test" version="` + string(version) + `">
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:element name="direct" type="xs:string" abstract="true" nillable="1"/>
+  <xs:element name="named" type="r:Named"/>
+  <xs:element name="inherited" type="r:Inherited"/>
+  <xs:element name="forward" type="r:Forward"/>
+  <xs:element name="imported" type="o:Imported"/>
+  <xs:element name="inline" nillable="true">
+    <xs:simpleType>
+      <xs:restriction base="xs:string">
+        <xs:enumeration value=""/>
+        <xs:enumeration value="inline"/>
+      </xs:restriction>
+    </xs:simpleType>
+  </xs:element>
+  <xs:element name="unconstrained" type="r:Unconstrained"/>
+  <xs:simpleType name="Named">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="named"/>
+      <xs:enumeration value=""/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="Inherited"><xs:restriction base="r:Named"/></xs:simpleType>
+  <xs:simpleType name="Forward"><xs:restriction base="r:ForwardBase"/></xs:simpleType>
+  <xs:simpleType name="ForwardBase">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="forward"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="Unconstrained"><xs:restriction base="xs:string"/></xs:simpleType>
+</xs:schema>`
+}
+
+func globalStringElementOtherSchema(version XSDVersion) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="` + string(version) + `">
+  <xs:simpleType name="Imported">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="imported"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`
+}
+
 //nolint:gocognit // Keep edition and attribute-location assertions together.
 func TestSchemaBridgeRejectsMalformedGlobalElementFactsAtAttribute(t *testing.T) {
 	for _, policy := range []struct {

@@ -878,7 +878,7 @@ func TestSchemaBridgeRejectsActiveTextAndAttributesWithoutPartialSchema(t *testi
 }
 
 func TestSchemaBridgeRecognizedGlobalAttributeIsUnsupported(t *testing.T) {
-	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" type="xs:string"/></xs:schema>`
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="item" type="xs:string"/></xs:schema>`
 	schema, err := discoverTestSchema(t, root, nil)
 	if err == nil {
 		t.Fatal("discoverSchema accepted an unimplemented global attribute")
@@ -3823,13 +3823,15 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 			unsupported: true,
 		},
 		{
-			name: "string built-in is unsupported",
+			name: "local string built-in is unsupported",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.0">
-  <xs:element name="item" type="xs:string"/>
+  <xs:complexType name="Container"><xs:choice><xs:element name="item" type="xs:string"/></xs:choice></xs:complexType>
 </xs:schema>`,
-			class:       FailureUnsupported,
-			feature:     FeatureSchemaSyntax,
-			primary:     mustTestLoc(t, "root.xsd", 2, 27),
+			class:   FailureUnsupported,
+			feature: FeatureSchemaSyntax,
+			primary: mustSchemaTokenLoc(t, "root.xsd", `<xs:schema xmlns:xs="`+testXSDNamespace+`" version="1.0">
+  <xs:complexType name="Container"><xs:choice><xs:element name="item" type="xs:string"/></xs:choice></xs:complexType>
+</xs:schema>`, 2, "type"),
 			unsupported: true,
 		},
 	}
