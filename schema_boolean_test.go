@@ -108,6 +108,9 @@ func TestSchemaBridgeBuildsBooleanTypesAndPreservesFacts(t *testing.T) {
 			if !derived.IsBoolean() {
 				t.Fatal("derived boolean type did not retain its boolean kind")
 			}
+			if derived.IsString() {
+				t.Fatal("derived boolean type reported string identity")
+			}
 			if got, want := derived.Base(), mustTestQName(t, "urn:root", "Base"); got != want {
 				t.Fatalf("derived base = %q, want %q", got, want)
 			}
@@ -124,6 +127,9 @@ func TestSchemaBridgeBuildsBooleanTypesAndPreservesFacts(t *testing.T) {
 			}
 			if !base.IsBoolean() {
 				t.Fatal("direct boolean restriction did not retain its boolean kind")
+			}
+			if base.IsString() {
+				t.Fatal("direct boolean restriction reported string identity")
 			}
 			if got, want := base.Base(), mustTestQName(t, testXSDNamespace, "boolean"); got != want {
 				t.Fatalf("base built-in QName = %q, want %q", got, want)
@@ -147,6 +153,9 @@ func TestSchemaBridgeBuildsBooleanTypesAndPreservesFacts(t *testing.T) {
 			crossType, ok := components[5].SimpleTypeDefinition()
 			if !ok || !crossType.IsBoolean() {
 				t.Fatal("cross-document boolean type view is missing or not boolean")
+			}
+			if crossType.IsString() {
+				t.Fatal("cross-document boolean type reported string identity")
 			}
 			if baseID, hasBaseID := crossType.BaseID(); hasBaseID || !baseID.IsZero() {
 				t.Fatalf("cross-document built-in base ID = (%v, %t), want zero,false", baseID, hasBaseID)

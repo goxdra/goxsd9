@@ -178,6 +178,23 @@ func TestSchemaBridgeBuildsOrderedStringEnumerationFactsAcrossGraphs(t *testing.
 			if !ok {
 				t.Fatal("inline element anonymous type is missing")
 			}
+			for _, test := range []struct {
+				name       string
+				definition SimpleTypeDefinition
+			}{
+				{name: "base", definition: base},
+				{name: "child", definition: child},
+				{name: "forwardChild", definition: forward},
+				{name: "remoteChild", definition: remote},
+				{name: "remote", definition: remoteBase},
+				{name: "xmlLang", definition: xmlLang},
+				{name: "unconstrained", definition: unconstrained},
+				{name: "anonymous", definition: anonymous},
+			} {
+				if !test.definition.IsString() {
+					t.Errorf("%s does not report string identity", test.name)
+				}
+			}
 			assertStringEnumerationFacts(t, anonymous.StringEnumerationFacets(), policy.version, []string{"inline", ""}, []Loc{
 				mustSchemaTokenLoc(t, "root.xsd", root, 38, "value"),
 				mustSchemaTokenLoc(t, "root.xsd", root, 39, "value"),
