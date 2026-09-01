@@ -124,16 +124,17 @@ spaces remain staged and report unsupported behavior.
 
 ## Validation and code generation
 
-`ValidateInstance` supports built-in/named scalar `integer`/`decimal`/
-`precisionDecimal` globals and named-complex elements with a direct choice whose
-choice and local alternatives use default occurrences. Named types use
-`TypeID`/`Lookup`; built-ins use policy defaults. Sequences are queryable but
-unvalidated. Non-default, non-`0/0` integer/decimal choice or alternative ranges
-stay queryable; repetition is unsupported. Non-default `precisionDecimal` choice
-or alternative ranges that map to a particle are schema-unsupported. Boolean
-globals, named restrictions, and local boolean
-particles are unsupported in instance validation; attributes and broader
-particles are unsupported; locations are primary.
+`ValidateInstance` supports text-only built-in/named scalar `boolean`/`integer`/
+`decimal`/`precisionDecimal` globals and named-complex elements with
+default-occurrence choices and alternatives. Named types use `TypeID`/`Lookup`;
+boolean diagnostics use the selected policy; numeric built-ins retain
+compatibility/default behavior.
+Sequences are queryable but unvalidated. Non-default, non-`0/0` integer/decimal
+choice or alternative ranges stay queryable; repetition is unsupported.
+Non-default `precisionDecimal` choice or alternative ranges that map to a
+particle are schema-unsupported. Local boolean particles remain unsupported in
+instance validation; attributes and broader particles are unsupported; locations
+are primary.
 
 Code generation is deterministic, uses choice type switches, and leaves
 boolean unsupported.
