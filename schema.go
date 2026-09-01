@@ -1381,6 +1381,12 @@ type schemaStorage struct {
 	byName     map[QName][]int
 }
 
+// LanguagePolicy returns the graph-wide language policy selected for the
+// schema. A zero Schema returns the zero policy.
+func (schema Schema) LanguagePolicy() LanguagePolicy {
+	return schema.policy
+}
+
 // Documents returns the schema documents in discovery order. The returned
 // slice and every document's component collection are independent copies.
 func (schema Schema) Documents() []SchemaDocument {

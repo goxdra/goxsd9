@@ -137,6 +137,9 @@ func TestParseSchemaBuildsDeterministicImmutableGraph(t *testing.T) {
 	assertParseTestResolverCalls(t, resolver)
 	assertParseTestSourcesClosed(t, rootReader, resolver)
 	assertParseTestCompatibilityVersion(t, schema)
+	if got, want := schema.LanguagePolicy(), goxsd9.Compatibility; got != want {
+		t.Fatalf("LanguagePolicy = %q, want %q", got, want)
+	}
 	assertParseTestCopies(t, schema)
 }
 
