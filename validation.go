@@ -100,6 +100,10 @@ type instanceDigitScalar struct {
 
 func (instanceDigitScalar) instanceScalarValue() {}
 
+type instanceBooleanScalar struct{}
+
+func (instanceBooleanScalar) instanceScalarValue() {}
+
 type instancePrecisionDecimalScalar struct {
 	facets PrecisionDecimalFacets
 }
@@ -121,16 +125,18 @@ type instanceChoiceProgram struct {
 // ValidateInstance consumes, drains, and closes reader exactly once, then
 // validates one XML instance against schema. The supported semantic slice is
 // a single global element whose declared type is built-in or named XSD
-// integer, decimal, or precisionDecimal, or a named complex type with one
-// direct scalar choice. Comments and processing instructions are ignored by
-// the decoder.
+// boolean, integer, decimal, or precisionDecimal, or a named complex type with
+// one direct scalar choice. Comments and processing instructions are ignored
+// by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint
 // uses the repository's compatibility/default XSD 1.1-compatible datatype
-// rules for built-in integer and decimal values. Named types use the version
-// retained by their completed effective facets. A successful validation
-// returns nil. Unsupported semantic structures return a registered
-// xsd.instance.validation diagnostic.
+// rules for built-in integer and decimal values. Boolean values use the
+// selected graph-wide policy for their versioned datatype diagnostics. Named
+// numeric types use the version retained by their completed effective facets;
+// named boolean types use the selected graph-wide policy. A successful
+// validation returns nil. Unsupported semantic structures return a
+// registered xsd.instance.validation diagnostic.
 func ValidateInstance(schema Schema, sourceID SourceID, reader io.ReadCloser) error {
 	if reader == nil {
 		return newDiagnostic(
@@ -495,6 +501,8 @@ func instanceChoiceAlternativeFor(
 		alternativeRelated,
 		element.Loc(),
 		version,
+		false,
+		version,
 	)
 	if err != nil {
 		return instanceChoiceAlternative{}, err
@@ -693,6 +701,8 @@ func validateScalarValue(root *instanceElement, scalar instanceScalarType) error
 		return validateDigitScalarValue(root, lexical, valueLoc, scalar, typed)
 	case instancePrecisionDecimalScalar:
 		return validatePrecisionDecimalScalarValue(lexical, valueLoc, scalar, typed)
+	case instanceBooleanScalar:
+		return validateBooleanScalarValue(lexical, valueLoc, scalar)
 	default:
 		return newInstanceValidationInternal(
 			valueLoc,
@@ -793,6 +803,14 @@ func validatePrecisionDecimalScalarValue(lexical string, valueLoc Loc, scalar in
 	return instanceDecorateDiagnostic(facetErr, scalar.related, precisionDecimalLexicalSpecRef, valueLoc)
 }
 
+func validateBooleanScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType) error {
+	_, parseErr := ParseStrictBooleanFor(scalar.version, lexical, valueLoc)
+	if parseErr == nil {
+		return nil
+	}
+	return instanceDecorateDiagnostic(parseErr, scalar.related, strictBooleanSpecRef(scalar.version), valueLoc)
+}
+
 func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Loc) (instanceScalarType, error) {
 	typeID, hasTypeID := declaration.TypeID()
 	return instanceScalarTypeForTarget(
@@ -803,6 +821,8 @@ func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Lo
 		[]Loc{declaration.Loc()},
 		loc,
 		instanceBuiltInValidationVersion,
+		true,
+		instanceSchemaValidationVersion(schema),
 	)
 }
 
@@ -815,6 +835,8 @@ func instanceScalarTypeForTarget(
 	related []Loc,
 	loc Loc,
 	fallbackVersion XSDVersion,
+	allowBoolean bool,
+	booleanVersion XSDVersion,
 ) (instanceScalarType, error) {
 	if declaredType.IsZero() {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
@@ -826,7 +848,16 @@ func instanceScalarTypeForTarget(
 		)
 	}
 	if declaredType.Namespace() == xsdNamespaceURI {
-		return instanceBuiltInScalarType(declaredType, related, loc)
+		if declaredType.Local() == "boolean" && !allowBoolean {
+			return instanceScalarType{}, newInstanceValidationUnsupported(
+				loc,
+				fmt.Sprintf("element type %q is outside scalar validation", declaredType),
+				related,
+				fallbackVersion,
+				errInstanceUnsupportedType,
+			)
+		}
+		return instanceBuiltInScalarType(declaredType, related, loc, booleanVersion)
 	}
 	if !hasTypeID || typeID.IsZero() {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
@@ -882,13 +913,20 @@ func instanceScalarTypeForTarget(
 		}, nil
 	}
 	if definition.IsBoolean() {
-		return instanceScalarType{}, newInstanceValidationUnsupported(
-			loc,
-			fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()),
-			related,
-			fallbackVersion,
-			errInstanceUnsupportedType,
-		)
+		if !allowBoolean {
+			return instanceScalarType{}, newInstanceValidationUnsupported(
+				loc,
+				fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()),
+				related,
+				fallbackVersion,
+				errInstanceUnsupportedType,
+			)
+		}
+		return instanceScalarType{
+			value:   instanceBooleanScalar{},
+			version: booleanVersion,
+			related: related,
+		}, nil
 	}
 	if definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal && definition.facts.atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
@@ -981,7 +1019,7 @@ func instanceScalarEnumerationFor(definition SimpleTypeDefinition, kind DigitDat
 	}
 }
 
-func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc) (instanceScalarType, error) {
+func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, booleanVersion XSDVersion) (instanceScalarType, error) {
 	switch declaredType.Local() {
 	case "integer":
 		facets, err := NewIntegerDigitFacets(nil, instanceBuiltInValidationVersion)
@@ -1019,6 +1057,12 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc) (inst
 		return instanceScalarType{
 			value:   instancePrecisionDecimalScalar{facets: facets},
 			version: instanceBuiltInValidationVersion,
+			related: related,
+		}, nil
+	case "boolean":
+		return instanceScalarType{
+			value:   instanceBooleanScalar{},
+			version: booleanVersion,
 			related: related,
 		}, nil
 	default:

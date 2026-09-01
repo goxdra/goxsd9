@@ -162,7 +162,9 @@ groups, wildcards, and attributes, remain unsupported; anonymous
 simple-type models and resolved built-in, named, and anonymous simple-type
 references are modeled. Direct element-reference particles are supported for
 direct local choice and sequence children; other element-reference forms
-remain unsupported. Boolean validation and Go generation remain unsupported;
+remain unsupported. Global text-only boolean validation is supported under
+Compatibility, Strict10, and Strict11; local boolean-particle validation and
+Boolean code generation remain unsupported;
 the parser does not support `all` mapping. The exact value has no fixed
 resource limit; later phases must set bounded input and materialization
 policies.

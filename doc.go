@@ -41,12 +41,12 @@
 // Sequence particles are query-only until validation repetition is implemented.
 //
 // ValidateInstance supports one complete instance rooted at a global element
-// declared as built-in or named xs:integer/xs:decimal/xs:precisionDecimal, or
-// as a named complex type whose one direct choice and its scalar alternatives
-// use default occurrences and contain local built-in or named
-// integer/decimal/precisionDecimal elements. Scalar elements contain
-// only character data; boolean instance validation, attributes, broader
-// particles, and other semantics remain explicit unsupported behavior.
+// declared as built-in or named xs:boolean/xs:integer/xs:decimal/
+// xs:precisionDecimal, or as a named complex type whose one direct choice and
+// its scalar alternatives use default occurrences and contain local built-in
+// or named integer/decimal/precisionDecimal elements. Scalar elements contain
+// only character data; local boolean particles, attributes, broader particles,
+// and other semantics remain explicit unsupported behavior.
 // GenerateGo produces deterministic Go source for the supported scalar schema
 // components and direct scalar choices; boolean generation remains unsupported.
 package goxsd9

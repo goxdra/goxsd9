@@ -412,34 +412,58 @@ func TestSchemaBridgeBuildsBasicBooleanLocalParticles(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Keep direct and named consumer-boundary diagnostics symmetric.
-func TestValidateInstanceLeavesBooleanTypesAtConsumerBoundary(t *testing.T) {
-	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
-  <xs:element name="direct" type="xs:boolean"/>
-  <xs:element name="named" type="r:Flag"/>
-  <xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>
-</xs:schema>`
-	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-	if err != nil {
-		t.Fatalf("discoverSchema: %v", err)
-	}
-	for _, name := range []string{"direct", "named"} {
-		t.Run(name, func(t *testing.T) {
-			err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader("<r:"+name+" xmlns:r=\"urn:root\">true</r:"+name+">")))
-			if err == nil {
-				t.Fatal("ValidateInstance accepted an unimplemented boolean scalar")
-			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedInstanceValidationCode || diagnostic.Feature() != FeatureInstanceValidation {
-				t.Fatalf("diagnostic = %s/%q/%q, want unsupported/%s/%q", diagnostic.Class(), diagnostic.Code(), diagnostic.Feature(), UnsupportedInstanceValidationCode, FeatureInstanceValidation)
-			}
-			if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "instance.xml" {
-				t.Fatalf("diagnostic location = %v, want instance.xml location", diagnostic.Loc())
-			}
-			if !errors.Is(err, ErrUnsupported) {
-				t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
-			}
-		})
+//nolint:gocognit // Keep direct and named local choice unsupported diagnostics symmetric.
+func TestValidateInstanceLeavesLocalBooleanChoicesUnsupported(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		body    string
+		typeDef string
+		input   string
+	}{
+		{
+			name:  "direct built-in",
+			body:  `<xs:element name="value" type="xs:boolean"/>`,
+			input: `<choice xmlns="urn:root"><value xmlns="">true</value></choice>`,
+		},
+		{
+			name:    "named restriction",
+			body:    `<xs:element name="value" type="r:Flag"/>`,
+			typeDef: `<xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>`,
+			input:   `<choice xmlns="urn:root"><value xmlns="">true</value></choice>`,
+		},
+	} {
+		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">` +
+					`<xs:element name="choice" type="r:Choice"/><xs:complexType name="Choice"><xs:choice>` +
+					test.body + `</xs:choice></xs:complexType>` + test.typeDef + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err != nil {
+					t.Fatalf("discoverSchema: %v", err)
+				}
+				err = ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(test.input)))
+				if err == nil {
+					t.Fatal("ValidateInstance accepted a local boolean choice alternative")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedInstanceValidationCode || diagnostic.Feature() != FeatureInstanceValidation {
+					t.Fatalf("diagnostic = %s/%q/%q, want unsupported/%s/%q", diagnostic.Class(), diagnostic.Code(), diagnostic.Feature(), UnsupportedInstanceValidationCode, FeatureInstanceValidation)
+				}
+				if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
+					t.Fatalf("diagnostic location = %v, want root.xsd location", diagnostic.Loc())
+				}
+				wantSpec := "xsd11-structures#cvc-elt"
+				if policy == Strict10 {
+					wantSpec = "xsd10-structures#cvc-elt"
+				}
+				if diagnostic.SpecRef() != wantSpec {
+					t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), wantSpec)
+				}
+				if !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+				}
+			})
+		}
 	}
 }
 
