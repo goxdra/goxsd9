@@ -751,7 +751,10 @@ func validateCodegenBooleanRestrictionChain(
 				version,
 			)
 		}
-		if current.Variety() != SimpleTypeVarietyAtomicRestriction || !current.IsBoolean() {
+		if current.facts == nil ||
+			current.Variety() != SimpleTypeVarietyAtomicRestriction ||
+			!current.IsBoolean() ||
+			current.facts.atomicKind != schemaSimpleTypeAtomicUnknown {
 			return newCodegenInternal(
 				current.Loc(),
 				"named boolean restriction chain has inconsistent primitive facts",
@@ -780,6 +783,14 @@ func validateCodegenBooleanRestrictionChain(
 			return newCodegenInternal(
 				current.Loc(),
 				"named boolean restriction base has no resolved primitive facts",
+				appendCodegenRelated(nil, current.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+		if base.facts.atomicKind != schemaSimpleTypeAtomicUnknown {
+			return newCodegenInternal(
+				current.Loc(),
+				"named boolean restriction base has inconsistent primitive facts",
 				appendCodegenRelated(nil, current.BaseLoc()),
 				errCodegenSchemaInvariant,
 			)
@@ -822,10 +833,10 @@ func validateCodegenBooleanRestrictionChain(
 		}
 		switch base.Kind() {
 		case SimpleTypeReferenceBuiltin:
-			if base.Name().Namespace() != xsdNamespaceURI {
+			if base.Name().Namespace() != xsdNamespaceURI || base.Name().Local() != "boolean" {
 				return newCodegenInternal(
 					current.Loc(),
-					"built-in boolean restriction base has a non-XSD QName",
+					"built-in boolean restriction base does not identify xs:boolean",
 					appendCodegenRelated(nil, current.BaseLoc()),
 					errCodegenSchemaInvariant,
 				)
@@ -1253,10 +1264,27 @@ func validateCodegenElementTypeReference(
 	}
 	switch target.scalarKind {
 	case codegenSourceScalarBoolean:
+		if reference.facts.atomicKind != schemaSimpleTypeAtomicUnknown {
+			return newCodegenInternal(
+				loc,
+				"global element boolean type reference has inconsistent primitive facts",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
 		if _, ok := reference.facts.facets.(schemaBooleanFacetVariant); !ok {
 			return newCodegenInternal(
 				loc,
 				"global element boolean type reference has inconsistent primitive facts",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+		if target.form == codegenSourceTargetBuiltin &&
+			(reference.Name().Namespace() != xsdNamespaceURI || reference.Name().Local() != "boolean") {
+			return newCodegenInternal(
+				loc,
+				"built-in global element boolean type reference does not identify xs:boolean",
 				nil,
 				errCodegenSchemaInvariant,
 			)

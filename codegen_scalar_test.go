@@ -70,7 +70,7 @@ func TestCodegenScalarSourceIsDeterministicLocatedAndCompiling(t *testing.T) {
 	compileGeneratedCode(t, first)
 }
 
-//nolint:gocognit // Keep coordinated scalar-plan and schema-fact mutations together.
+//nolint:gocognit,funlen // Keep coordinated scalar-plan and schema-fact mutations together.
 func TestCodegenScalarSourceRejectsStaleBooleanPlanAtRenderBoundary(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -115,9 +115,21 @@ func TestCodegenScalarSourceRejectsStaleBooleanPlanAtRenderBoundary(t *testing.T
 			},
 		},
 		{
+			name: "stale boolean element reference atomic kind",
+			mutate: func(schema Schema, _ *codegenSourcePlan) {
+				schema.Components()[0].element.typeReference.atomicKind = schemaSimpleTypeAtomicInteger
+			},
+		},
+		{
 			name: "stale boolean base facts",
 			mutate: func(schema Schema, _ *codegenSourcePlan) {
 				schema.Components()[1].simpleType.baseReference.facets = schemaStringFacetVariant{}
+			},
+		},
+		{
+			name: "stale boolean base atomic kind",
+			mutate: func(schema Schema, _ *codegenSourcePlan) {
+				schema.Components()[1].simpleType.baseReference.atomicKind = schemaSimpleTypeAtomicInteger
 			},
 		},
 	}
