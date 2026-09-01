@@ -47,6 +47,7 @@
 // or named integer/decimal/precisionDecimal elements. Scalar elements contain
 // only character data; local boolean particles, attributes, broader particles,
 // and other semantics remain explicit unsupported behavior.
-// GenerateGo produces deterministic Go source for the supported scalar schema
-// components and direct scalar choices; boolean generation remains unsupported.
+// GenerateGo produces deterministic Go source for global boolean/integer/decimal
+// scalar components and direct scalar choices; boolean facets and local boolean
+// particles remain unsupported.
 package goxsd9

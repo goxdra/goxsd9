@@ -80,6 +80,147 @@ func TestGenerateGoUsesCollisionResolvedRuntimeAlias(t *testing.T) {
 	compilePublicGeneratedCode(t, source)
 }
 
+//nolint:gocognit,funlen // Keep the cross-version boolean generation corpus and consumer checks together.
+func TestGenerateGoGlobalBooleanScalarsAcrossPolicies(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  goxsd9.LanguagePolicy
+		version string
+	}{
+		{name: "Compatibility", policy: goxsd9.Compatibility},
+		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0"},
+		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			version := ""
+			if test.version != "" {
+				version = ` version="` + test.version + `"`
+			}
+			rootContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root"` + version + `>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:element name="direct" type="xs:boolean"/>
+  <xs:element name="named" type="r:Zero"/>
+  <xs:element name="inherited" type="r:Derived"/>
+  <xs:element name="forward" type="r:Forward"/>
+  <xs:element name="cross" type="o:Cross"/>
+  <xs:simpleType name="Derived"><xs:restriction base="r:Zero"/></xs:simpleType>
+  <xs:simpleType name="Forward"><xs:restriction base="r:Base"/></xs:simpleType>
+  <xs:simpleType name="Zero"><xs:restriction base="xs:boolean"/></xs:simpleType>
+  <xs:simpleType name="Base"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`
+			otherContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" targetNamespace="urn:other"` + version + `>
+  <xs:simpleType name="Cross"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`
+			root, err := goxsd9.NewResolvedSource(context.Background(), "root.xsd", newParseTestReader(rootContents))
+			if err != nil {
+				t.Fatalf("NewResolvedSource: %v", err)
+			}
+			schema, err := goxsd9.ParseSchemaWithPolicy(root, &publicCodegenResolver{
+				contents: map[string]string{"other.xsd": otherContents},
+			}, test.policy)
+			if err != nil {
+				t.Fatalf("ParseSchemaWithPolicy: %v", err)
+			}
+
+			first, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo: %v", err)
+			}
+			second, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo second: %v", err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatalf("repeated boolean output differs:\nfirst:\n%s\nsecond:\n%s", first, second)
+			}
+			formatted, err := format.Source(first)
+			if err != nil {
+				t.Fatalf("format generated boolean source: %v\n%s", err, first)
+			}
+			if !bytes.Equal(first, formatted) {
+				t.Fatalf("generated boolean source is not complete go/format output:\n%s", first)
+			}
+			source := string(first)
+			if strings.Contains(source, `github.com/goxdra/goxsd9`) || strings.Contains(source, "import ") {
+				t.Fatalf("boolean-only output unexpectedly imports the runtime:\n%s", source)
+			}
+			for _, fragment := range []string{
+				"type Direct struct {\n\tValue bool\n}",
+				"type Named struct {\n\tValue Zero\n}",
+				"type Inherited struct {\n\tValue Derived\n}",
+				"type Forward struct {\n\tValue Forward2\n}",
+				"type Cross struct {\n\tValue Cross2\n}",
+				"type Derived struct {\n\tValue bool\n}",
+				"type Forward2 struct {\n\tValue bool\n}",
+				"type Zero struct {\n\tValue bool\n}",
+				"type Base struct {\n\tValue bool\n}",
+				"type Cross2 struct {\n\tValue bool\n}",
+			} {
+				if !strings.Contains(source, fragment) {
+					t.Fatalf("generated boolean source is missing %q:\n%s", fragment, source)
+				}
+			}
+			compilePublicGeneratedCode(t, first, `package consumer
+
+import generated "generated.test"
+
+func useBooleanScalars() {
+	var direct generated.Direct
+	var named generated.Named
+	var inherited generated.Inherited
+	var forward generated.Forward
+	var cross generated.Cross
+	var _ bool = direct.Value
+	var _ generated.Zero = named.Value
+	var _ generated.Derived = inherited.Value
+	var _ generated.Forward2 = forward.Value
+	var _ generated.Cross2 = cross.Value
+}
+`)
+		})
+	}
+}
+
+func TestGenerateGoBooleanComponentReservesRuntimeName(t *testing.T) {
+	schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`" xmlns:t="urn:test" targetNamespace="urn:test">
+  <xs:simpleType name="runtime"><xs:restriction base="xs:boolean"/></xs:simpleType>
+  <xs:element name="count" type="xs:integer"/>
+</xs:schema>`)
+
+	source, err := goxsd9.GenerateGo(schema, "generated")
+	if err != nil {
+		t.Fatalf("GenerateGo: %v", err)
+	}
+	for _, fragment := range []string{
+		`import Runtime2 "github.com/goxdra/goxsd9"`,
+		"type Runtime struct {\n\tValue bool\n}",
+		"type Count struct {\n\tValue Runtime2.StrictInteger\n}",
+	} {
+		if !strings.Contains(string(source), fragment) {
+			t.Fatalf("generated mixed boolean/numeric source is missing %q:\n%s", fragment, source)
+		}
+	}
+	compilePublicGeneratedCode(t, source, `package consumer
+
+import generated "generated.test"
+
+func useMixedScalars() {
+	var flag generated.Runtime
+	var count generated.Count
+	var _ bool = flag.Value
+	var _ = count.Value
+}
+`)
+}
+
+func TestGenerateGoRejectsBooleanDirectChoiceAlternative(t *testing.T) {
+	schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`" targetNamespace="urn:test">
+  <xs:complexType name="Choice"><xs:choice><xs:element name="flag" type="xs:boolean"/></xs:choice></xs:complexType>
+</xs:schema>`)
+	assertPublicUnsupportedCodegen(t, schema, "xsd11-structures#element-choice")
+}
+
 //nolint:gocognit // Keep the cross-version generation and external-compile corpus together.
 func TestGenerateGoDirectScalarChoiceIsDeterministicFormattedAndExternallyUsable(t *testing.T) {
 	rootContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:o="urn:other" targetNamespace="urn:root">
@@ -275,8 +416,11 @@ func assertPublicCodegenComponentsUnchanged(t *testing.T, before, after []goxsd9
 	}
 }
 
-func compilePublicGeneratedCode(t *testing.T, source []byte) {
+func compilePublicGeneratedCode(t *testing.T, source []byte, consumerSources ...string) {
 	t.Helper()
+	if len(consumerSources) > 1 {
+		t.Fatal("compilePublicGeneratedCode accepts at most one consumer source")
+	}
 	moduleRoot, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("os.Getwd: %v", err)
@@ -290,6 +434,15 @@ func compilePublicGeneratedCode(t *testing.T, source []byte) {
 	writeErr = os.WriteFile(filepath.Join(temporary, "generated.go"), source, 0o600)
 	if writeErr != nil {
 		t.Fatalf("write generated.go: %v", writeErr)
+	}
+	if len(consumerSources) == 1 {
+		consumerDirectory := filepath.Join(temporary, "consumer")
+		if writeErr := os.Mkdir(consumerDirectory, 0o700); writeErr != nil {
+			t.Fatalf("create generated consumer directory: %v", writeErr)
+		}
+		if writeErr := os.WriteFile(filepath.Join(consumerDirectory, "consumer.go"), []byte(consumerSources[0]), 0o600); writeErr != nil {
+			t.Fatalf("write generated consumer: %v", writeErr)
+		}
 	}
 	command := exec.CommandContext(context.Background(), "go", "test", "./...")
 	command.Dir = temporary

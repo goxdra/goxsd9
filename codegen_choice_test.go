@@ -206,6 +206,34 @@ func TestCodegenDirectChoiceSourceConsumesCompleteNamingState(t *testing.T) {
 	compileGeneratedCode(t, source)
 }
 
+func TestCodegenSourcePlanRejectsStaleDirectChoiceFactsAtRenderBoundary(t *testing.T) {
+	schema := codegenDirectChoiceFailureSchema(t)
+	choicePlan, err := planCodegenDirectChoices(schema, "generated")
+	if err != nil {
+		t.Fatalf("planCodegenDirectChoices: %v", err)
+	}
+	plan, err := planCodegenSourceWithDirectChoices(schema, choicePlan)
+	if err != nil {
+		t.Fatalf("planCodegenSourceWithDirectChoices: %v", err)
+	}
+	plan.declarations[0].choice.variants[0].fieldType = "bool"
+
+	output, err := renderCodegenSource(plan, schema)
+	if output != nil || err == nil {
+		t.Fatalf("stale direct-choice source plan result = (%q, %v), want nil output and error", output, err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+		t.Fatalf("diagnostic = %s, want internal codegen invariant", diagnostic)
+	}
+	if diagnostic.Loc() != codegenDirectChoiceTestElement(codegenDirectChoiceTestChoice(schema)).Loc() {
+		t.Fatalf("diagnostic location = %s, want alternative location", diagnostic.Loc())
+	}
+	if !errors.Is(err, errCodegenSchemaInvariant) {
+		t.Fatalf("stale direct-choice source plan error lost schema invariant cause: %v", err)
+	}
+}
+
 func TestCodegenDirectChoiceSourceRejectsMalformedPlanWithoutOutput(t *testing.T) {
 	schema := codegenDirectChoiceFailureSchema(t)
 	choicePlan, err := planCodegenDirectChoices(schema, "generated")
