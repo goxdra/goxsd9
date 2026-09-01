@@ -70,6 +70,148 @@ func TestCodegenScalarSourceIsDeterministicLocatedAndCompiling(t *testing.T) {
 	compileGeneratedCode(t, first)
 }
 
+//nolint:gocognit,funlen // Keep coordinated scalar-plan and schema-fact mutations together.
+func TestCodegenScalarSourceRejectsStaleBooleanPlanAtRenderBoundary(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(Schema, *codegenSourcePlan)
+	}{
+		{
+			name: "field type",
+			mutate: func(_ Schema, plan *codegenSourcePlan) {
+				plan.declarations[0].fieldType = "Runtime.StrictInteger"
+			},
+		},
+		{
+			name: "target primitive",
+			mutate: func(_ Schema, plan *codegenSourcePlan) {
+				plan.declarations[0].target.scalarKind = codegenSourceScalarInteger
+			},
+		},
+		{
+			name: "runtime requirement",
+			mutate: func(_ Schema, plan *codegenSourcePlan) {
+				plan.useRuntime = true
+			},
+		},
+		{
+			name: "declaration order",
+			mutate: func(_ Schema, plan *codegenSourcePlan) {
+				plan.declarations[0], plan.declarations[1] = plan.declarations[1], plan.declarations[0]
+			},
+		},
+		{
+			name: "reallocated component name",
+			mutate: func(_ Schema, plan *codegenSourcePlan) {
+				plan.names.components[0].identifier = "Changed"
+				plan.names.componentByID[plan.names.components[0].id] = "Changed"
+				plan.declarations[0].name = "Changed"
+			},
+		},
+		{
+			name: "stale schema target",
+			mutate: func(schema Schema, _ *codegenSourcePlan) {
+				schema.Components()[0].element.declaredType = mustTestQName(t, testXSDNamespace, "integer")
+			},
+		},
+		{
+			name: "stale boolean element reference atomic kind",
+			mutate: func(schema Schema, _ *codegenSourcePlan) {
+				schema.Components()[0].element.typeReference.atomicKind = schemaSimpleTypeAtomicInteger
+			},
+		},
+		{
+			name: "stale boolean base facts",
+			mutate: func(schema Schema, _ *codegenSourcePlan) {
+				schema.Components()[1].simpleType.baseReference.facets = schemaStringFacetVariant{}
+			},
+		},
+		{
+			name: "stale boolean base atomic kind",
+			mutate: func(schema Schema, _ *codegenSourcePlan) {
+				schema.Components()[1].simpleType.baseReference.atomicKind = schemaSimpleTypeAtomicInteger
+			},
+		},
+		{
+			name: "stale boolean definition facets",
+			mutate: func(schema Schema, _ *codegenSourcePlan) {
+				schema.Components()[1].simpleType.facets = schemaStringFacetVariant{}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, `<xs:schema xmlns:xs="`+testXSDNamespace+`" targetNamespace="urn:test">
+  <xs:element name="direct" type="xs:boolean"/>
+  <xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`, nil)
+			if err != nil {
+				t.Fatalf("discoverTestSchema: %v", err)
+			}
+			plan, err := planCodegenSource(schema, mustScalarCodegenNaming(t, schema))
+			if err != nil {
+				t.Fatalf("planCodegenSource: %v", err)
+			}
+			test.mutate(schema, &plan)
+			output, err := renderCodegenSource(plan, schema)
+			if output != nil || err == nil {
+				t.Fatalf("stale boolean plan result = (%q, %v), want nil output and error", output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+				t.Fatalf("diagnostic = %s, want internal codegen invariant %s", diagnostic, diagnosticCodegenInvariant)
+			}
+			if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
+				t.Fatalf("diagnostic location = %s, want a root.xsd location", diagnostic.Loc())
+			}
+			if !errors.Is(err, errCodegenSchemaInvariant) && !errors.Is(err, errCodegenElementType) {
+				t.Fatalf("stale boolean plan error lost its internal cause: %v", err)
+			}
+		})
+	}
+}
+
+func TestCodegenScalarSourceRejectsStaleNamedBooleanFacetsForElementAtRenderBoundary(t *testing.T) {
+	schema, err := discoverTestSchema(t, `<xs:schema xmlns:xs="`+testXSDNamespace+`" xmlns:o="urn:other" targetNamespace="urn:test">
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:element name="flag" type="o:Flag"/>
+</xs:schema>`, map[string]discoveryFixture{
+		"other.xsd": {
+			id: "other.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other">
+  <xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("discoverTestSchema: %v", err)
+	}
+	plan, err := planCodegenSource(schema, mustScalarCodegenNaming(t, schema))
+	if err != nil {
+		t.Fatalf("planCodegenSource: %v", err)
+	}
+	components := schema.Components()
+	if len(components) != 2 || components[0].Kind() != ComponentKindElementDeclaration || components[1].Kind() != ComponentKindSimpleTypeDefinition {
+		t.Fatalf("schema components = %#v, want forward element followed by named simple type", components)
+	}
+	components[1].simpleType.facets = schemaStringFacetVariant{}
+
+	output, err := renderCodegenSource(plan, schema)
+	if output != nil || err == nil {
+		t.Fatalf("stale named boolean definition result = (%q, %v), want nil output and error", output, err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+		t.Fatalf("diagnostic = %s, want internal codegen invariant %s", diagnostic, diagnosticCodegenInvariant)
+	}
+	if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
+		t.Fatalf("diagnostic location = %s, want a root.xsd location", diagnostic.Loc())
+	}
+	if !errors.Is(err, errCodegenSchemaInvariant) {
+		t.Fatalf("stale named boolean definition error lost its internal cause: %v", err)
+	}
+}
+
 func TestCodegenScalarSourceAcceptsCollisionResolvedRuntimeImportAlias(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
   <xs:simpleType name="runtime"><xs:restriction base="xs:integer"/></xs:simpleType>

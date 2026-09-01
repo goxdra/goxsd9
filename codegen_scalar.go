@@ -29,27 +29,70 @@ var (
 )
 
 type codegenSourcePlan struct {
-	packageName  string
-	runtimeAlias string
-	useRuntime   bool
-	declarations []codegenSourceDeclaration
+	packageName   string
+	runtimeAlias  string
+	useRuntime    bool
+	directChoices bool
+	names         codegenNaming
+	declarations  []codegenSourceDeclaration
 }
 
 type codegenSourceDeclaration struct {
-	name      string
-	fieldType string
-	choice    *codegenSourceChoice
+	id          ComponentID
+	schemaName  QName
+	loc         Loc
+	name        string
+	fieldType   string
+	usesRuntime bool
+	target      codegenSourceTarget
+	choice      *codegenSourceChoice
 }
 
 type codegenSourceChoice struct {
-	marker   string
-	variants []codegenSourceVariant
+	ownerID     ComponentID
+	ownerName   QName
+	ownerLoc    Loc
+	choiceLoc   Loc
+	marker      string
+	usesRuntime bool
+	variants    []codegenSourceVariant
 }
 
 type codegenSourceVariant struct {
-	name      string
-	fieldName string
-	fieldType string
+	path        []uint32
+	loc         Loc
+	schemaName  QName
+	name        string
+	fieldName   string
+	fieldType   string
+	usesRuntime bool
+	target      codegenSourceTarget
+}
+
+type codegenSourceTargetForm uint8
+
+const (
+	codegenSourceTargetInvalid codegenSourceTargetForm = iota
+	codegenSourceTargetDefinition
+	codegenSourceTargetBuiltin
+	codegenSourceTargetNamed
+)
+
+type codegenSourceScalarKind uint8
+
+const (
+	codegenSourceScalarInvalid codegenSourceScalarKind = iota
+	codegenSourceScalarBoolean
+	codegenSourceScalarInteger
+	codegenSourceScalarDecimal
+)
+
+type codegenSourceTarget struct {
+	form         codegenSourceTargetForm
+	declaredType QName
+	typeID       ComponentID
+	hasTypeID    bool
+	scalarKind   codegenSourceScalarKind
 }
 
 // emitCodegenSource plans supported scalar declarations in schema order and
@@ -59,7 +102,7 @@ func emitCodegenSource(schema Schema, names codegenNaming) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return renderCodegenSource(plan)
+	return renderCodegenSource(plan, schema)
 }
 
 func emitCodegenSourceWithDirectChoices(schema Schema, choicePlan codegenDirectChoicePlan) ([]byte, error) {
@@ -67,7 +110,7 @@ func emitCodegenSourceWithDirectChoices(schema Schema, choicePlan codegenDirectC
 	if err != nil {
 		return nil, err
 	}
-	return renderCodegenSource(plan)
+	return renderCodegenSource(plan, schema)
 }
 
 // emitCodegen is the private phase boundary used by code-generation callers.
@@ -106,9 +149,11 @@ func planCodegenSourceWithChoicePlan(
 	}
 
 	plan := codegenSourcePlan{
-		packageName:  names.packageIdentifier(),
-		runtimeAlias: runtimeAlias,
-		declarations: make([]codegenSourceDeclaration, 0, len(components)),
+		packageName:   names.packageIdentifier(),
+		runtimeAlias:  runtimeAlias,
+		directChoices: choicePlan != nil,
+		names:         names.clone(),
+		declarations:  make([]codegenSourceDeclaration, 0, len(components)),
 	}
 	policyVersion, versionErr := codegenSchemaVersion(schema)
 	if versionErr != nil {
@@ -142,12 +187,16 @@ func planCodegenSourceWithChoicePlan(
 			}
 			plan.useRuntime = plan.useRuntime || usesRuntime
 			plan.declarations = append(plan.declarations, codegenSourceDeclaration{
-				name:   identifier,
-				choice: &choice,
+				id:          component.ID(),
+				schemaName:  component.Name(),
+				loc:         component.Loc(),
+				name:        identifier,
+				usesRuntime: usesRuntime,
+				choice:      &choice,
 			})
 			continue
 		}
-		fieldType, usesRuntime, err := planCodegenComponent(
+		target, fieldType, usesRuntime, err := planCodegenComponent(
 			schema,
 			names,
 			component,
@@ -161,8 +210,13 @@ func planCodegenSourceWithChoicePlan(
 		}
 		plan.useRuntime = plan.useRuntime || usesRuntime
 		plan.declarations = append(plan.declarations, codegenSourceDeclaration{
-			name:      identifier,
-			fieldType: fieldType,
+			id:          component.ID(),
+			schemaName:  component.Name(),
+			loc:         component.Loc(),
+			name:        identifier,
+			fieldType:   fieldType,
+			usesRuntime: usesRuntime,
+			target:      target,
 		})
 	}
 	return plan, nil
@@ -209,12 +263,16 @@ func planCodegenSourceChoice(owner codegenDirectChoiceOwner, runtimeAlias string
 		)
 	}
 	choice := codegenSourceChoice{
-		marker:   owner.marker,
-		variants: make([]codegenSourceVariant, 0, len(owner.alternatives)),
+		ownerID:   owner.id,
+		ownerName: owner.name,
+		ownerLoc:  owner.loc,
+		choiceLoc: owner.choiceLoc,
+		marker:    owner.marker,
+		variants:  make([]codegenSourceVariant, 0, len(owner.alternatives)),
 	}
 	usesRuntime := false
 	for _, alternative := range owner.alternatives {
-		fieldType, alternativeUsesRuntime, err := planCodegenSourceChoiceTarget(
+		target, fieldType, alternativeUsesRuntime, err := planCodegenSourceChoiceTarget(
 			alternative.target,
 			runtimeAlias,
 			alternative.loc,
@@ -224,31 +282,79 @@ func planCodegenSourceChoice(owner codegenDirectChoiceOwner, runtimeAlias string
 		}
 		usesRuntime = usesRuntime || alternativeUsesRuntime
 		choice.variants = append(choice.variants, codegenSourceVariant{
-			name:      alternative.variantIdentifier,
-			fieldName: alternative.fieldIdentifier,
-			fieldType: fieldType,
+			path:        cloneCodegenPath(alternative.path),
+			loc:         alternative.loc,
+			schemaName:  alternative.name,
+			name:        alternative.variantIdentifier,
+			fieldName:   alternative.fieldIdentifier,
+			fieldType:   fieldType,
+			usesRuntime: alternativeUsesRuntime,
+			target:      target,
 		})
 	}
+	choice.usesRuntime = usesRuntime
 	return choice, usesRuntime, nil
 }
 
-func planCodegenSourceChoiceTarget(target codegenDirectChoiceTarget, runtimeAlias string, loc Loc) (string, bool, error) {
+func planCodegenSourceChoiceTarget(
+	target codegenDirectChoiceTarget,
+	runtimeAlias string,
+	loc Loc,
+) (codegenSourceTarget, string, bool, error) {
 	switch concrete := target.(type) {
 	case codegenDirectChoiceBuiltinTarget:
-		fieldType, err := codegenRuntimeScalarType(runtimeAlias, runtimeAlias != "", concrete.kind, loc)
-		return fieldType, true, err
+		scalarKind, ok := codegenSourceScalarKindFromDigit(concrete.kind)
+		if !ok {
+			return codegenSourceTarget{}, "", false, newCodegenInternal(
+				loc,
+				"direct-choice source target has an unknown primitive kind",
+				nil,
+				errCodegenDirectChoicePlan,
+			)
+		}
+		sourceTarget := codegenSourceTarget{
+			form:         codegenSourceTargetBuiltin,
+			declaredType: concrete.declaredType,
+			scalarKind:   scalarKind,
+		}
+		fieldType, usesRuntime, err := codegenSourceTargetFieldType(
+			sourceTarget,
+			codegenNaming{},
+			runtimeAlias,
+			runtimeAlias != "",
+			loc,
+		)
+		if err != nil {
+			return codegenSourceTarget{}, "", false, err
+		}
+		return sourceTarget, fieldType, usesRuntime, nil
 	case codegenDirectChoiceNamedTarget:
-		if concrete.componentIdentifier == "" {
-			return "", false, newCodegenInternal(
+		if concrete.componentIdentifier == "" || concrete.id.IsZero() || concrete.declaredType.IsZero() {
+			return codegenSourceTarget{}, "", false, newCodegenInternal(
 				loc,
 				"direct-choice named target has no generated component identifier",
 				nil,
 				errCodegenDirectChoicePlan,
 			)
 		}
-		return concrete.componentIdentifier, false, nil
+		scalarKind, ok := codegenSourceScalarKindFromDigit(concrete.kind)
+		if !ok {
+			return codegenSourceTarget{}, "", false, newCodegenInternal(
+				loc,
+				"direct-choice source target has an unknown primitive kind",
+				nil,
+				errCodegenDirectChoicePlan,
+			)
+		}
+		return codegenSourceTarget{
+			form:         codegenSourceTargetNamed,
+			declaredType: concrete.declaredType,
+			typeID:       concrete.id,
+			hasTypeID:    true,
+			scalarKind:   scalarKind,
+		}, concrete.componentIdentifier, false, nil
 	default:
-		return "", false, newCodegenInternal(
+		return codegenSourceTarget{}, "", false, newCodegenInternal(
 			loc,
 			"direct-choice source target has an unknown representation",
 			nil,
@@ -280,18 +386,18 @@ func planCodegenComponent(
 	hasRuntimeAlias bool,
 	policyVersion XSDVersion,
 	allowComplexElementType bool,
-) (string, bool, error) {
+) (codegenSourceTarget, string, bool, error) {
 	switch component.Kind() {
 	case ComponentKindSimpleTypeDefinition:
-		kind, err := codegenNamedScalarKind(component)
+		target, err := codegenNamedScalarTarget(schema, component, policyVersion)
 		if err != nil {
-			return "", false, err
+			return codegenSourceTarget{}, "", false, err
 		}
-		fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, kind, component.Loc())
+		fieldType, usesRuntime, err := codegenSourceTargetFieldType(target, names, runtimeAlias, hasRuntimeAlias, component.Loc())
 		if err != nil {
-			return "", false, err
+			return codegenSourceTarget{}, "", false, err
 		}
-		return fieldType, true, nil
+		return target, fieldType, usesRuntime, nil
 	case ComponentKindElementDeclaration:
 		return codegenElementFieldType(schema, names, component, runtimeAlias, hasRuntimeAlias, policyVersion, allowComplexElementType)
 	case ComponentKindAttributeDeclaration,
@@ -299,7 +405,7 @@ func planCodegenComponent(
 		ComponentKindModelGroupDefinition,
 		ComponentKindAttributeGroupDefinition,
 		ComponentKindNotationDeclaration:
-		return "", false, newCodegenUnsupported(
+		return codegenSourceTarget{}, "", false, newCodegenUnsupported(
 			component.Loc(),
 			fmt.Sprintf("schema component kind %q is not supported by Go scalar generation", component.Kind()),
 			nil,
@@ -307,7 +413,7 @@ func planCodegenComponent(
 			"",
 		)
 	default:
-		return "", false, newCodegenUnsupported(
+		return codegenSourceTarget{}, "", false, newCodegenUnsupported(
 			component.Loc(),
 			fmt.Sprintf("unknown schema component kind %q is not supported by Go scalar generation", component.Kind()),
 			nil,
@@ -544,6 +650,349 @@ func codegenNamedScalarKind(component Component) (DigitDatatype, error) {
 	return facets.Kind(), nil
 }
 
+func codegenNamedScalarTarget(schema Schema, component Component, version XSDVersion) (codegenSourceTarget, error) {
+	definition, ok := component.SimpleTypeDefinition()
+	if !ok {
+		return codegenSourceTarget{}, newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has no supported simple-type view", component.Name()),
+			nil,
+			fmt.Errorf("%w: simple type view is missing", errCodegenUnsupported),
+			version,
+		)
+	}
+	if definition.IsAnonymous() {
+		return codegenSourceTarget{}, newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("anonymous simple type %q is outside scalar Go generation", component.Name()),
+			nil,
+			fmt.Errorf("%w: anonymous simple type", errCodegenUnsupported),
+			version,
+		)
+	}
+	if definition.Variety() != SimpleTypeVarietyAtomicRestriction {
+		return codegenSourceTarget{}, newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has variety %q outside scalar Go generation", component.Name(), definition.Variety()),
+			appendCodegenRelated(nil, definition.VarietyLoc()),
+			fmt.Errorf("%w: simple type variety %q", errCodegenUnsupported, definition.Variety()),
+			version,
+		)
+	}
+	if definition.facts.atomicKind == schemaSimpleTypeAtomicUnknown {
+		if _, booleanFacets := definition.facts.facets.(schemaBooleanFacetVariant); !booleanFacets {
+			return codegenSourceTarget{}, newCodegenInternal(
+				component.Loc(),
+				fmt.Sprintf("named simple type %q has inconsistent boolean primitive facts", component.Name()),
+				appendCodegenRelated(nil, definition.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+	}
+	if definition.IsBoolean() {
+		if err := validateCodegenBooleanRestrictionChain(schema, component, definition, version); err != nil {
+			return codegenSourceTarget{}, err
+		}
+		return codegenSourceTarget{
+			form:         codegenSourceTargetDefinition,
+			declaredType: component.Name(),
+			typeID:       component.ID(),
+			hasTypeID:    true,
+			scalarKind:   codegenSourceScalarBoolean,
+		}, nil
+	}
+	kind, err := codegenNamedScalarKind(component)
+	if err != nil {
+		return codegenSourceTarget{}, err
+	}
+	scalarKind, ok := codegenSourceScalarKindFromDigit(kind)
+	if !ok {
+		return codegenSourceTarget{}, newCodegenInternal(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has an unknown scalar kind", component.Name()),
+			codegenSimpleTypeRelatedLocations(definition, definition.DigitFacets()),
+			errCodegenSchemaInvariant,
+		)
+	}
+	return codegenSourceTarget{
+		form:         codegenSourceTargetDefinition,
+		declaredType: component.Name(),
+		typeID:       component.ID(),
+		hasTypeID:    true,
+		scalarKind:   scalarKind,
+	}, nil
+}
+
+func codegenSourceScalarKindFromDigit(kind DigitDatatype) (codegenSourceScalarKind, bool) {
+	switch kind {
+	case DigitDatatypeInteger:
+		return codegenSourceScalarInteger, true
+	case DigitDatatypeDecimal:
+		return codegenSourceScalarDecimal, true
+	default:
+		return codegenSourceScalarInvalid, false
+	}
+}
+
+//nolint:gocognit,funlen // Keep the resolved boolean restriction-chain checks together.
+func validateCodegenBooleanRestrictionChain(
+	schema Schema,
+	component Component,
+	definition SimpleTypeDefinition,
+	version XSDVersion,
+) error {
+	if component.ID().IsZero() {
+		return newCodegenInternal(
+			component.Loc(),
+			"named boolean type has an empty component identity",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
+	seen := map[ComponentID]struct{}{component.ID(): {}}
+	current := definition
+	for {
+		if current.IsAnonymous() {
+			return newCodegenUnsupported(
+				current.Loc(),
+				"anonymous boolean restriction types are outside scalar Go generation",
+				nil,
+				fmt.Errorf("%w: anonymous boolean restriction type", errCodegenUnsupported),
+				version,
+			)
+		}
+		if current.facts == nil ||
+			current.Variety() != SimpleTypeVarietyAtomicRestriction ||
+			!current.IsBoolean() ||
+			current.facts.atomicKind != schemaSimpleTypeAtomicUnknown {
+			return newCodegenInternal(
+				current.Loc(),
+				"named boolean restriction chain has inconsistent primitive facts",
+				appendCodegenRelated(nil, current.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+		base, ok := current.BaseReference()
+		if !ok || base.Kind() == "" {
+			return newCodegenInternal(
+				current.Loc(),
+				"named boolean restriction has no complete base reference",
+				appendCodegenRelated(nil, current.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+		if base.Variety() != SimpleTypeVarietyAtomicRestriction || base.Name().IsZero() && !base.IsAnonymous() {
+			return newCodegenInternal(
+				current.Loc(),
+				"named boolean restriction base facts are incomplete",
+				appendCodegenRelated(nil, current.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+		if base.facts == nil {
+			return newCodegenInternal(
+				current.Loc(),
+				"named boolean restriction base has no resolved primitive facts",
+				appendCodegenRelated(nil, current.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+		if base.facts.atomicKind != schemaSimpleTypeAtomicUnknown {
+			return newCodegenInternal(
+				current.Loc(),
+				"named boolean restriction base has inconsistent primitive facts",
+				appendCodegenRelated(nil, current.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+		if _, ok := base.facts.facets.(schemaBooleanFacetVariant); !ok {
+			return newCodegenInternal(
+				current.Loc(),
+				"named boolean restriction base has inconsistent primitive facts",
+				appendCodegenRelated(nil, current.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+		if !base.IsAnonymous() && current.Base() != base.Name() {
+			return newCodegenInternal(
+				current.Loc(),
+				"named boolean restriction base QName does not match its reference",
+				appendCodegenRelated(nil, current.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+		baseID, hasBaseID := current.BaseID()
+		if base.IsNamed() {
+			referencedID, hasReferencedID := base.ComponentID()
+			if !hasBaseID || baseID.IsZero() || !hasReferencedID || referencedID.IsZero() || baseID != referencedID {
+				return newCodegenInternal(
+					current.Loc(),
+					"named boolean restriction base identity facts are inconsistent",
+					appendCodegenRelated(nil, current.BaseLoc()),
+					errCodegenSchemaInvariant,
+				)
+			}
+		}
+		if (base.IsBuiltin() || base.IsAnonymous()) && (hasBaseID || !baseID.IsZero()) {
+			return newCodegenInternal(
+				current.Loc(),
+				"non-named boolean restriction base has a synthetic identity",
+				appendCodegenRelated(nil, current.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+		switch base.Kind() {
+		case SimpleTypeReferenceBuiltin:
+			if base.Name().Namespace() != xsdNamespaceURI || base.Name().Local() != "boolean" {
+				return newCodegenInternal(
+					current.Loc(),
+					"built-in boolean restriction base does not identify xs:boolean",
+					appendCodegenRelated(nil, current.BaseLoc()),
+					errCodegenSchemaInvariant,
+				)
+			}
+			return nil
+		case SimpleTypeReferenceAnonymous:
+			return newCodegenUnsupported(
+				current.Loc(),
+				"anonymous boolean restriction bases are outside scalar Go generation",
+				appendCodegenRelated(nil, current.BaseLoc()),
+				fmt.Errorf("%w: anonymous boolean restriction base", errCodegenUnsupported),
+				version,
+			)
+		case SimpleTypeReferenceNamed:
+			referencedID, hasReferencedID := base.ComponentID()
+			if !hasReferencedID || referencedID.IsZero() {
+				return newCodegenInternal(
+					current.Loc(),
+					"named boolean restriction base has no component identity",
+					appendCodegenRelated(nil, current.BaseLoc()),
+					errCodegenSchemaInvariant,
+				)
+			}
+			if _, exists := seen[referencedID]; exists {
+				return newCodegenInternal(
+					current.Loc(),
+					"named boolean restriction chain contains a cycle",
+					appendCodegenRelated(nil, current.BaseLoc()),
+					errCodegenSchemaInvariant,
+				)
+			}
+			seen[referencedID] = struct{}{}
+			target, found := schema.Lookup(referencedID)
+			if !found || target.ID() != referencedID || target.Name() != base.Name() {
+				return newCodegenInternal(
+					current.Loc(),
+					"named boolean restriction base identity does not match the schema",
+					appendCodegenRelated(nil, target.Loc()),
+					errCodegenSchemaInvariant,
+				)
+			}
+			if target.Kind() != ComponentKindSimpleTypeDefinition {
+				return newCodegenInternal(
+					current.Loc(),
+					"named boolean restriction base is not a simple type",
+					appendCodegenRelated(nil, target.Loc()),
+					errCodegenSchemaInvariant,
+				)
+			}
+			baseDefinition, definitionOK := target.SimpleTypeDefinition()
+			if !definitionOK {
+				return newCodegenInternal(
+					current.Loc(),
+					"named boolean restriction base has no simple-type facts",
+					appendCodegenRelated(nil, target.Loc()),
+					errCodegenSchemaInvariant,
+				)
+			}
+			current = baseDefinition
+		default:
+			return newCodegenInternal(
+				current.Loc(),
+				"named boolean restriction base has an unknown reference kind",
+				appendCodegenRelated(nil, current.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+	}
+}
+
+func codegenSourceTargetFieldType(
+	target codegenSourceTarget,
+	names codegenNaming,
+	runtimeAlias string,
+	hasRuntimeAlias bool,
+	loc Loc,
+) (string, bool, error) {
+	switch target.form {
+	case codegenSourceTargetDefinition, codegenSourceTargetBuiltin:
+		if target.declaredType.IsZero() || target.hasTypeID && target.typeID.IsZero() {
+			return "", false, newCodegenInternal(
+				loc,
+				"scalar source target has incomplete type identity",
+				nil,
+				errCodegenElementType,
+			)
+		}
+		switch target.scalarKind {
+		case codegenSourceScalarBoolean:
+			return "bool", false, nil
+		case codegenSourceScalarInteger:
+			fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeInteger, loc)
+			return fieldType, true, err
+		case codegenSourceScalarDecimal:
+			fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeDecimal, loc)
+			return fieldType, true, err
+		case codegenSourceScalarInvalid:
+			return "", false, newCodegenInternal(
+				loc,
+				"scalar source target has an unknown primitive kind",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		default:
+			return "", false, newCodegenInternal(
+				loc,
+				"scalar source target has an unknown primitive kind",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+	case codegenSourceTargetNamed:
+		if !target.hasTypeID || target.typeID.IsZero() || target.declaredType.IsZero() {
+			return "", false, newCodegenInternal(
+				loc,
+				"named scalar source target has incomplete type identity",
+				nil,
+				errCodegenElementType,
+			)
+		}
+		identifier, ok := names.componentName(target.typeID)
+		if !ok || identifier == "" {
+			return "", false, newCodegenNamingInvariant(
+				loc,
+				fmt.Sprintf("named scalar source target %s has no generated name", target.typeID.Source()),
+				errCodegenNamingMisaligned,
+			)
+		}
+		return identifier, false, nil
+	case codegenSourceTargetInvalid:
+		return "", false, newCodegenInternal(
+			loc,
+			"scalar source target has an unknown representation",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	default:
+		return "", false, newCodegenInternal(
+			loc,
+			"scalar source target has an unknown representation",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
+}
+
 func codegenSimpleTypeRelatedLocations(definition SimpleTypeDefinition, facets DigitFacets) []Loc {
 	locations := make([]Loc, 0, 3)
 	locations = appendCodegenRelated(locations, definition.BaseLoc())
@@ -588,10 +1037,10 @@ func codegenElementFieldType(
 	hasRuntimeAlias bool,
 	version XSDVersion,
 	allowComplexElementType bool,
-) (string, bool, error) {
+) (codegenSourceTarget, string, bool, error) {
 	declaration, ok := component.ElementDeclaration()
 	if !ok {
-		return "", false, newCodegenElementUnsupported(
+		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element %q has no supported declaration view", component.Name()),
 			nil,
@@ -601,7 +1050,7 @@ func codegenElementFieldType(
 	}
 	declaredType := declaration.DeclaredType()
 	if declaredType.IsZero() {
-		return "", false, newCodegenElementUnsupported(
+		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element %q has no explicit scalar type", component.Name()),
 			nil,
@@ -621,25 +1070,30 @@ func codegenBuiltinElementFieldType(
 	runtimeAlias string,
 	hasRuntimeAlias bool,
 	version XSDVersion,
-) (string, bool, error) {
+) (codegenSourceTarget, string, bool, error) {
 	typeID, hasTypeID := declaration.TypeID()
 	if hasTypeID || !typeID.IsZero() {
-		return "", false, newCodegenInternal(
+		return codegenSourceTarget{}, "", false, newCodegenInternal(
 			component.Loc(),
 			fmt.Sprintf("built-in global element %q has a synthetic type identity", component.Name()),
 			nil,
 			errCodegenElementType,
 		)
 	}
+	target := codegenSourceTarget{
+		form:         codegenSourceTargetBuiltin,
+		declaredType: declaration.DeclaredType(),
+		scalarKind:   codegenSourceScalarInvalid,
+	}
 	switch declaration.DeclaredType().Local() {
+	case "boolean":
+		target.scalarKind = codegenSourceScalarBoolean
 	case "integer":
-		fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeInteger, component.Loc())
-		return fieldType, true, err
+		target.scalarKind = codegenSourceScalarInteger
 	case "decimal":
-		fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeDecimal, component.Loc())
-		return fieldType, true, err
+		target.scalarKind = codegenSourceScalarDecimal
 	default:
-		return "", false, newCodegenElementUnsupported(
+		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element type %q is outside scalar Go generation", declaration.DeclaredType()),
 			nil,
@@ -647,6 +1101,17 @@ func codegenBuiltinElementFieldType(
 			version,
 		)
 	}
+	if err := validateCodegenElementTypeReference(declaration, target, component.Loc()); err != nil {
+		return codegenSourceTarget{}, "", false, err
+	}
+	if target.scalarKind == codegenSourceScalarBoolean {
+		return target, "bool", false, nil
+	}
+	fieldType, _, err := codegenSourceTargetFieldType(target, codegenNaming{}, runtimeAlias, hasRuntimeAlias, component.Loc())
+	if err != nil {
+		return codegenSourceTarget{}, "", false, err
+	}
+	return target, fieldType, true, nil
 }
 
 func codegenNamedElementFieldType(
@@ -656,11 +1121,11 @@ func codegenNamedElementFieldType(
 	declaration ElementDeclaration,
 	version XSDVersion,
 	allowComplexElementType bool,
-) (string, bool, error) {
+) (codegenSourceTarget, string, bool, error) {
 	declaredType := declaration.DeclaredType()
 	typeID, hasTypeID := declaration.TypeID()
 	if !hasTypeID || typeID.IsZero() {
-		return "", false, newCodegenInternal(
+		return codegenSourceTarget{}, "", false, newCodegenInternal(
 			component.Loc(),
 			fmt.Sprintf("named global element %q has no resolved type identity", component.Name()),
 			nil,
@@ -669,7 +1134,7 @@ func codegenNamedElementFieldType(
 	}
 	target, ok := schema.Lookup(typeID)
 	if !ok {
-		return "", false, newCodegenInternal(
+		return codegenSourceTarget{}, "", false, newCodegenInternal(
 			component.Loc(),
 			fmt.Sprintf("global element type identity %s is absent from the schema", typeID.Source()),
 			nil,
@@ -678,7 +1143,7 @@ func codegenNamedElementFieldType(
 	}
 	related := appendCodegenRelated(nil, target.Loc())
 	if target.ID() != typeID || target.Name() != declaredType {
-		return "", false, newCodegenInternal(
+		return codegenSourceTarget{}, "", false, newCodegenInternal(
 			component.Loc(),
 			fmt.Sprintf("global element %q type identity does not match its declared QName", component.Name()),
 			related,
@@ -686,18 +1151,20 @@ func codegenNamedElementFieldType(
 		)
 	}
 	if target.Kind() == ComponentKindComplexTypeDefinition && allowComplexElementType {
-		identifier, nameOK := names.componentName(typeID)
-		if !nameOK {
-			return "", false, newCodegenNamingInvariant(
-				component.Loc(),
-				fmt.Sprintf("named global element type %s has no generated name", typeID.Source()),
-				errCodegenNamingMisaligned,
-			)
+		sourceTarget := codegenSourceTarget{
+			form:         codegenSourceTargetNamed,
+			declaredType: declaredType,
+			typeID:       typeID,
+			hasTypeID:    true,
 		}
-		return identifier, false, nil
+		fieldType, _, err := codegenSourceTargetFieldType(sourceTarget, names, "", false, component.Loc())
+		if err != nil {
+			return codegenSourceTarget{}, "", false, err
+		}
+		return sourceTarget, fieldType, false, nil
 	}
 	if target.Kind() != ComponentKindSimpleTypeDefinition {
-		return "", false, newCodegenElementUnsupported(
+		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element type %q is not a supported named simple type", declaredType),
 			related,
@@ -705,19 +1172,167 @@ func codegenNamedElementFieldType(
 			version,
 		)
 	}
-	_, err := codegenNamedScalarKind(target)
+	scalarTarget, err := codegenNamedScalarTarget(schema, target, version)
 	if err != nil {
-		return "", false, decorateCodegenElementError(err, component.Loc(), related)
+		return codegenSourceTarget{}, "", false, decorateCodegenElementError(err, component.Loc(), related)
 	}
-	identifier, ok := names.componentName(typeID)
-	if !ok {
-		return "", false, newCodegenNamingInvariant(
-			component.Loc(),
-			fmt.Sprintf("named global element type %s has no generated name", typeID.Source()),
-			errCodegenNamingMisaligned,
+	sourceTarget := scalarTarget
+	sourceTarget.form = codegenSourceTargetNamed
+	sourceTarget.declaredType = declaredType
+	sourceTarget.typeID = typeID
+	sourceTarget.hasTypeID = true
+	if referenceErr := validateCodegenElementTypeReference(declaration, sourceTarget, component.Loc()); referenceErr != nil {
+		return codegenSourceTarget{}, "", false, decorateCodegenElementError(referenceErr, component.Loc(), related)
+	}
+	fieldType, _, err := codegenSourceTargetFieldType(sourceTarget, names, "", false, component.Loc())
+	if err != nil {
+		return codegenSourceTarget{}, "", false, err
+	}
+	return sourceTarget, fieldType, false, nil
+}
+
+//nolint:gocognit,funlen // Keep reference identity and primitive checks together.
+func validateCodegenElementTypeReference(
+	declaration ElementDeclaration,
+	target codegenSourceTarget,
+	loc Loc,
+) error {
+	reference, ok := declaration.TypeReference()
+	if !ok || reference.facts == nil {
+		return newCodegenInternal(
+			loc,
+			"global element type reference facts are missing",
+			nil,
+			errCodegenElementType,
 		)
 	}
-	return identifier, false, nil
+	if reference.Name() != target.declaredType || reference.Variety() != SimpleTypeVarietyAtomicRestriction {
+		return newCodegenInternal(
+			loc,
+			"global element type reference does not match its declared type",
+			nil,
+			errCodegenElementType,
+		)
+	}
+	switch target.form {
+	case codegenSourceTargetBuiltin:
+		if !reference.IsBuiltin() {
+			return newCodegenInternal(
+				loc,
+				"built-in global element type reference is not built-in",
+				nil,
+				errCodegenElementType,
+			)
+		}
+		if typeID, hasTypeID := reference.ComponentID(); hasTypeID || !typeID.IsZero() {
+			return newCodegenInternal(
+				loc,
+				"built-in global element type reference has a component identity",
+				nil,
+				errCodegenElementType,
+			)
+		}
+	case codegenSourceTargetNamed:
+		if !reference.IsNamed() {
+			return newCodegenInternal(
+				loc,
+				"named global element type reference is not named",
+				nil,
+				errCodegenElementType,
+			)
+		}
+		referencedID, hasReferencedID := reference.ComponentID()
+		if !hasReferencedID || referencedID != target.typeID {
+			return newCodegenInternal(
+				loc,
+				"named global element type reference identity does not match its declaration",
+				nil,
+				errCodegenElementType,
+			)
+		}
+	case codegenSourceTargetDefinition:
+		return newCodegenInternal(
+			loc,
+			"global element type reference has an unresolved target form",
+			nil,
+			errCodegenElementType,
+		)
+	case codegenSourceTargetInvalid:
+		return newCodegenInternal(
+			loc,
+			"global element type reference has an unknown target form",
+			nil,
+			errCodegenElementType,
+		)
+	default:
+		return newCodegenInternal(
+			loc,
+			"global element type reference has an unknown target form",
+			nil,
+			errCodegenElementType,
+		)
+	}
+	switch target.scalarKind {
+	case codegenSourceScalarBoolean:
+		if reference.facts.atomicKind != schemaSimpleTypeAtomicUnknown {
+			return newCodegenInternal(
+				loc,
+				"global element boolean type reference has inconsistent primitive facts",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+		if _, ok := reference.facts.facets.(schemaBooleanFacetVariant); !ok {
+			return newCodegenInternal(
+				loc,
+				"global element boolean type reference has inconsistent primitive facts",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+		if target.form == codegenSourceTargetBuiltin &&
+			(reference.Name().Namespace() != xsdNamespaceURI || reference.Name().Local() != "boolean") {
+			return newCodegenInternal(
+				loc,
+				"built-in global element boolean type reference does not identify xs:boolean",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+	case codegenSourceScalarInteger:
+		if reference.facts.atomicKind != schemaSimpleTypeAtomicInteger {
+			return newCodegenInternal(
+				loc,
+				"global element integer type reference has inconsistent primitive facts",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+	case codegenSourceScalarDecimal:
+		if reference.facts.atomicKind != schemaSimpleTypeAtomicDecimal {
+			return newCodegenInternal(
+				loc,
+				"global element decimal type reference has inconsistent primitive facts",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+	case codegenSourceScalarInvalid:
+		return newCodegenInternal(
+			loc,
+			"global element type reference has an unknown primitive kind",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	default:
+		return newCodegenInternal(
+			loc,
+			"global element type reference has an unknown primitive kind",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
+	return nil
 }
 
 func decorateCodegenElementError(err error, loc Loc, related []Loc) error {
@@ -731,7 +1346,20 @@ func decorateCodegenElementError(err error, loc Loc, related []Loc) error {
 	return decorated
 }
 
-func renderCodegenSource(plan codegenSourcePlan) ([]byte, error) {
+func renderCodegenSource(plan codegenSourcePlan, schemas ...Schema) ([]byte, error) {
+	if len(schemas) > 1 {
+		return nil, newCodegenInternal(
+			codegenSourcePlanLoc(plan),
+			"render scalar source received multiple schemas",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
+	if len(schemas) == 1 {
+		if err := validateCodegenSourcePlan(schemas[0], plan); err != nil {
+			return nil, err
+		}
+	}
 	var source strings.Builder
 	source.WriteString("package ")
 	source.WriteString(plan.packageName)
@@ -772,11 +1400,301 @@ func renderCodegenSource(plan codegenSourcePlan) ([]byte, error) {
 	return formatted, nil
 }
 
+//nolint:gocognit // Keep render-boundary recollection and comparison explicit.
+func validateCodegenSourcePlan(schema Schema, plan codegenSourcePlan) error {
+	planLoc := codegenSourcePlanLoc(plan)
+	if err := validateCodegenPackageName(plan.packageName); err != nil {
+		return newCodegenInternal(planLoc, "source plan package name is invalid", nil, err)
+	}
+	if plan.names.packageIdentifier() != plan.packageName {
+		return newCodegenInternal(
+			planLoc,
+			"source plan naming package does not match its package name",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
+	if schema.storage == nil {
+		return newDiagnostic(
+			FailureInvalid,
+			diagnosticCodegenSchemaInvalid,
+			Loc{},
+			"code-generation schema is zero or incomplete",
+			errCodegenSchemaEmpty,
+		)
+	}
+	components := schema.Components()
+	if err := validateCodegenSchemaStorage(schema, components); err != nil {
+		return err
+	}
+	if _, _, _, err := validateCodegenInput(schema, plan.names); err != nil {
+		return newCodegenInternal(planLoc, "source plan naming state is invalid", nil, err)
+	}
+	if err := validateCodegenScopedNamingIndexes(plan.names, planLoc); err != nil {
+		return err
+	}
+	if !plan.directChoices && (len(plan.names.fields) != 0 || len(plan.names.variants) != 0) {
+		return newCodegenInternal(
+			planLoc,
+			"scalar source plan has direct-choice naming records without direct choices",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
+
+	var expected codegenSourcePlan
+	var err error
+	if plan.directChoices {
+		choicePlan, choiceErr := planCodegenDirectChoices(schema, plan.packageName)
+		if choiceErr != nil {
+			return choiceErr
+		}
+		expected, err = planCodegenSourceWithDirectChoices(schema, choicePlan)
+	}
+	if !plan.directChoices {
+		for _, component := range components {
+			if component.Kind() != ComponentKindComplexTypeDefinition {
+				continue
+			}
+			return newCodegenInternal(
+				component.Loc(),
+				"scalar source plan does not include the schema direct-choice phase",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+		expectedNames, namingErr := newCodegenNaming(codegenNamingInput{
+			packageName:   plan.packageName,
+			schema:        schema,
+			importAliases: codegenImportAliasRequests(plan.names),
+		})
+		if namingErr != nil {
+			return newCodegenInternal(
+				planLoc,
+				"source plan naming state could not be recollected",
+				nil,
+				namingErr,
+			)
+		}
+		expected, err = planCodegenSource(schema, expectedNames)
+	}
+	if err != nil {
+		return err
+	}
+	if err := compareCodegenNaming(plan.names, expected.names, planLoc); err != nil {
+		return err
+	}
+	return compareCodegenSourcePlans(plan, expected)
+}
+
+func codegenImportAliasRequests(names codegenNaming) []codegenImportAliasRequest {
+	requests := make([]codegenImportAliasRequest, 0, len(names.imports))
+	for _, imported := range names.imports {
+		requests = append(requests, codegenImportAliasRequest{
+			identity: imported.identity,
+			alias:    imported.alias,
+		})
+	}
+	return requests
+}
+
+func validateCodegenScopedNamingIndexes(names codegenNaming, loc Loc) error {
+	if len(names.fieldByKey) != len(names.fields) {
+		return newCodegenInternal(
+			loc,
+			"source plan field naming index has the wrong size",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
+	for _, field := range names.fields {
+		identifier, ok := names.fieldName(field.owner, field.path)
+		if !ok || identifier != field.identifier {
+			return newCodegenInternal(
+				loc,
+				"source plan field naming index is stale",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+	}
+	if len(names.variantByKey) != len(names.variants) {
+		return newCodegenInternal(
+			loc,
+			"source plan variant naming index has the wrong size",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
+	for _, variant := range names.variants {
+		identifier, ok := names.variantName(variant.owner, variant.path)
+		if !ok || identifier != variant.identifier {
+			return newCodegenInternal(
+				loc,
+				"source plan variant naming index is stale",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+	}
+	return nil
+}
+
+func compareCodegenSourcePlans(actual, expected codegenSourcePlan) error {
+	loc := codegenSourcePlanLoc(expected)
+	if actual.packageName != expected.packageName {
+		return newCodegenInternal(loc, "source plan package names do not match", nil, errCodegenSchemaInvariant)
+	}
+	if actual.runtimeAlias != expected.runtimeAlias {
+		return newCodegenInternal(loc, "source plan runtime aliases do not match", nil, errCodegenSchemaInvariant)
+	}
+	if actual.useRuntime != expected.useRuntime {
+		return newCodegenInternal(loc, "source plan runtime requirements do not match", nil, errCodegenSchemaInvariant)
+	}
+	if actual.directChoices != expected.directChoices {
+		return newCodegenInternal(loc, "source plan direct-choice mode does not match", nil, errCodegenSchemaInvariant)
+	}
+	if len(actual.declarations) != len(expected.declarations) {
+		return newCodegenInternal(loc, "source plan declaration count does not match schema order", nil, errCodegenSchemaInvariant)
+	}
+	for index, expectedDeclaration := range expected.declarations {
+		actualDeclaration := actual.declarations[index]
+		declarationLoc := expectedDeclaration.loc
+		if declarationLoc.IsZero() {
+			declarationLoc = actualDeclaration.loc
+		}
+		if actualDeclaration.id != expectedDeclaration.id ||
+			actualDeclaration.schemaName != expectedDeclaration.schemaName ||
+			actualDeclaration.loc != expectedDeclaration.loc ||
+			actualDeclaration.name != expectedDeclaration.name ||
+			actualDeclaration.fieldType != expectedDeclaration.fieldType ||
+			actualDeclaration.usesRuntime != expectedDeclaration.usesRuntime ||
+			actualDeclaration.target != expectedDeclaration.target {
+			return newCodegenInternal(
+				declarationLoc,
+				"source plan declaration facts do not match schema order",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+		if err := compareCodegenSourceChoices(actualDeclaration.choice, expectedDeclaration.choice, declarationLoc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+//nolint:gocognit // Keep ordered naming-record comparison explicit.
+func compareCodegenNaming(actual, expected codegenNaming, loc Loc) error {
+	if actual.packageIdentifier() != expected.packageIdentifier() {
+		return newCodegenInternal(loc, "source plan naming packages do not match", nil, errCodegenSchemaInvariant)
+	}
+	if len(actual.components) != len(expected.components) {
+		return newCodegenInternal(loc, "source plan component naming records do not match", nil, errCodegenSchemaInvariant)
+	}
+	for index, expectedComponent := range expected.components {
+		actualComponent := actual.components[index]
+		if actualComponent != expectedComponent {
+			return newCodegenInternal(loc, "source plan component naming record does not match", nil, errCodegenSchemaInvariant)
+		}
+	}
+	if len(actual.fields) != len(expected.fields) {
+		return newCodegenInternal(loc, "source plan field naming records do not match", nil, errCodegenSchemaInvariant)
+	}
+	for index, expectedField := range expected.fields {
+		actualField := actual.fields[index]
+		if actualField.owner != expectedField.owner ||
+			!equalCodegenPath(actualField.path, expectedField.path) ||
+			actualField.name != expectedField.name ||
+			actualField.identifier != expectedField.identifier {
+			return newCodegenInternal(loc, "source plan field naming record does not match", nil, errCodegenSchemaInvariant)
+		}
+	}
+	if len(actual.variants) != len(expected.variants) {
+		return newCodegenInternal(loc, "source plan variant naming records do not match", nil, errCodegenSchemaInvariant)
+	}
+	for index, expectedVariant := range expected.variants {
+		actualVariant := actual.variants[index]
+		if actualVariant.owner != expectedVariant.owner ||
+			!equalCodegenPath(actualVariant.path, expectedVariant.path) ||
+			actualVariant.name != expectedVariant.name ||
+			actualVariant.identifier != expectedVariant.identifier {
+			return newCodegenInternal(loc, "source plan variant naming record does not match", nil, errCodegenSchemaInvariant)
+		}
+	}
+	if len(actual.imports) != len(expected.imports) {
+		return newCodegenInternal(loc, "source plan import naming records do not match", nil, errCodegenSchemaInvariant)
+	}
+	for index, expectedImport := range expected.imports {
+		if actual.imports[index] != expectedImport {
+			return newCodegenInternal(loc, "source plan import naming record does not match", nil, errCodegenSchemaInvariant)
+		}
+	}
+	return nil
+}
+
+func compareCodegenSourceChoices(actual, expected *codegenSourceChoice, loc Loc) error {
+	if actual == nil || expected == nil {
+		if actual == nil && expected == nil {
+			return nil
+		}
+		return newCodegenInternal(loc, "source plan choice presence does not match schema", nil, errCodegenSchemaInvariant)
+	}
+	if actual.ownerID != expected.ownerID ||
+		actual.ownerName != expected.ownerName ||
+		actual.ownerLoc != expected.ownerLoc ||
+		actual.choiceLoc != expected.choiceLoc ||
+		actual.marker != expected.marker ||
+		actual.usesRuntime != expected.usesRuntime ||
+		len(actual.variants) != len(expected.variants) {
+		return newCodegenInternal(loc, "source plan choice facts do not match schema", nil, errCodegenSchemaInvariant)
+	}
+	for index, expectedVariant := range expected.variants {
+		actualVariant := actual.variants[index]
+		if !equalCodegenPath(actualVariant.path, expectedVariant.path) ||
+			actualVariant.loc != expectedVariant.loc ||
+			actualVariant.schemaName != expectedVariant.schemaName ||
+			actualVariant.name != expectedVariant.name ||
+			actualVariant.fieldName != expectedVariant.fieldName ||
+			actualVariant.fieldType != expectedVariant.fieldType ||
+			actualVariant.usesRuntime != expectedVariant.usesRuntime ||
+			actualVariant.target != expectedVariant.target {
+			return newCodegenInternal(
+				actualVariant.loc,
+				"source plan choice alternative facts do not match schema",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+	}
+	return nil
+}
+
+func codegenSourcePlanLoc(plan codegenSourcePlan) Loc {
+	for _, declaration := range plan.declarations {
+		if !declaration.loc.IsZero() {
+			return declaration.loc
+		}
+		if declaration.choice != nil && !declaration.choice.ownerLoc.IsZero() {
+			return declaration.choice.ownerLoc
+		}
+	}
+	return Loc{}
+}
+
 func renderCodegenChoiceDeclaration(source *strings.Builder, declaration codegenSourceDeclaration) error {
 	choice := declaration.choice
+	if choice == nil {
+		return newCodegenInternal(
+			declaration.loc,
+			"render direct-choice declaration without choice facts",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
 	if !validCodegenDirectChoiceMarker(choice.marker) {
 		return newCodegenInternal(
-			Loc{},
+			declaration.loc,
 			"render direct-choice declaration with an invalid marker",
 			nil,
 			errCodegenDirectChoicePlan,

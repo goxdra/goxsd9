@@ -109,8 +109,8 @@ generation reject them as unsupported.
 
 ## Datatypes
 
-Lexical parsing and value representation are separate. Context-sensitive
-lexical values such as QName carry namespace context needed to construct a value.
+Lexical parsing and values are separate. Context-sensitive values such as QName
+retain namespace context.
 
 The strict datatype library implements XSD integer, decimal, boolean, and
 optional precisionDecimal mappings with arbitrary precision and lossless
@@ -136,8 +136,8 @@ Non-default `precisionDecimal` choice or alternative ranges that map to a
 particle are schema-unsupported. Local boolean particles, attributes, and broader
 structures remain unsupported for instance validation; locations are primary.
 
-Generation is deterministic, uses choice type switches, and Boolean code
-generation remains unsupported.
+Generation is deterministic, uses choice switches, and supports global
+booleans; boolean facets and local boolean particles remain unsupported.
 
 ## Conformance
 
