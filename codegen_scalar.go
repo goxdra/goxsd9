@@ -679,6 +679,16 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			version,
 		)
 	}
+	if definition.facts.atomicKind == schemaSimpleTypeAtomicUnknown {
+		if _, booleanFacets := definition.facts.facets.(schemaBooleanFacetVariant); !booleanFacets {
+			return codegenSourceTarget{}, newCodegenInternal(
+				component.Loc(),
+				fmt.Sprintf("named simple type %q has inconsistent boolean primitive facts", component.Name()),
+				appendCodegenRelated(nil, definition.BaseLoc()),
+				errCodegenSchemaInvariant,
+			)
+		}
+	}
 	if definition.IsBoolean() {
 		if err := validateCodegenBooleanRestrictionChain(schema, component, definition, version); err != nil {
 			return codegenSourceTarget{}, err

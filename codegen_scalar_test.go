@@ -132,6 +132,12 @@ func TestCodegenScalarSourceRejectsStaleBooleanPlanAtRenderBoundary(t *testing.T
 				schema.Components()[1].simpleType.baseReference.atomicKind = schemaSimpleTypeAtomicInteger
 			},
 		},
+		{
+			name: "stale boolean definition facets",
+			mutate: func(schema Schema, _ *codegenSourcePlan) {
+				schema.Components()[1].simpleType.facets = schemaStringFacetVariant{}
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -162,6 +168,47 @@ func TestCodegenScalarSourceRejectsStaleBooleanPlanAtRenderBoundary(t *testing.T
 				t.Fatalf("stale boolean plan error lost its internal cause: %v", err)
 			}
 		})
+	}
+}
+
+func TestCodegenScalarSourceRejectsStaleNamedBooleanFacetsForElementAtRenderBoundary(t *testing.T) {
+	schema, err := discoverTestSchema(t, `<xs:schema xmlns:xs="`+testXSDNamespace+`" xmlns:o="urn:other" targetNamespace="urn:test">
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:element name="flag" type="o:Flag"/>
+</xs:schema>`, map[string]discoveryFixture{
+		"other.xsd": {
+			id: "other.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other">
+  <xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("discoverTestSchema: %v", err)
+	}
+	plan, err := planCodegenSource(schema, mustScalarCodegenNaming(t, schema))
+	if err != nil {
+		t.Fatalf("planCodegenSource: %v", err)
+	}
+	components := schema.Components()
+	if len(components) != 2 || components[0].Kind() != ComponentKindElementDeclaration || components[1].Kind() != ComponentKindSimpleTypeDefinition {
+		t.Fatalf("schema components = %#v, want forward element followed by named simple type", components)
+	}
+	components[1].simpleType.facets = schemaStringFacetVariant{}
+
+	output, err := renderCodegenSource(plan, schema)
+	if output != nil || err == nil {
+		t.Fatalf("stale named boolean definition result = (%q, %v), want nil output and error", output, err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+		t.Fatalf("diagnostic = %s, want internal codegen invariant %s", diagnostic, diagnosticCodegenInvariant)
+	}
+	if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
+		t.Fatalf("diagnostic location = %s, want a root.xsd location", diagnostic.Loc())
+	}
+	if !errors.Is(err, errCodegenSchemaInvariant) {
+		t.Fatalf("stale named boolean definition error lost its internal cause: %v", err)
 	}
 }
 
