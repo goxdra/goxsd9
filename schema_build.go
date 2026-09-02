@@ -1264,12 +1264,6 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	if model.name.local == "choice" {
 		return schemaChoiceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
 	}
-	if facts.elementFormDefaultQualified && schemaModelHasNamedElementChild(model) {
-		return nil, newSchemaSyntaxUnsupported(
-			model.loc,
-			"schema elementFormDefault=qualified is not implemented for local sequence elements",
-		)
-	}
 	return schemaSequenceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
 }
 
@@ -1318,7 +1312,7 @@ func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOc
 		if child.name.local != "element" {
 			continue
 		}
-		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, false)
+		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, true)
 		if err != nil {
 			return nil, err
 		}
@@ -1474,19 +1468,6 @@ func schemaSimpleTypeInputFromElement(element *syntaxElement) (*schemaSimpleType
 		input.facets = cloneSchemaFacetInputs(restriction.facets)
 	}
 	return input, nil
-}
-
-func schemaModelHasNamedElementChild(model *syntaxElement) bool {
-	for _, node := range model.children {
-		child, ok := node.(*syntaxElement)
-		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "element" {
-			continue
-		}
-		if len(syntaxAttributesByLocal(child, "name")) > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func schemaLocalElementParticleName(element *syntaxElement, local string, facts schemaDocumentFacts, version XSDVersion, allowNamespacePolicy bool) (QName, error) {

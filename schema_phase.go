@@ -4137,7 +4137,7 @@ func validateSupportedSequenceParticle(element *syntaxElement, version XSDVersio
 	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
 		return err
 	}
-	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, false)
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, true)
 	if err != nil {
 		return err
 	}

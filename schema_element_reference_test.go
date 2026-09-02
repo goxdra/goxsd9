@@ -392,7 +392,11 @@ func TestSchemaElementReferenceSequenceAllowsQualifiedDefault(t *testing.T) {
 		t.Run(string(policy), func(t *testing.T) {
 			schema := elementReferenceTestQualifiedSequenceSchema(t, policy)
 			elementReferenceTestAssertQualifiedSequence(t, schema)
-			elementReferenceTestAssertQualifiedMixedSequenceRejected(t, policy)
+			mixedSchema, err := discoverTestSchemaWithPolicy(t, elementReferenceTestQualifiedSequenceRoot(true), nil, policy)
+			if err != nil {
+				t.Fatalf("discover qualified mixed reference sequence: %v", err)
+			}
+			elementReferenceTestAssertQualifiedMixedSequence(t, mixedSchema)
 		})
 	}
 }
@@ -442,18 +446,32 @@ func elementReferenceTestAssertQualifiedSequence(t *testing.T, schema Schema) {
 	}
 }
 
-func elementReferenceTestAssertQualifiedMixedSequenceRejected(t *testing.T, policy LanguagePolicy) {
+func elementReferenceTestAssertQualifiedMixedSequence(t *testing.T, schema Schema) {
 	t.Helper()
-	mixedSchema, mixedErr := discoverTestSchemaWithPolicy(t, elementReferenceTestQualifiedSequenceRoot(true), nil, policy)
-	if mixedErr == nil {
-		t.Fatal("qualified mixed sequence with a local name declaration was accepted")
+	name := mustTestQName(t, "urn:reference-root", "Sequence")
+	components := schema.FindKind(ComponentKindComplexTypeDefinition, name)
+	if len(components) != 1 {
+		t.Fatalf("mixed sequence type count = %d, want 1", len(components))
 	}
-	if mixedSchema.storage != nil {
-		t.Fatal("qualified mixed sequence failure returned a partial schema")
+	definition, ok := components[0].ComplexTypeDefinition()
+	if !ok {
+		t.Fatal("mixed sequence has no definition view")
 	}
-	mixedDiagnostic := requireDiagnostic(t, mixedErr)
-	if mixedDiagnostic.Class() != FailureUnsupported || mixedDiagnostic.Feature() != FeatureSchemaSyntax {
-		t.Fatalf("qualified mixed sequence diagnostic = %s, want schema-syntax unsupported", mixedDiagnostic)
+	sequence, ok := definition.Particle().(SequenceParticle)
+	if !ok {
+		t.Fatalf("mixed particle = %T, want SequenceParticle", definition.Particle())
+	}
+	particles := sequence.Particles()
+	if len(particles) != 2 {
+		t.Fatalf("mixed particle count = %d, want 2", len(particles))
+	}
+	reference, ok := particles[0].(ElementReferenceParticle)
+	if !ok || reference.Name() != mustTestQName(t, "urn:reference-root", "target") {
+		t.Fatalf("mixed first particle = %#v, want reference to target", particles[0])
+	}
+	local, ok := particles[1].(ElementParticle)
+	if !ok || local.Name() != mustTestQName(t, "urn:reference-root", "local") {
+		t.Fatalf("mixed second particle = %#v, want qualified local declaration", particles[1])
 	}
 }
 
