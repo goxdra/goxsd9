@@ -298,6 +298,35 @@ func TestClaimResumeRejectsWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestClaimResumeRejectsMalformedAdvertisedRunLocalBeforeMutation(t *testing.T) {
+	fixture := newClaimResumeFixture(t)
+	backend := newClaimResumeBackend(t, fixture)
+	localBefore := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/agent/issue-14")
+	application := app{ctx: context.Background(), executeCommand: func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if command == "git ls-remote --heads origin refs/heads/agent/*" {
+			backend.calls = append(backend.calls, command)
+			fixed := strings.Fields(remoteBefore)[0]
+			return fixed + " refs/heads/agent/issue-14\nshort refs/heads/agent/issue-14-run-resume-test", nil
+		}
+		return backend.execute(dir, input, name, args...)
+	}, stdout: io.Discard}
+	err := application.run(claimResumeArgs(fixture, true))
+	if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), "malformed object name") {
+		t.Fatalf("malformed advertised run-local error = %v, disposition %d, want terminal malformed refusal", err, operationDispositionOf(err))
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("malformed advertised run-local mutations = %d, want zero", backend.mutations)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != localBefore {
+		t.Fatalf("malformed advertised run-local moved local head from %s to %s", localBefore, got)
+	}
+	if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/agent/issue-14"); got != remoteBefore {
+		t.Fatalf("malformed advertised run-local moved remote head from %q to %q", remoteBefore, got)
+	}
+}
+
 func TestClaimResumeRequiresAcknowledgementAndExactFlags(t *testing.T) {
 	fixture := newClaimResumeFixture(t)
 	for _, args := range [][]string{
@@ -572,13 +601,19 @@ func TestCanonicalClaimCommitRejectsNonCanonicalHistoryAndMessage(t *testing.T) 
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 				if name != "git" {
 					return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
 				}
 				switch strings.Join(args, " ") {
 				case "cat-file commit " + head:
 					return test.object, nil
+				case "cat-file --batch-check=%(objectname) %(objecttype)":
+					value, err := io.ReadAll(input)
+					if err != nil {
+						return "", fmt.Errorf("read object query: %w", err)
+					}
+					return strings.TrimSpace(string(value)) + " commit", nil
 				case "rev-parse " + head + "^{tree}":
 					return test.claimTree, nil
 				case "rev-parse " + parent + "^{tree}":

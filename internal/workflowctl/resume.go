@@ -125,6 +125,9 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	if err != nil {
 		return resumeProof{}, fmt.Errorf("read local claim head: %w", err)
 	}
+	if validateErr := a.validateLocalAgentCommit(root, local, "local claim head"); validateErr != nil {
+		return resumeProof{}, validateErr
+	}
 	if _, diffErr := a.command(root, "git", "diff", "--cached", "--quiet"); diffErr != nil {
 		return resumeProof{}, stateError("claim worktree has staged changes; preserve them before recovery")
 	}
@@ -208,7 +211,7 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 //nolint:gocognit // Ref inventory and evaluated-lineage filtering are one fail-closed proof boundary.
 func (a app) inspectResumeClaimConflicts(root string, issue int, fixedBranch, fixedHead, currentBranch, currentRunID string,
 	expectation resumeRunLocalExpectation, lineageGroups ...[]string) (resumeRunLocalObservation, error) {
-	inventory, err := a.remoteAgentRefInventory(root)
+	inventory, err := a.strictRemoteAgentRefInventory(root)
 	if err != nil {
 		return resumeRunLocalObservation{}, err
 	}
@@ -280,6 +283,9 @@ func (a app) inspectResumeClaimConflicts(root string, issue int, fixedBranch, fi
 }
 
 func (a app) validateResumeRunLocalHead(root string, issue int, branch, runID, head, expected string) error {
+	if err := a.validateLocalAgentCommit(root, head, "run-local ref "+branch); err != nil {
+		return err
+	}
 	if head == expected {
 		return nil
 	}
@@ -294,6 +300,9 @@ func (a app) validateResumeRunLocalHead(root string, issue int, branch, runID, h
 }
 
 func (a app) inspectResumeLocalAncestor(root, local, expected, branch string) (bool, error) {
+	if err := a.validateLocalAgentCommit(root, local, "local claim head"); err != nil {
+		return false, err
+	}
 	if local == expected {
 		return false, nil
 	}
@@ -421,11 +430,14 @@ func (a app) validateResumeSealWorktree(proof resumeProof, local string) ([]stri
 func (a app) remoteClaimHead(root, branch string) (string, error) {
 	output, err := a.command(root, "git", "ls-remote", "--heads", "origin", "refs/heads/"+branch)
 	if err != nil {
-		return "", fmt.Errorf("read remote claim branch %s: %w", branch, err)
+		return "", retryableOperation("read remote claim branch "+branch, fmt.Errorf("read remote claim branch %s: %w", branch, err))
 	}
 	fields := strings.Fields(output)
 	if len(fields) != 2 || fields[1] != "refs/heads/"+branch {
 		return "", stateError("remote fixed claim branch %s is absent or ambiguous", branch)
+	}
+	if err := a.validateRemoteAgentCommit(root, branch, fields[0]); err != nil {
+		return "", err
 	}
 	return fields[0], nil
 }

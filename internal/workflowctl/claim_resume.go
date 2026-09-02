@@ -193,7 +193,10 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 	if !validExactCommitSHA(localHead) {
 		return claimResumeProof{}, stateError("local claim head %q is not a full commit SHA; preserve the claim worktree", localHead)
 	}
-	inventory, err := a.remoteAgentRefInventory(root)
+	if validateErr := a.validateLocalAgentCommit(root, localHead, "local claim head"); validateErr != nil {
+		return claimResumeProof{}, validateErr
+	}
+	inventory, err := a.strictRemoteAgentRefInventory(root)
 	if err != nil {
 		return claimResumeProof{}, err
 	}
@@ -330,6 +333,9 @@ func (a app) readCanonicalClaimIdentity(root, head, expectedParent string) (cano
 	if !validExactCommitSHA(head) {
 		return canonicalClaimCommit{}, stateError("claim marker head %q is not a full commit SHA; preserve claim artifacts", head)
 	}
+	if err := a.validateLocalAgentCommit(root, head, "claim marker "+head); err != nil {
+		return canonicalClaimCommit{}, err
+	}
 	object, err := a.gitRaw(root, "cat-file", "commit", head)
 	if err != nil {
 		return canonicalClaimCommit{}, fmt.Errorf("read claim marker object at %s: %w", head, err)
@@ -340,6 +346,9 @@ func (a app) readCanonicalClaimIdentity(root, head, expectedParent string) (cano
 	}
 	if expectedParent != "" && parsed.parent != expectedParent {
 		return canonicalClaimCommit{}, stateError("claim marker %s has parent %s, expected %s; preserve claim artifacts", head, parsed.parent, expectedParent)
+	}
+	if validateErr := a.validateLocalAgentCommit(root, parsed.parent, "claim marker parent "+parsed.parent); validateErr != nil {
+		return canonicalClaimCommit{}, validateErr
 	}
 	treeOutput, err := a.gitRaw(root, "rev-parse", head+"^{tree}")
 	if err != nil {
@@ -1011,7 +1020,7 @@ func claimResumeProtectedHeads(expected string, plan claimResumeRenewalPlan) []s
 func (a app) claimResumeAgentRefs(root, namespace string, source claimRefSource) (claimResumeAgentRefs, error) {
 	output, err := a.command(root, "git", "for-each-ref", "--format=%(refname:short) %(objectname)", namespace)
 	if err != nil {
-		return claimResumeAgentRefs{}, fmt.Errorf("list %s claim refs: %w", sourceName(source), err)
+		return claimResumeAgentRefs{}, retryableOperation("list "+sourceName(source)+" claim refs", fmt.Errorf("list %s claim refs: %w", sourceName(source), err))
 	}
 	refs := claimResumeAgentRefs{}
 	for _, line := range strings.Split(output, "\n") {
@@ -1021,6 +1030,9 @@ func (a app) claimResumeAgentRefs(root, namespace string, source claimRefSource)
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
 			return claimResumeAgentRefs{}, stateError("%s claim ref listing contains malformed entry %q; preserve artifacts", sourceName(source), line)
+		}
+		if err := a.validateLocalAgentCommit(root, fields[1], sourceName(source)+" claim ref "+fields[0]); err != nil {
+			return claimResumeAgentRefs{}, err
 		}
 		branch := fields[0]
 		if source == claimRefTracking {
@@ -1299,6 +1311,9 @@ func (a app) readClaimResumeLocalHead(root, branch string) (string, error) {
 	if !validExactCommitSHA(head) {
 		return "", stateError("local claim ref %s returned malformed head %q", branch, head)
 	}
+	if err := a.validateLocalAgentCommit(root, head, "local claim ref "+branch); err != nil {
+		return "", err
+	}
 	return head, nil
 }
 
@@ -1363,7 +1378,7 @@ func (a app) verifyClaimResumeRenewal(proof claimResumeProof, renewal claimResum
 		claimResumeProtectedHeads(proof.preflight.expectedHead, claimResumeExistingRenewal(renewal))); worktreeErr != nil {
 		return worktreeErr
 	}
-	inventory, err := a.remoteAgentRefInventory(proof.preflight.root)
+	inventory, err := a.strictRemoteAgentRefInventory(proof.preflight.root)
 	if err != nil {
 		return err
 	}
