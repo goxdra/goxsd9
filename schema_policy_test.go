@@ -44,6 +44,7 @@ func TestParseSchemaWithPolicyPropagatesAcrossMixedGraph(t *testing.T) {
 			assertParseTestResolverCalls(t, resolver)
 			assertParseTestSourcesClosed(t, rootReader, resolver)
 			assertParseTestPolicyFacetVersions(t, schema, test.version)
+			assertSchemaLanguagePolicyQueries(t, schema, test.policy)
 		})
 	}
 }
@@ -103,6 +104,9 @@ func assertParseSchemaVersionLabel(t *testing.T, attribute string, policy goxsd9
 	if err != nil {
 		t.Fatalf("parse schema label: %v", err)
 	}
+	if got, want := schema.LanguagePolicy(), policy; got != want {
+		t.Fatalf("LanguagePolicy = %q, want %q", got, want)
+	}
 	if got, want := len(schema.Components()), 1; got != want {
 		t.Fatalf("component count = %d, want %d", got, want)
 	}
@@ -119,6 +123,37 @@ func assertParseSchemaVersionLabel(t *testing.T, attribute string, policy goxsd9
 	}
 	if got, want := rootReader.closeCount, 1; got != want {
 		t.Fatalf("root close count = %d, want %d", got, want)
+	}
+}
+
+func TestSchemaLanguagePolicyZeroValueIsEmpty(t *testing.T) {
+	if got, want := (goxsd9.Schema{}).LanguagePolicy(), goxsd9.LanguagePolicy(""); got != want {
+		t.Fatalf("zero Schema LanguagePolicy = %q, want empty", got)
+	}
+}
+
+func assertSchemaLanguagePolicyQueries(t *testing.T, schema goxsd9.Schema, want goxsd9.LanguagePolicy) {
+	t.Helper()
+	for query := 0; query < 3; query++ {
+		if got := schema.LanguagePolicy(); got != want {
+			t.Fatalf("LanguagePolicy query %d = %q, want %q", query, got, want)
+		}
+	}
+
+	schemaCopy := schema
+	if got := schemaCopy.LanguagePolicy(); got != want {
+		t.Fatalf("copied Schema LanguagePolicy = %q, want %q", got, want)
+	}
+	documents := schema.Documents()
+	if len(documents) != 0 {
+		documents[0] = goxsd9.SchemaDocument{}
+	}
+	components := schema.Components()
+	if len(components) != 0 {
+		components[0] = goxsd9.Component{}
+	}
+	if got := schema.LanguagePolicy(); got != want {
+		t.Fatalf("LanguagePolicy after copy mutations = %q, want %q", got, want)
 	}
 }
 
