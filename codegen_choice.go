@@ -539,7 +539,7 @@ func validateCodegenDirectChoiceTarget(
 			errCodegenDirectChoiceTarget,
 		)
 	}
-	kind, err := codegenNamedScalarKind(target)
+	kind, err := codegenNamedScalarKind(target, version)
 	if err != nil {
 		return nil, decorateCodegenDirectChoiceError(err, element.Loc(), related)
 	}

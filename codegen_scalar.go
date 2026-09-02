@@ -804,7 +804,7 @@ func codegenRuntimeAlias(names codegenNaming) (string, bool) {
 	return "", false
 }
 
-func codegenNamedScalarKind(component Component) (DigitDatatype, error) {
+func codegenNamedScalarKind(component Component, version XSDVersion) (DigitDatatype, error) {
 	definition, ok := component.SimpleTypeDefinition()
 	if !ok {
 		return "", newCodegenUnsupported(
@@ -812,7 +812,7 @@ func codegenNamedScalarKind(component Component) (DigitDatatype, error) {
 			fmt.Sprintf("named simple type %q has no supported simple-type view", component.Name()),
 			nil,
 			fmt.Errorf("%w: simple type view is missing", errCodegenUnsupported),
-			"",
+			version,
 		)
 	}
 	if definition.Variety() != SimpleTypeVarietyAtomicRestriction {
@@ -821,7 +821,7 @@ func codegenNamedScalarKind(component Component) (DigitDatatype, error) {
 			fmt.Sprintf("named simple type %q has variety %q outside scalar Go generation", component.Name(), definition.Variety()),
 			appendCodegenRelated(nil, definition.VarietyLoc()),
 			fmt.Errorf("%w: simple type variety %q", errCodegenUnsupported, definition.Variety()),
-			codegenElementDefaultVersion,
+			version,
 		)
 	}
 	if definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal {
@@ -830,7 +830,7 @@ func codegenNamedScalarKind(component Component) (DigitDatatype, error) {
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
 			appendCodegenRelated(nil, definition.BaseLoc()),
 			fmt.Errorf("%w: atomic datatype is outside scalar Go generation", errCodegenUnsupported),
-			codegenElementDefaultVersion,
+			version,
 		)
 	}
 	facets := definition.DigitFacets()
@@ -905,7 +905,7 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			scalarKind:   codegenSourceScalarBoolean,
 		}, nil
 	}
-	kind, err := codegenNamedScalarKind(component)
+	kind, err := codegenNamedScalarKind(component, version)
 	if err != nil {
 		return codegenSourceTarget{}, err
 	}
@@ -1619,7 +1619,7 @@ func renderCodegenSource(plan codegenSourcePlan, schemas ...Schema) ([]byte, err
 	return formatted, nil
 }
 
-//nolint:gocognit // Keep render-boundary recollection and comparison explicit.
+//nolint:gocognit,funlen // Keep render-boundary recollection and comparison explicit.
 func validateCodegenSourcePlan(schema Schema, plan codegenSourcePlan) error {
 	planLoc := codegenSourcePlanLoc(plan)
 	if err := validateCodegenPackageName(plan.packageName); err != nil {
@@ -1650,6 +1650,13 @@ func validateCodegenSourcePlan(schema Schema, plan codegenSourcePlan) error {
 		return newCodegenInternal(planLoc, "source plan naming state is invalid", nil, err)
 	}
 	if err := validateCodegenScopedNamingIndexes(plan.names, planLoc); err != nil {
+		return err
+	}
+	modes, modeErr := collectCodegenSourceSchemaModes(components)
+	if modeErr != nil {
+		return modeErr
+	}
+	if err := validateCodegenSourcePlanModes(plan, modes, planLoc); err != nil {
 		return err
 	}
 	if !plan.directChoices && !plan.directSequences && (len(plan.names.fields) != 0 || len(plan.names.variants) != 0) {
@@ -1711,6 +1718,87 @@ func validateCodegenSourcePlan(schema Schema, plan codegenSourcePlan) error {
 		return err
 	}
 	return compareCodegenSourcePlans(plan, expected)
+}
+
+type codegenSourceSchemaModes struct {
+	directChoices   bool
+	directSequences bool
+	choiceLoc       Loc
+	sequenceLoc     Loc
+}
+
+//nolint:gocognit // Keep ordered schema mode recollection explicit.
+func collectCodegenSourceSchemaModes(components []Component) (codegenSourceSchemaModes, error) {
+	var modes codegenSourceSchemaModes
+	for _, component := range components {
+		if component.Kind() != ComponentKindComplexTypeDefinition {
+			continue
+		}
+		definition, ok := component.ComplexType()
+		if !ok {
+			return codegenSourceSchemaModes{}, newCodegenInternal(
+				component.Loc(),
+				fmt.Sprintf("complex type %q has no completed complex-type facts", component.Name()),
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+		particle := definition.Particle()
+		if particle == nil {
+			continue
+		}
+		if directChoiceTypedNilParticle(particle) {
+			return codegenSourceSchemaModes{}, newCodegenInternal(
+				component.Loc(),
+				fmt.Sprintf("complex type %q has a typed-nil direct particle", component.Name()),
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+		if choice, ok := directChoiceValue(particle); ok {
+			modes.directChoices = true
+			if modes.choiceLoc.IsZero() {
+				modes.choiceLoc = choice.Loc()
+			}
+			continue
+		}
+		if sequence, ok := directSequenceValue(particle); ok {
+			modes.directSequences = true
+			if modes.sequenceLoc.IsZero() {
+				modes.sequenceLoc = sequence.Loc()
+			}
+		}
+	}
+	return modes, nil
+}
+
+func validateCodegenSourcePlanModes(plan codegenSourcePlan, modes codegenSourceSchemaModes, planLoc Loc) error {
+	if plan.directChoices != modes.directChoices {
+		loc := planLoc
+		if modes.directChoices {
+			loc = modes.choiceLoc
+		}
+		if modes.directSequences {
+			loc = modes.sequenceLoc
+		}
+		return newCodegenInternal(loc, "source plan direct-choice mode does not match the schema", nil, errCodegenSchemaInvariant)
+	}
+	if plan.directSequences != modes.directSequences {
+		loc := planLoc
+		if modes.directSequences {
+			loc = modes.sequenceLoc
+		}
+		return newCodegenInternal(loc, "source plan direct-sequence mode does not match the schema", nil, errCodegenSchemaInvariant)
+	}
+	if plan.directSequences && !plan.directParticles {
+		return newCodegenInternal(
+			planLoc,
+			"source plan direct-sequence mode requires the direct-particle phase",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
+	return nil
 }
 
 func codegenImportAliasRequests(names codegenNaming) []codegenImportAliasRequest {

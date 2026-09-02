@@ -3,6 +3,7 @@ package goxsd9_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"go/format"
 	"io"
 	"strings"
@@ -93,6 +94,57 @@ func useGeneratedSequences() {
 	var _ generated.CrossInteger = record.Fourth
 }
 `)
+		})
+	}
+}
+
+//nolint:gocognit // Keep edition-specific diagnostic assertions together.
+func TestGenerateGoRejectsNamedUnsupportedDirectSequenceElementAcrossEditions(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		policy   goxsd9.LanguagePolicy
+		version  string
+		wantSpec string
+	}{
+		{
+			name:     "Strict10",
+			policy:   goxsd9.Strict10,
+			version:  "1.0",
+			wantSpec: "xsd10-structures#Simple_Type_Definitions",
+		},
+		{
+			name:     "Strict11",
+			policy:   goxsd9.Strict11,
+			version:  "1.1",
+			wantSpec: "xsd11-structures#Simple_Type_Definition",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" xmlns:r="urn:sequence" targetNamespace="urn:sequence" version="` + test.version + `">
+  <xs:complexType name="Record"><xs:sequence><xs:element name="value" type="r:Text"/></xs:sequence></xs:complexType>
+  <xs:simpleType name="Text"><xs:restriction base="xs:string"/></xs:simpleType>
+</xs:schema>`
+			schema, err := parseSequenceSchemaResult(t, test.policy, root, nil)
+			if err != nil {
+				t.Fatalf("ParseSchemaWithPolicy: %v", err)
+			}
+			source, err := goxsd9.GenerateGo(schema, "generated")
+			if source != nil || err == nil {
+				t.Fatalf("named unsupported direct-sequence result = (%q, %v), want nil source and error", source, err)
+			}
+			diagnostic := requirePublicCodegenDiagnostic(t, err)
+			if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode {
+				t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic %s", diagnostic, codegenUnsupportedCode)
+			}
+			if diagnostic.Feature() != goxsd9.FeatureCodegen || diagnostic.SpecRef() != test.wantSpec {
+				t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), goxsd9.FeatureCodegen, test.wantSpec)
+			}
+			if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
+				t.Fatalf("diagnostic location = %s, want a located root.xsd diagnostic", diagnostic.Loc())
+			}
+			if !errors.Is(err, goxsd9.ErrUnsupported) {
+				t.Fatalf("diagnostic lost unsupported cause: %v", err)
+			}
 		})
 	}
 }

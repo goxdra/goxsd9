@@ -133,6 +133,23 @@ func TestCodegenDirectSequenceSourceRejectsCorruptionAtRenderBoundary(t *testing
 	}
 }
 
+func TestCodegenDirectSequenceSourceRejectsContradictoryParticleMode(t *testing.T) {
+	schema := codegenDirectSequenceTestSchema(t)
+	directPlan, err := planCodegenDirectParticles(schema, "generated")
+	if err != nil {
+		t.Fatalf("planCodegenDirectParticles: %v", err)
+	}
+	plan, err := planCodegenSourceWithDirectParticles(schema, directPlan)
+	if err != nil {
+		t.Fatalf("planCodegenSourceWithDirectParticles: %v", err)
+	}
+	plan.directParticles = false
+	plan.directChoices = true
+
+	output, err := renderCodegenSource(plan, schema)
+	assertCodegenDirectSequenceInternalFailure(t, output, err, errCodegenSchemaInvariant)
+}
+
 func codegenDirectSequenceTestSchema(t *testing.T) Schema {
 	t.Helper()
 	schema, err := discoverTestSchema(t, `<xs:schema xmlns:xs="`+testXSDNamespace+`" targetNamespace="urn:sequence">
