@@ -4625,28 +4625,137 @@ func validateGroupGlobalChildren(parent *syntaxElement, children []*syntaxElemen
 			continue
 		}
 		switch child.name.local {
-		case "all", "choice", "sequence":
+		case "all", "sequence":
 			if modelSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "group requires exactly one model child")
 			}
 			modelSeen = true
-			if err := validateUnsupportedModelParticle(child, version); err != nil && !candidate.considerError(err) {
-				return err
+			unsupportedErr := versionNamedModelGroupUnsupported(validateUnsupportedModelParticle(child, version), version)
+			if unsupportedErr != nil && !candidate.considerError(unsupportedErr) {
+				return unsupportedErr
 			}
 			if !candidate.present {
-				candidate.consider(child, parent.name.local)
+				candidate.considerAtVersion(child.loc, fmt.Sprintf("global %s child <%s> is not implemented", parent.name.local, child.name.local), version)
+			}
+		case "choice":
+			if modelSeen {
+				return newSchemaCompositionDiagnostic(child.loc, "group requires exactly one model child")
+			}
+			modelSeen = true
+			if err := validateNamedModelGroupChoice(child, version); err != nil && !candidate.considerError(err) {
+				return err
 			}
 		default:
 			if err := forbiddenGlobalSchemaChild(parent.name.local, child); err != nil {
 				return err
 			}
-			candidate.consider(child, parent.name.local)
+			candidate.considerAtVersion(child.loc, fmt.Sprintf("global %s child <%s> is not implemented", parent.name.local, child.name.local), version)
 		}
 	}
 	if !modelSeen {
 		return newSchemaCompositionDiagnostic(parent.loc, "group requires one all, choice, or sequence child")
 	}
 	return candidate.err()
+}
+
+//nolint:gocognit // Keep the narrow named-group choice grammar and support boundary together.
+func validateNamedModelGroupChoice(element *syntaxElement, version XSDVersion) error {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSchemaParticleOccurrences(element, version); err != nil {
+		return err
+	}
+	for _, attribute := range element.attrs {
+		if attribute.name.namespace == "" && (attribute.name.local == "minOccurs" || attribute.name.local == "maxOccurs") {
+			return newSchemaCompositionDiagnostic(attribute.loc, "named model-group choice does not permit occurrence attributes")
+		}
+	}
+	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
+		return err
+	}
+	children, collectedCandidate, err := collectGlobalSchemaChildren(element)
+	if err != nil {
+		return err
+	}
+	candidate.merge(versionNamedModelGroupCandidate(collectedCandidate, version))
+	annotationSeen := false
+	contentSeen := false
+	for _, child := range children {
+		handled, err := consumeGlobalSchemaAnnotation(child, &annotationSeen, &contentSeen)
+		if err != nil {
+			return err
+		}
+		if handled {
+			continue
+		}
+		switch child.name.local {
+		case "element":
+			childCandidate, childErr := validateLocalElementParticle(child, version, true, "model-group choice", false)
+			if childErr != nil {
+				return childErr
+			}
+			if childCandidate.present {
+				candidate.merge(versionNamedModelGroupCandidate(childCandidate, version))
+				continue
+			}
+			if len(syntaxAttributesByLocal(child, "ref")) == 1 {
+				continue
+			}
+			candidate.considerAtVersion(child.loc, "named model-group choice local element declarations are not implemented", version)
+		case "group", "choice", "sequence", "any":
+			unsupportedErr := versionNamedModelGroupUnsupported(validateUnsupportedParticle(child, version), version)
+			if unsupportedErr != nil {
+				if !candidate.considerError(unsupportedErr) {
+					return unsupportedErr
+				}
+				continue
+			}
+			candidate.considerAtVersion(child.loc, fmt.Sprintf("named model-group choice child <%s> is not implemented", child.name.local), version)
+		case "all":
+			return newSchemaCompositionDiagnostic(child.loc, "choice cannot contain an all particle")
+		default:
+			if err := forbiddenGlobalSchemaChild("model-group choice", child); err != nil {
+				return err
+			}
+			candidate.considerAtVersion(child.loc, fmt.Sprintf("named model-group choice child <%s> is not implemented", child.name.local), version)
+		}
+	}
+	return candidate.err()
+}
+
+func versionNamedModelGroupUnsupported(err error, version XSDVersion) error {
+	if err == nil || errors.Is(err, errLanguagePolicyMismatch) {
+		return err
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
+		return err
+	}
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok {
+		return err
+	}
+	for _, reference := range feature.References() {
+		if reference.Version() != string(version) {
+			continue
+		}
+		diagnostic.specRef = reference.Source()
+		break
+	}
+	return diagnostic
+}
+
+func versionNamedModelGroupCandidate(candidate schemaChildUnsupportedCandidate, version XSDVersion) schemaChildUnsupportedCandidate {
+	if !candidate.present {
+		return candidate
+	}
+	if candidate.captured != nil {
+		candidate.captured = versionNamedModelGroupUnsupported(candidate.captured, version)
+		return candidate
+	}
+	if candidate.version == "" {
+		candidate.version = version
+	}
+	return candidate
 }
 
 //nolint:gocognit // Keep the attribute-group order and cardinality grammar explicit.

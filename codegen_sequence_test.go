@@ -98,54 +98,82 @@ func useGeneratedSequences() {
 	}
 }
 
-//nolint:gocognit // Keep edition-specific diagnostic assertions together.
-func TestGenerateGoRejectsNamedUnsupportedDirectSequenceElementAcrossEditions(t *testing.T) {
+func TestParseSchemaRejectsNamedAndInheritedAtomicStringDirectSequenceElementsAcrossEditions(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		policy   goxsd9.LanguagePolicy
-		version  string
-		wantSpec string
+		name         string
+		policy       goxsd9.LanguagePolicy
+		version      string
+		declaredType string
+		wantSpec     string
 	}{
 		{
-			name:     "Strict10",
-			policy:   goxsd9.Strict10,
-			version:  "1.0",
-			wantSpec: "xsd10-structures#Simple_Type_Definitions",
+			name:         "Strict10/named",
+			policy:       goxsd9.Strict10,
+			version:      "1.0",
+			declaredType: "Text",
+			wantSpec:     "xsd10-structures#schema-document",
 		},
 		{
-			name:     "Strict11",
-			policy:   goxsd9.Strict11,
-			version:  "1.1",
-			wantSpec: "xsd11-structures#Simple_Type_Definition",
+			name:         "Strict10/inherited",
+			policy:       goxsd9.Strict10,
+			version:      "1.0",
+			declaredType: "InheritedText",
+			wantSpec:     "xsd10-structures#schema-document",
+		},
+		{
+			name:         "Strict11/named",
+			policy:       goxsd9.Strict11,
+			version:      "1.1",
+			declaredType: "Text",
+			wantSpec:     "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name:         "Strict11/inherited",
+			policy:       goxsd9.Strict11,
+			version:      "1.1",
+			declaredType: "InheritedText",
+			wantSpec:     "xsd11-structures#cSchemaDocument",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" xmlns:r="urn:sequence" targetNamespace="urn:sequence" version="` + test.version + `">
-  <xs:complexType name="Record"><xs:sequence><xs:element name="value" type="r:Text"/></xs:sequence></xs:complexType>
+  <xs:complexType name="Record"><xs:sequence><xs:element name="value" type="r:` + test.declaredType + `"/></xs:sequence></xs:complexType>
   <xs:simpleType name="Text"><xs:restriction base="xs:string"/></xs:simpleType>
+  <xs:simpleType name="InheritedText"><xs:restriction base="r:Text"/></xs:simpleType>
 </xs:schema>`
 			schema, err := parseSequenceSchemaResult(t, test.policy, root, nil)
-			if err != nil {
-				t.Fatalf("ParseSchemaWithPolicy: %v", err)
-			}
-			source, err := goxsd9.GenerateGo(schema, "generated")
-			if source != nil || err == nil {
-				t.Fatalf("named unsupported direct-sequence result = (%q, %v), want nil source and error", source, err)
-			}
-			diagnostic := requirePublicCodegenDiagnostic(t, err)
-			if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode {
-				t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic %s", diagnostic, codegenUnsupportedCode)
-			}
-			if diagnostic.Feature() != goxsd9.FeatureCodegen || diagnostic.SpecRef() != test.wantSpec {
-				t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), goxsd9.FeatureCodegen, test.wantSpec)
-			}
-			if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
-				t.Fatalf("diagnostic location = %s, want a located root.xsd diagnostic", diagnostic.Loc())
-			}
-			if !errors.Is(err, goxsd9.ErrUnsupported) {
-				t.Fatalf("diagnostic lost unsupported cause: %v", err)
-			}
+			assertPublicAtomicStringSequenceParseUnsupported(t, schema, err, test.declaredType, test.wantSpec)
 		})
+	}
+}
+
+func assertPublicAtomicStringSequenceParseUnsupported(t *testing.T, schema goxsd9.Schema, err error, declaredType, wantSpec string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("ParseSchemaWithPolicy accepted an atomic-string local sequence element")
+	}
+	if len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+		t.Fatal("ParseSchemaWithPolicy returned a partial schema")
+	}
+	var diagnostic goxsd9.Diagnostic
+	if !errors.As(err, &diagnostic) {
+		t.Fatalf("error %T does not contain a Diagnostic: %v", err, err)
+	}
+	if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedSchemaSyntaxCode {
+		t.Fatalf("diagnostic = %s, want unsupported schema-syntax diagnostic", diagnostic)
+	}
+	if diagnostic.Feature() != goxsd9.FeatureSchemaSyntax || diagnostic.SpecRef() != wantSpec {
+		t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), goxsd9.FeatureSchemaSyntax, wantSpec)
+	}
+	if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() != 71 {
+		t.Fatalf("diagnostic location = %s, want root.xsd:2:71", diagnostic.Loc())
+	}
+	wantMessage := `element type "{urn:sequence}` + declaredType + `" is not implemented for local sequence elements`
+	if diagnostic.Message() != wantMessage {
+		t.Fatalf("diagnostic message = %q, want %q", diagnostic.Message(), wantMessage)
+	}
+	if !errors.Is(err, goxsd9.ErrUnsupported) {
+		t.Fatalf("diagnostic lost unsupported cause: %v", err)
 	}
 }
 

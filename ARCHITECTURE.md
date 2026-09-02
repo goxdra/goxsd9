@@ -93,17 +93,17 @@ source identity with one-based declaration ordinals; lookup maps never define
 observable order. Local particles use a scoped model with component facts and
 indexes; validator and generator state is on demand.
 
-The model stores facts; primitive status follows type relations. Direct global `xs:boolean`
-elements retain expanded `DeclaredType` facts; named boolean restrictions expose immutable
-`SimpleTypeDefinition.IsBoolean()` facts; built-ins lack synthetic IDs.
+The model stores facts; primitive status follows type relations. Global `xs:boolean` and atomic
+`xs:string` elements retain `DeclaredType`; named/anonymous restrictions expose immutable
+boolean-kind and string-enumeration facts. Built-ins lack synthetic IDs.
 
 Named complex types expose direct `element`, `sequence`, and `choice` particles.
 Supported direct sequences/choices contain local built-in `xs:boolean`, named
-boolean-restriction, `integer`, or `decimal` scalar elements with exact finite
-and unbounded ranges; `0/0` maps to absence. XSD 1.1 direct choices may include
+boolean-restriction, `integer`, or `decimal` scalar elements with exact finite/unbounded
+ranges; `0/0` maps to absence. XSD 1.1 direct choices may include
 `precisionDecimal` only when the choice and each mapped alternative use default
 occurrences; non-precision alternatives may retain non-default queryable ranges.
-Boolean facets and anonymous/nested/broader particles remain unsupported.
+Local string particles, Boolean facets, and anonymous/nested/broader particles remain unsupported.
 Direct references are immutable queryable particles; validation and code
 generation reject them as unsupported.
 
@@ -112,33 +112,30 @@ generation reject them as unsupported.
 Lexical parsing and values are separate. Context-sensitive values such as QName
 retain namespace context.
 
-The strict datatype library implements XSD integer, decimal, boolean, and
-optional precisionDecimal mappings with arbitrary precision and lossless
-canonical forms. PrecisionDecimal exposes exact finite/special values,
-partial comparison, applicable facets, and bounded canonical output; immutable
-schema components retain effective facets when it is explicitly named under
-Compatibility or Strict11. It remains implementation-defined and optional,
-not a mandatory XSD 1.1 claim. Boolean whitespace collapse is datatype
-behavior; boolean facets unsupported. Temporal distinctions and broader value
-spaces remain staged and report unsupported behavior.
+The strict datatype library implements XSD string enumeration plus integer, decimal,
+boolean, and optional precisionDecimal mappings with arbitrary-precision, lossless numeric
+forms. PrecisionDecimal exposes exact finite/special values and applicable facets; immutable
+schema components retain effective facets when named under Compatibility or
+Strict11. It remains optional and implementation-defined, not a mandatory XSD 1.1 claim.
+Boolean whitespace collapse is datatype behavior; boolean facets unsupported. Temporal
+distinctions and broader value spaces remain staged and report unsupported behavior.
 
 ## Validation and code generation
 
 `ValidateInstance` supports text-only built-in/named scalar `boolean`/`integer`/
-`decimal`/`precisionDecimal` globals and one direct named-complex choice with
+`decimal`/`precisionDecimal` globals and direct named-complex choice with
 supported numeric alternatives using default occurrences. Named types use
-`TypeID`/`Lookup`; boolean diagnostics use the selected policy; numeric
-built-ins retain compatibility/default behavior.
-Non-default, non-`0/0` integer/decimal choice or alternative ranges remain
-query-only. Sequences remain queryable but unsupported for validation;
-repetition is unsupported.
-Non-default `precisionDecimal` choice or alternative ranges that map to a
-particle are schema-unsupported. Local boolean particles, attributes, and broader
-structures remain unsupported for instance validation; locations are primary.
+`TypeID`/`Lookup`; boolean diagnostics use the selected policy; numeric built-ins retain
+compatibility/default behavior. Non-default, non-`0/0` integer/decimal choice or alternative
+ranges remain query-only. Sequences remain queryable but unsupported for validation;
+repetition is unsupported. Non-default `precisionDecimal` choice or alternative ranges that
+map to a particle are schema-unsupported. String globals or restrictions, local
+boolean/string particles, attributes, and broader structures remain unsupported for instance
+validation; locations are primary.
 
-Generation deterministically emits choice switches, global booleans, and
-default-bounded direct integer/decimal sequence structs; boolean facets, local
-boolean particles remain unsupported.
+Generation deterministically emits choice switches, global booleans, and default-bounded direct
+integer/decimal sequence structs; string, boolean facets, local boolean/string particles
+remain unsupported.
 
 ## Conformance
 
