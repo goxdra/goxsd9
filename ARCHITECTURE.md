@@ -129,7 +129,7 @@ supported numeric alternatives using default occurrences. Named types use
 compatibility/default behavior. Non-default, non-`0/0` integer/decimal choice or alternative
 ranges remain query-only. Sequences remain queryable but unsupported for validation;
 repetition is unsupported. Non-default `precisionDecimal` choice or alternative ranges that
-map to a particle are schema-unsupported. Boolean/string globals or restrictions, local
+map to a particle are schema-unsupported. String globals or restrictions, local
 boolean/string particles, attributes, and broader structures remain unsupported for instance
 validation; locations are primary.
 
