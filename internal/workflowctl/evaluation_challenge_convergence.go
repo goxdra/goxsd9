@@ -598,33 +598,33 @@ func (a app) convergeEvaluationChallengeClosuresMode(root string, number int,
 	challenge evaluationChallenge, view pullRequestView, history evaluationHistory,
 	validateCurrentView bool) error {
 	if challenge.PR != number {
-		return fmt.Errorf("PR #%d challenge has no authenticated PR identity", number)
+		return terminalOperation("evaluation challenge closure", fmt.Errorf("PR #%d challenge has no authenticated PR identity", number))
 	}
 	if challenge.Repository != repositoryKey {
 		normalized, ok := evaluationChallengeForHistory(history, challenge)
 		if !ok {
-			return fmt.Errorf("PR #%d challenge has no authenticated repository identity", number)
+			return terminalOperation("evaluation challenge closure", fmt.Errorf("PR #%d challenge has no authenticated repository identity", number))
 		}
 		challenge = normalized
 	}
 	for attempt := 0; attempt < 100; attempt++ {
 		if validateCurrentView {
 			if err := validateEvaluationChallengeView(view, number, challenge); err != nil {
-				return err
+				return terminalOperation("evaluation challenge closure", fmt.Errorf("validate PR #%d before challenge closure: %w", number, err))
 			}
 		}
 		projection, err := evaluationChallengeOnlyProjectionForHistory(history)
 		if err != nil {
-			return fmt.Errorf("PR #%d has invalid logical evaluation history: %w", number, err)
+			return terminalOperation("evaluation challenge closure", fmt.Errorf("PR #%d has invalid logical evaluation history: %w", number, err))
 		}
 		logical, ok := projection.challengeForID(challenge.Challenge)
 		if !ok {
-			return fmt.Errorf("PR #%d challenge %q is not in authenticated logical history",
-				number, challenge.Challenge)
+			return terminalOperation("evaluation challenge closure", fmt.Errorf("PR #%d challenge %q is not in authenticated logical history",
+				number, challenge.Challenge))
 		}
 		if !logical.keyComplete {
-			return fmt.Errorf("PR #%d challenge %q lacks complete equivalence identity",
-				number, challenge.Challenge)
+			return terminalOperation("evaluation challenge closure", fmt.Errorf("PR #%d challenge %q lacks complete equivalence identity",
+				number, challenge.Challenge))
 		}
 		var duplicate evaluationChallengeRecord
 		foundDuplicate := false
@@ -661,7 +661,7 @@ func (a app) convergeEvaluationChallengeClosuresMode(root string, number int,
 		}
 		marker, err := json.Marshal(closure)
 		if err != nil {
-			return fmt.Errorf("encode evaluation challenge closure: %w", err)
+			return terminalOperation("evaluation challenge closure", fmt.Errorf("encode evaluation challenge closure: %w", err))
 		}
 		body := evaluationChallengeClosureComment(marker, closure.CanonicalChallenge,
 			closure.DuplicateChallenge)
@@ -671,32 +671,32 @@ func (a app) convergeEvaluationChallengeClosuresMode(root string, number int,
 		})
 		generated[len(generated)-1].Author.Login = trustedActor
 		if _, err := readEvaluationMutationHistoryForConvergence(number, generated); err != nil {
-			return fmt.Errorf("generated evaluation challenge closure is not authenticated: %w", err)
+			return terminalOperation("evaluation challenge closure", fmt.Errorf("generated evaluation challenge closure is not authenticated: %w", err))
 		}
 		if !validateCurrentView {
 			currentView, err := a.readPullRequest(root, number)
 			if err != nil {
-				return fmt.Errorf("revalidate PR #%d before stale challenge closure: %w", number, err)
+				return retryableOperation("evaluation challenge closure", fmt.Errorf("revalidate PR #%d before stale challenge closure: %w", number, err))
 			}
 			if currentView.State != "OPEN" {
-				return fmt.Errorf("PR #%d is %s; stale challenge closure was not posted", number, currentView.State)
+				return terminalOperation("evaluation challenge closure", fmt.Errorf("PR #%d is %s; stale challenge closure was not posted", number, currentView.State))
 			}
 		}
 		postErr := a.postPullRequestComment(root, number, body)
 		verifiedView, readErr := a.readPullRequest(root, number)
 		if readErr != nil {
-			return fmt.Errorf("challenge closure POST could not be verified; preserve history and retry after inspection: %w",
-				errors.Join(postErr, readErr))
+			return retryableOperation("evaluation challenge closure", fmt.Errorf("challenge closure POST could not be verified; preserve history and retry after inspection: %w",
+				errors.Join(postErr, readErr)))
 		}
 		if verifiedView.State != "OPEN" {
-			return fmt.Errorf("challenge closure POST cannot authorize a %s PR; preserve the comments and retry after inspection: %w",
-				verifiedView.State, errors.Join(postErr, errors.New("PR is not open")))
+			return terminalOperation("evaluation challenge closure", fmt.Errorf("challenge closure POST cannot authorize a %s PR; preserve the comments and retry after inspection: %w",
+				verifiedView.State, errors.Join(postErr, errors.New("PR is not open"))))
 		}
 		verifiedHistory, historyErr := readEvaluationMutationHistoryForConvergence(number,
 			verifiedView.Comments)
 		if historyErr != nil {
-			return fmt.Errorf("challenge closure POST produced unverifiable history; preserve history and retry after inspection: %w",
-				errors.Join(postErr, historyErr))
+			return terminalOperation("evaluation challenge closure", fmt.Errorf("challenge closure POST produced unverifiable history; preserve history and retry after inspection: %w",
+				errors.Join(postErr, historyErr)))
 		}
 		verified := 0
 		for _, record := range verifiedHistory.closures {
@@ -708,26 +708,26 @@ func (a app) convergeEvaluationChallengeClosuresMode(root string, number int,
 		if verified != 1 {
 			err := fmt.Errorf("authenticated challenge closure count is %d; want exactly one", verified)
 			if postErr != nil {
-				return fmt.Errorf("challenge closure POST response was ambiguous; do not repost blindly: %w",
-					errors.Join(postErr, err))
+				return retryableOperation("evaluation challenge closure", fmt.Errorf("challenge closure POST response was ambiguous; do not repost blindly: %w",
+					errors.Join(postErr, err)))
 			}
-			return fmt.Errorf("challenge closure POST was not authenticated exactly once in complete history: %w", err)
+			return terminalOperation("evaluation challenge closure", fmt.Errorf("challenge closure POST was not authenticated exactly once in complete history: %w", err))
 		}
 		if postErr != nil {
-			return fmt.Errorf("challenge closure POST response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
-				postErr)
+			return retryableOperation("evaluation challenge closure", fmt.Errorf("challenge closure POST response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
+				postErr))
 		}
 		if validateCurrentView {
 			if err := validateEvaluationChallengeView(verifiedView, number, challenge); err != nil {
-				return fmt.Errorf("challenge closure POST changed the evaluated PR: %w",
-					errors.Join(postErr, err))
+				return terminalOperation("evaluation challenge closure", fmt.Errorf("challenge closure POST changed the evaluated PR: %w",
+					errors.Join(postErr, err)))
 			}
 		}
 		view = verifiedView
 		history = verifiedHistory
 	}
-	return fmt.Errorf("PR #%d challenge convergence exceeded the bounded closure pass; preserve history and retry after inspection",
-		number)
+	return retryableOperation("evaluation challenge closure", fmt.Errorf("PR #%d challenge convergence exceeded the bounded closure pass; preserve history and retry after inspection",
+		number))
 }
 
 //nolint:gocognit // Select and converge each outstanding equivalent group in order.
@@ -736,7 +736,7 @@ func (a app) convergeEvaluationChallengeHistory(root string, number int,
 	for attempt := 0; attempt < 100; attempt++ {
 		projection, err := evaluationChallengeOnlyProjectionForHistory(history)
 		if err != nil {
-			return pullRequestView{}, evaluationHistory{}, err
+			return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge convergence", fmt.Errorf("PR #%d has invalid logical evaluation history: %w", number, err))
 		}
 		var target evaluationChallenge
 		var targetKey evaluationChallengeKey
@@ -774,15 +774,15 @@ func (a app) convergeEvaluationChallengeHistory(root string, number int,
 		}
 		view, err = a.readPullRequest(root, number)
 		if err != nil {
-			return pullRequestView{}, evaluationHistory{}, fmt.Errorf("reread PR #%d after challenge convergence: %w",
-				number, err)
+			return pullRequestView{}, evaluationHistory{}, retryableOperation("evaluation challenge convergence", fmt.Errorf("reread PR #%d after challenge convergence: %w",
+				number, err))
 		}
 		history, err = readEvaluationMutationHistoryForConvergence(number, view.Comments)
 		if err != nil {
-			return pullRequestView{}, evaluationHistory{}, fmt.Errorf("reread PR #%d challenge history after convergence: %w",
-				number, err)
+			return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge convergence", fmt.Errorf("reread PR #%d challenge history after convergence: %w",
+				number, err))
 		}
 	}
-	return pullRequestView{}, evaluationHistory{}, fmt.Errorf(
-		"PR #%d challenge convergence exceeded the bounded history pass; preserve history and retry after inspection", number)
+	return pullRequestView{}, evaluationHistory{}, retryableOperation("evaluation challenge convergence", fmt.Errorf(
+		"PR #%d challenge convergence exceeded the bounded history pass; preserve history and retry after inspection", number))
 }

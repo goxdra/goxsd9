@@ -1360,7 +1360,7 @@ func (a app) requestEvaluation(number int) error {
 	}
 	view, history, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
 	if err != nil {
-		return stateError("PR #%d equivalent evaluation challenges could not be converged: %v", number, err)
+		return fmt.Errorf("PR #%d equivalent evaluation challenges could not be converged: %w", number, err)
 	}
 	outstanding, err := outstandingEvaluationChallenges(history)
 	if err != nil {
@@ -1447,28 +1447,28 @@ func (a app) completeEvaluationChallenge(root string, number int, challenge eval
 	}
 	finalView, err := a.readPullRequest(root, number)
 	if err != nil {
-		return fmt.Errorf("reread PR #%d after challenge convergence: %w", number, err)
+		return retryableOperation("evaluation challenge finalization", fmt.Errorf("reread PR #%d after challenge convergence: %w", number, err))
 	}
 	finalHistory, err := readEvaluationMutationHistoryForConvergence(number, finalView.Comments)
 	if err != nil {
-		return fmt.Errorf("reread PR #%d challenge history after convergence: %w", number, err)
+		return terminalOperation("evaluation challenge finalization", fmt.Errorf("reread PR #%d challenge history after convergence: %w", number, err))
 	}
 	logical, err := validateFinalEvaluationChallengeHistory(number, challenge, finalHistory)
 	if err != nil {
-		return fmt.Errorf("validate PR #%d challenge state after convergence: %w", number, err)
+		return terminalOperation("evaluation challenge finalization", fmt.Errorf("validate PR #%d challenge state after convergence: %w", number, err))
 	}
 	challengeErr := validateEvaluationChallengeView(finalView, number, challenge)
 	if challengeErr != nil {
-		return fmt.Errorf("PR #%d evaluation challenge changed before output: %w", number, challengeErr)
+		return terminalOperation("evaluation challenge finalization", fmt.Errorf("PR #%d evaluation challenge changed before output: %w", number, challengeErr))
 	}
 	canonicalErr := validateEvaluationChallengeView(finalView, number, logical.canonical.challenge)
 	if canonicalErr != nil {
-		return fmt.Errorf("PR #%d canonical evaluation challenge changed before output: %w", number, canonicalErr)
+		return terminalOperation("evaluation challenge finalization", fmt.Errorf("PR #%d canonical evaluation challenge changed before output: %w", number, canonicalErr))
 	}
 	finalAt := time.Now().UTC()
 	expiryErr := validateFinalEvaluationChallengeExpiry(finalHistory, challenge, logical, finalAt)
 	if expiryErr != nil {
-		return fmt.Errorf("PR #%d evaluation challenge expired before output: %w", number, expiryErr)
+		return terminalOperation("evaluation challenge finalization", fmt.Errorf("PR #%d evaluation challenge expired before output: %w", number, expiryErr))
 	}
 	canonicalMarker, err := json.Marshal(logical.canonical.challenge)
 	if err != nil {
@@ -1581,7 +1581,7 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 	}
 	view, history, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
 	if err != nil {
-		return stateError("PR #%d equivalent evaluation challenges could not be converged: %v", number, err)
+		return fmt.Errorf("PR #%d equivalent evaluation challenges could not be converged: %w", number, err)
 	}
 	if _, receiptErr := logicalEvaluationReceiptRecords(history); receiptErr != nil {
 		var duplicateErr *evaluationEquivalentReceiptError
@@ -1595,7 +1595,7 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 		}
 		view, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
 		if err != nil {
-			return stateError("PR #%d equivalent evaluation challenges could not be converged: %v", number, err)
+			return fmt.Errorf("PR #%d equivalent evaluation challenges could not be converged: %w", number, err)
 		}
 	}
 	history, err = readEvaluationMutationHistory(number, view.Comments)
@@ -1994,47 +1994,50 @@ func evaluationConvergenceGroupForFactsMust(history evaluationHistory, facts eva
 }
 
 func (a app) postEvaluationResolution(number int, challengeID, reason string) error {
-	root, view, _, err := a.readEvaluationTarget(number)
+	preparation, err := a.prepareEvaluationResolution(number, challengeID, reason)
 	if err != nil {
 		return err
 	}
-	if stateErr := requirePRReviewStateReady(view.Body); stateErr != nil {
-		return stateError("PR #%d review state is not evidence-ready: %v", number, stateErr)
+	if preparation.alreadyResolved {
+		return writeLine(a.stdout, "PR #%d challenge %s already has its no-verdict resolution recorded", number, challengeID)
 	}
-	canonicalReason, err := validateEvaluationResolutionReason(reason)
+	if err := a.postPreparedEvaluationResolution(preparation); err != nil {
+		return err
+	}
+	return writeLine(a.stdout, "PR #%d challenge %s resolved without an Examiner verdict", number, challengeID)
+}
+
+type evaluationResolutionPreparation struct {
+	root            string
+	body            string
+	resolution      evaluationResolution
+	alreadyResolved bool
+}
+
+func (a app) prepareEvaluationResolution(number int, challengeID, reason string) (evaluationResolutionPreparation, error) {
+	root, view, history, canonicalReason, err := a.readEvaluationResolutionContext(number, reason)
 	if err != nil {
-		return usageError("evaluation resolve: %v", err)
-	}
-	history, historyErr := readEvaluationMutationHistoryForConvergence(number, view.Comments)
-	if historyErr != nil {
-		return stateError("PR #%d has invalid evaluation history: %v", number, historyErr)
-	}
-	view, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
-	if err != nil {
-		return stateError("PR #%d equivalent evaluation challenges could not be converged: %v", number, err)
-	}
-	history, historyErr = readEvaluationMutationHistory(number, view.Comments)
-	if historyErr != nil {
-		return stateError("PR #%d has invalid evaluation history after convergence: %v", number, historyErr)
+		return evaluationResolutionPreparation{}, err
 	}
 	challenge, alreadyResolved, targetErr := evaluationResolutionTarget(history, number, challengeID, canonicalReason)
 	if targetErr != nil {
-		return targetErr
+		return evaluationResolutionPreparation{}, targetErr
 	}
+	preparation := evaluationResolutionPreparation{root: root, alreadyResolved: alreadyResolved}
 	if alreadyResolved {
-		return writeLine(a.stdout, "PR #%d challenge %s already has its no-verdict resolution recorded", number, challengeID)
+		return preparation, nil
 	}
 	if !validSHA256(challenge.challenge.BodySHA256) || !validSHA256(challenge.challenge.EvidenceSHA256) {
-		return stateError("PR #%d challenge %q lacks the historical body/evidence digests required for safe resolution; preserve its comments and request human recovery",
+		return evaluationResolutionPreparation{}, stateError("PR #%d challenge %q lacks the historical body/evidence digests required for safe resolution; preserve its comments and request human recovery",
 			number, challengeID)
 	}
 	expiresAt := challenge.challenge.RequestedAt.Add(evaluationChallengeDuration)
 	resolvedAt := time.Now().UTC().Truncate(time.Second)
 	if resolvedAt.Before(expiresAt) {
-		return stateError("PR #%d challenge %q has not expired; no pre-expiry cancellation is supported (expires %s)",
+		return evaluationResolutionPreparation{}, stateError("PR #%d challenge %q has not expired; no pre-expiry cancellation is supported (expires %s)",
 			number, challengeID, expiresAt.Format(time.RFC3339Nano))
 	}
-	resolution := evaluationResolution{
+	preparation.resolution = evaluationResolution{
 		BodySHA256:     challenge.challenge.BodySHA256,
 		Challenge:      challenge.challenge.Challenge,
 		EvidenceSHA256: challenge.challenge.EvidenceSHA256,
@@ -2046,31 +2049,64 @@ func (a app) postEvaluationResolution(number int, challengeID, reason string) er
 		Resolver:       trustedActor,
 		Schema:         evaluationResolutionSchema,
 	}
-	marker, err := json.Marshal(resolution)
+	marker, err := json.Marshal(preparation.resolution)
 	if err != nil {
-		return fmt.Errorf("encode evaluation resolution: %w", err)
+		return evaluationResolutionPreparation{}, fmt.Errorf("encode evaluation resolution: %w", err)
 	}
-	body := evaluationResolutionComment(marker, resolution.Reason)
+	preparation.body = evaluationResolutionComment(marker, preparation.resolution.Reason)
 	generated := append(append([]pullRequestComment(nil), view.Comments...), pullRequestComment{
 		Author: struct {
 			Login string `json:"login"`
 		}{Login: trustedActor},
-		Body:      body,
+		Body:      preparation.body,
 		CreatedAt: resolvedAt,
 	})
-	_, generatedHistoryErr := readEvaluationMutationHistory(number, generated)
-	if generatedHistoryErr != nil {
-		return stateError("PR #%d generated an invalid no-verdict resolution: %v", number, generatedHistoryErr)
+	if _, err := readEvaluationMutationHistory(number, generated); err != nil {
+		return evaluationResolutionPreparation{}, stateError("PR #%d generated an invalid no-verdict resolution: %v", number, err)
 	}
-	postErr := a.postPullRequestComment(root, number, body)
-	if postErr != nil {
-		return postErr
+	return preparation, nil
+}
+
+func (a app) readEvaluationResolutionContext(number int, reason string) (string, pullRequestView, evaluationHistory, string, error) {
+	root, view, _, err := a.readEvaluationTarget(number)
+	if err != nil {
+		return "", pullRequestView{}, evaluationHistory{}, "", err
 	}
-	verificationErr := a.verifyPostedEvaluationResolution(root, number, body, resolution)
+	if stateErr := requirePRReviewStateReady(view.Body); stateErr != nil {
+		return "", pullRequestView{}, evaluationHistory{}, "", stateError("PR #%d review state is not evidence-ready: %v", number, stateErr)
+	}
+	canonicalReason, err := validateEvaluationResolutionReason(reason)
+	if err != nil {
+		return "", pullRequestView{}, evaluationHistory{}, "", usageError("evaluation resolve: %v", err)
+	}
+	history, historyErr := readEvaluationMutationHistoryForConvergence(number, view.Comments)
+	if historyErr != nil {
+		return "", pullRequestView{}, evaluationHistory{}, "", stateError("PR #%d has invalid evaluation history: %v", number, historyErr)
+	}
+	view, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
+	if err != nil {
+		return "", pullRequestView{}, evaluationHistory{}, "", fmt.Errorf("PR #%d equivalent evaluation challenges could not be converged: %w", number, err)
+	}
+	history, historyErr = readEvaluationMutationHistory(number, view.Comments)
+	if historyErr != nil {
+		return "", pullRequestView{}, evaluationHistory{}, "", stateError("PR #%d has invalid evaluation history after convergence: %v", number, historyErr)
+	}
+	return root, view, history, canonicalReason, nil
+}
+
+func (a app) postPreparedEvaluationResolution(preparation evaluationResolutionPreparation) error {
+	postErr := a.postPullRequestComment(preparation.root, preparation.resolution.PR, preparation.body)
+	verificationErr := a.verifyPostedEvaluationResolution(preparation.root, preparation.resolution.PR, preparation.body, preparation.resolution)
 	if verificationErr != nil {
+		if postErr != nil {
+			return retryableOperationIfRecoverable("evaluation resolution", fmt.Errorf("post PR #%d no-verdict resolution: %w", preparation.resolution.PR, errors.Join(postErr, verificationErr)))
+		}
 		return verificationErr
 	}
-	return writeLine(a.stdout, "PR #%d challenge %s resolved without an Examiner verdict", number, challengeID)
+	if postErr != nil {
+		return retryableOperation("evaluation resolution", fmt.Errorf("no-verdict resolution POST response was ambiguous; do not repost blindly, retry the exact resolution command after inspection: %w", postErr))
+	}
+	return nil
 }
 
 func evaluationResolutionTarget(history evaluationHistory, number int, challengeID, reason string) (
@@ -2113,12 +2149,12 @@ func (a app) verifyPostedEvaluationResolution(root string, number int, body stri
 	resolution evaluationResolution) error {
 	verifiedComments, err := a.readPullRequestComments(root, number)
 	if err != nil {
-		return fmt.Errorf("post PR #%d no-verdict resolution could not be verified; retry the exact resolution command: %w", number, err)
+		return retryableOperation("evaluation resolution verification", fmt.Errorf("post PR #%d no-verdict resolution could not be verified; retry the exact resolution command: %w", number, err))
 	}
 	verifiedHistory, err := readEvaluationMutationHistory(number, verifiedComments)
 	if err != nil {
-		return fmt.Errorf("post PR #%d no-verdict resolution produced unverifiable evaluation history; preserve the comment and retry after inspection: %w",
-			number, err)
+		return terminalOperation("evaluation resolution verification", fmt.Errorf("post PR #%d no-verdict resolution produced unverifiable evaluation history; preserve the comment and retry after inspection: %w",
+			number, err))
 	}
 	verified := 0
 	for _, record := range verifiedHistory.resolutions {
@@ -2126,9 +2162,12 @@ func (a app) verifyPostedEvaluationResolution(root string, number int, body stri
 			verified++
 		}
 	}
-	if verified != 1 {
-		return fmt.Errorf("post PR #%d no-verdict resolution was not authenticated as exactly one %s comment; retry the exact resolution command after inspection",
-			number, trustedActor)
+	if verified > 1 {
+		return terminalOperation("evaluation resolution verification", fmt.Errorf("post PR #%d no-verdict resolution was authenticated as %d %s comments; preserve the comments and request human recovery",
+			number, verified, trustedActor))
+	}
+	if verified == 0 {
+		return retryableOperation("evaluation resolution verification", fmt.Errorf("post PR #%d no-verdict resolution was not authenticated yet; retry the exact resolution command after inspection", number))
 	}
 	return nil
 }

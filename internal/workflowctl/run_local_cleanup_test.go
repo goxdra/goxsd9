@@ -514,6 +514,65 @@ func TestCleanupRemovesOnlyProvenRunLocalAncestorFromPR154Shape(t *testing.T) {
 	assertIssue86AncestorCleanup(t, fixture, commands)
 }
 
+func TestCleanupStrictAncestorIgnoresOlderSameIssueWorktree(t *testing.T) {
+	fixture := newIssue86AncestorFixture(t)
+	staleBranch := "agent/issue-86-run-old"
+	staleWorktree := claimWorktreePath(fixture.repository.primary, staleBranch)
+	runGitTest(t, fixture.repository.primary, "worktree", "add", "-b", staleBranch, staleWorktree, fixture.proofHead)
+	runGitTest(t, fixture.repository.linked, "push", "origin", fixture.proofHead+":refs/heads/"+staleBranch)
+	runGitTest(t, fixture.repository.primary, "fetch", "origin", "refs/heads/"+staleBranch+":refs/remotes/origin/"+staleBranch)
+
+	commands := []string{}
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, executeCommand: realGitWithNoOpenPRExecutor(t, &commands)}
+	layout, err := application.repositoryLayout(fixture.repository.primary)
+	if err != nil {
+		t.Fatalf("repositoryLayout: %v", err)
+	}
+	claims := []claimArtifact{{issue: fixture.issue, branch: fixture.fixedBranch, sha: fixture.proofHead}}
+	proven := []provenRunLocalRef{{branch: fixture.runBranch, sha: fixture.anchor, localPresent: true}}
+	attached, err := attachClaimWorktrees(layout, claims, proven)
+	if err != nil {
+		t.Fatalf("attachClaimWorktrees with older same-issue worktree: %v", err)
+	}
+	if attached[0].localBranch != "" || attached[0].worktreePath != "" {
+		t.Fatalf("fixed-branch fallback attached an unproven worktree: %#v", attached[0])
+	}
+	plan := cleanupPlan{
+		layout:            layout,
+		callerRoot:        fixture.repository.primary,
+		claims:            claims,
+		proofHead:         fixture.proofHead,
+		primaryIssue:      fixture.issue,
+		validateArtifacts: true,
+	}
+	base := synchronizedBase{fetched: fetchedBase{primary: cleanPrimary{layout: layout}}}
+	packet := mergedPacket{number: fixture.issue, mergeSHA: "merge-proof", plan: plan}
+	if err := application.cleanupClaims(base, packet); err != nil {
+		t.Fatalf("cleanupClaims with older same-issue worktree: %v", err)
+	}
+	assertIssue86AncestorCleanup(t, fixture, commands)
+	for _, ref := range []string{
+		"refs/heads/" + staleBranch,
+		"refs/remotes/origin/" + staleBranch,
+	} {
+		if output := runGitAllowFailure(t, fixture.repository.primary, "show-ref", "--verify", ref); output == "" {
+			t.Fatalf("preserved stale ref %s is missing", ref)
+		}
+	}
+	if output := runGitTest(t, fixture.repository.primary, "ls-remote", "--heads", "origin", "refs/heads/"+staleBranch); output == "" {
+		t.Fatalf("preserved stale remote ref is missing")
+	}
+	if inventory := runGitTest(t, fixture.repository.primary, "worktree", "list", "--porcelain"); !strings.Contains(inventory, staleWorktree) {
+		t.Fatalf("preserved stale worktree is missing:\n%s", inventory)
+	}
+	for _, command := range commands {
+		if strings.Contains(command, staleBranch) && (strings.Contains(command, "push --force-with-lease") ||
+			strings.Contains(command, "update-ref -d") || strings.Contains(command, "worktree remove")) {
+			t.Fatalf("older same-issue artifact became a mutation target: %s", command)
+		}
+	}
+}
+
 type ancestorRunLocalProofCase struct {
 	name       string
 	branch     string

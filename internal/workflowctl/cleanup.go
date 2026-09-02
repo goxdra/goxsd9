@@ -257,23 +257,45 @@ func attachClaimWorktrees(layout repositoryLayout, claims []claimArtifact, prove
 	}
 	claims = append([]claimArtifact(nil), claims...)
 	for index := range claims {
-		branch := claims[index].localBranch
-		if branch == "" {
-			branch = provenRunLocalBranchForIssue(proven, claims[index].issue, claims[index].sha)
-		}
-		if branch == "" {
-			branch = claims[index].branch
-		}
-		worktree, ok, err := findClaimWorktree(layout, branch, claims[index].sha)
+		claims[index], err = attachClaimWorktree(layout, claims[index], proven)
 		if err != nil {
 			return nil, err
 		}
-		if ok {
-			claims[index].localBranch = strings.TrimPrefix(worktree.branch, "refs/heads/")
-			claims[index].worktreePath = worktree.path
-		}
 	}
 	return claims, nil
+}
+
+func attachClaimWorktree(layout repositoryLayout, claim claimArtifact, proven []provenRunLocalRef) (claimArtifact, error) {
+	branch, exactBranch := claimWorktreeLookup(claim, proven)
+	worktree, found, err := findClaimWorktreeForBranch(layout, branch, claim.sha, exactBranch)
+	if err != nil {
+		return claimArtifact{}, err
+	}
+	if !found {
+		return claim, nil
+	}
+	claim.localBranch = strings.TrimPrefix(worktree.branch, "refs/heads/")
+	claim.worktreePath = worktree.path
+	return claim, nil
+}
+
+func claimWorktreeLookup(claim claimArtifact, proven []provenRunLocalRef) (string, bool) {
+	branch := claim.localBranch
+	if branch == "" {
+		branch = provenRunLocalBranchForIssue(proven, claim.issue, claim.sha)
+	}
+	if branch == "" {
+		return claim.branch, true
+	}
+	kind, _, _ := classifyAgentRef(branch)
+	return branch, kind == agentRefClaim
+}
+
+func findClaimWorktreeForBranch(layout repositoryLayout, branch, sha string, exactBranch bool) (gitWorktree, bool, error) {
+	if exactBranch {
+		return findClaimWorktreeOnExactBranch(layout, branch, sha)
+	}
+	return findClaimWorktree(layout, branch, sha)
 }
 
 func provenRunLocalBranchForIssue(refs []provenRunLocalRef, issue int, sha string) string {
@@ -374,13 +396,21 @@ func rejectDuplicateClaimArtifacts(claims []claimArtifact) error {
 }
 
 func findClaimWorktree(layout repositoryLayout, branch, sha string) (gitWorktree, bool, error) {
+	return findClaimWorktreeWithBranchMatch(layout, branch, sha, false)
+}
+
+func findClaimWorktreeOnExactBranch(layout repositoryLayout, branch, sha string) (gitWorktree, bool, error) {
+	return findClaimWorktreeWithBranchMatch(layout, branch, sha, true)
+}
+
+func findClaimWorktreeWithBranchMatch(layout repositoryLayout, branch, sha string, exactBranch bool) (gitWorktree, bool, error) {
 	expectedPath := claimWorktreePath(layout.primaryRoot, branch)
 	var legacyMismatch gitWorktree
 	legacyMismatchCount := 0
 	var found gitWorktree
 	count := 0
 	for _, worktree := range layout.worktrees {
-		candidate, exact, mismatch := claimWorktreeCandidate(layout, worktree, branch, sha)
+		candidate, exact, mismatch := claimWorktreeCandidateWithBranchMatch(layout, worktree, branch, sha, exactBranch)
 		if mismatch {
 			legacyMismatch = worktree
 			legacyMismatchCount++
@@ -412,9 +442,12 @@ func findClaimWorktree(layout repositoryLayout, branch, sha string) (gitWorktree
 	return found, true, nil
 }
 
-func claimWorktreeCandidate(layout repositoryLayout, worktree gitWorktree, branch, sha string) (gitWorktree, bool, bool) {
+func claimWorktreeCandidateWithBranchMatch(layout repositoryLayout, worktree gitWorktree, branch, sha string, exactBranch bool) (gitWorktree, bool, bool) {
 	localBranch := strings.TrimPrefix(worktree.branch, "refs/heads/")
-	if !claimLocalBranchMatches(branch, localBranch) {
+	if exactBranch && localBranch != branch {
+		return gitWorktree{}, false, false
+	}
+	if !exactBranch && !claimLocalBranchMatches(branch, localBranch) {
 		return gitWorktree{}, false, false
 	}
 	if worktree.head == sha {
@@ -1453,6 +1486,26 @@ func (a app) validateExpectedClaimArtifact(root string, layout repositoryLayout,
 	if err != nil {
 		return false, err
 	}
+	found, err := validateExpectedClaimRemoteSources(all, claim)
+	if err != nil {
+		return false, err
+	}
+	localFound, err := validateExpectedLocalClaim(all, claim, proven)
+	if err != nil {
+		return false, err
+	}
+	worktreeFound, err := validateExpectedClaimWorktree(layout, claim, proven, len(provenGroups) == 0)
+	if err != nil {
+		return false, err
+	}
+	present := found || localFound || worktreeFound
+	if err := a.validateClaimAncestor(root, claim, present, head); err != nil {
+		return false, err
+	}
+	return present, nil
+}
+
+func validateExpectedClaimRemoteSources(all []remoteClaim, claim claimArtifact) (bool, error) {
 	sha, found, err := exactClaimSHAFromSources(all, claim.branch, claimRefRemote, claimRefTracking)
 	if err != nil {
 		return false, err
@@ -1460,27 +1513,24 @@ func (a app) validateExpectedClaimArtifact(root string, layout repositoryLayout,
 	if found && sha != claim.sha {
 		return false, stateError("claim %s moved from immutable merge-time head %s to %s; preserve claim artifacts and run go tool workflowctl pr recover", claim.branch, claim.sha, sha)
 	}
-	localFound, err := validateExpectedLocalClaim(all, claim, proven)
-	if err != nil {
-		return false, err
-	}
-	worktreeFound := false
+	return found, nil
+}
+
+func validateExpectedClaimWorktree(layout repositoryLayout, claim claimArtifact, proven []provenRunLocalRef, allowUnproven bool) (bool, error) {
 	worktreeBranch := claim.localBranch
 	if worktreeBranch == "" {
 		worktreeBranch = claim.branch
 	}
 	localKind, _, _ := classifyAgentRef(worktreeBranch)
-	if len(provenGroups) == 0 || localKind != agentRefRunLocal || provenRunLocalRefAt(proven, worktreeBranch, claim.sha) {
-		_, worktreeFound, err = findClaimWorktree(layout, worktreeBranch, claim.sha)
-		if err != nil {
-			return false, err
-		}
+	if claim.localBranch == "" || localKind == agentRefClaim {
+		_, found, err := findClaimWorktreeOnExactBranch(layout, worktreeBranch, claim.sha)
+		return found, err
 	}
-	present := found || localFound || worktreeFound
-	if err := a.validateClaimAncestor(root, claim, present, head); err != nil {
-		return false, err
+	if !allowUnproven && !provenRunLocalRefAt(proven, worktreeBranch, claim.sha) {
+		return false, nil
 	}
-	return present, nil
+	_, found, err := findClaimWorktree(layout, worktreeBranch, claim.sha)
+	return found, err
 }
 
 func validateExpectedLocalClaim(all []remoteClaim, claim claimArtifact, provenGroups ...[]provenRunLocalRef) (bool, error) {
@@ -1522,6 +1572,9 @@ func inferClaimLocalBranches(claims []claimArtifact, all []remoteClaim, validate
 				continue
 			}
 			if preservedRunLocalObservation(artifact, proven) {
+				continue
+			}
+			if preservedRunLocalArtifact(artifact.branch, proven) {
 				continue
 			}
 			if candidate != "" && candidate != artifact.branch {
@@ -2164,7 +2217,16 @@ func claimWorktreeInLayout(layout repositoryLayout, claim claimArtifact) (gitWor
 	if kind, _, _ := classifyAgentRef(branch); kind == agentRefRunLocal {
 		return gitWorktree{}, false, nil
 	}
-	found, ok, err := findClaimWorktree(layout, branch, claim.sha)
+	kind, _, _ := classifyAgentRef(branch)
+	var found gitWorktree
+	var ok bool
+	var err error
+	if kind == agentRefClaim {
+		found, ok, err = findClaimWorktreeOnExactBranch(layout, branch, claim.sha)
+	}
+	if kind != agentRefClaim {
+		found, ok, err = findClaimWorktree(layout, branch, claim.sha)
+	}
 	if err != nil {
 		return gitWorktree{}, false, err
 	}
