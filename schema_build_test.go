@@ -2176,6 +2176,64 @@ func TestSchemaBridgePreservesChoiceElementTypeDiagnostics(t *testing.T) {
 	}
 }
 
+func TestSchemaBridgeRejectsNamedStringLocalParticles(t *testing.T) {
+	for _, policy := range []struct {
+		name    string
+		value   LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "XSD 1.0", value: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", value: Strict11, version: XSDVersion11},
+	} {
+		for _, particle := range []struct {
+			name         string
+			model        string
+			declaredType string
+		}{
+			{name: "named choice", model: "choice", declaredType: "Named"},
+			{name: "inherited sequence", model: "sequence", declaredType: "Inherited"},
+		} {
+			t.Run(policy.name+"/"+particle.name, func(t *testing.T) {
+				assertNamedStringLocalParticleUnsupported(t, policy, particle.model, particle.declaredType)
+			})
+		}
+	}
+}
+
+func assertNamedStringLocalParticleUnsupported(t *testing.T, policy struct {
+	name    string
+	value   LanguagePolicy
+	version XSDVersion
+}, model, declaredType string) {
+	t.Helper()
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:test" targetNamespace="urn:test" version="` + string(policy.version) + `">
+  <xs:simpleType name="Named"><xs:restriction base="xs:string"/></xs:simpleType>
+  <xs:simpleType name="Inherited"><xs:restriction base="r:Named"/></xs:simpleType>
+  <xs:complexType name="Container"><xs:` + model + `><xs:element name="item" type="r:` + declaredType + `"/></xs:` + model + `></xs:complexType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.value)
+	if err == nil {
+		t.Fatal("discoverSchema accepted a named atomic-string local particle")
+	}
+	if schema.storage != nil || len(schema.Components()) != 0 {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+		t.Fatalf("diagnostic = %s, want unsupported schema syntax", diagnostic)
+	}
+	if diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), FeatureSchemaSyntax)
+	}
+	wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, 4, "type")
+	if diagnostic.Loc() != wantLoc {
+		t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+	}
+}
+
 func TestSchemaBridgeAcceptsInertRootMetadata(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" id="schema-id" version="" xml:lang="en-419"/>`
 	schema, err := discoverTestSchema(t, root, nil)
