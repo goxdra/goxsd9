@@ -18,9 +18,8 @@ artifacts without mutation. Exact issue/path/run/lease/fixed/local/head tokens
 must be checked when present in evidence; token substrings and contradictory
 prose never authenticate a handoff.
 
-The matrix includes authentic #287 comment 5488794928 and #240 comment
-5501405525 (with #240’s unrelated dirty `validation.go` proving fail-closed
-preservation), while #253 has no terminal handoff and remains blocked. Ordinary
+The reusable matrix accepts authentic terminal handoffs, blocks missing terminal
+evidence, and fails closed while preserving dirty or ambiguous artifacts. Ordinary
 acquisition remains unchanged. Cover pre-existing local-only, remote-only, and
 fully converged renewal children; detached/duplicate worktrees; source-bearing
 and merge renewal rejection; exact token spoofing; and PR/Project races before
