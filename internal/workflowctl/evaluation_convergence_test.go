@@ -3,6 +3,9 @@ package workflowctl
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -159,6 +162,255 @@ func TestEvaluationEquivalentReceiptsConvergeAndRemainInPhysicalHistory(t *testi
 	if mergeReceipt.Round != 1 || mergeReceipt.Verdict != "pass" {
 		t.Fatalf("merge-boundary receipt = %#v, want one passing logical round", mergeReceipt)
 	}
+}
+
+func TestEvaluationReceiptConvergenceVerificationReadFailureIsRetryable(t *testing.T) {
+	backend, application, stdout := newConvergenceWorkflowFixture(t)
+	challenge := requestTestChallenge(t, application, stdout)
+	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record initial evaluation: %v", err)
+	}
+	appendEquivalentWorkflowReceipt(t, backend)
+	if got, want := backend.commentPostCount, 2; got != want {
+		t.Fatalf("initial comment POST count = %d, want %d", got, want)
+	}
+
+	sentinel := errors.New("simulated convergence verification GET failure")
+	failNextPRRead := false
+	application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if failNextPRRead && command == "gh api repos/goxdra/goxsd9/pulls/14" {
+			failNextPRRead = false
+			return "", sentinel
+		}
+		output, err := backend.execute(dir, input, name, args...)
+		if err == nil && command == "gh api --method POST repos/goxdra/goxsd9/issues/14/comments --input -" &&
+			backend.commentPostCount == 3 {
+			failNextPRRead = true
+		}
+		return output, err
+	}
+
+	err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+	if err == nil {
+		t.Fatal("receipt convergence succeeded after injected GET failure")
+	}
+	if got := operationDispositionOf(err); got != operationDispositionRetryable {
+		t.Fatalf("receipt convergence disposition = %v, want retryable: %v", got, err)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("receipt convergence error = %v, want sentinel cause", err)
+	}
+}
+
+type evaluationReceiptBoundaryCase struct {
+	name             string
+	prepare          func(*testing.T, *evaluationReceiptBoundaryFixture, error)
+	want             operationDisposition
+	wantCause        bool
+	wantCommentCount int
+}
+
+func TestPostAndVerifyEvaluationReceiptOperationBoundaries(t *testing.T) {
+	tests := []evaluationReceiptBoundaryCase{
+		{name: "PR GET transport", prepare: func(_ *testing.T, fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+			failNextReceiptPRRead(fixture, sentinel)
+		}, want: operationDispositionRetryable, wantCause: true, wantCommentCount: 2},
+		{name: "POST transport with persisted receipt", prepare: func(_ *testing.T, fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+			injectReceiptPostTransport(fixture, sentinel)
+		}, want: operationDispositionRetryable, wantCause: true, wantCommentCount: 2},
+		{name: "closed PR", prepare: func(_ *testing.T, fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+			fixture.backend.merged = true
+			fixture.backend.mergedAt = time.Now().UTC().Truncate(time.Second)
+			injectReceiptPostTransport(fixture, sentinel)
+		}, want: operationDispositionTerminal, wantCause: true, wantCommentCount: 2},
+		{name: "metadata drift", prepare: func(_ *testing.T, fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+			fixture.backend.branch = "agent/issue-13-moved"
+			injectReceiptPostTransport(fixture, sentinel)
+		}, want: operationDispositionTerminal, wantCause: true, wantCommentCount: 2},
+		{name: "evidence drift", prepare: func(t *testing.T, fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+			mutateFinalEvaluationEvidence(t, fixture.backend)
+			fixture.receipt.BodySHA256 = sha256Hex([]byte(fixture.backend.body))
+			injectReceiptPostTransport(fixture, sentinel)
+		}, want: operationDispositionTerminal, wantCause: true, wantCommentCount: 2},
+		{name: "malformed history", prepare: func(_ *testing.T, fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+			fixture.backend.comments = append(fixture.backend.comments, issueCommentAPI{
+				ID: 2, Body: "<!-- " + evaluationMarker + "not-json -->\n" + evaluationReceiptHeading,
+				CreatedAt: time.Now().UTC().Truncate(time.Second), User: struct {
+					Login string `json:"login"`
+				}{Login: trustedActor},
+			})
+			injectReceiptPostTransport(fixture, sentinel)
+		}, want: operationDispositionTerminal, wantCause: true, wantCommentCount: 3},
+		{name: "untrusted history", prepare: func(_ *testing.T, fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+			fixture.backend.comments = append(fixture.backend.comments, issueCommentAPI{
+				ID: 2, Body: "<!-- " + evaluationMarker + "untrusted -->", CreatedAt: time.Now().UTC().Truncate(time.Second), User: struct {
+					Login string `json:"login"`
+				}{Login: owner},
+			})
+			injectReceiptPostTransport(fixture, sentinel)
+		}, want: operationDispositionTerminal, wantCause: true, wantCommentCount: 3},
+		{name: "invalid logical history", prepare: func(t *testing.T, fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+			invalid := fixture.receiptComment
+			invalid.ID = 2
+			invalid.Body = replaceTestReceipt(t, invalid.Body, func(receipt *evaluationReceipt) {
+				receipt.Round = 0
+			})
+			fixture.backend.comments = append(fixture.backend.comments, invalid)
+			injectReceiptPostTransport(fixture, sentinel)
+		}, want: operationDispositionTerminal, wantCause: true, wantCommentCount: 3},
+		{name: "unsafe identity", prepare: func(t *testing.T, fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+			unsafe := fixture.receiptComment
+			unsafe.ID = 2
+			unsafe.Body = replaceTestReceipt(t, unsafe.Body, func(receipt *evaluationReceipt) {
+				receipt.EvaluatorRunID = "unsafe-reused-run"
+			})
+			fixture.backend.comments = append(fixture.backend.comments, unsafe)
+			injectReceiptPostTransport(fixture, sentinel)
+		}, want: operationDispositionTerminal, wantCause: true, wantCommentCount: 3},
+		{name: "absent exact receipt", prepare: func(t *testing.T, fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+			fixture.body = alternateReceiptBody(t, fixture)
+			injectReceiptPostTransport(fixture, sentinel)
+		}, want: operationDispositionRetryable, wantCause: true, wantCommentCount: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) { runEvaluationReceiptBoundaryCase(t, test) })
+	}
+}
+
+func runEvaluationReceiptBoundaryCase(t *testing.T, test evaluationReceiptBoundaryCase) {
+	t.Helper()
+	fixture := newEvaluationReceiptBoundaryFixture(t)
+	sentinel := errors.New("receipt boundary sentinel")
+	test.prepare(t, fixture, sentinel)
+	err := fixture.application.postAndVerifyEvaluationReceipt(fixture.backend.root, 14, 13,
+		fixture.receipt, fixture.attestation, fixture.attestationJSON, fixture.body)
+	if err == nil {
+		t.Fatal("postAndVerifyEvaluationReceipt succeeded")
+	}
+	if got := operationDispositionOf(err); got != test.want {
+		t.Fatalf("postAndVerifyEvaluationReceipt disposition = %v, want %v: %v", got, test.want, err)
+	}
+	if test.wantCause && !errors.Is(err, sentinel) {
+		t.Fatalf("postAndVerifyEvaluationReceipt error = %v, want sentinel cause", err)
+	}
+	if fixture.backend.commentPostCount != 1 {
+		t.Fatalf("receipt POST count = %d, want one attempted POST", fixture.backend.commentPostCount)
+	}
+	if len(fixture.backend.comments) != test.wantCommentCount {
+		t.Fatalf("persisted receipt comments = %d, want %d", len(fixture.backend.comments), test.wantCommentCount)
+	}
+	if got := fixture.backend.comments[len(fixture.backend.comments)-1].Body; got != fixture.body {
+		t.Fatalf("persisted receipt body = %q, want posted body %q", got, fixture.body)
+	}
+}
+
+func TestPostAndVerifyEvaluationReceiptPassesTypedConvergenceFailure(t *testing.T) {
+	fixture := newEvaluationReceiptBoundaryFixture(t)
+	fixture.backend.comments = append(fixture.backend.comments, fixture.receiptComment)
+	sentinel := errors.New("receipt convergence boundary GET failure")
+	prReads := 0
+	fixture.application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if command == "gh api repos/goxdra/goxsd9/pulls/14" {
+			prReads++
+			if prReads == 2 {
+				return "", sentinel
+			}
+		}
+		return fixture.backend.execute(dir, input, name, args...)
+	}
+	err := fixture.application.postAndVerifyEvaluationReceipt(fixture.backend.root, 14, 13,
+		fixture.receipt, fixture.attestation, fixture.attestationJSON, fixture.body)
+	if err == nil {
+		t.Fatal("postAndVerifyEvaluationReceipt succeeded after convergence GET failure")
+	}
+	if got := operationDispositionOf(err); got != operationDispositionRetryable {
+		t.Fatalf("typed convergence disposition = %v, want retryable: %v", got, err)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("typed convergence error = %v, want sentinel cause", err)
+	}
+}
+
+type evaluationReceiptBoundaryFixture struct {
+	backend         *workflowBackend
+	application     *app
+	receipt         evaluationReceipt
+	attestation     evaluationAttestation
+	attestationJSON []byte
+	receiptComment  issueCommentAPI
+	body            string
+}
+
+func newEvaluationReceiptBoundaryFixture(t *testing.T) *evaluationReceiptBoundaryFixture {
+	t.Helper()
+	backend, application, stdout := newConvergenceWorkflowFixture(t)
+	challenge := requestTestChallenge(t, application, stdout)
+	attestationJSON, attestationFile := writeTestAttestationRun(t, backend.head, challenge, "receipt-boundary")
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record receipt boundary fixture: %v", err)
+	}
+	receiptComment := backend.comments[len(backend.comments)-1]
+	receipt, ok := parseEvaluationReceipt(receiptComment.Body)
+	if !ok {
+		t.Fatal("receipt boundary fixture marker was not parseable")
+	}
+	var attestation evaluationAttestation
+	if err := json.Unmarshal(attestationJSON, &attestation); err != nil {
+		t.Fatalf("decode receipt boundary attestation: %v", err)
+	}
+	backend.comments = append([]issueCommentAPI(nil), backend.comments[:1]...)
+	backend.commentPostCount = 0
+	return &evaluationReceiptBoundaryFixture{
+		backend: backend, application: application, receipt: receipt, attestation: attestation,
+		attestationJSON: attestationJSON, receiptComment: receiptComment, body: receiptComment.Body,
+	}
+}
+
+func injectReceiptPostTransport(fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+	fixture.backend.postCommentResponseMode = "transport"
+	fixture.application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		output, err := fixture.backend.execute(dir, input, name, args...)
+		if name == "gh" && strings.Join(args, " ") == "api --method POST repos/goxdra/goxsd9/issues/14/comments --input -" && err != nil {
+			return output, sentinel
+		}
+		return output, err
+	}
+}
+
+func failNextReceiptPRRead(fixture *evaluationReceiptBoundaryFixture, sentinel error) {
+	failNext := true
+	fixture.application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if failNext && command == "gh api repos/goxdra/goxsd9/pulls/14" {
+			failNext = false
+			return "", sentinel
+		}
+		return fixture.backend.execute(dir, input, name, args...)
+	}
+}
+
+func alternateReceiptBody(t *testing.T, fixture *evaluationReceiptBoundaryFixture) string {
+	t.Helper()
+	var alternate evaluationAttestation
+	if err := json.Unmarshal(fixture.attestationJSON, &alternate); err != nil {
+		t.Fatalf("decode alternate receipt attestation: %v", err)
+	}
+	alternate.RunID = "receipt-boundary-alternate"
+	alternateJSON, err := json.Marshal(alternate)
+	if err != nil {
+		t.Fatalf("encode alternate receipt attestation: %v", err)
+	}
+	receipt := fixture.receipt
+	receipt.AttestationSHA256 = sha256Hex(alternateJSON)
+	receipt.EvaluatorRunID = alternate.RunID
+	marker, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("encode alternate receipt: %v", err)
+	}
+	return evaluationComment(marker, alternateJSON, string(canonicalEvaluationReport(renderEvaluationReport(alternate))))
 }
 
 func TestEvaluationConvergenceRejectsAuthenticatedFieldConflict(t *testing.T) {
