@@ -29,12 +29,14 @@ var (
 )
 
 type codegenSourcePlan struct {
-	packageName   string
-	runtimeAlias  string
-	useRuntime    bool
-	directChoices bool
-	names         codegenNaming
-	declarations  []codegenSourceDeclaration
+	packageName     string
+	runtimeAlias    string
+	useRuntime      bool
+	directChoices   bool
+	directSequences bool
+	directParticles bool
+	names           codegenNaming
+	declarations    []codegenSourceDeclaration
 }
 
 type codegenSourceDeclaration struct {
@@ -46,6 +48,7 @@ type codegenSourceDeclaration struct {
 	usesRuntime bool
 	target      codegenSourceTarget
 	choice      *codegenSourceChoice
+	sequence    *codegenSourceSequence
 }
 
 type codegenSourceChoice struct {
@@ -63,6 +66,25 @@ type codegenSourceVariant struct {
 	loc         Loc
 	schemaName  QName
 	name        string
+	fieldName   string
+	fieldType   string
+	usesRuntime bool
+	target      codegenSourceTarget
+}
+
+type codegenSourceSequence struct {
+	ownerID     ComponentID
+	ownerName   QName
+	ownerLoc    Loc
+	sequenceLoc Loc
+	usesRuntime bool
+	fields      []codegenSourceSequenceField
+}
+
+type codegenSourceSequenceField struct {
+	path        []uint32
+	loc         Loc
+	schemaName  QName
 	fieldName   string
 	fieldType   string
 	usesRuntime bool
@@ -113,9 +135,44 @@ func emitCodegenSourceWithDirectChoices(schema Schema, choicePlan codegenDirectC
 	return renderCodegenSource(plan, schema)
 }
 
+func emitCodegenSourceWithDirectParticles(schema Schema, directPlan codegenDirectParticlePlan) ([]byte, error) {
+	plan, err := planCodegenSourceWithDirectParticles(schema, directPlan)
+	if err != nil {
+		return nil, err
+	}
+	return renderCodegenSource(plan, schema)
+}
+
 // emitCodegen is the private phase boundary used by code-generation callers.
 func emitCodegen(schema Schema, names codegenNaming) ([]byte, error) {
 	return emitCodegenSource(schema, names)
+}
+
+func prepareCodegenPlanSchema(schema Schema, packageName, emptyMessage string) ([]Component, XSDVersion, error) {
+	if err := validateCodegenPackageName(packageName); err != nil {
+		return nil, "", err
+	}
+	if schema.storage == nil {
+		return nil, "", newDiagnostic(
+			FailureInvalid,
+			diagnosticCodegenSchemaInvalid,
+			Loc{},
+			emptyMessage,
+			errCodegenSchemaEmpty,
+		)
+	}
+	components := schema.Components()
+	if err := validateCodegenSchemaStorage(schema, components); err != nil {
+		return nil, "", err
+	}
+	version, err := codegenSchemaVersion(schema)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := rejectCodegenElementFacts(components, version); err != nil {
+		return nil, "", err
+	}
+	return components, version, nil
 }
 
 func planCodegenSource(schema Schema, names codegenNaming) (codegenSourcePlan, error) {
@@ -137,11 +194,35 @@ func planCodegenSourceWithDirectChoices(schema Schema, choicePlan codegenDirectC
 	return planCodegenSourceWithChoicePlan(schema, choicePlan.names, &choicePlan)
 }
 
-//nolint:gocognit // Keep ordered scalar and direct-choice declaration planning together.
+func planCodegenSourceWithDirectParticles(schema Schema, directPlan codegenDirectParticlePlan) (codegenSourcePlan, error) {
+	if directPlan.names.packageIdentifier() == "" {
+		return codegenSourcePlan{}, newCodegenInternal(
+			codegenDirectParticlePlanLoc(directPlan),
+			"direct-particle source plan has no naming state",
+			nil,
+			errCodegenDirectParticlePlan,
+		)
+	}
+	if err := validateCodegenDirectParticlePlan(schema, directPlan); err != nil {
+		return codegenSourcePlan{}, err
+	}
+	return planCodegenSourceWithDirectParticlePlan(schema, directPlan.names, nil, &directPlan)
+}
+
 func planCodegenSourceWithChoicePlan(
 	schema Schema,
 	names codegenNaming,
 	choicePlan *codegenDirectChoicePlan,
+) (codegenSourcePlan, error) {
+	return planCodegenSourceWithDirectParticlePlan(schema, names, choicePlan, nil)
+}
+
+//nolint:gocognit,funlen // Keep ordered scalar and direct-particle declaration planning together.
+func planCodegenSourceWithDirectParticlePlan(
+	schema Schema,
+	names codegenNaming,
+	choicePlan *codegenDirectChoicePlan,
+	directPlan *codegenDirectParticlePlan,
 ) (codegenSourcePlan, error) {
 	components, runtimeAlias, hasRuntimeAlias, err := validateCodegenInput(schema, names)
 	if err != nil {
@@ -149,11 +230,22 @@ func planCodegenSourceWithChoicePlan(
 	}
 
 	plan := codegenSourcePlan{
-		packageName:   names.packageIdentifier(),
-		runtimeAlias:  runtimeAlias,
-		directChoices: choicePlan != nil,
-		names:         names.clone(),
-		declarations:  make([]codegenSourceDeclaration, 0, len(components)),
+		packageName:     names.packageIdentifier(),
+		runtimeAlias:    runtimeAlias,
+		directChoices:   choicePlan != nil,
+		directParticles: directPlan != nil,
+		names:           names.clone(),
+		declarations:    make([]codegenSourceDeclaration, 0, len(components)),
+	}
+	if directPlan != nil {
+		for _, owner := range directPlan.owners {
+			if owner.kind == codegenDirectParticleSequence {
+				plan.directSequences = true
+			}
+			if owner.kind == codegenDirectParticleChoice {
+				plan.directChoices = true
+			}
+		}
 	}
 	policyVersion, versionErr := codegenSchemaVersion(schema)
 	if versionErr != nil {
@@ -171,7 +263,80 @@ func planCodegenSourceWithChoicePlan(
 				errCodegenNamingMisaligned,
 			)
 		}
-		if choicePlan != nil && component.Kind() == ComponentKindComplexTypeDefinition {
+		if directPlan != nil && component.Kind() == ComponentKindComplexTypeDefinition {
+			owner, ownerOK := codegenDirectParticleOwnerAt(directPlan.owners, component.ID())
+			if !ownerOK {
+				return codegenSourcePlan{}, newCodegenInternal(
+					component.Loc(),
+					"schema complex type has no direct-particle source plan owner",
+					nil,
+					errCodegenDirectParticlePlan,
+				)
+			}
+			if owner.kind == codegenDirectParticleChoice {
+				if owner.choice == nil {
+					return codegenSourcePlan{}, newCodegenInternal(
+						component.Loc(),
+						"direct-particle choice owner has no choice facts",
+						nil,
+						errCodegenDirectParticlePlan,
+					)
+				}
+				choice, usesRuntime, choiceErr := planCodegenSourceChoice(*owner.choice, directPlan.runtimeAlias)
+				if choiceErr != nil {
+					return codegenSourcePlan{}, choiceErr
+				}
+				plan.useRuntime = plan.useRuntime || usesRuntime
+				plan.declarations = append(plan.declarations, codegenSourceDeclaration{
+					id:          component.ID(),
+					schemaName:  component.Name(),
+					loc:         component.Loc(),
+					name:        identifier,
+					usesRuntime: usesRuntime,
+					choice:      &choice,
+				})
+				continue
+			}
+			if owner.kind == codegenDirectParticleSequence {
+				if owner.sequence == nil {
+					return codegenSourcePlan{}, newCodegenInternal(
+						component.Loc(),
+						"direct-particle sequence owner has no sequence facts",
+						nil,
+						errCodegenDirectParticlePlan,
+					)
+				}
+				sequence, usesRuntime, sequenceErr := planCodegenSourceSequence(*owner.sequence, names, directPlan.runtimeAlias)
+				if sequenceErr != nil {
+					return codegenSourcePlan{}, sequenceErr
+				}
+				plan.useRuntime = plan.useRuntime || usesRuntime
+				plan.declarations = append(plan.declarations, codegenSourceDeclaration{
+					id:          component.ID(),
+					schemaName:  component.Name(),
+					loc:         component.Loc(),
+					name:        identifier,
+					usesRuntime: usesRuntime,
+					sequence:    &sequence,
+				})
+				continue
+			}
+			return codegenSourcePlan{}, newCodegenInternal(
+				component.Loc(),
+				"direct-particle source plan has an unknown declaration shape",
+				nil,
+				errCodegenDirectParticlePlan,
+			)
+		}
+		if component.Kind() == ComponentKindComplexTypeDefinition {
+			if choicePlan == nil {
+				return codegenSourcePlan{}, newCodegenInternal(
+					component.Loc(),
+					"direct-particle source plan has no complex-type mode",
+					nil,
+					errCodegenDirectParticlePlan,
+				)
+			}
 			owner, ownerOK := codegenDirectChoiceOwnerAt(choicePlan.owners, component.ID())
 			if !ownerOK {
 				return codegenSourcePlan{}, newCodegenInternal(
@@ -203,7 +368,7 @@ func planCodegenSourceWithChoicePlan(
 			runtimeAlias,
 			hasRuntimeAlias,
 			policyVersion,
-			choicePlan != nil,
+			choicePlan != nil || directPlan != nil,
 		)
 		if err != nil {
 			return codegenSourcePlan{}, err
@@ -294,6 +459,45 @@ func planCodegenSourceChoice(owner codegenDirectChoiceOwner, runtimeAlias string
 	}
 	choice.usesRuntime = usesRuntime
 	return choice, usesRuntime, nil
+}
+
+func planCodegenSourceSequence(
+	owner codegenDirectSequenceOwner,
+	names codegenNaming,
+	runtimeAlias string,
+) (codegenSourceSequence, bool, error) {
+	sequence := codegenSourceSequence{
+		ownerID:     owner.id,
+		ownerName:   owner.name,
+		ownerLoc:    owner.loc,
+		sequenceLoc: owner.sequenceLoc,
+		fields:      make([]codegenSourceSequenceField, 0, len(owner.fields)),
+	}
+	usesRuntime := false
+	for _, field := range owner.fields {
+		fieldType, fieldUsesRuntime, err := codegenSourceTargetFieldType(
+			field.target,
+			names,
+			runtimeAlias,
+			runtimeAlias != "",
+			field.loc,
+		)
+		if err != nil {
+			return codegenSourceSequence{}, false, err
+		}
+		usesRuntime = usesRuntime || fieldUsesRuntime
+		sequence.fields = append(sequence.fields, codegenSourceSequenceField{
+			path:        cloneCodegenPath(field.path),
+			loc:         field.loc,
+			schemaName:  field.name,
+			fieldName:   field.fieldIdentifier,
+			fieldType:   fieldType,
+			usesRuntime: fieldUsesRuntime,
+			target:      field.target,
+		})
+	}
+	sequence.usesRuntime = usesRuntime
+	return sequence, usesRuntime, nil
 }
 
 func planCodegenSourceChoiceTarget(
@@ -410,7 +614,7 @@ func planCodegenComponent(
 			fmt.Sprintf("schema component kind %q is not supported by Go scalar generation", component.Kind()),
 			nil,
 			fmt.Errorf("%w: component kind %q", errCodegenUnsupported, component.Kind()),
-			"",
+			policyVersion,
 		)
 	default:
 		return codegenSourceTarget{}, "", false, newCodegenUnsupported(
@@ -418,7 +622,7 @@ func planCodegenComponent(
 			fmt.Sprintf("unknown schema component kind %q is not supported by Go scalar generation", component.Kind()),
 			nil,
 			fmt.Errorf("%w: unknown component kind %q", errCodegenUnsupported, component.Kind()),
-			"",
+			policyVersion,
 		)
 	}
 }
@@ -600,7 +804,7 @@ func codegenRuntimeAlias(names codegenNaming) (string, bool) {
 	return "", false
 }
 
-func codegenNamedScalarKind(component Component) (DigitDatatype, error) {
+func codegenNamedScalarKind(component Component, version XSDVersion) (DigitDatatype, error) {
 	definition, ok := component.SimpleTypeDefinition()
 	if !ok {
 		return "", newCodegenUnsupported(
@@ -608,7 +812,7 @@ func codegenNamedScalarKind(component Component) (DigitDatatype, error) {
 			fmt.Sprintf("named simple type %q has no supported simple-type view", component.Name()),
 			nil,
 			fmt.Errorf("%w: simple type view is missing", errCodegenUnsupported),
-			"",
+			version,
 		)
 	}
 	if definition.Variety() != SimpleTypeVarietyAtomicRestriction {
@@ -617,7 +821,7 @@ func codegenNamedScalarKind(component Component) (DigitDatatype, error) {
 			fmt.Sprintf("named simple type %q has variety %q outside scalar Go generation", component.Name(), definition.Variety()),
 			appendCodegenRelated(nil, definition.VarietyLoc()),
 			fmt.Errorf("%w: simple type variety %q", errCodegenUnsupported, definition.Variety()),
-			codegenElementDefaultVersion,
+			version,
 		)
 	}
 	if definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal {
@@ -626,7 +830,7 @@ func codegenNamedScalarKind(component Component) (DigitDatatype, error) {
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
 			appendCodegenRelated(nil, definition.BaseLoc()),
 			fmt.Errorf("%w: atomic datatype is outside scalar Go generation", errCodegenUnsupported),
-			codegenElementDefaultVersion,
+			version,
 		)
 	}
 	facets := definition.DigitFacets()
@@ -701,7 +905,7 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			scalarKind:   codegenSourceScalarBoolean,
 		}, nil
 	}
-	kind, err := codegenNamedScalarKind(component)
+	kind, err := codegenNamedScalarKind(component, version)
 	if err != nil {
 		return codegenSourceTarget{}, err
 	}
@@ -1346,6 +1550,7 @@ func decorateCodegenElementError(err error, loc Loc, related []Loc) error {
 	return decorated
 }
 
+//nolint:gocognit // Keep source validation and ordered declaration rendering together.
 func renderCodegenSource(plan codegenSourcePlan, schemas ...Schema) ([]byte, error) {
 	if len(schemas) > 1 {
 		return nil, newCodegenInternal(
@@ -1380,6 +1585,20 @@ func renderCodegenSource(plan codegenSourcePlan, schemas ...Schema) ([]byte, err
 		source.WriteString("\n\n")
 	}
 	for _, declaration := range plan.declarations {
+		if declaration.sequence != nil {
+			if declaration.choice != nil {
+				return nil, newCodegenInternal(
+					declaration.loc,
+					"render declaration has both sequence and choice facts",
+					nil,
+					errCodegenSchemaInvariant,
+				)
+			}
+			if err := renderCodegenSequenceDeclaration(&source, declaration); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		if declaration.choice != nil {
 			if err := renderCodegenChoiceDeclaration(&source, declaration); err != nil {
 				return nil, err
@@ -1400,7 +1619,7 @@ func renderCodegenSource(plan codegenSourcePlan, schemas ...Schema) ([]byte, err
 	return formatted, nil
 }
 
-//nolint:gocognit // Keep render-boundary recollection and comparison explicit.
+//nolint:gocognit,funlen // Keep render-boundary recollection and comparison explicit.
 func validateCodegenSourcePlan(schema Schema, plan codegenSourcePlan) error {
 	planLoc := codegenSourcePlanLoc(plan)
 	if err := validateCodegenPackageName(plan.packageName); err != nil {
@@ -1433,10 +1652,17 @@ func validateCodegenSourcePlan(schema Schema, plan codegenSourcePlan) error {
 	if err := validateCodegenScopedNamingIndexes(plan.names, planLoc); err != nil {
 		return err
 	}
-	if !plan.directChoices && (len(plan.names.fields) != 0 || len(plan.names.variants) != 0) {
+	modes, modeErr := collectCodegenSourceSchemaModes(components)
+	if modeErr != nil {
+		return modeErr
+	}
+	if err := validateCodegenSourcePlanModes(plan, modes, planLoc); err != nil {
+		return err
+	}
+	if !plan.directChoices && !plan.directSequences && (len(plan.names.fields) != 0 || len(plan.names.variants) != 0) {
 		return newCodegenInternal(
 			planLoc,
-			"scalar source plan has direct-choice naming records without direct choices",
+			"scalar source plan has scoped naming records without direct particles",
 			nil,
 			errCodegenSchemaInvariant,
 		)
@@ -1444,14 +1670,21 @@ func validateCodegenSourcePlan(schema Schema, plan codegenSourcePlan) error {
 
 	var expected codegenSourcePlan
 	var err error
-	if plan.directChoices {
+	if plan.directParticles {
+		directPlan, directErr := planCodegenDirectParticles(schema, plan.packageName)
+		if directErr != nil {
+			return directErr
+		}
+		expected, err = planCodegenSourceWithDirectParticles(schema, directPlan)
+	}
+	if !plan.directParticles && plan.directChoices {
 		choicePlan, choiceErr := planCodegenDirectChoices(schema, plan.packageName)
 		if choiceErr != nil {
 			return choiceErr
 		}
 		expected, err = planCodegenSourceWithDirectChoices(schema, choicePlan)
 	}
-	if !plan.directChoices {
+	if !plan.directParticles && !plan.directChoices {
 		for _, component := range components {
 			if component.Kind() != ComponentKindComplexTypeDefinition {
 				continue
@@ -1485,6 +1718,87 @@ func validateCodegenSourcePlan(schema Schema, plan codegenSourcePlan) error {
 		return err
 	}
 	return compareCodegenSourcePlans(plan, expected)
+}
+
+type codegenSourceSchemaModes struct {
+	directChoices   bool
+	directSequences bool
+	choiceLoc       Loc
+	sequenceLoc     Loc
+}
+
+//nolint:gocognit // Keep ordered schema mode recollection explicit.
+func collectCodegenSourceSchemaModes(components []Component) (codegenSourceSchemaModes, error) {
+	var modes codegenSourceSchemaModes
+	for _, component := range components {
+		if component.Kind() != ComponentKindComplexTypeDefinition {
+			continue
+		}
+		definition, ok := component.ComplexType()
+		if !ok {
+			return codegenSourceSchemaModes{}, newCodegenInternal(
+				component.Loc(),
+				fmt.Sprintf("complex type %q has no completed complex-type facts", component.Name()),
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+		particle := definition.Particle()
+		if particle == nil {
+			continue
+		}
+		if directChoiceTypedNilParticle(particle) {
+			return codegenSourceSchemaModes{}, newCodegenInternal(
+				component.Loc(),
+				fmt.Sprintf("complex type %q has a typed-nil direct particle", component.Name()),
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+		if choice, ok := directChoiceValue(particle); ok {
+			modes.directChoices = true
+			if modes.choiceLoc.IsZero() {
+				modes.choiceLoc = choice.Loc()
+			}
+			continue
+		}
+		if sequence, ok := directSequenceValue(particle); ok {
+			modes.directSequences = true
+			if modes.sequenceLoc.IsZero() {
+				modes.sequenceLoc = sequence.Loc()
+			}
+		}
+	}
+	return modes, nil
+}
+
+func validateCodegenSourcePlanModes(plan codegenSourcePlan, modes codegenSourceSchemaModes, planLoc Loc) error {
+	if plan.directChoices != modes.directChoices {
+		loc := planLoc
+		if modes.directChoices {
+			loc = modes.choiceLoc
+		}
+		if modes.directSequences {
+			loc = modes.sequenceLoc
+		}
+		return newCodegenInternal(loc, "source plan direct-choice mode does not match the schema", nil, errCodegenSchemaInvariant)
+	}
+	if plan.directSequences != modes.directSequences {
+		loc := planLoc
+		if modes.directSequences {
+			loc = modes.sequenceLoc
+		}
+		return newCodegenInternal(loc, "source plan direct-sequence mode does not match the schema", nil, errCodegenSchemaInvariant)
+	}
+	if plan.directSequences && !plan.directParticles {
+		return newCodegenInternal(
+			planLoc,
+			"source plan direct-sequence mode requires the direct-particle phase",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
+	return nil
 }
 
 func codegenImportAliasRequests(names codegenNaming) []codegenImportAliasRequest {
@@ -1540,6 +1854,7 @@ func validateCodegenScopedNamingIndexes(names codegenNaming, loc Loc) error {
 	return nil
 }
 
+//nolint:gocognit // Keep complete ordered source-plan comparison together.
 func compareCodegenSourcePlans(actual, expected codegenSourcePlan) error {
 	loc := codegenSourcePlanLoc(expected)
 	if actual.packageName != expected.packageName {
@@ -1553,6 +1868,12 @@ func compareCodegenSourcePlans(actual, expected codegenSourcePlan) error {
 	}
 	if actual.directChoices != expected.directChoices {
 		return newCodegenInternal(loc, "source plan direct-choice mode does not match", nil, errCodegenSchemaInvariant)
+	}
+	if actual.directSequences != expected.directSequences {
+		return newCodegenInternal(loc, "source plan direct-sequence mode does not match", nil, errCodegenSchemaInvariant)
+	}
+	if actual.directParticles != expected.directParticles {
+		return newCodegenInternal(loc, "source plan direct-particle mode does not match", nil, errCodegenSchemaInvariant)
 	}
 	if len(actual.declarations) != len(expected.declarations) {
 		return newCodegenInternal(loc, "source plan declaration count does not match schema order", nil, errCodegenSchemaInvariant)
@@ -1578,6 +1899,9 @@ func compareCodegenSourcePlans(actual, expected codegenSourcePlan) error {
 			)
 		}
 		if err := compareCodegenSourceChoices(actualDeclaration.choice, expectedDeclaration.choice, declarationLoc); err != nil {
+			return err
+		}
+		if err := compareCodegenSourceSequences(actualDeclaration.sequence, expectedDeclaration.sequence, declarationLoc); err != nil {
 			return err
 		}
 	}
@@ -1670,6 +1994,51 @@ func compareCodegenSourceChoices(actual, expected *codegenSourceChoice, loc Loc)
 	return nil
 }
 
+func compareCodegenSourceSequences(actual, expected *codegenSourceSequence, loc Loc) error {
+	if actual == nil || expected == nil {
+		if actual == nil && expected == nil {
+			return nil
+		}
+		return newCodegenInternal(loc, "source plan sequence presence does not match schema", nil, errCodegenSchemaInvariant)
+	}
+	if actual.ownerID != expected.ownerID ||
+		actual.ownerName != expected.ownerName ||
+		actual.ownerLoc != expected.ownerLoc ||
+		actual.sequenceLoc != expected.sequenceLoc ||
+		actual.usesRuntime != expected.usesRuntime ||
+		len(actual.fields) != len(expected.fields) {
+		return newCodegenInternal(loc, "source plan sequence facts do not match schema", nil, errCodegenSchemaInvariant)
+	}
+	for index, expectedField := range expected.fields {
+		actualField := actual.fields[index]
+		if !equalCodegenPath(actualField.path, expectedField.path) ||
+			actualField.loc != expectedField.loc ||
+			actualField.schemaName != expectedField.schemaName ||
+			actualField.fieldName != expectedField.fieldName ||
+			actualField.fieldType != expectedField.fieldType ||
+			actualField.usesRuntime != expectedField.usesRuntime ||
+			actualField.target != expectedField.target {
+			return newCodegenInternal(
+				codegenSourceSequenceFieldLoc(expectedField, expected.sequenceLoc, loc),
+				"source plan sequence field facts do not match schema",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+	}
+	return nil
+}
+
+func codegenSourceSequenceFieldLoc(field codegenSourceSequenceField, sequenceLoc, declarationLoc Loc) Loc {
+	if !field.loc.IsZero() {
+		return field.loc
+	}
+	if !sequenceLoc.IsZero() {
+		return sequenceLoc
+	}
+	return declarationLoc
+}
+
 func codegenSourcePlanLoc(plan codegenSourcePlan) Loc {
 	for _, declaration := range plan.declarations {
 		if !declaration.loc.IsZero() {
@@ -1677,6 +2046,9 @@ func codegenSourcePlanLoc(plan codegenSourcePlan) Loc {
 		}
 		if declaration.choice != nil && !declaration.choice.ownerLoc.IsZero() {
 			return declaration.choice.ownerLoc
+		}
+		if declaration.sequence != nil && !declaration.sequence.ownerLoc.IsZero() {
+			return declaration.sequence.ownerLoc
 		}
 	}
 	return Loc{}
@@ -1726,6 +2098,43 @@ func renderCodegenChoiceDeclaration(source *strings.Builder, declaration codegen
 		source.WriteString(choice.marker)
 		source.WriteString("() {}\n\n")
 	}
+	return nil
+}
+
+func renderCodegenSequenceDeclaration(source *strings.Builder, declaration codegenSourceDeclaration) error {
+	sequence := declaration.sequence
+	if sequence == nil {
+		return newCodegenInternal(
+			declaration.loc,
+			"render direct-sequence declaration without sequence facts",
+			nil,
+			errCodegenSchemaInvariant,
+		)
+	}
+	source.WriteString("type ")
+	source.WriteString(declaration.name)
+	source.WriteString(" struct {")
+	if len(sequence.fields) == 0 {
+		source.WriteString("}\n\n")
+		return nil
+	}
+	source.WriteByte('\n')
+	for _, field := range sequence.fields {
+		if field.fieldName == "" || field.fieldType == "" {
+			return newCodegenInternal(
+				field.loc,
+				"render direct-sequence declaration with incomplete field facts",
+				nil,
+				errCodegenDirectSequencePlan,
+			)
+		}
+		source.WriteString("\t")
+		source.WriteString(field.fieldName)
+		source.WriteByte(' ')
+		source.WriteString(field.fieldType)
+		source.WriteByte('\n')
+	}
+	source.WriteString("}\n\n")
 	return nil
 }
 

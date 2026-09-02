@@ -280,6 +280,46 @@ func TestCodegenScalarUntypedElementUsesGraphPolicyReference(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep edition-specific component diagnostic assertions together.
+func TestGenerateGoUnsupportedGlobalAttributeUsesGraphPolicyReference(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+		wantRef string
+	}{
+		{name: "Strict10", policy: Strict10, version: "1.0", wantRef: "xsd10-structures#Simple_Type_Definitions"},
+		{name: "Strict11", policy: Strict11, version: "1.1", wantRef: "xsd11-structures#Simple_Type_Definition"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + test.version + `"><xs:attribute name="item" type="xs:integer"/></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			componentLoc := schema.Components()[0].Loc()
+
+			output, err := GenerateGo(schema, "generated")
+			if output != nil || err == nil {
+				t.Fatalf("global attribute result = (%q, %v), want nil output and error", output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported {
+				t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic", diagnostic)
+			}
+			if diagnostic.Feature() != FeatureCodegen || diagnostic.SpecRef() != test.wantRef {
+				t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), FeatureCodegen, test.wantRef)
+			}
+			if diagnostic.Loc() != componentLoc {
+				t.Fatalf("diagnostic location = %s, want attribute location %s", diagnostic.Loc(), componentLoc)
+			}
+			if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+				t.Fatalf("diagnostic lost unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
 func assertCodegenScalarUntypedElement(t *testing.T, version string, policy LanguagePolicy, wantRef string) {
 	t.Helper()
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + version + `"><xs:element name="item"/></xs:schema>`

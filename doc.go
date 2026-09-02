@@ -37,8 +37,9 @@
 // unsupported; anonymous simple-type models and resolved built-in, named, and
 // anonymous simple-type references are modeled. Direct local element
 // references are queryable immutable particles; validation and code generation
-// reject them explicitly as unsupported.
-// Sequence particles are query-only until validation repetition is implemented.
+// reject them explicitly as unsupported. Default-bounded direct integer and
+// decimal sequences are emitted as ordered Go struct fields; sequence
+// validation and non-default occurrences remain unsupported.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:boolean/xs:integer/xs:decimal/
@@ -48,6 +49,6 @@
 // only character data; local boolean particles, attributes, broader particles,
 // and other semantics remain explicit unsupported behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal
-// scalar components and direct scalar choices; boolean facets and local boolean
-// particles remain unsupported.
+// scalar components, direct scalar choices, and default-bounded direct integer/
+// decimal sequences; boolean facets and local boolean particles remain unsupported.
 package goxsd9

@@ -89,7 +89,9 @@ elements, or one direct choice of those scalar elements, maps the completed
 range and ordered children into the public schema. The shared effective `0/0`
 mapping for sequence, choice, and child particles precedes type-specific
 support gating and maps to absence. The same exact representation is retained
-for choice facts while repetition consumers remain unsupported. XSD 1.1
+for choice facts while validation repetition consumers remain unsupported.
+Default-bounded direct integer/decimal sequence children are emitted as ordered
+Go struct fields. XSD 1.1
 default-occurrence direct choices may use `precisionDecimal` only when the
 choice and each mapped `precisionDecimal` alternative use default occurrences;
 non-precision alternatives may retain non-default ranges for queries. Non-`0/0`
@@ -154,15 +156,17 @@ particle remain unsupported even under XSD 1.1 and Compatibility. An effective
 `0/0` sequence, choice, or child maps to absence before type-specific support
 gating. Supported direct-choice occurrence attributes and non-`0/0`
 alternative ranges are parsed and queryable, but repetition is not implemented
-in validation, repeated Go fields are not generated, and effective total ranges
-are not calculated. Non-default `precisionDecimal` choice and alternative
-ranges that map to a particle are schema-unsupported. Boolean facets and
+in validation, and effective total ranges are not calculated. Non-default
+direct sequence occurrences are not generated as repeated fields. Non-default
+`precisionDecimal` choice and alternative ranges that map to a particle are
+schema-unsupported. Boolean facets and
 anonymous, nested, or broader particles, including nested choices, `all`,
 groups, wildcards, and attributes, remain unsupported; anonymous
 simple-type models and resolved built-in, named, and anonymous simple-type
-references are modeled. Direct element-reference particles are supported for
-direct local choice and sequence children; other element-reference forms
-remain unsupported. Global text-only boolean validation is supported under
+references are modeled. Direct element-reference particles are supported in
+the schema model for local choice and sequence children, but code generation
+rejects them; other element-reference forms remain unsupported. Global
+text-only boolean validation is supported under
 Compatibility, Strict10, and Strict11; global boolean scalar generation is
 supported, while local boolean-particle validation and generation remain
 unsupported;
@@ -179,6 +183,6 @@ resource policy must guard the first.
 The exact occurrence accessors and the temporary `uint64` compatibility methods
 belong to the schema API boundary. Schema mapping, including `0/0` absence,
 belongs to component construction; bounded materialization and repetition
-belong to validation; bounded repeated emission belongs to code generation.
+belong to validation; bounded direct-particle emission belongs to code generation.
 These responsibilities preserve the phase boundaries and edition-specific
 `all` rules recorded here.
