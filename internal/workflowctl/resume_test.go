@@ -158,6 +158,71 @@ func TestPRResumeInjectedIntegration(t *testing.T) {
 	})
 }
 
+func TestPRResumeRejectsProtectedHeadWorktreesBeforeMutation(t *testing.T) {
+	tests := []resumeProtectedHeadTest{
+		{name: "detached expected head", protectRenewal: false},
+		{name: "locked expected head", protectRenewal: false, locked: true},
+		{name: "detached expected head after renewal", provenRenewal: true, protectRenewal: false},
+		{name: "detached proven renewal head", provenRenewal: true, protectRenewal: true},
+		{name: "locked proven renewal head", provenRenewal: true, protectRenewal: true, locked: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			testPRResumeProtectedHeadWorktree(t, test)
+		})
+	}
+}
+
+type resumeProtectedHeadTest struct {
+	name           string
+	provenRenewal  bool
+	protectRenewal bool
+	locked         bool
+}
+
+func testPRResumeProtectedHeadWorktree(t *testing.T, test resumeProtectedHeadTest) {
+	t.Helper()
+	fixture := newResumeFixture(t)
+	protectedRenewal := fixture.expected
+	if test.provenRenewal {
+		lease := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+		protectedRenewal = createResumeTestCommit(t, fixture.worktree, fixture.expected,
+			claimMessage(14, fixture.runID, lease))
+		runGitTest(t, fixture.worktree, "reset", "--hard", protectedRenewal)
+		runGitTest(t, fixture.worktree, "push", "--force", "origin",
+			protectedRenewal+":refs/heads/agent/issue-14")
+	}
+	protectedHead := fixture.expected
+	if test.protectRenewal {
+		protectedHead = protectedRenewal
+	}
+	duplicate := filepath.Join(t.TempDir(), "duplicate")
+	runGitTest(t, fixture.primary, "worktree", "add", "--detach", duplicate, protectedHead)
+	if test.locked {
+		runGitTest(t, fixture.primary, "worktree", "lock", duplicate)
+	}
+	localBefore := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/agent/issue-14")
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	err := application.run(resumeArgs(fixture.expected))
+	if err == nil || !strings.Contains(err.Error(), "detached duplicate/orphan claim worktree") {
+		t.Fatalf("protected head error = %v, want detached/unknown worktree refusal", err)
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("protected head mutations = %d; calls=%v", backend.mutations, backend.calls)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != localBefore {
+		t.Fatalf("local head changed: got %s, want %s", got, localBefore)
+	}
+	if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/agent/issue-14"); got != remoteBefore {
+		t.Fatalf("remote fixed head changed: got %q, want %q", got, remoteBefore)
+	}
+	if inventory := runGitTest(t, fixture.primary, "worktree", "list", "--porcelain"); !strings.Contains(inventory, duplicate) {
+		t.Fatalf("protected worktree was removed:\n%s", inventory)
+	}
+}
+
 func TestPRResumeAcceptsCurrentRunLocalAncestorSourceDivergence(t *testing.T) {
 	for _, name := range []string{"#274 remote ancestor", "#284 remote ancestor", "#286 remote ancestor"} {
 		t.Run(name, func(t *testing.T) {

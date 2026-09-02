@@ -150,9 +150,6 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	if err != nil {
 		return resumeProof{}, err
 	}
-	if worktreeErr := validateResumeWorktree(layout, root, localBranch, issue, local, lineage); worktreeErr != nil {
-		return resumeProof{}, worktreeErr
-	}
 	localAncestor, err := a.inspectResumeLocalAncestor(root, local, expectedHead, localBranch)
 	if err != nil {
 		return resumeProof{}, err
@@ -190,6 +187,13 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	}
 	if !already && !issueNeedsHuman(status) {
 		return resumeProof{}, stateError("issue #%d must be labeled needs-human before stale PR recovery", issue)
+	}
+	protectedHeads := resumeProtectedHeads(expectedHead, remote)
+	if pending && !localAncestor {
+		protectedHeads = resumeProtectedHeads(expectedHead, remote, local)
+	}
+	if worktreeErr := validateResumeWorktreeHeads(layout, root, localBranch, issue, local, protectedHeads, lineage); worktreeErr != nil {
+		return resumeProof{}, worktreeErr
 	}
 	proof := resumeProof{root: root, localBranch: localBranch, issue: issue, pr: pr, expectedHead: expectedHead,
 		observedHead: remote, renewalHead: local, runID: runID, runLocalHead: runLocal.sha, runLocalPresent: runLocal.present,
@@ -394,7 +398,11 @@ func (a app) validateResumeSealWorktree(proof resumeProof, local string) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	if worktreeErr := validateResumeWorktree(layout, proof.root, proof.localBranch, proof.issue, local, lineage); worktreeErr != nil {
+	protectedHeads := resumeProtectedHeads(proof.expectedHead, proof.observedHead)
+	if !proof.localAncestor && local != proof.expectedHead {
+		protectedHeads = resumeProtectedHeads(proof.expectedHead, proof.observedHead, local)
+	}
+	if worktreeErr := validateResumeWorktreeHeads(layout, proof.root, proof.localBranch, proof.issue, local, protectedHeads, lineage); worktreeErr != nil {
 		return nil, worktreeErr
 	}
 	if !proof.localAncestor {
@@ -446,7 +454,7 @@ func validateResumeWorktreeHeads(layout repositoryLayout, root, branch string, i
 		candidateIssue, ok := issueFromBranch(candidate)
 		lineageHead := containsResumeHead(protectedHeads, worktree.head)
 		if !ok || candidateIssue != issue {
-			if lineageProvided || !lineageHead || samePath(worktree.path, root) {
+			if !lineageHead {
 				continue
 			}
 			return stateError("detached duplicate/orphan claim worktree %q at %s shares the expected claim lineage; preserve it before recovery", worktree.path, worktree.head)
@@ -476,6 +484,17 @@ func containsResumeHead(heads []string, candidate string) bool {
 		}
 	}
 	return false
+}
+
+func resumeProtectedHeads(heads ...string) []string {
+	protected := make([]string, 0, len(heads))
+	for _, head := range heads {
+		if head == "" || containsResumeHead(protected, head) {
+			continue
+		}
+		protected = append(protected, head)
+	}
+	return protected
 }
 
 func (a app) validateExistingResumeCommit(root, head, expected string, issue int, runID string) error {
