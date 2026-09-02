@@ -136,8 +136,9 @@ Non-default `precisionDecimal` choice or alternative ranges that map to a
 particle are schema-unsupported. Local boolean particles, attributes, and broader
 structures remain unsupported for instance validation; locations are primary.
 
-Generation is deterministic, uses choice switches, and supports global
-booleans; boolean facets and local boolean particles remain unsupported.
+Generation deterministically emits choice switches, global booleans, and
+default-bounded direct integer/decimal sequence structs; boolean facets and
+local particles are unsupported.
 
 ## Conformance
 

@@ -92,29 +92,13 @@ type codegenDirectChoiceCollectedAlternative struct {
 // planCodegenDirectChoices collects, validates, names, and materializes one
 // complete private direct-choice plan. It never returns a partial plan.
 func planCodegenDirectChoices(schema Schema, packageName string) (codegenDirectChoicePlan, error) {
-	if err := validateCodegenPackageName(packageName); err != nil {
-		return codegenDirectChoicePlan{}, err
-	}
-	if schema.storage == nil {
-		return codegenDirectChoicePlan{}, newDiagnostic(
-			FailureInvalid,
-			diagnosticCodegenSchemaInvalid,
-			Loc{},
-			"direct-choice code-generation schema is zero or incomplete",
-			errCodegenSchemaEmpty,
-		)
-	}
-
-	components := schema.Components()
-	if err := validateCodegenSchemaStorage(schema, components); err != nil {
-		return codegenDirectChoicePlan{}, err
-	}
-	version, err := codegenSchemaVersion(schema)
+	components, version, err := prepareCodegenPlanSchema(
+		schema,
+		packageName,
+		"direct-choice code-generation schema is zero or incomplete",
+	)
 	if err != nil {
 		return codegenDirectChoicePlan{}, err
-	}
-	if factErr := rejectCodegenElementFacts(components, version); factErr != nil {
-		return codegenDirectChoicePlan{}, factErr
 	}
 	collected, err := collectCodegenDirectChoices(schema, components, version)
 	if err != nil {
@@ -139,7 +123,7 @@ func planCodegenDirectChoices(schema Schema, packageName string) (codegenDirectC
 	return plan, nil
 }
 
-//nolint:gocognit,funlen // Keep collection and ordered particle preflight in one phase.
+//nolint:gocognit // Keep direct-choice collection and shape dispatch together.
 func collectCodegenDirectChoices(
 	schema Schema,
 	components []Component,
@@ -198,120 +182,136 @@ func collectCodegenDirectChoices(
 				codegenDirectChoiceParticlesReference,
 			)
 		}
-		if choice.facts == nil {
-			return nil, newCodegenInternal(
-				component.Loc(),
-				fmt.Sprintf("complex type %q has an incomplete choice particle", component.Name()),
+		owner, ownerErr := collectCodegenDirectChoiceOwner(schema, component, choice, version)
+		if ownerErr != nil {
+			return nil, ownerErr
+		}
+		owners = append(owners, owner)
+	}
+	return owners, nil
+}
+
+// collectCodegenDirectChoiceOwner validates and collects one completed direct
+// choice while preserving its lexical alternative order.
+//
+//nolint:gocognit,funlen // Keep one completed choice's ordered preflight together.
+func collectCodegenDirectChoiceOwner(
+	schema Schema,
+	component Component,
+	choice ChoiceParticle,
+	version XSDVersion,
+) (codegenDirectChoiceCollectedOwner, error) {
+	if choice.facts == nil {
+		return codegenDirectChoiceCollectedOwner{}, newCodegenInternal(
+			component.Loc(),
+			fmt.Sprintf("complex type %q has an incomplete choice particle", component.Name()),
+			nil,
+			errCodegenDirectChoiceParticle,
+		)
+	}
+	if err := validateCodegenDirectChoiceBounds(
+		choice.facts.occurrences,
+		choice.Loc(),
+		"choice",
+		version,
+	); err != nil {
+		return codegenDirectChoiceCollectedOwner{}, err
+	}
+
+	owner := codegenDirectChoiceCollectedOwner{
+		id:           component.ID(),
+		name:         component.Name(),
+		loc:          component.Loc(),
+		choiceLoc:    choice.Loc(),
+		alternatives: make([]codegenDirectChoiceCollectedAlternative, 0, len(choice.Alternatives())),
+	}
+	for index, alternative := range choice.Alternatives() {
+		if alternative == nil {
+			return codegenDirectChoiceCollectedOwner{}, newCodegenInternal(
+				choice.Loc(),
+				"direct-choice alternative is nil",
+				nil,
+				errCodegenDirectChoiceParticle,
+			)
+		}
+		if directChoiceTypedNilParticle(alternative) {
+			return codegenDirectChoiceCollectedOwner{}, newCodegenInternal(
+				choice.Loc(),
+				"direct-choice alternative is a typed-nil particle",
+				nil,
+				errCodegenDirectChoiceParticle,
+			)
+		}
+		if reference, referenceOK := elementReferenceParticleValue(alternative); referenceOK {
+			if reference.facts == nil {
+				return codegenDirectChoiceCollectedOwner{}, newCodegenInternal(
+					choice.Loc(),
+					"direct-choice element reference has incomplete particle facts",
+					nil,
+					errCodegenDirectChoiceParticle,
+				)
+			}
+			return codegenDirectChoiceCollectedOwner{}, codegenDirectChoiceReferenceUnsupported(schema, reference, version)
+		}
+		path, pathErr := codegenDirectChoicePath(index)
+		if pathErr != nil {
+			return codegenDirectChoiceCollectedOwner{}, newCodegenInternal(
+				choice.Loc(),
+				"construct direct-choice alternative path",
+				nil,
+				pathErr,
+			)
+		}
+		element, elementOK := directChoiceValueElement(alternative)
+		if !elementOK {
+			if nested, nestedOK := directChoiceNestedChoice(alternative); nestedOK && nested.facts == nil {
+				return codegenDirectChoiceCollectedOwner{}, newCodegenInternal(
+					choice.Loc(),
+					"direct-choice alternative contains an incomplete nested choice",
+					nil,
+					errCodegenDirectChoiceParticle,
+				)
+			}
+			return codegenDirectChoiceCollectedOwner{}, newCodegenDirectChoiceUnsupported(
+				choice.Loc(),
+				"nested or non-element choice alternatives are outside direct choice generation",
+				nil,
+				fmt.Errorf("%w: choice alternative is not a direct element", errCodegenUnsupported),
+				version,
+				codegenDirectChoiceParticlesReference,
+			)
+		}
+		if element.facts == nil {
+			return codegenDirectChoiceCollectedOwner{}, newCodegenInternal(
+				choice.Loc(),
+				"direct-choice element alternative has incomplete particle facts",
 				nil,
 				errCodegenDirectChoiceParticle,
 			)
 		}
 		if err := validateCodegenDirectChoiceBounds(
-			choice.facts.occurrences,
-			choice.Loc(),
-			"choice",
+			element.facts.occurrences,
+			element.Loc(),
+			"choice element",
 			version,
 		); err != nil {
-			return nil, err
+			return codegenDirectChoiceCollectedOwner{}, err
 		}
-
-		owner := codegenDirectChoiceCollectedOwner{
-			id:           component.ID(),
-			name:         component.Name(),
-			loc:          component.Loc(),
-			choiceLoc:    choice.Loc(),
-			alternatives: make([]codegenDirectChoiceCollectedAlternative, 0, len(choice.Alternatives())),
+		if err := validateCodegenDirectChoiceQName(element.Name(), element.Loc(), "local element"); err != nil {
+			return codegenDirectChoiceCollectedOwner{}, err
 		}
-		alternatives := choice.Alternatives()
-		for index, alternative := range alternatives {
-			if alternative == nil {
-				return nil, newCodegenInternal(
-					choice.Loc(),
-					"direct-choice alternative is nil",
-					nil,
-					errCodegenDirectChoiceParticle,
-				)
-			}
-			if directChoiceTypedNilParticle(alternative) {
-				return nil, newCodegenInternal(
-					choice.Loc(),
-					"direct-choice alternative is a typed-nil particle",
-					nil,
-					errCodegenDirectChoiceParticle,
-				)
-			}
-			if reference, referenceOK := elementReferenceParticleValue(alternative); referenceOK {
-				if reference.facts == nil {
-					return nil, newCodegenInternal(
-						choice.Loc(),
-						"direct-choice element reference has incomplete particle facts",
-						nil,
-						errCodegenDirectChoiceParticle,
-					)
-				}
-				return nil, codegenDirectChoiceReferenceUnsupported(schema, reference, version)
-			}
-			path, pathErr := codegenDirectChoicePath(index)
-			if pathErr != nil {
-				return nil, newCodegenInternal(
-					choice.Loc(),
-					"construct direct-choice alternative path",
-					nil,
-					pathErr,
-				)
-			}
-			element, elementOK := directChoiceValueElement(alternative)
-			if !elementOK {
-				if nested, nestedOK := directChoiceNestedChoice(alternative); nestedOK && nested.facts == nil {
-					return nil, newCodegenInternal(
-						choice.Loc(),
-						"direct-choice alternative contains an incomplete nested choice",
-						nil,
-						errCodegenDirectChoiceParticle,
-					)
-				}
-				return nil, newCodegenDirectChoiceUnsupported(
-					choice.Loc(),
-					"nested or non-element choice alternatives are outside direct choice generation",
-					nil,
-					fmt.Errorf("%w: choice alternative is not a direct element", errCodegenUnsupported),
-					version,
-					codegenDirectChoiceParticlesReference,
-				)
-			}
-			if element.facts == nil {
-				return nil, newCodegenInternal(
-					choice.Loc(),
-					"direct-choice element alternative has incomplete particle facts",
-					nil,
-					errCodegenDirectChoiceParticle,
-				)
-			}
-			if err := validateCodegenDirectChoiceBounds(
-				element.facts.occurrences,
-				element.Loc(),
-				"choice element",
-				version,
-			); err != nil {
-				return nil, err
-			}
-			if err := validateCodegenDirectChoiceQName(element.Name(), element.Loc(), "local element"); err != nil {
-				return nil, err
-			}
-			target, targetErr := validateCodegenDirectChoiceTarget(schema, element, version)
-			if targetErr != nil {
-				return nil, targetErr
-			}
-			owner.alternatives = append(owner.alternatives, codegenDirectChoiceCollectedAlternative{
-				path:   cloneCodegenPath(path),
-				loc:    element.Loc(),
-				name:   element.Name(),
-				target: target,
-			})
+		target, targetErr := validateCodegenDirectChoiceTarget(schema, element, version)
+		if targetErr != nil {
+			return codegenDirectChoiceCollectedOwner{}, targetErr
 		}
-		owners = append(owners, owner)
+		owner.alternatives = append(owner.alternatives, codegenDirectChoiceCollectedAlternative{
+			path:   cloneCodegenPath(path),
+			loc:    element.Loc(),
+			name:   element.Name(),
+			target: target,
+		})
 	}
-	return owners, nil
+	return owner, nil
 }
 
 func directChoiceTypedNilParticle(particle Particle) bool {
