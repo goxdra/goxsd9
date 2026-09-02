@@ -1764,46 +1764,44 @@ func (a app) postAndVerifyEvaluationReceipt(root string, number, primary int,
 		return retryableOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt could not be verified; retry the exact recording command: %w",
 			number, errors.Join(postErr, readErr)))
 	}
-	if verifiedView.State != "OPEN" {
-		return fmt.Errorf("post PR #%d evaluation receipt could not be verified because the PR is %s; preserve the comment and inspect history: %w",
-			number, verifiedView.State, postErr)
-	}
-	if err := evaluationReceiptMatchesCurrentPR(receipt, verifiedView); err != nil {
-		return fmt.Errorf("post PR #%d evaluation receipt could not be verified after PR metadata changed: %w",
-			number, errors.Join(postErr, err))
-	}
-	if err := evaluationReceiptMatchesCurrentEvidence(receipt, verifiedView); err != nil {
-		return fmt.Errorf("post PR #%d evaluation receipt could not be verified after PR evidence changed: %w",
-			number, errors.Join(postErr, err))
+	if err := validatePostedEvaluationReceiptView(number, postErr, receipt, verifiedView); err != nil {
+		return err
 	}
 	verifiedHistory, historyErr := readEvaluationMutationHistory(number, verifiedView.Comments)
 	if historyErr != nil {
 		var duplicateErr *evaluationEquivalentReceiptError
 		if !errors.As(historyErr, &duplicateErr) {
-			return fmt.Errorf("post PR #%d evaluation receipt produced unverifiable history; preserve the comment and retry after inspection: %w",
-				number, errors.Join(postErr, historyErr))
+			return terminalOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt produced unverifiable history; preserve the comment and retry after inspection: %w",
+				number, errors.Join(postErr, historyErr)))
 		}
 		convergedView, convergedHistory, err := a.convergeEvaluationReceiptGroup(root, number, verifiedView,
 			duplicateErr.group, attestation, attestationJSON)
 		if err != nil {
-			return fmt.Errorf("post PR #%d evaluation receipt created equivalent duplicates that could not be converged; retry after inspection: %w",
-				number, errors.Join(postErr, err))
+			if operationDispositionOf(err) != operationDispositionUnknown {
+				return err
+			}
+			return terminalOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt created equivalent duplicates that could not be converged; retry after inspection: %w",
+				number, errors.Join(postErr, err)))
 		}
 		return a.reconcileConvergedEvaluation(root, number, primary, convergedView, convergedHistory, attestation, attestationJSON)
 	}
 	verifiedReceipts, err := evaluationReceiptsFromHistory(verifiedHistory)
 	if err != nil {
-		return fmt.Errorf("post PR #%d evaluation receipt produced invalid logical history; preserve the comment and retry after inspection: %w",
-			number, errors.Join(postErr, err))
+		return terminalOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt produced invalid logical history; preserve the comment and retry after inspection: %w",
+			number, errors.Join(postErr, err)))
 	}
 	verifiedReceipt, found, err := evaluationReceiptForAttestation(verifiedHistory, attestation, attestationJSON,
 		number, verifiedView)
 	if err != nil {
-		return fmt.Errorf("post PR #%d evaluation receipt was not safely authenticated: %w", number, errors.Join(postErr, err))
+		return terminalOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt was not safely authenticated: %w", number, errors.Join(postErr, err)))
 	}
-	if !found || verifiedReceipt.RecordedAt.IsZero() {
-		return fmt.Errorf("post PR #%d evaluation receipt was not authenticated in complete paginated history; retry the exact recording command: %w",
-			number, errors.Join(postErr, errors.New("recorded receipt is absent")))
+	if !found {
+		return retryableOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt was not authenticated in complete paginated history; retry the exact recording command: %w",
+			number, errors.New("recorded receipt is absent")))
+	}
+	if verifiedReceipt.RecordedAt.IsZero() {
+		return terminalOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt has an invalid zero recording timestamp; preserve the comment and request human recovery: %w",
+			number, errors.New("recorded receipt timestamp is zero")))
 	}
 	if postErr != nil {
 		return retryableOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
@@ -1814,6 +1812,22 @@ func (a app) postAndVerifyEvaluationReceipt(root string, number, primary int,
 	}
 	return writeLine(a.stdout, "PR #%d evaluation round %d: %s (%s)", number, verifiedReceipt.Round,
 		verifiedReceipt.Verdict, verifiedView.HeadRefOID)
+}
+
+func validatePostedEvaluationReceiptView(number int, postErr error, receipt evaluationReceipt, view pullRequestView) error {
+	if view.State != "OPEN" {
+		return terminalOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt could not be verified because the PR is %s; preserve the comment and inspect history: %w",
+			number, view.State, errors.Join(postErr, fmt.Errorf("PR is %s", view.State))))
+	}
+	if err := evaluationReceiptMatchesCurrentPR(receipt, view); err != nil {
+		return terminalOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt could not be verified after PR metadata changed: %w",
+			number, errors.Join(postErr, err)))
+	}
+	if err := evaluationReceiptMatchesCurrentEvidence(receipt, view); err != nil {
+		return terminalOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt could not be verified after PR evidence changed: %w",
+			number, errors.Join(postErr, err)))
+	}
+	return nil
 }
 
 func (a app) reconcileExistingEvaluation(root string, number, primary int, view pullRequestView,

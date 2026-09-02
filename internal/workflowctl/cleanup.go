@@ -105,7 +105,7 @@ func (a app) prepareCleanupPlan(root string, layout repositoryLayout, view pullR
 		validateArtifacts: proofBound,
 	}
 	if proofBound {
-		claims, _, err = a.prepareProofBoundCleanupPlan(root, layout, plan)
+		claims, _, err = a.prepareProofBoundCleanupPlanWithEvidence(root, layout, plan)
 		if err != nil {
 			return cleanupPlan{}, err
 		}
@@ -136,24 +136,24 @@ func (a app) prepareCleanupPlan(root string, layout repositoryLayout, view pullR
 	return plan, nil
 }
 
-func (a app) prepareProofBoundCleanupPlan(root string, layout repositoryLayout, plan cleanupPlan) ([]claimArtifact, []provenRunLocalRef, error) {
-	proven, err := a.prepareRunLocalCleanup(root, mergedPacket{plan: plan})
+func (a app) prepareProofBoundCleanupPlanWithEvidence(root string, layout repositoryLayout, plan cleanupPlan) ([]claimArtifact, runLocalCleanupResult, error) {
+	evidence, err := a.prepareRunLocalCleanupResult(root, mergedPacket{plan: plan})
 	if err != nil {
-		return nil, nil, err
+		return nil, runLocalCleanupResult{}, err
 	}
-	claims, err := attachClaimWorktrees(layout, plan.claims, proven)
+	claims, err := attachClaimWorktrees(layout, plan.claims, evidence.proven)
 	if err != nil {
-		return nil, nil, err
+		return nil, runLocalCleanupResult{}, err
 	}
-	claims, err = attachProvenRunLocalWorktrees(layout, claims, proven, root)
+	claims, err = attachProvenRunLocalWorktrees(layout, claims, evidence.proven, root)
 	if err != nil {
-		return nil, nil, err
+		return nil, runLocalCleanupResult{}, err
 	}
-	err = a.validateClaimArtifacts(root, layout, claims, plan.proofHead, plan.primaryIssue, false, proven)
+	err = a.validateClaimArtifactsWithEvidence(root, layout, claims, plan.proofHead, plan.primaryIssue, false, evidence, true)
 	if err != nil {
-		return nil, nil, err
+		return nil, runLocalCleanupResult{}, err
 	}
-	return claims, proven, nil
+	return claims, evidence, nil
 }
 
 func (a app) cleanupClaimsForPlan(root string, view pullRequestView, primary, pullRequestNumber int) ([]claimArtifact, string, bool, error) {
@@ -492,42 +492,34 @@ func (a app) cleanupClaims(base synchronizedBase, packet mergedPacket) error {
 	if !samePath(layout.primaryRoot, plan.layout.primaryRoot) {
 		return stateError("canonical primary checkout changed during claim cleanup; preserve claims and run go tool workflowctl pr recover")
 	}
-	runLocalRefs, err := a.prepareRunLocalCleanup(layout.primaryRoot, packet)
+	runLocalEvidence, err := a.prepareRunLocalCleanupResult(layout.primaryRoot, packet)
 	if err != nil {
 		return err
 	}
-	worktrees, err := a.claimWorktreesForCleanup(layout, plan, runLocalRefs)
+	worktrees, err := a.claimWorktreesForCleanup(layout, plan, runLocalEvidence.proven)
 	if err != nil {
 		return err
 	}
 	if plan.validateArtifacts || len(plan.claims) > 1 {
-		artifactErr := a.validateClaimArtifacts(layout.primaryRoot, layout, plan.claims, plan.proofHead, plan.primaryIssue, plan.allowPrimaryMissing, runLocalRefs)
+		artifactErr := a.validateClaimArtifactsWithEvidence(layout.primaryRoot, layout, plan.claims, plan.proofHead, plan.primaryIssue, plan.allowPrimaryMissing, runLocalEvidence, false)
 		if artifactErr != nil {
 			return artifactErr
 		}
 	}
-	refErr := a.validateClaimRefs(layout.primaryRoot, plan.claims, runLocalRefs)
+	refErr := a.validateClaimRefs(layout.primaryRoot, plan.claims, runLocalEvidence.proven)
 	if refErr != nil {
 		return refErr
 	}
-	if err := a.validateClaimWorktrees(layout.primaryRoot, worktrees, runLocalRefs); err != nil {
+	if err := a.validateClaimWorktrees(layout.primaryRoot, worktrees, runLocalEvidence.proven); err != nil {
 		return err
 	}
-	if err := a.removeClaimWorktrees(layout.primaryRoot, worktrees, runLocalRefs); err != nil {
+	if err := a.removeClaimWorktrees(layout.primaryRoot, worktrees, runLocalEvidence.proven); err != nil {
 		return err
 	}
-	if err := a.removeClaimRefs(layout.primaryRoot, plan.claims, runLocalRefs); err != nil {
+	if err := a.removeClaimRefs(layout.primaryRoot, plan.claims, runLocalEvidence.proven); err != nil {
 		return err
 	}
-	return a.removeRunLocalRefs(layout.primaryRoot, runLocalRefs)
-}
-
-func (a app) prepareRunLocalCleanup(root string, packet mergedPacket) ([]provenRunLocalRef, error) {
-	result, err := a.prepareRunLocalCleanupResult(root, packet)
-	if err != nil {
-		return nil, err
-	}
-	return result.proven, nil
+	return a.removeRunLocalRefs(layout.primaryRoot, runLocalEvidence.proven)
 }
 
 func (a app) prepareRunLocalCleanupResult(root string, packet mergedPacket) (runLocalCleanupResult, error) {
@@ -542,9 +534,6 @@ func (a app) prepareRunLocalCleanupResult(root string, packet mergedPacket) (run
 	if len(matched) == 0 {
 		if err := rejectAmbiguousRunLocalCandidates(candidates, packet.plan.claims); err != nil {
 			return runLocalCleanupResult{}, err
-		}
-		if len(preserved) != 0 {
-			return runLocalCleanupResult{}, stateError("preserve run-local ref %s: no canonical claim marker in evaluated lineage", preserved[0].branch)
 		}
 	}
 	if err := rejectAmbiguousProvenRunLocalCandidates(matched, packet.plan.claims); err != nil {
@@ -1367,6 +1356,16 @@ func rejectAmbiguousRunLocalCandidates(refs []runLocalRefCandidate, claims []cla
 }
 
 func (a app) validateClaimArtifacts(root string, layout repositoryLayout, claims []claimArtifact, head string, primaryIssue int, allowPrimaryMissing bool, validated ...[]provenRunLocalRef) error {
+	proven, err := selectProvenRunLocalRefs(validated...)
+	if err != nil {
+		return err
+	}
+	return a.validateClaimArtifactsWithEvidence(root, layout, claims, head, primaryIssue,
+		allowPrimaryMissing, runLocalCleanupResult{proven: proven}, len(validated) == 0)
+}
+
+func (a app) validateClaimArtifactsWithEvidence(root string, layout repositoryLayout, claims []claimArtifact, head string,
+	primaryIssue int, allowPrimaryMissing bool, evidence runLocalCleanupResult, preMerge bool) error {
 	remote, err := a.remoteClaimRefs(root)
 	if err != nil {
 		return err
@@ -1380,34 +1379,26 @@ func (a app) validateClaimArtifacts(root string, layout repositoryLayout, claims
 		return err
 	}
 	all := append(append(append([]remoteClaim(nil), remote...), local...), tracking...)
-	if len(validated) > 1 {
-		return stateError("claim cleanup received multiple proven run-local target sets; preserve claim artifacts")
-	}
-	if len(validated) == 1 {
-		all = append(all, provenRunLocalArtifacts(validated[0])...)
-	}
+	all = append(all, provenRunLocalArtifacts(evidence.proven)...)
+	all = append(all, preservedRunLocalArtifacts(evidence)...)
 	claimBranches, err := claimBranchIndex(claims)
 	if err != nil {
 		return err
 	}
-	var proven []provenRunLocalRef
-	if len(validated) == 1 {
-		proven = validated[0]
-	}
-	if inferErr := inferClaimLocalBranches(claims, all, proven); inferErr != nil {
+	if inferErr := inferClaimLocalBranchesWithEvidence(claims, all, evidence.proven, evidence.preserved); inferErr != nil {
 		return inferErr
 	}
-	seenExpected, err := a.validateExpectedClaimArtifacts(root, layout, claims, all, head, proven)
+	seenExpected, err := a.validateExpectedClaimArtifactsWithEvidence(root, layout, claims, all, head, evidence)
 	if err != nil {
 		return err
 	}
 	if err := validateMissingClaimArtifacts(claims, seenExpected, primaryIssue, allowPrimaryMissing); err != nil {
 		return err
 	}
-	if err := validateUnexpectedClaimRefs(all, claimBranches, claims, validated...); err != nil {
+	if err := validateUnexpectedClaimRefsWithEvidence(all, claimBranches, claims, evidence.proven, evidence.preserved); err != nil {
 		return err
 	}
-	return validateUnexpectedClaimWorktrees(layout, claimBranches, claims, validated...)
+	return validateUnexpectedClaimWorktreesWithEvidence(layout, claimBranches, claims, evidence.proven, evidence.preserved, preMerge)
 }
 
 func provenRunLocalArtifacts(refs []provenRunLocalRef) []remoteClaim {
@@ -1433,6 +1424,49 @@ func provenRunLocalArtifacts(refs []provenRunLocalRef) []remoteClaim {
 		return artifacts[left].source < artifacts[right].source
 	})
 	return artifacts
+}
+
+func preservedRunLocalArtifacts(evidence runLocalCleanupResult) []remoteClaim {
+	candidates := make([]runLocalRefCandidate, 0, len(evidence.preserved))
+	for _, candidate := range evidence.preserved {
+		candidates = appendUniqueRunLocalCandidate(candidates, candidate)
+	}
+	for _, ref := range evidence.proven {
+		for _, candidate := range ref.preserved {
+			candidates = appendUniqueRunLocalCandidate(candidates, candidate)
+		}
+	}
+	artifacts := make([]remoteClaim, 0, len(candidates)*3)
+	for _, candidate := range candidates {
+		if candidate.remotePresent {
+			artifacts = append(artifacts, remoteClaim{branch: candidate.branch, sha: candidate.sha, source: claimRefRemote})
+		}
+		if candidate.localPresent {
+			artifacts = append(artifacts, remoteClaim{branch: candidate.branch, sha: candidate.sha, source: claimRefLocal})
+		}
+		if candidate.trackingPresent {
+			artifacts = append(artifacts, remoteClaim{branch: candidate.branch, sha: candidate.sha, source: claimRefTracking})
+		}
+	}
+	sort.Slice(artifacts, func(left, right int) bool {
+		if artifacts[left].branch != artifacts[right].branch {
+			return artifacts[left].branch < artifacts[right].branch
+		}
+		if artifacts[left].sha != artifacts[right].sha {
+			return artifacts[left].sha < artifacts[right].sha
+		}
+		return artifacts[left].source < artifacts[right].source
+	})
+	return artifacts
+}
+
+func appendUniqueRunLocalCandidate(candidates []runLocalRefCandidate, candidate runLocalRefCandidate) []runLocalRefCandidate {
+	for _, current := range candidates {
+		if current == candidate {
+			return candidates
+		}
+	}
+	return append(candidates, candidate)
 }
 
 func claimBranchIndex(claims []claimArtifact) (map[string]claimArtifact, error) {
@@ -1463,14 +1497,11 @@ func selectProvenRunLocalRefs(groups ...[]provenRunLocalRef) ([]provenRunLocalRe
 	return nil, nil
 }
 
-func (a app) validateExpectedClaimArtifacts(root string, layout repositoryLayout, claims []claimArtifact, all []remoteClaim, head string, provenGroups ...[]provenRunLocalRef) (map[string]bool, error) {
-	proven, err := selectProvenRunLocalRefs(provenGroups...)
-	if err != nil {
-		return nil, err
-	}
+func (a app) validateExpectedClaimArtifactsWithEvidence(root string, layout repositoryLayout, claims []claimArtifact,
+	all []remoteClaim, head string, evidence runLocalCleanupResult) (map[string]bool, error) {
 	seen := make(map[string]bool, len(claims))
 	for _, claim := range claims {
-		present, err := a.validateExpectedClaimArtifact(root, layout, claim, all, head, proven)
+		present, err := a.validateExpectedClaimArtifact(root, layout, claim, all, head, evidence.proven)
 		if err != nil {
 			return nil, err
 		}
@@ -1555,11 +1586,7 @@ func validateExpectedLocalClaim(all []remoteClaim, claim claimArtifact, provenGr
 }
 
 //nolint:gocognit // Branch inference must reject duplicates while preserving deterministic artifact order.
-func inferClaimLocalBranches(claims []claimArtifact, all []remoteClaim, validated ...[]provenRunLocalRef) error {
-	proven, err := selectProvenRunLocalRefs(validated...)
-	if err != nil {
-		return err
-	}
+func inferClaimLocalBranchesWithEvidence(claims []claimArtifact, all []remoteClaim, proven []provenRunLocalRef, preserved []runLocalRefCandidate) error {
 	for index := range claims {
 		if claims[index].localBranch != "" {
 			continue
@@ -1574,7 +1601,7 @@ func inferClaimLocalBranches(claims []claimArtifact, all []remoteClaim, validate
 			if preservedRunLocalObservation(artifact, proven) {
 				continue
 			}
-			if preservedRunLocalArtifact(artifact.branch, proven) {
+			if preservedRunLocalCandidate(artifact, preserved) {
 				continue
 			}
 			if candidate != "" && candidate != artifact.branch {
@@ -1619,37 +1646,41 @@ func validateMissingClaimArtifacts(claims []claimArtifact, seen map[string]bool,
 }
 
 func validateUnexpectedClaimRefs(all []remoteClaim, expected map[string]claimArtifact, claims []claimArtifact, validated ...[]provenRunLocalRef) error {
-	if len(validated) > 1 {
-		return stateError("claim cleanup received multiple proven run-local target sets; preserve claim artifacts")
+	proven, err := selectProvenRunLocalRefs(validated...)
+	if err != nil {
+		return err
 	}
-	var proven []provenRunLocalRef
-	if len(validated) == 1 {
-		proven = validated[0]
-	}
+	return validateUnexpectedClaimRefsWithEvidence(all, expected, claims, proven, nil)
+}
+
+func validateUnexpectedClaimRefsWithEvidence(all []remoteClaim, expected map[string]claimArtifact, claims []claimArtifact,
+	proven []provenRunLocalRef, preserved []runLocalRefCandidate) error {
 	for _, artifact := range all {
-		if err := validateUnexpectedClaimRef(artifact, expected, claims, proven); err != nil {
+		if err := validateUnexpectedClaimRefWithEvidence(artifact, expected, claims, proven, preserved); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateUnexpectedClaimRef(artifact remoteClaim, expected map[string]claimArtifact, claims []claimArtifact, proven []provenRunLocalRef) error {
+func validateUnexpectedClaimRefWithEvidence(artifact remoteClaim, expected map[string]claimArtifact, claims []claimArtifact,
+	proven []provenRunLocalRef, preserved []runLocalRefCandidate) error {
 	kind, issue, _ := classifyAgentRef(artifact.branch)
 	if kind == agentRefRunLocal {
-		return validateUnexpectedRunLocalRef(artifact, issue, claims, proven)
+		return validateUnexpectedRunLocalRefWithEvidence(artifact, issue, claims, proven, preserved)
 	}
 	return validateUnexpectedClaimArtifact(artifact, expected, claims)
 }
 
-func validateUnexpectedRunLocalRef(artifact remoteClaim, issue int, claims []claimArtifact, proven []provenRunLocalRef) error {
+func validateUnexpectedRunLocalRefWithEvidence(artifact remoteClaim, issue int, claims []claimArtifact, proven []provenRunLocalRef,
+	preserved []runLocalRefCandidate) error {
 	if provenRunLocalArtifactAllowed(artifact, proven) {
 		return nil
 	}
-	if preservedRunLocalObservation(artifact, proven) {
+	if preservedRunLocalArtifact(artifact.branch, proven) && preservedRunLocalObservation(artifact, proven) {
 		return nil
 	}
-	if preservedRunLocalArtifact(artifact.branch, proven) {
+	if preservedRunLocalCandidate(artifact, preserved) {
 		return nil
 	}
 	if hasClaimIssue(claims, issue) {
@@ -1676,43 +1707,55 @@ func validateUnexpectedClaimArtifact(artifact remoteClaim, expected map[string]c
 }
 
 func validateUnexpectedClaimWorktrees(layout repositoryLayout, expected map[string]claimArtifact, claims []claimArtifact, validated ...[]provenRunLocalRef) error {
-	if len(validated) > 1 {
-		return stateError("claim cleanup received multiple proven run-local target sets; preserve claim artifacts")
+	proven, err := selectProvenRunLocalRefs(validated...)
+	if err != nil {
+		return err
 	}
-	preMerge := len(validated) == 0
-	var proven []provenRunLocalRef
-	if len(validated) == 1 {
-		proven = validated[0]
-	}
+	return validateUnexpectedClaimWorktreesWithEvidence(layout, expected, claims, proven, nil, len(validated) == 0)
+}
+
+func validateUnexpectedClaimWorktreesWithEvidence(layout repositoryLayout, expected map[string]claimArtifact, claims []claimArtifact,
+	proven []provenRunLocalRef, preserved []runLocalRefCandidate, preMerge bool) error {
 	for _, worktree := range layout.worktrees {
-		if err := validateUnexpectedClaimWorktree(worktree, expected, claims, proven, preMerge); err != nil {
+		if err := validateUnexpectedClaimWorktreeWithEvidence(worktree, expected, claims, proven, preserved, preMerge); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateUnexpectedClaimWorktree(worktree gitWorktree, expected map[string]claimArtifact, claims []claimArtifact, proven []provenRunLocalRef, preMerge bool) error {
+func validateUnexpectedClaimWorktreeWithEvidence(worktree gitWorktree, expected map[string]claimArtifact, claims []claimArtifact,
+	proven []provenRunLocalRef, preserved []runLocalRefCandidate, preMerge bool) error {
 	branch := strings.TrimPrefix(worktree.branch, "refs/heads/")
 	kind, issue, _ := classifyAgentRef(branch)
 	if kind == agentRefRunLocal {
-		if preMerge && expectedClaimWorktreeAtExactHead(worktree, expected) {
-			return nil
-		}
-		if provenRunLocalWorktreeAllowed(worktree, proven) {
-			return nil
-		}
-		if preservedRunLocalWorktreeArtifact(worktree, proven) {
-			return nil
-		}
-		if preservedRunLocalArtifact(branch, proven) {
-			return nil
-		}
-		if hasClaimIssue(claims, issue) {
-			return stateError("leftover run-local claim worktree %q has no immutable evaluated-head proof; preserve claim artifacts", worktree.path)
-		}
+		return validateRunLocalClaimWorktree(worktree, issue, expected, claims, proven, preserved, preMerge)
+	}
+	return validateFixedClaimWorktree(worktree, branch, expected, claims)
+}
+
+func validateRunLocalClaimWorktree(worktree gitWorktree, issue int, expected map[string]claimArtifact,
+	claims []claimArtifact, proven []provenRunLocalRef, preserved []runLocalRefCandidate, preMerge bool) error {
+	if preMerge && expectedClaimWorktreeAtExactHead(worktree, expected) {
 		return nil
 	}
+	if provenRunLocalWorktreeAllowed(worktree, proven) {
+		return nil
+	}
+	if preservedRunLocalArtifact(strings.TrimPrefix(worktree.branch, "refs/heads/"), proven) &&
+		preservedRunLocalWorktreeArtifact(worktree, proven) {
+		return nil
+	}
+	if preservedRunLocalWorktreeCandidate(worktree, preserved) {
+		return nil
+	}
+	if !hasClaimIssue(claims, issue) {
+		return nil
+	}
+	return stateError("leftover run-local claim worktree %q has no immutable evaluated-head proof; preserve claim artifacts", worktree.path)
+}
+
+func validateFixedClaimWorktree(worktree gitWorktree, branch string, expected map[string]claimArtifact, claims []claimArtifact) error {
 	issue, ok := issueFromBranch(branch)
 	if !ok || !hasClaimIssue(claims, issue) {
 		return nil
@@ -1793,6 +1836,25 @@ func preservedRunLocalObservation(artifact remoteClaim, refs []provenRunLocalRef
 	return false
 }
 
+func preservedRunLocalCandidate(artifact remoteClaim, candidates []runLocalRefCandidate) bool {
+	for _, candidate := range candidates {
+		if candidate.branch != artifact.branch || candidate.sha != artifact.sha {
+			continue
+		}
+		switch artifact.source {
+		case claimRefRemote:
+			return candidate.remotePresent
+		case claimRefLocal:
+			return candidate.localPresent
+		case claimRefTracking:
+			return candidate.trackingPresent
+		default:
+			return false
+		}
+	}
+	return false
+}
+
 func preservedRunLocalWorktreeArtifact(worktree gitWorktree, refs []provenRunLocalRef) bool {
 	branch := strings.TrimPrefix(worktree.branch, "refs/heads/")
 	for _, ref := range refs {
@@ -1800,6 +1862,16 @@ func preservedRunLocalWorktreeArtifact(worktree gitWorktree, refs []provenRunLoc
 			if preserved.localPresent && preserved.branch == branch && preserved.sha == worktree.head {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func preservedRunLocalWorktreeCandidate(worktree gitWorktree, candidates []runLocalRefCandidate) bool {
+	branch := strings.TrimPrefix(worktree.branch, "refs/heads/")
+	for _, candidate := range candidates {
+		if candidate.localPresent && candidate.branch == branch && candidate.sha == worktree.head {
+			return true
 		}
 	}
 	return false

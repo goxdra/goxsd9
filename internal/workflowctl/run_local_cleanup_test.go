@@ -115,49 +115,66 @@ func TestSyncAndPickIgnoreRunLocalRefs(t *testing.T) {
 
 func TestRunLocalCleanupAcceptanceMatrixPreservesBeforeMutation(t *testing.T) {
 	const (
-		issue       = 55
-		fixedBranch = "agent/issue-55"
-		goodBranch  = "agent/issue-55-run-good"
-		goodSHA     = "evaluated-head"
+		goodBranch = "agent/issue-55-run-good"
+		goodSHA    = "evaluated-head"
 	)
-	matrix := []struct {
-		name        string
-		inventory   string
-		currentSHA  string
-		openPR      bool
-		localBranch string
-		want        string
-	}{
+	matrix := []runLocalCleanupAcceptanceCase{
 		{name: "moved", inventory: goodSHA + " refs/heads/" + goodBranch, currentSHA: "moved-head", want: "found moved"},
 		{name: "open PR", inventory: goodSHA + " refs/heads/" + goodBranch, currentSHA: goodSHA, openPR: true, want: "open PR"},
-		{name: "wrong run", inventory: goodSHA + " refs/heads/agent/issue-55-run-other", currentSHA: goodSHA, want: "no canonical claim marker"},
+		{name: "wrong run", inventory: goodSHA + " refs/heads/agent/issue-55-run-other", currentSHA: goodSHA},
 		{name: "wrong SHA", inventory: "unrelated-head refs/heads/" + goodBranch, currentSHA: "unrelated-head", want: "immutable claim head"},
 		{name: "malformed", inventory: "bad refs/heads/agent/issue-55-run-", currentSHA: "bad", want: "malformed run-local"},
 		{name: "ambiguous", inventory: goodSHA + " refs/heads/agent/issue-55-run-a\n" + goodSHA + " refs/heads/agent/issue-55-run-b", currentSHA: goodSHA, want: "ambiguous run-local"},
 		{name: "unrelated commit", inventory: "unrelated-head refs/heads/" + goodBranch, currentSHA: "unrelated-head", want: "immutable claim head"},
 	}
 	for _, test := range matrix {
-		t.Run(test.name, func(t *testing.T) {
-			commands := []string{}
-			application := scriptedRunLocalApplication(test.inventory, test.currentSHA, test.openPR, &commands)
-			packet := mergedPacket{
-				number:   issue,
-				mergeSHA: "merge-proof",
-				plan: cleanupPlan{
-					claims:            []claimArtifact{{issue: issue, branch: fixedBranch, sha: goodSHA, localBranch: test.localBranch}},
-					proofHead:         goodSHA,
-					primaryIssue:      issue,
-					validateArtifacts: true,
-				},
-			}
-			_, err := application.prepareRunLocalCleanup("/repo", packet)
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("prepareRunLocalCleanup error = %v, want %q", err, test.want)
-			}
-			if containsRunLocalDelete(commands) {
-				t.Fatalf("validation attempted deletion commands: %v", commands)
-			}
-		})
+		t.Run(test.name, func(t *testing.T) { runRunLocalCleanupAcceptanceCase(t, test) })
+	}
+}
+
+type runLocalCleanupAcceptanceCase struct {
+	name        string
+	inventory   string
+	currentSHA  string
+	openPR      bool
+	localBranch string
+	want        string
+}
+
+func runRunLocalCleanupAcceptanceCase(t *testing.T, test runLocalCleanupAcceptanceCase) {
+	t.Helper()
+	const (
+		issue       = 55
+		fixedBranch = "agent/issue-55"
+		goodSHA     = "evaluated-head"
+	)
+	commands := []string{}
+	application := scriptedRunLocalApplication(test.inventory, test.currentSHA, test.openPR, &commands)
+	packet := mergedPacket{
+		number:   issue,
+		mergeSHA: "merge-proof",
+		plan: cleanupPlan{
+			claims:            []claimArtifact{{issue: issue, branch: fixedBranch, sha: goodSHA, localBranch: test.localBranch}},
+			proofHead:         goodSHA,
+			primaryIssue:      issue,
+			validateArtifacts: true,
+		},
+	}
+	result, err := application.prepareRunLocalCleanupResult("/repo", packet)
+	if test.want == "" {
+		if err != nil {
+			t.Fatalf("prepareRunLocalCleanup error = %v, want stale-only preservation", err)
+		}
+		if len(result.proven) != 0 || len(result.preserved) != 1 || result.preserved[0].branch != "agent/issue-55-run-other" {
+			t.Fatalf("stale-only cleanup result = %#v, want preserved agent/issue-55-run-other", result)
+		}
+		return
+	}
+	if err == nil || !strings.Contains(err.Error(), test.want) {
+		t.Fatalf("prepareRunLocalCleanup error = %v, want %q", err, test.want)
+	}
+	if containsRunLocalDelete(commands) {
+		t.Fatalf("validation attempted deletion commands: %v", commands)
 	}
 }
 
@@ -213,12 +230,15 @@ func TestRunLocalCleanupIgnoresUnrelatedDivergenceAndMalformedRefs(t *testing.T)
 		proofHead:         goodSHA,
 		validateArtifacts: true,
 	}}
-	refs, err := application.prepareRunLocalCleanup("/repo", packet)
+	result, err := application.prepareRunLocalCleanupResult("/repo", packet)
 	if err != nil {
 		t.Fatalf("prepareRunLocalCleanup: %v", err)
 	}
-	if len(refs) != 1 || refs[0].branch != goodBranch || refs[0].sha != goodSHA {
-		t.Fatalf("proven run-local refs = %#v, want only %s at %s", refs, goodBranch, goodSHA)
+	if len(result.proven) != 1 || result.proven[0].branch != goodBranch || result.proven[0].sha != goodSHA {
+		t.Fatalf("proven run-local refs = %#v, want only %s at %s", result.proven, goodBranch, goodSHA)
+	}
+	if len(result.preserved) != 0 {
+		t.Fatalf("unexpected preserved run-local refs = %#v", result.preserved)
 	}
 	for _, command := range commands {
 		if !strings.Contains(command, "agent/issue-56-run-other") {
@@ -573,6 +593,115 @@ func TestCleanupStrictAncestorIgnoresOlderSameIssueWorktree(t *testing.T) {
 	}
 }
 
+func TestCleanupPreservesStaleOnlyRunLocalArtifacts(t *testing.T) {
+	fixture := newStaleOnlyCleanupFixture(t)
+	commands := []string{}
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, executeCommand: realGitWithNoOpenPRExecutor(t, &commands)}
+	prepareAndRunStaleOnlyCleanup(t, application, fixture)
+	assertStaleOnlyCleanup(t, fixture, commands)
+}
+
+type staleOnlyCleanupFixture struct {
+	repository    baseRepositoryFixture
+	fixedSHA      string
+	staleBranch   string
+	staleWorktree string
+}
+
+func newStaleOnlyCleanupFixture(t *testing.T) staleOnlyCleanupFixture {
+	t.Helper()
+	repository := newBaseRepositoryFixture(t, false)
+	configureTestIdentity(t, repository.linked)
+	runGitTest(t, repository.linked, "commit", "--no-gpg-sign", "--allow-empty", "-m",
+		claimMessage(99, "run-current", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)))
+	fixedSHA := runGitTest(t, repository.linked, "rev-parse", "HEAD")
+	runGitTest(t, repository.linked, "push", "origin", fixedSHA+":refs/heads/agent/issue-99")
+	runGitTest(t, repository.primary, "fetch", "origin", "refs/heads/agent/issue-99:refs/remotes/origin/agent/issue-99")
+	staleBranch := "agent/issue-99-run-old"
+	staleWorktree := claimWorktreePath(repository.primary, staleBranch)
+	runGitTest(t, repository.primary, "worktree", "add", "-b", staleBranch, staleWorktree, fixedSHA)
+	runGitTest(t, repository.linked, "push", "origin", fixedSHA+":refs/heads/"+staleBranch)
+	runGitTest(t, repository.primary, "fetch", "origin", "refs/heads/"+staleBranch+":refs/remotes/origin/"+staleBranch)
+	return staleOnlyCleanupFixture{repository: repository, fixedSHA: fixedSHA, staleBranch: staleBranch, staleWorktree: staleWorktree}
+}
+
+func prepareAndRunStaleOnlyCleanup(t *testing.T, application app, fixture staleOnlyCleanupFixture) {
+	t.Helper()
+	layout, err := application.repositoryLayout(fixture.repository.linked)
+	if err != nil {
+		t.Fatalf("repositoryLayout: %v", err)
+	}
+	plan := cleanupPlan{
+		layout:            layout,
+		callerRoot:        fixture.repository.linked,
+		claims:            []claimArtifact{{issue: 99, branch: "agent/issue-99", sha: fixture.fixedSHA}},
+		proofHead:         fixture.fixedSHA,
+		primaryIssue:      99,
+		validateArtifacts: true,
+	}
+	claims, evidence, err := application.prepareProofBoundCleanupPlanWithEvidence(fixture.repository.linked, layout, plan)
+	if err != nil {
+		t.Fatalf("prepareProofBoundCleanupPlanWithEvidence: %v", err)
+	}
+	if len(evidence.proven) != 0 || len(evidence.preserved) != 1 || evidence.preserved[0].branch != fixture.staleBranch {
+		t.Fatalf("stale-only cleanup evidence = %#v, want one preserved and no proven target", evidence)
+	}
+	plan.claims = claims
+	base := synchronizedBase{fetched: fetchedBase{primary: cleanPrimary{layout: layout}}}
+	packet := mergedPacket{number: 99, mergeSHA: "merge-proof", plan: plan}
+	if err := application.cleanupClaims(base, packet); err != nil {
+		t.Fatalf("cleanupClaims with stale-only run-local evidence: %v", err)
+	}
+	if err := application.cleanupClaims(base, packet); err != nil {
+		t.Fatalf("idempotent cleanupClaims with stale-only run-local evidence: %v", err)
+	}
+}
+
+func assertStaleOnlyCleanup(t *testing.T, fixture staleOnlyCleanupFixture, commands []string) {
+	t.Helper()
+	assertStaleOnlyFixedArtifactsRemoved(t, fixture)
+	assertStaleOnlyArtifactsPreserved(t, fixture)
+	assertNoStaleOnlyMutation(t, fixture.staleBranch, commands)
+}
+
+func assertStaleOnlyFixedArtifactsRemoved(t *testing.T, fixture staleOnlyCleanupFixture) {
+	t.Helper()
+	if output := runGitAllowFailure(t, fixture.repository.primary, "ls-remote", "--heads", "origin", "refs/heads/agent/issue-99"); output != "" {
+		t.Fatalf("fixed remote claim remains: %s", output)
+	}
+	if output := runGitAllowFailure(t, fixture.repository.primary, "show-ref", "--verify", "refs/heads/agent/issue-99"); output != "" {
+		t.Fatalf("fixed local claim remains: %s", output)
+	}
+	if inventory := runGitTest(t, fixture.repository.primary, "worktree", "list", "--porcelain"); strings.Contains(inventory, "worktree "+fixture.repository.linked+"\n") {
+		t.Fatalf("fixed claim worktree remains:\n%s", inventory)
+	}
+}
+
+func assertStaleOnlyArtifactsPreserved(t *testing.T, fixture staleOnlyCleanupFixture) {
+	t.Helper()
+	for _, ref := range []string{"refs/heads/" + fixture.staleBranch, "refs/remotes/origin/" + fixture.staleBranch} {
+		if output := runGitAllowFailure(t, fixture.repository.primary, "show-ref", "--verify", ref); output == "" {
+			t.Fatalf("preserved stale ref %s is missing", ref)
+		}
+	}
+	if output := runGitTest(t, fixture.repository.primary, "ls-remote", "--heads", "origin", "refs/heads/"+fixture.staleBranch); output == "" {
+		t.Fatalf("preserved stale remote ref is missing")
+	}
+	if inventory := runGitTest(t, fixture.repository.primary, "worktree", "list", "--porcelain"); !strings.Contains(inventory, fixture.staleWorktree) {
+		t.Fatalf("preserved stale worktree is missing:\n%s", inventory)
+	}
+}
+
+func assertNoStaleOnlyMutation(t *testing.T, staleBranch string, commands []string) {
+	t.Helper()
+	for _, command := range commands {
+		if strings.Contains(command, staleBranch) && (strings.Contains(command, "push --force-with-lease") ||
+			strings.Contains(command, "update-ref -d") || strings.Contains(command, "worktree remove")) {
+			t.Fatalf("stale-only artifact became a mutation target: %s", command)
+		}
+	}
+}
+
 type ancestorRunLocalProofCase struct {
 	name       string
 	branch     string
@@ -662,7 +791,7 @@ func TestAncestorRunLocalCleanupPreservesIncompleteInventory(t *testing.T) {
 		primaryIssue:      86,
 		validateArtifacts: true,
 	}}
-	_, err := application.prepareRunLocalCleanup("/repo", packet)
+	_, err := application.prepareRunLocalCleanupResult("/repo", packet)
 	if err == nil || !strings.Contains(err.Error(), "malformed entry") {
 		t.Fatalf("incomplete inventory error = %v, want preservation refusal", err)
 	}
