@@ -137,8 +137,8 @@ particle are schema-unsupported. Local boolean particles, attributes, and broade
 structures remain unsupported for instance validation; locations are primary.
 
 Generation deterministically emits choice switches, global booleans, and
-default-bounded direct integer/decimal sequence structs; boolean facets and
-local particles are unsupported.
+default-bounded direct integer/decimal sequence structs; boolean facets, local
+boolean particles remain unsupported.
 
 ## Conformance
 
