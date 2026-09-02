@@ -468,9 +468,39 @@ func TestNamedGroupDirectChoiceReferenceDiagnostics(t *testing.T) { //nolint:goc
 	}
 }
 
+func TestNamedGroupDirectChoiceRejectsMissingZeroRangeReference(t *testing.T) {
+	root := namedGroupReferenceRoot("1.1", `<xs:element ref="g:missing" minOccurs="0" maxOccurs="0"/>`, "")
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err == nil {
+		t.Fatal("missing 0/0 group reference returned a schema")
+	}
+	assertZeroSchema(t, schema)
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaElementReferenceUnresolvedCode || diagnostic.SpecRef() != schemaElementReferenceXSD11SpecRef {
+		t.Fatalf("missing 0/0 reference diagnostic = %s/%q, want invalid/unresolved/%q", diagnostic, diagnostic.SpecRef(), schemaElementReferenceXSD11SpecRef)
+	}
+	if diagnostic.Loc() != namedGroupChoiceLoc(t, root, `ref="g:missing"`) || len(diagnostic.Related()) != 0 {
+		t.Fatalf("missing 0/0 reference location/related = %s/%v", diagnostic.Loc(), diagnostic.Related())
+	}
+	if !errors.Is(err, errSchemaElementReferenceUnresolved) {
+		t.Fatalf("missing 0/0 reference cause is not preserved: %v", err)
+	}
+}
+
 func TestNamedGroupDirectChoiceRejectsDuplicateReferenceParticles(t *testing.T) {
 	root := namedGroupReferenceRoot("1.1", `<xs:element ref="g:item"/><xs:element ref="g:item"/>`, `<xs:element name="item" type="xs:integer"/>`)
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	assertNamedGroupDuplicateReferenceDiagnostic(t, schema, err, root)
+}
+
+func TestNamedGroupDirectChoiceRejectsDuplicateZeroRangeReferences(t *testing.T) {
+	root := namedGroupReferenceRoot("1.1", `<xs:element ref="g:item" minOccurs="0" maxOccurs="0"/><xs:element ref="g:item" minOccurs="0" maxOccurs="0"/>`, `<xs:element name="item" type="xs:integer"/>`)
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	assertNamedGroupDuplicateReferenceDiagnostic(t, schema, err, root)
+}
+
+func assertNamedGroupDuplicateReferenceDiagnostic(t *testing.T, schema Schema, err error, root string) {
+	t.Helper()
 	if err == nil {
 		t.Fatal("duplicate group reference particles returned a schema")
 	}

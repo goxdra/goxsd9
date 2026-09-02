@@ -3679,12 +3679,13 @@ func resolveSchemaChoiceParticleWithOptions(
 	version XSDVersion,
 	rejectDuplicateReferences bool,
 ) (Particle, error) {
-	if !input.occurrences.mapsToParticle() {
-		return nil, nil
-	}
+	mapsToParticle := input.occurrences.mapsToParticle()
 	alternatives := make([]Particle, 0, len(input.alternatives))
 	seenReferences := make(map[QName]Loc)
 	for _, elementInput := range input.alternatives {
+		if !mapsToParticle && elementInput.reference == nil {
+			continue
+		}
 		if !input.occurrences.isDefault() && elementInput.occurrences.mapsToParticle() && elementInput.typeInput != nil {
 			isPrecisionDecimal, err := schemaScalarTypeIsPrecisionDecimal(
 				elementInput.typeInput.declaredType,
@@ -3716,9 +3717,6 @@ func resolveSchemaChoiceParticleWithOptions(
 		if err != nil {
 			return nil, err
 		}
-		if element == nil {
-			continue
-		}
 		if rejectDuplicateReferences && elementInput.reference != nil {
 			firstLoc, seen := seenReferences[elementInput.reference.name]
 			if seen {
@@ -3730,7 +3728,13 @@ func resolveSchemaChoiceParticleWithOptions(
 			}
 			seenReferences[elementInput.reference.name] = elementInput.reference.loc
 		}
+		if element == nil || !elementInput.occurrences.mapsToParticle() {
+			continue
+		}
 		alternatives = append(alternatives, element)
+	}
+	if !mapsToParticle {
+		return nil, nil
 	}
 	choice := &schemaChoiceParticle{
 		loc:          input.loc,
@@ -3790,11 +3794,18 @@ func resolveSchemaElementParticle(
 	version XSDVersion,
 	model string,
 ) (Particle, error) {
+	if input.reference != nil {
+		element, err := resolveSchemaElementReferenceParticle(input, owner, records, byName, visibleSources, version)
+		if err != nil {
+			return nil, err
+		}
+		if !input.occurrences.mapsToParticle() {
+			return nil, nil
+		}
+		return element, nil
+	}
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
-	}
-	if input.reference != nil {
-		return resolveSchemaElementReferenceParticle(input, owner, records, byName, visibleSources, version)
 	}
 	if model == "choice" && !input.occurrences.isDefault() && input.typeInput != nil {
 		isPrecisionDecimal, err := schemaScalarTypeIsPrecisionDecimal(
