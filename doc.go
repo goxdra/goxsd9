@@ -7,17 +7,18 @@
 // supported schema-level components, including simple-type atomic restrictions,
 // lists, and unions. Anonymous simple types and resolved built-in, named, and
 // anonymous simple-type references are modeled, along with global xs:boolean
-// declarations and named restrictions with a boolean base. Queries and walks
-// are deterministic. SimpleTypeDefinition.IsBoolean reports that immutable
-// kind fact. ParseSchema uses graph-wide Compatibility;
+// and atomic xs:string declarations and their named or anonymous restrictions.
+// Queries and walks are deterministic. SimpleTypeDefinition.IsBoolean and
+// StringEnumerationFacets report immutable kind and implemented enumeration
+// facts. ParseSchema uses graph-wide Compatibility;
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
 // The unqualified schema/@version is an inert optional xs:token label: absent,
 // empty, arbitrary, "1.0", and "1.1" values never select or mismatch a policy.
 // Chameleon includes adopt the including target namespace and repair
 // unqualified direct element-reference QNames in supported particles.
 // Redefine/override/defaultOpenContent, assertions, and Boolean facets and
-// datatype facets outside the supported integer/decimal and optional
-// precisionDecimal boundaries return explicit unsupported diagnostics.
+// datatype facets outside the supported string enumeration, integer/decimal,
+// and optional precisionDecimal boundaries return explicit unsupported diagnostics.
 // precisionDecimal is available only when explicitly named under Compatibility
 // or Strict11; Strict10 reports a located policy diagnostic. Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
@@ -34,21 +35,22 @@
 // non-default precisionDecimal choice or alternative ranges and non-0/0
 // direct-sequence precisionDecimal ranges that map to particles are
 // schema-unsupported. Anonymous, nested, and broader particles remain
-// unsupported; anonymous simple-type models and resolved built-in, named, and
-// anonymous simple-type references are modeled. Direct local element
-// references are queryable immutable particles; validation and code generation
-// reject them explicitly as unsupported. Default-bounded direct integer and
-// decimal sequences are emitted as ordered Go struct fields; sequence
-// validation and non-default occurrences remain unsupported.
+// unsupported; local string particles remain unsupported. Anonymous simple-type
+// models and resolved built-in, named, and anonymous simple-type references are
+// modeled. Direct local element references are queryable immutable particles;
+// validation and code generation reject them explicitly as unsupported.
+// Default-bounded direct integer and decimal sequences are emitted as ordered Go
+// struct fields; sequence validation and non-default occurrences remain unsupported.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:boolean/xs:integer/xs:decimal/
 // xs:precisionDecimal, or as a named complex type whose one direct choice and
 // its scalar alternatives use default occurrences and contain local built-in
 // or named integer/decimal/precisionDecimal elements. Scalar elements contain
-// only character data; local boolean particles, attributes, broader particles,
-// and other semantics remain explicit unsupported behavior.
+// only character data; string globals, local boolean/string particles, attributes,
+// broader particles, and other semantics remain explicit unsupported behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal
 // scalar components, direct scalar choices, and default-bounded direct integer/
-// decimal sequences; boolean facets and local boolean particles remain unsupported.
+// decimal sequences; string, boolean facets, and local boolean/string particles
+// remain unsupported.
 package goxsd9

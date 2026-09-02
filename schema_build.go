@@ -3299,7 +3299,7 @@ func resolveSchemaScalarType(
 	if err := rejectUnsupportedSchemaSimpleTypeVariety(input, simpleTypes[candidate], version, complexTargetSuffix); err != nil {
 		return schemaElementTypeResult{}, err
 	}
-	if err := rejectUnsupportedLocalScalarType(input, simpleTypes[candidate], version, scope, allowPrecisionDecimal); err != nil {
+	if err := rejectUnsupportedLocalScalarType(input, simpleTypes[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
 		return schemaElementTypeResult{}, err
 	}
 	return resolvedSchemaElementTypeResult(input, records[candidate].id, true), nil
@@ -3320,8 +3320,26 @@ func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleT
 	)
 }
 
+//nolint:gocognit // Keep built-in scalar scope and version branches explicit.
 func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
+	case "string":
+		if scope != schemaScalarTypeGlobalElement {
+			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
+		}
+		reference, err := builtinSchemaElementTypeReference(input, version)
+		if err != nil {
+			return schemaElementTypeResult{}, err
+		}
+		return schemaElementTypeResult{
+			present:          true,
+			declaredType:     input.declaredType,
+			typeReference:    reference,
+			hasTypeReference: true,
+			abstract:         input.abstract,
+			nillable:         input.nillable,
+			block:            input.block,
+		}, nil
 	case "integer", "decimal":
 		reference, err := builtinSchemaElementTypeReference(input, version)
 		if err != nil {
@@ -3390,9 +3408,12 @@ func builtinSchemaElementTypeReference(input *schemaElementInput, version XSDVer
 	}, version)
 }
 
-func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
+func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
 	if scope != schemaScalarTypeLocalParticle {
 		return nil
+	}
+	if simpleType.atomicKind == schemaSimpleTypeAtomicString {
+		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	}
 	if allowPrecisionDecimal {
 		return nil
