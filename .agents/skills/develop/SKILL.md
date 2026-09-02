@@ -36,7 +36,8 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
 5. Decompose packet; give Smith contract/files/evidence. For affected phase
    boundaries, matrix only covers sibling axes (edition/policy; named/anonymous/
    inline/ref shape; graph visibility/cycles; supported/invalid/unsupported;
-   location/order/provenance), marking N/A. It is handoff-only; cannot widen.
+   location/order/provenance), marking N/A with explicit rationale. It is handoff-only;
+   cannot widen.
    Smith implements/tests/fixes. Follow `AGENTS.md`; mechanize. Unfinished
    boundaries need unsupported diagnostics with feature ID, `Loc`, and versioned
    specification reference; turn actionable discoveries into issues, not TODOs.
@@ -60,9 +61,10 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    `evidence-ready` records; do not infer either state from prose. Before
    evidence update, challenge, or finish, workflowctl
    resolves exact REST base/head, matches local commits, recomputes v2 signals/
-   policy, and compares canonical payload. Managed docs require Curator audit,
-   diff, paths, charters, and head; check placement, relevance, duplication,
-   history, replacement; preserve JSON and repeat after remediation.
+   policy, and compares canonical payload. Managed-document changes require exact
+   Curator audit/review (diff, paths, charters, head; check
+   placement/relevance/duplication/history/replacement); no managed changes record
+   exact audited `Curator review: not required`; preserve JSON and repeat after remediation.
 10. Before challenging, reread the exact PR body against head/evidence/implementation;
     correct stale claims without normalizing Examiner identity. After edits rerun
     exact-base evidence/docs audit and fresh Curator where applicable, then obtain
