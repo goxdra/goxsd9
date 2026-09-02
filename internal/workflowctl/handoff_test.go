@@ -14,21 +14,22 @@ import (
 )
 
 type handoffFixture struct {
-	issueState    string
-	needsHuman    bool
-	projectStatus string
-	projectMember bool
-	projectItemID string
-	projectType   string
-	issueReads    int
-	projectReads  int
-	raceIssue     bool
-	raceProject   bool
-	bodyPath      string
-	body          string
-	comments      []issueCommentAPI
-	commands      []string
-	failCommand   string
+	issueState        string
+	needsHuman        bool
+	projectStatus     string
+	projectMember     bool
+	projectItemID     string
+	projectType       string
+	issueReads        int
+	projectReads      int
+	raceIssue         bool
+	raceProject       bool
+	bodyPath          string
+	body              string
+	comments          []issueCommentAPI
+	commands          []string
+	failCommand       string
+	failAfterMutation string
 }
 
 func newHandoffFixture() *handoffFixture {
@@ -46,6 +47,17 @@ func (f *handoffFixture) execute(_ string, _ io.Reader, name string, args ...str
 	f.commands = append(f.commands, command)
 	if command == f.failCommand {
 		return "", errors.New("simulated handoff failure")
+	}
+	if command == f.failAfterMutation {
+		switch command {
+		case "gh issue edit 14 --repo goxdra/goxsd9 --add-label needs-human":
+			f.needsHuman = true
+		case "gh project item-edit --project-id PVT_kwDOEupz2s4Bgc9A --id item-14 --field-id status-id --single-select-option-id backlog-id":
+			f.projectStatus = "Backlog"
+		case "gh issue comment 14 --repo goxdra/goxsd9 --body-file " + f.bodyPath:
+			f.comments = append(f.comments, issueCommentAPI{Body: f.body, User: issueCommentUser(trustedActor)})
+		}
+		return "", errors.New("simulated ambiguous handoff response")
 	}
 	if name == "git" {
 		return f.executeGit(command, args)
@@ -303,6 +315,79 @@ func TestHandoffNeedsHumanRetryConvergesAfterEvidenceFailure(t *testing.T) {
 	}
 	if len(fixture.comments) != 1 {
 		t.Fatalf("retry comments = %d, want one evidence comment", len(fixture.comments))
+	}
+}
+
+//nolint:gocognit // Table-driven cases keep partial-state convergence coverage aligned.
+func TestHandoffNeedsHumanConvergesPartialStateWithoutRepeatingCompletedWrites(t *testing.T) {
+	tests := []struct {
+		name          string
+		needsHuman    bool
+		projectStatus string
+		trustedBody   bool
+		wantLabel     bool
+		wantProject   bool
+		wantComment   bool
+	}{
+		{name: "label-only", needsHuman: true, projectStatus: "Ready", wantProject: true, wantComment: true},
+		{name: "Project-only", needsHuman: false, projectStatus: "Backlog", wantLabel: true, wantComment: true},
+		{name: "evidence-only", needsHuman: true, projectStatus: "Backlog", trustedBody: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newHandoffFixture()
+			fixture.needsHuman = test.needsHuman
+			fixture.projectStatus = test.projectStatus
+			bodyPath := filepath.Join(t.TempDir(), "handoff.md")
+			if err := fixture.withBody(bodyPath, "terminal evidence\n"); err != nil {
+				t.Fatalf("write body: %v", err)
+			}
+			if test.trustedBody {
+				fixture.comments = []issueCommentAPI{{Body: fixture.body, User: issueCommentUser(trustedActor)}}
+			}
+			application := app{executeCommand: fixture.execute, stdout: new(bytes.Buffer)}
+			if err := application.runHandoff([]string{"14", "--body-file", bodyPath, "--needs-human"}); err != nil {
+				t.Fatalf("partial handoff: %v", err)
+			}
+			joined := strings.Join(fixture.commands, "\n")
+			if got := strings.Contains(joined, "gh issue edit 14 "); got != test.wantLabel {
+				t.Fatalf("label write present = %t, want %t; commands=%v", got, test.wantLabel, fixture.commands)
+			}
+			if got := strings.Contains(joined, "gh project item-edit "); got != test.wantProject {
+				t.Fatalf("Project write present = %t, want %t; commands=%v", got, test.wantProject, fixture.commands)
+			}
+			if got := strings.Contains(joined, "gh issue comment 14 "); got != test.wantComment {
+				t.Fatalf("evidence write present = %t, want %t; commands=%v", got, test.wantComment, fixture.commands)
+			}
+		})
+	}
+}
+
+func TestHandoffNeedsHumanConvergesAmbiguousMutationResponsesByReread(t *testing.T) {
+	tests := []struct {
+		name      string
+		failAfter string
+	}{
+		{name: "label", failAfter: "gh issue edit 14 --repo goxdra/goxsd9 --add-label needs-human"},
+		{name: "Project", failAfter: "gh project item-edit --project-id PVT_kwDOEupz2s4Bgc9A --id item-14 --field-id status-id --single-select-option-id backlog-id"},
+		{name: "evidence", failAfter: "gh issue comment 14 --repo goxdra/goxsd9 --body-file BODY"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newHandoffFixture()
+			bodyPath := filepath.Join(t.TempDir(), "handoff.md")
+			if err := fixture.withBody(bodyPath, "terminal evidence\n"); err != nil {
+				t.Fatalf("write body: %v", err)
+			}
+			fixture.failAfterMutation = strings.Replace(test.failAfter, "BODY", bodyPath, 1)
+			application := app{executeCommand: fixture.execute, stdout: new(bytes.Buffer)}
+			if err := application.runHandoff([]string{"14", "--body-file", bodyPath, "--needs-human"}); err != nil {
+				t.Fatalf("ambiguous %s handoff: %v", test.name, err)
+			}
+			if !fixture.needsHuman || fixture.projectStatus != "Backlog" || len(fixture.comments) != 1 {
+				t.Fatalf("ambiguous %s state = label %t, Project %s, comments %d", test.name, fixture.needsHuman, fixture.projectStatus, len(fixture.comments))
+			}
+		})
 	}
 }
 

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -270,6 +272,78 @@ func TestEvaluationResolutionPostVerificationRejectsUntrustedAuthor(t *testing.T
 	}
 	if backend.commentPostCount != 1 {
 		t.Fatalf("post verification POST count = %d, want one attempted POST", backend.commentPostCount)
+	}
+}
+
+func TestEvaluationResolutionAmbiguousPostIsRetryable(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	challenge, comment := resolutionTestChallenge(t, "ambiguous-resolution", 14, backend.head,
+		time.Now().UTC().Truncate(time.Second).Add(-evaluationChallengeDuration-time.Minute))
+	backend.comments = []issueCommentAPI{workflowCommentAPI(comment)}
+	backend.postCommentResponseMode = "transport"
+	sentinel := errors.New("simulated lost no-verdict resolution response")
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+	application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		output, err := backend.execute(dir, input, name, args...)
+		if name == "gh" && strings.Join(args, " ") == "api --method POST repos/goxdra/goxsd9/issues/14/comments --input -" && err != nil {
+			return output, sentinel
+		}
+		return output, err
+	}
+	reasonFile := writeResolutionReason(t, "The no-verdict resolution response was ambiguous.")
+	err := application.runEvaluation([]string{"resolve", "14", "--challenge", challenge.Challenge, "--reason-file", reasonFile})
+	if err == nil {
+		t.Fatal("ambiguous no-verdict resolution succeeded")
+	}
+	if got := operationDispositionOf(err); got != operationDispositionRetryable {
+		t.Fatalf("ambiguous no-verdict resolution disposition = %v, want retryable: %v", got, err)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("ambiguous no-verdict resolution error = %v, want sentinel cause", err)
+	}
+	if got, want := backend.commentPostCount, 1; got != want {
+		t.Fatalf("ambiguous no-verdict resolution POST count = %d, want %d", got, want)
+	}
+	if history := workflowEvaluationHistory(t, backend, 14); len(history.resolutions) != 1 {
+		t.Fatalf("ambiguous no-verdict resolution history = %#v, want successful mutation preserved", history)
+	}
+}
+
+func TestEvaluationResolutionVerificationReadFailureIsRetryable(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	challenge, comment := resolutionTestChallenge(t, "verification-resolution", 14, backend.head,
+		time.Now().UTC().Truncate(time.Second).Add(-evaluationChallengeDuration-time.Minute))
+	backend.comments = []issueCommentAPI{workflowCommentAPI(comment)}
+	sentinel := errors.New("simulated no-verdict resolution verification GET failure")
+	failCommentsRead := false
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+	application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if failCommentsRead && command == "gh api --paginate repos/goxdra/goxsd9/issues/14/comments?per_page=100" {
+			failCommentsRead = false
+			return "", sentinel
+		}
+		output, err := backend.execute(dir, input, name, args...)
+		if err == nil && command == "gh api --method POST repos/goxdra/goxsd9/issues/14/comments --input -" {
+			failCommentsRead = true
+		}
+		return output, err
+	}
+	reasonFile := writeResolutionReason(t, "The no-verdict resolution verification read failed.")
+	err := application.runEvaluation([]string{"resolve", "14", "--challenge", challenge.Challenge, "--reason-file", reasonFile})
+	if err == nil {
+		t.Fatal("no-verdict resolution succeeded after injected verification read failure")
+	}
+	if got := operationDispositionOf(err); got != operationDispositionRetryable {
+		t.Fatalf("no-verdict resolution verification disposition = %v, want retryable: %v", got, err)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("no-verdict resolution verification error = %v, want sentinel cause", err)
+	}
+	if got, want := backend.commentPostCount, 1; got != want {
+		t.Fatalf("no-verdict resolution POST count = %d, want %d", got, want)
 	}
 }
 

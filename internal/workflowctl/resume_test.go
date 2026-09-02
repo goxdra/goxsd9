@@ -136,6 +136,138 @@ func TestPRResumeInjectedIntegration(t *testing.T) {
 			t.Fatalf("local-only retry head = %s, want existing child %s", got, child)
 		}
 	})
+
+	t.Run("current and older run-local artifacts are preserved independently", func(t *testing.T) {
+		fixture := newResumeFixture(t)
+		staleBranch := "agent/issue-14-run-old"
+		stalePath := claimWorktreePath(fixture.primary, staleBranch)
+		runGitTest(t, fixture.primary, "worktree", "add", "-b", staleBranch, stalePath, fixture.expected)
+		runGitTest(t, fixture.primary, "push", "origin", fixture.expected+":refs/heads/"+staleBranch)
+		runGitTest(t, fixture.primary, "push", "origin", fixture.expected+":refs/heads/agent/issue-14-run-resume-test")
+		backend := newResumeBackend(t, fixture)
+		application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+		if err := application.run(resumeArgs(fixture.expected)); err != nil {
+			t.Fatalf("resume with current and older run-local artifacts: %v", err)
+		}
+		if output := runGitTest(t, fixture.primary, "ls-remote", "--heads", "origin", "refs/heads/"+staleBranch); !strings.Contains(output, staleBranch) {
+			t.Fatalf("stale remote ref = %q, want preserved %s", output, staleBranch)
+		}
+		if output := runGitTest(t, fixture.primary, "worktree", "list", "--porcelain"); !strings.Contains(output, stalePath) {
+			t.Fatalf("stale worktree was removed:\n%s", output)
+		}
+	})
+}
+
+func TestPRResumeAcceptsCurrentRunLocalAncestorSourceDivergence(t *testing.T) {
+	for _, name := range []string{"#274 remote ancestor", "#284 remote ancestor", "#286 remote ancestor"} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newResumeFixture(t)
+			ancestor := runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^")
+			runGitTest(t, fixture.worktree, "push", "origin", ancestor+":refs/heads/agent/issue-14-run-resume-test")
+			backend := newResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			if err := application.run(append(resumeArgs(fixture.expected), "--dry-run")); err != nil {
+				t.Fatalf("resume with current strict-ancestor source: %v", err)
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("ancestor source dry-run mutations = %d; calls=%v", backend.mutations, backend.calls)
+			}
+		})
+	}
+}
+
+func TestPRResumeFastForwardsCleanLocalAncestorWithRemoteAncestor(t *testing.T) {
+	fixture := newResumeFixture(t)
+	ancestor := runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^")
+	runGitTest(t, fixture.worktree, "reset", "--hard", ancestor)
+	runGitTest(t, fixture.worktree, "push", "origin", ancestor+":refs/heads/agent/issue-14-run-resume-test")
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.run(resumeArgs(fixture.expected)); err != nil {
+		t.Fatalf("resume with clean local and remote ancestors: %v", err)
+	}
+	head := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^"); got != fixture.expected {
+		t.Fatalf("renewal parent = %s, want expected head %s", got, fixture.expected)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("renewal head changed during inspection: got %s, want %s", got, head)
+	}
+	if output := runGitTest(t, fixture.worktree, "ls-remote", "--heads", "origin", "refs/heads/agent/issue-14-run-resume-test"); !strings.Contains(output, ancestor) {
+		t.Fatalf("remote run-local ancestor = %q, want preserved %s", output, ancestor)
+	}
+}
+
+func TestPRResumeRejectsDirtyLocalAncestor(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		file string
+	}{
+		{name: "unstaged", file: "dirty.txt"},
+		{name: "untracked", file: "untracked.txt"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newResumeFixture(t)
+			ancestor := runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^")
+			runGitTest(t, fixture.worktree, "reset", "--hard", ancestor)
+			if err := os.WriteFile(filepath.Join(fixture.worktree, test.file), []byte("preserve\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runGitTest(t, fixture.worktree, "push", "origin", ancestor+":refs/heads/agent/issue-14-run-resume-test")
+			backend := newResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			err := application.run(resumeArgs(fixture.expected))
+			if err == nil || !strings.Contains(err.Error(), "not clean before fast-forward") {
+				t.Fatalf("dirty local ancestor error = %v, want clean-worktree refusal", err)
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("dirty local ancestor mutations = %d; calls=%v", backend.mutations, backend.calls)
+			}
+		})
+	}
+}
+
+func TestResumeRunLocalAncestorSourceIsRecheckedAtSeal(t *testing.T) {
+	const (
+		fixedBranch = "agent/issue-274"
+		runBranch   = "agent/issue-274-run-current"
+		fixedHead   = "fixed-head"
+		ancestor    = "ancestor-head"
+		moved       = "moved-head"
+	)
+	inventoryReads := 0
+	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		switch command {
+		case "git ls-remote --heads origin refs/heads/agent/*":
+			inventoryReads++
+			runHead := ancestor
+			if inventoryReads > 1 {
+				runHead = moved
+			}
+			return fixedHead + " refs/heads/" + fixedBranch + "\n" + runHead + " refs/heads/" + runBranch, nil
+		case "git merge-base --is-ancestor " + ancestor + " " + fixedHead:
+			return "", nil
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+	observation, err := application.inspectResumeClaimConflicts("/repo", 274, fixedBranch, fixedHead, runBranch, "run-current",
+		resumeRunLocalExpectation{}, nil)
+	if err != nil {
+		t.Fatalf("initial ancestor source inspection: %v", err)
+	}
+	if observation.sha != ancestor || !observation.present {
+		t.Fatalf("initial source observation = %#v, want %s", observation, ancestor)
+	}
+	_, err = application.inspectResumeClaimConflicts("/repo", 274, fixedBranch, fixedHead, runBranch, "run-current",
+		resumeRunLocalExpectation{sha: observation.sha, present: true, set: true}, nil)
+	if err == nil || !strings.Contains(err.Error(), "moved during proof") {
+		t.Fatalf("moved ancestor source inspection = %v, want exact source race", err)
+	}
+	if !isRunLocalSourceRace(err) {
+		t.Fatalf("moved ancestor source error = %v, want typed source race", err)
+	}
 }
 
 //nolint:gocognit // The rejection table keeps each proof failure and its zero-mutation assertion together.
@@ -177,12 +309,13 @@ func TestPRResumeInjectedRejectionsPrecedeMutation(t *testing.T) {
 		{name: "wrong run branch", edit: func(f *resumeFixture, _ *resumeBackend) {
 			runGitTest(t, f.worktree, "branch", "-m", "agent/issue-14-run-wrong")
 		}, want: "does not match Agent-Run-ID"},
-		{name: "conflicting run-local ref", edit: func(f *resumeFixture, _ *resumeBackend) {
-			runGitTest(t, f.worktree, "push", "origin", f.expected+":refs/heads/agent/issue-14-run-conflict")
+		{name: "current run-local head race", edit: func(f *resumeFixture, _ *resumeBackend) {
+			moved := createResumeTestCommit(t, f.worktree, f.expected, "test: move current run-local ref\n")
+			runGitTest(t, f.worktree, "push", "origin", moved+":refs/heads/agent/issue-14-run-resume-test")
 		}, want: "conflicting run-local ref"},
-		{name: "duplicate issue worktree", edit: func(f *resumeFixture, _ *resumeBackend) {
+		{name: "duplicate fixed claim worktree", edit: func(f *resumeFixture, _ *resumeBackend) {
 			path := filepath.Join(t.TempDir(), "duplicate")
-			runGitTest(t, f.worktree, "worktree", "add", "-b", "agent/issue-14-run-duplicate", path, f.expected)
+			runGitTest(t, f.worktree, "worktree", "add", "-b", "agent/issue-14", path, f.expected)
 		}, want: "stale duplicate/orphan claim worktree"},
 	}
 	for _, test := range tests {
