@@ -86,10 +86,13 @@ The current schema preflight uses this exact private range to validate lexical
 occurrence input. A named global complex type with one direct sequence of local
 built-in `xs:boolean`, named boolean-restriction, integer, or decimal scalar
 elements, or one direct choice of those scalar elements, maps the completed
-range and ordered children into the public schema. The shared effective `0/0`
-mapping for sequence, choice, and child particles precedes type-specific
-support gating and maps to absence. The same exact representation is retained
-for choice facts while validation repetition consumers remain unsupported.
+range and ordered children into the public schema. A supported global named
+model group with one direct choice of global element-reference particles also
+exposes its ordered children with exact ranges; an effective `0/0` group or
+child maps to absence. The shared effective `0/0` mapping for sequence, choice,
+and child particles precedes type-specific support gating and maps to absence.
+The same exact representation is retained for choice facts while validation
+repetition consumers remain unsupported.
 Default-bounded direct integer/decimal sequence children are emitted as ordered
 Go struct fields. XSD 1.1
 default-occurrence direct choices may use `precisionDecimal` only when the
@@ -147,7 +150,9 @@ behavior. An error-level diagnostic returns no schema.
 
 Currently, the supported occurrence boundary is one named global complex type
 with one direct sequence or direct choice of local built-in `xs:boolean`, named
-boolean-restriction, integer, or decimal scalar elements in XSD 1.0 and 1.1.
+boolean-restriction, integer, or decimal scalar elements, or one global named
+model group with one direct choice of global element-reference particles, in
+XSD 1.0 and 1.1. Both retain exact ranges, and effective `0/0` maps to absence.
 Direct choices may also include XSD 1.1 `precisionDecimal` elements only when
 the choice and each mapped `precisionDecimal` alternative use default
 occurrences. Non-precision alternatives may retain non-default ranges for
@@ -164,8 +169,10 @@ anonymous, nested, or broader particles, including nested choices, `all`,
 groups, wildcards, and attributes, remain unsupported; anonymous
 simple-type models and resolved built-in, named, and anonymous simple-type
 references are modeled. Direct element-reference particles are supported in
-the schema model for local choice and sequence children, but code generation
-rejects them; other element-reference forms remain unsupported. Global
+the schema model for local choice and sequence children and for global
+named-group direct choices; nested group references remain unsupported, and
+validator and code-generator consumption of direct references remains
+unsupported. Global
 text-only boolean validation is supported under
 Compatibility, Strict10, and Strict11; global boolean scalar generation is
 supported, while local boolean-particle validation and generation remain
