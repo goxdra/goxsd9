@@ -541,13 +541,18 @@ func TestParseSchemaDirectChoiceUsesDocumentLocalDefaultsAcrossIncludeAndImport(
 	}
 }
 
-func TestParseSchemaKeepsExcludedSequenceNamespacePolicyUnsupported(t *testing.T) {
+//nolint:gocognit // Keep the direct-sequence namespace policy matrix together.
+func TestParseSchemaDirectSequenceUsesElementNamespacePolicy(t *testing.T) {
 	base := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" targetNamespace="urn:root"%s><xs:complexType name="Record"><xs:sequence>%s</xs:sequence></xs:complexType></xs:schema>`
 	qualifiedDefault := fmt.Sprintf(base, ` elementFormDefault="qualified"`, `<xs:element name="value" type="xs:integer"/>`)
-	sequenceSchema, sequenceErr := parseElementNamespaceSchemaResult(t, goxsd9.Strict11, qualifiedDefault, nil)
-	sequenceDiagnostic := assertElementNamespaceFailure(t, sequenceSchema, sequenceErr, goxsd9.FailureUnsupported)
-	if sequenceDiagnostic.Loc().Line() != 1 || !strings.Contains(sequenceDiagnostic.Message(), "elementFormDefault=qualified") {
-		t.Fatalf("qualified sequence diagnostic = %s, want located default boundary", sequenceDiagnostic)
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
+		t.Run(string(policy)+"/default-qualified", func(t *testing.T) {
+			schema := parseElementNamespaceSchema(t, policy, qualifiedDefault, nil)
+			elements := elementNamespaceSequence(t, schema, "urn:root", "Record").Elements()
+			if len(elements) != 1 || elements[0].Name().String() != "{urn:root}value" {
+				t.Fatalf("sequence elements = %#v, want one qualified element", elements)
+			}
+		})
 	}
 
 	defaultUnqualified := fmt.Sprintf(base, ``, `<xs:element name="value" type="xs:integer"/>`)
@@ -570,10 +575,14 @@ func TestParseSchemaKeepsExcludedSequenceNamespacePolicyUnsupported(t *testing.T
 	} {
 		t.Run(particle.name, func(t *testing.T) {
 			root := fmt.Sprintf(base, ``, particle.body)
-			schema, err := parseElementNamespaceSchemaResult(t, goxsd9.Strict11, root, nil)
-			diagnostic := assertElementNamespaceFailure(t, schema, err, goxsd9.FailureUnsupported)
-			if diagnostic.Feature() != goxsd9.FeatureSchemaSyntax || !errors.Is(err, goxsd9.ErrUnsupported) {
-				t.Fatalf("excluded sequence diagnostic = %s, want schema-syntax unsupported", diagnostic)
+			schema := parseElementNamespaceSchema(t, goxsd9.Strict11, root, nil)
+			elements := elementNamespaceSequence(t, schema, "urn:root", "Record").Elements()
+			wantNamespace := ""
+			if particle.name == "explicit target" {
+				wantNamespace = "urn:root"
+			}
+			if len(elements) != 1 || elements[0].Name().Namespace() != wantNamespace {
+				t.Fatalf("sequence elements = %#v, want namespace %q", elements, wantNamespace)
 			}
 		})
 	}
