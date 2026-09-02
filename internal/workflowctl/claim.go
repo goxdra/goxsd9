@@ -200,6 +200,7 @@ func (a app) newClaimCommitWithRunID(root string, number int, parent, runID stri
 	if err != nil {
 		return "", time.Time{}, "", fmt.Errorf("read claim tree: %w", err)
 	}
+	tree = strings.TrimSpace(tree)
 	if strings.TrimSpace(runID) == "" {
 		return "", time.Time{}, "", errors.New("claim run ID must not be empty")
 	}

@@ -440,6 +440,11 @@ func (b *resumeBackend) execute(dir string, input io.Reader, name string, args .
 		b.ambiguousPush = false
 		return "", errors.New("simulated lost push response")
 	}
+	if name == "git" && len(args) > 0 && (args[0] == "cat-file" ||
+		(args[0] == "rev-parse" && len(args) > 1 && strings.HasSuffix(args[1], "^{tree}")) ||
+		(args[0] == "log" && len(args) > 2 && args[1] == "-1" && args[2] == "--format=%B")) {
+		return string(output), nil
+	}
 	return strings.TrimSpace(string(output)), nil
 }
 

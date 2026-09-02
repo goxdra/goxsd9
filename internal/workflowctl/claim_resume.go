@@ -15,15 +15,23 @@ import (
 
 const claimResumeRecoveryTemplate = "Run `go tool workflowctl claim resume %d --expected-head %s --run-id %s --handoff-comment %d --acknowledge-needs-human` again"
 
+// claimResumeProof is the sealed preflight proof plus its explicit renewal
+// state. It is passed by value through each phase and never mutated.
 type claimResumeProof struct {
+	preflight claimResumePreflight
+	renewal   claimResumeRenewalPlan
+}
+
+// claimResumePreflight is the immutable read-only proof sealed before any
+// local-ref or GitHub mutation. The claim worktree is the proof root, so it is
+// represented once rather than duplicated as a second worktree field.
+type claimResumePreflight struct {
 	root             string
 	localBranch      string
 	fixedBranch      string
-	worktree         string
 	expectedHead     string
 	localHead        string
 	remoteHead       string
-	renewalHead      string
 	runID            string
 	issue            int
 	handoffCommentID int64
@@ -33,12 +41,61 @@ type claimResumeProof struct {
 	projectItemID    string
 	projectStatus    string
 	needsHuman       bool
-	renewalPresent   bool
+}
+
+// claimResumeRenewalPlan is a closed set of proof states. A missing renewal
+// and a verified existing renewal cannot be represented by parallel booleans.
+type claimResumeRenewalPlan interface {
+	claimResumeRenewalPlan()
+}
+
+type claimResumeNoRenewal struct{}
+
+func (claimResumeNoRenewal) claimResumeRenewalPlan() {}
+
+type claimResumeExistingRenewal struct {
+	head string
+}
+
+func (claimResumeExistingRenewal) claimResumeRenewalPlan() {}
+
+// claimResumeRenewalProof is a canonical commit proven as the renewal child
+// of the expected claim. It is the input to local adoption.
+type claimResumeRenewalProof struct {
+	head string
+}
+
+// claimResumeLocalRenewal is the same canonical child after the local run
+// branch is known to point at it. It is the input to remote push/convergence.
+type claimResumeLocalRenewal struct {
+	head string
+}
+
+// claimResumeRenewalResult is the verified local and remote renewal result.
+type claimResumeRenewalResult struct {
+	head string
 }
 
 type claimResumeCommitMetadata struct {
 	lease time.Time
 	runID string
+}
+
+// canonicalClaimCommit is the immutable shape emitted by commit-tree for a
+// claim marker.  A marker is deliberately an empty, single-parent commit;
+// source changes and merge history are never part of claim ownership state.
+type canonicalClaimCommit struct {
+	parent string
+	tree   string
+	issue  int
+	runID  string
+	lease  time.Time
+}
+
+type canonicalCommitObject struct {
+	parent  string
+	tree    string
+	message string
 }
 
 type claimResumeCommentEvidence struct {
@@ -104,7 +161,7 @@ func (a app) resumeClaimCommand(args []string) error {
 		return retryableOperationIfRecoverable("claim resume proof", err)
 	}
 	if err := writeLine(a.stdout, "claim resume proof: issue #%d branch %s run %s expected %s handoff-comment %d",
-		proof.issue, proof.fixedBranch, proof.runID, proof.expectedHead, proof.handoffCommentID); err != nil {
+		proof.preflight.issue, proof.preflight.fixedBranch, proof.preflight.runID, proof.preflight.expectedHead, proof.preflight.handoffCommentID); err != nil {
 		return fmt.Errorf("write claim resume proof: %w", err)
 	}
 	if *dryRun {
@@ -158,14 +215,22 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 	if evidence.claimLease != metadata.lease || evidence.claimCommentID < 1 {
 		return claimResumeProof{}, stateError("handoff comment %d is not bound to the exact expired claim lease; preserve evidence", handoffCommentID)
 	}
+	if bindingErr := validateClaimResumeHandoffBindings(evidence.handoffBody, issue, expectedHead, fixedBranch, localBranch, root, runID, metadata.lease); bindingErr != nil {
+		return claimResumeProof{}, stateError("handoff comment %d is not bound to the exact claim artifacts; preserve evidence: %w", handoffCommentID, bindingErr)
+	}
 	if prErr := a.validateNoOpenClaimResumePR(root, fixedBranch, issue); prErr != nil {
 		return claimResumeProof{}, prErr
+	}
+	renewal, err := a.claimResumeRenewalPlan(root, expectedHead, localHead, remoteHead, issue, runID)
+	if err != nil {
+		return claimResumeProof{}, err
 	}
 	layout, err := a.repositoryLayout(root)
 	if err != nil {
 		return claimResumeProof{}, err
 	}
-	if worktreeErr := validateResumeWorktree(layout, root, localBranch, issue, localHead); worktreeErr != nil {
+	protectedHeads := claimResumeProtectedHeads(expectedHead, renewal)
+	if worktreeErr := validateResumeWorktreeHeads(layout, root, localBranch, issue, localHead, protectedHeads); worktreeErr != nil {
 		return claimResumeProof{}, worktreeErr
 	}
 	statusOutput, err := a.command(root, "git", "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none")
@@ -196,20 +261,20 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 	if item.Status != "Backlog" && item.Status != "Picked" {
 		return claimResumeProof{}, stateError("issue #%d Project status %q is not a resumable Backlog/Picked state; preserve external state", issue, item.Status)
 	}
-	renewalHead, renewalPresent, err := a.claimResumeRenewalHead(root, expectedHead, localHead, remoteHead, issue, runID)
-	if err != nil {
-		return claimResumeProof{}, err
-	}
 	needsHuman := issueNeedsHuman(issueStatus)
-	if !renewalPresent && (!needsHuman || item.Status != "Backlog") {
+	if _, existing := renewal.(claimResumeExistingRenewal); !existing && (!needsHuman || item.Status != "Backlog") {
 		return claimResumeProof{}, stateError("issue #%d requires needs-human and Project Backlog before no-PR claim recovery; no mutation performed", issue)
 	}
 	return claimResumeProof{
-		root: root, localBranch: localBranch, fixedBranch: fixedBranch, worktree: root,
-		expectedHead: expectedHead, localHead: localHead, remoteHead: remoteHead, renewalHead: renewalHead,
-		runID: runID, issue: issue, handoffCommentID: handoffCommentID, claimCommentID: evidence.claimCommentID,
-		handoffBody: evidence.handoffBody, claimLease: metadata.lease, projectItemID: item.ID,
-		projectStatus: item.Status, needsHuman: needsHuman, renewalPresent: renewalPresent,
+		preflight: claimResumePreflight{
+			root: root, localBranch: localBranch, fixedBranch: fixedBranch,
+			expectedHead: expectedHead, localHead: localHead, remoteHead: remoteHead,
+			runID: runID, issue: issue, handoffCommentID: handoffCommentID,
+			claimCommentID: evidence.claimCommentID, handoffBody: evidence.handoffBody,
+			claimLease: metadata.lease, projectItemID: item.ID, projectStatus: item.Status,
+			needsHuman: needsHuman,
+		},
+		renewal: renewal,
 	}, nil
 }
 
@@ -233,35 +298,162 @@ func claimResumeFixedHead(inventory agentRefInventory, issue int, fixedBranch st
 }
 
 func (a app) readExactClaimResumeMetadata(root, head string, issue int, runID string) (claimResumeCommitMetadata, error) {
-	message, err := a.command(root, "git", "log", "-1", "--format=%B", head)
+	commit, err := a.readCanonicalClaimCommit(root, head, issue, runID, "")
 	if err != nil {
-		return claimResumeCommitMetadata{}, fmt.Errorf("read exact claim metadata at %s: %w", head, err)
+		return claimResumeCommitMetadata{}, err
 	}
-	if !strings.HasSuffix(message, "\n") {
-		message += "\n"
+	if commit.lease.After(time.Now().UTC()) {
+		return claimResumeCommitMetadata{}, stateError("claim #%d is active until %s; use claim renew", issue, commit.lease.Format(time.RFC3339))
+	}
+	return claimResumeCommitMetadata{lease: commit.lease, runID: commit.runID}, nil
+}
+
+// readCanonicalClaimCommit proves the exact bytes and graph shape of a claim
+// marker.  The raw message is intentionally read without command-output
+// trimming: a missing final LF, trailing bytes, source-bearing tree, or merge
+// parent is a terminal artifact failure.
+func (a app) readCanonicalClaimCommit(root, head string, issue int, runID, expectedParent string) (canonicalClaimCommit, error) {
+	commit, err := a.readCanonicalClaimIdentity(root, head, expectedParent)
+	if err != nil {
+		return canonicalClaimCommit{}, err
+	}
+	if commit.issue != issue || commit.runID != runID {
+		return canonicalClaimCommit{}, stateError("claim marker %s metadata binds issue #%d run %s, not issue #%d run %s; preserve claim artifacts", head, commit.issue, commit.runID, issue, runID)
+	}
+	return commit, nil
+}
+
+// readCanonicalClaimIdentity proves a generated claim marker without assuming
+// which issue or run it should identify. Callers bind the returned identity to
+// their phase-specific expected values.
+func (a app) readCanonicalClaimIdentity(root, head, expectedParent string) (canonicalClaimCommit, error) {
+	if !validExactCommitSHA(head) {
+		return canonicalClaimCommit{}, stateError("claim marker head %q is not a full commit SHA; preserve claim artifacts", head)
+	}
+	object, err := a.gitRaw(root, "cat-file", "commit", head)
+	if err != nil {
+		return canonicalClaimCommit{}, fmt.Errorf("read claim marker object at %s: %w", head, err)
+	}
+	parsed, err := parseCanonicalCommitObject(object, head)
+	if err != nil {
+		return canonicalClaimCommit{}, stateError("claim marker %s has non-canonical parent shape; preserve claim artifacts: %w", head, err)
+	}
+	if expectedParent != "" && parsed.parent != expectedParent {
+		return canonicalClaimCommit{}, stateError("claim marker %s has parent %s, expected %s; preserve claim artifacts", head, parsed.parent, expectedParent)
+	}
+	treeOutput, err := a.gitRaw(root, "rev-parse", head+"^{tree}")
+	if err != nil {
+		return canonicalClaimCommit{}, fmt.Errorf("read claim marker tree at %s: %w", head, err)
+	}
+	tree, err := parseCanonicalSHA(treeOutput, "claim marker tree")
+	if err != nil {
+		return canonicalClaimCommit{}, stateError("claim marker %s has malformed tree identity; preserve claim artifacts: %w", head, err)
+	}
+	if parsed.tree != tree {
+		return canonicalClaimCommit{}, stateError("claim marker %s tree header %s disagrees with resolved tree %s; preserve claim artifacts", head, parsed.tree, tree)
+	}
+	parentTreeOutput, err := a.gitRaw(root, "rev-parse", parsed.parent+"^{tree}")
+	if err != nil {
+		return canonicalClaimCommit{}, fmt.Errorf("read claim marker parent tree at %s: %w", parsed.parent, err)
+	}
+	parentTree, err := parseCanonicalSHA(parentTreeOutput, "claim marker parent tree")
+	if err != nil {
+		return canonicalClaimCommit{}, stateError("claim marker %s parent has malformed tree identity; preserve claim artifacts: %w", head, err)
+	}
+	if tree != parentTree {
+		return canonicalClaimCommit{}, stateError("claim marker %s is source-bearing (tree %s differs from parent tree %s); preserve claim artifacts", head, tree, parentTree)
+	}
+	observedIssue, observedRunID, lease, parseErr := parseCanonicalClaimMessage(parsed.message)
+	if parseErr != nil {
+		return canonicalClaimCommit{}, stateError("claim marker %s has non-canonical metadata; preserve claim artifacts: %w", head, parseErr)
+	}
+	return canonicalClaimCommit{parent: parsed.parent, tree: tree, issue: observedIssue, runID: observedRunID, lease: lease}, nil
+}
+
+//nolint:gocognit // Header shape and exact message bytes are one canonical-artifact check.
+func parseCanonicalCommitObject(object, head string) (canonicalCommitObject, error) {
+	separator := strings.Index(object, "\n\n")
+	if separator < 0 {
+		return canonicalCommitObject{}, errors.New("commit object has no header/message separator")
+	}
+	header := object[:separator]
+	message := object[separator+2:]
+	if !strings.HasSuffix(message, "\n") || strings.HasSuffix(message, "\n\n") || strings.Contains(message, "\r") {
+		return canonicalCommitObject{}, errors.New("commit message is not an exact LF-terminated payload")
+	}
+	var tree string
+	parents := make([]string, 0, 1)
+	for _, line := range strings.Split(header, "\n") {
+		switch {
+		case strings.HasPrefix(line, "tree "):
+			if tree != "" {
+				return canonicalCommitObject{}, errors.New("commit object has duplicate tree headers")
+			}
+			value := strings.TrimPrefix(line, "tree ")
+			if !validExactCommitSHA(value) {
+				return canonicalCommitObject{}, errors.New("commit object has malformed tree header")
+			}
+			tree = value
+		case strings.HasPrefix(line, "parent "):
+			value := strings.TrimPrefix(line, "parent ")
+			if !validExactCommitSHA(value) {
+				return canonicalCommitObject{}, errors.New("commit object has malformed parent header")
+			}
+			parents = append(parents, value)
+		}
+	}
+	if tree == "" {
+		return canonicalCommitObject{}, errors.New("commit object has no tree header")
+	}
+	if len(parents) != 1 {
+		return canonicalCommitObject{}, fmt.Errorf("want exactly one parent for %s, found %d", head, len(parents))
+	}
+	return canonicalCommitObject{parent: parents[0], tree: tree, message: message}, nil
+}
+
+func parseCanonicalSHA(output, label string) (string, error) {
+	if !strings.HasSuffix(output, "\n") || strings.Contains(output, "\r") {
+		return "", fmt.Errorf("%s is not LF-terminated", label)
+	}
+	value := strings.TrimSuffix(output, "\n")
+	if !validExactCommitSHA(value) {
+		return "", fmt.Errorf("%s %q is not a full commit SHA", label, value)
+	}
+	return value, nil
+}
+
+func parseCanonicalClaimMessage(message string) (int, string, time.Time, error) {
+	if !strings.HasSuffix(message, "\n") || strings.Contains(message, "\r") {
+		return 0, "", time.Time{}, errors.New("message is not LF-terminated")
 	}
 	lines := strings.Split(message, "\n")
-	if len(lines) != 7 || lines[0] != fmt.Sprintf("chore(workflow): claim issue #%d", issue) || lines[1] != "" || lines[2] != "Agent-Persona: Smith" {
-		return claimResumeCommitMetadata{}, stateError("expected head %s does not contain the exact expired Smith claim metadata; preserve claim artifacts", head)
+	if len(lines) != 7 || lines[1] != "" || lines[2] != "Agent-Persona: Smith" || lines[6] != "" {
+		return 0, "", time.Time{}, errors.New("message bytes do not match generated claim format")
 	}
-	if !strings.HasPrefix(lines[3], "Agent-Run-ID: ") || !strings.HasPrefix(lines[4], "Agent-Lease-Until: ") ||
-		!strings.HasPrefix(lines[5], "Agent-Issue: ") || lines[6] != "" {
-		return claimResumeCommitMetadata{}, stateError("expected head %s has malformed exact claim metadata; preserve claim artifacts", head)
+	if !strings.HasPrefix(lines[0], "chore(workflow): claim issue #") ||
+		!strings.HasPrefix(lines[3], "Agent-Run-ID: ") ||
+		!strings.HasPrefix(lines[4], "Agent-Lease-Until: ") ||
+		!strings.HasPrefix(lines[5], "Agent-Issue: ") {
+		return 0, "", time.Time{}, errors.New("message fields do not match generated claim format")
 	}
-	observedRunID := strings.TrimPrefix(lines[3], "Agent-Run-ID: ")
+	issueValue := strings.TrimPrefix(lines[0], "chore(workflow): claim issue #")
+	issue, err := positiveNumber(issueValue)
+	if err != nil || strconv.Itoa(issue) != issueValue {
+		return 0, "", time.Time{}, errors.New("message has malformed issue identity")
+	}
+	runID := strings.TrimPrefix(lines[3], "Agent-Run-ID: ")
+	if !validRunID(runID) {
+		return 0, "", time.Time{}, errors.New("message has malformed run identity")
+	}
 	leaseValue := strings.TrimPrefix(lines[4], "Agent-Lease-Until: ")
-	issueValue := strings.TrimPrefix(lines[5], "Agent-Issue: ")
-	if observedRunID != runID || !validRunID(observedRunID) || issueValue != strconv.Itoa(issue) {
-		return claimResumeCommitMetadata{}, stateError("expected head %s claim metadata does not match issue #%d and run %s; preserve claim artifacts", head, issue, runID)
-	}
 	lease, err := time.Parse(time.RFC3339, leaseValue)
 	if err != nil || lease.Format(time.RFC3339) != leaseValue {
-		return claimResumeCommitMetadata{}, stateError("expected head %s has malformed claim lease; preserve claim artifacts", head)
+		return 0, "", time.Time{}, errors.New("message has malformed lease")
 	}
-	if lease.After(time.Now().UTC()) {
-		return claimResumeCommitMetadata{}, stateError("claim #%d is active until %s; use claim renew", issue, lease.Format(time.RFC3339))
+	if strings.TrimPrefix(lines[5], "Agent-Issue: ") != issueValue {
+		return 0, "", time.Time{}, errors.New("message issue trailers disagree")
 	}
-	return claimResumeCommitMetadata{lease: lease, runID: observedRunID}, nil
+	return issue, runID, lease, nil
 }
 
 //nolint:gocognit // Paginated evidence, author, ordering, and path bindings form one authentication check.
@@ -326,7 +518,7 @@ func (a app) readClaimResumeEvidence(root string, issue int, handoffCommentID in
 	if !samePath(claimPath, rootPath) {
 		return claimResumeCommentEvidence{}, stateError("generated claim worktree %q does not match current worktree %q; preserve evidence", claim.worktree, root)
 	}
-	if !strings.Contains(handoffBody, claim.worktree) {
+	if !containsExactPath(handoffBody, claim.worktree) {
 		return claimResumeCommentEvidence{}, stateError("terminal handoff comment %d does not name the exact claim worktree; preserve evidence", handoffCommentID)
 	}
 	return claimResumeCommentEvidence{claimCommentID: comments[claimIndex].ID, claimLease: claim.lease, handoffBody: handoffBody}, nil
@@ -382,6 +574,260 @@ func exactBacktickField(line, prefix string) (string, error) {
 	return value, nil
 }
 
+//nolint:gocognit // Each recorded handoff identity is checked before recovery.
+func validateClaimResumeHandoffBindings(body string, issue int, expectedHead, fixedBranch, localBranch, root, runID string, lease time.Time) error {
+	if err := validateExactIssueMentions(body, issue); err != nil {
+		return err
+	}
+	rootPath, err := absoluteCleanPath(root)
+	if err != nil {
+		return fmt.Errorf("resolve claim worktree root: %w", err)
+	}
+	paths := handoffAbsolutePaths(body)
+	if len(paths) == 0 {
+		return errors.New("handoff does not record the claim worktree path")
+	}
+	for _, path := range paths {
+		cleanPath, pathErr := absoluteCleanPath(path)
+		if pathErr != nil || !samePath(cleanPath, rootPath) {
+			return fmt.Errorf("handoff records worktree path %q, not %q", path, rootPath)
+		}
+	}
+	for _, branch := range handoffBranches(body) {
+		if branch != fixedBranch && branch != localBranch {
+			return fmt.Errorf("handoff records conflicting branch %q", branch)
+		}
+	}
+	for _, observed := range handoffRunIDs(body) {
+		if observed != runID {
+			return fmt.Errorf("handoff records run %q, not %q", observed, runID)
+		}
+	}
+	leases := handoffLeases(body)
+	for _, observed := range leases {
+		if !observed.Equal(lease) {
+			return fmt.Errorf("handoff records lease %s, not %s", observed.Format(time.RFC3339), lease.Format(time.RFC3339))
+		}
+	}
+	if handoffHasLeaseMarker(body) && len(leases) == 0 {
+		return errors.New("handoff records a malformed lease")
+	}
+	for _, observed := range handoffHeads(body) {
+		if len(observed) > len(expectedHead) || !strings.HasPrefix(expectedHead, observed) {
+			return fmt.Errorf("handoff records head %q, not expected head %s", observed, expectedHead)
+		}
+	}
+	return nil
+}
+
+//nolint:gocognit // Every issue token is checked in one pass to prevent substring spoofing.
+func validateExactIssueMentions(body string, issue int) error {
+	lower := strings.ToLower(body)
+	count := 0
+	for offset := 0; offset < len(lower); {
+		relative := strings.Index(lower[offset:], "issue #")
+		if relative < 0 {
+			break
+		}
+		start := offset + relative + len("issue #")
+		if start >= len(lower) || lower[start] < '0' || lower[start] > '9' {
+			return errors.New("handoff contains a malformed issue identity")
+		}
+		end := start
+		for end < len(lower) && lower[end] >= '0' && lower[end] <= '9' {
+			end++
+		}
+		if end < len(lower) && isIssueTokenContinuation(lower[end]) {
+			return errors.New("handoff contains a malformed issue identity")
+		}
+		offset = end
+	}
+	for offset := 0; offset < len(lower); {
+		relative := strings.IndexByte(lower[offset:], '#')
+		if relative < 0 {
+			break
+		}
+		start := offset + relative + 1
+		if start >= len(lower) || lower[start] < '0' || lower[start] > '9' {
+			offset = start
+			continue
+		}
+		end := start
+		for end < len(lower) && lower[end] >= '0' && lower[end] <= '9' {
+			end++
+		}
+		if end < len(lower) && isIssueTokenContinuation(lower[end]) {
+			return errors.New("handoff contains a malformed issue identity")
+		}
+		observed, err := strconv.Atoi(lower[start:end])
+		if err != nil || observed != issue {
+			return fmt.Errorf("handoff mentions issue #%s, not issue #%d", lower[start:end], issue)
+		}
+		count++
+		offset = end
+	}
+	if count == 0 {
+		return fmt.Errorf("handoff does not identify issue #%d", issue)
+	}
+	return nil
+}
+
+func isIssueTokenContinuation(value byte) bool {
+	return value >= '0' && value <= '9' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value == '_'
+}
+
+func handoffBacktickValues(body string) []string {
+	values := make([]string, 0, 4)
+	for offset := 0; offset < len(body); {
+		start := strings.IndexByte(body[offset:], '`')
+		if start < 0 {
+			break
+		}
+		start += offset + 1
+		end := strings.IndexByte(body[start:], '`')
+		if end < 0 {
+			break
+		}
+		end += start
+		values = append(values, body[start:end])
+		offset = end + 1
+	}
+	return values
+}
+
+func handoffTokens(body string) []string {
+	values := make([]string, 0, len(strings.Fields(body)))
+	for _, value := range strings.Fields(body) {
+		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+func handoffAbsolutePaths(body string) []string {
+	paths := make([]string, 0, 2)
+	appendPath := func(value string) {
+		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
+		if strings.HasPrefix(value, "/") {
+			paths = append(paths, value)
+		}
+	}
+	for _, value := range handoffBacktickValues(body) {
+		appendPath(value)
+	}
+	for _, value := range handoffTokens(body) {
+		appendPath(value)
+	}
+	return paths
+}
+
+func handoffBranches(body string) []string {
+	branches := make([]string, 0, 2)
+	appendBranch := func(value string) {
+		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
+		if strings.HasPrefix(value, "agent/issue-") {
+			branches = append(branches, value)
+		}
+	}
+	for _, value := range handoffBacktickValues(body) {
+		appendBranch(value)
+	}
+	for _, value := range handoffTokens(body) {
+		appendBranch(value)
+	}
+	return branches
+}
+
+func handoffRunIDs(body string) []string {
+	runs := make([]string, 0, 1)
+	appendRun := func(value string) {
+		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
+		if strings.HasPrefix(value, "run-") {
+			runs = append(runs, value)
+		}
+	}
+	for _, value := range handoffBacktickValues(body) {
+		appendRun(value)
+	}
+	for _, value := range handoffTokens(body) {
+		if strings.Contains(value, "/") {
+			continue
+		}
+		appendRun(value)
+	}
+	return runs
+}
+
+func handoffLeases(body string) []time.Time {
+	leases := make([]time.Time, 0, 1)
+	appendLease := func(value string) {
+		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil || parsed.Format(time.RFC3339) != value {
+			return
+		}
+		leases = append(leases, parsed)
+	}
+	for _, value := range handoffBacktickValues(body) {
+		appendLease(value)
+	}
+	for _, value := range handoffTokens(body) {
+		appendLease(value)
+	}
+	return leases
+}
+
+func handoffHasLeaseMarker(body string) bool {
+	lower := strings.ToLower(body)
+	for _, marker := range []string{"lease until", "agent-lease-until", "valid through", "expires"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func handoffHeads(body string) []string {
+	heads := make([]string, 0, 1)
+	appendHead := func(value string) {
+		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
+		if len(value) < 7 || !isHexString(value) {
+			return
+		}
+		heads = append(heads, value)
+	}
+	for _, value := range handoffBacktickValues(body) {
+		appendHead(value)
+	}
+	for _, value := range handoffTokens(body) {
+		if strings.Contains(value, "-") || strings.Contains(value, "/") {
+			continue
+		}
+		appendHead(value)
+	}
+	return heads
+}
+
+func isHexString(value string) bool {
+	for _, current := range value {
+		if (current < '0' || current > '9') && (current < 'a' || current > 'f') && (current < 'A' || current > 'F') {
+			return false
+		}
+	}
+	return value != ""
+}
+
+func containsExactPath(body, path string) bool {
+	for _, observed := range handoffAbsolutePaths(body) {
+		if observed == path {
+			return true
+		}
+	}
+	return false
+}
+
 //nolint:funlen,gocognit // Exact historical handoff grammar is deliberately fail-closed.
 func validateTerminalClaimHandoffBody(body string, issue int) error {
 	if !utf8.ValidString(body) || body == "" || !strings.HasSuffix(body, "\n") || strings.HasSuffix(body, "\n\n") {
@@ -431,8 +877,8 @@ func validateTerminalClaimHandoffBody(body string, issue int) error {
 	if !headingMatch {
 		return errors.New("body headings do not match a terminal blocker handoff")
 	}
-	if !strings.Contains(body, fmt.Sprintf("Issue #%d", issue)) {
-		return errors.New("body does not identify the requested issue")
+	if err := validateExactIssueMentions(body, issue); err != nil {
+		return err
 	}
 	lower := strings.ToLower(body)
 	if !strings.Contains(lower, "claim") {
@@ -443,15 +889,20 @@ func validateTerminalClaimHandoffBody(body string, issue int) error {
 		strings.Contains(folded, "worktree clean") || strings.Contains(folded, "only the generated claim commit") ||
 		strings.Contains(folded, "only the generated workflow claim commit") ||
 		strings.Contains(folded, "worktree preserved")
-	if !cleanEvidence || (!strings.Contains(body, "No implementation") && !strings.Contains(body, "No source")) {
+	if !cleanEvidence || (!strings.Contains(lower, "no implementation") && !strings.Contains(lower, "no source")) {
 		return errors.New("body lacks preserved worktree/no-source evidence")
+	}
+	if strings.Contains(folded, "unclean worktree") || strings.Contains(folded, "worktree was unclean") ||
+		strings.Contains(folded, "dirty worktree") || strings.Contains(folded, "worktree was dirty") ||
+		strings.Contains(folded, "worktree is dirty") || strings.Contains(folded, "worktree is unclean") {
+		return errors.New("body contradicts the clean worktree evidence")
 	}
 	noPR := false
 	for _, paragraph := range strings.Split(body, "\n\n") {
-		foldedParagraph := strings.Join(strings.Fields(paragraph), " ")
-		for _, marker := range []string{"No implementation", "No source"} {
+		foldedParagraph := strings.Join(strings.Fields(strings.ToLower(paragraph)), " ")
+		for _, marker := range []string{"no implementation", "no source"} {
 			markerIndex := strings.Index(foldedParagraph, marker)
-			if markerIndex >= 0 && strings.Contains(foldedParagraph[markerIndex:], "PR") {
+			if markerIndex >= 0 && containsHandoffPR(foldedParagraph[markerIndex:]) {
 				noPR = true
 				break
 			}
@@ -463,7 +914,25 @@ func validateTerminalClaimHandoffBody(body string, issue int) error {
 	if !noPR {
 		return errors.New("body lacks an explicit no-PR statement")
 	}
+	for _, contradiction := range []string{"open pr", "a pr was", "pr was opened", "pull request was opened", "created a pr", "created a pull request", "pr exists", "pull request exists", "there is a pr", "there is an open pull request"} {
+		if strings.Contains(folded, contradiction) {
+			return errors.New("body contradicts the no-PR statement")
+		}
+	}
 	return nil
+}
+
+func containsHandoffPR(text string) bool {
+	if strings.Contains(text, "pull request") {
+		return true
+	}
+	for _, token := range strings.Fields(text) {
+		token = strings.Trim(token, "`\"'()[]{}<>,.;:")
+		if token == "pr" {
+			return true
+		}
+	}
+	return false
 }
 
 func (a app) validateNoOpenClaimResumePR(root, fixedBranch string, issue int) error {
@@ -502,27 +971,40 @@ func canonicalClaimResumeProjectItem(list projectList, issue int) (projectItem, 
 	return matches[0], nil
 }
 
-func (a app) claimResumeRenewalHead(root, expectedHead, localHead, remoteHead string, issue int, runID string) (string, bool, error) {
+func (a app) claimResumeRenewalPlan(root, expectedHead, localHead, remoteHead string, issue int, runID string) (claimResumeRenewalPlan, error) {
 	if localHead == expectedHead && remoteHead == expectedHead {
-		return "", false, nil
+		return claimResumeNoRenewal{}, nil
 	}
 	renewal := ""
 	if localHead != expectedHead {
 		if err := a.validateExistingResumeCommit(root, localHead, expectedHead, issue, runID); err != nil {
-			return "", false, stateError("local claim head %s is moved or not the unique renewal child; preserve it: %w", localHead, err)
+			return nil, retryableOperationIfRecoverable("claim resume local renewal proof",
+				fmt.Errorf("local claim head %s is moved or not the unique renewal child; preserve it: %w", localHead, err))
 		}
 		renewal = localHead
 	}
 	if remoteHead != expectedHead {
 		if err := a.validateExistingResumeCommit(root, remoteHead, expectedHead, issue, runID); err != nil {
-			return "", false, stateError("remote fixed claim head %s is moved or not the unique renewal child; preserve it: %w", remoteHead, err)
+			return nil, retryableOperationIfRecoverable("claim resume remote renewal proof",
+				fmt.Errorf("remote fixed claim head %s is moved or not the unique renewal child; preserve it: %w", remoteHead, err))
 		}
 		if renewal != "" && renewal != remoteHead {
-			return "", false, stateError("local and remote renewal children disagree (%s versus %s); preserve both artifacts", renewal, remoteHead)
+			return nil, stateError("local and remote renewal children disagree (%s versus %s); preserve both artifacts", renewal, remoteHead)
 		}
 		renewal = remoteHead
 	}
-	return renewal, true, nil
+	if !validExactCommitSHA(renewal) {
+		return nil, stateError("claim resume renewal head %q is malformed; preserve claim artifacts", renewal)
+	}
+	return claimResumeExistingRenewal{head: renewal}, nil
+}
+
+func claimResumeProtectedHeads(expected string, plan claimResumeRenewalPlan) []string {
+	heads := []string{expected}
+	if existing, ok := plan.(claimResumeExistingRenewal); ok {
+		heads = append(heads, existing.head)
+	}
+	return heads
 }
 
 //nolint:gocognit // Ref parsing and deterministic partitioning are one artifact check.
@@ -691,83 +1173,122 @@ func validExactCommitSHA(value string) bool {
 }
 
 func sameClaimResumeProof(before, after claimResumeProof) error {
-	if before.root != after.root || before.localBranch != after.localBranch || before.fixedBranch != after.fixedBranch ||
-		before.worktree != after.worktree || before.expectedHead != after.expectedHead || before.localHead != after.localHead ||
-		before.remoteHead != after.remoteHead || before.renewalHead != after.renewalHead || before.runID != after.runID ||
-		before.issue != after.issue || before.handoffCommentID != after.handoffCommentID || before.claimCommentID != after.claimCommentID ||
-		before.handoffBody != after.handoffBody || !before.claimLease.Equal(after.claimLease) || before.projectItemID != after.projectItemID ||
-		before.projectStatus != after.projectStatus || before.needsHuman != after.needsHuman || before.renewalPresent != after.renewalPresent {
+	beforePreflight, afterPreflight := before.preflight, after.preflight
+	if beforePreflight.root != afterPreflight.root || beforePreflight.localBranch != afterPreflight.localBranch ||
+		beforePreflight.fixedBranch != afterPreflight.fixedBranch || beforePreflight.expectedHead != afterPreflight.expectedHead ||
+		beforePreflight.localHead != afterPreflight.localHead || beforePreflight.remoteHead != afterPreflight.remoteHead ||
+		beforePreflight.runID != afterPreflight.runID || beforePreflight.issue != afterPreflight.issue ||
+		beforePreflight.handoffCommentID != afterPreflight.handoffCommentID || beforePreflight.claimCommentID != afterPreflight.claimCommentID ||
+		beforePreflight.handoffBody != afterPreflight.handoffBody || !beforePreflight.claimLease.Equal(afterPreflight.claimLease) ||
+		beforePreflight.projectItemID != afterPreflight.projectItemID || beforePreflight.projectStatus != afterPreflight.projectStatus ||
+		beforePreflight.needsHuman != afterPreflight.needsHuman || !sameClaimResumeRenewalPlan(before.renewal, after.renewal) {
 		return stateError("bound issue, handoff, ref, claim, Project, or worktree proof no longer matches")
 	}
 	return nil
 }
 
+func sameClaimResumeRenewalPlan(before, after claimResumeRenewalPlan) bool {
+	switch beforePlan := before.(type) {
+	case claimResumeNoRenewal:
+		_, ok := after.(claimResumeNoRenewal)
+		return ok
+	case claimResumeExistingRenewal:
+		afterPlan, ok := after.(claimResumeExistingRenewal)
+		return ok && beforePlan.head == afterPlan.head
+	default:
+		return false
+	}
+}
+
 func (a app) applyClaimResume(proof claimResumeProof) error {
 	// This is the fresh read-only seal. No ref or GitHub mutation precedes it.
-	fresh, err := a.readClaimResumeProof(proof.issue, proof.expectedHead, proof.runID, proof.handoffCommentID)
+	fresh, err := a.readClaimResumeProof(proof.preflight.issue, proof.preflight.expectedHead, proof.preflight.runID, proof.preflight.handoffCommentID)
 	if err != nil {
-		return stateError("issue #%d claim resume proof changed before renewal; no mutation performed: %w", proof.issue, err)
+		err = retryableOperationIfRecoverable("claim resume fresh proof", err)
+		return claimResumeProofFailure(proof, "claim resume proof changed before renewal; no mutation performed", err)
 	}
-	if err := sameClaimResumeProof(proof, fresh); err != nil {
-		return stateError("issue #%d claim resume proof changed before renewal; no mutation performed: %w", proof.issue, err)
+	if proofErr := sameClaimResumeProof(proof, fresh); proofErr != nil {
+		return stateError("issue #%d claim resume proof changed before renewal; no mutation performed: %w", proof.preflight.issue, proofErr)
 	}
-	if !fresh.renewalPresent {
-		if err := a.createClaimResumeRenewal(&fresh); err != nil {
-			return err
-		}
+	var renewalProof claimResumeRenewalProof
+	switch plan := fresh.renewal.(type) {
+	case claimResumeNoRenewal:
+		renewalProof, err = a.createClaimResumeRenewal(fresh)
+	case claimResumeExistingRenewal:
+		renewalProof = claimResumeRenewalProof(plan)
+	default:
+		err = stateError("issue #%d has an invalid renewal proof state; preserve claim artifacts", fresh.preflight.issue)
 	}
-	if fresh.renewalPresent {
-		if err := a.adoptClaimResumeLocalRenewal(&fresh); err != nil {
-			return err
-		}
-		if err := a.pushClaimResumeRenewal(&fresh); err != nil {
-			return err
-		}
-	}
-	if err := a.verifyClaimResumeRenewal(fresh); err != nil {
-		return stateError("issue #%d claim renewal needs reconciliation: %w. "+claimResumeRecoveryTemplate, proof.issue,
-			retryableOperationIfRecoverable("claim resume renewal verification", err),
-			proof.issue, proof.expectedHead, proof.runID, proof.handoffCommentID)
-	}
-	if err := a.reconcileClaimResumeIssue(fresh); err != nil {
+	if err != nil {
 		return err
 	}
-	return writeLine(a.stdout, "issue #%d claim resumed; claim verified, needs-human removed, Project Picked", proof.issue)
-}
-
-func (a app) createClaimResumeRenewal(proof *claimResumeProof) error {
-	if proof.renewalPresent {
-		return nil
-	}
-	commit, _, _, err := a.newClaimCommitWithRunID(proof.root, proof.issue, proof.expectedHead, proof.runID)
+	localRenewal, err := a.adoptClaimResumeLocalRenewal(fresh, renewalProof)
 	if err != nil {
-		return stateError("issue #%d could not create the renewal commit; retry: %w", proof.issue, claimResumeRetry(*proof, "renewal commit", err))
-	}
-	proof.renewalHead = commit
-	if err := a.adoptClaimResumeLocalRenewal(proof); err != nil {
 		return err
 	}
-	return a.pushClaimResumeRenewal(proof)
+	renewal, err := a.pushClaimResumeRenewal(fresh, localRenewal)
+	if err != nil {
+		return err
+	}
+	if err := a.verifyClaimResumeRenewal(fresh, renewal); err != nil {
+		verificationErr := retryableOperationIfRecoverable("claim resume renewal verification", err)
+		return claimResumeProofFailure(fresh, "claim renewal needs reconciliation", fmt.Errorf("%w. "+claimResumeRecoveryTemplate,
+			verificationErr, fresh.preflight.issue, fresh.preflight.expectedHead, fresh.preflight.runID, fresh.preflight.handoffCommentID))
+	}
+	if err := a.reconcileClaimResumeIssue(fresh, renewal); err != nil {
+		return err
+	}
+	return writeLine(a.stdout, "issue #%d claim resumed; claim verified, needs-human removed, Project Picked", proof.preflight.issue)
 }
 
-func (a app) adoptClaimResumeLocalRenewal(proof *claimResumeProof) error {
-	if proof.localHead == proof.renewalHead {
-		return nil
+func claimResumeProofFailure(proof claimResumeProof, message string, err error) error {
+	issue := proof.preflight.issue
+	if err == nil {
+		return stateError("issue #%d %s", issue, message)
 	}
-	if proof.localHead != proof.expectedHead {
-		return stateError("local claim head moved before renewal adoption: expected %s or child %s, found %s; preserve artifacts", proof.expectedHead, proof.renewalHead, proof.localHead)
+	if operationDispositionOf(err) == operationDispositionRetryable {
+		return fmt.Errorf("issue #%d %s: %w", issue, message, err)
 	}
-	if _, err := a.command(proof.root, "git", "update-ref", "refs/heads/"+proof.localBranch, proof.renewalHead, proof.expectedHead); err != nil {
-		observed, readErr := a.readClaimResumeLocalHead(proof.root, proof.localBranch)
-		if readErr == nil && observed == proof.renewalHead && a.validateExistingResumeCommit(proof.root, observed, proof.expectedHead, proof.issue, proof.runID) == nil {
-			proof.localHead, proof.renewalHead, proof.renewalPresent = observed, observed, true
-			return nil
+	return stateError("issue #%d %s: %w", issue, message, err)
+}
+
+func (a app) createClaimResumeRenewal(proof claimResumeProof) (claimResumeRenewalProof, error) {
+	if _, ok := proof.renewal.(claimResumeNoRenewal); !ok {
+		return claimResumeRenewalProof{}, stateError("issue #%d already has a renewal proof; preserve its canonical child", proof.preflight.issue)
+	}
+	commit, _, _, err := a.newClaimCommitWithRunID(proof.preflight.root, proof.preflight.issue, proof.preflight.expectedHead, proof.preflight.runID)
+	if err != nil {
+		return claimResumeRenewalProof{}, claimResumeProofFailure(proof, "could not create the renewal commit; retry", claimResumeRetry(proof, "renewal commit", err))
+	}
+	if !validExactCommitSHA(commit) {
+		return claimResumeRenewalProof{}, stateError("issue #%d renewal commit returned malformed head %q; preserve claim artifacts", proof.preflight.issue, commit)
+	}
+	if _, validateErr := a.readCanonicalClaimCommit(proof.preflight.root, commit, proof.preflight.issue, proof.preflight.runID, proof.preflight.expectedHead); validateErr != nil {
+		return claimResumeRenewalProof{}, retryableOperationIfRecoverable("claim resume renewal commit validation", validateErr)
+	}
+	return claimResumeRenewalProof{head: commit}, nil
+}
+
+func (a app) adoptClaimResumeLocalRenewal(proof claimResumeProof, renewal claimResumeRenewalProof) (claimResumeLocalRenewal, error) {
+	if proof.preflight.localHead == renewal.head {
+		return claimResumeLocalRenewal(renewal), nil
+	}
+	if proof.preflight.localHead != proof.preflight.expectedHead {
+		return claimResumeLocalRenewal{}, stateError("local claim head moved before renewal adoption: expected %s or child %s, found %s; preserve artifacts", proof.preflight.expectedHead, renewal.head, proof.preflight.localHead)
+	}
+	if _, err := a.command(proof.preflight.root, "git", "update-ref", "refs/heads/"+proof.preflight.localBranch, renewal.head, proof.preflight.expectedHead); err != nil {
+		observed, readErr := a.readClaimResumeLocalHead(proof.preflight.root, proof.preflight.localBranch)
+		if readErr == nil && observed == renewal.head {
+			if validateErr := a.validateExistingResumeCommit(proof.preflight.root, observed, proof.preflight.expectedHead, proof.preflight.issue, proof.preflight.runID); validateErr == nil {
+				return claimResumeLocalRenewal(renewal), nil
+			}
 		}
-		return stateError("issue #%d local renewal CAS response was ambiguous; no external state changed; %w. "+claimResumeRecoveryTemplate,
-			proof.issue, retryableOperationIfRecoverable("claim resume local renewal CAS", errors.Join(err, readErr)), proof.issue, proof.expectedHead, proof.runID, proof.handoffCommentID)
+		if readErr != nil && operationDispositionOf(readErr) == operationDispositionTerminal {
+			return claimResumeLocalRenewal{}, stateError("issue #%d local renewal CAS response was ambiguous; preserve artifacts: %w", proof.preflight.issue, readErr)
+		}
+		return claimResumeLocalRenewal{}, claimResumeRetry(proof, "local renewal CAS", errors.Join(err, readErr))
 	}
-	proof.localHead, proof.renewalPresent = proof.renewalHead, true
-	return nil
+	return claimResumeLocalRenewal(renewal), nil
 }
 
 func (a app) readClaimResumeLocalHead(root, branch string) (string, error) {
@@ -781,109 +1302,204 @@ func (a app) readClaimResumeLocalHead(root, branch string) (string, error) {
 	return head, nil
 }
 
-func (a app) pushClaimResumeRenewal(proof *claimResumeProof) error {
-	if proof.remoteHead == proof.renewalHead {
-		return nil
+func (a app) pushClaimResumeRenewal(proof claimResumeProof, renewal claimResumeLocalRenewal) (claimResumeRenewalResult, error) {
+	if proof.preflight.remoteHead == renewal.head {
+		return claimResumeRenewalResult(renewal), nil
 	}
-	if proof.remoteHead != proof.expectedHead {
-		return stateError("remote fixed claim branch moved before renewal push: expected %s, found %s; preserve artifacts", proof.expectedHead, proof.remoteHead)
+	if proof.preflight.remoteHead != proof.preflight.expectedHead {
+		return claimResumeRenewalResult{}, stateError("remote fixed claim branch moved before renewal push: expected %s, found %s; preserve artifacts", proof.preflight.expectedHead, proof.preflight.remoteHead)
 	}
-	lease := "--force-with-lease=refs/heads/" + proof.fixedBranch + ":" + proof.expectedHead
-	refspec := proof.renewalHead + ":refs/heads/" + proof.fixedBranch
-	pushOutput, pushErr := a.command(proof.root, "git", "push", lease, "origin", refspec)
-	remote, readErr := a.remoteClaimHead(proof.root, proof.fixedBranch)
-	if readErr == nil && remote == proof.renewalHead {
-		proof.remoteHead = remote
-		return nil
+	lease := "--force-with-lease=refs/heads/" + proof.preflight.fixedBranch + ":" + proof.preflight.expectedHead
+	refspec := renewal.head + ":refs/heads/" + proof.preflight.fixedBranch
+	pushOutput, pushErr := a.command(proof.preflight.root, "git", "push", lease, "origin", refspec)
+	remote, readErr := a.remoteClaimHead(proof.preflight.root, proof.preflight.fixedBranch)
+	if readErr == nil && remote == renewal.head {
+		return claimResumeRenewalResult(renewal), nil
 	}
 	if readErr != nil {
-		return stateError("issue #%d renewal push response was ambiguous; reread failed: %w. "+claimResumeRecoveryTemplate,
-			proof.issue, retryableOperationIfRecoverable("claim resume renewal push", errors.Join(pushErr, readErr)), proof.issue, proof.expectedHead, proof.runID, proof.handoffCommentID)
+		failure := retryableOperationIfRecoverable("claim resume renewal push", errors.Join(pushErr, readErr))
+		return claimResumeRenewalResult{}, claimResumeProofFailure(proof, "renewal push response was ambiguous; reread failed", failure)
 	}
-	if remote != proof.expectedHead {
-		return stateError("remote fixed claim branch moved during renewal push: expected %s or valid child %s, found %s; preserve artifacts", proof.expectedHead, proof.renewalHead, remote)
+	if remote != proof.preflight.expectedHead {
+		return claimResumeRenewalResult{}, stateError("remote fixed claim branch moved during renewal push: expected %s or valid child %s, found %s; preserve artifacts", proof.preflight.expectedHead, renewal.head, remote)
 	}
 	if pushErr == nil {
 		pushErr = errors.New("push returned without advancing the fixed claim branch")
 	}
-	return stateError("issue #%d renewal push response was ambiguous; remote remains at expected head; %v %w. "+claimResumeRecoveryTemplate,
-		proof.issue, pushOutput, claimResumeRetry(*proof, "renewal push", pushErr), proof.issue, proof.expectedHead, proof.runID, proof.handoffCommentID)
+	failure := claimResumeRetry(proof, "renewal push", pushErr)
+	return claimResumeRenewalResult{}, claimResumeProofFailure(proof, fmt.Sprintf("renewal push response was ambiguous; remote remains at expected head; %v", pushOutput), failure)
 }
 
-func (a app) verifyClaimResumeRenewal(proof claimResumeProof) error {
-	local, err := a.readClaimResumeLocalHead(proof.root, proof.localBranch)
+func (a app) verifyClaimResumeRenewal(proof claimResumeProof, renewal claimResumeRenewalResult) error {
+	local, err := a.readClaimResumeLocalHead(proof.preflight.root, proof.preflight.localBranch)
 	if err != nil {
 		return err
 	}
-	if local != proof.renewalHead {
-		return stateError("local renewal ref moved: expected %s, found %s; preserve artifacts", proof.renewalHead, local)
+	if local != renewal.head {
+		return stateError("local renewal ref moved: expected %s, found %s; preserve artifacts", renewal.head, local)
 	}
-	currentHead, err := a.command(proof.root, "git", "rev-parse", "HEAD")
+	currentHead, err := a.command(proof.preflight.root, "git", "rev-parse", "HEAD")
 	if err != nil {
 		return fmt.Errorf("read renewed worktree head: %w", err)
 	}
-	if currentHead != proof.renewalHead {
-		return stateError("renewed worktree head moved: expected %s, found %s; preserve artifacts", proof.renewalHead, currentHead)
+	if currentHead != renewal.head {
+		return stateError("renewed worktree head moved: expected %s, found %s; preserve artifacts", renewal.head, currentHead)
 	}
-	status, err := a.command(proof.root, "git", "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none")
+	status, err := a.command(proof.preflight.root, "git", "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none")
 	if err != nil {
 		return fmt.Errorf("inspect renewed claim worktree: %w", err)
 	}
 	if strings.TrimSpace(status) != "" {
 		return stateError("claim worktree became dirty during renewal; preserve its changes")
 	}
-	if metadataErr := a.validateExistingResumeCommit(proof.root, proof.renewalHead, proof.expectedHead, proof.issue, proof.runID); metadataErr != nil {
+	if metadataErr := a.validateExistingResumeCommit(proof.preflight.root, renewal.head, proof.preflight.expectedHead, proof.preflight.issue, proof.preflight.runID); metadataErr != nil {
 		return metadataErr
 	}
-	layout, err := a.repositoryLayout(proof.root)
+	layout, err := a.repositoryLayout(proof.preflight.root)
 	if err != nil {
 		return err
 	}
-	if worktreeErr := validateResumeWorktree(layout, proof.root, proof.localBranch, proof.issue, proof.renewalHead); worktreeErr != nil {
+	if worktreeErr := validateResumeWorktreeHeads(layout, proof.preflight.root, proof.preflight.localBranch, proof.preflight.issue, renewal.head,
+		claimResumeProtectedHeads(proof.preflight.expectedHead, claimResumeExistingRenewal(renewal))); worktreeErr != nil {
 		return worktreeErr
 	}
-	inventory, err := a.remoteAgentRefInventory(proof.root)
+	inventory, err := a.remoteAgentRefInventory(proof.preflight.root)
 	if err != nil {
 		return err
 	}
-	remote, err := claimResumeFixedHead(inventory, proof.issue, proof.fixedBranch)
+	remote, err := claimResumeFixedHead(inventory, proof.preflight.issue, proof.preflight.fixedBranch)
 	if err != nil {
 		return err
 	}
-	if remote != proof.renewalHead {
-		return stateError("remote fixed claim branch is not the verified renewal child: expected %s, found %s", proof.renewalHead, remote)
+	if remote != renewal.head {
+		return stateError("remote fixed claim branch is not the verified renewal child: expected %s, found %s", renewal.head, remote)
 	}
-	if err := a.validateNoOpenClaimResumePR(proof.root, proof.fixedBranch, proof.issue); err != nil {
+	if err := a.validateNoOpenClaimResumePR(proof.preflight.root, proof.preflight.fixedBranch, proof.preflight.issue); err != nil {
 		return err
 	}
-	return a.validateClaimResumeRefs(proof.root, inventory, proof.issue, proof.fixedBranch, proof.localBranch, proof.runID,
-		proof.expectedHead, proof.renewalHead, proof.renewalHead)
+	return a.validateClaimResumeRefs(proof.preflight.root, inventory, proof.preflight.issue, proof.preflight.fixedBranch, proof.preflight.localBranch, proof.preflight.runID,
+		proof.preflight.expectedHead, renewal.head, renewal.head)
 }
 
-func (a app) reconcileClaimResumeIssue(proof claimResumeProof) error {
-	status, err := a.readIssueStatus(proof.root, proof.issue)
+type claimResumeReconciliationTarget struct {
+	status issueStatus
+	item   projectItem
+}
+
+type claimResumeReconciliationPhase uint8
+
+const (
+	claimResumeLabelPhase claimResumeReconciliationPhase = iota
+	claimResumeProjectPhase
+)
+
+// claimResumeReconciliationState keeps the immutable recovery proof and the
+// verified renewal result together with the current ordered mutation phase.
+type claimResumeReconciliationState struct {
+	proof   claimResumeProof
+	renewal claimResumeRenewalResult
+	phase   claimResumeReconciliationPhase
+}
+
+func newClaimResumeReconciliationState(proof claimResumeProof, renewal claimResumeRenewalResult) claimResumeReconciliationState {
+	return claimResumeReconciliationState{proof: proof, renewal: renewal, phase: claimResumeLabelPhase}
+}
+
+func (state claimResumeReconciliationState) afterLabel() claimResumeReconciliationState {
+	return claimResumeReconciliationState{proof: state.proof, renewal: state.renewal, phase: claimResumeProjectPhase}
+}
+
+// readClaimResumeReconciliationTarget is the immutable read-only target used
+// immediately before every GitHub mutation.  It binds issue state, the
+// no-open-PR condition, and canonical Project identity/status together.
+func (a app) readClaimResumeReconciliationTarget(state claimResumeReconciliationState) (claimResumeReconciliationTarget, error) {
+	proof := state.proof
+	status, err := a.readIssueStatus(proof.preflight.root, proof.preflight.issue)
 	if err != nil {
-		return stateError("issue #%d label reconciliation could not read state; retry: %w", proof.issue, claimResumeRetry(proof, "label read", err))
+		return claimResumeReconciliationTarget{}, claimResumeRetry(proof, "issue state read", err)
 	}
 	if status.State != "OPEN" {
-		return stateError("issue #%d changed to %s during claim recovery; preserve renewed artifacts", proof.issue, status.State)
+		return claimResumeReconciliationTarget{}, stateError("issue #%d changed to %s during claim recovery; preserve renewed artifacts", proof.preflight.issue, status.State)
 	}
-	status, err = a.reconcileClaimResumeNeedsHuman(proof, status)
+	if noPRErr := a.validateNoOpenClaimResumePR(proof.preflight.root, proof.preflight.fixedBranch, proof.preflight.issue); noPRErr != nil {
+		return claimResumeReconciliationTarget{}, noPRErr
+	}
+	items, err := a.projectItems(proof.preflight.root)
+	if err != nil {
+		return claimResumeReconciliationTarget{}, claimResumeRetry(proof, "Project read", err)
+	}
+	item, err := canonicalClaimResumeProjectItem(items, proof.preflight.issue)
+	if err != nil {
+		return claimResumeReconciliationTarget{}, err
+	}
+	if item.ID != proof.preflight.projectItemID {
+		return claimResumeReconciliationTarget{}, stateError("issue #%d canonical Project item changed from %s to %s; preserve renewed artifacts", proof.preflight.issue, proof.preflight.projectItemID, item.ID)
+	}
+	if item.Status != "Backlog" && item.Status != "Picked" {
+		return claimResumeReconciliationTarget{}, stateError("issue #%d Project status moved to %q during recovery; preserve renewed artifacts", proof.preflight.issue, item.Status)
+	}
+	if state.phase == claimResumeLabelPhase {
+		if _, initial := proof.renewal.(claimResumeNoRenewal); initial && (!issueNeedsHuman(status) || item.Status != "Backlog") {
+			return claimResumeReconciliationTarget{}, stateError("issue #%d must remain OPEN+needs-human with Project Backlog before first recovery mutation", proof.preflight.issue)
+		}
+	}
+	return claimResumeReconciliationTarget{status: status, item: item}, nil
+}
+
+//nolint:gocognit // Label and Project convergence are ordered mutation boundaries.
+func (a app) reconcileClaimResumeIssue(proof claimResumeProof, renewal claimResumeRenewalResult) error {
+	state := newClaimResumeReconciliationState(proof, renewal)
+	target, err := a.readClaimResumeReconciliationTarget(state)
 	if err != nil {
 		return err
 	}
-	if issueNeedsHuman(status) {
-		return stateError("issue #%d still has needs-human; Project status will not be changed", proof.issue)
+	if issueNeedsHuman(target.status) {
+		if _, reconcileErr := a.reconcileClaimResumeNeedsHuman(proof, target.status); reconcileErr != nil {
+			return reconcileErr
+		}
+		state = state.afterLabel()
+		target, err = a.readClaimResumeReconciliationTarget(state)
+		if err != nil {
+			return err
+		}
 	}
-	if reconcileErr := a.reconcileClaimResumeProject(proof); reconcileErr != nil {
-		return reconcileErr
+	if issueNeedsHuman(target.status) {
+		return stateError("issue #%d still has needs-human; Project status will not be changed", proof.preflight.issue)
 	}
-	finalStatus, err := a.readIssueStatus(proof.root, proof.issue)
+	if target.item.Status == "Picked" {
+		return nil
+	}
+	// Reread the whole target after label convergence so a Project/PR race
+	// cannot turn a partially reconciled claim into a picked issue.
+	target, err = a.readClaimResumeReconciliationTarget(state.afterLabel())
 	if err != nil {
-		return stateError("issue #%d final state reread failed; retry: %w", proof.issue, claimResumeRetry(proof, "final issue read", err))
+		return err
 	}
-	if finalStatus.State != "OPEN" || issueNeedsHuman(finalStatus) {
-		return stateError("issue #%d final state is not OPEN without needs-human; preserve renewed artifacts", proof.issue)
+	if issueNeedsHuman(target.status) {
+		return stateError("issue #%d still has needs-human; Project status will not be changed", proof.preflight.issue)
+	}
+	if target.item.Status == "Picked" {
+		return nil
+	}
+	if err := a.setProjectField(proof.preflight.root, target.item.ID, "Status", "Picked"); err != nil {
+		items, readErr := a.projectItems(proof.preflight.root)
+		if readErr == nil {
+			latest, itemErr := canonicalClaimResumeProjectItem(items, proof.preflight.issue)
+			if itemErr == nil && latest.ID == proof.preflight.projectItemID && latest.Status == "Picked" {
+				return nil
+			}
+			if itemErr != nil {
+				return itemErr
+			}
+		}
+		return claimResumeMutationFailure(proof, "Project Picked", err, readErr)
+	}
+	latest, readErr := a.readClaimResumeReconciliationTarget(state.afterLabel())
+	if readErr != nil {
+		return readErr
+	}
+	if issueNeedsHuman(latest.status) || latest.item.Status != "Picked" {
+		return stateError("issue #%d Project Picked response was not verified; preserve renewed artifacts", proof.preflight.issue)
 	}
 	return nil
 }
@@ -892,80 +1508,48 @@ func (a app) reconcileClaimResumeNeedsHuman(proof claimResumeProof, status issue
 	if !issueNeedsHuman(status) {
 		return status, nil
 	}
-	_, editErr := a.command(proof.root, "gh", "issue", "edit", strconv.Itoa(proof.issue), "--repo", repositoryKey,
+	_, editErr := a.command(proof.preflight.root, "gh", "issue", "edit", strconv.Itoa(proof.preflight.issue), "--repo", repositoryKey,
 		"--remove-label", "needs-human")
 	if editErr == nil {
-		latest, readErr := a.readIssueStatus(proof.root, proof.issue)
+		latest, readErr := a.readIssueStatus(proof.preflight.root, proof.preflight.issue)
 		if readErr != nil {
-			return status, stateError("issue #%d needs-human label removal needs reconciliation; retry: %w", proof.issue,
-				claimResumeRetry(proof, "needs-human label", readErr))
+			return status, claimResumeProofFailure(proof, "needs-human label removal needs reconciliation; retry", claimResumeRetry(proof, "needs-human label", readErr))
 		}
 		if latest.State != "OPEN" {
-			return status, stateError("issue #%d changed to %s after label removal; preserve renewed artifacts", proof.issue, latest.State)
+			return status, stateError("issue #%d changed to %s after label removal; preserve renewed artifacts", proof.preflight.issue, latest.State)
 		}
 		if issueNeedsHuman(latest) {
-			return status, stateError("issue #%d still has needs-human after label removal response; retry: %w", proof.issue,
-				claimResumeRetry(proof, "needs-human label", errors.New("label remains present")))
+			return status, claimResumeProofFailure(proof, "still has needs-human after label removal response; retry", claimResumeRetry(proof, "needs-human label", errors.New("label remains present")))
 		}
 		return latest, nil
 	}
-	latest, readErr := a.readIssueStatus(proof.root, proof.issue)
+	latest, readErr := a.readIssueStatus(proof.preflight.root, proof.preflight.issue)
 	if readErr == nil {
 		if latest.State != "OPEN" {
-			return status, stateError("issue #%d changed to %s after ambiguous label response; preserve renewed artifacts", proof.issue, latest.State)
+			return status, stateError("issue #%d changed to %s after ambiguous label response; preserve renewed artifacts", proof.preflight.issue, latest.State)
 		}
 		if !issueNeedsHuman(latest) {
 			return latest, nil
 		}
 	}
-	return status, stateError("issue #%d needs-human label response was ambiguous; retry: %w", proof.issue,
-		claimResumeRetry(proof, "needs-human label", errors.Join(editErr, readErr)))
+	if readErr != nil && operationDispositionOf(readErr) == operationDispositionTerminal {
+		return status, stateError("issue #%d needs-human label response could not be trusted; preserve renewed artifacts: %w", proof.preflight.issue, readErr)
+	}
+	return status, claimResumeRetry(proof, "needs-human label", errors.Join(editErr, readErr))
 }
 
-func (a app) reconcileClaimResumeProject(proof claimResumeProof) error {
-	items, err := a.projectItems(proof.root)
-	if err != nil {
-		return stateError("issue #%d Project reconciliation read failed; retry: %w", proof.issue, claimResumeRetry(proof, "Project read", err))
+func claimResumeMutationFailure(proof claimResumeProof, operation string, mutationErr, readErr error) error {
+	if readErr != nil && operationDispositionOf(readErr) == operationDispositionTerminal {
+		return stateError("issue #%d %s response could not be trusted; preserve renewed artifacts: %w", proof.preflight.issue, operation, readErr)
 	}
-	item, err := canonicalClaimResumeProjectItem(items, proof.issue)
-	if err != nil {
-		return err
-	}
-	if item.ID != proof.projectItemID {
-		return stateError("issue #%d canonical Project item changed from %s to %s; preserve renewed artifacts", proof.issue, proof.projectItemID, item.ID)
-	}
-	if item.Status == "Picked" {
-		return nil
-	}
-	if item.Status != "Backlog" {
-		return stateError("issue #%d Project status moved to %q during recovery; preserve renewed artifacts", proof.issue, item.Status)
-	}
-	setErr := a.setProjectField(proof.root, item.ID, "Status", "Picked")
-	items, readErr := a.projectItems(proof.root)
-	if readErr == nil {
-		latest, itemErr := canonicalClaimResumeProjectItem(items, proof.issue)
-		if itemErr == nil && latest.ID == proof.projectItemID && latest.Status == "Picked" {
-			return nil
-		}
-		if itemErr != nil {
-			return itemErr
-		}
-		if latest.ID != proof.projectItemID {
-			return stateError("issue #%d canonical Project item changed after status response; preserve renewed artifacts", proof.issue)
-		}
-		if latest.Status != "Backlog" {
-			return stateError("issue #%d Project status is %q after status response; preserve renewed artifacts", proof.issue, latest.Status)
-		}
-	}
-	return stateError("issue #%d Project Picked response was ambiguous; retry: %w", proof.issue,
-		claimResumeRetry(proof, "Project Picked", errors.Join(setErr, readErr)))
+	return claimResumeRetry(proof, operation, errors.Join(mutationErr, readErr))
 }
 
 func claimResumeRetry(proof claimResumeProof, operation string, err error) error {
 	if err == nil {
 		err = errors.New("external response was ambiguous")
 	}
-	return retryableOperation("claim resume "+operation,
-		fmt.Errorf("issue #%d claim resume %s needs reconciliation: %w. "+claimResumeRecoveryTemplate,
-			proof.issue, operation, err, proof.issue, proof.expectedHead, proof.runID, proof.handoffCommentID))
+	message := fmt.Errorf("issue #%d claim resume %s needs reconciliation: %w. "+claimResumeRecoveryTemplate,
+		proof.preflight.issue, operation, err, proof.preflight.issue, proof.preflight.expectedHead, proof.preflight.runID, proof.preflight.handoffCommentID)
+	return retryableOperationIfRecoverable("claim resume "+operation, message)
 }

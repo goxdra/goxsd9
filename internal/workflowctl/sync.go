@@ -98,9 +98,12 @@ func (a app) readIssueStatus(root string, number int) (issueStatus, error) {
 	}
 	var status issueStatus
 	if err := json.Unmarshal([]byte(output), &status); err != nil {
-		return issueStatus{}, fmt.Errorf("decode issue #%d: %w", number, err)
+		return issueStatus{}, terminalOperation("issue status", fmt.Errorf("decode issue #%d: %w", number, err))
 	}
 	status.State = strings.ToUpper(status.State)
+	if status.State != "OPEN" && status.State != "CLOSED" {
+		return issueStatus{}, terminalOperation("issue status", fmt.Errorf("decode issue #%d: unsupported state %q", number, status.State))
+	}
 	return status, nil
 }
 
@@ -223,7 +226,7 @@ func (a app) remoteAgentRefInventory(root string) (agentRefInventory, error) {
 		}
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
-			return agentRefInventory{}, fmt.Errorf("remote agent ref listing contains malformed entry %q", line)
+			return agentRefInventory{}, terminalOperation("remote claim ref inventory", fmt.Errorf("remote agent ref listing contains malformed entry %q", line))
 		}
 		branch := strings.TrimPrefix(fields[1], "refs/heads/")
 		ref := agentRef{branch: branch, sha: fields[0]}
@@ -240,7 +243,7 @@ func (a app) remoteAgentRefInventory(root string) (agentRefInventory, error) {
 		case agentRefUnrelated:
 			inventory.unrelated = append(inventory.unrelated, ref)
 		default:
-			return agentRefInventory{}, fmt.Errorf("classify remote agent ref %q: unknown ref kind %d", branch, kind)
+			return agentRefInventory{}, terminalOperation("remote claim ref inventory", fmt.Errorf("classify remote agent ref %q: unknown ref kind %d", branch, kind))
 		}
 	}
 	sortRemoteAgentRefs(&inventory)

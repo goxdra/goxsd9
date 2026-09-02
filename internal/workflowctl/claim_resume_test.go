@@ -183,6 +183,61 @@ func TestClaimResumeInjectedIntegration(t *testing.T) {
 			t.Fatal("retryable label failure lost the verified renewal")
 		}
 	})
+
+	t.Run("fresh proof transport failure remains retryable with cause", func(t *testing.T) {
+		fixture := newClaimResumeFixture(t)
+		backend := newClaimResumeBackend(t, fixture)
+		sentinel := errors.New("fresh proof transport failure")
+		backend.freshProofFailure = sentinel
+		application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+		err := application.run(claimResumeArgs(fixture, false))
+		if err == nil || operationDispositionOf(err) != operationDispositionRetryable || !errors.Is(err, sentinel) {
+			t.Fatalf("fresh proof error = %v, disposition %d, want retryable cause", err, operationDispositionOf(err))
+		}
+		if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != fixture.expected {
+			t.Fatalf("fresh proof failure moved local head to %s", got)
+		}
+		if backend.mutations != 0 {
+			t.Fatalf("fresh proof failure mutations = %d, want zero", backend.mutations)
+		}
+	})
+
+	t.Run("malformed successful issue API response is terminal", func(t *testing.T) {
+		fixture := newClaimResumeFixture(t)
+		backend := newClaimResumeBackend(t, fixture)
+		backend.malformedIssue = true
+		application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+		err := application.run(claimResumeArgs(fixture, true))
+		if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+			t.Fatalf("malformed issue response error = %v, disposition %d, want terminal", err, operationDispositionOf(err))
+		}
+		if backend.mutations != 0 {
+			t.Fatalf("malformed issue response mutations = %d, want zero", backend.mutations)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		set  func(*claimResumeBackend)
+		want string
+	}{
+		{name: "open PR race", set: func(backend *claimResumeBackend) { backend.raceOpenPR = true }, want: "open PR"},
+		{name: "Project identity race", set: func(backend *claimResumeBackend) { backend.raceProjectPicked = true }, want: "OPEN+needs-human"},
+	} {
+		t.Run(test.name+" before first GitHub mutation", func(t *testing.T) {
+			fixture := newClaimResumeFixture(t)
+			backend := newClaimResumeBackend(t, fixture)
+			test.set(backend)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			err := application.run(claimResumeArgs(fixture, false))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("race error = %v, want %q", err, test.want)
+			}
+			if mutations := claimResumeGitHubMutations(backend.calls); len(mutations) != 0 {
+				t.Fatalf("race GitHub mutations = %v, want zero", mutations)
+			}
+		})
+	}
 }
 
 func TestClaimResumeRejectsWithoutMutation(t *testing.T) {
@@ -298,6 +353,10 @@ type claimResumeBackend struct {
 	ambiguousLabel      bool
 	ambiguousProject    bool
 	malformedRemoteRefs bool
+	malformedIssue      bool
+	freshProofFailure   error
+	raceOpenPR          bool
+	raceProjectPicked   bool
 	labelFailure        error
 	mutations           int
 	calls               []string
@@ -341,13 +400,30 @@ func (b *claimResumeBackend) execute(dir string, input io.Reader, name string, a
 		b.ambiguousPush = false
 		return "", errors.New("simulated lost push response")
 	}
+	if name == "git" && len(args) > 0 && (args[0] == "cat-file" ||
+		(args[0] == "rev-parse" && len(args) > 1 && strings.HasSuffix(args[1], "^{tree}")) ||
+		(args[0] == "log" && len(args) > 2 && args[1] == "-1" && args[2] == "--format=%B")) {
+		return string(output), nil
+	}
 	return strings.TrimSpace(string(output)), nil
 }
 
+//nolint:gocognit // The injected GitHub backend models each mutation boundary and response race.
 func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 	joined := strings.Join(args, " ")
 	switch {
 	case joined == "api repos/goxdra/goxsd9/issues/14":
+		if b.malformedIssue {
+			return "{", nil
+		}
+		if b.freshProofFailure != nil && b.issueStatusReads() == 2 {
+			err := b.freshProofFailure
+			b.freshProofFailure = nil
+			return "", err
+		}
+		if b.raceOpenPR && b.issueStatusReads() == 3 {
+			b.openPR = true
+		}
 		labels := "[]"
 		if b.needsHuman {
 			labels = `[{"name":"needs-human"}]`
@@ -375,6 +451,9 @@ func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 		}
 		return "", nil
 	case strings.HasPrefix(joined, "project item-list "):
+		if b.raceProjectPicked && b.projectItemReads() == 3 {
+			b.projectStatus = "Picked"
+		}
 		return fmt.Sprintf(`{"items":[{"id":"item-14","status":%q,"content":{"number":14,"repository":"goxdra/goxsd9","type":"Issue"}}],"totalCount":1}`, b.projectStatus), nil
 	case strings.HasPrefix(joined, "project field-list "):
 		return `{"fields":[{"id":"status-field","name":"Status","options":[{"id":"backlog-id","name":"Backlog"},{"id":"picked-id","name":"Picked"}]}]}`, nil
@@ -389,6 +468,36 @@ func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 	default:
 		return "", fmt.Errorf("unexpected gh command: %s", joined)
 	}
+}
+
+func (b *claimResumeBackend) issueStatusReads() int {
+	reads := 0
+	for _, call := range b.calls {
+		if call == "gh api repos/goxdra/goxsd9/issues/14" {
+			reads++
+		}
+	}
+	return reads
+}
+
+func (b *claimResumeBackend) projectItemReads() int {
+	reads := 0
+	for _, call := range b.calls {
+		if strings.HasPrefix(call, "gh project item-list ") {
+			reads++
+		}
+	}
+	return reads
+}
+
+func claimResumeGitHubMutations(calls []string) []string {
+	mutations := make([]string, 0, 2)
+	for _, call := range calls {
+		if strings.HasPrefix(call, "gh issue edit ") || strings.Contains(call, "gh project item-edit") {
+			mutations = append(mutations, call)
+		}
+	}
+	return mutations
 }
 
 func assertClaimResumeRenewed(t *testing.T, fixture claimResumeFixture, backend *claimResumeBackend) {
@@ -432,6 +541,175 @@ func TestClaimResumeMetadataAndClaimCommentStayExact(t *testing.T) {
 	}
 	if _, err := parseClaimAcquiredComment(strings.Replace(commentBodyForTest(lease), "Claim acquired.", "Claim acquired", 1)); err == nil {
 		t.Fatal("malformed generated claim comment unexpectedly accepted")
+	}
+}
+
+//nolint:gocognit // Table cases keep all canonical object rejection proofs together.
+func TestCanonicalClaimCommitRejectsNonCanonicalHistoryAndMessage(t *testing.T) {
+	const (
+		head       = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		parent     = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		tree       = "cccccccccccccccccccccccccccccccccccccccc"
+		parentTree = "cccccccccccccccccccccccccccccccccccccccc"
+	)
+	lease := time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)
+	message := claimMessage(14, "run-proof", lease)
+	object := fmt.Sprintf("tree %s\nparent %s\nauthor Smith <smith@example.invalid> 0 +0000\ncommitter Smith <smith@example.invalid> 0 +0000\n\n%s", tree, parent, message)
+
+	tests := []struct {
+		name       string
+		object     string
+		claimTree  string
+		parentTree string
+		wantError  string
+	}{
+		{name: "valid", object: object, claimTree: tree + "\n", parentTree: parentTree + "\n"},
+		{name: "source-bearing", object: strings.Replace(object, "tree "+tree+"\n", "tree dddddddddddddddddddddddddddddddddddddddd\n", 1), claimTree: "dddddddddddddddddddddddddddddddddddddddd\n", parentTree: parentTree + "\n", wantError: "source-bearing"},
+		{name: "merge", object: strings.Replace(object, "parent "+parent+"\n", "parent "+parent+"\nparent "+strings.Repeat("e", 40)+"\n", 1), claimTree: tree + "\n", parentTree: parentTree + "\n", wantError: "exactly one parent"},
+		{name: "missing final LF", object: strings.TrimSuffix(object, "\n"), claimTree: tree + "\n", parentTree: parentTree + "\n", wantError: "LF-terminated"},
+		{name: "extra final LF", object: object + "\n", claimTree: tree + "\n", parentTree: parentTree + "\n", wantError: "LF-terminated"},
+		{name: "trailing message byte", object: strings.Replace(object, "Agent-Issue: 14\n", "Agent-Issue: 14 \n", 1), claimTree: tree + "\n", parentTree: parentTree + "\n", wantError: "non-canonical metadata"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+				if name != "git" {
+					return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+				}
+				switch strings.Join(args, " ") {
+				case "cat-file commit " + head:
+					return test.object, nil
+				case "rev-parse " + head + "^{tree}":
+					return test.claimTree, nil
+				case "rev-parse " + parent + "^{tree}":
+					return test.parentTree, nil
+				default:
+					return "", fmt.Errorf("unexpected command: git %s", strings.Join(args, " "))
+				}
+			}}
+			_, err := application.readCanonicalClaimCommit("/repo", head, 14, "run-proof", parent)
+			if test.wantError == "" {
+				if err != nil {
+					t.Fatalf("readCanonicalClaimCommit: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("readCanonicalClaimCommit error = %v, want %q", err, test.wantError)
+			}
+			classified := retryableOperationIfRecoverable("canonical claim test", err)
+			if operationDispositionOf(classified) != operationDispositionTerminal {
+				t.Fatalf("classified error disposition = %d, want terminal", operationDispositionOf(classified))
+			}
+		})
+	}
+}
+
+func TestClaimResumeHandoffBindingsRejectSpoofedTokens(t *testing.T) {
+	const (
+		issue       = 14
+		root        = "/worktrees/issue-14-run-proof"
+		fixedBranch = "agent/issue-14"
+		localBranch = "agent/issue-14-run-proof"
+		runID       = "run-proof"
+		head        = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	lease := time.Date(2026, time.August, 15, 6, 0, 0, 0, time.UTC)
+	valid := fmt.Sprintf("## Blocker\n\nIssue #14 was claimed.\n\n## Evidence\n\n- The worktree was clean and preserved at `%s`.\n- No source or implementation changed and no PR was opened.\n\n## Decisions and risks\n\n- Preserve the claim.\n\n## Next action\n\nResume after the blocker is cleared.\n", root)
+	if err := validateClaimResumeHandoffBindings(valid, issue, head, fixedBranch, localBranch, root, runID, lease); err != nil {
+		t.Fatalf("valid handoff bindings: %v", err)
+	}
+	tests := []struct {
+		name string
+		text string
+	}{
+		{name: "issue suffix", text: "\nRelated issue #140 was mentioned."},
+		{name: "standalone wrong issue", text: "\nRelated #15 was mentioned."},
+		{name: "wrong path", text: "\nA second path `/other/worktree` was recorded."},
+		{name: "wrong branch", text: "\nBranch `agent/issue-15` was used."},
+		{name: "wrong local branch", text: "\nLocal branch `agent/issue-14-run-other` was used."},
+		{name: "wrong run", text: "\nRun `run-other` was used."},
+		{name: "wrong lease", text: "\nLease until `2026-08-15T07:00:00Z`."},
+		{name: "malformed lease", text: "\nLease until `not-a-time`."},
+		{name: "wrong head", text: "\nHead `bbbbbbb` was recorded."},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateClaimResumeHandoffBindings(valid+test.text, issue, head, fixedBranch, localBranch, root, runID, lease); err == nil {
+				t.Fatal("spoofed handoff bindings unexpectedly accepted")
+			}
+		})
+	}
+	if err := validateTerminalClaimHandoffBody(strings.Replace(valid, "No source or implementation changed", "No source or implementation changed; a PR exists", 1), issue); err == nil {
+		t.Fatal("contradictory PR handoff unexpectedly accepted")
+	}
+}
+
+func TestClaimResumeRetryPreservesOperationBoundaryAndCause(t *testing.T) {
+	proof := claimResumeProof{preflight: claimResumePreflight{
+		issue: 14, expectedHead: strings.Repeat("a", 40), runID: "run-proof", handoffCommentID: 9,
+	}}
+	sentinel := errors.New("fresh proof transport")
+	retryable := retryableOperation("fresh proof", sentinel)
+	err := claimResumeProofFailure(proof, "fresh proof failed", retryable)
+	if operationDispositionOf(err) != operationDispositionRetryable || !errors.Is(err, sentinel) {
+		t.Fatalf("retryable proof error = %v, disposition %d, want cause and retryable", err, operationDispositionOf(err))
+	}
+	terminal := terminalOperation("fresh proof", stateError("untrusted response"))
+	err = claimResumeProofFailure(proof, "fresh proof failed", terminal)
+	if operationDispositionOf(err) != operationDispositionTerminal {
+		t.Fatalf("terminal proof error = %v, disposition %d, want terminal", err, operationDispositionOf(err))
+	}
+}
+
+func TestValidateResumeWorktreeRejectsDetachedDuplicateLineage(t *testing.T) {
+	const (
+		root = "/worktrees/issue-55-run-good"
+		head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	layout := repositoryLayout{worktrees: []gitWorktree{
+		{path: root, branch: "refs/heads/agent/issue-55-run-good", head: head},
+		{path: "/worktrees/detached", head: head},
+	}}
+	err := validateResumeWorktree(layout, root, "agent/issue-55-run-good", 55, head)
+	if err == nil || !strings.Contains(err.Error(), "detached duplicate/orphan") {
+		t.Fatalf("validateResumeWorktree error = %v, want detached duplicate refusal", err)
+	}
+}
+
+//nolint:gocognit // The table covers detached and locked renewal-head artifacts at one mutation boundary.
+func TestClaimResumeRejectsRenewalHeadWorktreeBeforeMutation(t *testing.T) {
+	for _, locked := range []bool{false, true} {
+		name := "detached renewal head"
+		if locked {
+			name = "locked renewal head"
+		}
+		t.Run(name, func(t *testing.T) {
+			fixture := newClaimResumeFixture(t)
+			lease := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+			renewal := createResumeTestCommit(t, fixture.primary, fixture.expected, claimMessage(14, fixture.runID, lease))
+			runGitTest(t, fixture.primary, "push", "--force", "origin", renewal+":refs/heads/agent/issue-14")
+			duplicate := filepath.Join(t.TempDir(), "renewal-head")
+			runGitTest(t, fixture.primary, "worktree", "add", "--detach", duplicate, renewal)
+			if locked {
+				runGitTest(t, fixture.primary, "worktree", "lock", duplicate)
+			}
+			backend := newClaimResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			err := application.run(claimResumeArgs(fixture, true))
+			if err == nil || !strings.Contains(err.Error(), "detached duplicate/orphan") {
+				t.Fatalf("renewal-head worktree error = %v, want detached duplicate refusal", err)
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("renewal-head worktree mutations = %d, want zero", backend.mutations)
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != fixture.expected {
+				t.Fatalf("renewal-head worktree refusal moved local head from %s to %s", fixture.expected, got)
+			}
+			if got := runGitTest(t, fixture.primary, "ls-remote", "--heads", "origin", "refs/heads/agent/issue-14"); !strings.HasPrefix(got, renewal+"\t") {
+				t.Fatalf("renewal-head worktree refusal moved remote head: %q", got)
+			}
+		})
 	}
 }
 

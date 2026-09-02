@@ -128,13 +128,14 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	if _, diffErr := a.command(root, "git", "diff", "--cached", "--quiet"); diffErr != nil {
 		return resumeProof{}, stateError("claim worktree has staged changes; preserve them before recovery")
 	}
-	lease, runID, err := a.readClaimMetadataAt(root, expectedHead)
+	claim, err := a.readCanonicalClaimIdentity(root, expectedHead, "")
 	if err != nil {
-		return resumeProof{}, stateError("expected head %s has no valid claim identity: %v", expectedHead, err)
+		return resumeProof{}, retryableOperationIfRecoverable("PR resume expected claim proof", fmt.Errorf("expected head %s has no valid claim identity: %w", expectedHead, err))
 	}
-	if validateErr := a.validateClaimIssueAt(root, expectedHead, issue); validateErr != nil {
-		return resumeProof{}, validateErr
+	if claim.issue != issue {
+		return resumeProof{}, stateError("expected head %s claims issue #%d, not issue #%d", expectedHead, claim.issue, issue)
 	}
+	lease, runID := claim.lease, claim.runID
 	if validateErr := validateClaimLocalBranch(localBranch, issue, runID); validateErr != nil {
 		return resumeProof{}, validateErr
 	}
@@ -180,7 +181,7 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 		}
 		if !localAncestor {
 			if err := a.validateExistingResumeCommit(root, local, expectedHead, issue, runID); err != nil {
-				return resumeProof{}, stateError("local head differs from the observed remote claim and is not a retryable renewal: %v", err)
+				return resumeProof{}, fmt.Errorf("local head differs from the observed remote claim and is not a retryable renewal: %w", err)
 			}
 		}
 	}
@@ -421,40 +422,15 @@ func (a app) remoteClaimHead(root, branch string) (string, error) {
 	return fields[0], nil
 }
 
-func (a app) readClaimMetadataAt(root, head string) (time.Time, string, error) {
-	text, err := a.command(root, "git", "log", "-100", "--format=%B", head)
-	if err != nil {
-		return time.Time{}, "", fmt.Errorf("read claim metadata at %s: %w", head, err)
-	}
-	lease, err := trailerTime(text)
-	if err != nil {
-		return time.Time{}, "", err
-	}
-	runID, err := trailerValue(text, "Agent-Run-ID")
-	if err != nil {
-		return time.Time{}, "", err
-	}
-	return lease, runID, nil
-}
-
-func (a app) validateClaimIssueAt(root, head string, expected int) error {
-	text, err := a.command(root, "git", "log", "-100", "--format=%B", head)
-	if err != nil {
-		return fmt.Errorf("read claim issue at %s: %w", head, err)
-	}
-	value, err := trailerValue(text, "Agent-Issue")
-	if err != nil {
-		return stateError("expected head %s has no claim issue identity: %v", head, err)
-	}
-	issue, err := positiveNumber(value)
-	if err != nil || issue != expected {
-		return stateError("expected head %s claims issue %q, not issue #%d", head, value, expected)
-	}
-	return nil
+func validateResumeWorktree(layout repositoryLayout, root, branch string, issue int, head string, lineageGroups ...[]string) error {
+	return validateResumeWorktreeHeads(layout, root, branch, issue, head, []string{head}, lineageGroups...)
 }
 
 //nolint:gocognit // Worktree uniqueness and stale-lineage filtering must be checked together.
-func validateResumeWorktree(layout repositoryLayout, root, branch string, issue int, head string, lineageGroups ...[]string) error {
+func validateResumeWorktreeHeads(layout repositoryLayout, root, branch string, issue int, head string, protectedHeads []string, lineageGroups ...[]string) error {
+	if len(protectedHeads) == 0 {
+		return stateError("resume has no protected claim heads")
+	}
 	lineage := []string(nil)
 	lineageProvided := false
 	if len(lineageGroups) > 1 {
@@ -468,8 +444,12 @@ func validateResumeWorktree(layout repositoryLayout, root, branch string, issue 
 	for _, worktree := range layout.worktrees {
 		candidate := strings.TrimPrefix(worktree.branch, "refs/heads/")
 		candidateIssue, ok := issueFromBranch(candidate)
+		lineageHead := containsResumeHead(protectedHeads, worktree.head)
 		if !ok || candidateIssue != issue {
-			continue
+			if lineageProvided || !lineageHead || samePath(worktree.path, root) {
+				continue
+			}
+			return stateError("detached duplicate/orphan claim worktree %q at %s shares the expected claim lineage; preserve it before recovery", worktree.path, worktree.head)
 		}
 		if !samePath(worktree.path, root) {
 			candidateKind, _, candidateRunID := classifyAgentRef(candidate)
@@ -489,26 +469,22 @@ func validateResumeWorktree(layout repositoryLayout, root, branch string, issue 
 	return nil
 }
 
+func containsResumeHead(heads []string, candidate string) bool {
+	for _, head := range heads {
+		if head == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 func (a app) validateExistingResumeCommit(root, head, expected string, issue int, runID string) error {
-	parent, err := a.command(root, "git", "rev-parse", head+"^")
-	if err != nil || parent != expected {
-		return stateError("observed head %s is not the unique renewal child of expected PR head %s", head, expected)
-	}
-	headTree, err := a.command(root, "git", "rev-parse", head+"^{tree}")
+	commit, err := a.readCanonicalClaimCommit(root, head, issue, runID, expected)
 	if err != nil {
-		return fmt.Errorf("read resumed claim tree: %w", err)
+		return retryableOperationIfRecoverable("resume canonical renewal proof", err)
 	}
-	parentTree, err := a.command(root, "git", "rev-parse", expected+"^{tree}")
-	if err != nil {
-		return fmt.Errorf("read expected claim tree: %w", err)
-	}
-	lease, observedRun, err := a.readClaimMetadataAt(root, head)
-	if err != nil || headTree != parentTree || observedRun != runID || !lease.After(time.Now().UTC()) {
-		return stateError("observed head %s is not a valid empty claim renewal for existing run %s", head, runID)
-	}
-	message, err := a.command(root, "git", "log", "-1", "--format=%B", head)
-	if err != nil || strings.TrimSpace(message) != strings.TrimSpace(claimMessage(issue, runID, lease)) {
-		return stateError("observed head %s is not the standard claim metadata commit", head)
+	if !commit.lease.After(time.Now().UTC()) {
+		return stateError("observed head %s has an expired claim renewal for existing run %s", head, runID)
 	}
 	return nil
 }

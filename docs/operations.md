@@ -1,57 +1,56 @@
 # Scheduled operations
 
-Paseo schedules externally. Jobs start from clean coordination checkout in America/New_York.
+Paseo schedules jobs from a clean coordination checkout in America/New_York.
 | Job | Schedule | Agent | Prompt |
 | --- | --- | --- | --- |
 | Develop | 00:00, then every 3 hours | Luna, maximum effort | `Run $develop for this repository.` |
 | Backlog | 10:30 daily | Sol, maximum effort | `Run $backlog for this repository.` |
 | Retro | 13:30 Sunday | Sol, maximum effort | `Run $retro for this repository.` |
-Jobs are non-interactive. Develop starts from clean canonical `main` matching
-fetched `origin/main` with recursive pins; `doctor` enforces; stale launches
-`base-sync`, then relaunch. Develop claims one Ready issue, uses worktree, opens
-draft PR, squash-merges evaluated head; one companion. Managed-document heads:
-exact audit + fresh read-only Curator review; repeat after each remediation push;
-preserve review records in PR evidence; Examiner gates.
-Four-hour claims renew at durable boundaries/pushes, never solely for renewal;
-no-PR terminal handoffs preserve their claim worktree; other expired no-PR claims
-archive; acknowledged claim resume:
+Jobs are non-interactive. Develop requires clean canonical `main` matching fetched
+`origin/main` and recursive pins; `doctor` enforces this and stale jobs run
+`base-sync` before relaunch. It claims one Ready issue, uses a worktree, opens a
+draft PR, and squash-merges the evaluated head. Managed docs require exact audit
+and fresh Curator review after pushes; preserve evidence.
+Four-hour claims renew at durable boundaries/pushes, never solely for renewal.
+No-PR handoffs preserve worktrees; other expired claims archive.
+Claim resume:
 `go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]`.
 PR resume: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]`.
-Transient agent, checkout, transport, and challenge failures remain retryable;
-exactly three authenticated Examiner `fail` receipts add `needs-human`, then
-return the issue to Backlog. Claim resume requires the trusted exact paginated
-handoff comment, expired exact claim, expected fixed-branch SHA, no open PR,
-canonical Backlog, and one clean unlocked same-run worktree; it removes
-`needs-human` and restores Picked only after renewal verification.
-`go tool workflowctl sync` updates Project status/claim refs; canonical `main` and
-recursive submodules are not synced.
-Run-local refs affect neither ownership, Project status, nor PR heads; inventory-only.
-`base-sync` fetches `origin/main`, fast-forwards `main`, updates recursive pins;
-no reset/rebase/stash/discard.
-After draft, set `PR_NUMBER`:
-`PR_NUMBER="$(gh pr view --json number --jq '.number')"`; set
-`BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"` to
-use exact REST base SHA for `develop-signals --base "$BASE_SHA"`,
-`docs audit --base "$BASE_SHA"`, and `pr evidence update` JSON; never
-`origin/main` or local merge-base.
-Signals may be `no-relevant-target`/`not-measured`; bounded single-worker policy
-fuzz and optional `--additional-fuzz` are health, not conformance; corpus replay
-is separate. Before evidence/challenge/finish, resolve exact REST base/head,
-match commits, recompute v2 signals, and compare canonical JSON. Evidence
-updates rewrite owned slots and preserve non-owned PR bytes.
-Challenge/finish require REST base/head, audit, and Curator/no-doc result;
-challenges bind body/evidence digests. Before Examiner, record a one-use
-head-bound challenge; reject wrong-head, stale, reused, malformed, or
-caller-selected results. Fresh context; receipts are evidence, not identity.
-Unresolved challenges survive; only complete-equivalent trusted receipts form
-rounds. Resolution grants no verdict; an authenticated passing receipt remains
-merge proof. Cleanup inventories claims, preserves unrelated artifacts, and is
-exact/idempotent. REST fallback uses identical head and fresh Examiner.
-Close only after GitHub-effective refs and exact merge proof bind a trusted
-receipt; recover retries; sync maps CLOSED to Done.
-Communications cover issue/claim/check/challenge/attestation/receipt/merge
-records. After draft, pass an external plain-text problem/outcome/rationale/
-invariants summary to `workflowctl pr finish PR --summary-file FILE`; omit
-metadata/status/commands/claim/review. Use Markdown evidence body files.
-Summary: non-empty UTF-8 text; max 8 KiB, LF-only; one final LF accepted.
-Reject surrounding/line-trailing whitespace, controls, Unicode format characters, other line-separators, generated claim-trailers.
+Transient agent, checkout, transport, and challenge failures remain retryable.
+Exactly three authenticated Examiner `fail` receipts add `needs-human` and return
+Backlog. Write blocker/evidence Markdown, then run
+`go tool workflowctl handoff ISSUE --body-file FILE --needs-human`; it proves
+OPEN plus Project identity, applies `needs-human`/Backlog, and posts
+last. Reread incomplete or ambiguous phases before retrying.
+Claim resume requires exact paginated handoff and expired claim, fixed SHA, no PR,
+Backlog, and one clean unlocked
+same-run worktree. Claim/renewal markers are exact-message single-parent empty
+commits; source-bearing or merge commits are terminal. Keep `needs-human` until
+renewal verification, then converge to Project `Picked`. An existing valid
+renewal permits idempotent convergence from Backlog/needs-human or partial Picked;
+the initial renewal requires OPEN, needs-human, and Backlog before first GitHub mutation.
+`workflowctl sync` updates Project status/claim refs, not `main`/submodules; run-local
+refs are inventory-only. `base-sync` fast-forwards `main`/pins and never resets,
+rebases, stashes, or discards.
+After draft, set `PR_NUMBER="$(gh pr view --json number --jq '.number')"` and
+`BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`; use
+that exact REST SHA for signals/audit/evidence, never `origin/main` or merge-base.
+`no-relevant-target`/`not-measured` are valid; policy fuzz is health, not conformance.
+Before evidence/challenge/finish, resolve/match REST base/head, recompute signals,
+compare canonical JSON, preserve non-owned PR bytes, and use exact `pending`/
+`evidence-ready` records.
+Challenge/finish require exact REST base/head, audit, Curator result, and bound
+body/evidence digests. One-use challenges expire after two hours;
+`go tool workflowctl evaluation resolve PR --challenge ID --reason-file FILE`
+records authenticated-no-verdict, never verdict or merge authority. Use a fresh
+Examiner context; reject wrong-head, stale, reused, malformed, or caller-selected
+results. Complete-equivalent trusted receipts form rounds; a passing receipt is
+merge proof. REST fallback uses the identical head and a fresh Examiner.
+Cleanup inventories claims, preserves immutable history/unrelated refs, and is exact
+and idempotent; `claim prune ISSUE` requires merged proof. Close only after
+GitHub-effective refs and exact merge proof bind a trusted receipt; `pr recover`
+retries/preserves artifacts and `sync` maps CLOSED to Done. After draft, pass an
+external plain-text problem/outcome/rationale/invariants summary to
+`workflowctl pr finish PR --summary-file FILE`; omit metadata. Summary is UTF-8,
+non-empty, <=8 KiB, LF-only; reject whitespace, controls, format/separator chars,
+and generated claim trailers. Use Markdown evidence files.
