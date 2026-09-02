@@ -31,6 +31,9 @@ func TestSchemaSimpleTypeVarietiesExposeOrderedResolvedReferences(t *testing.T) 
 	if got, want := atomic.Variety(), SimpleTypeVarietyAtomicRestriction; got != want {
 		t.Fatalf("atomic variety = %q, want %q", got, want)
 	}
+	if atomic.IsString() {
+		t.Fatal("decimal simple type reported string identity")
+	}
 	if atomic.VarietyLoc().IsZero() {
 		t.Fatal("atomic variety location is missing")
 	}
@@ -71,6 +74,9 @@ func TestSchemaSimpleTypeVarietiesExposeOrderedResolvedReferences(t *testing.T) 
 	if got, want := forward.Variety(), SimpleTypeVarietyUnion; got != want {
 		t.Fatalf("union variety = %q, want %q", got, want)
 	}
+	if forward.IsString() {
+		t.Fatal("union simple type reported string identity")
+	}
 	members := forward.MemberTypes()
 	if got, want := len(members), 3; got != want {
 		t.Fatalf("union member count = %d, want %d", got, want)
@@ -108,6 +114,9 @@ func TestSchemaSimpleTypeVarietiesExposeOrderedResolvedReferences(t *testing.T) 
 	if !ok {
 		t.Fatal("anonymous member model is missing")
 	}
+	if anonymous.IsString() {
+		t.Fatal("negativeInteger anonymous type reported string identity")
+	}
 	if !anonymous.IsAnonymous() || !anonymous.Name().IsZero() {
 		t.Fatalf("anonymous member identity facts = anonymous:%t name:%q", anonymous.IsAnonymous(), anonymous.Name())
 	}
@@ -125,6 +134,9 @@ func TestSchemaSimpleTypeVarietiesExposeOrderedResolvedReferences(t *testing.T) 
 	if inlineList.Variety() != SimpleTypeVarietyList {
 		t.Fatalf("inline list variety = %q, want list", inlineList.Variety())
 	}
+	if inlineList.IsString() {
+		t.Fatal("inline list simple type reported string identity")
+	}
 	item, ok := inlineList.ItemType()
 	if !ok || item.Kind() != SimpleTypeReferenceAnonymous {
 		t.Fatalf("inline list item = %q/%t, want anonymous", item.Kind(), ok)
@@ -137,6 +149,9 @@ func TestSchemaSimpleTypeVarietiesExposeOrderedResolvedReferences(t *testing.T) 
 	namedList, ok := components[3].SimpleTypeDefinition()
 	if !ok || namedList.Variety() != SimpleTypeVarietyList {
 		t.Fatalf("named list view = %t/%q", ok, namedList.Variety())
+	}
+	if namedList.IsString() {
+		t.Fatal("named list simple type reported string identity")
 	}
 	namedItem, ok := namedList.ItemType()
 	if !ok || namedItem.Kind() != SimpleTypeReferenceNamed || namedItem.Name().Local() != "Atomic" {
@@ -573,6 +588,9 @@ func TestSchemaBuiltInReferencesRetainVersionedBoundsAndBooleanIdentity(t *testi
 			if !ok {
 				t.Fatal("integer simple type view is missing")
 			}
+			if integerDefinition.IsString() {
+				t.Fatal("integer simple type reported string identity")
+			}
 			integerReference, ok := integerDefinition.BaseReference()
 			if !ok || integerReference.Kind() != SimpleTypeReferenceBuiltin || integerReference.Name().Local() != "integer" {
 				t.Fatalf("integer base reference = %#v/%t, want built-in integer", integerReference, ok)
@@ -589,6 +607,9 @@ func TestSchemaBuiltInReferencesRetainVersionedBoundsAndBooleanIdentity(t *testi
 			if !ok {
 				t.Fatal("decimal simple type view is missing")
 			}
+			if decimalDefinition.IsString() {
+				t.Fatal("decimal simple type reported string identity")
+			}
 			decimalReference, ok := decimalDefinition.BaseReference()
 			if !ok || decimalReference.Kind() != SimpleTypeReferenceBuiltin || decimalReference.Name().Local() != "decimal" {
 				t.Fatalf("decimal base reference = %#v/%t, want built-in decimal", decimalReference, ok)
@@ -604,6 +625,9 @@ func TestSchemaBuiltInReferencesRetainVersionedBoundsAndBooleanIdentity(t *testi
 			booleanDefinition, ok := boolean[0].SimpleTypeDefinition()
 			if !ok {
 				t.Fatal("boolean simple type view is missing")
+			}
+			if booleanDefinition.IsString() {
+				t.Fatal("boolean simple type reported string identity")
 			}
 			booleanReference, ok := booleanDefinition.BaseReference()
 			if !ok || booleanReference.Kind() != SimpleTypeReferenceBuiltin || booleanReference.Name().Local() != "boolean" {
@@ -903,6 +927,9 @@ func TestSimpleTypeModelZeroViewsRemainSafe(t *testing.T) {
 	}
 	if definition.MemberTypes() != nil || definition.UnionMemberTypes() != nil || definition.DigitFacets().Kind() != "" || definition.HasPrecisionDecimalFacets() {
 		t.Fatal("zero definition has non-empty variety facts")
+	}
+	if definition.IsString() {
+		t.Fatal("zero definition reported string identity")
 	}
 	if totalDigits, ok := definition.PrecisionDecimalFacets().TotalDigits(); ok || !totalDigits.IsZero() {
 		t.Fatal("zero definition has precisionDecimal facets")

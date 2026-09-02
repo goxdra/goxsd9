@@ -727,6 +727,15 @@ func (definition SimpleTypeDefinition) IsBoolean() bool {
 	return ok
 }
 
+// IsString reports whether the simple type is derived from the XSD string
+// datatype.
+func (definition SimpleTypeDefinition) IsString() bool {
+	if definition.facts == nil {
+		return false
+	}
+	return definition.facts.atomicKind == schemaSimpleTypeAtomicString
+}
+
 // DigitFacets returns the effective totalDigits and fractionDigits facets.
 func (definition SimpleTypeDefinition) DigitFacets() DigitFacets {
 	if definition.facts == nil {
