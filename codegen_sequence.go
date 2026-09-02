@@ -176,7 +176,11 @@ func collectCodegenDirectParticles(
 				errCodegenDirectParticlePlan,
 			)
 		}
+		anyAttribute, anyAttributeOK := definition.AnyAttribute()
 		if choice, choiceOK := directChoiceValue(particle); choiceOK {
+			if anyAttributeOK {
+				return nil, codegenDirectChoiceAnyAttributeUnsupported(component, choice.Loc(), anyAttribute, version)
+			}
 			owner, ownerErr := collectCodegenDirectChoiceOwner(schema, component, choice, version)
 			if ownerErr != nil {
 				return nil, ownerErr
@@ -188,7 +192,7 @@ func collectCodegenDirectParticles(
 			continue
 		}
 		if sequence, sequenceOK := directSequenceValue(particle); sequenceOK {
-			if anyAttribute, anyAttributeOK := definition.AnyAttribute(); anyAttributeOK {
+			if anyAttributeOK {
 				return nil, newCodegenDirectSequenceUnsupported(
 					anyAttribute.Loc(),
 					fmt.Sprintf("complex type %q attribute wildcards are outside direct sequence generation", component.Name()),

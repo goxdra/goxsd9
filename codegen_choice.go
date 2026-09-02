@@ -162,6 +162,7 @@ func collectCodegenDirectChoices(
 				errCodegenDirectChoiceParticle,
 			)
 		}
+		anyAttribute, anyAttributeOK := definition.AnyAttribute()
 
 		choice, choiceOK := directChoiceValue(particle)
 		if !choiceOK {
@@ -182,6 +183,9 @@ func collectCodegenDirectChoices(
 				codegenDirectChoiceParticlesReference,
 			)
 		}
+		if anyAttributeOK {
+			return nil, codegenDirectChoiceAnyAttributeUnsupported(component, choice.Loc(), anyAttribute, version)
+		}
 		owner, ownerErr := collectCodegenDirectChoiceOwner(schema, component, choice, version)
 		if ownerErr != nil {
 			return nil, ownerErr
@@ -189,6 +193,22 @@ func collectCodegenDirectChoices(
 		owners = append(owners, owner)
 	}
 	return owners, nil
+}
+
+func codegenDirectChoiceAnyAttributeUnsupported(
+	component Component,
+	particleLoc Loc,
+	anyAttribute AnyAttribute,
+	version XSDVersion,
+) error {
+	return newCodegenDirectChoiceUnsupported(
+		anyAttribute.Loc(),
+		fmt.Sprintf("complex type %q attribute wildcards are outside direct choice generation", component.Name()),
+		appendCodegenRelated(nil, particleLoc),
+		fmt.Errorf("%w: complex type attribute wildcard", errCodegenUnsupported),
+		version,
+		codegenDirectChoiceElementChoiceReference,
+	)
 }
 
 // collectCodegenDirectChoiceOwner validates and collects one completed direct

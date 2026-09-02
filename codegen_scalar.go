@@ -614,7 +614,7 @@ func planCodegenComponent(
 			fmt.Sprintf("schema component kind %q is not supported by Go scalar generation", component.Kind()),
 			nil,
 			fmt.Errorf("%w: component kind %q", errCodegenUnsupported, component.Kind()),
-			"",
+			policyVersion,
 		)
 	default:
 		return codegenSourceTarget{}, "", false, newCodegenUnsupported(
@@ -622,7 +622,7 @@ func planCodegenComponent(
 			fmt.Sprintf("unknown schema component kind %q is not supported by Go scalar generation", component.Kind()),
 			nil,
 			fmt.Errorf("%w: unknown component kind %q", errCodegenUnsupported, component.Kind()),
-			"",
+			policyVersion,
 		)
 	}
 }
@@ -2019,7 +2019,7 @@ func compareCodegenSourceSequences(actual, expected *codegenSourceSequence, loc 
 			actualField.usesRuntime != expectedField.usesRuntime ||
 			actualField.target != expectedField.target {
 			return newCodegenInternal(
-				actualField.loc,
+				codegenSourceSequenceFieldLoc(expectedField, expected.sequenceLoc, loc),
 				"source plan sequence field facts do not match schema",
 				nil,
 				errCodegenSchemaInvariant,
@@ -2027,6 +2027,16 @@ func compareCodegenSourceSequences(actual, expected *codegenSourceSequence, loc 
 		}
 	}
 	return nil
+}
+
+func codegenSourceSequenceFieldLoc(field codegenSourceSequenceField, sequenceLoc, declarationLoc Loc) Loc {
+	if !field.loc.IsZero() {
+		return field.loc
+	}
+	if !sequenceLoc.IsZero() {
+		return sequenceLoc
+	}
+	return declarationLoc
 }
 
 func codegenSourcePlanLoc(plan codegenSourcePlan) Loc {

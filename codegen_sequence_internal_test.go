@@ -133,6 +133,47 @@ func TestCodegenDirectSequenceSourceRejectsCorruptionAtRenderBoundary(t *testing
 	}
 }
 
+func TestCodegenDirectSequenceSourceUsesExpectedFieldLocationForCorruption(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*codegenSourcePlan, *testing.T)
+	}{
+		{
+			name: "zero field location",
+			mutate: func(plan *codegenSourcePlan, _ *testing.T) {
+				plan.declarations[0].sequence.fields[0].loc = Loc{}
+			},
+		},
+		{
+			name: "stale field location",
+			mutate: func(plan *codegenSourcePlan, t *testing.T) {
+				plan.declarations[0].sequence.fields[0].loc = mustTestLoc(t, "stale.xsd", 17, 19)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			schema := codegenDirectSequenceTestSchema(t)
+			directPlan, err := planCodegenDirectParticles(schema, "generated")
+			if err != nil {
+				t.Fatalf("planCodegenDirectParticles: %v", err)
+			}
+			plan, err := planCodegenSourceWithDirectParticles(schema, directPlan)
+			if err != nil {
+				t.Fatalf("planCodegenSourceWithDirectParticles: %v", err)
+			}
+			wantLoc := plan.declarations[0].sequence.fields[0].loc
+			test.mutate(&plan, t)
+
+			output, err := renderCodegenSource(plan, schema)
+			assertCodegenDirectSequenceInternalFailure(t, output, err, errCodegenSchemaInvariant)
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Loc() != wantLoc {
+				t.Fatalf("diagnostic location = %s, want recollected field location %s", diagnostic.Loc(), wantLoc)
+			}
+		})
+	}
+}
+
 func TestCodegenDirectSequenceSourceRejectsContradictoryParticleMode(t *testing.T) {
 	schema := codegenDirectSequenceTestSchema(t)
 	directPlan, err := planCodegenDirectParticles(schema, "generated")

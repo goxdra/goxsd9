@@ -199,6 +199,71 @@ func TestGenerateGoRejectsUnsupportedDirectSequenceShapes(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep edition-specific wildcard diagnostic assertions together.
+func TestGenerateGoRejectsDirectChoiceAttributeWildcardAcrossEditions(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		policy   goxsd9.LanguagePolicy
+		version  string
+		wantSpec string
+	}{
+		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0", wantSpec: "xsd10-structures#element-choice"},
+		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1", wantSpec: "xsd11-structures#element-choice"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" targetNamespace="urn:choice" version="` + test.version + `">
+  <xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:integer"/></xs:choice><xs:anyAttribute namespace="##other" processContents="lax"/></xs:complexType>
+</xs:schema>`
+			schema, err := parseSequenceSchemaResult(t, test.policy, root, nil)
+			if err != nil {
+				t.Fatalf("ParseSchemaWithPolicy: %v", err)
+			}
+			name, err := goxsd9.NewQName("urn:choice", "Choice")
+			if err != nil {
+				t.Fatalf("NewQName: %v", err)
+			}
+			components := schema.FindKind(goxsd9.ComponentKindComplexTypeDefinition, name)
+			if len(components) != 1 {
+				t.Fatalf("Choice component count = %d, want 1", len(components))
+			}
+			definition, ok := components[0].ComplexType()
+			if !ok {
+				t.Fatal("Choice has no complex type view")
+			}
+			choice, ok := definition.Particle().(goxsd9.ChoiceParticle)
+			if !ok {
+				t.Fatalf("Choice particle = %T, want ChoiceParticle", definition.Particle())
+			}
+			wildcard, ok := definition.AnyAttribute()
+			if !ok {
+				t.Fatal("Choice has no anyAttribute wildcard")
+			}
+
+			source, err := goxsd9.GenerateGo(schema, "generated")
+			if source != nil || err == nil {
+				t.Fatalf("direct-choice wildcard result = (%q, %v), want nil source and error", source, err)
+			}
+			diagnostic := requirePublicCodegenDiagnostic(t, err)
+			if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode {
+				t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic", diagnostic)
+			}
+			if diagnostic.Feature() != goxsd9.FeatureCodegen || diagnostic.SpecRef() != test.wantSpec {
+				t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), goxsd9.FeatureCodegen, test.wantSpec)
+			}
+			if diagnostic.Loc() != wildcard.Loc() {
+				t.Fatalf("diagnostic primary location = %s, want wildcard location %s", diagnostic.Loc(), wildcard.Loc())
+			}
+			related := diagnostic.Related()
+			if len(related) != 1 || related[0] != choice.Loc() {
+				t.Fatalf("diagnostic related locations = %v, want [%s]", related, choice.Loc())
+			}
+			if !errors.Is(err, goxsd9.ErrUnsupported) {
+				t.Fatalf("diagnostic lost unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
 func TestGenerateGoRejectsDirectSequenceElementReference(t *testing.T) {
 	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict10, goxsd9.Strict11} {
 		t.Run(string(policy), func(t *testing.T) {
