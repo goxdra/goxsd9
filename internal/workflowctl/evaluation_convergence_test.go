@@ -3,6 +3,8 @@ package workflowctl
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -158,6 +160,46 @@ func TestEvaluationEquivalentReceiptsConvergeAndRemainInPhysicalHistory(t *testi
 	}
 	if mergeReceipt.Round != 1 || mergeReceipt.Verdict != "pass" {
 		t.Fatalf("merge-boundary receipt = %#v, want one passing logical round", mergeReceipt)
+	}
+}
+
+func TestEvaluationReceiptConvergenceVerificationReadFailureIsRetryable(t *testing.T) {
+	backend, application, stdout := newConvergenceWorkflowFixture(t)
+	challenge := requestTestChallenge(t, application, stdout)
+	_, attestationFile := writeTestAttestation(t, backend.head, challenge)
+	if err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile}); err != nil {
+		t.Fatalf("record initial evaluation: %v", err)
+	}
+	appendEquivalentWorkflowReceipt(t, backend)
+	if got, want := backend.commentPostCount, 2; got != want {
+		t.Fatalf("initial comment POST count = %d, want %d", got, want)
+	}
+
+	sentinel := errors.New("simulated convergence verification GET failure")
+	failNextPRRead := false
+	application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if failNextPRRead && command == "gh api repos/goxdra/goxsd9/pulls/14" {
+			failNextPRRead = false
+			return "", sentinel
+		}
+		output, err := backend.execute(dir, input, name, args...)
+		if err == nil && command == "gh api --method POST repos/goxdra/goxsd9/issues/14/comments --input -" &&
+			backend.commentPostCount == 3 {
+			failNextPRRead = true
+		}
+		return output, err
+	}
+
+	err := application.runEvaluation([]string{"record", "14", "--attestation-file", attestationFile})
+	if err == nil {
+		t.Fatal("receipt convergence succeeded after injected GET failure")
+	}
+	if got := operationDispositionOf(err); got != operationDispositionRetryable {
+		t.Fatalf("receipt convergence disposition = %v, want retryable: %v", got, err)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("receipt convergence error = %v, want sentinel cause", err)
 	}
 }
 

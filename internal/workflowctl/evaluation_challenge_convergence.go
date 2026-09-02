@@ -493,26 +493,26 @@ func readEvaluationMutationHistoryForConvergence(number int, comments []pullRequ
 func (a app) readEvaluationChallengeState(root string, number int, expected evaluationChallenge) (
 	pullRequestView, evaluationHistory, error) {
 	if expected.Repository != repositoryKey || expected.PR != number {
-		return pullRequestView{}, evaluationHistory{}, fmt.Errorf(
-			"PR #%d challenge has an invalid repository or PR identity", number)
+		return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge verification", fmt.Errorf(
+			"PR #%d challenge has an invalid repository or PR identity", number))
 	}
 	view, err := a.readPullRequest(root, number)
 	if err != nil {
-		return pullRequestView{}, evaluationHistory{}, err
+		return pullRequestView{}, evaluationHistory{}, retryableOperation("evaluation challenge verification", fmt.Errorf("read PR #%d after challenge POST: %w", number, err))
 	}
 	if view.State != "OPEN" {
-		return pullRequestView{}, evaluationHistory{}, fmt.Errorf("PR #%d is %s", number, view.State)
+		return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge verification", fmt.Errorf("PR #%d is %s", number, view.State))
 	}
 	history, err := readEvaluationMutationHistoryForConvergence(number, view.Comments)
 	if err != nil {
-		return pullRequestView{}, evaluationHistory{}, fmt.Errorf(
-			"PR #%d has invalid evaluation history after challenge POST: %w", number, err)
+		return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge verification", fmt.Errorf(
+			"PR #%d has invalid evaluation history after challenge POST: %w", number, err))
 	}
 	record, ok := evaluationChallengeByID(history, expected.Challenge)
 	if !ok {
-		return pullRequestView{}, evaluationHistory{}, fmt.Errorf(
+		return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge verification", fmt.Errorf(
 			"PR #%d challenge POST was not authenticated as exactly one trusted challenge %s",
-			number, expected.Challenge)
+			number, expected.Challenge))
 	}
 	if record.challenge.Challenge != expected.Challenge ||
 		record.challenge.Repository != expected.Repository ||
@@ -520,21 +520,21 @@ func (a app) readEvaluationChallengeState(root string, number int, expected eval
 		record.challenge.BodySHA256 != expected.BodySHA256 ||
 		record.challenge.EvidenceSHA256 != expected.EvidenceSHA256 ||
 		!record.challenge.RequestedAt.Equal(expected.RequestedAt) {
-		return pullRequestView{}, evaluationHistory{}, errors.New(
-			"authenticated challenge differs from the exact posted challenge identity")
+		return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge verification", errors.New(
+			"authenticated challenge differs from the exact posted challenge identity"))
 	}
 	marker, err := jsonMarshalEvaluationChallenge(expected)
 	if err != nil {
-		return pullRequestView{}, evaluationHistory{}, err
+		return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge verification", err)
 	}
 	expectedBody := "<!-- " + evaluationChallengeMarker + string(marker) + " -->\nExaminer challenge for " +
 		string([]byte{96}) + expected.Head + string([]byte{96}) + ".\n"
 	if record.comment.Body != expectedBody {
-		return pullRequestView{}, evaluationHistory{}, errors.New(
-			"authenticated challenge comment differs from the exact posted body")
+		return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge verification", errors.New(
+			"authenticated challenge comment differs from the exact posted body"))
 	}
 	if err := validateEvaluationChallengeView(view, number, expected); err != nil {
-		return pullRequestView{}, evaluationHistory{}, err
+		return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge verification", err)
 	}
 	return view, history, nil
 }

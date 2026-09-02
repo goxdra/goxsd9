@@ -1403,7 +1403,7 @@ func (a app) requestEvaluation(number int) error {
 	verifiedView, verifiedHistory, verificationErr := a.readEvaluationChallengeState(root, number, challenge)
 	if verificationErr != nil {
 		if postErr != nil {
-			return retryableOperation("evaluation challenge", fmt.Errorf("post PR #%d evaluation challenge: %w", number, errors.Join(postErr, verificationErr)))
+			return retryableOperationIfRecoverable("evaluation challenge", fmt.Errorf("post PR #%d evaluation challenge: %w", number, errors.Join(postErr, verificationErr)))
 		}
 		return verificationErr
 	}
@@ -1591,7 +1591,7 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 		view, history, err = a.convergeEvaluationReceiptGroup(root, number, view,
 			duplicateErr.group, attestation, attestationJSON)
 		if err != nil {
-			return stateError("PR #%d equivalent evaluation receipts could not be converged: %v", number, err)
+			return fmt.Errorf("PR #%d equivalent evaluation receipts could not be converged: %w", number, err)
 		}
 		view, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
 		if err != nil {
@@ -1879,20 +1879,20 @@ func (a app) convergeEvaluationReceiptGroup(root string, number int, view pullRe
 	postErr := a.postPullRequestComment(root, number, body)
 	verifiedView, readErr := a.readPullRequest(root, number)
 	if readErr != nil {
-		return pullRequestView{}, evaluationHistory{}, fmt.Errorf("convergence POST could not be verified; retry after inspecting complete history: %w",
-			errors.Join(postErr, readErr))
+		return pullRequestView{}, evaluationHistory{}, retryableOperation("evaluation convergence", fmt.Errorf("convergence POST could not be verified; retry after inspecting complete history: %w",
+			errors.Join(postErr, readErr)))
 	}
 	if verifiedView.State != "OPEN" {
-		return pullRequestView{}, evaluationHistory{}, fmt.Errorf("convergence POST cannot authorize a %s PR; preserve the comments and retry after inspection: %w",
-			verifiedView.State, errors.Join(postErr, errors.New("PR is not open")))
+		return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation convergence", fmt.Errorf("convergence POST cannot authorize a %s PR; preserve the comments and retry after inspection: %w",
+			verifiedView.State, errors.Join(postErr, errors.New("PR is not open"))))
 	}
 	if err := evaluationReceiptMatchesCurrentPR(canonical, verifiedView); err != nil {
-		return pullRequestView{}, evaluationHistory{}, fmt.Errorf("convergence POST could not be verified after PR metadata changed: %w",
-			errors.Join(postErr, err))
+		return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation convergence", fmt.Errorf("convergence POST could not be verified after PR metadata changed: %w",
+			errors.Join(postErr, err)))
 	}
 	if err := evaluationReceiptMatchesCurrentEvidence(canonical, verifiedView); err != nil {
-		return pullRequestView{}, evaluationHistory{}, fmt.Errorf("convergence POST could not be verified after PR evidence changed: %w",
-			errors.Join(postErr, err))
+		return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation convergence", fmt.Errorf("convergence POST could not be verified after PR evidence changed: %w",
+			errors.Join(postErr, err)))
 	}
 	verifiedHistory, historyErr := readEvaluationMutationHistory(number, verifiedView.Comments)
 	if historyErr == nil && evaluationHistoryConvergesFacts(verifiedHistory, evaluationReceiptFactsForReceipt(canonical)) {
@@ -1906,11 +1906,11 @@ func (a app) convergeEvaluationReceiptGroup(root string, number int, view pullRe
 		historyErr = errors.New("authenticated convergence record does not close the target duplicate group")
 	}
 	if postErr != nil {
-		return pullRequestView{}, evaluationHistory{}, retryableOperation("evaluation convergence", fmt.Errorf("convergence POST response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
-			errors.Join(postErr, historyErr)))
+		return pullRequestView{}, evaluationHistory{}, retryableOperationIfRecoverable("evaluation convergence", fmt.Errorf("convergence POST response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
+			errors.Join(postErr, terminalOperation("evaluation convergence history", historyErr))))
 	}
-	return pullRequestView{}, evaluationHistory{}, fmt.Errorf("convergence POST was not authenticated in complete paginated history; retry after inspection: %w",
-		historyErr)
+	return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation convergence", fmt.Errorf("convergence POST was not authenticated in complete paginated history; retry after inspection: %w",
+		historyErr))
 }
 
 func evaluationConvergenceCommentForReceipts(number int, view pullRequestView,

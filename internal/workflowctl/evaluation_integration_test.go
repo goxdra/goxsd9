@@ -183,6 +183,40 @@ func TestEvaluationChallengeInitialPostTransportLossRetriesWithoutRepost(t *test
 	}
 }
 
+func TestEvaluationChallengeVerificationReadFailureIsRetryable(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+	sentinel := errors.New("simulated challenge verification GET failure")
+	failNextPRRead := false
+	application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if failNextPRRead && command == "gh api repos/goxdra/goxsd9/pulls/14" {
+			failNextPRRead = false
+			return "", sentinel
+		}
+		output, err := backend.execute(dir, input, name, args...)
+		if err == nil && command == "gh api --method POST repos/goxdra/goxsd9/issues/14/comments --input -" {
+			failNextPRRead = true
+		}
+		return output, err
+	}
+
+	err := application.runEvaluation([]string{"challenge", "14"})
+	if err == nil {
+		t.Fatal("challenge verification succeeded after injected GET failure")
+	}
+	if got := operationDispositionOf(err); got != operationDispositionRetryable {
+		t.Fatalf("challenge verification disposition = %v, want retryable: %v", got, err)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("challenge verification error = %v, want sentinel cause", err)
+	}
+	if got, want := backend.commentPostCount, 1; got != want {
+		t.Fatalf("challenge POST count = %d, want %d", got, want)
+	}
+}
+
 func TestEvaluationChallengeConvergenceClosesStaleDuplicateAfterPRAdvance(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer
