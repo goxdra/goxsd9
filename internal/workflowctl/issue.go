@@ -700,8 +700,12 @@ func (a app) handoffNeedsHuman(root string, number int, bodyFile string) error {
 	output, err := a.command(root, "gh", "issue", "comment", strconv.Itoa(number), "--repo", repositoryKey,
 		"--body-file", bodyFile)
 	if err != nil {
-		return fmt.Errorf("handoff issue #%d evidence comment phase incomplete after needs-human and Project Backlog; retry: %w",
-			number, err)
+		comments, readErr := a.readIssueComments(root, number)
+		if readErr == nil && exactTrustedIssueComment(comments, body) {
+			return writeLine(a.stdout, "issue #%d needs-human handoff already recorded", number)
+		}
+		return retryableOperation("needs-human evidence comment", fmt.Errorf("handoff issue #%d evidence comment phase incomplete after needs-human and Project Backlog; retry: %w",
+			number, errors.Join(err, readErr)))
 	}
 	return writeLine(a.stdout, "%s", output)
 }

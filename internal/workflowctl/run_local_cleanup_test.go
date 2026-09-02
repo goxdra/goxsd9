@@ -161,6 +161,23 @@ func TestRunLocalCleanupAcceptanceMatrixPreservesBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestRunLocalCleanupPreservesSourceDivergenceWithoutChoosingAWinner(t *testing.T) {
+	branch := "agent/issue-55-run-good"
+	candidates := mergeRunLocalCandidates(
+		[]runLocalRef{{branch: branch, number: 55, runID: "run-good", sha: "remote-head", source: claimRefRemote}},
+		[]runLocalRef{{branch: branch, number: 55, runID: "run-good", sha: "local-head", source: claimRefLocal}},
+		[]runLocalRef{{branch: branch, number: 55, runID: "run-good", sha: "tracking-head", source: claimRefTracking}},
+	)
+	if len(candidates) != 3 {
+		t.Fatalf("source divergence candidates = %#v, want one observation per SHA", candidates)
+	}
+	for index, want := range []string{"local-head", "remote-head", "tracking-head"} {
+		if candidates[index].branch != branch || candidates[index].sha != want {
+			t.Fatalf("candidate %d = %#v, want %s at %s", index, candidates[index], branch, want)
+		}
+	}
+}
+
 func TestRunLocalCleanupIgnoresUnrelatedDivergenceAndMalformedRefs(t *testing.T) {
 	const (
 		goodSHA    = "evaluated-head"
@@ -413,6 +430,53 @@ func TestCleanupRemovesOnlyProvenRunLocalDuplicateFromFourRefShape(t *testing.T)
 		t.Fatalf("idempotent cleanupClaims: %v", err)
 	}
 	assertIssue86FourRefCleanup(t, fixture, commands)
+}
+
+func TestCleanupPreservesOlderRunLocalArtifactsWhenCurrentRunIsProven(t *testing.T) {
+	fixture := newIssue86FourRefFixture(t)
+	staleBranch := "agent/issue-86-run-old"
+	staleWorktree := claimWorktreePath(fixture.repository.primary, staleBranch)
+	runGitTest(t, fixture.repository.primary, "worktree", "add", "-b", staleBranch, staleWorktree, fixture.sha)
+	runGitTest(t, fixture.repository.linked, "push", "origin", fixture.sha+":refs/heads/"+staleBranch)
+	runGitTest(t, fixture.repository.primary, "fetch", "origin", "refs/heads/"+staleBranch+":refs/remotes/origin/"+staleBranch)
+
+	commands := []string{}
+	application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, executeCommand: realGitWithNoOpenPRExecutor(t, &commands)}
+	layout, err := application.repositoryLayout(fixture.repository.linked)
+	if err != nil {
+		t.Fatalf("repositoryLayout: %v", err)
+	}
+	plan := cleanupPlan{
+		layout:            layout,
+		callerRoot:        fixture.repository.linked,
+		claims:            []claimArtifact{{issue: fixture.issue, branch: fixture.fixedBranch, sha: fixture.sha, localBranch: fixture.runBranch, worktreePath: fixture.runWorktree}},
+		proofHead:         fixture.sha,
+		primaryIssue:      fixture.issue,
+		validateArtifacts: true,
+	}
+	base := synchronizedBase{fetched: fetchedBase{primary: cleanPrimary{layout: layout}}}
+	packet := mergedPacket{number: fixture.issue, mergeSHA: "merge-proof", plan: plan}
+	if err := application.cleanupClaims(base, packet); err != nil {
+		t.Fatalf("cleanupClaims with preserved older run: %v", err)
+	}
+
+	if output := runGitTest(t, fixture.repository.primary, "ls-remote", "--heads", "origin", "refs/heads/"+staleBranch); !strings.Contains(output, staleBranch) {
+		t.Fatalf("preserved remote stale ref = %q, want %s", output, staleBranch)
+	}
+	if output := runGitAllowFailure(t, fixture.repository.primary, "show-ref", "--verify", "refs/heads/"+staleBranch); output == "" {
+		t.Fatalf("preserved local stale ref is missing")
+	}
+	if inventory := runGitTest(t, fixture.repository.primary, "worktree", "list", "--porcelain"); !strings.Contains(inventory, staleWorktree) {
+		t.Fatalf("preserved stale worktree is missing:\n%s", inventory)
+	}
+	if output := runGitAllowFailure(t, fixture.repository.primary, "show-ref", "--verify", "refs/heads/"+fixture.runBranch); output != "" {
+		t.Fatalf("proven current local ref remains: %s", output)
+	}
+	for _, command := range commands {
+		if strings.Contains(command, staleBranch) && (strings.Contains(command, "push --force-with-lease") || strings.Contains(command, "update-ref -d") || strings.Contains(command, "worktree remove")) {
+			t.Fatalf("preserved stale artifact became a mutation target: %s", command)
+		}
+	}
 }
 
 func TestCleanupRemovesOnlyProvenRunLocalAncestorFromPR154Shape(t *testing.T) {

@@ -50,6 +50,38 @@ type provenRunLocalRef struct {
 	remotePresent   bool
 	trackingPresent bool
 	localPresent    bool
+	preserved       []runLocalRefCandidate
+}
+
+type runLocalSourceRaceError struct {
+	source string
+	err    error
+}
+
+func (e *runLocalSourceRaceError) Error() string {
+	return e.err.Error()
+}
+
+func (e *runLocalSourceRaceError) Unwrap() error {
+	return e.err
+}
+
+// runLocalCleanupResult keeps inventory observations separate from the
+// evaluated deletion set.  Preserved observations are never mutation targets;
+// retaining them here also gives callers a deterministic account of residue
+// that belongs to an older run.
+type runLocalCleanupResult struct {
+	proven    []provenRunLocalRef
+	preserved []runLocalRefCandidate
+}
+
+type runLocalCandidateFailure struct {
+	candidate runLocalRefCandidate
+	err       error
+}
+
+type runLocalLineage struct {
+	identities []runLocalHistoryIdentity
 }
 
 func (a app) prepareCleanupPlan(root string, layout repositoryLayout, view pullRequestView, primary int, pullRequestNumbers ...int) (cleanupPlan, error) {
@@ -109,7 +141,7 @@ func (a app) prepareProofBoundCleanupPlan(root string, layout repositoryLayout, 
 	if err != nil {
 		return nil, nil, err
 	}
-	claims, err := attachClaimWorktrees(layout, plan.claims)
+	claims, err := attachClaimWorktrees(layout, plan.claims, proven)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -218,10 +250,21 @@ func (a app) companionCleanupClaims(root string, view pullRequestView, primary i
 	return companions, nil
 }
 
-func attachClaimWorktrees(layout repositoryLayout, claims []claimArtifact) ([]claimArtifact, error) {
+func attachClaimWorktrees(layout repositoryLayout, claims []claimArtifact, provenGroups ...[]provenRunLocalRef) ([]claimArtifact, error) {
+	proven, err := selectProvenRunLocalRefs(provenGroups...)
+	if err != nil {
+		return nil, err
+	}
 	claims = append([]claimArtifact(nil), claims...)
 	for index := range claims {
-		worktree, ok, err := findClaimWorktree(layout, claims[index].branch, claims[index].sha)
+		branch := claims[index].localBranch
+		if branch == "" {
+			branch = provenRunLocalBranchForIssue(proven, claims[index].issue, claims[index].sha)
+		}
+		if branch == "" {
+			branch = claims[index].branch
+		}
+		worktree, ok, err := findClaimWorktree(layout, branch, claims[index].sha)
 		if err != nil {
 			return nil, err
 		}
@@ -233,9 +276,26 @@ func attachClaimWorktrees(layout repositoryLayout, claims []claimArtifact) ([]cl
 	return claims, nil
 }
 
+func provenRunLocalBranchForIssue(refs []provenRunLocalRef, issue int, sha string) string {
+	branch := ""
+	for _, ref := range refs {
+		if refIssue(ref.branch) != issue || ref.sha != sha {
+			continue
+		}
+		if branch != "" && branch != ref.branch {
+			return ""
+		}
+		branch = ref.branch
+	}
+	return branch
+}
+
 func attachProvenRunLocalWorktrees(layout repositoryLayout, claims []claimArtifact, refs []provenRunLocalRef, callerRoot string) ([]claimArtifact, error) {
 	claims = append([]claimArtifact(nil), claims...)
 	for _, ref := range refs {
+		if !ref.localPresent {
+			continue
+		}
 		worktree, found, err := findClaimWorktree(layout, ref.branch, ref.sha)
 		if err != nil {
 			return nil, err
@@ -430,6 +490,37 @@ func (a app) cleanupClaims(base synchronizedBase, packet mergedPacket) error {
 }
 
 func (a app) prepareRunLocalCleanup(root string, packet mergedPacket) ([]provenRunLocalRef, error) {
+	result, err := a.prepareRunLocalCleanupResult(root, packet)
+	if err != nil {
+		return nil, err
+	}
+	return result.proven, nil
+}
+
+func (a app) prepareRunLocalCleanupResult(root string, packet mergedPacket) (runLocalCleanupResult, error) {
+	candidates, err := a.runLocalCleanupCandidates(root, packet)
+	if err != nil {
+		return runLocalCleanupResult{}, err
+	}
+	matched, preserved, err := a.proveRunLocalCleanupCandidates(root, packet, candidates)
+	if err != nil {
+		return runLocalCleanupResult{}, err
+	}
+	if len(matched) == 0 {
+		if err := rejectAmbiguousRunLocalCandidates(candidates, packet.plan.claims); err != nil {
+			return runLocalCleanupResult{}, err
+		}
+		if len(preserved) != 0 {
+			return runLocalCleanupResult{}, stateError("preserve run-local ref %s: no canonical claim marker in evaluated lineage", preserved[0].branch)
+		}
+	}
+	if err := rejectAmbiguousProvenRunLocalCandidates(matched, packet.plan.claims); err != nil {
+		return runLocalCleanupResult{}, err
+	}
+	return runLocalCleanupResult{proven: matched, preserved: preserved}, nil
+}
+
+func (a app) runLocalCleanupCandidates(root string, packet mergedPacket) ([]runLocalRefCandidate, error) {
 	inventory, err := a.remoteAgentRefInventory(root)
 	if err != nil {
 		return nil, err
@@ -452,25 +543,142 @@ func (a app) prepareRunLocalCleanup(root string, packet mergedPacket) ([]provenR
 	if malformedErr != nil {
 		return nil, malformedErr
 	}
-	candidates, err := mergeRunLocalCandidates(inventory.runLocals, local, tracking)
-	if err != nil {
-		return nil, err
-	}
-	if err := rejectAmbiguousRunLocalCandidates(candidates, packet.plan.claims); err != nil {
-		return nil, err
-	}
+	return mergeRunLocalCandidates(inventory.runLocals, local, tracking), nil
+}
+
+func (a app) proveRunLocalCleanupCandidates(root string, packet mergedPacket, candidates []runLocalRefCandidate) ([]provenRunLocalRef, []runLocalRefCandidate, error) {
 	matched := make([]provenRunLocalRef, 0, len(candidates))
+	preserved := make([]runLocalRefCandidate, 0, len(candidates))
+	failed := make([]runLocalCandidateFailure, 0, len(candidates))
+	lineages := make(map[int]runLocalLineage)
 	for _, candidate := range candidates {
-		matchedCandidate, found, err := a.validateRunLocalCandidate(root, packet, candidate)
+		matchedCandidate, found, preservedCandidate, failure, err := a.proveRunLocalCleanupCandidate(root, packet, candidate, lineages)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		if preservedCandidate {
+			preserved = append(preserved, candidate)
+			continue
 		}
 		if !found {
+			if failure != nil {
+				failed = append(failed, *failure)
+			}
 			continue
 		}
 		matched = append(matched, matchedCandidate)
 	}
-	return matched, nil
+	for _, failure := range failed {
+		index := provenRunLocalRefIndex(matched, failure.candidate.branch)
+		if index < 0 {
+			return nil, nil, failure.err
+		}
+		matched[index].preserved = append(matched[index].preserved, failure.candidate)
+		preserved = append(preserved, failure.candidate)
+	}
+	return matched, preserved, nil
+}
+
+func (a app) proveRunLocalCleanupCandidate(root string, packet mergedPacket, candidate runLocalRefCandidate,
+	lineages map[int]runLocalLineage) (provenRunLocalRef, bool, bool, *runLocalCandidateFailure, error) {
+	issue := refIssue(candidate.branch)
+	lineage, found := lineages[issue]
+	if !found {
+		var err error
+		lineage, err = a.evaluatedRunLocalLineage(root, packet, candidate)
+		if err != nil {
+			return provenRunLocalRef{}, false, false, nil, err
+		}
+		lineages[issue] = lineage
+	}
+	if !lineage.contains(refRunID(candidate.branch)) {
+		return provenRunLocalRef{}, false, true, nil, nil
+	}
+	matched, found, err := a.validateRunLocalCandidate(root, packet, candidate)
+	if err == nil {
+		return matched, found, false, nil, nil
+	}
+	if isRunLocalSourceRace(err) {
+		return provenRunLocalRef{}, false, false, nil, err
+	}
+	var stateErr *exitError
+	if !errors.As(err, &stateErr) {
+		return provenRunLocalRef{}, false, false, nil, err
+	}
+	return provenRunLocalRef{}, false, false, &runLocalCandidateFailure{candidate: candidate, err: err}, nil
+}
+
+func (a app) evaluatedRunLocalLineage(root string, packet mergedPacket, candidate runLocalRefCandidate) (runLocalLineage, error) {
+	issue := refIssue(candidate.branch)
+	if issue < 1 || packet.plan.proofHead == "" {
+		return runLocalLineage{}, stateError("preserve run-local ref %s: immutable evaluated claim proof is unavailable", candidate.branch)
+	}
+	history, err := a.evaluatedClaimHistory(root, candidate, packet.plan.proofHead)
+	if err != nil {
+		return runLocalLineage{}, fmt.Errorf("read evaluated claim lineage for run-local ref %s at %s: %w", candidate.branch, packet.plan.proofHead, err)
+	}
+	records, err := splitRunLocalHistory(history, candidate.branch)
+	if err != nil {
+		return runLocalLineage{}, err
+	}
+	lineage := runLocalLineage{identities: make([]runLocalHistoryIdentity, 0)}
+	for _, record := range records {
+		identity, canonical, parseErr := parseCanonicalRunLocalClaim(record.message, issue)
+		if parseErr != nil {
+			return runLocalLineage{}, stateError("preserve run-local ref %s at history commit %s: malformed canonical claim marker: %w", candidate.branch, record.commit, parseErr)
+		}
+		if !canonical {
+			continue
+		}
+		lineage.identities = appendUniqueRunLocalIdentity(lineage.identities, identity)
+	}
+	return lineage, nil
+}
+
+func (lineage runLocalLineage) contains(runID string) bool {
+	for _, identity := range lineage.identities {
+		if identity.runID == runID {
+			return true
+		}
+	}
+	return false
+}
+
+func refRunID(branch string) string {
+	_, _, runID := classifyAgentRef(branch)
+	return runID
+}
+
+func appendUniqueRunLocalIdentity(values []runLocalHistoryIdentity, value runLocalHistoryIdentity) []runLocalHistoryIdentity {
+	for _, current := range values {
+		if current == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func rejectAmbiguousProvenRunLocalCandidates(refs []provenRunLocalRef, claims []claimArtifact) error {
+	candidates := make([]runLocalRefCandidate, 0, len(refs))
+	for _, ref := range refs {
+		candidates = append(candidates, runLocalRefCandidate{
+			branch:          ref.branch,
+			sha:             ref.sha,
+			remotePresent:   ref.remotePresent,
+			trackingPresent: ref.trackingPresent,
+			localPresent:    ref.localPresent,
+		})
+	}
+	return rejectAmbiguousRunLocalCandidates(candidates, claims)
+}
+
+func provenRunLocalRefIndex(refs []provenRunLocalRef, branch string) int {
+	for index, ref := range refs {
+		if ref.branch == branch {
+			return index
+		}
+	}
+	return -1
 }
 
 func filterRunLocalRefsForClaims(refs []runLocalRef, claims []claimArtifact) []runLocalRef {
@@ -558,7 +766,13 @@ func (a app) validateRunLocalCandidate(root string, packet mergedPacket, candida
 	if openPRErr != nil {
 		return provenRunLocalRef{}, false, openPRErr
 	}
-	return provenRunLocalRef(candidate), true, nil
+	return provenRunLocalRef{
+		branch:          candidate.branch,
+		sha:             candidate.sha,
+		remotePresent:   candidate.remotePresent,
+		trackingPresent: candidate.trackingPresent,
+		localPresent:    candidate.localPresent,
+	}, true, nil
 }
 
 func rejectMalformedRunLocalRefs(groups ...[]agentRef) error {
@@ -570,7 +784,7 @@ func rejectMalformedRunLocalRefs(groups ...[]agentRef) error {
 	return nil
 }
 
-func mergeRunLocalCandidates(groups ...[]runLocalRef) ([]runLocalRefCandidate, error) {
+func mergeRunLocalCandidates(groups ...[]runLocalRef) []runLocalRefCandidate {
 	refs := make([]runLocalRef, 0)
 	for _, group := range groups {
 		refs = append(refs, group...)
@@ -586,7 +800,7 @@ func mergeRunLocalCandidates(groups ...[]runLocalRef) ([]runLocalRefCandidate, e
 	})
 	merged := make([]runLocalRefCandidate, 0, len(refs))
 	for _, ref := range refs {
-		if len(merged) == 0 || merged[len(merged)-1].branch != ref.branch {
+		if len(merged) == 0 || merged[len(merged)-1].branch != ref.branch || merged[len(merged)-1].sha != ref.sha {
 			merged = append(merged, runLocalRefCandidate{
 				branch:          ref.branch,
 				sha:             ref.sha,
@@ -597,14 +811,11 @@ func mergeRunLocalCandidates(groups ...[]runLocalRef) ([]runLocalRefCandidate, e
 			continue
 		}
 		current := &merged[len(merged)-1]
-		if current.sha != ref.sha {
-			return nil, stateError("preserve run-local ref %s: remote and tracking heads %s and %s conflict", ref.branch, current.sha, ref.sha)
-		}
 		current.remotePresent = current.remotePresent || ref.source == claimRefRemote
 		current.trackingPresent = current.trackingPresent || ref.source == claimRefTracking
 		current.localPresent = current.localPresent || ref.source == claimRefLocal
 	}
-	return merged, nil
+	return merged
 }
 
 func runLocalClaimForRef(ref runLocalRefCandidate, claims []claimArtifact) (claimArtifact, bool, error) {
@@ -743,40 +954,48 @@ type runLocalHistoryProof struct {
 }
 
 func (a app) runLocalHistoryProof(root string, ref runLocalRefCandidate, proofHead string) (runLocalHistoryProof, error) {
+	history, err := a.evaluatedClaimHistory(root, ref, proofHead)
+	if err != nil {
+		return runLocalHistoryProof{}, err
+	}
+	return parseBoundedRunLocalHistoryProof(history, ref.branch)
+}
+
+func (a app) evaluatedClaimHistory(root string, ref runLocalRefCandidate, proofHead string) (string, error) {
 	format := "%H%x00%B%x00"
 	history, err := a.command(root, "git", "log", "--format="+format, proofHead)
 	if err == nil {
-		return parseBoundedRunLocalHistoryProof(history, ref.branch)
+		return history, nil
 	}
 	fetchRef := "refs/workflowctl/run-local-proof/" + ref.branch
 	existing, checkErr := a.command(root, "git", "for-each-ref", "--format=%(objectname)", fetchRef)
 	if checkErr != nil {
-		return runLocalHistoryProof{}, fmt.Errorf("inspect temporary evaluated claim ref %s: %w", fetchRef, checkErr)
+		return "", fmt.Errorf("inspect temporary evaluated claim ref %s: %w", fetchRef, checkErr)
 	}
 	if strings.TrimSpace(existing) != "" {
-		return runLocalHistoryProof{}, stateError("preserve run-local ref %s: temporary evaluated claim ref %s already exists", ref.branch, fetchRef)
+		return "", stateError("preserve run-local ref %s: temporary evaluated claim ref %s already exists", ref.branch, fetchRef)
 	}
 	fetchSpec := "refs/heads/" + ref.branch + ":" + fetchRef
 	_, fetchErr := a.command(root, "git", "fetch", "--no-tags", "--no-write-fetch-head", "origin", fetchSpec)
 	if fetchErr != nil {
 		cleanupErr := a.deleteTemporaryRunLocalProofRef(root, fetchRef)
-		return runLocalHistoryProof{}, fmt.Errorf("read evaluated claim history for run-local ref %s at %s: %w", ref.branch, proofHead, errors.Join(err, fmt.Errorf("fetch run-local claim: %w", errors.Join(fetchErr, cleanupErr))))
+		return "", fmt.Errorf("read evaluated claim history for run-local ref %s at %s: %w", ref.branch, proofHead, errors.Join(err, fmt.Errorf("fetch run-local claim: %w", errors.Join(fetchErr, cleanupErr))))
 	}
 	fetchedSHA, fetchRefErr := a.command(root, "git", "rev-parse", fetchRef)
 	if fetchRefErr != nil {
 		cleanupErr := a.deleteTemporaryRunLocalProofRef(root, fetchRef)
-		return runLocalHistoryProof{}, fmt.Errorf("read temporary evaluated claim ref %s: %w", fetchRef, errors.Join(fetchRefErr, cleanupErr))
+		return "", fmt.Errorf("read temporary evaluated claim ref %s: %w", fetchRef, errors.Join(fetchRefErr, cleanupErr))
 	}
 	fetchedSHA = strings.TrimSpace(fetchedSHA)
 	history, historyErr := a.command(root, "git", "log", "--format="+format, proofHead)
 	cleanupErr := a.deleteRefIfExact(root, fetchRef, fetchedSHA, "temporary evaluated claim ref "+ref.branch)
 	if historyErr != nil {
-		return runLocalHistoryProof{}, fmt.Errorf("read evaluated claim history for run-local ref %s at %s after fetch: %w", ref.branch, proofHead, errors.Join(historyErr, cleanupErr))
+		return "", fmt.Errorf("read evaluated claim history for run-local ref %s at %s after fetch: %w", ref.branch, proofHead, errors.Join(historyErr, cleanupErr))
 	}
 	if cleanupErr != nil {
-		return runLocalHistoryProof{}, cleanupErr
+		return "", cleanupErr
 	}
-	return parseBoundedRunLocalHistoryProof(history, ref.branch)
+	return history, nil
 }
 
 func (a app) deleteTemporaryRunLocalProofRef(root, ref string) error {
@@ -1003,6 +1222,25 @@ func appendUniqueInt(values []int, value int) []int {
 }
 
 func (a app) validateCurrentRunLocalRef(root string, ref runLocalRefCandidate) error {
+	if ref.remotePresent {
+		if err := a.validateCurrentRemoteRunLocalRef(root, ref); err != nil {
+			return err
+		}
+	}
+	if ref.trackingPresent {
+		if err := a.validateCurrentObservedRunLocalRef(root, ref, "tracking", "refs/remotes/origin/"+ref.branch, "remote-tracking run-local ref "+ref.branch); err != nil {
+			return err
+		}
+	}
+	if ref.localPresent {
+		if err := a.validateCurrentObservedRunLocalRef(root, ref, "local", "refs/heads/"+ref.branch, "local run-local ref "+ref.branch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a app) validateCurrentRemoteRunLocalRef(root string, ref runLocalRefCandidate) error {
 	remoteRef := "refs/heads/" + ref.branch
 	output, err := a.command(root, "git", "ls-remote", "--heads", "origin", remoteRef)
 	if err != nil {
@@ -1012,21 +1250,49 @@ func (a app) validateCurrentRunLocalRef(root string, ref runLocalRefCandidate) e
 	if err != nil {
 		return err
 	}
-	if ref.remotePresent && !present {
-		return stateError("preserve run-local ref %s: remote ref disappeared before cleanup; run go tool workflowctl pr recover", ref.branch)
+	if !present {
+		return runLocalSourceRace("remote", stateError("preserve run-local ref %s: remote ref disappeared before cleanup; run go tool workflowctl pr recover", ref.branch))
 	}
-	if present && remoteSHA != ref.sha {
-		return stateError("preserve run-local ref %s: expected %s, found %s; run go tool workflowctl pr recover", ref.branch, ref.sha, remoteSHA)
+	if remoteSHA != ref.sha {
+		return runLocalSourceRace("remote", stateError("preserve run-local ref %s: expected %s, found %s; run go tool workflowctl pr recover", ref.branch, ref.sha, remoteSHA))
 	}
-	if ref.trackingPresent {
-		if err := a.validateRefExact(root, "refs/remotes/origin/"+ref.branch, ref.sha, "remote-tracking run-local ref "+ref.branch); err != nil {
-			return err
+	return nil
+}
+
+func (a app) validateCurrentObservedRunLocalRef(root string, ref runLocalRefCandidate, source, name, description string) error {
+	if err := a.validateObservedRefExact(root, name, ref.sha, description); err != nil {
+		var stateErr *exitError
+		if errors.As(err, &stateErr) {
+			return runLocalSourceRace(source, err)
 		}
+		return err
 	}
-	if ref.localPresent {
-		if err := a.validateRefExact(root, "refs/heads/"+ref.branch, ref.sha, "local run-local ref "+ref.branch); err != nil {
-			return err
-		}
+	return nil
+}
+
+func runLocalSourceRace(source string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &runLocalSourceRaceError{source: source, err: err}
+}
+
+func isRunLocalSourceRace(err error) bool {
+	var race *runLocalSourceRaceError
+	return errors.As(err, &race)
+}
+
+func (a app) validateObservedRefExact(root, ref, expected, description string) error {
+	actual, err := a.command(root, "git", "for-each-ref", "--format=%(objectname)", ref)
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", description, err)
+	}
+	actual = strings.TrimSpace(actual)
+	if actual == "" {
+		return stateError("preserve %s: expected %s, found missing; run go tool workflowctl pr recover", description, expected)
+	}
+	if actual != expected {
+		return stateError("preserve %s: expected %s, found %s; run go tool workflowctl pr recover", description, expected, actual)
 	}
 	return nil
 }
@@ -1053,7 +1319,8 @@ func rejectAmbiguousRunLocalCandidates(refs []runLocalRefCandidate, claims []cla
 	for left := 0; left < len(refs); left++ {
 		leftIssue := refIssue(refs[left].branch)
 		for right := left + 1; right < len(refs); right++ {
-			if leftIssue != refIssue(refs[right].branch) || refs[left].sha != refs[right].sha {
+			if refs[left].branch == refs[right].branch ||
+				leftIssue != refIssue(refs[right].branch) || refs[left].sha != refs[right].sha {
 				continue
 			}
 			for _, claim := range claims {
@@ -1086,9 +1353,6 @@ func (a app) validateClaimArtifacts(root string, layout repositoryLayout, claims
 	if len(validated) == 1 {
 		all = append(all, provenRunLocalArtifacts(validated[0])...)
 	}
-	if inferErr := inferClaimLocalBranches(claims, all); inferErr != nil {
-		return inferErr
-	}
 	claimBranches, err := claimBranchIndex(claims)
 	if err != nil {
 		return err
@@ -1096,6 +1360,9 @@ func (a app) validateClaimArtifacts(root string, layout repositoryLayout, claims
 	var proven []provenRunLocalRef
 	if len(validated) == 1 {
 		proven = validated[0]
+	}
+	if inferErr := inferClaimLocalBranches(claims, all, proven); inferErr != nil {
+		return inferErr
 	}
 	seenExpected, err := a.validateExpectedClaimArtifacts(root, layout, claims, all, head, proven)
 	if err != nil {
@@ -1197,9 +1464,17 @@ func (a app) validateExpectedClaimArtifact(root string, layout repositoryLayout,
 	if err != nil {
 		return false, err
 	}
-	_, worktreeFound, err := findClaimWorktree(layout, claim.branch, claim.sha)
-	if err != nil {
-		return false, err
+	worktreeFound := false
+	worktreeBranch := claim.localBranch
+	if worktreeBranch == "" {
+		worktreeBranch = claim.branch
+	}
+	localKind, _, _ := classifyAgentRef(worktreeBranch)
+	if len(provenGroups) == 0 || localKind != agentRefRunLocal || provenRunLocalRefAt(proven, worktreeBranch, claim.sha) {
+		_, worktreeFound, err = findClaimWorktree(layout, worktreeBranch, claim.sha)
+		if err != nil {
+			return false, err
+		}
 	}
 	present := found || localFound || worktreeFound
 	if err := a.validateClaimAncestor(root, claim, present, head); err != nil {
@@ -1229,7 +1504,12 @@ func validateExpectedLocalClaim(all []remoteClaim, claim claimArtifact, provenGr
 	return found, nil
 }
 
-func inferClaimLocalBranches(claims []claimArtifact, all []remoteClaim) error {
+//nolint:gocognit // Branch inference must reject duplicates while preserving deterministic artifact order.
+func inferClaimLocalBranches(claims []claimArtifact, all []remoteClaim, validated ...[]provenRunLocalRef) error {
+	proven, err := selectProvenRunLocalRefs(validated...)
+	if err != nil {
+		return err
+	}
 	for index := range claims {
 		if claims[index].localBranch != "" {
 			continue
@@ -1239,6 +1519,9 @@ func inferClaimLocalBranches(claims []claimArtifact, all []remoteClaim) error {
 			kind, _, _ := classifyAgentRef(artifact.branch)
 			if artifact.source != claimRefLocal || kind != agentRefRunLocal ||
 				!claimLocalBranchMatches(claims[index].branch, artifact.branch) {
+				continue
+			}
+			if preservedRunLocalObservation(artifact, proven) {
 				continue
 			}
 			if candidate != "" && candidate != artifact.branch {
@@ -1301,14 +1584,28 @@ func validateUnexpectedClaimRefs(all []remoteClaim, expected map[string]claimArt
 func validateUnexpectedClaimRef(artifact remoteClaim, expected map[string]claimArtifact, claims []claimArtifact, proven []provenRunLocalRef) error {
 	kind, issue, _ := classifyAgentRef(artifact.branch)
 	if kind == agentRefRunLocal {
-		if provenRunLocalArtifactAllowed(artifact, proven) {
-			return nil
-		}
-		if hasClaimIssue(claims, issue) {
-			return stateError("run-local claim artifact %s at %s has no immutable evaluated-head proof; preserve claim artifacts", artifact.branch, artifact.sha)
-		}
+		return validateUnexpectedRunLocalRef(artifact, issue, claims, proven)
+	}
+	return validateUnexpectedClaimArtifact(artifact, expected, claims)
+}
+
+func validateUnexpectedRunLocalRef(artifact remoteClaim, issue int, claims []claimArtifact, proven []provenRunLocalRef) error {
+	if provenRunLocalArtifactAllowed(artifact, proven) {
 		return nil
 	}
+	if preservedRunLocalObservation(artifact, proven) {
+		return nil
+	}
+	if preservedRunLocalArtifact(artifact.branch, proven) {
+		return nil
+	}
+	if hasClaimIssue(claims, issue) {
+		return stateError("run-local claim artifact %s at %s has no immutable evaluated-head proof; preserve claim artifacts", artifact.branch, artifact.sha)
+	}
+	return nil
+}
+
+func validateUnexpectedClaimArtifact(artifact remoteClaim, expected map[string]claimArtifact, claims []claimArtifact) error {
 	claim, ok := expected[artifact.branch]
 	if ok {
 		if artifact.source == claimRefLocal && artifact.branch == claim.branch && claim.localBranch != artifact.branch {
@@ -1352,6 +1649,12 @@ func validateUnexpectedClaimWorktree(worktree gitWorktree, expected map[string]c
 		if provenRunLocalWorktreeAllowed(worktree, proven) {
 			return nil
 		}
+		if preservedRunLocalWorktreeArtifact(worktree, proven) {
+			return nil
+		}
+		if preservedRunLocalArtifact(branch, proven) {
+			return nil
+		}
 		if hasClaimIssue(claims, issue) {
 			return stateError("leftover run-local claim worktree %q has no immutable evaluated-head proof; preserve claim artifacts", worktree.path)
 		}
@@ -1387,6 +1690,63 @@ func provenRunLocalArtifactAllowed(artifact remoteClaim, refs []provenRunLocalRe
 			return ref.trackingPresent
 		default:
 			return false
+		}
+	}
+	return false
+}
+
+// preservedRunLocalArtifact reports a same-issue run-local observation that
+// belongs to a different run than an already proven current target.  It is
+// intentionally independent of source (remote, tracking, or local): every
+// source is only an observation of the same preserved branch and is never a
+// deletion authority by itself.
+func preservedRunLocalArtifact(branch string, refs []provenRunLocalRef) bool {
+	kind, issue, runID := classifyAgentRef(branch)
+	if kind != agentRefRunLocal || len(refs) == 0 {
+		return false
+	}
+	sameIssue := false
+	for _, ref := range refs {
+		refKind, refIssueNumber, refRunID := classifyAgentRef(ref.branch)
+		if refKind != agentRefRunLocal || refIssueNumber != issue {
+			continue
+		}
+		sameIssue = true
+		if ref.branch == branch || refRunID == runID {
+			return false
+		}
+	}
+	return sameIssue
+}
+
+func preservedRunLocalObservation(artifact remoteClaim, refs []provenRunLocalRef) bool {
+	for _, ref := range refs {
+		for _, preserved := range ref.preserved {
+			if preserved.branch != artifact.branch || preserved.sha != artifact.sha {
+				continue
+			}
+			switch artifact.source {
+			case claimRefRemote:
+				return preserved.remotePresent
+			case claimRefLocal:
+				return preserved.localPresent
+			case claimRefTracking:
+				return preserved.trackingPresent
+			default:
+				return false
+			}
+		}
+	}
+	return false
+}
+
+func preservedRunLocalWorktreeArtifact(worktree gitWorktree, refs []provenRunLocalRef) bool {
+	branch := strings.TrimPrefix(worktree.branch, "refs/heads/")
+	for _, ref := range refs {
+		for _, preserved := range ref.preserved {
+			if preserved.localPresent && preserved.branch == branch && preserved.sha == worktree.head {
+				return true
+			}
 		}
 	}
 	return false
@@ -1683,22 +2043,22 @@ func (a app) removeRunLocalRefs(root string, refs []provenRunLocalRef) error {
 }
 
 func (a app) removeRunLocalRef(root string, ref provenRunLocalRef) error {
-	remoteRef := "refs/heads/" + ref.branch
-	output, err := a.command(root, "git", "ls-remote", "--heads", "origin", remoteRef)
-	if err != nil {
-		return fmt.Errorf("inspect run-local ref %s before deletion: %w", ref.branch, err)
-	}
-	remoteSHA, present, err := exactRemoteRef(output, remoteRef)
-	if err != nil {
-		return err
-	}
-	if ref.remotePresent && !present {
-		return stateError("preserve run-local ref %s: remote ref disappeared before deletion; run go tool workflowctl pr recover", ref.branch)
-	}
-	if present && remoteSHA != ref.sha {
-		return stateError("preserve run-local ref %s: expected %s, found %s; run go tool workflowctl pr recover", ref.branch, ref.sha, remoteSHA)
-	}
-	if present {
+	if ref.remotePresent {
+		remoteRef := "refs/heads/" + ref.branch
+		output, err := a.command(root, "git", "ls-remote", "--heads", "origin", remoteRef)
+		if err != nil {
+			return fmt.Errorf("inspect run-local ref %s before deletion: %w", ref.branch, err)
+		}
+		remoteSHA, present, err := exactRemoteRef(output, remoteRef)
+		if err != nil {
+			return err
+		}
+		if !present {
+			return runLocalSourceRace("remote", stateError("preserve run-local ref %s: remote ref disappeared before deletion; run go tool workflowctl pr recover", ref.branch))
+		}
+		if remoteSHA != ref.sha {
+			return runLocalSourceRace("remote", stateError("preserve run-local ref %s: expected %s, found %s; run go tool workflowctl pr recover", ref.branch, ref.sha, remoteSHA))
+		}
 		lease := "--force-with-lease=" + remoteRef + ":" + ref.sha
 		_, pushErr := a.command(root, "git", "push", lease, "origin", ":"+remoteRef)
 		if pushErr != nil {
@@ -1717,7 +2077,13 @@ func (a app) removeRunLocalRef(root string, ref provenRunLocalRef) error {
 }
 
 func (a app) validateCurrentProvenRunLocalRef(root string, ref provenRunLocalRef) error {
-	return a.validateCurrentRunLocalRef(root, runLocalRefCandidate(ref))
+	return a.validateCurrentRunLocalRef(root, runLocalRefCandidate{
+		branch:          ref.branch,
+		sha:             ref.sha,
+		remotePresent:   ref.remotePresent,
+		trackingPresent: ref.trackingPresent,
+		localPresent:    ref.localPresent,
+	})
 }
 
 func provenRunLocalRefAtBranch(refs []provenRunLocalRef, branch string) bool {
@@ -1755,6 +2121,9 @@ func (a app) claimWorktreesForCleanup(layout repositoryLayout, plan cleanupPlan,
 		worktrees = appendUniqueWorktree(worktrees, worktree)
 	}
 	for _, ref := range provenRunLocalRefs {
+		if !ref.localPresent {
+			continue
+		}
 		worktree, found, err := findClaimWorktree(layout, ref.branch, ref.sha)
 		if err != nil {
 			return nil, err
@@ -1788,7 +2157,14 @@ func claimWorktreeInLayout(layout repositoryLayout, claim claimArtifact) (gitWor
 	if claim.worktreePath == "" {
 		return gitWorktree{}, false, nil
 	}
-	found, ok, err := findClaimWorktree(layout, claim.branch, claim.sha)
+	branch := claim.localBranch
+	if branch == "" {
+		branch = claim.branch
+	}
+	if kind, _, _ := classifyAgentRef(branch); kind == agentRefRunLocal {
+		return gitWorktree{}, false, nil
+	}
+	found, ok, err := findClaimWorktree(layout, branch, claim.sha)
 	if err != nil {
 		return gitWorktree{}, false, err
 	}

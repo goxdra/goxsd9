@@ -1403,13 +1403,13 @@ func (a app) requestEvaluation(number int) error {
 	verifiedView, verifiedHistory, verificationErr := a.readEvaluationChallengeState(root, number, challenge)
 	if verificationErr != nil {
 		if postErr != nil {
-			return fmt.Errorf("post PR #%d evaluation challenge: %w", number, postErr)
+			return retryableOperation("evaluation challenge", fmt.Errorf("post PR #%d evaluation challenge: %w", number, errors.Join(postErr, verificationErr)))
 		}
 		return verificationErr
 	}
 	if postErr != nil {
-		return fmt.Errorf("evaluation challenge POST response was ambiguous; do not repost blindly, retry the exact challenge command after inspection: %w",
-			postErr)
+		return retryableOperation("evaluation challenge", fmt.Errorf("evaluation challenge POST response was ambiguous; do not repost blindly, retry the exact challenge command after inspection: %w",
+			postErr))
 	}
 	return a.completeEvaluationChallenge(root, number, challenge, verifiedView, verifiedHistory)
 }
@@ -1761,8 +1761,8 @@ func (a app) postAndVerifyEvaluationReceipt(root string, number, primary int,
 	postErr := a.postPullRequestComment(root, number, body)
 	verifiedView, readErr := a.readPullRequest(root, number)
 	if readErr != nil {
-		return fmt.Errorf("post PR #%d evaluation receipt could not be verified; retry the exact recording command: %w",
-			number, errors.Join(postErr, readErr))
+		return retryableOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt could not be verified; retry the exact recording command: %w",
+			number, errors.Join(postErr, readErr)))
 	}
 	if verifiedView.State != "OPEN" {
 		return fmt.Errorf("post PR #%d evaluation receipt could not be verified because the PR is %s; preserve the comment and inspect history: %w",
@@ -1806,8 +1806,8 @@ func (a app) postAndVerifyEvaluationReceipt(root string, number, primary int,
 			number, errors.Join(postErr, errors.New("recorded receipt is absent")))
 	}
 	if postErr != nil {
-		return fmt.Errorf("post PR #%d evaluation receipt response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
-			number, postErr)
+		return retryableOperation("evaluation receipt", fmt.Errorf("post PR #%d evaluation receipt response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
+			number, postErr))
 	}
 	if receipt.Verdict == "fail" && evaluationFailureCount(verifiedReceipts) >= 3 {
 		return a.reconcileRecordedNeedsHuman(root, number, primary, verifiedView, verifiedReceipts, attestation, attestationJSON)
@@ -1897,8 +1897,8 @@ func (a app) convergeEvaluationReceiptGroup(root string, number int, view pullRe
 	verifiedHistory, historyErr := readEvaluationMutationHistory(number, verifiedView.Comments)
 	if historyErr == nil && evaluationHistoryConvergesFacts(verifiedHistory, evaluationReceiptFactsForReceipt(canonical)) {
 		if postErr != nil {
-			return pullRequestView{}, evaluationHistory{}, fmt.Errorf("convergence POST response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
-				postErr)
+			return pullRequestView{}, evaluationHistory{}, retryableOperation("evaluation convergence", fmt.Errorf("convergence POST response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
+				postErr))
 		}
 		return verifiedView, verifiedHistory, nil
 	}
@@ -1906,8 +1906,8 @@ func (a app) convergeEvaluationReceiptGroup(root string, number int, view pullRe
 		historyErr = errors.New("authenticated convergence record does not close the target duplicate group")
 	}
 	if postErr != nil {
-		return pullRequestView{}, evaluationHistory{}, fmt.Errorf("convergence POST response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
-			errors.Join(postErr, historyErr))
+		return pullRequestView{}, evaluationHistory{}, retryableOperation("evaluation convergence", fmt.Errorf("convergence POST response was ambiguous; do not repost blindly, retry the exact recording command after inspection: %w",
+			errors.Join(postErr, historyErr)))
 	}
 	return pullRequestView{}, evaluationHistory{}, fmt.Errorf("convergence POST was not authenticated in complete paginated history; retry after inspection: %w",
 		historyErr)
@@ -4467,38 +4467,55 @@ func parseCommentAttestation(body string) (evaluationAttestation, []byte, bool) 
 }
 
 func (a app) transitionIssueToNeedsHuman(root string, number int) error {
-	item, err := a.currentNeedsHumanProjectItem(root, number)
+	status, item, err := a.currentNeedsHumanProjectState(root, number)
 	if err != nil {
-		return fmt.Errorf("needs-human transition preflight incomplete; retry: %w", err)
+		return retryableOperationIfRecoverable("needs-human transition preflight", fmt.Errorf("needs-human transition preflight incomplete; retry: %w", err))
 	}
-	if _, err := a.command(root, "gh", "issue", "edit", strconv.Itoa(number), "--repo", repositoryKey,
-		"--add-label", "needs-human"); err != nil {
-		return fmt.Errorf("needs-human label phase incomplete; retry: mark issue #%d needs-human: %w", number, err)
+	if !issueNeedsHuman(status) {
+		if _, err := a.command(root, "gh", "issue", "edit", strconv.Itoa(number), "--repo", repositoryKey,
+			"--add-label", "needs-human"); err != nil {
+			latest, readErr := a.readIssueStatus(root, number)
+			if readErr != nil || !issueNeedsHuman(latest) {
+				return retryableOperationIfRecoverable("needs-human label", fmt.Errorf("needs-human label phase incomplete; retry: mark issue #%d needs-human: %w", number, errors.Join(err, readErr)))
+			}
+		}
+	}
+	if item.Status == "Backlog" {
+		return nil
 	}
 	if err := a.setValidatedProjectItemStatus(root, item, "Backlog"); err != nil {
-		return fmt.Errorf("project Backlog phase incomplete after needs-human label; retry: %w", err)
+		latest, readErr := a.currentNeedsHumanProjectItem(root, number)
+		if readErr == nil && latest.Status == "Backlog" {
+			return nil
+		}
+		return retryableOperationIfRecoverable("needs-human Project transition", fmt.Errorf("project Backlog phase incomplete after needs-human label; retry: %w", errors.Join(err, readErr)))
 	}
 	return nil
 }
 
 func (a app) currentNeedsHumanProjectItem(root string, number int) (projectItem, error) {
+	_, item, err := a.currentNeedsHumanProjectState(root, number)
+	return item, err
+}
+
+func (a app) currentNeedsHumanProjectState(root string, number int) (issueStatus, projectItem, error) {
 	status, err := a.readIssueStatus(root, number)
 	if err != nil {
-		return projectItem{}, fmt.Errorf("read current issue state: %w", err)
+		return issueStatus{}, projectItem{}, fmt.Errorf("read current issue state: %w", err)
 	}
 	if status.State != "OPEN" {
-		return projectItem{}, stateError("issue #%d is %s; needs-human transition requires OPEN issue",
+		return issueStatus{}, projectItem{}, stateError("issue #%d is %s; needs-human transition requires OPEN issue",
 			number, status.State)
 	}
 	items, err := a.projectItems(root)
 	if err != nil {
-		return projectItem{}, fmt.Errorf("read current Project membership: %w", err)
+		return issueStatus{}, projectItem{}, fmt.Errorf("read current Project membership: %w", err)
 	}
 	item, err := findProjectIssue(items, number)
 	if err != nil {
-		return projectItem{}, fmt.Errorf("validate current Project membership: %w", err)
+		return issueStatus{}, projectItem{}, fmt.Errorf("validate current Project membership: %w", err)
 	}
-	return item, nil
+	return status, item, nil
 }
 
 func (a app) setValidatedProjectItemStatus(root string, item projectItem, status string) error {
