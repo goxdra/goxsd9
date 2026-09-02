@@ -79,8 +79,8 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
     impact, and requiredCorrection. Copy it byte-for-byte outside repository;
     record with `go tool workflowctl evaluation record PR --attestation-file FILE`;
     never choose/rewrite verdict. On failure Smith fixes, checks, pushes, and
-    repeats Curator/challenge/Examiner. Three failed rounds mark `needs-human`;
-    hand off evidence.
+    repeats Curator/challenge/Examiner. Exactly three authenticated Examiner
+    `fail` receipts mark `needs-human`; failures remain retryable.
 11. On matching-head pass, write a separate plain-text summary outside
     repository for future development/backlog/retrospective; cover
     problem/outcome/rationale/consequential decisions/invariants and omit
@@ -110,8 +110,8 @@ optimization signals, never gates; quality must not regress. Never require
 sessions or telemetry.
 ## Failure behavior
 
-- Three failures require `go tool workflowctl handoff ISSUE --body-file FILE --needs-human`:
-  validate body, OPEN/Project, label, Backlog, comment last; never infer
-  Markdown/challenges without receipts.
+- Transient failures remain retryable. Exactly three authenticated Examiner
+  `fail` receipts mark `needs-human`; no-PR recovery requires exact
+  trusted evidence. Never infer receipts.
 - Preserve incomplete worktrees; never force-push claim or bypass checks. After
   one bounded reselection, do not backlog-loop or widen scope.
