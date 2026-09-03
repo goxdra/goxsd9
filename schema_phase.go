@@ -2548,7 +2548,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				return newSchemaCompositionDiagnostic(child.loc, "complexType content model is mutually exclusive")
 			}
 			specialSeen = true
-			if err := validateComplexTypeContentChild(child, version); err != nil && !candidate.considerError(err) {
+			if err := validateComplexTypeContentChild(parent, child, version); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "openContent":
@@ -2654,7 +2654,7 @@ func validateComplexTypeMixedAgreement(parent, content *syntaxElement) error {
 }
 
 //nolint:gocognit // Keep the ordered simple/complex content grammar explicit.
-func validateComplexTypeContentChild(element *syntaxElement, version XSDVersion) error {
+func validateComplexTypeContentChild(parent, element *syntaxElement, version XSDVersion) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateComplexTypeContentAttributes(element, &candidate); err != nil {
 		return err
@@ -2690,7 +2690,63 @@ func validateComplexTypeContentChild(element *syntaxElement, version XSDVersion)
 	if candidate.present {
 		return candidate.err()
 	}
+	if element.name.local == "complexContent" {
+		restriction := schemaComplexContentRestrictionChild(element)
+		if boundedComplexContentRestrictionCandidate(restriction, true) {
+			if schemaBooleanAttributeTrue(parent, "mixed") || schemaBooleanAttributeTrue(element, "mixed") {
+				return newSchemaSyntaxUnsupportedForVersion(
+					element.loc,
+					"complexContent restriction with mixed content is not implemented",
+					version,
+				)
+			}
+			return nil
+		}
+	}
 	return newSchemaSyntaxUnsupported(element.loc, element.name.local+" is not implemented")
+}
+
+func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexContent bool) bool {
+	if !complexContent || element == nil || element.name.namespace != xsdNamespaceURI || element.name.local != "restriction" {
+		return false
+	}
+	if len(syntaxAttributesByLocal(element, "base")) != 1 {
+		return false
+	}
+	anyAttributeSeen := false
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if child.name.namespace != xsdNamespaceURI {
+			return false
+		}
+		switch child.name.local {
+		case "annotation":
+			continue
+		case "anyAttribute":
+			if anyAttributeSeen || !isSupportedAnyAttribute(child) {
+				return false
+			}
+			anyAttributeSeen = true
+		default:
+			return false
+		}
+	}
+	return anyAttributeSeen
+}
+
+func schemaBooleanAttributeTrue(element *syntaxElement, local string) bool {
+	if element == nil {
+		return false
+	}
+	attributes := syntaxAttributesByLocal(element, local)
+	if len(attributes) != 1 {
+		return false
+	}
+	value, err := schemaBooleanValue(attributes[0])
+	return err == nil && value
 }
 
 //nolint:gocognit // Keep version-neutral content attribute checks together.
@@ -2735,6 +2791,15 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	}
 	baseAttributes := syntaxAttributesByLocal(element, "base")
 	if len(baseAttributes) == 0 {
+		if complexContent && element.name.local == "restriction" {
+			return newSchemaComplexTypeBaseDiagnostic(
+				element.loc,
+				element.name.local+" requires a base attribute",
+				nil,
+				version,
+				errSchemaComplexTypeBaseRequired,
+			)
+		}
 		return newSchemaCompositionDiagnostic(element.loc, element.name.local+" requires a base attribute")
 	}
 	if err := validateConditionalQNameForSchema(element, baseAttributes[0]); err != nil {
@@ -2853,7 +2918,15 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" anyAttribute must be unique and last")
 			}
 			anyAttributeSeen = true
-			if err := validateAnyAttribute(child, version); err != nil && !candidate.considerError(err) {
+			boundedRestriction := complexContent && element.name.local == "restriction" && boundedComplexContentRestrictionCandidate(element, true)
+			var anyAttributeErr error
+			if boundedRestriction {
+				anyAttributeErr = validateAnyAttributeSyntax(child, version)
+			}
+			if !boundedRestriction {
+				anyAttributeErr = validateAnyAttribute(child, version)
+			}
+			if err := anyAttributeErr; err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "assert":
@@ -2873,6 +2946,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 		return newSchemaCompositionDiagnostic(openContentLoc, "complexContent restriction openContent requires a model particle")
 	}
 	derivationErr := candidate.err()
+	if derivationErr == nil && boundedComplexContentRestrictionCandidate(element, complexContent) {
+		return nil
+	}
 	if derivationErr == nil {
 		derivationErr = newSchemaSyntaxUnsupported(element.loc, element.name.local+" derivation is not implemented")
 	}

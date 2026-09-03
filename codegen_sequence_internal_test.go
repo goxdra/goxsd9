@@ -97,15 +97,16 @@ func TestCodegenDirectSequenceSourceRejectsCorruptionAtRenderBoundary(t *testing
 			name:  "stale schema particle facts",
 			cause: errCodegenDirectSequenceParticle,
 			mutate: func(schema Schema, _ *codegenSourcePlan) {
-				schema.Components()[0].complexType.particle = SequenceParticle{}
+				codegenDirectSequenceTestBody(schema).particle = SequenceParticle{}
 			},
 		},
 		{
 			name: "reordered schema particles",
 			mutate: func(schema Schema, _ *codegenSourcePlan) {
-				sequence, ok := schema.Components()[0].complexType.particle.(SequenceParticle)
+				body := codegenDirectSequenceTestBody(schema)
+				sequence, ok := body.particle.(SequenceParticle)
 				if !ok {
-					t.Fatalf("particle = %T, want SequenceParticle", schema.Components()[0].complexType.particle)
+					t.Fatalf("particle = %T, want SequenceParticle", body.particle)
 				}
 				sequence.facts.particles[0], sequence.facts.particles[1] = sequence.facts.particles[1], sequence.facts.particles[0]
 			},
@@ -203,6 +204,14 @@ func codegenDirectSequenceTestSchema(t *testing.T) Schema {
 		t.Fatalf("discoverTestSchema: %v", err)
 	}
 	return schema
+}
+
+func codegenDirectSequenceTestBody(schema Schema) *schemaComplexTypeDirectBodyComponent {
+	body, ok := schema.Components()[0].complexType.body.(*schemaComplexTypeDirectBodyComponent)
+	if !ok || body == nil {
+		panic("test fixture did not build a direct complex type body")
+	}
+	return body
 }
 
 func assertCodegenDirectSequenceInternalFailure(t *testing.T, output []byte, err error, cause error) {

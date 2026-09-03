@@ -137,7 +137,7 @@ func planCodegenDirectParticles(schema Schema, packageName string) (codegenDirec
 // collectCodegenDirectParticles keeps complex owners in schema declaration
 // order and retains each particle's lexical child order.
 //
-//nolint:gocognit // Keep direct particle collection and shape dispatch together.
+//nolint:gocognit,funlen // Keep direct particle collection and shape dispatch together.
 func collectCodegenDirectParticles(
 	schema Schema,
 	components []Component,
@@ -155,6 +155,21 @@ func collectCodegenDirectParticles(
 				fmt.Sprintf("complex type %q has no completed complex-type facts", component.Name()),
 				nil,
 				errCodegenDirectParticlePlan,
+			)
+		}
+		if body, bodyOK := definition.boundedOpenAttrsRestrictionBody(); bodyOK {
+			related := appendCodegenRelated(nil, definition.Loc())
+			related = appendCodegenRelated(related, body.complexContentLoc)
+			related = appendCodegenRelated(related, body.restrictionLoc)
+			related = appendCodegenRelated(related, body.base.loc)
+			related = appendCodegenRelated(related, body.anyAttribute.loc)
+			return nil, newCodegenDirectParticleUnsupported(
+				component.Loc(),
+				fmt.Sprintf("complex type %q uses bounded openAttrs content outside direct particle generation", component.Name()),
+				related,
+				fmt.Errorf("%w: bounded openAttrs complex type", errCodegenUnsupported),
+				version,
+				codegenDirectSequenceParticlesReference,
 			)
 		}
 		particle := definition.Particle()

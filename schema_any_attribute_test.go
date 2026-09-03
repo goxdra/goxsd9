@@ -336,7 +336,7 @@ func TestSchemaBridgeKeepsAnyAttributeShapeBoundariesUnsupported(t *testing.T) {
 	}
 }
 
-func TestSchemaBridgeKeepsPinnedOpenAttrsDerivationUnsupported(t *testing.T) {
+func TestSchemaBridgeBuildsPinnedOpenAttrsDerivation(t *testing.T) {
 	root := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="http://www.w3.org/2001/XMLSchema" version="1.1">
   <xs:complexType name="openAttrs">
     <xs:complexContent>
@@ -348,11 +348,26 @@ func TestSchemaBridgeKeepsPinnedOpenAttrsDerivationUnsupported(t *testing.T) {
 </xs:schema>`
 
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-	if err == nil {
-		t.Fatal("pinned openAttrs fragment succeeded, want unsupported derivation boundary")
+	if err != nil {
+		t.Fatalf("pinned openAttrs fragment: %v", err)
 	}
-	assertZeroSchema(t, schema)
-	assertAnyAttributeUnsupportedDiagnostic(t, err, schemaAnyAttributeXSD11SpecRef)
+	components := schema.Components()
+	if len(components) != 1 || components[0].Name().Local() != "openAttrs" {
+		t.Fatalf("pinned openAttrs components = %#v, want one openAttrs component", components)
+	}
+	definition, ok := components[0].ComplexType()
+	if !ok {
+		t.Fatal("pinned openAttrs has no complex type view")
+	}
+	if definition.Base() != mustTestQName(t, testXSDNamespace, "anyType") {
+		t.Fatalf("pinned openAttrs base = %q, want xs:anyType", definition.Base())
+	}
+	if definition.Derivation() != ComplexTypeDerivationRestriction || definition.Particle() != nil {
+		t.Fatalf("pinned openAttrs derivation/particle = %q/%T, want restriction/nil", definition.Derivation(), definition.Particle())
+	}
+	if attribute, ok := definition.AnyAttribute(); !ok || attribute.Namespace() != "##other" || attribute.ProcessContents() != "lax" {
+		t.Fatalf("pinned openAttrs wildcard = %#v, %v", attribute, ok)
+	}
 }
 
 func assertAnyAttributeFacts(t *testing.T, attribute AnyAttribute, source, elementMarker, namespaceMarker, processContentsMarker string) {

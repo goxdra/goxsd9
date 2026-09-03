@@ -247,6 +247,76 @@ func (reference SimpleTypeReference) IsAnonymous() bool {
 	return reference.Kind() == SimpleTypeReferenceAnonymous
 }
 
+// ComplexTypeReferenceKind identifies how a complex-type reference is
+// resolved.
+type ComplexTypeReferenceKind string
+
+const (
+	// ComplexTypeReferenceBuiltin identifies an XSD built-in complex type.
+	ComplexTypeReferenceBuiltin ComplexTypeReferenceKind = "builtin"
+	// ComplexTypeReferenceNamed identifies a named schema complex type.
+	ComplexTypeReferenceNamed ComplexTypeReferenceKind = "named"
+)
+
+// ComplexTypeReference is an immutable resolved complex-type reference.
+// Built-in references do not have schema component identities.
+type ComplexTypeReference struct {
+	facts *schemaComplexTypeReferenceComponent
+}
+
+// Kind returns the resolved reference kind.
+func (reference ComplexTypeReference) Kind() ComplexTypeReferenceKind {
+	if reference.facts == nil {
+		return ""
+	}
+	return reference.facts.kind
+}
+
+// Name returns the expanded QName of the referenced type.
+func (reference ComplexTypeReference) Name() QName {
+	if reference.facts == nil {
+		return QName{}
+	}
+	return reference.facts.name
+}
+
+// QName returns the expanded QName of the referenced type.
+func (reference ComplexTypeReference) QName() QName {
+	return reference.Name()
+}
+
+// Loc returns the source location of the reference expression.
+func (reference ComplexTypeReference) Loc() Loc {
+	if reference.facts == nil {
+		return Loc{}
+	}
+	return reference.facts.loc
+}
+
+// ComponentID returns the schema component identity of a named reference.
+// Built-in references do not have component identities.
+func (reference ComplexTypeReference) ComponentID() (ComponentID, bool) {
+	if reference.facts == nil || !reference.facts.hasID {
+		return ComponentID{}, false
+	}
+	return reference.facts.id, true
+}
+
+// ID is an alias for ComponentID.
+func (reference ComplexTypeReference) ID() (ComponentID, bool) {
+	return reference.ComponentID()
+}
+
+// IsBuiltin reports whether the reference names an XSD built-in complex type.
+func (reference ComplexTypeReference) IsBuiltin() bool {
+	return reference.Kind() == ComplexTypeReferenceBuiltin
+}
+
+// IsNamed reports whether the reference names a schema component.
+func (reference ComplexTypeReference) IsNamed() bool {
+	return reference.Kind() == ComplexTypeReferenceNamed
+}
+
 // Component is an immutable schema component identity and its fundamental
 // source facts. Derived validator and code-generator state is not stored here.
 type Component struct {
@@ -936,8 +1006,17 @@ func (definition ModelGroupDefinition) Particle() Particle {
 	return definition.facts.particle
 }
 
+// ComplexTypeDerivation identifies the supported complex-type derivation
+// method.
+type ComplexTypeDerivation string
+
+const (
+	// ComplexTypeDerivationRestriction identifies restriction derivation.
+	ComplexTypeDerivationRestriction ComplexTypeDerivation = "restriction"
+)
+
 // ComplexTypeDefinition is the immutable type-specific view of a supported
-// named complex type with a particle model.
+// named complex type definition.
 type ComplexTypeDefinition struct {
 	component Component
 	facts     *schemaComplexTypeComponent
@@ -963,13 +1042,14 @@ func (definition ComplexTypeDefinition) Loc() Loc {
 	return definition.component.Loc()
 }
 
-// AnyAttribute returns the immutable direct attribute wildcard fact when the
+// AnyAttribute returns the immutable attribute wildcard fact when the
 // complex type has a supported wildcard.
 func (definition ComplexTypeDefinition) AnyAttribute() (AnyAttribute, bool) {
-	if definition.facts == nil || definition.facts.anyAttribute == nil {
+	attribute := definition.anyAttributeFacts()
+	if attribute == nil {
 		return AnyAttribute{}, false
 	}
-	return AnyAttribute{facts: definition.facts.anyAttribute}, true
+	return AnyAttribute{facts: attribute}, true
 }
 
 // Particle returns the immutable content particle of the complex type.
@@ -977,7 +1057,111 @@ func (definition ComplexTypeDefinition) Particle() Particle {
 	if definition.facts == nil {
 		return nil
 	}
-	return definition.facts.particle
+	body, ok := definition.facts.body.(*schemaComplexTypeDirectBodyComponent)
+	if !ok || body == nil {
+		return nil
+	}
+	return body.particle
+}
+
+// Base returns the expanded QName written in the restriction's base
+// attribute. It returns the zero QName for a direct-content type.
+func (definition ComplexTypeDefinition) Base() QName {
+	reference, ok := definition.baseReferenceFacts()
+	if !ok {
+		return QName{}
+	}
+	return reference.name
+}
+
+// BaseLoc returns the location of the restriction's base expression.
+func (definition ComplexTypeDefinition) BaseLoc() Loc {
+	reference, ok := definition.baseReferenceFacts()
+	if !ok {
+		return Loc{}
+	}
+	return reference.loc
+}
+
+// BaseReference returns the resolved restriction base reference.
+func (definition ComplexTypeDefinition) BaseReference() (ComplexTypeReference, bool) {
+	reference, ok := definition.baseReferenceFacts()
+	if !ok {
+		return ComplexTypeReference{}, false
+	}
+	return ComplexTypeReference{facts: reference}, true
+}
+
+// Derivation returns the complex-type derivation method.
+func (definition ComplexTypeDefinition) Derivation() ComplexTypeDerivation {
+	if definition.restrictionBody() == nil {
+		return ""
+	}
+	return ComplexTypeDerivationRestriction
+}
+
+// DerivationLoc returns the location of the restriction element.
+func (definition ComplexTypeDefinition) DerivationLoc() Loc {
+	body := definition.restrictionBody()
+	if body == nil {
+		return Loc{}
+	}
+	return body.restrictionLoc
+}
+
+func (definition ComplexTypeDefinition) anyAttributeFacts() *schemaAnyAttributeComponent {
+	if definition.facts == nil || definition.facts.body == nil {
+		return nil
+	}
+	switch body := definition.facts.body.(type) {
+	case *schemaComplexTypeDirectBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return body.anyAttribute
+	case *schemaComplexTypeEmptyBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return body.anyAttribute
+	case *schemaComplexTypeRestrictionBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return body.anyAttribute
+	default:
+		return nil
+	}
+}
+
+func (definition ComplexTypeDefinition) restrictionBody() *schemaComplexTypeRestrictionBodyComponent {
+	if definition.facts == nil || definition.facts.body == nil {
+		return nil
+	}
+	body, ok := definition.facts.body.(*schemaComplexTypeRestrictionBodyComponent)
+	if !ok || body == nil {
+		return nil
+	}
+	return body
+}
+
+func (definition ComplexTypeDefinition) baseReferenceFacts() (*schemaComplexTypeReferenceComponent, bool) {
+	body := definition.restrictionBody()
+	if body == nil {
+		return nil, false
+	}
+	return &body.base, true
+}
+
+func (definition ComplexTypeDefinition) boundedOpenAttrsRestrictionBody() (*schemaComplexTypeRestrictionBodyComponent, bool) {
+	body := definition.restrictionBody()
+	if body == nil || body.base.kind != ComplexTypeReferenceBuiltin || body.base.name.Namespace() != xsdNamespaceURI || body.base.name.Local() != "anyType" {
+		return nil, false
+	}
+	if body.anyAttribute == nil || body.anyAttribute.namespace != "##other" || body.anyAttribute.processContents != "lax" {
+		return nil, false
+	}
+	return body, true
 }
 
 // ProhibitedSubstitutions returns the effective derivation methods prohibited
@@ -1781,9 +1965,38 @@ type schemaAtomicFacetVariant struct{}
 func (schemaAtomicFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
-	particle                schemaComplexTypeParticleInput
-	anyAttribute            *schemaAnyAttributeInput
+	body                    schemaComplexTypeBodyInput
 	prohibitedSubstitutions schemaBlockPolicy
+}
+
+type schemaComplexTypeBodyInput interface {
+	schemaComplexTypeBodyInput()
+}
+
+type schemaComplexTypeDirectBodyInput struct {
+	particle     schemaComplexTypeParticleInput
+	anyAttribute *schemaAnyAttributeInput
+}
+
+func (*schemaComplexTypeDirectBodyInput) schemaComplexTypeBodyInput() {}
+
+type schemaComplexTypeRestrictionBodyInput struct {
+	complexContentLoc Loc
+	restrictionLoc    Loc
+	base              schemaComplexTypeReferenceInput
+	anyAttribute      *schemaAnyAttributeInput
+}
+
+func (*schemaComplexTypeRestrictionBodyInput) schemaComplexTypeBodyInput() {}
+
+type schemaComplexTypeReferenceInputKind uint8
+
+const schemaComplexTypeQNameReferenceInput schemaComplexTypeReferenceInputKind = 1
+
+type schemaComplexTypeReferenceInput struct {
+	kind schemaComplexTypeReferenceInputKind
+	name QName
+	loc  Loc
 }
 
 type schemaAnyAttributeInput struct {
@@ -1862,9 +2075,42 @@ type schemaNotationComponent struct {
 }
 
 type schemaComplexTypeComponent struct {
-	particle                Particle
-	anyAttribute            *schemaAnyAttributeComponent
+	body                    schemaComplexTypeBodyComponent
 	prohibitedSubstitutions schemaBlockPolicy
+}
+
+type schemaComplexTypeBodyComponent interface {
+	schemaComplexTypeBodyComponent()
+}
+
+type schemaComplexTypeDirectBodyComponent struct {
+	particle     Particle
+	anyAttribute *schemaAnyAttributeComponent
+}
+
+func (*schemaComplexTypeDirectBodyComponent) schemaComplexTypeBodyComponent() {}
+
+type schemaComplexTypeEmptyBodyComponent struct {
+	anyAttribute *schemaAnyAttributeComponent
+}
+
+func (*schemaComplexTypeEmptyBodyComponent) schemaComplexTypeBodyComponent() {}
+
+type schemaComplexTypeRestrictionBodyComponent struct {
+	complexContentLoc Loc
+	restrictionLoc    Loc
+	base              schemaComplexTypeReferenceComponent
+	anyAttribute      *schemaAnyAttributeComponent
+}
+
+func (*schemaComplexTypeRestrictionBodyComponent) schemaComplexTypeBodyComponent() {}
+
+type schemaComplexTypeReferenceComponent struct {
+	kind  ComplexTypeReferenceKind
+	name  QName
+	loc   Loc
+	id    ComponentID
+	hasID bool
 }
 
 type schemaAnyAttributeComponent struct {
@@ -2025,7 +2271,10 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
-	components, byID := completeSchemaComponents(records, simpleTypes.results, attributes, elements, complexTypes, modelGroups)
+	components, byID, err := completeSchemaComponents(records, simpleTypes.results, attributes, elements, complexTypes, modelGroups)
+	if err != nil {
+		return Schema{}, err
+	}
 	storage := &schemaStorage{
 		components: components,
 		byID:       byID,
@@ -2203,15 +2452,18 @@ func completeSchemaComponents(
 	elements []schemaElementTypeResult,
 	complexTypes []schemaComplexTypeResult,
 	modelGroups []schemaModelGroupResult,
-) ([]Component, map[ComponentID]int) {
+) ([]Component, map[ComponentID]int, error) {
 	components := make([]Component, 0, len(records))
 	byID := make(map[ComponentID]int, len(records))
 	for index, record := range records {
-		component := completeSchemaComponent(record, simpleTypes[index], attributes[index], elements[index], complexTypes[index], modelGroups[index])
+		component, err := completeSchemaComponent(record, simpleTypes[index], attributes[index], elements[index], complexTypes[index], modelGroups[index])
+		if err != nil {
+			return nil, nil, err
+		}
 		byID[record.id] = len(components)
 		components = append(components, component)
 	}
-	return components, byID
+	return components, byID, nil
 }
 
 func completeSchemaComponent(
@@ -2221,7 +2473,7 @@ func completeSchemaComponent(
 	element schemaElementTypeResult,
 	complexType schemaComplexTypeResult,
 	modelGroup schemaModelGroupResult,
-) Component {
+) (Component, error) {
 	component := Component{
 		id:   record.id,
 		kind: record.kind,
@@ -2278,24 +2530,67 @@ func completeSchemaComponent(
 		}
 	}
 	if complexType.present {
-		component.complexType = &schemaComplexTypeComponent{
-			particle:                complexType.particle,
-			prohibitedSubstitutions: complexType.prohibitedSubstitutions,
+		body, err := completeSchemaComplexTypeBody(complexType.body, record.loc)
+		if err != nil {
+			return Component{}, err
 		}
-		if complexType.anyAttribute.present {
-			component.complexType.anyAttribute = &schemaAnyAttributeComponent{
-				loc:                complexType.anyAttribute.loc,
-				namespace:          complexType.anyAttribute.namespace,
-				namespaceLoc:       complexType.anyAttribute.namespaceLoc,
-				processContents:    complexType.anyAttribute.processContents,
-				processContentsLoc: complexType.anyAttribute.processContentsLoc,
-			}
+		component.complexType = &schemaComplexTypeComponent{
+			body:                    body,
+			prohibitedSubstitutions: complexType.prohibitedSubstitutions,
 		}
 	}
 	if modelGroup.present {
 		component.modelGroup = &schemaModelGroupComponent{particle: modelGroup.particle}
 	}
-	return component
+	return component, nil
+}
+
+func completeSchemaComplexTypeBody(result schemaComplexTypeBodyResult, loc Loc) (schemaComplexTypeBodyComponent, error) {
+	if result == nil {
+		return nil, newSchemaBridgeInvariant(loc, "completed complex type has no body")
+	}
+	switch body := result.(type) {
+	case *schemaComplexTypeDirectBodyResult:
+		if body == nil || body.particle == nil {
+			return nil, newSchemaBridgeInvariant(loc, "direct complex type body has no particle")
+		}
+		return &schemaComplexTypeDirectBodyComponent{
+			particle:     body.particle,
+			anyAttribute: completeSchemaAnyAttribute(body.anyAttribute),
+		}, nil
+	case *schemaComplexTypeEmptyBodyResult:
+		if body == nil {
+			return nil, newSchemaBridgeInvariant(loc, "empty complex type body is nil")
+		}
+		return &schemaComplexTypeEmptyBodyComponent{
+			anyAttribute: completeSchemaAnyAttribute(body.anyAttribute),
+		}, nil
+	case *schemaComplexTypeRestrictionBodyResult:
+		if body == nil || body.base.kind == "" || body.base.name.IsZero() || body.base.loc.IsZero() {
+			return nil, newSchemaBridgeInvariant(loc, "restriction complex type body has incomplete base reference")
+		}
+		return &schemaComplexTypeRestrictionBodyComponent{
+			complexContentLoc: body.complexContentLoc,
+			restrictionLoc:    body.restrictionLoc,
+			base:              body.base,
+			anyAttribute:      completeSchemaAnyAttribute(body.anyAttribute),
+		}, nil
+	default:
+		return nil, newSchemaBridgeInvariant(loc, "complex type body has an unknown completed variant")
+	}
+}
+
+func completeSchemaAnyAttribute(result schemaAnyAttributeResult) *schemaAnyAttributeComponent {
+	if !result.present {
+		return nil
+	}
+	return &schemaAnyAttributeComponent{
+		loc:                result.loc,
+		namespace:          result.namespace,
+		namespaceLoc:       result.namespaceLoc,
+		processContents:    result.processContents,
+		processContentsLoc: result.processContentsLoc,
+	}
 }
 
 func cloneSchemaNotationInput(input *schemaNotationInput) *schemaNotationInput {
@@ -2316,31 +2611,60 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 		return nil
 	}
 	clone := &schemaComplexTypeInput{
-		particle:                input.particle,
-		anyAttribute:            cloneSchemaAnyAttributeInput(input.anyAttribute),
+		body:                    cloneSchemaComplexTypeBodyInput(input.body),
 		prohibitedSubstitutions: input.prohibitedSubstitutions,
 	}
-	switch particle := input.particle.(type) {
+	return clone
+}
+
+func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaComplexTypeBodyInput {
+	switch body := input.(type) {
+	case *schemaComplexTypeDirectBodyInput:
+		if body == nil {
+			return (*schemaComplexTypeDirectBodyInput)(nil)
+		}
+		return &schemaComplexTypeDirectBodyInput{
+			particle:     cloneSchemaComplexTypeParticleInput(body.particle),
+			anyAttribute: cloneSchemaAnyAttributeInput(body.anyAttribute),
+		}
+	case *schemaComplexTypeRestrictionBodyInput:
+		if body == nil {
+			return (*schemaComplexTypeRestrictionBodyInput)(nil)
+		}
+		return &schemaComplexTypeRestrictionBodyInput{
+			complexContentLoc: body.complexContentLoc,
+			restrictionLoc:    body.restrictionLoc,
+			base:              body.base,
+			anyAttribute:      cloneSchemaAnyAttributeInput(body.anyAttribute),
+		}
+	default:
+		return nil
+	}
+}
+
+func cloneSchemaComplexTypeParticleInput(input schemaComplexTypeParticleInput) schemaComplexTypeParticleInput {
+	switch particle := input.(type) {
 	case *schemaChoiceParticleInput:
 		if particle == nil {
-			return clone
+			return (*schemaChoiceParticleInput)(nil)
 		}
-		clone.particle = &schemaChoiceParticleInput{
+		return &schemaChoiceParticleInput{
 			loc:          particle.loc,
 			occurrences:  particle.occurrences.clone(),
 			alternatives: cloneSchemaElementParticleInputs(particle.alternatives),
 		}
 	case *schemaSequenceParticleInput:
 		if particle == nil {
-			return clone
+			return (*schemaSequenceParticleInput)(nil)
 		}
-		clone.particle = &schemaSequenceParticleInput{
+		return &schemaSequenceParticleInput{
 			loc:         particle.loc,
 			occurrences: particle.occurrences.clone(),
 			elements:    cloneSchemaElementParticleInputs(particle.elements),
 		}
+	default:
+		return nil
 	}
-	return clone
 }
 
 func cloneSchemaAnyAttributeInput(input *schemaAnyAttributeInput) *schemaAnyAttributeInput {

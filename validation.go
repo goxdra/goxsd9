@@ -61,6 +61,7 @@ var (
 	errInstanceChoiceNested        = errors.New("choice instance has nested element content")
 	errInstanceChoiceParticle      = errors.New("choice type has an unsupported particle")
 	errInstanceChoiceTarget        = errors.New("choice alternative has an unsupported target")
+	errInstanceOpenAttrsType       = errors.New("openAttrs complex type is outside instance validation")
 	errInstanceElementFacts        = errors.New("global element abstract and nillable facts are outside instance validation")
 	errInstanceValidationInvariant = errors.New("scalar validation invariant is broken")
 )
@@ -328,6 +329,19 @@ func instanceChoiceProgramFor(
 ) (instanceChoiceProgram, error) {
 	version := instanceSchemaValidationVersion(schema)
 	related := []Loc{declaration.Loc(), definition.Loc()}
+	if body, ok := definition.boundedOpenAttrsRestrictionBody(); ok {
+		related = appendInstanceRelated(related, body.complexContentLoc)
+		related = appendInstanceRelated(related, body.restrictionLoc)
+		related = appendInstanceRelated(related, body.base.loc)
+		related = appendInstanceRelated(related, body.anyAttribute.loc)
+		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("named complex type %q uses bounded openAttrs content outside instance validation", definition.Name()),
+			related,
+			version,
+			errInstanceOpenAttrsType,
+		)
+	}
 	choice, related, err := instanceChoiceParticleFor(definition, loc, related, version)
 	if err != nil {
 		return instanceChoiceProgram{}, err

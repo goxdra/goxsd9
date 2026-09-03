@@ -81,6 +81,8 @@ const (
 	schemaBlockDefaultXSD11SpecRef              = "xsd11-structures#element-schema"
 	schemaAnyAttributeXSD10SpecRef              = "xsd10-structures#element-anyAttribute"
 	schemaAnyAttributeXSD11SpecRef              = "xsd11-structures#element-anyAttribute"
+	schemaComplexTypeDerivationXSD10SpecRef     = "xsd10-structures#derivation-ok-restriction"
+	schemaComplexTypeDerivationXSD11SpecRef     = "xsd11-structures#derivation-ok-restriction"
 )
 
 var (
@@ -120,6 +122,11 @@ var (
 	errSchemaSubstitutionCycle                = errors.New("substitution-group affiliations form a cycle")
 	errSchemaBlock                            = errors.New("schema block value is invalid")
 	errSchemaAnyAttributeUnsupported          = errors.New("anyAttribute wildcard is not implemented")
+	errSchemaComplexTypeBaseUnresolved        = errors.New("complex type base is unresolved")
+	errSchemaComplexTypeBaseWrongKind         = errors.New("complex type base has the wrong kind")
+	errSchemaComplexTypeBaseAmbiguous         = errors.New("complex type base is ambiguous")
+	errSchemaComplexTypeBaseUnsupported       = errors.New("complex type named base is not implemented")
+	errSchemaComplexTypeBaseRequired          = errors.New("complex type base is required")
 	errLanguagePolicyMismatch                 = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
@@ -1248,6 +1255,10 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	if err != nil {
 		return nil, err
 	}
+	complexContent := schemaComplexContentChild(element)
+	if complexContent != nil {
+		return schemaComplexTypeRestrictionInput(complexContent, block)
+	}
 	model := schemaComplexTypeModel(element)
 	if model == nil {
 		if explicitBlock || block.set != 0 {
@@ -1276,6 +1287,69 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 		return schemaChoiceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
 	}
 	return schemaSequenceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
+}
+
+func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
+	restriction := schemaComplexContentRestrictionChild(complexContent)
+	if restriction == nil {
+		return nil, newSchemaBridgeInvariant(complexContent.loc, "supported complexContent has no restriction child")
+	}
+	baseAttributes := syntaxAttributesByLocal(restriction, "base")
+	if len(baseAttributes) != 1 {
+		return nil, newSchemaBridgeInvariant(restriction.loc, "supported complexContent restriction has no unique base")
+	}
+	base, err := expandSchemaQName(restriction, baseAttributes[0])
+	if err != nil {
+		return nil, err
+	}
+	anyAttribute, err := schemaAnyAttributeInputFromElement(restriction)
+	if err != nil {
+		return nil, err
+	}
+	if anyAttribute == nil {
+		return nil, newSchemaBridgeInvariant(restriction.loc, "supported complexContent restriction has no wildcard")
+	}
+	return &schemaComplexTypeInput{
+		body: &schemaComplexTypeRestrictionBodyInput{
+			complexContentLoc: complexContent.loc,
+			restrictionLoc:    restriction.loc,
+			base: schemaComplexTypeReferenceInput{
+				kind: schemaComplexTypeQNameReferenceInput,
+				name: base,
+				loc:  baseAttributes[0].loc,
+			},
+			anyAttribute: anyAttribute,
+		},
+		prohibitedSubstitutions: block,
+	}, nil
+}
+
+func schemaComplexContentChild(element *syntaxElement) *syntaxElement {
+	if element == nil {
+		return nil
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "complexContent" {
+			continue
+		}
+		return child
+	}
+	return nil
+}
+
+func schemaComplexContentRestrictionChild(element *syntaxElement) *syntaxElement {
+	if element == nil {
+		return nil
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "restriction" {
+			continue
+		}
+		return child
+	}
+	return nil
 }
 
 func schemaComplexTypeModel(element *syntaxElement) *syntaxElement {
@@ -1366,7 +1440,13 @@ func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccu
 		}
 		input.alternatives = append(input.alternatives, alternative)
 	}
-	return &schemaComplexTypeInput{particle: input, anyAttribute: anyAttribute, prohibitedSubstitutions: block}, nil
+	return &schemaComplexTypeInput{
+		body: &schemaComplexTypeDirectBodyInput{
+			particle:     input,
+			anyAttribute: anyAttribute,
+		},
+		prohibitedSubstitutions: block,
+	}, nil
 }
 
 func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy, anyAttribute *schemaAnyAttributeInput) (*schemaComplexTypeInput, error) {
@@ -1389,7 +1469,13 @@ func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOc
 		}
 		input.elements = append(input.elements, alternative)
 	}
-	return &schemaComplexTypeInput{particle: input, anyAttribute: anyAttribute, prohibitedSubstitutions: block}, nil
+	return &schemaComplexTypeInput{
+		body: &schemaComplexTypeDirectBodyInput{
+			particle:     input,
+			anyAttribute: anyAttribute,
+		},
+		prohibitedSubstitutions: block,
+	}, nil
 }
 
 func schemaAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttributeInput, error) {
@@ -3546,10 +3632,35 @@ func unsupportedSequencePrecisionDecimal(input *schemaElementInput, version XSDV
 
 type schemaComplexTypeResult struct {
 	present                 bool
-	particle                Particle
-	anyAttribute            schemaAnyAttributeResult
+	body                    schemaComplexTypeBodyResult
 	prohibitedSubstitutions schemaBlockPolicy
 }
+
+type schemaComplexTypeBodyResult interface {
+	schemaComplexTypeBodyResult()
+}
+
+type schemaComplexTypeDirectBodyResult struct {
+	particle     Particle
+	anyAttribute schemaAnyAttributeResult
+}
+
+func (*schemaComplexTypeDirectBodyResult) schemaComplexTypeBodyResult() {}
+
+type schemaComplexTypeEmptyBodyResult struct {
+	anyAttribute schemaAnyAttributeResult
+}
+
+func (*schemaComplexTypeEmptyBodyResult) schemaComplexTypeBodyResult() {}
+
+type schemaComplexTypeRestrictionBodyResult struct {
+	complexContentLoc Loc
+	restrictionLoc    Loc
+	base              schemaComplexTypeReferenceComponent
+	anyAttribute      schemaAnyAttributeResult
+}
+
+func (*schemaComplexTypeRestrictionBodyResult) schemaComplexTypeBodyResult() {}
 
 type schemaAnyAttributeResult struct {
 	present            bool
@@ -3580,11 +3691,11 @@ func resolveSchemaComplexTypes(
 		if record.complexType == nil {
 			continue
 		}
-		if record.complexType.particle == nil {
-			return nil, newSchemaBridgeInvariant(record.loc, "complex type resolution has no particle input")
+		if record.complexType.body == nil {
+			return nil, newSchemaBridgeInvariant(record.loc, "complex type resolution has no body input")
 		}
-		particle, err := resolveSchemaComplexTypeParticle(
-			record.complexType.particle,
+		body, err := resolveSchemaComplexTypeBody(
+			record.complexType.body,
 			record,
 			records,
 			byName,
@@ -3595,25 +3706,228 @@ func resolveSchemaComplexTypes(
 		if err != nil {
 			return nil, err
 		}
-		anyAttribute := schemaAnyAttributeResult{}
-		if record.complexType.anyAttribute != nil {
-			anyAttribute = schemaAnyAttributeResult{
-				present:            true,
-				loc:                record.complexType.anyAttribute.loc,
-				namespace:          record.complexType.anyAttribute.namespace,
-				namespaceLoc:       record.complexType.anyAttribute.namespaceLoc,
-				processContents:    record.complexType.anyAttribute.processContents,
-				processContentsLoc: record.complexType.anyAttribute.processContentsLoc,
-			}
-		}
 		results[index] = schemaComplexTypeResult{
 			present:                 true,
-			particle:                particle,
-			anyAttribute:            anyAttribute,
+			body:                    body,
 			prohibitedSubstitutions: record.complexType.prohibitedSubstitutions,
 		}
 	}
 	return results, nil
+}
+
+func resolveSchemaComplexTypeBody(
+	input schemaComplexTypeBodyInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
+) (schemaComplexTypeBodyResult, error) {
+	switch body := input.(type) {
+	case *schemaComplexTypeDirectBodyInput:
+		if body == nil || body.particle == nil {
+			return nil, newSchemaBridgeInvariant(owner.loc, "direct complex type body has no particle input")
+		}
+		particle, err := resolveSchemaComplexTypeParticle(
+			body.particle,
+			owner,
+			records,
+			byName,
+			visibleSources,
+			simpleTypes,
+			version,
+		)
+		if err != nil {
+			return nil, err
+		}
+		anyAttribute := schemaAnyAttributeResultFromInput(body.anyAttribute)
+		if particle == nil {
+			return &schemaComplexTypeEmptyBodyResult{anyAttribute: anyAttribute}, nil
+		}
+		return &schemaComplexTypeDirectBodyResult{
+			particle:     particle,
+			anyAttribute: anyAttribute,
+		}, nil
+	case *schemaComplexTypeRestrictionBodyInput:
+		if body == nil {
+			return nil, newSchemaBridgeInvariant(owner.loc, "restriction complex type body is nil")
+		}
+		base, err := resolveSchemaComplexTypeReference(body.base, owner, records, byName, visibleSources, version)
+		if err != nil {
+			return nil, err
+		}
+		if body.anyAttribute == nil {
+			return nil, newSchemaBridgeInvariant(owner.loc, "restriction complex type body has no wildcard input")
+		}
+		return &schemaComplexTypeRestrictionBodyResult{
+			complexContentLoc: body.complexContentLoc,
+			restrictionLoc:    body.restrictionLoc,
+			base:              base,
+			anyAttribute:      schemaAnyAttributeResultFromInput(body.anyAttribute),
+		}, nil
+	default:
+		return nil, newSchemaBridgeInvariant(owner.loc, "complex type body has an unknown input variant")
+	}
+}
+
+func schemaAnyAttributeResultFromInput(input *schemaAnyAttributeInput) schemaAnyAttributeResult {
+	if input == nil {
+		return schemaAnyAttributeResult{}
+	}
+	return schemaAnyAttributeResult{
+		present:            true,
+		loc:                input.loc,
+		namespace:          input.namespace,
+		namespaceLoc:       input.namespaceLoc,
+		processContents:    input.processContents,
+		processContentsLoc: input.processContentsLoc,
+	}
+}
+
+//nolint:funlen // Keep the complete base-kind and visibility classification together.
+func resolveSchemaComplexTypeReference(
+	input schemaComplexTypeReferenceInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	version XSDVersion,
+) (schemaComplexTypeReferenceComponent, error) {
+	if input.kind != schemaComplexTypeQNameReferenceInput {
+		return schemaComplexTypeReferenceComponent{}, newSchemaBridgeInvariant(input.loc, "complex type base reference has an unknown kind")
+	}
+	if input.name.IsZero() {
+		return schemaComplexTypeReferenceComponent{}, newSchemaBridgeInvariant(input.loc, "complex type base reference is empty")
+	}
+	if input.name.Namespace() == xsdNamespaceURI {
+		if input.name.Local() == "anyType" {
+			return schemaComplexTypeReferenceComponent{
+				kind: ComplexTypeReferenceBuiltin,
+				name: input.name,
+				loc:  input.loc,
+			}, nil
+		}
+		return schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type restriction base %q is not the supported xs:anyType complex base", input.name),
+			nil,
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseWrongKind, input.name),
+		)
+	}
+
+	candidates := byName[input.name]
+	if len(candidates) == 0 {
+		return schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type restriction base %q cannot be resolved", input.name),
+			nil,
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseUnresolved, input.name),
+		)
+	}
+	visibleCandidates, err := schemaVisibleCandidates(candidates, owner.id.Source(), records, visibleSources, input.loc)
+	if err != nil {
+		return schemaComplexTypeReferenceComponent{}, err
+	}
+	if len(visibleCandidates) == 0 {
+		return schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type restriction base %q cannot be resolved", input.name),
+			nil,
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseUnresolved, input.name),
+		)
+	}
+	typeCandidates := make([]int, 0, len(visibleCandidates))
+	for _, candidate := range visibleCandidates {
+		kind := records[candidate].kind
+		if kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
+			continue
+		}
+		typeCandidates = append(typeCandidates, candidate)
+	}
+	if len(typeCandidates) > 1 {
+		return schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type restriction base %q is ambiguous", input.name),
+			schemaComponentLocations(records, typeCandidates),
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseAmbiguous, input.name),
+		)
+	}
+	if len(typeCandidates) == 0 {
+		return schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type restriction base %q does not name a type definition", input.name),
+			schemaComponentLocations(records, visibleCandidates),
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseWrongKind, input.name),
+		)
+	}
+	candidate := typeCandidates[0]
+	if records[candidate].kind == ComponentKindComplexTypeDefinition {
+		return schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeUnsupported(
+			input.loc,
+			fmt.Sprintf("named complex type restriction base %q is not implemented", input.name),
+			[]Loc{records[candidate].loc},
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseUnsupported, input.name),
+		)
+	}
+	return schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeBaseDiagnostic(
+		input.loc,
+		fmt.Sprintf("complex type restriction base %q names a simple type", input.name),
+		[]Loc{records[candidate].loc},
+		version,
+		fmt.Errorf("%w: %q", errSchemaComplexTypeBaseWrongKind, input.name),
+	)
+}
+
+func newSchemaComplexTypeBaseDiagnostic(loc Loc, message string, related []Loc, version XSDVersion, cause error) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    invalidSchemaCompositionCode,
+		loc:     loc,
+		message: message,
+		related: append([]Loc(nil), related...),
+		specRef: schemaComplexTypeDerivationSpecRef(version),
+		cause:   cause,
+	}
+}
+
+func newSchemaComplexTypeUnsupported(loc Loc, message string, related []Loc, version XSDVersion, cause error) error {
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSyntaxFeatureCode,
+			loc,
+			"schema syntax feature is not registered",
+			cause,
+		)
+	}
+	diagnostic := newUnsupportedForVersionWithCause(
+		feature,
+		UnsupportedSchemaSyntaxCode,
+		loc,
+		message,
+		version,
+		cause,
+	)
+	if diagnostic.Class() == FailureUnsupported {
+		diagnostic.related = append([]Loc(nil), related...)
+		diagnostic.specRef = schemaComplexTypeDerivationSpecRef(version)
+	}
+	return diagnostic
+}
+
+func schemaComplexTypeDerivationSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaComplexTypeDerivationXSD10SpecRef
+	}
+	return schemaComplexTypeDerivationXSD11SpecRef
 }
 
 func resolveSchemaModelGroups(
