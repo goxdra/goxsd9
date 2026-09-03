@@ -100,8 +100,8 @@ boolean-kind and string-enumeration facts. Built-ins lack synthetic IDs.
 Named complex types: direct particles; bounded openAttrs restrictions. Direct sequence/choice: local built-in xs:boolean, named boolean-restriction,
 integer/decimal; exact finite/unbounded ranges; 0/0 absent. XSD 1.1 choices: precisionDecimal requires default choice/mapped-alternative occurrences; non-precision
 ranges may retain non-default/queryable. Local string particles/
-Boolean facets, anonymous/nested/broader particles unsupported. Direct refs
-immutable; numeric reference choices validate on demand; others reject.
+Boolean facets, anonymous/nested/broader particles unsupported. Direct reference
+particles retain immutable/queryable target facts.
 Supported named direct sequence/
 choice types expose attribute-free anyAttribute under XSD 1.0, XSD 1.1,
 Compatibility; omitted attributes effectively ##any/strict; explicit ##other/lax
@@ -125,18 +125,19 @@ distinctions and broader value spaces remain staged and report unsupported behav
 ## Validation and code generation
 
 `ValidateInstance` supports text-only built-in/named scalar `boolean`/`integer`/
-`decimal`/`precisionDecimal` globals and direct named-complex choices with local or
-default numeric reference alternatives. References use immutable `TargetID`/`Lookup`;
-boolean/`precisionDecimal` targets remain unsupported. Named types use `TypeID`/`Lookup`;
-boolean diagnostics use policy; numeric
-built-ins retain compatibility/default behavior. Non-default choice ranges remain query-only.
-Sequences remain unsupported for validation;
-repetition is unsupported. Non-default `precisionDecimal` choice or alternative ranges that
-map to a particle are schema-unsupported. String globals or restrictions, local
-boolean/string particles, attributes, and broader structures remain unsupported for instance validation; locations are primary.
+`decimal`/`precisionDecimal` globals and direct named-complex choices with all-default
+local scalar alternatives or all-default references to global integer/decimal elements.
+Mixed local/reference choices and non-default occurrences remain unsupported/query-only.
+Reference targets use immutable `TargetID`/`Lookup`; boolean/`precisionDecimal`
+targets remain unsupported. Named types use `TypeID`/`Lookup`; boolean diagnostics use
+policy; numeric built-ins retain compatibility/default behavior. Sequences/repetition remain
+unsupported. Non-default `precisionDecimal` choice/alternative ranges mapped to a particle
+are schema-unsupported. String globals/restrictions, local boolean/string particles,
+attributes, and broader structures remain unsupported for validation; locations are primary.
 
-Generation deterministically emits choice switches, global booleans, and default-bounded direct integer/decimal sequence structs; string, boolean facets, local boolean/string particles
-remain unsupported.
+Generation emits deterministic choice switches, global booleans, and default-bounded direct
+integer/decimal sequence structs; direct-reference code generation remains unsupported;
+string, boolean facets, and local boolean/string particles remain unsupported.
 
 ## Conformance
 
