@@ -78,9 +78,7 @@ func TestCleanupRemovesOnlyMergedPrimaryAndCompanionClaims(t *testing.T) {
 func TestPrepareCleanupPlanAllowsExpectedRunLocalWorktreeBeforeMerge(t *testing.T) {
 	fixture := newBaseRepositoryFixture(t, false)
 	configureTestIdentity(t, fixture.linked)
-	writeFixtureFile(t, fixture.linked, "claim", "claim\n")
-	runGitTest(t, fixture.linked, "add", "claim")
-	runGitTest(t, fixture.linked, "commit", "--no-gpg-sign", "-m", claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)))
+	runGitTest(t, fixture.linked, "commit", "--no-gpg-sign", "--allow-empty", "-m", claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)))
 	writeFixtureFile(t, fixture.linked, "evaluated", "evaluated\n")
 	runGitTest(t, fixture.linked, "add", "evaluated")
 	runGitTest(t, fixture.linked, "commit", "--no-gpg-sign", "-m", "feat: evaluated work")

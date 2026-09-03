@@ -761,17 +761,55 @@ func (a app) readIssueComments(root string, number int) ([]issueCommentAPI, erro
 	endpoint := "repos/" + repositoryKey + "/issues/" + strconv.Itoa(number) + "/comments?per_page=100"
 	output, err := a.command(root, "gh", "api", "--paginate", endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("read issue #%d comments: %w", number, err)
+		return nil, retryableOperation("read issue comments", fmt.Errorf("read issue #%d comments: %w", number, err))
 	}
 	pages, err := decodeJSONDocuments[[]issueCommentAPI](output)
 	if err != nil {
-		return nil, fmt.Errorf("decode issue #%d comments: %w", number, err)
+		return nil, terminalOperation("issue comments", fmt.Errorf("decode issue #%d comments: %w", number, err))
+	}
+	if err := validateIssueCommentPages(number, pages); err != nil {
+		return nil, terminalOperation("issue comments", err)
 	}
 	comments := make([]issueCommentAPI, 0)
 	for _, page := range pages {
 		comments = append(comments, page...)
 	}
 	return comments, nil
+}
+
+func validateIssueCommentPages(number int, pages [][]issueCommentAPI) error {
+	seenIDs := make(map[int64]struct{})
+	for pageIndex, page := range pages {
+		if page == nil {
+			return fmt.Errorf("issue #%d comments page %d is null", number, pageIndex+1)
+		}
+		for commentIndex, comment := range page {
+			if err := validateIssueComment(number, pageIndex, commentIndex, comment, seenIDs); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateIssueComment(number, pageIndex, commentIndex int, comment issueCommentAPI, seenIDs map[int64]struct{}) error {
+	if comment.ID < 1 {
+		return fmt.Errorf("issue #%d comments page %d object %d has invalid ID %d", number, pageIndex+1, commentIndex+1, comment.ID)
+	}
+	if strings.TrimSpace(comment.User.Login) == "" {
+		return fmt.Errorf("issue #%d comments page %d object %d has no user login", number, pageIndex+1, commentIndex+1)
+	}
+	if strings.TrimSpace(comment.Body) == "" {
+		return fmt.Errorf("issue #%d comments page %d object %d has no body", number, pageIndex+1, commentIndex+1)
+	}
+	if comment.CreatedAt.IsZero() {
+		return fmt.Errorf("issue #%d comments page %d object %d has no created-at timestamp", number, pageIndex+1, commentIndex+1)
+	}
+	if _, duplicate := seenIDs[comment.ID]; duplicate {
+		return fmt.Errorf("issue #%d comments contain duplicate ID %d", number, comment.ID)
+	}
+	seenIDs[comment.ID] = struct{}{}
+	return nil
 }
 
 func exactTrustedIssueComment(comments []issueCommentAPI, body string) bool {

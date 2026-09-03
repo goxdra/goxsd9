@@ -89,8 +89,9 @@ These instructions apply to every file in this repository.
 - Scribe and Mason consultation is the default. Record a concise exemption only
   for demonstrably mechanical work.
 - Every PR receives an Examiner review in a fresh, read-only context. Smith
-  fixes findings and uses a new Examiner context for each round. Three failed
-  rounds mark the work `needs-human`.
+  fixes findings and uses a new Examiner context for each round. Exactly three
+  authenticated Examiner `fail` receipts mark the work `needs-human`; transient
+  agent, checkout, transport, and challenge failures remain retryable.
 - Create a head-bound `workflowctl evaluation challenge` before spawning each
   Examiner. Record its returned JSON attestation unchanged; Smith never chooses
   or rewrites the verdict.

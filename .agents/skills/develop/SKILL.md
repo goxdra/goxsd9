@@ -32,14 +32,13 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    Never backlog-loop/widen.
 3. Read issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md` phase, decisions; claim
    at most one companion for shared implementation/proof.
-4. Give Scribe specification and Mason architecture questions, context,
-   handoff contract.
-5. Decompose packet; give Smith contract, files, and evidence. For affected
-   phase boundaries, Smith's handoff matrix covers only affected sibling axes
-   (edition/policy; named/anonymous/inline/ref shape; graph visibility/cycles;
-   supported/invalid/explicit unsupported; location/order/provenance), marking
-   N/A with rationale. It is handoff-only and cannot widen packet. Smith
-   implements, tests, fixes failures. Follow `AGENTS.md`; mechanize. Unfinished
+4. Give Scribe specification and Mason architecture questions, context, handoff contract.
+5. Decompose packet; give Smith contract/files/evidence. For affected phase
+   boundaries, matrix only covers sibling axes (edition/policy; named/anonymous/
+   inline/ref shape; graph visibility/cycles; supported/invalid/unsupported;
+   location/order/provenance), marking N/A with explicit rationale. It is handoff-only;
+   cannot widen.
+   Smith implements/tests/fixes. Follow `AGENTS.md`; mechanize. Unfinished
    boundaries need unsupported diagnostics with feature ID, `Loc`, and versioned
    specification reference; turn actionable discoveries into issues, not TODOs.
 6. Renew before pushes and required durable boundaries with `go tool
@@ -56,45 +55,42 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    --base "$BASE_SHA" --format json` before evidence update. Automatic policy
    fuzz follows changed boundaries; validate optional repeatable
    `--additional-fuzz PACKAGE:TARGET` at current head. Request checked-in
-   corpus replay separately (bounded, offline, single-worker). JSON deltas/
-   targets and `no-relevant-target`/`not-measured` are valid; fuzz is health,
-   not conformance. Before evidence update, challenge, or finish, workflowctl
+   corpus replay separately (bounded, offline, single-worker). JSON
+   deltas/targets and `no-relevant-target`/`not-measured` are valid; fuzz is
+   health, not conformance. Evidence status must use the exact `pending` and
+   `evidence-ready` records; do not infer either state from prose. Before
+   evidence update, challenge, or finish, workflowctl
    resolves exact REST base/head, matches local commits, recomputes v2 signals/
-   policy, and compares canonical payload. Managed docs require Curator audit,
-   diff, paths, charters, and head; check placement, relevance, duplication,
-   history, replacement; preserve JSON and repeat after remediation.
-10. Before challenging, reread the exact full PR body against current
-    head/evidence/implementation; correct stale freeform claims (including
-    historical issue-class claims) without normalizing Examiner
-    identity. After any body edit, rerun exact-base evidence and documentation
-    audit plus fresh Curator review when applicable, then obtain a fresh
-    body-bound challenge and Examiner attestation. Machine binding proves
-    identity, not prose truth; never reuse a challenge or stale evidence.
-    Run `go tool workflowctl evaluation challenge PR`; managed-document heads
-    require fresh read-only Curator review. Give challenge, PR state, tests,
-    audit, Curator result, attestation shape, and rubric to a fresh read-only,
-    challenge-bound Examiner. Examiner inspects source, reruns audit, rejects
-    stale/missing Curator evidence, returns exact
-    `goxsd9/examiner-attestation/v1` JSON; failure findings require location,
-    impact, and requiredCorrection. Copy it byte-for-byte outside repository;
-    record with `go tool workflowctl evaluation record PR --attestation-file FILE`;
-    never choose/rewrite verdict. On failure Smith fixes, checks, pushes, and
-    repeats Curator/challenge/Examiner. Three failed rounds mark `needs-human`;
-    hand off evidence.
-11. On matching-head pass, write a separate plain-text summary outside
-    repository for future development/backlog/retrospective; cover
-    problem/outcome/rationale/consequential decisions/invariants and omit
-    metadata. Do not copy/parse PR Markdown into the squash body; keep metadata
-    in records. Use `go tool workflowctl pr finish PR --summary-file FILE`, which
-    verifies the packet. Finishing uses SHA-bound REST squash, not GraphQL; it
-    converges canonical base, cleans exact refs/claim worktrees, and proves
-    expected-SHA branches via immutable base/head/closure/body metadata. If
-    convergence/cleanup fails after merge, preserve artifacts and run idempotent
-    `go tool workflowctl pr recover PR` (SHA-bound REST, GraphQL-independent).
-    Use `claim prune ISSUE` only with merged proof. Draft replacement closes the
-    draft, creates an identical-head ready REST PR, and requires fresh
-    challenge/Examiner.
-
+   policy, and compares canonical payload. Managed-document changes require exact
+   Curator audit/review (diff, paths, charters, head; check
+   placement/relevance/duplication/history/replacement); no managed changes record
+   exact audited `Curator review: not required`; preserve JSON and repeat after remediation.
+10. Before challenging, reread the exact PR body against head/evidence/implementation;
+    correct stale claims without normalizing Examiner identity. After edits rerun
+    exact-base evidence/docs audit and fresh Curator where applicable, then obtain
+    a fresh body-bound challenge and Examiner. Binding proves identity, not prose;
+    never reuse stale challenge/evidence. Run `go tool workflowctl evaluation
+    challenge PR`; give challenge, state, tests, audits, Curator result, attestation
+    shape, and rubric to a fresh read-only challenge-bound Examiner. Examiner
+    inspects source/reruns audit, rejects stale Curator evidence, and returns exact
+    `goxsd9/examiner-attestation/v1` JSON; findings require location, impact, and
+    requiredCorrection. Copy it byte-for-byte outside; record with `go tool
+    workflowctl evaluation record PR --attestation-file FILE`; never choose verdict.
+    Smith fixes/checks/pushes and repeats. Exactly three authenticated Examiner
+    `fail` receipts mark `needs-human`; failures remain retryable. Then write the
+    blocker and run `go tool workflowctl handoff ISSUE --body-file FILE --needs-human`;
+    workflowctl validates OPEN/Project identity, applies `needs-human`/`Backlog`,
+    and posts last. An unresolved challenge after two hours may use `go tool
+    workflowctl evaluation resolve PR --challenge ID --reason-file FILE`; this gives
+    neither verdict nor merge proof.
+11. On matching-head pass, write an external plain-text problem/outcome/rationale/
+    invariants summary; omit metadata and PR Markdown. `go tool workflowctl pr
+    finish PR --summary-file FILE` verifies the packet, SHA-bound REST squash/
+    cleanup, canonical base/refs, and exact merge proof. If cleanup fails, preserve
+    artifacts and run idempotent `go tool workflowctl pr recover PR`; REST fallback
+    uses the identical head and a fresh Examiner. `claim prune ISSUE` requires
+    merged proof; draft replacement closes the draft, creates an identical-head
+    ready REST PR, and requires fresh challenge/Examiner.
 ## Waiting and pilot
 
 Waits are logical barriers: continue while healthy work and lease renewal
@@ -102,16 +98,14 @@ permit; never narrow/pressure/spawn/duplicate. Interrupt only for explicit
 failure, cancellation, invalid scope, or lost lease. Follow up only incomplete
 handoffs/bounded input; timing is guidance, not a runtime guarantee.
 
-For three packets (mechanical, specification-heavy, remediation), record
-aggregate root compactions, peak context, output volume, elapsed time, Examiner
-rounds/verdict, and quality across diagnostics, tests, docs, and review. Zero
-normal-packet compactions and under 50% effective context before review are
-optimization signals, never gates; quality must not regress. Never require
-sessions or telemetry.
+For three packets (mechanical, specification-heavy, remediation), record root
+compactions, peak context, output volume, elapsed time, Examiner rounds/verdict,
+and quality across diagnostics, tests, docs, and review. Zero normal-packet
+compactions and under 50% effective context before review are optimization
+signals, never gates; quality must not regress. Never require sessions or telemetry.
 ## Failure behavior
 
-- Three failures require `go tool workflowctl handoff ISSUE --body-file FILE --needs-human`:
-  validate body, OPEN/Project, label, Backlog, comment last; never infer
-  Markdown/challenges without receipts.
+- Transient failures remain retryable. Exactly three authenticated Examiner `fail`
+  receipts mark `needs-human`; no-PR recovery requires exact trusted evidence. Never infer.
 - Preserve incomplete worktrees; never force-push claim or bypass checks. After
   one bounded reselection, do not backlog-loop or widen scope.
