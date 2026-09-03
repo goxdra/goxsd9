@@ -885,42 +885,65 @@ func normalizeHandoffPRTokenPairs(tokens []string) []string {
 }
 
 func appendHandoffPRProseWord(tokens *[]string, word string) {
-	for _, compound := range []struct {
-		word  string
-		parts []string
-	}{
-		{word: "pullrequest", parts: []string{"pull", "request"}},
-		{word: "pullrequests", parts: []string{"pull", "requests"}},
-		{word: "nopr", parts: []string{"no", "pr"}},
-		{word: "noprs", parts: []string{"no", "prs"}},
-		{word: "openpr", parts: []string{"open", "pr"}},
-		{word: "openprs", parts: []string{"open", "prs"}},
-		{word: "prwas", parts: []string{"pr", "was"}},
-		{word: "prdoes", parts: []string{"pr", "does"}},
-		{word: "prdid", parts: []string{"pr", "did"}},
-		{word: "pris", parts: []string{"pr", "is"}},
-		{word: "prare", parts: []string{"pr", "are"}},
-		{word: "propen", parts: []string{"pr", "open"}},
-		{word: "prsexists", parts: []string{"prs", "exists"}},
-		{word: "prswas", parts: []string{"prs", "was"}},
-		{word: "prscreated", parts: []string{"prs", "created"}},
-		{word: "prexists", parts: []string{"pr", "exists"}},
-		{word: "prexist", parts: []string{"pr", "exist"}},
-		{word: "prwascreated", parts: []string{"pr", "was", "created"}},
-		{word: "prwasopened", parts: []string{"pr", "was", "opened"}},
-		{word: "prcreated", parts: []string{"pr", "created"}},
-		{word: "propened", parts: []string{"pr", "opened"}},
-		{word: "prunknown", parts: []string{"pr", "unknown"}},
-		{word: "prpositive", parts: []string{"pr", "positive"}},
-		{word: "prisopen", parts: []string{"pr", "is", "open"}},
-	} {
-		if word != compound.word {
-			continue
-		}
-		*tokens = append(*tokens, compound.parts...)
+	if word == "prs" {
+		*tokens = append(*tokens, word)
+		return
+	}
+	if parts, ok := handoffPRCompoundParts(word); ok {
+		*tokens = append(*tokens, parts...)
+		return
+	}
+	if isApprovedHandoffPRWord(word) {
+		*tokens = append(*tokens, word)
+		return
+	}
+	if isHandoffPRMentionWord(word) {
+		*tokens = append(*tokens, "pr")
 		return
 	}
 	*tokens = append(*tokens, word)
+}
+
+// handoffPRCompoundParts normalizes the small set of compounds that carry an
+// explicit grammar word. Unknown compounds are handled by the boundary rule
+// below, rather than by growing a list of positive PR predicates.
+func handoffPRCompoundParts(word string) ([]string, bool) {
+	switch word {
+	case "pullrequest":
+		return []string{"pull", "request"}, true
+	case "pullrequests":
+		return []string{"pull", "requests"}, true
+	case "nopr":
+		return []string{"no", "pr"}, true
+	case "noprs":
+		return []string{"no", "prs"}, true
+	default:
+		return nil, false
+	}
+}
+
+// isApprovedHandoffPRWord is the ordinary-word side of the PR lexer. These
+// words are present in the exact terminal grammars; every other token whose
+// boundary resembles PR is treated as a mention.
+func isApprovedHandoffPRWord(word string) bool {
+	switch word {
+	case "preserve", "preserved", "previous", "producing", "proceeding", "project", "proof", "provenance", "protocol":
+		return true
+	default:
+		return false
+	}
+}
+
+func isHandoffPRMentionWord(word string) bool {
+	if len(word) <= len("pr") {
+		return false
+	}
+	for _, prefix := range []string{"pullrequests", "pullrequest", "pr"} {
+		if strings.HasPrefix(word, prefix) || strings.HasSuffix(word, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func handoffAbsolutePaths(body string) []string {
@@ -1446,7 +1469,7 @@ func genericHandoffNoActionSequence(tokens []string, start int) bool {
 		case "and", "or", "nor":
 			continue
 		default:
-			if isGenericHandoffPositivePRToken(tokens[index]) || !isHandoffNoActionListWord(tokens[index]) {
+			if !isHandoffNoActionListWord(tokens[index]) {
 				return false
 			}
 			sawAction = true
@@ -1457,15 +1480,6 @@ func genericHandoffNoActionSequence(tokens []string, start int) bool {
 
 func isHandoffActionResult(token string) bool {
 	return token == "made" || token == "changed"
-}
-
-func isGenericHandoffPositivePRToken(token string) bool {
-	switch token {
-	case "exists", "exist", "existing", "remains", "remain", "open", "opened", "created", "generated", "submitted", "merged", "unknown", "positive", "pending", "active", "present", "available", "started", "associated", "live", "current", "under", "review", "reviews":
-		return true
-	default:
-		return false
-	}
 }
 
 func isHandoffNoActionListWord(token string) bool {
