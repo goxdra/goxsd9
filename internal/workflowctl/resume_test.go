@@ -182,6 +182,7 @@ func TestPRResumeInjectedIntegration(t *testing.T) {
 	})
 }
 
+//nolint:gocognit,funlen // Table cases keep all initial read operation boundaries together.
 func TestPRResumeInitialReadOperationBoundaries(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -284,6 +285,7 @@ func TestPRResumeInitialReadOperationBoundaries(t *testing.T) {
 	}
 }
 
+//nolint:gocognit,funlen // Table cases keep mutation counts and state assertions aligned.
 func TestPRResumeMutationBoundariesPreserveOperation(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -845,6 +847,7 @@ func (b *resumeBackend) execute(dir string, input io.Reader, name string, args .
 	return strings.TrimSpace(string(output)), nil
 }
 
+//nolint:gocognit // The deterministic fake dispatches each GitHub boundary in one place.
 func (b *resumeBackend) executeGH(args ...string) (string, error) {
 	joined := strings.Join(args, " ")
 	if joined == "api repos/goxdra/goxsd9/pulls/14" {

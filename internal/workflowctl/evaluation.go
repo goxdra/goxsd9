@@ -3038,34 +3038,52 @@ func (a app) readPullRequestCommentsWithValidation(root string, number int, stri
 	if err != nil {
 		return nil, terminalOperation("decode PR comments", fmt.Errorf("decode PR #%d comments: %w", number, err))
 	}
-	var comments []pullRequestComment
-	seenIDs := make(map[int64]struct{})
-	for pageIndex, page := range pages {
-		if strict && page == nil {
-			return nil, terminalOperation("validate PR comments", fmt.Errorf("PR #%d comments page %d is null", number, pageIndex+1))
+	if strict {
+		if err := validatePullRequestCommentPages(number, pages); err != nil {
+			return nil, terminalOperation("validate PR comments", err)
 		}
-		for commentIndex, response := range page {
-			if strict {
-				if response.ID < 1 {
-					return nil, terminalOperation("validate PR comments", fmt.Errorf("PR #%d comments page %d object %d has invalid ID %d", number, pageIndex+1, commentIndex+1, response.ID))
-				}
-				if strings.TrimSpace(response.User.Login) == "" {
-					return nil, terminalOperation("validate PR comments", fmt.Errorf("PR #%d comments page %d object %d has no user login", number, pageIndex+1, commentIndex+1))
-				}
-				if response.CreatedAt.IsZero() {
-					return nil, terminalOperation("validate PR comments", fmt.Errorf("PR #%d comments page %d object %d has no created-at timestamp", number, pageIndex+1, commentIndex+1))
-				}
-				if _, duplicate := seenIDs[response.ID]; duplicate {
-					return nil, terminalOperation("validate PR comments", fmt.Errorf("PR #%d comments contain duplicate ID %d", number, response.ID))
-				}
-				seenIDs[response.ID] = struct{}{}
-			}
+	}
+	var comments []pullRequestComment
+	for _, page := range pages {
+		for _, response := range page {
 			comment := pullRequestComment{ID: response.ID, Body: response.Body, CreatedAt: response.CreatedAt}
 			comment.Author.Login = response.User.Login
 			comments = append(comments, comment)
 		}
 	}
 	return comments, nil
+}
+
+func validatePullRequestCommentPages(number int, pages [][]issueCommentAPI) error {
+	seenIDs := make(map[int64]struct{})
+	for pageIndex, page := range pages {
+		if page == nil {
+			return fmt.Errorf("PR #%d comments page %d is null", number, pageIndex+1)
+		}
+		for commentIndex, response := range page {
+			if err := validatePullRequestComment(number, pageIndex, commentIndex, response, seenIDs); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validatePullRequestComment(number, pageIndex, commentIndex int, response issueCommentAPI, seenIDs map[int64]struct{}) error {
+	if response.ID < 1 {
+		return fmt.Errorf("PR #%d comments page %d object %d has invalid ID %d", number, pageIndex+1, commentIndex+1, response.ID)
+	}
+	if strings.TrimSpace(response.User.Login) == "" {
+		return fmt.Errorf("PR #%d comments page %d object %d has no user login", number, pageIndex+1, commentIndex+1)
+	}
+	if response.CreatedAt.IsZero() {
+		return fmt.Errorf("PR #%d comments page %d object %d has no created-at timestamp", number, pageIndex+1, commentIndex+1)
+	}
+	if _, duplicate := seenIDs[response.ID]; duplicate {
+		return fmt.Errorf("PR #%d comments contain duplicate ID %d", number, response.ID)
+	}
+	seenIDs[response.ID] = struct{}{}
+	return nil
 }
 
 func decodeJSONDocuments[T any](output string) ([]T, error) {

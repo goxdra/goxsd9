@@ -527,7 +527,6 @@ func (a app) validateExistingResumeCommit(root, head, expected string, issue int
 	return nil
 }
 
-//nolint:gocognit // Mutation and deterministic recovery boundaries remain explicit and ordered.
 func (a app) applyPullRequestResume(proof resumeProof) error {
 	// This is the final read-only proof. No ref or GitHub mutation may precede it.
 	fresh, readErr := a.readPullRequestResumeProof(proof.pr, proof.expectedHead)
@@ -540,42 +539,11 @@ func (a app) applyPullRequestResume(proof resumeProof) error {
 		return fmt.Errorf("PR #%d resume proof changed after preflight; no mutation performed: %w", proof.pr, proofErr)
 	}
 	if !fresh.already {
-		status, statusErr := a.readIssueStatus(fresh.root, fresh.issue)
-		if statusErr != nil {
-			statusErr = retryableOperationIfRecoverable("PR resume issue status", statusErr)
-			return fmt.Errorf("PR #%d issue proof failed immediately before mutation; no mutation performed: %w. "+resumeRecoveryTemplate,
-				fresh.pr, statusErr, fresh.pr, fresh.expectedHead)
+		var mutationErr error
+		fresh, mutationErr = a.mutatePullRequestResume(proof, fresh)
+		if mutationErr != nil {
+			return mutationErr
 		}
-		if status.State != "OPEN" || !issueNeedsHuman(status) {
-			return stateError("issue #%d must remain open and labeled needs-human immediately before PR #%d resume mutation; no mutation performed. "+resumeRecoveryTemplate,
-				fresh.issue, fresh.pr, fresh.pr, fresh.expectedHead)
-		}
-		if fresh.localAncestor {
-			if _, err := a.command(fresh.root, "git", "merge", "--ff-only", fresh.expectedHead); err != nil {
-				err = retryableOperationIfRecoverable("PR resume local fast-forward", err)
-				return fmt.Errorf("fast-forward local claim worktree to expected head %s: %w", fresh.expectedHead, err)
-			}
-		}
-		commit := fresh.renewalHead
-		if !fresh.pending || fresh.localAncestor {
-			var createErr error
-			commit, _, _, createErr = a.newClaimCommitWithRunID(fresh.root, fresh.issue, fresh.observedHead, fresh.runID)
-			if createErr != nil {
-				return retryableOperationIfRecoverable("PR resume renewal commit", createErr)
-			}
-			if _, updateErr := a.command(fresh.root, "git", "update-ref", "refs/heads/"+fresh.localBranch, commit, fresh.observedHead); updateErr != nil {
-				updateErr = retryableOperationIfRecoverable("PR resume local ref update", updateErr)
-				return fmt.Errorf("advance local claim for PR resume: %w", updateErr)
-			}
-		}
-		lease := "--force-with-lease=refs/heads/" + claimBranch(fresh.issue) + ":" + fresh.observedHead
-		refspec := commit + ":refs/heads/" + claimBranch(fresh.issue)
-		if _, pushErr := a.command(fresh.root, "git", "push", lease, "origin", refspec); pushErr != nil {
-			pushErr = retryableOperationIfRecoverable("PR resume claim push", pushErr)
-			return fmt.Errorf("PR #%d claim push response was ambiguous: %w. "+resumeRecoveryTemplate, proof.pr, pushErr,
-				proof.pr, proof.expectedHead)
-		}
-		fresh.renewalHead = commit
 	}
 	if err := a.verifyResumePush(fresh); err != nil {
 		err = retryableOperationIfRecoverable("PR resume push verification", err)
@@ -606,6 +574,46 @@ func (a app) applyPullRequestResume(proof resumeProof) error {
 			proof.pr, proof.expectedHead)
 	}
 	return writeLine(a.stdout, "PR #%d resumed for issue #%d; claim verified, needs-human removed, Project Picked", proof.pr, proof.issue)
+}
+
+func (a app) mutatePullRequestResume(proof, fresh resumeProof) (resumeProof, error) {
+	status, statusErr := a.readIssueStatus(fresh.root, fresh.issue)
+	if statusErr != nil {
+		statusErr = retryableOperationIfRecoverable("PR resume issue status", statusErr)
+		return resumeProof{}, fmt.Errorf("PR #%d issue proof failed immediately before mutation; no mutation performed: %w. "+resumeRecoveryTemplate,
+			fresh.pr, statusErr, fresh.pr, fresh.expectedHead)
+	}
+	if status.State != "OPEN" || !issueNeedsHuman(status) {
+		return resumeProof{}, stateError("issue #%d must remain open and labeled needs-human immediately before PR #%d resume mutation; no mutation performed. "+resumeRecoveryTemplate,
+			fresh.issue, fresh.pr, fresh.pr, fresh.expectedHead)
+	}
+	if fresh.localAncestor {
+		if _, err := a.command(fresh.root, "git", "merge", "--ff-only", fresh.expectedHead); err != nil {
+			err = retryableOperationIfRecoverable("PR resume local fast-forward", err)
+			return resumeProof{}, fmt.Errorf("fast-forward local claim worktree to expected head %s: %w", fresh.expectedHead, err)
+		}
+	}
+	commit := fresh.renewalHead
+	if !fresh.pending || fresh.localAncestor {
+		var createErr error
+		commit, _, _, createErr = a.newClaimCommitWithRunID(fresh.root, fresh.issue, fresh.observedHead, fresh.runID)
+		if createErr != nil {
+			return resumeProof{}, retryableOperationIfRecoverable("PR resume renewal commit", createErr)
+		}
+		if _, updateErr := a.command(fresh.root, "git", "update-ref", "refs/heads/"+fresh.localBranch, commit, fresh.observedHead); updateErr != nil {
+			updateErr = retryableOperationIfRecoverable("PR resume local ref update", updateErr)
+			return resumeProof{}, fmt.Errorf("advance local claim for PR resume: %w", updateErr)
+		}
+	}
+	lease := "--force-with-lease=refs/heads/" + claimBranch(fresh.issue) + ":" + fresh.observedHead
+	refspec := commit + ":refs/heads/" + claimBranch(fresh.issue)
+	if _, pushErr := a.command(fresh.root, "git", "push", lease, "origin", refspec); pushErr != nil {
+		pushErr = retryableOperationIfRecoverable("PR resume claim push", pushErr)
+		return resumeProof{}, fmt.Errorf("PR #%d claim push response was ambiguous: %w. "+resumeRecoveryTemplate, proof.pr, pushErr,
+			proof.pr, proof.expectedHead)
+	}
+	fresh.renewalHead = commit
+	return fresh, nil
 }
 
 func sameResumeProof(before, after resumeProof) error {
