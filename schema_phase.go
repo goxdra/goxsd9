@@ -735,6 +735,9 @@ func validateSchemaRootUnqualifiedAttribute(element *syntaxElement, attribute sy
 		if err := validateSchemaRestrictionList(attribute, "extension", "restriction", "list", "union"); err != nil {
 			return "", err
 		}
+		if collapseXMLWhitespace(attribute.value) == "" {
+			return "", nil
+		}
 		return "schema root attribute \"finalDefault\" is not implemented", nil
 	case "defaultAttributes":
 		if err := validateConditionalQNameForSchema(element, attribute); err != nil {
