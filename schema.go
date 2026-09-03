@@ -147,9 +147,10 @@ const (
 	SimpleTypeReferenceAnonymous SimpleTypeReferenceKind = "anonymous"
 )
 
-// SimpleTypeReference is an immutable resolved simple-type reference. Named
-// references retain only their QName and component identity; anonymous
-// references expose their owned model node through AnonymousType.
+// SimpleTypeReference is an immutable resolved simple-type reference. Built-in
+// and named references retain their QName, identity facts, and resolved
+// variety; anonymous references expose their owned model node through
+// AnonymousType.
 type SimpleTypeReference struct {
 	facts *schemaSimpleTypeReferenceComponent
 }
@@ -305,7 +306,7 @@ func (component Component) ElementDeclaration() (ElementDeclaration, bool) {
 }
 
 // Attribute returns the immutable attribute-declaration view for a supported
-// global attribute with a resolved scalar type.
+// global attribute with a resolved simple-type reference.
 func (component Component) Attribute() (AttributeDeclaration, bool) {
 	if component.attribute == nil {
 		return AttributeDeclaration{}, false
@@ -317,13 +318,13 @@ func (component Component) Attribute() (AttributeDeclaration, bool) {
 }
 
 // AttributeDeclaration returns the immutable attribute-declaration view for a
-// supported global attribute with a resolved scalar type.
+// supported global attribute with a resolved simple-type reference.
 func (component Component) AttributeDeclaration() (AttributeDeclaration, bool) {
 	return component.Attribute()
 }
 
 // AttributeDeclaration is the immutable type-specific view of a supported
-// global attribute declaration with a resolved scalar type.
+// global attribute declaration with a resolved simple-type reference.
 type AttributeDeclaration struct {
 	component Component
 	facts     *schemaAttributeComponent
@@ -352,19 +353,28 @@ func (declaration AttributeDeclaration) Loc() Loc {
 // DeclaredType returns the expanded QName written in the attribute's type
 // attribute.
 func (declaration AttributeDeclaration) DeclaredType() QName {
-	if declaration.facts == nil {
+	if declaration.facts == nil || !declaration.facts.hasTypeReference {
 		return QName{}
 	}
-	return declaration.facts.declaredType
+	return declaration.facts.typeReference.name
+}
+
+// TypeReference returns the resolved simple-type reference used by the
+// declaration, when it has one.
+func (declaration AttributeDeclaration) TypeReference() (SimpleTypeReference, bool) {
+	if declaration.facts == nil || !declaration.facts.hasTypeReference {
+		return SimpleTypeReference{}, false
+	}
+	return SimpleTypeReference{facts: &declaration.facts.typeReference}, true
 }
 
 // TypeID returns the identity of a named declared type. Built-in datatypes do
 // not have synthetic component identities and return the zero ID.
 func (declaration AttributeDeclaration) TypeID() (ComponentID, bool) {
-	if declaration.facts == nil || !declaration.facts.hasTypeID {
+	if declaration.facts == nil || !declaration.facts.hasTypeReference || !declaration.facts.typeReference.hasID {
 		return ComponentID{}, false
 	}
-	return declaration.facts.typeID, true
+	return declaration.facts.typeReference.id, true
 }
 
 // ElementDeclaration is the immutable type-specific view of a supported
@@ -1764,6 +1774,12 @@ type schemaBooleanFacetVariant struct{}
 
 func (schemaBooleanFacetVariant) schemaSimpleTypeFacetVariant() {}
 
+// schemaAtomicFacetVariant marks an atomic built-in whose lexical and facet
+// semantics are not implemented by the schema model yet.
+type schemaAtomicFacetVariant struct{}
+
+func (schemaAtomicFacetVariant) schemaSimpleTypeFacetVariant() {}
+
 type schemaComplexTypeInput struct {
 	particle                schemaComplexTypeParticleInput
 	anyAttribute            *schemaAnyAttributeInput
@@ -1833,9 +1849,8 @@ type schemaElementSubstitutionGroup struct {
 }
 
 type schemaAttributeComponent struct {
-	declaredType QName
-	typeID       ComponentID
-	hasTypeID    bool
+	typeReference    schemaSimpleTypeReferenceComponent
+	hasTypeReference bool
 }
 
 type schemaNotationComponent struct {
@@ -1977,7 +1992,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 		}
 		return Schema{}, err
 	}
-	attributes, err := resolveSchemaAttributeTypes(records, byName, simpleTypes, version)
+	attributes, err := resolveSchemaAttributeTypes(records, simpleTypes, version)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -2228,9 +2243,8 @@ func completeSchemaComponent(
 	}
 	if attribute.present {
 		component.attribute = &schemaAttributeComponent{
-			declaredType: attribute.declaredType,
-			typeID:       attribute.typeID,
-			hasTypeID:    attribute.hasTypeID,
+			typeReference:    attribute.typeReference,
+			hasTypeReference: attribute.hasTypeReference,
 		}
 	}
 	if record.notation != nil {
