@@ -31,6 +31,8 @@ const (
 	evaluationRepairHeading           = "## Examiner evaluation transport repair\n\n"
 	evaluationResolutionMarker        = "workflowctl-evaluation-resolution-v1 "
 	evaluationResolutionSchema        = "goxsd9/examiner-evaluation-resolution/v1"
+	evaluationResolutionMarkerV2      = "workflowctl-evaluation-resolution-v2 "
+	evaluationResolutionSchemaV2      = "goxsd9/examiner-evaluation-resolution/v2"
 	evaluationResolutionHeading       = "## Examiner evaluation — no-verdict resolution\n\n"
 	evaluationConvergenceMarker       = "workflowctl-evaluation-convergence-v1 "
 	evaluationConvergenceSchema       = "goxsd9/examiner-evaluation-convergence/v1"
@@ -51,6 +53,7 @@ var evaluationReservedTextSequences = [...]struct {
 	{name: "repair marker", value: "<!-- " + evaluationRepairMarker},
 	{name: "challenge marker", value: "<!-- " + evaluationChallengeMarker},
 	{name: "resolution marker", value: "<!-- " + evaluationResolutionMarker},
+	{name: "resolution marker", value: "<!-- " + evaluationResolutionMarkerV2},
 	{name: "convergence marker", value: "<!-- " + evaluationConvergenceMarker},
 	{name: "challenge closure marker", value: "<!-- " + evaluationChallengeClosureMarker},
 	{name: "receipt heading", value: evaluationReceiptHeading},
@@ -162,6 +165,7 @@ type evaluationResolution struct {
 	Challenge      string    `json:"challenge"`
 	EvidenceSHA256 string    `json:"evidenceSHA256"`
 	Head           string    `json:"head"`
+	ObservedHead   string    `json:"observedHead,omitempty"`
 	Repository     string    `json:"repository,omitempty"`
 	PR             int       `json:"pullRequest"`
 	Reason         string    `json:"reason"`
@@ -2029,56 +2033,76 @@ type evaluationResolutionPreparation struct {
 }
 
 func (a app) prepareEvaluationResolution(number int, challengeID, reason string) (evaluationResolutionPreparation, error) {
-	root, view, history, canonicalReason, err := a.readEvaluationResolutionContext(number, reason)
+	root, _, history, canonicalReason, err := a.readEvaluationResolutionContext(number, reason)
 	if err != nil {
 		return evaluationResolutionPreparation{}, err
 	}
-	challenge, alreadyResolved, targetErr := evaluationResolutionTarget(history, number, challengeID, canonicalReason)
+	initialChallenge, alreadyResolved, targetErr := evaluationResolutionTarget(history, number, challengeID, canonicalReason)
 	if targetErr != nil {
 		return evaluationResolutionPreparation{}, targetErr
 	}
-	preparation := evaluationResolutionPreparation{root: root, alreadyResolved: alreadyResolved}
 	if alreadyResolved {
-		return preparation, nil
+		return evaluationResolutionPreparation{root: root, alreadyResolved: true}, nil
 	}
+	finalRoot, finalView, _, err := a.readEvaluationTarget(number)
+	if err != nil {
+		return evaluationResolutionPreparation{}, fmt.Errorf("reread PR #%d before no-verdict resolution: %w", number, err)
+	}
+	finalHistory, err := readEvaluationMutationHistory(number, finalView.Comments)
+	if err != nil {
+		return evaluationResolutionPreparation{}, stateError("PR #%d has invalid evaluation history before no-verdict resolution: %v", number, err)
+	}
+	finalChallenge, finalAlreadyResolved, targetErr := evaluationResolutionTarget(finalHistory, number, challengeID, canonicalReason)
+	if targetErr != nil {
+		return evaluationResolutionPreparation{}, targetErr
+	}
+	if finalAlreadyResolved {
+		return evaluationResolutionPreparation{root: finalRoot, alreadyResolved: true}, nil
+	}
+	if !evaluationChallengeIdentityMatches(finalChallenge.challenge, initialChallenge.challenge) {
+		return evaluationResolutionPreparation{}, stateError("PR #%d challenge %q changed before no-verdict resolution; preserve the original challenge marker and retry after inspection",
+			number, challengeID)
+	}
+	challenge := finalChallenge
 	if !validSHA256(challenge.challenge.BodySHA256) || !validSHA256(challenge.challenge.EvidenceSHA256) {
 		return evaluationResolutionPreparation{}, stateError("PR #%d challenge %q lacks the historical body/evidence digests required for safe resolution; preserve its comments and request human recovery",
 			number, challengeID)
 	}
 	expiresAt := challenge.challenge.RequestedAt.Add(evaluationChallengeDuration)
 	resolvedAt := time.Now().UTC().Truncate(time.Second)
-	if resolvedAt.Before(expiresAt) {
+	if resolvedAt.Before(expiresAt) && finalView.HeadRefOID == challenge.challenge.Head {
 		return evaluationResolutionPreparation{}, stateError("PR #%d challenge %q has not expired; no pre-expiry cancellation is supported (expires %s)",
 			number, challengeID, expiresAt.Format(time.RFC3339Nano))
 	}
-	preparation.resolution = evaluationResolution{
+	resolution := evaluationResolution{
 		BodySHA256:     challenge.challenge.BodySHA256,
 		Challenge:      challenge.challenge.Challenge,
 		EvidenceSHA256: challenge.challenge.EvidenceSHA256,
 		Head:           challenge.challenge.Head,
+		ObservedHead:   finalView.HeadRefOID,
 		Repository:     challenge.challenge.Repository,
 		PR:             challenge.challenge.PR,
 		Reason:         canonicalReason,
 		ResolvedAt:     resolvedAt,
 		Resolver:       trustedActor,
-		Schema:         evaluationResolutionSchema,
+		Schema:         evaluationResolutionSchemaV2,
 	}
-	marker, err := json.Marshal(preparation.resolution)
+	marker, err := json.Marshal(resolution)
 	if err != nil {
 		return evaluationResolutionPreparation{}, fmt.Errorf("encode evaluation resolution: %w", err)
 	}
-	preparation.body = evaluationResolutionComment(marker, preparation.resolution.Reason)
-	generated := append(append([]pullRequestComment(nil), view.Comments...), pullRequestComment{
+	body := evaluationResolutionCommentV2(marker, resolution.Reason)
+	generated := append(append([]pullRequestComment(nil), finalView.Comments...), pullRequestComment{
 		Author: struct {
 			Login string `json:"login"`
 		}{Login: trustedActor},
-		Body:      preparation.body,
+		Body:      body,
 		CreatedAt: resolvedAt,
 	})
 	if _, err := readEvaluationMutationHistory(number, generated); err != nil {
 		return evaluationResolutionPreparation{}, stateError("PR #%d generated an invalid no-verdict resolution: %v", number, err)
 	}
-	return preparation, nil
+	return evaluationResolutionPreparation{root: finalRoot, body: body, resolution: resolution}, nil
 }
 
 func (a app) readEvaluationResolutionContext(number int, reason string) (string, pullRequestView, evaluationHistory, string, error) {
@@ -2712,10 +2736,25 @@ func parseEvaluationChallenge(body string) (evaluationChallenge, bool) {
 }
 
 func parseEvaluationResolution(body string) (evaluationResolution, bool) {
-	value, ok := markerBytes(body, evaluationResolutionMarker)
+	marker, value, ok := evaluationResolutionMarkerValue(body)
 	if !ok || !strings.Contains(body, evaluationResolutionHeading) {
 		return evaluationResolution{}, false
 	}
+	resolution, ok := parseEvaluationResolutionJSON(value)
+	if !ok {
+		return evaluationResolution{}, false
+	}
+	if !evaluationResolutionMarkerMatches(marker, resolution) || !evaluationResolutionFieldsValid(resolution) {
+		return evaluationResolution{}, false
+	}
+	canonicalReason, err := validateEvaluationResolutionReason(resolution.Reason)
+	if err != nil || canonicalReason != resolution.Reason {
+		return evaluationResolution{}, false
+	}
+	return resolution, true
+}
+
+func parseEvaluationResolutionJSON(value []byte) (evaluationResolution, bool) {
 	decoder := json.NewDecoder(bytes.NewReader(value))
 	if rejectDuplicateJSONKeys(value) != nil {
 		return evaluationResolution{}, false
@@ -2728,20 +2767,30 @@ func parseEvaluationResolution(body string) (evaluationResolution, bool) {
 	if err := requireJSONEnd(decoder); err != nil {
 		return evaluationResolution{}, false
 	}
-	if resolution.Schema != evaluationResolutionSchema || resolution.Resolver != trustedActor ||
+	return resolution, true
+}
+
+func evaluationResolutionMarkerMatches(marker string, resolution evaluationResolution) bool {
+	if marker == evaluationResolutionMarker {
+		return resolution.Schema == evaluationResolutionSchema && resolution.ObservedHead == ""
+	}
+	if marker == evaluationResolutionMarkerV2 {
+		return resolution.Schema == evaluationResolutionSchemaV2 && resolution.ObservedHead != ""
+	}
+	return false
+}
+
+func evaluationResolutionFieldsValid(resolution evaluationResolution) bool {
+	if resolution.Resolver != trustedActor ||
 		resolution.Challenge == "" || resolution.Head == "" || resolution.PR < 1 ||
 		resolution.ResolvedAt.IsZero() || !validSHA256(resolution.BodySHA256) ||
 		!validSHA256(resolution.EvidenceSHA256) {
-		return evaluationResolution{}, false
+		return false
 	}
 	if resolution.Repository != "" && resolution.Repository != repositoryKey {
-		return evaluationResolution{}, false
+		return false
 	}
-	canonicalReason, err := validateEvaluationResolutionReason(resolution.Reason)
-	if err != nil || canonicalReason != resolution.Reason {
-		return evaluationResolution{}, false
-	}
-	return resolution, true
+	return true
 }
 
 func parseEvaluationChallengeClosure(body string) (evaluationChallengeClosure, bool) {
@@ -2801,8 +2850,15 @@ func parseEvaluationConvergence(body string) (evaluationConvergence, bool) {
 }
 
 func evaluationResolutionComment(marker []byte, reason string) string {
-	return fmt.Sprintf("<!-- %s%s -->\n%s%s\n", evaluationResolutionMarker, marker,
-		evaluationResolutionHeading, reason)
+	return evaluationResolutionCommentForMarker(evaluationResolutionMarker, marker, reason)
+}
+
+func evaluationResolutionCommentV2(marker []byte, reason string) string {
+	return evaluationResolutionCommentForMarker(evaluationResolutionMarkerV2, marker, reason)
+}
+
+func evaluationResolutionCommentForMarker(marker string, value []byte, reason string) string {
+	return fmt.Sprintf("<!-- %s%s -->\n%s%s\n", marker, value, evaluationResolutionHeading, reason)
 }
 
 func evaluationChallengeClosureComment(marker []byte, canonical, duplicate string) string {
@@ -2834,7 +2890,7 @@ func evaluationResolutionCommentIsValid(comment pullRequestComment) bool {
 	if comment.Author.Login != trustedActor {
 		return false
 	}
-	marker, ok := markerBytes(comment.Body, evaluationResolutionMarker)
+	markerName, marker, ok := evaluationResolutionMarkerValue(comment.Body)
 	if !ok {
 		return false
 	}
@@ -2842,7 +2898,10 @@ func evaluationResolutionCommentIsValid(comment pullRequestComment) bool {
 	if !ok {
 		return false
 	}
-	return comment.Body == evaluationResolutionComment(marker, resolution.Reason)
+	if expectedMarker, ok := evaluationResolutionMarkerForSchema(resolution.Schema); !ok || expectedMarker != markerName {
+		return false
+	}
+	return comment.Body == evaluationResolutionCommentForMarker(markerName, marker, resolution.Reason)
 }
 
 func evaluationConvergenceCommentIsValid(comment pullRequestComment) bool {
@@ -2861,6 +2920,37 @@ func evaluationConvergenceCommentIsValid(comment pullRequestComment) bool {
 
 func markerJSON(body, marker string) ([]byte, bool) {
 	return markerBytes(body, marker)
+}
+
+func evaluationResolutionMarkerValue(body string) (string, []byte, bool) {
+	hasV1 := hasMarker(body, evaluationResolutionMarker)
+	hasV2 := hasMarker(body, evaluationResolutionMarkerV2)
+	if hasV1 == hasV2 {
+		return "", nil, false
+	}
+	marker := evaluationResolutionMarker
+	if hasV2 {
+		marker = evaluationResolutionMarkerV2
+	}
+	value, ok := markerBytes(body, marker)
+	if !ok {
+		return "", nil, false
+	}
+	return marker, value, true
+}
+
+func hasEvaluationResolutionMarker(body string) bool {
+	return hasMarker(body, evaluationResolutionMarker) || hasMarker(body, evaluationResolutionMarkerV2)
+}
+
+func evaluationResolutionMarkerForSchema(schema string) (string, bool) {
+	switch schema {
+	case evaluationResolutionSchema:
+		return evaluationResolutionMarker, true
+	case evaluationResolutionSchemaV2:
+		return evaluationResolutionMarkerV2, true
+	}
+	return "", false
 }
 
 func markerBytes(body, marker string) ([]byte, bool) {
@@ -3192,7 +3282,7 @@ func appendEvaluationHistoryComment(history *evaluationHistory, comment pullRequ
 		if hasMarker(comment.Body, evaluationChallengeClosureMarker) || strings.Contains(comment.Body, evaluationChallengeClosureHeading) {
 			return errors.New("evaluation challenge closure marker has an untrusted author")
 		}
-		if hasMarker(comment.Body, evaluationResolutionMarker) || strings.Contains(comment.Body, evaluationResolutionHeading) {
+		if hasEvaluationResolutionMarker(comment.Body) || strings.Contains(comment.Body, evaluationResolutionHeading) {
 			return errors.New("evaluation resolution marker has an untrusted author")
 		}
 		if hasMarker(comment.Body, evaluationConvergenceMarker) || strings.Contains(comment.Body, evaluationConvergenceHeading) {
@@ -3269,7 +3359,7 @@ func evaluationChallengeContainsReceiptEvidence(body string) bool {
 	return hasMarker(body, evaluationRepairMarker) || hasMarker(body, evaluationMarker) ||
 		strings.Contains(body, evaluationReceiptHeading) || hasMarker(body, evaluationReportBase64Marker) ||
 		hasMarker(body, evaluationAttestationBase64Marker) || hasMarker(body, evaluationAttestationMarker) ||
-		hasMarker(body, evaluationResolutionMarker) || strings.Contains(body, evaluationResolutionHeading) ||
+		hasEvaluationResolutionMarker(body) || strings.Contains(body, evaluationResolutionHeading) ||
 		hasMarker(body, evaluationConvergenceMarker) || strings.Contains(body, evaluationConvergenceHeading) ||
 		hasMarker(body, evaluationChallengeClosureMarker) || strings.Contains(body, evaluationChallengeClosureHeading)
 }
@@ -3287,7 +3377,7 @@ func parseEvaluationChallengeClosureRecord(comment pullRequestComment, commentIn
 	if hasMarker(comment.Body, evaluationChallengeMarker) || hasMarker(comment.Body, evaluationMarker) ||
 		hasMarker(comment.Body, evaluationRepairMarker) || hasMarker(comment.Body, evaluationReportBase64Marker) ||
 		hasMarker(comment.Body, evaluationAttestationBase64Marker) || hasMarker(comment.Body, evaluationAttestationMarker) ||
-		hasMarker(comment.Body, evaluationResolutionMarker) || hasMarker(comment.Body, evaluationConvergenceMarker) ||
+		hasEvaluationResolutionMarker(comment.Body) || hasMarker(comment.Body, evaluationConvergenceMarker) ||
 		strings.Contains(comment.Body, evaluationReceiptHeading) || strings.Contains(comment.Body, evaluationResolutionHeading) ||
 		strings.Contains(comment.Body, evaluationConvergenceHeading) {
 		return nil, false, errors.New("trusted evaluation challenge closure also contains other evaluation evidence")
@@ -3337,17 +3427,34 @@ func evaluationConvergenceContainsOtherEvidence(body string) bool {
 	return hasMarker(body, evaluationChallengeMarker) || hasMarker(body, evaluationMarker) ||
 		hasMarker(body, evaluationRepairMarker) || hasMarker(body, evaluationReportBase64Marker) ||
 		hasMarker(body, evaluationAttestationBase64Marker) || hasMarker(body, evaluationAttestationMarker) ||
-		hasMarker(body, evaluationResolutionMarker) || hasMarker(body, evaluationChallengeClosureMarker) ||
+		hasEvaluationResolutionMarker(body) || hasMarker(body, evaluationChallengeClosureMarker) ||
 		strings.Contains(body, evaluationReceiptHeading) || strings.Contains(body, evaluationResolutionHeading) ||
 		strings.Contains(body, evaluationChallengeClosureHeading)
 }
 
 func parseEvaluationResolutionRecord(comment pullRequestComment, commentIndex int) (
 	*evaluationResolutionRecord, bool, error) {
-	found, err := parseEvaluationRecordMarker(comment, evaluationResolutionMarker, evaluationResolutionHeading,
-		"resolution", evaluationResolutionContainsOtherEvidence)
-	if err != nil || !found {
-		return nil, found, err
+	hasV1 := hasMarker(comment.Body, evaluationResolutionMarker)
+	hasV2 := hasMarker(comment.Body, evaluationResolutionMarkerV2)
+	hasHeading := strings.Contains(comment.Body, evaluationResolutionHeading)
+	if !hasV1 && !hasV2 && !hasHeading {
+		return nil, false, nil
+	}
+	if !hasV1 && !hasV2 {
+		return nil, false, errors.New("trusted evaluation resolution heading has no marker")
+	}
+	if hasV1 && hasV2 {
+		return nil, false, errors.New("trusted evaluation resolution has multiple versioned markers")
+	}
+	marker := evaluationResolutionMarker
+	if hasV2 {
+		marker = evaluationResolutionMarkerV2
+	}
+	if _, ok := markerBytes(comment.Body, marker); !ok {
+		return nil, false, errors.New("trusted evaluation resolution marker is malformed")
+	}
+	if evaluationResolutionContainsOtherEvidence(comment.Body) {
+		return nil, false, errors.New("trusted evaluation resolution also contains other evaluation evidence")
 	}
 	resolution, ok := parseEvaluationResolution(comment.Body)
 	if !ok {
@@ -3395,7 +3502,7 @@ func parseTrustedEvaluationComment(comment pullRequestComment, commentIndex int)
 	hasReportEvidence := hasMarker(comment.Body, evaluationReportBase64Marker) ||
 		hasMarker(comment.Body, evaluationAttestationBase64Marker) ||
 		hasMarker(comment.Body, evaluationAttestationMarker)
-	hasResolutionMarker := hasMarker(comment.Body, evaluationResolutionMarker)
+	hasResolutionMarker := hasEvaluationResolutionMarker(comment.Body)
 	hasClosureMarker := hasMarker(comment.Body, evaluationChallengeClosureMarker)
 	if hasResolutionHeading || hasResolutionMarker || hasClosureHeading || hasClosureMarker {
 		return nil, nil, errors.New("trusted evaluation resolution was not parsed as its own record")
@@ -3444,7 +3551,7 @@ func rejectUntrustedEvaluationEvidence(comments []pullRequestComment) error {
 			hasMarker(comment.Body, evaluationAttestationMarker) ||
 			hasMarker(comment.Body, evaluationChallengeMarker) ||
 			hasMarker(comment.Body, evaluationChallengeClosureMarker) ||
-			hasMarker(comment.Body, evaluationResolutionMarker) ||
+			hasEvaluationResolutionMarker(comment.Body) ||
 			strings.Contains(comment.Body, evaluationResolutionHeading) ||
 			hasMarker(comment.Body, evaluationConvergenceMarker) ||
 			strings.Contains(comment.Body, evaluationConvergenceHeading) ||
@@ -3824,6 +3931,14 @@ func evaluationChallengeMatchesReceipt(challenge evaluationChallengeRecord, rece
 
 func evaluationChallengeMatchesResolution(challenge evaluationChallengeRecord,
 	resolution evaluationResolutionRecord) bool {
+	if !evaluationChallengeResolutionIdentityMatches(challenge, resolution) {
+		return false
+	}
+	return evaluationResolutionTimingMatchesChallenge(challenge, resolution)
+}
+
+func evaluationChallengeResolutionIdentityMatches(challenge evaluationChallengeRecord,
+	resolution evaluationResolutionRecord) bool {
 	if (challenge.challenge.Repository != "" && challenge.challenge.Repository != repositoryKey) ||
 		(resolution.resolution.Repository != "" && resolution.resolution.Repository != repositoryKey) {
 		return false
@@ -3836,14 +3951,41 @@ func evaluationChallengeMatchesResolution(challenge evaluationChallengeRecord,
 		challenge.challenge.EvidenceSHA256 != resolution.resolution.EvidenceSHA256 {
 		return false
 	}
+	return true
+}
+
+func evaluationResolutionTimingMatchesChallenge(challenge evaluationChallengeRecord,
+	resolution evaluationResolutionRecord) bool {
 	if resolution.commentIndex <= challenge.commentIndex ||
 		resolution.comment.CreatedAt.Before(challenge.comment.CreatedAt) ||
 		!commentTimeMatches(resolution.comment.CreatedAt, resolution.resolution.ResolvedAt) {
 		return false
 	}
 	expiresAt := challenge.challenge.RequestedAt.Add(evaluationChallengeDuration)
-	if resolution.resolution.ResolvedAt.Before(expiresAt) || resolution.comment.CreatedAt.Before(expiresAt) {
+	return evaluationResolutionExpiryMatchesChallenge(challenge, resolution, expiresAt)
+}
+
+func evaluationResolutionExpiryMatchesChallenge(challenge evaluationChallengeRecord,
+	resolution evaluationResolutionRecord, expiresAt time.Time) bool {
+	if resolution.resolution.Schema != evaluationResolutionSchema &&
+		resolution.resolution.Schema != evaluationResolutionSchemaV2 {
 		return false
+	}
+	if resolution.resolution.Schema == evaluationResolutionSchema {
+		if resolution.resolution.ResolvedAt.Before(expiresAt) || resolution.comment.CreatedAt.Before(expiresAt) {
+			return false
+		}
+	}
+	if resolution.resolution.Schema == evaluationResolutionSchemaV2 {
+		if resolution.resolution.ObservedHead == "" {
+			return false
+		}
+		if resolution.resolution.ObservedHead != challenge.challenge.Head {
+			return true
+		}
+		if resolution.resolution.ResolvedAt.Before(expiresAt) || resolution.comment.CreatedAt.Before(expiresAt) {
+			return false
+		}
 	}
 	return true
 }

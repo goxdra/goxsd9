@@ -40,7 +40,7 @@ challenges bind body/evidence digests. Before Examiner, `evaluation challenge`
 records one-use head-bound challenge; Examiner JSON is versioned;
 `workflowctl` rejects wrong-head, stale, reused, malformed, or caller-selected
 results. Fresh context; receipts are evidence, not identity proof.
-Unresolved challenges survive snapshots; complete-equivalent trusted Examiner receipts form rounds; original GitHub comments/authenticated records remain immutable history. Two-hour expiry: `go tool workflowctl evaluation resolve PR --challenge ID --reason-file FILE` records authenticated-no-verdict resolution; convergence alone grants no verdict/merge authority; an underlying authenticated passing receipt remains required merge proof.
+Immutable challenge history; complete-equivalent trusted Examiner receipts form rounds. `go tool workflowctl evaluation resolve PR --challenge ID --reason-file FILE` records authenticated-no-verdict resolution after 2h or pre-expiry on fresh-authenticated REST confirms changed-head and no complete-equivalent trusted receipt; marker preserves historical-challenge/observed-current heads; no-verdict/no-merge authority; trusted passing receipt proves merge.
 Packet cleanup inventories claims, checks inherited-trailer-ownership, preserves artifacts; unrelated-refs untouched; exact deletion, idempotent recovery, merge-proofed claim-pruning.
 
 GraphQL fallback: identical-head REST, fresh Examiner.
