@@ -34,6 +34,69 @@ func TestPRResumeRequiresAcknowledgementAndExpectedHead(t *testing.T) {
 	}
 }
 
+func TestPRResumeAcceptsSourceBearingAndMergeExpectedHeads(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(*testing.T, *resumeFixture) string
+	}{
+		{name: "source-bearing PR head", build: makeSourceBearingResumeHead},
+		{name: "merge PR head", build: makeMergeResumeHead},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newResumeFixture(t)
+			head := test.build(t, &fixture)
+			fixture.expected = head
+			backend := newResumeBackend(t, fixture)
+			before := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			if err := application.run(append(resumeArgs(head), "--dry-run")); err != nil {
+				t.Fatalf("resume with %s: %v", test.name, err)
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("%s dry-run mutations = %d; calls=%v", test.name, backend.mutations, backend.calls)
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != before {
+				t.Fatalf("%s dry-run moved local head from %s to %s", test.name, before, got)
+			}
+		})
+	}
+}
+
+func TestPRResumeRejectsSourceBearingAndMergeClaimMarkersBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(*testing.T, *resumeFixture) string
+		want  string
+	}{
+		{name: "source-bearing claim marker", build: makeSourceBearingClaimMarkerResumeHead, want: "source-bearing"},
+		{name: "merge claim marker", build: makeMergeClaimMarkerResumeHead, want: "non-canonical parent shape"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newResumeFixture(t)
+			head := test.build(t, &fixture)
+			fixture.expected = head
+			backend := newResumeBackend(t, fixture)
+			before := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			err := application.run(append(resumeArgs(head), "--dry-run"))
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("%s error = %v, disposition %d, want terminal %q", test.name, err, operationDispositionOf(err), test.want)
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("%s mutations = %d; calls=%v", test.name, backend.mutations, backend.calls)
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != before {
+				t.Fatalf("%s moved local head from %s to %s", test.name, before, got)
+			}
+			if got := resumeRemoteHead(t, fixture); got != head {
+				t.Fatalf("%s moved remote head to %s, want %s", test.name, got, head)
+			}
+		})
+	}
+}
+
 //nolint:gocognit,funlen // The independent integration subtests share one real-Git harness.
 func TestPRResumeInjectedIntegration(t *testing.T) {
 	t.Run("dry run has zero mutation", func(t *testing.T) {
@@ -223,6 +286,26 @@ func TestPRResumeInitialReadOperationBoundaries(t *testing.T) {
 			want: operationDispositionTerminal,
 		},
 		{
+			name: "comment body omitted",
+			intercept: func(command string, _ *resumeBackend, _ error) (string, bool, error) {
+				if command == "gh api --paginate repos/goxdra/goxsd9/issues/14/comments?per_page=100" {
+					return `[{"id":1,"user":{"login":"trusted"},"created_at":"2026-01-01T00:00:00Z"}]`, true, nil
+				}
+				return "", false, nil
+			},
+			want: operationDispositionTerminal,
+		},
+		{
+			name: "comment body null",
+			intercept: func(command string, _ *resumeBackend, _ error) (string, bool, error) {
+				if command == "gh api --paginate repos/goxdra/goxsd9/issues/14/comments?per_page=100" {
+					return `[{"id":1,"body":null,"user":{"login":"trusted"},"created_at":"2026-01-01T00:00:00Z"}]`, true, nil
+				}
+				return "", false, nil
+			},
+			want: operationDispositionTerminal,
+		},
+		{
 			name: "issue transport",
 			intercept: func(command string, _ *resumeBackend, sentinel error) (string, bool, error) {
 				if command == "gh api repos/goxdra/goxsd9/issues/14" {
@@ -237,6 +320,17 @@ func TestPRResumeInitialReadOperationBoundaries(t *testing.T) {
 			name: "git transport",
 			intercept: func(command string, _ *resumeBackend, sentinel error) (string, bool, error) {
 				if command == "git rev-parse HEAD" {
+					return "", true, sentinel
+				}
+				return "", false, nil
+			},
+			want:      operationDispositionRetryable,
+			wantCause: true,
+		},
+		{
+			name: "expected head object transport",
+			intercept: func(command string, backend *resumeBackend, sentinel error) (string, bool, error) {
+				if command == "git cat-file commit "+backend.fixture.expected {
 					return "", true, sentinel
 				}
 				return "", false, nil
@@ -768,18 +862,71 @@ func newResumeFixture(t *testing.T) resumeFixture {
 	return resumeFixture{baseRepositoryFixture: base, expected: expected, runID: runID, worktree: worktree}
 }
 
-func createResumeTestCommit(t *testing.T, root, parent, message string) string {
+func makeSourceBearingResumeHead(t *testing.T, fixture *resumeFixture) string {
 	t.Helper()
-	tree := runGitTest(t, root, "rev-parse", parent+"^{tree}")
-	// #nosec G204 -- the test executes a fixed Git subcommand with test-owned object IDs.
-	command := exec.CommandContext(context.Background(), "git", "commit-tree", tree, "-p", parent)
+	writeFixtureFile(t, fixture.worktree, "source", "source-bearing PR head\n")
+	runGitTest(t, fixture.worktree, "add", "source")
+	runGitTest(t, fixture.worktree, "commit", "--no-gpg-sign", "-m", "feat: source-bearing PR head")
+	head := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	runGitTest(t, fixture.primary, "push", "--force", "origin", head+":refs/heads/agent/issue-14")
+	return head
+}
+
+func makeMergeResumeHead(t *testing.T, fixture *resumeFixture) string {
+	t.Helper()
+	side := createResumeTestCommit(t, fixture.worktree, fixture.expected, "test: merge side parent\n")
+	tree := runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^{tree}")
+	head := createResumeCommitTree(t, fixture.worktree, tree, []string{fixture.expected, side}, "Merge test PR head\n")
+	runGitTest(t, fixture.worktree, "reset", "--hard", head)
+	runGitTest(t, fixture.primary, "push", "--force", "origin", head+":refs/heads/agent/issue-14")
+	return head
+}
+
+func makeSourceBearingClaimMarkerResumeHead(t *testing.T, fixture *resumeFixture) string {
+	t.Helper()
+	base := runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^")
+	writeFixtureFile(t, fixture.worktree, "marker-source", "source-bearing marker\n")
+	runGitTest(t, fixture.worktree, "add", "marker-source")
+	runGitTest(t, fixture.worktree, "commit", "--no-gpg-sign", "-m", "feat: marker source")
+	tree := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^{tree}")
+	marker := createResumeCommitTree(t, fixture.worktree, tree, []string{base}, claimMessage(14, fixture.runID, time.Now().UTC().Add(-time.Hour).Truncate(time.Second)))
+	runGitTest(t, fixture.worktree, "reset", "--hard", marker)
+	runGitTest(t, fixture.primary, "push", "--force", "origin", marker+":refs/heads/agent/issue-14")
+	return marker
+}
+
+func makeMergeClaimMarkerResumeHead(t *testing.T, fixture *resumeFixture) string {
+	t.Helper()
+	side := createResumeTestCommit(t, fixture.worktree, fixture.expected, "test: merge marker side\n")
+	tree := runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^{tree}")
+	marker := createResumeCommitTree(t, fixture.worktree, tree, []string{fixture.expected, side}, claimMessage(14, fixture.runID, time.Now().UTC().Add(-time.Hour).Truncate(time.Second)))
+	runGitTest(t, fixture.worktree, "reset", "--hard", marker)
+	runGitTest(t, fixture.primary, "push", "--force", "origin", marker+":refs/heads/agent/issue-14")
+	return marker
+}
+
+func createResumeCommitTree(t *testing.T, root, tree string, parents []string, message string) string {
+	t.Helper()
+	args := make([]string, 0, 2+2*len(parents))
+	args = append(args, "commit-tree", tree)
+	for _, parent := range parents {
+		args = append(args, "-p", parent)
+	}
+	// #nosec G204 -- the test executes fixed Git commit-tree arguments with fixture-owned object IDs.
+	command := exec.CommandContext(context.Background(), "git", args...)
 	command.Dir = root
 	command.Stdin = strings.NewReader(message)
 	output, err := command.CombinedOutput()
 	if err != nil {
-		t.Fatalf("create test commit: %v: %s", err, output)
+		t.Fatalf("create test commit tree: %v: %s", err, output)
 	}
 	return strings.TrimSpace(string(output))
+}
+
+func createResumeTestCommit(t *testing.T, root, parent, message string) string {
+	t.Helper()
+	tree := runGitTest(t, root, "rev-parse", parent+"^{tree}")
+	return createResumeCommitTree(t, root, tree, []string{parent}, message)
 }
 
 type resumeBackend struct {

@@ -85,15 +85,22 @@ type claimResumeCommitMetadata struct {
 // claim marker.  A marker is deliberately an empty, single-parent commit;
 // source changes and merge history are never part of claim ownership state.
 type canonicalClaimCommit struct {
-	parent string
-	tree   string
-	issue  int
-	runID  string
-	lease  time.Time
+	parent  string
+	tree    string
+	message string
+	issue   int
+	runID   string
+	lease   time.Time
 }
 
 type canonicalCommitObject struct {
 	parent  string
+	tree    string
+	message string
+}
+
+type commitObject struct {
+	parents []string
 	tree    string
 	message string
 }
@@ -376,48 +383,55 @@ func (a app) readCanonicalClaimIdentity(root, head, expectedParent string) (cano
 	if parseErr != nil {
 		return canonicalClaimCommit{}, stateError("claim marker %s has non-canonical metadata; preserve claim artifacts: %w", head, parseErr)
 	}
-	return canonicalClaimCommit{parent: parsed.parent, tree: tree, issue: observedIssue, runID: observedRunID, lease: lease}, nil
+	return canonicalClaimCommit{parent: parsed.parent, tree: tree, message: parsed.message, issue: observedIssue, runID: observedRunID, lease: lease}, nil
 }
 
-//nolint:gocognit // Header shape and exact message bytes are one canonical-artifact check.
 func parseCanonicalCommitObject(object, head string) (canonicalCommitObject, error) {
+	parsed, err := parseCommitObject(object)
+	if err != nil {
+		return canonicalCommitObject{}, err
+	}
+	if !strings.HasSuffix(parsed.message, "\n") || strings.HasSuffix(parsed.message, "\n\n") || strings.Contains(parsed.message, "\r") {
+		return canonicalCommitObject{}, errors.New("commit message is not an exact LF-terminated payload")
+	}
+	if len(parsed.parents) != 1 {
+		return canonicalCommitObject{}, fmt.Errorf("want exactly one parent for %s, found %d", head, len(parsed.parents))
+	}
+	return canonicalCommitObject{parent: parsed.parents[0], tree: parsed.tree, message: parsed.message}, nil
+}
+
+func parseCommitObject(object string) (commitObject, error) {
 	separator := strings.Index(object, "\n\n")
 	if separator < 0 {
-		return canonicalCommitObject{}, errors.New("commit object has no header/message separator")
+		return commitObject{}, errors.New("commit object has no header/message separator")
 	}
 	header := object[:separator]
 	message := object[separator+2:]
-	if !strings.HasSuffix(message, "\n") || strings.HasSuffix(message, "\n\n") || strings.Contains(message, "\r") {
-		return canonicalCommitObject{}, errors.New("commit message is not an exact LF-terminated payload")
-	}
 	var tree string
-	parents := make([]string, 0, 1)
+	parents := make([]string, 0, 2)
 	for _, line := range strings.Split(header, "\n") {
 		switch {
 		case strings.HasPrefix(line, "tree "):
 			if tree != "" {
-				return canonicalCommitObject{}, errors.New("commit object has duplicate tree headers")
+				return commitObject{}, errors.New("commit object has duplicate tree headers")
 			}
 			value := strings.TrimPrefix(line, "tree ")
 			if !validExactCommitSHA(value) {
-				return canonicalCommitObject{}, errors.New("commit object has malformed tree header")
+				return commitObject{}, errors.New("commit object has malformed tree header")
 			}
 			tree = value
 		case strings.HasPrefix(line, "parent "):
 			value := strings.TrimPrefix(line, "parent ")
 			if !validExactCommitSHA(value) {
-				return canonicalCommitObject{}, errors.New("commit object has malformed parent header")
+				return commitObject{}, errors.New("commit object has malformed parent header")
 			}
 			parents = append(parents, value)
 		}
 	}
 	if tree == "" {
-		return canonicalCommitObject{}, errors.New("commit object has no tree header")
+		return commitObject{}, errors.New("commit object has no tree header")
 	}
-	if len(parents) != 1 {
-		return canonicalCommitObject{}, fmt.Errorf("want exactly one parent for %s, found %d", head, len(parents))
-	}
-	return canonicalCommitObject{parent: parents[0], tree: tree, message: message}, nil
+	return commitObject{parents: parents, tree: tree, message: message}, nil
 }
 
 func parseCanonicalSHA(output, label string) (string, error) {
@@ -585,6 +599,37 @@ func exactBacktickField(line, prefix string) (string, error) {
 
 //nolint:gocognit // Each recorded handoff identity is checked before recovery.
 func validateClaimResumeHandoffBindings(body string, issue int, expectedHead, fixedBranch, localBranch, root, runID string, lease time.Time) error {
+	if strings.HasPrefix(body, "# Handoff: issue #") {
+		handoff, err := parseIssue305TerminalHandoff(body, issue)
+		if err != nil {
+			return err
+		}
+		rootPath, err := absoluteCleanPath(root)
+		if err != nil {
+			return fmt.Errorf("resolve claim worktree root: %w", err)
+		}
+		worktree, err := absoluteCleanPath(handoff.worktree)
+		if err != nil || !samePath(worktree, rootPath) {
+			return fmt.Errorf("handoff records worktree path %q, not %q", handoff.worktree, rootPath)
+		}
+		if handoff.branch != localBranch {
+			return fmt.Errorf("handoff records branch %q, not local branch %q", handoff.branch, localBranch)
+		}
+		if localBranch != claimLocalBranch(issue, runID) {
+			return fmt.Errorf("local branch %q does not match issue #%d run %s", localBranch, issue, runID)
+		}
+		for _, path := range handoffAbsolutePaths(body) {
+			if path != handoff.worktree {
+				return fmt.Errorf("handoff records conflicting worktree path %q", path)
+			}
+		}
+		for _, branch := range handoffBranches(body) {
+			if branch != handoff.branch {
+				return fmt.Errorf("handoff records conflicting branch %q", branch)
+			}
+		}
+		return nil
+	}
 	if err := validateExactIssueMentions(body, issue); err != nil {
 		return err
 	}
@@ -858,6 +903,186 @@ func containsExactPath(body, path string) bool {
 	return false
 }
 
+type issue305TerminalHandoff struct {
+	worktree string
+	branch   string
+}
+
+// parseIssue305TerminalHandoff accepts the one authenticated legacy handoff
+// grammar. Its evidence is intentionally section- and field-shaped: arbitrary
+// prose must not be allowed to manufacture a no-PR recovery proof.
+//
+//nolint:gocognit,funlen // The approved legacy grammar is intentionally explicit and fail-closed.
+func parseIssue305TerminalHandoff(body string, issue int) (issue305TerminalHandoff, error) {
+	if issue != 305 {
+		return issue305TerminalHandoff{}, fmt.Errorf("titled terminal handoff grammar is approved only for issue #305, not issue #%d", issue)
+	}
+	if !utf8.ValidString(body) || body == "" || !strings.HasSuffix(body, "\n") || strings.HasSuffix(body, "\n\n") {
+		return issue305TerminalHandoff{}, errors.New("body is not an exact UTF-8 LF-terminated comment")
+	}
+	lines := strings.Split(body, "\n")
+	if len(lines) < 2 || lines[0] != "# Handoff: issue #305" {
+		return issue305TerminalHandoff{}, errors.New("body has a malformed issue #305 handoff title")
+	}
+	for _, line := range lines {
+		if strings.TrimRight(line, " \t") != line {
+			return issue305TerminalHandoff{}, errors.New("body contains trailing whitespace")
+		}
+		for _, value := range line {
+			if value == '\r' || (value < 0x20 && value != '\t') {
+				return issue305TerminalHandoff{}, errors.New("body contains control bytes")
+			}
+		}
+	}
+	wantHeadings := []string{"## Block", "## Decisions and evidence", "## Risks", "## Next actions"}
+	headings := make([]string, 0, len(wantHeadings))
+	headingIndexes := make([]int, 0, len(wantHeadings))
+	for index, line := range lines {
+		if !strings.HasPrefix(line, "## ") {
+			continue
+		}
+		headings = append(headings, line)
+		headingIndexes = append(headingIndexes, index)
+	}
+	if len(headings) != len(wantHeadings) {
+		return issue305TerminalHandoff{}, errors.New("body headings do not match the approved issue #305 handoff")
+	}
+	for index, heading := range wantHeadings {
+		if headings[index] != heading {
+			return issue305TerminalHandoff{}, errors.New("body headings do not match the approved issue #305 handoff")
+		}
+		sectionEnd := len(lines) - 1
+		if index+1 < len(headingIndexes) {
+			sectionEnd = headingIndexes[index+1]
+		}
+		nonEmpty := false
+		for _, sectionLine := range lines[headingIndexes[index]+1 : sectionEnd] {
+			if strings.TrimSpace(sectionLine) != "" {
+				nonEmpty = true
+				break
+			}
+		}
+		if !nonEmpty {
+			return issue305TerminalHandoff{}, fmt.Errorf("issue #305 handoff section %q is empty", heading)
+		}
+	}
+	if err := validateExactIssueMentions(body, issue); err != nil {
+		return issue305TerminalHandoff{}, err
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
+		for _, label := range []string{"head", "sha", "commit", "lease", "run"} {
+			if strings.HasPrefix(strings.ToLower(trimmed), label+":") {
+				return issue305TerminalHandoff{}, fmt.Errorf("body contains an unapproved %s binding field", label)
+			}
+		}
+	}
+	for _, phrase := range []string{"expected head", "claim head", "fixed head", "expected sha", "claim sha", "expected commit", "commit sha", "head is", "sha is", "commit is", "lease until", "lease is", "agent-run-id", "run id", "run is"} {
+		if containsHandoffWords(body, phrase) {
+			return issue305TerminalHandoff{}, fmt.Errorf("body contains an unapproved %s binding", phrase)
+		}
+	}
+	if len(handoffLeases(body)) != 0 || len(handoffRunIDs(body)) != 0 {
+		return issue305TerminalHandoff{}, errors.New("body contains an unapproved lease or run binding")
+	}
+	for _, token := range handoffTokens(strings.ToLower(body)) {
+		if len(token) == 40 && isHexString(token) {
+			return issue305TerminalHandoff{}, errors.New("body contains an unapproved full commit binding")
+		}
+	}
+	if !containsHandoffWords(body, "claimed packet could not reach implementation") ||
+		!containsHandoffWords(body, "worktree remained clean throughout") ||
+		!containsHandoffWords(body, "no implementation changes") {
+		return issue305TerminalHandoff{}, errors.New("body lacks the approved issue #305 blocker and no-source evidence")
+	}
+	if !containsHandoffWords(body, "with no diff commit push pr check evidence challenge or examiner receipt") ||
+		!containsHandoffWords(body, "no pr or review lifecycle has started") {
+		return issue305TerminalHandoff{}, errors.New("body lacks the approved issue #305 no-PR evidence")
+	}
+	if err := rejectUnapprovedIssue305PRTokens(body); err != nil {
+		return issue305TerminalHandoff{}, err
+	}
+	decisionStart := headingIndexes[1] + 1
+	decisionEnd := headingIndexes[2]
+	var worktree string
+	var branch string
+	for index := decisionStart; index < decisionEnd; index++ {
+		line := strings.TrimSpace(lines[index])
+		if line == "- The preserved issue worktree is" {
+			if worktree != "" || index+1 >= decisionEnd {
+				return issue305TerminalHandoff{}, errors.New("body has an ambiguous preserved issue worktree field")
+			}
+			value := strings.TrimSpace(lines[index+1])
+			if !strings.HasPrefix(value, "`") || !strings.HasSuffix(value, "`.") || strings.Count(value, "`") != 2 {
+				return issue305TerminalHandoff{}, errors.New("body has a malformed preserved issue worktree field")
+			}
+			worktree = value[1 : len(value)-2]
+			if !strings.HasPrefix(worktree, "/") {
+				return issue305TerminalHandoff{}, errors.New("body preserved issue worktree is not absolute")
+			}
+			index++
+			continue
+		}
+		if strings.HasPrefix(line, "Its branch is `") {
+			if branch != "" {
+				return issue305TerminalHandoff{}, errors.New("body has an ambiguous preserved issue branch field")
+			}
+			const prefix = "Its branch is `"
+			value := strings.TrimPrefix(line, prefix)
+			closeIndex := strings.IndexByte(value, '`')
+			const suffix = ", with no diff, commit,"
+			if closeIndex <= 0 || !strings.HasSuffix(value, suffix) || closeIndex+1 > len(value)-len(suffix) {
+				return issue305TerminalHandoff{}, errors.New("body has a malformed preserved issue branch field")
+			}
+			if value[closeIndex+1:] != suffix {
+				return issue305TerminalHandoff{}, errors.New("body has a malformed preserved issue branch field")
+			}
+			branch = value[:closeIndex]
+			if !strings.HasPrefix(branch, "agent/issue-305-run-") {
+				return issue305TerminalHandoff{}, errors.New("body preserved issue branch is not a run-local branch")
+			}
+		}
+	}
+	if worktree == "" || branch == "" {
+		return issue305TerminalHandoff{}, errors.New("body lacks the preserved issue worktree and branch fields")
+	}
+	for _, path := range handoffAbsolutePaths(body) {
+		if path != worktree {
+			return issue305TerminalHandoff{}, fmt.Errorf("body contains an unapproved worktree path %q", path)
+		}
+	}
+	for _, observed := range handoffBranches(body) {
+		if observed != branch {
+			return issue305TerminalHandoff{}, fmt.Errorf("body contains an unapproved branch %q", observed)
+		}
+	}
+	return issue305TerminalHandoff{worktree: worktree, branch: branch}, nil
+}
+
+func rejectUnapprovedIssue305PRTokens(body string) error {
+	tokens := handoffTokens(strings.ToLower(body))
+	for index, token := range tokens {
+		if strings.Contains(token, "pull-request") || strings.Contains(token, "pull_request") || token == "prs" {
+			return errors.New("body contains an unapproved pull-request assertion")
+		}
+		if token == "pull" && index+1 < len(tokens) && tokens[index+1] == "request" {
+			return errors.New("body contains an unapproved pull-request assertion")
+		}
+		if token != "pr" {
+			continue
+		}
+		firstAllowed := index >= 4 && index+1 < len(tokens) &&
+			tokens[index-4] == "no" && tokens[index-3] == "diff" &&
+			tokens[index-2] == "commit" && tokens[index-1] == "push" && tokens[index+1] == "check"
+		secondAllowed := index >= 1 && index+2 < len(tokens) &&
+			tokens[index-1] == "no" && tokens[index+1] == "or" && tokens[index+2] == "review"
+		if !firstAllowed && !secondAllowed {
+			return errors.New("body contains an unapproved PR assertion")
+		}
+	}
+	return nil
+}
+
 //nolint:funlen,gocognit // Exact historical handoff grammar is deliberately fail-closed.
 func validateTerminalClaimHandoffBody(body string, issue int) error {
 	if !utf8.ValidString(body) || body == "" || !strings.HasSuffix(body, "\n") || strings.HasSuffix(body, "\n\n") {
@@ -920,6 +1145,10 @@ func validateTerminalClaimHandoffBody(body string, issue int) error {
 	}
 	if !headingMatch {
 		return errors.New("body headings do not match a terminal blocker handoff")
+	}
+	if hasTitle {
+		_, err := parseIssue305TerminalHandoff(body, issue)
+		return err
 	}
 	if err := validateExactIssueMentions(body, issue); err != nil {
 		return err

@@ -1086,8 +1086,23 @@ func (a app) verifyRunLocalHistoryRecords(root, branch string, records []runLoca
 		if err := a.validateLocalAgentCommit(root, record.commit, "run-local history commit "+record.commit+" for "+branch); err != nil {
 			return err
 		}
+		if !isCanonicalClaimMarkerShape(record.message) {
+			continue
+		}
+		marker, err := a.readCanonicalClaimIdentity(root, record.commit, "")
+		if err != nil {
+			return retryableOperationIfRecoverable("verify run-local history marker", fmt.Errorf("verify canonical claim marker %s for %s: %w", record.commit, branch, err))
+		}
+		if marker.message != record.message {
+			return terminalOperation("verify run-local history marker", stateError("preserve run-local ref %s: history commit %s message differs from its canonical Git object", branch, record.commit))
+		}
 	}
 	return nil
+}
+
+func isCanonicalClaimMarkerShape(message string) bool {
+	lines := strings.Split(message, "\n")
+	return len(lines) > 0 && strings.HasPrefix(lines[0], "chore(workflow): claim issue #")
 }
 
 func parseRunLocalHistoryRecords(records []runLocalHistoryRecord, branch string) ([]runLocalHistoryIdentity, error) {

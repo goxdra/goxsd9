@@ -141,9 +141,9 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	if stagedErr != nil {
 		return resumeProof{}, stagedErr
 	}
-	claim, err := a.readCanonicalClaimIdentity(root, expectedHead, "")
+	claim, err := a.readResumeExpectedClaim(root, expectedHead, issue)
 	if err != nil {
-		return resumeProof{}, retryableOperationIfRecoverable("PR resume expected claim proof", fmt.Errorf("expected head %s has no valid claim identity: %w", expectedHead, err))
+		return resumeProof{}, retryableOperationIfRecoverable("PR resume expected claim proof", fmt.Errorf("expected head %s has no valid claim ancestry: %w", expectedHead, err))
 	}
 	if claim.issue != issue {
 		return resumeProof{}, stateError("expected head %s claims issue #%d, not issue #%d", expectedHead, claim.issue, issue)
@@ -216,6 +216,66 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 		return resumeProof{}, err
 	}
 	return proof, nil
+}
+
+// readResumeExpectedClaim validates the complete expected PR-head object,
+// then binds recovery to the nearest canonical claim marker in its ancestry.
+// A PR head may contain source changes or merge parents; only the marker that
+// establishes claim ownership is required to have the empty, single-parent
+// shape.
+//
+//nolint:gocognit // The expected-head proof keeps object, ancestry, and claim binding ordered.
+func (a app) readResumeExpectedClaim(root, expectedHead string, issue int) (canonicalClaimCommit, error) {
+	if !validExactCommitSHA(expectedHead) {
+		return canonicalClaimCommit{}, stateError("expected PR head %q is not a full commit SHA; preserve claim artifacts", expectedHead)
+	}
+	if err := a.validateLocalAgentCommit(root, expectedHead, "expected PR head "+expectedHead); err != nil {
+		return canonicalClaimCommit{}, err
+	}
+	object, err := a.gitRaw(root, "cat-file", "commit", expectedHead)
+	if err != nil {
+		return canonicalClaimCommit{}, retryableOperation("read expected PR head", fmt.Errorf("read expected PR head object at %s: %w", expectedHead, err))
+	}
+	parsed, err := parseCommitObject(object)
+	if err != nil {
+		return canonicalClaimCommit{}, terminalOperation("validate expected PR head", stateError("expected PR head %s has malformed commit object; preserve claim artifacts: %w", expectedHead, err))
+	}
+	for _, parent := range parsed.parents {
+		if parentErr := a.validateLocalAgentCommit(root, parent, "expected PR head parent "+parent); parentErr != nil {
+			return canonicalClaimCommit{}, parentErr
+		}
+	}
+
+	history, err := a.command(root, "git", "log", "--format=%H%x00%B%x00", expectedHead)
+	if err != nil {
+		return canonicalClaimCommit{}, retryableOperation("read PR resume claim ancestry", fmt.Errorf("read claim ancestry at %s: %w", expectedHead, err))
+	}
+	branch := fmt.Sprintf("agent/issue-%d", issue)
+	records, err := splitRunLocalHistory(history, branch)
+	if err != nil {
+		return canonicalClaimCommit{}, err
+	}
+	if err := a.verifyRunLocalHistoryRecords(root, branch, records); err != nil {
+		return canonicalClaimCommit{}, err
+	}
+	for _, record := range records {
+		identity, canonical, parseErr := parseCanonicalRunLocalClaim(record.message, issue)
+		if parseErr != nil {
+			return canonicalClaimCommit{}, terminalRunLocalHistoryError(stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr))
+		}
+		if !canonical || identity.issue != issue {
+			continue
+		}
+		observedIssue, observedRunID, lease, parseErr := parseCanonicalClaimMessage(record.message)
+		if parseErr != nil {
+			return canonicalClaimCommit{}, terminalRunLocalHistoryError(stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr))
+		}
+		if observedIssue != issue {
+			return canonicalClaimCommit{}, stateError("expected PR head %s ancestry marker %s claims issue #%d, not issue #%d; preserve claim artifacts", expectedHead, record.commit, observedIssue, issue)
+		}
+		return canonicalClaimCommit{message: record.message, issue: observedIssue, runID: observedRunID, lease: lease}, nil
+	}
+	return canonicalClaimCommit{}, stateError("expected PR head %s ancestry has no canonical claim marker for issue #%d; preserve claim artifacts", expectedHead, issue)
 }
 
 //nolint:gocognit // Ref inventory and evaluated-lineage filtering are one fail-closed proof boundary.

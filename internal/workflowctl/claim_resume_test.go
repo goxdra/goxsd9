@@ -100,6 +100,44 @@ func TestClaimResumeExactIssue305DryRunHasZeroMutation(t *testing.T) {
 	}
 }
 
+func TestClaimResumeIssue305HandoffRejectsPositivePRAssertions(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		text string
+	}{
+		{name: "open PR", text: "An open PR exists for the claimed packet."},
+		{name: "existing pull request", text: "An existing pull request remains associated with the packet."},
+		{name: "created PR", text: "A PR was created during the recovery attempt."},
+		{name: "created pull request", text: "A pull request was created during the recovery attempt."},
+		{name: "created pull-request", text: "A pull-request was created during the recovery attempt."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := issue305TerminalHandoffBody + "\n" + test.text + "\n"
+			if err := validateTerminalClaimHandoffBody(body, 305); err == nil {
+				t.Fatal("positive PR assertion unexpectedly accepted")
+			}
+		})
+	}
+}
+
+func TestClaimResumeIssue305HandoffRejectsUnapprovedIdentityFields(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		text string
+	}{
+		{name: "expected head", text: "- Expected head: `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`."},
+		{name: "lease", text: "- Lease until: `2026-08-15T07:00:00Z`."},
+		{name: "run", text: "- Run ID: `run-other`."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := issue305TerminalHandoffBody + "\n" + test.text + "\n"
+			if err := validateTerminalClaimHandoffBody(body, 305); err == nil {
+				t.Fatal("unapproved identity field unexpectedly accepted")
+			}
+		})
+	}
+}
+
 func TestClaimResumeTerminalEvidenceParser(t *testing.T) {
 	worktree := "/worktrees/issue-14-run-proof"
 	valid := fmt.Sprintf("## Blocker\n\nIssue #14 was claimed in %s.\n\n## Evidence\n\n- Issue #14 remained OPEN in the Project.\n- The claim worktree was clean at the final read.\n- No implementation, tests, commit, push, PR, or evaluation record was made.\n\n## Decisions and risks\n\n- Preserve the claim.\n\n## Next action\n\nResume after the blocker is cleared.\n", worktree)

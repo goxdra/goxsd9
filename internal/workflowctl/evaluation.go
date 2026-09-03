@@ -3073,6 +3073,9 @@ func validatePullRequestComment(number, pageIndex, commentIndex int, response is
 	if response.ID < 1 {
 		return fmt.Errorf("PR #%d comments page %d object %d has invalid ID %d", number, pageIndex+1, commentIndex+1, response.ID)
 	}
+	if strings.TrimSpace(response.Body) == "" {
+		return fmt.Errorf("PR #%d comments page %d object %d has no body", number, pageIndex+1, commentIndex+1)
+	}
 	if strings.TrimSpace(response.User.Login) == "" {
 		return fmt.Errorf("PR #%d comments page %d object %d has no user login", number, pageIndex+1, commentIndex+1)
 	}
