@@ -120,27 +120,40 @@ func TestClaimResumeIssue305HandoffRejectsPositivePRAssertions(t *testing.T) {
 	}
 }
 
-func TestClaimResumeNormalizedIssue305PRGrammarRejectsAdversarialForms(t *testing.T) {
-	variants := []struct {
-		name string
-		text string
-	}{
-		{name: "plural pull requests", text: "Pull requests were created during the recovery attempt."},
+type handoffPRAdversarialCase struct {
+	name string
+	text string
+}
+
+func normalizedHandoffPRAdversarialCases(context string) []handoffPRAdversarialCase {
+	return []handoffPRAdversarialCase{
+		{name: "plural pull requests", text: "Pull requests were created during " + context + "."},
 		{name: "punctuated PR", text: "A PR? exists."},
-		{name: "word attached exists", text: "PRexists during the recovery attempt."},
-		{name: "word attached created", text: "PRwascreated during the recovery attempt."},
+		{name: "word attached exists", text: "PRexists during " + context + "."},
+		{name: "word attached created", text: "PRwascreated during " + context + "."},
+		{name: "word attached remains", text: "PRremains open."},
+		{name: "word attached submitted", text: "PRsubmitted during " + context + "."},
+		{name: "word attached merged", text: "PRmerged"},
+		{name: "unknown attached predicate", text: "PRunknownattached during " + context + "."},
 		{name: "word attached open", text: "openPR remains open."},
 		{name: "attached pull request", text: "pullrequest(s) were created."},
+		{name: "pull request unknown prefix", text: "pullrequestunknown during " + context + "."},
+		{name: "pull request unknown suffix", text: "unknownpullrequest during " + context + "."},
+		{name: "PR suffix", text: "statusPR was reported."},
 		{name: "hyphenated pull request", text: "A pull-request was created."},
 		{name: "underscored pull request", text: "A pull_request was created."},
 		{name: "punctuated PR letters", text: "A P.R. exists."},
 		{name: "hyphenated PR letters", text: "A P-R exists."},
 		{name: "slashed PR letters", text: "A P/R exists."},
-		{name: "slashed PR predicate", text: "PR/exists during the recovery attempt."},
+		{name: "slashed PR predicate", text: "PR/exists during " + context + "."},
 		{name: "slashed open PR", text: "open/PR remains open."},
 		{name: "workflow path PR predicate", text: "PR/evidence/Curator/Examiner exists."},
 		{name: "unknown PR", text: "PR status is unknown."},
 	}
+}
+
+func TestClaimResumeNormalizedIssue305PRGrammarRejectsAdversarialForms(t *testing.T) {
+	variants := normalizedHandoffPRAdversarialCases("the recovery attempt")
 	for _, test := range variants {
 		t.Run(test.name, func(t *testing.T) {
 			body := issue305TerminalHandoffBody + "\n" + test.text + "\n"
@@ -149,7 +162,7 @@ func TestClaimResumeNormalizedIssue305PRGrammarRejectsAdversarialForms(t *testin
 			}
 		})
 	}
-	if err := validateTerminalClaimHandoffBody(issue305TerminalHandoffBody+"\nThe previous and producing steps remained unchanged.\n", 305); err != nil {
+	if err := validateTerminalClaimHandoffBody(issue305TerminalHandoffBody+"\nThe previous, producing, preserved, project, proof, provenance, proceeding, and protocol steps remained unchanged.\n", 305); err != nil {
 		t.Fatalf("ordinary words containing PR prefixes rejected: %v", err)
 	}
 }
@@ -160,8 +173,15 @@ func TestClaimResumeNormalizedIssue305PRGrammarHasZeroMutation(t *testing.T) {
 		"A PR? exists.",
 		"PRexists during the recovery attempt.",
 		"PRwascreated during the recovery attempt.",
+		"PRremains open.",
+		"PRsubmitted during retry.",
+		"PRmerged",
+		"PRunknownattached during the recovery attempt.",
 		"openPR remains open.",
 		"pullrequest(s) were created.",
+		"pullrequestunknown during the recovery attempt.",
+		"unknownpullrequest during the recovery attempt.",
+		"statusPR was reported.",
 		"A P.R. exists.",
 		"A P-R exists.",
 		"A P/R exists.",
@@ -183,6 +203,30 @@ func TestClaimResumeNormalizedIssue305PRGrammarHasZeroMutation(t *testing.T) {
 			}
 			if backend.mutations != 0 {
 				t.Fatalf("adversarial issue #305 mutations = %d, want zero", backend.mutations)
+			}
+		})
+	}
+}
+
+func TestClaimResumePRProseTokenClassifier(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "attached remains", text: "PRremains", want: "pr"},
+		{name: "attached submitted", text: "PRsubmitted", want: "pr"},
+		{name: "attached merged", text: "PRmerged", want: "pr"},
+		{name: "unknown attached prefix", text: "PRunknownattached", want: "pr"},
+		{name: "unknown attached suffix", text: "unknownpullrequest", want: "pr"},
+		{name: "unknown PR suffix", text: "statusPR", want: "pr"},
+		{name: "ordinary approved words", text: "previous producing preserved project proof provenance proceeding protocol", want: "previous producing preserved project proof provenance proceeding protocol"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := strings.Join(handoffPRProseTokens(test.text), " ")
+			if got != test.want {
+				t.Fatalf("handoffPRProseTokens(%q) = %q, want %q", test.text, got, test.want)
 			}
 		})
 	}
@@ -279,26 +323,10 @@ func TestClaimResumeTerminalEvidenceParser(t *testing.T) {
 func TestClaimResumeNormalizedGenericPRGrammarRejectsAdversarialForms(t *testing.T) {
 	worktree := "/worktrees/issue-14-run-proof"
 	valid := fmt.Sprintf("## Blocker\n\nIssue #14 was claimed in %s.\n\n## Evidence\n\n- Issue #14 remained OPEN in the Project.\n- The claim worktree was clean at the final read.\n- No implementation, tests, commit, push, PR, or evaluation record was made.\n\n## Decisions and risks\n\n- Preserve the claim.\n\n## Next action\n\nResume after the blocker is cleared.\n", worktree)
-	variants := []struct {
-		name string
-		text string
-	}{
+	variants := append([]handoffPRAdversarialCase{
 		{name: "existing pull request", text: "An existing pull request remains open under review."},
 		{name: "created PR", text: "PR was created during retry."},
-		{name: "plural pull requests", text: "Pull requests were created during retry."},
-		{name: "punctuated PR", text: "A PR? exists."},
-		{name: "word attached exists", text: "PRexists during retry."},
-		{name: "word attached created", text: "PRwascreated during retry."},
-		{name: "word attached open", text: "openPR remains open."},
-		{name: "attached pull request", text: "pullrequest(s) were created."},
-		{name: "punctuated PR letters", text: "A P.R. exists."},
-		{name: "hyphenated PR letters", text: "A P-R exists."},
-		{name: "slashed PR letters", text: "A P/R exists."},
-		{name: "slashed PR predicate", text: "PR/exists during retry."},
-		{name: "slashed open PR", text: "open/PR remains open."},
-		{name: "workflow path PR predicate", text: "PR/evidence/Curator/Examiner exists."},
-		{name: "unknown PR", text: "PR status is unknown."},
-	}
+	}, normalizedHandoffPRAdversarialCases("retry")...)
 	for _, test := range variants {
 		t.Run(test.name, func(t *testing.T) {
 			body := valid + "\n" + test.text + "\n"
@@ -307,7 +335,7 @@ func TestClaimResumeNormalizedGenericPRGrammarRejectsAdversarialForms(t *testing
 			}
 		})
 	}
-	if err := validateTerminalClaimHandoffBody(valid+"\nThe previous and producing steps remained unchanged.\n", 14); err != nil {
+	if err := validateTerminalClaimHandoffBody(valid+"\nThe previous, producing, preserved, project, proof, provenance, proceeding, and protocol steps remained unchanged.\n", 14); err != nil {
 		t.Fatalf("ordinary words containing PR prefixes rejected: %v", err)
 	}
 }
@@ -320,8 +348,15 @@ func TestClaimResumeNormalizedGenericPRGrammarHasZeroMutation(t *testing.T) {
 		"A PR? exists.",
 		"PRexists during retry.",
 		"PRwascreated during retry.",
+		"PRremains open.",
+		"PRsubmitted during retry.",
+		"PRmerged",
+		"PRunknownattached during retry.",
 		"openPR remains open.",
 		"pullrequest(s) were created.",
+		"pullrequestunknown during retry.",
+		"unknownpullrequest during retry.",
+		"statusPR was reported.",
 		"A P.R. exists.",
 		"A P-R exists.",
 		"A P/R exists.",
