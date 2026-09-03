@@ -191,7 +191,7 @@ func (a app) projectItemsWithTotalCount(root string, requireTotalCount bool) (pr
 	}
 	list, err := decodeProjectList([]byte(output), requireTotalCount)
 	if err != nil {
-		return projectList{}, fmt.Errorf("decode Project items: %w", err)
+		return projectList{}, terminalOperation("Project item list", fmt.Errorf("decode Project items: %w", err))
 	}
 	return list, nil
 }
@@ -204,7 +204,7 @@ func (a app) projectFields(root string) (projectFieldList, error) {
 	}
 	var list projectFieldList
 	if err := json.Unmarshal([]byte(output), &list); err != nil {
-		return projectFieldList{}, fmt.Errorf("decode Project fields: %w", err)
+		return projectFieldList{}, terminalOperation("Project field list", fmt.Errorf("decode Project fields: %w", err))
 	}
 	return list, nil
 }
