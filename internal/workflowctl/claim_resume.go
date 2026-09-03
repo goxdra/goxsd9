@@ -622,7 +622,7 @@ func validateClaimResumeHandoffBindings(body string, issue int, expectedHead, fi
 		return errors.New("handoff records a malformed lease")
 	}
 	for _, observed := range handoffHeads(body) {
-		if len(observed) > len(expectedHead) || !strings.HasPrefix(expectedHead, observed) {
+		if observed != expectedHead {
 			return fmt.Errorf("handoff records head %q, not expected head %s", observed, expectedHead)
 		}
 	}
@@ -807,16 +807,37 @@ func handoffHeads(body string) []string {
 		}
 		heads = append(heads, value)
 	}
-	for _, value := range handoffBacktickValues(body) {
-		appendHead(value)
-	}
-	for _, value := range handoffTokens(body) {
-		if strings.Contains(value, "-") || strings.Contains(value, "/") {
+	for _, rawLine := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(strings.TrimPrefix(rawLine, "- "))
+		label, found := handoffHeadLabel(line)
+		if !found {
 			continue
 		}
-		appendHead(value)
+		remainder := strings.TrimSpace(line[len(label):])
+		for _, value := range handoffBacktickValues(remainder) {
+			appendHead(value)
+		}
+		for _, value := range handoffTokens(remainder) {
+			if strings.Contains(value, "-") || strings.Contains(value, "/") {
+				continue
+			}
+			appendHead(value)
+		}
 	}
 	return heads
+}
+
+func handoffHeadLabel(line string) (string, bool) {
+	for _, label := range []string{"expected head", "claim head", "fixed head", "expected sha", "claim sha", "expected commit", "commit sha", "commit-sha", "head", "sha", "commit"} {
+		if len(line) <= len(label) || !strings.EqualFold(line[:len(label)], label) {
+			continue
+		}
+		separator := line[len(label)]
+		if separator == ':' || separator == ' ' || separator == '\t' {
+			return line[:len(label)], true
+		}
+	}
+	return "", false
 }
 
 func isHexString(value string) bool {
@@ -852,19 +873,33 @@ func validateTerminalClaimHandoffBody(body string, issue int) error {
 			}
 		}
 	}
-	if !strings.HasPrefix(body, "## Blocker\n\n") || !strings.Contains(body, "\n## Evidence\n\n") {
+	lines := strings.Split(body, "\n")
+	if len(lines) < 2 {
+		return errors.New("body has no terminal handoff sections")
+	}
+	hasTitle := strings.HasPrefix(lines[0], "# Handoff: issue #")
+	if hasTitle {
+		titleIssue, titleErr := strconv.Atoi(strings.TrimPrefix(lines[0], "# Handoff: issue #"))
+		if titleErr != nil || titleIssue < 1 || strconv.Itoa(titleIssue) != strings.TrimPrefix(lines[0], "# Handoff: issue #") {
+			return errors.New("body has a malformed handoff issue title")
+		}
+		if titleIssue != issue {
+			return fmt.Errorf("body handoff title identifies issue #%d, not issue #%d", titleIssue, issue)
+		}
+	}
+	if !hasTitle && (!strings.HasPrefix(body, "## Blocker\n\n") || !strings.Contains(body, "\n## Evidence\n\n")) {
 		return errors.New("body must contain the exact Blocker and Evidence sections")
 	}
 	headings := make([]string, 0, 4)
-	for _, line := range strings.Split(body, "\n") {
+	for _, line := range lines {
 		if !strings.HasPrefix(line, "## ") {
 			continue
 		}
 		headings = append(headings, line)
 	}
-	wantHeadings := [][]string{
-		{"## Blocker", "## Evidence", "## Decisions and risks", "## Next action"},
-		{"## Blocker", "## Evidence", "## Risk and next action"},
+	wantHeadings := [][]string{{"## Blocker", "## Evidence", "## Decisions and risks", "## Next action"}, {"## Blocker", "## Evidence", "## Risk and next action"}}
+	if hasTitle {
+		wantHeadings = [][]string{{"## Block", "## Decisions and evidence", "## Risks", "## Next actions"}}
 	}
 	headingMatch := false
 	for _, want := range wantHeadings {
@@ -894,27 +929,28 @@ func validateTerminalClaimHandoffBody(body string, issue int) error {
 		return errors.New("body lacks claim-state evidence")
 	}
 	folded := strings.Join(strings.Fields(lower), " ")
-	cleanEvidence := strings.Contains(folded, "worktree was clean") || strings.Contains(folded, "clean worktree") ||
-		strings.Contains(folded, "worktree clean") || strings.Contains(folded, "only the generated claim commit") ||
-		strings.Contains(folded, "only the generated workflow claim commit") ||
-		strings.Contains(folded, "worktree preserved")
-	if !cleanEvidence || (!strings.Contains(lower, "no implementation") && !strings.Contains(lower, "no source")) {
+	cleanEvidence := containsHandoffWords(folded, "worktree was clean") || containsHandoffWords(folded, "clean worktree") ||
+		containsHandoffWords(folded, "worktree clean") || containsHandoffWords(folded, "only the generated claim commit") ||
+		containsHandoffWords(folded, "only the generated workflow claim commit") ||
+		containsHandoffWords(folded, "worktree preserved") || containsHandoffWords(folded, "worktree remained clean") ||
+		containsHandoffWords(folded, "clean throughout")
+	noSourceEvidence := containsHandoffWords(folded, "no implementation") || containsHandoffWords(folded, "no source")
+	if !cleanEvidence || !noSourceEvidence {
 		return errors.New("body lacks preserved worktree/no-source evidence")
 	}
-	if strings.Contains(folded, "unclean worktree") || strings.Contains(folded, "worktree was unclean") ||
-		strings.Contains(folded, "dirty worktree") || strings.Contains(folded, "worktree was dirty") ||
-		strings.Contains(folded, "worktree is dirty") || strings.Contains(folded, "worktree is unclean") {
+	if containsHandoffWords(folded, "unclean worktree") || containsHandoffWords(folded, "worktree was unclean") ||
+		containsHandoffWords(folded, "dirty worktree") || containsHandoffWords(folded, "worktree was dirty") ||
+		containsHandoffWords(folded, "worktree is dirty") || containsHandoffWords(folded, "worktree is unclean") {
 		return errors.New("body contradicts the clean worktree evidence")
 	}
 	noPR := false
 	for _, paragraph := range strings.Split(body, "\n\n") {
 		foldedParagraph := strings.Join(strings.Fields(strings.ToLower(paragraph)), " ")
-		for _, marker := range []string{"no implementation", "no source"} {
-			markerIndex := strings.Index(foldedParagraph, marker)
-			if markerIndex >= 0 && containsHandoffPR(foldedParagraph[markerIndex:]) {
-				noPR = true
-				break
-			}
+		if containsHandoffNoPR(foldedParagraph) {
+			noPR = true
+		}
+		if (containsHandoffWords(foldedParagraph, "no implementation") || containsHandoffWords(foldedParagraph, "no source")) && containsHandoffPR(foldedParagraph) {
+			noPR = true
 		}
 		if noPR {
 			break
@@ -924,7 +960,7 @@ func validateTerminalClaimHandoffBody(body string, issue int) error {
 		return errors.New("body lacks an explicit no-PR statement")
 	}
 	for _, contradiction := range []string{"open pr", "a pr was", "pr was opened", "pull request was opened", "created a pr", "created a pull request", "pr exists", "pull request exists", "there is a pr", "there is an open pull request"} {
-		if strings.Contains(folded, contradiction) {
+		if containsHandoffWords(folded, contradiction) {
 			return errors.New("body contradicts the no-PR statement")
 		}
 	}
@@ -932,12 +968,31 @@ func validateTerminalClaimHandoffBody(body string, issue int) error {
 }
 
 func containsHandoffPR(text string) bool {
-	if strings.Contains(text, "pull request") {
+	if containsHandoffWords(text, "pull request") {
 		return true
 	}
-	for _, token := range strings.Fields(text) {
-		token = strings.Trim(token, "`\"'()[]{}<>,.;:")
-		if token == "pr" {
+	return containsHandoffWords(text, "pr")
+}
+
+func containsHandoffNoPR(text string) bool {
+	return containsHandoffWords(text, "no pr") || containsHandoffWords(text, "no pull request")
+}
+
+func containsHandoffWords(text, phrase string) bool {
+	observed := handoffTokens(strings.ToLower(text))
+	want := strings.Fields(strings.ToLower(phrase))
+	if len(want) == 0 || len(observed) < len(want) {
+		return false
+	}
+	for start := 0; start+len(want) <= len(observed); start++ {
+		match := true
+		for index := range want {
+			if observed[start+index] != want[index] {
+				match = false
+				break
+			}
+		}
+		if match {
 			return true
 		}
 	}

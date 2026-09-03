@@ -643,11 +643,14 @@ func (a app) evaluatedRunLocalLineage(root string, packet mergedPacket, candidat
 	if err != nil {
 		return runLocalLineage{}, err
 	}
+	if err := a.verifyRunLocalHistoryRecords(root, candidate.branch, records); err != nil {
+		return runLocalLineage{}, err
+	}
 	lineage := runLocalLineage{identities: make([]runLocalHistoryIdentity, 0)}
 	for _, record := range records {
 		identity, canonical, parseErr := parseCanonicalRunLocalClaim(record.message, issue)
 		if parseErr != nil {
-			return runLocalLineage{}, stateError("preserve run-local ref %s at history commit %s: malformed canonical claim marker: %w", candidate.branch, record.commit, parseErr)
+			return runLocalLineage{}, terminalRunLocalHistoryError(stateError("preserve run-local ref %s at history commit %s: malformed canonical claim marker: %w", candidate.branch, record.commit, parseErr))
 		}
 		if !canonical {
 			continue
@@ -980,7 +983,14 @@ func (a app) runLocalHistoryProof(root string, ref runLocalRefCandidate, proofHe
 	if err != nil {
 		return runLocalHistoryProof{}, err
 	}
-	return parseBoundedRunLocalHistoryProof(history, ref.branch)
+	records, err := splitRunLocalHistory(history, ref.branch)
+	if err != nil {
+		return runLocalHistoryProof{}, err
+	}
+	if err := a.verifyRunLocalHistoryRecords(root, ref.branch, records); err != nil {
+		return runLocalHistoryProof{}, err
+	}
+	return parseBoundedRunLocalHistoryProofRecords(records, ref.branch)
 }
 
 func (a app) evaluatedClaimHistory(root string, ref runLocalRefCandidate, proofHead string) (string, error) {
@@ -989,10 +999,13 @@ func (a app) evaluatedClaimHistory(root string, ref runLocalRefCandidate, proofH
 	if err == nil {
 		return history, nil
 	}
+	if operationDispositionOf(err) != operationDispositionUnknown {
+		return "", err
+	}
 	fetchRef := "refs/workflowctl/run-local-proof/" + ref.branch
 	existing, checkErr := a.command(root, "git", "for-each-ref", "--format=%(objectname)", fetchRef)
 	if checkErr != nil {
-		return "", fmt.Errorf("inspect temporary evaluated claim ref %s: %w", fetchRef, checkErr)
+		return "", retryableOperation("read evaluated claim history", fmt.Errorf("inspect temporary evaluated claim ref %s after history command: %w", fetchRef, errors.Join(err, checkErr)))
 	}
 	if strings.TrimSpace(existing) != "" {
 		return "", stateError("preserve run-local ref %s: temporary evaluated claim ref %s already exists", ref.branch, fetchRef)
@@ -1001,21 +1014,25 @@ func (a app) evaluatedClaimHistory(root string, ref runLocalRefCandidate, proofH
 	_, fetchErr := a.command(root, "git", "fetch", "--no-tags", "--no-write-fetch-head", "origin", fetchSpec)
 	if fetchErr != nil {
 		cleanupErr := a.deleteTemporaryRunLocalProofRef(root, fetchRef)
-		return "", fmt.Errorf("read evaluated claim history for run-local ref %s at %s: %w", ref.branch, proofHead, errors.Join(err, fmt.Errorf("fetch run-local claim: %w", errors.Join(fetchErr, cleanupErr))))
+		return "", retryableOperation("read evaluated claim history", fmt.Errorf("read evaluated claim history for run-local ref %s at %s: %w", ref.branch, proofHead, errors.Join(err, fmt.Errorf("fetch run-local claim: %w", errors.Join(fetchErr, cleanupErr)))))
 	}
 	fetchedSHA, fetchRefErr := a.command(root, "git", "rev-parse", fetchRef)
 	if fetchRefErr != nil {
 		cleanupErr := a.deleteTemporaryRunLocalProofRef(root, fetchRef)
-		return "", fmt.Errorf("read temporary evaluated claim ref %s: %w", fetchRef, errors.Join(fetchRefErr, cleanupErr))
+		return "", retryableOperation("read evaluated claim history", fmt.Errorf("read temporary evaluated claim ref %s: %w", fetchRef, errors.Join(fetchRefErr, cleanupErr)))
 	}
 	fetchedSHA = strings.TrimSpace(fetchedSHA)
+	if !validExactCommitSHA(fetchedSHA) {
+		cleanupErr := a.deleteTemporaryRunLocalProofRef(root, fetchRef)
+		return "", terminalRunLocalHistoryError(stateError("temporary evaluated claim ref %s returned malformed head %q; preserve claim artifacts: %v", fetchRef, fetchedSHA, cleanupErr))
+	}
 	history, historyErr := a.command(root, "git", "log", "--format="+format, proofHead)
 	cleanupErr := a.deleteRefIfExact(root, fetchRef, fetchedSHA, "temporary evaluated claim ref "+ref.branch)
 	if historyErr != nil {
-		return "", fmt.Errorf("read evaluated claim history for run-local ref %s at %s after fetch: %w", ref.branch, proofHead, errors.Join(historyErr, cleanupErr))
+		return "", retryableOperation("read evaluated claim history", fmt.Errorf("read evaluated claim history for run-local ref %s at %s after fetch: %w", ref.branch, proofHead, errors.Join(historyErr, cleanupErr)))
 	}
 	if cleanupErr != nil {
-		return "", cleanupErr
+		return "", retryableOperation("read evaluated claim history cleanup", cleanupErr)
 	}
 	return history, nil
 }
@@ -1037,23 +1054,40 @@ type runLocalHistoryRecord struct {
 	message string
 }
 
+func terminalRunLocalHistoryError(err error) error {
+	if err == nil || operationDispositionOf(err) != operationDispositionUnknown {
+		return err
+	}
+	return terminalOperation("run-local history", err)
+}
+
 func splitRunLocalHistory(history, branch string) ([]runLocalHistoryRecord, error) {
 	fields := strings.Split(history, "\x00")
 	if len(fields) == 1 && strings.TrimSpace(fields[0]) == "" {
-		return nil, stateError("preserve run-local ref %s: evaluated head history is empty", branch)
+		return nil, terminalRunLocalHistoryError(stateError("preserve run-local ref %s: evaluated head history is empty", branch))
 	}
 	records := make([]runLocalHistoryRecord, 0, len(fields)/2)
 	for index := 0; index+1 < len(fields); index += 2 {
-		commit := strings.TrimSpace(fields[index])
-		if commit == "" {
-			return nil, stateError("preserve run-local ref %s: evaluated head history contains an empty commit", branch)
+		// git log places its record-separator newline before each later hash.
+		commit := strings.TrimPrefix(fields[index], "\n")
+		if !validExactCommitSHA(commit) {
+			return nil, terminalRunLocalHistoryError(stateError("preserve run-local ref %s: evaluated head history contains malformed commit token %q; preserve claim artifacts", branch, commit))
 		}
 		records = append(records, runLocalHistoryRecord{commit: commit, message: fields[index+1]})
 	}
 	if len(fields)%2 != 1 || strings.TrimSpace(fields[len(fields)-1]) != "" {
-		return nil, stateError("preserve run-local ref %s: evaluated head history is malformed", branch)
+		return nil, terminalRunLocalHistoryError(stateError("preserve run-local ref %s: evaluated head history is malformed", branch))
 	}
 	return records, nil
+}
+
+func (a app) verifyRunLocalHistoryRecords(root, branch string, records []runLocalHistoryRecord) error {
+	for _, record := range records {
+		if err := a.validateLocalAgentCommit(root, record.commit, "run-local history commit "+record.commit+" for "+branch); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func parseRunLocalHistoryRecords(records []runLocalHistoryRecord, branch string) ([]runLocalHistoryIdentity, error) {
@@ -1080,21 +1114,29 @@ func parseBoundedRunLocalHistory(history, branch string) ([]runLocalHistoryIdent
 }
 
 func parseBoundedRunLocalHistoryProof(history, branch string) (runLocalHistoryProof, error) {
-	kind, issue, runID := classifyAgentRef(branch)
+	kind, _, runID := classifyAgentRef(branch)
 	if kind != agentRefRunLocal || runID == "" {
-		return runLocalHistoryProof{}, stateError("preserve run-local ref %s: run identity is malformed", branch)
+		return runLocalHistoryProof{}, terminalRunLocalHistoryError(stateError("preserve run-local ref %s: run identity is malformed", branch))
 	}
 	records, err := splitRunLocalHistory(history, branch)
 	if err != nil {
 		return runLocalHistoryProof{}, err
 	}
+	return parseBoundedRunLocalHistoryProofRecords(records, branch)
+}
+
+func parseBoundedRunLocalHistoryProofRecords(records []runLocalHistoryRecord, branch string) (runLocalHistoryProof, error) {
+	kind, issue, runID := classifyAgentRef(branch)
+	if kind != agentRefRunLocal || runID == "" {
+		return runLocalHistoryProof{}, terminalRunLocalHistoryError(stateError("preserve run-local ref %s: run identity is malformed", branch))
+	}
 	anchor, err := findRunLocalHistoryAnchor(records, branch, runID, issue)
 	if err != nil {
-		return runLocalHistoryProof{}, err
+		return runLocalHistoryProof{}, terminalRunLocalHistoryError(err)
 	}
 	identities, err := parseRunLocalHistoryRecords(records[:anchor+1], branch)
 	if err != nil {
-		return runLocalHistoryProof{}, err
+		return runLocalHistoryProof{}, terminalRunLocalHistoryError(err)
 	}
 	return runLocalHistoryProof{identities: identities, anchor: records[anchor].commit}, nil
 }

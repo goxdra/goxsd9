@@ -12,6 +12,60 @@ import (
 	"time"
 )
 
+func canonicalHistorySHA(name string) string {
+	switch name {
+	case "evaluated":
+		return "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	case "renewal":
+		return "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	case "canonical-anchor":
+		return "cccccccccccccccccccccccccccccccccccccccc"
+	case "inherited":
+		return "dddddddddddddddddddddddddddddddddddddddd"
+	case "evaluated-commit":
+		return "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	case "tip":
+		return "ffffffffffffffffffffffffffffffffffffffff"
+	case "current":
+		return "1111111111111111111111111111111111111111"
+	case "conflicting":
+		return "2222222222222222222222222222222222222222"
+	case "oldest-current":
+		return "3333333333333333333333333333333333333333"
+	case "f7d1ce":
+		return "4444444444444444444444444444444444444444"
+	default:
+		return name
+	}
+}
+
+func canonicalHistoryAlias(sha string) string {
+	switch sha {
+	case canonicalHistorySHA("evaluated"):
+		return "evaluated"
+	case canonicalHistorySHA("renewal"):
+		return "renewal"
+	case canonicalHistorySHA("canonical-anchor"):
+		return "canonical-anchor"
+	case canonicalHistorySHA("inherited"):
+		return "inherited"
+	case canonicalHistorySHA("evaluated-commit"):
+		return "evaluated-commit"
+	case canonicalHistorySHA("tip"):
+		return "tip"
+	case canonicalHistorySHA("current"):
+		return "current"
+	case canonicalHistorySHA("conflicting"):
+		return "conflicting"
+	case canonicalHistorySHA("oldest-current"):
+		return "oldest-current"
+	case canonicalHistorySHA("f7d1ce"):
+		return "f7d1ce"
+	default:
+		return sha
+	}
+}
+
 func TestRemoteAgentRefInventorySeparatesAndSortsRefs(t *testing.T) {
 	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 		if name != "git" || strings.Join(args, " ") != "ls-remote --heads origin refs/heads/agent/*" {
@@ -359,7 +413,7 @@ func TestRunLocalCleanupIgnoresUnrelatedDivergenceAndMalformedRefs(t *testing.T)
 		goodBranch = "agent/issue-55-run-good"
 	)
 	commands := []string{}
-	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
 		commands = append(commands, command)
 		switch {
@@ -374,7 +428,13 @@ func TestRunLocalCleanupIgnoresUnrelatedDivergenceAndMalformedRefs(t *testing.T)
 			return "tracking-unrelated origin/agent/issue-56-run-other\n" +
 				"bad-tracking origin/agent/issue-56-run-", nil
 		case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
-			return "evaluated-commit\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+			return canonicalHistorySHA("evaluated-commit") + "\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+		case command == "git cat-file --batch-check=%(objectname) %(objecttype)":
+			value, readErr := io.ReadAll(input)
+			if readErr != nil {
+				return "", fmt.Errorf("read object query: %w", readErr)
+			}
+			return strings.TrimSpace(string(value)) + " commit", nil
 		case command == "git ls-remote --heads origin refs/heads/"+goodBranch:
 			return goodSHA + " refs/heads/" + goodBranch, nil
 		case strings.HasPrefix(command, "gh pr list "):
@@ -454,12 +514,18 @@ func openPRRunLocalCandidateExecutor(local, tracking bool, commands *[]string) c
 	if tracking {
 		trackingSHA = sha
 	}
-	return func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	return func(_ string, input io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
 		*commands = append(*commands, command)
 		switch {
 		case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
-			return "evaluated-commit\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+			return canonicalHistorySHA("evaluated-commit") + "\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+		case command == "git cat-file --batch-check=%(objectname) %(objecttype)":
+			value, readErr := io.ReadAll(input)
+			if readErr != nil {
+				return "", fmt.Errorf("read object query: %w", readErr)
+			}
+			return strings.TrimSpace(string(value)) + " commit", nil
 		case command == "git ls-remote --heads origin refs/heads/"+branch:
 			return "", nil
 		case command == "git for-each-ref --format=%(objectname) refs/heads/"+branch:
@@ -503,17 +569,25 @@ func TestPreMergeRunLocalWorktreeAllowanceRejectsExtraWorktree(t *testing.T) {
 }
 
 func TestRunLocalHistoryPreservesConflictingIdentities(t *testing.T) {
-	history := "tip\x00work\x00current\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-		"conflicting\x00" + claimMessage(86, "run-other", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-		"oldest-current\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-		"f7d1ce\x00inherited squash body\nAgent-Run-ID: old-run\nAgent-Run-ID: another-old-run\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
+	history := canonicalHistorySHA("tip") + "\x00work\x00" + canonicalHistorySHA("current") + "\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		canonicalHistorySHA("conflicting") + "\x00" + claimMessage(86, "run-other", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		canonicalHistorySHA("oldest-current") + "\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		canonicalHistorySHA("f7d1ce") + "\x00inherited squash body\nAgent-Run-ID: old-run\nAgent-Run-ID: another-old-run\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
 	identities, err := parseBoundedRunLocalHistory(history, "agent/issue-86-run-good")
 	if err != nil {
 		t.Fatalf("parseBoundedRunLocalHistory: %v", err)
 	}
-	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
-		if name != "git" || name+" "+strings.Join(args, " ") != "git log --format=%H%x00%B%x00 evaluated-head" {
-			return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+	application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if command == "git cat-file --batch-check=%(objectname) %(objecttype)" {
+			value, readErr := io.ReadAll(input)
+			if readErr != nil {
+				return "", fmt.Errorf("read object query: %w", readErr)
+			}
+			return strings.TrimSpace(string(value)) + " commit", nil
+		}
+		if command != "git log --format=%H%x00%B%x00 evaluated-head" {
+			return "", fmt.Errorf("unexpected command: %s", command)
 		}
 		return history, nil
 	}}
@@ -524,6 +598,7 @@ func TestRunLocalHistoryPreservesConflictingIdentities(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // The table keeps malformed metadata and zero-mutation assertions together.
 func TestRunLocalHistoryRejectsAmbiguousMetadataInsideBoundedRange(t *testing.T) {
 	const branch = "agent/issue-86-run-f9"
 	for _, test := range []struct {
@@ -534,14 +609,21 @@ func TestRunLocalHistoryRejectsAmbiguousMetadataInsideBoundedRange(t *testing.T)
 		{name: "repeated issue", metadata: "Agent-Run-ID: run-f9\nAgent-Issue: 86\nAgent-Issue: 87\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			history := "tip\x00work\x00current\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-				"ambiguous\x00" + test.metadata + "\x00" +
-				"oldest-current\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-				"f7d1ce\x00inherited squash body\nAgent-Run-ID: historical-a\nAgent-Run-ID: historical-b\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
+			history := canonicalHistorySHA("tip") + "\x00work\x00" + canonicalHistorySHA("current") + "\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+				canonicalHistorySHA("conflicting") + "\x00" + test.metadata + "\x00" +
+				canonicalHistorySHA("oldest-current") + "\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+				canonicalHistorySHA("f7d1ce") + "\x00inherited squash body\nAgent-Run-ID: historical-a\nAgent-Run-ID: historical-b\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
 			commands := []string{}
-			application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 				command := name + " " + strings.Join(args, " ")
 				commands = append(commands, command)
+				if command == "git cat-file --batch-check=%(objectname) %(objecttype)" {
+					value, readErr := io.ReadAll(input)
+					if readErr != nil {
+						return "", fmt.Errorf("read object query: %w", readErr)
+					}
+					return strings.TrimSpace(string(value)) + " commit", nil
+				}
 				if command != "git log --format=%H%x00%B%x00 evaluated-head" {
 					return "", fmt.Errorf("unexpected command: %s", command)
 				}
@@ -551,7 +633,7 @@ func TestRunLocalHistoryRejectsAmbiguousMetadataInsideBoundedRange(t *testing.T)
 			if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 				t.Fatalf("ambiguous bounded history proof = %v, want preservation refusal", err)
 			}
-			if len(commands) != 1 {
+			if containsRunLocalDelete(commands) {
 				t.Fatalf("bounded history refusal issued mutation commands: %v", commands)
 			}
 		})
@@ -560,8 +642,8 @@ func TestRunLocalHistoryRejectsAmbiguousMetadataInsideBoundedRange(t *testing.T)
 
 func TestRunLocalHistoryIgnoresInheritedRepeatedTrailers(t *testing.T) {
 	const branch = "agent/issue-86-run-f9"
-	history := "tip\x00work\x00claim\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-		"f7d1ce\x00inherited squash body\nAgent-Run-ID: historical-a\nAgent-Run-ID: historical-b\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
+	history := canonicalHistorySHA("tip") + "\x00work\x00" + canonicalHistorySHA("current") + "\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		canonicalHistorySHA("f7d1ce") + "\x00inherited squash body\nAgent-Run-ID: historical-a\nAgent-Run-ID: historical-b\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
 	identities, err := parseBoundedRunLocalHistory(history, branch)
 	if err != nil {
 		t.Fatalf("parseBoundedRunLocalHistory: %v", err)
@@ -569,8 +651,15 @@ func TestRunLocalHistoryIgnoresInheritedRepeatedTrailers(t *testing.T) {
 	if len(identities) != 1 || identities[0] != (runLocalHistoryIdentity{runID: "run-f9", issue: 86}) {
 		t.Fatalf("bounded identities = %#v, want current claim only", identities)
 	}
-	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
+		if command == "git cat-file --batch-check=%(objectname) %(objecttype)" {
+			value, readErr := io.ReadAll(input)
+			if readErr != nil {
+				return "", fmt.Errorf("read object query: %w", readErr)
+			}
+			return strings.TrimSpace(string(value)) + " commit", nil
+		}
 		if command != "git log --format=%H%x00%B%x00 evaluated-head" {
 			return "", fmt.Errorf("unexpected command: %s", command)
 		}
@@ -579,6 +668,77 @@ func TestRunLocalHistoryIgnoresInheritedRepeatedTrailers(t *testing.T) {
 	err = application.validateRunLocalProof("/repo", runLocalRefCandidate{branch: branch, sha: "evaluated-head"}, claimArtifact{issue: 86, sha: "evaluated-head"}, "evaluated-head")
 	if err != nil {
 		t.Fatalf("inherited squash trailers rejected current packet: %v", err)
+	}
+}
+
+func TestSplitRunLocalHistoryRequiresCanonicalCommitTokens(t *testing.T) {
+	valid := canonicalHistorySHA("tip") + "\x00message\x00"
+	for _, test := range []struct {
+		name    string
+		history string
+	}{
+		{name: "short SHA", history: "short\x00message\x00"},
+		{name: "missing commit", history: "\x00message\x00"},
+		{name: "trailing record field", history: valid + "unexpected"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := splitRunLocalHistory(test.history, "agent/issue-86-run-good")
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+				t.Fatalf("splitRunLocalHistory(%q) = %v, disposition %d, want terminal", test.history, err, operationDispositionOf(err))
+			}
+		})
+	}
+}
+
+//nolint:gocognit // The table covers malformed history and object transport at one consumer boundary.
+func TestRunLocalHistoryObjectBoundariesPreserveWithoutMutation(t *testing.T) {
+	const (
+		branch = "agent/issue-86-run-good"
+		sha    = "evaluated-head"
+	)
+	history := canonicalHistorySHA("tip") + "\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00"
+	for _, test := range []struct {
+		name      string
+		history   string
+		objectErr error
+		want      operationDisposition
+		wantCause bool
+	}{
+		{name: "malformed successful history", history: "short\x00message\x00", want: operationDispositionTerminal},
+		{name: "object transport", history: history, objectErr: errors.New("history object transport sentinel"), want: operationDispositionRetryable, wantCause: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			commands := []string{}
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				commands = append(commands, command)
+				switch {
+				case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
+					return test.history, nil
+				case command == "git cat-file --batch-check=%(objectname) %(objecttype)":
+					if test.objectErr != nil {
+						return "", test.objectErr
+					}
+					value, readErr := io.ReadAll(input)
+					if readErr != nil {
+						return "", fmt.Errorf("read object query: %w", readErr)
+					}
+					return strings.TrimSpace(string(value)) + " commit", nil
+				default:
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+			}}
+			err := application.validateRunLocalProof("/repo", runLocalRefCandidate{branch: branch, sha: sha}, claimArtifact{issue: 86, sha: sha}, sha)
+			if err == nil || operationDispositionOf(err) != test.want {
+				t.Fatalf("run-local history error = %v, disposition %d, want %d", err, operationDispositionOf(err), test.want)
+			}
+			if test.wantCause && !errors.Is(err, test.objectErr) {
+				t.Fatalf("run-local history error = %v, want cause %v", err, test.objectErr)
+			}
+			if containsRunLocalDelete(commands) {
+				t.Fatalf("run-local history attempted mutation: %v", commands)
+			}
+		})
 	}
 }
 
@@ -1229,33 +1389,30 @@ func assertIssue86AncestorDeletes(t *testing.T, fixture issue86AncestorFixture, 
 }
 
 func ancestorRunLocalHistory() string {
-	const (
-		anchor = "canonical-anchor"
-		runID  = "run-good"
-	)
+	const runID = "run-good"
 	lease := time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)
-	return "evaluated\x00evaluated work\x00" +
-		"renewal\x00" + claimMessage(86, runID, lease.Add(time.Minute)) + "\x00" +
-		anchor + "\x00" + claimMessage(86, runID, lease) + "\x00" +
-		"inherited\x00base history\x00"
+	return canonicalHistorySHA("evaluated") + "\x00evaluated work\x00" +
+		canonicalHistorySHA("renewal") + "\x00" + claimMessage(86, runID, lease.Add(time.Minute)) + "\x00" +
+		canonicalHistorySHA("canonical-anchor") + "\x00" + claimMessage(86, runID, lease) + "\x00" +
+		canonicalHistorySHA("inherited") + "\x00base history\x00"
 }
 
 func ancestorRunLocalHistoryWithIdentity() string {
 	const (
-		anchor           = "canonical-anchor"
 		runID            = "run-good"
 		conflictingRunID = "run-other"
 	)
 	lease := time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)
-	return "evaluated\x00evaluated work\x00" +
-		"renewal\x00" + claimMessage(86, runID, lease.Add(2*time.Minute)) + "\x00" +
-		"conflicting\x00" + claimMessage(86, conflictingRunID, lease.Add(time.Minute)) + "\x00" +
-		anchor + "\x00" + claimMessage(86, runID, lease) + "\x00" +
-		"inherited\x00base history\x00"
+	return canonicalHistorySHA("evaluated") + "\x00evaluated work\x00" +
+		canonicalHistorySHA("renewal") + "\x00" + claimMessage(86, runID, lease.Add(2*time.Minute)) + "\x00" +
+		canonicalHistorySHA("conflicting") + "\x00" + claimMessage(86, conflictingRunID, lease.Add(time.Minute)) + "\x00" +
+		canonicalHistorySHA("canonical-anchor") + "\x00" + claimMessage(86, runID, lease) + "\x00" +
+		canonicalHistorySHA("inherited") + "\x00base history\x00"
 }
 
+//nolint:gocognit // The injected executor models the ordered read-only candidate proof.
 func scriptedAncestorCandidateApplication(history string, graph map[string]string, currentSHA string, openPR bool, commands *[]string) app {
-	return app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	return app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
 		*commands = append(*commands, command)
 		switch {
@@ -1266,7 +1423,7 @@ func scriptedAncestorCandidateApplication(history string, graph map[string]strin
 			if len(values) != 5 {
 				return "", fmt.Errorf("unexpected merge-base command: %s", command)
 			}
-			result, ok := graph[values[3]+"|"+values[4]]
+			result, ok := graph[canonicalHistoryAlias(values[3])+"|"+canonicalHistoryAlias(values[4])]
 			if !ok {
 				return "", fmt.Errorf("unexpected merge-base command: %s", command)
 			}
@@ -1274,6 +1431,13 @@ func scriptedAncestorCandidateApplication(history string, graph map[string]strin
 				return "", errors.New("exit status 1")
 			}
 			return result, nil
+		case command == "git cat-file --batch-check=%(objectname) %(objecttype)":
+			value, err := io.ReadAll(input)
+			if err != nil {
+				return "", fmt.Errorf("read object query: %w", err)
+			}
+			sha := strings.TrimSpace(string(value))
+			return sha + " commit", nil
 		case strings.HasPrefix(command, "git ls-remote --heads origin refs/heads/"):
 			branch := strings.TrimPrefix(command, "git ls-remote --heads origin refs/heads/")
 			return currentSHA + " refs/heads/" + branch, nil
@@ -1289,7 +1453,7 @@ func scriptedAncestorCandidateApplication(history string, graph map[string]strin
 }
 
 func scriptedRunLocalApplication(inventory, currentSHA string, openPR bool, commands *[]string) app {
-	return app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	return app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
 		*commands = append(*commands, command)
 		switch {
@@ -1300,7 +1464,14 @@ func scriptedRunLocalApplication(inventory, currentSHA string, openPR bool, comm
 		case command == "git for-each-ref --format=%(refname:short) %(objectname) refs/remotes/origin/agent/issue-*":
 			return "", nil
 		case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
-			return "evaluated-commit\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+			return canonicalHistorySHA("evaluated-commit") + "\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+		case command == "git cat-file --batch-check=%(objectname) %(objecttype)":
+			value, err := io.ReadAll(input)
+			if err != nil {
+				return "", fmt.Errorf("read object query: %w", err)
+			}
+			sha := strings.TrimSpace(string(value))
+			return sha + " commit", nil
 		case strings.HasPrefix(command, "git ls-remote --heads origin refs/heads/"):
 			branch := strings.TrimPrefix(command, "git ls-remote --heads origin refs/heads/")
 			return currentSHA + " refs/heads/" + branch, nil

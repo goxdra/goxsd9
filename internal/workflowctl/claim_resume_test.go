@@ -15,6 +15,91 @@ import (
 	"time"
 )
 
+const issue305TerminalHandoffBody = `# Handoff: issue #305
+
+## Block
+
+The claimed packet could not reach implementation because the Smith child
+agent remained running without producing a handoff or an error state. The
+child was given the complete issue contract and two bounded follow-ups. Six
+wait windows totaling more than twenty minutes timed out; the implementation
+worktree remained clean throughout. The child was closed only after its
+previous status was reported as ` + "`running`" + `.
+
+## Decisions and evidence
+
+- Coordination checkout passed ` + "`go tool workflowctl doctor`" + ` on clean ` + "`main`" + `
+  at ` + "`f7478ec`" + `; ` + "`sync`" + `, ` + "`pick`" + `, and claim acquisition selected issue #305.
+- Issue #305 is the sole claimed packet: retain effective ` + "`whiteSpace`" + ` facts for supported atomic string restrictions, including inheritance, fixed
+  constraints, XSD 1.0/1.1 coverage, and immutable views. Validation,
+  generation, lists/unions, length/pattern, and built-in derived string
+  families remain out of scope.
+- Scribe evidence: XSD 1.0/1.1 ` + "`#rf-whiteSpace`" + `; pinned artifacts
+  ` + "`internal/specs/testdata/bootstrap/xsd10-datatypes-schema.raw`" + ` lines 91-109,
+  492-506 and ` + "`xsd11-datatypes-schema.raw`" + ` lines 236-242, 371-396. The
+  required order is ` + "`preserve -> replace -> collapse`" + `; built-in ` + "`xs:string`" + ` is preserve and not fixed.
+- Mason evidence: the intended representation is the existing
+  ` + "`schemaStringFacetVariant`" + ` in ` + "`schema.go`" + `; parsing remains in
+  ` + "`schemaStringFacetDeclarationSet`" + ` in ` + "`schema_build.go`" + `; derivation belongs
+  in ` + "`restrictSchemaStringFacets`" + `; the anonymous bridge is
+  ` + "`validateInlineSchemaType`" + `. No files were changed by Mason.
+- The preserved issue worktree is
+  ` + "`/home/paseouser/workspace/goxsd9-worktrees/issue-305-run-0e4ad40a7c3a6857`" + `.
+  Its branch is ` + "`agent/issue-305-run-0e4ad40a7c3a6857`" + `, with no diff, commit,
+  push, PR, check, evidence, challenge, or Examiner receipt.
+
+## Risks
+
+- The packet is unimplemented; no acceptance criterion has been verified.
+- The claimed worktree contains no implementation changes but must be
+  preserved for the next bounded selection/Smith attempt.
+- No PR or review lifecycle has started, so there is no stale evidence to
+  reuse.
+
+## Next actions
+
+Resume from the preserved claim/worktree with a fresh Smith implementation
+agent, using the completed Scribe/Mason decisions above. Re-run focused tests,
+` + "`go tool workflowctl check`" + `, and the full PR/evidence/Curator/Examiner workflow
+only after implementation exists. Do not widen issue #305 or infer completion
+from the clean worktree.
+`
+
+func TestClaimResumeAcceptsExactIssue305TerminalHandoff(t *testing.T) {
+	if err := validateTerminalClaimHandoffBody(issue305TerminalHandoffBody, 305); err != nil {
+		t.Fatalf("exact issue #305 terminal handoff: %v", err)
+	}
+	const (
+		root        = "/home/paseouser/workspace/goxsd9-worktrees/issue-305-run-0e4ad40a7c3a6857"
+		fixedBranch = "agent/issue-305"
+		localBranch = "agent/issue-305-run-0e4ad40a7c3a6857"
+		runID       = "run-0e4ad40a7c3a6857"
+		head        = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	if err := validateClaimResumeHandoffBindings(issue305TerminalHandoffBody, 305, head, fixedBranch, localBranch, root, runID, time.Time{}); err != nil {
+		t.Fatalf("exact issue #305 handoff bindings: %v", err)
+	}
+}
+
+func TestClaimResumeExactIssue305DryRunHasZeroMutation(t *testing.T) {
+	fixture := newClaimResumeIssueFixture(t, 305, "run-0e4ad40a7c3a6857", "")
+	fixture.handoff = 5517524887
+	fixture.handoffBody = strings.Replace(issue305TerminalHandoffBody,
+		"/home/paseouser/workspace/goxsd9-worktrees/issue-305-run-0e4ad40a7c3a6857", fixture.worktree, 1)
+	backend := newClaimResumeBackend(t, fixture)
+	var output bytes.Buffer
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: &output}
+	if err := application.run(claimResumeArgs(fixture, true)); err != nil {
+		t.Fatalf("issue #305 claim resume dry-run: %v", err)
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("issue #305 dry-run mutations = %d, want zero", backend.mutations)
+	}
+	if !strings.Contains(output.String(), "handoff-comment 5517524887") {
+		t.Fatalf("issue #305 dry-run output = %q", output.String())
+	}
+}
+
 func TestClaimResumeTerminalEvidenceParser(t *testing.T) {
 	worktree := "/worktrees/issue-14-run-proof"
 	valid := fmt.Sprintf("## Blocker\n\nIssue #14 was claimed in %s.\n\n## Evidence\n\n- Issue #14 remained OPEN in the Project.\n- The claim worktree was clean at the final read.\n- No implementation, tests, commit, push, PR, or evaluation record was made.\n\n## Decisions and risks\n\n- Preserve the claim.\n\n## Next action\n\nResume after the blocker is cleared.\n", worktree)
@@ -342,28 +427,33 @@ func TestClaimResumeRequiresAcknowledgementAndExactFlags(t *testing.T) {
 
 type claimResumeFixture struct {
 	baseRepositoryFixture
-	expected string
-	runID    string
-	worktree string
-	handoff  int64
-	lease    time.Time
+	issue       int
+	expected    string
+	runID       string
+	worktree    string
+	handoff     int64
+	lease       time.Time
+	handoffBody string
 }
 
 func newClaimResumeFixture(t *testing.T) claimResumeFixture {
+	return newClaimResumeIssueFixture(t, 14, "run-resume-test", "")
+}
+
+func newClaimResumeIssueFixture(t *testing.T, issue int, runID, handoffBody string) claimResumeFixture {
 	t.Helper()
 	base := newBaseRepositoryFixture(t, false)
-	runID := "run-resume-test"
 	lease := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	parent := runGitTest(t, base.primary, "rev-parse", "HEAD")
-	expected := createResumeTestCommit(t, base.primary, parent, claimMessage(14, runID, lease))
-	runGitTest(t, base.primary, "push", "origin", expected+":refs/heads/agent/issue-14")
-	worktree := filepath.Join(t.TempDir(), "issue-14-run-resume-test")
-	runGitTest(t, base.primary, "worktree", "add", "-b", "agent/issue-14-"+runID, worktree, expected)
-	return claimResumeFixture{baseRepositoryFixture: base, expected: expected, runID: runID, worktree: worktree, handoff: 2, lease: lease}
+	expected := createResumeTestCommit(t, base.primary, parent, claimMessage(issue, runID, lease))
+	runGitTest(t, base.primary, "push", "origin", expected+":refs/heads/"+claimBranch(issue))
+	worktree := filepath.Join(t.TempDir(), fmt.Sprintf("issue-%d-%s", issue, runID))
+	runGitTest(t, base.primary, "worktree", "add", "-b", claimLocalBranch(issue, runID), worktree, expected)
+	return claimResumeFixture{baseRepositoryFixture: base, issue: issue, expected: expected, runID: runID, worktree: worktree, handoff: 2, lease: lease, handoffBody: handoffBody}
 }
 
 func claimResumeArgs(fixture claimResumeFixture, dryRun bool) []string {
-	args := []string{"claim", "resume", "14", "--expected-head", fixture.expected, "--run-id", fixture.runID,
+	args := []string{"claim", "resume", strconv.Itoa(fixture.issue), "--expected-head", fixture.expected, "--run-id", fixture.runID,
 		"--handoff-comment", strconv.FormatInt(fixture.handoff, 10), "--acknowledge-needs-human"}
 	if dryRun {
 		args = append(args, "--dry-run")
@@ -393,12 +483,19 @@ type claimResumeBackend struct {
 
 func newClaimResumeBackend(t *testing.T, fixture claimResumeFixture) *claimResumeBackend {
 	t.Helper()
+	issue := fixture.issue
 	lease := fixture.lease
 	claim := issueCommentAPI{ID: 1, Body: fmt.Sprintf("Claim acquired.\n\n- Branch: `%s`\n- Local branch: `%s`\n- Worktree: `%s`\n- Run: `%s`\n- Lease until: `%s`\n",
-		claimBranch(14), claimLocalBranch(14, fixture.runID), fixture.worktree, fixture.runID, lease.Format(time.RFC3339))}
+		claimBranch(issue), claimLocalBranch(issue, fixture.runID), fixture.worktree, fixture.runID, lease.Format(time.RFC3339))}
 	claim.User.Login = trustedActor
-	terminal := issueCommentAPI{ID: fixture.handoff, Body: fmt.Sprintf("## Blocker\n\nIssue #14 was claimed in %s.\n\n## Evidence\n\n- Issue #14 remained OPEN in the Roadmap Project.\n- The claim worktree was clean at the final read: %s.\n- No implementation, tests, documentation, commit, push, PR, or evaluation record was made.\n\n## Decisions and risks\n\n- The generated claim is preserved.\n\n## Next action\n\nResume the issue after the blocker is cleared.\n", fixture.worktree, fixture.worktree)}
+	claim.CreatedAt = lease.Add(-time.Minute)
+	terminalBody := fixture.handoffBody
+	if terminalBody == "" {
+		terminalBody = fmt.Sprintf("## Blocker\n\nIssue #%d was claimed in %s.\n\n## Evidence\n\n- Issue #%d remained OPEN in the Roadmap Project.\n- The claim worktree was clean at the final read: %s.\n- No implementation, tests, documentation, commit, push, PR, or evaluation record was made.\n\n## Decisions and risks\n\n- The generated claim is preserved.\n\n## Next action\n\nResume the issue after the blocker is cleared.\n", issue, fixture.worktree, issue, fixture.worktree)
+	}
+	terminal := issueCommentAPI{ID: fixture.handoff, Body: terminalBody}
 	terminal.User.Login = trustedActor
+	terminal.CreatedAt = lease
 	return &claimResumeBackend{t: t, fixture: fixture, comments: []issueCommentAPI{claim, terminal}, needsHuman: true, projectStatus: "Backlog"}
 }
 
@@ -441,7 +538,7 @@ func (b *claimResumeBackend) execute(dir string, input io.Reader, name string, a
 func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 	joined := strings.Join(args, " ")
 	switch {
-	case joined == "api repos/goxdra/goxsd9/issues/14":
+	case joined == fmt.Sprintf("api repos/goxdra/goxsd9/issues/%d", b.fixture.issue):
 		if b.malformedIssue {
 			return "{", nil
 		}
@@ -458,15 +555,15 @@ func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 			labels = `[{"name":"needs-human"}]`
 		}
 		return `{"state":"open","labels":` + labels + `}`, nil
-	case joined == "api --paginate repos/goxdra/goxsd9/issues/14/comments?per_page=100":
+	case joined == fmt.Sprintf("api --paginate repos/goxdra/goxsd9/issues/%d/comments?per_page=100", b.fixture.issue):
 		data, err := json.Marshal(b.comments)
 		return string(data), err
-	case joined == "pr list --repo goxdra/goxsd9 --head agent/issue-14 --state open --json number":
+	case joined == fmt.Sprintf("pr list --repo goxdra/goxsd9 --head %s --state open --json number", claimBranch(b.fixture.issue)):
 		if b.openPR {
 			return `[{"number":55}]`, nil
 		}
 		return `[]`, nil
-	case strings.HasPrefix(joined, "issue edit 14 "):
+	case strings.HasPrefix(joined, fmt.Sprintf("issue edit %d ", b.fixture.issue)):
 		b.mutations++
 		if b.labelFailure != nil {
 			err := b.labelFailure
@@ -483,7 +580,7 @@ func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 		if b.raceProjectPicked && b.projectItemReads() == 3 {
 			b.projectStatus = "Picked"
 		}
-		return fmt.Sprintf(`{"items":[{"id":"item-14","status":%q,"content":{"number":14,"repository":"goxdra/goxsd9","type":"Issue"}}],"totalCount":1}`, b.projectStatus), nil
+		return fmt.Sprintf(`{"items":[{"id":"item-%d","status":%q,"content":{"number":%d,"repository":"goxdra/goxsd9","type":"Issue"}}],"totalCount":1}`, b.fixture.issue, b.projectStatus, b.fixture.issue), nil
 	case strings.HasPrefix(joined, "project field-list "):
 		return `{"fields":[{"id":"status-field","name":"Status","options":[{"id":"backlog-id","name":"Backlog"},{"id":"picked-id","name":"Picked"}]}]}`, nil
 	case strings.Contains(joined, "project item-edit"):
@@ -502,7 +599,7 @@ func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 func (b *claimResumeBackend) issueStatusReads() int {
 	reads := 0
 	for _, call := range b.calls {
-		if call == "gh api repos/goxdra/goxsd9/issues/14" {
+		if call == fmt.Sprintf("gh api repos/goxdra/goxsd9/issues/%d", b.fixture.issue) {
 			reads++
 		}
 	}

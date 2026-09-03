@@ -1,9 +1,11 @@
 package workflowctl
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -135,8 +137,9 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	if validateErr := a.validateLocalAgentCommit(root, local, "local claim head"); validateErr != nil {
 		return resumeProof{}, validateErr
 	}
-	if _, diffErr := a.command(root, "git", "diff", "--cached", "--quiet"); diffErr != nil {
-		return resumeProof{}, terminalOperation("PR resume staged-worktree check", stateError("claim worktree has staged changes; preserve them before recovery"))
+	stagedErr := a.validateResumeStagedWorktree(root)
+	if stagedErr != nil {
+		return resumeProof{}, stagedErr
 	}
 	claim, err := a.readCanonicalClaimIdentity(root, expectedHead, "")
 	if err != nil {
@@ -329,20 +332,62 @@ func (a app) inspectResumeLocalAncestor(root, local, expected, branch string) (b
 	return true, nil
 }
 
+func (a app) validateResumeStagedWorktree(root string) error {
+	status, cause := a.resumeStagedWorktreeStatus(root)
+	if status == 0 && cause != nil {
+		return cause
+	}
+	if status == 0 {
+		return nil
+	}
+	if status == 1 {
+		return terminalOperation("PR resume staged-worktree check", stateError("claim worktree has staged changes; preserve them before recovery"))
+	}
+	if cause != nil {
+		return retryableOperation("PR resume staged-worktree check", fmt.Errorf("git diff --cached --quiet exited with status %d: %w", status, cause))
+	}
+	return retryableOperation("PR resume staged-worktree check", fmt.Errorf("git diff --cached --quiet exited with status %d", status))
+}
+
+func (a app) resumeStagedWorktreeStatus(root string) (int, error) {
+	if a.executeCommandCapture != nil {
+		result, err := a.commandCaptureWithEnv(root, nil, "git", "diff", "--cached", "--quiet")
+		if err != nil {
+			return 0, retryableOperation("PR resume staged-worktree check", fmt.Errorf("run git diff --cached --quiet: %w", err))
+		}
+		return result.status, nil
+	}
+	_, err := a.command(root, "git", "diff", "--cached", "--quiet")
+	if err == nil {
+		return 0, nil
+	}
+	if operationDispositionOf(err) != operationDispositionUnknown {
+		return 0, err
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return 0, retryableOperation("PR resume staged-worktree check", fmt.Errorf("run git diff --cached --quiet: %w", err))
+	}
+	return exitErr.ExitCode(), err
+}
+
 func (a app) resumeRunLocalLineage(root, head string, issue int) ([]string, error) {
 	history, err := a.command(root, "git", "log", "--format=%H%x00%B%x00", head)
 	if err != nil {
-		return nil, fmt.Errorf("read evaluated claim lineage at %s: %w", head, err)
+		return nil, retryableOperation("read evaluated claim lineage", fmt.Errorf("read evaluated claim lineage at %s: %w", head, err))
 	}
 	records, err := splitRunLocalHistory(history, fmt.Sprintf("agent/issue-%d", issue))
 	if err != nil {
+		return nil, err
+	}
+	if err := a.verifyRunLocalHistoryRecords(root, fmt.Sprintf("agent/issue-%d", issue), records); err != nil {
 		return nil, err
 	}
 	lineage := make([]string, 0)
 	for _, record := range records {
 		identity, canonical, parseErr := parseCanonicalRunLocalClaim(record.message, issue)
 		if parseErr != nil {
-			return nil, stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr)
+			return nil, terminalRunLocalHistoryError(stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr))
 		}
 		if canonical {
 			lineage = appendUniqueString(lineage, identity.runID)
@@ -386,8 +431,9 @@ func (a app) sealPullRequestResumeProof(proof resumeProof) error {
 	if local != proof.renewalHead {
 		return stateError("local claim head moved while sealing proof: expected %s, found %s", proof.renewalHead, local)
 	}
-	if _, diffErr := a.command(proof.root, "git", "diff", "--cached", "--quiet"); diffErr != nil {
-		return stateError("claim worktree gained staged changes while sealing proof")
+	stagedErr := a.validateResumeStagedWorktree(proof.root)
+	if stagedErr != nil {
+		return stagedErr
 	}
 	lineage, err := a.validateResumeSealWorktree(proof, local)
 	if err != nil {

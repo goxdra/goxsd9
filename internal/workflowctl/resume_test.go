@@ -245,15 +245,15 @@ func TestPRResumeInitialReadOperationBoundaries(t *testing.T) {
 			wantCause: true,
 		},
 		{
-			name: "intentional staged-check status",
+			name: "staged-check transport",
 			intercept: func(command string, _ *resumeBackend, sentinel error) (string, bool, error) {
 				if command == "git diff --cached --quiet" {
 					return "", true, sentinel
 				}
 				return "", false, nil
 			},
-			want:       operationDispositionTerminal,
-			wantOutput: "staged changes",
+			want:      operationDispositionRetryable,
+			wantCause: true,
 		},
 	}
 	for _, test := range tests {
@@ -280,6 +280,62 @@ func TestPRResumeInitialReadOperationBoundaries(t *testing.T) {
 			}
 			if backend.mutations != 0 {
 				t.Fatalf("initial read failure mutations = %d, want zero", backend.mutations)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // The table exercises each staged-check status at one proof boundary.
+func TestPRResumeStagedCheckExitBoundariesPreserveCauseAndMutation(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		captureErr error
+		want       operationDisposition
+		wantCause  bool
+		wantOutput string
+	}{
+		{name: "clean", want: operationDispositionUnknown},
+		{name: "staged changes", status: 1, want: operationDispositionTerminal, wantOutput: "staged changes"},
+		{name: "git uncertainty", status: 128, want: operationDispositionRetryable},
+		{name: "transport", captureErr: errors.New("staged-check transport sentinel"), want: operationDispositionRetryable, wantCause: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newResumeFixture(t)
+			backend := newResumeBackend(t, fixture)
+			application := app{
+				ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard,
+				executeCommandCapture: func(_ string, _ []string, name string, args ...string) (commandCaptureResult, error) {
+					if name != "git" || strings.Join(args, " ") != "diff --cached --quiet" {
+						return commandCaptureResult{}, fmt.Errorf("unexpected captured command: %s %s", name, strings.Join(args, " "))
+					}
+					if test.captureErr != nil {
+						return commandCaptureResult{}, test.captureErr
+					}
+					return commandCaptureResult{status: test.status}, nil
+				},
+			}
+			args := append(resumeArgs(fixture.expected), "--dry-run")
+			err := application.run(args)
+			if test.want == operationDispositionUnknown {
+				if err != nil {
+					t.Fatalf("clean staged check: %v", err)
+				}
+			}
+			if test.want != operationDispositionUnknown {
+				if err == nil || operationDispositionOf(err) != test.want {
+					t.Fatalf("staged check error = %v, disposition %d, want %d", err, operationDispositionOf(err), test.want)
+				}
+				if test.wantCause && !errors.Is(err, test.captureErr) {
+					t.Fatalf("staged check error = %v, want cause %v", err, test.captureErr)
+				}
+				if test.wantOutput != "" && !strings.Contains(err.Error(), test.wantOutput) {
+					t.Fatalf("staged check error = %v, want %q", err, test.wantOutput)
+				}
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("staged check mutations = %d, want zero; args=%v calls=%v", backend.mutations, args, backend.calls)
 			}
 		})
 	}
