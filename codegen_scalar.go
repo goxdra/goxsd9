@@ -1382,6 +1382,9 @@ func codegenNamedElementFieldType(
 		)
 	}
 	if target.Kind() == ComponentKindComplexTypeDefinition && allowComplexElementType {
+		if err := rejectCodegenBoundedOpenAttrsElement(target, component, declaredType, related, version); err != nil {
+			return codegenSourceTarget{}, "", false, err
+		}
 		sourceTarget := codegenSourceTarget{
 			form:         codegenSourceTargetNamed,
 			declaredType: declaredType,
@@ -1420,6 +1423,34 @@ func codegenNamedElementFieldType(
 		return codegenSourceTarget{}, "", false, err
 	}
 	return sourceTarget, fieldType, false, nil
+}
+
+func rejectCodegenBoundedOpenAttrsElement(target, component Component, declaredType QName, related []Loc, version XSDVersion) error {
+	definition, ok := target.ComplexType()
+	if !ok {
+		return newCodegenInternal(
+			component.Loc(),
+			fmt.Sprintf("global element %q target complex type has no completed view", component.Name()),
+			related,
+			errCodegenElementType,
+		)
+	}
+	body, ok := definition.boundedOpenAttrsRestrictionBody()
+	if !ok {
+		return nil
+	}
+	related = appendCodegenRelated(related, definition.Loc())
+	related = appendCodegenRelated(related, body.complexContentLoc)
+	related = appendCodegenRelated(related, body.restrictionLoc)
+	related = appendCodegenRelated(related, body.base.loc)
+	related = appendCodegenRelated(related, body.anyAttribute.loc)
+	return newCodegenElementUnsupported(
+		component.Loc(),
+		fmt.Sprintf("global element type %q uses bounded openAttrs content outside Go generation", declaredType),
+		related,
+		fmt.Errorf("%w: bounded openAttrs complex type", errCodegenUnsupported),
+		version,
+	)
 }
 
 //nolint:gocognit,funlen // Keep reference identity and primitive checks together.

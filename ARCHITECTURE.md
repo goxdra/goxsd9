@@ -97,7 +97,7 @@ The model stores facts; primitive status follows type relations. Global `xs:bool
 `xs:string` elements retain `DeclaredType`; named/anonymous restrictions expose immutable
 boolean-kind and string-enumeration facts. Built-ins lack synthetic IDs.
 
-Named complex types expose direct `element`, `sequence`, and `choice` particles.
+Named complex types expose direct particles and bounded openAttrs restrictions.
 Supported direct sequences/choices contain local built-in `xs:boolean`, named
 boolean-restriction, `integer`, or `decimal` scalar elements with exact finite/unbounded
 ranges; `0/0` maps to absence. XSD 1.1 direct choices may include

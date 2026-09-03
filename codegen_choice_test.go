@@ -943,16 +943,14 @@ func TestPlanCodegenDirectChoicesRejectsMalformedFacts(t *testing.T) {
 		{
 			name: "nil top-level choice",
 			mutate: func(schema Schema) {
-				component := schema.Components()[0]
-				component.complexType.particle = (*ChoiceParticle)(nil)
+				codegenDirectChoiceTestBody(schema).particle = (*ChoiceParticle)(nil)
 			},
 			cause: errCodegenDirectChoiceParticle,
 		},
 		{
 			name: "nil top-level element",
 			mutate: func(schema Schema) {
-				component := schema.Components()[0]
-				component.complexType.particle = (*ElementParticle)(nil)
+				codegenDirectChoiceTestBody(schema).particle = (*ElementParticle)(nil)
 			},
 			cause: errCodegenDirectChoiceParticle,
 		},
@@ -998,7 +996,7 @@ func TestPlanCodegenDirectChoicesClassifiesMissingComplexFactsAsInternal(t *test
 func TestPlanCodegenDirectChoicesClassifiesMissingParticleAsUnsupported(t *testing.T) {
 	schema := codegenDirectChoiceFailureSchema(t)
 	component := schema.Components()[0]
-	component.complexType.particle = nil
+	codegenDirectChoiceTestBody(schema).particle = nil
 
 	plan, err := planCodegenDirectChoices(schema, "generated")
 	if err == nil {
@@ -1098,11 +1096,19 @@ func TestPlanCodegenDirectChoicesRejectsIncompleteElementParticle(t *testing.T) 
 }
 
 func codegenDirectChoiceTestChoice(schema Schema) ChoiceParticle {
-	choice, ok := schema.Components()[0].complexType.particle.(ChoiceParticle)
+	choice, ok := codegenDirectChoiceTestBody(schema).particle.(ChoiceParticle)
 	if !ok {
 		panic("test fixture did not build a ChoiceParticle")
 	}
 	return choice
+}
+
+func codegenDirectChoiceTestBody(schema Schema) *schemaComplexTypeDirectBodyComponent {
+	body, ok := schema.Components()[0].complexType.body.(*schemaComplexTypeDirectBodyComponent)
+	if !ok || body == nil {
+		panic("test fixture did not build a direct complex type body")
+	}
+	return body
 }
 
 func codegenDirectChoiceTestElement(choice ChoiceParticle) ElementParticle {
@@ -1126,13 +1132,15 @@ func codegenDirectChoiceCollisionSchema(t *testing.T) Schema {
 					kind: ComponentKindComplexTypeDefinition,
 					name: mustTestQName(t, "urn:owner", "runtime"),
 					loc:  mustTestLoc(t, "owner.xsd", 2, 3),
-					complexType: &schemaComplexTypeInput{particle: &schemaChoiceParticleInput{
-						loc:         choiceLoc,
-						occurrences: codegenTestParticleOccurrenceRange(t, "1", "1"),
-						alternatives: []schemaElementParticleInput{
-							codegenDirectChoiceElementInput(t, "line-item", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "owner.xsd", 5, 7)),
-							codegenDirectChoiceElementInput(t, "LINE_ITEM", mustTestQName(t, testXSDNamespace, "decimal"), mustTestLoc(t, "owner.xsd", 6, 7)),
-							codegenDirectChoiceElementInput(t, "shared", mustTestQName(t, "urn:other", "shared"), mustTestLoc(t, "owner.xsd", 7, 7)),
+					complexType: &schemaComplexTypeInput{body: &schemaComplexTypeDirectBodyInput{
+						particle: &schemaChoiceParticleInput{
+							loc:         choiceLoc,
+							occurrences: codegenTestParticleOccurrenceRange(t, "1", "1"),
+							alternatives: []schemaElementParticleInput{
+								codegenDirectChoiceElementInput(t, "line-item", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "owner.xsd", 5, 7)),
+								codegenDirectChoiceElementInput(t, "LINE_ITEM", mustTestQName(t, testXSDNamespace, "decimal"), mustTestLoc(t, "owner.xsd", 6, 7)),
+								codegenDirectChoiceElementInput(t, "shared", mustTestQName(t, "urn:other", "shared"), mustTestLoc(t, "owner.xsd", 7, 7)),
+							},
 						},
 					}},
 				},
@@ -1160,10 +1168,12 @@ func codegenDirectChoiceFailureSchema(t *testing.T) Schema {
 			kind: ComponentKindComplexTypeDefinition,
 			name: mustTestQName(t, "urn:choice", "Choice"),
 			loc:  mustTestLoc(t, "choice.xsd", 2, 3),
-			complexType: &schemaComplexTypeInput{particle: &schemaChoiceParticleInput{
-				loc:          mustTestLoc(t, "choice.xsd", 3, 5),
-				occurrences:  codegenTestParticleOccurrenceRange(t, "1", "1"),
-				alternatives: []schemaElementParticleInput{codegenDirectChoiceElementInput(t, "value", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "choice.xsd", 4, 7))},
+			complexType: &schemaComplexTypeInput{body: &schemaComplexTypeDirectBodyInput{
+				particle: &schemaChoiceParticleInput{
+					loc:          mustTestLoc(t, "choice.xsd", 3, 5),
+					occurrences:  codegenTestParticleOccurrenceRange(t, "1", "1"),
+					alternatives: []schemaElementParticleInput{codegenDirectChoiceElementInput(t, "value", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "choice.xsd", 4, 7))},
+				},
 			}},
 		}},
 	}})
