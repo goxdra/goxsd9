@@ -166,13 +166,18 @@ direct sequence occurrences are not generated as repeated fields. Non-default
 `precisionDecimal` choice and alternative ranges that map to a particle are
 schema-unsupported. Boolean facets and
 anonymous, nested, or broader particles, including nested choices, `all`,
-groups, wildcards, and attributes, remain unsupported; anonymous
+groups, and broader wildcard/attribute forms, remain unsupported; anonymous
 simple-type models and resolved built-in, named, and anonymous simple-type
-references are modeled. Direct element-reference particles are supported in
-the schema model for local choice and sequence children and for global
-named-group direct choices; nested group references remain unsupported, and
-validator and code-generator consumption of direct references remains
-unsupported. Global
+references are modeled. Supported named direct sequence/choice types expose
+attribute-free direct `anyAttribute` with effective `##any`/`strict` defaults
+under XSD 1.0, XSD 1.1, and Compatibility; explicit `##other`/`lax` remains
+supported. Wildcard element locations are retained and omitted default-attribute
+locations are zero. Wildcard-bearing validation and code-generation consumers
+remain unsupported. Direct
+element-reference particles are supported in the schema model for local choice
+and sequence children and for global named-group direct choices; nested group
+references remain unsupported, and validator and code-generator consumption of
+direct references remains unsupported. Global
 text-only boolean validation is supported under
 Compatibility, Strict10, and Strict11; global boolean scalar generation is
 supported, while local boolean-particle validation and generation remain
