@@ -42,19 +42,16 @@ exact REST SHA for signals/audit/evidence, never `origin/main` or merge-base.
 Before evidence/challenge/finish, resolve/match REST base/head, recompute signals,
 compare canonical JSON, preserve non-owned PR bytes, and use exact `pending`/
 `evidence-ready` records.
-Challenge/finish require exact REST base/head, audit, Curator result, and bound
-body/evidence digests. One-use challenges expire after two hours;
-`go tool workflowctl evaluation resolve PR --challenge ID --reason-file FILE`
-records authenticated-no-verdict, never verdict or merge authority. Use a fresh
-Examiner context; reject wrong-head, stale, reused, malformed, or caller-selected
-results. Complete-equivalent trusted receipts form rounds; a passing receipt is
-merge proof. REST fallback uses identical head and fresh Examiner.
-Cleanup inventories claims, preserves immutable history/unrelated refs, and is exact
-and idempotent; `claim prune ISSUE` requires merged proof. Close only after
-GitHub-effective refs and exact merge proof bind trusted receipt; `pr recover`
-retries/preserves artifacts and `sync` maps CLOSED to Done. After draft, pass an
-external plain-text problem/outcome/rationale/invariants summary to
-`workflowctl pr finish PR --summary-file FILE`; omit metadata. Summary is UTF-8,
-non-empty, <=8 KiB, LF-only; reject surrounding/line-trailing whitespace, controls,
-format/separator chars,
-and generated claim trailers. Use Markdown evidence files.
+Challenge/finish bind exact REST base/head, audit, Curator, and body/evidence digests.
+Unresolved challenges survive body/evidence snapshots; original challenge comments and authenticated records
+remain immutable GitHub history. One-use challenges expire after two hours; `go tool workflowctl evaluation
+resolve PR --challenge ID --reason-file FILE` records authenticated-no-verdict: no verdict or merge authority.
+Fresh Examiner contexts reject wrong-head/stale/reused/malformed/caller-selected results. Complete-equivalent
+trusted receipts form rounds; passing receipt is merge proof. REST fallback uses identical head/fresh Examiner.
+Cleanup's packet-scoped inventory checks inherited-trailer ownership; rejects ambiguity before mutation; leaves
+unrelated refs untouched; preserves artifacts. Recovery is exact/idempotent; `claim prune ISSUE` requires
+merged proof. Close only after GitHub-effective refs and exact merge proof bind trusted receipt; `pr recover`
+retries/preserves artifacts; `sync` maps CLOSED to Done. After draft, pass plain-text
+problem/outcome/rationale/invariants summary to `workflowctl pr finish PR --summary-file FILE`; omit metadata.
+Summary: UTF-8, non-empty, <=8 KiB, LF-only; reject surrounding/line-trailing whitespace, controls,
+format/separator chars, generated claim trailers.
