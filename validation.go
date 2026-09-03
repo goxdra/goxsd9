@@ -905,6 +905,15 @@ func instanceScalarTypeForTarget(
 			errInstanceUnsupportedType,
 		)
 	}
+	if definition.facts != nil && schemaSimpleTypeAtomicKindIsUnsupported(definition.facts.atomicKind) {
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()),
+			related,
+			fallbackVersion,
+			errInstanceUnsupportedType,
+		)
+	}
 	if definition.HasPrecisionDecimalFacets() {
 		return instanceScalarType{
 			value:   instancePrecisionDecimalScalar{facets: definition.PrecisionDecimalFacets()},
@@ -1065,6 +1074,14 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, boole
 			version: booleanVersion,
 			related: related,
 		}, nil
+	case "language", "NCName", "anyURI", "ID":
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("global element type %q is outside scalar validation", declaredType),
+			related,
+			instanceBuiltInValidationVersion,
+			errInstanceUnsupportedType,
+		)
 	default:
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,

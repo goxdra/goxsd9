@@ -824,7 +824,9 @@ func codegenNamedScalarKind(component Component, version XSDVersion) (DigitDatat
 			version,
 		)
 	}
-	if definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal {
+	if definition.facts == nil ||
+		schemaSimpleTypeAtomicKindIsUnsupported(definition.facts.atomicKind) ||
+		definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal {
 		return "", newCodegenUnsupported(
 			component.Loc(),
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
@@ -880,6 +882,23 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			fmt.Sprintf("named simple type %q has variety %q outside scalar Go generation", component.Name(), definition.Variety()),
 			appendCodegenRelated(nil, definition.VarietyLoc()),
 			fmt.Errorf("%w: simple type variety %q", errCodegenUnsupported, definition.Variety()),
+			version,
+		)
+	}
+	if definition.facts == nil {
+		return codegenSourceTarget{}, newCodegenInternal(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has no resolved primitive facts", component.Name()),
+			appendCodegenRelated(nil, definition.BaseLoc()),
+			errCodegenSchemaInvariant,
+		)
+	}
+	if schemaSimpleTypeAtomicKindIsUnsupported(definition.facts.atomicKind) {
+		return codegenSourceTarget{}, newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
+			appendCodegenRelated(nil, definition.BaseLoc()),
+			fmt.Errorf("%w: atomic datatype is outside scalar Go generation", errCodegenUnsupported),
 			version,
 		)
 	}
@@ -1296,6 +1315,14 @@ func codegenBuiltinElementFieldType(
 		target.scalarKind = codegenSourceScalarInteger
 	case "decimal":
 		target.scalarKind = codegenSourceScalarDecimal
+	case "language", "NCName", "anyURI", "ID":
+		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
+			component.Loc(),
+			fmt.Sprintf("global element type %q is outside scalar Go generation", declaration.DeclaredType()),
+			nil,
+			fmt.Errorf("%w: built-in type %q", errCodegenUnsupported, declaration.DeclaredType()),
+			version,
+		)
 	default:
 		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
 			component.Loc(),
@@ -1474,6 +1501,14 @@ func validateCodegenElementTypeReference(
 			"global element type reference has an unknown target form",
 			nil,
 			errCodegenElementType,
+		)
+	}
+	if schemaSimpleTypeAtomicKindIsUnsupported(reference.facts.atomicKind) {
+		return newCodegenInternal(
+			loc,
+			"global element type reference has an unsupported atomic datatype",
+			nil,
+			errCodegenSchemaInvariant,
 		)
 	}
 	switch target.scalarKind {

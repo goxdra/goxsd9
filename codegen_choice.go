@@ -495,6 +495,15 @@ func validateCodegenDirectChoiceTarget(
 			return codegenDirectChoiceBuiltinTarget{declaredType: declaredType, kind: DigitDatatypeInteger}, nil
 		case "decimal":
 			return codegenDirectChoiceBuiltinTarget{declaredType: declaredType, kind: DigitDatatypeDecimal}, nil
+		case "language", "NCName", "anyURI", "ID":
+			return nil, newCodegenDirectChoiceUnsupported(
+				element.Loc(),
+				fmt.Sprintf("built-in direct-choice type %q is outside scalar generation", declaredType),
+				nil,
+				fmt.Errorf("%w: built-in scalar type %q", errCodegenUnsupported, declaredType),
+				version,
+				codegenDirectChoiceElementChoiceReference,
+			)
 		default:
 			return nil, newCodegenDirectChoiceUnsupported(
 				element.Loc(),

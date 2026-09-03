@@ -463,6 +463,15 @@ func validateCodegenDirectSequenceTarget(
 			kind = codegenSourceScalarInteger
 		case "decimal":
 			kind = codegenSourceScalarDecimal
+		case "language", "NCName", "anyURI", "ID":
+			return codegenSourceTarget{}, newCodegenDirectSequenceUnsupported(
+				element.Loc(),
+				fmt.Sprintf("built-in direct-sequence type %q is outside scalar sequence generation", declaredType),
+				nil,
+				fmt.Errorf("%w: built-in scalar type %q", errCodegenUnsupported, declaredType),
+				version,
+				codegenDirectSequenceElementReference,
+			)
 		default:
 			return codegenSourceTarget{}, newCodegenDirectSequenceUnsupported(
 				element.Loc(),

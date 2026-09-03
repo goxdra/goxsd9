@@ -2152,7 +2152,30 @@ const (
 	schemaSimpleTypeAtomicNegativeInteger
 	schemaSimpleTypeAtomicDecimal
 	schemaSimpleTypeAtomicPrecisionDecimal
+	schemaSimpleTypeAtomicLanguage
+	schemaSimpleTypeAtomicNCName
+	schemaSimpleTypeAtomicAnyURI
+	schemaSimpleTypeAtomicID
 )
+
+func schemaSimpleTypeAtomicKindIsUnsupported(kind schemaSimpleTypeAtomicKind) bool {
+	switch kind {
+	case schemaSimpleTypeAtomicLanguage,
+		schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI,
+		schemaSimpleTypeAtomicID:
+		return true
+	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicInteger,
+		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicDecimal,
+		schemaSimpleTypeAtomicPrecisionDecimal:
+		return false
+	default:
+		return false
+	}
+}
 
 type schemaSimpleTypeState uint8
 
@@ -2174,8 +2197,9 @@ type schemaSimpleTypeResolver struct {
 }
 
 type schemaSimpleTypeResolution struct {
-	results []schemaSimpleTypeResult
-	byInput map[*schemaSimpleTypeInput]schemaSimpleTypeResult
+	results  []schemaSimpleTypeResult
+	byInput  map[*schemaSimpleTypeInput]schemaSimpleTypeResult
+	resolver *schemaSimpleTypeResolver
 }
 
 func resolveSchemaSimpleTypes(
@@ -2211,42 +2235,43 @@ func resolveSchemaSimpleTypes(
 		}
 	}
 	return schemaSimpleTypeResolution{
-		results: resolver.results,
-		byInput: resolver.inputResults,
+		results:  resolver.results,
+		byInput:  resolver.inputResults,
+		resolver: &resolver,
 	}, nil
 }
 
 type schemaAttributeTypeResult struct {
-	present      bool
-	declaredType QName
-	typeID       ComponentID
-	hasTypeID    bool
+	present          bool
+	typeReference    schemaSimpleTypeReferenceComponent
+	hasTypeReference bool
 }
 
-func resolvedSchemaAttributeTypeResult(input *schemaAttributeInput, typeID ComponentID, hasTypeID bool) schemaAttributeTypeResult {
+func resolvedSchemaAttributeTypeResult(reference schemaSimpleTypeReferenceComponent) schemaAttributeTypeResult {
 	return schemaAttributeTypeResult{
-		present:      true,
-		declaredType: input.declaredType,
-		typeID:       typeID,
-		hasTypeID:    hasTypeID,
+		present:          true,
+		typeReference:    reference,
+		hasTypeReference: true,
 	}
 }
 
 func resolveSchemaAttributeTypes(
 	records []schemaComponentRecord,
-	byName map[QName][]int,
 	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 ) ([]schemaAttributeTypeResult, error) {
 	if len(simpleTypes.results) != len(records) {
 		return nil, newSchemaBridgeInvariant(Loc{}, "attribute type resolution has incomplete simple type results")
 	}
+	if simpleTypes.resolver == nil {
+		return nil, newSchemaBridgeInvariant(Loc{}, "attribute type resolution has no simple type resolver")
+	}
 	results := make([]schemaAttributeTypeResult, len(records))
 	for index, record := range records {
 		if record.attribute == nil {
 			continue
 		}
-		result, err := resolveSchemaAttributeType(record, records, byName, simpleTypes.results, version)
+		result, err := resolveSchemaAttributeType(record, simpleTypes.resolver, version)
 		if err != nil {
 			return nil, err
 		}
@@ -2257,104 +2282,117 @@ func resolveSchemaAttributeTypes(
 
 func resolveSchemaAttributeType(
 	record schemaComponentRecord,
-	records []schemaComponentRecord,
-	byName map[QName][]int,
-	simpleTypes []schemaSimpleTypeResult,
+	resolver *schemaSimpleTypeResolver,
 	version XSDVersion,
 ) (schemaAttributeTypeResult, error) {
 	input := record.attribute
 	if input == nil {
 		return schemaAttributeTypeResult{}, newSchemaBridgeInvariant(record.loc, "attribute type resolution has no type input")
 	}
-	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveBuiltinSchemaAttributeType(input, version)
+	if resolver == nil {
+		return schemaAttributeTypeResult{}, newSchemaBridgeInvariant(input.typeLoc, "attribute type resolution has no simple type resolver")
 	}
-
-	// Match the existing simple-type resolver's graph-wide index. Import
-	// visibility is not interpreted for named simple types in this phase.
-	candidates := byName[input.declaredType]
-	if len(candidates) == 0 {
-		return unresolvedSchemaAttributeType(input, version)
+	reference, err := resolver.resolveReference(schemaSimpleTypeReferenceInput{
+		kind: schemaSimpleTypeQNameReferenceInput,
+		name: input.declaredType,
+		loc:  input.typeLoc,
+	}, record.id.Source(), version)
+	if err != nil {
+		return schemaAttributeTypeResult{}, reframeSchemaAttributeReferenceError(input, err, version)
 	}
-	typeCandidates := make([]int, 0, len(candidates))
-	for _, candidate := range candidates {
-		if records[candidate].kind != ComponentKindSimpleTypeDefinition {
-			continue
-		}
-		typeCandidates = append(typeCandidates, candidate)
-	}
-	if len(typeCandidates) > 1 {
-		return ambiguousSchemaAttributeType(input, schemaComponentLocations(records, typeCandidates), version)
-	}
-	if len(typeCandidates) == 0 {
-		return wrongKindSchemaAttributeType(input, schemaComponentLocations(records, candidates), version)
-	}
-	candidate := typeCandidates[0]
-	simpleType := simpleTypes[candidate]
-	if !simpleType.present {
-		return schemaAttributeTypeResult{}, newSchemaBridgeInvariant(
-			input.typeLoc,
-			"attribute type resolution has an incomplete simple type result",
-		)
-	}
-	if simpleType.variety != SimpleTypeVarietyAtomicRestriction ||
-		simpleType.atomicKind != schemaSimpleTypeAtomicInteger &&
-			simpleType.atomicKind != schemaSimpleTypeAtomicDecimal {
+	if !schemaAttributeTypeReferenceSupported(reference) {
 		return schemaAttributeTypeResult{}, unsupportedSchemaAttributeType(
 			input,
 			version,
 			fmt.Sprintf("attribute type %q has an unsupported simple type model", input.declaredType),
 		)
 	}
-	return resolvedSchemaAttributeTypeResult(input, records[candidate].id, true), nil
+	return resolvedSchemaAttributeTypeResult(reference), nil
 }
 
-func resolveBuiltinSchemaAttributeType(input *schemaAttributeInput, version XSDVersion) (schemaAttributeTypeResult, error) {
-	switch input.declaredType.Local() {
-	case "integer", "decimal":
-		return resolvedSchemaAttributeTypeResult(input, ComponentID{}, false), nil
-	case "precisionDecimal":
-		if version == XSDVersion10 {
-			return schemaAttributeTypeResult{}, precisionDecimalSchemaVersionDiagnostic(input.typeLoc, input.declaredType)
-		}
+func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceComponent) bool {
+	if reference.variety != SimpleTypeVarietyAtomicRestriction {
+		return false
 	}
-	return schemaAttributeTypeResult{}, unsupportedSchemaAttributeType(
-		input,
-		version,
-		fmt.Sprintf("attribute type %q is not implemented", input.declaredType),
-	)
+	switch reference.atomicKind {
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicDecimal,
+		schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID:
+		return true
+	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicPrecisionDecimal:
+		return false
+	default:
+		return false
+	}
 }
 
-func unresolvedSchemaAttributeType(input *schemaAttributeInput, version XSDVersion) (schemaAttributeTypeResult, error) {
-	return schemaAttributeTypeResult{}, newSchemaAttributeTypeDiagnostic(
+func reframeSchemaAttributeReferenceError(input *schemaAttributeInput, err error, version XSDVersion) error {
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		return err
+	}
+	if errors.Is(err, errSchemaSimpleTypeBaseUnresolved) {
+		attributeErr := unresolvedSchemaAttributeTypeWithCause(
+			input,
+			version,
+			errors.Join(errSchemaAttributeTypeUnresolved, err),
+		)
+		return attributeErr
+	}
+	if errors.Is(err, errSchemaSimpleTypeBaseWrongKind) {
+		attributeErr := wrongKindSchemaAttributeTypeWithCause(
+			input,
+			diagnostic.Related(),
+			version,
+			errors.Join(errSchemaAttributeTypeWrongKind, err),
+		)
+		return attributeErr
+	}
+	if errors.Is(err, errSchemaSimpleTypeBaseAmbiguous) {
+		attributeErr := ambiguousSchemaAttributeTypeWithCause(
+			input,
+			diagnostic.Related(),
+			version,
+			errors.Join(errSchemaAttributeTypeAmbiguous, err),
+		)
+		return attributeErr
+	}
+	return err
+}
+
+func unresolvedSchemaAttributeTypeWithCause(input *schemaAttributeInput, version XSDVersion, cause error) error {
+	return newSchemaAttributeTypeDiagnostic(
 		diagnosticSchemaAttributeTypeUnresolvedCode,
 		input.typeLoc,
 		fmt.Sprintf("attribute type %q cannot be resolved", input.declaredType),
 		nil,
 		version,
-		errSchemaAttributeTypeUnresolved,
+		cause,
 	)
 }
 
-func wrongKindSchemaAttributeType(input *schemaAttributeInput, related []Loc, version XSDVersion) (schemaAttributeTypeResult, error) {
-	return schemaAttributeTypeResult{}, newSchemaAttributeTypeDiagnostic(
+func wrongKindSchemaAttributeTypeWithCause(input *schemaAttributeInput, related []Loc, version XSDVersion, cause error) error {
+	return newSchemaAttributeTypeDiagnostic(
 		diagnosticSchemaAttributeTypeWrongKindCode,
 		input.typeLoc,
 		fmt.Sprintf("attribute type %q does not name a simple type", input.declaredType),
 		related,
 		version,
-		fmt.Errorf("%w: %q", errSchemaAttributeTypeWrongKind, input.declaredType),
+		cause,
 	)
 }
 
-func ambiguousSchemaAttributeType(input *schemaAttributeInput, related []Loc, version XSDVersion) (schemaAttributeTypeResult, error) {
-	return schemaAttributeTypeResult{}, newSchemaAttributeTypeDiagnostic(
+func ambiguousSchemaAttributeTypeWithCause(input *schemaAttributeInput, related []Loc, version XSDVersion, cause error) error {
+	return newSchemaAttributeTypeDiagnostic(
 		diagnosticSchemaAttributeTypeAmbiguousCode,
 		input.typeLoc,
 		fmt.Sprintf("attribute type %q is ambiguous", input.declaredType),
 		related,
 		version,
-		fmt.Errorf("%w: %q", errSchemaAttributeTypeAmbiguous, input.declaredType),
+		cause,
 	)
 }
 
@@ -2699,6 +2737,9 @@ func schemaSubstitutionElementTypeClass(record schemaComponentRecord, result sch
 }
 
 func schemaSubstitutionTypeClassFromReference(reference schemaSimpleTypeReferenceComponent) (schemaSubstitutionTypeClass, bool) {
+	if schemaSimpleTypeAtomicKindIsUnsupported(reference.atomicKind) {
+		return schemaSubstitutionTypeUnknown, false
+	}
 	switch facets := reference.facets.(type) {
 	case schemaBooleanFacetVariant:
 		return schemaSubstitutionTypeBoolean, true
@@ -3464,8 +3505,19 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 	if scope != schemaScalarTypeLocalParticle {
 		return nil
 	}
-	if simpleType.atomicKind == schemaSimpleTypeAtomicString {
+	switch simpleType.atomicKind {
+	case schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicLanguage,
+		schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI,
+		schemaSimpleTypeAtomicID:
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
+	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicInteger,
+		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicDecimal,
+		schemaSimpleTypeAtomicPrecisionDecimal:
+		break
 	}
 	if allowPrecisionDecimal {
 		return nil
@@ -4720,7 +4772,7 @@ func (resolver *schemaSimpleTypeResolver) resolveReference(input schemaSimpleTyp
 	}
 }
 
-//nolint:gocognit // Keep the built-in datatype mapping explicit and versioned.
+//nolint:gocognit,funlen // Keep the built-in datatype mapping explicit and versioned.
 func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
 	result := schemaSimpleTypeResult{
 		variety:    SimpleTypeVarietyAtomicRestriction,
@@ -4778,6 +4830,18 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		result.facets = schemaPrecisionDecimalFacetVariant{value: facets}
 	case "boolean":
 		result.facets = schemaBooleanFacetVariant{}
+	case "language":
+		result.atomicKind = schemaSimpleTypeAtomicLanguage
+		result.facets = schemaAtomicFacetVariant{}
+	case "NCName":
+		result.atomicKind = schemaSimpleTypeAtomicNCName
+		result.facets = schemaAtomicFacetVariant{}
+	case "anyURI":
+		result.atomicKind = schemaSimpleTypeAtomicAnyURI
+		result.facets = schemaAtomicFacetVariant{}
+	case "ID":
+		result.atomicKind = schemaSimpleTypeAtomicID
+		result.facets = schemaAtomicFacetVariant{}
 	default:
 		return schemaSimpleTypeReferenceComponent{}, newSchemaSyntaxUnsupported(
 			input.loc,
@@ -4978,6 +5042,11 @@ func restrictSchemaSimpleTypeFacets(
 		return restrictSchemaStringFacets(typed, inputs, version)
 	case schemaBooleanFacetVariant:
 		return restrictSchemaBooleanFacets(typed, inputs, version)
+	case schemaAtomicFacetVariant:
+		if len(inputs) == 0 {
+			return typed, nil
+		}
+		return nil, unsupportedSchemaDatatypeFacet(inputs[0], version)
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "simple type facet resolution has an unknown datatype variant")
 	}
