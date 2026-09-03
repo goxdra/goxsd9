@@ -116,6 +116,71 @@ func assertNonDefaultDirectChoiceDiagnostic(t *testing.T, diagnostic goxsd9.Diag
 	}
 }
 
+//nolint:gocognit // Keep the cross-policy wildcard diagnostic contract together.
+func TestValidateInstanceRejectsDirectChoiceAttributeWildcardAcrossPolicies(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		policy   goxsd9.LanguagePolicy
+		version  string
+		wantSpec string
+	}{
+		{name: "Compatibility", policy: goxsd9.Compatibility, version: "1.1", wantSpec: "xsd11-structures#cvc-elt"},
+		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0", wantSpec: "xsd10-structures#cvc-elt"},
+		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1", wantSpec: "xsd11-structures#cvc-elt"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationChoiceRootNamespace + `" targetNamespace="` + validationChoiceRootNamespace + `" version="` + test.version + `">
+  <xs:element name="choiceRoot" type="r:Choice"/>
+  <xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:integer"/></xs:choice><xs:anyAttribute/></xs:complexType>
+</xs:schema>`
+			schema := validationTestSchemaWithPolicy(t, root, nil, test.policy)
+			before := schema.Components()
+			evidence := validationChoiceEvidenceFor(t, schema)
+			choiceName, err := goxsd9.NewQName(validationChoiceRootNamespace, "Choice")
+			if err != nil {
+				t.Fatalf("NewQName: %v", err)
+			}
+			choiceComponents := schema.FindKind(goxsd9.ComponentKindComplexTypeDefinition, choiceName)
+			if len(choiceComponents) != 1 {
+				t.Fatalf("Choice definitions = %d, want 1", len(choiceComponents))
+			}
+			definition, ok := choiceComponents[0].ComplexTypeDefinition()
+			if !ok {
+				t.Fatal("Choice has no complex type view")
+			}
+			wildcard, ok := definition.AnyAttribute()
+			if !ok {
+				t.Fatal("Choice has no anyAttribute wildcard")
+			}
+
+			input := validationChoiceInstance("value", "1")
+			diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+			if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedInstanceValidationCode || diagnostic.Feature() != goxsd9.FeatureInstanceValidation {
+				t.Fatalf("diagnostic = %s/%q/%q, want unsupported instance-validation diagnostic", diagnostic, diagnostic.Code(), diagnostic.Feature())
+			}
+			if !errors.Is(diagnostic, goxsd9.ErrUnsupported) {
+				t.Fatalf("diagnostic does not match ErrUnsupported: %v", diagnostic)
+			}
+			if diagnostic.Loc() != wildcard.Loc() {
+				t.Fatalf("diagnostic location = %s, want wildcard location %s", diagnostic.Loc(), wildcard.Loc())
+			}
+			wantRelated := []goxsd9.Loc{evidence.declaration, evidence.complex, evidence.choice, wildcard.Loc()}
+			if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+				t.Fatalf("diagnostic related = %v, want %v", diagnostic.Related(), wantRelated)
+			}
+			if diagnostic.SpecRef() != test.wantSpec {
+				t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), test.wantSpec)
+			}
+			if diagnostic.Unwrap() == nil {
+				t.Fatal("attribute wildcard diagnostic lost its cause")
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("attribute wildcard validation mutated the completed schema")
+			}
+		})
+	}
+}
+
 func validationChoiceSchema(t *testing.T, policy goxsd9.LanguagePolicy) goxsd9.Schema {
 	t.Helper()
 	version := "1.1"

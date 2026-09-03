@@ -346,6 +346,16 @@ func instanceChoiceProgramFor(
 	if err != nil {
 		return instanceChoiceProgram{}, err
 	}
+	if anyAttribute, ok := definition.AnyAttribute(); ok {
+		related = appendInstanceRelated(related, anyAttribute.Loc())
+		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+			anyAttribute.Loc(),
+			fmt.Sprintf("named complex type %q attribute wildcards are outside direct choice validation", definition.Name()),
+			related,
+			version,
+			errInstanceAttributes,
+		)
+	}
 	elements, related, err := instanceChoiceElementsFor(schema, choice, related, version)
 	if err != nil {
 		return instanceChoiceProgram{}, err
