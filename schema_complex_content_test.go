@@ -227,6 +227,10 @@ func TestSchemaBridgeKeepsBoundedOpenAttrsUnsupportedFormsDistinct(t *testing.T)
 			root: boundedOpenAttrsSchemaWithRestriction(`<xs:restriction base="xs:anyType"><xs:anyAttribute namespace="##any" processContents="lax"/></xs:restriction>`),
 		},
 		{
+			name: "default wildcard",
+			root: boundedOpenAttrsSchemaWithRestriction(`<xs:restriction base="xs:anyType"><xs:anyAttribute/></xs:restriction>`),
+		},
+		{
 			name: "mixed content",
 			root: boundedOpenAttrsSchemaWithContentAttributes(`mixed="true"`, `<xs:restriction base="xs:anyType"><xs:anyAttribute namespace="##other" processContents="lax"/></xs:restriction>`),
 		},

@@ -3303,7 +3303,7 @@ func validateDirectNamedComplexTypeAnyAttribute(parent, element *syntaxElement, 
 	if err := validateAnyAttributeSyntax(element, version); err != nil {
 		return err
 	}
-	if !supportsDirectNamedComplexTypeAnyAttribute(parent) || !isSupportedAnyAttribute(element) {
+	if !supportsDirectNamedComplexTypeAnyAttribute(parent) || !isSupportedDirectNamedComplexTypeAnyAttribute(element) {
 		return newSchemaAnyAttributeUnsupported(element.loc, version)
 	}
 	return nil
@@ -3330,6 +3330,18 @@ func isSupportedAnyAttribute(element *syntaxElement) bool {
 		return false
 	}
 	return collapseXMLWhitespace(namespaceAttributes[0].value) == "##other" && collapseXMLWhitespace(processContentsAttributes[0].value) == "lax"
+}
+
+func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool {
+	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
+	processContentsAttributes := syntaxAttributesByLocal(element, "processContents")
+	if len(syntaxAttributesByLocal(element, "notNamespace")) > 0 || len(syntaxAttributesByLocal(element, "notQName")) > 0 {
+		return false
+	}
+	if len(namespaceAttributes) == 0 && len(processContentsAttributes) == 0 {
+		return true
+	}
+	return isSupportedAnyAttribute(element)
 }
 
 //nolint:gocognit // Keep wildcard lexical/co-occurrence checks together.

@@ -85,27 +85,30 @@ components with direct `Loc`; queries use component names and identities.
 Walks preserve document-discovery and lexical declaration order; unordered sets
 use documented stable sorting.
 
-The schema skeleton exposes `Schema`, `SchemaDocument`, `Component`,
+Schema skeleton exposes `Schema`, `SchemaDocument`, `Component`,
 `ComponentID`, and expanded `QName`. Documents follow identity-discovery order
 (root first, then resolver queue); named declarations follow lexical order.
 `Components`, `Documents`, `Find`, and `Walk` return copies. Component IDs combine
 source identity with one-based declaration ordinals; lookup maps never define
 observable order. Local particles use a scoped model with component facts and
-indexes; validator and generator state is on demand.
+indexes; validator/generator state is on demand.
 
-The model stores facts; primitive status follows type relations. Global `xs:boolean` and atomic
+Model stores facts; primitive status follows type relations. Global `xs:boolean` and atomic
 `xs:string` elements retain `DeclaredType`; named/anonymous restrictions expose immutable
 boolean-kind and string-enumeration facts. Built-ins lack synthetic IDs.
 
-Named complex types expose direct particles and bounded openAttrs restrictions.
-Supported direct sequences/choices contain local built-in `xs:boolean`, named
-boolean-restriction, `integer`, or `decimal` scalar elements with exact finite/unbounded
-ranges; `0/0` maps to absence. XSD 1.1 direct choices may include
-`precisionDecimal` only when the choice and each mapped alternative use default
-occurrences; non-precision alternatives may retain non-default queryable ranges.
-Local string particles, Boolean facets, and anonymous/nested/broader particles remain unsupported.
-Direct references are immutable queryable particles; validation and code
-generation reject them as unsupported.
+Named complex types: direct particles; bounded openAttrs restrictions.
+Direct sequence/choice: local built-in xs:boolean, named boolean-restriction,
+integer/decimal; exact finite/unbounded ranges; 0/0 absent. XSD 1.1 choices:
+precisionDecimal requires default choice/mapped-alternative occurrences;
+non-precision ranges may retain non-default/queryable. Local string particles/
+Boolean facets, anonymous/nested/broader particles unsupported. Direct refs
+immutable/queryable; validation/codegen reject. Supported named direct sequence/
+choice types expose attribute-free anyAttribute under XSD 1.0, XSD 1.1,
+Compatibility; omitted attributes effectively ##any/strict; explicit ##other/lax
+remains supported. Wildcard element locations retained; omitted default-attribute
+locations zero. Other wildcard/attribute forms; wildcard-bearing validation/
+generation unsupported.
 
 ## Datatypes
 
