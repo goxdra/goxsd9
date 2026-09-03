@@ -49,7 +49,82 @@ func assertDirectAnyAttributeFacts(t *testing.T, policy LanguagePolicy, version 
 	assertAnyAttributeViews(t, root, sequence, choice)
 	assertAnyAttributeParticles(t, sequence, choice)
 	assertAnyAttributeWalkOrder(t, schema, components)
-	assertAnyAttributeComponentCopies(t, schema, components, sequence)
+	assertAnyAttributeComponentCopies(t, schema, components, sequence, "##other", "lax")
+}
+
+func TestSchemaBridgeExposesDirectDefaultAnyAttributeFacts(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "xsd10", policy: Strict10, version: "1.0"},
+		{name: "xsd11", policy: Strict11, version: "1.1"},
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertDirectDefaultAnyAttributeFacts(t, test.policy, test.version)
+		})
+	}
+}
+
+func assertDirectDefaultAnyAttributeFacts(t *testing.T, policy LanguagePolicy, version string) {
+	t.Helper()
+	root := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:root" version="` + version + `">
+  <xs:element name="before"/>
+  <xs:complexType name="sequenceType">
+    <xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence>
+    <xs:anyAttribute />
+  </xs:complexType>
+  <xs:complexType name="choiceType">
+    <xs:choice><xs:element name="left" type="xs:integer"/><xs:element name="right" type="xs:integer"/></xs:choice>
+    <xs:anyAttribute/>
+  </xs:complexType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+	if err != nil {
+		t.Fatalf("discover schema: %v", err)
+	}
+	components := schema.Components()
+	assertAnyAttributeComponentNames(t, components)
+	sequence := requireAnyAttributeComplexType(t, components[1], "sequence")
+	choice := requireAnyAttributeComplexType(t, components[2], "choice")
+
+	sequenceAttribute, ok := sequence.AnyAttribute()
+	if !ok {
+		t.Fatal("sequence default AnyAttribute is absent")
+	}
+	assertDefaultAnyAttributeFacts(t, sequenceAttribute, root, "<xs:anyAttribute />")
+	choiceAttribute, ok := choice.AnyAttribute()
+	if !ok {
+		t.Fatal("choice default AnyAttribute is absent")
+	}
+	assertDefaultAnyAttributeFacts(t, choiceAttribute, root, "<xs:anyAttribute/>")
+
+	assertAnyAttributeParticles(t, sequence, choice)
+	assertAnyAttributeWalkOrder(t, schema, components)
+	assertAnyAttributeComponentCopies(t, schema, components, sequence, "##any", "strict")
+}
+
+func assertDefaultAnyAttributeFacts(t *testing.T, attribute AnyAttribute, root, elementMarker string) {
+	t.Helper()
+	if got := attribute.Namespace(); got != "##any" {
+		t.Errorf("namespace = %q, want ##any", got)
+	}
+	if got := attribute.ProcessContents(); got != "strict" {
+		t.Errorf("processContents = %q, want strict", got)
+	}
+	if got := attribute.Loc(); got != anyAttributeTestLoc(root, elementMarker) {
+		t.Errorf("element location = %v, want %v", got, anyAttributeTestLoc(root, elementMarker))
+	}
+	if got := attribute.NamespaceLoc(); !got.IsZero() {
+		t.Errorf("namespace location = %v, want zero default location", got)
+	}
+	if got := attribute.ProcessContentsLoc(); !got.IsZero() {
+		t.Errorf("processContents location = %v, want zero default location", got)
+	}
 }
 
 func assertAnyAttributeComponentNames(t *testing.T, components []Component) {
@@ -117,26 +192,38 @@ func assertAnyAttributeParticles(t *testing.T, sequence, choice ComplexTypeDefin
 	if got := len(choiceParticle.Alternatives()); got != 2 {
 		t.Errorf("choice element count = %d, want 2", got)
 	}
+	sequenceElements := sequenceParticle.Elements()
+	sequenceElements[0] = ElementParticle{}
+	if got := sequenceParticle.Elements()[0].Name().Local(); got != "value" {
+		t.Errorf("mutating sequence elements changed schema: name = %q", got)
+	}
+	choiceAlternatives := choiceParticle.Alternatives()
+	choiceAlternatives[0] = nil
+	if _, ok := choiceParticle.Alternatives()[0].(ElementParticle); !ok {
+		t.Errorf("mutating choice alternatives changed schema: first = %#v", choiceParticle.Alternatives()[0])
+	}
 }
 
 func assertAnyAttributeWalkOrder(t *testing.T, schema Schema, components []Component) {
 	t.Helper()
-	walked := make([]ComponentID, 0, len(components))
-	err := schema.Walk(func(component Component) error {
-		walked = append(walked, component.ID())
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk schema: %v", err)
-	}
-	for index, component := range components {
-		if walked[index] != component.ID() {
-			t.Errorf("walk item %d ID = %v, want %v", index, walked[index], component.ID())
+	for iteration := 0; iteration < 2; iteration++ {
+		walked := make([]ComponentID, 0, len(components))
+		err := schema.Walk(func(component Component) error {
+			walked = append(walked, component.ID())
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk schema: %v", err)
+		}
+		for index, component := range components {
+			if walked[index] != component.ID() {
+				t.Errorf("walk iteration %d item %d ID = %v, want %v", iteration, index, walked[index], component.ID())
+			}
 		}
 	}
 }
 
-func assertAnyAttributeComponentCopies(t *testing.T, schema Schema, components []Component, sequence ComplexTypeDefinition) {
+func assertAnyAttributeComponentCopies(t *testing.T, schema Schema, components []Component, sequence ComplexTypeDefinition, wantNamespace, wantProcessContents string) {
 	t.Helper()
 	originalComponents := schema.Components()
 	components[0] = Component{}
@@ -148,7 +235,7 @@ func assertAnyAttributeComponentCopies(t *testing.T, schema Schema, components [
 		t.Error("schema component results are not stable after caller mutation")
 	}
 	attribute, ok := sequence.AnyAttribute()
-	if !ok || attribute.Namespace() != "##other" || attribute.ProcessContents() != "lax" {
+	if !ok || attribute.Namespace() != wantNamespace || attribute.ProcessContents() != wantProcessContents {
 		t.Errorf("repeated AnyAttribute query = %#v, %v", attribute, ok)
 	}
 }
@@ -205,7 +292,6 @@ func TestSchemaBridgeRejectsExcludedAnyAttributeForms(t *testing.T) {
 		attributes string
 		wantSpec   string
 	}{
-		{name: "defaults", policy: Strict10, version: "1.0", attributes: "", wantSpec: schemaAnyAttributeXSD10SpecRef},
 		{name: "default_namespace", policy: Strict11, version: "1.1", attributes: `processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "default_process_contents", policy: Strict11, version: "1.1", attributes: `namespace="##other"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "any_namespace", policy: Strict10, version: "1.0", attributes: `namespace="##any" processContents="lax"`, wantSpec: schemaAnyAttributeXSD10SpecRef},

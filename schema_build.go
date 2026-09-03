@@ -1279,7 +1279,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	if err != nil {
 		return nil, err
 	}
-	anyAttribute, err := schemaAnyAttributeInputFromElement(element)
+	anyAttribute, err := schemaDirectAnyAttributeInputFromElement(element)
 	if err != nil {
 		return nil, err
 	}
@@ -1479,6 +1479,31 @@ func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOc
 }
 
 func schemaAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttributeInput, error) {
+	wildcard, err := schemaAnyAttributeElementFromElement(element)
+	if err != nil || wildcard == nil {
+		return nil, err
+	}
+	return schemaExplicitAnyAttributeInputFromElement(wildcard)
+}
+
+func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttributeInput, error) {
+	wildcard, err := schemaAnyAttributeElementFromElement(element)
+	if err != nil || wildcard == nil {
+		return nil, err
+	}
+	namespaceAttributes := syntaxAttributesByLocal(wildcard, "namespace")
+	processContentsAttributes := syntaxAttributesByLocal(wildcard, "processContents")
+	if len(namespaceAttributes) == 0 && len(processContentsAttributes) == 0 {
+		return &schemaAnyAttributeInput{
+			loc:             wildcard.loc,
+			namespace:       "##any",
+			processContents: "strict",
+		}, nil
+	}
+	return schemaExplicitAnyAttributeInputFromElement(wildcard)
+}
+
+func schemaAnyAttributeElementFromElement(element *syntaxElement) (*syntaxElement, error) {
 	if element == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "construct anyAttribute input from a nil element")
 	}
@@ -1496,6 +1521,10 @@ func schemaAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttri
 	if wildcard == nil {
 		return nil, nil
 	}
+	return wildcard, nil
+}
+
+func schemaExplicitAnyAttributeInputFromElement(wildcard *syntaxElement) (*schemaAnyAttributeInput, error) {
 	namespaceAttributes := syntaxAttributesByLocal(wildcard, "namespace")
 	processContentsAttributes := syntaxAttributesByLocal(wildcard, "processContents")
 	if len(namespaceAttributes) != 1 || len(processContentsAttributes) != 1 {

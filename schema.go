@@ -1204,7 +1204,8 @@ func (attribute AnyAttribute) Namespace() string {
 	return attribute.facts.namespace
 }
 
-// NamespaceLoc returns the location of the explicit namespace attribute.
+// NamespaceLoc returns the location of the explicit namespace attribute. It is
+// zero when the namespace defaults to ##any.
 func (attribute AnyAttribute) NamespaceLoc() Loc {
 	if attribute.facts == nil {
 		return Loc{}
@@ -1221,7 +1222,7 @@ func (attribute AnyAttribute) ProcessContents() string {
 }
 
 // ProcessContentsLoc returns the location of the explicit processContents
-// attribute.
+// attribute. It is zero when processContents defaults to strict.
 func (attribute AnyAttribute) ProcessContentsLoc() Loc {
 	if attribute.facts == nil {
 		return Loc{}
