@@ -88,6 +88,7 @@ type pullRequestComment struct {
 }
 
 type pullRequestAPI struct {
+	Number         int        `json:"number"`
 	Merged         bool       `json:"merged"`
 	MergedAt       *time.Time `json:"merged_at"`
 	MergeCommitSHA string     `json:"merge_commit_sha"`
@@ -2947,21 +2948,57 @@ func (a app) postPullRequestComment(root string, number int, body string) error 
 }
 
 func (a app) readPullRequest(root string, number int) (pullRequestView, error) {
+	return a.readPullRequestWithValidation(root, number, false)
+}
+
+func (a app) readPullRequestForResume(root string, number int) (pullRequestView, error) {
+	return a.readPullRequestWithValidation(root, number, true)
+}
+
+func (a app) readPullRequestWithValidation(root string, number int, strict bool) (pullRequestView, error) {
 	output, err := a.command(root, "gh", "api", "repos/"+repositoryKey+"/pulls/"+strconv.Itoa(number))
 	if err != nil {
-		return pullRequestView{}, fmt.Errorf("read PR #%d: %w", number, err)
+		return pullRequestView{}, retryableOperation("read PR", fmt.Errorf("read PR #%d: %w", number, err))
 	}
 	var response pullRequestAPI
 	if decodeErr := json.Unmarshal([]byte(output), &response); decodeErr != nil {
-		return pullRequestView{}, fmt.Errorf("decode PR #%d: %w", number, decodeErr)
+		return pullRequestView{}, terminalOperation("decode PR", fmt.Errorf("decode PR #%d: %w", number, decodeErr))
 	}
-	comments, err := a.readPullRequestComments(root, number)
+	if strict {
+		if validateErr := validatePullRequestAPI(response, number); validateErr != nil {
+			return pullRequestView{}, terminalOperation("validate PR", validateErr)
+		}
+	}
+	comments, err := a.readPullRequestCommentsWithValidation(root, number, strict)
 	if err != nil {
 		return pullRequestView{}, err
 	}
 	view := pullRequestViewFromAPI(response)
 	view.Comments = comments
 	return view, nil
+}
+
+func validatePullRequestAPI(response pullRequestAPI, number int) error {
+	if response.Number != number {
+		return fmt.Errorf("PR #%d response has identity number %d", number, response.Number)
+	}
+	state := strings.ToUpper(strings.TrimSpace(response.State))
+	if state != "OPEN" && state != "CLOSED" {
+		return fmt.Errorf("PR #%d response has unsupported state %q", number, response.State)
+	}
+	if strings.TrimSpace(response.Base.Ref) == "" {
+		return fmt.Errorf("PR #%d response has no base ref", number)
+	}
+	if !validExactCommitSHA(response.Base.SHA) {
+		return fmt.Errorf("PR #%d response has malformed base SHA %q", number, response.Base.SHA)
+	}
+	if strings.TrimSpace(response.Head.Ref) == "" {
+		return fmt.Errorf("PR #%d response has no head ref", number)
+	}
+	if !validExactCommitSHA(response.Head.SHA) {
+		return fmt.Errorf("PR #%d response has malformed head SHA %q", number, response.Head.SHA)
+	}
+	return nil
 }
 
 func pullRequestViewFromAPI(response pullRequestAPI) pullRequestView {
@@ -2988,18 +3025,41 @@ func pullRequestViewFromAPI(response pullRequestAPI) pullRequestView {
 }
 
 func (a app) readPullRequestComments(root string, number int) ([]pullRequestComment, error) {
+	return a.readPullRequestCommentsWithValidation(root, number, false)
+}
+
+func (a app) readPullRequestCommentsWithValidation(root string, number int, strict bool) ([]pullRequestComment, error) {
 	endpoint := "repos/" + repositoryKey + "/issues/" + strconv.Itoa(number) + "/comments?per_page=100"
 	output, err := a.command(root, "gh", "api", "--paginate", endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("read PR #%d comments: %w", number, err)
+		return nil, retryableOperation("read PR comments", fmt.Errorf("read PR #%d comments: %w", number, err))
 	}
 	pages, err := decodeJSONDocuments[[]issueCommentAPI](output)
 	if err != nil {
-		return nil, fmt.Errorf("decode PR #%d comments: %w", number, err)
+		return nil, terminalOperation("decode PR comments", fmt.Errorf("decode PR #%d comments: %w", number, err))
 	}
 	var comments []pullRequestComment
-	for _, page := range pages {
-		for _, response := range page {
+	seenIDs := make(map[int64]struct{})
+	for pageIndex, page := range pages {
+		if strict && page == nil {
+			return nil, terminalOperation("validate PR comments", fmt.Errorf("PR #%d comments page %d is null", number, pageIndex+1))
+		}
+		for commentIndex, response := range page {
+			if strict {
+				if response.ID < 1 {
+					return nil, terminalOperation("validate PR comments", fmt.Errorf("PR #%d comments page %d object %d has invalid ID %d", number, pageIndex+1, commentIndex+1, response.ID))
+				}
+				if strings.TrimSpace(response.User.Login) == "" {
+					return nil, terminalOperation("validate PR comments", fmt.Errorf("PR #%d comments page %d object %d has no user login", number, pageIndex+1, commentIndex+1))
+				}
+				if response.CreatedAt.IsZero() {
+					return nil, terminalOperation("validate PR comments", fmt.Errorf("PR #%d comments page %d object %d has no created-at timestamp", number, pageIndex+1, commentIndex+1))
+				}
+				if _, duplicate := seenIDs[response.ID]; duplicate {
+					return nil, terminalOperation("validate PR comments", fmt.Errorf("PR #%d comments contain duplicate ID %d", number, response.ID))
+				}
+				seenIDs[response.ID] = struct{}{}
+			}
 			comment := pullRequestComment{ID: response.ID, Body: response.Body, CreatedAt: response.CreatedAt}
 			comment.Author.Login = response.User.Login
 			comments = append(comments, comment)

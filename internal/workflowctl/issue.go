@@ -765,7 +765,7 @@ func (a app) readIssueComments(root string, number int) ([]issueCommentAPI, erro
 	}
 	pages, err := decodeJSONDocuments[[]issueCommentAPI](output)
 	if err != nil {
-		return nil, fmt.Errorf("decode issue #%d comments: %w", number, err)
+		return nil, terminalOperation("issue comments", fmt.Errorf("decode issue #%d comments: %w", number, err))
 	}
 	comments := make([]issueCommentAPI, 0)
 	for _, page := range pages {
