@@ -2245,6 +2245,272 @@ func TestSchemaBridgeAcceptsInertRootMetadata(t *testing.T) {
 	}
 }
 
+func TestSchemaFinalDefaultEmptyValuesMatchAbsentAcrossPolicies(t *testing.T) {
+	for _, policy := range schemaFinalDefaultPolicies() {
+		t.Run(policy.name, func(t *testing.T) {
+			assertSchemaFinalDefaultEmptyPolicy(t, policy)
+		})
+	}
+}
+
+func assertSchemaFinalDefaultEmptyPolicy(t *testing.T, policy schemaFinalDefaultPolicy) {
+	t.Helper()
+	cases := []struct {
+		name    string
+		present bool
+		value   string
+	}{
+		{name: "absent"},
+		{name: "empty", present: true},
+		{name: "XML whitespace", present: true, value: " \t\n\r "},
+	}
+	want := schemaFinalDefaultSnapshot{}
+	t.Run(cases[0].name, func(t *testing.T) {
+		want = schemaFinalDefaultEmptySnapshot(t, policy, cases[0].present, cases[0].value)
+	})
+	for _, test := range cases[1:] {
+		t.Run(test.name, func(t *testing.T) {
+			got := schemaFinalDefaultEmptySnapshot(t, policy, test.present, test.value)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("schema snapshot differs from absent finalDefault: got=%#v want=%#v", got, want)
+			}
+		})
+	}
+}
+
+func schemaFinalDefaultEmptySnapshot(t *testing.T, policy schemaFinalDefaultPolicy, present bool, value string) schemaFinalDefaultSnapshot {
+	t.Helper()
+	root, fixtures := schemaFinalDefaultGraph(present, value, policy.version)
+	queryName := mustTestQName(t, "urn:root", "root")
+	var first schemaFinalDefaultSnapshot
+	for iteration := 0; iteration < 3; iteration++ {
+		schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy.policy)
+		if err != nil {
+			t.Fatalf("discoverSchema: %v", err)
+		}
+		current := snapshotSchemaFinalDefault(t, schema, queryName)
+		if iteration == 0 {
+			first = current
+			continue
+		}
+		if !reflect.DeepEqual(current, first) {
+			t.Fatalf("repeated schema snapshot changed: first=%#v current=%#v", first, current)
+		}
+	}
+	return first
+}
+
+func TestSchemaFinalDefaultLegalValuesRemainLocatedRegisteredUnsupported(t *testing.T) {
+	values := []struct {
+		name  string
+		value string
+	}{
+		{name: "extension", value: "extension"},
+		{name: "restriction", value: "restriction"},
+		{name: "list", value: "list"},
+		{name: "union", value: "union"},
+		{name: "all", value: "#all"},
+		{name: "all methods", value: "extension restriction list union"},
+		{name: "repeated token", value: "extension extension"},
+		{name: "collapsed list", value: " \t extension\n restriction\r list\t union "},
+	}
+	for _, policy := range schemaFinalDefaultPolicies() {
+		for _, test := range values {
+			t.Run(policy.name+"/"+test.name, func(t *testing.T) {
+				assertSchemaFinalDefaultLegalUnsupported(t, policy, test.value)
+			})
+		}
+	}
+}
+
+func assertSchemaFinalDefaultLegalUnsupported(t *testing.T, policy schemaFinalDefaultPolicy, value string) {
+	t.Helper()
+	root := schemaFinalDefaultRoot(true, value, policy.version)
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
+	if err == nil || schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+		t.Fatal("discoverSchema accepted legal non-empty finalDefault or returned a schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("diagnostic = %s/%q/%q, want registered schema-syntax unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code())
+	}
+	feature, ok := LookupUnsupportedFeature(diagnostic.Feature())
+	if !ok || !feature.Registered() {
+		t.Fatalf("diagnostic feature %q is not registered", diagnostic.Feature())
+	}
+	if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 1, "finalDefault") {
+		t.Fatalf("diagnostic location = %s, want finalDefault attribute location", diagnostic.Loc())
+	}
+	if diagnostic.Message() != `schema root attribute "finalDefault" is not implemented` {
+		t.Fatalf("diagnostic message = %q, want finalDefault unsupported message", diagnostic.Message())
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("diagnostic lost unsupported classification: %v", err)
+	}
+}
+
+func TestSchemaFinalDefaultMalformedValuesRemainInvalid(t *testing.T) {
+	values := []struct {
+		name  string
+		value string
+	}{
+		{name: "unknown token", value: "bogus"},
+		{name: "wrong case", value: "Extension"},
+		{name: "unknown list token", value: "extension bogus"},
+		{name: "all before token", value: "#all extension"},
+		{name: "token before all", value: "extension #all"},
+		{name: "repeated all", value: "#all #all"},
+		{name: "collapsed all combination", value: " \t #all\r extension "},
+	}
+	for _, policy := range schemaFinalDefaultPolicies() {
+		for _, test := range values {
+			t.Run(policy.name+"/"+test.name, func(t *testing.T) {
+				assertSchemaFinalDefaultInvalid(t, policy, test.value)
+			})
+		}
+	}
+}
+
+func assertSchemaFinalDefaultInvalid(t *testing.T, policy schemaFinalDefaultPolicy, value string) {
+	t.Helper()
+	root := schemaFinalDefaultRoot(true, value, policy.version)
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
+	if err == nil {
+		t.Fatal("discoverSchema accepted invalid finalDefault")
+	}
+	if schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+		t.Fatalf("diagnostic = %s, want invalid schema composition", diagnostic)
+	}
+	if diagnostic.Feature() != "" || errors.Is(err, ErrUnsupported) {
+		t.Fatalf("invalid diagnostic was classified as unsupported: %s", diagnostic)
+	}
+	if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 1, "finalDefault") {
+		t.Fatalf("diagnostic location = %s, want finalDefault attribute location", diagnostic.Loc())
+	}
+}
+
+func TestSchemaFinalDefaultDuplicateAttributeRemainsInvalid(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" finalDefault="extension"
+  finalDefault="restriction"/>`
+	for _, policy := range schemaFinalDefaultPolicies() {
+		t.Run(policy.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
+			if err == nil {
+				t.Fatal("discoverSchema accepted duplicate finalDefault attributes")
+			}
+			if schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+				t.Fatal("discoverSchema returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != InvalidXMLSyntaxCode {
+				t.Fatalf("diagnostic = %s, want invalid XML syntax", diagnostic)
+			}
+			if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 2, "finalDefault") {
+				t.Fatalf("diagnostic location = %s, want second finalDefault attribute", diagnostic.Loc())
+			}
+		})
+	}
+}
+
+type schemaFinalDefaultPolicy struct {
+	name    string
+	policy  LanguagePolicy
+	version XSDVersion
+}
+
+func schemaFinalDefaultPolicies() []schemaFinalDefaultPolicy {
+	return []schemaFinalDefaultPolicy{
+		{name: "Compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "Strict10", policy: Strict10, version: XSDVersion10},
+		{name: "Strict11", policy: Strict11, version: XSDVersion11},
+	}
+}
+
+func schemaFinalDefaultRoot(present bool, value string, version XSDVersion) string {
+	attribute := ""
+	if present {
+		attribute = ` finalDefault="` + value + `"`
+	}
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(version) + `"` + attribute + `><xs:element name="root"/></xs:schema>`
+}
+
+func schemaFinalDefaultGraph(present bool, value string, version XSDVersion) (string, map[string]discoveryFixture) {
+	attribute := ""
+	if present {
+		attribute = ` finalDefault="` + value + `"`
+	}
+	includedAttribute := ` finalDefault=""`
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(version) + `"` + attribute + `><xs:include schemaLocation="child.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`
+	return root, map[string]discoveryFixture{
+		"child.xsd": {
+			id:       "child.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(version) + `"` + includedAttribute + `><xs:element name="root"/></xs:schema>`,
+		},
+		"other.xsd": {
+			id:       "other.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="` + string(version) + `"` + includedAttribute + `><xs:element name="other"/></xs:schema>`,
+		},
+	}
+}
+
+type schemaFinalDefaultDocumentSnapshot struct {
+	source          SourceID
+	rootLoc         Loc
+	targetNamespace string
+	components      []Component
+}
+
+type schemaFinalDefaultSnapshot struct {
+	policy     LanguagePolicy
+	documents  []schemaFinalDefaultDocumentSnapshot
+	components []Component
+	found      []Component
+	foundKind  []Component
+	lookup     Component
+	lookupOK   bool
+	walked     []ComponentID
+}
+
+func snapshotSchemaFinalDefault(t *testing.T, schema Schema, queryName QName) schemaFinalDefaultSnapshot {
+	t.Helper()
+	documents := schema.Documents()
+	documentSnapshots := make([]schemaFinalDefaultDocumentSnapshot, 0, len(documents))
+	for _, document := range documents {
+		documentSnapshots = append(documentSnapshots, schemaFinalDefaultDocumentSnapshot{
+			source:          document.Source(),
+			rootLoc:         document.RootLoc(),
+			targetNamespace: document.TargetNamespace(),
+			components:      document.Components(),
+		})
+	}
+	components := schema.Components()
+	if len(components) == 0 {
+		t.Fatal("schema has no components to query")
+	}
+	lookup, lookupOK := schema.Lookup(components[0].ID())
+	walked := make([]ComponentID, 0, len(components))
+	if err := schema.Walk(func(component Component) error {
+		walked = append(walked, component.ID())
+		return nil
+	}); err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	return schemaFinalDefaultSnapshot{
+		policy:     schema.LanguagePolicy(),
+		documents:  documentSnapshots,
+		components: components,
+		found:      schema.Find(queryName),
+		foundKind:  schema.FindKind(ComponentKindElementDeclaration, queryName),
+		lookup:     lookup,
+		lookupOK:   lookupOK,
+		walked:     walked,
+	}
+}
+
 func TestSchemaBridgeRejectsRootAndGlobalLexicalBoundaries(t *testing.T) {
 	tests := []schemaBridgeDiagnosticCase{
 		{
