@@ -114,9 +114,15 @@ type instancePrecisionDecimalScalar struct {
 func (instancePrecisionDecimalScalar) instanceScalarValue() {}
 
 type instanceChoiceAlternative struct {
-	name   QName
-	loc    Loc
-	scalar instanceScalarType
+	name                QName
+	loc                 Loc
+	scalar              instanceScalarType
+	substitutionMembers []instanceChoiceSubstitutionMember
+}
+
+type instanceChoiceSubstitutionMember struct {
+	name    QName
+	related []Loc
 }
 
 type instanceChoiceProgram struct {
@@ -590,10 +596,15 @@ func instanceChoiceReferenceAlternativeFor(
 	if err != nil {
 		return instanceChoiceAlternative{}, err
 	}
+	substitutionMembers, err := instanceChoiceReferenceSubstitutionMembersFor(schema, targetDeclaration, targetRelated, loc)
+	if err != nil {
+		return instanceChoiceAlternative{}, err
+	}
 	return instanceChoiceAlternative{
-		name:   reference.Name(),
-		loc:    reference.Loc(),
-		scalar: scalar,
+		name:                reference.Name(),
+		loc:                 reference.Loc(),
+		scalar:              scalar,
+		substitutionMembers: substitutionMembers,
 	}, nil
 }
 
@@ -665,6 +676,127 @@ func instanceChoiceReferenceTargetFor(
 		)
 	}
 	return targetDeclaration, targetRelated, nil
+}
+
+func instanceChoiceReferenceSubstitutionMembersFor(
+	schema Schema,
+	head ElementDeclaration,
+	related []Loc,
+	loc Loc,
+) ([]instanceChoiceSubstitutionMember, error) {
+	if instanceChoiceSubstitutionDisallowed(head) {
+		return nil, nil
+	}
+	members := make([]instanceChoiceSubstitutionMember, 0)
+	for _, component := range schema.Components() {
+		if component.Kind() != ComponentKindElementDeclaration {
+			continue
+		}
+		member, ok := component.ElementDeclaration()
+		if !ok || member.ID() == head.ID() || member.IsAbstract() {
+			continue
+		}
+		affiliations, found, err := instanceChoiceSubstitutionPathFor(
+			schema,
+			member,
+			head.ID(),
+			make(map[ComponentID]struct{}),
+			related,
+			loc,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			continue
+		}
+		memberRelated := relCopy(related)
+		for _, affiliationLoc := range affiliations {
+			memberRelated = appendInstanceRelated(memberRelated, affiliationLoc)
+		}
+		members = append(members, instanceChoiceSubstitutionMember{
+			name:    member.Name(),
+			related: memberRelated,
+		})
+	}
+	return members, nil
+}
+
+//nolint:gocognit // Keep ID lookup, invariant checks, blocking, and ordered path traversal together.
+func instanceChoiceSubstitutionPathFor(
+	schema Schema,
+	member ElementDeclaration,
+	headID ComponentID,
+	visited map[ComponentID]struct{},
+	related []Loc,
+	loc Loc,
+) ([]Loc, bool, error) {
+	if member.ID() == headID {
+		return nil, true, nil
+	}
+	if _, seen := visited[member.ID()]; seen {
+		return nil, false, nil
+	}
+	visited[member.ID()] = struct{}{}
+	affiliationIDs := member.SubstitutionGroupAffiliations()
+	affiliationLocs := member.SubstitutionGroupAffiliationLocations()
+	if len(affiliationIDs) != len(affiliationLocs) {
+		return nil, false, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("global element %q has mismatched substitution-group facts", member.Name()),
+			related,
+			errInstanceValidationInvariant,
+		)
+	}
+	for index, affiliationID := range affiliationIDs {
+		affiliationLoc := affiliationLocs[index]
+		parentComponent, ok := schema.Lookup(affiliationID)
+		if !ok {
+			return nil, false, newInstanceValidationInternal(
+				loc,
+				fmt.Sprintf("global element %q substitution-group target ID %v is not in the completed schema", member.Name(), affiliationID),
+				appendInstanceRelated(relCopy(related), affiliationLoc),
+				errInstanceValidationInvariant,
+			)
+		}
+		if parentComponent.Kind() != ComponentKindElementDeclaration {
+			return nil, false, newInstanceValidationInternal(
+				loc,
+				fmt.Sprintf("global element %q substitution-group target ID %v has component kind %q, want an element declaration", member.Name(), affiliationID, parentComponent.Kind()),
+				appendInstanceRelated(relCopy(related), affiliationLoc),
+				errInstanceValidationInvariant,
+			)
+		}
+		parent, ok := parentComponent.ElementDeclaration()
+		if !ok {
+			return nil, false, newInstanceValidationInternal(
+				loc,
+				fmt.Sprintf("global element %q substitution-group target ID %v has no element declaration view", member.Name(), affiliationID),
+				appendInstanceRelated(relCopy(related), affiliationLoc),
+				errInstanceValidationInvariant,
+			)
+		}
+		if parent.ID() == headID {
+			return []Loc{affiliationLoc}, true, nil
+		}
+		path, found, err := instanceChoiceSubstitutionPathFor(schema, parent, headID, visited, related, loc)
+		if err != nil {
+			return nil, false, err
+		}
+		if found {
+			return append([]Loc{affiliationLoc}, path...), true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+func instanceChoiceSubstitutionDisallowed(declaration ElementDeclaration) bool {
+	for _, method := range declaration.DisallowedSubstitutions() {
+		if method == "substitution" {
+			return true
+		}
+	}
+	return false
 }
 
 func instanceChoiceReferenceScalarFor(
@@ -834,6 +966,20 @@ func validateChoiceInstance(root *instanceElement, program instanceChoiceProgram
 				program.related,
 				err,
 			)
+		}
+		for _, alternative := range program.alternatives {
+			for _, member := range alternative.substitutionMembers {
+				if member.name != childName {
+					continue
+				}
+				return newInstanceValidationUnsupported(
+					child.loc,
+					fmt.Sprintf("direct choice child %q uses a substitution-group member outside instance validation", renderSyntaxName(child.name)),
+					member.related,
+					program.version,
+					errInstanceElementSubstitution,
+				)
+			}
 		}
 		for index := range program.alternatives {
 			if program.alternatives[index].name == childName {

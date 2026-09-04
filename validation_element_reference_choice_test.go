@@ -150,6 +150,102 @@ func TestValidateInstanceSupportsDirectNumericReferenceChoicesAcrossPolicies(t *
 	}
 }
 
+type validationReferenceChoiceSubstitutionCase struct {
+	name                   string
+	body                   string
+	affiliationSourceNames []string
+	wantUnsupported        bool
+}
+
+//nolint:gocognit // Keep direct, transitive, and blocked substitution coverage together for both XSD editions.
+func TestValidateInstanceReportsReferenceChoiceSubstitutionMembersUnsupported(t *testing.T) {
+	cases := []validationReferenceChoiceSubstitutionCase{
+		{
+			name:                   "direct member",
+			body:                   `<xs:element name="head" type="xs:integer"/><xs:element name="member" type="xs:integer" substitutionGroup="r:head"/><xs:element name="choiceRoot" type="r:Choice"/><xs:complexType name="Choice"><xs:choice><xs:element ref="r:head"/></xs:choice></xs:complexType>`,
+			affiliationSourceNames: []string{"member"},
+			wantUnsupported:        true,
+		},
+		{
+			name:                   "transitive member",
+			body:                   `<xs:element name="head" type="xs:integer"/><xs:element name="middle" type="xs:integer" substitutionGroup="r:head"/><xs:element name="member" type="xs:integer" substitutionGroup="r:middle"/><xs:element name="choiceRoot" type="r:Choice"/><xs:complexType name="Choice"><xs:choice><xs:element ref="r:head"/></xs:choice></xs:complexType>`,
+			affiliationSourceNames: []string{"member", "middle"},
+			wantUnsupported:        true,
+		},
+		{
+			name:                   "transitive member with blocked intermediate",
+			body:                   `<xs:element name="head" type="xs:integer"/><xs:element name="middle" type="xs:integer" block="substitution" substitutionGroup="r:head"/><xs:element name="member" type="xs:integer" substitutionGroup="r:middle"/><xs:element name="choiceRoot" type="r:Choice"/><xs:complexType name="Choice"><xs:choice><xs:element ref="r:head"/></xs:choice></xs:complexType>`,
+			affiliationSourceNames: []string{"member", "middle"},
+			wantUnsupported:        true,
+		},
+		{
+			name: "head disallows substitution",
+			body: `<xs:element name="head" type="xs:integer" block="substitution"/><xs:element name="member" type="xs:integer" substitutionGroup="r:head"/><xs:element name="choiceRoot" type="r:Choice"/><xs:complexType name="Choice"><xs:choice><xs:element ref="r:head"/></xs:choice></xs:complexType>`,
+		},
+	}
+	for _, edition := range []struct {
+		name   string
+		policy goxsd9.LanguagePolicy
+	}{
+		{name: "XSD 1.0", policy: goxsd9.Strict10},
+		{name: "XSD 1.1", policy: goxsd9.Strict11},
+	} {
+		t.Run(edition.name, func(t *testing.T) {
+			for _, test := range cases {
+				t.Run(test.name, func(t *testing.T) {
+					schema := validationReferenceChoiceShapeSchema(t, test.body, edition.policy)
+					evidence := validationReferenceChoiceEvidenceFor(t, schema)
+					before := schema.Components()
+					input := validationReferenceChoiceInstance("r", "member", "1")
+					err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+					diagnostic := validationTestDiagnostic(t, err)
+					if diagnostic.Loc() != validationReferenceChoiceLastMarkerLoc(t, input, "<r:member>") {
+						t.Fatalf("substitution diagnostic location = %s, want member instance location", diagnostic.Loc())
+					}
+					if test.wantUnsupported {
+						if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedInstanceValidationCode || diagnostic.Feature() != goxsd9.FeatureInstanceValidation {
+							t.Fatalf("substitution diagnostic = %s/%q/%q, want explicit unsupported instance validation", diagnostic, diagnostic.Code(), diagnostic.Feature())
+						}
+						if !errors.Is(err, goxsd9.ErrUnsupported) {
+							t.Fatalf("substitution diagnostic does not match ErrUnsupported: %v", err)
+						}
+						wantRelated := validationReferenceChoiceSingleEvidence(t, schema)
+						for _, local := range test.affiliationSourceNames {
+							memberComponent := validationReferenceChoiceComponent(t, schema, goxsd9.ComponentKindElementDeclaration, local)
+							member, ok := memberComponent.ElementDeclaration()
+							if !ok {
+								t.Fatalf("substitution source %q has no element declaration view", local)
+							}
+							locations := member.SubstitutionGroupAffiliationLocations()
+							if len(locations) != 1 {
+								t.Fatalf("substitution source %q affiliation locations = %v, want one", local, locations)
+							}
+							wantRelated = append(wantRelated, locations[0])
+						}
+						if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+							t.Fatalf("substitution related = %v, want ordered target and affiliation evidence %v", diagnostic.Related(), wantRelated)
+						}
+						if diagnostic.Code() == goxsd9.InvalidInstanceChoiceCode {
+							t.Fatal("substitution member was misclassified as invalid choice content")
+						}
+					}
+					if !test.wantUnsupported {
+						if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != goxsd9.InvalidInstanceChoiceCode {
+							t.Fatalf("blocked substitution diagnostic = %s/%q, want invalid choice content", diagnostic, diagnostic.Code())
+						}
+						if !reflect.DeepEqual(diagnostic.Related(), evidence.related) {
+							t.Fatalf("blocked substitution related = %v, want choice evidence %v", diagnostic.Related(), evidence.related)
+						}
+					}
+					if !reflect.DeepEqual(before, schema.Components()) {
+						t.Fatal("substitution-group validation mutated the completed schema")
+					}
+				})
+			}
+		})
+	}
+}
+
 func validationReferenceChoiceSchema(t *testing.T, policy goxsd9.LanguagePolicy) goxsd9.Schema {
 	t.Helper()
 	version := "1.1"
