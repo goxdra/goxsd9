@@ -99,7 +99,7 @@ var bootstrapProbeRows = []bootstrapProbeRow{
 				source:  "xsd11-schema-for-schemas",
 				line:    119,
 				column:  43,
-				specRef: "xsd10-structures#schema-document",
+				specRef: "xsd11-structures#cSchemaDocument",
 			},
 		},
 	},

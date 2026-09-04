@@ -2890,7 +2890,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			if err := validateUnsupportedModelParticle(child, version); err != nil && !candidate.considerError(err) {
+			if err := versionNamedModelGroupUnsupported(validateUnsupportedModelParticle(child, version), version); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "choice":
@@ -2901,7 +2901,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			if err := validateChoiceParticleWithNamespacePolicy(child, version, false); err != nil && !candidate.considerError(err) {
+			if err := versionNamedModelGroupUnsupported(validateChoiceParticleWithNamespacePolicy(child, version, false), version); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "attribute", "attributeGroup":
