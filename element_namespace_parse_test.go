@@ -413,6 +413,7 @@ func TestParseSchemaAcceptsAttributeFormDefaultUnqualifiedAsDefault(t *testing.T
 		{name: "absent"},
 		{name: "explicit unqualified", attribute: ` attributeFormDefault="unqualified"`},
 		{name: "XML-whitespace-padded unqualified", attribute: " attributeFormDefault=\" \t unqualified \t \""},
+		{name: "XML-whitespace-padded qualified", attribute: " attributeFormDefault=\" \t qualified \t \""},
 	}
 	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict10, goxsd9.Strict11} {
 		var want attributeFormDefaultSchemaQuery
@@ -438,14 +439,6 @@ func TestParseSchemaAcceptsAttributeFormDefaultUnqualifiedAsDefault(t *testing.T
 
 func TestParseSchemaAttributeFormDefaultDiagnostics(t *testing.T) {
 	tests := []attributeFormDefaultDiagnosticCase{
-		{
-			name:      "XML-whitespace-padded qualified remains unsupported",
-			attribute: " attributeFormDefault=\" \t qualified \t \"",
-			class:     goxsd9.FailureUnsupported,
-			code:      goxsd9.UnsupportedSchemaSyntaxCode,
-			feature:   goxsd9.FeatureSchemaSyntax,
-			message:   `schema root attribute "attributeFormDefault" is not implemented`,
-		},
 		{
 			name:      "empty value remains invalid",
 			attribute: ` attributeFormDefault=""`,
@@ -479,34 +472,6 @@ func TestParseSchemaAttributeFormDefaultDiagnostics(t *testing.T) {
 		for _, test := range tests {
 			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
 				assertAttributeFormDefaultDiagnostic(t, policy, test)
-			})
-		}
-	}
-}
-
-func TestParseSchemaAttributeFormDefaultDoesNotClaimLocalAttributes(t *testing.T) {
-	tests := []struct {
-		name  string
-		child string
-	}{
-		{name: "local declaration", child: `<xs:attribute name="item" type="xs:string"/>`},
-		{name: "local default", child: `<xs:attribute name="item" default="value"/>`},
-		{name: "local fixed", child: `<xs:attribute name="item" fixed="value"/>`},
-		{name: "local reference", child: `<xs:attribute ref="item"/>`},
-		{name: "attribute group reference", child: `<xs:attributeGroup ref="items"/>`},
-	}
-	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict10, goxsd9.Strict11} {
-		for _, test := range tests {
-			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
-				root := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" attributeFormDefault="unqualified"><xs:complexType name="Record">` + test.child + `</xs:complexType></xs:schema>`
-				schema, err := parseElementNamespaceSchemaResult(t, policy, root, nil)
-				diagnostic := assertElementNamespaceFailure(t, schema, err, goxsd9.FailureUnsupported)
-				if diagnostic.Feature() != goxsd9.FeatureSchemaSyntax || diagnostic.Code() != goxsd9.UnsupportedSchemaSyntaxCode {
-					t.Fatalf("diagnostic = %s, want schema-syntax unsupported", diagnostic)
-				}
-				if !errors.Is(err, goxsd9.ErrUnsupported) {
-					t.Fatalf("local attribute diagnostic lost ErrUnsupported: %v", err)
-				}
 			})
 		}
 	}

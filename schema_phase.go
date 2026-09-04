@@ -720,13 +720,7 @@ func validateSchemaRootUnqualifiedAttribute(element *syntaxElement, attribute sy
 	case "version":
 		_ = collapseXMLWhitespace(attribute.value)
 	case "attributeFormDefault":
-		if err := validateSchemaEnum(attribute, "qualified", "unqualified"); err != nil {
-			return "", err
-		}
-		if collapseXMLWhitespace(attribute.value) == "unqualified" {
-			return "", nil
-		}
-		return fmt.Sprintf("schema root attribute %q is not implemented", attribute.name.local), nil
+		return "", validateSchemaEnum(attribute, "qualified", "unqualified")
 	case "elementFormDefault":
 		return "", validateSchemaEnum(attribute, "qualified", "unqualified")
 	case "blockDefault":
@@ -2706,7 +2700,24 @@ func validateComplexTypeContentChild(parent, element *syntaxElement, version XSD
 			return nil
 		}
 	}
+	if element.name.local == "simpleContent" && schemaSimpleContentExtensionChild(element) != nil {
+		return nil
+	}
 	return newSchemaSyntaxUnsupported(element.loc, element.name.local+" is not implemented")
+}
+
+func schemaSimpleContentExtensionChild(element *syntaxElement) *syntaxElement {
+	if element == nil {
+		return nil
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "extension" {
+			continue
+		}
+		return child
+	}
+	return nil
 }
 
 func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexContent bool) bool {
@@ -2952,6 +2963,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	if derivationErr == nil && boundedComplexContentRestrictionCandidate(element, complexContent) {
 		return nil
 	}
+	if derivationErr == nil && !complexContent && element.name.local == "extension" && !simpleRestriction {
+		return nil
+	}
 	if derivationErr == nil {
 		derivationErr = newSchemaSyntaxUnsupported(element.loc, element.name.local+" derivation is not implemented")
 	}
@@ -3135,6 +3149,14 @@ func validateLocalAttribute(element *syntaxElement, version XSDVersion) error {
 				return err
 			}
 		case "default", "fixed":
+			unsupported := unsupportedSchemaAttributeUse(
+				attribute.loc,
+				"local attribute default and fixed values are not implemented",
+				version,
+			)
+			if !candidate.considerError(unsupported) {
+				return unsupported
+			}
 		case "targetNamespace":
 			if err := validateSchemaAnyURI(attribute); err != nil {
 				return err
@@ -3146,9 +3168,6 @@ func validateLocalAttribute(element *syntaxElement, version XSDVersion) error {
 					attribute.loc,
 					"local attribute targetNamespace is an XSD 1.1-only construct",
 				))
-			}
-			if version != XSDVersion10 {
-				candidate.considerAtVersion(attribute.loc, "local attribute targetNamespace is not implemented", version)
 			}
 		case "inheritable":
 			if err := validateSchemaBoolean(attribute); err != nil {
@@ -3229,14 +3248,34 @@ func validateLocalAttribute(element *syntaxElement, version XSDVersion) error {
 			return newSchemaCompositionDiagnostic(child.loc, "local attribute cannot combine type or ref with an inline simpleType")
 		}
 		typeChildSeen = true
-		if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
+		if err := validateLocalAttributeInlineType(child, version, &candidate); err != nil {
 			return err
 		}
 	}
 	if candidate.present {
 		return candidate.err()
 	}
-	return newSchemaSyntaxUnsupported(element.loc, "local attribute declarations are not implemented")
+	return nil
+}
+
+func validateLocalAttributeInlineType(element *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate) error {
+	err := validateInlineSchemaType(element, version)
+	if err == nil {
+		return nil
+	}
+	if deferLocalAttributeInlineTypePolicyMismatch(err, version) {
+		// Resolve this policy mismatch in the build phase so the attribute use
+		// can provide the primary source location and preserve the cause graph.
+		return nil
+	}
+	if candidate.considerError(err) {
+		return nil
+	}
+	return err
+}
+
+func deferLocalAttributeInlineTypePolicyMismatch(err error, version XSDVersion) bool {
+	return version == XSDVersion10 && errors.Is(err, errSchemaPrecisionDecimalVersion)
 }
 
 //nolint:gocognit // Keep nested attribute-group reference grammar explicit.
