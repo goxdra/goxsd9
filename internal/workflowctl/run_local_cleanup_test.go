@@ -12,6 +12,83 @@ import (
 	"time"
 )
 
+func canonicalHistorySHA(name string) string {
+	switch name {
+	case "evaluated":
+		return "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	case "renewal":
+		return "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	case "canonical-anchor":
+		return "cccccccccccccccccccccccccccccccccccccccc"
+	case "inherited":
+		return "dddddddddddddddddddddddddddddddddddddddd"
+	case "evaluated-commit":
+		return "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	case "tip":
+		return "ffffffffffffffffffffffffffffffffffffffff"
+	case "current":
+		return "1111111111111111111111111111111111111111"
+	case "conflicting":
+		return "2222222222222222222222222222222222222222"
+	case "oldest-current":
+		return "3333333333333333333333333333333333333333"
+	case "f7d1ce":
+		return "4444444444444444444444444444444444444444"
+	default:
+		return name
+	}
+}
+
+func canonicalHistoryAlias(sha string) string {
+	switch sha {
+	case canonicalHistorySHA("evaluated"):
+		return "evaluated"
+	case canonicalHistorySHA("renewal"):
+		return "renewal"
+	case canonicalHistorySHA("canonical-anchor"):
+		return "canonical-anchor"
+	case canonicalHistorySHA("inherited"):
+		return "inherited"
+	case canonicalHistorySHA("evaluated-commit"):
+		return "evaluated-commit"
+	case canonicalHistorySHA("tip"):
+		return "tip"
+	case canonicalHistorySHA("current"):
+		return "current"
+	case canonicalHistorySHA("conflicting"):
+		return "conflicting"
+	case canonicalHistorySHA("oldest-current"):
+		return "oldest-current"
+	case canonicalHistorySHA("f7d1ce"):
+		return "f7d1ce"
+	default:
+		return sha
+	}
+}
+
+func scriptedCanonicalMarkerObject(command, history string) (string, bool) {
+	const (
+		tree   = "1111111111111111111111111111111111111111"
+		parent = "2222222222222222222222222222222222222222"
+	)
+	if strings.HasPrefix(command, "git rev-parse ") && strings.HasSuffix(command, "^{tree}") {
+		return tree + "\n", true
+	}
+	if !strings.HasPrefix(command, "git cat-file commit ") {
+		return "", false
+	}
+	commit := strings.TrimPrefix(command, "git cat-file commit ")
+	fields := strings.Split(history, "\x00")
+	for index := 0; index+1 < len(fields); index += 2 {
+		observed := strings.TrimPrefix(fields[index], "\n")
+		if observed != commit || !isCanonicalClaimMarkerShape(fields[index+1]) {
+			continue
+		}
+		return "tree " + tree + "\nparent " + parent + "\n\n" + fields[index+1], true
+	}
+	return "", false
+}
+
 func TestRemoteAgentRefInventorySeparatesAndSortsRefs(t *testing.T) {
 	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 		if name != "git" || strings.Join(args, " ") != "ls-remote --heads origin refs/heads/agent/*" {
@@ -46,6 +123,303 @@ func TestRemoteAgentRefInventorySeparatesAndSortsRefs(t *testing.T) {
 	}
 	if len(inventory.unrelated) != 1 || inventory.unrelated[0].branch != "agent/other" {
 		t.Fatalf("unrelated refs = %#v, want unrelated ref only", inventory.unrelated)
+	}
+}
+
+//nolint:gocognit // The table keeps terminal and retryable object-boundary cases together.
+func TestStrictRemoteAgentRefInventoryObjectDisposition(t *testing.T) {
+	const branch = "agent/issue-12-run-good"
+	const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	sentinel := errors.New("remote object transport")
+	for _, test := range []struct {
+		name       string
+		advertised string
+		object     string
+		want       operationDisposition
+		wantCause  error
+	}{
+		{name: "malformed SHA", advertised: "short", want: operationDispositionTerminal},
+		{name: "missing object", advertised: sha, object: "missing", want: operationDispositionTerminal},
+		{name: "non-commit object", advertised: sha, object: "blob", want: operationDispositionTerminal},
+		{name: "transport failure", advertised: sha, object: "transport", want: operationDispositionRetryable, wantCause: sentinel},
+		{name: "fetch transport failure", advertised: sha, object: "fetch-transport", want: operationDispositionRetryable, wantCause: sentinel},
+		{name: "commit", advertised: sha, object: "commit"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fetches := 0
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				switch command {
+				case "git ls-remote --heads origin refs/heads/agent/*":
+					return test.advertised + " refs/heads/" + branch, nil
+				case "git cat-file --batch-check=%(objectname) %(objecttype)":
+					value, err := io.ReadAll(input)
+					if err != nil {
+						return "", fmt.Errorf("read object query: %w", err)
+					}
+					queried := strings.TrimSpace(string(value))
+					if test.object == "transport" {
+						return "", sentinel
+					}
+					if test.object == "fetch-transport" {
+						return queried + " missing", nil
+					}
+					return queried + " " + test.object, nil
+				case "git fetch --no-tags --no-write-fetch-head origin refs/heads/" + branch:
+					if test.object == "fetch-transport" {
+						return "", sentinel
+					}
+					fetches++
+					return "", nil
+				default:
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+			}}
+			_, err := application.strictRemoteAgentRefInventory("/repo")
+			if test.want == operationDispositionUnknown {
+				if err != nil {
+					t.Fatalf("strict inventory error = %v, want success", err)
+				}
+				return
+			}
+			if err == nil || operationDispositionOf(err) != test.want {
+				t.Fatalf("strict inventory error = %v, disposition %d, want %d", err, operationDispositionOf(err), test.want)
+			}
+			if test.wantCause != nil && !errors.Is(err, test.wantCause) {
+				t.Fatalf("strict inventory error = %v, want cause %v", err, test.wantCause)
+			}
+			if test.object != "missing" && fetches != 0 {
+				t.Fatalf("fetches = %d, want zero for %s", fetches, test.name)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Namespace cases must prove terminal parsing before object lookup.
+func TestStrictRemoteAgentRefInventoryRequiresExactNamespace(t *testing.T) {
+	const (
+		branch = "agent/issue-12-run-good"
+		sha    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	sentinel := errors.New("remote inventory transport")
+	for _, test := range []struct {
+		name      string
+		listing   string
+		want      operationDisposition
+		wantCause error
+	}{
+		{name: "missing namespace", listing: sha + " " + branch, want: operationDispositionTerminal},
+		{name: "empty remote namespace", listing: sha + " refs/heads/", want: operationDispositionTerminal},
+		{name: "tracking namespace", listing: sha + " origin/" + branch, want: operationDispositionTerminal},
+		{name: "command transport", want: operationDispositionRetryable, wantCause: sentinel},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			objectReads := 0
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				switch command {
+				case "git ls-remote --heads origin refs/heads/agent/*":
+					if test.wantCause != nil {
+						return "", test.wantCause
+					}
+					return test.listing, nil
+				case "git cat-file --batch-check=%(objectname) %(objecttype)":
+					objectReads++
+					value, err := io.ReadAll(input)
+					if err != nil {
+						return "", fmt.Errorf("read object query: %w", err)
+					}
+					return strings.TrimSpace(string(value)) + " commit", nil
+				default:
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+			}}
+			_, err := application.strictRemoteAgentRefInventory("/repo")
+			if err == nil || operationDispositionOf(err) != test.want {
+				t.Fatalf("strict remote inventory error = %v, disposition %d, want %d", err, operationDispositionOf(err), test.want)
+			}
+			if test.wantCause != nil && !errors.Is(err, test.wantCause) {
+				t.Fatalf("strict remote inventory error = %v, want cause %v", err, test.wantCause)
+			}
+			if objectReads != 0 {
+				t.Fatalf("malformed/transport inventory object reads = %d, want zero", objectReads)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // The table keeps terminal and retryable object-boundary cases together.
+func TestClaimResumeAgentRefsObjectDisposition(t *testing.T) {
+	const (
+		branch    = "agent/issue-12-run-good"
+		namespace = "refs/heads/agent/issue-*"
+		sha       = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	sentinel := errors.New("local object transport")
+	for _, test := range []struct {
+		name       string
+		advertised string
+		object     string
+		want       operationDisposition
+		wantCause  error
+	}{
+		{name: "malformed SHA", advertised: "short", want: operationDispositionTerminal},
+		{name: "missing object", advertised: sha, object: "missing", want: operationDispositionTerminal},
+		{name: "non-commit object", advertised: sha, object: "blob", want: operationDispositionTerminal},
+		{name: "transport failure", advertised: sha, object: "transport", want: operationDispositionRetryable, wantCause: sentinel},
+		{name: "commit", advertised: sha, object: "commit"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				switch command {
+				case "git for-each-ref --format=%(refname:short) %(objectname) " + namespace:
+					return branch + " " + test.advertised, nil
+				case "git cat-file --batch-check=%(objectname) %(objecttype)":
+					value, err := io.ReadAll(input)
+					if err != nil {
+						return "", fmt.Errorf("read object query: %w", err)
+					}
+					queried := strings.TrimSpace(string(value))
+					if test.object == "transport" {
+						return "", sentinel
+					}
+					return queried + " " + test.object, nil
+				default:
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+			}}
+			_, err := application.claimResumeAgentRefs("/repo", namespace, claimRefLocal)
+			if test.want == operationDispositionUnknown {
+				if err != nil {
+					t.Fatalf("claim ref error = %v, want success", err)
+				}
+				return
+			}
+			if err == nil || operationDispositionOf(err) != test.want {
+				t.Fatalf("claim ref error = %v, disposition %d, want %d", err, operationDispositionOf(err), test.want)
+			}
+			if test.wantCause != nil && !errors.Is(err, test.wantCause) {
+				t.Fatalf("claim ref error = %v, want cause %v", err, test.wantCause)
+			}
+		})
+	}
+}
+
+func TestClaimResumeTrackingAgentRefsRejectInvalidObject(t *testing.T) {
+	const (
+		branch    = "agent/issue-12-run-good"
+		namespace = "refs/remotes/origin/agent/issue-*"
+		sha       = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	for _, object := range []string{"missing", "blob"} {
+		t.Run(object, func(t *testing.T) {
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				switch command {
+				case "git for-each-ref --format=%(refname:short) %(objectname) " + namespace:
+					return "origin/" + branch + " " + sha, nil
+				case "git cat-file --batch-check=%(objectname) %(objecttype)":
+					value, err := io.ReadAll(input)
+					if err != nil {
+						return "", fmt.Errorf("read object query: %w", err)
+					}
+					return strings.TrimSpace(string(value)) + " " + object, nil
+				default:
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+			}}
+			_, err := application.claimResumeAgentRefs("/repo", namespace, claimRefTracking)
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+				t.Fatalf("tracking claim ref error = %v, disposition %d, want terminal", err, operationDispositionOf(err))
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Tracking namespace cases must prove terminal parsing before object lookup.
+func TestClaimResumeTrackingAgentRefsRequiresExactNamespace(t *testing.T) {
+	const (
+		branch    = "agent/issue-12-run-good"
+		namespace = "refs/remotes/origin/agent/issue-*"
+		sha       = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	sentinel := errors.New("tracking inventory transport")
+	for _, test := range []struct {
+		name      string
+		listing   string
+		want      operationDisposition
+		wantCause error
+	}{
+		{name: "missing namespace", listing: branch + " " + sha, want: operationDispositionTerminal},
+		{name: "empty tracking namespace", listing: "origin/ " + sha, want: operationDispositionTerminal},
+		{name: "remote namespace", listing: "refs/heads/" + branch + " " + sha, want: operationDispositionTerminal},
+		{name: "command transport", want: operationDispositionRetryable, wantCause: sentinel},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			objectReads := 0
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				switch command {
+				case "git for-each-ref --format=%(refname:short) %(objectname) " + namespace:
+					if test.wantCause != nil {
+						return "", test.wantCause
+					}
+					return test.listing, nil
+				case "git cat-file --batch-check=%(objectname) %(objecttype)":
+					objectReads++
+					value, err := io.ReadAll(input)
+					if err != nil {
+						return "", fmt.Errorf("read object query: %w", err)
+					}
+					return strings.TrimSpace(string(value)) + " commit", nil
+				default:
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+			}}
+			_, err := application.claimResumeAgentRefs("/repo", namespace, claimRefTracking)
+			if err == nil || operationDispositionOf(err) != test.want {
+				t.Fatalf("tracking ref error = %v, disposition %d, want %d", err, operationDispositionOf(err), test.want)
+			}
+			if test.wantCause != nil && !errors.Is(err, test.wantCause) {
+				t.Fatalf("tracking ref error = %v, want cause %v", err, test.wantCause)
+			}
+			if objectReads != 0 {
+				t.Fatalf("malformed/transport tracking object reads = %d, want zero", objectReads)
+			}
+		})
+	}
+}
+
+func TestClaimResumeLocalAgentRefsKeepShortNamespaceDistinct(t *testing.T) {
+	const (
+		namespace = "refs/heads/agent/issue-*"
+		sha       = "cccccccccccccccccccccccccccccccccccccccc"
+	)
+	for _, listing := range []string{
+		"origin/agent/issue-12-run-good " + sha,
+		"refs/heads/agent/issue-12-run-good " + sha,
+	} {
+		objectReads := 0
+		application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+			command := name + " " + strings.Join(args, " ")
+			switch command {
+			case "git for-each-ref --format=%(refname:short) %(objectname) " + namespace:
+				return listing, nil
+			case "git cat-file --batch-check=%(objectname) %(objecttype)":
+				objectReads++
+				return "", errors.New("local object lookup should not run")
+			default:
+				return "", fmt.Errorf("unexpected command: %s", command)
+			}
+		}}
+		_, err := application.claimResumeAgentRefs("/repo", namespace, claimRefLocal)
+		if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+			t.Fatalf("local ref %q error = %v, disposition %d, want terminal", listing, err, operationDispositionOf(err))
+		}
+		if objectReads != 0 {
+			t.Fatalf("local ref %q object reads = %d, want zero", listing, objectReads)
+		}
 	}
 }
 
@@ -195,15 +569,20 @@ func TestRunLocalCleanupPreservesSourceDivergenceWithoutChoosingAWinner(t *testi
 	}
 }
 
+//nolint:gocognit // The test keeps all candidate-source rejection cases together.
 func TestRunLocalCleanupIgnoresUnrelatedDivergenceAndMalformedRefs(t *testing.T) {
 	const (
 		goodSHA    = "evaluated-head"
 		goodBranch = "agent/issue-55-run-good"
 	)
 	commands := []string{}
-	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	history := canonicalHistorySHA("evaluated-commit") + "\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00"
+	application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
 		commands = append(commands, command)
+		if output, ok := scriptedCanonicalMarkerObject(command, history); ok {
+			return output, nil
+		}
 		switch {
 		case command == "git ls-remote --heads origin refs/heads/agent/*":
 			return goodSHA + " refs/heads/" + goodBranch + "\n" +
@@ -213,10 +592,16 @@ func TestRunLocalCleanupIgnoresUnrelatedDivergenceAndMalformedRefs(t *testing.T)
 			return "local-unrelated refs/heads/agent/issue-56-run-other\n" +
 				"bad-local refs/heads/agent/issue-56-run-", nil
 		case command == "git for-each-ref --format=%(refname:short) %(objectname) refs/remotes/origin/agent/issue-*":
-			return "tracking-unrelated origin/agent/issue-56-run-other\n" +
-				"bad-tracking origin/agent/issue-56-run-", nil
+			return "origin/agent/issue-56-run-other tracking-unrelated\n" +
+				"origin/agent/issue-56-run- bad-tracking", nil
 		case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
-			return "evaluated-commit\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+			return history, nil
+		case command == "git cat-file --batch-check=%(objectname) %(objecttype)":
+			value, readErr := io.ReadAll(input)
+			if readErr != nil {
+				return "", fmt.Errorf("read object query: %w", readErr)
+			}
+			return strings.TrimSpace(string(value)) + " commit", nil
 		case command == "git ls-remote --heads origin refs/heads/"+goodBranch:
 			return goodSHA + " refs/heads/" + goodBranch, nil
 		case strings.HasPrefix(command, "gh pr list "):
@@ -296,12 +681,22 @@ func openPRRunLocalCandidateExecutor(local, tracking bool, commands *[]string) c
 	if tracking {
 		trackingSHA = sha
 	}
-	return func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	history := canonicalHistorySHA("evaluated-commit") + "\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00"
+	return func(_ string, input io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
 		*commands = append(*commands, command)
+		if output, ok := scriptedCanonicalMarkerObject(command, history); ok {
+			return output, nil
+		}
 		switch {
 		case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
-			return "evaluated-commit\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+			return history, nil
+		case command == "git cat-file --batch-check=%(objectname) %(objecttype)":
+			value, readErr := io.ReadAll(input)
+			if readErr != nil {
+				return "", fmt.Errorf("read object query: %w", readErr)
+			}
+			return strings.TrimSpace(string(value)) + " commit", nil
 		case command == "git ls-remote --heads origin refs/heads/"+branch:
 			return "", nil
 		case command == "git for-each-ref --format=%(objectname) refs/heads/"+branch:
@@ -345,17 +740,28 @@ func TestPreMergeRunLocalWorktreeAllowanceRejectsExtraWorktree(t *testing.T) {
 }
 
 func TestRunLocalHistoryPreservesConflictingIdentities(t *testing.T) {
-	history := "tip\x00work\x00current\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-		"conflicting\x00" + claimMessage(86, "run-other", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-		"oldest-current\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-		"f7d1ce\x00inherited squash body\nAgent-Run-ID: old-run\nAgent-Run-ID: another-old-run\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
+	history := canonicalHistorySHA("tip") + "\x00work\x00" + canonicalHistorySHA("current") + "\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		canonicalHistorySHA("conflicting") + "\x00" + claimMessage(86, "run-other", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		canonicalHistorySHA("oldest-current") + "\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		canonicalHistorySHA("f7d1ce") + "\x00inherited squash body\nAgent-Run-ID: old-run\nAgent-Run-ID: another-old-run\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
 	identities, err := parseBoundedRunLocalHistory(history, "agent/issue-86-run-good")
 	if err != nil {
 		t.Fatalf("parseBoundedRunLocalHistory: %v", err)
 	}
-	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
-		if name != "git" || name+" "+strings.Join(args, " ") != "git log --format=%H%x00%B%x00 evaluated-head" {
-			return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+	application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if output, ok := scriptedCanonicalMarkerObject(command, history); ok {
+			return output, nil
+		}
+		if command == "git cat-file --batch-check=%(objectname) %(objecttype)" {
+			value, readErr := io.ReadAll(input)
+			if readErr != nil {
+				return "", fmt.Errorf("read object query: %w", readErr)
+			}
+			return strings.TrimSpace(string(value)) + " commit", nil
+		}
+		if command != "git log --format=%H%x00%B%x00 evaluated-head" {
+			return "", fmt.Errorf("unexpected command: %s", command)
 		}
 		return history, nil
 	}}
@@ -366,6 +772,7 @@ func TestRunLocalHistoryPreservesConflictingIdentities(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // The table keeps malformed metadata and zero-mutation assertions together.
 func TestRunLocalHistoryRejectsAmbiguousMetadataInsideBoundedRange(t *testing.T) {
 	const branch = "agent/issue-86-run-f9"
 	for _, test := range []struct {
@@ -376,14 +783,24 @@ func TestRunLocalHistoryRejectsAmbiguousMetadataInsideBoundedRange(t *testing.T)
 		{name: "repeated issue", metadata: "Agent-Run-ID: run-f9\nAgent-Issue: 86\nAgent-Issue: 87\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			history := "tip\x00work\x00current\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-				"ambiguous\x00" + test.metadata + "\x00" +
-				"oldest-current\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-				"f7d1ce\x00inherited squash body\nAgent-Run-ID: historical-a\nAgent-Run-ID: historical-b\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
+			history := canonicalHistorySHA("tip") + "\x00work\x00" + canonicalHistorySHA("current") + "\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+				canonicalHistorySHA("conflicting") + "\x00" + test.metadata + "\x00" +
+				canonicalHistorySHA("oldest-current") + "\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+				canonicalHistorySHA("f7d1ce") + "\x00inherited squash body\nAgent-Run-ID: historical-a\nAgent-Run-ID: historical-b\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
 			commands := []string{}
-			application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 				command := name + " " + strings.Join(args, " ")
 				commands = append(commands, command)
+				if output, ok := scriptedCanonicalMarkerObject(command, history); ok {
+					return output, nil
+				}
+				if command == "git cat-file --batch-check=%(objectname) %(objecttype)" {
+					value, readErr := io.ReadAll(input)
+					if readErr != nil {
+						return "", fmt.Errorf("read object query: %w", readErr)
+					}
+					return strings.TrimSpace(string(value)) + " commit", nil
+				}
 				if command != "git log --format=%H%x00%B%x00 evaluated-head" {
 					return "", fmt.Errorf("unexpected command: %s", command)
 				}
@@ -393,7 +810,7 @@ func TestRunLocalHistoryRejectsAmbiguousMetadataInsideBoundedRange(t *testing.T)
 			if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 				t.Fatalf("ambiguous bounded history proof = %v, want preservation refusal", err)
 			}
-			if len(commands) != 1 {
+			if containsRunLocalDelete(commands) {
 				t.Fatalf("bounded history refusal issued mutation commands: %v", commands)
 			}
 		})
@@ -402,8 +819,8 @@ func TestRunLocalHistoryRejectsAmbiguousMetadataInsideBoundedRange(t *testing.T)
 
 func TestRunLocalHistoryIgnoresInheritedRepeatedTrailers(t *testing.T) {
 	const branch = "agent/issue-86-run-f9"
-	history := "tip\x00work\x00claim\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
-		"f7d1ce\x00inherited squash body\nAgent-Run-ID: historical-a\nAgent-Run-ID: historical-b\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
+	history := canonicalHistorySHA("tip") + "\x00work\x00" + canonicalHistorySHA("current") + "\x00" + claimMessage(86, "run-f9", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00" +
+		canonicalHistorySHA("f7d1ce") + "\x00inherited squash body\nAgent-Run-ID: historical-a\nAgent-Run-ID: historical-b\nAgent-Issue: 1\nAgent-Issue: 2\n\x00"
 	identities, err := parseBoundedRunLocalHistory(history, branch)
 	if err != nil {
 		t.Fatalf("parseBoundedRunLocalHistory: %v", err)
@@ -411,8 +828,18 @@ func TestRunLocalHistoryIgnoresInheritedRepeatedTrailers(t *testing.T) {
 	if len(identities) != 1 || identities[0] != (runLocalHistoryIdentity{runID: "run-f9", issue: 86}) {
 		t.Fatalf("bounded identities = %#v, want current claim only", identities)
 	}
-	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
+		if output, ok := scriptedCanonicalMarkerObject(command, history); ok {
+			return output, nil
+		}
+		if command == "git cat-file --batch-check=%(objectname) %(objecttype)" {
+			value, readErr := io.ReadAll(input)
+			if readErr != nil {
+				return "", fmt.Errorf("read object query: %w", readErr)
+			}
+			return strings.TrimSpace(string(value)) + " commit", nil
+		}
 		if command != "git log --format=%H%x00%B%x00 evaluated-head" {
 			return "", fmt.Errorf("unexpected command: %s", command)
 		}
@@ -422,6 +849,181 @@ func TestRunLocalHistoryIgnoresInheritedRepeatedTrailers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inherited squash trailers rejected current packet: %v", err)
 	}
+}
+
+func TestSplitRunLocalHistoryRequiresCanonicalCommitTokens(t *testing.T) {
+	valid := canonicalHistorySHA("tip") + "\x00message\x00"
+	for _, test := range []struct {
+		name    string
+		history string
+	}{
+		{name: "short SHA", history: "short\x00message\x00"},
+		{name: "missing commit", history: "\x00message\x00"},
+		{name: "trailing record field", history: valid + "unexpected"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := splitRunLocalHistory(test.history, "agent/issue-86-run-good")
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+				t.Fatalf("splitRunLocalHistory(%q) = %v, disposition %d, want terminal", test.history, err, operationDispositionOf(err))
+			}
+		})
+	}
+}
+
+//nolint:gocognit // The table covers malformed history and object transport at one consumer boundary.
+func TestRunLocalHistoryObjectBoundariesPreserveWithoutMutation(t *testing.T) {
+	const (
+		branch = "agent/issue-86-run-good"
+		sha    = "evaluated-head"
+	)
+	history := canonicalHistorySHA("tip") + "\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00"
+	for _, test := range []struct {
+		name      string
+		history   string
+		objectErr error
+		want      operationDisposition
+		wantCause bool
+	}{
+		{name: "malformed successful history", history: "short\x00message\x00", want: operationDispositionTerminal},
+		{name: "object transport", history: history, objectErr: errors.New("history object transport sentinel"), want: operationDispositionRetryable, wantCause: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			commands := []string{}
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				commands = append(commands, command)
+				switch {
+				case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
+					return test.history, nil
+				case command == "git cat-file --batch-check=%(objectname) %(objecttype)":
+					if test.objectErr != nil {
+						return "", test.objectErr
+					}
+					value, readErr := io.ReadAll(input)
+					if readErr != nil {
+						return "", fmt.Errorf("read object query: %w", readErr)
+					}
+					return strings.TrimSpace(string(value)) + " commit", nil
+				default:
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+			}}
+			err := application.validateRunLocalProof("/repo", runLocalRefCandidate{branch: branch, sha: sha}, claimArtifact{issue: 86, sha: sha}, sha)
+			if err == nil || operationDispositionOf(err) != test.want {
+				t.Fatalf("run-local history error = %v, disposition %d, want %d", err, operationDispositionOf(err), test.want)
+			}
+			if test.wantCause && !errors.Is(err, test.objectErr) {
+				t.Fatalf("run-local history error = %v, want cause %v", err, test.objectErr)
+			}
+			if containsRunLocalDelete(commands) {
+				t.Fatalf("run-local history attempted mutation: %v", commands)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // The table keeps cleanup terminal proofs and mutation checks together.
+func TestRunLocalCleanupRejectsSourceBearingAndMergeMarkersBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(*testing.T, baseRepositoryFixture) string
+		want  string
+	}{
+		{name: "source-bearing marker", build: makeSourceBearingCleanupMarker, want: "source-bearing"},
+		{name: "merge marker", build: makeMergeCleanupMarker, want: "non-canonical parent shape"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := newBaseRepositoryFixture(t, false)
+			configureTestIdentity(t, repository.linked)
+			marker := test.build(t, repository)
+			fixedBranch := "agent/issue-86"
+			runBranch := "agent/issue-86-run-good"
+			for _, branch := range []string{fixedBranch, runBranch} {
+				runGitTest(t, repository.linked, "push", "--force", "origin", marker+":refs/heads/"+branch)
+			}
+			commands := []string{}
+			application := app{ctx: context.Background(), stdout: &bytes.Buffer{}, executeCommand: realGitWithNoOpenPRExecutor(t, &commands)}
+			layout, err := application.repositoryLayout(repository.primary)
+			if err != nil {
+				t.Fatalf("repositoryLayout: %v", err)
+			}
+			plan := cleanupPlan{
+				layout: layout, callerRoot: repository.primary,
+				claims:            []claimArtifact{{issue: 86, branch: fixedBranch, sha: marker}},
+				proofHead:         marker,
+				primaryIssue:      86,
+				validateArtifacts: true,
+			}
+			base := synchronizedBase{fetched: fetchedBase{primary: cleanPrimary{layout: layout}}}
+			packet := mergedPacket{number: 86, mergeSHA: "merge-proof", plan: plan}
+			err = application.cleanupClaims(base, packet)
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("%s cleanup error = %v, disposition %d, want terminal %q", test.name, err, operationDispositionOf(err), test.want)
+			}
+			if containsRunLocalDelete(commands) {
+				t.Fatalf("%s issued cleanup mutation commands: %v", test.name, commands)
+			}
+			for _, branch := range []string{fixedBranch, runBranch} {
+				if output := runGitTest(t, repository.primary, "ls-remote", "--heads", "origin", "refs/heads/"+branch); !strings.Contains(output, marker) {
+					t.Fatalf("%s changed remote %s: %q", test.name, branch, output)
+				}
+			}
+		})
+	}
+}
+
+func TestRunLocalHistoryMarkerObjectTransportPreservesCause(t *testing.T) {
+	const (
+		branch = "agent/issue-86-run-good"
+		marker = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	history := marker + "\x00" + claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00"
+	sentinel := errors.New("canonical marker object transport sentinel")
+	commands := []string{}
+	application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		commands = append(commands, command)
+		switch {
+		case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
+			return history, nil
+		case command == "git cat-file --batch-check=%(objectname) %(objecttype)":
+			value, err := io.ReadAll(input)
+			if err != nil {
+				return "", fmt.Errorf("read object query: %w", err)
+			}
+			return strings.TrimSpace(string(value)) + " commit", nil
+		case command == "git cat-file commit "+marker:
+			return "", sentinel
+		default:
+			return "", fmt.Errorf("unexpected command: %s", command)
+		}
+	}}
+	err := application.validateRunLocalProof("/repo", runLocalRefCandidate{branch: branch, sha: "evaluated-head"}, claimArtifact{issue: 86, sha: "evaluated-head"}, "evaluated-head")
+	if err == nil || operationDispositionOf(err) != operationDispositionRetryable || !errors.Is(err, sentinel) {
+		t.Fatalf("marker object transport error = %v, disposition %d, want retryable cause", err, operationDispositionOf(err))
+	}
+	if containsRunLocalDelete(commands) {
+		t.Fatalf("marker object transport attempted cleanup mutation: %v", commands)
+	}
+}
+
+func makeSourceBearingCleanupMarker(t *testing.T, repository baseRepositoryFixture) string {
+	t.Helper()
+	base := runGitTest(t, repository.linked, "rev-parse", "HEAD")
+	writeFixtureFile(t, repository.linked, "cleanup-marker-source", "source-bearing cleanup marker\n")
+	runGitTest(t, repository.linked, "add", "cleanup-marker-source")
+	runGitTest(t, repository.linked, "commit", "--no-gpg-sign", "-m", "feat: cleanup marker source")
+	tree := runGitTest(t, repository.linked, "rev-parse", "HEAD^{tree}")
+	return createResumeCommitTree(t, repository.linked, tree, []string{base}, claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)))
+}
+
+func makeMergeCleanupMarker(t *testing.T, repository baseRepositoryFixture) string {
+	t.Helper()
+	base := runGitTest(t, repository.linked, "rev-parse", "HEAD")
+	tree := runGitTest(t, repository.linked, "rev-parse", "HEAD^{tree}")
+	side := createResumeCommitTree(t, repository.linked, tree, []string{base}, "test: cleanup marker side\n")
+	return createResumeCommitTree(t, repository.linked, tree, []string{base, side}, claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)))
 }
 
 func TestCleanupRemovesOnlyProvenRunLocalDuplicateFromFourRefShape(t *testing.T) {
@@ -806,9 +1408,7 @@ func TestCleanupRemoteOnlyRunLocalProofDoesNotLeaveTrackingRef(t *testing.T) {
 	runGitTest(t, repository.root, "clone", repository.origin, remoteClone)
 	configureTestIdentity(t, remoteClone)
 	runGitTest(t, remoteClone, "switch", "-c", "agent/issue-86-run-good", "origin/main")
-	writeFixtureFile(t, remoteClone, "claim", "claim\n")
-	runGitTest(t, remoteClone, "add", "claim")
-	runGitTest(t, remoteClone, "commit", "--no-gpg-sign", "-m", claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)))
+	runGitTest(t, remoteClone, "commit", "--no-gpg-sign", "--allow-empty", "-m", claimMessage(86, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)))
 	head := runGitTest(t, remoteClone, "rev-parse", "HEAD")
 	runGitTest(t, remoteClone, "push", "origin", "HEAD:refs/heads/agent/issue-86")
 	runGitTest(t, remoteClone, "push", "origin", "HEAD:refs/heads/agent/issue-86-run-good")
@@ -872,9 +1472,7 @@ func newIssue86FourRefFixture(t *testing.T) issue86FourRefFixture {
 	configureTestIdentity(t, repository.linked)
 	const issue = 86
 	commitMessage := claimMessage(issue, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC))
-	writeFixtureFile(t, repository.linked, "claim", "claim\n")
-	runGitTest(t, repository.linked, "add", "claim")
-	runGitTest(t, repository.linked, "commit", "--no-gpg-sign", "-m", commitMessage)
+	runGitTest(t, repository.linked, "commit", "--no-gpg-sign", "--allow-empty", "-m", commitMessage)
 	claimSHA := runGitTest(t, repository.linked, "rev-parse", "HEAD")
 	writeFixtureFile(t, repository.linked, "work", "evaluated work\n")
 	runGitTest(t, repository.linked, "add", "work")
@@ -1071,35 +1669,35 @@ func assertIssue86AncestorDeletes(t *testing.T, fixture issue86AncestorFixture, 
 }
 
 func ancestorRunLocalHistory() string {
-	const (
-		anchor = "canonical-anchor"
-		runID  = "run-good"
-	)
+	const runID = "run-good"
 	lease := time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)
-	return "evaluated\x00evaluated work\x00" +
-		"renewal\x00" + claimMessage(86, runID, lease.Add(time.Minute)) + "\x00" +
-		anchor + "\x00" + claimMessage(86, runID, lease) + "\x00" +
-		"inherited\x00base history\x00"
+	return canonicalHistorySHA("evaluated") + "\x00evaluated work\x00" +
+		canonicalHistorySHA("renewal") + "\x00" + claimMessage(86, runID, lease.Add(time.Minute)) + "\x00" +
+		canonicalHistorySHA("canonical-anchor") + "\x00" + claimMessage(86, runID, lease) + "\x00" +
+		canonicalHistorySHA("inherited") + "\x00base history\x00"
 }
 
 func ancestorRunLocalHistoryWithIdentity() string {
 	const (
-		anchor           = "canonical-anchor"
 		runID            = "run-good"
 		conflictingRunID = "run-other"
 	)
 	lease := time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)
-	return "evaluated\x00evaluated work\x00" +
-		"renewal\x00" + claimMessage(86, runID, lease.Add(2*time.Minute)) + "\x00" +
-		"conflicting\x00" + claimMessage(86, conflictingRunID, lease.Add(time.Minute)) + "\x00" +
-		anchor + "\x00" + claimMessage(86, runID, lease) + "\x00" +
-		"inherited\x00base history\x00"
+	return canonicalHistorySHA("evaluated") + "\x00evaluated work\x00" +
+		canonicalHistorySHA("renewal") + "\x00" + claimMessage(86, runID, lease.Add(2*time.Minute)) + "\x00" +
+		canonicalHistorySHA("conflicting") + "\x00" + claimMessage(86, conflictingRunID, lease.Add(time.Minute)) + "\x00" +
+		canonicalHistorySHA("canonical-anchor") + "\x00" + claimMessage(86, runID, lease) + "\x00" +
+		canonicalHistorySHA("inherited") + "\x00base history\x00"
 }
 
+//nolint:gocognit // The injected executor models the ordered read-only candidate proof.
 func scriptedAncestorCandidateApplication(history string, graph map[string]string, currentSHA string, openPR bool, commands *[]string) app {
-	return app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	return app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
 		*commands = append(*commands, command)
+		if output, ok := scriptedCanonicalMarkerObject(command, history); ok {
+			return output, nil
+		}
 		switch {
 		case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
 			return history, nil
@@ -1108,7 +1706,7 @@ func scriptedAncestorCandidateApplication(history string, graph map[string]strin
 			if len(values) != 5 {
 				return "", fmt.Errorf("unexpected merge-base command: %s", command)
 			}
-			result, ok := graph[values[3]+"|"+values[4]]
+			result, ok := graph[canonicalHistoryAlias(values[3])+"|"+canonicalHistoryAlias(values[4])]
 			if !ok {
 				return "", fmt.Errorf("unexpected merge-base command: %s", command)
 			}
@@ -1116,6 +1714,13 @@ func scriptedAncestorCandidateApplication(history string, graph map[string]strin
 				return "", errors.New("exit status 1")
 			}
 			return result, nil
+		case command == "git cat-file --batch-check=%(objectname) %(objecttype)":
+			value, err := io.ReadAll(input)
+			if err != nil {
+				return "", fmt.Errorf("read object query: %w", err)
+			}
+			sha := strings.TrimSpace(string(value))
+			return sha + " commit", nil
 		case strings.HasPrefix(command, "git ls-remote --heads origin refs/heads/"):
 			branch := strings.TrimPrefix(command, "git ls-remote --heads origin refs/heads/")
 			return currentSHA + " refs/heads/" + branch, nil
@@ -1131,9 +1736,13 @@ func scriptedAncestorCandidateApplication(history string, graph map[string]strin
 }
 
 func scriptedRunLocalApplication(inventory, currentSHA string, openPR bool, commands *[]string) app {
-	return app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	history := canonicalHistorySHA("evaluated-commit") + "\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00"
+	return app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
 		*commands = append(*commands, command)
+		if output, ok := scriptedCanonicalMarkerObject(command, history); ok {
+			return output, nil
+		}
 		switch {
 		case command == "git ls-remote --heads origin refs/heads/agent/*":
 			return inventory, nil
@@ -1142,7 +1751,14 @@ func scriptedRunLocalApplication(inventory, currentSHA string, openPR bool, comm
 		case command == "git for-each-ref --format=%(refname:short) %(objectname) refs/remotes/origin/agent/issue-*":
 			return "", nil
 		case strings.HasPrefix(command, "git log --format=%H%x00%B%x00 "):
-			return "evaluated-commit\x00" + claimMessage(55, "run-good", time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)) + "\x00", nil
+			return history, nil
+		case command == "git cat-file --batch-check=%(objectname) %(objecttype)":
+			value, err := io.ReadAll(input)
+			if err != nil {
+				return "", fmt.Errorf("read object query: %w", err)
+			}
+			sha := strings.TrimSpace(string(value))
+			return sha + " commit", nil
 		case strings.HasPrefix(command, "git ls-remote --heads origin refs/heads/"):
 			branch := strings.TrimPrefix(command, "git ls-remote --heads origin refs/heads/")
 			return currentSHA + " refs/heads/" + branch, nil
@@ -1173,6 +1789,12 @@ func realGitWithNoOpenPRExecutor(t *testing.T, commands *[]string) commandExecut
 		output, err := command.CombinedOutput()
 		if err != nil {
 			return "", fmt.Errorf("run %s: %w: %s", name, err, strings.TrimSpace(string(output)))
+		}
+		if name == "git" && len(args) > 1 && args[0] == "cat-file" && args[1] == "commit" {
+			return string(output), nil
+		}
+		if name == "git" && len(args) > 1 && args[0] == "rev-parse" && strings.HasSuffix(args[1], "^{tree}") {
+			return string(output), nil
 		}
 		return strings.TrimSpace(string(output)), nil
 	}
