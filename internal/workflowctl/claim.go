@@ -16,7 +16,7 @@ const (
 
 func (a app) runClaim(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl claim acquire ISSUE | renew | verify | prune ISSUE")
+		return usageError("usage: workflowctl claim acquire ISSUE | resume ISSUE [flags] | renew | verify | prune ISSUE")
 	}
 	switch args[0] {
 	case "acquire":
@@ -28,6 +28,8 @@ func (a app) runClaim(args []string) error {
 			return usageError("claim acquire: %v", err)
 		}
 		return a.acquireClaim(number)
+	case "resume":
+		return a.resumeClaimCommand(args[1:])
 	case "renew":
 		if len(args) != 1 {
 			return usageError("usage: workflowctl claim renew")
@@ -198,6 +200,7 @@ func (a app) newClaimCommitWithRunID(root string, number int, parent, runID stri
 	if err != nil {
 		return "", time.Time{}, "", fmt.Errorf("read claim tree: %w", err)
 	}
+	tree = strings.TrimSpace(tree)
 	if strings.TrimSpace(runID) == "" {
 		return "", time.Time{}, "", errors.New("claim run ID must not be empty")
 	}

@@ -49,6 +49,164 @@ func TestRemoteAgentRefInventorySeparatesAndSortsRefs(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // The table keeps terminal and retryable object-boundary cases together.
+func TestStrictRemoteAgentRefInventoryObjectDisposition(t *testing.T) {
+	const branch = "agent/issue-12-run-good"
+	const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	sentinel := errors.New("remote object transport")
+	for _, test := range []struct {
+		name       string
+		advertised string
+		object     string
+		want       operationDisposition
+		wantCause  error
+	}{
+		{name: "malformed SHA", advertised: "short", want: operationDispositionTerminal},
+		{name: "missing object", advertised: sha, object: "missing", want: operationDispositionTerminal},
+		{name: "non-commit object", advertised: sha, object: "blob", want: operationDispositionTerminal},
+		{name: "transport failure", advertised: sha, object: "transport", want: operationDispositionRetryable, wantCause: sentinel},
+		{name: "fetch transport failure", advertised: sha, object: "fetch-transport", want: operationDispositionRetryable, wantCause: sentinel},
+		{name: "commit", advertised: sha, object: "commit"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fetches := 0
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				switch command {
+				case "git ls-remote --heads origin refs/heads/agent/*":
+					return test.advertised + " refs/heads/" + branch, nil
+				case "git cat-file --batch-check=%(objectname) %(objecttype)":
+					value, err := io.ReadAll(input)
+					if err != nil {
+						return "", fmt.Errorf("read object query: %w", err)
+					}
+					queried := strings.TrimSpace(string(value))
+					if test.object == "transport" {
+						return "", sentinel
+					}
+					if test.object == "fetch-transport" {
+						return queried + " missing", nil
+					}
+					return queried + " " + test.object, nil
+				case "git fetch --no-tags --no-write-fetch-head origin refs/heads/" + branch:
+					if test.object == "fetch-transport" {
+						return "", sentinel
+					}
+					fetches++
+					return "", nil
+				default:
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+			}}
+			_, err := application.strictRemoteAgentRefInventory("/repo")
+			if test.want == operationDispositionUnknown {
+				if err != nil {
+					t.Fatalf("strict inventory error = %v, want success", err)
+				}
+				return
+			}
+			if err == nil || operationDispositionOf(err) != test.want {
+				t.Fatalf("strict inventory error = %v, disposition %d, want %d", err, operationDispositionOf(err), test.want)
+			}
+			if test.wantCause != nil && !errors.Is(err, test.wantCause) {
+				t.Fatalf("strict inventory error = %v, want cause %v", err, test.wantCause)
+			}
+			if test.object != "missing" && fetches != 0 {
+				t.Fatalf("fetches = %d, want zero for %s", fetches, test.name)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // The table keeps terminal and retryable object-boundary cases together.
+func TestClaimResumeAgentRefsObjectDisposition(t *testing.T) {
+	const (
+		branch    = "agent/issue-12-run-good"
+		namespace = "refs/heads/agent/issue-*"
+		sha       = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	sentinel := errors.New("local object transport")
+	for _, test := range []struct {
+		name       string
+		advertised string
+		object     string
+		want       operationDisposition
+		wantCause  error
+	}{
+		{name: "malformed SHA", advertised: "short", want: operationDispositionTerminal},
+		{name: "missing object", advertised: sha, object: "missing", want: operationDispositionTerminal},
+		{name: "non-commit object", advertised: sha, object: "blob", want: operationDispositionTerminal},
+		{name: "transport failure", advertised: sha, object: "transport", want: operationDispositionRetryable, wantCause: sentinel},
+		{name: "commit", advertised: sha, object: "commit"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				switch command {
+				case "git for-each-ref --format=%(refname:short) %(objectname) " + namespace:
+					return branch + " " + test.advertised, nil
+				case "git cat-file --batch-check=%(objectname) %(objecttype)":
+					value, err := io.ReadAll(input)
+					if err != nil {
+						return "", fmt.Errorf("read object query: %w", err)
+					}
+					queried := strings.TrimSpace(string(value))
+					if test.object == "transport" {
+						return "", sentinel
+					}
+					return queried + " " + test.object, nil
+				default:
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+			}}
+			_, err := application.claimResumeAgentRefs("/repo", namespace, claimRefLocal)
+			if test.want == operationDispositionUnknown {
+				if err != nil {
+					t.Fatalf("claim ref error = %v, want success", err)
+				}
+				return
+			}
+			if err == nil || operationDispositionOf(err) != test.want {
+				t.Fatalf("claim ref error = %v, disposition %d, want %d", err, operationDispositionOf(err), test.want)
+			}
+			if test.wantCause != nil && !errors.Is(err, test.wantCause) {
+				t.Fatalf("claim ref error = %v, want cause %v", err, test.wantCause)
+			}
+		})
+	}
+}
+
+func TestClaimResumeTrackingAgentRefsRejectInvalidObject(t *testing.T) {
+	const (
+		branch    = "agent/issue-12-run-good"
+		namespace = "refs/remotes/origin/agent/issue-*"
+		sha       = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	for _, object := range []string{"missing", "blob"} {
+		t.Run(object, func(t *testing.T) {
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				switch command {
+				case "git for-each-ref --format=%(refname:short) %(objectname) " + namespace:
+					return "origin/" + branch + " " + sha, nil
+				case "git cat-file --batch-check=%(objectname) %(objecttype)":
+					value, err := io.ReadAll(input)
+					if err != nil {
+						return "", fmt.Errorf("read object query: %w", err)
+					}
+					return strings.TrimSpace(string(value)) + " " + object, nil
+				default:
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+			}}
+			_, err := application.claimResumeAgentRefs("/repo", namespace, claimRefTracking)
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+				t.Fatalf("tracking claim ref error = %v, disposition %d, want terminal", err, operationDispositionOf(err))
+			}
+		})
+	}
+}
+
 func TestClassifyAgentRefRequiresCanonicalFixedAndRunLocalGrammar(t *testing.T) {
 	tests := []struct {
 		branch string

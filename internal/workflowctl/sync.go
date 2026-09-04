@@ -98,9 +98,12 @@ func (a app) readIssueStatus(root string, number int) (issueStatus, error) {
 	}
 	var status issueStatus
 	if err := json.Unmarshal([]byte(output), &status); err != nil {
-		return issueStatus{}, fmt.Errorf("decode issue #%d: %w", number, err)
+		return issueStatus{}, terminalOperation("issue status", fmt.Errorf("decode issue #%d: %w", number, err))
 	}
 	status.State = strings.ToUpper(status.State)
+	if status.State != "OPEN" && status.State != "CLOSED" {
+		return issueStatus{}, terminalOperation("issue status", fmt.Errorf("decode issue #%d: unsupported state %q", number, status.State))
+	}
 	return status, nil
 }
 
@@ -211,10 +214,24 @@ func (a app) remoteClaimRefs(root string) ([]remoteClaim, error) {
 	return claims, nil
 }
 
+// remoteAgentRefInventory reads the ordinary scheduler inventory. Ordinary
+// sync keeps its existing inventory-only behavior; inspectRemoteClaim fetches
+// claim objects when it needs their lease metadata.
 func (a app) remoteAgentRefInventory(root string) (agentRefInventory, error) {
+	return a.readRemoteAgentRefInventory(root, false)
+}
+
+// strictRemoteAgentRefInventory proves every claim/run-local object before it
+// can enter a resume lineage or merge-base check.
+func (a app) strictRemoteAgentRefInventory(root string) (agentRefInventory, error) {
+	return a.readRemoteAgentRefInventory(root, true)
+}
+
+//nolint:gocognit // Parsing and strict object validation form one deterministic inventory boundary.
+func (a app) readRemoteAgentRefInventory(root string, validateObjects bool) (agentRefInventory, error) {
 	output, err := a.command(root, "git", "ls-remote", "--heads", "origin", "refs/heads/agent/*")
 	if err != nil {
-		return agentRefInventory{}, fmt.Errorf("list remote agent refs: %w", err)
+		return agentRefInventory{}, retryableOperation("list remote agent refs", fmt.Errorf("list remote agent refs: %w", err))
 	}
 	inventory := agentRefInventory{}
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
@@ -223,7 +240,10 @@ func (a app) remoteAgentRefInventory(root string) (agentRefInventory, error) {
 		}
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
-			return agentRefInventory{}, fmt.Errorf("remote agent ref listing contains malformed entry %q", line)
+			return agentRefInventory{}, terminalOperation("remote claim ref inventory", fmt.Errorf("remote agent ref listing contains malformed entry %q", line))
+		}
+		if validateObjects && !validExactCommitSHA(fields[0]) {
+			return agentRefInventory{}, terminalOperation("remote claim ref inventory", stateError("remote agent ref %s advertises malformed object name %q; preserve claim artifacts", fields[1], fields[0]))
 		}
 		branch := strings.TrimPrefix(fields[1], "refs/heads/")
 		ref := agentRef{branch: branch, sha: fields[0]}
@@ -240,11 +260,95 @@ func (a app) remoteAgentRefInventory(root string) (agentRefInventory, error) {
 		case agentRefUnrelated:
 			inventory.unrelated = append(inventory.unrelated, ref)
 		default:
-			return agentRefInventory{}, fmt.Errorf("classify remote agent ref %q: unknown ref kind %d", branch, kind)
+			return agentRefInventory{}, terminalOperation("remote claim ref inventory", fmt.Errorf("classify remote agent ref %q: unknown ref kind %d", branch, kind))
 		}
 	}
 	sortRemoteAgentRefs(&inventory)
+	if validateObjects {
+		for _, claim := range inventory.claims {
+			if err := a.validateRemoteAgentCommit(root, claim.branch, claim.sha); err != nil {
+				return agentRefInventory{}, err
+			}
+		}
+		for _, runLocal := range inventory.runLocals {
+			if err := a.validateRemoteAgentCommit(root, runLocal.branch, runLocal.sha); err != nil {
+				return agentRefInventory{}, err
+			}
+		}
+	}
 	return inventory, nil
+}
+
+type agentCommitObjectState uint8
+
+const (
+	agentCommitObjectPresent agentCommitObjectState = iota + 1
+	agentCommitObjectMissing
+)
+
+// readAgentCommitObject checks Git's machine-readable object response. A
+// missing object is data corruption/race once its ref was successfully
+// advertised; command failure remains a retryable transport failure.
+func (a app) readAgentCommitObject(root, sha, description string) (agentCommitObjectState, error) {
+	if !validExactCommitSHA(sha) {
+		return 0, terminalOperation("verify "+description, stateError("%s advertises malformed object name %q; preserve claim artifacts", description, sha))
+	}
+	output, err := a.commandInput(root, strings.NewReader(sha+"\n"), "git", "cat-file", "--batch-check=%(objectname) %(objecttype)")
+	if err != nil {
+		return 0, retryableOperation("verify "+description, fmt.Errorf("read Git object %s: %w", sha, err))
+	}
+	output = strings.TrimSuffix(output, "\n")
+	if strings.ContainsAny(output, "\r\n") {
+		return 0, terminalOperation("verify "+description, stateError("Git object response for %s is malformed; preserve claim artifacts", description))
+	}
+	fields := strings.Split(output, " ")
+	if len(fields) != 2 || !validExactCommitSHA(fields[0]) || !strings.EqualFold(fields[0], sha) {
+		return 0, terminalOperation("verify "+description, stateError("Git object response for %s is malformed; preserve claim artifacts", description))
+	}
+	switch fields[1] {
+	case "commit":
+		return agentCommitObjectPresent, nil
+	case "missing":
+		return agentCommitObjectMissing, nil
+	default:
+		return 0, terminalOperation("verify "+description, stateError("%s resolves to a non-commit Git object (%s); preserve claim artifacts", description, fields[1]))
+	}
+}
+
+func (a app) validateLocalAgentCommit(root, sha, description string) error {
+	state, err := a.readAgentCommitObject(root, sha, description)
+	if err != nil {
+		return err
+	}
+	if state == agentCommitObjectMissing {
+		return terminalOperation("verify "+description, stateError("%s resolves to a missing Git object; preserve claim artifacts", description))
+	}
+	return nil
+}
+
+// validateRemoteAgentCommit first accepts an already fetched object, then
+// performs an exact no-ref fetch for a remote object that is not present
+// locally. The fetch is deliberately transport-only: it does not update a
+// tracking ref or FETCH_HEAD, and command failures remain retryable.
+func (a app) validateRemoteAgentCommit(root, branch, sha string) error {
+	state, err := a.readAgentCommitObject(root, sha, "remote agent ref "+branch)
+	if err != nil {
+		return err
+	}
+	if state == agentCommitObjectPresent {
+		return nil
+	}
+	if _, fetchErr := a.command(root, "git", "fetch", "--no-tags", "--no-write-fetch-head", "origin", "refs/heads/"+branch); fetchErr != nil {
+		return retryableOperation("fetch remote agent ref "+branch, fmt.Errorf("fetch advertised object %s: %w", sha, fetchErr))
+	}
+	state, err = a.readAgentCommitObject(root, sha, "remote agent ref "+branch)
+	if err != nil {
+		return err
+	}
+	if state == agentCommitObjectMissing {
+		return terminalOperation("verify remote agent ref "+branch, stateError("remote agent ref %s advertises missing object %s; preserve claim artifacts", branch, sha))
+	}
+	return nil
 }
 
 func classifyAgentRef(branch string) (agentRefKind, int, string) {

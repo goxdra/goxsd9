@@ -158,6 +158,71 @@ func TestPRResumeInjectedIntegration(t *testing.T) {
 	})
 }
 
+func TestPRResumeRejectsProtectedHeadWorktreesBeforeMutation(t *testing.T) {
+	tests := []resumeProtectedHeadTest{
+		{name: "detached expected head", protectRenewal: false},
+		{name: "locked expected head", protectRenewal: false, locked: true},
+		{name: "detached expected head after renewal", provenRenewal: true, protectRenewal: false},
+		{name: "detached proven renewal head", provenRenewal: true, protectRenewal: true},
+		{name: "locked proven renewal head", provenRenewal: true, protectRenewal: true, locked: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			testPRResumeProtectedHeadWorktree(t, test)
+		})
+	}
+}
+
+type resumeProtectedHeadTest struct {
+	name           string
+	provenRenewal  bool
+	protectRenewal bool
+	locked         bool
+}
+
+func testPRResumeProtectedHeadWorktree(t *testing.T, test resumeProtectedHeadTest) {
+	t.Helper()
+	fixture := newResumeFixture(t)
+	protectedRenewal := fixture.expected
+	if test.provenRenewal {
+		lease := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+		protectedRenewal = createResumeTestCommit(t, fixture.worktree, fixture.expected,
+			claimMessage(14, fixture.runID, lease))
+		runGitTest(t, fixture.worktree, "reset", "--hard", protectedRenewal)
+		runGitTest(t, fixture.worktree, "push", "--force", "origin",
+			protectedRenewal+":refs/heads/agent/issue-14")
+	}
+	protectedHead := fixture.expected
+	if test.protectRenewal {
+		protectedHead = protectedRenewal
+	}
+	duplicate := filepath.Join(t.TempDir(), "duplicate")
+	runGitTest(t, fixture.primary, "worktree", "add", "--detach", duplicate, protectedHead)
+	if test.locked {
+		runGitTest(t, fixture.primary, "worktree", "lock", duplicate)
+	}
+	localBefore := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/agent/issue-14")
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	err := application.run(resumeArgs(fixture.expected))
+	if err == nil || !strings.Contains(err.Error(), "detached duplicate/orphan claim worktree") {
+		t.Fatalf("protected head error = %v, want detached/unknown worktree refusal", err)
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("protected head mutations = %d; calls=%v", backend.mutations, backend.calls)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != localBefore {
+		t.Fatalf("local head changed: got %s, want %s", got, localBefore)
+	}
+	if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/agent/issue-14"); got != remoteBefore {
+		t.Fatalf("remote fixed head changed: got %q, want %q", got, remoteBefore)
+	}
+	if inventory := runGitTest(t, fixture.primary, "worktree", "list", "--porcelain"); !strings.Contains(inventory, duplicate) {
+		t.Fatalf("protected worktree was removed:\n%s", inventory)
+	}
+}
+
 func TestPRResumeAcceptsCurrentRunLocalAncestorSourceDivergence(t *testing.T) {
 	for _, name := range []string{"#274 remote ancestor", "#284 remote ancestor", "#286 remote ancestor"} {
 		t.Run(name, func(t *testing.T) {
@@ -231,12 +296,12 @@ func TestResumeRunLocalAncestorSourceIsRecheckedAtSeal(t *testing.T) {
 	const (
 		fixedBranch = "agent/issue-274"
 		runBranch   = "agent/issue-274-run-current"
-		fixedHead   = "fixed-head"
-		ancestor    = "ancestor-head"
-		moved       = "moved-head"
+		fixedHead   = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		ancestor    = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		moved       = "cccccccccccccccccccccccccccccccccccccccc"
 	)
 	inventoryReads := 0
-	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+	application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 		command := name + " " + strings.Join(args, " ")
 		switch command {
 		case "git ls-remote --heads origin refs/heads/agent/*":
@@ -248,6 +313,13 @@ func TestResumeRunLocalAncestorSourceIsRecheckedAtSeal(t *testing.T) {
 			return fixedHead + " refs/heads/" + fixedBranch + "\n" + runHead + " refs/heads/" + runBranch, nil
 		case "git merge-base --is-ancestor " + ancestor + " " + fixedHead:
 			return "", nil
+		case "git cat-file --batch-check=%(objectname) %(objecttype)":
+			value, err := io.ReadAll(input)
+			if err != nil {
+				return "", fmt.Errorf("read cat-file input: %w", err)
+			}
+			sha := strings.TrimSpace(string(value))
+			return sha + " commit", nil
 		default:
 			return "", fmt.Errorf("unexpected command: %s", command)
 		}
@@ -338,6 +410,35 @@ func TestPRResumeInjectedRejectionsPrecedeMutation(t *testing.T) {
 				t.Fatalf("rejection mutations = %d; calls=%v", backend.mutations, backend.calls)
 			}
 		})
+	}
+}
+
+func TestPRResumeRejectsMalformedAdvertisedRunLocalBeforeMutation(t *testing.T) {
+	fixture := newResumeFixture(t)
+	backend := newResumeBackend(t, fixture)
+	localBefore := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/agent/issue-14")
+	application := app{ctx: context.Background(), executeCommand: func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if command == "git ls-remote --heads origin refs/heads/agent/*" {
+			backend.calls = append(backend.calls, command)
+			fixed := strings.Fields(remoteBefore)[0]
+			return fixed + " refs/heads/agent/issue-14\nshort refs/heads/agent/issue-14-run-resume-test", nil
+		}
+		return backend.execute(dir, input, name, args...)
+	}, stdout: io.Discard}
+	err := application.run(resumeArgs(fixture.expected))
+	if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), "malformed object name") {
+		t.Fatalf("malformed advertised run-local error = %v, disposition %d, want terminal malformed refusal", err, operationDispositionOf(err))
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("malformed advertised run-local mutations = %d, want zero", backend.mutations)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != localBefore {
+		t.Fatalf("malformed advertised run-local moved local head from %s to %s", localBefore, got)
+	}
+	if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/agent/issue-14"); got != remoteBefore {
+		t.Fatalf("malformed advertised run-local moved remote head from %q to %q", remoteBefore, got)
 	}
 }
 
@@ -440,6 +541,11 @@ func (b *resumeBackend) execute(dir string, input io.Reader, name string, args .
 		b.ambiguousPush = false
 		return "", errors.New("simulated lost push response")
 	}
+	if name == "git" && len(args) > 0 && (args[0] == "cat-file" ||
+		(args[0] == "rev-parse" && len(args) > 1 && strings.HasSuffix(args[1], "^{tree}")) ||
+		(args[0] == "log" && len(args) > 2 && args[1] == "-1" && args[2] == "--format=%B")) {
+		return string(output), nil
+	}
 	return strings.TrimSpace(string(output)), nil
 }
 
@@ -523,6 +629,62 @@ func TestValidateResumeWorktreeBindsRegistration(t *testing.T) {
 			err := validateResumeWorktree(test.layout, root, branch, 55, head)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("validateResumeWorktree error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // The table keeps terminal and retryable object-boundary cases together.
+func TestRemoteClaimHeadObjectDisposition(t *testing.T) {
+	const (
+		branch = "agent/issue-12"
+		sha    = "dddddddddddddddddddddddddddddddddddddddd"
+	)
+	sentinel := errors.New("remote claim transport")
+	for _, test := range []struct {
+		name      string
+		object    string
+		want      operationDisposition
+		wantCause error
+	}{
+		{name: "missing object", object: "missing", want: operationDispositionTerminal},
+		{name: "non-commit object", object: "blob", want: operationDispositionTerminal},
+		{name: "transport failure", object: "transport", want: operationDispositionRetryable, wantCause: sentinel},
+		{name: "commit", object: "commit"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
+				command := name + " " + strings.Join(args, " ")
+				switch command {
+				case "git ls-remote --heads origin refs/heads/" + branch:
+					return sha + " refs/heads/" + branch, nil
+				case "git cat-file --batch-check=%(objectname) %(objecttype)":
+					value, err := io.ReadAll(input)
+					if err != nil {
+						return "", fmt.Errorf("read object query: %w", err)
+					}
+					if test.object == "transport" {
+						return "", sentinel
+					}
+					return strings.TrimSpace(string(value)) + " " + test.object, nil
+				case "git fetch --no-tags --no-write-fetch-head origin refs/heads/" + branch:
+					return "", nil
+				default:
+					return "", fmt.Errorf("unexpected command: %s", command)
+				}
+			}}
+			_, err := application.remoteClaimHead("/repo", branch)
+			if test.want == operationDispositionUnknown {
+				if err != nil {
+					t.Fatalf("remote claim head error = %v, want success", err)
+				}
+				return
+			}
+			if err == nil || operationDispositionOf(err) != test.want {
+				t.Fatalf("remote claim head error = %v, disposition %d, want %d", err, operationDispositionOf(err), test.want)
+			}
+			if test.wantCause != nil && !errors.Is(err, test.wantCause) {
+				t.Fatalf("remote claim head error = %v, want cause %v", err, test.wantCause)
 			}
 		})
 	}
