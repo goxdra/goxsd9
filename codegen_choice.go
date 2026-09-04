@@ -143,6 +143,21 @@ func collectCodegenDirectChoices(
 				errCodegenDirectChoiceParticle,
 			)
 		}
+		attributeUses := definition.AttributeUses()
+		if len(attributeUses) > 0 {
+			related := appendCodegenRelated(nil, definition.Loc())
+			for _, use := range attributeUses {
+				related = appendCodegenRelated(related, use.Loc())
+			}
+			return nil, newCodegenDirectChoiceUnsupported(
+				attributeUses[0].Loc(),
+				fmt.Sprintf("complex type %q attribute uses are outside direct choice generation", component.Name()),
+				related,
+				fmt.Errorf("%w: complex type attribute uses", errCodegenUnsupported),
+				version,
+				codegenDirectChoiceParticlesReference,
+			)
+		}
 		particle := definition.Particle()
 		if particle == nil {
 			return nil, newCodegenDirectChoiceUnsupported(

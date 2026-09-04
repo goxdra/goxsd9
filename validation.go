@@ -358,6 +358,19 @@ func instanceChoiceProgramFor(
 			errInstanceOpenAttrsType,
 		)
 	}
+	attributeUses := definition.AttributeUses()
+	if len(attributeUses) > 0 {
+		for _, use := range attributeUses {
+			related = appendInstanceRelated(related, use.Loc())
+		}
+		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+			attributeUses[0].Loc(),
+			fmt.Sprintf("named complex type %q attribute uses are outside direct choice validation", definition.Name()),
+			related,
+			version,
+			errInstanceAttributes,
+		)
+	}
 	choice, related, err := instanceChoiceParticleFor(definition, loc, related, version)
 	if err != nil {
 		return instanceChoiceProgram{}, err

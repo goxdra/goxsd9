@@ -979,12 +979,6 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:    "recognized root attribute is unsupported",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" attributeFormDefault="qualified"/>`,
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:    "default open content is unsupported",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:defaultOpenContent mode="interleave"><xs:any/></xs:defaultOpenContent></xs:schema>`,
 			class:   FailureUnsupported,
