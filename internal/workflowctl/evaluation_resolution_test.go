@@ -129,6 +129,66 @@ func TestEvaluationResolutionIsBoundIdempotentAndPermitsNextChallenge(t *testing
 	}
 }
 
+func TestEvaluationResolutionAllowsStaleHeadBeforeExpiry(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	requested := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+	challenge, challengeComment := resolutionTestChallenge(t, "stale-before-expiry", 14, "historical-head", requested)
+	appendWorkflowEvaluationComment(t, backend, challengeComment)
+	advanceWorkflowPRHead(t, backend, "advanced-head")
+	reasonPath := writeResolutionReason(t, "The challenged head was replaced before the Examiner deadline.")
+
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+	args := []string{"resolve", "14", "--challenge", challenge.Challenge, "--reason-file", reasonPath}
+	if err := application.runEvaluation(args); err != nil {
+		t.Fatalf("record stale no-verdict resolution: %v", err)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.resolutions) != 1 || backend.commentPostCount != 1 {
+		t.Fatalf("stale resolution history/posts = %d/%d, want one resolution and one POST",
+			len(history.resolutions), backend.commentPostCount)
+	}
+	resolution := history.resolutions[0].resolution
+	if resolution.Schema != evaluationResolutionSchemaV2 || resolution.Head != challenge.Head ||
+		resolution.ObservedHead != backend.head || resolution.Challenge != challenge.Challenge {
+		t.Fatalf("stale resolution = %#v, want historical and observed heads preserved", resolution)
+	}
+
+	stdout.Reset()
+	if err := application.runEvaluation(args); err != nil {
+		t.Fatalf("retry stale no-verdict resolution: %v", err)
+	}
+	if backend.commentPostCount != 1 {
+		t.Fatalf("stale resolution retry POST count = %d, want one", backend.commentPostCount)
+	}
+
+	stdout.Reset()
+	fresh := requestTestChallenge(t, &application, &stdout)
+	if fresh.Challenge == challenge.Challenge || fresh.Head != backend.head {
+		t.Fatalf("fresh challenge after stale resolution = %#v, want new current-head challenge", fresh)
+	}
+}
+
+func TestEvaluationResolutionRejectsMovedBackHeadBeforeExpiry(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	requested := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+	challenge, challengeComment := resolutionTestChallenge(t, "moved-back-before-expiry", 14, "historical-head", requested)
+	appendWorkflowEvaluationComment(t, backend, challengeComment)
+	advanceWorkflowPRHead(t, backend, "advanced-head")
+	advanceWorkflowPRHead(t, backend, challenge.Head)
+	reasonPath := writeResolutionReason(t, "The head moved back before the Examiner deadline.")
+
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+	err := application.runEvaluation([]string{"resolve", "14", "--challenge", challenge.Challenge, "--reason-file", reasonPath})
+	if err == nil || !strings.Contains(err.Error(), "has not expired") {
+		t.Fatalf("moved-back resolution error = %v, want same-head pre-expiry rejection", err)
+	}
+	if backend.commentPostCount != 0 {
+		t.Fatalf("moved-back resolution POST count = %d, want zero", backend.commentPostCount)
+	}
+}
+
 type evaluationResolutionInvalidStateCase struct {
 	name  string
 	setup func(*testing.T, *workflowBackend) []string
@@ -489,6 +549,44 @@ func TestEvaluationResolutionReservedTextAndParserDoNotPanic(t *testing.T) {
 				return
 			}
 		}()
+	}
+}
+
+func TestEvaluationResolutionMarkersPreserveV1AndValidateV2(t *testing.T) {
+	requested := time.Date(2026, time.August, 20, 10, 0, 0, 0, time.UTC)
+	challenge, _ := resolutionTestChallenge(t, "versioned-resolution", 14, "historical-head", requested)
+	v1Comment := resolutionTestComment(t, challenge, requested.Add(evaluationChallengeDuration), "expired")
+	if strings.Contains(v1Comment.Body, "observedHead") {
+		t.Fatalf("v1 resolution gained an observed-head field: %q", v1Comment.Body)
+	}
+	v1, ok := parseEvaluationResolution(v1Comment.Body)
+	if !ok || v1.Schema != evaluationResolutionSchema || v1.ObservedHead != "" {
+		t.Fatalf("parsed v1 resolution = %#v, want legacy schema without observed head", v1)
+	}
+
+	v2Resolution := v1
+	v2Resolution.ObservedHead = "current-head"
+	v2Resolution.Schema = evaluationResolutionSchemaV2
+	v2Marker, err := json.Marshal(v2Resolution)
+	if err != nil {
+		t.Fatalf("encode v2 resolution: %v", err)
+	}
+	v2Comment := statusComment(evaluationResolutionCommentV2(v2Marker, "expired"), trustedActor,
+		v2Resolution.ResolvedAt)
+	v2, ok := parseEvaluationResolution(v2Comment.Body)
+	if !ok || v2.Schema != evaluationResolutionSchemaV2 || v2.ObservedHead != "current-head" ||
+		!evaluationResolutionCommentIsValid(v2Comment) {
+		t.Fatalf("parsed v2 resolution = %#v, want valid observed-head record", v2)
+	}
+
+	v1WithObserved := v1
+	v1WithObserved.ObservedHead = "current-head"
+	v1Marker, err := json.Marshal(v1WithObserved)
+	if err != nil {
+		t.Fatalf("encode invalid v1 resolution: %v", err)
+	}
+	if _, ok := parseEvaluationResolution(evaluationResolutionComment(v1Marker, "expired")); ok {
+		t.Fatal("v1 resolution with an observed head was accepted")
 	}
 }
 

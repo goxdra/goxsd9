@@ -261,6 +261,75 @@ func TestEvaluationChallengeConvergenceClosesStaleDuplicateAfterPRAdvance(t *tes
 	}
 }
 
+func TestEvaluationResolutionFinalReadBlocksReceiptRace(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	requested := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+	challenge, challengeComment := resolutionTestChallenge(t, "receipt-race-before-expiry", 14, backend.head, requested)
+	appendWorkflowEvaluationComment(t, backend, challengeComment)
+	reasonFile := writeResolutionReason(t, "A receipt appeared during the final resolution read.")
+
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+	prReads := 0
+	application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if command == "gh api repos/goxdra/goxsd9/pulls/14" {
+			prReads++
+			if prReads == 2 {
+				receipt := evaluationTerminalConflictReceiptComment(t, challenge, "receipt-race", 1,
+					requested.Add(time.Minute))
+				receipt.ID = 2
+				appendWorkflowEvaluationComment(t, backend, receipt)
+			}
+		}
+		return backend.execute(dir, input, name, args...)
+	}
+
+	err := application.runEvaluation([]string{"resolve", "14", "--challenge", challenge.Challenge, "--reason-file", reasonFile})
+	if err == nil || !strings.Contains(err.Error(), "already has an attested Examiner receipt") {
+		t.Fatalf("final-read receipt race error = %v, want receipt rejection", err)
+	}
+	if backend.commentPostCount != 0 {
+		t.Fatalf("final-read receipt race POST count = %d, want zero", backend.commentPostCount)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.receipts) != 1 || len(history.resolutions) != 0 {
+		t.Fatalf("final-read receipt race history = receipts %d resolutions %d, want 1 and 0",
+			len(history.receipts), len(history.resolutions))
+	}
+}
+
+func TestEvaluationResolutionUsesFinalCurrentHeadObservation(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	requested := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+	challenge, challengeComment := resolutionTestChallenge(t, "final-head-observation", 14, backend.head, requested)
+	appendWorkflowEvaluationComment(t, backend, challengeComment)
+	reasonFile := writeResolutionReason(t, "The challenged head changed during final authorization.")
+
+	var stdout bytes.Buffer
+	application := newResolutionWorkflowApplication(backend, &stdout)
+	prReads := 0
+	application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if command == "gh api repos/goxdra/goxsd9/pulls/14" {
+			prReads++
+			if prReads == 2 {
+				advanceWorkflowPRHead(t, backend, "final-advanced-head")
+			}
+		}
+		return backend.execute(dir, input, name, args...)
+	}
+
+	if err := application.runEvaluation([]string{"resolve", "14", "--challenge", challenge.Challenge, "--reason-file", reasonFile}); err != nil {
+		t.Fatalf("record final-head stale resolution: %v", err)
+	}
+	history := workflowEvaluationHistory(t, backend, 14)
+	if len(history.resolutions) != 1 || history.resolutions[0].resolution.Head != challenge.Head ||
+		history.resolutions[0].resolution.ObservedHead != backend.head {
+		t.Fatalf("final-head resolution = %#v, want historical and final observed heads", history.resolutions)
+	}
+}
+
 func expireWorkflowChallenge(t *testing.T, backend *workflowBackend, challengeID string) {
 	t.Helper()
 	for index := range backend.comments {
