@@ -260,6 +260,122 @@ func TestSchemaBridgeKeepsBoundedOpenAttrsUnsupportedFormsDistinct(t *testing.T)
 	}
 }
 
+//nolint:gocognit // Keep the cross-policy nested-particle matrix together.
+func TestSchemaBridgeComplexContentNestedParticleSpecRefsFollowPolicy(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		specRef string
+	}{
+		{name: "Compatibility", policy: Compatibility, specRef: "xsd11-structures#cSchemaDocument"},
+		{name: "Strict10", policy: Strict10, specRef: "xsd10-structures#schema-document"},
+		{name: "Strict11", policy: Strict11, specRef: "xsd11-structures#cSchemaDocument"},
+	}
+	models := []string{"sequence", "choice"}
+	particles := []struct {
+		name   string
+		nested string
+		marker string
+	}{
+		{name: "nested sequence", nested: "<xs:sequence/>", marker: "<xs:sequence/>"},
+		{name: "nested choice", nested: "<xs:choice/>", marker: "<xs:choice/>"},
+		{name: "nested group", nested: `<xs:group ref="t:missing"/>`, marker: `ref="t:missing"`},
+		{name: "nested wildcard", nested: "<xs:any/>", marker: "<xs:any/>"},
+	}
+	for _, profile := range profiles {
+		for _, model := range models {
+			for _, particle := range particles {
+				name := profile.name + "/" + model + "/" + particle.name
+				t.Run(name, func(t *testing.T) {
+					root := complexContentNestedParticleSchema(model, particle.nested)
+					wantLoc := complexContentTestLoc(t, root, particle.marker)
+					var first Diagnostic
+					for iteration := 0; iteration < 3; iteration++ {
+						schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+						if err == nil {
+							t.Fatal("complex-content nested particle unexpectedly succeeded")
+						}
+						assertZeroSchema(t, schema)
+						diagnostic := requireDiagnostic(t, err)
+						if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+							t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Code(), diagnostic.Feature())
+						}
+						if diagnostic.SpecRef() != profile.specRef {
+							t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), profile.specRef)
+						}
+						if diagnostic.Loc() != wantLoc || len(diagnostic.Related()) != 0 {
+							t.Fatalf("diagnostic location/related = %s/%v, want %s/none", diagnostic.Loc(), diagnostic.Related(), wantLoc)
+						}
+						if !errors.Is(err, ErrUnsupported) || errors.Is(err, errLanguagePolicyMismatch) {
+							t.Fatalf("generic nested particle diagnostic has the wrong cause: %v", err)
+						}
+						if iteration == 0 {
+							first = diagnostic
+							continue
+						}
+						assertSameSchemaDiagnostic(t, first, diagnostic)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSchemaBridgeComplexContentNestedWildcardMismatchPreservesCause(t *testing.T) {
+	root := complexContentNestedParticleSchema("sequence", `<xs:any notQName="xs:string"/>`)
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err == nil {
+		t.Fatal("Strict10 nested wildcard mismatch unexpectedly succeeded")
+	}
+	assertZeroSchema(t, schema)
+	diagnostic := requireDiagnostic(t, err)
+	wantLoc := complexContentTestLoc(t, root, `notQName="xs:string"`)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax mismatch", diagnostic, diagnostic.Code(), diagnostic.Feature())
+	}
+	if diagnostic.SpecRef() != "xsd11-structures#cSchemaDocument" || diagnostic.Loc() != wantLoc || len(diagnostic.Related()) != 0 {
+		t.Fatalf("diagnostic metadata = %s/%q/%v, want XSD 1.1 ref at %s", diagnostic.Loc(), diagnostic.SpecRef(), diagnostic.Related(), wantLoc)
+	}
+	if diagnostic.Unwrap() == nil || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errLanguagePolicyMismatch) {
+		t.Fatalf("nested wildcard mismatch lost unsupported or policy cause: %v", err)
+	}
+	if !errors.Is(diagnostic.Unwrap(), errLanguagePolicyMismatch) {
+		t.Fatalf("nested wildcard mismatch diagnostic lost its direct cause: %v", diagnostic.Unwrap())
+	}
+}
+
+//nolint:gocognit // Keep later-invalid precedence assertions across policies together.
+func TestSchemaBridgeComplexContentLaterInvalidParticleWins(t *testing.T) {
+	profiles := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	}
+	for _, profile := range profiles {
+		for _, model := range []string{"sequence", "choice"} {
+			t.Run(profile.name+"/"+model, func(t *testing.T) {
+				root := complexContentNestedParticleSchema(model, `<xs:sequence/><xs:element name="later" abstract="true"/>`)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("later invalid particle unexpectedly succeeded")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				wantLoc := complexContentTestLoc(t, root, `abstract="true"`)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Feature() != "" || diagnostic.SpecRef() != "" || diagnostic.Loc() != wantLoc || diagnostic.Unwrap() != nil {
+					t.Fatalf("diagnostic = %s/%q/%q/%q/%s, want invalid later particle at %s", diagnostic, diagnostic.Feature(), diagnostic.Code(), diagnostic.SpecRef(), diagnostic.Loc(), wantLoc)
+				}
+				if errors.Is(err, ErrUnsupported) || errors.Is(err, errLanguagePolicyMismatch) {
+					t.Fatalf("later invalid particle retained an unsupported cause: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestSchemaBridgeRejectsBoundedOpenAttrsValidationAndGeneration(t *testing.T) {
 	root := boundedOpenAttrsSchema("1.1", true)
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Compatibility)
@@ -308,6 +424,37 @@ func boundedOpenAttrsSchema(version string, withElement bool) string {
     </xs:complexContent>
   </xs:complexType>
 </xs:schema>`
+}
+
+func complexContentNestedParticleSchema(model, nested string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">
+  <xs:complexType name="item">
+    <xs:complexContent>
+      <xs:restriction base="xs:anyType">
+        <xs:` + model + `>` + nested + `</xs:` + model + `>
+      </xs:restriction>
+    </xs:complexContent>
+  </xs:complexType>
+</xs:schema>`
+}
+
+func complexContentTestLoc(t *testing.T, root, marker string) Loc {
+	t.Helper()
+	index := strings.Index(root, marker)
+	if index < 0 {
+		t.Fatalf("complex-content fixture does not contain location marker %q", marker)
+	}
+	line := 1
+	column := 1
+	for _, character := range root[:index] {
+		if character == '\n' {
+			line++
+			column = 1
+			continue
+		}
+		column++
+	}
+	return mustTestLoc(t, "root.xsd", line, column)
 }
 
 func boundedOpenAttrsSchemaWithRestriction(restriction string) string {
