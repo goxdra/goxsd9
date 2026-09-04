@@ -37,18 +37,22 @@
 // schema-unsupported. Anonymous, nested, and broader particles remain
 // unsupported; local string particles remain unsupported. Anonymous simple-type
 // models and resolved built-in, named, and anonymous simple-type references are
-// modeled. Direct local element references are queryable immutable particles;
-// validation and code generation reject them explicitly as unsupported.
+// modeled. Direct element references are queryable immutable particles;
+// validation supports default-occurrence direct choices made entirely of
+// references to global integer/decimal scalar elements, while other reference
+// particles and code generation remain explicitly unsupported.
 // Default-bounded direct integer and decimal sequences are emitted as ordered Go
 // struct fields; sequence validation and non-default occurrences remain unsupported.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:boolean/xs:integer/xs:decimal/
 // xs:precisionDecimal, or as a named complex type whose one direct choice and
-// its scalar alternatives use default occurrences and contain local built-in
-// or named integer/decimal/precisionDecimal elements. Scalar elements contain
-// only character data; string globals, local boolean/string particles, attributes,
-// broader particles, and other semantics remain explicit unsupported behavior.
+// its scalar alternatives use default occurrences and contain local built-in or
+// named integer/decimal/precisionDecimal elements, or default-occurrence
+// references to global integer/decimal elements. Reference alternatives exclude
+// boolean and precisionDecimal targets. Scalar elements contain only character
+// data; string globals, local boolean/string particles, attributes, broader
+// particles, and other semantics remain explicit unsupported behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal
 // scalar components, direct scalar choices, and default-bounded direct integer/
 // decimal sequences; string, boolean facets, and local boolean/string particles

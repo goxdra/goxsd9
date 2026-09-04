@@ -61,8 +61,10 @@ var (
 	errInstanceChoiceNested        = errors.New("choice instance has nested element content")
 	errInstanceChoiceParticle      = errors.New("choice type has an unsupported particle")
 	errInstanceChoiceTarget        = errors.New("choice alternative has an unsupported target")
+	errInstanceChoiceMixed         = errors.New("choice type mixes local declarations and element references")
 	errInstanceOpenAttrsType       = errors.New("openAttrs complex type is outside instance validation")
 	errInstanceElementFacts        = errors.New("global element abstract and nillable facts are outside instance validation")
+	errInstanceElementSubstitution = errors.New("referenced global element substitution is outside instance validation")
 	errInstanceValidationInvariant = errors.New("scalar validation invariant is broken")
 )
 
@@ -112,9 +114,15 @@ type instancePrecisionDecimalScalar struct {
 func (instancePrecisionDecimalScalar) instanceScalarValue() {}
 
 type instanceChoiceAlternative struct {
-	name   QName
-	loc    Loc
-	scalar instanceScalarType
+	name                QName
+	loc                 Loc
+	scalar              instanceScalarType
+	substitutionMembers []instanceChoiceSubstitutionMember
+}
+
+type instanceChoiceSubstitutionMember struct {
+	name    QName
+	related []Loc
 }
 
 type instanceChoiceProgram struct {
@@ -127,8 +135,9 @@ type instanceChoiceProgram struct {
 // validates one XML instance against schema. The supported semantic slice is
 // a single global element whose declared type is built-in or named XSD
 // boolean, integer, decimal, or precisionDecimal, or a named complex type with
-// one direct scalar choice. Comments and processing instructions are ignored
-// by the decoder.
+// one direct scalar choice. Direct choices may use local scalar declarations,
+// or default-occurrence references to global integer and decimal declarations.
+// Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint
 // uses the repository's compatibility/default XSD 1.1-compatible datatype
@@ -256,8 +265,15 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 }
 
 func rejectUnsupportedInstanceElementFacts(schema Schema, declaration ElementDeclaration, loc Loc) error {
-	version := instanceSchemaValidationVersion(schema)
-	related := []Loc{declaration.Loc()}
+	return rejectUnsupportedInstanceElementFactsWithRelated(
+		declaration,
+		loc,
+		[]Loc{declaration.Loc()},
+		instanceSchemaValidationVersion(schema),
+	)
+}
+
+func rejectUnsupportedInstanceElementFactsWithRelated(declaration ElementDeclaration, loc Loc, related []Loc, version XSDVersion) error {
 	if declaration.IsAbstract() {
 		return newInstanceValidationUnsupported(
 			loc,
@@ -356,7 +372,7 @@ func instanceChoiceProgramFor(
 			errInstanceAttributes,
 		)
 	}
-	elements, related, err := instanceChoiceElementsFor(schema, choice, related, version)
+	alternatives, related, err := instanceChoiceAlternativesFor(schema, declaration, definition, choice, related, loc, version)
 	if err != nil {
 		return instanceChoiceProgram{}, err
 	}
@@ -364,14 +380,7 @@ func instanceChoiceProgramFor(
 	program := instanceChoiceProgram{
 		version:      version,
 		related:      related,
-		alternatives: make([]instanceChoiceAlternative, 0, len(elements)),
-	}
-	for _, element := range elements {
-		alternative, err := instanceChoiceAlternativeFor(schema, declaration, definition, choice, element, version)
-		if err != nil {
-			return instanceChoiceProgram{}, err
-		}
-		program.alternatives = append(program.alternatives, alternative)
+		alternatives: alternatives,
 	}
 	return program, nil
 }
@@ -415,36 +424,130 @@ func instanceChoiceParticleFor(
 	return choice, related, nil
 }
 
-func instanceChoiceElementsFor(
+//nolint:gocognit // Keep the direct-choice shape gate and alternative order together.
+func instanceChoiceAlternativesFor(
 	schema Schema,
+	declaration ElementDeclaration,
+	definition ComplexTypeDefinition,
 	choice ChoiceParticle,
 	related []Loc,
+	loc Loc,
 	version XSDVersion,
-) ([]ElementParticle, []Loc, error) {
+) ([]instanceChoiceAlternative, []Loc, error) {
 	particleAlternatives := choice.Alternatives()
-	elements := make([]ElementParticle, 0, len(particleAlternatives))
+	particles := make([]Particle, 0, len(particleAlternatives))
+	hasReference := false
+	hasLocal := false
 	for _, particleAlternative := range particleAlternatives {
-		element, err := instanceChoiceElementFor(schema, choice, particleAlternative, related, version)
+		if reference, referenceOK := elementReferenceParticleValue(particleAlternative); referenceOK {
+			if err := instanceChoiceReferenceParticleFor(reference, choice.Loc(), related, version); err != nil {
+				return nil, nil, err
+			}
+			particles = append(particles, reference)
+			hasReference = true
+			related = appendInstanceRelated(related, reference.Loc())
+			continue
+		}
+		element, err := instanceChoiceElementFor(choice, particleAlternative, related, version)
 		if err != nil {
 			return nil, nil, err
 		}
-		elements = append(elements, element)
+		particles = append(particles, element)
+		hasLocal = true
 		related = appendInstanceRelated(related, element.Loc())
 	}
-	return elements, related, nil
+	if hasReference && hasLocal {
+		return nil, nil, newInstanceValidationUnsupported(
+			loc,
+			"direct choice mixes local element declarations and element references",
+			related,
+			version,
+			errInstanceChoiceMixed,
+		)
+	}
+
+	alternatives := make([]instanceChoiceAlternative, 0, len(particles))
+	for _, particle := range particles {
+		if reference, referenceOK := elementReferenceParticleValue(particle); referenceOK {
+			alternative, err := instanceChoiceReferenceAlternativeFor(
+				schema,
+				declaration,
+				definition,
+				choice,
+				reference,
+				loc,
+				version,
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+			alternatives = append(alternatives, alternative)
+			continue
+		}
+		element, elementOK := elementParticleValue(particle)
+		if !elementOK {
+			return nil, nil, newInstanceValidationInternal(
+				loc,
+				"direct choice alternative changed during validation planning",
+				related,
+				errInstanceValidationInvariant,
+			)
+		}
+		alternative, err := instanceChoiceAlternativeFor(schema, declaration, definition, choice, element, version)
+		if err != nil {
+			return nil, nil, err
+		}
+		alternatives = append(alternatives, alternative)
+	}
+	return alternatives, related, nil
+}
+
+func instanceChoiceReferenceParticleFor(reference ElementReferenceParticle, choiceLoc Loc, related []Loc, version XSDVersion) error {
+	referenceLoc := reference.Loc()
+	if referenceLoc.IsZero() {
+		referenceLoc = choiceLoc
+	}
+	if reference.facts == nil {
+		return newInstanceValidationInternal(
+			referenceLoc,
+			"direct choice element reference has incomplete particle facts",
+			related,
+			errInstanceValidationInvariant,
+		)
+	}
+	referenceRelated := appendInstanceRelated(relCopy(related), reference.Loc())
+	if reference.Name().IsZero() {
+		return newInstanceValidationInternal(
+			referenceLoc,
+			"direct choice element reference has no expanded name",
+			referenceRelated,
+			errInstanceValidationInvariant,
+		)
+	}
+	occurrences := reference.Occurrences()
+	if occurrences.IsDefault() {
+		return nil
+	}
+	occurrenceLoc := reference.RefLoc()
+	if occurrenceLoc.IsZero() {
+		occurrenceLoc = referenceLoc
+	}
+	return newInstanceValidationUnsupported(
+		occurrenceLoc,
+		fmt.Sprintf("choice reference occurrence bounds %s are outside instance validation", occurrences),
+		referenceRelated,
+		version,
+		errInstanceChoiceParticle,
+	)
 }
 
 func instanceChoiceElementFor(
-	schema Schema,
 	choice ChoiceParticle,
 	particleAlternative Particle,
 	related []Loc,
 	version XSDVersion,
 ) (ElementParticle, error) {
-	if reference, referenceOK := elementReferenceParticleValue(particleAlternative); referenceOK {
-		return ElementParticle{}, instanceChoiceReferenceUnsupported(schema, choice, reference, related, version)
-	}
-	element, ok := particleAlternative.(ElementParticle)
+	element, ok := elementParticleValue(particleAlternative)
 	if !ok || element.facts == nil {
 		return ElementParticle{}, newInstanceValidationUnsupported(
 			choice.Loc(),
@@ -475,35 +578,298 @@ func instanceChoiceElementFor(
 	return element, nil
 }
 
-func instanceChoiceReferenceUnsupported(
+func instanceChoiceReferenceAlternativeFor(
 	schema Schema,
+	declaration ElementDeclaration,
+	definition ComplexTypeDefinition,
 	choice ChoiceParticle,
 	reference ElementReferenceParticle,
-	related []Loc,
+	loc Loc,
 	version XSDVersion,
-) error {
+) (instanceChoiceAlternative, error) {
+	related := []Loc{declaration.Loc(), definition.Loc(), choice.Loc(), reference.Loc()}
+	targetDeclaration, targetRelated, err := instanceChoiceReferenceTargetFor(schema, reference, related, loc, version)
+	if err != nil {
+		return instanceChoiceAlternative{}, err
+	}
+	scalar, err := instanceChoiceReferenceScalarFor(schema, targetDeclaration, targetRelated, loc, version)
+	if err != nil {
+		return instanceChoiceAlternative{}, err
+	}
+	substitutionMembers, err := instanceChoiceReferenceSubstitutionMembersFor(schema, targetDeclaration, targetRelated, loc)
+	if err != nil {
+		return instanceChoiceAlternative{}, err
+	}
+	return instanceChoiceAlternative{
+		name:                reference.Name(),
+		loc:                 reference.Loc(),
+		scalar:              scalar,
+		substitutionMembers: substitutionMembers,
+	}, nil
+}
+
+func instanceChoiceReferenceTargetFor(
+	schema Schema,
+	reference ElementReferenceParticle,
+	related []Loc,
+	loc Loc,
+	version XSDVersion,
+) (ElementDeclaration, []Loc, error) {
 	if reference.facts == nil {
-		return newInstanceValidationInternal(
-			choice.Loc(),
+		return ElementDeclaration{}, nil, newInstanceValidationInternal(
+			loc,
 			"direct choice element reference has incomplete particle facts",
 			related,
 			errInstanceValidationInvariant,
 		)
 	}
-	referenceRelated := appendInstanceRelated(relCopy(related), reference.Loc())
-	if target, targetOK := schema.Lookup(reference.TargetID()); targetOK {
-		referenceRelated = appendInstanceRelated(referenceRelated, target.Loc())
+	if reference.TargetID().IsZero() {
+		return ElementDeclaration{}, nil, newInstanceValidationInternal(
+			loc,
+			"direct choice element reference has no target component ID",
+			related,
+			errInstanceValidationInvariant,
+		)
 	}
-	refLoc := reference.RefLoc()
-	if refLoc.IsZero() {
-		refLoc = reference.Loc()
+	target, targetOK := schema.Lookup(reference.TargetID())
+	if !targetOK {
+		return ElementDeclaration{}, nil, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("direct choice element reference target ID %v is not in the completed schema", reference.TargetID()),
+			related,
+			errInstanceValidationInvariant,
+		)
 	}
-	return newInstanceValidationUnsupported(
-		refLoc,
-		"direct choice element reference particles are outside instance validation",
-		referenceRelated,
+	targetRelated := appendInstanceRelated(relCopy(related), target.Loc())
+	if target.Kind() != ComponentKindElementDeclaration {
+		return ElementDeclaration{}, nil, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("direct choice element reference target ID %v has component kind %q, want an element declaration", reference.TargetID(), target.Kind()),
+			targetRelated,
+			errInstanceValidationInvariant,
+		)
+	}
+	if target.Name() != reference.Name() {
+		return ElementDeclaration{}, nil, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("direct choice element reference target %v does not match referenced name %v", target.Name(), reference.Name()),
+			targetRelated,
+			errInstanceValidationInvariant,
+		)
+	}
+	targetDeclaration, ok := target.ElementDeclaration()
+	if !ok {
+		return ElementDeclaration{}, nil, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("referenced global element %q has no supported declared type", target.Name()),
+			targetRelated,
+			version,
+			errInstanceNoDeclaredType,
+		)
+	}
+	if targetDeclaration.Name() != reference.Name() {
+		return ElementDeclaration{}, nil, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("direct choice element reference target declaration %v does not match referenced name %v", targetDeclaration.Name(), reference.Name()),
+			targetRelated,
+			errInstanceValidationInvariant,
+		)
+	}
+	return targetDeclaration, targetRelated, nil
+}
+
+func instanceChoiceReferenceSubstitutionMembersFor(
+	schema Schema,
+	head ElementDeclaration,
+	related []Loc,
+	loc Loc,
+) ([]instanceChoiceSubstitutionMember, error) {
+	if instanceChoiceSubstitutionDisallowed(head) {
+		return nil, nil
+	}
+	members := make([]instanceChoiceSubstitutionMember, 0)
+	for _, component := range schema.Components() {
+		if component.Kind() != ComponentKindElementDeclaration {
+			continue
+		}
+		member, ok := component.ElementDeclaration()
+		if !ok || member.ID() == head.ID() || member.IsAbstract() {
+			continue
+		}
+		affiliations, found, err := instanceChoiceSubstitutionPathFor(
+			schema,
+			member,
+			head.ID(),
+			make(map[ComponentID]struct{}),
+			related,
+			loc,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			continue
+		}
+		memberRelated := relCopy(related)
+		for _, affiliationLoc := range affiliations {
+			memberRelated = appendInstanceRelated(memberRelated, affiliationLoc)
+		}
+		members = append(members, instanceChoiceSubstitutionMember{
+			name:    member.Name(),
+			related: memberRelated,
+		})
+	}
+	return members, nil
+}
+
+//nolint:gocognit // Keep ID lookup, invariant checks, blocking, and ordered path traversal together.
+func instanceChoiceSubstitutionPathFor(
+	schema Schema,
+	member ElementDeclaration,
+	headID ComponentID,
+	visited map[ComponentID]struct{},
+	related []Loc,
+	loc Loc,
+) ([]Loc, bool, error) {
+	if member.ID() == headID {
+		return nil, true, nil
+	}
+	if _, seen := visited[member.ID()]; seen {
+		return nil, false, nil
+	}
+	visited[member.ID()] = struct{}{}
+	affiliationIDs := member.SubstitutionGroupAffiliations()
+	affiliationLocs := member.SubstitutionGroupAffiliationLocations()
+	if len(affiliationIDs) != len(affiliationLocs) {
+		return nil, false, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("global element %q has mismatched substitution-group facts", member.Name()),
+			related,
+			errInstanceValidationInvariant,
+		)
+	}
+	for index, affiliationID := range affiliationIDs {
+		affiliationLoc := affiliationLocs[index]
+		parentComponent, ok := schema.Lookup(affiliationID)
+		if !ok {
+			return nil, false, newInstanceValidationInternal(
+				loc,
+				fmt.Sprintf("global element %q substitution-group target ID %v is not in the completed schema", member.Name(), affiliationID),
+				appendInstanceRelated(relCopy(related), affiliationLoc),
+				errInstanceValidationInvariant,
+			)
+		}
+		if parentComponent.Kind() != ComponentKindElementDeclaration {
+			return nil, false, newInstanceValidationInternal(
+				loc,
+				fmt.Sprintf("global element %q substitution-group target ID %v has component kind %q, want an element declaration", member.Name(), affiliationID, parentComponent.Kind()),
+				appendInstanceRelated(relCopy(related), affiliationLoc),
+				errInstanceValidationInvariant,
+			)
+		}
+		parent, ok := parentComponent.ElementDeclaration()
+		if !ok {
+			return nil, false, newInstanceValidationInternal(
+				loc,
+				fmt.Sprintf("global element %q substitution-group target ID %v has no element declaration view", member.Name(), affiliationID),
+				appendInstanceRelated(relCopy(related), affiliationLoc),
+				errInstanceValidationInvariant,
+			)
+		}
+		if parent.ID() == headID {
+			return []Loc{affiliationLoc}, true, nil
+		}
+		path, found, err := instanceChoiceSubstitutionPathFor(schema, parent, headID, visited, related, loc)
+		if err != nil {
+			return nil, false, err
+		}
+		if found {
+			return append([]Loc{affiliationLoc}, path...), true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+func instanceChoiceSubstitutionDisallowed(declaration ElementDeclaration) bool {
+	for _, method := range declaration.DisallowedSubstitutions() {
+		if method == "substitution" {
+			return true
+		}
+	}
+	return false
+}
+
+func instanceChoiceReferenceScalarFor(
+	schema Schema,
+	targetDeclaration ElementDeclaration,
+	related []Loc,
+	loc Loc,
+	version XSDVersion,
+) (instanceScalarType, error) {
+	if factsErr := rejectUnsupportedInstanceElementFactsWithRelated(targetDeclaration, loc, related, version); factsErr != nil {
+		return instanceScalarType{}, factsErr
+	}
+	if affiliations := targetDeclaration.SubstitutionGroupAffiliations(); len(affiliations) != 0 {
+		substitutionRelated := relCopy(related)
+		for _, affiliationLoc := range targetDeclaration.SubstitutionGroupAffiliationLocations() {
+			substitutionRelated = appendInstanceRelated(substitutionRelated, affiliationLoc)
+		}
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("referenced global element %q uses substitution-group affiliations outside direct reference validation", targetDeclaration.Name()),
+			substitutionRelated,
+			version,
+			errInstanceElementSubstitution,
+		)
+	}
+	typeReference, hasTypeReference := targetDeclaration.TypeReference()
+	if !hasTypeReference {
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("referenced global element %q has no resolved type reference", targetDeclaration.Name()),
+			related,
+			version,
+			errInstanceNoDeclaredType,
+		)
+	}
+	if typeReference.Kind() == SimpleTypeReferenceAnonymous {
+		anonymousRelated := appendInstanceRelated(relCopy(related), typeReference.Loc())
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("referenced global element %q uses an anonymous simple type outside direct reference validation", targetDeclaration.Name()),
+			anonymousRelated,
+			version,
+			errInstanceChoiceTarget,
+		)
+	}
+	if typeReference.Kind() != SimpleTypeReferenceBuiltin && typeReference.Kind() != SimpleTypeReferenceNamed {
+		return instanceScalarType{}, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("referenced global element %q has an unknown type-reference kind %q", targetDeclaration.Name(), typeReference.Kind()),
+			appendInstanceRelated(relCopy(related), typeReference.Loc()),
+			errInstanceValidationInvariant,
+		)
+	}
+	if typeReference.Name() != targetDeclaration.DeclaredType() {
+		return instanceScalarType{}, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("referenced global element %q has inconsistent declared type reference %v/%v", targetDeclaration.Name(), targetDeclaration.DeclaredType(), typeReference.Name()),
+			related,
+			errInstanceValidationInvariant,
+		)
+	}
+	typeID, hasTypeID := targetDeclaration.TypeID()
+	return instanceScalarTypeForTarget(
+		schema,
+		targetDeclaration.DeclaredType(),
+		typeID,
+		hasTypeID,
+		related,
+		loc,
 		version,
-		errInstanceChoiceTarget,
+		false,
+		false,
+		version,
 	)
 }
 
@@ -526,6 +892,7 @@ func instanceChoiceAlternativeFor(
 		element.Loc(),
 		version,
 		false,
+		true,
 		version,
 	)
 	if err != nil {
@@ -599,6 +966,20 @@ func validateChoiceInstance(root *instanceElement, program instanceChoiceProgram
 				program.related,
 				err,
 			)
+		}
+		for _, alternative := range program.alternatives {
+			for _, member := range alternative.substitutionMembers {
+				if member.name != childName {
+					continue
+				}
+				return newInstanceValidationUnsupported(
+					child.loc,
+					fmt.Sprintf("direct choice child %q uses a substitution-group member outside instance validation", renderSyntaxName(child.name)),
+					member.related,
+					program.version,
+					errInstanceElementSubstitution,
+				)
+			}
 		}
 		for index := range program.alternatives {
 			if program.alternatives[index].name == childName {
@@ -846,6 +1227,7 @@ func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Lo
 		loc,
 		instanceBuiltInValidationVersion,
 		true,
+		true,
 		instanceSchemaValidationVersion(schema),
 	)
 }
@@ -860,6 +1242,7 @@ func instanceScalarTypeForTarget(
 	loc Loc,
 	fallbackVersion XSDVersion,
 	allowBoolean bool,
+	allowPrecisionDecimal bool,
 	booleanVersion XSDVersion,
 ) (instanceScalarType, error) {
 	if declaredType.IsZero() {
@@ -881,7 +1264,7 @@ func instanceScalarTypeForTarget(
 				errInstanceUnsupportedType,
 			)
 		}
-		return instanceBuiltInScalarType(declaredType, related, loc, booleanVersion)
+		return instanceBuiltInScalarType(declaredType, related, loc, allowPrecisionDecimal, booleanVersion)
 	}
 	if !hasTypeID || typeID.IsZero() {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
@@ -939,6 +1322,15 @@ func instanceScalarTypeForTarget(
 		)
 	}
 	if definition.HasPrecisionDecimalFacets() {
+		if !allowPrecisionDecimal {
+			return instanceScalarType{}, newInstanceValidationUnsupported(
+				loc,
+				fmt.Sprintf("named simple type %q is outside direct choice reference validation", definition.Name()),
+				related,
+				fallbackVersion,
+				errInstanceUnsupportedType,
+			)
+		}
 		return instanceScalarType{
 			value:   instancePrecisionDecimalScalar{facets: definition.PrecisionDecimalFacets()},
 			version: fallbackVersion,
@@ -1052,7 +1444,7 @@ func instanceScalarEnumerationFor(definition SimpleTypeDefinition, kind DigitDat
 	}
 }
 
-func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, booleanVersion XSDVersion) (instanceScalarType, error) {
+func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, allowPrecisionDecimal bool, booleanVersion XSDVersion) (instanceScalarType, error) {
 	switch declaredType.Local() {
 	case "integer":
 		facets, err := NewIntegerDigitFacets(nil, instanceBuiltInValidationVersion)
@@ -1083,6 +1475,15 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, boole
 			related: related,
 		}, nil
 	case "precisionDecimal":
+		if !allowPrecisionDecimal {
+			return instanceScalarType{}, newInstanceValidationUnsupported(
+				loc,
+				fmt.Sprintf("global element type %q is outside direct choice reference validation", declaredType),
+				related,
+				instanceBuiltInValidationVersion,
+				errInstanceUnsupportedType,
+			)
+		}
 		facets, err := NewPrecisionDecimalFacetsFromDeclarations(PrecisionDecimalFacetDeclarations{})
 		if err != nil {
 			return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in precisionDecimal facets", related, err)

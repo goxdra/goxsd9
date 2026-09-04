@@ -486,7 +486,7 @@ func elementReferenceTestQualifiedSequenceRoot(includeLocal bool) string {
 </xs:schema>`
 }
 
-func TestSchemaElementReferenceDownstreamConsumersRejectWithoutCopying(t *testing.T) {
+func TestSchemaElementReferenceDownstreamConsumersPreserveReferenceBoundaries(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + elementReferenceTestXSDNamespace + `" xmlns:r="urn:reference-root" targetNamespace="urn:reference-root">
   <xs:complexType name="Choice"><xs:choice><xs:element ref="r:item"/></xs:choice></xs:complexType>
   <xs:element name="root" type="r:Choice"/>
@@ -499,16 +499,8 @@ func TestSchemaElementReferenceDownstreamConsumersRejectWithoutCopying(t *testin
 	if err != nil {
 		t.Fatalf("NewResolvedSource: %v", err)
 	}
-	err = ValidateInstance(schema, instanceSource.SourceID(), instanceSource.stream())
-	if err == nil {
-		t.Fatal("validation accepted a reference particle")
-	}
-	validationDiagnostic := requireDiagnostic(t, err)
-	if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Feature() != FeatureInstanceValidation || validationDiagnostic.Code() != UnsupportedInstanceValidationCode {
-		t.Fatalf("validation diagnostic = %s, want explicit unsupported validation", validationDiagnostic)
-	}
-	if validationDiagnostic.Loc().Source() != "root.xsd" || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errInstanceChoiceTarget) {
-		t.Fatalf("validation diagnostic evidence/cause is incomplete: %v", err)
+	if validationErr := ValidateInstance(schema, instanceSource.SourceID(), instanceSource.stream()); validationErr != nil {
+		t.Fatalf("validation: %v", validationErr)
 	}
 
 	_, err = GenerateGo(schema, "reference_example")
