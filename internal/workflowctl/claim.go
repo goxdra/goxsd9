@@ -16,7 +16,7 @@ const (
 
 func (a app) runClaim(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl claim acquire ISSUE | renew | verify | prune ISSUE")
+		return usageError("usage: workflowctl claim acquire ISSUE | resume ISSUE [flags] | renew | verify | prune ISSUE")
 	}
 	switch args[0] {
 	case "acquire":
@@ -28,6 +28,8 @@ func (a app) runClaim(args []string) error {
 			return usageError("claim acquire: %v", err)
 		}
 		return a.acquireClaim(number)
+	case "resume":
+		return a.resumeClaimCommand(args[1:])
 	case "renew":
 		if len(args) != 1 {
 			return usageError("usage: workflowctl claim renew")
@@ -198,6 +200,7 @@ func (a app) newClaimCommitWithRunID(root string, number int, parent, runID stri
 	if err != nil {
 		return "", time.Time{}, "", fmt.Errorf("read claim tree: %w", err)
 	}
+	tree = strings.TrimSpace(tree)
 	if strings.TrimSpace(runID) == "" {
 		return "", time.Time{}, "", errors.New("claim run ID must not be empty")
 	}
@@ -256,7 +259,7 @@ func (a app) renewClaim() error {
 	}
 	local, remote, err := a.claimHeads(root, branch)
 	if err != nil {
-		return err
+		return retryableOperationIfRecoverable("read claim heads", fmt.Errorf("read claim heads: %w", err))
 	}
 	if local != remote {
 		if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); ancestorErr != nil {
@@ -265,7 +268,7 @@ func (a app) renewClaim() error {
 	}
 	lease, runID, err := a.readClaimMetadata(root)
 	if err != nil {
-		return stateError("claim #%d has no valid lease: %v", number, err)
+		return err
 	}
 	if identityErr := validateClaimLocalBranch(localBranch, number, runID); identityErr != nil {
 		return identityErr
@@ -303,14 +306,14 @@ func (a app) verifyClaim() error {
 	}
 	local, remote, err := a.claimHeads(root, branch)
 	if err != nil {
-		return err
+		return retryableOperationIfRecoverable("read claim heads", fmt.Errorf("read claim heads: %w", err))
 	}
 	if local != remote {
 		return stateError("claim branch moved remotely; local=%s remote=%s", local, remote)
 	}
 	lease, runID, err := a.readClaimMetadata(root)
 	if err != nil {
-		return stateError("claim #%d has no valid lease: %v", number, err)
+		return err
 	}
 	if identityErr := validateClaimLocalBranch(localBranch, number, runID); identityErr != nil {
 		return identityErr
@@ -348,15 +351,15 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 func (a app) readClaimMetadata(root string) (time.Time, string, error) {
 	text, err := a.command(root, "git", "log", "-100", "--format=%B")
 	if err != nil {
-		return time.Time{}, "", fmt.Errorf("read claim metadata: %w", err)
+		return time.Time{}, "", retryableOperation("read claim metadata", fmt.Errorf("read claim metadata: %w", err))
 	}
 	lease, err := trailerTime(text)
 	if err != nil {
-		return time.Time{}, "", err
+		return time.Time{}, "", terminalOperation("read claim metadata", err)
 	}
 	runID, err := trailerValue(text, "Agent-Run-ID")
 	if err != nil {
-		return time.Time{}, "", err
+		return time.Time{}, "", terminalOperation("read claim metadata", err)
 	}
 	return lease, runID, nil
 }
@@ -406,7 +409,7 @@ func validateClaimLocalBranch(branch string, number int, runID string) error {
 func (a app) fetchClaim(root, branch string) error {
 	refspec := "refs/heads/" + branch + ":refs/remotes/origin/" + branch
 	if _, err := a.command(root, "git", "fetch", "origin", refspec); err != nil {
-		return stateError("fetch claim branch: %v", err)
+		return retryableOperationIfRecoverable("fetch claim branch", fmt.Errorf("fetch claim branch: %w", err))
 	}
 	return nil
 }

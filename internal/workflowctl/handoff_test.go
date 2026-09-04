@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type handoffFixture struct {
@@ -55,7 +56,7 @@ func (f *handoffFixture) execute(_ string, _ io.Reader, name string, args ...str
 		case "gh project item-edit --project-id PVT_kwDOEupz2s4Bgc9A --id item-14 --field-id status-id --single-select-option-id backlog-id":
 			f.projectStatus = "Backlog"
 		case "gh issue comment 14 --repo goxdra/goxsd9 --body-file " + f.bodyPath:
-			f.comments = append(f.comments, issueCommentAPI{Body: f.body, User: issueCommentUser(trustedActor)})
+			f.comments = append(f.comments, issueCommentAPI{ID: int64(len(f.comments) + 1), Body: f.body, CreatedAt: time.Now().UTC(), User: issueCommentUser(trustedActor)})
 		}
 		return "", errors.New("simulated ambiguous handoff response")
 	}
@@ -92,7 +93,7 @@ func (f *handoffFixture) executeGitHub(command string) (string, error) {
 		f.projectStatus = "Backlog"
 		return "", nil
 	case "issue comment 14 --repo goxdra/goxsd9 --body-file " + f.bodyPath:
-		f.comments = append(f.comments, issueCommentAPI{Body: f.body, User: issueCommentUser(trustedActor)})
+		f.comments = append(f.comments, issueCommentAPI{ID: int64(len(f.comments) + 1), Body: f.body, CreatedAt: time.Now().UTC(), User: issueCommentUser(trustedActor)})
 		return "https://github.com/goxdra/goxsd9/issues/14#issuecomment-1", nil
 	default:
 		return "", fmt.Errorf("unexpected gh command: %s", command)
@@ -124,6 +125,9 @@ func (f *handoffFixture) projectItemsJSON() string {
 }
 
 func (f *handoffFixture) commentsJSON() (string, error) {
+	if f.comments == nil {
+		return "[]", nil
+	}
 	encoded, err := json.Marshal(f.comments)
 	if err != nil {
 		return "", err
@@ -343,7 +347,7 @@ func TestHandoffNeedsHumanConvergesPartialStateWithoutRepeatingCompletedWrites(t
 				t.Fatalf("write body: %v", err)
 			}
 			if test.trustedBody {
-				fixture.comments = []issueCommentAPI{{Body: fixture.body, User: issueCommentUser(trustedActor)}}
+				fixture.comments = []issueCommentAPI{{ID: 1, Body: fixture.body, CreatedAt: time.Unix(1, 0).UTC(), User: issueCommentUser(trustedActor)}}
 			}
 			application := app{executeCommand: fixture.execute, stdout: new(bytes.Buffer)}
 			if err := application.runHandoff([]string{"14", "--body-file", bodyPath, "--needs-human"}); err != nil {
@@ -404,7 +408,7 @@ func runTrustedHandoffDedup(t *testing.T, author string) {
 	if err := fixture.withBody(bodyPath, "terminal evidence\n"); err != nil {
 		t.Fatalf("write body: %v", err)
 	}
-	fixture.comments = []issueCommentAPI{{Body: fixture.body, User: issueCommentUser(author)}}
+	fixture.comments = []issueCommentAPI{{ID: 1, Body: fixture.body, CreatedAt: time.Unix(1, 0).UTC(), User: issueCommentUser(author)}}
 	var stdout bytes.Buffer
 	application := app{stdout: &stdout, executeCommand: fixture.execute}
 	if err := application.runHandoff([]string{"14", "--body-file", bodyPath, "--needs-human"}); err != nil {
@@ -427,7 +431,7 @@ func TestHandoffNeedsHumanDoesNotInferFromUntrustedOrDifferentComments(t *testin
 	if err := fixture.withBody(bodyPath, "terminal evidence\n"); err != nil {
 		t.Fatalf("write body: %v", err)
 	}
-	fixture.comments = []issueCommentAPI{{Body: fixture.body, User: issueCommentUser("other-user")}}
+	fixture.comments = []issueCommentAPI{{ID: 1, Body: fixture.body, CreatedAt: time.Unix(1, 0).UTC(), User: issueCommentUser("other-user")}}
 	application := app{executeCommand: fixture.execute, stdout: new(bytes.Buffer)}
 	if err := application.runHandoff([]string{"14", "--body-file", bodyPath, "--needs-human"}); err != nil {
 		t.Fatalf("untrusted-comment handoff: %v", err)

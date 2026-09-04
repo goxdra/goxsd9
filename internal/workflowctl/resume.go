@@ -1,9 +1,11 @@
 package workflowctl
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -62,6 +64,9 @@ func (a app) resumePullRequestCommand(args []string) error {
 	if !*acknowledged {
 		return stateError("PR #%d stale recovery requires --acknowledge-needs-human", pr)
 	}
+	if !validExactCommitSHA(strings.TrimSpace(*expected)) {
+		return usageError("pr resume: --expected-head must be a full 40-character commit SHA")
+	}
 	proof, err := a.preparePullRequestResume(pr, strings.TrimSpace(*expected))
 	if err != nil {
 		return err
@@ -77,7 +82,11 @@ func (a app) resumePullRequestCommand(args []string) error {
 }
 
 func (a app) preparePullRequestResume(pr int, expectedHead string) (resumeProof, error) {
-	return a.readPullRequestResumeProof(pr, expectedHead)
+	proof, err := a.readPullRequestResumeProof(pr, expectedHead)
+	if err != nil {
+		return resumeProof{}, retryableOperationIfRecoverable("PR resume proof", err)
+	}
+	return proof, nil
 }
 
 //nolint:gocognit,funlen // This proof keeps every fail-closed binding visible before mutation.
@@ -90,7 +99,7 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	if localBranch != branch && !strings.HasPrefix(localBranch, branch+"-run-") {
 		return resumeProof{}, stateError("local branch %q is not the fixed issue #%d claim run", localBranch, issue)
 	}
-	view, err := a.readPullRequest(root, pr)
+	view, err := a.readPullRequestForResume(root, pr)
 	if err != nil {
 		return resumeProof{}, err
 	}
@@ -125,16 +134,21 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	if err != nil {
 		return resumeProof{}, fmt.Errorf("read local claim head: %w", err)
 	}
-	if _, diffErr := a.command(root, "git", "diff", "--cached", "--quiet"); diffErr != nil {
-		return resumeProof{}, stateError("claim worktree has staged changes; preserve them before recovery")
-	}
-	lease, runID, err := a.readClaimMetadataAt(root, expectedHead)
-	if err != nil {
-		return resumeProof{}, stateError("expected head %s has no valid claim identity: %v", expectedHead, err)
-	}
-	if validateErr := a.validateClaimIssueAt(root, expectedHead, issue); validateErr != nil {
+	if validateErr := a.validateLocalAgentCommit(root, local, "local claim head"); validateErr != nil {
 		return resumeProof{}, validateErr
 	}
+	stagedErr := a.validateResumeStagedWorktree(root)
+	if stagedErr != nil {
+		return resumeProof{}, stagedErr
+	}
+	claim, err := a.readResumeExpectedClaim(root, expectedHead, issue)
+	if err != nil {
+		return resumeProof{}, retryableOperationIfRecoverable("PR resume expected claim proof", fmt.Errorf("expected head %s has no valid claim ancestry: %w", expectedHead, err))
+	}
+	if claim.issue != issue {
+		return resumeProof{}, stateError("expected head %s claims issue #%d, not issue #%d", expectedHead, claim.issue, issue)
+	}
+	lease, runID := claim.lease, claim.runID
 	if validateErr := validateClaimLocalBranch(localBranch, issue, runID); validateErr != nil {
 		return resumeProof{}, validateErr
 	}
@@ -148,9 +162,6 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	layout, err := a.repositoryLayout(root)
 	if err != nil {
 		return resumeProof{}, err
-	}
-	if worktreeErr := validateResumeWorktree(layout, root, localBranch, issue, local, lineage); worktreeErr != nil {
-		return resumeProof{}, worktreeErr
 	}
 	localAncestor, err := a.inspectResumeLocalAncestor(root, local, expectedHead, localBranch)
 	if err != nil {
@@ -180,7 +191,7 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 		}
 		if !localAncestor {
 			if err := a.validateExistingResumeCommit(root, local, expectedHead, issue, runID); err != nil {
-				return resumeProof{}, stateError("local head differs from the observed remote claim and is not a retryable renewal: %v", err)
+				return resumeProof{}, fmt.Errorf("local head differs from the observed remote claim and is not a retryable renewal: %w", err)
 			}
 		}
 	}
@@ -189,6 +200,13 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	}
 	if !already && !issueNeedsHuman(status) {
 		return resumeProof{}, stateError("issue #%d must be labeled needs-human before stale PR recovery", issue)
+	}
+	protectedHeads := resumeProtectedHeads(expectedHead, remote)
+	if pending && !localAncestor {
+		protectedHeads = resumeProtectedHeads(expectedHead, remote, local)
+	}
+	if worktreeErr := validateResumeWorktreeHeads(layout, root, localBranch, issue, local, protectedHeads, lineage); worktreeErr != nil {
+		return resumeProof{}, worktreeErr
 	}
 	proof := resumeProof{root: root, localBranch: localBranch, issue: issue, pr: pr, expectedHead: expectedHead,
 		observedHead: remote, renewalHead: local, runID: runID, runLocalHead: runLocal.sha, runLocalPresent: runLocal.present,
@@ -200,10 +218,70 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	return proof, nil
 }
 
+// readResumeExpectedClaim validates the complete expected PR-head object,
+// then binds recovery to the nearest canonical claim marker in its ancestry.
+// A PR head may contain source changes or merge parents; only the marker that
+// establishes claim ownership is required to have the empty, single-parent
+// shape.
+//
+//nolint:gocognit // The expected-head proof keeps object, ancestry, and claim binding ordered.
+func (a app) readResumeExpectedClaim(root, expectedHead string, issue int) (canonicalClaimCommit, error) {
+	if !validExactCommitSHA(expectedHead) {
+		return canonicalClaimCommit{}, stateError("expected PR head %q is not a full commit SHA; preserve claim artifacts", expectedHead)
+	}
+	if err := a.validateLocalAgentCommit(root, expectedHead, "expected PR head "+expectedHead); err != nil {
+		return canonicalClaimCommit{}, err
+	}
+	object, err := a.gitRaw(root, "cat-file", "commit", expectedHead)
+	if err != nil {
+		return canonicalClaimCommit{}, retryableOperation("read expected PR head", fmt.Errorf("read expected PR head object at %s: %w", expectedHead, err))
+	}
+	parsed, err := parseCommitObject(object)
+	if err != nil {
+		return canonicalClaimCommit{}, terminalOperation("validate expected PR head", stateError("expected PR head %s has malformed commit object; preserve claim artifacts: %w", expectedHead, err))
+	}
+	for _, parent := range parsed.parents {
+		if parentErr := a.validateLocalAgentCommit(root, parent, "expected PR head parent "+parent); parentErr != nil {
+			return canonicalClaimCommit{}, parentErr
+		}
+	}
+
+	history, err := a.command(root, "git", "log", "--format=%H%x00%B%x00", expectedHead)
+	if err != nil {
+		return canonicalClaimCommit{}, retryableOperation("read PR resume claim ancestry", fmt.Errorf("read claim ancestry at %s: %w", expectedHead, err))
+	}
+	branch := fmt.Sprintf("agent/issue-%d", issue)
+	records, err := splitRunLocalHistory(history, branch)
+	if err != nil {
+		return canonicalClaimCommit{}, err
+	}
+	if err := a.verifyRunLocalHistoryRecords(root, branch, records); err != nil {
+		return canonicalClaimCommit{}, err
+	}
+	for _, record := range records {
+		identity, canonical, parseErr := parseCanonicalRunLocalClaim(record.message, issue)
+		if parseErr != nil {
+			return canonicalClaimCommit{}, terminalRunLocalHistoryError(stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr))
+		}
+		if !canonical || identity.issue != issue {
+			continue
+		}
+		observedIssue, observedRunID, lease, parseErr := parseCanonicalClaimMessage(record.message)
+		if parseErr != nil {
+			return canonicalClaimCommit{}, terminalRunLocalHistoryError(stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr))
+		}
+		if observedIssue != issue {
+			return canonicalClaimCommit{}, stateError("expected PR head %s ancestry marker %s claims issue #%d, not issue #%d; preserve claim artifacts", expectedHead, record.commit, observedIssue, issue)
+		}
+		return canonicalClaimCommit{message: record.message, issue: observedIssue, runID: observedRunID, lease: lease}, nil
+	}
+	return canonicalClaimCommit{}, stateError("expected PR head %s ancestry has no canonical claim marker for issue #%d; preserve claim artifacts", expectedHead, issue)
+}
+
 //nolint:gocognit // Ref inventory and evaluated-lineage filtering are one fail-closed proof boundary.
 func (a app) inspectResumeClaimConflicts(root string, issue int, fixedBranch, fixedHead, currentBranch, currentRunID string,
 	expectation resumeRunLocalExpectation, lineageGroups ...[]string) (resumeRunLocalObservation, error) {
-	inventory, err := a.remoteAgentRefInventory(root)
+	inventory, err := a.strictRemoteAgentRefInventory(root)
 	if err != nil {
 		return resumeRunLocalObservation{}, err
 	}
@@ -275,6 +353,9 @@ func (a app) inspectResumeClaimConflicts(root string, issue int, fixedBranch, fi
 }
 
 func (a app) validateResumeRunLocalHead(root string, issue int, branch, runID, head, expected string) error {
+	if err := a.validateLocalAgentCommit(root, head, "run-local ref "+branch); err != nil {
+		return err
+	}
 	if head == expected {
 		return nil
 	}
@@ -289,6 +370,9 @@ func (a app) validateResumeRunLocalHead(root string, issue int, branch, runID, h
 }
 
 func (a app) inspectResumeLocalAncestor(root, local, expected, branch string) (bool, error) {
+	if err := a.validateLocalAgentCommit(root, local, "local claim head"); err != nil {
+		return false, err
+	}
 	if local == expected {
 		return false, nil
 	}
@@ -308,20 +392,62 @@ func (a app) inspectResumeLocalAncestor(root, local, expected, branch string) (b
 	return true, nil
 }
 
+func (a app) validateResumeStagedWorktree(root string) error {
+	status, cause := a.resumeStagedWorktreeStatus(root)
+	if status == 0 && cause != nil {
+		return cause
+	}
+	if status == 0 {
+		return nil
+	}
+	if status == 1 {
+		return terminalOperation("PR resume staged-worktree check", stateError("claim worktree has staged changes; preserve them before recovery"))
+	}
+	if cause != nil {
+		return retryableOperation("PR resume staged-worktree check", fmt.Errorf("git diff --cached --quiet exited with status %d: %w", status, cause))
+	}
+	return retryableOperation("PR resume staged-worktree check", fmt.Errorf("git diff --cached --quiet exited with status %d", status))
+}
+
+func (a app) resumeStagedWorktreeStatus(root string) (int, error) {
+	if a.executeCommandCapture != nil {
+		result, err := a.commandCaptureWithEnv(root, nil, "git", "diff", "--cached", "--quiet")
+		if err != nil {
+			return 0, retryableOperation("PR resume staged-worktree check", fmt.Errorf("run git diff --cached --quiet: %w", err))
+		}
+		return result.status, nil
+	}
+	_, err := a.command(root, "git", "diff", "--cached", "--quiet")
+	if err == nil {
+		return 0, nil
+	}
+	if operationDispositionOf(err) != operationDispositionUnknown {
+		return 0, err
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return 0, retryableOperation("PR resume staged-worktree check", fmt.Errorf("run git diff --cached --quiet: %w", err))
+	}
+	return exitErr.ExitCode(), err
+}
+
 func (a app) resumeRunLocalLineage(root, head string, issue int) ([]string, error) {
 	history, err := a.command(root, "git", "log", "--format=%H%x00%B%x00", head)
 	if err != nil {
-		return nil, fmt.Errorf("read evaluated claim lineage at %s: %w", head, err)
+		return nil, retryableOperation("read evaluated claim lineage", fmt.Errorf("read evaluated claim lineage at %s: %w", head, err))
 	}
 	records, err := splitRunLocalHistory(history, fmt.Sprintf("agent/issue-%d", issue))
 	if err != nil {
+		return nil, err
+	}
+	if err := a.verifyRunLocalHistoryRecords(root, fmt.Sprintf("agent/issue-%d", issue), records); err != nil {
 		return nil, err
 	}
 	lineage := make([]string, 0)
 	for _, record := range records {
 		identity, canonical, parseErr := parseCanonicalRunLocalClaim(record.message, issue)
 		if parseErr != nil {
-			return nil, stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr)
+			return nil, terminalRunLocalHistoryError(stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr))
 		}
 		if canonical {
 			lineage = appendUniqueString(lineage, identity.runID)
@@ -342,7 +468,7 @@ func containsRunID(lineage []string, runID string) bool {
 // sealPullRequestResumeProof makes the last operations in a proof fresh reads of
 // every mutable authority. The caller mutates no ref or GitHub state before it.
 func (a app) sealPullRequestResumeProof(proof resumeProof) error {
-	view, err := a.readPullRequest(proof.root, proof.pr)
+	view, err := a.readPullRequestForResume(proof.root, proof.pr)
 	if err != nil {
 		return err
 	}
@@ -365,8 +491,9 @@ func (a app) sealPullRequestResumeProof(proof resumeProof) error {
 	if local != proof.renewalHead {
 		return stateError("local claim head moved while sealing proof: expected %s, found %s", proof.renewalHead, local)
 	}
-	if _, diffErr := a.command(proof.root, "git", "diff", "--cached", "--quiet"); diffErr != nil {
-		return stateError("claim worktree gained staged changes while sealing proof")
+	stagedErr := a.validateResumeStagedWorktree(proof.root)
+	if stagedErr != nil {
+		return stagedErr
 	}
 	lineage, err := a.validateResumeSealWorktree(proof, local)
 	if err != nil {
@@ -393,7 +520,11 @@ func (a app) validateResumeSealWorktree(proof resumeProof, local string) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	if worktreeErr := validateResumeWorktree(layout, proof.root, proof.localBranch, proof.issue, local, lineage); worktreeErr != nil {
+	protectedHeads := resumeProtectedHeads(proof.expectedHead, proof.observedHead)
+	if !proof.localAncestor && local != proof.expectedHead {
+		protectedHeads = resumeProtectedHeads(proof.expectedHead, proof.observedHead, local)
+	}
+	if worktreeErr := validateResumeWorktreeHeads(layout, proof.root, proof.localBranch, proof.issue, local, protectedHeads, lineage); worktreeErr != nil {
 		return nil, worktreeErr
 	}
 	if !proof.localAncestor {
@@ -412,49 +543,27 @@ func (a app) validateResumeSealWorktree(proof resumeProof, local string) ([]stri
 func (a app) remoteClaimHead(root, branch string) (string, error) {
 	output, err := a.command(root, "git", "ls-remote", "--heads", "origin", "refs/heads/"+branch)
 	if err != nil {
-		return "", fmt.Errorf("read remote claim branch %s: %w", branch, err)
+		return "", retryableOperation("read remote claim branch "+branch, fmt.Errorf("read remote claim branch %s: %w", branch, err))
 	}
 	fields := strings.Fields(output)
 	if len(fields) != 2 || fields[1] != "refs/heads/"+branch {
 		return "", stateError("remote fixed claim branch %s is absent or ambiguous", branch)
 	}
+	if err := a.validateRemoteAgentCommit(root, branch, fields[0]); err != nil {
+		return "", err
+	}
 	return fields[0], nil
 }
 
-func (a app) readClaimMetadataAt(root, head string) (time.Time, string, error) {
-	text, err := a.command(root, "git", "log", "-100", "--format=%B", head)
-	if err != nil {
-		return time.Time{}, "", fmt.Errorf("read claim metadata at %s: %w", head, err)
-	}
-	lease, err := trailerTime(text)
-	if err != nil {
-		return time.Time{}, "", err
-	}
-	runID, err := trailerValue(text, "Agent-Run-ID")
-	if err != nil {
-		return time.Time{}, "", err
-	}
-	return lease, runID, nil
-}
-
-func (a app) validateClaimIssueAt(root, head string, expected int) error {
-	text, err := a.command(root, "git", "log", "-100", "--format=%B", head)
-	if err != nil {
-		return fmt.Errorf("read claim issue at %s: %w", head, err)
-	}
-	value, err := trailerValue(text, "Agent-Issue")
-	if err != nil {
-		return stateError("expected head %s has no claim issue identity: %v", head, err)
-	}
-	issue, err := positiveNumber(value)
-	if err != nil || issue != expected {
-		return stateError("expected head %s claims issue %q, not issue #%d", head, value, expected)
-	}
-	return nil
+func validateResumeWorktree(layout repositoryLayout, root, branch string, issue int, head string, lineageGroups ...[]string) error {
+	return validateResumeWorktreeHeads(layout, root, branch, issue, head, []string{head}, lineageGroups...)
 }
 
 //nolint:gocognit // Worktree uniqueness and stale-lineage filtering must be checked together.
-func validateResumeWorktree(layout repositoryLayout, root, branch string, issue int, head string, lineageGroups ...[]string) error {
+func validateResumeWorktreeHeads(layout repositoryLayout, root, branch string, issue int, head string, protectedHeads []string, lineageGroups ...[]string) error {
+	if len(protectedHeads) == 0 {
+		return stateError("resume has no protected claim heads")
+	}
 	lineage := []string(nil)
 	lineageProvided := false
 	if len(lineageGroups) > 1 {
@@ -468,8 +577,12 @@ func validateResumeWorktree(layout repositoryLayout, root, branch string, issue 
 	for _, worktree := range layout.worktrees {
 		candidate := strings.TrimPrefix(worktree.branch, "refs/heads/")
 		candidateIssue, ok := issueFromBranch(candidate)
+		lineageHead := containsResumeHead(protectedHeads, worktree.head)
 		if !ok || candidateIssue != issue {
-			continue
+			if !lineageHead {
+				continue
+			}
+			return stateError("detached duplicate/orphan claim worktree %q at %s shares the expected claim lineage; preserve it before recovery", worktree.path, worktree.head)
 		}
 		if !samePath(worktree.path, root) {
 			candidateKind, _, candidateRunID := classifyAgentRef(candidate)
@@ -489,98 +602,124 @@ func validateResumeWorktree(layout repositoryLayout, root, branch string, issue 
 	return nil
 }
 
+func containsResumeHead(heads []string, candidate string) bool {
+	for _, head := range heads {
+		if head == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func resumeProtectedHeads(heads ...string) []string {
+	protected := make([]string, 0, len(heads))
+	for _, head := range heads {
+		if head == "" || containsResumeHead(protected, head) {
+			continue
+		}
+		protected = append(protected, head)
+	}
+	return protected
+}
+
 func (a app) validateExistingResumeCommit(root, head, expected string, issue int, runID string) error {
-	parent, err := a.command(root, "git", "rev-parse", head+"^")
-	if err != nil || parent != expected {
-		return stateError("observed head %s is not the unique renewal child of expected PR head %s", head, expected)
-	}
-	headTree, err := a.command(root, "git", "rev-parse", head+"^{tree}")
+	commit, err := a.readCanonicalClaimCommit(root, head, issue, runID, expected)
 	if err != nil {
-		return fmt.Errorf("read resumed claim tree: %w", err)
+		return retryableOperationIfRecoverable("resume canonical renewal proof", err)
 	}
-	parentTree, err := a.command(root, "git", "rev-parse", expected+"^{tree}")
-	if err != nil {
-		return fmt.Errorf("read expected claim tree: %w", err)
-	}
-	lease, observedRun, err := a.readClaimMetadataAt(root, head)
-	if err != nil || headTree != parentTree || observedRun != runID || !lease.After(time.Now().UTC()) {
-		return stateError("observed head %s is not a valid empty claim renewal for existing run %s", head, runID)
-	}
-	message, err := a.command(root, "git", "log", "-1", "--format=%B", head)
-	if err != nil || strings.TrimSpace(message) != strings.TrimSpace(claimMessage(issue, runID, lease)) {
-		return stateError("observed head %s is not the standard claim metadata commit", head)
+	if !commit.lease.After(time.Now().UTC()) {
+		return stateError("observed head %s has an expired claim renewal for existing run %s", head, runID)
 	}
 	return nil
 }
 
-//nolint:gocognit // Mutation and deterministic recovery boundaries remain explicit and ordered.
 func (a app) applyPullRequestResume(proof resumeProof) error {
 	// This is the final read-only proof. No ref or GitHub mutation may precede it.
 	fresh, readErr := a.readPullRequestResumeProof(proof.pr, proof.expectedHead)
 	if readErr != nil {
-		return stateError("PR #%d resume proof changed after preflight; no mutation performed: %v", proof.pr, readErr)
+		readErr = retryableOperationIfRecoverable("PR resume fresh proof", readErr)
+		return fmt.Errorf("PR #%d resume proof changed after preflight; no mutation performed: %w", proof.pr, readErr)
 	}
 	if proofErr := sameResumeProof(proof, fresh); proofErr != nil {
-		return stateError("PR #%d resume proof changed after preflight; no mutation performed: %v", proof.pr, proofErr)
+		proofErr = retryableOperationIfRecoverable("PR resume proof comparison", proofErr)
+		return fmt.Errorf("PR #%d resume proof changed after preflight; no mutation performed: %w", proof.pr, proofErr)
 	}
 	if !fresh.already {
-		status, statusErr := a.readIssueStatus(fresh.root, fresh.issue)
-		if statusErr != nil {
-			return stateError("PR #%d issue proof failed immediately before mutation; no mutation performed: %v. "+resumeRecoveryTemplate,
-				fresh.pr, statusErr, fresh.pr, fresh.expectedHead)
+		var mutationErr error
+		fresh, mutationErr = a.mutatePullRequestResume(proof, fresh)
+		if mutationErr != nil {
+			return mutationErr
 		}
-		if status.State != "OPEN" || !issueNeedsHuman(status) {
-			return stateError("issue #%d must remain open and labeled needs-human immediately before PR #%d resume mutation; no mutation performed. "+resumeRecoveryTemplate,
-				fresh.issue, fresh.pr, fresh.pr, fresh.expectedHead)
-		}
-		if fresh.localAncestor {
-			if _, err := a.command(fresh.root, "git", "merge", "--ff-only", fresh.expectedHead); err != nil {
-				return fmt.Errorf("fast-forward local claim worktree to expected head %s: %w", fresh.expectedHead, err)
-			}
-		}
-		commit := fresh.renewalHead
-		if !fresh.pending || fresh.localAncestor {
-			var createErr error
-			commit, _, _, createErr = a.newClaimCommitWithRunID(fresh.root, fresh.issue, fresh.observedHead, fresh.runID)
-			if createErr != nil {
-				return createErr
-			}
-			if _, updateErr := a.command(fresh.root, "git", "update-ref", "refs/heads/"+fresh.localBranch, commit, fresh.observedHead); updateErr != nil {
-				return fmt.Errorf("advance local claim for PR resume: %w", updateErr)
-			}
-		}
-		lease := "--force-with-lease=refs/heads/" + claimBranch(fresh.issue) + ":" + fresh.observedHead
-		refspec := commit + ":refs/heads/" + claimBranch(fresh.issue)
-		if _, pushErr := a.command(fresh.root, "git", "push", lease, "origin", refspec); pushErr != nil {
-			return stateError("PR #%d claim push response was ambiguous: %v. "+resumeRecoveryTemplate, proof.pr, pushErr,
-				proof.pr, proof.expectedHead)
-		}
-		fresh.renewalHead = commit
 	}
 	if err := a.verifyResumePush(fresh); err != nil {
-		return stateError("PR #%d claim push needs reconciliation: %v. "+resumeRecoveryTemplate, proof.pr, err,
+		err = retryableOperationIfRecoverable("PR resume push verification", err)
+		return fmt.Errorf("PR #%d claim push needs reconciliation: %w. "+resumeRecoveryTemplate, proof.pr, err,
 			proof.pr, proof.expectedHead)
 	}
 	if err := a.verifyClaim(); err != nil {
-		return stateError("PR #%d claim renewal needs reconciliation: %v. "+resumeRecoveryTemplate, proof.pr, err,
+		err = retryableOperationIfRecoverable("PR resume claim verification", err)
+		return fmt.Errorf("PR #%d claim renewal needs reconciliation: %w. "+resumeRecoveryTemplate, proof.pr, err,
 			proof.pr, proof.expectedHead)
 	}
 	status, err := a.readIssueStatus(proof.root, proof.issue)
 	if err != nil {
-		return stateError("PR #%d label reconciliation failed: %v. "+resumeRecoveryTemplate, proof.pr, err, proof.pr, proof.expectedHead)
+		err = retryableOperationIfRecoverable("PR resume label status", err)
+		return fmt.Errorf("PR #%d label reconciliation failed: %w. "+resumeRecoveryTemplate, proof.pr, err, proof.pr, proof.expectedHead)
 	}
 	if issueNeedsHuman(status) {
 		if _, err := a.command(proof.root, "gh", "issue", "edit", strconv.Itoa(proof.issue), "--repo", repositoryKey,
 			"--remove-label", "needs-human"); err != nil {
-			return stateError("PR #%d label reconciliation failed: %v. "+resumeRecoveryTemplate, proof.pr, err,
+			err = retryableOperationIfRecoverable("PR resume label mutation", err)
+			return fmt.Errorf("PR #%d label reconciliation failed: %w. "+resumeRecoveryTemplate, proof.pr, err,
 				proof.pr, proof.expectedHead)
 		}
 	}
 	if err := a.setIssueProjectStatus(proof.root, proof.issue, "Picked"); err != nil {
-		return stateError("PR #%d Project reconciliation failed: %v. "+resumeRecoveryTemplate, proof.pr, err,
+		err = retryableOperationIfRecoverable("PR resume Project reconciliation", err)
+		return fmt.Errorf("PR #%d Project reconciliation failed: %w. "+resumeRecoveryTemplate, proof.pr, err,
 			proof.pr, proof.expectedHead)
 	}
 	return writeLine(a.stdout, "PR #%d resumed for issue #%d; claim verified, needs-human removed, Project Picked", proof.pr, proof.issue)
+}
+
+func (a app) mutatePullRequestResume(proof, fresh resumeProof) (resumeProof, error) {
+	status, statusErr := a.readIssueStatus(fresh.root, fresh.issue)
+	if statusErr != nil {
+		statusErr = retryableOperationIfRecoverable("PR resume issue status", statusErr)
+		return resumeProof{}, fmt.Errorf("PR #%d issue proof failed immediately before mutation; no mutation performed: %w. "+resumeRecoveryTemplate,
+			fresh.pr, statusErr, fresh.pr, fresh.expectedHead)
+	}
+	if status.State != "OPEN" || !issueNeedsHuman(status) {
+		return resumeProof{}, stateError("issue #%d must remain open and labeled needs-human immediately before PR #%d resume mutation; no mutation performed. "+resumeRecoveryTemplate,
+			fresh.issue, fresh.pr, fresh.pr, fresh.expectedHead)
+	}
+	if fresh.localAncestor {
+		if _, err := a.command(fresh.root, "git", "merge", "--ff-only", fresh.expectedHead); err != nil {
+			err = retryableOperationIfRecoverable("PR resume local fast-forward", err)
+			return resumeProof{}, fmt.Errorf("fast-forward local claim worktree to expected head %s: %w", fresh.expectedHead, err)
+		}
+	}
+	commit := fresh.renewalHead
+	if !fresh.pending || fresh.localAncestor {
+		var createErr error
+		commit, _, _, createErr = a.newClaimCommitWithRunID(fresh.root, fresh.issue, fresh.observedHead, fresh.runID)
+		if createErr != nil {
+			return resumeProof{}, retryableOperationIfRecoverable("PR resume renewal commit", createErr)
+		}
+		if _, updateErr := a.command(fresh.root, "git", "update-ref", "refs/heads/"+fresh.localBranch, commit, fresh.observedHead); updateErr != nil {
+			updateErr = retryableOperationIfRecoverable("PR resume local ref update", updateErr)
+			return resumeProof{}, fmt.Errorf("advance local claim for PR resume: %w", updateErr)
+		}
+	}
+	lease := "--force-with-lease=refs/heads/" + claimBranch(fresh.issue) + ":" + fresh.observedHead
+	refspec := commit + ":refs/heads/" + claimBranch(fresh.issue)
+	if _, pushErr := a.command(fresh.root, "git", "push", lease, "origin", refspec); pushErr != nil {
+		pushErr = retryableOperationIfRecoverable("PR resume claim push", pushErr)
+		return resumeProof{}, fmt.Errorf("PR #%d claim push response was ambiguous: %w. "+resumeRecoveryTemplate, proof.pr, pushErr,
+			proof.pr, proof.expectedHead)
+	}
+	fresh.renewalHead = commit
+	return fresh, nil
 }
 
 func sameResumeProof(before, after resumeProof) error {
@@ -596,7 +735,7 @@ func sameResumeProof(before, after resumeProof) error {
 }
 
 func (a app) verifyResumePush(proof resumeProof) error {
-	view, err := a.readPullRequest(proof.root, proof.pr)
+	view, err := a.readPullRequestForResume(proof.root, proof.pr)
 	if err != nil {
 		return err
 	}
