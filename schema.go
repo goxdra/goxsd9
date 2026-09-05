@@ -1026,6 +1026,8 @@ type ComplexTypeDerivation string
 const (
 	// ComplexTypeDerivationRestriction identifies restriction derivation.
 	ComplexTypeDerivationRestriction ComplexTypeDerivation = "restriction"
+	// ComplexTypeDerivationExtension identifies extension derivation.
+	ComplexTypeDerivationExtension ComplexTypeDerivation = "extension"
 )
 
 // ComplexTypeDefinition is the immutable type-specific view of a supported
@@ -1070,15 +1072,24 @@ func (definition ComplexTypeDefinition) Particle() Particle {
 	if definition.facts == nil {
 		return nil
 	}
-	body, ok := definition.facts.body.(*schemaComplexTypeDirectBodyComponent)
-	if !ok || body == nil {
+	switch body := definition.facts.body.(type) {
+	case *schemaComplexTypeDirectBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return body.particle
+	case *schemaComplexTypeExtensionBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return body.particle
+	default:
 		return nil
 	}
-	return body.particle
 }
 
-// Base returns the expanded QName written in the restriction's base
-// attribute. It returns the zero QName for a direct-content type.
+// Base returns the expanded QName written in the derivation's base attribute.
+// It returns the zero QName for a direct-content type.
 func (definition ComplexTypeDefinition) Base() QName {
 	reference, ok := definition.baseReferenceFacts()
 	if !ok {
@@ -1087,7 +1098,7 @@ func (definition ComplexTypeDefinition) Base() QName {
 	return reference.name
 }
 
-// BaseLoc returns the location of the restriction's base expression.
+// BaseLoc returns the location of the derivation's base expression.
 func (definition ComplexTypeDefinition) BaseLoc() Loc {
 	reference, ok := definition.baseReferenceFacts()
 	if !ok {
@@ -1096,7 +1107,7 @@ func (definition ComplexTypeDefinition) BaseLoc() Loc {
 	return reference.loc
 }
 
-// BaseReference returns the resolved restriction base reference.
+// BaseReference returns the resolved derivation base reference.
 func (definition ComplexTypeDefinition) BaseReference() (ComplexTypeReference, bool) {
 	reference, ok := definition.baseReferenceFacts()
 	if !ok {
@@ -1108,18 +1119,25 @@ func (definition ComplexTypeDefinition) BaseReference() (ComplexTypeReference, b
 // Derivation returns the complex-type derivation method.
 func (definition ComplexTypeDefinition) Derivation() ComplexTypeDerivation {
 	if definition.restrictionBody() == nil {
-		return ""
+		if definition.extensionBody() == nil {
+			return ""
+		}
+		return ComplexTypeDerivationExtension
 	}
 	return ComplexTypeDerivationRestriction
 }
 
-// DerivationLoc returns the location of the restriction element.
+// DerivationLoc returns the location of the derivation element.
 func (definition ComplexTypeDefinition) DerivationLoc() Loc {
 	body := definition.restrictionBody()
-	if body == nil {
+	if body != nil {
+		return body.restrictionLoc
+	}
+	extension := definition.extensionBody()
+	if extension == nil {
 		return Loc{}
 	}
-	return body.restrictionLoc
+	return extension.extensionLoc
 }
 
 func (definition ComplexTypeDefinition) anyAttributeFacts() *schemaAnyAttributeComponent {
@@ -1142,6 +1160,11 @@ func (definition ComplexTypeDefinition) anyAttributeFacts() *schemaAnyAttributeC
 			return nil
 		}
 		return body.anyAttribute
+	case *schemaComplexTypeExtensionBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return body.anyAttribute
 	default:
 		return nil
 	}
@@ -1158,12 +1181,25 @@ func (definition ComplexTypeDefinition) restrictionBody() *schemaComplexTypeRest
 	return body
 }
 
-func (definition ComplexTypeDefinition) baseReferenceFacts() (*schemaComplexTypeReferenceComponent, bool) {
-	body := definition.restrictionBody()
-	if body == nil {
-		return nil, false
+func (definition ComplexTypeDefinition) extensionBody() *schemaComplexTypeExtensionBodyComponent {
+	if definition.facts == nil || definition.facts.body == nil {
+		return nil
 	}
-	return &body.base, true
+	body, ok := definition.facts.body.(*schemaComplexTypeExtensionBodyComponent)
+	if !ok || body == nil {
+		return nil
+	}
+	return body
+}
+
+func (definition ComplexTypeDefinition) baseReferenceFacts() (*schemaComplexTypeReferenceComponent, bool) {
+	if body := definition.restrictionBody(); body != nil {
+		return &body.base, true
+	}
+	if body := definition.extensionBody(); body != nil {
+		return &body.base, true
+	}
+	return nil, false
 }
 
 func (definition ComplexTypeDefinition) boundedOpenAttrsRestrictionBody() (*schemaComplexTypeRestrictionBodyComponent, bool) {
@@ -1995,6 +2031,10 @@ type schemaComplexTypeDirectBodyInput struct {
 
 func (*schemaComplexTypeDirectBodyInput) schemaComplexTypeBodyInput() {}
 
+type schemaComplexTypeEmptyBodyInput struct{}
+
+func (*schemaComplexTypeEmptyBodyInput) schemaComplexTypeBodyInput() {}
+
 type schemaComplexTypeRestrictionBodyInput struct {
 	complexContentLoc Loc
 	restrictionLoc    Loc
@@ -2003,6 +2043,15 @@ type schemaComplexTypeRestrictionBodyInput struct {
 }
 
 func (*schemaComplexTypeRestrictionBodyInput) schemaComplexTypeBodyInput() {}
+
+type schemaComplexTypeExtensionBodyInput struct {
+	complexContentLoc Loc
+	extensionLoc      Loc
+	base              schemaComplexTypeReferenceInput
+	particle          schemaComplexTypeParticleInput
+}
+
+func (*schemaComplexTypeExtensionBodyInput) schemaComplexTypeBodyInput() {}
 
 type schemaComplexTypeReferenceInputKind uint8
 
@@ -2119,6 +2168,16 @@ type schemaComplexTypeRestrictionBodyComponent struct {
 }
 
 func (*schemaComplexTypeRestrictionBodyComponent) schemaComplexTypeBodyComponent() {}
+
+type schemaComplexTypeExtensionBodyComponent struct {
+	complexContentLoc Loc
+	extensionLoc      Loc
+	base              schemaComplexTypeReferenceComponent
+	particle          Particle
+	anyAttribute      *schemaAnyAttributeComponent
+}
+
+func (*schemaComplexTypeExtensionBodyComponent) schemaComplexTypeBodyComponent() {}
 
 type schemaComplexTypeReferenceComponent struct {
 	kind  ComplexTypeReferenceKind
@@ -2590,6 +2649,17 @@ func completeSchemaComplexTypeBody(result schemaComplexTypeBodyResult, loc Loc) 
 			base:              body.base,
 			anyAttribute:      completeSchemaAnyAttribute(body.anyAttribute),
 		}, nil
+	case *schemaComplexTypeExtensionBodyResult:
+		if body == nil || body.base.kind == "" || body.base.name.IsZero() || body.base.loc.IsZero() {
+			return nil, newSchemaBridgeInvariant(loc, "extension complex type body has incomplete base reference")
+		}
+		return &schemaComplexTypeExtensionBodyComponent{
+			complexContentLoc: body.complexContentLoc,
+			extensionLoc:      body.extensionLoc,
+			base:              body.base,
+			particle:          body.particle,
+			anyAttribute:      completeSchemaAnyAttribute(body.anyAttribute),
+		}, nil
 	default:
 		return nil, newSchemaBridgeInvariant(loc, "complex type body has an unknown completed variant")
 	}
@@ -2642,6 +2712,11 @@ func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaCom
 			particle:     cloneSchemaComplexTypeParticleInput(body.particle),
 			anyAttribute: cloneSchemaAnyAttributeInput(body.anyAttribute),
 		}
+	case *schemaComplexTypeEmptyBodyInput:
+		if body == nil {
+			return (*schemaComplexTypeEmptyBodyInput)(nil)
+		}
+		return &schemaComplexTypeEmptyBodyInput{}
 	case *schemaComplexTypeRestrictionBodyInput:
 		if body == nil {
 			return (*schemaComplexTypeRestrictionBodyInput)(nil)
@@ -2651,6 +2726,16 @@ func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaCom
 			restrictionLoc:    body.restrictionLoc,
 			base:              body.base,
 			anyAttribute:      cloneSchemaAnyAttributeInput(body.anyAttribute),
+		}
+	case *schemaComplexTypeExtensionBodyInput:
+		if body == nil {
+			return (*schemaComplexTypeExtensionBodyInput)(nil)
+		}
+		return &schemaComplexTypeExtensionBodyInput{
+			complexContentLoc: body.complexContentLoc,
+			extensionLoc:      body.extensionLoc,
+			base:              body.base,
+			particle:          cloneSchemaComplexTypeParticleInput(body.particle),
 		}
 	default:
 		return nil

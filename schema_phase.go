@@ -2695,11 +2695,27 @@ func validateComplexTypeContentChild(parent, element *syntaxElement, version XSD
 	if element.name.local == "complexContent" {
 		restriction := schemaComplexContentRestrictionChild(element)
 		if boundedComplexContentRestrictionCandidate(restriction, true) {
-			if schemaBooleanAttributeTrue(parent, "mixed") || schemaBooleanAttributeTrue(element, "mixed") {
+			if schemaBooleanAttributeTrue(parent) || schemaBooleanAttributeTrue(element) {
 				return newSchemaSyntaxUnsupportedForVersion(
 					element.loc,
 					"complexContent restriction with mixed content is not implemented",
 					version,
+				)
+			}
+			return nil
+		}
+		extension := schemaComplexContentExtensionChild(element)
+		if boundedComplexContentExtensionCandidate(extension) {
+			if schemaBooleanAttributeTrue(parent) || schemaBooleanAttributeTrue(element) {
+				return reframeSchemaComplexContentExtensionUnsupported(
+					newSchemaSyntaxUnsupportedForVersion(
+						element.loc,
+						"complexContent extension with mixed content is not implemented",
+						version,
+					),
+					version,
+					schemaComplexTypeModel(extension),
+					nil,
 				)
 			}
 			return nil
@@ -2739,11 +2755,39 @@ func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexCo
 	return anyAttributeSeen
 }
 
-func schemaBooleanAttributeTrue(element *syntaxElement, local string) bool {
+func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
+	if element == nil || element.name.namespace != xsdNamespaceURI || element.name.local != "extension" {
+		return false
+	}
+	if len(syntaxAttributesByLocal(element, "base")) != 1 {
+		return false
+	}
+	modelCount := 0
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if child.name.namespace != xsdNamespaceURI {
+			return false
+		}
+		switch child.name.local {
+		case "annotation":
+			continue
+		case "choice", "sequence":
+			modelCount++
+		default:
+			return false
+		}
+	}
+	return modelCount == 1
+}
+
+func schemaBooleanAttributeTrue(element *syntaxElement) bool {
 	if element == nil {
 		return false
 	}
-	attributes := syntaxAttributesByLocal(element, local)
+	attributes := syntaxAttributesByLocal(element, "mixed")
 	if len(attributes) != 1 {
 		return false
 	}
@@ -2802,6 +2846,15 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				errSchemaComplexTypeBaseRequired,
 			)
 		}
+		if complexContent && element.name.local == "extension" {
+			return newSchemaComplexTypeExtensionBaseDiagnostic(
+				element.loc,
+				element.name.local+" requires a base attribute",
+				nil,
+				version,
+				errSchemaComplexTypeBaseRequired,
+			)
+		}
 		return newSchemaCompositionDiagnostic(element.loc, element.name.local+" requires a base attribute")
 	}
 	if err := validateConditionalQNameForSchema(element, baseAttributes[0]); err != nil {
@@ -2841,6 +2894,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	anyAttributeSeen := false
 	assertSeen := false
 	simpleInlineSeen := false
+	var particleUnsupported error
 	totalSeen := false
 	fractionSeen := false
 	facetSeen := make(map[string]bool)
@@ -2889,7 +2943,14 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			if err := versionNamedModelGroupUnsupported(validateUnsupportedModelParticle(child, version), version); err != nil && !candidate.considerError(err) {
+			particleErr := versionNamedModelGroupUnsupported(validateUnsupportedModelParticle(child, version), version)
+			if complexContent && element.name.local == "extension" && child.name.local == "sequence" {
+				particleErr = validateSupportedSequenceParticle(child, version)
+			}
+			if particleErr != nil {
+				particleUnsupported = particleErr
+			}
+			if err := particleErr; err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "choice":
@@ -2900,7 +2961,14 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			if err := versionNamedModelGroupUnsupported(validateChoiceParticleWithNamespacePolicy(child, version, false), version); err != nil && !candidate.considerError(err) {
+			particleErr := versionNamedModelGroupUnsupported(validateChoiceParticleWithNamespacePolicy(child, version, false), version)
+			if complexContent && element.name.local == "extension" {
+				particleErr = validateChoiceParticleWithOptions(child, version, true, true)
+			}
+			if particleErr != nil {
+				particleUnsupported = particleErr
+			}
+			if err := particleErr; err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "attribute", "attributeGroup":
@@ -2951,13 +3019,41 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	if derivationErr == nil && boundedComplexContentRestrictionCandidate(element, complexContent) {
 		return nil
 	}
+	if derivationErr == nil && complexContent && element.name.local == "extension" && boundedComplexContentExtensionCandidate(element) {
+		return nil
+	}
 	if derivationErr == nil {
 		derivationErr = newSchemaSyntaxUnsupported(element.loc, element.name.local+" derivation is not implemented")
+	}
+	if complexContent && element.name.local == "extension" {
+		return reframeSchemaComplexContentExtensionUnsupported(derivationErr, version, schemaComplexTypeModel(element), particleUnsupported)
 	}
 	if simpleRestriction {
 		return preferPrecisionDecimalRestrictionMismatch(element, version, derivationErr)
 	}
 	return derivationErr
+}
+
+func reframeSchemaComplexContentExtensionUnsupported(err error, version XSDVersion, model *syntaxElement, particleErr error) error {
+	if err == nil || errors.Is(err, errLanguagePolicyMismatch) {
+		return err
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
+		return err
+	}
+	specRef := schemaComplexContentExtensionSpecRef(version)
+	if model != nil {
+		specRef = schemaComplexTypeExtensionSpecRef(version)
+	}
+	if particleErr != nil {
+		var particleDiagnostic Diagnostic
+		if errors.As(particleErr, &particleDiagnostic) && particleDiagnostic.Class() == FailureUnsupported && diagnostic.Loc() == particleDiagnostic.Loc() {
+			specRef = schemaComplexParticleExtensionSpecRef(version)
+		}
+	}
+	diagnostic.specRef = specRef
+	return diagnostic
 }
 
 func validateOpenContent(element *syntaxElement, version XSDVersion) error {

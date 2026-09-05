@@ -301,18 +301,18 @@ func TestGenerateGoDirectScalarEmptyChoiceNeedsNoRuntimeImport(t *testing.T) {
 	compilePublicGeneratedCode(t, source)
 }
 
-func TestGenerateGoRejectsComplexTypeWithoutCompletedFacts(t *testing.T) {
+func TestGenerateGoRejectsEmptyComplexTypeAsUnsupported(t *testing.T) {
 	schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`" targetNamespace="urn:test"><xs:complexType name="Choice"/></xs:schema>`)
 	output, err := goxsd9.GenerateGo(schema, "generated")
 	if output != nil || err == nil {
-		t.Fatalf("incomplete complex type result = (%q, %v), want nil output and error", output, err)
+		t.Fatalf("empty complex type result = (%q, %v), want nil output and error", output, err)
 	}
 	diagnostic := requirePublicCodegenDiagnostic(t, err)
-	if diagnostic.Class() != goxsd9.FailureInternal || diagnostic.Code() != codegenInvariantCode {
-		t.Fatalf("diagnostic = %s, want internal codegen invariant %s", diagnostic, codegenInvariantCode)
+	if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode {
+		t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic %s", diagnostic, codegenUnsupportedCode)
 	}
-	if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
-		t.Fatalf("diagnostic location = %s, want located root.xsd diagnostic", diagnostic.Loc())
+	if !errors.Is(err, goxsd9.ErrUnsupported) {
+		t.Fatalf("diagnostic lost unsupported sentinel: %v", err)
 	}
 }
 
