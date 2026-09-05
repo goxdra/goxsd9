@@ -951,6 +951,7 @@ func validateGlobalSchemaAttributeCooccurrence(element *syntaxElement) error {
 	return nil
 }
 
+//nolint:gocognit // Keep global attribute classification and precedence together.
 func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, attribute syntaxAttribute, version XSDVersion) (string, error) {
 	if attribute.name.namespace == xsdVersioningNamespaceURI {
 		return "", nil
@@ -977,6 +978,9 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	case schemaAttributeUnsupported:
 		if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
 			return "", err
+		}
+		if kind == ComponentKindSimpleTypeDefinition && attribute.name.local == "final" && collapseXMLWhitespace(attribute.value) == "" {
+			return "", nil
 		}
 		if version == XSDVersion10 && isXSD11GlobalSchemaAttribute(kind, attribute.name.local) {
 			return "", newXSD11FeatureMismatch(
@@ -1175,6 +1179,9 @@ func validateRecognizedUnsupportedAttribute(element *syntaxElement, attribute sy
 		return validateSchemaBlockAttribute(attribute, schemaBlockComplexMask, version, schemaBlockComplex)
 	case "final":
 		if element.name.local == "simpleType" {
+			if version == XSDVersion10 {
+				return validateSchemaRestrictionList(attribute, "restriction", "list", "union")
+			}
 			return validateSchemaRestrictionList(attribute, "extension", "restriction", "list", "union")
 		}
 		return validateSchemaRestrictionList(attribute, "extension", "restriction")
