@@ -247,7 +247,7 @@ func TestSchemaLocalElementBlockReferenceAndUnsupportedBoundaries(t *testing.T) 
 		t.Run(profile.name+"/reference block", func(t *testing.T) {
 			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:element name="target" type="xs:integer"/><xs:complexType name="Record"><xs:choice><xs:element ref="r:target" block="extension"/></xs:choice></xs:complexType></xs:schema>`
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			assertSchemaLocalBlockError(t, schema, err, root, invalidSchemaCompositionCode, `block="extension"`, "local element ref cannot combine with \"block\"")
+			assertSchemaLocalBlockError(t, schema, err, root, diagnosticSchemaElementReferenceBlockCode, schemaElementReferenceBlockSpecRef(profile.version), errSchemaElementReferenceBlock, `block="extension"`, "local element ref cannot combine with \"block\"")
 		})
 
 		t.Run(profile.name+"/named group unsupported", func(t *testing.T) {
@@ -316,7 +316,7 @@ func TestSchemaLocalElementBlockRejectsMalformedValuesWithoutSchema(t *testing.T
 	}
 }
 
-func assertSchemaLocalBlockError(t *testing.T, schema Schema, err error, root string, code, marker, message string) {
+func assertSchemaLocalBlockError(t *testing.T, schema Schema, err error, root string, code, specRef string, cause error, marker, message string) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("discoverSchema accepted invalid local element block input")
@@ -327,6 +327,12 @@ func assertSchemaLocalBlockError(t *testing.T, schema Schema, err error, root st
 	diagnostic := requireDiagnostic(t, err)
 	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != code {
 		t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, code)
+	}
+	if diagnostic.SpecRef() != specRef {
+		t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), specRef)
+	}
+	if diagnostic.Unwrap() == nil || !errors.Is(diagnostic.Unwrap(), cause) || !errors.Is(err, cause) {
+		t.Fatalf("diagnostic cause = %v, want preserved %v", diagnostic.Unwrap(), cause)
 	}
 	if diagnostic.Loc() != schemaBlockTestAttributeLoc(t, "root.xsd", root, marker) {
 		t.Fatalf("diagnostic location = %s, want block attribute", diagnostic.Loc())

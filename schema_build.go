@@ -42,6 +42,7 @@ const (
 	diagnosticSchemaSubstitutionTypeCode           = "XSD3043"
 	diagnosticSchemaSubstitutionCycleCode          = "XSD3044"
 	diagnosticSchemaBlockCode                      = "XSD3045"
+	diagnosticSchemaElementReferenceBlockCode      = "XSD3046"
 	diagnosticSchemaBridgeInvariantCode            = "GOXSD9025"
 )
 
@@ -59,6 +60,8 @@ const (
 	schemaElementDuplicateXSD11SpecRef          = schemaGlobalDuplicateXSD11SpecRef
 	schemaElementReferenceXSD10SpecRef          = "xsd10-structures#src-resolve"
 	schemaElementReferenceXSD11SpecRef          = "xsd11-structures#src-resolve"
+	schemaElementReferenceBlockXSD10SpecRef     = "xsd10-structures#src-element"
+	schemaElementReferenceBlockXSD11SpecRef     = "xsd11-structures#anchor8458"
 	schemaElementReferenceDuplicateXSD10SpecRef = "xsd10-structures#coss-particle"
 	schemaElementReferenceDuplicateXSD11SpecRef = "xsd11-structures#coss-particle"
 	schemaElementReferenceImportXSD10SpecRef    = "xsd10-structures#composition-importLicenseReferences"
@@ -106,6 +109,7 @@ var (
 	errSchemaElementReferenceAmbiguous        = errors.New("element reference is ambiguous")
 	errSchemaElementReferenceNamespace        = errors.New("element reference namespace is not imported")
 	errSchemaElementReferenceDuplicate        = errors.New("element reference particle is duplicated")
+	errSchemaElementReferenceBlock            = errors.New("element reference cannot specify block")
 	errSchemaAttributeTypeUnresolved          = errors.New("attribute type is unresolved")
 	errSchemaAttributeTypeWrongKind           = errors.New("attribute type has the wrong kind")
 	errSchemaAttributeTypeAmbiguous           = errors.New("attribute type is ambiguous")
@@ -5153,6 +5157,17 @@ func newSchemaElementReferenceDiagnostic(
 	}
 }
 
+func newSchemaElementReferenceBlockDiagnostic(attribute syntaxAttribute, version XSDVersion) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaElementReferenceBlockCode,
+		loc:     attribute.loc,
+		message: `local element ref cannot combine with "block"`,
+		specRef: schemaElementReferenceBlockSpecRef(version),
+		cause:   errSchemaElementReferenceBlock,
+	}
+}
+
 func newSchemaElementReferenceDuplicateDiagnostic(reference *schemaElementReferenceInput, firstLoc Loc, version XSDVersion) Diagnostic {
 	return Diagnostic{
 		class:   FailureInvalid,
@@ -5183,6 +5198,13 @@ func schemaElementReferenceSpecRef(version XSDVersion) string {
 		return schemaElementReferenceXSD10SpecRef
 	}
 	return schemaElementReferenceXSD11SpecRef
+}
+
+func schemaElementReferenceBlockSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaElementReferenceBlockXSD10SpecRef
+	}
+	return schemaElementReferenceBlockXSD11SpecRef
 }
 
 func schemaElementReferenceDuplicateSpecRef(version XSDVersion) string {

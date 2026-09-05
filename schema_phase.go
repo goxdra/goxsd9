@@ -4202,6 +4202,9 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			if len(attributes) == 0 {
 				continue
 			}
+			if local == "block" {
+				return candidate, newSchemaElementReferenceBlockDiagnostic(attributes[0], version)
+			}
 			return candidate, newSchemaCompositionDiagnostic(attributes[0].loc, fmt.Sprintf("local element ref cannot combine with %q", local))
 		}
 	}
