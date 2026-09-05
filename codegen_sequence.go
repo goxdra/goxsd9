@@ -169,7 +169,15 @@ func collectCodegenDirectParticles(
 				related,
 				fmt.Errorf("%w: bounded openAttrs complex type", errCodegenUnsupported),
 				version,
-				codegenDirectSequenceParticlesReference,
+			)
+		}
+		if body := definition.extensionBody(); body != nil {
+			return nil, newCodegenDirectParticleUnsupported(
+				body.extensionLoc,
+				fmt.Sprintf("complex type %q uses complex-content extension outside direct particle generation", component.Name()),
+				codegenComplexContentExtensionRelated(body),
+				fmt.Errorf("%w: complex-content extension", errCodegenUnsupported),
+				version,
 			)
 		}
 		particle := definition.Particle()
@@ -180,7 +188,6 @@ func collectCodegenDirectParticles(
 				nil,
 				fmt.Errorf("%w: complex type has no modeled particle", errCodegenUnsupported),
 				version,
-				codegenDirectSequenceParticlesReference,
 			)
 		}
 		if directChoiceTypedNilParticle(particle) {
@@ -233,10 +240,26 @@ func collectCodegenDirectParticles(
 			nil,
 			fmt.Errorf("%w: complex type particle is not a direct choice or sequence", errCodegenUnsupported),
 			version,
-			codegenDirectSequenceParticlesReference,
 		)
 	}
 	return owners, nil
+}
+
+func codegenComplexContentExtensionRelated(body *schemaComplexTypeExtensionBodyComponent) []Loc {
+	if body == nil {
+		return nil
+	}
+	related := make([]Loc, 0, 5)
+	related = appendCodegenRelated(related, body.complexContentLoc)
+	related = appendCodegenRelated(related, body.extensionLoc)
+	related = appendCodegenRelated(related, body.base.loc)
+	if body.particle != nil {
+		related = appendCodegenRelated(related, body.particle.Loc())
+	}
+	if body.anyAttribute != nil {
+		related = appendCodegenRelated(related, body.anyAttribute.loc)
+	}
+	return related
 }
 
 func directSequenceValue(particle Particle) (SequenceParticle, bool) {
@@ -657,9 +680,8 @@ func newCodegenDirectParticleUnsupported(
 	related []Loc,
 	cause error,
 	version XSDVersion,
-	reference codegenDirectSequenceReference,
 ) error {
-	return newCodegenDirectSequenceUnsupported(loc, message, related, cause, version, reference)
+	return newCodegenDirectSequenceUnsupported(loc, message, related, cause, version, codegenDirectSequenceParticlesReference)
 }
 
 func newCodegenDirectSequenceResolution(loc Loc, message string, related []Loc, cause error) error {

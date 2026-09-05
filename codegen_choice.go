@@ -143,6 +143,16 @@ func collectCodegenDirectChoices(
 				errCodegenDirectChoiceParticle,
 			)
 		}
+		if body := definition.extensionBody(); body != nil {
+			return nil, newCodegenDirectChoiceUnsupported(
+				body.extensionLoc,
+				fmt.Sprintf("complex type %q uses complex-content extension outside direct choice generation", component.Name()),
+				codegenComplexContentExtensionRelated(body),
+				fmt.Errorf("%w: complex-content extension", errCodegenUnsupported),
+				version,
+				codegenDirectChoiceParticlesReference,
+			)
+		}
 		particle := definition.Particle()
 		if particle == nil {
 			return nil, newCodegenDirectChoiceUnsupported(

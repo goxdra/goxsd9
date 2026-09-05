@@ -97,17 +97,17 @@ Model stores facts; primitive status follows type relations. Global `xs:boolean`
 `xs:string` elements retain `DeclaredType`; named/anonymous restrictions expose immutable
 boolean-kind, string-enumeration, and string-`whiteSpace` facts; built-ins lack synthetic IDs.
 
-Named complex types: direct particles; bounded openAttrs restrictions. Direct sequence/choice: local built-in xs:boolean, named boolean-restriction,
-integer/decimal; exact finite/unbounded ranges; 0/0 absent. XSD 1.1 choices: precisionDecimal requires default choice/mapped-alternative occurrences; non-precision
-ranges may retain non-default/queryable. Local string particles/
-Boolean facets, anonymous/nested/broader particles unsupported. Direct reference
-particles retain immutable/queryable target facts.
-Supported named direct sequence/
-choice types expose attribute-free anyAttribute under XSD 1.0, XSD 1.1,
-Compatibility; omitted attributes effectively ##any/strict; explicit ##other/lax
-remains supported. Wildcard element locations retained; omitted default-attribute
-locations zero. Other wildcard/attribute forms; wildcard-bearing validation/
-generation unsupported.
+Named complex types: particles, bounded openAttrs restrictions, and bounded attribute-free
+complexContent/extension over named empty-content complex bases; extensions retain
+base/extension identities/locations, inherited bounded wildcard facts, and exact
+direct choice/sequence occurrences; validation/generation reject them. Direct
+sequence/choice: local xs:boolean, named boolean-restriction, integer/decimal; exact
+ranges; 0/0 absent. XSD 1.1 precisionDecimal choices require default
+occurrences; ranges queryable. Local strings, Boolean facets, and
+anonymous/nested/broader particles unsupported. References retain immutable target
+facts. Choices/sequences expose attribute-free anyAttribute
+across policies; omitted attrs mean ##any/strict; explicit ##other/lax supported.
+Wildcard locations retained; other wildcard/attribute forms and consumers unsupported.
 
 ## Datatypes
 

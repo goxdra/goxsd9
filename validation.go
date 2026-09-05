@@ -45,27 +45,28 @@ const (
 )
 
 var (
-	errInstanceReaderNil           = errors.New("instance reader is nil")
-	errInstanceSourceIDEmpty       = errors.New("instance source ID is empty")
-	errInstanceSchemaEmpty         = errors.New("instance schema is zero or incomplete")
-	errInstanceUnknownSchemaRoot   = errors.New("instance root has no matching global element declaration")
-	errInstanceAmbiguousSchemaRoot = errors.New("instance root has ambiguous global element declarations")
-	errInstanceNoDeclaredType      = errors.New("global element has no supported declared type")
-	errInstanceUnsupportedType     = errors.New("global element type is outside scalar validation")
-	errInstanceAttributes          = errors.New("instance attributes are outside scalar validation")
-	errInstanceChildElements       = errors.New("instance child elements are outside scalar validation")
-	errInstanceChoiceMissing       = errors.New("choice instance has no selected element")
-	errInstanceChoiceUnknown       = errors.New("choice instance has an unknown element")
-	errInstanceChoiceMultiple      = errors.New("choice instance has multiple elements")
-	errInstanceChoiceText          = errors.New("choice instance has non-whitespace parent text")
-	errInstanceChoiceNested        = errors.New("choice instance has nested element content")
-	errInstanceChoiceParticle      = errors.New("choice type has an unsupported particle")
-	errInstanceChoiceTarget        = errors.New("choice alternative has an unsupported target")
-	errInstanceChoiceMixed         = errors.New("choice type mixes local declarations and element references")
-	errInstanceOpenAttrsType       = errors.New("openAttrs complex type is outside instance validation")
-	errInstanceElementFacts        = errors.New("global element abstract and nillable facts are outside instance validation")
-	errInstanceElementSubstitution = errors.New("referenced global element substitution is outside instance validation")
-	errInstanceValidationInvariant = errors.New("scalar validation invariant is broken")
+	errInstanceReaderNil               = errors.New("instance reader is nil")
+	errInstanceSourceIDEmpty           = errors.New("instance source ID is empty")
+	errInstanceSchemaEmpty             = errors.New("instance schema is zero or incomplete")
+	errInstanceUnknownSchemaRoot       = errors.New("instance root has no matching global element declaration")
+	errInstanceAmbiguousSchemaRoot     = errors.New("instance root has ambiguous global element declarations")
+	errInstanceNoDeclaredType          = errors.New("global element has no supported declared type")
+	errInstanceUnsupportedType         = errors.New("global element type is outside scalar validation")
+	errInstanceAttributes              = errors.New("instance attributes are outside scalar validation")
+	errInstanceChildElements           = errors.New("instance child elements are outside scalar validation")
+	errInstanceChoiceMissing           = errors.New("choice instance has no selected element")
+	errInstanceChoiceUnknown           = errors.New("choice instance has an unknown element")
+	errInstanceChoiceMultiple          = errors.New("choice instance has multiple elements")
+	errInstanceChoiceText              = errors.New("choice instance has non-whitespace parent text")
+	errInstanceChoiceNested            = errors.New("choice instance has nested element content")
+	errInstanceChoiceParticle          = errors.New("choice type has an unsupported particle")
+	errInstanceChoiceTarget            = errors.New("choice alternative has an unsupported target")
+	errInstanceChoiceMixed             = errors.New("choice type mixes local declarations and element references")
+	errInstanceOpenAttrsType           = errors.New("openAttrs complex type is outside instance validation")
+	errInstanceComplexContentExtension = errors.New("complex-content extension is outside instance validation")
+	errInstanceElementFacts            = errors.New("global element abstract and nillable facts are outside instance validation")
+	errInstanceElementSubstitution     = errors.New("referenced global element substitution is outside instance validation")
+	errInstanceValidationInvariant     = errors.New("scalar validation invariant is broken")
 )
 
 type instanceScalarType struct {
@@ -345,6 +346,24 @@ func instanceChoiceProgramFor(
 ) (instanceChoiceProgram, error) {
 	version := instanceSchemaValidationVersion(schema)
 	related := []Loc{declaration.Loc(), definition.Loc()}
+	if body := definition.extensionBody(); body != nil {
+		related = appendInstanceRelated(related, body.complexContentLoc)
+		related = appendInstanceRelated(related, body.extensionLoc)
+		related = appendInstanceRelated(related, body.base.loc)
+		if body.particle != nil {
+			related = appendInstanceRelated(related, body.particle.Loc())
+		}
+		if body.anyAttribute != nil {
+			related = appendInstanceRelated(related, body.anyAttribute.loc)
+		}
+		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+			body.extensionLoc,
+			fmt.Sprintf("named complex type %q uses complex-content extension outside instance validation", definition.Name()),
+			related,
+			version,
+			errInstanceComplexContentExtension,
+		)
+	}
 	if body, ok := definition.boundedOpenAttrsRestrictionBody(); ok {
 		related = appendInstanceRelated(related, body.complexContentLoc)
 		related = appendInstanceRelated(related, body.restrictionLoc)
