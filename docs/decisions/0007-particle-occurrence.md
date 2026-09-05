@@ -92,7 +92,11 @@ exposes its ordered children with exact ranges; an effective `0/0` group or
 child maps to absence. The shared effective `0/0` mapping for sequence, choice,
 and child particles precedes type-specific support gating and maps to absence.
 The same exact representation is retained for choice facts while validation
-repetition consumers remain unsupported.
+repetition consumers remain unsupported. The same exact occurrence
+representation also covers bounded attribute-free `complexContent`/`extension`
+over named empty-content complex bases: the model retains extension/base
+identities and locations and inherited bounded wildcard facts, while validation
+and code generation reject extension types as unsupported.
 Default-bounded direct integer/decimal sequence children are emitted as ordered
 Go struct fields. XSD 1.1
 default-occurrence direct choices may use `precisionDecimal` only when the
@@ -152,7 +156,12 @@ Currently, the supported occurrence boundary is one named global complex type
 with one direct sequence or direct choice of local built-in `xs:boolean`, named
 boolean-restriction, integer, or decimal scalar elements, or one global named
 model group with one direct choice of global element-reference particles, in
-XSD 1.0 and 1.1. Both retain exact ranges, and effective `0/0` maps to absence.
+XSD 1.0 and 1.1, plus bounded attribute-free `complexContent`/`extension` over
+named empty-content complex bases. These extension types retain extension/base
+identities and locations, inherited bounded wildcard facts, and exact direct
+choice/sequence occurrences; validation and code generation reject them as
+unsupported. All supported forms retain exact ranges, and effective `0/0` maps
+to absence.
 Direct choices may also include XSD 1.1 `precisionDecimal` elements only when
 the choice and each mapped `precisionDecimal` alternative use default
 occurrences. Non-precision alternatives may retain non-default ranges for

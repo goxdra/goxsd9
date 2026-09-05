@@ -43,6 +43,10 @@
 // particles and code generation remain explicitly unsupported.
 // Default-bounded direct integer and decimal sequences are emitted as ordered Go
 // struct fields; sequence validation and non-default occurrences remain unsupported.
+// Bounded attribute-free complexContent/extension over named empty-content
+// complex bases is modeled with extension/base identities and locations,
+// inherited bounded wildcard facts, and exact direct choice/sequence occurrences;
+// validation and code generation reject extension types as unsupported.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:boolean/xs:integer/xs:decimal/
