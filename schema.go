@@ -1486,6 +1486,25 @@ func (particle ElementParticle) IsNillable() bool {
 	return particle.facts.nillable
 }
 
+// DisallowedSubstitutions returns the effective substitution methods disallowed
+// for this local element in specification order. The returned slice is
+// independent of the schema.
+func (particle ElementParticle) DisallowedSubstitutions() []string {
+	if particle.facts == nil {
+		return nil
+	}
+	return particle.facts.disallowedSubstitutions.set.values()
+}
+
+// DisallowedSubstitutionsLoc returns the source location of the explicit block
+// or blockDefault attribute that supplied the effective fact.
+func (particle ElementParticle) DisallowedSubstitutionsLoc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.disallowedSubstitutions.loc
+}
+
 // TypeID returns the identity of the named declared type. Built-in datatypes
 // do not have synthetic component identities and return the zero ID.
 func (particle ElementParticle) TypeID() (ComponentID, bool) {
@@ -2110,6 +2129,7 @@ type schemaElementParticleInput struct {
 	reference   *schemaElementReferenceInput
 	occurrences particleOccurrenceRange
 	nillable    bool
+	block       schemaBlockPolicy
 	typeInput   *schemaElementInput
 }
 
@@ -2216,13 +2236,14 @@ type schemaChoiceParticle struct {
 }
 
 type schemaElementParticle struct {
-	loc          Loc
-	occurrences  particleOccurrenceRange
-	name         QName
-	declaredType QName
-	nillable     bool
-	typeID       ComponentID
-	hasTypeID    bool
+	loc                     Loc
+	occurrences             particleOccurrenceRange
+	name                    QName
+	declaredType            QName
+	nillable                bool
+	disallowedSubstitutions schemaBlockPolicy
+	typeID                  ComponentID
+	hasTypeID               bool
 }
 
 type schemaElementReferenceParticle struct {

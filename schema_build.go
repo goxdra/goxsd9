@@ -42,6 +42,7 @@ const (
 	diagnosticSchemaSubstitutionTypeCode           = "XSD3043"
 	diagnosticSchemaSubstitutionCycleCode          = "XSD3044"
 	diagnosticSchemaBlockCode                      = "XSD3045"
+	diagnosticSchemaElementReferenceBlockCode      = "XSD3046"
 	diagnosticSchemaBridgeInvariantCode            = "GOXSD9025"
 )
 
@@ -59,6 +60,8 @@ const (
 	schemaElementDuplicateXSD11SpecRef          = schemaGlobalDuplicateXSD11SpecRef
 	schemaElementReferenceXSD10SpecRef          = "xsd10-structures#src-resolve"
 	schemaElementReferenceXSD11SpecRef          = "xsd11-structures#src-resolve"
+	schemaElementReferenceBlockXSD10SpecRef     = "xsd10-structures#src-element"
+	schemaElementReferenceBlockXSD11SpecRef     = "xsd11-structures#anchor8458"
 	schemaElementReferenceDuplicateXSD10SpecRef = "xsd10-structures#coss-particle"
 	schemaElementReferenceDuplicateXSD11SpecRef = "xsd11-structures#coss-particle"
 	schemaElementReferenceImportXSD10SpecRef    = "xsd10-structures#composition-importLicenseReferences"
@@ -106,6 +109,7 @@ var (
 	errSchemaElementReferenceAmbiguous        = errors.New("element reference is ambiguous")
 	errSchemaElementReferenceNamespace        = errors.New("element reference namespace is not imported")
 	errSchemaElementReferenceDuplicate        = errors.New("element reference particle is duplicated")
+	errSchemaElementReferenceBlock            = errors.New("element reference cannot specify block")
 	errSchemaAttributeTypeUnresolved          = errors.New("attribute type is unresolved")
 	errSchemaAttributeTypeWrongKind           = errors.New("attribute type has the wrong kind")
 	errSchemaAttributeTypeAmbiguous           = errors.New("attribute type is ambiguous")
@@ -1670,6 +1674,16 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 	if len(refAttributes) > 1 {
 		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "local element ref attribute is not unique")
 	}
+	block, _, err := schemaDeclarationBlockPolicy(
+		element,
+		facts.blockDefault,
+		schemaBlockElementMask,
+		version,
+		schemaBlockElement,
+	)
+	if err != nil {
+		return schemaElementParticleInput{}, err
+	}
 	nameAttributes := syntaxAttributesByLocal(element, "name")
 	if len(nameAttributes) != 1 {
 		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "local element input has an invalid name attribute")
@@ -1688,6 +1702,7 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 		name:        name,
 		occurrences: occurrences,
 		nillable:    nillable,
+		block:       block,
 	}
 	typeAttributes := syntaxAttributesByLocal(element, "type")
 	if len(typeAttributes) == 0 {
@@ -4727,13 +4742,14 @@ func resolveSchemaElementParticle(
 		return nil, err
 	}
 	facts := &schemaElementParticle{
-		loc:          input.loc,
-		occurrences:  input.occurrences.clone(),
-		name:         input.name,
-		declaredType: resolved.declaredType,
-		nillable:     input.nillable,
-		typeID:       resolved.typeID,
-		hasTypeID:    resolved.hasTypeID,
+		loc:                     input.loc,
+		occurrences:             input.occurrences.clone(),
+		name:                    input.name,
+		declaredType:            resolved.declaredType,
+		nillable:                input.nillable,
+		disallowedSubstitutions: input.block,
+		typeID:                  resolved.typeID,
+		hasTypeID:               resolved.hasTypeID,
 	}
 	return ElementParticle{facts: facts}, nil
 }
@@ -5141,6 +5157,17 @@ func newSchemaElementReferenceDiagnostic(
 	}
 }
 
+func newSchemaElementReferenceBlockDiagnostic(attribute syntaxAttribute, version XSDVersion) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaElementReferenceBlockCode,
+		loc:     attribute.loc,
+		message: `local element ref cannot combine with "block"`,
+		specRef: schemaElementReferenceBlockSpecRef(version),
+		cause:   errSchemaElementReferenceBlock,
+	}
+}
+
 func newSchemaElementReferenceDuplicateDiagnostic(reference *schemaElementReferenceInput, firstLoc Loc, version XSDVersion) Diagnostic {
 	return Diagnostic{
 		class:   FailureInvalid,
@@ -5171,6 +5198,13 @@ func schemaElementReferenceSpecRef(version XSDVersion) string {
 		return schemaElementReferenceXSD10SpecRef
 	}
 	return schemaElementReferenceXSD11SpecRef
+}
+
+func schemaElementReferenceBlockSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaElementReferenceBlockXSD10SpecRef
+	}
+	return schemaElementReferenceBlockXSD11SpecRef
 }
 
 func schemaElementReferenceDuplicateSpecRef(version XSDVersion) string {
