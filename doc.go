@@ -8,9 +8,9 @@
 // lists, and unions. Anonymous simple types and resolved built-in, named, and
 // anonymous simple-type references are modeled, along with global xs:boolean
 // and atomic xs:string declarations and their named or anonymous restrictions.
-// Queries and walks are deterministic. SimpleTypeDefinition.IsBoolean and
-// StringEnumerationFacets report immutable kind and implemented enumeration
-// facts. ParseSchema uses graph-wide Compatibility;
+// Queries and walks are deterministic. SimpleTypeDefinition.IsBoolean,
+// StringEnumerationFacets, and StringWhiteSpaceFacet report immutable kind
+// and implemented scalar facts. ParseSchema uses graph-wide Compatibility;
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
 // The unqualified schema/@version is an inert optional xs:token label: absent,
 // empty, arbitrary, "1.0", and "1.1" values never select or mismatch a policy.

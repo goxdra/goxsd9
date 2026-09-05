@@ -5207,6 +5207,7 @@ func resolveBuiltinStringSchemaSimpleTypeReference(input schemaSimpleTypeReferen
 	if err != nil {
 		return schemaSimpleTypeReferenceComponent{}, err
 	}
+	whiteSpace := defaultStringWhiteSpaceFacet()
 	return schemaSimpleTypeReferenceComponent{
 		kind:       SimpleTypeReferenceBuiltin,
 		name:       input.name,
@@ -5214,7 +5215,7 @@ func resolveBuiltinStringSchemaSimpleTypeReference(input schemaSimpleTypeReferen
 		variety:    SimpleTypeVarietyAtomicRestriction,
 		varietyLoc: input.loc,
 		atomicKind: schemaSimpleTypeAtomicString,
-		facets:     schemaStringFacetVariant{enumeration: enumeration},
+		facets:     schemaStringFacetVariant{enumeration: enumeration, whiteSpace: whiteSpace},
 	}, nil
 }
 
@@ -5389,6 +5390,9 @@ func restrictSchemaSimpleTypeFacets(
 		if len(inputs) == 0 {
 			return typed, nil
 		}
+		if err := validateStringWhiteSpaceFacetInputs(inputs, version); err != nil {
+			return nil, err
+		}
 		return nil, unsupportedSchemaDatatypeFacet(inputs[0], version)
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "simple type facet resolution has an unknown datatype variant")
@@ -5396,9 +5400,6 @@ func restrictSchemaSimpleTypeFacets(
 }
 
 func restrictSchemaStringFacets(base schemaStringFacetVariant, inputs []schemaFacetInput, version XSDVersion) (schemaSimpleTypeFacetVariant, error) {
-	if len(inputs) == 0 {
-		return base, nil
-	}
 	local, err := schemaStringFacetDeclarations(inputs, version)
 	if err != nil {
 		return nil, err
@@ -5407,10 +5408,14 @@ func restrictSchemaStringFacets(base schemaStringFacetVariant, inputs []schemaFa
 	if err != nil {
 		return nil, err
 	}
+	whiteSpace, err := restrictStringWhiteSpaceFacet(base.whiteSpace, local.whiteSpace, version)
+	if err != nil {
+		return nil, err
+	}
 	if local.deferredUnsupported != nil {
 		return nil, local.deferredUnsupported
 	}
-	return schemaStringFacetVariant{enumeration: enumeration}, nil
+	return schemaStringFacetVariant{enumeration: enumeration, whiteSpace: &whiteSpace}, nil
 }
 
 func restrictSchemaIntegerFacets(
@@ -5606,36 +5611,89 @@ func schemaEnumerationBaseValueSpaceDiagnostic(
 
 type schemaStringFacetDeclarationSet struct {
 	enumeration         StringEnumerationFacetDeclarations
+	whiteSpace          *StringWhiteSpaceFacet
 	deferredUnsupported error
 }
 
 func schemaStringFacetDeclarations(inputs []schemaFacetInput, version XSDVersion) (schemaStringFacetDeclarationSet, error) {
 	var enumeration []StringEnumerationFacet
+	var whiteSpace *StringWhiteSpaceFacet
 	var deferredUnsupported error
 	for _, input := range inputs {
-		if input.kind == schemaFacetEnumeration {
-			facet, err := ParseStringEnumerationFacetFor(version, input.lexical, schemaFacetValueLocation(input))
-			if err != nil {
-				return schemaStringFacetDeclarationSet{}, err
-			}
-			enumeration = append(enumeration, facet)
-			continue
-		}
-		err := unsupportedSchemaDatatypeFacet(input, version)
-		if err == nil {
-			continue
-		}
-		if !isUnsupportedSchemaDatatypeFacetError(err) {
+		declaration, err := schemaStringFacetDeclaration(input, whiteSpace != nil, version)
+		if err != nil {
 			return schemaStringFacetDeclarationSet{}, err
 		}
+		if declaration.enumeration != nil {
+			enumeration = append(enumeration, *declaration.enumeration)
+			continue
+		}
+		if declaration.whiteSpace != nil {
+			whiteSpace = declaration.whiteSpace
+			continue
+		}
+		if declaration.deferredUnsupported == nil {
+			continue
+		}
 		if deferredUnsupported == nil {
-			deferredUnsupported = err
+			deferredUnsupported = declaration.deferredUnsupported
 		}
 	}
 	return schemaStringFacetDeclarationSet{
 		enumeration:         NewStringEnumerationFacetDeclarations(enumeration),
+		whiteSpace:          whiteSpace,
 		deferredUnsupported: deferredUnsupported,
 	}, nil
+}
+
+type schemaStringFacetDeclarationResult struct {
+	enumeration         *StringEnumerationFacet
+	whiteSpace          *StringWhiteSpaceFacet
+	deferredUnsupported error
+}
+
+func schemaStringFacetDeclaration(input schemaFacetInput, duplicateWhiteSpace bool, version XSDVersion) (schemaStringFacetDeclarationResult, error) {
+	if input.kind == schemaFacetEnumeration {
+		facet, err := ParseStringEnumerationFacetFor(version, input.lexical, schemaFacetValueLocation(input))
+		if err != nil {
+			return schemaStringFacetDeclarationResult{}, err
+		}
+		return schemaStringFacetDeclarationResult{enumeration: &facet}, nil
+	}
+	if input.kind == schemaFacetWhiteSpace {
+		facet, err := schemaStringWhiteSpaceDeclaration(input, duplicateWhiteSpace, version)
+		if err != nil {
+			return schemaStringFacetDeclarationResult{}, err
+		}
+		return schemaStringFacetDeclarationResult{whiteSpace: facet}, nil
+	}
+	deferred, err := schemaStringUnsupportedFacet(input, version)
+	if err != nil {
+		return schemaStringFacetDeclarationResult{}, err
+	}
+	return schemaStringFacetDeclarationResult{deferredUnsupported: deferred}, nil
+}
+
+func schemaStringUnsupportedFacet(input schemaFacetInput, version XSDVersion) (error, error) {
+	err := unsupportedSchemaDatatypeFacet(input, version)
+	if err == nil {
+		return nil, nil
+	}
+	if isUnsupportedSchemaDatatypeFacetError(err) {
+		return err, nil
+	}
+	return nil, err
+}
+
+func schemaStringWhiteSpaceDeclaration(input schemaFacetInput, duplicate bool, version XSDVersion) (*StringWhiteSpaceFacet, error) {
+	if duplicate {
+		return nil, duplicateStringWhiteSpaceFacetDiagnostic(schemaFacetValueLocation(input), version)
+	}
+	facet, err := ParseStringWhiteSpaceFacetForWithFixed(version, input.lexical, schemaFacetValueLocation(input), input.fixed)
+	if err != nil {
+		return nil, err
+	}
+	return &facet, nil
 }
 
 func isUnsupportedSchemaDatatypeFacetError(err error) bool {
@@ -5715,6 +5773,9 @@ func validateSchemaBooleanFacetInput(input schemaFacetInput, version XSDVersion)
 		}
 		return nil
 	case schemaFacetWhiteSpace:
+		if _, err := ParseStringWhiteSpaceFacetFor(version, input.lexical, valueLoc); err != nil {
+			return err
+		}
 		return validateSchemaBooleanFacetEnum(input, "collapse")
 	case schemaFacetExplicitTimezone:
 		return validateSchemaBooleanFacetEnum(input, "prohibited", "optional", "required")
@@ -5814,8 +5875,23 @@ func schemaNumericFacetDeclarations(
 				return schemaNumericFacetDeclarationSet{}, err
 			}
 			decimalBounds = append(decimalBounds, facet)
+		case schemaFacetWhiteSpace:
+			if _, err := ParseStringWhiteSpaceFacetFor(version, input.lexical, loc); err != nil {
+				return schemaNumericFacetDeclarationSet{}, err
+			}
+			err := unsupportedSchemaDatatypeFacet(input, version)
+			if err == nil {
+				continue
+			}
+			var diagnostic Diagnostic
+			if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+				return schemaNumericFacetDeclarationSet{}, err
+			}
+			if deferredUnsupported == nil {
+				deferredUnsupported = err
+			}
 		case schemaFacetMinScale, schemaFacetMaxScale, schemaFacetPattern,
-			schemaFacetWhiteSpace, schemaFacetLength, schemaFacetMinLength, schemaFacetMaxLength,
+			schemaFacetLength, schemaFacetMinLength, schemaFacetMaxLength,
 			schemaFacetPrecision, schemaFacetExplicitTimezone:
 			err := unsupportedSchemaDatatypeFacet(input, version)
 			if err == nil {
