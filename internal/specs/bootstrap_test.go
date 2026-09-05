@@ -435,8 +435,8 @@ func bootstrapPlanFixture() Manifest {
 }
 
 func bootstrapGenerationManifest() Manifest {
-	xsd10Entry := bootstrapArtifact("xsd10-entry", []string{"1.0"}, true, []string{"xsd10-datatypes", "xml-schema"})
-	xsd10Datatypes := bootstrapArtifact("xsd10-datatypes", []string{"1.0"}, false, nil)
+	xsd10Entry := bootstrapArtifact("xsd10-entry", []string{"1.0"}, true, []string{xsd10DatatypesSchemaID, "xml-schema"})
+	xsd10Datatypes := bootstrapArtifact(xsd10DatatypesSchemaID, []string{"1.0"}, false, nil)
 	xsd10Datatypes.Representation = manifestXSD10DatatypesRepresentation
 	xsd11Entry := bootstrapArtifact("xsd11-entry", []string{"1.1"}, true, []string{"xsd11-datatypes", "xml-schema"})
 	xsd11Datatypes := bootstrapArtifact("xsd11-datatypes", []string{"1.1"}, false, nil)

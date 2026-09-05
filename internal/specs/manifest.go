@@ -20,6 +20,7 @@ const (
 	manifestXMLRepresentation            = "xml"
 	manifestHTMLCDATAPreRepresentation   = "html-cdata-pre"
 	manifestXSD10DatatypesRepresentation = "html-cdata-pre-xsd10-datatypes"
+	xsd10DatatypesSchemaID               = "xsd10-datatypes-schema"
 )
 
 const (
@@ -248,15 +249,37 @@ func validateManifestSources(manifest Manifest) (map[string]struct{}, error) {
 			artifact.SHA256, artifact.XSDVersions, ids); err != nil {
 			return nil, err
 		}
-		if artifact.Representation != manifestXMLRepresentation &&
-			artifact.Representation != manifestHTMLCDATAPreRepresentation &&
-			artifact.Representation != manifestXSD10DatatypesRepresentation {
-			return nil, fmt.Errorf("bootstrap artifact %q has invalid representation %q", artifact.ID,
-				artifact.Representation)
+		if err := validateBootstrapRepresentation(artifact); err != nil {
+			return nil, err
 		}
 		ids[artifact.ID] = struct{}{}
 	}
 	return ids, nil
+}
+
+func validateBootstrapRepresentation(artifact BootstrapArtifact) error {
+	switch artifact.Representation {
+	case manifestXMLRepresentation, manifestHTMLCDATAPreRepresentation:
+		return nil
+	case manifestXSD10DatatypesRepresentation:
+		if !isXSD10DatatypesBootstrapRole(artifact.ID, artifact.Entry, artifact.XSDVersions) {
+			return fmt.Errorf("bootstrap artifact %q uses %q outside the %q XSD 1.0 dependency role",
+				artifact.ID, artifact.Representation, xsd10DatatypesSchemaID)
+		}
+		return nil
+	default:
+		return fmt.Errorf("bootstrap artifact %q has invalid representation %q", artifact.ID,
+			artifact.Representation)
+	}
+}
+
+func isXSD10DatatypesBootstrapRole(id string, entry bool, versions []string) bool {
+	return id == xsd10DatatypesSchemaID && !entry && len(versions) == 1 && versions[0] == "1.0"
+}
+
+func isXSD10DatatypesEntry(entry Entry) bool {
+	return entry.Kind == KindBootstrapArtifact &&
+		isXSD10DatatypesBootstrapRole(entry.ID, entry.Entry, entry.XSDVersions)
 }
 
 func validateSource(index int, kind EntryKind, id, title, sourceURL, digest string, versions []string,

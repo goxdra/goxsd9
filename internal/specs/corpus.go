@@ -2478,6 +2478,11 @@ func convert(entry Entry, raw []byte) ([]byte, error) {
 }
 
 func convertXSD10Datatypes(entry Entry, raw []byte) ([]byte, error) {
+	if !isXSD10DatatypesEntry(entry) {
+		return nil, xsd10DatatypesRepresentationError(entry,
+			fmt.Errorf("%q requires the %q XSD 1.0 bootstrap dependency entry", entry.Representation,
+				xsd10DatatypesSchemaID))
+	}
 	content, err := unwrapXSD10Datatypes(entry, raw)
 	if err != nil {
 		return nil, err

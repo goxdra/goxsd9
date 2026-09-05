@@ -139,8 +139,7 @@ func TestXSD10DatatypesConversionMovesOnlyDeclaration(t *testing.T) {
 		"<?xml version='1.0' encoding=\"UTF-8\"?>\n" +
 		"<root><![CDATA[<?xml version='1.0'?>]]></root>\n"
 	raw := bootstrapXMLWrappedContent([]byte(content))
-	entry := testEntry(manifestXSD10DatatypesRepresentation, testDigest(raw))
-	entry.Kind = KindBootstrapArtifact
+	entry := xsd10DatatypesTestEntry(testDigest(raw))
 	document, err := Generate(context.Background(), responseClient(raw), entry)
 	if err != nil {
 		t.Fatalf("Generate() error = %v", err)
@@ -180,8 +179,7 @@ func TestXSD10DatatypesConversionRejectsEnvelopeDrift(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			entry := testEntry(manifestXSD10DatatypesRepresentation, testDigest(test.raw))
-			entry.Kind = KindBootstrapArtifact
+			entry := xsd10DatatypesTestEntry(testDigest(test.raw))
 			document, err := Generate(context.Background(), responseClient(test.raw), entry)
 			if err == nil {
 				t.Fatal("Generate() error = nil")
@@ -200,7 +198,7 @@ func TestXSD10DatatypesConversionRejectsEnvelopeDrift(t *testing.T) {
 
 func TestXSD10DatatypesDigestPrecedesConversion(t *testing.T) {
 	raw := []byte("not the pinned envelope")
-	entry := testEntry(manifestXSD10DatatypesRepresentation, testDigest([]byte("different raw response")))
+	entry := xsd10DatatypesTestEntry(testDigest([]byte("different raw response")))
 	_, err := Generate(context.Background(), responseClient(raw), entry)
 	if err == nil {
 		t.Fatal("Generate() error = nil")
@@ -214,8 +212,7 @@ func TestXSD10DatatypesDigestPrecedesConversion(t *testing.T) {
 func TestXSD10DatatypesXMLFailurePreservesCause(t *testing.T) {
 	raw := bootstrapXMLWrappedContent([]byte("<!DOCTYPE root [<!ELEMENT root EMPTY>]>\n\n" +
 		"<?xml version='1.0'?>\n<root>\n"))
-	entry := testEntry(manifestXSD10DatatypesRepresentation, testDigest(raw))
-	entry.Kind = KindBootstrapArtifact
+	entry := xsd10DatatypesTestEntry(testDigest(raw))
 	document, err := Generate(context.Background(), responseClient(raw), entry)
 	if err == nil {
 		t.Fatal("Generate() error = nil")
@@ -231,6 +228,59 @@ func TestXSD10DatatypesXMLFailurePreservesCause(t *testing.T) {
 	var corpusErr *Error
 	if !errors.As(err, &corpusErr) || corpusErr.ID != entry.ID || corpusErr.URL != entry.URL {
 		t.Fatalf("Generate() error = %v, want entry location", err)
+	}
+}
+
+func TestXSD10DatatypesConversionRequiresPinnedBootstrapEntry(t *testing.T) {
+	content := "<!DOCTYPE root [<!ELEMENT root EMPTY>]>\n\n<?xml version='1.0'?>\n<root/>\n"
+	raw := bootstrapXMLWrappedContent([]byte(content))
+	tests := []struct {
+		name   string
+		mutate func(*Entry)
+	}{
+		{
+			name: "wrong ID",
+			mutate: func(entry *Entry) {
+				entry.ID = "other-artifact"
+			},
+		},
+		{
+			name: "wrong kind",
+			mutate: func(entry *Entry) {
+				entry.Kind = KindSpecification
+			},
+		},
+		{
+			name: "entry artifact",
+			mutate: func(entry *Entry) {
+				entry.Entry = true
+			},
+		},
+		{
+			name: "wrong XSD version",
+			mutate: func(entry *Entry) {
+				entry.XSDVersions = []string{"1.1"}
+			},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			entry := xsd10DatatypesTestEntry(testDigest(raw))
+			test.mutate(&entry)
+			document, err := Generate(context.Background(), responseClient(raw), entry)
+			if err == nil {
+				t.Fatal("Generate() error = nil")
+			}
+			if document.Data != nil || document.Index != nil || document.Entry.ID != "" {
+				t.Fatalf("Generate() document = %#v, want zero document", document)
+			}
+			assertErrorCode(t, err, "specs.conversion.representation")
+			var corpusErr *Error
+			if !errors.As(err, &corpusErr) || corpusErr.ID != entry.ID || corpusErr.URL != entry.URL {
+				t.Fatalf("Generate() error = %v, want entry location", err)
+			}
+		})
 	}
 }
 
@@ -945,6 +995,14 @@ func testEntry(representation, digest string) Entry {
 		SHA256:         digest,
 		URL:            "https://www.w3.org/TR/2020/demo/",
 	}
+}
+
+func xsd10DatatypesTestEntry(digest string) Entry {
+	entry := testEntry(manifestXSD10DatatypesRepresentation, digest)
+	entry.ID = xsd10DatatypesSchemaID
+	entry.Kind = KindBootstrapArtifact
+	entry.XSDVersions = []string{"1.0"}
+	return entry
 }
 
 func testResponse(status int, body []byte) *http.Response {
