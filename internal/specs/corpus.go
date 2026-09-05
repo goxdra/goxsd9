@@ -2453,9 +2453,9 @@ func Write(outputDir string, document Document) ([]string, error) {
 
 func convert(entry Entry, raw []byte) ([]byte, error) {
 	switch entry.Representation {
-	case "xml":
+	case manifestXMLRepresentation:
 		return append([]byte(nil), raw...), nil
-	case "html-cdata-pre":
+	case manifestHTMLCDATAPreRepresentation:
 		wrapped := raw
 		if bytes.HasSuffix(wrapped, []byte("\n")) {
 			wrapped = wrapped[:len(wrapped)-1]
@@ -2467,12 +2467,172 @@ func convert(entry Entry, raw []byte) ([]byte, error) {
 		}
 		contentEnd := len(wrapped) - len(cdataSuffix)
 		return append([]byte(nil), wrapped[len(cdataPrefix):contentEnd]...), nil
+	case manifestXSD10DatatypesRepresentation:
+		return convertXSD10Datatypes(entry, raw)
 	case manifestHTMLRepresentation:
 		return append([]byte(nil), raw...), nil
 	default:
 		return nil, corpusError("specs.conversion.representation", entry.ID, entry.URL,
 			fmt.Errorf("unsupported representation %q", entry.Representation))
 	}
+}
+
+func convertXSD10Datatypes(entry Entry, raw []byte) ([]byte, error) {
+	content, err := unwrapXSD10Datatypes(entry, raw)
+	if err != nil {
+		return nil, err
+	}
+	declarationStart, declarationEnd, err := xsd10DatatypesDeclarationBounds(entry, content)
+	if err != nil {
+		return nil, err
+	}
+	if bootstrapXMLPrologMarker(content[declarationEnd+1:]) {
+		return nil, xsd10DatatypesRepresentationError(entry,
+			errors.New("XSD 1.0 datatype envelope has repeated or misplaced prolog markup"))
+	}
+
+	converted := make([]byte, 0, len(content))
+	converted = append(converted, content[declarationStart:declarationEnd]...)
+	converted = append(converted, content[:declarationStart]...)
+	converted = append(converted, content[declarationEnd:]...)
+	return converted, nil
+}
+
+func unwrapXSD10Datatypes(entry Entry, raw []byte) ([]byte, error) {
+	wrapped := raw
+	if bytes.HasSuffix(wrapped, []byte("\n")) {
+		wrapped = wrapped[:len(wrapped)-1]
+	}
+	if !bytes.HasPrefix(wrapped, []byte(cdataPrefix)) || !bytes.HasSuffix(wrapped, []byte(cdataSuffix)) {
+		return nil, xsd10DatatypesRepresentationError(entry,
+			fmt.Errorf("%q requires the exact %q prefix and %q suffix", entry.Representation,
+				cdataPrefix, cdataSuffix))
+	}
+	contentEnd := len(wrapped) - len(cdataSuffix)
+	return wrapped[len(cdataPrefix):contentEnd], nil
+}
+
+func xsd10DatatypesDeclarationBounds(entry Entry, content []byte) (int, int, error) {
+	doctypeEnd, err := xsd10DatatypesDoctypeEnd(entry, content)
+	if err != nil {
+		return 0, 0, err
+	}
+	if doctypeEnd+2 > len(content) || content[doctypeEnd] != '\n' || content[doctypeEnd+1] != '\n' {
+		return 0, 0, xsd10DatatypesRepresentationError(entry,
+			errors.New("XSD 1.0 datatype envelope has an unexpected separator after its document type declaration"))
+	}
+	declarationStart := doctypeEnd + 2
+	if !bytes.HasPrefix(content[declarationStart:], []byte("<?xml")) {
+		return 0, 0, xsd10DatatypesRepresentationError(entry,
+			errors.New("XSD 1.0 datatype envelope requires its XML declaration after the document type declaration"))
+	}
+	declarationEnd, ok := bootstrapXMLProcessingInstructionEnd(content, declarationStart)
+	if !ok || !bootstrapXMLDeclaration(content[declarationStart:declarationEnd]) {
+		return 0, 0, xsd10DatatypesRepresentationError(entry,
+			errors.New("XSD 1.0 datatype envelope has a malformed XML declaration"))
+	}
+	if declarationEnd >= len(content) || content[declarationEnd] != '\n' {
+		return 0, 0, xsd10DatatypesRepresentationError(entry,
+			errors.New("XSD 1.0 datatype envelope requires one line break after its XML declaration"))
+	}
+	if declarationEnd+1 == len(content) {
+		return 0, 0, xsd10DatatypesRepresentationError(entry,
+			errors.New("XSD 1.0 datatype envelope has no schema payload"))
+	}
+	return declarationStart, declarationEnd, nil
+}
+
+func xsd10DatatypesDoctypeEnd(entry Entry, content []byte) (int, error) {
+	doctypeEnd, ok := bootstrapXMLDoctypeEnd(content, 0)
+	if !ok {
+		return 0, xsd10DatatypesRepresentationError(entry,
+			errors.New("XSD 1.0 datatype envelope has no complete document type declaration"))
+	}
+	_, dtdParser, syntaxOK, syntaxErr := bootstrapXMLParseDoctype(content[:doctypeEnd])
+	if !syntaxOK {
+		if syntaxErr == nil {
+			syntaxErr = errors.New("XSD 1.0 datatype envelope has an invalid document type declaration")
+		}
+		return 0, xsd10DatatypesRepresentationError(entry, syntaxErr)
+	}
+	if dtdParser == nil {
+		return 0, xsd10DatatypesRepresentationError(entry,
+			errors.New("XSD 1.0 datatype envelope has no document type declaration parser"))
+	}
+	return doctypeEnd, nil
+}
+
+func xsd10DatatypesRepresentationError(entry Entry, err error) error {
+	return corpusError("specs.conversion.representation", entry.ID, entry.URL, err)
+}
+
+func bootstrapXMLProcessingInstructionEnd(data []byte, start int) (int, bool) {
+	if start < 0 || start+2 > len(data) || !bytes.HasPrefix(data[start:], []byte("<?")) {
+		return 0, false
+	}
+	for index := start + 2; index+1 < len(data); index++ {
+		if data[index] == '?' && data[index+1] == '>' {
+			return index + 2, true
+		}
+	}
+	return 0, false
+}
+
+func bootstrapXMLPrologMarker(data []byte) bool {
+	for index := 0; index < len(data); {
+		next, marker, ok := bootstrapXMLPrologToken(data, index)
+		if !ok {
+			return false
+		}
+		if marker {
+			return true
+		}
+		index = next
+	}
+	return false
+}
+
+func bootstrapXMLPrologToken(data []byte, index int) (int, bool, bool) {
+	if data[index] != '<' {
+		return index + 1, false, true
+	}
+	if bytes.HasPrefix(data[index:], []byte("<!--")) {
+		end, ok := bootstrapXMLDelimitedEnd(data, index+len("<!--"), []byte("-->"))
+		return end, false, ok
+	}
+	if bytes.HasPrefix(data[index:], []byte("<![CDATA[")) {
+		end, ok := bootstrapXMLDelimitedEnd(data, index+len("<![CDATA["), []byte("]]>"))
+		return end, false, ok
+	}
+	if bytes.HasPrefix(data[index:], []byte("<?")) {
+		return bootstrapXMLPrologProcessingInstruction(data, index)
+	}
+	if bytes.HasPrefix(data[index:], []byte("<!DOCTYPE")) {
+		return index, true, true
+	}
+	return index + 1, false, true
+}
+
+func bootstrapXMLPrologProcessingInstruction(data []byte, index int) (int, bool, bool) {
+	end, ok := bootstrapXMLProcessingInstructionEnd(data, index)
+	if !ok {
+		return 0, false, false
+	}
+	body := data[index+2 : end-2]
+	nameEnd := 0
+	if !bootstrapXMLName(body, &nameEnd) {
+		return end, false, true
+	}
+	return end, strings.EqualFold(string(body[:nameEnd]), "xml"), true
+}
+
+func bootstrapXMLDelimitedEnd(data []byte, start int, delimiter []byte) (int, bool) {
+	for index := start; index+len(delimiter) <= len(data); index++ {
+		if bytes.Equal(data[index:index+len(delimiter)], delimiter) {
+			return index + len(delimiter), true
+		}
+	}
+	return 0, false
 }
 
 type renderedHTML struct {

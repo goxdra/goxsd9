@@ -130,6 +130,110 @@ func TestRepresentationConversionRequiresPinnedWrapper(t *testing.T) {
 	assertErrorCode(t, err, "specs.conversion.representation")
 }
 
+func TestXSD10DatatypesConversionMovesOnlyDeclaration(t *testing.T) {
+	content := "<!DOCTYPE root SYSTEM \"root>schema.dtd\" [\n" +
+		"<!-- DTD comment with > -->\n" +
+		"<?dtd instruction >?>\n" +
+		"<!ELEMENT root EMPTY>\n" +
+		"]>\n\n" +
+		"<?xml version='1.0' encoding=\"UTF-8\"?>\n" +
+		"<root><![CDATA[<?xml version='1.0'?>]]></root>\n"
+	raw := bootstrapXMLWrappedContent([]byte(content))
+	entry := testEntry(manifestXSD10DatatypesRepresentation, testDigest(raw))
+	entry.Kind = KindBootstrapArtifact
+	document, err := Generate(context.Background(), responseClient(raw), entry)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	want := []byte("<?xml version='1.0' encoding=\"UTF-8\"?><!DOCTYPE root SYSTEM \"root>schema.dtd\" [\n" +
+		"<!-- DTD comment with > -->\n" +
+		"<?dtd instruction >?>\n" +
+		"<!ELEMENT root EMPTY>\n" +
+		"]>\n\n\n" +
+		"<root><![CDATA[<?xml version='1.0'?>]]></root>\n")
+	if !bytes.Equal(document.Data, want) {
+		t.Fatalf("Generate() data = %q, want %q", document.Data, want)
+	}
+}
+
+func TestXSD10DatatypesConversionRejectsEnvelopeDrift(t *testing.T) {
+	const declaration = "<?xml version='1.0'?>"
+	const doctype = "<!DOCTYPE root [<!ELEMENT root EMPTY>]>"
+	validContent := doctype + "\n\n" + declaration + "\n<root/>\n"
+	validRaw := bootstrapXMLWrappedContent([]byte(validContent))
+	tests := []struct {
+		name string
+		raw  []byte
+	}{
+		{name: "missing wrapper prefix", raw: append([]byte("<pre>"), validRaw[len(cdataPrefix):]...)},
+		{name: "missing wrapper suffix", raw: validRaw[:len(validRaw)-len(cdataSuffix)-1]},
+		{name: "trailing wrapper content", raw: append(append([]byte(nil), validRaw...), []byte("tail")...)},
+		{name: "missing DTD", raw: bootstrapXMLWrappedContent([]byte(declaration + "\n<root/>\n"))},
+		{name: "declaration before DTD", raw: bootstrapXMLWrappedContent([]byte(declaration + "\n" + validContent))},
+		{name: "missing declaration", raw: bootstrapXMLWrappedContent([]byte(doctype + "\n\n<root/>\n"))},
+		{name: "malformed DTD", raw: bootstrapXMLWrappedContent([]byte("<!DOCTYPE root [<!ELEMENT root EMPTY>\n\n" + declaration + "\n<root/>\n"))},
+		{name: "DTD separator drift", raw: bootstrapXMLWrappedContent([]byte(doctype + "\n" + declaration + "\n<root/>\n"))},
+		{name: "malformed declaration", raw: bootstrapXMLWrappedContent([]byte(doctype + "\n\n<?xml version='1.0' extra='value'?>\n<root/>\n"))},
+		{name: "repeated declaration", raw: bootstrapXMLWrappedContent([]byte(validContent + declaration))},
+		{name: "repeated DTD", raw: bootstrapXMLWrappedContent([]byte(validContent + "<!DOCTYPE root>"))},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			entry := testEntry(manifestXSD10DatatypesRepresentation, testDigest(test.raw))
+			entry.Kind = KindBootstrapArtifact
+			document, err := Generate(context.Background(), responseClient(test.raw), entry)
+			if err == nil {
+				t.Fatal("Generate() error = nil")
+			}
+			if document.Data != nil || document.Index != nil || document.Entry.ID != "" {
+				t.Fatalf("Generate() document = %#v, want zero document", document)
+			}
+			assertErrorCode(t, err, "specs.conversion.representation")
+			var corpusErr *Error
+			if !errors.As(err, &corpusErr) || corpusErr.ID != entry.ID || corpusErr.URL != entry.URL {
+				t.Fatalf("Generate() error = %v, want entry location", err)
+			}
+		})
+	}
+}
+
+func TestXSD10DatatypesDigestPrecedesConversion(t *testing.T) {
+	raw := []byte("not the pinned envelope")
+	entry := testEntry(manifestXSD10DatatypesRepresentation, testDigest([]byte("different raw response")))
+	_, err := Generate(context.Background(), responseClient(raw), entry)
+	if err == nil {
+		t.Fatal("Generate() error = nil")
+	}
+	assertErrorCode(t, err, "specs.provenance.digest")
+	if strings.Contains(err.Error(), "specs.conversion.representation") {
+		t.Fatalf("Generate() converted before digest failure: %v", err)
+	}
+}
+
+func TestXSD10DatatypesXMLFailurePreservesCause(t *testing.T) {
+	raw := bootstrapXMLWrappedContent([]byte("<!DOCTYPE root [<!ELEMENT root EMPTY>]>\n\n" +
+		"<?xml version='1.0'?>\n<root>\n"))
+	entry := testEntry(manifestXSD10DatatypesRepresentation, testDigest(raw))
+	entry.Kind = KindBootstrapArtifact
+	document, err := Generate(context.Background(), responseClient(raw), entry)
+	if err == nil {
+		t.Fatal("Generate() error = nil")
+	}
+	if document.Data != nil || document.Entry.ID != "" {
+		t.Fatalf("Generate() document = %#v, want zero document", document)
+	}
+	assertErrorCode(t, err, bootstrapXMLDocumentCode)
+	var syntaxErr *xml.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("Generate() error = %v, want XML syntax cause", err)
+	}
+	var corpusErr *Error
+	if !errors.As(err, &corpusErr) || corpusErr.ID != entry.ID || corpusErr.URL != entry.URL {
+		t.Fatalf("Generate() error = %v, want entry location", err)
+	}
+}
+
 func TestGenerateValidatesBootstrapXMLAndPreservesConvertedBytes(t *testing.T) {
 	content := []byte("<?xml version=\"1.0\"?>\n<!-- before -->\n<!DOCTYPE root SYSTEM \"root.dtd\">\n<root><![CDATA[ \t]]><?inside?><child/></root><!-- after -->\n")
 	tests := []struct {

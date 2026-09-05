@@ -264,7 +264,7 @@ func TestPinnedBootstrapManifestPlan(t *testing.T) {
 		{
 			version: "1.0",
 			ids:     []string{"xsd10-datatypes-schema", "xml-schema", "xsd10-schema-for-schemas"},
-			reprs:   []string{"html-cdata-pre", "xml", "xml"},
+			reprs:   []string{manifestXSD10DatatypesRepresentation, "xml", "xml"},
 		},
 		{
 			version: "1.1",
@@ -293,7 +293,11 @@ func TestGenerateBootstrapRegeneratesByteIdentically(t *testing.T) {
 
 func mutateBootstrapGenerationBody(artifact *BootstrapArtifact) []byte {
 	content := []byte("<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" id=\"" + artifact.ID + "\"/>\n")
-	if artifact.Representation != "html-cdata-pre" {
+	if artifact.Representation == manifestXSD10DatatypesRepresentation {
+		content = append([]byte("<!DOCTYPE xs:schema SYSTEM \"XMLSchema.dtd\">\n\n<?xml version='1.0'?>\n"), content...)
+	}
+	if artifact.Representation != manifestHTMLCDATAPreRepresentation &&
+		artifact.Representation != manifestXSD10DatatypesRepresentation {
 		return content
 	}
 	raw := append([]byte(cdataPrefix), content...)
@@ -396,7 +400,7 @@ func assertGeneratedRepresentations(t *testing.T, documents []Document, version 
 		switch document.Entry.Representation {
 		case "xml":
 			sawXML = true
-		case "html-cdata-pre":
+		case manifestHTMLCDATAPreRepresentation, manifestXSD10DatatypesRepresentation:
 			sawHTMLCDATA = true
 			if bytes.HasPrefix(document.Data, []byte(cdataPrefix)) || bytes.HasSuffix(document.Data, []byte(cdataSuffix)) {
 				t.Fatalf("html-cdata-pre conversion left wrapper in %q", document.Entry.ID)
@@ -433,7 +437,7 @@ func bootstrapPlanFixture() Manifest {
 func bootstrapGenerationManifest() Manifest {
 	xsd10Entry := bootstrapArtifact("xsd10-entry", []string{"1.0"}, true, []string{"xsd10-datatypes", "xml-schema"})
 	xsd10Datatypes := bootstrapArtifact("xsd10-datatypes", []string{"1.0"}, false, nil)
-	xsd10Datatypes.Representation = "html-cdata-pre"
+	xsd10Datatypes.Representation = manifestXSD10DatatypesRepresentation
 	xsd11Entry := bootstrapArtifact("xsd11-entry", []string{"1.1"}, true, []string{"xsd11-datatypes", "xml-schema"})
 	xsd11Datatypes := bootstrapArtifact("xsd11-datatypes", []string{"1.1"}, false, nil)
 	xmlSchema := bootstrapArtifact("xml-schema", []string{"1.0", "1.1"}, false, nil)

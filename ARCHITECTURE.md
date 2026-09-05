@@ -148,12 +148,13 @@ reports pass, conformance failure, unsupported, resolution failure, and
 internal failure. Queried, disputed-test, and disputed-spec cases remain
 visible but affect neither the headline score nor backlog unlock ranking.
 
-Specifications and the distinct XSD 1.0 and 1.1 schema-for-schemas artifacts
-are pinned by URL and digest through a versioned manifest. Repository tooling
-will download, verify, convert, index, and navigate them while preserving
-anchors and examples. Digests cover raw responses. Artifact representations
-are explicit: `xml` is consumed as verified, while `html-cdata-pre` removes
-only the exact `<pre><![CDATA[` prefix and `]]></pre>` suffix after digest
-verification. Manifest aliases map lexical schema locations such as the HTTP
-`xml.xsd` import to their pinned HTTPS artifact without changing parser or
-resolver semantics.
+Specifications pin XSD 1.0/1.1 schema-for-schemas artifacts by URL and
+raw-response digest in a manifest. Tooling converts, indexes, and navigates
+artifacts. `xml` is consumed unchanged; `html-cdata-pre` removes the exact
+`<pre><![CDATA[`/`]]></pre>` wrapper.
+`html-cdata-pre-xsd10-datatypes` removes that wrapper after digest verification,
+requires the pinned XSD 1.0 envelope, moves its one post-DTD declaration
+through `?>` before the unchanged DTD, and performs complete XML validation
+without opening external DTDs. Manifest aliases map schema locations such as
+HTTP `xml.xsd` to the pinned HTTPS artifact without
+changing parser or resolver semantics.

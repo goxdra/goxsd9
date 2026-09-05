@@ -17,6 +17,12 @@ import (
 )
 
 const (
+	manifestXMLRepresentation            = "xml"
+	manifestHTMLCDATAPreRepresentation   = "html-cdata-pre"
+	manifestXSD10DatatypesRepresentation = "html-cdata-pre-xsd10-datatypes"
+)
+
+const (
 	// KindSpecification identifies a normative W3C specification entry.
 	KindSpecification EntryKind = "specification"
 	// KindErratum identifies a W3C errata entry.
@@ -242,7 +248,9 @@ func validateManifestSources(manifest Manifest) (map[string]struct{}, error) {
 			artifact.SHA256, artifact.XSDVersions, ids); err != nil {
 			return nil, err
 		}
-		if artifact.Representation != "xml" && artifact.Representation != "html-cdata-pre" {
+		if artifact.Representation != manifestXMLRepresentation &&
+			artifact.Representation != manifestHTMLCDATAPreRepresentation &&
+			artifact.Representation != manifestXSD10DatatypesRepresentation {
 			return nil, fmt.Errorf("bootstrap artifact %q has invalid representation %q", artifact.ID,
 				artifact.Representation)
 		}
