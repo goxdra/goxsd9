@@ -4170,11 +4170,18 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			}
 		case "abstract", "substitutionGroup":
 			return candidate, newSchemaCompositionDiagnostic(attribute.loc, "local element has forbidden attribute "+attribute.name.local)
-		case "default", "fixed", "block":
+		case "default", "fixed":
 			if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
 				return candidate, err
 			}
 			candidate.considerAt(attribute.loc, fmt.Sprintf("local element attribute %q is not implemented", attribute.name.local))
+		case "block":
+			if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
+				return candidate, err
+			}
+			if !allowNamespacePolicy {
+				candidate.considerAt(attribute.loc, "local element attribute \"block\" is not implemented")
+			}
 		case "nillable":
 			if err := validateSchemaBoolean(attribute); err != nil {
 				return candidate, err
