@@ -382,6 +382,16 @@ func collectCodegenDirectSequenceOwner(
 				errCodegenDirectSequenceParticle,
 			)
 		}
+		if element.IsNillable() {
+			return codegenDirectSequenceCollectedOwner{}, newCodegenDirectSequenceUnsupported(
+				element.Loc(),
+				fmt.Sprintf("local element %q has nillable=true outside Go code generation", element.Name()),
+				nil,
+				fmt.Errorf("%w: non-default nillable local element fact", errCodegenUnsupported),
+				version,
+				codegenDirectSequenceElementReference,
+			)
+		}
 		if err := validateCodegenDirectSequenceBounds(
 			element.facts.occurrences,
 			element.Occurrences(),

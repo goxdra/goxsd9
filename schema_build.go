@@ -1679,10 +1679,15 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 	if err != nil {
 		return schemaElementParticleInput{}, err
 	}
+	nillable, _, _, err := schemaElementBooleanAttribute(element, "nillable")
+	if err != nil {
+		return schemaElementParticleInput{}, err
+	}
 	input := schemaElementParticleInput{
 		loc:         element.loc,
 		name:        name,
 		occurrences: occurrences,
+		nillable:    nillable,
 	}
 	typeAttributes := syntaxAttributesByLocal(element, "type")
 	if len(typeAttributes) == 0 {
@@ -4726,6 +4731,7 @@ func resolveSchemaElementParticle(
 		occurrences:  input.occurrences.clone(),
 		name:         input.name,
 		declaredType: resolved.declaredType,
+		nillable:     input.nillable,
 		typeID:       resolved.typeID,
 		hasTypeID:    resolved.hasTypeID,
 	}

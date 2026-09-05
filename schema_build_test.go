@@ -1999,12 +1999,6 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:    "local element nillable remains unsupported",
-			root:    wrapper("", `<xs:complexType><xs:choice><xs:element name="item" nillable="true"/></xs:choice></xs:complexType>`),
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:  "malformed descendant wins after unsupported facet",
 			root:  wrapper("", `<xs:simpleType><xs:restriction base="xs:decimal"><xs:pattern value="x"/><xs:enumeration unknown="y"/></xs:restriction></xs:simpleType>`),
 			class: FailureInvalid,

@@ -336,6 +336,41 @@ func TestGenerateGoRejectsNamedBooleanDirectSequenceElement(t *testing.T) {
 	}
 }
 
+func TestGenerateGoRejectsNillableDirectChoiceAndSequenceElements(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  goxsd9.LanguagePolicy
+		version string
+	}{
+		{name: "Compatibility", policy: goxsd9.Compatibility, version: "1.1"},
+		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0"},
+		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1"},
+	}
+	for _, profile := range profiles {
+		for _, test := range []struct {
+			name     string
+			model    string
+			wantSpec string
+		}{
+			{name: "choice", model: "choice", wantSpec: "element-choice"},
+			{name: "sequence", model: "sequence", wantSpec: "element-sequence"},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" targetNamespace="urn:root" version="` + profile.version + `"><xs:complexType name="Record"><xs:` + test.model + `><xs:element name="value" type="xs:integer" nillable="true"/></xs:` + test.model + `></xs:complexType></xs:schema>`
+				schema, err := parseSequenceSchemaResult(t, profile.policy, root, nil)
+				if err != nil {
+					t.Fatalf("ParseSchemaWithPolicy: %v", err)
+				}
+				wantSpec := "xsd11-structures#" + test.wantSpec
+				if profile.policy == goxsd9.Strict10 {
+					wantSpec = "xsd10-structures#" + test.wantSpec
+				}
+				assertPublicUnsupportedCodegen(t, schema, wantSpec)
+			})
+		}
+	}
+}
+
 func TestGenerateGoPreservesDirectChoiceAlongsideSequence(t *testing.T) {
 	schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`" targetNamespace="urn:test">
   <xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:integer"/></xs:choice></xs:complexType>
