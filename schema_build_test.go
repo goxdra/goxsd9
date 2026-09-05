@@ -2322,6 +2322,42 @@ func TestSchemaSimpleTypeFinalNonEmptyValuesRemainLocatedRegisteredUnsupported(t
 	}
 }
 
+//nolint:gocognit // Keep edition-specific lexical validation and metadata assertions together.
+func TestSchemaSimpleTypeFinalExtensionFollowsEditionLexicalRules(t *testing.T) {
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok || !feature.Registered() {
+		t.Fatal("schema syntax feature is not registered")
+	}
+	for _, profile := range schemaSimpleTypeFinalProfiles() {
+		for _, version := range schemaSimpleTypeFinalVersions() {
+			t.Run(profile.name+"/"+version.name, func(t *testing.T) {
+				root := schemaSimpleTypeFinalRoot(true, "extension", version.version)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if profile.policy == Strict10 {
+					if err == nil {
+						t.Fatal("Strict10 accepted simpleType final=extension")
+					}
+					if schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+						t.Fatal("Strict10 returned a partial schema for invalid simpleType final")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+						t.Fatalf("Strict10 diagnostic = %s, want invalid schema composition", diagnostic)
+					}
+					if diagnostic.Feature() != "" || diagnostic.SpecRef() != "" || errors.Is(err, ErrUnsupported) {
+						t.Fatalf("Strict10 diagnostic was classified as unsupported: %s", diagnostic)
+					}
+					if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 1, "final") {
+						t.Fatalf("Strict10 diagnostic location = %s, want final attribute", diagnostic.Loc())
+					}
+					return
+				}
+				assertSchemaSimpleTypeFinalUnsupported(t, schema, err, root, "final", feature.SpecRef(), `global simpleType attribute "final" is not implemented`)
+			})
+		}
+	}
+}
+
 func assertSchemaSimpleTypeFinalUnsupported(t *testing.T, schema Schema, err error, root, token, specRef, message string) {
 	t.Helper()
 	if err == nil {

@@ -1179,6 +1179,9 @@ func validateRecognizedUnsupportedAttribute(element *syntaxElement, attribute sy
 		return validateSchemaBlockAttribute(attribute, schemaBlockComplexMask, version, schemaBlockComplex)
 	case "final":
 		if element.name.local == "simpleType" {
+			if version == XSDVersion10 {
+				return validateSchemaRestrictionList(attribute, "restriction", "list", "union")
+			}
 			return validateSchemaRestrictionList(attribute, "extension", "restriction", "list", "union")
 		}
 		return validateSchemaRestrictionList(attribute, "extension", "restriction")
