@@ -17,7 +17,7 @@
 // Chameleon includes adopt the including target namespace and repair
 // unqualified direct element-reference QNames in supported particles.
 // Redefine/override/defaultOpenContent, assertions, and Boolean facets and
-// datatype facets outside the supported string enumeration, integer/decimal,
+// datatype facets outside the supported string enumeration/whiteSpace, integer/decimal,
 // and optional precisionDecimal boundaries return explicit unsupported diagnostics.
 // precisionDecimal is available only when explicitly named under Compatibility
 // or Strict11; Strict10 reports a located policy diagnostic. Paths and URLs are never opened by this package. Parsing closes
