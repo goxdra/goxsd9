@@ -2112,6 +2112,9 @@ func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractio
 				return candidate.err()
 			}
 			if facetSeen[child.name.local] && !repeatedSimpleTypeFacetAllowed(child.name.local, version) {
+				if child.name.local == "whiteSpace" {
+					return duplicateStringWhiteSpaceFacetDiagnostic(stringWhiteSpaceFacetSyntaxValueLocation(child), version)
+				}
 				return newSchemaCompositionDiagnostic(child.loc, fmt.Sprintf("simple type restriction facet <%s> must be unique", child.name.local))
 			}
 			facetSeen[child.name.local] = true
@@ -2129,7 +2132,7 @@ func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractio
 			if candidate.present {
 				return candidate.err()
 			}
-			if bridgeFacets || bridgeStringEnumeration && child.name.local == "enumeration" {
+			if bridgeFacets || child.name.local == "whiteSpace" || bridgeStringEnumeration && child.name.local == "enumeration" {
 				return nil
 			}
 		}
@@ -2372,10 +2375,6 @@ func validateSimpleTypeFacetAttributes(element *syntaxElement, candidate *schema
 		}
 		if parsed.Sign() <= 0 {
 			return newSchemaCompositionDiagnostic(value.loc, "precision facet value must be positive")
-		}
-	case "whiteSpace":
-		if err := validateSchemaEnum(value, "preserve", "replace", "collapse"); err != nil {
-			return err
 		}
 	case "explicitTimezone":
 		if err := validateSchemaEnum(value, "prohibited", "optional", "required"); err != nil {

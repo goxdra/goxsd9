@@ -328,7 +328,7 @@ func TestSchemaBridgeBooleanFacetMalformedValuesRemainInvalid(t *testing.T) {
 		},
 		{name: "whiteSpace preserve", body: `<xs:whiteSpace value="preserve"/>`, code: invalidSchemaCompositionCode},
 		{name: "whiteSpace replace", body: `<xs:whiteSpace value="replace"/>`, code: invalidSchemaCompositionCode},
-		{name: "whiteSpace malformed", body: `<xs:whiteSpace value="preserve-ish"/>`, code: invalidSchemaCompositionCode},
+		{name: "whiteSpace malformed", body: `<xs:whiteSpace value="preserve-ish"/>`, code: InvalidStringWhiteSpaceCode, specFunc: stringWhiteSpaceSpecRef},
 		{
 			name: "pattern missing value",
 			body: `<xs:pattern/>`,

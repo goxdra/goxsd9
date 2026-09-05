@@ -873,6 +873,19 @@ func (definition SimpleTypeDefinition) StringEnumerationFacets() StringEnumerati
 	return facets.enumeration
 }
 
+// StringWhiteSpaceFacet returns the effective string whiteSpace facet. It
+// returns false for a non-string type or an incomplete internal facet value.
+func (definition SimpleTypeDefinition) StringWhiteSpaceFacet() (StringWhiteSpaceFacet, bool) {
+	if definition.facts == nil {
+		return StringWhiteSpaceFacet{}, false
+	}
+	facets, ok := definition.facts.facets.(schemaStringFacetVariant)
+	if !ok || facets.whiteSpace == nil {
+		return StringWhiteSpaceFacet{}, false
+	}
+	return *cloneStringWhiteSpaceFacet(facets.whiteSpace), true
+}
+
 // IntegerBounds returns the effective ordered integer bounds and their
 // presence for an integer restriction.
 func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool) {
@@ -1951,6 +1964,7 @@ func (schemaPrecisionDecimalFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaStringFacetVariant struct {
 	enumeration StringEnumerationFacets
+	whiteSpace  *StringWhiteSpaceFacet
 }
 
 func (schemaStringFacetVariant) schemaSimpleTypeFacetVariant() {}

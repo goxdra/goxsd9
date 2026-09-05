@@ -95,7 +95,7 @@ indexes; validator/generator state is on demand.
 
 Model stores facts; primitive status follows type relations. Global `xs:boolean` and atomic
 `xs:string` elements retain `DeclaredType`; named/anonymous restrictions expose immutable
-boolean-kind and string-enumeration facts. Built-ins lack synthetic IDs.
+boolean-kind, string-enumeration, and string-`whiteSpace` facts; built-ins lack synthetic IDs.
 
 Named complex types: direct particles; bounded openAttrs restrictions. Direct sequence/choice: local built-in xs:boolean, named boolean-restriction,
 integer/decimal; exact finite/unbounded ranges; 0/0 absent. XSD 1.1 choices: precisionDecimal requires default choice/mapped-alternative occurrences; non-precision
