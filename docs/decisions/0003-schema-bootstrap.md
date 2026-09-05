@@ -77,7 +77,9 @@ The reproducible path is:
    the calls sequentially.
 4. [`internal/specs/bootstrap_test.go`](../../internal/specs/bootstrap_test.go)
    regenerates both version fixtures twice, checks every generated data slice
-   byte-for-byte, and exercises XML plus both CDATA-wrapper representations.
+   byte-for-byte, and exercises XML plus the XSD 1.0 datatype representation.
+   Ordinary `html-cdata-pre` conversion is covered by
+   [`internal/specs/corpus_test.go`](../../internal/specs/corpus_test.go).
 
 The implementation and focused tests support manifest selection, prerequisite
 closure, cycle/missing/out-of-version diagnostics, copied plan entries, raw
