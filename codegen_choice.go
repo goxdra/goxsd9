@@ -319,6 +319,16 @@ func collectCodegenDirectChoiceOwner(
 				errCodegenDirectChoiceParticle,
 			)
 		}
+		if element.IsNillable() {
+			return codegenDirectChoiceCollectedOwner{}, newCodegenDirectChoiceUnsupported(
+				element.Loc(),
+				fmt.Sprintf("local element %q has nillable=true outside Go code generation", element.Name()),
+				nil,
+				fmt.Errorf("%w: non-default nillable local element fact", errCodegenUnsupported),
+				version,
+				codegenDirectChoiceElementChoiceReference,
+			)
+		}
 		if err := validateCodegenDirectChoiceBounds(
 			element.facts.occurrences,
 			element.Loc(),

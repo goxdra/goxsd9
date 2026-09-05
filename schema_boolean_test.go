@@ -476,6 +476,59 @@ func TestValidateInstanceLeavesLocalBooleanChoicesUnsupported(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the policy, particle-fact, and consumer diagnostic assertions together.
+func TestValidateInstanceRejectsNillableLocalChoiceWithoutNilledBehavior(t *testing.T) {
+	profiles := []struct {
+		name     string
+		policy   LanguagePolicy
+		version  string
+		wantSpec string
+	}{
+		{name: "Compatibility", policy: Compatibility, version: "1.1", wantSpec: "xsd11-structures#cvc-elt"},
+		{name: "Strict10", policy: Strict10, version: "1.0", wantSpec: "xsd10-structures#cvc-elt"},
+		{name: "Strict11", policy: Strict11, version: "1.1", wantSpec: "xsd11-structures#cvc-elt"},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + profile.version + `">` +
+				`<xs:element name="choiceRoot" type="r:Choice"/><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:integer" nillable="true"/></xs:choice></xs:complexType>` +
+				`</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+			definition := booleanParticleComplexType(t, schema, "Choice")
+			choice, ok := definition.Particle().(ChoiceParticle)
+			if !ok || len(choice.Alternatives()) != 1 {
+				t.Fatalf("choice particle = %#v, want one alternative", definition.Particle())
+			}
+			local, ok := choice.Alternatives()[0].(ElementParticle)
+			if !ok || !local.IsNillable() {
+				t.Fatalf("local particle = %#v, want nillable=true", choice.Alternatives()[0])
+			}
+
+			input := `<choiceRoot xmlns="urn:root"><value xmlns="">1</value></choiceRoot>`
+			err = ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+			if err == nil {
+				t.Fatal("ValidateInstance accepted a nillable local choice")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedInstanceValidationCode || diagnostic.Feature() != FeatureInstanceValidation {
+				t.Fatalf("diagnostic = %s/%q/%q, want unsupported instance-validation diagnostic", diagnostic, diagnostic.Code(), diagnostic.Feature())
+			}
+			if diagnostic.Loc() != local.Loc() {
+				t.Fatalf("diagnostic location = %s, want local declaration %s", diagnostic.Loc(), local.Loc())
+			}
+			if diagnostic.SpecRef() != profile.wantSpec {
+				t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), profile.wantSpec)
+			}
+			if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errInstanceLocalElementFacts) {
+				t.Fatalf("diagnostic lost local nillable cause: %v", err)
+			}
+		})
+	}
+}
+
 func booleanFacetSchema(version XSDVersion, body string) string {
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + string(version) + `"><xs:simpleType name="Flag"><xs:restriction base="xs:boolean">` + body + `</xs:restriction></xs:simpleType></xs:schema>`
 }

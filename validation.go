@@ -65,6 +65,7 @@ var (
 	errInstanceOpenAttrsType           = errors.New("openAttrs complex type is outside instance validation")
 	errInstanceComplexContentExtension = errors.New("complex-content extension is outside instance validation")
 	errInstanceElementFacts            = errors.New("global element abstract and nillable facts are outside instance validation")
+	errInstanceLocalElementFacts       = errors.New("local element nillable facts are outside instance validation")
 	errInstanceElementSubstitution     = errors.New("referenced global element substitution is outside instance validation")
 	errInstanceValidationInvariant     = errors.New("scalar validation invariant is broken")
 )
@@ -574,6 +575,15 @@ func instanceChoiceElementFor(
 			related,
 			version,
 			errInstanceChoiceParticle,
+		)
+	}
+	if element.IsNillable() {
+		return ElementParticle{}, newInstanceValidationUnsupported(
+			element.Loc(),
+			fmt.Sprintf("local element %q has nillable=true outside instance validation", element.Name()),
+			appendInstanceRelated(relCopy(related), element.Loc()),
+			version,
+			errInstanceLocalElementFacts,
 		)
 	}
 	elementOccurrences := element.Occurrences()

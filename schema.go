@@ -1477,6 +1477,15 @@ func (particle ElementParticle) DeclaredType() QName {
 	return particle.facts.declaredType
 }
 
+// IsNillable reports the effective nillable fact of the local element
+// declaration.
+func (particle ElementParticle) IsNillable() bool {
+	if particle.facts == nil {
+		return false
+	}
+	return particle.facts.nillable
+}
+
 // TypeID returns the identity of the named declared type. Built-in datatypes
 // do not have synthetic component identities and return the zero ID.
 func (particle ElementParticle) TypeID() (ComponentID, bool) {
@@ -2100,6 +2109,7 @@ type schemaElementParticleInput struct {
 	name        QName
 	reference   *schemaElementReferenceInput
 	occurrences particleOccurrenceRange
+	nillable    bool
 	typeInput   *schemaElementInput
 }
 
@@ -2210,6 +2220,7 @@ type schemaElementParticle struct {
 	occurrences  particleOccurrenceRange
 	name         QName
 	declaredType QName
+	nillable     bool
 	typeID       ComponentID
 	hasTypeID    bool
 }
