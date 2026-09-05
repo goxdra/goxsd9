@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -2245,6 +2246,304 @@ func TestSchemaBridgeAcceptsInertRootMetadata(t *testing.T) {
 	}
 }
 
+func TestSchemaSimpleTypeFinalEmptyValuesMatchAbsentAcrossPoliciesAndVersions(t *testing.T) {
+	profiles := schemaSimpleTypeFinalProfiles()
+	versions := schemaSimpleTypeFinalVersions()
+	cases := []struct {
+		name    string
+		present bool
+		value   string
+	}{
+		{name: "absent"},
+		{name: "empty", present: true},
+		{name: "XML whitespace", present: true, value: " \t "},
+	}
+	for _, profile := range profiles {
+		for _, version := range versions {
+			t.Run(profile.name+"/"+version.name, func(t *testing.T) {
+				want := schemaSimpleTypeFinalEmptySnapshot(t, profile.policy, version.version, cases[0].present, cases[0].value)
+				for _, test := range cases[1:] {
+					got := schemaSimpleTypeFinalEmptySnapshot(t, profile.policy, version.version, test.present, test.value)
+					if !reflect.DeepEqual(got, want) {
+						t.Fatalf("schema snapshot differs from absent final: got=%#v want=%#v", got, want)
+					}
+				}
+			})
+		}
+	}
+}
+
+func schemaSimpleTypeFinalEmptySnapshot(t *testing.T, policy LanguagePolicy, version XSDVersion, present bool, value string) schemaFinalDefaultSnapshot {
+	t.Helper()
+	root, fixtures := schemaSimpleTypeFinalGraph(present, value, version)
+	queryName := mustTestQName(t, "urn:root", "Item")
+	var first schemaFinalDefaultSnapshot
+	for iteration := 0; iteration < 3; iteration++ {
+		schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy)
+		if err != nil {
+			t.Fatalf("discoverSchema: %v", err)
+		}
+		current := snapshotSchemaForComponentKind(t, schema, queryName, ComponentKindSimpleTypeDefinition)
+		if iteration == 0 {
+			first = current
+			continue
+		}
+		if !reflect.DeepEqual(current, first) {
+			t.Fatalf("repeated schema snapshot changed: first=%#v current=%#v", first, current)
+		}
+	}
+	return first
+}
+
+func TestSchemaSimpleTypeFinalNonEmptyValuesRemainLocatedRegisteredUnsupported(t *testing.T) {
+	values := []struct {
+		name  string
+		value string
+	}{
+		{name: "all", value: "#all"},
+		{name: "single token", value: "restriction"},
+		{name: "multiple tokens", value: "restriction list"},
+		{name: "reordered tokens", value: "list restriction"},
+	}
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok || !feature.Registered() {
+		t.Fatal("schema syntax feature is not registered")
+	}
+	for _, profile := range schemaSimpleTypeFinalProfiles() {
+		for _, version := range schemaSimpleTypeFinalVersions() {
+			for _, test := range values {
+				t.Run(profile.name+"/"+version.name+"/"+test.name, func(t *testing.T) {
+					root := schemaSimpleTypeFinalRoot(true, test.value, version.version)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					assertSchemaSimpleTypeFinalUnsupported(t, schema, err, root, "final", feature.SpecRef(), `global simpleType attribute "final" is not implemented`)
+				})
+			}
+		}
+	}
+}
+
+func assertSchemaSimpleTypeFinalUnsupported(t *testing.T, schema Schema, err error, root, token, specRef, message string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("discoverSchema accepted a non-empty simpleType final")
+	}
+	if schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+		t.Fatal("discoverSchema returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("diagnostic = %s/%q/%q, want registered schema-syntax unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code())
+	}
+	if diagnostic.SpecRef() != specRef {
+		t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), specRef)
+	}
+	if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 1, token) {
+		t.Fatalf("diagnostic location = %s, want %s attribute location", diagnostic.Loc(), token)
+	}
+	if diagnostic.Message() != message {
+		t.Fatalf("diagnostic message = %q, want %q", diagnostic.Message(), message)
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("diagnostic lost unsupported classification: %v", err)
+	}
+}
+
+//nolint:gocognit // Keep lexical invalidity and no-schema assertions in one matrix.
+func TestSchemaSimpleTypeFinalMalformedAndAllCombinationsRemainInvalid(t *testing.T) {
+	values := []struct {
+		name  string
+		value string
+	}{
+		{name: "unknown token", value: "bogus"},
+		{name: "wrong case", value: "Restriction"},
+		{name: "all before token", value: "#all restriction"},
+		{name: "token before all", value: "restriction #all"},
+		{name: "repeated all", value: "#all #all"},
+	}
+	for _, profile := range schemaSimpleTypeFinalProfiles() {
+		for _, version := range schemaSimpleTypeFinalVersions() {
+			for _, test := range values {
+				t.Run(profile.name+"/"+version.name+"/"+test.name, func(t *testing.T) {
+					root := schemaSimpleTypeFinalRoot(true, test.value, version.version)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err == nil {
+						t.Fatal("discoverSchema accepted an invalid simpleType final")
+					}
+					if schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+						t.Fatal("discoverSchema returned a partial schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+						t.Fatalf("diagnostic = %s, want invalid schema composition", diagnostic)
+					}
+					if diagnostic.Feature() != "" || diagnostic.SpecRef() != "" || errors.Is(err, ErrUnsupported) {
+						t.Fatalf("invalid diagnostic was classified as unsupported: %s", diagnostic)
+					}
+					if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 1, "final") {
+						t.Fatalf("diagnostic location = %s, want final attribute location", diagnostic.Loc())
+					}
+				})
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Keep duplicate-attribute and no-schema assertions in one matrix.
+func TestSchemaSimpleTypeFinalDuplicateAttributeRemainsInvalid(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Item" final="restriction"
+  final="list"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`
+	for _, profile := range schemaSimpleTypeFinalProfiles() {
+		for _, version := range schemaSimpleTypeFinalVersions() {
+			t.Run(profile.name+"/"+version.name, func(t *testing.T) {
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("discoverSchema accepted duplicate simpleType final attributes")
+				}
+				if schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+					t.Fatal("discoverSchema returned a partial schema")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != InvalidXMLSyntaxCode {
+					t.Fatalf("diagnostic = %s, want invalid XML syntax", diagnostic)
+				}
+				if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 2, "final") {
+					t.Fatalf("diagnostic location = %s, want second final attribute", diagnostic.Loc())
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Keep inline-shape and no-schema assertions in one matrix.
+func TestSchemaSimpleTypeFinalInlineRemainsInvalid(t *testing.T) {
+	for _, profile := range schemaSimpleTypeFinalProfiles() {
+		for _, version := range schemaSimpleTypeFinalVersions() {
+			t.Run(profile.name+"/"+version.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item"><xs:simpleType final=""><xs:restriction base="xs:integer"/></xs:simpleType></xs:element></xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("discoverSchema accepted inline simpleType final")
+				}
+				if schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+					t.Fatal("discoverSchema returned a partial schema")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+					t.Fatalf("diagnostic = %s, want invalid schema composition", diagnostic)
+				}
+				if diagnostic.Message() != "inline simpleType cannot specify final" {
+					t.Fatalf("diagnostic message = %q, want inline final prohibition", diagnostic.Message())
+				}
+				if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 1, "final") {
+					t.Fatalf("diagnostic location = %s, want final attribute", diagnostic.Loc())
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Keep the related root/default and local/final matrix together.
+func TestSchemaSimpleTypeFinalEmptyPreservesRootFinalDefaultBoundary(t *testing.T) {
+	cases := []struct {
+		name    string
+		present bool
+		value   string
+	}{
+		{name: "absent"},
+		{name: "empty", present: true},
+		{name: "non-empty", present: true, value: "extension"},
+	}
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok || !feature.Registered() {
+		t.Fatal("schema syntax feature is not registered")
+	}
+	for _, profile := range schemaSimpleTypeFinalProfiles() {
+		for _, version := range schemaSimpleTypeFinalVersions() {
+			for _, test := range cases {
+				t.Run(profile.name+"/"+version.name+"/"+test.name, func(t *testing.T) {
+					root := schemaSimpleTypeFinalWithRootDefault(test.present, test.value, version.version)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if test.value == "extension" {
+						assertSchemaSimpleTypeFinalUnsupported(t, schema, err, root, "finalDefault", feature.SpecRef(), `schema root attribute "finalDefault" is not implemented`)
+						return
+					}
+					if err != nil {
+						t.Fatalf("discoverSchema: %v", err)
+					}
+					if schema.storage == nil || len(schema.Components()) != 1 {
+						t.Fatalf("accepted schema components = %d, want one", len(schema.Components()))
+					}
+				})
+			}
+		}
+	}
+}
+
+type schemaSimpleTypeFinalProfile struct {
+	name   string
+	policy LanguagePolicy
+}
+
+func schemaSimpleTypeFinalProfiles() []schemaSimpleTypeFinalProfile {
+	return []schemaSimpleTypeFinalProfile{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10},
+		{name: "Strict11", policy: Strict11},
+	}
+}
+
+type schemaSimpleTypeFinalVersion struct {
+	name    string
+	version XSDVersion
+}
+
+func schemaSimpleTypeFinalVersions() []schemaSimpleTypeFinalVersion {
+	return []schemaSimpleTypeFinalVersion{
+		{name: "XSD 1.0", version: XSDVersion10},
+		{name: "XSD 1.1", version: XSDVersion11},
+	}
+}
+
+func schemaSimpleTypeFinalRoot(present bool, value string, version XSDVersion) string {
+	attribute := ""
+	if present {
+		attribute = ` final="` + value + `"`
+	}
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(version) + `"><xs:simpleType name="Item"` + attribute + `><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`
+}
+
+func schemaSimpleTypeFinalWithRootDefault(present bool, value string, version XSDVersion) string {
+	attribute := ""
+	if present {
+		attribute = ` finalDefault="` + value + `"`
+	}
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(version) + `"` + attribute + `><xs:simpleType name="Item" final=""><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`
+}
+
+func schemaSimpleTypeFinalGraph(present bool, value string, version XSDVersion) (string, map[string]discoveryFixture) {
+	attribute := ""
+	if present {
+		attribute = ` final="` + value + `"`
+	}
+	finalAttributeWidth := len(` final="`) + len(" \t ") + len(`"`)
+	padding := finalAttributeWidth - len(attribute)
+	if padding < 0 {
+		padding = 0
+	}
+	opening := ` name="Item"` + attribute + strings.Repeat(" ", padding)
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(version) + `"><xs:include schemaLocation="child.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/><xs:element name="root"/><xs:simpleType` + opening + `><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`
+	return root, map[string]discoveryFixture{
+		"child.xsd": {
+			id:       "child.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:simpleType name="Child"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`,
+		},
+		"other.xsd": {
+			id:       "other.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:simpleType name="Other"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`,
+		},
+	}
+}
+
 func TestSchemaFinalDefaultEmptyValuesMatchAbsentAcrossPolicies(t *testing.T) {
 	for _, policy := range schemaFinalDefaultPolicies() {
 		t.Run(policy.name, func(t *testing.T) {
@@ -2476,6 +2775,10 @@ type schemaFinalDefaultSnapshot struct {
 }
 
 func snapshotSchemaFinalDefault(t *testing.T, schema Schema, queryName QName) schemaFinalDefaultSnapshot {
+	return snapshotSchemaForComponentKind(t, schema, queryName, ComponentKindElementDeclaration)
+}
+
+func snapshotSchemaForComponentKind(t *testing.T, schema Schema, queryName QName, kind ComponentKind) schemaFinalDefaultSnapshot {
 	t.Helper()
 	documents := schema.Documents()
 	documentSnapshots := make([]schemaFinalDefaultDocumentSnapshot, 0, len(documents))
@@ -2504,7 +2807,7 @@ func snapshotSchemaFinalDefault(t *testing.T, schema Schema, queryName QName) sc
 		documents:  documentSnapshots,
 		components: components,
 		found:      schema.Find(queryName),
-		foundKind:  schema.FindKind(ComponentKindElementDeclaration, queryName),
+		foundKind:  schema.FindKind(kind, queryName),
 		lookup:     lookup,
 		lookupOK:   lookupOK,
 		walked:     walked,
