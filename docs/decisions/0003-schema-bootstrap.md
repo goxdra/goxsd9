@@ -40,7 +40,7 @@ The pinned manifest is the artifact evidence:
 | --- | --- | --- |
 | XSD 1.0 Part 1 schema document | `xsd10-schema-for-schemas`, `xml`, `entry: true` | Selected for version `1.0`; its manifest prerequisites are `xsd10-datatypes-schema` and `xml-schema`. |
 | XSD 1.1 Part 1 schema document | `xsd11-schema-for-schemas`, `xml`, `entry: true` | Selected for version `1.1`; its manifest prerequisites are `xsd11-datatypes-schema` and `xml-schema`. |
-| XSD 1.0 Part 2 schema for datatype declarations | `xsd10-datatypes-schema`, `html-cdata-pre` | Exact wrapper removal occurs only after the raw digest check. |
+| XSD 1.0 Part 2 schema for datatype declarations | `xsd10-datatypes-schema`, `html-cdata-pre-xsd10-datatypes` | After the raw SHA-256 check, remove only the exact wrapper, require the pinned DTD/declaration envelope, and move the one declaration through `?>` before the unchanged DTD; complete converted-document XML validation follows. |
 | XSD 1.1 Part 2 schema for datatype declarations | `xsd11-datatypes-schema`, `xml` | Consumed as the verified XML representation. |
 | XML namespace declarations used by both graphs | `xml-schema`, `xml`, `xsdVersions: ["1.0", "1.1"]` | The manifest alias `http://www.w3.org/2001/xml.xsd` points to the pinned `xml-schema` artifact at [`https://www.w3.org/2001/xml.xsd`](https://www.w3.org/2001/xml.xsd). The lexical location remains unchanged for the resolver. |
 
@@ -68,14 +68,18 @@ The reproducible path is:
 1. [`Fetch`](../../internal/specs/corpus.go) obtains the raw response and
    verifies its pinned SHA-256 digest.
 2. [`convert`](../../internal/specs/corpus.go) applies exactly the manifest
-   representation conversion (`xml` or `html-cdata-pre`).
+   representation conversion: verified `xml`, ordinary `html-cdata-pre`, or
+   the strict `html-cdata-pre-xsd10-datatypes` wrapper removal and declaration
+   relocation before complete XML validation.
 3. [`BootstrapPlan`](../../internal/specs/bootstrap.go) materializes the
    selected bootstrap-artifact subgraph in deterministic dependency-first
    order; [`GenerateBootstrap`](../../internal/specs/bootstrap.go) performs
    the calls sequentially.
 4. [`internal/specs/bootstrap_test.go`](../../internal/specs/bootstrap_test.go)
    regenerates both version fixtures twice, checks every generated data slice
-   byte-for-byte, and exercises both XML and `html-cdata-pre` input.
+   byte-for-byte, and exercises XML plus the XSD 1.0 datatype representation.
+   Ordinary `html-cdata-pre` conversion is covered by
+   [`internal/specs/corpus_test.go`](../../internal/specs/corpus_test.go).
 
 The implementation and focused tests support manifest selection, prerequisite
 closure, cycle/missing/out-of-version diagnostics, copied plan entries, raw

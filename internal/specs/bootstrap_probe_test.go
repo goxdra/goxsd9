@@ -79,12 +79,16 @@ var bootstrapProbeRows = []bootstrapProbeRow{
 		id:     "xsd10-datatypes-schema",
 		policy: goxsd9.Strict10,
 		expected: bootstrapProbeObservation{
-			stage:               bootstrapProbeConversionStage,
-			conversionCode:      bootstrapXMLDocumentCode,
-			conversionID:        "xsd10-datatypes-schema",
-			conversionURL:       "https://www.w3.org/TR/2004/REC-xmlschema-2-20041028/datatypes.xsd",
-			conversionCause:     "XML syntax error on line 38: XML processing instruction target is invalid",
-			conversionCauseType: bootstrapProbeCauseTypeXMLSyntax,
+			stage: bootstrapProbeParserStage,
+			diagnostic: bootstrapProbeDiagnostic{
+				class:   goxsd9.FailureUnsupported,
+				code:    goxsd9.UnsupportedDatatypeFacetCode,
+				feature: goxsd9.FeatureDatatypeFacets,
+				source:  "xsd10-datatypes-schema",
+				line:    808,
+				column:  11,
+				specRef: "xsd10-datatypes#decimal",
+			},
 		},
 	},
 	{
