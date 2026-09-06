@@ -122,11 +122,11 @@ These instructions apply to every file in this repository.
   engineering-health signals, not conformance evidence. Before evidence update,
   challenge, or finish can mutate remote state, workflowctl independently
   recomputes the v2 signals after resolving exact REST base/head and matching
-  local commits. Every head containing a managed-document change requires the
-  exact audit and a fresh read-only Curator review for placement, current
-  relevance, duplication, history, and replacement opportunities. Repeat the
-  audit and Curator review after each remediation push; deletion alone does not
-  prove improvement.
+  local commits. Every head containing a managed-document change or non-empty
+  `currentStateReviewTriggers` requires the exact audit and a fresh read-only
+  passing Curator review for placement, current relevance, duplication, history,
+  and replacement opportunities. Repeat the audit and Curator review after
+  each remediation push; deletion alone does not prove improvement.
 - Examiner receives the exact audit and Curator result, independently checks
   the documentation, and remains the only authenticated merge gate.
 - Envoy user evaluations may read library documentation and use public CLIs.
