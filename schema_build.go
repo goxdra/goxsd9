@@ -2389,6 +2389,7 @@ type schemaSimpleTypeAtomicKind uint8
 const (
 	schemaSimpleTypeAtomicUnknown schemaSimpleTypeAtomicKind = iota
 	schemaSimpleTypeAtomicString
+	schemaSimpleTypeAtomicToken
 	schemaSimpleTypeAtomicInteger
 	schemaSimpleTypeAtomicNegativeInteger
 	schemaSimpleTypeAtomicDecimal
@@ -2408,6 +2409,7 @@ func schemaSimpleTypeAtomicKindIsUnsupported(kind schemaSimpleTypeAtomicKind) bo
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicInteger,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicDecimal,
@@ -2557,7 +2559,7 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 	}
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicDecimal,
-		schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
@@ -3665,7 +3667,7 @@ func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleT
 //nolint:gocognit // Keep built-in scalar scope and version branches explicit.
 func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
-	case "string":
+	case "string", "token":
 		if scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
@@ -3756,6 +3758,7 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 	}
 	switch simpleType.atomicKind {
 	case schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
@@ -5663,6 +5666,8 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 	switch input.name.Local() {
 	case "string":
 		return resolveBuiltinStringSchemaSimpleTypeReference(input, version)
+	case "token":
+		return resolveBuiltinTokenSchemaSimpleTypeReference(input, version)
 	case "integer":
 		facets, err := NewIntegerDigitFacets(nil, version)
 		if err != nil {
@@ -5742,18 +5747,25 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 }
 
 func resolveBuiltinStringSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+	return resolveBuiltinStringLikeSchemaSimpleTypeReference(input, version, schemaSimpleTypeAtomicString, defaultStringWhiteSpaceFacet())
+}
+
+func resolveBuiltinTokenSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+	return resolveBuiltinStringLikeSchemaSimpleTypeReference(input, version, schemaSimpleTypeAtomicToken, defaultTokenWhiteSpaceFacet())
+}
+
+func resolveBuiltinStringLikeSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion, atomicKind schemaSimpleTypeAtomicKind, whiteSpace *StringWhiteSpaceFacet) (schemaSimpleTypeReferenceComponent, error) {
 	enumeration, err := NewStringEnumerationFacets(nil, version)
 	if err != nil {
 		return schemaSimpleTypeReferenceComponent{}, err
 	}
-	whiteSpace := defaultStringWhiteSpaceFacet()
 	return schemaSimpleTypeReferenceComponent{
 		kind:       SimpleTypeReferenceBuiltin,
 		name:       input.name,
 		loc:        input.loc,
 		variety:    SimpleTypeVarietyAtomicRestriction,
 		varietyLoc: input.loc,
-		atomicKind: schemaSimpleTypeAtomicString,
+		atomicKind: atomicKind,
 		facets:     schemaStringFacetVariant{enumeration: enumeration, whiteSpace: whiteSpace},
 	}, nil
 }
@@ -5943,7 +5955,7 @@ func restrictSchemaStringFacets(base schemaStringFacetVariant, inputs []schemaFa
 	if err != nil {
 		return nil, err
 	}
-	enumeration, err := RestrictStringEnumerationFacets(base.enumeration, local.enumeration)
+	enumeration, err := restrictSchemaStringEnumeration(base, local.enumeration)
 	if err != nil {
 		return nil, err
 	}
@@ -5955,6 +5967,13 @@ func restrictSchemaStringFacets(base schemaStringFacetVariant, inputs []schemaFa
 		return nil, local.deferredUnsupported
 	}
 	return schemaStringFacetVariant{enumeration: enumeration, whiteSpace: &whiteSpace}, nil
+}
+
+func restrictSchemaStringEnumeration(base schemaStringFacetVariant, local StringEnumerationFacetDeclarations) (StringEnumerationFacets, error) {
+	if base.whiteSpace != nil && base.whiteSpace.Value() == "collapse" {
+		return restrictStringEnumerationFacetsInValueSpace(base.enumeration, local)
+	}
+	return RestrictStringEnumerationFacets(base.enumeration, local)
 }
 
 func restrictSchemaIntegerFacets(

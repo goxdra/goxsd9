@@ -43,7 +43,7 @@ func (facet StringWhiteSpaceFacet) Value() string {
 }
 
 // Loc returns the source location of the declaration that supplied the
-// effective value. Built-in xs:string has a zero location.
+// effective value. Built-in xs:string and xs:token have zero locations.
 func (facet StringWhiteSpaceFacet) Loc() Loc {
 	return facet.loc
 }
@@ -130,6 +130,10 @@ func parseStringWhiteSpaceFacetFor(version XSDVersion, lexical string, loc Loc, 
 
 func defaultStringWhiteSpaceFacet() *StringWhiteSpaceFacet {
 	return &StringWhiteSpaceFacet{value: "preserve"}
+}
+
+func defaultTokenWhiteSpaceFacet() *StringWhiteSpaceFacet {
+	return &StringWhiteSpaceFacet{value: "collapse", fixed: true}
 }
 
 func cloneStringWhiteSpaceFacet(facet *StringWhiteSpaceFacet) *StringWhiteSpaceFacet {

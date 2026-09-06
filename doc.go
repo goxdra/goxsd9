@@ -7,7 +7,8 @@
 // supported schema-level components, including simple-type atomic restrictions,
 // lists, and unions. Anonymous simple types and resolved built-in, named, and
 // anonymous simple-type references are modeled, along with global xs:boolean
-// and atomic xs:string declarations and their named or anonymous restrictions.
+// and atomic xs:string/xs:token declarations and their named or anonymous
+// restrictions.
 // Queries and walks are deterministic. SimpleTypeDefinition.IsBoolean,
 // StringEnumerationFacets, and StringWhiteSpaceFacet report immutable kind
 // and implemented scalar facts. ParseSchema uses graph-wide Compatibility;
@@ -36,7 +37,7 @@
 // non-default precisionDecimal choice or alternative ranges and non-0/0
 // direct-sequence precisionDecimal ranges that map to particles are
 // schema-unsupported. Anonymous, nested, and broader particles remain
-// unsupported; local string particles remain unsupported. Anonymous simple-type
+// unsupported; local string/token particles remain unsupported. Anonymous simple-type
 // models and resolved built-in, named, and anonymous simple-type references are
 // modeled. Direct element references are queryable immutable particles;
 // validation supports default-occurrence direct choices made entirely of
@@ -62,10 +63,10 @@
 // and Strict11. Direct-choice repetition and excluded particle/target shapes
 // remain explicit unsupported behavior. Reference alternatives exclude boolean
 // and precisionDecimal targets. Scalar elements contain only character data;
-// string globals, local boolean/string particles, attributes, broader particles,
+// string/token globals, local boolean/string particles, attributes, broader particles,
 // and other semantics remain explicit unsupported behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal
 // scalar components, direct scalar choices, and default-bounded direct integer/
-// decimal sequences; string, boolean facets, and local boolean/string particles
-// remain unsupported.
+// decimal sequences; string/token, boolean facets, and local boolean/string/token
+// particles remain unsupported.
 package goxsd9

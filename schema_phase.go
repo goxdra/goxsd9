@@ -4066,6 +4066,7 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 	return nil
 }
 
+//nolint:gocognit // Keep inline restriction-base recognition in syntax order.
 func inlineSimpleTypeMayHaveStringRestrictionBase(element *syntaxElement) bool {
 	if element == nil || element.name.local != "simpleType" {
 		return false
@@ -4087,7 +4088,7 @@ func inlineSimpleTypeMayHaveStringRestrictionBase(element *syntaxElement) bool {
 			return false
 		}
 		if base.Namespace() == xsdNamespaceURI {
-			return base.Local() == "string"
+			return base.Local() == "string" || base.Local() == "token"
 		}
 		return true
 	}
