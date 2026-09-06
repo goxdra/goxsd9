@@ -94,7 +94,7 @@ observable order. Local particles use a scoped model with component facts and
 indexes; validator/generator state is on demand.
 
 Model stores facts; primitive status follows type relations. Global `xs:boolean` and atomic
-`xs:string` elements retain `DeclaredType`; named/anonymous restrictions expose immutable
+`xs:string`/`xs:token` elements retain `DeclaredType`; named/anonymous restrictions expose immutable
 boolean-kind, string-enumeration, and string-`whiteSpace` facts; built-ins lack synthetic IDs.
 
 Named complex types: particles, bounded openAttrs restrictions, and bounded attribute-free
@@ -103,7 +103,7 @@ base/extension identities/locations, inherited bounded wildcard facts, and exact
 direct choice/sequence occurrences; validation/generation reject them. Direct
 sequence/choice: local xs:boolean, named boolean-restriction, integer/decimal; exact
 ranges; 0/0 absent. XSD 1.1 precisionDecimal choices require default
-occurrences; ranges queryable. Local strings, Boolean facets, and
+occurrences; ranges queryable. Local strings/token particles, Boolean facets, and
 anonymous/nested/broader particles unsupported. References retain immutable target
 facts. Choices/sequences expose attribute-free anyAttribute
 across policies; omitted attrs mean ##any/strict; explicit ##other/lax supported.
@@ -114,7 +114,7 @@ Wildcard locations retained; other wildcard/attribute forms and consumers unsupp
 Lexical parsing and values are separate. Context-sensitive values such as QName
 retain namespace context.
 
-The strict datatype library implements XSD string enumeration plus lossless
+The datatype library implements XSD string enumeration plus lossless
 integer/decimal/boolean/precisionDecimal mappings with arbitrary-precision numeric
 forms. PrecisionDecimal exposes exact finite/special values and applicable facets; immutable
 schema components retain effective facets when named under Compatibility or
