@@ -42,6 +42,32 @@ func TestInstanceSequenceClosureRetainsAdjacentNameAmbiguity(t *testing.T) {
 	}
 }
 
+func TestInstanceSequenceClosureKeepsLargeOccurrenceStateBounded(t *testing.T) {
+	program := instanceSequenceStateTestProgram(t, 0, 1_000_000, 0, 1_000_000, 0, 1_000_000)
+	program.particles[1].name = program.particles[0].name
+	validator := &instanceSequenceValidator{program: program}
+	if err := validator.startElement(syntaxName{local: "root"}, Loc{}, nil); err != nil {
+		t.Fatalf("start root: %v", err)
+	}
+	for index := 0; index < 128; index++ {
+		if err := validator.startElement(syntaxName{local: "a"}, Loc{}, nil); err != nil {
+			t.Fatalf("start child %d: %v", index, err)
+		}
+		if err := validator.characterData([]byte("1"), Loc{}); err != nil {
+			t.Fatalf("character data %d: %v", index, err)
+		}
+		if err := validator.endElement(syntaxName{local: "a"}, Loc{}); err != nil {
+			t.Fatalf("end child %d: %v", index, err)
+		}
+		if len(validator.frontier) > 16*len(program.particles)+16 {
+			t.Fatalf("frontier after child %d has %d states, want bounded state", index, len(validator.frontier))
+		}
+	}
+	if err := validator.endElement(syntaxName{local: "root"}, Loc{}); err != nil {
+		t.Fatalf("end root: %v", err)
+	}
+}
+
 func instanceSequenceStateTestProgram(t *testing.T, firstMinimum, firstMaximum, secondMinimum, secondMaximum, outerMinimum, outerMaximum int64) instanceSequenceProgram {
 	t.Helper()
 	integerFacets, err := NewIntegerDigitFacets(nil, XSDVersion11)

@@ -132,6 +132,29 @@ func validationSequenceOccurrenceSchema(t *testing.T, policy goxsd9.LanguagePoli
 	return validationTestSchemaWithPolicy(t, root, nil, policy)
 }
 
+func TestValidateInstancePreservesCorrelatedAdjacentSequenceCandidates(t *testing.T) {
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			version := "1.1"
+			if policy == goxsd9.Strict10 {
+				version = "1.0"
+			}
+			root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationSequenceNamespace + `" targetNamespace="` + validationSequenceNamespace + `" version="` + version + `">
+  <xs:element name="root" type="r:Root"/>
+  <xs:complexType name="Root"><xs:sequence minOccurs="1" maxOccurs="4">
+    <xs:element name="a" type="xs:integer" minOccurs="1" maxOccurs="4"/>
+    <xs:element name="a" type="xs:integer" minOccurs="2" maxOccurs="3"/>
+  </xs:sequence></xs:complexType>
+</xs:schema>`
+			schema := validationTestSchemaWithPolicy(t, root, nil, policy)
+			input := `<root xmlns="` + validationSequenceNamespace + `"><a xmlns="">1</a><a xmlns="">2</a><a xmlns="">3</a><a xmlns="">4</a><a xmlns="">5</a></root>`
+			if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+				t.Fatalf("ValidateInstance: %v", err)
+			}
+		})
+	}
+}
+
 //nolint:gocognit,funlen // Keep structural diagnostics, locations, and policies together.
 func TestValidateInstanceReportsDirectSequenceStructure(t *testing.T) {
 	cases := []struct {

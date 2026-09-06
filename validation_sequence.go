@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sort"
 	"strings"
 )
 
@@ -22,9 +23,14 @@ type instanceSequenceParticle struct {
 }
 
 type instanceSequenceCandidate struct {
+	// Count bounds are affine in outer; the count fields are their intercepts.
 	outer              *big.Int
+	outerMaximum       *big.Int
 	index              int
 	count              *big.Int
+	countMaximum       *big.Int
+	countMinimumSlope  *big.Int
+	countMaximumSlope  *big.Int
 	currentEmpty       bool
 	emptyRepeatBlocked bool
 }
@@ -356,14 +362,14 @@ func (validator *instanceSequenceValidator) startElement(name syntaxName, loc Lo
 				continue
 			}
 			particle := validator.program.particles[candidate.index]
-			if particle.name != childName || !sequenceCandidateCanConsume(candidate, particle.occurrences) {
+			if particle.name != childName {
 				continue
 			}
-			next := candidate.clone()
-			next.count.Add(next.count, big.NewInt(1))
-			next.currentEmpty = false
-			next.emptyRepeatBlocked = false
-			child.paths = append(child.paths, next)
+			for _, next := range sequenceCandidateConsume(candidate, particle.occurrences) {
+				next.currentEmpty = false
+				next.emptyRepeatBlocked = false
+				child.paths = append(child.paths, next)
+			}
 		}
 		validator.depth = 2
 		validator.open = child
@@ -533,45 +539,75 @@ func sequenceAccepts(program instanceSequenceProgram, frontier []instanceSequenc
 		if candidate.index != len(program.particles) {
 			continue
 		}
-		if sequenceCandidateOuterAllowed(candidate.outer, program) {
+		if sequenceCandidateOuterAllowed(candidate, program) {
 			return true
 		}
 	}
 	return false
 }
 
-func sequenceCandidateCanConsume(candidate instanceSequenceCandidate, occurrences particleOccurrenceRange) bool {
+func sequenceCandidateConsume(candidate instanceSequenceCandidate, occurrences particleOccurrenceRange) []instanceSequenceCandidate {
 	maximum := occurrences.maximum
 	if maximum.isUnbounded() {
-		return true
+		next := candidate.clone()
+		next.count.Add(next.count, big.NewInt(1))
+		next.countMaximum.Add(next.countMaximum, big.NewInt(1))
+		return []instanceSequenceCandidate{next}
 	}
-	return candidate.count.Cmp(maximum.finite.integerCopy()) < 0
-}
-
-func sequenceCandidateCanStart(outer *big.Int, occurrences particleOccurrenceRange) bool {
-	maximum := occurrences.maximum
-	if maximum.isUnbounded() {
-		return true
+	limit := maximum.finite.integerCopy()
+	limit.Sub(limit, big.NewInt(1))
+	valid := sequenceCandidateOuterWhereAtMost(candidate, candidate.countMinimumSlope, candidate.count, limit)
+	if len(valid) == 0 {
+		return nil
 	}
-	return outer.Cmp(maximum.finite.integerCopy()) < 0
-}
-
-func sequenceCandidateOuterAllowed(outer *big.Int, program instanceSequenceProgram) bool {
-	if sequenceBodyCanBeEmpty(program) {
-		maximum := program.occurrences.maximum
-		if maximum.isUnbounded() {
-			return true
+	result := make([]instanceSequenceCandidate, 0, len(valid)*2)
+	for _, segment := range valid {
+		for _, belowMaximum := range sequenceCandidateOuterWhereAtMost(segment, segment.countMaximumSlope, segment.countMaximum, limit) {
+			next := belowMaximum.clone()
+			next.count.Add(next.count, big.NewInt(1))
+			next.countMaximum.Add(next.countMaximum, big.NewInt(1))
+			result = append(result, next)
 		}
-		return outer.Cmp(maximum.finite.integerCopy()) <= 0
+		for _, atMaximum := range sequenceCandidateOuterWhereAtLeast(segment, segment.countMaximumSlope, segment.countMaximum, new(big.Int).Add(limit, big.NewInt(1))) {
+			next := atMaximum.clone()
+			next.count.Add(next.count, big.NewInt(1))
+			next.countMaximum.Set(limit)
+			next.countMaximum.Add(next.countMaximum, big.NewInt(1))
+			next.countMaximumSlope.SetInt64(0)
+			result = append(result, next)
+		}
 	}
-	if outer.Cmp(program.occurrences.minimum.finite.integerCopy()) < 0 {
-		return false
+	return result
+}
+
+func sequenceCandidateStart(candidate instanceSequenceCandidate, occurrences particleOccurrenceRange) []instanceSequenceCandidate {
+	maximum := occurrences.maximum
+	if maximum.isUnbounded() {
+		return []instanceSequenceCandidate{candidate.clone()}
+	}
+	limit := maximum.finite.integerCopy()
+	limit.Sub(limit, big.NewInt(1))
+	return sequenceCandidateOuterSubset(candidate, candidate.outer, limit)
+}
+
+func sequenceCandidateOuterAllowed(candidate instanceSequenceCandidate, program instanceSequenceProgram) bool {
+	return len(sequenceCandidateOuterAllowedSubset(candidate, program)) != 0
+}
+
+func sequenceCandidateOuterAllowedSubset(candidate instanceSequenceCandidate, program instanceSequenceProgram) []instanceSequenceCandidate {
+	minimum := program.occurrences.minimum.finite.integerCopy()
+	if sequenceBodyCanBeEmpty(program) {
+		minimum.SetInt64(0)
+	}
+	result := sequenceCandidateOuterSubset(candidate, minimum, nil)
+	if len(result) == 0 {
+		return nil
 	}
 	maximum := program.occurrences.maximum
 	if maximum.isUnbounded() {
-		return true
+		return result
 	}
-	return outer.Cmp(maximum.finite.integerCopy()) <= 0
+	return sequenceCandidateOuterSubset(result[0], nil, maximum.finite.integerCopy())
 }
 
 func sequenceBodyCanBeEmpty(program instanceSequenceProgram) bool {
@@ -600,29 +636,48 @@ func sequenceClosure(program instanceSequenceProgram, initial []instanceSequence
 		}
 		result = append(result, candidate)
 		if candidate.index == len(program.particles) {
-			if !sequenceCandidateCanStart(candidate.outer, program.occurrences) {
-				continue
+			for _, start := range sequenceCandidateStart(candidate, program.occurrences) {
+				if start.currentEmpty && start.emptyRepeatBlocked {
+					continue
+				}
+				next := start.clone()
+				next.index = 0
+				next.count.SetInt64(0)
+				next.countMaximum.SetInt64(0)
+				next.countMinimumSlope.SetInt64(0)
+				next.countMaximumSlope.SetInt64(0)
+				next.currentEmpty = true
+				next.emptyRepeatBlocked = start.currentEmpty
+				queue = append(queue, next)
 			}
-			if candidate.currentEmpty && candidate.emptyRepeatBlocked {
-				continue
-			}
-			queue = append(queue, newInstanceSequenceCandidate(0, 0, candidate.outer, true, candidate.currentEmpty))
 			continue
 		}
-		if candidate.index == 0 && candidate.currentEmpty && candidate.count.Sign() == 0 && sequenceCandidateOuterAllowed(candidate.outer, program) {
-			queue = append(queue, newInstanceSequenceCandidate(len(program.particles), 0, candidate.outer, false, false))
+		if candidate.index == 0 && candidate.currentEmpty && sequenceCandidateCountIsZero(candidate) {
+			for _, empty := range sequenceCandidateOuterAllowedSubset(candidate, program) {
+				empty.index = len(program.particles)
+				empty.count.SetInt64(0)
+				empty.countMaximum.SetInt64(0)
+				empty.countMinimumSlope.SetInt64(0)
+				empty.countMaximumSlope.SetInt64(0)
+				empty.currentEmpty = false
+				empty.emptyRepeatBlocked = false
+				queue = append(queue, empty)
+			}
 		}
 		particle := program.particles[candidate.index]
-		if candidate.count.Cmp(particle.occurrences.minimum.finite.integerCopy()) < 0 {
-			continue
+		for _, skipped := range sequenceCandidateOuterWhereAtLeast(candidate, candidate.countMaximumSlope, candidate.countMaximum, particle.occurrences.minimum.finite.integerCopy()) {
+			next := skipped.clone()
+			next.index++
+			next.count.SetInt64(0)
+			next.countMaximum.SetInt64(0)
+			next.countMinimumSlope.SetInt64(0)
+			next.countMaximumSlope.SetInt64(0)
+			if next.index == len(program.particles) && !next.currentEmpty {
+				next.outer.Add(next.outer, big.NewInt(1))
+				next.outerMaximum.Add(next.outerMaximum, big.NewInt(1))
+			}
+			queue = append(queue, next)
 		}
-		next := candidate.clone()
-		next.index++
-		next.count.SetInt64(0)
-		if next.index == len(program.particles) && !next.currentEmpty {
-			next.outer.Add(next.outer, big.NewInt(1))
-		}
-		queue = append(queue, next)
 	}
 	return compactSequenceCandidates(result, len(program.particles))
 }
@@ -630,8 +685,12 @@ func sequenceClosure(program instanceSequenceProgram, initial []instanceSequence
 func newInstanceSequenceCandidate(index int, count int64, outer *big.Int, currentEmpty, emptyRepeatBlocked bool) instanceSequenceCandidate {
 	return instanceSequenceCandidate{
 		outer:              new(big.Int).Set(outer),
+		outerMaximum:       new(big.Int).Set(outer),
 		index:              index,
 		count:              big.NewInt(count),
+		countMaximum:       big.NewInt(count),
+		countMinimumSlope:  big.NewInt(0),
+		countMaximumSlope:  big.NewInt(0),
 		currentEmpty:       currentEmpty,
 		emptyRepeatBlocked: emptyRepeatBlocked,
 	}
@@ -640,8 +699,12 @@ func newInstanceSequenceCandidate(index int, count int64, outer *big.Int, curren
 func (candidate instanceSequenceCandidate) clone() instanceSequenceCandidate {
 	return instanceSequenceCandidate{
 		outer:              new(big.Int).Set(candidate.outer),
+		outerMaximum:       new(big.Int).Set(candidate.outerMaximum),
 		index:              candidate.index,
 		count:              new(big.Int).Set(candidate.count),
+		countMaximum:       new(big.Int).Set(candidate.countMaximum),
+		countMinimumSlope:  new(big.Int).Set(candidate.countMinimumSlope),
+		countMaximumSlope:  new(big.Int).Set(candidate.countMaximumSlope),
 		currentEmpty:       candidate.currentEmpty,
 		emptyRepeatBlocked: candidate.emptyRepeatBlocked,
 	}
@@ -649,14 +712,432 @@ func (candidate instanceSequenceCandidate) clone() instanceSequenceCandidate {
 
 func sequenceCandidateContains(candidates []instanceSequenceCandidate, candidate instanceSequenceCandidate) bool {
 	for _, existing := range candidates {
-		if existing.index != candidate.index || existing.currentEmpty != candidate.currentEmpty || existing.emptyRepeatBlocked != candidate.emptyRepeatBlocked {
+		if !sequenceCandidateSameState(existing, candidate) || existing.outer.Cmp(candidate.outer) > 0 || existing.outerMaximum.Cmp(candidate.outerMaximum) < 0 {
 			continue
 		}
-		if existing.outer.Cmp(candidate.outer) == 0 && existing.count.Cmp(candidate.count) == 0 {
+		if sequenceCandidateCountContainsAt(existing, candidate, candidate.outer) &&
+			sequenceCandidateCountContainsAt(existing, candidate, candidate.outerMaximum) {
 			return true
 		}
 	}
 	return false
+}
+
+func sequenceCandidateSameState(first, second instanceSequenceCandidate) bool {
+	return first.index == second.index &&
+		first.currentEmpty == second.currentEmpty &&
+		first.emptyRepeatBlocked == second.emptyRepeatBlocked
+}
+
+func sequenceCandidateCountContainsAt(container, candidate instanceSequenceCandidate, outer *big.Int) bool {
+	containerMinimum, containerMaximum := sequenceCandidateCountAt(container, outer)
+	candidateMinimum, candidateMaximum := sequenceCandidateCountAt(candidate, outer)
+	return containerMinimum.Cmp(candidateMinimum) <= 0 && containerMaximum.Cmp(candidateMaximum) >= 0
+}
+
+func sequenceCandidateCountAt(candidate instanceSequenceCandidate, outer *big.Int) (*big.Int, *big.Int) {
+	minimum := new(big.Int).Mul(candidate.countMinimumSlope, outer)
+	minimum.Add(minimum, candidate.count)
+	maximum := new(big.Int).Mul(candidate.countMaximumSlope, outer)
+	maximum.Add(maximum, candidate.countMaximum)
+	return minimum, maximum
+}
+
+func sequenceCandidateCountIsZero(candidate instanceSequenceCandidate) bool {
+	minimum, maximum := sequenceCandidateCountAt(candidate, candidate.outer)
+	if minimum.Sign() != 0 || maximum.Sign() != 0 {
+		return false
+	}
+	minimum, maximum = sequenceCandidateCountAt(candidate, candidate.outerMaximum)
+	return minimum.Sign() == 0 && maximum.Sign() == 0
+}
+
+func sequenceCandidateOuterSubset(candidate instanceSequenceCandidate, minimum, maximum *big.Int) []instanceSequenceCandidate {
+	lower := candidate.outer
+	if minimum != nil && lower.Cmp(minimum) < 0 {
+		lower = minimum
+	}
+	upper := candidate.outerMaximum
+	if maximum != nil && upper.Cmp(maximum) > 0 {
+		upper = maximum
+	}
+	if lower.Cmp(upper) > 0 {
+		return nil
+	}
+	result := candidate.clone()
+	result.outer.Set(lower)
+	result.outerMaximum.Set(upper)
+	return []instanceSequenceCandidate{result}
+}
+
+type sequenceCandidateLinearRelation uint8
+
+const (
+	sequenceCandidateLinearAtMost sequenceCandidateLinearRelation = iota
+	sequenceCandidateLinearAtLeast
+)
+
+func sequenceCandidateOuterWhereAtMost(candidate instanceSequenceCandidate, slope, intercept, limit *big.Int) []instanceSequenceCandidate {
+	return sequenceCandidateOuterWhere(candidate, slope, intercept, sequenceCandidateLinearAtMost, limit)
+}
+
+func sequenceCandidateOuterWhereAtLeast(candidate instanceSequenceCandidate, slope, intercept, limit *big.Int) []instanceSequenceCandidate {
+	return sequenceCandidateOuterWhere(candidate, slope, intercept, sequenceCandidateLinearAtLeast, limit)
+}
+
+//nolint:gocognit // Keep signed affine interval clipping explicit.
+func sequenceCandidateOuterWhere(candidate instanceSequenceCandidate, slope, intercept *big.Int, relation sequenceCandidateLinearRelation, limit *big.Int) []instanceSequenceCandidate {
+	lower := candidate.outer
+	upper := candidate.outerMaximum
+	if slope.Sign() == 0 {
+		comparison := intercept.Cmp(limit)
+		if (relation == sequenceCandidateLinearAtMost && comparison > 0) ||
+			(relation == sequenceCandidateLinearAtLeast && comparison < 0) {
+			return nil
+		}
+		return []instanceSequenceCandidate{candidate.clone()}
+	}
+	difference := new(big.Int).Sub(limit, intercept)
+	if relation == sequenceCandidateLinearAtMost {
+		if slope.Sign() > 0 {
+			upper = minBigInt(upper, floorBigIntQuotient(difference, slope))
+		}
+		if slope.Sign() < 0 {
+			lower = maxBigInt(lower, ceilBigIntQuotient(difference, slope))
+		}
+	}
+	if relation == sequenceCandidateLinearAtLeast {
+		if slope.Sign() > 0 {
+			lower = maxBigInt(lower, ceilBigIntQuotient(difference, slope))
+		}
+		if slope.Sign() < 0 {
+			upper = minBigInt(upper, floorBigIntQuotient(difference, slope))
+		}
+	}
+	return sequenceCandidateOuterSubset(candidate, lower, upper)
+}
+
+func floorBigIntQuotient(numerator, denominator *big.Int) *big.Int {
+	quotient, remainder := new(big.Int), new(big.Int)
+	quotient.QuoRem(numerator, denominator, remainder)
+	if remainder.Sign() != 0 && remainder.Sign() != denominator.Sign() {
+		quotient.Sub(quotient, big.NewInt(1))
+	}
+	return quotient
+}
+
+func ceilBigIntQuotient(numerator, denominator *big.Int) *big.Int {
+	quotient, remainder := new(big.Int), new(big.Int)
+	quotient.QuoRem(numerator, denominator, remainder)
+	if remainder.Sign() != 0 && remainder.Sign() == denominator.Sign() {
+		quotient.Add(quotient, big.NewInt(1))
+	}
+	return quotient
+}
+
+func minBigInt(first, second *big.Int) *big.Int {
+	if first.Cmp(second) <= 0 {
+		return new(big.Int).Set(first)
+	}
+	return new(big.Int).Set(second)
+}
+
+func maxBigInt(first, second *big.Int) *big.Int {
+	if first.Cmp(second) >= 0 {
+		return new(big.Int).Set(first)
+	}
+	return new(big.Int).Set(second)
+}
+
+func sequenceCandidateCountRelationEqual(first, second instanceSequenceCandidate) bool {
+	return first.countMinimumSlope.Cmp(second.countMinimumSlope) == 0 &&
+		first.countMaximumSlope.Cmp(second.countMaximumSlope) == 0 &&
+		first.count.Cmp(second.count) == 0 &&
+		first.countMaximum.Cmp(second.countMaximum) == 0
+}
+
+func sequenceCandidateOuterRangesEqual(first, second instanceSequenceCandidate) bool {
+	return first.outer.Cmp(second.outer) == 0 && first.outerMaximum.Cmp(second.outerMaximum) == 0
+}
+
+func sequenceCandidateIntegerIntervalsTouch(firstMinimum, firstMaximum, secondMinimum, secondMaximum *big.Int) bool {
+	firstAfter := new(big.Int).Add(firstMaximum, big.NewInt(1))
+	if firstAfter.Cmp(secondMinimum) < 0 {
+		return false
+	}
+	secondAfter := new(big.Int).Add(secondMaximum, big.NewInt(1))
+	return secondAfter.Cmp(firstMinimum) >= 0
+}
+
+func sequenceCandidateCountIntervalsTouchAt(first, second instanceSequenceCandidate, outer *big.Int) bool {
+	firstMinimum, firstMaximum := sequenceCandidateCountAt(first, outer)
+	secondMinimum, secondMaximum := sequenceCandidateCountAt(second, outer)
+	return sequenceCandidateIntegerIntervalsTouch(firstMinimum, firstMaximum, secondMinimum, secondMaximum)
+}
+
+func sequenceCandidateMerge(first, second instanceSequenceCandidate) (instanceSequenceCandidate, bool) {
+	if !sequenceCandidateSameState(first, second) {
+		return instanceSequenceCandidate{}, false
+	}
+	if sequenceCandidateOuterRangesEqual(first, second) &&
+		first.countMinimumSlope.Cmp(second.countMinimumSlope) == 0 &&
+		first.countMaximumSlope.Cmp(second.countMaximumSlope) == 0 &&
+		sequenceCandidateCountIntervalsTouchAt(first, second, first.outer) {
+		merged := first.clone()
+		merged.count = minBigInt(first.count, second.count)
+		merged.countMaximum = maxBigInt(first.countMaximum, second.countMaximum)
+		return merged, true
+	}
+	if sequenceCandidateCountRelationEqual(first, second) &&
+		sequenceCandidateIntegerIntervalsTouch(first.outer, first.outerMaximum, second.outer, second.outerMaximum) {
+		merged := first.clone()
+		merged.outer = minBigInt(first.outer, second.outer)
+		merged.outerMaximum = maxBigInt(first.outerMaximum, second.outerMaximum)
+		return merged, true
+	}
+	return instanceSequenceCandidate{}, false
+}
+
+func appendSequenceCandidateRegion(regions []instanceSequenceCandidate, candidate instanceSequenceCandidate) []instanceSequenceCandidate {
+	for index := 0; index < len(regions); index++ {
+		existing := regions[index]
+		if sequenceCandidateContains([]instanceSequenceCandidate{existing}, candidate) {
+			return regions
+		}
+		if sequenceCandidateContains([]instanceSequenceCandidate{candidate}, existing) {
+			regions = append(regions[:index], regions[index+1:]...)
+			index--
+			continue
+		}
+		merged, ok := sequenceCandidateMerge(existing, candidate)
+		if !ok {
+			continue
+		}
+		regions = append(regions[:index], regions[index+1:]...)
+		candidate = merged
+		index = -1
+	}
+	return append(regions, candidate.clone())
+}
+
+type sequenceCandidateLine struct {
+	slope     *big.Int
+	intercept *big.Int
+}
+
+func sequenceCandidateLines(candidate instanceSequenceCandidate) [2]sequenceCandidateLine {
+	return [2]sequenceCandidateLine{
+		{slope: candidate.countMinimumSlope, intercept: candidate.count},
+		{slope: candidate.countMaximumSlope, intercept: candidate.countMaximum},
+	}
+}
+
+func appendSequenceCandidateBreakpoint(breakpoints []*big.Int, breakpoint *big.Int) []*big.Int {
+	for _, existing := range breakpoints {
+		if existing.Cmp(breakpoint) == 0 {
+			return breakpoints
+		}
+	}
+	return append(breakpoints, new(big.Int).Set(breakpoint))
+}
+
+func sequenceCandidateLineTransition(first, second sequenceCandidateLine, offset int64) *big.Int {
+	slope := new(big.Int).Sub(first.slope, second.slope)
+	if slope.Sign() == 0 {
+		return nil
+	}
+	limit := new(big.Int).Add(second.intercept, big.NewInt(offset))
+	limit.Sub(limit, first.intercept)
+	if slope.Sign() > 0 {
+		transition := floorBigIntQuotient(limit, slope)
+		return transition.Add(transition, big.NewInt(1))
+	}
+	return ceilBigIntQuotient(limit, slope)
+}
+
+func sequenceCandidateBreakpoints(regions []instanceSequenceCandidate) []*big.Int {
+	breakpoints := make([]*big.Int, 0, len(regions)*2)
+	lines := make([]sequenceCandidateLine, 0, len(regions)*2)
+	for _, candidate := range regions {
+		breakpoints = appendSequenceCandidateBreakpoint(breakpoints, candidate.outer)
+		end := new(big.Int).Add(candidate.outerMaximum, big.NewInt(1))
+		breakpoints = appendSequenceCandidateBreakpoint(breakpoints, end)
+		candidateLines := sequenceCandidateLines(candidate)
+		lines = append(lines, candidateLines[0], candidateLines[1])
+	}
+	for first := 0; first < len(lines); first++ {
+		for second := first + 1; second < len(lines); second++ {
+			for _, offset := range []int64{-1, 0, 1} {
+				transition := sequenceCandidateLineTransition(lines[first], lines[second], offset)
+				if transition == nil {
+					continue
+				}
+				breakpoints = appendSequenceCandidateBreakpoint(breakpoints, transition)
+			}
+		}
+	}
+	sort.Slice(breakpoints, func(first, second int) bool {
+		return breakpoints[first].Cmp(breakpoints[second]) < 0
+	})
+	return breakpoints
+}
+
+func sequenceCandidateActiveAt(candidate instanceSequenceCandidate, outer *big.Int) bool {
+	return candidate.outer.Cmp(outer) <= 0 && candidate.outerMaximum.Cmp(outer) >= 0
+}
+
+func sequenceCandidateRegionForLines(source instanceSequenceCandidate, outerMinimum, outerMaximum *big.Int, minimum, maximum sequenceCandidateLine) instanceSequenceCandidate {
+	result := source.clone()
+	result.outer.Set(outerMinimum)
+	result.outerMaximum.Set(outerMaximum)
+	result.count.Set(minimum.intercept)
+	result.countMaximum.Set(maximum.intercept)
+	result.countMinimumSlope.Set(minimum.slope)
+	result.countMaximumSlope.Set(maximum.slope)
+	return result
+}
+
+func sortSequenceCandidateRegions(regions []instanceSequenceCandidate) {
+	sort.SliceStable(regions, func(first, second int) bool {
+		left, right := regions[first], regions[second]
+		if comparison := left.outer.Cmp(right.outer); comparison != 0 {
+			return comparison < 0
+		}
+		if comparison := left.outerMaximum.Cmp(right.outerMaximum); comparison != 0 {
+			return comparison < 0
+		}
+		leftMinimum, leftMaximum := sequenceCandidateCountAt(left, left.outer)
+		rightMinimum, rightMaximum := sequenceCandidateCountAt(right, right.outer)
+		if comparison := leftMinimum.Cmp(rightMinimum); comparison != 0 {
+			return comparison < 0
+		}
+		return leftMaximum.Cmp(rightMaximum) < 0
+	})
+}
+
+func sequenceCandidateRegionFromRows(first, last instanceSequenceCandidate) instanceSequenceCandidate {
+	firstMinimum, firstMaximum := sequenceCandidateCountAt(first, first.outer)
+	lastMinimum, lastMaximum := sequenceCandidateCountAt(last, last.outer)
+	outerDistance := new(big.Int).Sub(last.outer, first.outer)
+	minimumSlope := new(big.Int).Sub(lastMinimum, firstMinimum)
+	minimumSlope.Quo(minimumSlope, outerDistance)
+	maximumSlope := new(big.Int).Sub(lastMaximum, firstMaximum)
+	maximumSlope.Quo(maximumSlope, outerDistance)
+	minimumIntercept := new(big.Int).Mul(minimumSlope, first.outer)
+	minimumIntercept.Sub(firstMinimum, minimumIntercept)
+	maximumIntercept := new(big.Int).Mul(maximumSlope, first.outer)
+	maximumIntercept.Sub(firstMaximum, maximumIntercept)
+	result := first.clone()
+	result.outerMaximum.Set(last.outer)
+	result.count.Set(minimumIntercept)
+	result.countMaximum.Set(maximumIntercept)
+	result.countMinimumSlope.Set(minimumSlope)
+	result.countMaximumSlope.Set(maximumSlope)
+	return result
+}
+
+func sequenceCandidateRowMatches(candidate, region instanceSequenceCandidate) bool {
+	minimum, maximum := sequenceCandidateCountAt(candidate, candidate.outer)
+	expectedMinimum, expectedMaximum := sequenceCandidateCountAt(region, candidate.outer)
+	return minimum.Cmp(expectedMinimum) == 0 && maximum.Cmp(expectedMaximum) == 0
+}
+
+func compactSequenceCandidateRows(regions []instanceSequenceCandidate) []instanceSequenceCandidate {
+	sortSequenceCandidateRegions(regions)
+	result := make([]instanceSequenceCandidate, 0, len(regions))
+	for index := 0; index < len(regions); {
+		first := regions[index]
+		if first.outer.Cmp(first.outerMaximum) != 0 || index+1 >= len(regions) {
+			result = appendSequenceCandidateRegion(result, first)
+			index++
+			continue
+		}
+		nextOuter := new(big.Int).Add(first.outer, big.NewInt(1))
+		second := regions[index+1]
+		if second.outer.Cmp(nextOuter) != 0 || second.outer.Cmp(second.outerMaximum) != 0 {
+			result = appendSequenceCandidateRegion(result, first)
+			index++
+			continue
+		}
+		region := sequenceCandidateRegionFromRows(first, second)
+		end := index + 1
+		for end+1 < len(regions) {
+			previous := regions[end]
+			candidate := regions[end+1]
+			nextOuter = new(big.Int).Add(previous.outer, big.NewInt(1))
+			if candidate.outer.Cmp(nextOuter) != 0 || candidate.outer.Cmp(candidate.outerMaximum) != 0 || !sequenceCandidateRowMatches(candidate, region) {
+				break
+			}
+			end++
+		}
+		result = appendSequenceCandidateRegion(result, sequenceCandidateRegionFromRows(first, regions[end]))
+		index = end + 1
+	}
+	return result
+}
+
+func sequenceCandidateLineIntervalTouch(first, second instanceSequenceCandidate, outer *big.Int) bool {
+	firstMinimum, firstMaximum := sequenceCandidateCountAt(first, outer)
+	secondMinimum, secondMaximum := sequenceCandidateCountAt(second, outer)
+	return sequenceCandidateIntegerIntervalsTouch(firstMinimum, firstMaximum, secondMinimum, secondMaximum)
+}
+
+//nolint:gocognit // Keep bounded interval compaction explicit and deterministic.
+func compactSequenceCandidateGroup(group []instanceSequenceCandidate) []instanceSequenceCandidate {
+	breakpoints := sequenceCandidateBreakpoints(group)
+	result := make([]instanceSequenceCandidate, 0, len(group))
+	for index := 0; index+1 < len(breakpoints); index++ {
+		outerMinimum := breakpoints[index]
+		outerMaximum := new(big.Int).Sub(breakpoints[index+1], big.NewInt(1))
+		if outerMinimum.Cmp(outerMaximum) > 0 {
+			continue
+		}
+		active := make([]instanceSequenceCandidate, 0, len(group))
+		for _, candidate := range group {
+			if sequenceCandidateActiveAt(candidate, outerMinimum) {
+				active = append(active, candidate)
+			}
+		}
+		if len(active) == 0 {
+			continue
+		}
+		sort.SliceStable(active, func(first, second int) bool {
+			firstMinimum, firstMaximum := sequenceCandidateCountAt(active[first], outerMinimum)
+			secondMinimum, secondMaximum := sequenceCandidateCountAt(active[second], outerMinimum)
+			if comparison := firstMinimum.Cmp(secondMinimum); comparison != 0 {
+				return comparison < 0
+			}
+			return firstMaximum.Cmp(secondMaximum) < 0
+		})
+		components := make([]instanceSequenceCandidate, 0, len(active))
+		for _, candidate := range active {
+			candidateLines := sequenceCandidateLines(candidate)
+			current := sequenceCandidateRegionForLines(candidate, outerMinimum, outerMaximum, candidateLines[0], candidateLines[1])
+			if len(components) == 0 {
+				components = append(components, current)
+				continue
+			}
+			last := &components[len(components)-1]
+			if !sequenceCandidateLineIntervalTouch(*last, current, outerMinimum) {
+				components = append(components, current)
+				continue
+			}
+			lastMinimum, lastMaximum := sequenceCandidateCountAt(*last, outerMinimum)
+			currentMinimum, currentMaximum := sequenceCandidateCountAt(current, outerMinimum)
+			if currentMinimum.Cmp(lastMinimum) < 0 {
+				last.countMinimumSlope.Set(current.countMinimumSlope)
+				last.count.Set(current.count)
+			}
+			if currentMaximum.Cmp(lastMaximum) > 0 {
+				last.countMaximumSlope.Set(current.countMaximumSlope)
+				last.countMaximum.Set(current.countMaximum)
+			}
+		}
+		for _, component := range components {
+			result = appendSequenceCandidateRegion(result, component)
+		}
+	}
+	return compactSequenceCandidateRows(result)
 }
 
 //nolint:gocognit // Keep bounded candidate compaction grouped by its state dimensions.
@@ -675,34 +1156,7 @@ func compactSequenceCandidates(candidates []instanceSequenceCandidate, particleC
 				if len(group) == 0 {
 					continue
 				}
-				minOuter, maxOuter := group[0], group[0]
-				for _, candidate := range group[1:] {
-					if candidate.outer.Cmp(minOuter.outer) < 0 {
-						minOuter = candidate
-					}
-					if candidate.outer.Cmp(maxOuter.outer) > 0 {
-						maxOuter = candidate
-					}
-				}
-				for _, outer := range []instanceSequenceCandidate{minOuter, maxOuter} {
-					minCount, maxCount := outer, outer
-					for _, candidate := range group {
-						if candidate.outer.Cmp(outer.outer) != 0 {
-							continue
-						}
-						if candidate.count.Cmp(minCount.count) < 0 {
-							minCount = candidate
-						}
-						if candidate.count.Cmp(maxCount.count) > 0 {
-							maxCount = candidate
-						}
-					}
-					for _, selected := range []instanceSequenceCandidate{minCount, maxCount} {
-						if !sequenceCandidateContains(result, selected) {
-							result = append(result, selected.clone())
-						}
-					}
-				}
+				result = append(result, compactSequenceCandidateGroup(group)...)
 			}
 		}
 	}
