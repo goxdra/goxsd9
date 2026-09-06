@@ -1358,7 +1358,21 @@ func (a app) requestEvaluation(number int) error {
 	if historyErr != nil {
 		return stateError("PR #%d has invalid evaluation history: %v", number, historyErr)
 	}
-	view, history, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
+	if evidenceErr := a.validatePREvidenceForPRBeforeConvergence(root, number, view); evidenceErr != nil {
+		return evidenceErr
+	}
+	return a.requestEvaluationAfterEvidence(root, number, view, history)
+}
+
+func (a app) validatePREvidenceForPRBeforeConvergence(root string, number int, view pullRequestView) error {
+	_, err := a.validatePREvidenceForPR(root, number, view)
+	return err
+}
+
+func (a app) requestEvaluationAfterEvidence(root string, number int, view pullRequestView,
+	history evaluationHistory,
+) error {
+	view, history, err := a.convergeEvaluationChallengeHistory(root, number, view, history)
 	if err != nil {
 		return fmt.Errorf("PR #%d equivalent evaluation challenges could not be converged: %w", number, err)
 	}

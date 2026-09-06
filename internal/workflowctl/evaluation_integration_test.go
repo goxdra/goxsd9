@@ -1191,6 +1191,195 @@ func configureManagedDocumentEvidence(t *testing.T, backend *workflowBackend, cu
 	backend.managedDocumentChange = true
 }
 
+func configureCurrentStateReviewEvidence(t *testing.T, backend *workflowBackend, triggers []string, curator curatorResult) {
+	t.Helper()
+	parsed, err := parsePREvidenceBody(backend.body)
+	if err != nil {
+		t.Fatalf("parse workflow PR evidence: %v", err)
+	}
+	parsed.evidence.DocumentationAudit.CurrentStateReviewTriggers = triggers
+	parsed.evidence.Curator = curator
+	block, err := renderPREvidenceBlock(parsed.evidence)
+	if err != nil {
+		t.Fatalf("render current-state PR evidence: %v", err)
+	}
+	updated, err := replacePREvidenceBlock(backend.body, block)
+	if err != nil {
+		t.Fatalf("replace current-state PR evidence: %v", err)
+	}
+	backend.body = updated
+	backend.currentStateReviewTriggers = []string{"schema.go"}
+}
+
+func TestCurrentStateReviewCuratorValidationPrecedesMutation(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+		run  func(*testing.T, *workflowBackend, *app) error
+	}{
+		{name: "update", want: "current-state review triggers", run: runCurrentStateReviewUpdate},
+		{name: "challenge", want: "managed-document changes require", run: runCurrentStateReviewChallenge},
+		{name: "finish", want: "managed-document changes require", run: runCurrentStateReviewFinish},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend, application := currentStateReviewMutationFixture(t)
+			err := test.run(t, backend, application)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("%s error = %v, want %q", test.name, err, test.want)
+			}
+			if len(backend.comments) != 0 || backend.bodyPatchCount != 0 || backend.merged || backend.projectDone || backend.issuePatchCount != 0 {
+				t.Fatalf("rejected %s mutated GitHub state: comments=%d bodyPatches=%d merged=%t projectDone=%t issuePatches=%d",
+					test.name, len(backend.comments), backend.bodyPatchCount, backend.merged, backend.projectDone, backend.issuePatchCount)
+			}
+		})
+	}
+}
+
+func currentStateReviewMutationFixture(t *testing.T) (*workflowBackend, *app) {
+	t.Helper()
+	backend := newWorkflowBackend(t)
+	configureCurrentStateReviewEvidence(t, backend, []string{"schema.go"}, noCuratorResult(backend.head))
+	return backend, &app{
+		ctx: context.Background(), executeCommand: backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         new(bytes.Buffer), stderr: new(bytes.Buffer),
+	}
+}
+
+func runCurrentStateReviewUpdate(t *testing.T, backend *workflowBackend, application *app) error {
+	t.Helper()
+	parsed, err := parsePREvidenceBody(backend.body)
+	if err != nil {
+		return fmt.Errorf("parse trigger evidence for update: %w", err)
+	}
+	signalsPath := writePREvidenceJSONSource(t, "signals.json", parsed.evidence.DevelopmentSignals)
+	auditPath := writePREvidenceJSONSource(t, "audit.json", parsed.evidence.DocumentationAudit)
+	return application.runPREvidence([]string{"update", "14", "--signals-file", signalsPath, "--docs-audit-file", auditPath})
+}
+
+func runCurrentStateReviewChallenge(_ *testing.T, _ *workflowBackend, application *app) error {
+	return application.runEvaluation([]string{"challenge", "14"})
+}
+
+func runCurrentStateReviewFinish(_ *testing.T, backend *workflowBackend, application *app) error {
+	return application.runPR(backend.finishArgs())
+}
+
+func TestCurrentStateReviewAuditMismatchPrecedesDuplicateChallengeConvergence(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	backend.duplicateChallengeOnNextPost = true
+	configureCurrentStateReviewEvidence(t, backend, []string{"old.go"}, testPassingCurator(backend.head))
+	var stdout bytes.Buffer
+	application := app{
+		ctx: context.Background(), executeCommand: backend.execute,
+		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+		stdout:                         &stdout, stderr: new(bytes.Buffer),
+	}
+	err := application.runEvaluation([]string{"challenge", "14"})
+	if err == nil || !strings.Contains(err.Error(), "exact current PR diff") {
+		t.Fatalf("stale source trigger error = %v, want exact diff refusal", err)
+	}
+	if len(backend.comments) != 0 {
+		t.Fatalf("stale source trigger reached challenge convergence: comments=%d", len(backend.comments))
+	}
+}
+
+func TestCurrentStateReviewPassingCuratorAllowsChallenge(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	configureCurrentStateReviewEvidence(t, backend, []string{"schema.go"}, testPassingCurator(backend.head))
+	application := newResolutionWorkflowApplication(backend, new(bytes.Buffer))
+	if err := application.runEvaluation([]string{"challenge", "14"}); err != nil {
+		t.Fatalf("source-only evidence with passing Curator rejected: %v", err)
+	}
+	if len(backend.comments) != 1 {
+		t.Fatalf("source-only challenge comments = %d, want 1", len(backend.comments))
+	}
+}
+
+func TestCurrentStateReviewAuditMismatchVariantsRejectBeforeChallengeMutation(t *testing.T) {
+	tests := []struct {
+		name     string
+		triggers []string
+		curator  curatorResult
+		want     string
+	}{
+		{name: "omitted", triggers: nil, curator: noCuratorResult("evaluated-head"), want: "exact current PR diff"},
+		{name: "stale", triggers: []string{"old.go"}, curator: testPassingCurator("evaluated-head"), want: "exact current PR diff"},
+		{name: "forged workflow path", triggers: []string{"internal/workflowctl/forged.go"}, curator: testPassingCurator("evaluated-head"), want: "classifiable"},
+		{name: "mismatched", triggers: []string{"other.go"}, curator: testPassingCurator("evaluated-head"), want: "exact current PR diff"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			configureCurrentStateReviewEvidence(t, backend, test.triggers, test.curator)
+			application := newResolutionWorkflowApplication(backend, new(bytes.Buffer))
+			err := application.runEvaluation([]string{"challenge", "14"})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("trigger evidence error = %v, want %q", err, test.want)
+			}
+			if len(backend.comments) != 0 {
+				t.Fatalf("rejected trigger evidence reached comment POST: comments=%d", len(backend.comments))
+			}
+		})
+	}
+}
+
+func TestCurrentStateReviewAuditMismatchRejectsEvidenceUpdate(t *testing.T) {
+	tests := []struct {
+		name     string
+		triggers []string
+		curator  curatorResult
+		want     string
+	}{
+		{name: "update omitted", triggers: nil, curator: noCuratorResult("evaluated-head"), want: "exact current PR diff"},
+		{name: "update stale", triggers: []string{"old.go"}, curator: testPassingCurator("evaluated-head"), want: "exact current PR diff"},
+		{name: "update forged", triggers: []string{"internal/workflowctl/forged.go"}, curator: testPassingCurator("evaluated-head"), want: "classifiable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := newWorkflowBackend(t)
+			configureCurrentStateReviewEvidence(t, backend, test.triggers, test.curator)
+			parsed, err := parsePREvidenceBody(backend.body)
+			if err != nil {
+				t.Fatalf("parse trigger evidence: %v", err)
+			}
+			signalsPath := writePREvidenceJSONSource(t, "signals.json", parsed.evidence.DevelopmentSignals)
+			auditPath := writePREvidenceJSONSource(t, "audit.json", parsed.evidence.DocumentationAudit)
+			args := []string{"update", "14", "--signals-file", signalsPath, "--docs-audit-file", auditPath}
+			if test.curator.RunID != "" {
+				curatorPath := writePREvidenceJSONSource(t, "curator.json", test.curator)
+				args = append(args, "--curator-file", curatorPath)
+			}
+			application := app{
+				ctx: context.Background(), executeCommand: backend.execute,
+				verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
+				stdout:                         new(bytes.Buffer), stderr: new(bytes.Buffer),
+			}
+			err = application.runPREvidence(args)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("evidence update error = %v, want %q", err, test.want)
+			}
+			if backend.bodyPatchCount != 0 {
+				t.Fatalf("rejected evidence update reached body PATCH: %d", backend.bodyPatchCount)
+			}
+		})
+	}
+}
+
+func TestCurrentStateReviewAuditMismatchRejectsFinish(t *testing.T) {
+	backend := newWorkflowBackend(t)
+	configureCurrentStateReviewEvidence(t, backend, []string{"other.go"}, testPassingCurator(backend.head))
+	application := newResolutionWorkflowApplication(backend, new(bytes.Buffer))
+	err := application.runPR(backend.finishArgs())
+	if err == nil || !strings.Contains(err.Error(), "exact current PR diff") {
+		t.Fatalf("finish mismatched trigger error = %v, want exact diff refusal", err)
+	}
+	if backend.merged || backend.projectDone || backend.issuePatchCount != 0 {
+		t.Fatalf("rejected finish mutated state: merged=%t projectDone=%t issuePatches=%d", backend.merged, backend.projectDone, backend.issuePatchCount)
+	}
+}
+
 func TestSignalEvidenceRecomputationPrecedesUpdateChallengeAndFinishMutations(t *testing.T) {
 	tests := []struct {
 		name string
@@ -2316,6 +2505,7 @@ type workflowBackend struct {
 	mergeSHA                         string
 	mergedAt                         time.Time
 	removeSummaryOnNextCommand       bool
+	currentStateReviewTriggers       []string
 }
 
 func newWorkflowBackend(t *testing.T) *workflowBackend {
@@ -2376,7 +2566,7 @@ func testWorkflowPREvidence(head string) prEvidence {
 		},
 		DocumentationAudit: documentationAuditReport{
 			Schema: documentationAuditSchema, Base: base, Head: head, MergeBase: "merge-sha",
-			ManagedChanges: []documentationChangeReport{}, EvaluationFixtures: []string{},
+			ManagedChanges: []documentationChangeReport{}, EvaluationFixtures: []string{}, CurrentStateReviewTriggers: []string{},
 		},
 		Curator: noCuratorResult(head),
 	}
@@ -2487,10 +2677,7 @@ func (b *workflowBackend) executeGitArtifact(command string) (string, bool) {
 		return "merge-sha", true
 	}
 	if command == "diff --name-status -z --no-renames merge-sha "+b.head+" --" {
-		if b.managedDocumentChange {
-			return "D\x00README.md\x00", true
-		}
-		return "", true
+		return b.workflowDiffNameStatus(), true
 	}
 	if command == "diff --numstat -z --no-renames merge-sha "+b.head+" --" {
 		if b.managedDocumentChange {
@@ -2508,10 +2695,7 @@ func (b *workflowBackend) executeGitArtifact(command string) (string, bool) {
 	case "merge-base base-sha evaluated-head":
 		return "merge-sha", true
 	case "diff --name-status -z --no-renames merge-sha evaluated-head --":
-		if b.managedDocumentChange {
-			return "D\x00README.md\x00", true
-		}
-		return "", true
+		return b.workflowDiffNameStatus(), true
 	case "diff --numstat -z --no-renames merge-sha evaluated-head --":
 		if b.managedDocumentChange {
 			return "0\t1\tREADME.md\x00", true
@@ -2526,6 +2710,19 @@ func (b *workflowBackend) executeGitArtifact(command string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func (b *workflowBackend) workflowDiffNameStatus() string {
+	var changes strings.Builder
+	for _, trigger := range b.currentStateReviewTriggers {
+		changes.WriteString("M\x00")
+		changes.WriteString(trigger)
+		changes.WriteByte('\x00')
+	}
+	if b.managedDocumentChange {
+		changes.WriteString("D\x00README.md\x00")
+	}
+	return changes.String()
 }
 
 func (b *workflowBackend) executeGitClaim(dir, command string) (string, error) {
