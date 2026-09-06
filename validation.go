@@ -29,6 +29,9 @@ const (
 	// InvalidInstanceChoiceCode identifies invalid direct-choice content in an
 	// XML instance.
 	InvalidInstanceChoiceCode = "XSD4005"
+	// InvalidInstanceSequenceCode identifies invalid direct-sequence content in
+	// an XML instance.
+	InvalidInstanceSequenceCode = "XSD4006"
 )
 
 const (
@@ -62,6 +65,13 @@ var (
 	errInstanceChoiceParticle          = errors.New("choice type has an unsupported particle")
 	errInstanceChoiceTarget            = errors.New("choice alternative has an unsupported target")
 	errInstanceChoiceMixed             = errors.New("choice type mixes local declarations and element references")
+	errInstanceSequenceParticle        = errors.New("sequence type has an unsupported particle")
+	errInstanceSequenceTarget          = errors.New("sequence particle has an unsupported target")
+	errInstanceSequenceMixed           = errors.New("sequence type mixes unsupported particle forms")
+	errInstanceSequenceMissing         = errors.New("sequence instance is missing a required element")
+	errInstanceSequenceUnexpected      = errors.New("sequence instance has an unexpected element")
+	errInstanceSequenceText            = errors.New("sequence instance has non-whitespace parent text")
+	errInstanceSequenceNested          = errors.New("sequence scalar element has nested content")
 	errInstanceOpenAttrsType           = errors.New("openAttrs complex type is outside instance validation")
 	errInstanceComplexContentExtension = errors.New("complex-content extension is outside instance validation")
 	errInstanceElementFacts            = errors.New("global element abstract and nillable facts are outside instance validation")
@@ -137,8 +147,9 @@ type instanceChoiceProgram struct {
 // validates one XML instance against schema. The supported semantic slice is
 // a single global element whose declared type is built-in or named XSD
 // boolean, integer, decimal, or precisionDecimal, or a named complex type with
-// one direct scalar choice. Direct choices may use local scalar declarations,
-// or default-occurrence references to global integer and decimal declarations.
+// one direct scalar choice or sequence. Direct choices may use local scalar
+// declarations, or default-occurrence references to global integer and decimal
+// declarations. Direct sequences use local integer and decimal declarations.
 // Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint
@@ -160,7 +171,11 @@ func ValidateInstance(schema Schema, sourceID SourceID, reader io.ReadCloser) er
 		)
 	}
 
-	document, err := decodeInstance(reader, instanceDecodeConfig{sourceID: sourceID})
+	var observer instanceDecoderObserver
+	if sourceID != "" && schema.storage != nil {
+		observer = newInstanceValidationObserver(schema)
+	}
+	document, err := decodeInstance(reader, instanceDecodeConfig{sourceID: sourceID, observer: observer})
 	if err != nil {
 		return err
 	}
@@ -183,6 +198,9 @@ func ValidateInstance(schema Schema, sourceID SourceID, reader io.ReadCloser) er
 		)
 	}
 	if document == nil || document.root == nil {
+		if document != nil && document.streamed {
+			return nil
+		}
 		return newInstanceValidationInternal(
 			Loc{},
 			"instance decoder returned no completed root",
@@ -1130,9 +1148,13 @@ func validateScalarStructure(root *instanceElement, scalar instanceScalarType) e
 
 func validateScalarValue(root *instanceElement, scalar instanceScalarType) error {
 	lexical, valueLoc := instanceScalarText(root)
+	return validateScalarLexicalValue(root.name, lexical, valueLoc, scalar)
+}
+
+func validateScalarLexicalValue(name syntaxName, lexical string, valueLoc Loc, scalar instanceScalarType) error {
 	switch typed := scalar.value.(type) {
 	case instanceDigitScalar:
-		return validateDigitScalarValue(root, lexical, valueLoc, scalar, typed)
+		return validateDigitScalarValue(name, lexical, valueLoc, scalar, typed)
 	case instancePrecisionDecimalScalar:
 		return validatePrecisionDecimalScalarValue(lexical, valueLoc, scalar, typed)
 	case instanceBooleanScalar:
@@ -1140,14 +1162,14 @@ func validateScalarValue(root *instanceElement, scalar instanceScalarType) error
 	default:
 		return newInstanceValidationInternal(
 			valueLoc,
-			fmt.Sprintf("global element %q has an unknown scalar value representation", renderSyntaxName(root.name)),
+			fmt.Sprintf("element %q has an unknown scalar value representation", renderSyntaxName(name)),
 			scalar.related,
 			errInstanceValidationInvariant,
 		)
 	}
 }
 
-func validateDigitScalarValue(root *instanceElement, lexical string, valueLoc Loc, scalar instanceScalarType, typed instanceDigitScalar) error {
+func validateDigitScalarValue(name syntaxName, lexical string, valueLoc Loc, scalar instanceScalarType, typed instanceDigitScalar) error {
 	switch typed.facets.Kind() {
 	case DigitDatatypeInteger:
 		return validateIntegerScalarValue(lexical, valueLoc, scalar, typed.facets, typed.integerBounds)
@@ -1156,7 +1178,7 @@ func validateDigitScalarValue(root *instanceElement, lexical string, valueLoc Lo
 	default:
 		return newInstanceValidationInternal(
 			valueLoc,
-			fmt.Sprintf("global element %q has an unknown scalar datatype %q", renderSyntaxName(root.name), typed.facets.Kind()),
+			fmt.Sprintf("element %q has an unknown scalar datatype %q", renderSyntaxName(name), typed.facets.Kind()),
 			scalar.related,
 			errInstanceValidationInvariant,
 		)

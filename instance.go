@@ -40,8 +40,9 @@ var errInstanceUnsupportedEncoding = errors.New("non-UTF-8 instance encoding")
 // instanceDocument is the completed, ordered representation consumed by the
 // first validator phase. It retains no decoder, reader, or source bytes.
 type instanceDocument struct {
-	source SourceID
-	root   *instanceElement
+	source   SourceID
+	root     *instanceElement
+	streamed bool
 }
 
 type instanceElement struct {
@@ -89,18 +90,30 @@ type instanceDecoder struct {
 	decoder   *xml.Decoder
 	positions *syntaxPositionReader
 	lexical   *instanceLexicalReader
+	observer  instanceDecoderObserver
 
 	root            *instanceElement
 	stack           []instanceFrame
+	rootSeen        bool
 	rootClosed      bool
 	seenToken       bool
 	seenXML         bool
 	unsupported     error
+	semantic        error
+	observerChosen  bool
+	streaming       bool
 	allowUnboundDTD bool
 }
 
 type instanceDecodeConfig struct {
 	sourceID SourceID
+	observer instanceDecoderObserver
+}
+
+type instanceDecoderObserver interface {
+	startElement(name syntaxName, loc Loc, attrs []instanceAttribute) (retainTree bool, err error)
+	endElement(name syntaxName, loc Loc) error
+	characterData(data []byte, loc Loc) error
 }
 
 type instanceLexicalReader struct {
@@ -315,6 +328,7 @@ func decodeInstance(reader io.ReadCloser, config instanceDecodeConfig) (document
 		decoder:   decoder,
 		positions: positions,
 		lexical:   lexical,
+		observer:  config.observer,
 	}
 
 	defer func() {
@@ -361,7 +375,8 @@ func (parser *instanceDecoder) decode() (*instanceDocument, error) {
 		token, err := parser.decoder.RawToken()
 		rawToken := parser.lexical.endCapture(parser.decoder.InputOffset())
 		if err != nil {
-			return parser.handleTokenError(err, loc, rawToken)
+			document, tokenErr := parser.handleTokenError(err, loc, rawToken)
+			return document, parser.withRecordedSemantic(tokenErr)
 		}
 		if token == nil {
 			return nil, newDiagnostic(
@@ -373,9 +388,32 @@ func (parser *instanceDecoder) decode() (*instanceDocument, error) {
 			)
 		}
 		if err := parser.handleToken(token, loc, rawToken); err != nil {
-			return nil, err
+			return nil, parser.withRecordedSemantic(err)
 		}
 	}
+}
+
+func (parser *instanceDecoder) recordSemantic(err error) {
+	if err == nil || parser.semantic != nil {
+		return
+	}
+	parser.semantic = err
+}
+
+func (parser *instanceDecoder) withRecordedSemantic(err error) error {
+	if parser.semantic == nil || err == nil {
+		if err != nil {
+			return err
+		}
+		return parser.semantic
+	}
+
+	for _, diagnostic := range syntaxDiagnostics(err) {
+		if instanceDiagnosticsMatch(diagnostic, parser.semantic) {
+			return err
+		}
+	}
+	return combineInstanceErrors(parser.semantic, err)
 }
 
 func (parser *instanceDecoder) handleTokenError(err error, loc Loc, rawToken []byte) (*instanceDocument, error) {
@@ -557,15 +595,15 @@ func (parser *instanceDecoder) validateUnsupportedEncodingDeclaration(rawToken [
 func (parser *instanceDecoder) finishAtEOF(cause error, loc Loc) (*instanceDocument, error) {
 	if len(parser.stack) > 0 {
 		open := parser.stack[len(parser.stack)-1]
-		return nil, newInstanceInvalid(
+		return nil, parser.withRecordedSemantic(newInstanceInvalid(
 			InvalidInstanceXMLCode,
 			open.loc,
 			fmt.Sprintf("unexpected end of document; element <%s> is not closed", renderSyntaxName(open.name)),
 			instanceXMLWellFormedSpecRef,
 			cause,
-		)
+		))
 	}
-	if parser.root == nil {
+	if !parser.rootSeen {
 		return nil, newInstanceInvalid(
 			InvalidInstanceRootCode,
 			loc,
@@ -575,7 +613,16 @@ func (parser *instanceDecoder) finishAtEOF(cause error, loc Loc) (*instanceDocum
 		)
 	}
 	if parser.unsupported != nil {
-		return nil, parser.unsupported
+		if parser.semantic == nil {
+			return nil, parser.unsupported
+		}
+		return nil, combineInstanceErrors(parser.unsupported, parser.semantic)
+	}
+	if parser.semantic != nil {
+		return nil, parser.semantic
+	}
+	if parser.streaming {
+		return &instanceDocument{source: parser.source, streamed: true}, nil
 	}
 	return &instanceDocument{source: parser.source, root: parser.root}, nil
 }
@@ -598,7 +645,7 @@ func (parser *instanceDecoder) handleToken(token xml.Token, loc Loc, rawToken []
 		return parser.processingInstruction(value, loc)
 	case xml.Directive:
 		if instanceIsDoctype(value) {
-			if parser.root != nil || len(parser.stack) > 0 || parser.rootClosed {
+			if parser.rootSeen || len(parser.stack) > 0 || parser.rootClosed {
 				return newInstanceInvalid(
 					InvalidInstanceXMLCode,
 					loc,
@@ -1560,7 +1607,7 @@ func invalidInstanceDoctype(loc Loc, message string) error {
 }
 
 func (parser *instanceDecoder) startElement(token xml.StartElement, loc Loc, rawToken []byte) error {
-	if parser.rootClosed || (parser.root != nil && len(parser.stack) == 0) {
+	if parser.rootClosed {
 		return newInstanceInvalid(
 			InvalidInstanceRootCode,
 			loc,
@@ -1596,6 +1643,18 @@ func (parser *instanceDecoder) startElement(token xml.StartElement, loc Loc, raw
 	if err != nil {
 		return err
 	}
+	parser.rootSeen = true
+	parser.observeStartElement(name, loc, attrs)
+	if parser.streaming {
+		parser.stack = append(parser.stack, instanceFrame{
+			name:    name,
+			rawName: instanceLexicalName(token.Name),
+			scope:   scope,
+			loc:     loc,
+		})
+		parser.seenToken = true
+		return nil
+	}
 	element := &instanceElement{
 		name:     name,
 		loc:      loc,
@@ -1619,6 +1678,23 @@ func (parser *instanceDecoder) startElement(token xml.StartElement, loc Loc, raw
 	})
 	parser.seenToken = true
 	return nil
+}
+
+func (parser *instanceDecoder) observeStartElement(name syntaxName, loc Loc, attrs []instanceAttribute) {
+	if parser.observer == nil {
+		return
+	}
+	if parser.observerChosen {
+		if parser.streaming {
+			_, err := parser.observer.startElement(name, loc, attrs)
+			parser.recordSemantic(err)
+		}
+		return
+	}
+	retainTree, err := parser.observer.startElement(name, loc, attrs)
+	parser.recordSemantic(err)
+	parser.observerChosen = true
+	parser.streaming = !retainTree
 }
 
 func (parser *instanceDecoder) endElement(token xml.EndElement, loc Loc) error {
@@ -1656,6 +1732,9 @@ func (parser *instanceDecoder) endElement(token xml.EndElement, loc Loc) error {
 		)
 	}
 	parser.stack = parser.stack[:len(parser.stack)-1]
+	if parser.streaming {
+		parser.recordSemantic(parser.observer.endElement(name, loc))
+	}
 	if len(parser.stack) == 0 {
 		parser.rootClosed = true
 	}
@@ -1675,7 +1754,7 @@ func (parser *instanceDecoder) characterData(data xml.CharData, loc Loc, rawToke
 }
 
 func (parser *instanceDecoder) characterDataOutside(data xml.CharData, rawToken []byte, loc Loc) error {
-	if parser.root == nil && !parser.seenToken {
+	if !parser.rootSeen && !parser.seenToken {
 		var bomOnly bool
 		data, rawToken, bomOnly = stripInstanceLeadingBOM(data, rawToken)
 		if bomOnly {
@@ -1706,6 +1785,11 @@ func (parser *instanceDecoder) characterDataOutside(data xml.CharData, rawToken 
 
 func (parser *instanceDecoder) characterDataInside(data xml.CharData, loc Loc) error {
 	if len(data) == 0 {
+		return nil
+	}
+	if parser.streaming {
+		parser.recordSemantic(parser.observer.characterData([]byte(data), loc))
+		parser.seenToken = true
 		return nil
 	}
 	frame := parser.stack[len(parser.stack)-1]

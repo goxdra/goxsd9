@@ -91,14 +91,17 @@ model group with one direct choice of global element-reference particles also
 exposes its ordered children with exact ranges; an effective `0/0` group or
 child maps to absence. The shared effective `0/0` mapping for sequence, choice,
 and child particles precedes type-specific support gating and maps to absence.
-The same exact representation is retained for choice facts while validation
-repetition consumers remain unsupported. The same exact occurrence
-representation also covers bounded attribute-free `complexContent`/`extension`
+The same exact representation is retained for choice facts. `ValidateInstance`
+supports named global complex types with direct local integer/decimal sequences,
+matching expanded names in lexical declaration order and honoring exact finite,
+unbounded, and above-`uint64` outer and child ranges under `Compatibility`,
+`Strict10`, and `Strict11`. Direct-choice repetition remains unsupported. The
+same exact occurrence representation also covers bounded attribute-free `complexContent`/`extension`
 over named empty-content complex bases: the model retains extension/base
 identities and locations and inherited bounded wildcard facts, while validation
 and code generation reject extension types as unsupported.
 Default-bounded direct integer/decimal sequence children are emitted as ordered
-Go struct fields. XSD 1.1
+Go struct fields; repeated-field generation remains unsupported. XSD 1.1
 default-occurrence direct choices may use `precisionDecimal` only when the
 choice and each mapped `precisionDecimal` alternative use default occurrences;
 non-precision alternatives may retain non-default ranges for queries. Non-`0/0`
@@ -129,13 +132,15 @@ view. The migration boundary is:
 
 ## Consumer policy and diagnostics
 
-Future consumers may materialize a native bound only after exact comparison
-with an explicit configured limit. An above-limit finite value, an unbounded
-value, or a multiplication that exceeds a resource budget produces an
-explicit located unsupported or resource diagnostic with its feature and
-specification reference. It never truncates, saturates, uses a sentinel, or
-converts through floating point. Repetition validation and repeated Go
-emission remain disabled until their consumers have such a policy.
+Consumers that materialize a native bound do so only after exact comparison
+with an explicit configured limit. For those consumers, an above-limit finite
+value, an unbounded value, or a multiplication that exceeds a resource budget
+produces an explicit located unsupported or resource diagnostic with its feature
+and specification reference. The direct scalar sequence validator consumes exact
+outer and child ranges on demand, including unbounded and above-`uint64` values,
+without narrowing. No consumer truncates, saturates, uses a sentinel, or converts
+through floating point. Direct-choice repetition validation and non-default
+repeated-field emission remain disabled until their consumers have such a policy.
 
 Malformed and negative lexicals are invalid input at their source attribute;
 the stable schema-composition diagnostic preserves the underlying lexical or
@@ -162,6 +167,10 @@ identities and locations, inherited bounded wildcard facts, and exact direct
 choice/sequence occurrences; validation and code generation reject them as
 unsupported. All supported forms retain exact ranges, and effective `0/0` maps
 to absence.
+For instance validation, named global complex direct local integer/decimal sequences
+match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`
+outer and child ranges under `Compatibility`, `Strict10`, and `Strict11`; direct-choice validation
+remains limited to default occurrences; excluded particle and target shapes remain unsupported.
 Direct choices may also include XSD 1.1 `precisionDecimal` elements only when
 the choice and each mapped `precisionDecimal` alternative use default
 occurrences. Non-precision alternatives may retain non-default ranges for
@@ -169,8 +178,8 @@ queries. Non-`0/0` direct-sequence `precisionDecimal` ranges that map to a
 particle remain unsupported even under XSD 1.1 and Compatibility. An effective
 `0/0` sequence, choice, or child maps to absence before type-specific support
 gating. Supported direct-choice occurrence attributes and non-`0/0`
-alternative ranges are parsed and queryable, but repetition is not implemented
-in validation, and effective total ranges are not calculated. Non-default
+alternative ranges are parsed and queryable, but direct-choice repetition is not
+implemented in validation, and effective total ranges are not calculated. Non-default
 direct sequence occurrences are not generated as repeated fields. Non-default
 `precisionDecimal` choice and alternative ranges that map to a particle are
 schema-unsupported. Boolean facets and
@@ -185,10 +194,10 @@ locations are zero. Wildcard-bearing validation and code-generation consumers
 remain unsupported. Direct
 element-reference particles are supported in the schema model for local choice
 and sequence children and for global named-group direct choices; nested group
-references remain unsupported. Validator consumption is limited to one named global
-complex direct choice whose alternatives are default-occurrence references to global
-integer/decimal scalar elements; all other validator and code-generator consumption
-of direct references remains unsupported. Global
+references remain unsupported. Validator consumption covers named global complex direct
+local integer/decimal sequences and direct choices with default-occurrence local scalar
+alternatives or references to global integer/decimal scalar elements; all other
+validator and code-generator consumption of direct references remains unsupported. Global
 text-only boolean validation is supported under
 Compatibility, Strict10, and Strict11; global boolean scalar generation is
 supported, while local boolean-particle validation and generation remain
