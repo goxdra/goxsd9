@@ -124,20 +124,20 @@ distinctions and broader value spaces remain staged and report unsupported behav
 
 ## Validation and code generation
 
-`ValidateInstance` supports text-only built-in/named scalar `boolean`/`integer`/
-`decimal`/`precisionDecimal` globals and direct named-complex choices with all-default
-local scalar alternatives or all-default references to global integer/decimal elements.
-Mixed local/reference choices and non-default occurrences remain unsupported/query-only.
-Reference targets use immutable `TargetID`/`Lookup`; boolean/`precisionDecimal`
-targets remain unsupported. Named types use `TypeID`/`Lookup`; boolean diagnostics use
-policy; numeric built-ins retain compatibility/default behavior. Sequences/repetition remain
-unsupported. Non-default `precisionDecimal` choice/alternative ranges mapped to a particle
-are schema-unsupported. String globals/restrictions, local boolean/string particles,
-attributes, and broader structures remain unsupported for validation; locations are primary.
+`ValidateInstance` supports built-in/named scalar `boolean`/`integer`/`decimal`/`precisionDecimal` globals and named global complex
+types with direct local integer/decimal sequences using expanded-name lexical order.
+Sequences honor exact finite, unbounded, and above-`uint64` outer/child ranges under
+`Compatibility`, `Strict10`, and `Strict11`. Direct choices allow default local scalars
+or default global integer/decimal references; mixed local/reference choices and non-default
+direct-choice/alternative occurrences unsupported/query-only. Non-default
+`precisionDecimal` choice/alternative ranges are schema-unsupported. Reference targets use
+immutable `TargetID`/`Lookup`; direct-choice repetition and excluded particle/target shapes,
+including strings, local boolean/string particles, attributes, and broader structures, remain
+unsupported. Locations are primary.
 
-Generation emits deterministic choice switches, global booleans, and default-bounded direct
-integer/decimal sequence structs; direct-reference code generation remains unsupported;
-string, boolean facets, and local boolean/string particles remain unsupported.
+Generation emits deterministic choice switches, global booleans, and default-bounded integer/decimal sequence structs;
+repeated-field and direct-reference generation, direct-choice repetition, string, boolean facets, and local boolean/string
+particles remain unsupported.
 
 ## Conformance
 
