@@ -25,12 +25,13 @@ const (
 )
 
 type documentationAuditReport struct {
-	Schema             string                      `json:"schema"`
-	Base               string                      `json:"base"`
-	Head               string                      `json:"head"`
-	MergeBase          string                      `json:"mergeBase"`
-	ManagedChanges     []documentationChangeReport `json:"managedChanges"`
-	EvaluationFixtures []string                    `json:"evaluationFixtures"`
+	Schema                     string                      `json:"schema"`
+	Base                       string                      `json:"base"`
+	Head                       string                      `json:"head"`
+	MergeBase                  string                      `json:"mergeBase"`
+	ManagedChanges             []documentationChangeReport `json:"managedChanges"`
+	EvaluationFixtures         []string                    `json:"evaluationFixtures"`
+	CurrentStateReviewTriggers []string                    `json:"currentStateReviewTriggers"`
 }
 
 type documentationChangeReport struct {
@@ -83,25 +84,31 @@ func evidenceMarkerToken(marker string) string {
 func noCuratorResult(head string) curatorResult {
 	return curatorResult{
 		Schema: curatorResultSchema, Head: head, Verdict: "not-required",
-		Summary:  "No managed-document change; Curator review is not required.",
+		Summary:  "No managed-document change or current-state review trigger; Curator review is not required.",
 		Findings: []curatorFinding{}, Reason: noManagedDocumentChange,
 	}
 }
 
 func documentationAuditReportFrom(rangeValue documentationRange, changes []documentationChange,
-	fixtures []string,
+	fixtures, triggers []string,
 ) documentationAuditReport {
 	report := documentationAuditReport{
 		Schema: documentationAuditSchema, Base: rangeValue.base, Head: rangeValue.head,
-		MergeBase:          rangeValue.mergeBase,
-		ManagedChanges:     make([]documentationChangeReport, 0, len(changes)),
-		EvaluationFixtures: append([]string(nil), fixtures...),
+		MergeBase:                  rangeValue.mergeBase,
+		ManagedChanges:             make([]documentationChangeReport, 0, len(changes)),
+		EvaluationFixtures:         make([]string, 0, len(fixtures)),
+		CurrentStateReviewTriggers: make([]string, 0, len(triggers)),
 	}
 	for _, change := range changes {
 		report.ManagedChanges = append(report.ManagedChanges, documentationChangeReportFrom(change))
 	}
+	report.EvaluationFixtures = append(report.EvaluationFixtures, fixtures...)
+	report.CurrentStateReviewTriggers = append(report.CurrentStateReviewTriggers, triggers...)
 	if report.EvaluationFixtures == nil {
 		report.EvaluationFixtures = []string{}
+	}
+	if report.CurrentStateReviewTriggers == nil {
+		report.CurrentStateReviewTriggers = []string{}
 	}
 	return report
 }
@@ -133,7 +140,10 @@ func validateDocumentationAuditReport(report documentationAuditReport, base, hea
 	if err := validateDocumentationChangeReports(report.ManagedChanges); err != nil {
 		return err
 	}
-	return validateEvaluationFixtures(report.EvaluationFixtures)
+	if err := validateEvaluationFixtures(report.EvaluationFixtures); err != nil {
+		return err
+	}
+	return validateCurrentStateReviewTriggers(report.CurrentStateReviewTriggers)
 }
 
 func validateDocumentationChangeReports(changes []documentationChangeReport) error {
@@ -214,6 +224,21 @@ func validateEvaluationFixtures(fixtures []string) error {
 	return nil
 }
 
+func validateCurrentStateReviewTriggers(triggers []string) error {
+	for index, trigger := range triggers {
+		if index > 0 && triggers[index-1] >= trigger {
+			return fmt.Errorf("currentStateReviewTriggers are not sorted and unique at %q", trigger)
+		}
+		if err := validateGitPath(trigger); err != nil {
+			return fmt.Errorf("current-state review trigger %q: %w", trigger, err)
+		}
+		if !isCurrentStateReviewTriggerPath(trigger) {
+			return fmt.Errorf("current-state review trigger %q is not a classifiable product Go source path", trigger)
+		}
+	}
+	return nil
+}
+
 func validateCuratorResult(result curatorResult, audit documentationAuditReport, head string) error {
 	if result.Schema != curatorResultSchema {
 		return fmt.Errorf("schema is %q, want %q", result.Schema, curatorResultSchema)
@@ -224,14 +249,14 @@ func validateCuratorResult(result curatorResult, audit documentationAuditReport,
 	if strings.TrimSpace(result.Summary) == "" || result.Findings == nil {
 		return errors.New("summary and findings array are required")
 	}
-	if len(audit.ManagedChanges) == 0 {
+	if !documentationAuditRequiresCurator(audit) {
 		if result.RunID != "" || result.Verdict != "not-required" || result.Reason != noManagedDocumentChange || len(result.Findings) != 0 {
 			return errors.New("curator is not required only with the exact audited no-managed-document-change reason")
 		}
 		return nil
 	}
 	if strings.TrimSpace(result.RunID) == "" || result.Verdict != "pass" || result.Reason != "" {
-		return errors.New("managed-document changes require a passing Curator result with a run ID")
+		return errors.New("managed-document changes require a passing Curator result with a run ID; current-state review triggers require the same result")
 	}
 	for index, finding := range result.Findings {
 		if strings.TrimSpace(finding.Location) == "" || strings.TrimSpace(finding.Impact) == "" ||
@@ -243,6 +268,10 @@ func validateCuratorResult(result curatorResult, audit documentationAuditReport,
 		return errors.New("a passing Curator result must contain no findings")
 	}
 	return nil
+}
+
+func documentationAuditRequiresCurator(audit documentationAuditReport) bool {
+	return len(audit.ManagedChanges) != 0 || len(audit.CurrentStateReviewTriggers) != 0
 }
 
 func validatePREvidence(evidence prEvidence, view pullRequestView) error {
@@ -741,7 +770,8 @@ func canonicalDevelopmentSignalsJSON(report developmentSignalsReport) ([]byte, e
 
 func documentationAuditReportsEqual(left, right documentationAuditReport) bool {
 	if left.Schema != right.Schema || left.Base != right.Base || left.Head != right.Head || left.MergeBase != right.MergeBase ||
-		len(left.ManagedChanges) != len(right.ManagedChanges) || len(left.EvaluationFixtures) != len(right.EvaluationFixtures) {
+		len(left.ManagedChanges) != len(right.ManagedChanges) || len(left.EvaluationFixtures) != len(right.EvaluationFixtures) ||
+		len(left.CurrentStateReviewTriggers) != len(right.CurrentStateReviewTriggers) {
 		return false
 	}
 	for index := range left.ManagedChanges {
@@ -751,6 +781,11 @@ func documentationAuditReportsEqual(left, right documentationAuditReport) bool {
 	}
 	for index := range left.EvaluationFixtures {
 		if left.EvaluationFixtures[index] != right.EvaluationFixtures[index] {
+			return false
+		}
+	}
+	for index := range left.CurrentStateReviewTriggers {
+		if left.CurrentStateReviewTriggers[index] != right.CurrentStateReviewTriggers[index] {
 			return false
 		}
 	}

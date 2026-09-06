@@ -9,7 +9,7 @@ Paseo schedules externally. Jobs start from clean coordination checkout in Ameri
 Jobs are non-interactive. Develop starts from clean canonical `main` matching
 fetched `origin/main` with recursive pins; `doctor` enforces; stale launches
 `base-sync`, then relaunch. Develop claims one Ready issue, uses worktree, opens
-draft PR, squash-merges evaluated head; one companion. Managed-document heads:
+draft PR, squash-merges evaluated head; one companion. Managed-document/source-trigger heads:
 exact audit + fresh read-only Curator review; repeat after each remediation push;
 preserve review records in PR evidence; Examiner gates.
 Four-hour claims renew at durable boundaries/pushes, never solely for renewal;

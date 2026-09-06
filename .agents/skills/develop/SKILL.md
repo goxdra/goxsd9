@@ -60,9 +60,11 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    targets and `no-relevant-target`/`not-measured` are valid; fuzz is health,
    not conformance. Before evidence update, challenge, or finish, workflowctl
    resolves exact REST base/head, matches local commits, recomputes v2 signals/
-   policy, and compares canonical payload. Managed docs require Curator audit,
-   diff, paths, charters, and head; check placement, relevance, duplication,
-   history, replacement; preserve JSON and repeat after remediation.
+   policy; managed docs/source triggers need exact-head read-only Curator pass
+   (runID/pass/no-findings). Reject omitted/stale/forged/unsorted/duplicate/
+   mismatched triggers before update/challenge/finish/convergence. Classify
+   exact changed paths only; never scan prose/infer behavior. Legacy omission
+   is valid only on exact fresh no-trigger diff. Repeat remediation.
 10. Before challenging, reread the exact full PR body against current
     head/evidence/implementation; correct stale freeform claims (including
     historical issue-class claims) without normalizing Examiner
@@ -70,10 +72,9 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
     audit plus fresh Curator review when applicable, then obtain a fresh
     body-bound challenge and Examiner attestation. Machine binding proves
     identity, not prose truth; never reuse a challenge or stale evidence.
-    Run `go tool workflowctl evaluation challenge PR`; managed-document heads
-    require fresh read-only Curator review. Give challenge, PR state, tests,
-    audit, Curator result, attestation shape, and rubric to a fresh read-only,
-    challenge-bound Examiner. Examiner inspects source, reruns audit, rejects
+    Run `go tool workflowctl evaluation challenge PR`; give challenge, PR state,
+    tests, audit, Curator result, attestation shape, rubric to fresh
+    read-only, challenge-bound Examiner. Examiner inspects source, reruns audit, rejects
     stale/missing Curator evidence, returns exact
     `goxsd9/examiner-attestation/v1` JSON; failure findings require location,
     impact, and requiredCorrection. Copy it byte-for-byte outside repository;

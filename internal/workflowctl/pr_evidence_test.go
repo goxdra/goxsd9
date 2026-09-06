@@ -170,6 +170,63 @@ func TestPREvidenceCuratorContractFollowsManagedChanges(t *testing.T) {
 	}
 }
 
+func TestPREvidenceCurrentStateTriggerRequiresPassingCurator(t *testing.T) {
+	evidence, view := evidenceTestView(t)
+	evidence.DocumentationAudit.CurrentStateReviewTriggers = []string{"schema.go"}
+	evidence.Curator = noCuratorResult(view.HeadRefOID)
+	if err := validatePREvidence(evidence, view); err == nil || !strings.Contains(err.Error(), "current-state review triggers") {
+		t.Fatalf("missing trigger Curator error = %v", err)
+	}
+	evidence.Curator = curatorResult{
+		Schema: curatorResultSchema, RunID: "curator-run", Head: view.HeadRefOID, Verdict: "pass",
+		Summary: "The product source change has current documentation.", Findings: []curatorFinding{},
+	}
+	if err := validatePREvidence(evidence, view); err != nil {
+		t.Fatalf("source-only evidence rejected with passing Curator: %v", err)
+	}
+}
+
+func TestDocumentationAuditCurrentStateTriggerValidation(t *testing.T) {
+	evidence, view := evidenceTestView(t)
+	base := evidence.DocumentationAudit
+	tests := []struct {
+		name     string
+		triggers []string
+		want     string
+	}{
+		{name: "unsorted", triggers: []string{"z.go", "a.go"}, want: "not sorted"},
+		{name: "duplicate", triggers: []string{"schema.go", "schema.go"}, want: "not sorted"},
+		{name: "test source", triggers: []string{"schema_test.go"}, want: "classifiable"},
+		{name: "workflow source", triggers: []string{"internal/workflowctl/audit.go"}, want: "classifiable"},
+		{name: "absolute", triggers: []string{"/schema.go"}, want: "invalid repository path"},
+		{name: "parent", triggers: []string{"../schema.go"}, want: "invalid repository path"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			report := base
+			report.CurrentStateReviewTriggers = test.triggers
+			if err := validateDocumentationAuditReport(report, view.BaseRefOID, view.HeadRefOID); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("trigger validation error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestDocumentationAuditReportsEqualTreatsNilAndEmptyTriggersAsEqual(t *testing.T) {
+	evidence, _ := evidenceTestView(t)
+	left := evidence.DocumentationAudit
+	right := left
+	left.CurrentStateReviewTriggers = nil
+	right.CurrentStateReviewTriggers = []string{}
+	if !documentationAuditReportsEqual(left, right) {
+		t.Fatal("nil and empty current-state trigger arrays did not compare equal")
+	}
+	right.CurrentStateReviewTriggers = []string{"schema.go"}
+	if documentationAuditReportsEqual(left, right) {
+		t.Fatal("legacy omitted trigger array matched a non-empty exact trigger report")
+	}
+}
+
 func TestPREvidenceNoDocumentChangeRequiresAuditedReason(t *testing.T) {
 	evidence, view := evidenceTestView(t)
 	evidence.Curator.Reason = "not-applicable"
@@ -253,7 +310,7 @@ func evidenceTestView(t *testing.T) (prEvidence, pullRequestView) {
 		},
 		DocumentationAudit: documentationAuditReport{
 			Schema: documentationAuditSchema, Base: base, Head: head, MergeBase: "merge-base-sha",
-			ManagedChanges: []documentationChangeReport{}, EvaluationFixtures: []string{},
+			ManagedChanges: []documentationChangeReport{}, EvaluationFixtures: []string{}, CurrentStateReviewTriggers: []string{},
 		},
 		Curator: noCuratorResult(head),
 	}
