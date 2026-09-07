@@ -6,8 +6,8 @@ goxsd9 exposes schema parsing, immutable queries/walks, XML validation, and Go
 generation. The schema model is the leaf dependency for validation and generation
 and has no validator/generator caches.
 
-Runtime implementation uses only standard-library facilities; development
-tooling remains outside the library dependency graph.
+Runtime uses standard-library facilities; development tooling is outside the
+library dependency graph.
 
 ## Deterministic phase pipeline
 
@@ -36,8 +36,8 @@ output. Every fallback ordering uses explicit stable keys.
 ## Input and resolution
 
 The entrypoint is `ParseSchema(root ResolvedSource, resolver Resolver)`.
-The caller creates root `ResolvedSource` with `NewResolvedSource`; the
-resolver creates referenced sources and supplies resolution policy. Parsing
+Caller creates root `ResolvedSource`; the resolver creates referenced sources
+and supplies policy. Parsing
 closes root and every resolver-supplied stream; it drains and decodes only
 unseen identities. Repeated/cyclic identities are closed without decoding.
 
@@ -58,7 +58,7 @@ references. Source identities and lexical schema locations remain opaque; the
 parser never interprets paths, opens files, or performs network requests.
 Resolver calls are sequential.
 
-The decoder captures one-based line and Unicode-code-point columns
+The decoder captures one-based line and code-point columns
 while streaming. Syntax nodes and final components retain `Loc` values, not
 source bytes or excerpts.
 
@@ -71,8 +71,8 @@ Structured diagnostics are deterministic and classify failures as:
 - source resolution failure; or
 - internal invariant failure.
 
-Each diagnostic has a stable code, primary `Loc`, optional related locations,
-and an applicable specification reference. Causes survive package boundaries.
+Each diagnostic has stable code, primary `Loc`, related locations, and spec
+reference. Causes survive package boundaries.
 Error-level diagnostics prevent a schema from being returned.
 
 Unsupported features have stable identifiers. Conformance reports aggregate
@@ -89,17 +89,18 @@ Documents follow identity-discovery order (root, queue); named declarations foll
 declaration ordinals; lookup maps never define observable order. Local particles use scoped component
 facts/indexes; validator/generator state is on-demand.
 
-Model stores facts; primitive status follows type relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`
-elements retain `DeclaredType`; named/anonymous restrictions expose immutable boolean-kind, string-enumeration,
-and string-`whiteSpace` facts; built-ins lack synthetic IDs. Supported global attributes with built-in/named
-integer/decimal types retain immutable default/fixed value-constraint facts: kind (`default`/`fixed`), normalized
-lexical form, exact typed value, source location. Local uses, inline types, string/boolean/precisionDecimal
-attributes, other wildcard/attribute forms unsupported; validation/generation do not consume attributes.
+Model stores facts; primitive status follows relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`
+elements retain `DeclaredType`; restrictions expose immutable boolean-kind, string-enumeration, and
+string-`whiteSpace` facts; built-ins lack synthetic IDs. Supported integer/decimal attributes retain immutable
+default/fixed facts: kind, normalized lexical form, typed value, source location. Local uses, inline types,
+string/boolean/precisionDecimal attributes, and other wildcard/attribute forms are unsupported; consumers do not
+consume attributes.
 
 Named complex types: particles; bounded openAttrs restrictions; bounded attribute-free complexContent/extension over named empty-content bases;
 extensions retain base/extension identities/locations, inherited bounded wildcard facts, exact direct-choice/sequence occurrences; validation/generation
-reject. Direct sequence/choice: local xs:boolean/named boolean-restriction/integer/decimal; exact ranges (0/0 absent). XSD 1.1 precisionDecimal choices
-require default occurrences; ranges queryable. Local string/token particles, Boolean facets, anonymous/nested/broader particles unsupported.
+reject. Direct sequence/choice: local xs:boolean, exact-atomic-string, named boolean-restriction/integer/decimal; exact ranges (0/0 absent).
+Local exact-string particles retain resolved references and effective facets; XSD 1.1 precisionDecimal choices require default occurrences;
+ranges are queryable. Token-derived families, Boolean facets, anonymous/nested/broader particles remain unsupported.
 References retain immutable target facts. Choices/sequences expose attribute-free anyAttribute: omitted=##any/strict; explicit=##other/lax supported across policies.
 Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
 
@@ -126,8 +127,8 @@ or default global integer/decimal references; mixed local/reference choices and 
 direct-choice/alternative occurrences unsupported/query-only. Non-default
 `precisionDecimal` choice/alternative ranges are schema-unsupported. Reference targets use
 immutable `TargetID`/`Lookup`; direct-choice repetition and excluded particle/target shapes,
-including strings, local boolean/string particles, attributes, and broader structures, remain
-unsupported. Locations are primary.
+including modelled local string particles, local boolean particles, attributes, and broader
+structures, remain unsupported by validation. Locations are primary.
 
 Generation emits deterministic choice switches, global booleans, and default-bounded integer/decimal sequence structs;
 repeated-field and direct-reference generation, direct-choice repetition, string, boolean facets, and local boolean/string

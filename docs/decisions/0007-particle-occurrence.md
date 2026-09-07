@@ -84,9 +84,9 @@ boundary:
 
 The current schema preflight uses this exact private range to validate lexical
 occurrence input. A named global complex type with one direct sequence of local
-built-in `xs:boolean`, named boolean-restriction, integer, or decimal scalar
-elements, or one direct choice of those scalar elements, maps the completed
-range and ordered children into the public schema. A supported global named
+built-in `xs:boolean` or exact-atomic `xs:string`, named exact-string or boolean-
+restriction, integer, or decimal scalar elements, or one direct choice of those
+scalar elements, maps the completed range and ordered children into the public schema. A supported global named
 model group with one direct choice of global element-reference particles also
 exposes its ordered children with exact ranges; an effective `0/0` group or
 child maps to absence. The shared effective `0/0` mapping for sequence, choice,
@@ -158,9 +158,9 @@ behavior. An error-level diagnostic returns no schema.
 ## Non-goals, risks, and follow-up
 
 Currently, the supported occurrence boundary is one named global complex type
-with one direct sequence or direct choice of local built-in `xs:boolean`, named
-boolean-restriction, integer, or decimal scalar elements, or one global named
-model group with one direct choice of global element-reference particles, in
+with one direct sequence or direct choice of local built-in `xs:boolean` or exact-
+atomic `xs:string`, named exact-string or boolean-restriction, integer, or decimal
+scalar elements, or one global named model group with one direct choice of global element-reference particles, in
 XSD 1.0 and 1.1, plus bounded attribute-free `complexContent`/`extension` over
 named empty-content complex bases. These extension types retain extension/base
 identities and locations, inherited bounded wildcard facts, and exact direct

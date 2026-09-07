@@ -3140,6 +3140,35 @@ func resolvedSchemaElementTypeResult(input *schemaElementInput, typeID Component
 	}
 }
 
+func resolvedSchemaElementTypeResultWithReference(
+	input *schemaElementInput,
+	typeID ComponentID,
+	reference schemaSimpleTypeReferenceComponent,
+) schemaElementTypeResult {
+	result := resolvedSchemaElementTypeResult(input, typeID, true)
+	result.typeReference = reference
+	result.hasTypeReference = true
+	return result
+}
+
+func resolvedNamedSchemaSimpleTypeReference(
+	input *schemaElementInput,
+	typeID ComponentID,
+	simpleType schemaSimpleTypeResult,
+) schemaSimpleTypeReferenceComponent {
+	return schemaSimpleTypeReferenceComponent{
+		kind:       SimpleTypeReferenceNamed,
+		name:       input.declaredType,
+		loc:        input.typeLoc,
+		id:         typeID,
+		hasID:      true,
+		variety:    simpleType.variety,
+		varietyLoc: simpleType.varietyLoc,
+		atomicKind: simpleType.atomicKind,
+		facets:     simpleType.facets,
+	}
+}
+
 type schemaScalarTypeScope uint8
 
 const (
@@ -3840,22 +3869,13 @@ func resolveSchemaElementType(
 	if err := rejectUnsupportedSchemaSimpleTypeVariety(input, simpleTypes.results[candidate], version, "for global elements"); err != nil {
 		return schemaElementTypeResult{}, err
 	}
+	reference := resolvedNamedSchemaSimpleTypeReference(input, records[candidate].id, simpleTypes.results[candidate])
 	return schemaElementTypeResult{
-		present:      true,
-		declaredType: input.declaredType,
-		typeID:       records[candidate].id,
-		hasTypeID:    true,
-		typeReference: schemaSimpleTypeReferenceComponent{
-			kind:       SimpleTypeReferenceNamed,
-			name:       input.declaredType,
-			loc:        input.typeLoc,
-			id:         records[candidate].id,
-			hasID:      true,
-			variety:    simpleTypes.results[candidate].variety,
-			varietyLoc: simpleTypes.results[candidate].varietyLoc,
-			atomicKind: simpleTypes.results[candidate].atomicKind,
-			facets:     simpleTypes.results[candidate].facets,
-		},
+		present:          true,
+		declaredType:     input.declaredType,
+		typeID:           records[candidate].id,
+		hasTypeID:        true,
+		typeReference:    reference,
 		hasTypeReference: true,
 		abstract:         input.abstract,
 		nillable:         input.nillable,
@@ -3932,7 +3952,11 @@ func resolveSchemaScalarType(
 	if err := rejectUnsupportedLocalScalarType(input, simpleTypes[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
 		return schemaElementTypeResult{}, err
 	}
-	return resolvedSchemaElementTypeResult(input, records[candidate].id, true), nil
+	return resolvedSchemaElementTypeResultWithReference(
+		input,
+		records[candidate].id,
+		resolvedNamedSchemaSimpleTypeReference(input, records[candidate].id, simpleTypes[candidate]),
+	), nil
 }
 
 func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, context string) error {
@@ -3950,10 +3974,27 @@ func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleT
 	)
 }
 
-//nolint:gocognit // Keep built-in scalar scope and version branches explicit.
+//nolint:gocognit,funlen // Keep built-in scalar scope and version branches explicit.
 func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
-	case "string", "token":
+	case "string":
+		if scope != schemaScalarTypeGlobalElement && scope != schemaScalarTypeLocalParticle {
+			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
+		}
+		reference, err := builtinSchemaElementTypeReference(input, version)
+		if err != nil {
+			return schemaElementTypeResult{}, err
+		}
+		return schemaElementTypeResult{
+			present:          true,
+			declaredType:     input.declaredType,
+			typeReference:    reference,
+			hasTypeReference: true,
+			abstract:         input.abstract,
+			nillable:         input.nillable,
+			block:            input.block,
+		}, nil
+	case "token":
 		if scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
@@ -4043,8 +4084,9 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 		return nil
 	}
 	switch simpleType.atomicKind {
-	case schemaSimpleTypeAtomicString,
-		schemaSimpleTypeAtomicToken,
+	case schemaSimpleTypeAtomicString:
+		return nil
+	case schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
@@ -5035,6 +5077,8 @@ func resolveSchemaElementParticle(
 		occurrences:             input.occurrences.clone(),
 		name:                    input.name,
 		declaredType:            resolved.declaredType,
+		typeReference:           resolved.typeReference,
+		hasTypeReference:        resolved.hasTypeReference,
 		nillable:                input.nillable,
 		disallowedSubstitutions: input.block,
 		typeID:                  resolved.typeID,

@@ -232,6 +232,34 @@ func (reference SimpleTypeReference) AnonymousType() (SimpleTypeDefinition, bool
 	return SimpleTypeDefinition{facts: reference.facts.anonymous}, true
 }
 
+// StringEnumerationFacets returns the effective lexical string enumeration
+// facets of the referenced type. It returns the zero value for a non-string
+// reference.
+func (reference SimpleTypeReference) StringEnumerationFacets() StringEnumerationFacets {
+	if reference.facts == nil {
+		return StringEnumerationFacets{}
+	}
+	facets, ok := reference.facts.facets.(schemaStringFacetVariant)
+	if !ok {
+		return StringEnumerationFacets{}
+	}
+	return facets.enumeration
+}
+
+// StringWhiteSpaceFacet returns the effective string whiteSpace facet of the
+// referenced type. It returns false for a non-string reference or incomplete
+// internal facet facts.
+func (reference SimpleTypeReference) StringWhiteSpaceFacet() (StringWhiteSpaceFacet, bool) {
+	if reference.facts == nil {
+		return StringWhiteSpaceFacet{}, false
+	}
+	facets, ok := reference.facts.facets.(schemaStringFacetVariant)
+	if !ok || facets.whiteSpace == nil {
+		return StringWhiteSpaceFacet{}, false
+	}
+	return *cloneStringWhiteSpaceFacet(facets.whiteSpace), true
+}
+
 // IsBuiltin reports whether the reference names an XSD built-in datatype.
 func (reference SimpleTypeReference) IsBuiltin() bool {
 	return reference.Kind() == SimpleTypeReferenceBuiltin
@@ -1487,6 +1515,15 @@ func (particle ElementParticle) DeclaredType() QName {
 	return particle.facts.declaredType
 }
 
+// TypeReference returns the resolved simple-type reference used by the local
+// element, when it has one.
+func (particle ElementParticle) TypeReference() (SimpleTypeReference, bool) {
+	if particle.facts == nil || !particle.facts.hasTypeReference {
+		return SimpleTypeReference{}, false
+	}
+	return SimpleTypeReference{facts: &particle.facts.typeReference}, true
+}
+
 // IsNillable reports the effective nillable fact of the local element
 // declaration.
 func (particle ElementParticle) IsNillable() bool {
@@ -2252,6 +2289,8 @@ type schemaElementParticle struct {
 	occurrences             particleOccurrenceRange
 	name                    QName
 	declaredType            QName
+	typeReference           schemaSimpleTypeReferenceComponent
+	hasTypeReference        bool
 	nillable                bool
 	disallowedSubstitutions schemaBlockPolicy
 	typeID                  ComponentID

@@ -2132,7 +2132,7 @@ func TestSchemaBridgePreservesChoiceElementTypeDiagnostics(t *testing.T) {
 		},
 		{
 			name:    "unsupported built-in scalar",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:string"/></xs:choice></xs:complexType></xs:schema>`,
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:token"/></xs:choice></xs:complexType></xs:schema>`,
 			class:   FailureUnsupported,
 			code:    UnsupportedSchemaSyntaxCode,
 			feature: FeatureSchemaSyntax,
@@ -2171,7 +2171,7 @@ func TestSchemaBridgePreservesChoiceElementTypeDiagnostics(t *testing.T) {
 	}
 }
 
-func TestSchemaBridgeRejectsNamedStringLocalParticles(t *testing.T) {
+func TestSchemaBridgeModelsNamedStringLocalParticles(t *testing.T) {
 	for _, policy := range []struct {
 		name    string
 		value   LanguagePolicy
@@ -2189,13 +2189,14 @@ func TestSchemaBridgeRejectsNamedStringLocalParticles(t *testing.T) {
 			{name: "inherited sequence", model: "sequence", declaredType: "Inherited"},
 		} {
 			t.Run(policy.name+"/"+particle.name, func(t *testing.T) {
-				assertNamedStringLocalParticleUnsupported(t, policy, particle.model, particle.declaredType)
+				assertNamedStringLocalParticleModeled(t, policy, particle.model, particle.declaredType)
 			})
 		}
 	}
 }
 
-func assertNamedStringLocalParticleUnsupported(t *testing.T, policy struct {
+//nolint:gocognit // Keep the public particle shape and identity assertions together.
+func assertNamedStringLocalParticleModeled(t *testing.T, policy struct {
 	name    string
 	value   LanguagePolicy
 	version XSDVersion
@@ -2205,27 +2206,55 @@ func assertNamedStringLocalParticleUnsupported(t *testing.T, policy struct {
   <xs:simpleType name="Named"><xs:restriction base="xs:string"/></xs:simpleType>
   <xs:simpleType name="Inherited"><xs:restriction base="r:Named"/></xs:simpleType>
   <xs:complexType name="Container"><xs:` + model + `><xs:element name="item" type="r:` + declaredType + `"/></xs:` + model + `></xs:complexType>
-</xs:schema>`
+	</xs:schema>`
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.value)
-	if err == nil {
-		t.Fatal("discoverSchema accepted a named atomic-string local particle")
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
 	}
-	if schema.storage != nil || len(schema.Components()) != 0 {
-		t.Fatal("discoverSchema returned a partial schema")
+	containerName := mustTestQName(t, "urn:test", "Container")
+	var container Component
+	for _, component := range schema.Components() {
+		if component.Name() != containerName {
+			continue
+		}
+		container = component
+		break
 	}
-	diagnostic := requireDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
-		t.Fatalf("diagnostic = %s, want unsupported schema syntax", diagnostic)
+	definition, ok := container.ComplexType()
+	if !ok {
+		t.Fatal("Container has no complex type view")
 	}
-	if diagnostic.Feature() != FeatureSchemaSyntax {
-		t.Fatalf("diagnostic feature = %q, want %q", diagnostic.Feature(), FeatureSchemaSyntax)
+	particleValue := definition.Particle()
+	if model == "choice" {
+		choice, choiceOK := particleValue.(ChoiceParticle)
+		if !choiceOK || len(choice.Alternatives()) != 1 {
+			t.Fatalf("Container particle = %#v, want one choice alternative", particleValue)
+		}
+		particleValue = choice.Alternatives()[0]
 	}
-	wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, 4, "type")
-	if diagnostic.Loc() != wantLoc {
-		t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+	if model == "sequence" {
+		sequence, sequenceOK := particleValue.(SequenceParticle)
+		if !sequenceOK || len(sequence.Elements()) != 1 {
+			t.Fatalf("Container particle = %#v, want one sequence element", particleValue)
+		}
+		particleValue = sequence.Elements()[0]
 	}
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+	particle, particleOK := particleValue.(ElementParticle)
+	if !particleOK {
+		t.Fatalf("local particle = %T, want ElementParticle", particleValue)
+	}
+	wantType := mustTestQName(t, "urn:test", declaredType)
+	if particle.DeclaredType() != wantType {
+		t.Fatalf("declared type = %s, want %s", particle.DeclaredType(), wantType)
+	}
+	reference, referenceOK := particle.TypeReference()
+	if !referenceOK || !reference.IsNamed() || reference.Name() != wantType {
+		t.Fatalf("type reference = %#v/%t, want named %s", reference, referenceOK, wantType)
+	}
+	typeID, hasTypeID := particle.TypeID()
+	referenceID, hasReferenceID := reference.ComponentID()
+	if !hasTypeID || !hasReferenceID || typeID != referenceID {
+		t.Fatalf("type identity = %v/%t and reference identity = %v/%t do not match", typeID, hasTypeID, referenceID, hasReferenceID)
 	}
 }
 
@@ -4481,9 +4510,9 @@ func TestSchemaBridgeRejectsGlobalElementTypeTargetsWithoutSchema(t *testing.T) 
 			unsupported: true,
 		},
 		{
-			name: "local string built-in is unsupported",
+			name: "local token built-in is unsupported",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.0">
-  <xs:complexType name="Container"><xs:choice><xs:element name="item" type="xs:string"/></xs:choice></xs:complexType>
+  <xs:complexType name="Container"><xs:choice><xs:element name="item" type="xs:token"/></xs:choice></xs:complexType>
 </xs:schema>`,
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
