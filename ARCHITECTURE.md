@@ -89,12 +89,13 @@ Documents follow identity-discovery order (root, queue); named declarations foll
 declaration ordinals; lookup maps never define observable order. Local particles use scoped component
 facts/indexes; validator/generator state is on-demand.
 
-Model stores facts; primitive status follows type relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`
-elements retain `DeclaredType`; named/anonymous restrictions expose immutable boolean-kind, string-enumeration,
-and string-`whiteSpace` facts; built-ins lack synthetic IDs. Supported global attributes with built-in/named
-integer/decimal types retain immutable default/fixed value-constraint facts: kind (`default`/`fixed`), normalized
-lexical form, exact typed value, source location. Local uses, inline types, string/boolean/precisionDecimal
-attributes, other wildcard/attribute forms unsupported; validation/generation do not consume attributes.
+Model facts; primitive status follows type-relations. Global `xs:boolean`/atomic `xs:string`/`xs:token` elements: `DeclaredType`;
+named/anonymous restrictions: immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins no synthetic IDs.
+Supported global built-in/named integer/decimal attributes: immutable value-constraint-facts—kind=default/fixed, normalized-lexical-form,
+exact-typed-value, source-location. Supported named global complex-type bodies accept unqualified `mixed="false"`/`mixed="0"`:
+omitted element-only form (unretained/unconsumed); `mixed="true"`/`mixed="1"` explicitly unsupported; malformed/contradictory XSD 1.1
+outer/inner values invalid; anonymous globals invalid. Local uses/inline types, string/boolean/precisionDecimal attributes, other
+wildcard/attribute forms unsupported; validation/generation: no attribute consumption.
 
 Named complex types: particles; bounded openAttrs restrictions; bounded attribute-free complexContent/extension over named empty-content bases;
 extensions retain base/extension identities/locations, inherited bounded wildcard facts, exact direct-choice/sequence occurrences; validation/generation

@@ -878,26 +878,23 @@ func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion)
 	if !ok {
 		return newSchemaBridgeInvariant(element.loc, "global declaration has an unknown kind")
 	}
-	var candidate schemaChildUnsupportedCandidate
-	for _, attribute := range element.attrs {
-		message, err := validateGlobalSchemaAttribute(element, kind, attribute, version)
-		if err != nil {
-			if !candidate.considerError(err) {
-				return err
-			}
-			continue
-		}
-		if message != "" {
-			candidate.considerAt(attribute.loc, message)
-		}
-	}
-	if err := validateGlobalSchemaDeclarationRequirements(element, kind, version); err != nil {
+	candidate, deferredMixedFalse, err := validateGlobalSchemaDeclarationAttributes(element, kind, version, true)
+	if err != nil {
 		return err
 	}
-	if err := validateGlobalSchemaAttributeCooccurrence(element, version); err != nil {
-		return err
+	if declarationErr := validateGlobalSchemaDeclarationRequirements(element, kind, version); declarationErr != nil {
+		return declarationErr
+	}
+	if declarationErr := validateGlobalSchemaAttributeCooccurrence(element, version); declarationErr != nil {
+		return declarationErr
 	}
 	childrenErr := validateGlobalSchemaChildren(element, version)
+	if deferredMixedFalse && schemaDiagnosticClass(childrenErr) == FailureUnsupported {
+		candidate, _, err = validateGlobalSchemaDeclarationAttributes(element, kind, version, false)
+		if err != nil {
+			return err
+		}
+	}
 	if childrenErr != nil {
 		childrenErr = preferSchemaUnsupported(childrenErr, candidate.loc, candidate.message)
 		if !candidate.considerError(childrenErr) {
@@ -905,6 +902,60 @@ func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion)
 		}
 	}
 	return candidate.err()
+}
+
+//nolint:gocognit // Keep attribute validation and unsupported-candidate staging together.
+func validateGlobalSchemaDeclarationAttributes(element *syntaxElement, kind ComponentKind, version XSDVersion, deferMixedFalse bool) (schemaChildUnsupportedCandidate, bool, error) {
+	var candidate schemaChildUnsupportedCandidate
+	deferredMixedFalse := false
+	for _, attribute := range element.attrs {
+		if deferMixedFalse {
+			deferAttribute, err := deferNamedComplexTypeMixedFalse(element, kind, attribute)
+			if err != nil {
+				return candidate, deferredMixedFalse, err
+			}
+			if deferAttribute {
+				deferredMixedFalse = true
+				continue
+			}
+		}
+		message, err := validateGlobalSchemaAttribute(element, kind, attribute, version)
+		if err != nil {
+			if !candidate.considerError(err) {
+				return candidate, deferredMixedFalse, err
+			}
+			continue
+		}
+		if message != "" {
+			candidate.considerAt(attribute.loc, message)
+		}
+	}
+	return candidate, deferredMixedFalse, nil
+}
+
+func deferNamedComplexTypeMixedFalse(element *syntaxElement, kind ComponentKind, attribute syntaxAttribute) (bool, error) {
+	if kind != ComponentKindComplexTypeDefinition || attribute.name.namespace != "" || attribute.name.local != "mixed" {
+		return false, nil
+	}
+	if len(syntaxAttributesByLocal(element, "name")) != 1 || len(syntaxAttributesByLocal(element, "mixed")) != 1 {
+		return false, nil
+	}
+	mixed, err := schemaBooleanValue(attribute)
+	if err != nil {
+		return false, err
+	}
+	return !mixed, nil
+}
+
+func schemaDiagnosticClass(err error) FailureClass {
+	if err == nil {
+		return ""
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		return ""
+	}
+	return diagnostic.Class()
 }
 
 func validateGlobalSchemaNamePresence(element *syntaxElement) error {
