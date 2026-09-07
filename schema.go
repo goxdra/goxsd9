@@ -824,7 +824,9 @@ func (definition SimpleTypeDefinition) IsString() bool {
 	if definition.facts == nil {
 		return false
 	}
-	return definition.facts.atomicKind == schemaSimpleTypeAtomicString || definition.facts.atomicKind == schemaSimpleTypeAtomicToken
+	return definition.facts.atomicKind == schemaSimpleTypeAtomicString ||
+		definition.facts.atomicKind == schemaSimpleTypeAtomicToken ||
+		definition.facts.atomicKind == schemaSimpleTypeAtomicNMTOKEN
 }
 
 // DigitFacets returns the effective totalDigits and fractionDigits facets.
