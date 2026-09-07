@@ -3,8 +3,8 @@
 ## Boundaries
 
 goxsd9 exposes schema parsing, immutable queries/walks, XML validation, and Go
-generation. The schema model is the leaf dependency for validation and generation
-and has no validator/generator caches.
+generation. The schema model is validation/generation's leaf dependency and has
+no validator/generator caches.
 
 Runtime implementation uses only standard-library facilities; development
 tooling remains outside the library dependency graph.
@@ -23,23 +23,20 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Each phase consumes a complete prior result and produces a new one. Local
-construction may append to unexported slices or populate lookup tables, but
-completed components are never mutated or backpatched. Document identities are
-interned before discovery. Repeated includes/imports reuse that identity, so
-cycles do not recurse. Acyclic dependencies are processed in stable topological
-order.
+Phases consume complete prior results. Local construction may use unexported
+slices/tables; completed components are immutable and never backpatched. Document
+identities are interned before discovery; repeated includes/imports reuse them,
+so cycles do not recurse. Acyclic dependencies use stable topological order.
 
-Maps support lookup, but ordered slices are primary for observable walks and
-output. Every fallback ordering uses explicit stable keys.
+Maps support lookup; ordered slices define observable walks/output, with explicit
+stable fallback keys.
 
 ## Input and resolution
 
-The entrypoint is `ParseSchema(root ResolvedSource, resolver Resolver)`.
-The caller creates root `ResolvedSource` with `NewResolvedSource`; the
-resolver creates referenced sources and supplies resolution policy. Parsing
-closes root and every resolver-supplied stream; it drains and decodes only
-unseen identities. Repeated/cyclic identities are closed without decoding.
+Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Callers create
+root sources with `NewResolvedSource`; resolvers create references and supply
+policy. Parsing closes all streams and decodes each identity once; repeats/cycles
+close without decoding.
 
 ```go
 type Resolver interface {
@@ -51,16 +48,14 @@ type Resolver interface {
 }
 ```
 
-Each result carries an opaque source identity, reader-closer, and child context.
-Resolvers can store typed private base-location state there. Discovery passes
-parent context to each FIFO call and preserves returned child context for nested
-references. Source identities and lexical schema locations remain opaque; the
-parser never interprets paths, opens files, or performs network requests.
-Resolver calls are sequential.
+Each source carries opaque identity, reader-closer, and child context; resolvers
+may store typed private base-location state. Discovery passes parent context FIFO
+and preserves child context for nested references. Identities and lexical
+locations stay opaque: the parser does not interpret paths, open files, or make
+network requests. Resolver calls are sequential.
 
-The decoder captures one-based line and Unicode-code-point columns
-while streaming. Syntax nodes and final components retain `Loc` values, not
-source bytes or excerpts.
+Streaming decode captures one-based line and Unicode-code-point columns. Syntax
+and final components retain `Loc`, not source bytes or excerpts.
 
 ## Diagnostics
 
@@ -71,9 +66,9 @@ Structured diagnostics are deterministic and classify failures as:
 - source resolution failure; or
 - internal invariant failure.
 
-Each diagnostic has a stable code, primary `Loc`, optional related locations,
-and an applicable specification reference. Causes survive package boundaries.
-Error-level diagnostics prevent a schema from being returned.
+Diagnostics have stable codes, primary `Loc`, optional related locations, and
+specification references; causes survive boundaries, and error-level diagnostics
+prevent schema return.
 
 Unsupported features have stable identifiers. Conformance reports aggregate
 them to show which implementation work unlocks the most tests.
@@ -93,9 +88,13 @@ Model facts; primitive status follows type-relations. Global `xs:boolean` and at
 named/anonymous restrictions: immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins no synthetic IDs.
 Global built-in/named integer/decimal attributes: immutable value-constraint-facts—kind=default/fixed, normalized-lexical-form,
 exact-typed-value, source-location. Named global complex-type bodies accept unqualified `mixed="false"`/`mixed="0"`:
-omitted element-only (unretained/unconsumed); `mixed="true"`/`mixed="1"` explicitly unsupported; malformed/contradictory XSD 1.1
-outer/inner invalid; anonymous globals invalid. Local uses/inline types, string/boolean/precisionDecimal attributes, other
-wildcard/attribute forms unsupported; validation/generation: attributes unconsumed.
+omitted element-only (unretained/unconsumed); `mixed="true"`/`mixed="1"` explicitly unsupported; malformed values or contradictory XSD 1.1
+outer/inner forms and anonymous globals invalid. Unqualified `defaultAttributesApply="true"`,
+`"false"`, `"1"`, or `"0"` is accepted only on named global complex types under XSD 1.1/Compatibility when the
+containing schema has no `defaultAttributes`; it is validated then discarded, with no public model or validator/generator state.
+Strict10 reports the XSD 1.1 mismatch. Schema-level `defaultAttributes`/default-group application and local uses/inline forms remain unsupported;
+anonymous globals are invalid; string/boolean/precisionDecimal attributes and other wildcard/attribute forms remain unsupported;
+validation/generation consume no attributes.
 
 Named complex types: particles; bounded openAttrs restrictions; bounded attribute-free complexContent/extension over named empty-content bases;
 extensions retain base/extension identities/locations, inherited bounded wildcard facts, exact direct-choice/sequence occurrences; validation/generation
