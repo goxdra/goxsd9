@@ -515,24 +515,7 @@ func tokenPolicyProfiles() []tokenPolicyProfile {
 }
 
 func assertTokenBuiltinReference(t *testing.T, reference SimpleTypeReference, wantLoc Loc) {
-	t.Helper()
-	wantName := mustTestQName(t, testXSDNamespace, "token")
-	if !reference.IsBuiltin() || reference.Kind() != SimpleTypeReferenceBuiltin || reference.Name() != wantName || reference.QName() != wantName {
-		t.Fatalf("token reference = %#v, want built-in xs:token", reference)
-	}
-	if reference.Loc() != wantLoc || reference.VarietyLoc() != wantLoc || reference.Variety() != SimpleTypeVarietyAtomicRestriction {
-		t.Fatalf("token reference facts = %s/%s/%q, want use-site atomic restriction at %s", reference.Loc(), reference.VarietyLoc(), reference.Variety(), wantLoc)
-	}
-	if reference.facts == nil || reference.facts.atomicKind != schemaSimpleTypeAtomicToken {
-		t.Fatalf("token reference atomic facts = %#v, want private token category", reference.facts)
-	}
-	facets, ok := reference.facts.facets.(schemaStringFacetVariant)
-	if !ok || facets.whiteSpace == nil || facets.whiteSpace.Value() != "collapse" || !facets.whiteSpace.Fixed() || !facets.whiteSpace.Loc().IsZero() {
-		t.Fatalf("token reference whiteSpace facts = %#v/%t, want fixed unlocated collapse", facets, ok)
-	}
-	if typeID, hasTypeID := reference.ComponentID(); hasTypeID || !typeID.IsZero() || reference.facts.hasID {
-		t.Fatalf("token reference component ID = %v/%t, want zero/false", typeID, hasTypeID)
-	}
+	assertStringLikeBuiltinReference(t, reference, "token", schemaSimpleTypeAtomicToken, wantLoc)
 }
 
 func assertTokenDefinition(t *testing.T, definition SimpleTypeDefinition) {

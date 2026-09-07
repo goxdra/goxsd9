@@ -105,6 +105,7 @@ var (
 	errSchemaSimpleTypeBaseAmbiguous             = errors.New("simple type base is ambiguous")
 	errSchemaSimpleTypeBaseCycle                 = errors.New("simple type base is cyclic")
 	errSchemaSimpleTypeInvalidDerivation         = errors.New("simple type derivation is invalid")
+	errSchemaNMTOKENValueViolation               = errors.New("NMTOKEN value is invalid")
 	errSchemaSimpleTypeRestrictionUnsupported    = errors.New("simple type restriction variety is not implemented")
 	errSchemaElementTypeUnresolved               = errors.New("element type is unresolved")
 	errSchemaElementTypeWrongKind                = errors.New("element type has the wrong kind")
@@ -2405,6 +2406,18 @@ func validNCNameChar(character rune) bool {
 		character >= 0x203F && character <= 0x2040
 }
 
+func validXMLNmtoken(value string) bool {
+	if value == "" || !utf8.ValidString(value) {
+		return false
+	}
+	for _, character := range value {
+		if character != ':' && !validNCNameChar(character) {
+			return false
+		}
+	}
+	return true
+}
+
 type schemaSimpleTypeResult struct {
 	present          bool
 	loc              Loc
@@ -2432,6 +2445,7 @@ const (
 	schemaSimpleTypeAtomicUnknown schemaSimpleTypeAtomicKind = iota
 	schemaSimpleTypeAtomicString
 	schemaSimpleTypeAtomicToken
+	schemaSimpleTypeAtomicNMTOKEN
 	schemaSimpleTypeAtomicInteger
 	schemaSimpleTypeAtomicNegativeInteger
 	schemaSimpleTypeAtomicDecimal
@@ -2452,6 +2466,7 @@ func schemaSimpleTypeAtomicKindIsUnsupported(kind schemaSimpleTypeAtomicKind) bo
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInteger,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicDecimal,
@@ -2645,6 +2660,7 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage,
@@ -2697,6 +2713,7 @@ func resolveSchemaAttributeValueConstraint(
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage,
@@ -2760,6 +2777,7 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		return false
@@ -3953,7 +3971,7 @@ func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleT
 //nolint:gocognit // Keep built-in scalar scope and version branches explicit.
 func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
-	case "string", "token":
+	case "string", "token", "NMTOKEN":
 		if scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
@@ -4045,6 +4063,7 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 	switch simpleType.atomicKind {
 	case schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
@@ -5669,7 +5688,7 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
 		return schemaSimpleTypeResult{}, enumerationErr
 	}
-	facets, err := restrictSchemaSimpleTypeFacets(base.facets, model.facets, version)
+	facets, err := restrictSchemaSimpleTypeFacets(base.facets, base.atomicKind, model.facets, version)
 	if err != nil {
 		return schemaSimpleTypeResult{}, err
 	}
@@ -5954,6 +5973,8 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		return resolveBuiltinStringSchemaSimpleTypeReference(input, version)
 	case "token":
 		return resolveBuiltinTokenSchemaSimpleTypeReference(input, version)
+	case "NMTOKEN":
+		return resolveBuiltinNMTOKENSchemaSimpleTypeReference(input, version)
 	case "integer":
 		facets, err := NewIntegerDigitFacets(nil, version)
 		if err != nil {
@@ -6038,6 +6059,10 @@ func resolveBuiltinStringSchemaSimpleTypeReference(input schemaSimpleTypeReferen
 
 func resolveBuiltinTokenSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
 	return resolveBuiltinStringLikeSchemaSimpleTypeReference(input, version, schemaSimpleTypeAtomicToken, defaultTokenWhiteSpaceFacet())
+}
+
+func resolveBuiltinNMTOKENSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+	return resolveBuiltinStringLikeSchemaSimpleTypeReference(input, version, schemaSimpleTypeAtomicNMTOKEN, defaultTokenWhiteSpaceFacet())
 }
 
 func resolveBuiltinStringLikeSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion, atomicKind schemaSimpleTypeAtomicKind, whiteSpace *StringWhiteSpaceFacet) (schemaSimpleTypeReferenceComponent, error) {
@@ -6170,6 +6195,7 @@ func invalidSimpleTypeDerivation(loc Loc, message string, related []Loc, version
 //nolint:gocognit // Keep numeric and precision facet construction in one phase.
 func restrictSchemaSimpleTypeFacets(
 	base schemaSimpleTypeFacetVariant,
+	atomicKind schemaSimpleTypeAtomicKind,
 	inputs []schemaFacetInput,
 	version XSDVersion,
 ) (schemaSimpleTypeFacetVariant, error) {
@@ -6220,7 +6246,7 @@ func restrictSchemaSimpleTypeFacets(
 		}
 		return schemaPrecisionDecimalFacetVariant{value: facets}, nil
 	case schemaStringFacetVariant:
-		return restrictSchemaStringFacets(typed, inputs, version)
+		return restrictSchemaStringFacets(typed, atomicKind, inputs, version)
 	case schemaBooleanFacetVariant:
 		return restrictSchemaBooleanFacets(typed, inputs, version)
 	case schemaAtomicFacetVariant:
@@ -6236,10 +6262,16 @@ func restrictSchemaSimpleTypeFacets(
 	}
 }
 
-func restrictSchemaStringFacets(base schemaStringFacetVariant, inputs []schemaFacetInput, version XSDVersion) (schemaSimpleTypeFacetVariant, error) {
+func restrictSchemaStringFacets(base schemaStringFacetVariant, atomicKind schemaSimpleTypeAtomicKind, inputs []schemaFacetInput, version XSDVersion) (schemaSimpleTypeFacetVariant, error) {
 	local, err := schemaStringFacetDeclarations(inputs, version)
 	if err != nil {
 		return nil, err
+	}
+	if atomicKind == schemaSimpleTypeAtomicNMTOKEN {
+		validationErr := validateSchemaNMTOKENEnumerationBaseValueSpace(local.enumeration, version)
+		if validationErr != nil {
+			return nil, validationErr
+		}
 	}
 	enumeration, err := restrictSchemaStringEnumeration(base, local.enumeration)
 	if err != nil {
@@ -6451,6 +6483,28 @@ func schemaEnumerationBaseValueSpaceDiagnostic(
 		related,
 		fmt.Errorf("%w: %w", errInvalidEnumerationRestriction, cause),
 	)
+}
+
+func validateSchemaNMTOKENEnumerationBaseValueSpace(local StringEnumerationFacetDeclarations, version XSDVersion) error {
+	if local.Values == nil {
+		return nil
+	}
+	for index := range local.Values {
+		declaration := local.Values[index]
+		value := collapseXMLWhitespace(declaration.Value())
+		if validXMLNmtoken(value) {
+			continue
+		}
+		cause := fmt.Errorf("%w: %q", errSchemaNMTOKENValueViolation, value)
+		return schemaEnumerationBaseValueSpaceDiagnostic(
+			declaration.Loc(),
+			nil,
+			version,
+			"NMTOKEN",
+			cause,
+		)
+	}
+	return nil
 }
 
 type schemaStringFacetDeclarationSet struct {
