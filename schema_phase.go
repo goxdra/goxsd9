@@ -1033,7 +1033,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
 			return "", err
 		}
-		if (kind == ComponentKindSimpleTypeDefinition || kind == ComponentKindComplexTypeDefinition) && attribute.name.local == "final" && collapseXMLWhitespace(attribute.value) == "" {
+		if (kind == ComponentKindElementDeclaration || kind == ComponentKindSimpleTypeDefinition || kind == ComponentKindComplexTypeDefinition) && attribute.name.local == "final" && collapseXMLWhitespace(attribute.value) == "" {
 			return "", nil
 		}
 		if version == XSDVersion10 && isXSD11GlobalSchemaAttribute(kind, attribute.name.local) {
