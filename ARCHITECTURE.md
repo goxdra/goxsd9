@@ -94,14 +94,14 @@ elements retain `DeclaredType`; named/anonymous restrictions expose immutable bo
 and string-`whiteSpace` facts; built-ins lack synthetic IDs. Supported global attributes with built-in/named
 integer/decimal types retain immutable default/fixed value-constraint facts: kind (`default`/`fixed`), normalized
 lexical form, exact typed value, source location. Local uses, inline types, string/boolean/precisionDecimal
-attributes, other attribute forms unsupported; validation/generation do not consume attributes.
+attributes, other wildcard/attribute forms unsupported; validation/generation do not consume attributes.
 
 Named complex types: particles; bounded openAttrs restrictions; bounded attribute-free complexContent/extension over named empty-content bases;
 extensions retain base/extension identities/locations, inherited bounded wildcard facts, exact direct-choice/sequence occurrences; validation/generation
 reject. Direct sequence/choice: local xs:boolean/named boolean-restriction/integer/decimal; exact ranges (0/0 absent). XSD 1.1 precisionDecimal choices
 require default occurrences; ranges queryable. Local string/token particles, Boolean facets, anonymous/nested/broader particles unsupported.
 References retain immutable target facts. Choices/sequences expose attribute-free anyAttribute: omitted=##any/strict; explicit=##other/lax supported across policies.
-Wildcard locations retained; other attribute forms/consumers unsupported.
+Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
 
 ## Datatypes
 
