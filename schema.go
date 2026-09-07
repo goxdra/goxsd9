@@ -394,7 +394,8 @@ func (component Component) AttributeDeclaration() (AttributeDeclaration, bool) {
 }
 
 // AttributeDeclaration is the immutable type-specific view of a supported
-// global attribute declaration with a resolved simple-type reference.
+// global attribute declaration with a resolved simple-type reference and an
+// optional value constraint.
 type AttributeDeclaration struct {
 	component Component
 	facts     *schemaAttributeComponent
@@ -445,6 +446,15 @@ func (declaration AttributeDeclaration) TypeID() (ComponentID, bool) {
 		return ComponentID{}, false
 	}
 	return declaration.facts.typeReference.id, true
+}
+
+// ValueConstraint returns the declaration's default or fixed value
+// constraint, when present.
+func (declaration AttributeDeclaration) ValueConstraint() (AttributeValueConstraint, bool) {
+	if declaration.facts == nil || declaration.facts.valueConstraint == nil {
+		return AttributeValueConstraint{}, false
+	}
+	return *cloneAttributeValueConstraint(declaration.facts.valueConstraint), true
 }
 
 // ElementDeclaration is the immutable type-specific view of a supported
@@ -1862,8 +1872,9 @@ type schemaElementSubstitutionGroupInput struct {
 }
 
 type schemaAttributeInput struct {
-	declaredType QName
-	typeLoc      Loc
+	declaredType    QName
+	typeLoc         Loc
+	valueConstraint *schemaAttributeValueConstraintInput
 }
 
 type schemaNotationInput struct {
@@ -2158,6 +2169,7 @@ type schemaElementSubstitutionGroup struct {
 type schemaAttributeComponent struct {
 	typeReference    schemaSimpleTypeReferenceComponent
 	hasTypeReference bool
+	valueConstraint  *AttributeValueConstraint
 }
 
 type schemaNotationComponent struct {
@@ -2603,6 +2615,7 @@ func completeSchemaComponent(
 		component.attribute = &schemaAttributeComponent{
 			typeReference:    attribute.typeReference,
 			hasTypeReference: attribute.hasTypeReference,
+			valueConstraint:  cloneAttributeValueConstraint(attribute.valueConstraint),
 		}
 	}
 	if record.notation != nil {
@@ -2864,8 +2877,9 @@ func cloneSchemaAttributeInput(input *schemaAttributeInput) *schemaAttributeInpu
 		return nil
 	}
 	return &schemaAttributeInput{
-		declaredType: input.declaredType,
-		typeLoc:      input.typeLoc,
+		declaredType:    input.declaredType,
+		typeLoc:         input.typeLoc,
+		valueConstraint: cloneSchemaAttributeValueConstraintInput(input.valueConstraint),
 	}
 }
 

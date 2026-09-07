@@ -894,7 +894,7 @@ func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion)
 	if err := validateGlobalSchemaDeclarationRequirements(element, kind, version); err != nil {
 		return err
 	}
-	if err := validateGlobalSchemaAttributeCooccurrence(element); err != nil {
+	if err := validateGlobalSchemaAttributeCooccurrence(element, version); err != nil {
 		return err
 	}
 	childrenErr := validateGlobalSchemaChildren(element, version)
@@ -939,13 +939,16 @@ func preferSchemaUnsupported(err error, loc Loc, message string) error {
 	return newSchemaSyntaxUnsupported(loc, message)
 }
 
-func validateGlobalSchemaAttributeCooccurrence(element *syntaxElement) error {
+func validateGlobalSchemaAttributeCooccurrence(element *syntaxElement, version XSDVersion) error {
 	if element.name.local != "element" && element.name.local != "attribute" {
 		return nil
 	}
 	defaults := syntaxAttributesByLocal(element, "default")
 	fixed := syntaxAttributesByLocal(element, "fixed")
 	if len(defaults) > 0 && len(fixed) > 0 {
+		if element.name.local == "attribute" {
+			return invalidSchemaAttributeValueConstraintConflict(fixed[0].loc, defaults[0].loc, element.name.local, version)
+		}
 		return newSchemaCompositionDiagnostic(fixed[0].loc, fmt.Sprintf("global %s cannot specify both default and fixed", element.name.local))
 	}
 	return nil
@@ -1142,7 +1145,9 @@ func elementSchemaAttributeStatus(local string) schemaAttributeStatus {
 
 func attributeSchemaAttributeStatus(local string) schemaAttributeStatus {
 	switch local {
-	case "default", "fixed", "targetNamespace", "inheritable":
+	case "default", "fixed":
+		return schemaAttributeAllowed
+	case "targetNamespace", "inheritable":
 		return schemaAttributeUnsupported
 	case "type":
 		return schemaAttributeAllowed

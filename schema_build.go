@@ -34,6 +34,7 @@ const (
 	diagnosticSchemaAttributeTypeWrongKindCode     = "XSD3033"
 	diagnosticSchemaAttributeTypeAmbiguousCode     = "XSD3034"
 	diagnosticSchemaAttributeTypeCycleCode         = "XSD3035"
+	diagnosticSchemaAttributeValueConstraintCode   = "XSD3036"
 	diagnosticSchemaSubstitutionUnresolvedCode     = "XSD3037"
 	diagnosticSchemaSubstitutionWrongKindCode      = "XSD3038"
 	diagnosticSchemaSubstitutionAmbiguousCode      = "XSD3039"
@@ -68,6 +69,10 @@ const (
 	schemaElementReferenceImportXSD11SpecRef    = "xsd11-structures#composition-importLicenseReferences"
 	schemaAttributeTypeXSD10SpecRef             = "xsd10-structures#Attribute_Declaration_details"
 	schemaAttributeTypeXSD11SpecRef             = "xsd11-structures#Attribute_Declaration_details"
+	schemaAttributeValueConstraintXSD10SpecRef  = "xsd10-structures#a-value_constraint"
+	schemaAttributeValueConstraintXSD11SpecRef  = "xsd11-structures#ad-value_constraint"
+	schemaAttributeValueXSD10SpecRef            = "xsd10-structures#element-attribute"
+	schemaAttributeValueXSD11SpecRef            = "xsd11-structures#vc_a"
 	schemaNotationXSD10SpecRef                  = "xsd10-structures#Notation_Declaration_details"
 	schemaNotationXSD11SpecRef                  = "xsd11-structures#Notation_Declaration_details"
 	schemaSubstitutionAffiliationXSD10SpecRef   = "xsd10-structures#Element_Declaration_details"
@@ -95,51 +100,54 @@ const (
 )
 
 var (
-	errSchemaSimpleTypeBaseUnresolved         = errors.New("simple type base is unresolved")
-	errSchemaSimpleTypeBaseWrongKind          = errors.New("simple type base has the wrong kind")
-	errSchemaSimpleTypeBaseAmbiguous          = errors.New("simple type base is ambiguous")
-	errSchemaSimpleTypeBaseCycle              = errors.New("simple type base is cyclic")
-	errSchemaSimpleTypeInvalidDerivation      = errors.New("simple type derivation is invalid")
-	errSchemaSimpleTypeRestrictionUnsupported = errors.New("simple type restriction variety is not implemented")
-	errSchemaElementTypeUnresolved            = errors.New("element type is unresolved")
-	errSchemaElementTypeWrongKind             = errors.New("element type has the wrong kind")
-	errSchemaElementTypeAmbiguous             = errors.New("element type is ambiguous")
-	errSchemaElementReferenceUnresolved       = errors.New("element reference is unresolved")
-	errSchemaElementReferenceWrongKind        = errors.New("element reference has the wrong target kind")
-	errSchemaElementReferenceAmbiguous        = errors.New("element reference is ambiguous")
-	errSchemaElementReferenceNamespace        = errors.New("element reference namespace is not imported")
-	errSchemaElementReferenceDuplicate        = errors.New("element reference particle is duplicated")
-	errSchemaElementReferenceBlock            = errors.New("element reference cannot specify block")
-	errSchemaAttributeTypeUnresolved          = errors.New("attribute type is unresolved")
-	errSchemaAttributeTypeWrongKind           = errors.New("attribute type has the wrong kind")
-	errSchemaAttributeTypeAmbiguous           = errors.New("attribute type is ambiguous")
-	errSchemaAttributeTypeUnsupported         = errors.New("attribute type is unsupported")
-	errSchemaGlobalDeclarationDuplicate       = errors.New("global declaration is duplicated")
-	errSchemaElementDuplicate                 = errors.New("global element declaration is duplicated")
-	errSchemaElementTargetNamespace           = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
-	errSchemaPrecisionDecimalVersion          = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
-	errSchemaNotationPublic                   = errors.New("notation public identifier is invalid")
-	errSchemaNotationSystem                   = errors.New("notation system identifier is invalid")
-	errSchemaSubstitutionQName                = errors.New("substitution-group affiliation QName is invalid")
-	errSchemaSubstitutionCardinality          = errors.New("substitutionGroup has invalid cardinality")
-	errSchemaSubstitutionUnresolved           = errors.New("substitution-group head is unresolved")
-	errSchemaSubstitutionWrongKind            = errors.New("substitution-group head has the wrong kind")
-	errSchemaSubstitutionAmbiguous            = errors.New("substitution-group head is ambiguous")
-	errSchemaSubstitutionSelf                 = errors.New("element affiliates with itself")
-	errSchemaSubstitutionImport               = errors.New("substitution-group head namespace is not directly imported")
-	errSchemaSubstitutionTypeInvalid          = errors.New("substitution-group type derivation is invalid")
-	errSchemaSubstitutionTypeUnsupported      = errors.New("substitution-group type derivation is not implemented")
-	errSchemaSubstitutionCycle                = errors.New("substitution-group affiliations form a cycle")
-	errSchemaBlock                            = errors.New("schema block value is invalid")
-	errSchemaAnyAttributeUnsupported          = errors.New("anyAttribute wildcard is not implemented")
-	errSchemaComplexTypeBaseUnresolved        = errors.New("complex type base is unresolved")
-	errSchemaComplexTypeBaseWrongKind         = errors.New("complex type base has the wrong kind")
-	errSchemaComplexTypeBaseAmbiguous         = errors.New("complex type base is ambiguous")
-	errSchemaComplexTypeBaseUnsupported       = errors.New("complex type named base is not implemented")
-	errSchemaComplexTypeBaseRequired          = errors.New("complex type base is required")
-	errSchemaComplexTypeBaseCycle             = errors.New("complex type bases form a cycle")
-	errSchemaComplexTypeBaseNonEmpty          = errors.New("complex type base has nonempty content")
-	errLanguagePolicyMismatch                 = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
+	errSchemaSimpleTypeBaseUnresolved            = errors.New("simple type base is unresolved")
+	errSchemaSimpleTypeBaseWrongKind             = errors.New("simple type base has the wrong kind")
+	errSchemaSimpleTypeBaseAmbiguous             = errors.New("simple type base is ambiguous")
+	errSchemaSimpleTypeBaseCycle                 = errors.New("simple type base is cyclic")
+	errSchemaSimpleTypeInvalidDerivation         = errors.New("simple type derivation is invalid")
+	errSchemaSimpleTypeRestrictionUnsupported    = errors.New("simple type restriction variety is not implemented")
+	errSchemaElementTypeUnresolved               = errors.New("element type is unresolved")
+	errSchemaElementTypeWrongKind                = errors.New("element type has the wrong kind")
+	errSchemaElementTypeAmbiguous                = errors.New("element type is ambiguous")
+	errSchemaElementReferenceUnresolved          = errors.New("element reference is unresolved")
+	errSchemaElementReferenceWrongKind           = errors.New("element reference has the wrong target kind")
+	errSchemaElementReferenceAmbiguous           = errors.New("element reference is ambiguous")
+	errSchemaElementReferenceNamespace           = errors.New("element reference namespace is not imported")
+	errSchemaElementReferenceDuplicate           = errors.New("element reference particle is duplicated")
+	errSchemaElementReferenceBlock               = errors.New("element reference cannot specify block")
+	errSchemaAttributeTypeUnresolved             = errors.New("attribute type is unresolved")
+	errSchemaAttributeTypeWrongKind              = errors.New("attribute type has the wrong kind")
+	errSchemaAttributeTypeAmbiguous              = errors.New("attribute type is ambiguous")
+	errSchemaAttributeTypeUnsupported            = errors.New("attribute type is unsupported")
+	errSchemaAttributeValueConstraintInvalid     = errors.New("attribute value constraint is invalid")
+	errSchemaAttributeValueConstraintConflict    = errors.New("attribute value constraints are mutually exclusive")
+	errSchemaAttributeValueConstraintUnsupported = errors.New("attribute value constraint is unsupported")
+	errSchemaGlobalDeclarationDuplicate          = errors.New("global declaration is duplicated")
+	errSchemaElementDuplicate                    = errors.New("global element declaration is duplicated")
+	errSchemaElementTargetNamespace              = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
+	errSchemaPrecisionDecimalVersion             = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
+	errSchemaNotationPublic                      = errors.New("notation public identifier is invalid")
+	errSchemaNotationSystem                      = errors.New("notation system identifier is invalid")
+	errSchemaSubstitutionQName                   = errors.New("substitution-group affiliation QName is invalid")
+	errSchemaSubstitutionCardinality             = errors.New("substitutionGroup has invalid cardinality")
+	errSchemaSubstitutionUnresolved              = errors.New("substitution-group head is unresolved")
+	errSchemaSubstitutionWrongKind               = errors.New("substitution-group head has the wrong kind")
+	errSchemaSubstitutionAmbiguous               = errors.New("substitution-group head is ambiguous")
+	errSchemaSubstitutionSelf                    = errors.New("element affiliates with itself")
+	errSchemaSubstitutionImport                  = errors.New("substitution-group head namespace is not directly imported")
+	errSchemaSubstitutionTypeInvalid             = errors.New("substitution-group type derivation is invalid")
+	errSchemaSubstitutionTypeUnsupported         = errors.New("substitution-group type derivation is not implemented")
+	errSchemaSubstitutionCycle                   = errors.New("substitution-group affiliations form a cycle")
+	errSchemaBlock                               = errors.New("schema block value is invalid")
+	errSchemaAnyAttributeUnsupported             = errors.New("anyAttribute wildcard is not implemented")
+	errSchemaComplexTypeBaseUnresolved           = errors.New("complex type base is unresolved")
+	errSchemaComplexTypeBaseWrongKind            = errors.New("complex type base has the wrong kind")
+	errSchemaComplexTypeBaseAmbiguous            = errors.New("complex type base is ambiguous")
+	errSchemaComplexTypeBaseUnsupported          = errors.New("complex type named base is not implemented")
+	errSchemaComplexTypeBaseRequired             = errors.New("complex type base is required")
+	errSchemaComplexTypeBaseCycle                = errors.New("complex type bases form a cycle")
+	errSchemaComplexTypeBaseNonEmpty             = errors.New("complex type base has nonempty content")
+	errLanguagePolicyMismatch                    = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
 const schemaInstanceNamespaceURI = "http://www.w3.org/2001/XMLSchema-instance"
@@ -1019,6 +1027,10 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 	if element == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "construct attribute type input from a nil element")
 	}
+	valueConstraint, err := schemaAttributeValueConstraintInputFromElement(element, version)
+	if err != nil {
+		return nil, err
+	}
 	attributes := syntaxAttributesByLocal(element, "type")
 	inline := inlineSimpleTypeChild(element)
 	if len(attributes) > 1 {
@@ -1029,10 +1041,13 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 	}
 	if len(attributes) == 0 {
 		if inline == nil {
-			return nil, nil
+			if valueConstraint == nil {
+				return nil, nil
+			}
+			return &schemaAttributeInput{valueConstraint: valueConstraint}, nil
 		}
-		if err := validateInlineSchemaType(inline, version); err != nil {
-			return nil, err
+		if inlineErr := validateInlineSchemaType(inline, version); inlineErr != nil {
+			return nil, inlineErr
 		}
 		return nil, newSchemaSyntaxUnsupportedForVersion(
 			inline.loc,
@@ -1045,9 +1060,36 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 		return nil, err
 	}
 	return &schemaAttributeInput{
-		declaredType: declaredType,
-		typeLoc:      attributes[0].loc,
+		declaredType:    declaredType,
+		typeLoc:         attributes[0].loc,
+		valueConstraint: valueConstraint,
 	}, nil
+}
+
+func schemaAttributeValueConstraintInputFromElement(element *syntaxElement, version XSDVersion) (*schemaAttributeValueConstraintInput, error) {
+	if element == nil {
+		return nil, newSchemaBridgeInvariant(Loc{}, "construct attribute value constraint input from a nil element")
+	}
+	defaults := syntaxAttributesByLocal(element, "default")
+	fixed := syntaxAttributesByLocal(element, "fixed")
+	if len(defaults) > 0 && len(fixed) > 0 {
+		return nil, invalidSchemaAttributeValueConstraintConflict(fixed[0].loc, defaults[0].loc, element.name.local, version)
+	}
+	if len(defaults) == 1 {
+		return &schemaAttributeValueConstraintInput{
+			kind:    AttributeValueConstraintDefault,
+			lexical: defaults[0].value,
+			loc:     defaults[0].loc,
+		}, nil
+	}
+	if len(fixed) == 1 {
+		return &schemaAttributeValueConstraintInput{
+			kind:    AttributeValueConstraintFixed,
+			lexical: fixed[0].value,
+			loc:     fixed[0].loc,
+		}, nil
+	}
+	return nil, nil
 }
 
 func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaElementInput, error) {
@@ -2488,6 +2530,7 @@ type schemaAttributeTypeResult struct {
 	present          bool
 	typeReference    schemaSimpleTypeReferenceComponent
 	hasTypeReference bool
+	valueConstraint  *AttributeValueConstraint
 }
 
 func resolvedSchemaAttributeTypeResult(reference schemaSimpleTypeReferenceComponent) schemaAttributeTypeResult {
@@ -2535,6 +2578,13 @@ func resolveSchemaAttributeType(
 	if resolver == nil {
 		return schemaAttributeTypeResult{}, newSchemaBridgeInvariant(input.typeLoc, "attribute type resolution has no simple type resolver")
 	}
+	if input.valueConstraint != nil && input.declaredType.IsZero() {
+		return schemaAttributeTypeResult{}, unsupportedSchemaAttributeValueConstraint(
+			input,
+			version,
+			"global attribute value constraints require a declared supported type",
+		)
+	}
 	reference, err := resolver.resolveReference(schemaSimpleTypeReferenceInput{
 		kind: schemaSimpleTypeQNameReferenceInput,
 		name: input.declaredType,
@@ -2550,7 +2600,153 @@ func resolveSchemaAttributeType(
 			fmt.Sprintf("attribute type %q has an unsupported simple type model", input.declaredType),
 		)
 	}
-	return resolvedSchemaAttributeTypeResult(reference), nil
+	if input.valueConstraint != nil && !schemaAttributeValueConstraintReferenceSupported(reference) {
+		return schemaAttributeTypeResult{}, unsupportedSchemaAttributeValueConstraint(
+			input,
+			version,
+			fmt.Sprintf("attribute value constraint for type %q is not implemented", input.declaredType),
+		)
+	}
+	result := resolvedSchemaAttributeTypeResult(reference)
+	if input.valueConstraint == nil {
+		return result, nil
+	}
+	valueConstraint, err := resolveSchemaAttributeValueConstraint(input.valueConstraint, reference, version)
+	if err != nil {
+		return schemaAttributeTypeResult{}, err
+	}
+	result.valueConstraint = valueConstraint
+	return result, nil
+}
+
+func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleTypeReferenceComponent) bool {
+	if reference.variety != SimpleTypeVarietyAtomicRestriction {
+		return false
+	}
+	switch reference.atomicKind {
+	case schemaSimpleTypeAtomicInteger:
+		switch facets := reference.facets.(type) {
+		case schemaDigitFacetVariant:
+			return facets.value.Kind() == DigitDatatypeInteger
+		case schemaIntegerFacetVariant:
+			return facets.digits.Kind() == DigitDatatypeInteger
+		default:
+			return false
+		}
+	case schemaSimpleTypeAtomicDecimal:
+		switch facets := reference.facets.(type) {
+		case schemaDigitFacetVariant:
+			return facets.value.Kind() == DigitDatatypeDecimal
+		case schemaDecimalFacetVariant:
+			return facets.digits.Kind() == DigitDatatypeDecimal
+		default:
+			return false
+		}
+	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicPrecisionDecimal,
+		schemaSimpleTypeAtomicLanguage,
+		schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI,
+		schemaSimpleTypeAtomicID:
+		return false
+	default:
+		return false
+	}
+}
+
+func resolveSchemaAttributeValueConstraint(
+	input *schemaAttributeValueConstraintInput,
+	reference schemaSimpleTypeReferenceComponent,
+	version XSDVersion,
+) (*AttributeValueConstraint, error) {
+	if input == nil {
+		return nil, nil
+	}
+	lexical := collapseXMLWhitespace(input.lexical)
+	constraint := &AttributeValueConstraint{
+		kind:    input.kind,
+		lexical: lexical,
+		loc:     input.loc,
+	}
+	switch reference.atomicKind {
+	case schemaSimpleTypeAtomicInteger:
+		value, err := ParseStrictInteger(input.lexical, input.loc)
+		if err != nil {
+			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+		}
+		if err := validateSchemaAttributeIntegerValue(reference, value, input.loc); err != nil {
+			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+		}
+		constraint.integer = value
+		constraint.hasInteger = true
+		return constraint, nil
+	case schemaSimpleTypeAtomicDecimal:
+		value, err := ParseStrictDecimalFor(version, input.lexical, input.loc)
+		if err != nil {
+			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+		}
+		if err := validateSchemaAttributeDecimalValue(reference, value, input.loc); err != nil {
+			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+		}
+		constraint.decimal = value
+		constraint.hasDecimal = true
+		return constraint, nil
+	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicPrecisionDecimal,
+		schemaSimpleTypeAtomicLanguage,
+		schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI,
+		schemaSimpleTypeAtomicID:
+		return nil, newSchemaBridgeInvariant(input.loc, "convert an unsupported attribute value constraint type")
+	default:
+		return nil, newSchemaBridgeInvariant(input.loc, "convert an unsupported attribute value constraint type")
+	}
+}
+
+func validateSchemaAttributeIntegerValue(reference schemaSimpleTypeReferenceComponent, value StrictInteger, loc Loc) error {
+	switch facets := reference.facets.(type) {
+	case schemaDigitFacetVariant:
+		if err := facets.value.ValidateInteger(value, loc); err != nil {
+			return err
+		}
+		return facets.integerBounds.ValidateInteger(value, loc)
+	case schemaIntegerFacetVariant:
+		if err := facets.digits.ValidateInteger(value, loc); err != nil {
+			return err
+		}
+		if err := facets.bounds.ValidateInteger(value, loc); err != nil {
+			return err
+		}
+		return facets.enumeration.ValidateInteger(value, loc)
+	default:
+		return newSchemaBridgeInvariant(reference.loc, "validate an integer attribute value against a non-integer facet model")
+	}
+}
+
+func validateSchemaAttributeDecimalValue(reference schemaSimpleTypeReferenceComponent, value StrictDecimal, loc Loc) error {
+	switch facets := reference.facets.(type) {
+	case schemaDigitFacetVariant:
+		if err := facets.value.ValidateDecimal(value, loc); err != nil {
+			return err
+		}
+		return facets.decimalBounds.ValidateDecimal(value, loc)
+	case schemaDecimalFacetVariant:
+		if err := facets.digits.ValidateDecimal(value, loc); err != nil {
+			return err
+		}
+		if err := facets.bounds.ValidateDecimal(value, loc); err != nil {
+			return err
+		}
+		return facets.enumeration.ValidateDecimal(value, loc)
+	default:
+		return newSchemaBridgeInvariant(reference.loc, "validate a decimal attribute value against a non-decimal facet model")
+	}
 }
 
 func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceComponent) bool {
@@ -2664,6 +2860,82 @@ func unsupportedSchemaAttributeType(input *schemaAttributeInput, version XSDVers
 	return diagnostic
 }
 
+func unsupportedSchemaAttributeValueConstraint(input *schemaAttributeInput, version XSDVersion, message string) Diagnostic {
+	if input == nil || input.valueConstraint == nil {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaBridgeInvariantCode,
+			Loc{},
+			"attribute value constraint is missing its syntax input",
+			errSchemaAttributeValueConstraintUnsupported,
+		)
+	}
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticUnregisteredFeatureCode,
+			input.valueConstraint.loc,
+			"schema syntax feature is not registered",
+			errSchemaAttributeValueConstraintUnsupported,
+		)
+	}
+	diagnostic := newUnsupportedForVersionWithCause(
+		feature,
+		UnsupportedSchemaSyntaxCode,
+		input.valueConstraint.loc,
+		message,
+		version,
+		errSchemaAttributeValueConstraintUnsupported,
+	)
+	if diagnostic.Class() == FailureUnsupported {
+		diagnostic.specRef = schemaAttributeValueConstraintSpecRef(version)
+	}
+	return diagnostic
+}
+
+func invalidSchemaAttributeValueConstraint(input *schemaAttributeValueConstraintInput, version XSDVersion, cause error) error {
+	if input == nil {
+		return newSchemaBridgeInvariant(Loc{}, "attribute value constraint validation has no input")
+	}
+	var diagnostic Diagnostic
+	if !errors.As(cause, &diagnostic) {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaBridgeInvariantCode,
+			input.loc,
+			"attribute value constraint validation returned an unlocated error",
+			errors.Join(errSchemaAttributeValueConstraintInvalid, cause),
+		)
+	}
+	if diagnostic.Class() != FailureInvalid {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaBridgeInvariantCode,
+			input.loc,
+			"attribute value constraint validation returned a non-invalid diagnostic",
+			errors.Join(errSchemaAttributeValueConstraintInvalid, cause),
+		)
+	}
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaAttributeValueConstraintCode,
+		loc:     input.loc,
+		message: fmt.Sprintf("global attribute %s value constraint is invalid", input.kind),
+		related: diagnostic.Related(),
+		specRef: schemaAttributeValueSpecRef(version),
+		cause:   errors.Join(errSchemaAttributeValueConstraintInvalid, cause),
+	}
+}
+
+func invalidSchemaAttributeValueConstraintConflict(loc, related Loc, kind string, version XSDVersion) Diagnostic {
+	diagnostic := newSchemaCompositionDiagnostic(loc, fmt.Sprintf("global %s cannot specify both default and fixed", kind))
+	diagnostic.related = []Loc{related}
+	diagnostic.specRef = schemaAttributeValueConstraintSpecRef(version)
+	diagnostic.cause = errSchemaAttributeValueConstraintConflict
+	return diagnostic
+}
+
 func newSchemaAttributeTypeDiagnostic(code string, loc Loc, message string, related []Loc, version XSDVersion, cause error) Diagnostic {
 	return Diagnostic{
 		class:   FailureInvalid,
@@ -2681,6 +2953,20 @@ func schemaAttributeTypeSpecRef(version XSDVersion) string {
 		return schemaAttributeTypeXSD10SpecRef
 	}
 	return schemaAttributeTypeXSD11SpecRef
+}
+
+func schemaAttributeValueConstraintSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaAttributeValueConstraintXSD10SpecRef
+	}
+	return schemaAttributeValueConstraintXSD11SpecRef
+}
+
+func schemaAttributeValueSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaAttributeValueXSD10SpecRef
+	}
+	return schemaAttributeValueXSD11SpecRef
 }
 
 // reframeSchemaAttributeTypeCycle retains the shared simple-type cycle cause

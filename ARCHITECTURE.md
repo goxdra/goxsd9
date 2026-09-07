@@ -80,34 +80,28 @@ them to show which implementation work unlocks the most tests.
 
 ## Schema model
 
-Raw XSD syntax is internal. The public model contains immutable schema
-components with direct `Loc`; queries use component names and identities.
-Walks preserve document-discovery and lexical declaration order; unordered sets
-use documented stable sorting.
+Raw XSD syntax is internal. Immutable model retains component `Loc`; queries use names/identities.
+Walks preserve document-discovery/lexical declaration order; unordered sets use stable sorting.
 
-Schema skeleton exposes `Schema`, `SchemaDocument`, `Component`,
-`ComponentID`, and expanded `QName`. Documents follow identity-discovery order
-(root first, then resolver queue); named declarations follow lexical order.
-`Components`, `Documents`, `Find`, and `Walk` return copies. Component IDs combine
-source identity with one-based declaration ordinals; lookup maps never define
-observable order. Local particles use a scoped model with component facts and
-indexes; validator/generator state is on demand.
+Schema skeleton exposes `Schema`, `SchemaDocument`, `Component`, `ComponentID`, and expanded `QName`.
+Documents follow identity-discovery order (root, queue); named declarations follow lexical order.
+`Components`, `Documents`, `Find`, and `Walk` return copies. IDs combine source identity/one-based
+declaration ordinals; lookup maps never define observable order. Local particles use scoped component
+facts/indexes; validator/generator state is on-demand.
 
-Model stores facts; primitive status follows type relations. Global `xs:boolean` and atomic
-`xs:string`/`xs:token` elements retain `DeclaredType`; named/anonymous restrictions expose immutable
-boolean-kind, string-enumeration, and string-`whiteSpace` facts; built-ins lack synthetic IDs.
+Model stores facts; primitive status follows type relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`
+elements retain `DeclaredType`; named/anonymous restrictions expose immutable boolean-kind, string-enumeration,
+and string-`whiteSpace` facts; built-ins lack synthetic IDs. Supported global attributes with built-in/named
+integer/decimal types retain immutable default/fixed value-constraint facts: kind (`default`/`fixed`), normalized
+lexical form, exact typed value, source location. Local uses, inline types, string/boolean/precisionDecimal
+attributes, other wildcard/attribute forms unsupported; validation/generation do not consume attributes.
 
-Named complex types: particles, bounded openAttrs restrictions, and bounded attribute-free
-complexContent/extension over named empty-content complex bases; extensions retain
-base/extension identities/locations, inherited bounded wildcard facts, and exact
-direct choice/sequence occurrences; validation/generation reject them. Direct
-sequence/choice: local xs:boolean, named boolean-restriction, integer/decimal; exact
-ranges; 0/0 absent. XSD 1.1 precisionDecimal choices require default
-occurrences; ranges queryable. Local strings/token particles, Boolean facets, and
-anonymous/nested/broader particles unsupported. References retain immutable target
-facts. Choices/sequences expose attribute-free anyAttribute
-across policies; omitted attrs mean ##any/strict; explicit ##other/lax supported.
-Wildcard locations retained; other wildcard/attribute forms and consumers unsupported.
+Named complex types: particles; bounded openAttrs restrictions; bounded attribute-free complexContent/extension over named empty-content bases;
+extensions retain base/extension identities/locations, inherited bounded wildcard facts, exact direct-choice/sequence occurrences; validation/generation
+reject. Direct sequence/choice: local xs:boolean/named boolean-restriction/integer/decimal; exact ranges (0/0 absent). XSD 1.1 precisionDecimal choices
+require default occurrences; ranges queryable. Local string/token particles, Boolean facets, anonymous/nested/broader particles unsupported.
+References retain immutable target facts. Choices/sequences expose attribute-free anyAttribute: omitted=##any/strict; explicit=##other/lax supported across policies.
+Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
 
 ## Datatypes
 
