@@ -155,17 +155,18 @@ func TestSchemaBridgeGlobalAttributeValueConstraintViewsAreDefensive(t *testing.
 //nolint:gocognit,funlen // Keep value-constraint diagnostic precedence together.
 func TestSchemaBridgeGlobalAttributeValueConstraintDiagnostics(t *testing.T) {
 	tests := []struct {
-		name        string
-		root        string
-		policy      LanguagePolicy
-		class       FailureClass
-		code        string
-		specRef     string
-		primary     string
-		cause       error
-		innerCode   string
-		related     string
-		unsupported bool
+		name         string
+		root         string
+		policy       LanguagePolicy
+		class        FailureClass
+		code         string
+		specRef      string
+		primary      string
+		cause        error
+		innerCode    string
+		related      string
+		relatedExact bool
+		unsupported  bool
 	}{
 		{
 			name:      "empty integer lexical",
@@ -222,14 +223,28 @@ func TestSchemaBridgeGlobalAttributeValueConstraintDiagnostics(t *testing.T) {
 			cause:   errSchemaAttributeValueConstraintUnsupported,
 		},
 		{
-			name:    "default and fixed",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:integer" default="1" fixed="1"/></xs:schema>`,
-			policy:  Strict10,
-			class:   FailureInvalid,
-			code:    invalidSchemaCompositionCode,
-			specRef: schemaAttributeValueConstraintXSD10SpecRef,
-			primary: "fixed=",
-			cause:   errSchemaAttributeValueConstraintConflict,
+			name:         "default and fixed",
+			root:         `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:integer" default="1" fixed="1"/></xs:schema>`,
+			policy:       Strict10,
+			class:        FailureInvalid,
+			code:         invalidSchemaCompositionCode,
+			specRef:      schemaAttributeValueConstraintXSD10SpecRef,
+			primary:      "fixed=",
+			cause:        errSchemaAttributeValueConstraintConflict,
+			related:      "default=",
+			relatedExact: true,
+		},
+		{
+			name:         "default and fixed (XSD 1.1)",
+			root:         `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:integer" default="1" fixed="1"/></xs:schema>`,
+			policy:       Strict11,
+			class:        FailureInvalid,
+			code:         invalidSchemaCompositionCode,
+			specRef:      schemaAttributeValueConstraintXSD11SpecRef,
+			primary:      "fixed=",
+			cause:        errSchemaAttributeValueConstraintConflict,
+			related:      "default=",
+			relatedExact: true,
 		},
 		{
 			name:    "type resolution precedes lexical conversion",
@@ -267,8 +282,17 @@ func TestSchemaBridgeGlobalAttributeValueConstraintDiagnostics(t *testing.T) {
 					t.Fatalf("nested diagnostic = %s, want %s at %s", inner, test.innerCode, diagnostic.Loc())
 				}
 			}
-			if test.related != "" && !schemaLocationListContains(diagnostic.Related(), elementReferenceTestAttributeLoc(t, test.root, test.related)) {
-				t.Fatalf("diagnostic related locations = %v, want %s", diagnostic.Related(), test.related)
+			if test.related != "" {
+				relatedLoc := elementReferenceTestAttributeLoc(t, test.root, test.related)
+				if test.relatedExact {
+					related := diagnostic.Related()
+					if len(related) != 1 || related[0] != relatedLoc {
+						t.Fatalf("diagnostic related locations = %v, want [%s]", related, relatedLoc)
+					}
+				}
+				if !test.relatedExact && !schemaLocationListContains(diagnostic.Related(), relatedLoc) {
+					t.Fatalf("diagnostic related locations = %v, want %s", diagnostic.Related(), test.related)
+				}
 			}
 		})
 	}

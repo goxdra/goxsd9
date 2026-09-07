@@ -1073,7 +1073,7 @@ func schemaAttributeValueConstraintInputFromElement(element *syntaxElement, vers
 	defaults := syntaxAttributesByLocal(element, "default")
 	fixed := syntaxAttributesByLocal(element, "fixed")
 	if len(defaults) > 0 && len(fixed) > 0 {
-		return nil, invalidSchemaAttributeValueConstraintConflict(fixed[0].loc, element.name.local, version)
+		return nil, invalidSchemaAttributeValueConstraintConflict(fixed[0].loc, defaults[0].loc, element.name.local, version)
 	}
 	if len(defaults) == 1 {
 		return &schemaAttributeValueConstraintInput{
@@ -2928,8 +2928,9 @@ func invalidSchemaAttributeValueConstraint(input *schemaAttributeValueConstraint
 	}
 }
 
-func invalidSchemaAttributeValueConstraintConflict(loc Loc, kind string, version XSDVersion) Diagnostic {
+func invalidSchemaAttributeValueConstraintConflict(loc, related Loc, kind string, version XSDVersion) Diagnostic {
 	diagnostic := newSchemaCompositionDiagnostic(loc, fmt.Sprintf("global %s cannot specify both default and fixed", kind))
+	diagnostic.related = []Loc{related}
 	diagnostic.specRef = schemaAttributeValueConstraintSpecRef(version)
 	diagnostic.cause = errSchemaAttributeValueConstraintConflict
 	return diagnostic

@@ -947,7 +947,7 @@ func validateGlobalSchemaAttributeCooccurrence(element *syntaxElement, version X
 	fixed := syntaxAttributesByLocal(element, "fixed")
 	if len(defaults) > 0 && len(fixed) > 0 {
 		if element.name.local == "attribute" {
-			return invalidSchemaAttributeValueConstraintConflict(fixed[0].loc, element.name.local, version)
+			return invalidSchemaAttributeValueConstraintConflict(fixed[0].loc, defaults[0].loc, element.name.local, version)
 		}
 		return newSchemaCompositionDiagnostic(fixed[0].loc, fmt.Sprintf("global %s cannot specify both default and fixed", element.name.local))
 	}
