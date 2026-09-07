@@ -98,7 +98,7 @@ func useGeneratedSequences() {
 	}
 }
 
-func TestParseSchemaRejectsNamedAndInheritedAtomicStringDirectSequenceElementsAcrossEditions(t *testing.T) {
+func TestParseSchemaModelsAndGenerationRejectsNamedAndInheritedAtomicStringDirectSequenceElementsAcrossEditions(t *testing.T) {
 	for _, test := range []struct {
 		name         string
 		policy       goxsd9.LanguagePolicy
@@ -107,32 +107,39 @@ func TestParseSchemaRejectsNamedAndInheritedAtomicStringDirectSequenceElementsAc
 		wantSpec     string
 	}{
 		{
+			name:         "Compatibility/named",
+			policy:       goxsd9.Compatibility,
+			version:      "1.0",
+			declaredType: "Text",
+			wantSpec:     "xsd11-structures#Simple_Type_Definition",
+		},
+		{
 			name:         "Strict10/named",
 			policy:       goxsd9.Strict10,
 			version:      "1.0",
 			declaredType: "Text",
-			wantSpec:     "xsd10-structures#schema-document",
+			wantSpec:     "xsd10-structures#Simple_Type_Definitions",
 		},
 		{
 			name:         "Strict10/inherited",
 			policy:       goxsd9.Strict10,
 			version:      "1.0",
 			declaredType: "InheritedText",
-			wantSpec:     "xsd10-structures#schema-document",
+			wantSpec:     "xsd10-structures#Simple_Type_Definitions",
 		},
 		{
 			name:         "Strict11/named",
 			policy:       goxsd9.Strict11,
 			version:      "1.1",
 			declaredType: "Text",
-			wantSpec:     "xsd11-structures#cSchemaDocument",
+			wantSpec:     "xsd11-structures#Simple_Type_Definition",
 		},
 		{
 			name:         "Strict11/inherited",
 			policy:       goxsd9.Strict11,
 			version:      "1.1",
 			declaredType: "InheritedText",
-			wantSpec:     "xsd11-structures#cSchemaDocument",
+			wantSpec:     "xsd11-structures#Simple_Type_Definition",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -142,38 +149,11 @@ func TestParseSchemaRejectsNamedAndInheritedAtomicStringDirectSequenceElementsAc
   <xs:simpleType name="InheritedText"><xs:restriction base="r:Text"/></xs:simpleType>
 </xs:schema>`
 			schema, err := parseSequenceSchemaResult(t, test.policy, root, nil)
-			assertPublicAtomicStringSequenceParseUnsupported(t, schema, err, test.declaredType, test.wantSpec)
+			if err != nil {
+				t.Fatalf("ParseSchemaWithPolicy: %v", err)
+			}
+			assertPublicUnsupportedCodegen(t, schema, test.wantSpec)
 		})
-	}
-}
-
-func assertPublicAtomicStringSequenceParseUnsupported(t *testing.T, schema goxsd9.Schema, err error, declaredType, wantSpec string) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("ParseSchemaWithPolicy accepted an atomic-string local sequence element")
-	}
-	if len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
-		t.Fatal("ParseSchemaWithPolicy returned a partial schema")
-	}
-	var diagnostic goxsd9.Diagnostic
-	if !errors.As(err, &diagnostic) {
-		t.Fatalf("error %T does not contain a Diagnostic: %v", err, err)
-	}
-	if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedSchemaSyntaxCode {
-		t.Fatalf("diagnostic = %s, want unsupported schema-syntax diagnostic", diagnostic)
-	}
-	if diagnostic.Feature() != goxsd9.FeatureSchemaSyntax || diagnostic.SpecRef() != wantSpec {
-		t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), goxsd9.FeatureSchemaSyntax, wantSpec)
-	}
-	if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 2 || diagnostic.Loc().Column() != 71 {
-		t.Fatalf("diagnostic location = %s, want root.xsd:2:71", diagnostic.Loc())
-	}
-	wantMessage := `element type "{urn:sequence}` + declaredType + `" is not implemented for local sequence elements`
-	if diagnostic.Message() != wantMessage {
-		t.Fatalf("diagnostic message = %q, want %q", diagnostic.Message(), wantMessage)
-	}
-	if !errors.Is(err, goxsd9.ErrUnsupported) {
-		t.Fatalf("diagnostic lost unsupported cause: %v", err)
 	}
 }
 

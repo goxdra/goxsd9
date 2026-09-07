@@ -37,9 +37,10 @@
 // non-default precisionDecimal choice or alternative ranges and non-0/0
 // direct-sequence precisionDecimal ranges that map to particles are
 // schema-unsupported. Anonymous, nested, and broader particles remain
-// unsupported; local string/token particles remain unsupported. Anonymous simple-type
-// models and resolved built-in, named, and anonymous simple-type references are
-// modeled. Direct element references are queryable immutable particles;
+// unsupported; token-derived local particles remain unsupported. Direct local
+// exact-atomic-string particles retain immutable resolved type references and
+// effective string facets. Anonymous simple-type models and resolved built-in,
+// named, and anonymous simple-type references are modeled. Direct element references are queryable immutable particles;
 // validation supports default-occurrence direct choices made entirely of
 // references to global integer/decimal scalar elements, while other reference
 // particles and code generation remain explicitly unsupported.
@@ -63,10 +64,11 @@
 // and Strict11. Direct-choice repetition and excluded particle/target shapes
 // remain explicit unsupported behavior. Reference alternatives exclude boolean
 // and precisionDecimal targets. Scalar elements contain only character data;
-// string/token globals, local boolean/string particles, attributes, broader particles,
-// and other semantics remain explicit unsupported behavior.
+// string/token globals, modelled local string particles, local boolean particles,
+// attributes, broader particles, and other semantics remain explicit unsupported
+// behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal
 // scalar components, direct scalar choices, and default-bounded direct integer/
-// decimal sequences; string/token, boolean facets, and local boolean/string/token
-// particles remain unsupported.
+// decimal sequences; string/token, boolean facets, local boolean particles, and
+// modelled local string/token-derived particles remain unsupported.
 package goxsd9
