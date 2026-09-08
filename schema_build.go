@@ -1299,6 +1299,21 @@ func schemaElementBooleanAttribute(element *syntaxElement, local string) (bool, 
 	return value, true, attributes[0].loc, err
 }
 
+func schemaComplexTypeBooleanAttribute(element *syntaxElement, local string) (bool, error) {
+	attributes := syntaxAttributesByLocal(element, local)
+	if len(attributes) == 0 {
+		return false, nil
+	}
+	if len(attributes) != 1 {
+		return false, newSchemaCompositionDiagnostic(
+			attributes[1].loc,
+			fmt.Sprintf("complexType attribute %q must be unique", local),
+		)
+	}
+	return schemaBooleanValue(attributes[0])
+}
+
+//nolint:gocognit // Keep complex-type body selection and effective fact propagation together.
 func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
 	block, explicitBlock, err := schemaDeclarationBlockPolicy(
 		element,
@@ -1310,12 +1325,26 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	if err != nil {
 		return nil, err
 	}
+	abstract, err := schemaComplexTypeBooleanAttribute(element, "abstract")
+	if err != nil {
+		return nil, err
+	}
 	complexContent := schemaComplexContentChild(element)
 	if complexContent != nil {
 		if schemaComplexContentExtensionChild(complexContent) != nil {
-			return schemaComplexTypeExtensionInput(complexContent, facts, version, block)
+			input, inputErr := schemaComplexTypeExtensionInput(complexContent, facts, version, block)
+			if inputErr != nil {
+				return nil, inputErr
+			}
+			input.abstract = abstract
+			return input, nil
 		}
-		return schemaComplexTypeRestrictionInput(complexContent, block)
+		input, inputErr := schemaComplexTypeRestrictionInput(complexContent, block)
+		if inputErr != nil {
+			return nil, inputErr
+		}
+		input.abstract = abstract
+		return input, nil
 	}
 	model := schemaComplexTypeModel(element)
 	if model == nil {
@@ -1331,6 +1360,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 			)
 		}
 		return &schemaComplexTypeInput{
+			abstract:                abstract,
 			body:                    &schemaComplexTypeEmptyBodyInput{},
 			prohibitedSubstitutions: block,
 		}, nil
@@ -1345,9 +1375,19 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 		return nil, err
 	}
 	if model.name.local == "choice" {
-		return schemaChoiceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
+		input, inputErr := schemaChoiceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
+		if inputErr != nil {
+			return nil, inputErr
+		}
+		input.abstract = abstract
+		return input, nil
 	}
-	return schemaSequenceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
+	input, inputErr := schemaSequenceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
+	if inputErr != nil {
+		return nil, inputErr
+	}
+	input.abstract = abstract
+	return input, nil
 }
 
 func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
@@ -4103,6 +4143,7 @@ func unsupportedSequencePrecisionDecimal(input *schemaElementInput, version XSDV
 
 type schemaComplexTypeResult struct {
 	present                 bool
+	abstract                bool
 	body                    schemaComplexTypeBodyResult
 	prohibitedSubstitutions schemaBlockPolicy
 }
@@ -4226,6 +4267,7 @@ func (resolver *schemaComplexTypeResolver) resolve(index int) error {
 	resolver.state[index] = 2
 	resolver.results[index] = schemaComplexTypeResult{
 		present:                 true,
+		abstract:                record.complexType.abstract,
 		body:                    body,
 		prohibitedSubstitutions: record.complexType.prohibitedSubstitutions,
 	}

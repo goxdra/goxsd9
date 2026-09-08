@@ -319,6 +319,9 @@ func instanceSequenceProgramFor(
 			scalar:      scalar,
 		})
 	}
+	if definition.IsAbstract() {
+		return instanceSequenceProgram{}, newInstanceAbstractComplexTypeUnsupported(definition, loc, related, version)
+	}
 	return instanceSequenceProgram{
 		version:     version,
 		occurrences: sequence.facts.occurrences.clone(),

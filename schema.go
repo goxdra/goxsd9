@@ -1069,6 +1069,15 @@ func (definition ComplexTypeDefinition) Loc() Loc {
 	return definition.component.Loc()
 }
 
+// IsAbstract reports the effective abstract fact of the complex-type
+// definition.
+func (definition ComplexTypeDefinition) IsAbstract() bool {
+	if definition.facts == nil {
+		return false
+	}
+	return definition.facts.abstract
+}
+
 // AnyAttribute returns the immutable attribute wildcard fact when the
 // complex type has a supported wildcard.
 func (definition ComplexTypeDefinition) AnyAttribute() (AnyAttribute, bool) {
@@ -2057,6 +2066,7 @@ type schemaAtomicFacetVariant struct{}
 func (schemaAtomicFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
+	abstract                bool
 	body                    schemaComplexTypeBodyInput
 	prohibitedSubstitutions schemaBlockPolicy
 }
@@ -2183,6 +2193,7 @@ type schemaNotationComponent struct {
 }
 
 type schemaComplexTypeComponent struct {
+	abstract                bool
 	body                    schemaComplexTypeBodyComponent
 	prohibitedSubstitutions schemaBlockPolicy
 }
@@ -2656,6 +2667,7 @@ func completeSchemaComponent(
 			return Component{}, err
 		}
 		component.complexType = &schemaComplexTypeComponent{
+			abstract:                complexType.abstract,
 			body:                    body,
 			prohibitedSubstitutions: complexType.prohibitedSubstitutions,
 		}
@@ -2743,6 +2755,7 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 		return nil
 	}
 	clone := &schemaComplexTypeInput{
+		abstract:                input.abstract,
 		body:                    cloneSchemaComplexTypeBodyInput(input.body),
 		prohibitedSubstitutions: input.prohibitedSubstitutions,
 	}
