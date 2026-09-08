@@ -108,12 +108,14 @@ var registry = []definition{
 			{version: "1.0", source: "xsd10-structures#element-sequence"},
 			{version: "1.0", source: "xsd10-structures#element-choice"},
 			{version: "1.0", source: "xsd10-structures#Particle_details"},
+			{version: "1.0", source: "xsd10-structures#ct-abstract"},
 			{version: "1.1", source: "xsd11-structures#Simple_Type_Definition"},
 			{version: "1.1", source: "xsd11-structures#Element_Declaration_details"},
 			{version: "1.1", source: "xsd11-structures#cParticles"},
 			{version: "1.1", source: "xsd11-structures#element-sequence"},
 			{version: "1.1", source: "xsd11-structures#element-choice"},
 			{version: "1.1", source: "xsd11-structures#Particle_details"},
+			{version: "1.1", source: "xsd11-structures#ctd-abstract"},
 		},
 	},
 	{
@@ -136,7 +138,9 @@ var registry = []definition{
 		title: "XML instance semantic validation outside the scalar element slice",
 		references: []Reference{
 			{version: "1.0", source: "xsd10-structures#cvc-elt"},
+			{version: "1.0", source: "xsd10-structures#cvc-complex-type"},
 			{version: "1.1", source: "xsd11-structures#cvc-elt"},
+			{version: "1.1", source: "xsd11-structures#sec-cvc-type"},
 		},
 	},
 	{

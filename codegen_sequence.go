@@ -207,6 +207,9 @@ func collectCodegenDirectParticles(
 			if ownerErr != nil {
 				return nil, ownerErr
 			}
+			if abstractErr := rejectCodegenAbstractComplexType(definition, component.Loc(), appendCodegenRelated(nil, definition.Loc()), version); abstractErr != nil {
+				return nil, abstractErr
+			}
 			owners = append(owners, codegenDirectParticleCollectedOwner{
 				kind:   codegenDirectParticleChoice,
 				choice: &owner,
@@ -227,6 +230,9 @@ func collectCodegenDirectParticles(
 			owner, ownerErr := collectCodegenDirectSequenceOwner(schema, component, sequence, version)
 			if ownerErr != nil {
 				return nil, ownerErr
+			}
+			if abstractErr := rejectCodegenAbstractComplexType(definition, component.Loc(), appendCodegenRelated(nil, definition.Loc()), version); abstractErr != nil {
+				return nil, abstractErr
 			}
 			owners = append(owners, codegenDirectParticleCollectedOwner{
 				kind:     codegenDirectParticleSequence,

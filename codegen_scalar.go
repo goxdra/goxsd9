@@ -10,6 +10,8 @@ import (
 
 const (
 	codegenRuntimeImportPath       = "github.com/goxdra/goxsd9"
+	codegenComplexTypeXSD10SpecRef = "xsd10-structures#ct-abstract"
+	codegenComplexTypeXSD11SpecRef = "xsd11-structures#ctd-abstract"
 	diagnosticCodegenUnsupported   = "GOXSD9029"
 	diagnosticCodegenInvariant     = "GOXSD9030"
 	diagnosticCodegenFormat        = "GOXSD9031"
@@ -1345,6 +1347,7 @@ func codegenBuiltinElementFieldType(
 	return target, fieldType, true, nil
 }
 
+//nolint:gocognit // Keep named type identity, consumer gates, and scalar fallback together.
 func codegenNamedElementFieldType(
 	schema Schema,
 	names codegenNaming,
@@ -1383,6 +1386,18 @@ func codegenNamedElementFieldType(
 	}
 	if target.Kind() == ComponentKindComplexTypeDefinition && allowComplexElementType {
 		if err := rejectCodegenBoundedOpenAttrsElement(target, component, declaredType, related, version); err != nil {
+			return codegenSourceTarget{}, "", false, err
+		}
+		definition, definitionOK := target.ComplexType()
+		if !definitionOK {
+			return codegenSourceTarget{}, "", false, newCodegenInternal(
+				component.Loc(),
+				fmt.Sprintf("global element %q target complex type has no completed view", component.Name()),
+				related,
+				errCodegenElementType,
+			)
+		}
+		if err := rejectCodegenAbstractComplexType(definition, component.Loc(), related, version); err != nil {
 			return codegenSourceTarget{}, "", false, err
 		}
 		sourceTarget := codegenSourceTarget{
@@ -1449,6 +1464,37 @@ func rejectCodegenBoundedOpenAttrsElement(target, component Component, declaredT
 		fmt.Sprintf("global element type %q uses bounded openAttrs content outside Go generation", declaredType),
 		related,
 		fmt.Errorf("%w: bounded openAttrs complex type", errCodegenUnsupported),
+		version,
+	)
+}
+
+func newCodegenComplexTypeUnsupported(loc Loc, message string, related []Loc, cause error, version XSDVersion) error {
+	return newCodegenUnsupportedForReference(
+		loc,
+		message,
+		related,
+		cause,
+		version,
+		codegenComplexTypeSpecRef(version),
+	)
+}
+
+func codegenComplexTypeSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return codegenComplexTypeXSD10SpecRef
+	}
+	return codegenComplexTypeXSD11SpecRef
+}
+
+func rejectCodegenAbstractComplexType(definition ComplexTypeDefinition, loc Loc, related []Loc, version XSDVersion) error {
+	if !definition.IsAbstract() {
+		return nil
+	}
+	return newCodegenComplexTypeUnsupported(
+		loc,
+		fmt.Sprintf("complex type %q has abstract=true outside Go generation", definition.Name()),
+		related,
+		fmt.Errorf("%w: abstract complex type", errCodegenUnsupported),
 		version,
 	)
 }

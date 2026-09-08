@@ -200,6 +200,9 @@ func collectCodegenDirectChoices(
 		if ownerErr != nil {
 			return nil, ownerErr
 		}
+		if abstractErr := rejectCodegenAbstractComplexType(definition, component.Loc(), appendCodegenRelated(nil, definition.Loc()), version); abstractErr != nil {
+			return nil, abstractErr
+		}
 		owners = append(owners, owner)
 	}
 	return owners, nil

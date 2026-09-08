@@ -35,12 +35,14 @@ const (
 )
 
 const (
-	instanceValidationXSD10SpecRef = "xsd10-structures#cvc-elt"
-	instanceValidationXSD11SpecRef = "xsd11-structures#cvc-elt"
-	instanceIntegerXSD10SpecRef    = "xsd10-datatypes#integer"
-	instanceIntegerXSD11SpecRef    = "xsd11-datatypes#integer"
-	instanceDecimalXSD10SpecRef    = "xsd10-datatypes#decimal"
-	instanceDecimalXSD11SpecRef    = "xsd11-datatypes#decimal"
+	instanceValidationXSD10SpecRef  = "xsd10-structures#cvc-elt"
+	instanceValidationXSD11SpecRef  = "xsd11-structures#cvc-elt"
+	instanceComplexTypeXSD10SpecRef = "xsd10-structures#cvc-complex-type"
+	instanceComplexTypeXSD11SpecRef = "xsd11-structures#sec-cvc-type"
+	instanceIntegerXSD10SpecRef     = "xsd10-datatypes#integer"
+	instanceIntegerXSD11SpecRef     = "xsd11-datatypes#integer"
+	instanceDecimalXSD10SpecRef     = "xsd10-datatypes#decimal"
+	instanceDecimalXSD11SpecRef     = "xsd11-datatypes#decimal"
 	// Completed built-in element views do not retain their document version.
 	// Compatibility validation uses the repository's XSD 1.1-compatible default.
 	instanceBuiltInValidationVersion XSDVersion = XSDVersion11
@@ -74,6 +76,7 @@ var (
 	errInstanceSequenceNested          = errors.New("sequence scalar element has nested content")
 	errInstanceOpenAttrsType           = errors.New("openAttrs complex type is outside instance validation")
 	errInstanceComplexContentExtension = errors.New("complex-content extension is outside instance validation")
+	errInstanceAbstractComplexType     = errors.New("abstract complex type is outside instance validation")
 	errInstanceElementFacts            = errors.New("global element abstract and nillable facts are outside instance validation")
 	errInstanceLocalElementFacts       = errors.New("local element nillable facts are outside instance validation")
 	errInstanceElementSubstitution     = errors.New("referenced global element substitution is outside instance validation")
@@ -413,6 +416,9 @@ func instanceChoiceProgramFor(
 	alternatives, related, err := instanceChoiceAlternativesFor(schema, declaration, definition, choice, related, loc, version)
 	if err != nil {
 		return instanceChoiceProgram{}, err
+	}
+	if definition.IsAbstract() {
+		return instanceChoiceProgram{}, newInstanceAbstractComplexTypeUnsupported(definition, loc, related, version)
 	}
 
 	program := instanceChoiceProgram{
@@ -1641,10 +1647,33 @@ func newInstanceValidationUnsupported(loc Loc, message string, related []Loc, ve
 	return diagnostic
 }
 
+func newInstanceAbstractComplexTypeUnsupported(definition ComplexTypeDefinition, loc Loc, related []Loc, version XSDVersion) error {
+	err := newInstanceValidationUnsupported(
+		loc,
+		fmt.Sprintf("named complex type %q has abstract=true outside instance validation", definition.Name()),
+		related,
+		version,
+		errInstanceAbstractComplexType,
+	)
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+		return err
+	}
+	diagnostic.specRef = instanceComplexTypeValidationSpecRef(version)
+	return diagnostic
+}
+
 func newInstanceValidationInternal(loc Loc, message string, related []Loc, cause error) Diagnostic {
 	diagnostic := newDiagnostic(FailureInternal, diagnosticInstanceValidationCode, loc, message, cause)
 	diagnostic.related = relCopy(related)
 	return diagnostic
+}
+
+func instanceComplexTypeValidationSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceComplexTypeXSD10SpecRef
+	}
+	return instanceComplexTypeXSD11SpecRef
 }
 
 func instanceDecorateDiagnostic(err error, related []Loc, specRef string, fallbackLoc Loc) error {

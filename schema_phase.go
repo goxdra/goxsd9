@@ -1025,6 +1025,9 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	if implementedGlobalElementBooleanAttribute(element, kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
+	if implementedGlobalComplexTypeBooleanAttribute(kind, attribute.name.local) {
+		return "", validateSchemaBoolean(attribute)
+	}
 	if version == XSDVersion11 &&
 		kind == ComponentKindComplexTypeDefinition &&
 		attribute.name.namespace == "" &&
@@ -1070,6 +1073,10 @@ func implementedGlobalElementBooleanAttribute(element *syntaxElement, kind Compo
 		return true
 	}
 	return inlineSimpleTypeChild(element) != nil
+}
+
+func implementedGlobalComplexTypeBooleanAttribute(kind ComponentKind, local string) bool {
+	return kind == ComponentKindComplexTypeDefinition && local == "abstract"
 }
 
 func isXSD11GlobalSchemaAttribute(kind ComponentKind, local string) bool {
