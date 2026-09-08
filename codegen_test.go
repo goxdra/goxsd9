@@ -182,6 +182,200 @@ func useBooleanScalars() {
 	}
 }
 
+//nolint:gocognit,funlen // Keep the supported global string graph and consumer gate together.
+func TestGenerateGoGlobalStringScalarsAcrossPolicies(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  goxsd9.LanguagePolicy
+		version string
+	}{
+		{name: "Compatibility", policy: goxsd9.Compatibility},
+		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0"},
+		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			version := ""
+			if test.version != "" {
+				version = ` version="` + test.version + `"`
+			}
+			rootContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root"` + version + `>
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:element name="direct" type="xs:string"/>
+  <xs:element name="namedElement" type="r:Named"/>
+  <xs:element name="inheritedElement" type="r:Inherited"/>
+  <xs:element name="includedElement" type="r:IncludedString"/>
+  <xs:element name="importedElement" type="o:ImportedString"/>
+  <xs:element name="inlineElement">
+    <xs:simpleType>
+      <xs:restriction base="xs:string">
+        <xs:enumeration value=""/>
+        <xs:enumeration value="inline"/>
+      </xs:restriction>
+    </xs:simpleType>
+  </xs:element>
+  <xs:simpleType name="Named">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="named"/>
+      <xs:enumeration value=""/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="Inherited"><xs:restriction base="r:Named"/></xs:simpleType>
+</xs:schema>`
+			chameleonContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `">
+  <xs:simpleType name="IncludedString"><xs:restriction base="xs:string"><xs:enumeration value="included"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+			otherContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" targetNamespace="urn:other"` + version + `>
+  <xs:simpleType name="ImportedString"><xs:restriction base="xs:string"><xs:enumeration value="imported"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+			root, err := goxsd9.NewResolvedSource(context.Background(), "root.xsd", newParseTestReader(rootContents))
+			if err != nil {
+				t.Fatalf("NewResolvedSource: %v", err)
+			}
+			schema, err := goxsd9.ParseSchemaWithPolicy(root, &publicCodegenResolver{
+				contents: map[string]string{
+					"chameleon.xsd": chameleonContents,
+					"other.xsd":     otherContents,
+				},
+			}, test.policy)
+			if err != nil {
+				t.Fatalf("ParseSchemaWithPolicy: %v", err)
+			}
+
+			first, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo: %v", err)
+			}
+			second, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo second: %v", err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatalf("repeated string output differs:\nfirst:\n%s\nsecond:\n%s", first, second)
+			}
+			formatted, err := format.Source(first)
+			if err != nil {
+				t.Fatalf("format generated string source: %v\n%s", err, first)
+			}
+			if !bytes.Equal(first, formatted) {
+				t.Fatalf("generated string source is not complete go/format output:\n%s", first)
+			}
+			source := string(first)
+			if strings.Contains(source, `github.com/goxdra/goxsd9`) || strings.Contains(source, "import ") {
+				t.Fatalf("string-only output unexpectedly imports the runtime:\n%s", source)
+			}
+			if strings.Contains(source, "const ") || strings.Contains(source, "xml:") {
+				t.Fatalf("string-only output contains runtime validation, constants, or tags:\n%s", source)
+			}
+			for _, fragment := range []string{
+				"type Direct struct {\n\tValue string\n}",
+				"type NamedElement struct {\n\tValue Named\n}",
+				"type InheritedElement struct {\n\tValue Inherited\n}",
+				"type IncludedElement struct {\n\tValue IncludedString\n}",
+				"type ImportedElement struct {\n\tValue ImportedString\n}",
+				"type InlineElement struct {\n\tValue string\n}",
+				"type Named struct {\n\tValue string\n}",
+				"type Inherited struct {\n\tValue string\n}",
+				"type IncludedString struct {\n\tValue string\n}",
+				"type ImportedString struct {\n\tValue string\n}",
+			} {
+				if !strings.Contains(source, fragment) {
+					t.Fatalf("generated string source is missing %q:\n%s", fragment, source)
+				}
+			}
+			orderedNames := []string{"Direct", "NamedElement", "InheritedElement", "IncludedElement", "ImportedElement", "InlineElement", "Named", "Inherited", "IncludedString", "ImportedString"}
+			last := -1
+			for _, name := range orderedNames {
+				position := strings.Index(source, "type "+name+" ")
+				if position <= last {
+					t.Fatalf("generated declarations do not preserve schema order at %s:\n%s", name, source)
+				}
+				last = position
+			}
+			for _, name := range []string{"Direct", "NamedElement", "InheritedElement", "IncludedElement", "ImportedElement", "InlineElement", "Named", "Inherited", "IncludedString", "ImportedString"} {
+				if strings.Count(source, "type "+name+" ") != 1 {
+					t.Fatalf("generated string source declares %s an unexpected number of times:\n%s", name, source)
+				}
+			}
+			compilePublicGeneratedCode(t, first, `package consumer
+
+import generated "generated.test"
+
+func useStringScalars() {
+	var direct generated.Direct
+	var named generated.NamedElement
+	var inherited generated.InheritedElement
+	var included generated.IncludedElement
+	var imported generated.ImportedElement
+	var inline generated.InlineElement
+	var _ string = direct.Value
+	var _ generated.Named = named.Value
+	var _ generated.Inherited = inherited.Value
+	var _ generated.IncludedString = included.Value
+	var _ generated.ImportedString = imported.Value
+	var _ string = inline.Value
+}
+`)
+		})
+	}
+}
+
+//nolint:gocognit // Keep token-family negative cases together.
+func TestGenerateGoRejectsTokenDerivedGlobalStringFamilies(t *testing.T) {
+	for _, typeName := range []string{"token", "NMTOKEN"} {
+		t.Run(typeName, func(t *testing.T) {
+			schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`" targetNamespace="urn:test"><xs:element name="item" type="xs:`+typeName+`"/></xs:schema>`)
+			output, err := goxsd9.GenerateGo(schema, "generated")
+			if output != nil || err == nil {
+				t.Fatalf("global %s result = (%q, %v), want nil output and error", typeName, output, err)
+			}
+			diagnostic := requirePublicCodegenDiagnostic(t, err)
+			if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode {
+				t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic", diagnostic)
+			}
+			if diagnostic.SpecRef() != "xsd11-structures#Element_Declaration_details" {
+				t.Fatalf("diagnostic spec reference = %q, want xsd11-structures#Element_Declaration_details", diagnostic.SpecRef())
+			}
+			if diagnostic.Loc().Source() != "root.xsd" || !errors.Is(err, goxsd9.ErrUnsupported) {
+				t.Fatalf("diagnostic location/cause = %s/%v, want root.xsd and unsupported", diagnostic.Loc(), err)
+			}
+		})
+	}
+}
+
+func TestGenerateGoMixedNumericAndStringScalarsKeepOneRuntimeImport(t *testing.T) {
+	schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`" targetNamespace="urn:test">
+  <xs:element name="label" type="xs:string"/>
+  <xs:element name="count" type="xs:integer"/>
+</xs:schema>`)
+	source, err := goxsd9.GenerateGo(schema, "generated")
+	if err != nil {
+		t.Fatalf("GenerateGo: %v", err)
+	}
+	generated := string(source)
+	if got := strings.Count(generated, `"github.com/goxdra/goxsd9"`); got != 1 {
+		t.Fatalf("runtime import count = %d, want one:\n%s", got, generated)
+	}
+	for _, fragment := range []string{
+		"type Label struct {\n\tValue string\n}",
+		"type Count struct {\n\tValue Runtime.StrictInteger\n}",
+	} {
+		if !strings.Contains(generated, fragment) {
+			t.Fatalf("mixed scalar source is missing %q:\n%s", fragment, generated)
+		}
+	}
+	compilePublicGeneratedCode(t, source, `package consumer
+
+import generated "generated.test"
+
+func useMixedScalars() {
+	var _ string = generated.Label{}.Value
+	var _ = generated.Count{}.Value
+}
+`)
+}
+
 func TestGenerateGoBooleanComponentReservesRuntimeName(t *testing.T) {
 	schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`" xmlns:t="urn:test" targetNamespace="urn:test">
   <xs:simpleType name="runtime"><xs:restriction base="xs:boolean"/></xs:simpleType>

@@ -88,12 +88,12 @@ Primitive status follows type-relations. Global `xs:boolean` and atomic `xs:stri
 named/anonymous restrictions retain immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins lack synthetic IDs.
 Built-in/named integer/decimal attrs retain immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
 exact-typed-value, source-location. Named global complex types accept unqualified `mixed="false|0"`; omitted=element-only
-(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1 forms; anonymous globals invalid.
-Supported typed global attributes expose immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
+(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1 forms; anonymous global complex/other shapes unsupported.
+Typed global attributes expose immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
 Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline forms unsupported.
 `defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
-Schema-level `defaultAttributes`/default groups, local uses/inline forms, string/boolean/precisionDecimal attributes,
+Schema-level `defaultAttributes`/default groups, local uses/inline-non-atomic-string forms, string/boolean/precisionDecimal attributes,
 wildcard/attribute forms unsupported.
 
 Named complex types retain effective `abstract` bool via `ComplexTypeDefinition.IsAbstract()`; derivation does not inherit it.
@@ -126,15 +126,15 @@ Sequences honor exact finite, unbounded, and above-`uint64` outer/child ranges u
 `Compatibility`, `Strict10`, and `Strict11`. Direct choices allow default local scalars
 or default global integer/decimal references; mixed local/reference choices and non-default
 direct-choice/alternative occurrences unsupported/query-only. Non-default
-`precisionDecimal` choice/alternative ranges are schema-unsupported. Reference targets use
-immutable `TargetID`/`Lookup`; direct-choice repetition and excluded particle/target shapes,
-including strings, local boolean/string particles, attributes, and broader structures, remain
-unsupported. Supported concrete validator/generator paths reject abstract named types with located unsupported diagnostics;
+`precisionDecimal` choice/alternative ranges are schema-unsupported. References use
+immutable `TargetID`/`Lookup`; direct-choice repetition and excluded particle/target shapes—
+global string/token values, local boolean/string/token particles, lists/unions, attributes, and broader structures—remain
+unsupported. Concrete validator/generator paths reject abstract named types with located unsupported diagnostics;
 valid abstract declarations remain schema-queryable.
 
-Generation emits deterministic choice switches, global booleans, and default-bounded integer/decimal sequence structs;
-repeated-field and direct-reference generation, direct-choice repetition, string, boolean facets, and local boolean/string
-particles unsupported.
+Generation: choice switches, global boolean/atomic-string scalars (`xs:string`; named/inherited; inline anonymous global
+string elements), default-bounded integer/decimal sequences; repeated/direct-reference generation, direct-choice-repetition,
+boolean-facets, and local boolean/string/token particles unsupported.
 
 ## Conformance
 
