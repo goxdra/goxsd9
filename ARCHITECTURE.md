@@ -84,22 +84,22 @@ Documents follow identity-discovery order (root, queue); named declarations foll
 declaration ordinals; lookup maps never define observable order. Local particles use scoped component
 facts/indexes; validator/generator state is on-demand.
 
-Model facts; primitive status follows type-relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`/`xs:NMTOKEN` elements retain `DeclaredType`;
-named/anonymous restrictions: immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins no synthetic IDs.
-Global built-in/named integer/decimal attributes: immutable value-constraint-facts—kind=default/fixed, normalized-lexical-form,
-exact-typed-value, source-location. Named global complex-type bodies accept unqualified `mixed="false"`/`mixed="0"`:
-omitted element-only (unretained/unconsumed); `mixed="true"`/`mixed="1"` explicitly unsupported; malformed values or contradictory XSD 1.1
-outer/inner forms and anonymous globals invalid. Unqualified `defaultAttributesApply="true"`,
-`"false"`, `"1"`, or `"0"` is accepted only on named global complex types under XSD 1.1/Compatibility when the
-containing schema has no `defaultAttributes`; it is validated then discarded, with no public model or validator/generator state.
-Strict10 reports the XSD 1.1 mismatch. Schema-level `defaultAttributes`/default-group application and local uses/inline forms remain unsupported;
-anonymous globals are invalid; string/boolean/precisionDecimal attributes and other wildcard/attribute forms remain unsupported;
-validation/generation consume no attributes.
+Model facts; primitive status follows type-relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`/`xs:NMTOKEN` retain `DeclaredType`;
+named/anonymous restrictions retain immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins lack synthetic IDs.
+Built-in/named integer/decimal attrs retain immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
+exact-typed-value, source-location. Named global complex-type bodies accept unqualified `mixed="false|0"`; omitted=element-only
+(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1 forms and anonymous globals are invalid.
+Unqualified `defaultAttributesApply="true|false|1|0"` is accepted only on named globals under
+XSD 1.1/Compatibility without schema-level `defaultAttributes`; validated then discarded with no public model or validator/generator state.
+Strict10 reports the XSD 1.1 mismatch. Schema-level `defaultAttributes`/default groups and local uses/inline forms remain unsupported;
+string/boolean/precisionDecimal attributes and wildcard/attribute forms unsupported.
+
+Named complex types retain effective `abstract` bool via `ComplexTypeDefinition.IsAbstract()`; derivation does not inherit it.
 
 Named complex types: particles; bounded openAttrs restrictions; bounded attribute-free complexContent/extension over named empty-content bases;
 extensions retain base/extension identities/locations, inherited bounded wildcard facts, exact direct-choice/sequence occurrences; validation/generation
 reject. Direct sequence/choice: local xs:boolean/named boolean-restriction/integer/decimal; exact ranges (0/0 absent). XSD 1.1 precisionDecimal choices
-require default occurrences; ranges queryable. Local string/token/`xs:NMTOKEN` particles remain unsupported; Boolean facets, anonymous/nested/broader particles unsupported.
+require default occurrences; ranges queryable. Local string/token/`xs:NMTOKEN` particles unsupported; Boolean facets, anonymous/nested/broader particles unsupported.
 References retain immutable target facts. Choices/sequences expose attribute-free anyAttribute: omitted=##any/strict; explicit=##other/lax supported across policies.
 Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
 
@@ -127,11 +127,12 @@ direct-choice/alternative occurrences unsupported/query-only. Non-default
 `precisionDecimal` choice/alternative ranges are schema-unsupported. Reference targets use
 immutable `TargetID`/`Lookup`; direct-choice repetition and excluded particle/target shapes,
 including strings, local boolean/string particles, attributes, and broader structures, remain
-unsupported. Locations are primary.
+unsupported. Supported concrete validator/generator paths reject abstract named types with located unsupported diagnostics;
+valid abstract declarations remain schema-queryable.
 
 Generation emits deterministic choice switches, global booleans, and default-bounded integer/decimal sequence structs;
 repeated-field and direct-reference generation, direct-choice repetition, string, boolean facets, and local boolean/string
-particles remain unsupported.
+particles unsupported.
 
 ## Conformance
 
