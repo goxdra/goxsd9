@@ -93,8 +93,8 @@ Typed global attributes expose immutable `AttributeDeclaration.IsInheritable()`:
 Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline forms unsupported.
 `defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
-Schema-level `defaultAttributes`/default groups, local uses/inline-non-atomic-string forms, string/boolean/precisionDecimal attributes,
-wildcard/attribute forms unsupported.
+Schema-level `defaultAttributes`/groups, local uses/inline-non-atomic-string forms, string/boolean/precisionDecimal attributes,
+other wildcard/attribute forms unsupported.
 
 Named complex types retain effective `abstract` bool via `ComplexTypeDefinition.IsAbstract()`; derivation does not inherit it.
 
