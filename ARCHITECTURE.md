@@ -98,12 +98,12 @@ wildcard/attribute forms unsupported.
 
 Named complex types retain effective `abstract` bool via `ComplexTypeDefinition.IsAbstract()`; derivation does not inherit it.
 
-Named complex types: particles; bounded openAttrs restrictions; bounded attribute-free complexContent/extension over named empty-content bases;
-extensions retain base/extension identities/locations, inherited bounded wildcard facts, exact direct-choice/sequence occurrences; validation/generation
-reject. Direct sequence/choice: local xs:boolean/named boolean-restriction/integer/decimal; exact ranges (0/0 absent). XSD 1.1 precisionDecimal choices
-require default occurrences; ranges queryable. Local string/token/`xs:NMTOKEN` particles unsupported; Boolean facets, anonymous/nested/broader particles unsupported.
-References retain immutable target facts. Choices/sequences expose attribute-free anyAttribute: omitted=##any/strict; explicit=##other/lax supported across policies.
-Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
+Named complex: particles; bounded openAttrs; attribute-free complexContent/extension over named empty-content bases; extensions retain base/extension IDs/locations,
+inherited wildcards, direct-choice/sequence occurrences; validation/generation reject. Direct global named: inert XSD 1.1 `openContent mode="none"`
+accepted only under Compatibility/Strict11; Strict10 reports located XSD 1.1 mismatch. Non-none/wildcard-bearing `openContent`, `defaultOpenContent`,
+inline/derivation-local unsupported; malformed invalid. Local string/token/`xs:NMTOKEN` particles, Boolean facets, anonymous/nested/broader particles
+unsupported. References retain immutable target facts. Choices/sequences expose attribute-free anyAttribute: omitted=##any/strict; explicit=##other/lax supported across
+policies. Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
 
 ## Datatypes
 
