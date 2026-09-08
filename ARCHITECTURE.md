@@ -132,9 +132,9 @@ including strings, local boolean/string particles, attributes, and broader struc
 unsupported. Supported concrete validator/generator paths reject abstract named types with located unsupported diagnostics;
 valid abstract declarations remain schema-queryable.
 
-Generation emits deterministic choice switches, global booleans, and default-bounded integer/decimal sequence structs;
-repeated-field and direct-reference generation, direct-choice repetition, string, boolean facets, and local boolean/string
-particles unsupported.
+Generation emits deterministic choice switches, global boolean/string scalars, and default-bounded integer/decimal
+sequences; repeated-field and direct-reference generation, direct-choice repetition, boolean facets, and local
+boolean/string particles unsupported.
 
 ## Conformance
 

@@ -63,10 +63,10 @@
 // and Strict11. Direct-choice repetition and excluded particle/target shapes
 // remain explicit unsupported behavior. Reference alternatives exclude boolean
 // and precisionDecimal targets. Scalar elements contain only character data;
-// string/token globals, local boolean/string particles, attributes, broader particles,
-// and other semantics remain explicit unsupported behavior.
-// GenerateGo produces deterministic Go source for global boolean/integer/decimal
-// scalar components, direct scalar choices, and default-bounded direct integer/
-// decimal sequences; string/token, boolean facets, and local boolean/string/token
-// particles remain unsupported.
+// atomic string globals are supported; token globals, local boolean/string particles,
+// attributes, broader particles, and other semantics remain explicit unsupported behavior.
+// GenerateGo produces deterministic Go source for global boolean/integer/decimal/
+// atomic-string scalar components, direct scalar choices, and default-bounded
+// direct integer/decimal sequences; token, boolean facets, and local
+// boolean/string/token particles remain unsupported.
 package goxsd9

@@ -212,6 +212,68 @@ func TestCodegenScalarSourceRejectsStaleNamedBooleanFacetsForElementAtRenderBoun
 	}
 }
 
+//nolint:gocognit // Keep the supported string fact corruption cases at the render boundary.
+func TestCodegenScalarSourceRejectsCorruptStringFactsAtRenderBoundary(t *testing.T) {
+	tests := []struct {
+		name   string
+		root   string
+		mutate func(Schema)
+	}{
+		{
+			name: "built-in atomic kind",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:element name="item" type="xs:string"/></xs:schema>`,
+			mutate: func(schema Schema) {
+				schema.Components()[0].element.typeReference.atomicKind = schemaSimpleTypeAtomicToken
+			},
+		},
+		{
+			name: "named facet variant",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:element name="item" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:string"><xs:enumeration value="value"/></xs:restriction></xs:simpleType></xs:schema>`,
+			mutate: func(schema Schema) {
+				components := schema.Components()
+				components[1].simpleType.facets = schemaBooleanFacetVariant{}
+			},
+		},
+		{
+			name: "inline anonymous atomic kind",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:element name="item"><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType></xs:element></xs:schema>`,
+			mutate: func(schema Schema) {
+				schema.Components()[0].element.typeReference.anonymous.atomicKind = schemaSimpleTypeAtomicToken
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, test.root, nil)
+			if err != nil {
+				t.Fatalf("discoverTestSchema: %v", err)
+			}
+			plan, err := planCodegenSource(schema, mustScalarCodegenNaming(t, schema))
+			if err != nil {
+				t.Fatalf("planCodegenSource: %v", err)
+			}
+			test.mutate(schema)
+			output, err := renderCodegenSource(plan, schema)
+			if output != nil || err == nil {
+				t.Fatalf("corrupt string facts result = (%q, %v), want nil output and error", output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+				t.Fatalf("diagnostic = %s, want internal codegen invariant %s", diagnostic, diagnosticCodegenInvariant)
+			}
+			if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
+				t.Fatalf("diagnostic location = %s, want root.xsd location", diagnostic.Loc())
+			}
+			if diagnostic.SpecRef() == "" {
+				t.Fatalf("diagnostic specification reference is empty: %s", diagnostic)
+			}
+			if !errors.Is(err, errCodegenSchemaInvariant) && !errors.Is(err, errCodegenElementType) {
+				t.Fatalf("corrupt string fact error lost its internal cause: %v", err)
+			}
+		})
+	}
+}
+
 func TestCodegenScalarSourceAcceptsCollisionResolvedRuntimeImportAlias(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
   <xs:simpleType name="runtime"><xs:restriction base="xs:integer"/></xs:simpleType>
