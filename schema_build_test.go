@@ -1792,7 +1792,7 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:    "openContent none remains unsupported without any",
+			name:    "inline openContent none remains unsupported without any",
 			root:    wrapper(` version="1.1"`, `<xs:complexType><xs:openContent mode="none"/></xs:complexType>`),
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
