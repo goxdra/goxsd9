@@ -40,9 +40,10 @@
 // unsupported; local string/token particles remain unsupported. Anonymous simple-type
 // models and resolved built-in, named, and anonymous simple-type references are
 // modeled. Direct element references are queryable immutable particles;
-// validation supports default-occurrence direct choices made entirely of
-// references to global integer/decimal scalar elements, while other reference
-// particles and code generation remain explicitly unsupported.
+// validation and code generation support default-occurrence direct choices
+// made entirely of references to global integer/decimal scalar elements, while
+// other reference particles, repetition, and broader shapes remain explicitly
+// unsupported.
 // Default-bounded direct integer and decimal sequences are emitted as ordered Go
 // struct fields; repeated-field generation and direct-choice repetition remain
 // unsupported.

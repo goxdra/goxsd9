@@ -132,9 +132,9 @@ global string/token values, local boolean/string/token particles, lists/unions, 
 unsupported. Concrete validator/generator paths reject abstract named types with located unsupported diagnostics;
 valid abstract declarations remain schema-queryable.
 
-Generation: scalar globals (`xs:string`; named/inherited; inline string), default-bounded integer/decimal sequences and
-direct-choice references to global numeric declarations; repeated/direct-sequence-reference generation,
-direct-choice-repetition, boolean-facets, and local boolean/string/token particles unsupported.
+Generation: named/inherited global boolean/integer/decimal/string scalars, inline anonymous global strings, direct/local
+numeric choice-switches, default-bounded sequences; only default-occurrence direct-choice references to global
+integer/decimal declarations generated; repeated/other references unsupported.
 
 ## Conformance
 
