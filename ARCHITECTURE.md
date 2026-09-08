@@ -84,15 +84,17 @@ Documents follow identity-discovery order (root, queue); named declarations foll
 declaration ordinals; lookup maps never define observable order. Local particles use scoped component
 facts/indexes; validator/generator state is on-demand.
 
-Model facts; primitive status follows type-relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`/`xs:NMTOKEN` retain `DeclaredType`;
+Primitive status follows type-relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`/`xs:NMTOKEN` retain `DeclaredType`;
 named/anonymous restrictions retain immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins lack synthetic IDs.
 Built-in/named integer/decimal attrs retain immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
-exact-typed-value, source-location. Named global complex-type bodies accept unqualified `mixed="false|0"`; omitted=element-only
-(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1 forms and anonymous globals are invalid.
-Unqualified `defaultAttributesApply="true|false|1|0"` is accepted only on named globals under
-XSD 1.1/Compatibility without schema-level `defaultAttributes`; validated then discarded with no public model or validator/generator state.
-Strict10 reports the XSD 1.1 mismatch. Schema-level `defaultAttributes`/default groups and local uses/inline forms remain unsupported;
-string/boolean/precisionDecimal attributes and wildcard/attribute forms unsupported.
+exact-typed-value, source-location. Named global complex types accept unqualified `mixed="false|0"`; omitted=element-only
+(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1 forms; anonymous globals invalid.
+Supported typed global attributes expose immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
+Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline forms unsupported.
+`defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
+`defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
+Schema-level `defaultAttributes`/default groups, local uses/inline forms, string/boolean/precisionDecimal attributes,
+wildcard/attribute forms unsupported.
 
 Named complex types retain effective `abstract` bool via `ComplexTypeDefinition.IsAbstract()`; derivation does not inherit it.
 

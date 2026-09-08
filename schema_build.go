@@ -1056,6 +1056,10 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 			version,
 		)
 	}
+	inheritable, err := schemaAttributeInheritableValue(element)
+	if err != nil {
+		return nil, err
+	}
 	declaredType, err := expandSchemaQName(element, attributes[0])
 	if err != nil {
 		return nil, err
@@ -1063,8 +1067,20 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 	return &schemaAttributeInput{
 		declaredType:    declaredType,
 		typeLoc:         attributes[0].loc,
+		inheritable:     inheritable,
 		valueConstraint: valueConstraint,
 	}, nil
+}
+
+func schemaAttributeInheritableValue(element *syntaxElement) (bool, error) {
+	attributes := syntaxAttributesByLocal(element, "inheritable")
+	if len(attributes) > 1 {
+		return false, newSchemaCompositionDiagnostic(attributes[1].loc, "attribute \"inheritable\" must be unique")
+	}
+	if len(attributes) == 0 {
+		return false, nil
+	}
+	return schemaBooleanValue(attributes[0])
 }
 
 func schemaAttributeValueConstraintInputFromElement(element *syntaxElement, version XSDVersion) (*schemaAttributeValueConstraintInput, error) {
@@ -2585,6 +2601,7 @@ type schemaAttributeTypeResult struct {
 	present          bool
 	typeReference    schemaSimpleTypeReferenceComponent
 	hasTypeReference bool
+	inheritable      bool
 	valueConstraint  *AttributeValueConstraint
 }
 
@@ -2663,6 +2680,7 @@ func resolveSchemaAttributeType(
 		)
 	}
 	result := resolvedSchemaAttributeTypeResult(reference)
+	result.inheritable = input.inheritable
 	if input.valueConstraint == nil {
 		return result, nil
 	}

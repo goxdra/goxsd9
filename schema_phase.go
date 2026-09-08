@@ -1043,6 +1043,17 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
 			return "", err
 		}
+		if kind == ComponentKindAttributeDeclaration && attribute.name.local == "inheritable" && len(syntaxAttributesByLocal(element, "type")) > 0 {
+			if version == XSDVersion10 {
+				return "", newXSD11FeatureMismatch(
+					FeatureSchemaSyntax,
+					UnsupportedSchemaSyntaxCode,
+					attribute.loc,
+					fmt.Sprintf("global %s attribute %q is an XSD 1.1-only construct", element.name.local, attribute.name.local),
+				)
+			}
+			return "", nil
+		}
 		if (kind == ComponentKindSimpleTypeDefinition || kind == ComponentKindComplexTypeDefinition) && attribute.name.local == "final" && collapseXMLWhitespace(attribute.value) == "" {
 			return "", nil
 		}

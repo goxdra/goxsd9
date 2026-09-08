@@ -76,6 +76,9 @@ func TestSchemaBridgeExposesGlobalAttributeScalarFacts(t *testing.T) {
 				if declaration.DeclaredType() != wantType {
 					t.Fatalf("component %d declared type = %q, want %q", index, declaration.DeclaredType(), wantType)
 				}
+				if declaration.IsInheritable() {
+					t.Fatalf("component %d omitted inheritable fact = true, want false", index)
+				}
 				typeID, hasTypeID := declaration.TypeID()
 				if index < 2 {
 					if hasTypeID || !typeID.IsZero() {
@@ -122,6 +125,210 @@ func TestSchemaBridgeExposesGlobalAttributeScalarFacts(t *testing.T) {
 			}
 			if !reflect.DeepEqual(walked, wantWalk) {
 				t.Fatalf("Walk IDs = %#v, want %#v", walked, wantWalk)
+			}
+		})
+	}
+}
+
+//nolint:gocognit,funlen // Keep the supported graph shapes and immutable fact contract together.
+func TestSchemaBridgeRetainsGlobalAttributeInheritableFacts(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:attribute name="omitted" type="xs:integer"/>
+  <xs:attribute name="explicitFalse" type="r:NamedDecimal" inheritable=" false "/>
+  <xs:attribute name="zero" type="r:ForwardInteger" inheritable=" 0 "/>
+  <xs:attribute name="imported" type="o:ImportedDecimal" inheritable=" true "/>
+  <xs:attribute name="one" type="r:ChameleonInteger" inheritable=" 1 "/>
+  <xs:simpleType name="NamedDecimal"><xs:restriction base="xs:decimal"/></xs:simpleType>
+  <xs:simpleType name="ForwardInteger"><xs:restriction base="xs:integer"/></xs:simpleType>
+</xs:schema>`
+	fixtures := map[string]discoveryFixture{
+		"chameleon.xsd": {
+			id:       "chameleon.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="ChameleonInteger"><xs:restriction base="xs:integer"/></xs:simpleType><xs:attribute name="chameleonDeclared" type="xs:integer" inheritable="1"/></xs:schema>`,
+		},
+		"other.xsd": {
+			id:       "other.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:simpleType name="ImportedDecimal"><xs:restriction base="xs:decimal"/></xs:simpleType><xs:attribute name="importedDeclared" type="xs:decimal" inheritable="0"/></xs:schema>`,
+		},
+	}
+	want := []struct {
+		name        string
+		namespace   string
+		inheritable bool
+		source      SourceID
+		ordinal     uint64
+	}{
+		{name: "omitted", namespace: "urn:root", source: "root.xsd", ordinal: 1},
+		{name: "explicitFalse", namespace: "urn:root", inheritable: false, source: "root.xsd", ordinal: 2},
+		{name: "zero", namespace: "urn:root", inheritable: false, source: "root.xsd", ordinal: 3},
+		{name: "imported", namespace: "urn:root", inheritable: true, source: "root.xsd", ordinal: 4},
+		{name: "one", namespace: "urn:root", inheritable: true, source: "root.xsd", ordinal: 5},
+		{name: "chameleonDeclared", namespace: "urn:root", inheritable: true, source: "chameleon.xsd", ordinal: 2},
+		{name: "importedDeclared", namespace: "urn:other", inheritable: false, source: "other.xsd", ordinal: 2},
+	}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			first, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			second, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy)
+			if err != nil {
+				t.Fatalf("repeated discoverTestSchemaWithPolicy: %v", err)
+			}
+			if first.LanguagePolicy() != policy || second.LanguagePolicy() != policy {
+				t.Fatalf("language policies = %q/%q, want %q", first.LanguagePolicy(), second.LanguagePolicy(), policy)
+			}
+			firstComponents := first.Components()
+			secondComponents := second.Components()
+			if len(firstComponents) != len(secondComponents) {
+				t.Fatalf("repeated component counts = %d/%d", len(firstComponents), len(secondComponents))
+			}
+			for index := range firstComponents {
+				if firstComponents[index].ID() != secondComponents[index].ID() || firstComponents[index].Name() != secondComponents[index].Name() {
+					t.Fatalf("repeated component %d identity/order changed: %v/%v vs %v/%v", index, firstComponents[index].ID(), firstComponents[index].Name(), secondComponents[index].ID(), secondComponents[index].Name())
+				}
+			}
+
+			for _, test := range want {
+				name := mustTestQName(t, test.namespace, test.name)
+				found := first.FindKind(ComponentKindAttributeDeclaration, name)
+				if len(found) != 1 {
+					t.Fatalf("FindKind(%q) count = %d, want 1", test.name, len(found))
+				}
+				declaration, ok := found[0].AttributeDeclaration()
+				if !ok {
+					t.Fatalf("%s has no AttributeDeclaration view", test.name)
+				}
+				if declaration.IsInheritable() != test.inheritable {
+					t.Fatalf("%s IsInheritable = %t, want %t", test.name, declaration.IsInheritable(), test.inheritable)
+				}
+				for iteration := 0; iteration < 5; iteration++ {
+					if declaration.IsInheritable() != test.inheritable {
+						t.Fatalf("%s repeated IsInheritable = %t, want %t", test.name, declaration.IsInheritable(), test.inheritable)
+					}
+				}
+				if declaration.ID().Source() != test.source || declaration.ID().Ordinal() != test.ordinal {
+					t.Fatalf("%s identity = %v, want %s ordinal %d", test.name, declaration.ID(), test.source, test.ordinal)
+				}
+				if declaration.Loc().Source() != test.source {
+					t.Fatalf("%s declaration location = %s, want source %q", test.name, declaration.Loc(), test.source)
+				}
+				alias, aliasOK := found[0].Attribute()
+				if !aliasOK || alias.IsInheritable() != test.inheritable {
+					t.Fatalf("%s Attribute alias fact = %t/%t, want %t/true", test.name, alias.IsInheritable(), aliasOK, test.inheritable)
+				}
+			}
+
+			before := first.Components()
+			returned := first.Components()
+			returned[0] = Component{}
+			found := first.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:root", "one"))
+			found[0] = Component{}
+			documentComponents := first.Documents()[0].Components()
+			documentComponents[0] = Component{}
+			if !reflect.DeepEqual(before, first.Components()) {
+				t.Fatal("mutating returned component copies changed inheritable facts")
+			}
+
+			var zero AttributeDeclaration
+			if zero.IsInheritable() {
+				t.Fatal("zero AttributeDeclaration IsInheritable = true, want false")
+			}
+			walked := make([]ComponentID, 0, len(firstComponents))
+			if err := first.Walk(func(component Component) error {
+				walked = append(walked, component.ID())
+				return nil
+			}); err != nil {
+				t.Fatalf("Walk: %v", err)
+			}
+			wantWalk := make([]ComponentID, 0, len(firstComponents))
+			for _, component := range firstComponents {
+				wantWalk = append(wantWalk, component.ID())
+			}
+			if !reflect.DeepEqual(walked, wantWalk) {
+				t.Fatalf("Walk IDs = %#v, want %#v", walked, wantWalk)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeGlobalAttributeInheritablePolicyAndMalformedPrecedence(t *testing.T) {
+	explicit := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:integer" inheritable="true"/></xs:schema>`
+	assertStrict10GlobalAttributeInheritableMismatch(t, explicit)
+
+	malformed := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:integer" inheritable="maybe"/></xs:schema>`
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+		t.Run(string(policy)+" malformed", func(t *testing.T) {
+			assertMalformedGlobalAttributeInheritable(t, malformed, policy)
+		})
+	}
+}
+
+func assertStrict10GlobalAttributeInheritableMismatch(t *testing.T, explicit string) {
+	t.Helper()
+	strict10, err := discoverTestSchemaWithPolicy(t, explicit, nil, Strict10)
+	if err == nil || strict10.storage != nil || len(strict10.Components()) != 0 {
+		t.Fatal("Strict10 accepted inheritable or returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("Strict10 diagnostic = %s/%q/%q, want schema-syntax mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
+	}
+	if diagnostic.Loc() != elementReferenceTestAttributeLoc(t, explicit, "inheritable=") {
+		t.Fatalf("Strict10 diagnostic location = %s, want inheritable location", diagnostic.Loc())
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errLanguagePolicyMismatch) {
+		t.Fatalf("Strict10 diagnostic lost mismatch causes: %v", err)
+	}
+}
+
+func assertMalformedGlobalAttributeInheritable(t *testing.T, malformed string, policy LanguagePolicy) {
+	t.Helper()
+	schema, err := discoverTestSchemaWithPolicy(t, malformed, nil, policy)
+	if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
+		t.Fatal("malformed inheritable was accepted or returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+		t.Fatalf("diagnostic = %s, want invalid schema composition", diagnostic)
+	}
+	if diagnostic.Loc() != elementReferenceTestAttributeLoc(t, malformed, "inheritable=") {
+		t.Fatalf("diagnostic location = %s, want inheritable location", diagnostic.Loc())
+	}
+	if errors.Is(err, errLanguagePolicyMismatch) {
+		t.Fatalf("malformed boolean was classified as a Strict10 mismatch: %v", err)
+	}
+}
+
+func TestSchemaBridgeGlobalAttributeInheritableExcludedShapesRemainUnsupported(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+	}{
+		{
+			name: "generic",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" inheritable="true"/></xs:schema>`,
+		},
+		{
+			name: "inline anonymous type",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" inheritable="true"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:attribute></xs:schema>`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Strict11)
+			if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
+				t.Fatal("excluded inheritable shape was accepted or returned a partial schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+				t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code())
+			}
+			if diagnostic.Loc() != elementReferenceTestAttributeLoc(t, test.root, "inheritable=") {
+				t.Fatalf("diagnostic location = %s, want inheritable location", diagnostic.Loc())
 			}
 		})
 	}
