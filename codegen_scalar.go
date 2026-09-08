@@ -261,6 +261,9 @@ func planCodegenSourceWithDirectParticlePlan(
 		return codegenSourcePlan{}, err
 	}
 	for _, component := range components {
+		if codegenDirectChoiceTargetElementOmitted(component.ID(), choicePlan, directPlan) {
+			continue
+		}
 		identifier, ok := names.componentName(component.ID())
 		if !ok {
 			return codegenSourcePlan{}, newCodegenNamingInvariant(
@@ -391,6 +394,37 @@ func planCodegenSourceWithDirectParticlePlan(
 		})
 	}
 	return plan, nil
+}
+
+//nolint:gocognit // Keep ordered direct-plan target scans deterministic.
+func codegenDirectChoiceTargetElementOmitted(
+	id ComponentID,
+	choicePlan *codegenDirectChoicePlan,
+	directPlan *codegenDirectParticlePlan,
+) bool {
+	if choicePlan != nil {
+		for _, owner := range choicePlan.owners {
+			for _, alternative := range owner.alternatives {
+				if targetElementID, ok := codegenDirectChoiceTargetElementID(alternative.target); ok && targetElementID == id {
+					return true
+				}
+			}
+		}
+	}
+	if directPlan == nil {
+		return false
+	}
+	for _, owner := range directPlan.owners {
+		if owner.kind != codegenDirectParticleChoice || owner.choice == nil {
+			continue
+		}
+		for _, alternative := range owner.choice.alternatives {
+			if targetElementID, ok := codegenDirectChoiceTargetElementID(alternative.target); ok && targetElementID == id {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func rejectCodegenElementFacts(components []Component, version XSDVersion) error {
