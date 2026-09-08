@@ -190,7 +190,7 @@ references are modeled. Supported named direct sequence/choice types expose
 direct `anyAttribute` with effective `##any`/`strict` defaults when each
 attribute is omitted or explicitly spells its canonical value under XSD 1.0,
 XSD 1.1, and Compatibility; explicit `##other`/`lax` remains supported.
-Wildcard element locations are retained and omitted default-attribute locations are zero. Wildcard-bearing validation and code-generation consumers remain
+The `anyAttribute` element location and explicitly present `namespace`/`processContents` attribute locations are retained; omitted default-attribute locations are zero. Wildcard-bearing validation and code-generation consumers remain
 unsupported. Direct
 element-reference particles are supported in the schema model for local choice
 and sequence children and for global named-group direct choices; nested group

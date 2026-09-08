@@ -100,10 +100,9 @@ Named complex types retain effective `abstract` bool via `ComplexTypeDefinition.
 
 Named complex: particles; bounded openAttrs; attribute-free complexContent/extension over named empty-content bases; extensions retain base/extension IDs/locations,
 inherited wildcards, direct-choice/sequence occurrences; validation/generation reject. Direct global named: inert XSD 1.1 `openContent mode="none"`
-accepted only under Compatibility/Strict11; Strict10 reports located XSD 1.1 mismatch. Non-none/wildcard-bearing `openContent`, `defaultOpenContent`,
+accepted under Compatibility/Strict11; Strict10 reports located XSD 1.1 mismatch. Non-none/wildcard-bearing `openContent`, `defaultOpenContent`,
 inline/derivation-local unsupported; malformed invalid. Local string/token/`xs:NMTOKEN` particles, Boolean facets, anonymous/nested/broader particles
-unsupported. References retain facts. Choices/sequences expose anyAttribute: omitted/canonical attributes yield ##any/strict; ##other/lax supported across
-policies. Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
+unsupported. References retain immutable target facts. Supported named direct complex-type sequence/choice owners: anyAttribute omitted/canonical=##any/strict; ##other/lax policy-wide. Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
 
 ## Datatypes
 
