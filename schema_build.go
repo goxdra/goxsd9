@@ -1702,11 +1702,25 @@ func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAn
 	}
 	namespaceAttributes := syntaxAttributesByLocal(wildcard, "namespace")
 	processContentsAttributes := syntaxAttributesByLocal(wildcard, "processContents")
-	if len(namespaceAttributes) == 0 && len(processContentsAttributes) == 0 {
+	namespace := "##any"
+	namespaceLoc := Loc{}
+	if len(namespaceAttributes) == 1 {
+		namespace = collapseXMLWhitespace(namespaceAttributes[0].value)
+		namespaceLoc = namespaceAttributes[0].loc
+	}
+	processContents := "strict"
+	processContentsLoc := Loc{}
+	if len(processContentsAttributes) == 1 {
+		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
+		processContentsLoc = processContentsAttributes[0].loc
+	}
+	if namespace == "##any" && processContents == "strict" {
 		return &schemaAnyAttributeInput{
-			loc:             wildcard.loc,
-			namespace:       "##any",
-			processContents: "strict",
+			loc:                wildcard.loc,
+			namespace:          namespace,
+			namespaceLoc:       namespaceLoc,
+			processContents:    processContents,
+			processContentsLoc: processContentsLoc,
 		}, nil
 	}
 	return schemaExplicitAnyAttributeInputFromElement(wildcard)

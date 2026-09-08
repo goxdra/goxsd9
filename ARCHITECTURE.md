@@ -102,7 +102,7 @@ Named complex: particles; bounded openAttrs; attribute-free complexContent/exten
 inherited wildcards, direct-choice/sequence occurrences; validation/generation reject. Direct global named: inert XSD 1.1 `openContent mode="none"`
 accepted only under Compatibility/Strict11; Strict10 reports located XSD 1.1 mismatch. Non-none/wildcard-bearing `openContent`, `defaultOpenContent`,
 inline/derivation-local unsupported; malformed invalid. Local string/token/`xs:NMTOKEN` particles, Boolean facets, anonymous/nested/broader particles
-unsupported. References retain immutable target facts. Choices/sequences expose attribute-free anyAttribute: omitted=##any/strict; explicit=##other/lax supported across
+unsupported. References retain facts. Choices/sequences expose anyAttribute: omitted/canonical attributes yield ##any/strict; ##other/lax supported across
 policies. Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
 
 ## Datatypes

@@ -127,6 +127,101 @@ func assertDefaultAnyAttributeFacts(t *testing.T, attribute AnyAttribute, root, 
 	}
 }
 
+//nolint:gocognit // Keep the policy, edition, shape, and location matrix together.
+func TestSchemaBridgeExposesExplicitDirectAnyAttributeDefaults(t *testing.T) {
+	policies := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "compatibility", policy: Compatibility},
+		{name: "strict10", policy: Strict10},
+		{name: "strict11", policy: Strict11},
+	}
+	forms := []struct {
+		name                  string
+		attributes            string
+		namespaceMarker       string
+		processContentsMarker string
+	}{
+		{name: "omitted"},
+		{
+			name:            "namespace_explicit",
+			attributes:      ` namespace="&#xA;##any&#x9;"`,
+			namespaceMarker: `namespace="&#xA;##any&#x9;"`,
+		},
+		{
+			name:                  "process_contents_explicit",
+			attributes:            ` processContents="&#x9;strict&#xD;"`,
+			processContentsMarker: `processContents="&#x9;strict&#xD;"`,
+		},
+		{
+			name:                  "both_explicit_reversed",
+			attributes:            ` processContents="&#xD;strict&#x9;" namespace="&#xA;##any&#x9;"`,
+			namespaceMarker:       `namespace="&#xA;##any&#x9;"`,
+			processContentsMarker: `processContents="&#xD;strict&#x9;"`,
+		},
+	}
+	for _, policy := range policies {
+		for _, version := range []string{"1.0", "1.1"} {
+			for _, form := range forms {
+				for _, model := range []string{"sequence", "choice"} {
+					name := policy.name + "/schema-" + version + "/" + form.name + "/" + model
+					t.Run(name, func(t *testing.T) {
+						root := directDefaultAnyAttributeSchema(version, model, form.attributes)
+						schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
+						if err != nil {
+							t.Fatalf("discover schema: %v", err)
+						}
+						components := schema.Components()
+						if len(components) != 1 {
+							t.Fatalf("component count = %d, want 1", len(components))
+						}
+						definition := requireAnyAttributeComplexType(t, components[0], model)
+						attribute, ok := definition.AnyAttribute()
+						if !ok {
+							t.Fatal("direct default AnyAttribute is absent")
+						}
+						if got := attribute.Namespace(); got != "##any" {
+							t.Errorf("namespace = %q, want ##any", got)
+						}
+						if got := attribute.ProcessContents(); got != "strict" {
+							t.Errorf("processContents = %q, want strict", got)
+						}
+						if got := attribute.Loc(); got != anyAttributeTestLoc(root, "<xs:anyAttribute") {
+							t.Errorf("element location = %v, want anyAttribute element location", got)
+						}
+						assertAnyAttributeDefaultLocation(t, attribute.NamespaceLoc(), form.namespaceMarker, root, "namespace")
+						assertAnyAttributeDefaultLocation(t, attribute.ProcessContentsLoc(), form.processContentsMarker, root, "processContents")
+					})
+				}
+			}
+		}
+	}
+}
+
+func directDefaultAnyAttributeSchema(version, model, attributes string) string {
+	return `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:root" version="` + version + `">
+  <xs:complexType name="directType">
+    <xs:` + model + `><xs:element name="value" type="xs:integer"/></xs:` + model + `>
+    <xs:anyAttribute` + attributes + `/>
+  </xs:complexType>
+</xs:schema>`
+}
+
+func assertAnyAttributeDefaultLocation(t *testing.T, got Loc, marker, source, attributeName string) {
+	t.Helper()
+	if marker == "" {
+		if !got.IsZero() {
+			t.Errorf("%s location = %v, want zero omitted location", attributeName, got)
+		}
+		return
+	}
+	want := anyAttributeTestLoc(source, marker)
+	if got != want {
+		t.Errorf("%s location = %v, want %v", attributeName, got, want)
+	}
+}
+
 func assertAnyAttributeComponentNames(t *testing.T, components []Component) {
 	t.Helper()
 	if len(components) != 3 {
@@ -281,6 +376,98 @@ func TestSchemaBridgePreservesAnyAttributeIncludedSource(t *testing.T) {
 	}
 	if got := attribute.ProcessContentsLoc().Source(); got != "child.xsd" {
 		t.Errorf("processContents source = %q, want child.xsd", got)
+	}
+}
+
+//nolint:gocognit // Keep graph order and wildcard provenance assertions together.
+func TestSchemaBridgePreservesExplicitAnyAttributeGraphProvenance(t *testing.T) {
+	root := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:root">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+</xs:schema>`
+	chameleon := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:complexType name="includedType">
+    <xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence>
+    <xs:anyAttribute processContents="&#xA;strict&#x9;"/>
+  </xs:complexType>
+</xs:schema>`
+	other := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:other">
+  <xs:complexType name="importedType">
+    <xs:choice><xs:element name="value" type="xs:integer"/></xs:choice>
+    <xs:anyAttribute processContents="&#xD;strict&#x9;" namespace="&#xA;##any&#x9;"/>
+  </xs:complexType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+		"chameleon.xsd": {id: "chameleon.xsd", contents: chameleon},
+		"other.xsd":     {id: "other.xsd", contents: other},
+	}, Strict11)
+	if err != nil {
+		t.Fatalf("discover schema: %v", err)
+	}
+	documents := schema.Documents()
+	if len(documents) != 3 {
+		t.Fatalf("document count = %d, want 3", len(documents))
+	}
+	for index, want := range []SourceID{"root.xsd", "chameleon.xsd", "other.xsd"} {
+		if got := documents[index].Source(); got != want {
+			t.Errorf("document %d source = %q, want %q", index, got, want)
+		}
+	}
+	components := schema.Components()
+	if len(components) != 2 {
+		t.Fatalf("component count = %d, want 2", len(components))
+	}
+	if got := components[0].Name(); got != mustTestQName(t, "urn:root", "includedType") {
+		t.Errorf("chameleon component name = %q, want urn:root:includedType", got)
+	}
+	if got := components[1].Name(); got != mustTestQName(t, "urn:other", "importedType") {
+		t.Errorf("imported component name = %q, want urn:other:importedType", got)
+	}
+	for index, wantSource := range []SourceID{"chameleon.xsd", "other.xsd"} {
+		definition := requireAnyAttributeComplexType(t, components[index], "graph component")
+		attribute, ok := definition.AnyAttribute()
+		if !ok {
+			t.Fatalf("component %d AnyAttribute is absent", index)
+		}
+		if got := attribute.Namespace(); got != "##any" {
+			t.Errorf("component %d namespace = %q, want ##any", index, got)
+		}
+		if got := attribute.ProcessContents(); got != "strict" {
+			t.Errorf("component %d processContents = %q, want strict", index, got)
+		}
+		if got := attribute.Loc().Source(); got != wantSource {
+			t.Errorf("component %d element source = %q, want %q", index, got, wantSource)
+		}
+		if got := attribute.ProcessContentsLoc().Source(); got != wantSource {
+			t.Errorf("component %d processContents source = %q, want %q", index, got, wantSource)
+		}
+	}
+	chameleonDefinition := requireAnyAttributeComplexType(t, components[0], "chameleon component")
+	chameleonAttribute, ok := chameleonDefinition.AnyAttribute()
+	if !ok {
+		t.Fatal("chameleon AnyAttribute is absent")
+	}
+	if !chameleonAttribute.NamespaceLoc().IsZero() {
+		t.Errorf("chameleon omitted namespace location = %v, want zero", chameleonAttribute.NamespaceLoc())
+	}
+	importedAttribute, ok := requireAnyAttributeComplexType(t, components[1], "imported component").AnyAttribute()
+	if !ok {
+		t.Fatal("imported AnyAttribute is absent")
+	}
+	if importedAttribute.NamespaceLoc().IsZero() {
+		t.Fatal("imported explicit namespace location is zero")
+	}
+	walked := make([]ComponentID, 0, len(components))
+	if err := schema.Walk(func(component Component) error {
+		walked = append(walked, component.ID())
+		return nil
+	}); err != nil {
+		t.Fatalf("walk schema: %v", err)
+	}
+	for index, component := range components {
+		if walked[index] != component.ID() {
+			t.Errorf("walk item %d ID = %v, want %v", index, walked[index], component.ID())
+		}
 	}
 }
 
