@@ -93,17 +93,16 @@ Typed global attributes expose immutable `AttributeDeclaration.IsInheritable()`:
 Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline forms unsupported.
 `defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
-Schema-level `defaultAttributes`/default groups, local uses/inline-non-atomic-string forms, string/boolean/precisionDecimal attributes,
-wildcard/attribute forms unsupported.
+Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string forms, string/boolean/precisionDecimal attributes,
+other wildcard/attribute forms unsupported.
 
 Named complex types retain effective `abstract` bool via `ComplexTypeDefinition.IsAbstract()`; derivation does not inherit it.
 
 Named complex: particles; bounded openAttrs; attribute-free complexContent/extension over named empty-content bases; extensions retain base/extension IDs/locations,
 inherited wildcards, direct-choice/sequence occurrences; validation/generation reject. Direct global named: inert XSD 1.1 `openContent mode="none"`
-accepted only under Compatibility/Strict11; Strict10 reports located XSD 1.1 mismatch. Non-none/wildcard-bearing `openContent`, `defaultOpenContent`,
+accepted under Compatibility/Strict11; Strict10 reports located XSD 1.1 mismatch. Non-none/wildcard-bearing `openContent`, `defaultOpenContent`,
 inline/derivation-local unsupported; malformed invalid. Local string/token/`xs:NMTOKEN` particles, Boolean facets, anonymous/nested/broader particles
-unsupported. References retain immutable target facts. Choices/sequences expose attribute-free anyAttribute: omitted=##any/strict; explicit=##other/lax supported across
-policies. Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
+unsupported. References retain immutable target facts. Supported named direct complex-type sequence/choice owners: anyAttribute omitted/canonical=##any/strict; ##other/lax policy-wide. Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
 
 ## Datatypes
 
