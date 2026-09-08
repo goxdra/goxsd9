@@ -56,6 +56,45 @@ func TestCodegenDirectSequencePlanRejectsCorruptionAtSourceBoundary(t *testing.T
 	}
 }
 
+func TestCodegenDirectParticleSourceRejectsNamedChoiceTargetIdentifierCorruption(t *testing.T) {
+	schema := codegenDirectChoiceReferenceTestSchema(
+		t,
+		`<xs:simpleType name="Amount"><xs:restriction base="xs:integer"/></xs:simpleType><xs:element name="item" type="r:Amount"/>`,
+		`<xs:element ref="r:item"/>`,
+		Compatibility,
+	)
+	directPlan, err := planCodegenDirectParticles(schema, "generated")
+	if err != nil {
+		t.Fatalf("planCodegenDirectParticles: %v", err)
+	}
+	if len(directPlan.owners) != 1 || directPlan.owners[0].choice == nil || len(directPlan.owners[0].choice.alternatives) != 1 {
+		t.Fatalf("direct particle plan = %#v, want one choice owner with one alternative", directPlan)
+	}
+	alternative := &directPlan.owners[0].choice.alternatives[0]
+	target, ok := alternative.target.(codegenDirectChoiceNamedTarget)
+	if !ok {
+		t.Fatalf("choice target = %T, want named target", alternative.target)
+	}
+	target.componentIdentifier = "Missing"
+	alternative.target = target
+
+	output, err := emitCodegenSourceWithDirectParticles(schema, directPlan)
+	if output != nil || err == nil {
+		t.Fatalf("corrupted direct-particle result = (%q, %v), want nil output and error", output, err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+		t.Fatalf("diagnostic = %s, want internal codegen invariant", diagnostic)
+	}
+	wantLoc := codegenDirectChoiceReferenceTestParticle(t, schema).Loc()
+	if diagnostic.Loc() != wantLoc {
+		t.Fatalf("diagnostic location = %s, want reference location %s", diagnostic.Loc(), wantLoc)
+	}
+	if !errors.Is(err, errCodegenDirectParticlePlan) {
+		t.Fatalf("diagnostic lost direct-particle plan cause: %v", err)
+	}
+}
+
 func TestCodegenDirectSequenceSourceRejectsCorruptionAtRenderBoundary(t *testing.T) {
 	tests := []struct {
 		name   string

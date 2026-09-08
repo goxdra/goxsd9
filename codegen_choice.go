@@ -2079,7 +2079,7 @@ func validateCodegenDirectChoicePlanTargetMatches(
 		}
 	case codegenDirectChoiceNamedTarget:
 		actual, ok := planTarget.(codegenDirectChoiceNamedTarget)
-		if !ok || actual.declaredType != expected.declaredType || actual.id != expected.id || actual.kind != expected.kind || actual.elementID != expected.elementID || actual.hasElementID != expected.hasElementID {
+		if !ok || actual.declaredType != expected.declaredType || actual.id != expected.id || actual.kind != expected.kind || expected.componentIdentifier != "" && actual.componentIdentifier != expected.componentIdentifier || actual.elementID != expected.elementID || actual.hasElementID != expected.hasElementID {
 			return newCodegenInternal(
 				loc,
 				"direct-choice plan target does not match its schema particle",
