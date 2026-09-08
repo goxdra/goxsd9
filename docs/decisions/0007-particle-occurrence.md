@@ -196,8 +196,8 @@ element-reference particles are supported in the schema model for local choice
 and sequence children and for global named-group direct choices; nested group
 references remain unsupported. Validator consumption covers named global complex direct
 local integer/decimal sequences and direct choices with default-occurrence local scalar
-alternatives or references to global integer/decimal scalar elements; all other
-validator and code-generator consumption of direct references remains unsupported. Global
+alternatives or references to global integer/decimal scalar elements; code generation also supports only default-occurrence direct-choice references to those global
+numeric elements, while all other validator and code-generator consumption of direct references remains unsupported. Global
 text-only boolean validation is supported under
 Compatibility, Strict10, and Strict11; global boolean scalar generation is
 supported, while local boolean-particle validation and generation remain
