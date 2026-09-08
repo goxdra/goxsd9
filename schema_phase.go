@@ -397,7 +397,7 @@ func validateSchemaRootChild(child *syntaxElement, phase schemaGrammarPhase, ver
 			return phase, newSchemaCompositionDiagnostic(child.loc, "schema child <defaultOpenContent> is not permitted after global declarations")
 		}
 		nextPhase := schemaGrammarDefaultOpenContent
-		if err := validateOpenContentLike(child, version, "defaultOpenContent", true); err != nil {
+		if err := validateOpenContentLike(child, version, "defaultOpenContent", true, false); err != nil {
 			return nextPhase, err
 		}
 		return nextPhase, newSchemaSyntaxUnsupportedForVersion(child.loc, "XSD schema child <defaultOpenContent> is not implemented", version)
@@ -1364,10 +1364,10 @@ func validateConditionalQNameForSchema(element *syntaxElement, attribute syntaxA
 }
 
 func validateGlobalSchemaChildren(element *syntaxElement, version XSDVersion) error {
-	return validateGlobalSchemaChildrenWithFacetBridge(element, version, true, false)
+	return validateGlobalSchemaChildrenWithFacetBridge(element, version, true, false, true)
 }
 
-func validateGlobalSchemaChildrenWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets, bridgeStringEnumeration bool) error {
+func validateGlobalSchemaChildrenWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets, bridgeStringEnumeration, allowOpenContentNone bool) error {
 	children, candidate, err := collectGlobalSchemaChildren(element)
 	if err != nil {
 		return err
@@ -1381,7 +1381,7 @@ func validateGlobalSchemaChildrenWithFacetBridge(element *syntaxElement, version
 	case "simpleType":
 		childErr = validateSimpleTypeGlobalChildren(element, children, version, bridgeFacets, bridgeStringEnumeration)
 	case "complexType":
-		childErr = validateComplexTypeGlobalChildren(element, children, version)
+		childErr = validateComplexTypeGlobalChildren(element, children, version, allowOpenContentNone)
 	case "group":
 		childErr = validateGroupGlobalChildren(element, children, version)
 	case "attributeGroup":
@@ -2598,7 +2598,7 @@ func isXSD11SimpleTypeFacet(local string) bool {
 }
 
 //nolint:gocognit,funlen // Keep mutually-exclusive complexType grammar branches explicit.
-func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntaxElement, version XSDVersion) error {
+func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntaxElement, version XSDVersion, allowOpenContentNone bool) error {
 	annotationSeen := false
 	contentSeen := false
 	specialSeen := false
@@ -2646,7 +2646,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				return newSchemaCompositionDiagnostic(child.loc, "complexType openContent must precede the model and attributes")
 			}
 			openContentSeen = true
-			if err := validateOpenContent(child, version); err != nil && !candidate.considerError(err) {
+			if err := validateOpenContent(child, version, allowOpenContentNone); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "group", "all":
@@ -3020,7 +3020,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 			openContentSeen = true
 			openContentLoc = child.loc
-			if err := validateOpenContent(child, version); err != nil && !candidate.considerError(err) {
+			if err := validateOpenContent(child, version, false); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "group", "all", "sequence":
@@ -3144,12 +3144,12 @@ func reframeSchemaComplexContentExtensionUnsupported(err error, version XSDVersi
 	return diagnostic
 }
 
-func validateOpenContent(element *syntaxElement, version XSDVersion) error {
-	return validateOpenContentLike(element, version, "openContent", false)
+func validateOpenContent(element *syntaxElement, version XSDVersion, allowModeNone bool) error {
+	return validateOpenContentLike(element, version, "openContent", false, allowModeNone)
 }
 
 //nolint:gocognit // Keep the shared open-content grammar and policy boundary together.
-func validateOpenContentLike(element *syntaxElement, version XSDVersion, owner string, defaultOpenContent bool) error {
+func validateOpenContentLike(element *syntaxElement, version XSDVersion, owner string, defaultOpenContent, allowModeNone bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateOpenContentAttributesLike(element, owner, defaultOpenContent, &candidate); err != nil {
 		return err
@@ -3208,6 +3208,9 @@ func validateOpenContentLike(element *syntaxElement, version XSDVersion, owner s
 			element.loc,
 			owner+" is an XSD 1.1-only construct",
 		))
+		return candidate.err()
+	}
+	if allowModeNone && mode == "none" {
 		return candidate.err()
 	}
 	if candidate.present {
@@ -4136,7 +4139,7 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 		}
 	}
 	bridgeStringEnumeration := element.name.local == "simpleType" && inlineSimpleTypeMayHaveStringRestrictionBase(element)
-	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, false, bridgeStringEnumeration); err != nil {
+	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, false, bridgeStringEnumeration, false); err != nil {
 		if !candidate.considerError(err) {
 			return err
 		}
