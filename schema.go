@@ -430,6 +430,15 @@ func (declaration AttributeDeclaration) DeclaredType() QName {
 	return declaration.facts.typeReference.name
 }
 
+// IsInheritable reports the effective inheritable fact of the attribute
+// declaration.
+func (declaration AttributeDeclaration) IsInheritable() bool {
+	if declaration.facts == nil {
+		return false
+	}
+	return declaration.facts.inheritable
+}
+
 // TypeReference returns the resolved simple-type reference used by the
 // declaration, when it has one.
 func (declaration AttributeDeclaration) TypeReference() (SimpleTypeReference, bool) {
@@ -1885,6 +1894,7 @@ type schemaElementSubstitutionGroupInput struct {
 type schemaAttributeInput struct {
 	declaredType    QName
 	typeLoc         Loc
+	inheritable     bool
 	valueConstraint *schemaAttributeValueConstraintInput
 }
 
@@ -2181,6 +2191,7 @@ type schemaElementSubstitutionGroup struct {
 type schemaAttributeComponent struct {
 	typeReference    schemaSimpleTypeReferenceComponent
 	hasTypeReference bool
+	inheritable      bool
 	valueConstraint  *AttributeValueConstraint
 }
 
@@ -2628,6 +2639,7 @@ func completeSchemaComponent(
 		component.attribute = &schemaAttributeComponent{
 			typeReference:    attribute.typeReference,
 			hasTypeReference: attribute.hasTypeReference,
+			inheritable:      attribute.inheritable,
 			valueConstraint:  cloneAttributeValueConstraint(attribute.valueConstraint),
 		}
 	}
@@ -2894,6 +2906,7 @@ func cloneSchemaAttributeInput(input *schemaAttributeInput) *schemaAttributeInpu
 	return &schemaAttributeInput{
 		declaredType:    input.declaredType,
 		typeLoc:         input.typeLoc,
+		inheritable:     input.inheritable,
 		valueConstraint: cloneSchemaAttributeValueConstraintInput(input.valueConstraint),
 	}
 }
