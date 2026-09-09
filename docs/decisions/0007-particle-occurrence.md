@@ -156,16 +156,10 @@ behavior. An error-level diagnostic returns no schema.
 
 ## Non-goals, risks, and follow-up
 
-Currently, the supported occurrence boundary is one named global complex type
+Currently, the occurrence boundary supports one named global complex type
 with one direct sequence or direct choice of local built-in `xs:boolean`, named
-boolean-restriction, integer, or decimal scalar elements, or one global named
-model group with one direct choice of global element-reference particles, in
-XSD 1.0 and 1.1, plus bounded attribute-free `complexContent`/`extension` over
-named empty-content complex bases. These extension types retain extension/base
-identities and locations, inherited bounded wildcard facts, and exact direct
-choice/sequence occurrences; validation and code generation reject them as
-unsupported. Direct default-form `xs:any` terms are also supported in the named direct choice/sequence and bounded extension boundaries as immutable wildcard particles; explicit wildcard constraints and broader placements remain unsupported, and consumers reject nonzero wildcard terms. All supported forms
-retain exact ranges, and effective `0/0` maps to absence.
+boolean-restriction, integer, or decimal scalar elements, or one global named model group with one direct choice of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. They retain exact ranges and target IDs. Extensions retain extension/base identities, locations, inherited bounded wildcard facts, and exact direct choice/sequence occurrences; validation and code generation reject them as unsupported. Direct default-form `xs:any` terms are supported in named direct choice/sequence and bounded extensions as immutable wildcard particles; explicit wildcard constraints and broader placements remain unsupported, and consumers reject nonzero wildcard terms. All supported forms
+retain exact ranges; `0/0` maps to absence.
 For instance validation, named global complex direct local integer/decimal sequences
 match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`
 outer and child ranges under `Compatibility`, `Strict10`, and `Strict11`; direct-choice validation
@@ -181,10 +175,11 @@ alternative ranges are parsed and queryable, but direct-choice repetition is not
 implemented in validation, and effective total ranges are not calculated. Non-default
 direct sequence occurrences are not generated as repeated fields. Non-default
 `precisionDecimal` choice and alternative ranges that map to a particle are
-schema-unsupported. Boolean facets and
-anonymous, nested, or broader particles, including nested choices, `all`,
-groups, and broader wildcard/attribute forms, remain unsupported; anonymous
-simple-type models and resolved built-in, named, and anonymous simple-type
+schema-unsupported. Boolean facets and anonymous, nested, or broader particles,
+including nested choices and `all`; nested, local, recursive, or broader group shapes
+and broader wildcard/attribute remain unsupported. Direct
+named-complex/bounded-extension group refs remain supported facts; anonymous simple-type
+models and resolved built-in, named, and anonymous simple-type
 references are modeled. Supported named direct sequence/choice types expose
 direct `anyAttribute` with effective `##any`/`strict` defaults when each
 attribute is omitted or explicitly spells its canonical value under XSD 1.0,
