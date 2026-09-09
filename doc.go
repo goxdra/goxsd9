@@ -48,8 +48,9 @@
 // modeled. Direct element references are queryable immutable particles;
 // validation and code generation support default-occurrence direct choices
 // made entirely of references to global integer/decimal scalar elements, while
-// other reference particles, repetition, and broader shapes remain explicitly
-// unsupported.
+// other reference particles beyond the supported top-level direct
+// `ModelGroupReferenceParticle` form, repetition, and broader shapes remain
+// explicitly unsupported.
 // Top-level direct model-group references on named complex types and bounded
 // attribute-free extensions over named empty-content bases are queryable as exact
 // immutable particles retaining `TargetID` without expanding target members;

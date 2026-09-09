@@ -1,17 +1,17 @@
 # goxsd9
 
-goxsd9 targets XSD 1.1/1.0 parsing, XML validation, Go generation; unsupported behavior is explicit.
+goxsd9 targets XSD parsing, validation, Go generation; unsupported is explicit.
 
 ## Schema parsing
 
 `ParseSchema` exposes immutable components; callers provide `ResolvedSource`/`Resolver`. Calls sequential; locations opaque. Compatibility default.
 
-XSD 1.0/1.1; limited `precisionDecimal`/string facets, `openAttrs`, extensions. Named complexes: element-only bodies, direct global model-group refs, bounded attribute-free extensions; `defaultAttributesApply`: named globals only, XSD 1.1/Compatibility; no schema-level `defaultAttributes`.
+XSD 1.0/1.1; limited `precisionDecimal`/string facets, `openAttrs`, extensions. Named complexes: element-only, direct global model-group refs, bounded attribute-free extensions; `defaultAttributesApply`: named globals only, XSD 1.1/Compatibility; no schema-level `defaultAttributes`.
 Named XSD 1.1 `openContent mode="none"` inert under Compatibility/Strict11; Strict10 mismatches. Other open-content/inline/derivation unsupported; malformed=invalid.
 Named direct sequence/choice default-form `xs:any`: immutable `WildcardParticle`
-(`##any`/`strict`), exact ranges; nonzero consumers unsupported, `0/0` absent. Named direct sequence/choice owners support `anyAttribute`:
-omitted/canonical `##any`/strict; explicit `##other`/lax; locations retained; omitted=0. Direct model-group-refs: schema-queryable/consumer-rejected. Other groups/shapes, local uses/attributes,
-explicit/broader `xs:any` unsupported. `ValidateInstance`/`GenerateGo`: sequences/choices/refs; default all-Boolean local direct choices; scalar generation separate.
+(`##any`/`strict`), exact ranges; nonzero unsupported, `0/0` absent. Named direct sequence/choice support `anyAttribute`:
+omitted/canonical `##any`/strict; explicit `##other`/lax; locations retained; omitted=0. Direct model-group refs are schema-queryable only; ValidateInstance and GenerateGo reject them. Other groups/shapes, local uses/attributes,
+broader `xs:any` unsupported. Consumers support sequences/choices/element refs; default local all-Boolean choices; scalar generation separate.
 
 `abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. Contract: [ARCHITECTURE.md](ARCHITECTURE.md).
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
@@ -31,7 +31,7 @@ exit status 1
 $ go run ./cmd/goxsd9 generate --package sample examples/root.xsd > generated.go
 ```
 
-Parse writes stdout; validation is silent on success. Invalid validation exits 1 with a located diagnostic; usage 2.
+Parse stdout; validation silent on success. Invalid validation exits 1 with located diagnostic; usage 2.
 
 ## Design goals
 
