@@ -421,8 +421,7 @@ func TestSchemaBridgeBuildsBasicBooleanLocalParticles(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Keep direct and named local choice unsupported diagnostics symmetric.
-func TestValidateInstanceLeavesLocalBooleanChoicesUnsupported(t *testing.T) {
+func TestValidateInstanceSupportsLocalBooleanChoices(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		body    string
@@ -450,29 +449,211 @@ func TestValidateInstanceLeavesLocalBooleanChoicesUnsupported(t *testing.T) {
 				if err != nil {
 					t.Fatalf("discoverSchema: %v", err)
 				}
-				err = ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(test.input)))
-				if err == nil {
-					t.Fatal("ValidateInstance accepted a local boolean choice alternative")
-				}
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedInstanceValidationCode || diagnostic.Feature() != FeatureInstanceValidation {
-					t.Fatalf("diagnostic = %s/%q/%q, want unsupported/%s/%q", diagnostic.Class(), diagnostic.Code(), diagnostic.Feature(), UnsupportedInstanceValidationCode, FeatureInstanceValidation)
-				}
-				if diagnostic.Loc().IsZero() || diagnostic.Loc().Source() != "root.xsd" {
-					t.Fatalf("diagnostic location = %v, want root.xsd location", diagnostic.Loc())
-				}
-				wantSpec := "xsd11-structures#cvc-elt"
-				if policy == Strict10 {
-					wantSpec = "xsd10-structures#cvc-elt"
-				}
-				if diagnostic.SpecRef() != wantSpec {
-					t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), wantSpec)
-				}
-				if !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("diagnostic does not match ErrUnsupported: %v", err)
+				if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(test.input))); err != nil {
+					t.Fatalf("ValidateInstance: %v", err)
 				}
 			})
 		}
+	}
+}
+
+//nolint:gocognit // Keep policy, lexical, gate, and immutability coverage together.
+func TestValidateInstanceBooleanChoiceGateAndLexicalContract(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">` +
+				`<xs:element name="choice" type="r:Choice"/>` +
+				`<xs:complexType name="Choice"><xs:choice>` +
+				`<xs:element name="builtin" type="xs:boolean"/>` +
+				`<xs:element name="named" type="r:Flag"/>` +
+				`</xs:choice></xs:complexType>` +
+				`<xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>` +
+				`</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			before := schema.Components()
+			for _, test := range []struct {
+				name  string
+				child string
+				value string
+			}{
+				{name: "builtin true", child: "builtin", value: "true"},
+				{name: "builtin false", child: "builtin", value: "false"},
+				{name: "builtin one", child: "builtin", value: "1"},
+				{name: "builtin zero", child: "builtin", value: "0"},
+				{name: "named true", child: "named", value: "true"},
+				{name: "named false", child: "named", value: "false"},
+				{name: "named one", child: "named", value: "1"},
+				{name: "named zero", child: "named", value: "0"},
+				{name: "collapsed whitespace", child: "builtin", value: " \n\ttrue \r"},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					input := `<choice xmlns="urn:root"><` + test.child + ` xmlns="">` + test.value + `</` + test.child + `></choice>`
+					validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+					if validationErr != nil {
+						t.Fatalf("ValidateInstance: %v", validationErr)
+					}
+				})
+			}
+			invalid := `<choice xmlns="urn:root"><builtin xmlns="">True</builtin></choice>`
+			diagnostic := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(invalid))))
+			if diagnostic.Code() != InvalidBooleanLexicalCode || diagnostic.Class() != FailureInvalid {
+				t.Fatalf("diagnostic = %s/%q, want invalid Boolean lexical diagnostic", diagnostic, diagnostic.Code())
+			}
+			if diagnostic.Loc() != mustTestLoc(t, "instance.xml", 1, 44) {
+				t.Fatalf("invalid Boolean location = %s, want selected text location", diagnostic.Loc())
+			}
+			wantSpec := "xsd11-datatypes#boolean-lexical-mapping"
+			if policy == Strict10 {
+				wantSpec = "xsd10-datatypes#boolean-lexical-representation"
+			}
+			if diagnostic.SpecRef() != wantSpec {
+				t.Fatalf("invalid Boolean spec ref = %q, want %q", diagnostic.SpecRef(), wantSpec)
+			}
+			mixedRoot := strings.Replace(root, `<xs:element name="named" type="r:Flag"/>`, `<xs:element name="named" type="xs:integer"/>`, 1)
+			mixedSchema, err := discoverTestSchemaWithPolicy(t, mixedRoot, nil, policy)
+			if err != nil {
+				t.Fatalf("discover mixed schema: %v", err)
+			}
+			mixed := `<choice xmlns="urn:root"><builtin xmlns="">true</builtin></choice>`
+			err = ValidateInstance(mixedSchema, "instance.xml", io.NopCloser(strings.NewReader(mixed)))
+			if err == nil || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("mixed Boolean/numeric choice error = %v, want unsupported", err)
+			}
+			mixedDiagnostic := requireDiagnostic(t, err)
+			if mixedDiagnostic.Class() != FailureUnsupported || mixedDiagnostic.Code() != UnsupportedInstanceValidationCode || mixedDiagnostic.Feature() != FeatureInstanceValidation {
+				t.Fatalf("mixed Boolean/numeric diagnostic = %s, want stable unsupported metadata", mixedDiagnostic)
+			}
+			if mixedDiagnostic.Loc().IsZero() || mixedDiagnostic.SpecRef() == "" {
+				t.Fatalf("mixed Boolean/numeric diagnostic lacks location/spec reference: %s", mixedDiagnostic)
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("Boolean choice validation mutated the completed schema")
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep policy, structural diagnostic, and location coverage together.
+func TestValidateInstanceReportsLocalBooleanChoiceStructure(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  func(*testing.T, string) Loc
+	}{
+		{
+			name:  "unknown alternative",
+			input: `<choice xmlns="urn:root"><unknown xmlns="">true</unknown></choice>`,
+			want:  booleanChoiceMarkerLoc,
+		},
+		{
+			name:  "repeated selected child",
+			input: `<choice xmlns="urn:root"><builtin xmlns="">true</builtin><builtin xmlns="">false</builtin></choice>`,
+			want:  booleanChoiceLastMarkerLoc,
+		},
+		{
+			name:  "nested content",
+			input: `<choice xmlns="urn:root"><builtin xmlns=""><nested/></builtin></choice>`,
+			want:  booleanChoiceMarkerLoc,
+		},
+		{
+			name:  "non-whitespace parent text",
+			input: `<choice xmlns="urn:root">text<builtin xmlns="">true</builtin></choice>`,
+			want:  booleanChoiceTextLoc,
+		},
+	}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:element name="choice" type="r:Choice"/><xs:complexType name="Choice"><xs:choice><xs:element name="builtin" type="xs:boolean"/><xs:element name="named" type="r:Flag"/></xs:choice></xs:complexType><xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			for _, test := range cases {
+				t.Run(test.name, func(t *testing.T) {
+					diagnostic := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(test.input))))
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != InvalidInstanceChoiceCode {
+						t.Fatalf("diagnostic = %s/%q, want invalid/%s", diagnostic, diagnostic.Code(), InvalidInstanceChoiceCode)
+					}
+					if diagnostic.Loc() != test.want(t, test.input) {
+						t.Fatalf("diagnostic location = %s, want selected structural location", diagnostic.Loc())
+					}
+					wantSpec := "xsd11-structures#cvc-elt"
+					if policy == Strict10 {
+						wantSpec = "xsd10-structures#cvc-elt"
+					}
+					if diagnostic.SpecRef() != wantSpec {
+						t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), wantSpec)
+					}
+				})
+			}
+		})
+	}
+}
+
+func booleanChoiceMarkerLoc(t *testing.T, input string) Loc {
+	t.Helper()
+	index := strings.Index(input, "<unknown")
+	if index < 0 {
+		index = strings.Index(input, "<nested")
+	}
+	if index < 0 {
+		t.Fatal("input has no structural marker")
+	}
+	return mustTestLoc(t, "instance.xml", 1, index+1)
+}
+
+func booleanChoiceLastMarkerLoc(t *testing.T, input string) Loc {
+	t.Helper()
+	index := strings.LastIndex(input, "<builtin")
+	return mustTestLoc(t, "instance.xml", 1, index+1)
+}
+
+func booleanChoiceTextLoc(t *testing.T, input string) Loc {
+	t.Helper()
+	index := strings.Index(input, "text")
+	return mustTestLoc(t, "instance.xml", 1, index+1)
+}
+
+//nolint:gocognit // Keep policy, schema-graph visibility, and immutability coverage together.
+func TestValidateInstanceLocalBooleanChoicesAcrossSchemaGraphVisibility(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			version := "1.1"
+			if policy == Strict10 {
+				version = "1.0"
+			}
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root" version="` + version + `"><xs:include schemaLocation="chameleon.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/><xs:element name="choice" type="r:Choice"/><xs:complexType name="Choice"><xs:choice><xs:element name="included" type="r:IncludedFlag"/><xs:element name="imported" type="o:ImportedFlag"/></xs:choice></xs:complexType></xs:schema>`
+			chameleon := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="IncludedFlag"><xs:restriction base="xs:boolean"/></xs:simpleType></xs:schema>`
+			other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="` + version + `"><xs:simpleType name="ImportedFlag"><xs:restriction base="xs:boolean"/></xs:simpleType></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+				"chameleon.xsd": {id: "chameleon.xsd", contents: chameleon},
+				"other.xsd":     {id: "other.xsd", contents: other},
+			}, policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			before := schema.Components()
+			for _, test := range []struct {
+				name  string
+				child string
+			}{
+				{name: "chameleon include", child: "included"},
+				{name: "namespace import", child: "imported"},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					input := `<choice xmlns="urn:root"><` + test.child + ` xmlns="">1</` + test.child + `></choice>`
+					if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+						t.Fatalf("ValidateInstance: %v", err)
+					}
+				})
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("schema graph validation mutated the completed schema")
+			}
+		})
 	}
 }
 
