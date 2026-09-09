@@ -547,7 +547,7 @@ func planCodegenSourceChoiceTarget(
 ) (codegenSourceTarget, string, bool, error) {
 	switch concrete := target.(type) {
 	case codegenDirectChoiceBuiltinTarget:
-		scalarKind, ok := codegenSourceScalarKindFromDigit(concrete.kind)
+		scalarKind, ok := codegenDirectChoiceSourceScalarKind(concrete.family, concrete.kind)
 		if !ok {
 			return codegenSourceTarget{}, "", false, newCodegenInternal(
 				loc,
@@ -581,7 +581,7 @@ func planCodegenSourceChoiceTarget(
 				errCodegenDirectChoicePlan,
 			)
 		}
-		scalarKind, ok := codegenSourceScalarKindFromDigit(concrete.kind)
+		scalarKind, ok := codegenDirectChoiceSourceScalarKind(concrete.family, concrete.kind)
 		if !ok {
 			return codegenSourceTarget{}, "", false, newCodegenInternal(
 				loc,

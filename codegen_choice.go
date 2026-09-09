@@ -60,8 +60,84 @@ type codegenDirectChoiceTarget interface {
 	codegenDirectChoiceTarget()
 }
 
+type codegenDirectChoiceScalarFamily uint8
+
+const (
+	codegenDirectChoiceScalarInvalid codegenDirectChoiceScalarFamily = iota
+	codegenDirectChoiceScalarBoolean
+	codegenDirectChoiceScalarInteger
+	codegenDirectChoiceScalarDecimal
+)
+
+func codegenDirectChoiceScalarFamilyFromDigit(kind DigitDatatype) (codegenDirectChoiceScalarFamily, bool) {
+	switch kind {
+	case DigitDatatypeInteger:
+		return codegenDirectChoiceScalarInteger, true
+	case DigitDatatypeDecimal:
+		return codegenDirectChoiceScalarDecimal, true
+	default:
+		return codegenDirectChoiceScalarInvalid, false
+	}
+}
+
+func codegenDirectChoiceScalarFamilyFromSourceKind(kind codegenSourceScalarKind) (codegenDirectChoiceScalarFamily, bool) {
+	switch kind {
+	case codegenSourceScalarInvalid, codegenSourceScalarString:
+		return codegenDirectChoiceScalarInvalid, false
+	case codegenSourceScalarBoolean:
+		return codegenDirectChoiceScalarBoolean, true
+	case codegenSourceScalarInteger:
+		return codegenDirectChoiceScalarInteger, true
+	case codegenSourceScalarDecimal:
+		return codegenDirectChoiceScalarDecimal, true
+	default:
+		return codegenDirectChoiceScalarInvalid, false
+	}
+}
+
+func codegenDirectChoiceSourceScalarKind(
+	family codegenDirectChoiceScalarFamily,
+	kind DigitDatatype,
+) (codegenSourceScalarKind, bool) {
+	switch family {
+	case codegenDirectChoiceScalarInvalid:
+		return codegenSourceScalarInvalid, false
+	case codegenDirectChoiceScalarBoolean:
+		if kind != "" {
+			return codegenSourceScalarInvalid, false
+		}
+		return codegenSourceScalarBoolean, true
+	case codegenDirectChoiceScalarInteger:
+		if kind != DigitDatatypeInteger {
+			return codegenSourceScalarInvalid, false
+		}
+		return codegenSourceScalarInteger, true
+	case codegenDirectChoiceScalarDecimal:
+		if kind != DigitDatatypeDecimal {
+			return codegenSourceScalarInvalid, false
+		}
+		return codegenSourceScalarDecimal, true
+	default:
+		return codegenSourceScalarInvalid, false
+	}
+}
+
+func codegenDirectChoiceDigitKind(family codegenDirectChoiceScalarFamily) DigitDatatype {
+	switch family {
+	case codegenDirectChoiceScalarInvalid, codegenDirectChoiceScalarBoolean:
+		return ""
+	case codegenDirectChoiceScalarInteger:
+		return DigitDatatypeInteger
+	case codegenDirectChoiceScalarDecimal:
+		return DigitDatatypeDecimal
+	default:
+		return ""
+	}
+}
+
 type codegenDirectChoiceBuiltinTarget struct {
 	declaredType QName
+	family       codegenDirectChoiceScalarFamily
 	kind         DigitDatatype
 	elementID    ComponentID
 	hasElementID bool
@@ -72,6 +148,7 @@ func (codegenDirectChoiceBuiltinTarget) codegenDirectChoiceTarget() {}
 type codegenDirectChoiceNamedTarget struct {
 	declaredType        QName
 	id                  ComponentID
+	family              codegenDirectChoiceScalarFamily
 	kind                DigitDatatype
 	componentIdentifier string
 	elementID           ComponentID
@@ -401,7 +478,73 @@ func collectCodegenDirectChoiceOwner(
 			target: target,
 		})
 	}
+	if err := validateCodegenDirectChoiceScalarFamilies(owner, version); err != nil {
+		return codegenDirectChoiceCollectedOwner{}, err
+	}
 	return owner, nil
+}
+
+func validateCodegenDirectChoiceScalarFamilies(
+	owner codegenDirectChoiceCollectedOwner,
+	version XSDVersion,
+) error {
+	if len(owner.alternatives) == 0 {
+		return nil
+	}
+	firstFamily, firstOK := codegenDirectChoiceTargetFamily(owner.alternatives[0].target)
+	if !firstOK {
+		return newCodegenInternal(
+			owner.alternatives[0].loc,
+			"direct-choice target has an unknown scalar family",
+			nil,
+			errCodegenDirectChoiceTarget,
+		)
+	}
+	for index, alternative := range owner.alternatives[1:] {
+		family, familyOK := codegenDirectChoiceTargetFamily(alternative.target)
+		if !familyOK {
+			return newCodegenInternal(
+				alternative.loc,
+				"direct-choice target has an unknown scalar family",
+				nil,
+				errCodegenDirectChoiceTarget,
+			)
+		}
+		if family == firstFamily || firstFamily != codegenDirectChoiceScalarBoolean && family != codegenDirectChoiceScalarBoolean {
+			continue
+		}
+		related := make([]Loc, 0, len(owner.alternatives)+1)
+		related = appendCodegenRelated(related, owner.choiceLoc)
+		for _, relatedAlternative := range owner.alternatives {
+			related = appendCodegenRelated(related, relatedAlternative.loc)
+		}
+		return newCodegenDirectChoiceUnsupported(
+			alternative.loc,
+			"direct choice mixes Boolean and non-Boolean scalar alternatives outside Go code generation",
+			related,
+			fmt.Errorf("%w: mixed direct-choice scalar families at alternative %d", errCodegenUnsupported, index+1),
+			version,
+			codegenDirectChoiceElementChoiceReference,
+		)
+	}
+	return nil
+}
+
+func codegenDirectChoiceTargetFamily(target codegenDirectChoiceTarget) (codegenDirectChoiceScalarFamily, bool) {
+	switch concrete := target.(type) {
+	case codegenDirectChoiceBuiltinTarget:
+		if _, ok := codegenDirectChoiceSourceScalarKind(concrete.family, concrete.kind); !ok {
+			return codegenDirectChoiceScalarInvalid, false
+		}
+		return concrete.family, true
+	case codegenDirectChoiceNamedTarget:
+		if _, ok := codegenDirectChoiceSourceScalarKind(concrete.family, concrete.kind); !ok {
+			return codegenDirectChoiceScalarInvalid, false
+		}
+		return concrete.family, true
+	default:
+		return codegenDirectChoiceScalarInvalid, false
+	}
 }
 
 //nolint:gocognit // Keep the ordered mixed-shape preflight explicit.
@@ -666,6 +809,15 @@ func validateCodegenDirectChoiceReferenceTarget(
 				version,
 			)
 		}
+		family, familyOK := codegenDirectChoiceScalarFamilyFromDigit(kind)
+		if !familyOK {
+			return nil, newCodegenInternal(
+				loc,
+				fmt.Sprintf("built-in referenced global element %q has an unknown numeric scalar family", declaration.Name()),
+				related,
+				errCodegenDirectChoiceTarget,
+			)
+		}
 		sourceTarget := codegenSourceTarget{
 			form:         codegenSourceTargetBuiltin,
 			declaredType: declaredType,
@@ -676,6 +828,7 @@ func validateCodegenDirectChoiceReferenceTarget(
 		}
 		return codegenDirectChoiceBuiltinTarget{
 			declaredType: declaredType,
+			family:       family,
 			kind:         kind,
 			elementID:    targetID,
 			hasElementID: true,
@@ -761,9 +914,19 @@ func validateCodegenDirectChoiceReferenceTarget(
 		if err := validateCodegenElementTypeReference(declaration, sourceTarget, loc, version); err != nil {
 			return nil, decorateCodegenDirectChoiceError(err, loc, related)
 		}
+		family, familyOK := codegenDirectChoiceScalarFamilyFromDigit(kind)
+		if !familyOK {
+			return nil, newCodegenInternal(
+				loc,
+				fmt.Sprintf("named referenced global element %q has an unknown numeric scalar family", declaration.Name()),
+				related,
+				errCodegenDirectChoiceTarget,
+			)
+		}
 		return codegenDirectChoiceNamedTarget{
 			declaredType: declaredType,
 			id:           typeID,
+			family:       family,
 			kind:         kind,
 			elementID:    targetID,
 			hasElementID: true,
@@ -1055,10 +1218,23 @@ func validateCodegenDirectChoiceTarget(
 			)
 		}
 		switch declaredType.Local() {
+		case "boolean":
+			return codegenDirectChoiceBuiltinTarget{
+				declaredType: declaredType,
+				family:       codegenDirectChoiceScalarBoolean,
+			}, nil
 		case "integer":
-			return codegenDirectChoiceBuiltinTarget{declaredType: declaredType, kind: DigitDatatypeInteger}, nil
+			return codegenDirectChoiceBuiltinTarget{
+				declaredType: declaredType,
+				family:       codegenDirectChoiceScalarInteger,
+				kind:         DigitDatatypeInteger,
+			}, nil
 		case "decimal":
-			return codegenDirectChoiceBuiltinTarget{declaredType: declaredType, kind: DigitDatatypeDecimal}, nil
+			return codegenDirectChoiceBuiltinTarget{
+				declaredType: declaredType,
+				family:       codegenDirectChoiceScalarDecimal,
+				kind:         DigitDatatypeDecimal,
+			}, nil
 		case "language", "NCName", "anyURI", "ID":
 			return nil, newCodegenDirectChoiceUnsupported(
 				element.Loc(),
@@ -1132,14 +1308,36 @@ func validateCodegenDirectChoiceTarget(
 			errCodegenDirectChoiceTarget,
 		)
 	}
-	kind, err := codegenNamedScalarKind(target, version)
+	sourceTarget, err := codegenNamedScalarTarget(schema, target, version)
 	if err != nil {
 		return nil, decorateCodegenDirectChoiceError(err, element.Loc(), related)
+	}
+	family, familyOK := codegenDirectChoiceScalarFamilyFromSourceKind(sourceTarget.scalarKind)
+	if !familyOK {
+		return nil, newCodegenDirectChoiceUnsupported(
+			element.Loc(),
+			fmt.Sprintf("named direct-choice type %q is outside scalar generation", declaredType),
+			related,
+			fmt.Errorf("%w: named scalar family %q", errCodegenUnsupported, sourceTarget.scalarKind),
+			version,
+			codegenDirectChoiceElementChoiceReference,
+		)
+	}
+	if sourceTarget.form != codegenSourceTargetDefinition ||
+		sourceTarget.declaredType != declaredType ||
+		!sourceTarget.hasTypeID || sourceTarget.typeID != typeID {
+		return nil, newCodegenInternal(
+			element.Loc(),
+			fmt.Sprintf("named direct-choice type %q has inconsistent scalar target facts", declaredType),
+			related,
+			errCodegenDirectChoiceTarget,
+		)
 	}
 	return codegenDirectChoiceNamedTarget{
 		declaredType: declaredType,
 		id:           typeID,
-		kind:         kind,
+		family:       family,
+		kind:         codegenDirectChoiceDigitKind(family),
 	}, nil
 }
 
@@ -2069,7 +2267,7 @@ func validateCodegenDirectChoicePlanTargetMatches(
 	switch expected := schemaTarget.(type) {
 	case codegenDirectChoiceBuiltinTarget:
 		actual, ok := planTarget.(codegenDirectChoiceBuiltinTarget)
-		if !ok || actual.declaredType != expected.declaredType || actual.kind != expected.kind || actual.elementID != expected.elementID || actual.hasElementID != expected.hasElementID {
+		if !ok || actual.declaredType != expected.declaredType || actual.family != expected.family || actual.kind != expected.kind || actual.elementID != expected.elementID || actual.hasElementID != expected.hasElementID {
 			return newCodegenInternal(
 				loc,
 				"direct-choice plan target does not match its schema particle",
@@ -2079,7 +2277,7 @@ func validateCodegenDirectChoicePlanTargetMatches(
 		}
 	case codegenDirectChoiceNamedTarget:
 		actual, ok := planTarget.(codegenDirectChoiceNamedTarget)
-		if !ok || actual.declaredType != expected.declaredType || actual.id != expected.id || actual.kind != expected.kind || expected.componentIdentifier != "" && actual.componentIdentifier != expected.componentIdentifier || actual.elementID != expected.elementID || actual.hasElementID != expected.hasElementID {
+		if !ok || actual.declaredType != expected.declaredType || actual.id != expected.id || actual.family != expected.family || actual.kind != expected.kind || expected.componentIdentifier != "" && actual.componentIdentifier != expected.componentIdentifier || actual.elementID != expected.elementID || actual.hasElementID != expected.hasElementID {
 			return newCodegenInternal(
 				loc,
 				"direct-choice plan target does not match its schema particle",
@@ -2146,21 +2344,32 @@ func validateCodegenDirectChoiceTargetElementIdentity(
 
 //nolint:gocognit // Keep concrete target invariant checks together.
 func validateCodegenDirectChoicePlanTarget(schema Schema, names codegenNaming, target codegenDirectChoiceTarget, loc Loc) error {
+	version, err := codegenSchemaVersion(schema)
+	if err != nil {
+		return err
+	}
 	switch concrete := target.(type) {
 	case codegenDirectChoiceBuiltinTarget:
 		if err := validateCodegenDirectChoiceTargetElementIdentity(schema, concrete.elementID, concrete.hasElementID, loc); err != nil {
 			return err
 		}
-		if concrete.declaredType.Namespace() != xsdNamespaceURI || concrete.kind != DigitDatatypeInteger && concrete.kind != DigitDatatypeDecimal {
+		if concrete.declaredType.Namespace() != xsdNamespaceURI {
 			return newCodegenInternal(loc, "direct-choice plan built-in target facts are inconsistent", nil, errCodegenDirectChoicePlan)
 		}
+		if _, ok := codegenDirectChoiceSourceScalarKind(concrete.family, concrete.kind); !ok {
+			return newCodegenInternal(loc, "direct-choice plan built-in scalar family is inconsistent", nil, errCodegenDirectChoicePlan)
+		}
 		switch concrete.declaredType.Local() {
+		case "boolean":
+			if concrete.family != codegenDirectChoiceScalarBoolean {
+				return newCodegenInternal(loc, "direct-choice plan built-in Boolean target family is inconsistent", nil, errCodegenDirectChoicePlan)
+			}
 		case "integer":
-			if concrete.kind != DigitDatatypeInteger {
+			if concrete.family != codegenDirectChoiceScalarInteger || concrete.kind != DigitDatatypeInteger {
 				return newCodegenInternal(loc, "direct-choice plan built-in integer target kind is inconsistent", nil, errCodegenDirectChoicePlan)
 			}
 		case "decimal":
-			if concrete.kind != DigitDatatypeDecimal {
+			if concrete.family != codegenDirectChoiceScalarDecimal || concrete.kind != DigitDatatypeDecimal {
 				return newCodegenInternal(loc, "direct-choice plan built-in decimal target kind is inconsistent", nil, errCodegenDirectChoicePlan)
 			}
 		default:
@@ -2171,8 +2380,11 @@ func validateCodegenDirectChoicePlanTarget(schema Schema, names codegenNaming, t
 		if err := validateCodegenDirectChoiceTargetElementIdentity(schema, concrete.elementID, concrete.hasElementID, loc); err != nil {
 			return err
 		}
-		if concrete.id.IsZero() || concrete.componentIdentifier == "" || concrete.declaredType.Namespace() == xsdNamespaceURI || concrete.kind != DigitDatatypeInteger && concrete.kind != DigitDatatypeDecimal {
+		if concrete.id.IsZero() || concrete.componentIdentifier == "" || concrete.declaredType.Namespace() == xsdNamespaceURI {
 			return newCodegenInternal(loc, "direct-choice plan named target facts are inconsistent", nil, errCodegenDirectChoicePlan)
+		}
+		if _, ok := codegenDirectChoiceSourceScalarKind(concrete.family, concrete.kind); !ok {
+			return newCodegenInternal(loc, "direct-choice plan named scalar family is inconsistent", nil, errCodegenDirectChoicePlan)
 		}
 		component, ok := schema.Lookup(concrete.id)
 		if !ok || component.ID() != concrete.id || component.Name() != concrete.declaredType || component.Kind() != ComponentKindSimpleTypeDefinition {
@@ -2182,12 +2394,18 @@ func validateCodegenDirectChoicePlanTarget(schema Schema, names codegenNaming, t
 		if !ok || identifier != concrete.componentIdentifier {
 			return newCodegenInternal(loc, "direct-choice plan named target identifier is inconsistent", appendCodegenRelated(nil, component.Loc()), errCodegenDirectChoicePlan)
 		}
-		definition, ok := component.SimpleTypeDefinition()
-		if !ok {
-			return newCodegenInternal(loc, "direct-choice plan named target has no simple-type facts", appendCodegenRelated(nil, component.Loc()), errCodegenDirectChoicePlan)
+		sourceTarget, sourceErr := codegenNamedScalarTarget(schema, component, version)
+		if sourceErr != nil {
+			return newCodegenInternal(
+				loc,
+				"direct-choice plan named target could not be revalidated",
+				appendCodegenRelated(nil, component.Loc()),
+				sourceErr,
+			)
 		}
-		if concrete.kind != definition.DigitFacets().Kind() {
-			return newCodegenInternal(loc, "direct-choice plan named target kind is inconsistent", appendCodegenRelated(nil, component.Loc()), errCodegenDirectChoicePlan)
+		family, familyOK := codegenDirectChoiceScalarFamilyFromSourceKind(sourceTarget.scalarKind)
+		if !familyOK || family != concrete.family || sourceTarget.form != codegenSourceTargetDefinition || sourceTarget.declaredType != concrete.declaredType || !sourceTarget.hasTypeID || sourceTarget.typeID != concrete.id || concrete.kind != codegenDirectChoiceDigitKind(concrete.family) {
+			return newCodegenInternal(loc, "direct-choice plan named target scalar facts are inconsistent", appendCodegenRelated(nil, component.Loc()), errCodegenDirectChoicePlan)
 		}
 		return nil
 	default:

@@ -119,22 +119,24 @@ distinctions and broader value spaces remain staged and report unsupported behav
 
 ## Validation and code generation
 
-`ValidateInstance` supports built-in/named scalar `boolean`/`integer`/`decimal`/`precisionDecimal` globals and named global complex
-types with direct local integer/decimal sequences using expanded-name lexical order.
-Sequences honor exact finite, unbounded, and above-`uint64` outer/child ranges under
+`ValidateInstance` supports built-in/named scalar `boolean`/`integer`/`decimal`/`precisionDecimal` globals and named complex
+types with direct local integer/decimal sequences in lexical order.
+Sequences honor finite, unbounded, and above-`uint64` ranges under
 `Compatibility`, `Strict10`, and `Strict11`. Direct choices allow default local scalars
-or default global integer/decimal references; mixed local/reference choices and non-default
-direct-choice/alternative occurrences unsupported/query-only. Non-default
-`precisionDecimal` choice/alternative ranges are schema-unsupported. References use
-immutable `TargetID`/`Lookup`; default-occurrence direct choices of local
-Boolean/integer/decimal scalars validate. Local Boolean direct sequences and generation
-unsupported. Direct-choice repetition and excluded shapes—global Boolean
+or global integer/decimal references; mixed local/reference and non-default
+direct-choice/alternative occurrences are query-only. Non-default
+`precisionDecimal` ranges are unsupported. References use
+`TargetID`/`Lookup`; default-occurrence choices of local
+Boolean/integer/decimal scalars validate. Local Boolean direct sequences remain
+unsupported; generation supports default-occurrence all-Boolean direct local
+choices. Repetition and excluded shapes—global Boolean
 references, strings/tokens, lists/unions, attributes, structures—unsupported.
 
-Generation: named/inherited global boolean/integer/decimal/string scalars, inline anonymous global strings, direct/local
-numeric choice-switches, default-bounded sequences; local Boolean sequences and
-choices unsupported for generation; only default-occurrence direct-choice references to global
-integer/decimal declarations generated; repeated/other references unsupported.
+Generation: named/inherited global boolean/integer/decimal/string scalars, inline
+anonymous global strings, numeric choice-switches, default-occurrence all-Boolean
+local choice-switches, and default-bounded sequences; local Boolean
+sequences, mixed/other choices, and repeated/other references remain unsupported;
+only default-occurrence references to global integer/decimal declarations are generated.
 
 ## Conformance
 
