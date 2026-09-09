@@ -10,7 +10,7 @@ XSD 1.0/1.1; limited `precisionDecimal`/string facets, `openAttrs`, extensions. 
 Named XSD 1.1 `openContent mode="none"` inert under Compatibility/Strict11; Strict10 mismatches. Other open-content/inline/derivation unsupported; malformed=invalid.
 Named direct sequence/choice default-form `xs:any`: immutable `WildcardParticle`
 (`##any`/`strict`), exact ranges; nonzero consumers unsupported, `0/0` absent. Named direct sequence/choice owners support `anyAttribute`:
-omitted/canonical `##any`/strict; explicit `##other`/lax; locations retained; omitted=0. Model-group refs rejected. Other groups/shapes, local uses/attributes,
+omitted/canonical `##any`/strict; explicit `##other`/lax; locations retained; omitted=0. Direct model-group-refs: schema-queryable/consumer-rejected. Other groups/shapes, local uses/attributes,
 explicit/broader `xs:any` unsupported. `ValidateInstance`/`GenerateGo`: sequences/choices/refs; default all-Boolean local direct choices; scalar generation separate.
 
 `abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. Contract: [ARCHITECTURE.md](ARCHITECTURE.md).
