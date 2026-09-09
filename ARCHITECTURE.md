@@ -96,13 +96,13 @@ Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline fo
 Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string forms, string/boolean/precisionDecimal attributes,
 other wildcard/attribute forms unsupported.
 
-Named complex types retain effective `abstract` bool via `ComplexTypeDefinition.IsAbstract()`; derivation does not inherit it.
-
-Named complex: particles; bounded openAttrs; attribute-free complexContent/extension over named empty-content bases; extensions retain base/extension IDs/locations,
-inherited wildcards, direct-choice/sequence occurrences; validation/generation reject. Direct global named: inert XSD 1.1 `openContent mode="none"`
-accepted under Compatibility/Strict11; Strict10 reports located XSD 1.1 mismatch. Non-none/wildcard-bearing `openContent`, `defaultOpenContent`,
-inline/derivation-local unsupported; malformed invalid. Local string/token/`xs:NMTOKEN` particles, Boolean facets, anonymous/nested/broader particles
-unsupported. References retain immutable target facts. Supported named direct complex-type sequence/choice owners: anyAttribute omitted/canonical=##any/strict; ##other/lax policy-wide. Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
+`abstract` is exposed on named complex types (`IsAbstract()`); derivation does not inherit it.
+Named complex supports particles, bounded openAttrs, and attribute-free complexContent/extension over named empty bases; extension IDs/locations and
+inherited wildcards immutable; consumers reject. Direct choice/sequence terms support ordered immutable default-form `xs:any`
+`WildcardParticle`s with effective `##any`/`strict` and exact occurrence/location facts; consumers reject nonzero terms; `0/0` is absent.
+`openContent`/`defaultOpenContent`, inline/derivation-local, anonymous/nested/broader particles, local string/token/`xs:NMTOKEN`, Boolean facets,
+explicit wildcard/attribute constraints unsupported; malformed invalid. Inert `openContent mode="none"`
+accepted under Compatibility/Strict11; Strict10 reports XSD 1.1 mismatch.
 
 ## Datatypes
 
@@ -119,24 +119,17 @@ distinctions and broader value spaces remain staged and report unsupported behav
 
 ## Validation and code generation
 
-`ValidateInstance` supports built-in/named scalar `boolean`/`integer`/`decimal`/`precisionDecimal` globals and named complex
-types with direct local integer/decimal sequences in lexical order.
-Sequences honor finite, unbounded, and above-`uint64` ranges under
-`Compatibility`, `Strict10`, and `Strict11`. Direct choices allow default local scalars
-or global integer/decimal references; mixed local/reference and non-default
-direct-choice/alternative occurrences are query-only. Non-default
-`precisionDecimal` ranges are unsupported. References use
-`TargetID`/`Lookup`; default-occurrence choices of local
-Boolean/integer/decimal scalars validate. Local Boolean direct sequences remain
-unsupported; generation supports default-occurrence all-Boolean direct local
-choices. Repetition and excluded shapes—global Boolean
-references, strings/tokens, lists/unions, attributes, structures—unsupported.
+`ValidateInstance` supports built-in/named scalar `boolean`/`integer`/`decimal`/`precisionDecimal` globals and named complex types with direct local
+integer/decimal sequences in lexical order. Sequences honor finite, unbounded, and above-`uint64` ranges under all policies. Direct choices allow
+default local scalars or global integer/decimal references; mixed local/reference and non-default occurrences are query-only. Non-default
+`precisionDecimal` ranges are unsupported. References use `TargetID`/`Lookup`; default choices of local Boolean/integer/decimal scalars validate.
+Local Boolean direct sequences remain unsupported; generation supports default all-Boolean local choices. Repetition/excluded shapes—global Boolean
+references, strings/tokens, lists/unions, attributes, structures—unsupported. Direct `xs:any` is query-only: consumers reject nonzero terms with
+edition-selected diagnostics; `0/0` absent.
 
-Generation: named/inherited global boolean/integer/decimal/string scalars, inline
-anonymous global strings, numeric choice-switches, default-occurrence all-Boolean
-local choice-switches, and default-bounded sequences; local Boolean
-sequences, mixed/other choices, and repeated/other references remain unsupported;
-only default-occurrence references to global integer/decimal declarations are generated.
+Generation: named/inherited global boolean/integer/decimal/string scalars, inline anonymous global strings, numeric choices, default all-Boolean local
+choices, and default-bounded sequences; local Boolean sequences, mixed/other choices, and repeated/other references remain unsupported; only default
+references to global integer/decimal declarations are generated.
 
 ## Conformance
 

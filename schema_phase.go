@@ -3130,6 +3130,9 @@ func reframeSchemaComplexContentExtensionUnsupported(err error, version XSDVersi
 	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
 		return err
 	}
+	if errors.Is(err, errSchemaAnyParticleUnsupported) {
+		return diagnostic
+	}
 	specRef := schemaComplexContentExtensionSpecRef(version)
 	if model != nil {
 		specRef = schemaComplexTypeExtensionSpecRef(version)
@@ -3776,7 +3779,7 @@ func validateModelParticleChildren(element *syntaxElement, model string, version
 	return validateModelParticleChildrenWithOptions(element, model, version, false, false)
 }
 
-//nolint:gocognit // Keep the supported direct-sequence grammar in the shared traversal.
+//nolint:gocognit,funlen // Keep the supported direct-sequence grammar in the shared traversal.
 func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences, allowNamespacePolicy bool) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
 	annotationSeen := false
@@ -3814,7 +3817,25 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 				return candidate, err
 			}
 			candidate.merge(localCandidate)
-		case "group", "choice", "sequence", "any":
+		case "group", "choice", "sequence":
+			if err := validateUnsupportedParticle(child, version); err != nil {
+				if !candidate.considerError(err) {
+					return candidate, err
+				}
+				continue
+			}
+			if !candidate.present {
+				candidate.considerAt(child.loc, fmt.Sprintf("%s child <%s> is not implemented", model, child.name.local))
+			}
+		case "any":
+			if allowElementOccurrences && allowNamespacePolicy {
+				if err := validateAnyParticleWithOptions(child, version, true); err != nil {
+					if !candidate.considerError(err) {
+						return candidate, err
+					}
+				}
+				continue
+			}
 			if err := validateUnsupportedParticle(child, version); err != nil {
 				if !candidate.considerError(err) {
 					return candidate, err
@@ -4800,8 +4821,12 @@ func schemaParticleOccurrenceLoc(element *syntaxElement, local string) Loc {
 	return element.loc
 }
 
-//nolint:gocognit,funlen // Keep wildcard particle grammar and unsupported classification together.
 func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
+	return validateAnyParticleWithOptions(element, version, false)
+}
+
+//nolint:gocognit,funlen // Keep wildcard particle grammar and unsupported classification together.
+func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, allowDefault bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateUniqueSchemaAttributes(element, "id", "minOccurs", "maxOccurs", "namespace", "notNamespace", "processContents", "notQName"); err != nil {
 		return err
@@ -4835,11 +4860,17 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 				return newSchemaCompositionDiagnostic(attribute.loc, "any id must be a valid NCName")
 			}
 		case "minOccurs", "maxOccurs":
-			candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
+			if !allowDefault {
+				candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
+			}
 		case "namespace", "notNamespace":
 			if attribute.name.local == "namespace" {
 				if err := validateWildcardNamespace(attribute); err != nil {
 					return err
+				}
+				if allowDefault {
+					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard namespace constraints are not implemented", version))
+					continue
 				}
 				candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
 				continue
@@ -4856,11 +4887,19 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 				), element, attributeIndex)
 			}
 			if version != XSDVersion10 {
+				if allowDefault {
+					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard notNamespace constraints are not implemented", version))
+					continue
+				}
 				candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
 			}
 		case "processContents":
 			if err := validateSchemaEnum(attribute, "lax", "skip", "strict"); err != nil {
 				return err
+			}
+			if allowDefault {
+				candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard processContents constraints are not implemented", version))
+				continue
 			}
 			candidate.considerAt(attribute.loc, "wildcard particles are not implemented")
 		case "notQName":
@@ -4876,6 +4915,10 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 				), element, attributeIndex)
 			}
 			if version != XSDVersion10 {
+				if allowDefault {
+					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard notQName constraints are not implemented", version))
+					continue
+				}
 				candidate.considerAt(attribute.loc, "wildcard particles are not implemented")
 			}
 		default:

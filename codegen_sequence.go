@@ -22,6 +22,7 @@ var (
 	errCodegenDirectSequenceResolve  = errors.New("direct sequence scalar target could not be resolved")
 	errCodegenDirectSequenceNaming   = errors.New("direct sequence naming table is misaligned")
 	errCodegenDirectSequencePlan     = errors.New("direct sequence plan invariant is broken")
+	errCodegenDirectSequenceWildcard = errors.New("direct sequence contains an unsupported wildcard particle")
 	errCodegenDirectParticlePlan     = errors.New("direct particle plan invariant is broken")
 )
 
@@ -333,6 +334,9 @@ func collectCodegenDirectSequenceOwner(
 				errCodegenDirectSequenceParticle,
 			)
 		}
+		if wildcard, wildcardOK := wildcardParticleValue(particle); wildcardOK {
+			return codegenDirectSequenceCollectedOwner{}, newCodegenDirectSequenceWildcardUnsupported(sequence, wildcard, version)
+		}
 		if reference, referenceOK := elementReferenceParticleValue(particle); referenceOK {
 			if reference.facts == nil {
 				return codegenDirectSequenceCollectedOwner{}, newCodegenInternal(
@@ -471,6 +475,23 @@ func validateCodegenDirectSequenceElementName(name QName, loc Loc) error {
 		)
 	}
 	return nil
+}
+
+func newCodegenDirectSequenceWildcardUnsupported(sequence SequenceParticle, wildcard WildcardParticle, version XSDVersion) error {
+	loc := wildcard.Loc()
+	if loc.IsZero() {
+		loc = sequence.Loc()
+	}
+	related := appendCodegenRelated(nil, sequence.Loc())
+	related = appendCodegenRelated(related, wildcard.Loc())
+	return newCodegenDirectSequenceUnsupported(
+		loc,
+		"direct sequence wildcard particles are outside Go code generation",
+		related,
+		fmt.Errorf("%w: %w", errCodegenUnsupported, errCodegenDirectSequenceWildcard),
+		version,
+		codegenDirectSequenceElementReference,
+	)
 }
 
 //nolint:gocognit,funlen // Keep scalar identity and named-target validation together.

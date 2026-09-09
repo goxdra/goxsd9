@@ -65,9 +65,11 @@ var (
 	errInstanceChoiceText              = errors.New("choice instance has non-whitespace parent text")
 	errInstanceChoiceNested            = errors.New("choice instance has nested element content")
 	errInstanceChoiceParticle          = errors.New("choice type has an unsupported particle")
+	errInstanceChoiceWildcard          = errors.New("choice type contains an unsupported wildcard particle")
 	errInstanceChoiceTarget            = errors.New("choice alternative has an unsupported target")
 	errInstanceChoiceMixed             = errors.New("choice type mixes local declarations and element references")
 	errInstanceSequenceParticle        = errors.New("sequence type has an unsupported particle")
+	errInstanceSequenceWildcard        = errors.New("sequence type contains an unsupported wildcard particle")
 	errInstanceSequenceTarget          = errors.New("sequence particle has an unsupported target")
 	errInstanceSequenceMixed           = errors.New("sequence type mixes unsupported particle forms")
 	errInstanceSequenceMissing         = errors.New("sequence instance is missing a required element")
@@ -483,6 +485,16 @@ func instanceChoiceAlternativesFor(
 	hasReference := false
 	hasLocal := false
 	for _, particleAlternative := range particleAlternatives {
+		if wildcard, wildcardOK := wildcardParticleValue(particleAlternative); wildcardOK {
+			related = appendInstanceRelated(related, wildcard.Loc())
+			return nil, nil, newInstanceValidationUnsupported(
+				wildcard.Loc(),
+				"direct choice wildcard particles are outside instance validation",
+				related,
+				version,
+				errInstanceChoiceWildcard,
+			)
+		}
 		if reference, referenceOK := elementReferenceParticleValue(particleAlternative); referenceOK {
 			if err := instanceChoiceReferenceParticleFor(reference, choice.Loc(), related, version); err != nil {
 				return nil, nil, err

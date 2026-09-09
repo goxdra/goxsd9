@@ -6,9 +6,14 @@ goxsd9 targets XSD 1.1/1.0 parsing, XML validation, Go generation; unsupported b
 
 `ParseSchema` exposes immutable components; callers provide `ResolvedSource` and `Resolver`. Calls sequential; locations opaque.
 
-XSD 1.0/1.1 graphs/restrictions supported; limited `precisionDecimal`/string facets/`openAttrs`/extensions. Named complexes: element-only bodies/`defaultAttributesApply`, XSD 1.1/Compatibility. Direct named XSD 1.1 `openContent mode="none"` inert/accepted under Compatibility/Strict11; Strict10 XSD 1.1 mismatch. Non-none/wildcard-bearing `openContent`/`defaultOpenContent`, inline/derivation-local unsupported; malformed=invalid. Named complex-type sequence/choice `anyAttribute`: both omitted/`namespace="##any"`/`processContents="strict"`/both explicit forms; effective values=`##any`/`strict`; explicit locations retained, omitted locations=0; `##other`/`lax` supported. Other groups/shapes, local uses/attributes/wildcards, consumers unsupported. Choices/sequences: exact ranges/attribute-wildcards. Compatibility default. `ValidateInstance`/`GenerateGo` cover numeric sequences/choices/refs; `GenerateGo` also handles default all-Boolean local choices and scalars.
+XSD 1.0/1.1 graphs/restrictions supported; limited `precisionDecimal`/string facets, `openAttrs`, extensions. Named complexes support element-only bodies,
+`defaultAttributesApply`, and bounded attribute-free extensions. XSD 1.1 `openContent mode="none"` is inert under Compatibility/Strict11; Strict10 mismatches;
+other open-content/inline/derivation-local shapes unsupported; malformed=invalid. Named direct sequence/choice default-form `xs:any` is an immutable query
+`WildcardParticle` (`##any`/`strict`) with exact ranges; nonzero consumers unsupported, `0/0` absent. `anyAttribute` supports omitted/canonical `##any`/strict
+and `##other`/lax; explicit locations retained. Other groups/shapes, explicit/broader wildcards, local uses/attributes unsupported. `ValidateInstance`/`GenerateGo`
+cover numeric sequences/choices/refs; generation also handles default all-Boolean local choices and scalars.
 
-Named complex types retain effective `abstract` bool via `ComplexTypeDefinition.IsAbstract()`; derivation does not inherit it. Supported concrete validator/generator paths reject abstract use with located unsupported diagnostics; valid abstract declarations remain schema-queryable. Contract: [ARCHITECTURE.md](ARCHITECTURE.md).
+`abstract` applies to named complex types; it is not inherited, and consumers reject its use with located unsupported diagnostics. Contract: [ARCHITECTURE.md](ARCHITECTURE.md).
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
 
 ## Product CLI

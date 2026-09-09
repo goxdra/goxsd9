@@ -23,6 +23,7 @@ var (
 	errCodegenDirectChoiceNaming   = errors.New("direct choice naming table is misaligned")
 	errCodegenDirectChoicePlan     = errors.New("direct choice plan invariant is broken")
 	errCodegenDirectChoiceMixed    = errors.New("direct choice mixes local elements and element references")
+	errCodegenDirectChoiceWildcard = errors.New("direct choice contains an unsupported wildcard particle")
 )
 
 // codegenDirectChoicePlan is the private, source-free plan for modeled direct
@@ -372,6 +373,9 @@ func collectCodegenDirectChoiceOwner(
 				errCodegenDirectChoiceParticle,
 			)
 		}
+		if wildcard, wildcardOK := wildcardParticleValue(alternative); wildcardOK {
+			return codegenDirectChoiceCollectedOwner{}, newCodegenDirectChoiceWildcardUnsupported(choice, wildcard, version)
+		}
 		if reference, referenceOK := elementReferenceParticleValue(alternative); referenceOK {
 			if reference.facts == nil {
 				return codegenDirectChoiceCollectedOwner{}, newCodegenInternal(
@@ -557,6 +561,9 @@ func validateCodegenDirectChoiceAlternativeShape(choice ChoiceParticle, version 
 		if alternative == nil || directChoiceTypedNilParticle(alternative) {
 			continue
 		}
+		if wildcard, wildcardOK := wildcardParticleValue(alternative); wildcardOK {
+			return newCodegenDirectChoiceWildcardUnsupported(choice, wildcard, version)
+		}
 		if reference, ok := elementReferenceParticleValue(alternative); ok {
 			if reference.facts == nil {
 				return newCodegenInternal(
@@ -604,9 +611,28 @@ func directChoiceTypedNilParticle(particle Particle) bool {
 		return concrete == nil
 	case *SequenceParticle:
 		return concrete == nil
+	case *WildcardParticle:
+		return concrete == nil
 	default:
 		return false
 	}
+}
+
+func newCodegenDirectChoiceWildcardUnsupported(choice ChoiceParticle, wildcard WildcardParticle, version XSDVersion) error {
+	loc := wildcard.Loc()
+	if loc.IsZero() {
+		loc = choice.Loc()
+	}
+	related := appendCodegenRelated(nil, choice.Loc())
+	related = appendCodegenRelated(related, wildcard.Loc())
+	return newCodegenDirectChoiceUnsupported(
+		loc,
+		"direct choice wildcard particles are outside Go code generation",
+		related,
+		fmt.Errorf("%w: %w", errCodegenUnsupported, errCodegenDirectChoiceWildcard),
+		version,
+		codegenDirectChoiceElementChoiceReference,
+	)
 }
 
 func directChoiceValue(particle Particle) (ChoiceParticle, bool) {

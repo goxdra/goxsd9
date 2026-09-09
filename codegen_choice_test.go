@@ -1501,7 +1501,7 @@ func codegenDirectChoiceCollisionSchema(t *testing.T) Schema {
 						particle: &schemaChoiceParticleInput{
 							loc:         choiceLoc,
 							occurrences: codegenTestParticleOccurrenceRange(t, "1", "1"),
-							alternatives: []schemaElementParticleInput{
+							alternatives: []schemaParticleTermInput{
 								codegenDirectChoiceElementInput(t, "line-item", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "owner.xsd", 5, 7)),
 								codegenDirectChoiceElementInput(t, "LINE_ITEM", mustTestQName(t, testXSDNamespace, "decimal"), mustTestLoc(t, "owner.xsd", 6, 7)),
 								codegenDirectChoiceElementInput(t, "shared", mustTestQName(t, "urn:other", "shared"), mustTestLoc(t, "owner.xsd", 7, 7)),
@@ -1537,7 +1537,7 @@ func codegenDirectChoiceFailureSchema(t *testing.T) Schema {
 				particle: &schemaChoiceParticleInput{
 					loc:          mustTestLoc(t, "choice.xsd", 3, 5),
 					occurrences:  codegenTestParticleOccurrenceRange(t, "1", "1"),
-					alternatives: []schemaElementParticleInput{codegenDirectChoiceElementInput(t, "value", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "choice.xsd", 4, 7))},
+					alternatives: []schemaParticleTermInput{codegenDirectChoiceElementInput(t, "value", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "choice.xsd", 4, 7))},
 				},
 			}},
 		}},
