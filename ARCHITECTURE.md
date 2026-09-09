@@ -126,13 +126,14 @@ Sequences honor exact finite, unbounded, and above-`uint64` outer/child ranges u
 or default global integer/decimal references; mixed local/reference choices and non-default
 direct-choice/alternative occurrences unsupported/query-only. Non-default
 `precisionDecimal` choice/alternative ranges are schema-unsupported. References use
-immutable `TargetID`/`Lookup`; direct-choice repetition and excluded particle/target shapes—
-global string/token values, local boolean/string/token particles, lists/unions, attributes, and broader structures—remain
-unsupported. Concrete validator/generator paths reject abstract named types with located unsupported diagnostics;
-valid abstract declarations remain schema-queryable.
+immutable `TargetID`/`Lookup`; default-occurrence direct choices of local
+Boolean/integer/decimal scalars validate. Local Boolean direct sequences and generation
+unsupported. Direct-choice repetition and excluded shapes—global Boolean
+references, strings/tokens, lists/unions, attributes, structures—unsupported.
 
 Generation: named/inherited global boolean/integer/decimal/string scalars, inline anonymous global strings, direct/local
-numeric choice-switches, default-bounded sequences; only default-occurrence direct-choice references to global
+numeric choice-switches, default-bounded sequences; local Boolean sequences and
+choices unsupported for generation; only default-occurrence direct-choice references to global
 integer/decimal declarations generated; repeated/other references unsupported.
 
 ## Conformance

@@ -200,8 +200,8 @@ alternatives or references to global integer/decimal scalar elements; code gener
 numeric elements, while all other validator and code-generator consumption of direct references remains unsupported. Global
 text-only boolean validation is supported under
 Compatibility, Strict10, and Strict11; global boolean scalar generation is
-supported, while local boolean-particle validation and generation remain
-unsupported;
+supported. Issue #375 supports default-occurrence direct-choice validation of
+local Boolean alternatives, including named restrictions; local Boolean direct-sequence validation and generation remain unsupported;
 the parser does not support `all` mapping. The exact value has no fixed
 resource limit; later phases must set bounded input and materialization
 policies.

@@ -468,7 +468,7 @@ func instanceChoiceParticleFor(
 	return choice, related, nil
 }
 
-//nolint:gocognit // Keep the direct-choice shape gate and alternative order together.
+//nolint:gocognit,funlen // Keep the direct-choice shape gate and alternative order together.
 func instanceChoiceAlternativesFor(
 	schema Schema,
 	declaration ElementDeclaration,
@@ -542,6 +542,23 @@ func instanceChoiceAlternativesFor(
 			return nil, nil, err
 		}
 		alternatives = append(alternatives, alternative)
+	}
+	if len(alternatives) > 0 {
+		booleanCount := 0
+		for _, alternative := range alternatives {
+			if _, ok := alternative.scalar.value.(instanceBooleanScalar); ok {
+				booleanCount++
+			}
+		}
+		if booleanCount > 0 && booleanCount != len(alternatives) {
+			return nil, nil, newInstanceValidationUnsupported(
+				loc,
+				"direct choice mixes Boolean and non-Boolean local declarations",
+				related,
+				version,
+				errInstanceChoiceMixed,
+			)
+		}
 	}
 	return alternatives, related, nil
 }
@@ -944,7 +961,7 @@ func instanceChoiceAlternativeFor(
 		alternativeRelated,
 		element.Loc(),
 		version,
-		false,
+		true,
 		true,
 		version,
 	)
