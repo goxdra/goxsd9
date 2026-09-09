@@ -4,16 +4,16 @@ goxsd9 targets XSD 1.1/1.0 parsing, XML validation, Go generation; unsupported b
 
 ## Schema parsing
 
-`ParseSchema` exposes immutable components; callers provide `ResolvedSource` and `Resolver`. Calls sequential; locations opaque.
+`ParseSchema` exposes immutable components; callers provide `ResolvedSource`/`Resolver`. Calls sequential; locations opaque. Compatibility default.
 
-XSD 1.0/1.1 graphs/restrictions supported; limited `precisionDecimal`/string facets, `openAttrs`, extensions. Named complexes support element-only bodies,
-`defaultAttributesApply`, and bounded attribute-free extensions. XSD 1.1 `openContent mode="none"` is inert under Compatibility/Strict11; Strict10 mismatches;
-other open-content/inline/derivation-local shapes unsupported; malformed=invalid. Named direct sequence/choice default-form `xs:any` is an immutable query
-`WildcardParticle` (`##any`/`strict`) with exact ranges; nonzero consumers unsupported, `0/0` absent. `anyAttribute` supports omitted/canonical `##any`/strict
-and `##other`/lax; explicit locations retained. Other groups/shapes, explicit/broader wildcards, local uses/attributes unsupported. `ValidateInstance`/`GenerateGo`
-cover numeric sequences/choices/refs; generation also handles default all-Boolean local choices and scalars.
+XSD 1.0/1.1 supported; limited `precisionDecimal`/string facets, `openAttrs`, extensions. Named complexes: element-only bodies, bounded attribute-free extensions; `defaultAttributesApply`: named globals only, XSD 1.1/Compatibility; no schema-level `defaultAttributes`.
+Direct-global named XSD 1.1 `openContent mode="none"` inert under Compatibility/Strict11; Strict10 reports XSD 1.1 mismatch. Other open-content/inline/derivation-local shapes unsupported; malformed=invalid.
+Named direct sequence/choice default-form `xs:any`: immutable `WildcardParticle`
+(`##any`/`strict`), exact ranges; nonzero consumers unsupported, `0/0` absent. Named complex-type direct sequence/choice owners support `anyAttribute`:
+omitted/canonical `##any`/strict; explicit `##other`/lax; explicit locations retained, omitted locations=0. Groups/shapes, local uses/attributes,
+explicit/broader `xs:any` constraints unsupported. `ValidateInstance`/`GenerateGo`: numeric sequences/choices/refs; generation: default all-Boolean local choices/scalars.
 
-`abstract` applies to named complex types; it is not inherited, and consumers reject its use with located unsupported diagnostics. Contract: [ARCHITECTURE.md](ARCHITECTURE.md).
+`abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. Contract: [ARCHITECTURE.md](ARCHITECTURE.md).
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
 
 ## Product CLI

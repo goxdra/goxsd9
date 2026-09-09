@@ -93,16 +93,15 @@ Typed global attributes expose immutable `AttributeDeclaration.IsInheritable()`:
 Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline forms unsupported.
 `defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
-Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string forms, string/boolean/precisionDecimal attributes,
-other wildcard/attribute forms unsupported.
+Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string, string/boolean/precisionDecimal attrs unsupported.
 
-`abstract` is exposed on named complex types (`IsAbstract()`); derivation does not inherit it.
-Named complex supports particles, bounded openAttrs, and attribute-free complexContent/extension over named empty bases; extension IDs/locations and
-inherited wildcards immutable; consumers reject. Direct choice/sequence terms support ordered immutable default-form `xs:any`
-`WildcardParticle`s with effective `##any`/`strict` and exact occurrence/location facts; consumers reject nonzero terms; `0/0` is absent.
-`openContent`/`defaultOpenContent`, inline/derivation-local, anonymous/nested/broader particles, local string/token/`xs:NMTOKEN`, Boolean facets,
-explicit wildcard/attribute constraints unsupported; malformed invalid. Inert `openContent mode="none"`
-accepted under Compatibility/Strict11; Strict10 reports XSD 1.1 mismatch.
+Named complexes expose `IsAbstract()`; derivation does not inherit it.
+Named complexes support particles, bounded openAttrs, attribute-free complexContent/extension over named empty bases; immutable IDs/locations/inherited
+wildcards; consumers reject. Direct named sequence/choice owners support `anyAttribute`: omitted/canonical `##any`/strict; explicit
+`##other`/lax; explicit locations retained, omitted locations=0. Their terms support immutable default-form `xs:any` `WildcardParticle`s: effective
+`##any`/strict, exact occurrence/location facts; `0/0` absent; consumers reject nonzero. Direct global named `openContent mode="none"` inert under
+Compatibility/Strict11; Strict10 reports XSD 1.1 mismatch. Other `openContent`/`defaultOpenContent`, broader placements, explicit
+element-wildcard constraints unsupported; malformed invalid. References retain immutable target facts.
 
 ## Datatypes
 
