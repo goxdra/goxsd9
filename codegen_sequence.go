@@ -16,14 +16,15 @@ const (
 )
 
 var (
-	errCodegenDirectSequenceQName    = errors.New("direct sequence QName is malformed")
-	errCodegenDirectSequenceParticle = errors.New("direct sequence particle fact is incomplete")
-	errCodegenDirectSequenceTarget   = errors.New("direct sequence scalar target fact is incomplete")
-	errCodegenDirectSequenceResolve  = errors.New("direct sequence scalar target could not be resolved")
-	errCodegenDirectSequenceNaming   = errors.New("direct sequence naming table is misaligned")
-	errCodegenDirectSequencePlan     = errors.New("direct sequence plan invariant is broken")
-	errCodegenDirectSequenceWildcard = errors.New("direct sequence contains an unsupported wildcard particle")
-	errCodegenDirectParticlePlan     = errors.New("direct particle plan invariant is broken")
+	errCodegenDirectSequenceQName       = errors.New("direct sequence QName is malformed")
+	errCodegenDirectSequenceParticle    = errors.New("direct sequence particle fact is incomplete")
+	errCodegenDirectSequenceTarget      = errors.New("direct sequence scalar target fact is incomplete")
+	errCodegenDirectSequenceResolve     = errors.New("direct sequence scalar target could not be resolved")
+	errCodegenDirectSequenceNaming      = errors.New("direct sequence naming table is misaligned")
+	errCodegenDirectSequencePlan        = errors.New("direct sequence plan invariant is broken")
+	errCodegenDirectSequenceWildcard    = errors.New("direct sequence contains an unsupported wildcard particle")
+	errCodegenDirectModelGroupReference = errors.New("model-group reference particle is outside Go code generation")
+	errCodegenDirectParticlePlan        = errors.New("direct particle plan invariant is broken")
 )
 
 type codegenDirectParticleKind uint8
@@ -173,6 +174,9 @@ func collectCodegenDirectParticles(
 			)
 		}
 		if body := definition.extensionBody(); body != nil {
+			if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(body.particle); groupReferenceOK {
+				return nil, newCodegenDirectModelGroupReferenceUnsupported(schema, component, groupReference, version)
+			}
 			return nil, newCodegenDirectParticleUnsupported(
 				body.extensionLoc,
 				fmt.Sprintf("complex type %q uses complex-content extension outside direct particle generation", component.Name()),
@@ -198,6 +202,9 @@ func collectCodegenDirectParticles(
 				nil,
 				errCodegenDirectParticlePlan,
 			)
+		}
+		if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(particle); groupReferenceOK {
+			return nil, newCodegenDirectModelGroupReferenceUnsupported(schema, component, groupReference, version)
 		}
 		anyAttribute, anyAttributeOK := definition.AnyAttribute()
 		if choice, choiceOK := directChoiceValue(particle); choiceOK {
@@ -333,6 +340,9 @@ func collectCodegenDirectSequenceOwner(
 				nil,
 				errCodegenDirectSequenceParticle,
 			)
+		}
+		if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(particle); groupReferenceOK {
+			return codegenDirectSequenceCollectedOwner{}, newCodegenDirectModelGroupReferenceUnsupported(schema, component, groupReference, version)
 		}
 		if wildcard, wildcardOK := wildcardParticleValue(particle); wildcardOK {
 			return codegenDirectSequenceCollectedOwner{}, newCodegenDirectSequenceWildcardUnsupported(sequence, wildcard, version)
@@ -719,6 +729,34 @@ func newCodegenDirectParticleUnsupported(
 	version XSDVersion,
 ) error {
 	return newCodegenDirectSequenceUnsupported(loc, message, related, cause, version, codegenDirectSequenceParticlesReference)
+}
+
+func newCodegenDirectModelGroupReferenceUnsupported(
+	schema Schema,
+	component Component,
+	reference ModelGroupReferenceParticle,
+	version XSDVersion,
+) error {
+	loc := reference.RefLoc()
+	if loc.IsZero() {
+		loc = reference.Loc()
+	}
+	if loc.IsZero() {
+		loc = component.Loc()
+	}
+	related := appendCodegenRelated(nil, component.Loc())
+	related = appendCodegenRelated(related, reference.Loc())
+	related = appendCodegenRelated(related, reference.RefLoc())
+	if target, ok := schema.Lookup(reference.TargetID()); ok {
+		related = appendCodegenRelated(related, target.Loc())
+	}
+	return newCodegenDirectParticleUnsupported(
+		loc,
+		fmt.Sprintf("complex type %q uses a model-group reference outside Go code generation", component.Name()),
+		related,
+		fmt.Errorf("%w: %w", errCodegenUnsupported, errCodegenDirectModelGroupReference),
+		version,
+	)
 }
 
 func newCodegenDirectSequenceResolution(loc Loc, message string, related []Loc, cause error) error {

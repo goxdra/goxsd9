@@ -213,6 +213,8 @@ func instanceSequenceProgramFor(
 	rawParticles := sequence.Particles()
 	hasElement := false
 	hasReference := false
+	hasModelGroupReference := false
+	modelGroupReferenceLoc := Loc{}
 	hasWildcard := false
 	hasOther := false
 	for _, rawParticle := range rawParticles {
@@ -230,6 +232,17 @@ func instanceSequenceProgramFor(
 			related = appendInstanceRelated(related, reference.Loc())
 			continue
 		}
+		if reference, ok := modelGroupReferenceParticleValue(rawParticle); ok {
+			hasModelGroupReference = true
+			if modelGroupReferenceLoc.IsZero() {
+				modelGroupReferenceLoc = reference.RefLoc()
+				if modelGroupReferenceLoc.IsZero() {
+					modelGroupReferenceLoc = reference.Loc()
+				}
+			}
+			related = appendInstanceRelated(related, reference.Loc())
+			continue
+		}
 		if wildcard, ok := wildcardParticleValue(rawParticle); ok {
 			hasWildcard = true
 			related = appendInstanceRelated(related, wildcard.Loc())
@@ -244,6 +257,15 @@ func instanceSequenceProgramFor(
 			related,
 			version,
 			errInstanceSequenceWildcard,
+		)
+	}
+	if hasModelGroupReference {
+		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+			modelGroupReferenceLoc,
+			"direct sequence model-group references are outside instance validation",
+			related,
+			version,
+			errInstanceModelGroupReference,
 		)
 	}
 	if hasElement && hasReference {

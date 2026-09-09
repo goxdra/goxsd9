@@ -96,7 +96,7 @@ Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline fo
 Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string, string/boolean/precisionDecimal attrs unsupported.
 
 Named complexes expose `IsAbstract()`; derivation does not inherit it.
-Named complexes support particles, bounded openAttrs, attribute-free complexContent/extension over named empty bases; immutable IDs/locations/inherited
+Named complexes support global model-group refs, bounded openAttrs, attribute-free extensions over named empty bases; immutable IDs/locations/inherited
 wildcards; consumers reject. Direct named sequence/choice owners support `anyAttribute`: omitted/canonical `##any`/strict; explicit
 `##other`/lax; explicit locations retained, omitted locations=0. Their terms support immutable default-form `xs:any` `WildcardParticle`s: effective
 `##any`/strict, exact occurrence/location facts; `0/0` absent; consumers reject nonzero. Direct global named `openContent mode="none"` inert under
@@ -118,11 +118,11 @@ distinctions and broader value spaces remain staged and report unsupported behav
 
 ## Validation and code generation
 
-`ValidateInstance` supports built-in/named scalar `boolean`/`integer`/`decimal`/`precisionDecimal` globals and named complex types with direct local
+`ValidateInstance` supports scalar `boolean`/`integer`/`decimal`/`precisionDecimal` globals and named complexes with
 integer/decimal sequences in lexical order. Sequences honor finite, unbounded, and above-`uint64` ranges under all policies. Direct choices allow
-default local scalars or global integer/decimal references; mixed local/reference and non-default occurrences are query-only. Non-default
-`precisionDecimal` ranges are unsupported. References use `TargetID`/`Lookup`; default choices of local Boolean/integer/decimal scalars validate.
-Local Boolean direct sequences remain unsupported; generation supports default all-Boolean local choices. Repetition/excluded shapes—global Boolean
+default local scalars or global integer/decimal references; mixed and non-default forms are query-only. Non-default
+`precisionDecimal` ranges are unsupported. References use `TargetID`/`Lookup`; model-group refs retain IDs but consumers reject; default Boolean/integer/decimal choices validate.
+Local Boolean sequences remain unsupported; generation supports default all-Boolean local choices. Repetition/excluded shapes—global Boolean
 references, strings/tokens, lists/unions, attributes, structures—unsupported. Direct `xs:any` is query-only: consumers reject nonzero terms with
 edition-selected diagnostics; `0/0` absent.
 

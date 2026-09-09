@@ -48,8 +48,14 @@
 // modeled. Direct element references are queryable immutable particles;
 // validation and code generation support default-occurrence direct choices
 // made entirely of references to global integer/decimal scalar elements, while
-// other reference particles, repetition, and broader shapes remain explicitly
-// unsupported.
+// other reference particles beyond the supported top-level direct
+// `ModelGroupReferenceParticle` form, repetition, and broader shapes remain
+// explicitly unsupported.
+// Top-level direct model-group references on named complex types and bounded
+// attribute-free extensions over named empty-content bases are queryable as exact
+// immutable particles retaining `TargetID` without expanding target members;
+// `ValidateInstance` and `GenerateGo` reject them. Nested, local, recursive, and
+// broader group-reference shapes remain unsupported.
 // Default-bounded direct integer and decimal sequences are emitted as ordered Go
 // struct fields; repeated-field generation and direct-choice repetition remain
 // unsupported.
