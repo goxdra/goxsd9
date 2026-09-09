@@ -123,8 +123,8 @@ view. The migration boundary is:
    and completed facts. Do not make an above-`uint64` or unbounded value look
    like a capped integer or a `uint64` wraparound.
 2. Expose non-default sequence particles only through the documented exact
-   view. The sequence child collection is an owned ordered copy of completed
-   `ElementParticle` facts.
+   view. `Particles()` returns the owned ordered copy of completed `Particle`
+   facts; `Elements()` remains a separate element-only collection.
 3. Keep the deprecated `uint64` methods during the compatibility window for
    existing default-only callers. There is no lossless compatibility adapter
    for arbitrary integers or `unbounded`; callers must migrate to the exact
