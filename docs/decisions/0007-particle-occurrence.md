@@ -201,7 +201,7 @@ numeric elements, while all other validator and code-generator consumption of di
 text-only boolean validation is supported under
 Compatibility, Strict10, and Strict11; global boolean scalar generation is
 supported. Issue #375 supports default-occurrence direct-choice validation of
-local Boolean alternatives, including named restrictions; local Boolean direct-sequence validation and generation remain unsupported;
+local Boolean alternatives, including named restrictions; local Boolean direct-sequence validation and generation remain unsupported; Go generation supports default-occurrence direct choices made entirely of local Boolean elements;
 the parser does not support `all` mapping. The exact value has no fixed
 resource limit; later phases must set bounded input and materialization
 policies.
