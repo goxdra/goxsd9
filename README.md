@@ -7,10 +7,10 @@ goxsd9 targets XSD 1.1/1.0 parsing, XML validation, Go generation; unsupported b
 `ParseSchema` exposes immutable components; callers provide `ResolvedSource`/`Resolver`. Calls sequential; locations opaque. Compatibility default.
 
 XSD 1.0/1.1 supported; limited `precisionDecimal`/string facets, `openAttrs`, extensions. Named complexes: element-only bodies, bounded attribute-free extensions; `defaultAttributesApply`: named globals only, XSD 1.1/Compatibility; no schema-level `defaultAttributes`.
-Direct-global named XSD 1.1 `openContent mode="none"` inert under Compatibility/Strict11; Strict10 reports XSD 1.1 mismatch. Other open-content/inline/derivation-local shapes unsupported; malformed=invalid.
+Direct-global named XSD 1.1 `openContent mode="none"` inert under Compatibility/Strict11; Strict10: XSD 1.1 mismatch. Other open-content/inline/derivation-local shapes unsupported; malformed=invalid.
 Named direct sequence/choice default-form `xs:any`: immutable `WildcardParticle`
 (`##any`/`strict`), exact ranges; nonzero consumers unsupported, `0/0` absent. Named complex-type direct sequence/choice owners support `anyAttribute`:
-omitted/canonical `##any`/strict; explicit `##other`/lax; explicit locations retained, omitted locations=0. Groups/shapes, local uses/attributes,
+omitted/canonical `##any`/strict; explicit `##other`/lax; explicit locations retained, omitted locations=0. Other groups/shapes, local uses/attributes,
 explicit/broader `xs:any` constraints unsupported. `ValidateInstance`/`GenerateGo`: numeric sequences/choices/refs; generation: default all-Boolean local choices/scalars.
 
 `abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. Contract: [ARCHITECTURE.md](ARCHITECTURE.md).
