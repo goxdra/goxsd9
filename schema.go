@@ -1623,7 +1623,87 @@ func (particle ElementReferenceParticle) TargetID() ComponentID {
 	return particle.facts.targetID
 }
 
-// SequenceParticle is an ordered direct sequence of element particles.
+// WildcardParticle is a direct element wildcard particle. Its supported
+// effective namespace is ##any and its supported processing mode is strict.
+type WildcardParticle struct {
+	facts *schemaWildcardParticle
+}
+
+func (WildcardParticle) particle() {}
+
+// Loc returns the location of the xs:any particle.
+func (particle WildcardParticle) Loc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.loc
+}
+
+// Occurrences returns the exact immutable occurrence range.
+func (particle WildcardParticle) Occurrences() ParticleOccurrenceRange {
+	if particle.facts == nil {
+		return ParticleOccurrenceRange{}
+	}
+	return newPublicParticleOccurrenceRange(particle.facts.occurrences)
+}
+
+// MinOccurs returns the default minimum occurrence bound.
+//
+// Deprecated: use Occurrences().Minimum(). This compatibility accessor is
+// defined only for default-only wildcard particles and returns zero otherwise.
+func (particle WildcardParticle) MinOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// MaxOccurs returns the default maximum occurrence bound.
+//
+// Deprecated: use Occurrences().Maximum(). This compatibility accessor is
+// defined only for default-only wildcard particles and returns zero otherwise.
+func (particle WildcardParticle) MaxOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// Namespace returns the effective wildcard namespace constraint.
+func (particle WildcardParticle) Namespace() string {
+	if particle.facts == nil {
+		return ""
+	}
+	return particle.facts.namespace
+}
+
+// NamespaceLoc returns the location of an explicit namespace attribute. It is
+// zero when the namespace defaults to ##any.
+func (particle WildcardParticle) NamespaceLoc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.namespaceLoc
+}
+
+// ProcessContents returns the effective wildcard processing mode.
+func (particle WildcardParticle) ProcessContents() string {
+	if particle.facts == nil {
+		return ""
+	}
+	return particle.facts.processContents
+}
+
+// ProcessContentsLoc returns the location of an explicit processContents
+// attribute. It is zero when processing defaults to strict.
+func (particle WildcardParticle) ProcessContentsLoc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.processContentsLoc
+}
+
+// SequenceParticle is an ordered direct sequence of particles.
 type SequenceParticle struct {
 	facts *schemaSequenceParticle
 }
@@ -1690,7 +1770,7 @@ func (particle SequenceParticle) Elements() []ElementParticle {
 
 // Particles returns direct sequence particles in lexical declaration order.
 // The returned slice is independent of the completed schema and may contain
-// both ElementParticle and ElementReferenceParticle values.
+// element, reference, and wildcard particles.
 func (particle SequenceParticle) Particles() []Particle {
 	if particle.facts == nil || len(particle.facts.particles) == 0 {
 		return nil
@@ -2140,10 +2220,14 @@ type schemaComplexTypeParticleInput interface {
 	schemaComplexTypeParticleInput()
 }
 
+type schemaParticleTermInput interface {
+	schemaParticleTermInput()
+}
+
 type schemaChoiceParticleInput struct {
 	loc          Loc
 	occurrences  particleOccurrenceRange
-	alternatives []schemaElementParticleInput
+	alternatives []schemaParticleTermInput
 }
 
 func (*schemaChoiceParticleInput) schemaComplexTypeParticleInput() {}
@@ -2151,7 +2235,7 @@ func (*schemaChoiceParticleInput) schemaComplexTypeParticleInput() {}
 type schemaSequenceParticleInput struct {
 	loc         Loc
 	occurrences particleOccurrenceRange
-	elements    []schemaElementParticleInput
+	particles   []schemaParticleTermInput
 }
 
 func (*schemaSequenceParticleInput) schemaComplexTypeParticleInput() {}
@@ -2165,6 +2249,19 @@ type schemaElementParticleInput struct {
 	block       schemaBlockPolicy
 	typeInput   *schemaElementInput
 }
+
+func (schemaElementParticleInput) schemaParticleTermInput() {}
+
+type schemaWildcardParticleInput struct {
+	loc                Loc
+	occurrences        particleOccurrenceRange
+	namespace          string
+	namespaceLoc       Loc
+	processContents    string
+	processContentsLoc Loc
+}
+
+func (schemaWildcardParticleInput) schemaParticleTermInput() {}
 
 type schemaElementReferenceInput struct {
 	name QName
@@ -2288,6 +2385,15 @@ type schemaElementReferenceParticle struct {
 	name        QName
 	refLoc      Loc
 	targetID    ComponentID
+}
+
+type schemaWildcardParticle struct {
+	loc                Loc
+	occurrences        particleOccurrenceRange
+	namespace          string
+	namespaceLoc       Loc
+	processContents    string
+	processContentsLoc Loc
 }
 
 type schemaSequenceParticle struct {
@@ -2823,7 +2929,7 @@ func cloneSchemaComplexTypeParticleInput(input schemaComplexTypeParticleInput) s
 		return &schemaChoiceParticleInput{
 			loc:          particle.loc,
 			occurrences:  particle.occurrences.clone(),
-			alternatives: cloneSchemaElementParticleInputs(particle.alternatives),
+			alternatives: cloneSchemaParticleTermInputs(particle.alternatives),
 		}
 	case *schemaSequenceParticleInput:
 		if particle == nil {
@@ -2832,7 +2938,7 @@ func cloneSchemaComplexTypeParticleInput(input schemaComplexTypeParticleInput) s
 		return &schemaSequenceParticleInput{
 			loc:         particle.loc,
 			occurrences: particle.occurrences.clone(),
-			elements:    cloneSchemaElementParticleInputs(particle.elements),
+			particles:   cloneSchemaParticleTermInputs(particle.particles),
 		}
 	default:
 		return nil
@@ -2863,7 +2969,7 @@ func cloneSchemaModelGroupInput(input *schemaModelGroupInput) *schemaModelGroupI
 	clone.particle = &schemaChoiceParticleInput{
 		loc:          input.particle.loc,
 		occurrences:  input.particle.occurrences.clone(),
-		alternatives: cloneSchemaElementParticleInputs(input.particle.alternatives),
+		alternatives: cloneSchemaParticleTermInputs(input.particle.alternatives),
 	}
 	return clone
 }
@@ -3063,24 +3169,48 @@ func allocateSchemaSimpleTypeNodeID(
 	}
 }
 
-func cloneSchemaElementParticleInputs(inputs []schemaElementParticleInput) []schemaElementParticleInput {
+func cloneSchemaParticleTermInputs(inputs []schemaParticleTermInput) []schemaParticleTermInput {
 	if len(inputs) == 0 {
 		return nil
 	}
-	clones := make([]schemaElementParticleInput, len(inputs))
+	clones := make([]schemaParticleTermInput, len(inputs))
 	for index, input := range inputs {
-		clones[index] = input
-		clones[index].occurrences = input.occurrences.clone()
-		if input.reference != nil {
-			reference := *input.reference
-			clones[index].reference = &reference
+		switch term := input.(type) {
+		case schemaElementParticleInput:
+			clones[index] = cloneSchemaElementParticleInput(term)
+		case *schemaElementParticleInput:
+			if term != nil {
+				clone := cloneSchemaElementParticleInput(*term)
+				clones[index] = clone
+			}
+		case schemaWildcardParticleInput:
+			clone := term
+			clone.occurrences = term.occurrences.clone()
+			clones[index] = clone
+		case *schemaWildcardParticleInput:
+			if term != nil {
+				clone := *term
+				clone.occurrences = term.occurrences.clone()
+				clones[index] = clone
+			}
+		default:
+			clones[index] = nil
 		}
-		if input.typeInput == nil {
-			continue
-		}
-		clones[index].typeInput = cloneSchemaElementInput(input.typeInput)
 	}
 	return clones
+}
+
+func cloneSchemaElementParticleInput(input schemaElementParticleInput) schemaElementParticleInput {
+	clone := input
+	clone.occurrences = input.occurrences.clone()
+	if input.reference != nil {
+		reference := *input.reference
+		clone.reference = &reference
+	}
+	if input.typeInput != nil {
+		clone.typeInput = cloneSchemaElementInput(input.typeInput)
+	}
+	return clone
 }
 
 func elementParticleValue(particle Particle) (ElementParticle, bool) {
@@ -3108,5 +3238,19 @@ func elementReferenceParticleValue(particle Particle) (ElementReferenceParticle,
 		return *concrete, true
 	default:
 		return ElementReferenceParticle{}, false
+	}
+}
+
+func wildcardParticleValue(particle Particle) (WildcardParticle, bool) {
+	switch concrete := particle.(type) {
+	case WildcardParticle:
+		return concrete, true
+	case *WildcardParticle:
+		if concrete == nil {
+			return WildcardParticle{}, false
+		}
+		return *concrete, true
+	default:
+		return WildcardParticle{}, false
 	}
 }

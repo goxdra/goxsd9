@@ -213,6 +213,7 @@ func instanceSequenceProgramFor(
 	rawParticles := sequence.Particles()
 	hasElement := false
 	hasReference := false
+	hasWildcard := false
 	hasOther := false
 	for _, rawParticle := range rawParticles {
 		if rawParticle == nil {
@@ -229,7 +230,21 @@ func instanceSequenceProgramFor(
 			related = appendInstanceRelated(related, reference.Loc())
 			continue
 		}
+		if wildcard, ok := wildcardParticleValue(rawParticle); ok {
+			hasWildcard = true
+			related = appendInstanceRelated(related, wildcard.Loc())
+			continue
+		}
 		hasOther = true
+	}
+	if hasWildcard {
+		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+			loc,
+			"direct sequence wildcard particles are outside instance validation",
+			related,
+			version,
+			errInstanceSequenceWildcard,
+		)
 	}
 	if hasElement && hasReference {
 		return instanceSequenceProgram{}, newInstanceValidationUnsupported(

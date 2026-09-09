@@ -86,7 +86,7 @@ The current schema preflight uses this exact private range to validate lexical
 occurrence input. A named global complex type with one direct sequence of local
 built-in `xs:boolean`, named boolean-restriction, integer, or decimal scalar
 elements, or one direct choice of those scalar elements, maps the completed
-range and ordered children into the public schema. A supported global named
+range and ordered children into the public schema. The same supported named choice/sequence boundary maps a direct `xs:any` with all wildcard constraints omitted to an immutable public `WildcardParticle` with effective `##any` and `strict` facts, retaining lexical order, exact locations, and exact occurrence ranges; explicit wildcard constraints remain unsupported. A supported global named
 model group with one direct choice of global element-reference particles also
 exposes its ordered children with exact ranges; an effective `0/0` group or
 child maps to absence. The shared effective `0/0` mapping for sequence, choice,
@@ -123,8 +123,8 @@ view. The migration boundary is:
    and completed facts. Do not make an above-`uint64` or unbounded value look
    like a capped integer or a `uint64` wraparound.
 2. Expose non-default sequence particles only through the documented exact
-   view. The sequence child collection is an owned ordered copy of completed
-   `ElementParticle` facts.
+   view. `Particles()` returns the owned ordered copy of completed `Particle`
+   facts; `Elements()` remains a separate element-only collection.
 3. Keep the deprecated `uint64` methods during the compatibility window for
    existing default-only callers. There is no lossless compatibility adapter
    for arbitrary integers or `unbounded`; callers must migrate to the exact
@@ -165,8 +165,8 @@ XSD 1.0 and 1.1, plus bounded attribute-free `complexContent`/`extension` over
 named empty-content complex bases. These extension types retain extension/base
 identities and locations, inherited bounded wildcard facts, and exact direct
 choice/sequence occurrences; validation and code generation reject them as
-unsupported. All supported forms retain exact ranges, and effective `0/0` maps
-to absence.
+unsupported. Direct default-form `xs:any` terms are also supported in the named direct choice/sequence and bounded extension boundaries as immutable wildcard particles; explicit wildcard constraints and broader placements remain unsupported, and consumers reject nonzero wildcard terms. All supported forms
+retain exact ranges, and effective `0/0` maps to absence.
 For instance validation, named global complex direct local integer/decimal sequences
 match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`
 outer and child ranges under `Compatibility`, `Strict10`, and `Strict11`; direct-choice validation

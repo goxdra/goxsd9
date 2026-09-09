@@ -89,6 +89,8 @@ const (
 	schemaBlockDefaultXSD11SpecRef              = "xsd11-structures#element-schema"
 	schemaAnyAttributeXSD10SpecRef              = "xsd10-structures#element-anyAttribute"
 	schemaAnyAttributeXSD11SpecRef              = "xsd11-structures#element-anyAttribute"
+	schemaAnyParticleXSD10SpecRef               = "xsd10-structures#element-any"
+	schemaAnyParticleXSD11SpecRef               = "xsd11-structures#element-any"
 	schemaComplexTypeDerivationXSD10SpecRef     = "xsd10-structures#derivation-ok-restriction"
 	schemaComplexTypeDerivationXSD11SpecRef     = "xsd11-structures#derivation-ok-restriction"
 	schemaComplexContentExtensionXSD10SpecRef   = "xsd10-structures#element-complexContent..extension"
@@ -141,6 +143,7 @@ var (
 	errSchemaSubstitutionCycle                   = errors.New("substitution-group affiliations form a cycle")
 	errSchemaBlock                               = errors.New("schema block value is invalid")
 	errSchemaAnyAttributeUnsupported             = errors.New("anyAttribute wildcard is not implemented")
+	errSchemaAnyParticleUnsupported              = errors.New("any wildcard particle is not implemented")
 	errSchemaComplexTypeBaseUnresolved           = errors.New("complex type base is unresolved")
 	errSchemaComplexTypeBaseWrongKind            = errors.New("complex type base has the wrong kind")
 	errSchemaComplexTypeBaseAmbiguous            = errors.New("complex type base is ambiguous")
@@ -1469,14 +1472,14 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 		choice := &schemaChoiceParticleInput{
 			loc:          model.loc,
 			occurrences:  occurrences,
-			alternatives: make([]schemaElementParticleInput, 0),
+			alternatives: make([]schemaParticleTermInput, 0),
 		}
 		for _, node := range model.children {
 			child, ok := node.(*syntaxElement)
-			if !ok || child.name.local != "element" {
+			if !ok || child.name.local == "annotation" {
 				continue
 			}
-			alternative, particleErr := schemaElementParticleInputFromElementWithFacts(child, facts, version, true)
+			alternative, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version)
 			if particleErr != nil {
 				return nil, particleErr
 			}
@@ -1487,18 +1490,18 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 		sequence := &schemaSequenceParticleInput{
 			loc:         model.loc,
 			occurrences: occurrences,
-			elements:    make([]schemaElementParticleInput, 0),
+			particles:   make([]schemaParticleTermInput, 0),
 		}
 		for _, node := range model.children {
 			child, ok := node.(*syntaxElement)
-			if !ok || child.name.local != "element" {
+			if !ok || child.name.local == "annotation" {
 				continue
 			}
-			input, particleErr := schemaElementParticleInputFromElementWithFacts(child, facts, version, true)
+			input, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version)
 			if particleErr != nil {
 				return nil, particleErr
 			}
-			sequence.elements = append(sequence.elements, input)
+			sequence.particles = append(sequence.particles, input)
 		}
 		particle = sequence
 	default:
@@ -1602,7 +1605,7 @@ func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts sch
 	choice := &schemaChoiceParticleInput{
 		loc:          model.loc,
 		occurrences:  occurrences,
-		alternatives: make([]schemaElementParticleInput, 0),
+		alternatives: make([]schemaParticleTermInput, 0),
 	}
 	for _, node := range model.children {
 		child, ok := node.(*syntaxElement)
@@ -1636,14 +1639,14 @@ func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccu
 	input := &schemaChoiceParticleInput{
 		loc:          model.loc,
 		occurrences:  occurrences,
-		alternatives: make([]schemaElementParticleInput, 0),
+		alternatives: make([]schemaParticleTermInput, 0),
 	}
 	for _, node := range model.children {
 		child, ok := node.(*syntaxElement)
-		if !ok || child.name.local != "element" {
+		if !ok || child.name.local == "annotation" {
 			continue
 		}
-		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, true)
+		alternative, err := schemaParticleTermInputFromElementWithFacts(child, facts, version)
 		if err != nil {
 			return nil, err
 		}
@@ -1662,21 +1665,21 @@ func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOc
 	input := &schemaSequenceParticleInput{
 		loc:         model.loc,
 		occurrences: occurrences,
-		elements:    make([]schemaElementParticleInput, 0),
+		particles:   make([]schemaParticleTermInput, 0),
 	}
 	for _, node := range model.children {
 		child, ok := node.(*syntaxElement)
 		if !ok {
 			continue
 		}
-		if child.name.local != "element" {
+		if child.name.local == "annotation" {
 			continue
 		}
-		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, true)
+		alternative, err := schemaParticleTermInputFromElementWithFacts(child, facts, version)
 		if err != nil {
 			return nil, err
 		}
-		input.elements = append(input.elements, alternative)
+		input.particles = append(input.particles, alternative)
 	}
 	return &schemaComplexTypeInput{
 		body: &schemaComplexTypeDirectBodyInput{
@@ -1764,6 +1767,39 @@ func schemaExplicitAnyAttributeInputFromElement(wildcard *syntaxElement) (*schem
 		namespaceLoc:       namespaceAttributes[0].loc,
 		processContents:    processContents,
 		processContentsLoc: processContentsAttributes[0].loc,
+	}, nil
+}
+
+func schemaParticleTermInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (schemaParticleTermInput, error) {
+	if element == nil {
+		return nil, newSchemaBridgeInvariant(Loc{}, "construct particle term input from a nil element")
+	}
+	switch element.name.local {
+	case "element":
+		return schemaElementParticleInputFromElementWithFacts(element, facts, version, true)
+	case "any":
+		return schemaWildcardParticleInputFromElement(element, version)
+	default:
+		return nil, newSchemaBridgeInvariant(element.loc, "supported particle term has an unknown child")
+	}
+}
+
+func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDVersion) (schemaWildcardParticleInput, error) {
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
+	if err != nil {
+		return schemaWildcardParticleInput{}, err
+	}
+	if len(syntaxAttributesByLocal(element, "namespace")) != 0 ||
+		len(syntaxAttributesByLocal(element, "notNamespace")) != 0 ||
+		len(syntaxAttributesByLocal(element, "notQName")) != 0 ||
+		len(syntaxAttributesByLocal(element, "processContents")) != 0 {
+		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "explicit wildcard constraints reached component construction")
+	}
+	return schemaWildcardParticleInput{
+		loc:             element.loc,
+		occurrences:     occurrences,
+		namespace:       "##any",
+		processContents: "strict",
 	}, nil
 }
 
@@ -4878,6 +4914,9 @@ func resolveSchemaModelGroups(
 		if record.modelGroup.particle == nil {
 			return nil, newSchemaBridgeInvariant(record.loc, "model group resolution has no particle input")
 		}
+		if err := schemaModelGroupParticleTermsAreElements(record.modelGroup.particle); err != nil {
+			return nil, err
+		}
 		particle, err := resolveSchemaChoiceParticleWithOptions(
 			record.modelGroup.particle,
 			record,
@@ -4897,6 +4936,21 @@ func resolveSchemaModelGroups(
 		}
 	}
 	return results, nil
+}
+
+func schemaModelGroupParticleTermsAreElements(input *schemaChoiceParticleInput) error {
+	for _, term := range input.alternatives {
+		switch typed := term.(type) {
+		case schemaElementParticleInput:
+		case *schemaElementParticleInput:
+			if typed == nil {
+				return newSchemaBridgeInvariant(input.loc, "model group has a nil element particle input")
+			}
+		default:
+			return newSchemaBridgeInvariant(input.loc, "model group has a non-element particle input")
+		}
+	}
+	return nil
 }
 
 func resolveSchemaComplexTypeParticle(
@@ -4959,12 +5013,21 @@ func resolveSchemaChoiceParticleWithOptions(
 	mapsToParticle := input.occurrences.mapsToParticle()
 	alternatives := make([]Particle, 0, len(input.alternatives))
 	seenReferences := make(map[QName]Loc)
-	for _, elementInput := range input.alternatives {
-		if !mapsToParticle && elementInput.reference == nil {
+	for _, termInput := range input.alternatives {
+		termOccurrences, err := schemaParticleTermInputOccurrences(termInput)
+		if err != nil {
+			return nil, err
+		}
+		reference, hasReference, err := schemaParticleTermInputReference(termInput)
+		if err != nil {
+			return nil, err
+		}
+		if !mapsToParticle && !hasReference {
 			continue
 		}
-		if !input.occurrences.isDefault() && elementInput.occurrences.mapsToParticle() && elementInput.typeInput != nil {
-			isPrecisionDecimal, err := schemaScalarTypeIsPrecisionDecimal(
+		elementInput, isElement := schemaElementParticleInputValue(termInput)
+		if !input.occurrences.isDefault() && termOccurrences.mapsToParticle() && isElement && elementInput.typeInput != nil {
+			isPrecisionDecimal, precisionErr := schemaScalarTypeIsPrecisionDecimal(
 				elementInput.typeInput.declaredType,
 				records,
 				byName,
@@ -4974,15 +5037,15 @@ func resolveSchemaChoiceParticleWithOptions(
 				elementInput.loc,
 				version,
 			)
-			if err != nil {
-				return nil, err
+			if precisionErr != nil {
+				return nil, precisionErr
 			}
 			if isPrecisionDecimal {
 				return nil, unsupportedChoicePrecisionDecimalParticle(input, version)
 			}
 		}
-		element, err := resolveSchemaElementParticle(
-			elementInput,
+		particle, err := resolveSchemaParticleTerm(
+			termInput,
 			owner,
 			records,
 			byName,
@@ -4994,21 +5057,21 @@ func resolveSchemaChoiceParticleWithOptions(
 		if err != nil {
 			return nil, err
 		}
-		if rejectDuplicateReferences && elementInput.reference != nil {
-			firstLoc, seen := seenReferences[elementInput.reference.name]
+		if rejectDuplicateReferences && hasReference {
+			firstLoc, seen := seenReferences[reference.name]
 			if seen {
 				return nil, newSchemaElementReferenceDuplicateDiagnostic(
-					elementInput.reference,
+					reference,
 					firstLoc,
 					version,
 				)
 			}
-			seenReferences[elementInput.reference.name] = elementInput.reference.loc
+			seenReferences[reference.name] = reference.loc
 		}
-		if element == nil || !elementInput.occurrences.mapsToParticle() {
+		if particle == nil || !termOccurrences.mapsToParticle() {
 			continue
 		}
-		alternatives = append(alternatives, element)
+		alternatives = append(alternatives, particle)
 	}
 	if !mapsToParticle {
 		return nil, nil
@@ -5033,10 +5096,10 @@ func resolveSchemaSequenceParticle(
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
-	particles := make([]Particle, 0, len(input.elements))
-	for _, elementInput := range input.elements {
-		element, err := resolveSchemaElementParticle(
-			elementInput,
+	particles := make([]Particle, 0, len(input.particles))
+	for _, termInput := range input.particles {
+		particle, err := resolveSchemaParticleTerm(
+			termInput,
 			owner,
 			records,
 			byName,
@@ -5048,10 +5111,10 @@ func resolveSchemaSequenceParticle(
 		if err != nil {
 			return nil, err
 		}
-		if element == nil {
+		if particle == nil {
 			continue
 		}
-		particles = append(particles, element)
+		particles = append(particles, particle)
 	}
 	sequence := &schemaSequenceParticle{
 		loc:         input.loc,
@@ -5059,6 +5122,109 @@ func resolveSchemaSequenceParticle(
 		particles:   particles,
 	}
 	return SequenceParticle{facts: sequence}, nil
+}
+
+func schemaParticleTermInputOccurrences(input schemaParticleTermInput) (particleOccurrenceRange, error) {
+	switch term := input.(type) {
+	case schemaElementParticleInput:
+		return term.occurrences, nil
+	case *schemaElementParticleInput:
+		if term == nil {
+			return particleOccurrenceRange{}, newSchemaBridgeInvariant(Loc{}, "particle term has a nil element input")
+		}
+		return term.occurrences, nil
+	case schemaWildcardParticleInput:
+		return term.occurrences, nil
+	case *schemaWildcardParticleInput:
+		if term == nil {
+			return particleOccurrenceRange{}, newSchemaBridgeInvariant(Loc{}, "particle term has a nil wildcard input")
+		}
+		return term.occurrences, nil
+	default:
+		return particleOccurrenceRange{}, newSchemaBridgeInvariant(Loc{}, "particle term has an unknown input")
+	}
+}
+
+func schemaParticleTermInputReference(input schemaParticleTermInput) (*schemaElementReferenceInput, bool, error) {
+	element, ok := schemaElementParticleInputValue(input)
+	if !ok {
+		switch term := input.(type) {
+		case schemaWildcardParticleInput:
+			return nil, false, nil
+		case *schemaWildcardParticleInput:
+			if term == nil {
+				return nil, false, newSchemaBridgeInvariant(Loc{}, "particle term has a nil wildcard input")
+			}
+			return nil, false, nil
+		default:
+			return nil, false, newSchemaBridgeInvariant(Loc{}, "particle term has an unknown reference input")
+		}
+	}
+	if element.reference == nil {
+		return nil, false, nil
+	}
+	return element.reference, true, nil
+}
+
+func schemaElementParticleInputValue(input schemaParticleTermInput) (schemaElementParticleInput, bool) {
+	switch term := input.(type) {
+	case schemaElementParticleInput:
+		return term, true
+	case *schemaElementParticleInput:
+		if term == nil {
+			return schemaElementParticleInput{}, false
+		}
+		return *term, true
+	default:
+		return schemaElementParticleInput{}, false
+	}
+}
+
+func resolveSchemaParticleTerm(
+	input schemaParticleTermInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
+	model string,
+) (Particle, error) {
+	switch term := input.(type) {
+	case schemaElementParticleInput:
+		return resolveSchemaElementParticle(term, owner, records, byName, visibleSources, simpleTypes, version, model)
+	case *schemaElementParticleInput:
+		if term == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "particle term has a nil element input")
+		}
+		return resolveSchemaElementParticle(*term, owner, records, byName, visibleSources, simpleTypes, version, model)
+	case schemaWildcardParticleInput:
+		return resolveSchemaWildcardParticle(term)
+	case *schemaWildcardParticleInput:
+		if term == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "particle term has a nil wildcard input")
+		}
+		return resolveSchemaWildcardParticle(*term)
+	default:
+		return nil, newSchemaBridgeInvariant(Loc{}, "particle term has an unknown input")
+	}
+}
+
+func resolveSchemaWildcardParticle(input schemaWildcardParticleInput) (Particle, error) {
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	if input.namespace != "##any" || input.processContents != "strict" || !input.namespaceLoc.IsZero() || !input.processContentsLoc.IsZero() {
+		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
+	}
+	return WildcardParticle{facts: &schemaWildcardParticle{
+		loc:                input.loc,
+		occurrences:        input.occurrences.clone(),
+		namespace:          input.namespace,
+		namespaceLoc:       input.namespaceLoc,
+		processContents:    input.processContents,
+		processContentsLoc: input.processContentsLoc,
+	}}, nil
 }
 
 func resolveSchemaElementParticle(
@@ -7217,11 +7383,43 @@ func newSchemaAnyAttributeUnsupported(loc Loc, version XSDVersion) Diagnostic {
 	return diagnostic
 }
 
+func newSchemaAnyParticleUnsupported(loc Loc, message string, version XSDVersion) Diagnostic {
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSyntaxFeatureCode,
+			loc,
+			"schema syntax feature is not registered",
+			errSchemaAnyParticleUnsupported,
+		)
+	}
+	diagnostic := newUnsupportedForVersionWithCause(
+		feature,
+		UnsupportedSchemaSyntaxCode,
+		loc,
+		message,
+		version,
+		errSchemaAnyParticleUnsupported,
+	)
+	if diagnostic.Class() == FailureUnsupported {
+		diagnostic.specRef = schemaAnyParticleSpecRef(version)
+	}
+	return diagnostic
+}
+
 func schemaAnyAttributeSpecRef(version XSDVersion) string {
 	if version == XSDVersion10 {
 		return schemaAnyAttributeXSD10SpecRef
 	}
 	return schemaAnyAttributeXSD11SpecRef
+}
+
+func schemaAnyParticleSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaAnyParticleXSD10SpecRef
+	}
+	return schemaAnyParticleXSD11SpecRef
 }
 
 func newXSD11FeatureMismatch(featureID FeatureID, code string, loc Loc, message string) Diagnostic {
