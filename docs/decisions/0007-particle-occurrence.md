@@ -88,9 +88,8 @@ built-in `xs:boolean`, named boolean-restriction, integer, or decimal scalar
 elements, or one direct choice of those scalar elements, maps the completed
 range and ordered children into the public schema. The same supported named choice/sequence boundary maps a direct `xs:any` with all wildcard constraints omitted to an immutable public `WildcardParticle` with effective `##any` and `strict` facts, retaining lexical order, exact locations, and exact occurrence ranges; explicit wildcard constraints remain unsupported. A supported global named
 model group with one direct choice of global element-reference particles also
-exposes its ordered children with exact ranges; an effective `0/0` group or
-child maps to absence. The shared effective `0/0` mapping for sequence, choice,
-and child particles precedes type-specific support gating and maps to absence.
+exposes its ordered children with exact ranges. A named complex type or bounded attribute-free extension may expose one direct model-group reference with target ID/exact
+range; members are not copied. Effective `0/0` group or child maps to absence. The shared effective `0/0` mapping for sequence, choice, and child particles precedes type-specific support gating and maps to absence.
 The same exact representation is retained for choice facts. `ValidateInstance`
 supports named global complex types with direct local integer/decimal sequences,
 matching expanded names in lexical declaration order and honoring exact finite,
@@ -193,8 +192,9 @@ XSD 1.1, and Compatibility; explicit `##other`/`lax` remains supported.
 The `anyAttribute` element location and explicitly present `namespace`/`processContents` attribute locations are retained; omitted default-attribute locations are zero. Wildcard-bearing validation and code-generation consumers remain
 unsupported. Direct
 element-reference particles are supported in the schema model for local choice
-and sequence children and for global named-group direct choices; nested group
-references remain unsupported. Validator consumption covers named global complex direct
+and sequence children and for global named-group direct choices; direct model-group references are
+supported only as the top-level particle of a named complex type or bounded attribute-free extension;
+they retain target IDs without expanding group members; nested group references remain unsupported. Validator consumption covers named global complex direct
 local integer/decimal sequences and direct choices with default-occurrence local scalar
 alternatives or references to global integer/decimal scalar elements; code generation also supports only default-occurrence direct-choice references to those global
 numeric elements, while all other validator and code-generator consumption of direct references remains unsupported. Global

@@ -1623,6 +1623,86 @@ func (particle ElementReferenceParticle) TargetID() ComponentID {
 	return particle.facts.targetID
 }
 
+// ModelGroupReferenceParticle is a direct model-group reference particle. It
+// retains the expanded QName and source location of ref, plus the identity of
+// the referenced global model-group definition. It does not copy members from
+// that definition.
+type ModelGroupReferenceParticle struct {
+	facts *schemaModelGroupReferenceParticle
+}
+
+func (ModelGroupReferenceParticle) particle() {}
+
+// Loc returns the location of the model-group reference particle.
+func (particle ModelGroupReferenceParticle) Loc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.loc
+}
+
+// Occurrences returns the exact immutable occurrence range.
+func (particle ModelGroupReferenceParticle) Occurrences() ParticleOccurrenceRange {
+	if particle.facts == nil {
+		return ParticleOccurrenceRange{}
+	}
+	return newPublicParticleOccurrenceRange(particle.facts.occurrences)
+}
+
+// MinOccurs returns the default minimum occurrence bound.
+//
+// Deprecated: use Occurrences().Minimum(). This compatibility accessor is
+// defined only for default-only model-group reference particles and returns
+// zero otherwise.
+func (particle ModelGroupReferenceParticle) MinOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// MaxOccurs returns the default maximum occurrence bound.
+//
+// Deprecated: use Occurrences().Maximum(). This compatibility accessor is
+// defined only for default-only model-group reference particles and returns
+// zero otherwise.
+func (particle ModelGroupReferenceParticle) MaxOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// Name returns the expanded QName in the ref attribute.
+func (particle ModelGroupReferenceParticle) Name() QName {
+	if particle.facts == nil {
+		return QName{}
+	}
+	return particle.facts.name
+}
+
+// Ref returns the expanded QName in the ref attribute.
+func (particle ModelGroupReferenceParticle) Ref() QName {
+	return particle.Name()
+}
+
+// RefLoc returns the location of the ref attribute.
+func (particle ModelGroupReferenceParticle) RefLoc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.refLoc
+}
+
+// TargetID returns the identity of the referenced global model-group
+// definition.
+func (particle ModelGroupReferenceParticle) TargetID() ComponentID {
+	if particle.facts == nil {
+		return ComponentID{}
+	}
+	return particle.facts.targetID
+}
+
 // WildcardParticle is a direct element wildcard particle. Its supported
 // effective namespace is ##any and its supported processing mode is strict.
 type WildcardParticle struct {
@@ -2240,6 +2320,14 @@ type schemaSequenceParticleInput struct {
 
 func (*schemaSequenceParticleInput) schemaComplexTypeParticleInput() {}
 
+type schemaModelGroupReferenceParticleInput struct {
+	loc         Loc
+	reference   *schemaModelGroupReferenceInput
+	occurrences particleOccurrenceRange
+}
+
+func (*schemaModelGroupReferenceParticleInput) schemaComplexTypeParticleInput() {}
+
 type schemaElementParticleInput struct {
 	loc         Loc
 	name        QName
@@ -2264,6 +2352,11 @@ type schemaWildcardParticleInput struct {
 func (schemaWildcardParticleInput) schemaParticleTermInput() {}
 
 type schemaElementReferenceInput struct {
+	name QName
+	loc  Loc
+}
+
+type schemaModelGroupReferenceInput struct {
 	name QName
 	loc  Loc
 }
@@ -2380,6 +2473,14 @@ type schemaElementParticle struct {
 }
 
 type schemaElementReferenceParticle struct {
+	loc         Loc
+	occurrences particleOccurrenceRange
+	name        QName
+	refLoc      Loc
+	targetID    ComponentID
+}
+
+type schemaModelGroupReferenceParticle struct {
 	loc         Loc
 	occurrences particleOccurrenceRange
 	name        QName
@@ -2940,6 +3041,19 @@ func cloneSchemaComplexTypeParticleInput(input schemaComplexTypeParticleInput) s
 			occurrences: particle.occurrences.clone(),
 			particles:   cloneSchemaParticleTermInputs(particle.particles),
 		}
+	case *schemaModelGroupReferenceParticleInput:
+		if particle == nil {
+			return (*schemaModelGroupReferenceParticleInput)(nil)
+		}
+		clone := &schemaModelGroupReferenceParticleInput{
+			loc:         particle.loc,
+			occurrences: particle.occurrences.clone(),
+		}
+		if particle.reference != nil {
+			reference := *particle.reference
+			clone.reference = &reference
+		}
+		return clone
 	default:
 		return nil
 	}
@@ -3238,6 +3352,20 @@ func elementReferenceParticleValue(particle Particle) (ElementReferenceParticle,
 		return *concrete, true
 	default:
 		return ElementReferenceParticle{}, false
+	}
+}
+
+func modelGroupReferenceParticleValue(particle Particle) (ModelGroupReferenceParticle, bool) {
+	switch concrete := particle.(type) {
+	case ModelGroupReferenceParticle:
+		return concrete, true
+	case *ModelGroupReferenceParticle:
+		if concrete == nil {
+			return ModelGroupReferenceParticle{}, false
+		}
+		return *concrete, true
+	default:
+		return ModelGroupReferenceParticle{}, false
 	}
 }
 

@@ -8,43 +8,47 @@ import (
 )
 
 const (
-	invalidSchemaTargetNamespaceCode               = "XSD3009"
-	invalidSchemaCompositionCode                   = "XSD3010"
-	invalidSchemaDeclarationNameCode               = "XSD3011"
-	diagnosticSchemaSimpleTypeUnresolvedCode       = "XSD3014"
-	diagnosticSchemaSimpleTypeWrongKindCode        = "XSD3015"
-	diagnosticSchemaSimpleTypeAmbiguousCode        = "XSD3016"
-	diagnosticSchemaSimpleTypeCycleCode            = "XSD3017"
-	diagnosticSchemaSimpleTypeBaseCode             = "XSD3018"
-	diagnosticSchemaElementTypeUnresolvedCode      = "XSD3019"
-	diagnosticSchemaElementTypeWrongKindCode       = "XSD3020"
-	diagnosticSchemaElementTypeAmbiguousCode       = "XSD3021"
-	diagnosticSchemaElementTypeUnsupportedCode     = "XSD3022"
-	diagnosticSchemaGlobalDuplicateCode            = "XSD3023"
-	diagnosticSchemaElementDuplicateCode           = diagnosticSchemaGlobalDuplicateCode
-	diagnosticSchemaElementReferenceUnresolvedCode = "XSD3024"
-	diagnosticSchemaElementReferenceWrongKindCode  = "XSD3025"
-	diagnosticSchemaElementReferenceAmbiguousCode  = "XSD3026"
-	diagnosticSchemaElementReferenceNamespaceCode  = "XSD3027"
-	diagnosticSchemaElementReferenceDuplicateCode  = "XSD3028"
-	diagnosticSchemaPrecisionDecimalVersionCode    = "XSD3030"
-	diagnosticSchemaAllOccurrenceVersionCode       = diagnosticSchemaPrecisionDecimalVersionCode
-	diagnosticSchemaNotationCode                   = "XSD3031"
-	diagnosticSchemaAttributeTypeUnresolvedCode    = "XSD3032"
-	diagnosticSchemaAttributeTypeWrongKindCode     = "XSD3033"
-	diagnosticSchemaAttributeTypeAmbiguousCode     = "XSD3034"
-	diagnosticSchemaAttributeTypeCycleCode         = "XSD3035"
-	diagnosticSchemaAttributeValueConstraintCode   = "XSD3036"
-	diagnosticSchemaSubstitutionUnresolvedCode     = "XSD3037"
-	diagnosticSchemaSubstitutionWrongKindCode      = "XSD3038"
-	diagnosticSchemaSubstitutionAmbiguousCode      = "XSD3039"
-	diagnosticSchemaSubstitutionSelfCode           = "XSD3040"
-	diagnosticSchemaSubstitutionImportCode         = "XSD3042"
-	diagnosticSchemaSubstitutionTypeCode           = "XSD3043"
-	diagnosticSchemaSubstitutionCycleCode          = "XSD3044"
-	diagnosticSchemaBlockCode                      = "XSD3045"
-	diagnosticSchemaElementReferenceBlockCode      = "XSD3046"
-	diagnosticSchemaBridgeInvariantCode            = "GOXSD9025"
+	invalidSchemaTargetNamespaceCode                  = "XSD3009"
+	invalidSchemaCompositionCode                      = "XSD3010"
+	invalidSchemaDeclarationNameCode                  = "XSD3011"
+	diagnosticSchemaSimpleTypeUnresolvedCode          = "XSD3014"
+	diagnosticSchemaSimpleTypeWrongKindCode           = "XSD3015"
+	diagnosticSchemaSimpleTypeAmbiguousCode           = "XSD3016"
+	diagnosticSchemaSimpleTypeCycleCode               = "XSD3017"
+	diagnosticSchemaSimpleTypeBaseCode                = "XSD3018"
+	diagnosticSchemaElementTypeUnresolvedCode         = "XSD3019"
+	diagnosticSchemaElementTypeWrongKindCode          = "XSD3020"
+	diagnosticSchemaElementTypeAmbiguousCode          = "XSD3021"
+	diagnosticSchemaElementTypeUnsupportedCode        = "XSD3022"
+	diagnosticSchemaGlobalDuplicateCode               = "XSD3023"
+	diagnosticSchemaElementDuplicateCode              = diagnosticSchemaGlobalDuplicateCode
+	diagnosticSchemaElementReferenceUnresolvedCode    = "XSD3024"
+	diagnosticSchemaElementReferenceWrongKindCode     = "XSD3025"
+	diagnosticSchemaElementReferenceAmbiguousCode     = "XSD3026"
+	diagnosticSchemaElementReferenceNamespaceCode     = "XSD3027"
+	diagnosticSchemaElementReferenceDuplicateCode     = "XSD3028"
+	diagnosticSchemaPrecisionDecimalVersionCode       = "XSD3030"
+	diagnosticSchemaAllOccurrenceVersionCode          = diagnosticSchemaPrecisionDecimalVersionCode
+	diagnosticSchemaNotationCode                      = "XSD3031"
+	diagnosticSchemaAttributeTypeUnresolvedCode       = "XSD3032"
+	diagnosticSchemaAttributeTypeWrongKindCode        = "XSD3033"
+	diagnosticSchemaAttributeTypeAmbiguousCode        = "XSD3034"
+	diagnosticSchemaAttributeTypeCycleCode            = "XSD3035"
+	diagnosticSchemaAttributeValueConstraintCode      = "XSD3036"
+	diagnosticSchemaSubstitutionUnresolvedCode        = "XSD3037"
+	diagnosticSchemaSubstitutionWrongKindCode         = "XSD3038"
+	diagnosticSchemaSubstitutionAmbiguousCode         = "XSD3039"
+	diagnosticSchemaSubstitutionSelfCode              = "XSD3040"
+	diagnosticSchemaSubstitutionImportCode            = "XSD3042"
+	diagnosticSchemaSubstitutionTypeCode              = "XSD3043"
+	diagnosticSchemaSubstitutionCycleCode             = "XSD3044"
+	diagnosticSchemaBlockCode                         = "XSD3045"
+	diagnosticSchemaElementReferenceBlockCode         = "XSD3046"
+	diagnosticSchemaModelGroupReferenceUnresolvedCode = "XSD3047"
+	diagnosticSchemaModelGroupReferenceWrongKindCode  = "XSD3048"
+	diagnosticSchemaModelGroupReferenceAmbiguousCode  = "XSD3049"
+	diagnosticSchemaModelGroupReferenceNamespaceCode  = "XSD3050"
+	diagnosticSchemaBridgeInvariantCode               = "GOXSD9025"
 )
 
 const (
@@ -67,6 +71,10 @@ const (
 	schemaElementReferenceDuplicateXSD11SpecRef = "xsd11-structures#coss-particle"
 	schemaElementReferenceImportXSD10SpecRef    = "xsd10-structures#composition-importLicenseReferences"
 	schemaElementReferenceImportXSD11SpecRef    = "xsd11-structures#composition-importLicenseReferences"
+	schemaModelGroupReferenceXSD10SpecRef       = "xsd10-structures#src-model_group"
+	schemaModelGroupReferenceXSD11SpecRef       = "xsd11-structures#sec-src-model_group"
+	schemaModelGroupReferenceImportXSD10SpecRef = "xsd10-structures#src-import"
+	schemaModelGroupReferenceImportXSD11SpecRef = "xsd11-structures#src-import"
 	schemaAttributeTypeXSD10SpecRef             = "xsd10-structures#Attribute_Declaration_details"
 	schemaAttributeTypeXSD11SpecRef             = "xsd11-structures#Attribute_Declaration_details"
 	schemaAttributeValueConstraintXSD10SpecRef  = "xsd10-structures#a-value_constraint"
@@ -118,6 +126,10 @@ var (
 	errSchemaElementReferenceNamespace           = errors.New("element reference namespace is not imported")
 	errSchemaElementReferenceDuplicate           = errors.New("element reference particle is duplicated")
 	errSchemaElementReferenceBlock               = errors.New("element reference cannot specify block")
+	errSchemaModelGroupReferenceUnresolved       = errors.New("model-group reference is unresolved")
+	errSchemaModelGroupReferenceWrongKind        = errors.New("model-group reference has the wrong target kind")
+	errSchemaModelGroupReferenceAmbiguous        = errors.New("model-group reference is ambiguous")
+	errSchemaModelGroupReferenceNamespace        = errors.New("model-group reference namespace is not imported")
 	errSchemaAttributeTypeUnresolved             = errors.New("attribute type is unresolved")
 	errSchemaAttributeTypeWrongKind              = errors.New("attribute type has the wrong kind")
 	errSchemaAttributeTypeAmbiguous              = errors.New("attribute type is ambiguous")
@@ -1393,6 +1405,14 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	if err != nil {
 		return nil, err
 	}
+	if model.name.local == "group" {
+		input, inputErr := schemaModelGroupReferenceComplexTypeInput(model, occurrences, facts, block, anyAttribute)
+		if inputErr != nil {
+			return nil, inputErr
+		}
+		input.abstract = abstract
+		return input, nil
+	}
 	if model.name.local == "choice" {
 		input, inputErr := schemaChoiceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
 		if inputErr != nil {
@@ -1468,6 +1488,11 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 	}
 	var particle schemaComplexTypeParticleInput
 	switch model.name.local {
+	case "group":
+		particle, err = schemaModelGroupReferenceParticleInputFromElementWithFacts(model, occurrences, facts)
+		if err != nil {
+			return nil, err
+		}
 	case "choice":
 		choice := &schemaChoiceParticleInput{
 			loc:          model.loc,
@@ -1567,7 +1592,7 @@ func schemaComplexContentExtensionChild(element *syntaxElement) *syntaxElement {
 func schemaComplexTypeModel(element *syntaxElement) *syntaxElement {
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
-		if !ok || child.name.local != "choice" && child.name.local != "sequence" {
+		if !ok || child.name.local != "choice" && child.name.local != "sequence" && child.name.local != "group" {
 			continue
 		}
 		return child
@@ -1690,6 +1715,26 @@ func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOc
 	}, nil
 }
 
+func schemaModelGroupReferenceComplexTypeInput(
+	model *syntaxElement,
+	occurrences particleOccurrenceRange,
+	facts schemaDocumentFacts,
+	block schemaBlockPolicy,
+	anyAttribute *schemaAnyAttributeInput,
+) (*schemaComplexTypeInput, error) {
+	particle, err := schemaModelGroupReferenceParticleInputFromElementWithFacts(model, occurrences, facts)
+	if err != nil {
+		return nil, err
+	}
+	return &schemaComplexTypeInput{
+		body: &schemaComplexTypeDirectBodyInput{
+			particle:     particle,
+			anyAttribute: anyAttribute,
+		},
+		prohibitedSubstitutions: block,
+	}, nil
+}
+
 func schemaAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttributeInput, error) {
 	wildcard, err := schemaAnyAttributeElementFromElement(element)
 	if err != nil || wildcard == nil {
@@ -1782,6 +1827,29 @@ func schemaParticleTermInputFromElementWithFacts(element *syntaxElement, facts s
 	default:
 		return nil, newSchemaBridgeInvariant(element.loc, "supported particle term has an unknown child")
 	}
+}
+
+func schemaModelGroupReferenceParticleInputFromElementWithFacts(
+	element *syntaxElement,
+	occurrences particleOccurrenceRange,
+	facts schemaDocumentFacts,
+) (*schemaModelGroupReferenceParticleInput, error) {
+	refAttributes := syntaxAttributesByLocal(element, "ref")
+	if len(refAttributes) != 1 {
+		return nil, newSchemaBridgeInvariant(element.loc, "model-group reference ref attribute is not unique")
+	}
+	ref, err := expandSchemaModelGroupReferenceQName(element, refAttributes[0], facts)
+	if err != nil {
+		return nil, err
+	}
+	return &schemaModelGroupReferenceParticleInput{
+		loc:         element.loc,
+		occurrences: occurrences,
+		reference: &schemaModelGroupReferenceInput{
+			name: ref,
+			loc:  refAttributes[0].loc,
+		},
+	}, nil
 }
 
 func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDVersion) (schemaWildcardParticleInput, error) {
@@ -1882,6 +1950,21 @@ func expandSchemaElementReferenceQName(element *syntaxElement, attribute syntaxA
 	qualified, err := NewQName(facts.targetNamespace.value, ref.Local())
 	if err != nil {
 		return QName{}, newSchemaBridgeInvariant(attribute.loc, "construct chameleon element reference QName")
+	}
+	return qualified, nil
+}
+
+func expandSchemaModelGroupReferenceQName(element *syntaxElement, attribute syntaxAttribute, facts schemaDocumentFacts) (QName, error) {
+	ref, err := expandSchemaQName(element, attribute)
+	if err != nil {
+		return QName{}, err
+	}
+	if !facts.chameleon || !facts.targetNamespace.present || ref.Namespace() != "" {
+		return ref, nil
+	}
+	qualified, err := NewQName(facts.targetNamespace.value, ref.Local())
+	if err != nil {
+		return QName{}, newSchemaBridgeInvariant(attribute.loc, "construct chameleon model-group reference QName")
 	}
 	return qualified, nil
 }
@@ -4973,6 +5056,11 @@ func resolveSchemaComplexTypeParticle(
 			return nil, newSchemaBridgeInvariant(Loc{}, "sequence particle input is nil")
 		}
 		return resolveSchemaSequenceParticle(particle, owner, records, byName, visibleSources, simpleTypes, version)
+	case *schemaModelGroupReferenceParticleInput:
+		if particle == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "model-group reference particle input is nil")
+		}
+		return resolveSchemaModelGroupReferenceParticle(particle, owner, records, byName, visibleSources, version)
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "complex type has an unknown particle input")
 	}
@@ -5366,6 +5454,126 @@ func resolveSchemaElementReferenceParticle(
 	return ElementReferenceParticle{facts: facts}, nil
 }
 
+func resolveSchemaModelGroupReferenceParticle(
+	input *schemaModelGroupReferenceParticleInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	version XSDVersion,
+) (Particle, error) {
+	if input.reference == nil {
+		return nil, newSchemaBridgeInvariant(input.loc, "model-group reference input is nil")
+	}
+	reference := input.reference
+	candidates := byName[reference.name]
+	if len(candidates) == 0 {
+		return nil, newSchemaModelGroupReferenceDiagnostic(
+			diagnosticSchemaModelGroupReferenceUnresolvedCode,
+			reference.loc,
+			fmt.Sprintf("model-group reference %q is unresolved", reference.name),
+			nil,
+			version,
+			errSchemaModelGroupReferenceUnresolved,
+		)
+	}
+	groupCandidates, err := schemaModelGroupReferenceCandidates(candidates, records, reference.loc)
+	if err != nil {
+		return nil, err
+	}
+	if len(groupCandidates) == 0 {
+		return nil, newSchemaModelGroupReferenceDiagnostic(
+			diagnosticSchemaModelGroupReferenceWrongKindCode,
+			reference.loc,
+			fmt.Sprintf("model-group reference %q does not name a global model-group definition", reference.name),
+			schemaComponentLocations(records, candidates),
+			version,
+			errSchemaModelGroupReferenceWrongKind,
+		)
+	}
+	visible, err := schemaVisibleCandidates(groupCandidates, owner.id.Source(), records, visibleSources, reference.loc)
+	if err != nil {
+		return nil, err
+	}
+	if len(visible) == 0 {
+		return nil, schemaModelGroupReferenceVisibilityDiagnostic(reference, owner, records, groupCandidates, version)
+	}
+	if len(visible) > 1 {
+		return nil, newSchemaModelGroupReferenceDiagnostic(
+			diagnosticSchemaModelGroupReferenceAmbiguousCode,
+			reference.loc,
+			fmt.Sprintf("model-group reference %q is ambiguous", reference.name),
+			schemaComponentLocations(records, visible),
+			version,
+			errSchemaModelGroupReferenceAmbiguous,
+		)
+	}
+	target := records[visible[0]]
+	if target.modelGroup == nil {
+		return nil, newSchemaBridgeInvariant(reference.loc, "model-group reference target has no model-group input")
+	}
+	if target.id.IsZero() || target.id.Source() == "" || target.id.Ordinal() == 0 {
+		return nil, newSchemaBridgeInvariant(reference.loc, "model-group reference target has no allocated identity")
+	}
+	facts := &schemaModelGroupReferenceParticle{
+		loc:         input.loc,
+		occurrences: input.occurrences.clone(),
+		name:        reference.name,
+		refLoc:      reference.loc,
+		targetID:    target.id,
+	}
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	return ModelGroupReferenceParticle{facts: facts}, nil
+}
+
+func schemaModelGroupReferenceCandidates(
+	candidates []int,
+	records []schemaComponentRecord,
+	loc Loc,
+) ([]int, error) {
+	groupCandidates := make([]int, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate < 0 || candidate >= len(records) {
+			return nil, newSchemaBridgeInvariant(loc, "model-group reference lookup has an invalid record index")
+		}
+		if records[candidate].kind != ComponentKindModelGroupDefinition {
+			continue
+		}
+		groupCandidates = append(groupCandidates, candidate)
+	}
+	return groupCandidates, nil
+}
+
+func schemaModelGroupReferenceVisibilityDiagnostic(
+	reference *schemaModelGroupReferenceInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	groupCandidates []int,
+	version XSDVersion,
+) error {
+	related := schemaComponentLocations(records, groupCandidates)
+	if reference.name.Namespace() != owner.name.Namespace() {
+		return newSchemaModelGroupReferenceImportDiagnostic(
+			diagnosticSchemaModelGroupReferenceNamespaceCode,
+			reference.loc,
+			fmt.Sprintf("model-group reference %q names a namespace that is not imported into %q", reference.name, owner.name.Namespace()),
+			related,
+			version,
+			errSchemaModelGroupReferenceNamespace,
+		)
+	}
+	return newSchemaModelGroupReferenceDiagnostic(
+		diagnosticSchemaModelGroupReferenceUnresolvedCode,
+		reference.loc,
+		fmt.Sprintf("model-group reference %q is not visible from its schema document", reference.name),
+		related,
+		version,
+		errSchemaModelGroupReferenceUnresolved,
+	)
+}
+
 func schemaElementReferenceElementCandidates(
 	candidates []int,
 	records []schemaComponentRecord,
@@ -5705,6 +5913,25 @@ func newSchemaElementReferenceDiagnostic(
 	}
 }
 
+func newSchemaModelGroupReferenceDiagnostic(
+	code string,
+	loc Loc,
+	message string,
+	related []Loc,
+	version XSDVersion,
+	cause error,
+) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    code,
+		loc:     loc,
+		message: message,
+		related: append([]Loc(nil), related...),
+		specRef: schemaModelGroupReferenceSpecRef(version),
+		cause:   cause,
+	}
+}
+
 func newSchemaElementReferenceBlockDiagnostic(attribute syntaxAttribute, version XSDVersion) Diagnostic {
 	return Diagnostic{
 		class:   FailureInvalid,
@@ -5741,11 +5968,38 @@ func newSchemaElementReferenceImportDiagnostic(
 	return diagnostic
 }
 
+func newSchemaModelGroupReferenceImportDiagnostic(
+	code string,
+	loc Loc,
+	message string,
+	related []Loc,
+	version XSDVersion,
+	cause error,
+) Diagnostic {
+	diagnostic := newSchemaModelGroupReferenceDiagnostic(code, loc, message, related, version, cause)
+	diagnostic.specRef = schemaModelGroupReferenceImportSpecRef(version)
+	return diagnostic
+}
+
 func schemaElementReferenceSpecRef(version XSDVersion) string {
 	if version == XSDVersion10 {
 		return schemaElementReferenceXSD10SpecRef
 	}
 	return schemaElementReferenceXSD11SpecRef
+}
+
+func schemaModelGroupReferenceSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaModelGroupReferenceXSD10SpecRef
+	}
+	return schemaModelGroupReferenceXSD11SpecRef
+}
+
+func schemaModelGroupReferenceImportSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaModelGroupReferenceImportXSD10SpecRef
+	}
+	return schemaModelGroupReferenceImportXSD11SpecRef
 }
 
 func schemaElementReferenceBlockSpecRef(version XSDVersion) string {

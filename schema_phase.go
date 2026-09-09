@@ -2649,7 +2649,24 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			if err := validateOpenContent(child, version, allowOpenContentNone); err != nil && !candidate.considerError(err) {
 				return err
 			}
-		case "group", "all":
+		case "group":
+			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
+				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
+			}
+			modelSeen = true
+			groupErr := validateUnsupportedModelParticle(child, version)
+			if len(syntaxAttributesByLocal(parent, "name")) == 1 {
+				groupErr = validateSupportedGroupParticle(child, version)
+			}
+			if err := groupErr; err != nil {
+				if !candidate.considerError(err) {
+					return err
+				}
+			}
+			if len(syntaxAttributesByLocal(parent, "name")) != 1 && !candidate.present {
+				candidate.consider(child, parent.name.local)
+			}
+		case "all":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
 			}
@@ -2862,7 +2879,7 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 		switch child.name.local {
 		case "annotation":
 			continue
-		case "choice", "sequence":
+		case "choice", "sequence", "group":
 			modelCount++
 		default:
 			return false
@@ -3032,6 +3049,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 			modelSeen = true
 			particleErr := versionNamedModelGroupUnsupported(validateUnsupportedModelParticle(child, version), version)
+			if complexContent && element.name.local == "extension" && child.name.local == "group" && boundedComplexContentExtensionCandidate(element) {
+				particleErr = validateSupportedGroupParticle(child, version)
+			}
 			if complexContent && element.name.local == "extension" && child.name.local == "sequence" {
 				particleErr = validateSupportedSequenceParticle(child, version)
 			}
@@ -4475,7 +4495,7 @@ func validateComplexTypeSequenceParticle(parent, sequence *syntaxElement, versio
 }
 
 //nolint:gocognit // Keep group particle grammar and support classification together.
-func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
+func validateGroupParticleWithOptions(element *syntaxElement, version XSDVersion, allowOccurrences bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateSchemaParticleOccurrences(element, version); err != nil {
 		return err
@@ -4509,9 +4529,13 @@ func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
 				return err
 			}
 			refSeen = true
-			candidate.considerAt(attribute.loc, "group reference particles are not implemented")
+			if !allowOccurrences {
+				candidate.considerAt(attribute.loc, "group reference particles are not implemented")
+			}
 		case "minOccurs", "maxOccurs":
-			candidate.considerAt(attribute.loc, fmt.Sprintf("group attribute %q is not implemented", attribute.name.local))
+			if !allowOccurrences {
+				candidate.considerAt(attribute.loc, fmt.Sprintf("group attribute %q is not implemented", attribute.name.local))
+			}
 		default:
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("group has forbidden attribute %q", attribute.name.local))
 		}
@@ -4519,6 +4543,13 @@ func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
 	if !refSeen {
 		return newSchemaCompositionDiagnostic(element.loc, "group particle requires a ref attribute")
 	}
+	if err := validateGroupParticleChildren(element, &candidate); err != nil {
+		return err
+	}
+	return candidate.err()
+}
+
+func validateGroupParticleChildren(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
 	annotationSeen := false
 	for _, node := range element.children {
 		textNode, ok := node.(syntaxText)
@@ -4539,11 +4570,19 @@ func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
 			return newSchemaCompositionDiagnostic(child.loc, "group annotation must be unique")
 		}
 		annotationSeen = true
-		if err := stageSchemaCandidateError(&candidate, validateSchemaAnnotationElement(child)); err != nil {
+		if err := stageSchemaCandidateError(candidate, validateSchemaAnnotationElement(child)); err != nil {
 			return err
 		}
 	}
-	return candidate.err()
+	return nil
+}
+
+func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
+	return validateGroupParticleWithOptions(element, version, false)
+}
+
+func validateSupportedGroupParticle(element *syntaxElement, version XSDVersion) error {
+	return validateGroupParticleWithOptions(element, version, true)
 }
 
 func validateAllParticle(element *syntaxElement, version XSDVersion) error {

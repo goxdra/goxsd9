@@ -65,6 +65,7 @@ var (
 	errInstanceChoiceText              = errors.New("choice instance has non-whitespace parent text")
 	errInstanceChoiceNested            = errors.New("choice instance has nested element content")
 	errInstanceChoiceParticle          = errors.New("choice type has an unsupported particle")
+	errInstanceModelGroupReference     = errors.New("model-group reference particle is outside instance validation")
 	errInstanceChoiceWildcard          = errors.New("choice type contains an unsupported wildcard particle")
 	errInstanceChoiceTarget            = errors.New("choice alternative has an unsupported target")
 	errInstanceChoiceMixed             = errors.New("choice type mixes local declarations and element references")
@@ -380,6 +381,9 @@ func instanceChoiceProgramFor(
 		if body.anyAttribute != nil {
 			related = appendInstanceRelated(related, body.anyAttribute.loc)
 		}
+		if groupReference, ok := modelGroupReferenceParticleValue(body.particle); ok {
+			return instanceChoiceProgram{}, instanceModelGroupReferenceUnsupported(definition, groupReference, related, version)
+		}
 		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
 			body.extensionLoc,
 			fmt.Sprintf("named complex type %q uses complex-content extension outside instance validation", definition.Name()),
@@ -438,6 +442,9 @@ func instanceChoiceParticleFor(
 	version XSDVersion,
 ) (ChoiceParticle, []Loc, error) {
 	particle := definition.Particle()
+	if groupReference, ok := modelGroupReferenceParticleValue(particle); ok {
+		return ChoiceParticle{}, related, instanceModelGroupReferenceUnsupported(definition, groupReference, related, version)
+	}
 	choice, ok := particle.(ChoiceParticle)
 	if !ok {
 		return ChoiceParticle{}, nil, newInstanceValidationUnsupported(
@@ -470,6 +477,26 @@ func instanceChoiceParticleFor(
 	return choice, related, nil
 }
 
+func instanceModelGroupReferenceUnsupported(
+	definition ComplexTypeDefinition,
+	reference ModelGroupReferenceParticle,
+	related []Loc,
+	version XSDVersion,
+) error {
+	referenceLoc := reference.RefLoc()
+	if referenceLoc.IsZero() {
+		referenceLoc = reference.Loc()
+	}
+	groupRelated := appendInstanceRelated(relCopy(related), reference.Loc())
+	return newInstanceValidationUnsupported(
+		referenceLoc,
+		fmt.Sprintf("named complex type %q uses a model-group reference outside instance validation", definition.Name()),
+		groupRelated,
+		version,
+		errInstanceModelGroupReference,
+	)
+}
+
 //nolint:gocognit,funlen // Keep the direct-choice shape gate and alternative order together.
 func instanceChoiceAlternativesFor(
 	schema Schema,
@@ -485,6 +512,9 @@ func instanceChoiceAlternativesFor(
 	hasReference := false
 	hasLocal := false
 	for _, particleAlternative := range particleAlternatives {
+		if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(particleAlternative); groupReferenceOK {
+			return nil, nil, instanceModelGroupReferenceUnsupported(definition, groupReference, related, version)
+		}
 		if wildcard, wildcardOK := wildcardParticleValue(particleAlternative); wildcardOK {
 			related = appendInstanceRelated(related, wildcard.Loc())
 			return nil, nil, newInstanceValidationUnsupported(

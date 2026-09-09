@@ -239,6 +239,9 @@ func collectCodegenDirectChoices(
 			)
 		}
 		if body := definition.extensionBody(); body != nil {
+			if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(body.particle); groupReferenceOK {
+				return nil, newCodegenDirectModelGroupReferenceUnsupported(schema, component, groupReference, version)
+			}
 			return nil, newCodegenDirectChoiceUnsupported(
 				body.extensionLoc,
 				fmt.Sprintf("complex type %q uses complex-content extension outside direct choice generation", component.Name()),
@@ -266,6 +269,9 @@ func collectCodegenDirectChoices(
 				nil,
 				errCodegenDirectChoiceParticle,
 			)
+		}
+		if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(particle); groupReferenceOK {
+			return nil, newCodegenDirectModelGroupReferenceUnsupported(schema, component, groupReference, version)
 		}
 		anyAttribute, anyAttributeOK := definition.AnyAttribute()
 
@@ -372,6 +378,9 @@ func collectCodegenDirectChoiceOwner(
 				nil,
 				errCodegenDirectChoiceParticle,
 			)
+		}
+		if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(alternative); groupReferenceOK {
+			return codegenDirectChoiceCollectedOwner{}, newCodegenDirectModelGroupReferenceUnsupported(schema, component, groupReference, version)
 		}
 		if wildcard, wildcardOK := wildcardParticleValue(alternative); wildcardOK {
 			return codegenDirectChoiceCollectedOwner{}, newCodegenDirectChoiceWildcardUnsupported(choice, wildcard, version)
@@ -608,6 +617,8 @@ func directChoiceTypedNilParticle(particle Particle) bool {
 	case *ElementParticle:
 		return concrete == nil
 	case *ElementReferenceParticle:
+		return concrete == nil
+	case *ModelGroupReferenceParticle:
 		return concrete == nil
 	case *SequenceParticle:
 		return concrete == nil
