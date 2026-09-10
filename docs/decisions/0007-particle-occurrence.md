@@ -87,10 +87,11 @@ occurrence input. A named global complex type with one direct sequence of local
 built-in `xs:boolean`, named boolean-restriction, integer, or decimal scalar
 elements, or one direct choice of those scalar elements, maps the completed
 range and ordered children into the public schema. The same supported named choice/sequence boundary maps a direct `xs:any` with all wildcard constraints omitted to an immutable public `WildcardParticle` with effective `##any` and `strict` facts, retaining lexical order, exact locations, and exact occurrence ranges; explicit wildcard constraints remain unsupported. A supported global named
-model group with one direct choice of global element-reference particles also
-exposes its ordered children with exact ranges. A named complex type or bounded attribute-free extension may expose one direct model-group reference with target ID/exact
-range; members are not copied. Effective `0/0` group or child maps to absence. The shared effective `0/0` mapping for sequence, choice, and child particles precedes type-specific support gating and maps to absence.
-The same exact representation is retained for choice facts. `ValidateInstance`
+model group with one direct choice or sequence of global element-reference
+particles exposes ordered children with exact ranges; its sequence uses
+grammar-default 1/1; compositor occurrence attrs are unsupported. Named complex type or bounded attribute-free extension may expose a direct model-group reference with target ID/exact
+range; members are not copied. `0/0` group or child maps to absence. Sequence/choice/child mapping maps `0/0` to absence before gating.
+The exact representation is retained for choice facts. `ValidateInstance`
 supports named global complex types with direct local integer/decimal sequences,
 matching expanded names in lexical declaration order and honoring exact finite,
 unbounded, and above-`uint64` outer and child ranges under `Compatibility`,
@@ -158,7 +159,7 @@ behavior. An error-level diagnostic returns no schema.
 
 Currently, the occurrence boundary supports one named global complex type
 with one direct sequence or direct choice of local built-in `xs:boolean`, named
-boolean-restriction, integer, or decimal scalar elements, or one global named model group with one direct choice of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. They retain exact ranges and target IDs. Extensions retain extension/base identities, locations, inherited bounded wildcard facts, and exact direct choice/sequence occurrences; validation and code generation reject them as unsupported. Direct default-form `xs:any` terms are supported in named direct choice/sequence and bounded extensions as immutable wildcard particles; explicit wildcard constraints and broader placements remain unsupported, and consumers reject nonzero wildcard terms. All supported forms
+boolean-restriction, integer, or decimal scalar elements, or one global named model group with one direct choice or sequence of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. They retain exact ranges and target IDs. Extensions retain extension/base identities, locations, inherited bounded wildcard facts, and exact direct choice/sequence occurrences; validation and code generation reject them as unsupported. Direct default-form `xs:any` terms are supported in named direct choice/sequence and bounded extensions as immutable wildcard particles; explicit wildcard constraints and broader placements remain unsupported, and consumers reject nonzero wildcard terms. All supported forms
 retain exact ranges; `0/0` maps to absence.
 For instance validation, named global complex direct local integer/decimal sequences
 match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`
@@ -187,7 +188,7 @@ XSD 1.1, and Compatibility; explicit `##other`/`lax` remains supported.
 The `anyAttribute` element location and explicitly present `namespace`/`processContents` attribute locations are retained; omitted default-attribute locations are zero. Wildcard-bearing validation and code-generation consumers remain
 unsupported. Direct
 element-reference particles are supported in the schema model for local choice
-and sequence children and for global named-group direct choices; direct model-group references are
+and sequence children and for global named-group direct choices or sequences; direct model-group references are
 supported only as the top-level particle of a named complex type or bounded attribute-free extension;
 they retain target IDs without expanding group members; nested group references remain unsupported. Validator consumption covers named global complex direct
 local integer/decimal sequences and direct choices with default-occurrence local scalar
