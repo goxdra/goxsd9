@@ -1419,6 +1419,16 @@ func instanceScalarTypeForTarget(
 			errInstanceValidationInvariant,
 		)
 	}
+	if final := definition.Final(); len(final) != 0 {
+		finalRelated := appendInstanceRelated(related, definition.FinalLoc())
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("named simple type %q has unsupported final derivation controls", definition.Name()),
+			finalRelated,
+			fallbackVersion,
+			errInstanceUnsupportedType,
+		)
+	}
 	if definition.Variety() != SimpleTypeVarietyAtomicRestriction {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,

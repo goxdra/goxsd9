@@ -907,6 +907,12 @@ func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion)
 //nolint:gocognit // Keep attribute validation and unsupported-candidate staging together.
 func validateGlobalSchemaDeclarationAttributes(element *syntaxElement, kind ComponentKind, version XSDVersion, deferMixedFalse bool) (schemaChildUnsupportedCandidate, bool, error) {
 	var candidate schemaChildUnsupportedCandidate
+	if kind == ComponentKindSimpleTypeDefinition {
+		finalAttributes := syntaxAttributesByLocal(element, "final")
+		if len(finalAttributes) > 1 {
+			return candidate, false, newSchemaCompositionDiagnostic(finalAttributes[1].loc, `simpleType attribute "final" must be unique`)
+		}
+	}
 	deferredMixedFalse := false
 	for _, attribute := range element.attrs {
 		if deferMixedFalse {
@@ -1028,6 +1034,10 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	if implementedGlobalComplexTypeBooleanAttribute(kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
+	if kind == ComponentKindSimpleTypeDefinition && attribute.name.local == "final" {
+		_, err := schemaSimpleTypeFinalPolicyFromAttribute(attribute, version)
+		return "", err
+	}
 	if version == XSDVersion11 &&
 		kind == ComponentKindComplexTypeDefinition &&
 		attribute.name.namespace == "" &&
@@ -1054,7 +1064,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 			}
 			return "", nil
 		}
-		if (kind == ComponentKindSimpleTypeDefinition || kind == ComponentKindComplexTypeDefinition) && attribute.name.local == "final" && collapseXMLWhitespace(attribute.value) == "" {
+		if kind == ComponentKindComplexTypeDefinition && attribute.name.local == "final" && collapseXMLWhitespace(attribute.value) == "" {
 			return "", nil
 		}
 		if version == XSDVersion10 && isXSD11GlobalSchemaAttribute(kind, attribute.name.local) {
