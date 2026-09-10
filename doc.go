@@ -28,11 +28,13 @@
 // The schema model also exposes one direct ordered sequence of local built-in
 // xs:boolean, named boolean-restriction, integer, and decimal scalar elements
 // for a named global complex type, and direct choices of those scalar elements,
-// including exact immutable occurrence ranges. Default-form direct xs:any terms
-// are also exposed as immutable WildcardParticle values with effective namespace
-// ##any and strict processing, in lexical order with element and reference terms.
-// Explicit wildcard constraints and broader wildcard placements remain
-// unsupported. Effective 0/0 sequence, choice, child, and wildcard ranges map
+// including exact immutable occurrence ranges. Direct xs:any terms with omitted
+// or canonical explicit-default namespace="##any" and/or processContents="strict"
+// spellings are also exposed as immutable WildcardParticle values with effective
+// namespace ##any and strict processing; explicit constraint-attribute locations
+// are retained, in lexical order with element and reference terms. Non-default
+// wildcard constraints and broader wildcard placements remain unsupported.
+// Effective 0/0 sequence, choice, child, and wildcard ranges map
 // to absence. Non-0/0 integer/decimal choice and
 // alternative ranges are queryable, but direct-choice repetition is not
 // implemented. Direct choices made entirely of local Boolean elements use
