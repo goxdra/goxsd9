@@ -1104,6 +1104,23 @@ func (definition ComplexTypeDefinition) IsAbstract() bool {
 	return definition.facts.abstract
 }
 
+// Final returns the explicit non-empty final derivation controls in
+// specification order. The returned slice is independent of the schema.
+func (definition ComplexTypeDefinition) Final() []string {
+	if definition.facts == nil {
+		return nil
+	}
+	return definition.facts.final.set.values()
+}
+
+// FinalLoc returns the location of the explicit final declaration.
+func (definition ComplexTypeDefinition) FinalLoc() Loc {
+	if definition.facts == nil {
+		return Loc{}
+	}
+	return definition.facts.final.loc
+}
+
 // AnyAttribute returns the immutable attribute wildcard fact when the
 // complex type has a supported wildcard.
 func (definition ComplexTypeDefinition) AnyAttribute() (AnyAttribute, bool) {
@@ -2256,6 +2273,7 @@ func (schemaAtomicFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
 	abstract                bool
+	final                   schemaComplexTypeFinalPolicy
 	body                    schemaComplexTypeBodyInput
 	prohibitedSubstitutions schemaBlockPolicy
 }
@@ -2414,6 +2432,7 @@ type schemaNotationComponent struct {
 
 type schemaComplexTypeComponent struct {
 	abstract                bool
+	final                   schemaComplexTypeFinalPolicy
 	body                    schemaComplexTypeBodyComponent
 	prohibitedSubstitutions schemaBlockPolicy
 }
@@ -2907,6 +2926,7 @@ func completeSchemaComponent(
 		}
 		component.complexType = &schemaComplexTypeComponent{
 			abstract:                complexType.abstract,
+			final:                   complexType.final,
 			body:                    body,
 			prohibitedSubstitutions: complexType.prohibitedSubstitutions,
 		}
@@ -2995,6 +3015,7 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 	}
 	clone := &schemaComplexTypeInput{
 		abstract:                input.abstract,
+		final:                   input.final,
 		body:                    cloneSchemaComplexTypeBodyInput(input.body),
 		prohibitedSubstitutions: input.prohibitedSubstitutions,
 	}

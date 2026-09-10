@@ -2695,6 +2695,9 @@ func assertSchemaComplexTypeFinalBody(t *testing.T, schema Schema, body schemaCo
 	if !ok {
 		t.Fatal("Item complex type view is missing")
 	}
+	if final := definition.Final(); len(final) != 0 || !definition.FinalLoc().IsZero() {
+		t.Fatalf("empty final facts = %#v/%s, want empty set and no location", final, definition.FinalLoc())
+	}
 	switch body.name {
 	case "empty":
 		if definition.Particle() != nil || definition.Derivation() != "" {
@@ -2748,59 +2751,55 @@ func assertSchemaComplexTypeFinalBody(t *testing.T, schema Schema, body schemaCo
 	}
 }
 
-func TestSchemaComplexTypeFinalNonEmptyValuesRemainLocatedRegisteredUnsupported(t *testing.T) {
+//nolint:gocognit // Keep the policy, edition, body, and value matrix together.
+func TestSchemaComplexTypeFinalNonEmptyValuesAreRetainedInCanonicalOrder(t *testing.T) {
 	values := []struct {
 		name  string
 		value string
+		want  []string
 	}{
-		{name: "extension", value: "extension"},
-		{name: "restriction", value: "restriction"},
-		{name: "both methods", value: "extension restriction"},
-		{name: "reordered methods", value: "restriction extension"},
-		{name: "repeated method", value: "extension extension"},
-		{name: "all", value: "#all"},
-		{name: "collapsed methods", value: " \t extension\n restriction\r "},
+		{name: "extension", value: "extension", want: []string{"extension"}},
+		{name: "restriction", value: "restriction", want: []string{"restriction"}},
+		{name: "both methods", value: "extension restriction", want: []string{"extension", "restriction"}},
+		{name: "reordered methods", value: "restriction extension", want: []string{"extension", "restriction"}},
+		{name: "repeated method", value: "extension extension", want: []string{"extension"}},
+		{name: "all", value: "#all", want: []string{"extension", "restriction"}},
+		{name: "collapsed methods", value: " \t extension\n restriction\r ", want: []string{"extension", "restriction"}},
 	}
-	for _, profile := range schemaSimpleTypeFinalProfiles() {
-		for _, version := range schemaSimpleTypeFinalVersions() {
-			for _, test := range values {
-				t.Run(profile.name+"/"+version.name+"/"+test.name, func(t *testing.T) {
-					root := schemaComplexTypeFinalRoot(true, test.value, version.version)
-					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-					assertSchemaComplexTypeFinalUnsupported(t, schema, err, root)
-				})
+	for _, body := range schemaComplexTypeFinalBodies() {
+		for _, profile := range schemaSimpleTypeFinalProfiles() {
+			for _, version := range schemaSimpleTypeFinalVersions() {
+				for _, test := range values {
+					t.Run(body.name+"/"+profile.name+"/"+version.name+"/"+test.name, func(t *testing.T) {
+						root, fixtures := schemaComplexTypeFinalGraph(body, true, test.value, version.version)
+						schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+						if err != nil {
+							t.Fatalf("discoverSchema: %v", err)
+						}
+						found := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:root", "Item"))
+						if len(found) != 1 {
+							t.Fatalf("Item complex type matches = %d, want one", len(found))
+						}
+						definition, ok := found[0].ComplexTypeDefinition()
+						if !ok {
+							t.Fatal("Item complex type view is missing")
+						}
+						if got := definition.Final(); !reflect.DeepEqual(got, test.want) {
+							t.Fatalf("Final() = %#v, want %#v", got, test.want)
+						}
+						final := definition.Final()
+						final[0] = "changed"
+						if got := definition.Final(); !reflect.DeepEqual(got, test.want) {
+							t.Fatalf("Final() was not copied: %#v", got)
+						}
+						wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, 1, "final")
+						if got := definition.FinalLoc(); got != wantLoc {
+							t.Fatalf("FinalLoc() = %s, want %s", got, wantLoc)
+						}
+					})
+				}
 			}
 		}
-	}
-}
-
-func assertSchemaComplexTypeFinalUnsupported(t *testing.T, schema Schema, err error, root string) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("discoverSchema accepted a non-empty complexType final")
-	}
-	if schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
-		t.Fatal("discoverSchema returned a partial schema")
-	}
-	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
-	if !ok || !feature.Registered() {
-		t.Fatal("schema syntax feature is not registered")
-	}
-	diagnostic := requireDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
-		t.Fatalf("diagnostic = %s/%q/%q, want registered schema-syntax unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code())
-	}
-	if diagnostic.SpecRef() != feature.SpecRef() {
-		t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), feature.SpecRef())
-	}
-	if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 1, "final") {
-		t.Fatalf("diagnostic location = %s, want final attribute location", diagnostic.Loc())
-	}
-	if diagnostic.Message() != `global complexType attribute "final" is not implemented` {
-		t.Fatalf("diagnostic message = %q, want complexType final unsupported message", diagnostic.Message())
-	}
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("diagnostic lost unsupported classification: %v", err)
 	}
 }
 

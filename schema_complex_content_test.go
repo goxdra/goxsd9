@@ -152,6 +152,77 @@ func TestSchemaBridgeResolvesForwardComposedComplexContentExtensionBase(t *testi
 	assertComplexContentExtensionParticle(t, derived.Particle(), "choice", components[1].ID(), root)
 }
 
+//nolint:gocognit // Keep edition, policy, final-value, and diagnostic provenance together.
+func TestSchemaBridgeRejectsExtensionBaseFinalControls(t *testing.T) {
+	cases := []struct {
+		name       string
+		final      string
+		prohibited bool
+	}{
+		{name: "extension", final: "extension", prohibited: true},
+		{name: "all", final: "#all", prohibited: true},
+		{name: "restriction only", final: "restriction"},
+	}
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "strict10", policy: Strict10, version: XSDVersion10},
+		{name: "strict11", policy: Strict11, version: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		for _, test := range cases {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := complexContentExtensionRoot(
+					`<xs:extension base="t:Base"><xs:choice><xs:element name="item" type="xs:integer"/></xs:choice></xs:extension>`,
+					`<xs:complexType name="Base" final="`+test.final+`"/>`,
+				)
+				if profile.version == XSDVersion10 {
+					root = strings.Replace(root, `version="1.1"`, `version="1.0"`, 1)
+				}
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if !test.prohibited {
+					if err != nil {
+						t.Fatalf("discover schema: %v", err)
+					}
+					base := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:root", "Base"))
+					if len(base) != 1 {
+						t.Fatalf("Base matches = %d, want one", len(base))
+					}
+					definition, ok := base[0].ComplexTypeDefinition()
+					if !ok || !reflect.DeepEqual(definition.Final(), []string{"restriction"}) {
+						t.Fatalf("Base final = %#v/%t, want restriction", definition.Final(), ok)
+					}
+					return
+				}
+				if err == nil {
+					t.Fatal("prohibited extension unexpectedly succeeded")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+					t.Fatalf("diagnostic = %s, want invalid schema composition", diagnostic)
+				}
+				if diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(profile.version) {
+					t.Fatalf("diagnostic spec ref = %q, want extension constraint", diagnostic.SpecRef())
+				}
+				if diagnostic.Loc() != complexContentTestLoc(t, root, `base="t:Base"`) {
+					t.Fatalf("diagnostic location = %s, want extension base use", diagnostic.Loc())
+				}
+				wantRelated := complexContentTestLoc(t, root, `final="`+test.final+`"`)
+				if !reflect.DeepEqual(diagnostic.Related(), []Loc{wantRelated}) {
+					t.Fatalf("diagnostic related = %v, want [%s]", diagnostic.Related(), wantRelated)
+				}
+				if !errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
+					t.Fatalf("diagnostic lost existing base cause: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func assertComplexContentExtensionParticle(t *testing.T, particle Particle, model string, targetID ComponentID, root string) {
 	t.Helper()
 	if particle == nil {
