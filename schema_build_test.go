@@ -1096,8 +1096,8 @@ func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:    "explicit wildcard namespace is unsupported",
-			root:    fmt.Sprintf(base, `<xs:choice><xs:any namespace="##any"/></xs:choice>`),
+			name:    "non-default wildcard namespace is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:any namespace="##other"/></xs:choice>`),
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
 		},

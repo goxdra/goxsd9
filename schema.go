@@ -1792,7 +1792,7 @@ func (particle WildcardParticle) Namespace() string {
 }
 
 // NamespaceLoc returns the location of an explicit namespace attribute. It is
-// zero when the namespace defaults to ##any.
+// zero when the namespace attribute is omitted.
 func (particle WildcardParticle) NamespaceLoc() Loc {
 	if particle.facts == nil {
 		return Loc{}
@@ -1809,7 +1809,7 @@ func (particle WildcardParticle) ProcessContents() string {
 }
 
 // ProcessContentsLoc returns the location of an explicit processContents
-// attribute. It is zero when processing defaults to strict.
+// attribute. It is zero when the processContents attribute is omitted.
 func (particle WildcardParticle) ProcessContentsLoc() Loc {
 	if particle.facts == nil {
 		return Loc{}

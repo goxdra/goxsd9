@@ -3657,8 +3657,19 @@ func validateAnyAttributeSyntax(element *syntaxElement, version XSDVersion) erro
 }
 
 func validateWildcardNamespace(attribute syntaxAttribute) error {
+	return validateWildcardNamespaceWithEmptyList(attribute, false)
+}
+
+func validateAnyParticleWildcardNamespace(attribute syntaxAttribute) error {
+	return validateWildcardNamespaceWithEmptyList(attribute, true)
+}
+
+func validateWildcardNamespaceWithEmptyList(attribute syntaxAttribute, allowEmpty bool) error {
 	lexeme := collapseXMLWhitespace(attribute.value)
 	if lexeme == "" {
+		if allowEmpty {
+			return nil
+		}
 		return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q has an invalid wildcard namespace", attribute.name.local))
 	}
 	tokens := strings.Split(lexeme, " ")
@@ -4914,10 +4925,13 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 			}
 		case "namespace", "notNamespace":
 			if attribute.name.local == "namespace" {
-				if err := validateWildcardNamespace(attribute); err != nil {
+				if err := validateAnyParticleWildcardNamespace(attribute); err != nil {
 					return err
 				}
 				if allowDefault {
+					if collapseXMLWhitespace(attribute.value) == "##any" {
+						continue
+					}
 					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard namespace constraints are not implemented", version))
 					continue
 				}
@@ -4947,6 +4961,9 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 				return err
 			}
 			if allowDefault {
+				if collapseXMLWhitespace(attribute.value) == "strict" {
+					continue
+				}
 				candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard processContents constraints are not implemented", version))
 				continue
 			}

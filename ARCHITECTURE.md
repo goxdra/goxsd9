@@ -97,7 +97,7 @@ Root `xpathDefaultNamespace` is inert: Compatibility/Strict11 validate and disca
 Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string, string/boolean/precisionDecimal attrs unsupported.
 
 Complexes: `IsAbstract()` (non-inherited); named global complex types: explicit non-empty `final`; `Final()`: canonical extension-then-restriction order; `FinalLoc()`: source location; XSD 1.0/1.1; Compatibility; `final=extension` or `#all` rejects extension derivation.
-Model-group refs and attribute-free extensions retain immutable IDs/locations; consumers reject. Direct named sequence/choice `anyAttribute`: omitted/canonical `##any`/strict, explicit `##other`/lax; locations retained, omitted=0. Default-form `xs:any` `WildcardParticle`s: effective `##any`/strict, exact occurrence/location; 0/0 absent; nonzero rejected. Named `openContent mode="none"` inert under Compatibility/Strict11; Strict10: XSD1.1 mismatch. Other `openContent`/`defaultOpenContent`, broader placements, element-wildcard constraints unsupported; malformed invalid.
+Model-group refs and attribute-free extensions retain IDs/locations; consumers reject. Direct named sequence/choice `anyAttribute`: default `##any`/strict or explicit `##other`/lax; omitted locations zero. Default-effective `xs:any` `WildcardParticle`s retain `##any`/strict, occurrence/location; explicit locations retained; `0/0` absent; nonzero rejected. `openContent mode="none"` inert in Compatibility/Strict11; Strict10 mismatch. Open content, non-default wildcards, broader placements unsupported; malformed invalid.
 Model groups expose direct choice/sequence global-element facts with exact ranges; consumers reject expansion.
 
 ## Datatypes
