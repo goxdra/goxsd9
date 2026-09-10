@@ -1048,8 +1048,8 @@ func (definition ModelGroupDefinition) Loc() Loc {
 	return definition.component.Loc()
 }
 
-// Particle returns the immutable direct-choice particle of the model group.
-// It is nil when the group's choice has exact 0/0 occurrences.
+// Particle returns the immutable direct choice or sequence particle of the
+// model group. It is nil when the group's particle has exact 0/0 occurrences.
 func (definition ModelGroupDefinition) Particle() Particle {
 	if definition.facts == nil {
 		return nil
@@ -2330,7 +2330,11 @@ type schemaAnyAttributeInput struct {
 }
 
 type schemaModelGroupInput struct {
-	particle *schemaChoiceParticleInput
+	particle schemaModelGroupParticleInput
+}
+
+type schemaModelGroupParticleInput interface {
+	schemaModelGroupParticleInput()
 }
 
 type schemaComplexTypeParticleInput interface {
@@ -2348,6 +2352,7 @@ type schemaChoiceParticleInput struct {
 }
 
 func (*schemaChoiceParticleInput) schemaComplexTypeParticleInput() {}
+func (*schemaChoiceParticleInput) schemaModelGroupParticleInput()  {}
 
 type schemaSequenceParticleInput struct {
 	loc         Loc
@@ -2356,6 +2361,7 @@ type schemaSequenceParticleInput struct {
 }
 
 func (*schemaSequenceParticleInput) schemaComplexTypeParticleInput() {}
+func (*schemaSequenceParticleInput) schemaModelGroupParticleInput()  {}
 
 type schemaModelGroupReferenceParticleInput struct {
 	loc         Loc
@@ -3118,13 +3124,25 @@ func cloneSchemaModelGroupInput(input *schemaModelGroupInput) *schemaModelGroupI
 		return nil
 	}
 	clone := &schemaModelGroupInput{}
-	if input.particle == nil {
-		return clone
-	}
-	clone.particle = &schemaChoiceParticleInput{
-		loc:          input.particle.loc,
-		occurrences:  input.particle.occurrences.clone(),
-		alternatives: cloneSchemaParticleTermInputs(input.particle.alternatives),
+	switch particle := input.particle.(type) {
+	case *schemaChoiceParticleInput:
+		if particle == nil {
+			return clone
+		}
+		clone.particle = &schemaChoiceParticleInput{
+			loc:          particle.loc,
+			occurrences:  particle.occurrences.clone(),
+			alternatives: cloneSchemaParticleTermInputs(particle.alternatives),
+		}
+	case *schemaSequenceParticleInput:
+		if particle == nil {
+			return clone
+		}
+		clone.particle = &schemaSequenceParticleInput{
+			loc:         particle.loc,
+			occurrences: particle.occurrences.clone(),
+			particles:   cloneSchemaParticleTermInputs(particle.particles),
+		}
 	}
 	return clone
 }

@@ -5018,7 +5018,7 @@ func validateGroupGlobalChildren(parent *syntaxElement, children []*syntaxElemen
 			continue
 		}
 		switch child.name.local {
-		case "all", "sequence":
+		case "all":
 			if modelSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "group requires exactly one model child")
 			}
@@ -5029,6 +5029,14 @@ func validateGroupGlobalChildren(parent *syntaxElement, children []*syntaxElemen
 			}
 			if !candidate.present {
 				candidate.considerAtVersion(child.loc, fmt.Sprintf("global %s child <%s> is not implemented", parent.name.local, child.name.local), version)
+			}
+		case "sequence":
+			if modelSeen {
+				return newSchemaCompositionDiagnostic(child.loc, "group requires exactly one model child")
+			}
+			modelSeen = true
+			if err := validateNamedModelGroupSequence(child, version); err != nil && !candidate.considerError(err) {
+				return err
 			}
 		case "choice":
 			if modelSeen {
@@ -5051,7 +5059,6 @@ func validateGroupGlobalChildren(parent *syntaxElement, children []*syntaxElemen
 	return candidate.err()
 }
 
-//nolint:gocognit // Keep the narrow named-group choice grammar and support boundary together.
 func validateNamedModelGroupChoice(element *syntaxElement, version XSDVersion) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateSchemaParticleOccurrences(element, version); err != nil {
@@ -5070,6 +5077,32 @@ func validateNamedModelGroupChoice(element *syntaxElement, version XSDVersion) e
 		return err
 	}
 	candidate.merge(versionNamedModelGroupCandidate(collectedCandidate, version))
+	if err := validateNamedModelGroupChildren(children, version, "choice", &candidate); err != nil {
+		return err
+	}
+	return candidate.err()
+}
+
+func validateNamedModelGroupSequence(element *syntaxElement, version XSDVersion) error {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSchemaParticleOccurrences(element, version); err != nil {
+		return err
+	}
+	if err := validateSchemaParticleAttributes(element, &candidate, version); err != nil {
+		return err
+	}
+	children, collectedCandidate, err := collectGlobalSchemaChildren(element)
+	if err != nil {
+		return err
+	}
+	candidate.merge(versionNamedModelGroupCandidate(collectedCandidate, version))
+	if err := validateNamedModelGroupChildren(children, version, "sequence", &candidate); err != nil {
+		return err
+	}
+	return candidate.err()
+}
+
+func validateNamedModelGroupChildren(children []*syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
 	annotationSeen := false
 	contentSeen := false
 	for _, child := range children {
@@ -5080,39 +5113,56 @@ func validateNamedModelGroupChoice(element *syntaxElement, version XSDVersion) e
 		if handled {
 			continue
 		}
-		switch child.name.local {
-		case "element":
-			childCandidate, childErr := validateLocalElementParticle(child, version, true, "model-group choice", false)
-			if childErr != nil {
-				return childErr
-			}
-			if childCandidate.present {
-				candidate.merge(versionNamedModelGroupCandidate(childCandidate, version))
-				continue
-			}
-			if len(syntaxAttributesByLocal(child, "ref")) == 1 {
-				continue
-			}
-			candidate.considerAtVersion(child.loc, "named model-group choice local element declarations are not implemented", version)
-		case "group", "choice", "sequence", "any":
-			unsupportedErr := versionNamedModelGroupUnsupported(validateUnsupportedParticle(child, version), version)
-			if unsupportedErr != nil {
-				if !candidate.considerError(unsupportedErr) {
-					return unsupportedErr
-				}
-				continue
-			}
-			candidate.considerAtVersion(child.loc, fmt.Sprintf("named model-group choice child <%s> is not implemented", child.name.local), version)
-		case "all":
-			return newSchemaCompositionDiagnostic(child.loc, "choice cannot contain an all particle")
-		default:
-			if err := forbiddenGlobalSchemaChild("model-group choice", child); err != nil {
-				return err
-			}
-			candidate.considerAtVersion(child.loc, fmt.Sprintf("named model-group choice child <%s> is not implemented", child.name.local), version)
+		if err := validateNamedModelGroupChild(child, version, model, candidate); err != nil {
+			return err
 		}
 	}
-	return candidate.err()
+	return nil
+}
+
+func validateNamedModelGroupChild(child *syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
+	switch child.name.local {
+	case "element":
+		return validateNamedModelGroupElementChild(child, version, model, candidate)
+	case "group", "choice", "sequence", "any":
+		return validateNamedModelGroupUnsupportedChild(child, version, model, candidate)
+	case "all":
+		return newSchemaCompositionDiagnostic(child.loc, model+" cannot contain an all particle")
+	default:
+		if err := forbiddenGlobalSchemaChild("model-group "+model, child); err != nil {
+			return err
+		}
+		candidate.considerAtVersion(child.loc, fmt.Sprintf("named model-group %s child <%s> is not implemented", model, child.name.local), version)
+		return nil
+	}
+}
+
+func validateNamedModelGroupElementChild(child *syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
+	childCandidate, err := validateLocalElementParticle(child, version, true, "model-group "+model, false)
+	if err != nil {
+		return err
+	}
+	if childCandidate.present {
+		candidate.merge(versionNamedModelGroupCandidate(childCandidate, version))
+		return nil
+	}
+	if len(syntaxAttributesByLocal(child, "ref")) == 1 {
+		return nil
+	}
+	candidate.considerAtVersion(child.loc, "named model-group "+model+" local element declarations are not implemented", version)
+	return nil
+}
+
+func validateNamedModelGroupUnsupportedChild(child *syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
+	unsupportedErr := versionNamedModelGroupUnsupported(validateUnsupportedParticle(child, version), version)
+	if unsupportedErr != nil {
+		if !candidate.considerError(unsupportedErr) {
+			return unsupportedErr
+		}
+		return nil
+	}
+	candidate.considerAtVersion(child.loc, fmt.Sprintf("named model-group %s child <%s> is not implemented", model, child.name.local), version)
+	return nil
 }
 
 func versionNamedModelGroupUnsupported(err error, version XSDVersion) error {

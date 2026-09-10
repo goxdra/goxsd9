@@ -3622,8 +3622,7 @@ func TestSchemaBridgeRejectsComposedDuplicateNonElementGlobalDeclarations(t *tes
 	}
 }
 
-//nolint:gocognit // Keep unsupported model-group metadata checks together.
-func TestSchemaBridgeKeepsComposedModelGroupCollisionsAtUnsupportedBoundary(t *testing.T) {
+func TestSchemaBridgeRejectsComposedModelGroupDuplicates(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test">
   <xs:include schemaLocation="earliest.xsd"/>
   <xs:include schemaLocation="later.xsd"/>
@@ -3642,8 +3641,8 @@ func TestSchemaBridgeKeepsComposedModelGroupCollisionsAtUnsupportedBoundary(t *t
 		value   LanguagePolicy
 		specRef string
 	}{
-		{name: "Strict10", value: Strict10, specRef: "xsd10-structures#schema-document"},
-		{name: "Strict11", value: Strict11, specRef: "xsd11-structures#cSchemaDocument"},
+		{name: "Strict10", value: Strict10, specRef: schemaGlobalDuplicateXSD10SpecRef},
+		{name: "Strict11", value: Strict11, specRef: schemaGlobalDuplicateXSD11SpecRef},
 	} {
 		t.Run(policy.name, func(t *testing.T) {
 			var first Diagnostic
@@ -3652,30 +3651,21 @@ func TestSchemaBridgeKeepsComposedModelGroupCollisionsAtUnsupportedBoundary(t *t
 				if err == nil || schema.storage != nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
 					t.Fatal("composed model-group collision was accepted or returned a partial schema")
 				}
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
-					t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code())
-				}
-				if diagnostic.Loc() != mustTestLoc(t, "earliest.xsd", 3, 5) {
-					t.Fatalf("diagnostic location = %s, want earliest model child", diagnostic.Loc())
-				}
-				if diagnostic.Message() != "global group child <sequence> is not implemented" {
-					t.Fatalf("diagnostic message = %q, want explicit group boundary", diagnostic.Message())
-				}
-				if diagnostic.SpecRef() != policy.specRef {
-					t.Fatalf("diagnostic spec ref = %q, want %s", diagnostic.SpecRef(), policy.specRef)
-				}
-				if len(diagnostic.Related()) != 0 {
-					t.Fatalf("diagnostic related locations = %v, want none at unsupported boundary", diagnostic.Related())
-				}
-				if !errors.Is(err, ErrUnsupported) || errors.Is(err, errSchemaGlobalDeclarationDuplicate) {
-					t.Fatalf("diagnostic does not preserve the unsupported boundary: %v", err)
-				}
+				expected := requireSchemaDuplicateDiagnostic(
+					t,
+					schema,
+					err,
+					mustTestLoc(t, "later.xsd", 2, 3),
+					[]Loc{mustTestLoc(t, "earliest.xsd", 2, 3)},
+					policy.specRef,
+					`global model group definition "{urn:test}item" is duplicated`,
+					errSchemaGlobalDeclarationDuplicate,
+				)
 				if iteration == 0 {
-					first = diagnostic
+					first = expected
 					continue
 				}
-				assertSameSchemaDiagnostic(t, first, diagnostic)
+				assertSameSchemaDiagnostic(t, first, expected)
 			}
 		})
 	}
@@ -3906,7 +3896,7 @@ func TestSchemaBridgeEnforcesGlobalChildModels(t *testing.T) {
 		},
 		{
 			name:  "group model is unsupported after grammar validation",
-			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:group name="item"><xs:sequence/></xs:group></xs:schema>`,
+			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:group name="item"><xs:all/></xs:group></xs:schema>`,
 			class: FailureUnsupported,
 		},
 	}

@@ -51,6 +51,9 @@
 // other reference particles beyond the supported top-level direct
 // `ModelGroupReferenceParticle` form, repetition, and broader shapes remain
 // explicitly unsupported.
+// Named global model groups expose direct choices or sequences of global
+// element-reference particles as immutable query facts with exact ranges;
+// validation and code generation do not expand them.
 // Top-level direct model-group references on named complex types and bounded
 // attribute-free extensions over named empty-content bases are queryable as exact
 // immutable particles retaining `TargetID` without expanding target members;
