@@ -84,21 +84,22 @@ Documents follow identity-discovery order (root, queue); named declarations foll
 declaration ordinals; lookup maps never define observable order. Local particles use scoped component
 facts/indexes; validator/generator state is on-demand.
 
-Primitive status follows type-relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`/`xs:NMTOKEN` retain `DeclaredType`;
-named/anonymous restrictions retain immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins lack synthetic IDs.
+Global `xs:boolean` and atomic `xs:string`/`xs:token`/`xs:NMTOKEN` retain `DeclaredType`; named/anonymous restrictions retain immutable
+boolean-kind/string-enumeration/string-`whiteSpace`; built-ins lack synthetic IDs.
 Built-in/named integer/decimal attrs retain immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
-exact-typed-value, source-location. Named global complex types accept unqualified `mixed="false|0"`; omitted=element-only
-(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1 forms; anonymous global complex/other shapes unsupported.
-Typed global attributes expose immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
-Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline forms unsupported.
-`defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
-`defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
-Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string, string/boolean/precisionDecimal attrs unsupported.
+exact-typed-value, source-location. Named global complexes accept unqualified `mixed="false|0"`; omitted=element-only
+(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1 forms and anonymous global complex/other
+shapes unsupported. Typed global attrs expose immutable `AttributeDeclaration.IsInheritable()`; omitted `inheritable`=false.
+Compatibility/Strict11 accept it; Strict10 mismatches. Explicit `xs:string`/`xs:NMTOKEN` and named atomic string-family restrictions
+retain immutable type-reference facts; untyped/inline and other shapes unsupported.
+`defaultAttributesApply="true|false|1|0"` applies only to named globals in XSD 1.1/Compatibility without schema-level
+`defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 mismatches.
+Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string, boolean/precisionDecimal attrs unsupported.
 
-Named complexes expose `IsAbstract()`; derivation does not inherit it.
+Named complexes expose non-inherited `IsAbstract()`.
 Named complexes support global model-group refs, bounded openAttrs, attribute-free extensions over named empty bases; immutable IDs/locations/inherited
 wildcards; consumers reject. Direct named sequence/choice owners support `anyAttribute`: omitted/canonical `##any`/strict; explicit
-`##other`/lax; explicit locations retained, omitted locations=0. Their terms support immutable default-form `xs:any` `WildcardParticle`s: effective
+`##other`/lax; locations retained, omitted=0. Terms support immutable default-form `xs:any` `WildcardParticle`s: effective
 `##any`/strict, exact occurrence/location facts; `0/0` absent; consumers reject nonzero. Direct global named `openContent mode="none"` inert under
 Compatibility/Strict11; Strict10 reports XSD 1.1 mismatch. Other `openContent`/`defaultOpenContent`, broader placements, explicit
 element-wildcard constraints unsupported; malformed invalid. References retain immutable target facts.
@@ -123,7 +124,7 @@ integer/decimal sequences in lexical order. Sequences honor finite, unbounded, a
 default local scalars or global integer/decimal references; mixed and non-default forms are query-only. Non-default
 `precisionDecimal` ranges are unsupported. References use `TargetID`/`Lookup`; model-group refs retain IDs but consumers reject; default Boolean/integer/decimal choices validate.
 Local Boolean sequences remain unsupported; generation supports default all-Boolean local choices. Repetition/excluded shapes—global Boolean
-references, strings/tokens, lists/unions, attributes, structures—unsupported. Direct `xs:any` is query-only: consumers reject nonzero terms with
+refs, strings/tokens, lists/unions, attribute validation, structures—unsupported. Direct `xs:any` is query-only: consumers reject nonzero terms with
 edition-selected diagnostics; `0/0` absent.
 
 Generation: named/inherited global boolean/integer/decimal/string scalars, inline anonymous global strings, numeric choices, default all-Boolean local

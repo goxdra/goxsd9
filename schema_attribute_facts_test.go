@@ -256,10 +256,10 @@ func TestSchemaBridgeRetainsGlobalAttributeInheritableFacts(t *testing.T) {
 }
 
 func TestSchemaBridgeGlobalAttributeInheritablePolicyAndMalformedPrecedence(t *testing.T) {
-	explicit := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:integer" inheritable="true"/></xs:schema>`
+	explicit := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:string" inheritable="true"/></xs:schema>`
 	assertStrict10GlobalAttributeInheritableMismatch(t, explicit)
 
-	malformed := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:integer" inheritable="maybe"/></xs:schema>`
+	malformed := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:string" inheritable="maybe"/></xs:schema>`
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		t.Run(string(policy)+" malformed", func(t *testing.T) {
 			assertMalformedGlobalAttributeInheritable(t, malformed, policy)
@@ -391,6 +391,211 @@ func TestSchemaBridgeExposesImportedGlobalAttributeScalarType(t *testing.T) {
 	if components[1].ID().Source() != "other.xsd" || components[1].ID().Ordinal() != 1 {
 		t.Fatalf("cross-document type identity = %v, want other.xsd ordinal 1", components[1].ID())
 	}
+}
+
+//nolint:gocognit,funlen // Keep the cross-policy global string-family graph contract together.
+func TestSchemaBridgeRetainsGlobalStringFamilyAttributeFactsAcrossPolicies(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		t.Run(profile.name, func(t *testing.T) {
+			root := globalStringFamilyAttributeSchemaRoot(profile.version)
+			fixtures := map[string]discoveryFixture{
+				"chameleon.xsd": {
+					id: "chameleon.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + string(profile.version) + `">
+  <xs:simpleType name="IncludedString">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="included"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`,
+				},
+				"other.xsd": {
+					id: "other.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="` + string(profile.version) + `">
+  <xs:simpleType name="ImportedNMTOKEN">
+    <xs:restriction base="xs:NMTOKEN">
+      <xs:enumeration value="imported"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`,
+				},
+			}
+			first, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			second, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("repeated discoverTestSchemaWithPolicy: %v", err)
+			}
+			if !reflect.DeepEqual(first.Components(), second.Components()) {
+				t.Fatal("repeated global string-family attribute builds changed component facts or order")
+			}
+
+			wantAttributes := []struct {
+				name            string
+				declaredType    QName
+				typeLexical     string
+				atomicKind      schemaSimpleTypeAtomicKind
+				whiteSpace      string
+				whiteSpaceFixed bool
+				values          []string
+				typeSource      SourceID
+			}{
+				{
+					name:         "directString",
+					declaredType: mustTestQName(t, testXSDNamespace, "string"),
+					typeLexical:  "xs:string",
+					atomicKind:   schemaSimpleTypeAtomicString,
+					whiteSpace:   "preserve",
+				},
+				{
+					name:            "directNMTOKEN",
+					declaredType:    mustTestQName(t, testXSDNamespace, "NMTOKEN"),
+					typeLexical:     "xs:NMTOKEN",
+					atomicKind:      schemaSimpleTypeAtomicNMTOKEN,
+					whiteSpace:      "collapse",
+					whiteSpaceFixed: true,
+				},
+				{
+					name:         "namedString",
+					declaredType: mustTestQName(t, "urn:root", "NamedString"),
+					typeLexical:  "r:NamedString",
+					atomicKind:   schemaSimpleTypeAtomicString,
+					whiteSpace:   "preserve",
+					values:       []string{" named "},
+					typeSource:   "root.xsd",
+				},
+				{
+					name:            "inheritedNMTOKEN",
+					declaredType:    mustTestQName(t, "urn:root", "InheritedNMTOKEN"),
+					typeLexical:     "r:InheritedNMTOKEN",
+					atomicKind:      schemaSimpleTypeAtomicNMTOKEN,
+					whiteSpace:      "collapse",
+					whiteSpaceFixed: true,
+					values:          []string{"child"},
+					typeSource:      "root.xsd",
+				},
+				{
+					name:         "forwardString",
+					declaredType: mustTestQName(t, "urn:root", "ForwardString"),
+					typeLexical:  "r:ForwardString",
+					atomicKind:   schemaSimpleTypeAtomicString,
+					whiteSpace:   "preserve",
+					values:       []string{"forward"},
+					typeSource:   "root.xsd",
+				},
+				{
+					name:            "importedNMTOKEN",
+					declaredType:    mustTestQName(t, "urn:other", "ImportedNMTOKEN"),
+					typeLexical:     "o:ImportedNMTOKEN",
+					atomicKind:      schemaSimpleTypeAtomicNMTOKEN,
+					whiteSpace:      "collapse",
+					whiteSpaceFixed: true,
+					values:          []string{"imported"},
+					typeSource:      "other.xsd",
+				},
+				{
+					name:         "includedString",
+					declaredType: mustTestQName(t, "urn:root", "IncludedString"),
+					typeLexical:  "r:IncludedString",
+					atomicKind:   schemaSimpleTypeAtomicString,
+					whiteSpace:   "preserve",
+					values:       []string{"included"},
+					typeSource:   "chameleon.xsd",
+				},
+			}
+
+			components := first.Components()
+			attributeIndex := 0
+			for _, component := range components {
+				if component.Kind() != ComponentKindAttributeDeclaration {
+					continue
+				}
+				if attributeIndex >= len(wantAttributes) {
+					t.Fatalf("unexpected global attribute %q", component.Name())
+				}
+				want := wantAttributes[attributeIndex]
+				if component.Name() != mustTestQName(t, "urn:root", want.name) {
+					t.Fatalf("attribute %d name = %q, want %q", attributeIndex, component.Name(), want.name)
+				}
+				declaration, ok := component.AttributeDeclaration()
+				if !ok || declaration.DeclaredType() != want.declaredType {
+					t.Fatalf("attribute %q declaration = %q/%t, want %q", want.name, declaration.DeclaredType(), ok, want.declaredType)
+				}
+				reference, ok := declaration.TypeReference()
+				if !ok || reference.Name() != want.declaredType || reference.Loc() != elementReferenceTestAttributeLoc(t, root, `type="`+want.typeLexical+`"`) {
+					t.Fatalf("attribute %q reference = %q/%s/%t, want %q at type use", want.name, reference.Name(), reference.Loc(), ok, want.declaredType)
+				}
+				if reference.Variety() != SimpleTypeVarietyAtomicRestriction || reference.VarietyLoc().IsZero() {
+					t.Fatalf("attribute %q variety = %q at %s, want located atomic restriction", want.name, reference.Variety(), reference.VarietyLoc())
+				}
+				if reference.facts == nil || reference.facts.atomicKind != want.atomicKind {
+					t.Fatalf("attribute %q atomic facts = %#v, want %v", want.name, reference.facts, want.atomicKind)
+				}
+				facets, ok := reference.facts.facets.(schemaStringFacetVariant)
+				if !ok || facets.whiteSpace == nil || facets.whiteSpace.Value() != want.whiteSpace || facets.whiteSpace.Fixed() != want.whiteSpaceFixed {
+					t.Fatalf("attribute %q string facets = %#v/%t, want whiteSpace %q fixed=%t", want.name, facets, ok, want.whiteSpace, want.whiteSpaceFixed)
+				}
+				if got := facets.enumeration.Values(); !reflect.DeepEqual(got, want.values) {
+					t.Fatalf("attribute %q enumeration = %#v, want %#v", want.name, got, want.values)
+				}
+				if want.typeSource == "" {
+					if typeID, hasTypeID := declaration.TypeID(); hasTypeID || !typeID.IsZero() {
+						t.Fatalf("attribute %q built-in type ID = %v/%t, want zero/false", want.name, typeID, hasTypeID)
+					}
+					attributeIndex++
+					continue
+				}
+				wantID := componentIDForName(t, first, want.declaredType)
+				if typeID, hasTypeID := declaration.TypeID(); !hasTypeID || typeID != wantID || typeID.Source() != want.typeSource {
+					t.Fatalf("attribute %q named type ID = %v/%t, want %v/true from %q", want.name, typeID, hasTypeID, wantID, want.typeSource)
+				}
+				attributeIndex++
+			}
+			if attributeIndex != len(wantAttributes) {
+				t.Fatalf("global attribute count = %d, want %d", attributeIndex, len(wantAttributes))
+			}
+		})
+	}
+}
+
+func globalStringFamilyAttributeSchemaRoot(version XSDVersion) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root" version="` + string(version) + `">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:attribute name="directString" type="xs:string"/>
+  <xs:attribute name="directNMTOKEN" type="xs:NMTOKEN"/>
+  <xs:attribute name="namedString" type="r:NamedString"/>
+  <xs:attribute name="inheritedNMTOKEN" type="r:InheritedNMTOKEN"/>
+  <xs:attribute name="forwardString" type="r:ForwardString"/>
+  <xs:attribute name="importedNMTOKEN" type="o:ImportedNMTOKEN"/>
+  <xs:attribute name="includedString" type="r:IncludedString"/>
+  <xs:simpleType name="NamedString">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value=" named "/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="NMTOKENBase">
+    <xs:restriction base="xs:NMTOKEN">
+      <xs:enumeration value="base"/>
+      <xs:enumeration value="child"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="InheritedNMTOKEN">
+    <xs:restriction base="r:NMTOKENBase">
+      <xs:enumeration value="child"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="ForwardString">
+    <xs:restriction base="r:LaterString"/>
+  </xs:simpleType>
+  <xs:simpleType name="LaterString">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="forward"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`
 }
 
 //nolint:gocognit,funlen // Keep target failures and diagnostic evidence together.
@@ -535,6 +740,37 @@ func TestSchemaBridgeGlobalAttributeTypeDiagnostics(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep policy and located cause assertions together.
+func TestSchemaBridgeGlobalAttributeRejectsInvalidNMTOKENType(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		t.Run(profile.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `">
+  <xs:attribute name="value" type="r:InvalidNMTOKEN"/>
+  <xs:simpleType name="InvalidNMTOKEN">
+    <xs:restriction base="xs:NMTOKEN">
+      <xs:enumeration value="not a token"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
+				t.Fatal("discoverSchema accepted an invalid NMTOKEN attribute type or returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != InvalidEnumerationRestrictionCode || diagnostic.SpecRef() != tokenDiagnosticSpecRef(profile.version, "enumeration-valid-restriction") {
+				t.Fatalf("diagnostic = %s/%q/%q, want invalid NMTOKEN enumeration restriction", diagnostic, diagnostic.Class(), diagnostic.SpecRef())
+			}
+			wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, 5, "value")
+			if diagnostic.Loc() != wantLoc || len(diagnostic.Related()) != 0 {
+				t.Fatalf("diagnostic locations = %s/%v, want %s and no related locations", diagnostic.Loc(), diagnostic.Related(), wantLoc)
+			}
+			if !errors.Is(err, errInvalidEnumerationRestriction) || !errors.Is(err, errSchemaNMTOKENValueViolation) {
+				t.Fatalf("diagnostic lost invalid NMTOKEN causes: %v", err)
+			}
+		})
+	}
+}
+
 func TestSchemaBridgeGlobalAttributeUnsupportedTypesAndExcludedShapes(t *testing.T) {
 	testSchemaBridgeGlobalAttributeUnsupportedTypes(t)
 	testSchemaBridgeGlobalAttributeExcludedShapes(t)
@@ -559,7 +795,7 @@ func TestSchemaBridgeGlobalAttributePrecisionDecimalStrict10Policy(t *testing.T)
 }
 
 func testSchemaBridgeGlobalAttributeUnsupportedTypes(t *testing.T) {
-	unsupportedTypes := []string{"string", "boolean", "precisionDecimal"}
+	unsupportedTypes := []string{"boolean", "precisionDecimal"}
 	for _, local := range unsupportedTypes {
 		t.Run("unsupported "+local, func(t *testing.T) {
 			testSchemaBridgeGlobalAttributeUnsupportedType(t, local)
@@ -623,6 +859,24 @@ func testSchemaBridgeGlobalAttributeExcludedShapes(t *testing.T) {
 			class:       FailureUnsupported,
 			code:        UnsupportedSchemaSyntaxCode,
 			primary:     "<xs:simpleType>",
+			wantFeature: FeatureSchemaSyntax,
+		},
+		{
+			name:        "named list type",
+			policy:      Strict11,
+			root:        `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="value" type="r:List"/><xs:simpleType name="List"><xs:list itemType="xs:string"/></xs:simpleType></xs:schema>`,
+			class:       FailureUnsupported,
+			code:        UnsupportedSchemaSyntaxCode,
+			primary:     "type=",
+			wantFeature: FeatureSchemaSyntax,
+		},
+		{
+			name:        "named union type",
+			policy:      Strict11,
+			root:        `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="value" type="r:Union"/><xs:simpleType name="Union"><xs:union memberTypes="xs:string xs:NMTOKEN"/></xs:simpleType></xs:schema>`,
+			class:       FailureUnsupported,
+			code:        UnsupportedSchemaSyntaxCode,
+			primary:     "type=",
 			wantFeature: FeatureSchemaSyntax,
 		},
 		{
