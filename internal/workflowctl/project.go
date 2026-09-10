@@ -1,8 +1,11 @@
 package workflowctl
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -30,6 +33,79 @@ type projectContent struct {
 	Title      string `json:"title"`
 	Type       string `json:"type"`
 	URL        string `json:"url"`
+}
+
+func (list *projectList) UnmarshalJSON(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var response struct {
+		Items      json.RawMessage `json:"items"`
+		TotalCount *int            `json:"totalCount"`
+	}
+	if err := decoder.Decode(&response); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("multiple Project item responses")
+		}
+		return fmt.Errorf("trailing Project item response data: %w", err)
+	}
+	if len(response.Items) == 0 || bytes.Equal(bytes.TrimSpace(response.Items), []byte("null")) {
+		return errors.New("project item response is missing items")
+	}
+	if response.TotalCount == nil {
+		response.TotalCount = new(int)
+	}
+	if *response.TotalCount < 0 {
+		return fmt.Errorf("project item response has negative totalCount %d", *response.TotalCount)
+	}
+	var rawItems []json.RawMessage
+	if err := json.Unmarshal(response.Items, &rawItems); err != nil {
+		return fmt.Errorf("decode Project item list: %w", err)
+	}
+	items := make([]projectItem, len(rawItems))
+	for index, rawItem := range rawItems {
+		if err := validateProjectItemShape(rawItem, index); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(rawItem, &items[index]); err != nil {
+			return fmt.Errorf("decode Project item %d: %w", index, err)
+		}
+	}
+	*list = projectList{Items: items, TotalCount: *response.TotalCount}
+	return nil
+}
+
+func validateProjectItemShape(data []byte, index int) error {
+	var item struct {
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &item); err != nil {
+		return fmt.Errorf("decode Project item %d: %w", index, err)
+	}
+	if len(item.Content) == 0 || bytes.Equal(bytes.TrimSpace(item.Content), []byte("null")) {
+		return fmt.Errorf("project item %d has no classifiable content", index)
+	}
+	var content struct {
+		Number     *int    `json:"number"`
+		Repository *string `json:"repository"`
+		Type       *string `json:"type"`
+	}
+	if err := json.Unmarshal(item.Content, &content); err != nil {
+		return fmt.Errorf("decode Project item %d content: %w", index, err)
+	}
+	if content.Type == nil || strings.TrimSpace(*content.Type) == "" {
+		return fmt.Errorf("project item %d has no classifiable content", index)
+	}
+	if *content.Type != "Issue" {
+		return nil
+	}
+	if content.Number == nil || *content.Number <= 0 || content.Repository == nil || strings.TrimSpace(*content.Repository) == "" {
+		return fmt.Errorf("project item %d has no classifiable content", index)
+	}
+	return nil
 }
 
 type projectFieldList struct {

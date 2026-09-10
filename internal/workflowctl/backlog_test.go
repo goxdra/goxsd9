@@ -28,9 +28,10 @@ type backlogFixture struct {
 }
 
 type backlogErrorFixture struct {
-	name       string
-	projectOut string
-	dependency bool
+	name              string
+	projectOut        string
+	dependency        bool
+	wantProjectDecode bool
 }
 
 type backlogRunResult struct {
@@ -76,6 +77,57 @@ func TestBacklogHealthReadyFloorBoundary(t *testing.T) {
 		t.Fatalf("ten-ready report = %#v, want count 10, deficit 0, healthy", tenReport)
 	}
 	assertBacklogHealthFormats(t, tenFixture, tenReport)
+}
+
+func TestBacklogHealthReportsIncompleteProjectMetadata(t *testing.T) {
+	fixture, want := backlogIncompleteMetadataFixture()
+
+	textResult := runBacklogFixture(t, []string{"backlog", "health"}, fixture)
+	assertBacklogResult(t, textResult, want, fixture, "text")
+
+	jsonResult := runBacklogFixture(t, []string{"backlog", "health", "--format", "json"}, fixture)
+	assertBacklogResult(t, jsonResult, want, fixture, "json")
+
+	if want.Healthy {
+		t.Fatal("incomplete metadata report is healthy")
+	}
+	if want.Counts != (backlogHealthCounts{Ready: 10, XS: 2, S: 3, M: 2}) {
+		t.Fatalf("counts = %#v, want complete Ready floors", want.Counts)
+	}
+	if !strings.Contains(textResult.output, "#10: \"Picked missing phase\" (missing: Phase)\n") ||
+		!strings.Contains(textResult.output, "#20: \"Ready missing planning fields\" (missing: Phase, Priority)\n") ||
+		!strings.Contains(textResult.output, "#30: \"Backlog missing\\nplanning fields\" (missing: Effort, Phase, Priority)\n") {
+		t.Fatalf("text omitted incomplete metadata findings:\n%s", textResult.output)
+	}
+}
+
+func TestProjectListAcceptsTypedNonIssueWithoutIdentity(t *testing.T) {
+	const response = `{
+		"items": [
+			{"content": {"type": "DraftIssue", "title": "draft"}},
+			{"content": {"type": "PullRequest", "title": "pull request"}},
+			{"content": {"type": "Issue", "number": 7, "repository": "goxdra/goxsd9"}, "title": "canonical"},
+			{"content": {"type": "Issue", "number": 8, "repository": "other/example"}, "title": "foreign"}
+		],
+		"totalCount": 4
+	}`
+
+	var list projectList
+	if err := json.Unmarshal([]byte(response), &list); err != nil {
+		t.Fatalf("decode Project items: %v", err)
+	}
+	findings, err := incompleteProjectItems(list)
+	if err != nil {
+		t.Fatalf("collect incomplete Project items: %v", err)
+	}
+	want := []backlogHealthFinding{{
+		Number:  7,
+		Title:   "canonical",
+		Missing: []string{"Effort", "Phase", "Priority", "Status"},
+	}}
+	if !reflect.DeepEqual(findings, want) {
+		t.Fatalf("findings = %#v, want %#v", findings, want)
+	}
 }
 
 func assertBacklogHealthFormats(t *testing.T, fixture backlogFixture, want backlogHealthReport) {
@@ -137,6 +189,65 @@ func backlogFixtureForCounts(counts backlogHealthCounts) (backlogFixture, backlo
 	return fixture, newBacklogHealthReport(counts)
 }
 
+func backlogIncompleteMetadataFixture() (backlogFixture, backlogHealthReport) {
+	items := []projectItem{
+		backlogProjectItemWithMetadata(60, "Backlog", "Complete backlog item", "S", "P2", "Schema Model"),
+		backlogProjectItemWithMetadata(70, "Picked", "Complete picked item", "M", "P2", "Schema Model"),
+		backlogProjectItemWithMetadata(80, "Done", "Complete done item", "M", "P2", "Schema Model"),
+		backlogProjectItemWithMetadata(100, "Done", "Done missing all fields", "", "", ""),
+		backlogProjectItemFields(40, "Backlog", "Issue", "other/example", "Foreign missing all fields", "", "", ""),
+		backlogProjectItemFields(50, "Backlog", "PullRequest", repositoryKey, "Pull request missing all fields", "", "", ""),
+	}
+
+	selected := make([]int, 0, 10)
+	number := 1
+	appendReady := func(effort string, count int) {
+		for index := 0; index < count; index++ {
+			title := fmt.Sprintf("Complete ready item %d", number)
+			if number == 1 {
+				title = "Ready missing planning fields"
+			}
+			items = append(items, backlogProjectItemWithMetadata(number, "Ready", title, effort, "P2", "Schema Model"))
+			selected = append(selected, number)
+			number++
+		}
+	}
+	appendReady("XS", 1)
+	appendReady("S", 3)
+	appendReady("M", 2)
+	appendReady("XL", 3)
+	items = append(items,
+		backlogProjectItemWithMetadata(30, "Backlog", "Backlog missing\nplanning fields", "", "", ""),
+		backlogProjectItemWithMetadata(20, "Ready", "Ready missing planning fields", "XS", "", ""),
+		backlogProjectItemWithMetadata(10, "Picked", "Picked missing phase", "M", "P2", ""),
+	)
+	items[len(items)-3].Content.State = "CLOSED"
+	selected = append(selected, 20)
+
+	blockedNumber := 999
+	items = append(items, backlogProjectItemWithMetadata(blockedNumber, "Ready", "Blocked ready item", "XS", "P2", "Schema Model"))
+	relations := make(map[int]issueRelations, len(selected)+1)
+	for _, issueNumber := range selected {
+		relations[issueNumber] = issueRelations{}
+	}
+	relations[blockedNumber] = issueRelations{
+		BlockedBy: issueConnection{Nodes: []relatedIssue{{Number: 701, State: "OPEN"}}},
+	}
+	fixture := backlogFixture{
+		list:          projectList{Items: items, TotalCount: len(items)},
+		relations:     relations,
+		selected:      selected,
+		blockedNumber: blockedNumber,
+	}
+	counts := backlogHealthCounts{Ready: 10, XS: 2, S: 3, M: 2}
+	findings := []backlogHealthFinding{
+		{Number: 10, Title: "Picked missing phase", Missing: []string{"Phase"}},
+		{Number: 20, Title: "Ready missing planning fields", Missing: []string{"Phase", "Priority"}},
+		{Number: 30, Title: "Backlog missing\nplanning fields", Missing: []string{"Effort", "Phase", "Priority"}},
+	}
+	return fixture, newBacklogHealthReportWithFindings(counts, findings)
+}
+
 func TestBacklogHealthRejectsInvalidArgumentsBeforeCommands(t *testing.T) {
 	tests := []struct {
 		name string
@@ -186,7 +297,9 @@ func TestBacklogHealthUsageAdvertisesFormat(t *testing.T) {
 func TestBacklogHealthTransportAndDecodeErrorsDoNotRender(t *testing.T) {
 	tests := []backlogErrorFixture{
 		{name: "project transport"},
-		{name: "project decode", projectOut: "{"},
+		{name: "project decode", projectOut: "{", wantProjectDecode: true},
+		{name: "project partial", projectOut: `{}`, wantProjectDecode: true},
+		{name: "project unknown", projectOut: `{"items":[],"totalCount":0,"unexpected":true}`, wantProjectDecode: true},
 		{name: "dependency transport", dependency: true},
 	}
 
@@ -202,12 +315,12 @@ func assertBacklogHealthError(t *testing.T, test backlogErrorFixture) {
 	fixture, _ := backlogHealthFixture(0)
 	sentinel := errors.New(test.name)
 	output, err := runBacklogHealthError(t, test, fixture, sentinel)
-	if test.projectOut == "{" {
+	if test.wantProjectDecode {
 		if err == nil || !strings.Contains(err.Error(), "decode Project items") {
 			t.Fatalf("error = %v, want Project decode context", err)
 		}
 	}
-	if test.projectOut != "{" && !errors.Is(err, sentinel) {
+	if !test.wantProjectDecode && !errors.Is(err, sentinel) {
 		t.Fatalf("error = %v, want wrapped %q", err, sentinel)
 	}
 	if backlogExitCode(err) != 1 {
@@ -293,18 +406,36 @@ func assertBacklogResult(t *testing.T, result backlogRunResult, want backlogHeal
 		return
 	}
 
-	wantText := fmt.Sprintf("Ready: %d (XS=%d S=%d M=%d)\nReady floor: %d (XS=%d S=%d M=%d)\n",
-		want.Counts.Ready, want.Counts.XS, want.Counts.S, want.Counts.M,
-		want.Floors.Ready, want.Floors.XS, want.Floors.S, want.Floors.M)
-	if want.Healthy {
-		wantText += "Ready-work buffer: healthy\n"
-	}
+	wantText := expectedBacklogText(t, want)
 	if result.output != wantText {
 		t.Fatalf("text = %q, want exact bytes %q", result.output, wantText)
 	}
 	if !want.Healthy && result.err.Error() != expectedBacklogStateError(want) {
 		t.Fatalf("text error = %q, want %q", result.err, expectedBacklogStateError(want))
 	}
+}
+
+func expectedBacklogText(t *testing.T, report backlogHealthReport) string {
+	t.Helper()
+	var wantText strings.Builder
+	if _, err := fmt.Fprintf(&wantText, "Ready: %d (XS=%d S=%d M=%d)\nReady floor: %d (XS=%d S=%d M=%d)\n",
+		report.Counts.Ready, report.Counts.XS, report.Counts.S, report.Counts.M,
+		report.Floors.Ready, report.Floors.XS, report.Floors.S, report.Floors.M); err != nil {
+		t.Fatalf("format expected text: %v", err)
+	}
+	if len(report.Incomplete) != 0 {
+		wantText.WriteString("Incomplete Project metadata:\n")
+		for _, finding := range report.Incomplete {
+			if _, err := fmt.Fprintf(&wantText, "#%d: %s (missing: %s)\n", finding.Number, strconv.Quote(finding.Title),
+				strings.Join(finding.Missing, ", ")); err != nil {
+				t.Fatalf("format expected finding: %v", err)
+			}
+		}
+	}
+	if report.Healthy {
+		wantText.WriteString("Ready-work buffer: healthy\n")
+	}
+	return wantText.String()
 }
 
 func runBacklogFixture(t *testing.T, args []string, fixture backlogFixture) backlogRunResult {
@@ -394,10 +525,22 @@ func backlogHealthFixture(mask int) (backlogFixture, backlogHealthReport) {
 }
 
 func backlogProjectItem(number int, status, itemType, repository, effort string) projectItem {
+	title := fmt.Sprintf("Issue #%d", number)
+	return backlogProjectItemFields(number, status, itemType, repository, title, effort, "P2", "Schema Model")
+}
+
+func backlogProjectItemWithMetadata(number int, status, title, effort, priority, phase string) projectItem {
+	return backlogProjectItemFields(number, status, "Issue", repositoryKey, title, effort, priority, phase)
+}
+
+func backlogProjectItemFields(number int, status, itemType, repository, title, effort, priority, phase string) projectItem {
 	return projectItem{
-		Content: projectContent{Number: number, Repository: repository, Type: itemType},
-		Effort:  effort,
-		Status:  status,
+		Content:  projectContent{Number: number, Repository: repository, Title: title, Type: itemType},
+		Effort:   effort,
+		Phase:    phase,
+		Priority: priority,
+		Status:   status,
+		Title:    title,
 	}
 }
 
@@ -425,9 +568,17 @@ func parseBacklogTextFloors(t *testing.T, output string) backlogHealthFloors {
 }
 
 func expectedBacklogJSON(report backlogHealthReport) string {
-	return fmt.Sprintf("{\"counts\":{\"ready\":%d,\"xs\":%d,\"s\":%d,\"m\":%d},\"floors\":{\"ready\":10,\"xs\":2,\"s\":3,\"m\":2},\"deficits\":{\"ready\":%d,\"xs\":%d,\"s\":%d,\"m\":%d},\"healthy\":%t}\n",
+	incomplete := ""
+	if len(report.Incomplete) != 0 {
+		encoded, err := json.Marshal(report.Incomplete)
+		if err != nil {
+			panic(err)
+		}
+		incomplete = fmt.Sprintf(",\"incomplete\":%s", encoded)
+	}
+	return fmt.Sprintf("{\"counts\":{\"ready\":%d,\"xs\":%d,\"s\":%d,\"m\":%d},\"floors\":{\"ready\":10,\"xs\":2,\"s\":3,\"m\":2},\"deficits\":{\"ready\":%d,\"xs\":%d,\"s\":%d,\"m\":%d}%s,\"healthy\":%t}\n",
 		report.Counts.Ready, report.Counts.XS, report.Counts.S, report.Counts.M,
-		report.Deficits.Ready, report.Deficits.XS, report.Deficits.S, report.Deficits.M, report.Healthy)
+		report.Deficits.Ready, report.Deficits.XS, report.Deficits.S, report.Deficits.M, incomplete, report.Healthy)
 }
 
 func expectedBacklogStateError(report backlogHealthReport) string {
@@ -443,6 +594,13 @@ func expectedBacklogStateError(report backlogHealthReport) string {
 	}
 	if report.Deficits.M != 0 {
 		deficits = append(deficits, fmt.Sprintf("%d M", report.Deficits.M))
+	}
+	if len(report.Incomplete) != 0 {
+		if len(deficits) == 0 {
+			return fmt.Sprintf("Project metadata is incomplete: %d item(s)", len(report.Incomplete))
+		}
+		return fmt.Sprintf("ready-work buffer is below target: need %v; Project metadata is incomplete: %d item(s)",
+			deficits, len(report.Incomplete))
 	}
 	return fmt.Sprintf("ready-work buffer is below target: need %v", deficits)
 }
