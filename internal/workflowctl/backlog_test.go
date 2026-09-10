@@ -299,6 +299,8 @@ func TestBacklogHealthTransportAndDecodeErrorsDoNotRender(t *testing.T) {
 		{name: "project transport"},
 		{name: "project decode", projectOut: "{", wantProjectDecode: true},
 		{name: "project partial", projectOut: `{}`, wantProjectDecode: true},
+		{name: "project missing total count", projectOut: `{"items":[]}`, wantProjectDecode: true},
+		{name: "project null total count", projectOut: `{"items":[],"totalCount":null}`, wantProjectDecode: true},
 		{name: "project unknown", projectOut: `{"items":[],"totalCount":0,"unexpected":true}`, wantProjectDecode: true},
 		{name: "dependency transport", dependency: true},
 	}
@@ -306,6 +308,61 @@ func TestBacklogHealthTransportAndDecodeErrorsDoNotRender(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			assertBacklogHealthError(t, test)
+		})
+	}
+}
+
+func TestProjectListAcceptsExplicitEmptyTotalCount(t *testing.T) {
+	var list projectList
+	if err := json.Unmarshal([]byte(`{"items":[],"totalCount":0}`), &list); err != nil {
+		t.Fatalf("decode empty Project items: %v", err)
+	}
+	if list.Items == nil || len(list.Items) != 0 || list.TotalCount != 0 {
+		t.Fatalf("empty Project list = %#v, want explicit empty list", list)
+	}
+}
+
+func TestBacklogHealthUsesContentTitleFallback(t *testing.T) {
+	const projectOut = `{"items":[{"content":{"number":7,"repository":"goxdra/goxsd9","title":"Real title","type":"Issue"},"effort":"S","priority":"P2","status":"Picked"}],"totalCount":1}`
+	want := newBacklogHealthReportWithFindings(backlogHealthCounts{}, []backlogHealthFinding{
+		{Number: 7, Title: "Real title", Missing: []string{"Phase"}},
+	})
+
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			output, err := runBacklogProjectResponse(t, projectOut, format)
+			if backlogExitCode(err) != 3 {
+				t.Fatalf("exit code = %d, want unhealthy code 3 (err=%v)", backlogExitCode(err), err)
+			}
+			if err == nil || err.Error() != expectedBacklogStateError(want) {
+				t.Fatalf("error = %v, want %q", err, expectedBacklogStateError(want))
+			}
+			wantOutput := expectedBacklogText(t, want)
+			if format == "json" {
+				wantOutput = expectedBacklogJSON(want)
+			}
+			if output != wantOutput {
+				t.Fatalf("output = %q, want %q", output, wantOutput)
+			}
+		})
+	}
+}
+
+func TestBacklogHealthRejectsCanonicalProjectItemWithoutTitle(t *testing.T) {
+	const projectOut = `{"items":[{"content":{"number":7,"repository":"goxdra/goxsd9","type":"Issue"},"effort":"S","phase":"Schema Model","priority":"P2","status":"Picked"}],"totalCount":1}`
+
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			output, err := runBacklogProjectResponse(t, projectOut, format)
+			if err == nil || !strings.Contains(err.Error(), "no nonblank title") {
+				t.Fatalf("error = %v, want missing-title error", err)
+			}
+			if backlogExitCode(err) != 1 {
+				t.Fatalf("exit code = %d, want ordinary error code 1", backlogExitCode(err))
+			}
+			if output != "" {
+				t.Fatalf("output = %q, want no report", output)
+			}
 		})
 	}
 }
@@ -453,6 +510,31 @@ func runBacklogFixture(t *testing.T, args []string, fixture backlogFixture) back
 		output:         output.String(),
 		err:            err,
 		dependencyCall: dependencyCalls,
+	}
+}
+
+func runBacklogProjectResponse(t *testing.T, projectOut, format string) (string, error) {
+	t.Helper()
+	var output bytes.Buffer
+	application := app{
+		ctx:            context.Background(),
+		stdout:         &output,
+		executeCommand: backlogProjectResponseExecutor(t, projectOut),
+	}
+	err := application.run([]string{"backlog", "health", "--format", format})
+	return output.String(), err
+}
+
+func backlogProjectResponseExecutor(t *testing.T, projectOut string) commandExecutor {
+	t.Helper()
+	return func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+		if name == "git" && reflect.DeepEqual(args, []string{"rev-parse", "--show-toplevel"}) {
+			return "/repo", nil
+		}
+		if name == "gh" && strings.Join(args, " ") == "project item-list 1 --owner goxdra --format json --limit 500" {
+			return projectOut, nil
+		}
+		return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
 	}
 }
 

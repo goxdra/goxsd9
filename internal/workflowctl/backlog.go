@@ -54,7 +54,7 @@ func (a app) runBacklog(args []string) error {
 	if err != nil {
 		return err
 	}
-	list, err := a.projectItems(root)
+	list, err := a.strictProjectItems(root)
 	if err != nil {
 		return err
 	}
@@ -170,7 +170,10 @@ func incompleteProjectItems(list projectList) ([]backlogHealthFinding, error) {
 		if item.Content.Repository != repositoryKey || item.Content.Type != "Issue" {
 			continue
 		}
-		finding, ok := collectIncompleteProjectFinding(item, seen, duplicateSeen, &duplicates)
+		finding, ok, err := collectIncompleteProjectFinding(item, seen, duplicateSeen, &duplicates)
+		if err != nil {
+			return nil, fmt.Errorf("validate incomplete Project item: %w", err)
+		}
 		if !ok {
 			continue
 		}
@@ -194,25 +197,29 @@ func incompleteProjectItems(list projectList) ([]backlogHealthFinding, error) {
 	return findings, nil
 }
 
-func collectIncompleteProjectFinding(item projectItem, seen, duplicateSeen map[int]bool, duplicates *[]int) (backlogHealthFinding, bool) {
+func collectIncompleteProjectFinding(item projectItem, seen, duplicateSeen map[int]bool, duplicates *[]int) (backlogHealthFinding, bool, error) {
 	number := item.Content.Number
 	if seen[number] {
 		if duplicateSeen[number] {
-			return backlogHealthFinding{}, false
+			return backlogHealthFinding{}, false, nil
 		}
 		*duplicates = append(*duplicates, number)
 		duplicateSeen[number] = true
-		return backlogHealthFinding{}, false
+		return backlogHealthFinding{}, false, nil
 	}
 	seen[number] = true
+	title, err := canonicalProjectItemTitle(item)
+	if err != nil {
+		return backlogHealthFinding{}, false, err
+	}
 	if item.Status == "Done" {
-		return backlogHealthFinding{}, false
+		return backlogHealthFinding{}, false, nil
 	}
 	missing := missingProjectFields(item)
 	if len(missing) == 0 {
-		return backlogHealthFinding{}, false
+		return backlogHealthFinding{}, false, nil
 	}
-	return backlogHealthFinding{Number: number, Title: item.Title, Missing: missing}, true
+	return backlogHealthFinding{Number: number, Title: title, Missing: missing}, true, nil
 }
 
 func missingProjectFields(item projectItem) []string {

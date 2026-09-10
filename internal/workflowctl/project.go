@@ -36,46 +36,98 @@ type projectContent struct {
 }
 
 func (list *projectList) UnmarshalJSON(data []byte) error {
+	decoded, err := decodeProjectList(data, true)
+	if err != nil {
+		return err
+	}
+	*list = decoded
+	return nil
+}
+
+func decodeProjectList(data []byte, requireTotalCount bool) (projectList, error) {
+	response, err := decodeProjectListResponse(data)
+	if err != nil {
+		return projectList{}, err
+	}
+	totalCount, err := decodeProjectTotalCount(response.TotalCount, requireTotalCount)
+	if err != nil {
+		return projectList{}, err
+	}
+	items, err := decodeProjectItemList(response.Items)
+	if err != nil {
+		return projectList{}, err
+	}
+	return projectList{Items: items, TotalCount: totalCount}, nil
+}
+
+type projectListResponse struct {
+	Items      json.RawMessage `json:"items"`
+	TotalCount json.RawMessage `json:"totalCount"`
+}
+
+func decodeProjectListResponse(data []byte) (projectListResponse, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	var response struct {
-		Items      json.RawMessage `json:"items"`
-		TotalCount *int            `json:"totalCount"`
-	}
+	var response projectListResponse
 	if err := decoder.Decode(&response); err != nil {
-		return err
+		return projectListResponse{}, err
 	}
 	var trailing json.RawMessage
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err == nil {
-			return errors.New("multiple Project item responses")
+			return projectListResponse{}, errors.New("multiple Project item responses")
 		}
-		return fmt.Errorf("trailing Project item response data: %w", err)
+		return projectListResponse{}, fmt.Errorf("trailing Project item response data: %w", err)
 	}
 	if len(response.Items) == 0 || bytes.Equal(bytes.TrimSpace(response.Items), []byte("null")) {
-		return errors.New("project item response is missing items")
+		return projectListResponse{}, errors.New("project item response is missing items")
 	}
-	if response.TotalCount == nil {
-		response.TotalCount = new(int)
+	return response, nil
+}
+
+func decodeProjectTotalCount(data json.RawMessage, required bool) (int, error) {
+	missing := len(data) == 0 || bytes.Equal(bytes.TrimSpace(data), []byte("null"))
+	if missing {
+		if required {
+			return 0, errors.New("project item response is missing totalCount")
+		}
+		return 0, nil
 	}
-	if *response.TotalCount < 0 {
-		return fmt.Errorf("project item response has negative totalCount %d", *response.TotalCount)
+	var totalCount int
+	if err := json.Unmarshal(data, &totalCount); err != nil {
+		return 0, fmt.Errorf("decode Project item totalCount: %w", err)
 	}
+	if totalCount < 0 {
+		return 0, fmt.Errorf("project item response has negative totalCount %d", totalCount)
+	}
+	return totalCount, nil
+}
+
+func decodeProjectItemList(data json.RawMessage) ([]projectItem, error) {
 	var rawItems []json.RawMessage
-	if err := json.Unmarshal(response.Items, &rawItems); err != nil {
-		return fmt.Errorf("decode Project item list: %w", err)
+	if err := json.Unmarshal(data, &rawItems); err != nil {
+		return nil, fmt.Errorf("decode Project item list: %w", err)
 	}
 	items := make([]projectItem, len(rawItems))
 	for index, rawItem := range rawItems {
 		if err := validateProjectItemShape(rawItem, index); err != nil {
-			return err
+			return nil, err
 		}
 		if err := json.Unmarshal(rawItem, &items[index]); err != nil {
-			return fmt.Errorf("decode Project item %d: %w", index, err)
+			return nil, fmt.Errorf("decode Project item %d: %w", index, err)
 		}
 	}
-	*list = projectList{Items: items, TotalCount: *response.TotalCount}
-	return nil
+	return items, nil
+}
+
+func canonicalProjectItemTitle(item projectItem) (string, error) {
+	if strings.TrimSpace(item.Title) != "" {
+		return item.Title, nil
+	}
+	if strings.TrimSpace(item.Content.Title) != "" {
+		return item.Content.Title, nil
+	}
+	return "", fmt.Errorf("canonical Issue #%d has no nonblank title", item.Content.Number)
 }
 
 func validateProjectItemShape(data []byte, index int) error {
@@ -124,13 +176,21 @@ type projectFieldOption struct {
 }
 
 func (a app) projectItems(root string) (projectList, error) {
+	return a.projectItemsWithTotalCount(root, false)
+}
+
+func (a app) strictProjectItems(root string) (projectList, error) {
+	return a.projectItemsWithTotalCount(root, true)
+}
+
+func (a app) projectItemsWithTotalCount(root string, requireTotalCount bool) (projectList, error) {
 	output, err := a.command(root, "gh", "project", "item-list", strconv.Itoa(projectNumber), "--owner", owner,
 		"--format", "json", "--limit", "500")
 	if err != nil {
 		return projectList{}, fmt.Errorf("list Project items: %w", err)
 	}
-	var list projectList
-	if err := json.Unmarshal([]byte(output), &list); err != nil {
+	list, err := decodeProjectList([]byte(output), requireTotalCount)
+	if err != nil {
 		return projectList{}, fmt.Errorf("decode Project items: %w", err)
 	}
 	return list, nil
