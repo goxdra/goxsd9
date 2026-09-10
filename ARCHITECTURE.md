@@ -95,13 +95,8 @@ Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline fo
 `defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
 Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string, string/boolean/precisionDecimal attrs unsupported.
 
-Named complexes expose `IsAbstract()`; derivation does not inherit it.
-Named complexes support global model-group refs, bounded openAttrs, attribute-free extensions over named empty bases; immutable IDs/locations/inherited
-wildcards; consumers reject. Direct named sequence/choice owners support `anyAttribute`: omitted/canonical `##any`/strict; explicit
-`##other`/lax; explicit locations retained, omitted locations=0. Their terms support immutable default-form `xs:any` `WildcardParticle`s: effective
-`##any`/strict, exact occurrence/location facts; `0/0` absent; consumers reject nonzero. Direct global named `openContent mode="none"` inert under
-Compatibility/Strict11; Strict10 reports XSD 1.1 mismatch. Other `openContent`/`defaultOpenContent`, broader placements, explicit
-element-wildcard constraints unsupported; malformed invalid. References retain immutable target facts.
+Complexes: `IsAbstract()` (non-inherited); named global complex types: explicit non-empty `final`; `Final()`: canonical extension-then-restriction order; `FinalLoc()`: source location; XSD 1.0/1.1; Compatibility; `final=extension` or `#all` rejects extension derivation.
+Complexes: global model-group refs, bounded `openAttrs`, attribute-free extensions over named empty bases; immutable IDs/locations/inherited wildcards; consumers reject. Direct named sequence/choice `anyAttribute`: omitted/canonical `##any`/strict, explicit `##other`/lax; locations retained, omitted=0. Default-form `xs:any` `WildcardParticle`s: effective `##any`/strict, exact occurrence/location; 0/0 absent; nonzero rejected. Named `openContent mode="none"` inert under Compatibility/Strict11; Strict10: XSD1.1 mismatch. Other `openContent`/`defaultOpenContent`, broader placements, element-wildcard constraints unsupported; malformed invalid. References retain immutable target facts.
 
 ## Datatypes
 
