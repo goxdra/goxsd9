@@ -3,10 +3,10 @@
 ## Boundaries
 
 goxsd9 exposes schema parsing, immutable queries/walks, XML validation, and Go
-generation. The schema model is validation/generation's leaf dependency and has
-no validator/generator caches.
+generation. The schema model is validation/generation's leaf dependency without
+validator/generator caches.
 
-Runtime implementation uses only standard-library facilities; development
+Runtime uses only standard-library facilities; development
 tooling remains outside the library dependency graph.
 
 ## Deterministic phase pipeline
@@ -24,19 +24,19 @@ flowchart LR
 ```
 
 Phases consume complete prior results. Local construction may use unexported
-slices/tables; completed components are immutable and never backpatched. Document
-identities are interned before discovery; repeated includes/imports reuse them,
+slices/tables; completed components are immutable and never backpatched. Identities
+are interned before discovery; repeated includes/imports reuse them,
 so cycles do not recurse. Acyclic dependencies use stable topological order.
 
-Maps support lookup; ordered slices define observable walks/output, with explicit
+Maps support lookup; ordered slices define observable walks/output, with
 stable fallback keys.
 
 ## Input and resolution
 
 Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Callers create
 root sources with `NewResolvedSource`; resolvers create references and supply
-policy. Parsing closes all streams and decodes each identity once; repeats/cycles
-close without decoding.
+policy. Parsing closes all streams; each identity decodes once; repeats/cycles close
+without decoding.
 
 ```go
 type Resolver interface {
@@ -54,8 +54,8 @@ and preserves child context for nested references. Identities and lexical
 locations stay opaque: the parser does not interpret paths, open files, or make
 network requests. Resolver calls are sequential.
 
-Streaming decode captures one-based line and Unicode-code-point columns. Syntax
-and final components retain `Loc`, not source bytes or excerpts.
+Streaming decode captures one-based line and Unicode-code-point columns; syntax/final
+components retain `Loc`, not source bytes/excerpts.
 
 ## Diagnostics
 
@@ -70,8 +70,8 @@ Diagnostics have stable codes, primary `Loc`, optional related locations, and
 specification references; causes survive boundaries, and error-level diagnostics
 prevent schema return.
 
-Unsupported features have stable identifiers. Conformance reports aggregate
-them to show which implementation work unlocks the most tests.
+Unsupported features have stable identifiers; conformance reports aggregate them
+for unlock ranking.
 
 ## Schema model
 
@@ -93,10 +93,11 @@ Typed global attributes expose immutable `AttributeDeclaration.IsInheritable()`:
 Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline forms unsupported.
 `defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
+Root `xpathDefaultNamespace` is inert: Compatibility/Strict11 validate and discard it; malformed values are invalid, Strict10 reports a located mismatch, and XPath constructs remain unsupported.
 Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string, string/boolean/precisionDecimal attrs unsupported.
 
 Complexes: `IsAbstract()` (non-inherited); named global complex types: explicit non-empty `final`; `Final()`: canonical extension-then-restriction order; `FinalLoc()`: source location; XSD 1.0/1.1; Compatibility; `final=extension` or `#all` rejects extension derivation.
-Complexes: global model-group refs, bounded `openAttrs`, attribute-free extensions over named empty bases; immutable IDs/locations/inherited wildcards; consumers reject. Direct named sequence/choice `anyAttribute`: omitted/canonical `##any`/strict, explicit `##other`/lax; locations retained, omitted=0. Default-form `xs:any` `WildcardParticle`s: effective `##any`/strict, exact occurrence/location; 0/0 absent; nonzero rejected. Named `openContent mode="none"` inert under Compatibility/Strict11; Strict10: XSD1.1 mismatch. Other `openContent`/`defaultOpenContent`, broader placements, element-wildcard constraints unsupported; malformed invalid. References retain immutable target facts.
+Global model-group refs, bounded `openAttrs`, attribute-free extensions over named empty bases; immutable IDs/locations/inherited wildcards; consumers reject. Direct named sequence/choice `anyAttribute`: omitted/canonical `##any`/strict, explicit `##other`/lax; locations retained, omitted=0. Default-form `xs:any` `WildcardParticle`s: effective `##any`/strict, exact occurrence/location; 0/0 absent; nonzero rejected. Named `openContent mode="none"` inert under Compatibility/Strict11; Strict10: XSD1.1 mismatch. Other `openContent`/`defaultOpenContent`, broader placements, element-wildcard constraints unsupported; malformed invalid. References retain immutable target facts.
 
 ## Datatypes
 
@@ -127,11 +128,10 @@ references to global integer/decimal declarations are generated.
 
 ## Conformance
 
-The W3C XSD test suite is pinned as a submodule. Catalog status is preserved
-independently from execution outcome: submitted, accepted, stable, queried,
-disputed-test, and disputed-spec are not collapsed. The harness separately
-reports pass, conformance failure, unsupported, resolution failure, and
-internal failure. Queried, disputed-test, and disputed-spec cases remain
+W3C XSD test suite is pinned as a submodule. Catalog status is independent
+of execution: submitted, accepted, stable, queried, disputed-test, and disputed-spec
+remain distinct. The harness reports pass, conformance failure, unsupported,
+resolution failure, and internal failure. These cases remain
 visible but affect neither the headline score nor backlog unlock ranking.
 
 Specifications pin XSD 1.0/1.1 schema-for-schemas artifacts by URL and

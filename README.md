@@ -2,7 +2,7 @@
 
 goxsd9 targets XSD parsing, validation, Go generation; unsupported is explicit.
 
-## Schema parsing
+## [Schema parsing](ARCHITECTURE.md#schema-model)
 
 `ParseSchema` exposes immutable components; callers provide `ResolvedSource`/`Resolver`. Calls sequential; locations opaque. Compatibility default.
 

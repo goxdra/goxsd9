@@ -764,7 +764,7 @@ func validateSchemaRootUnqualifiedAttribute(element *syntaxElement, attribute sy
 				"schema root attribute \"xpathDefaultNamespace\" is an XSD 1.1-only construct",
 			)
 		}
-		return fmt.Sprintf("schema root attribute %q is not implemented", attribute.name.local), nil
+		return "", nil
 	default:
 		return "", newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("schema root has unknown attribute %q", attribute.name.local))
 	}
