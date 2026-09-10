@@ -382,6 +382,46 @@ func TestGenerateGoUnsupportedGlobalAttributeUsesGraphPolicyReference(t *testing
 	}
 }
 
+func TestGenerateGoRejectsNamedSimpleTypeFinalWithSchemaEvidence(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">
+  <xs:element name="value" type="r:Amount"/>
+  <xs:simpleType name="Amount" final="restriction"><xs:restriction base="xs:integer"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverTestSchema: %v", err)
+	}
+	components := schema.Components()
+	definition, ok := components[1].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("simple type view is missing")
+	}
+	output, err := GenerateGo(schema, "generated")
+	if output != nil || err == nil {
+		t.Fatalf("GenerateGo result = (%q, %v), want no output and an error", output, err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported {
+		t.Fatalf("diagnostic = %s, want unsupported codegen", diagnostic)
+	}
+	if diagnostic.Feature() != FeatureCodegen || diagnostic.SpecRef() != schemaSimpleTypeXSD11SpecRef {
+		t.Fatalf("diagnostic feature/spec ref = %q/%q, want codegen/%q", diagnostic.Feature(), diagnostic.SpecRef(), schemaSimpleTypeXSD11SpecRef)
+	}
+	finalRelated := false
+	for _, related := range diagnostic.Related() {
+		if related == definition.FinalLoc() {
+			finalRelated = true
+			break
+		}
+	}
+	if !finalRelated {
+		t.Fatalf("diagnostic related locations = %v, want final declaration", diagnostic.Related())
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+		t.Fatalf("diagnostic lost unsupported cause: %v", err)
+	}
+}
+
 func assertCodegenScalarUntypedElement(t *testing.T, version string, policy LanguagePolicy, wantRef string) {
 	t.Helper()
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + version + `"><xs:element name="item"/></xs:schema>`

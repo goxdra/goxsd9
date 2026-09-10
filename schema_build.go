@@ -201,6 +201,88 @@ type schemaBlockPolicy struct {
 	present bool
 }
 
+type schemaSimpleTypeFinalSet uint8
+
+const (
+	schemaSimpleTypeFinalExtension schemaSimpleTypeFinalSet = 1 << iota
+	schemaSimpleTypeFinalRestriction
+	schemaSimpleTypeFinalList
+	schemaSimpleTypeFinalUnion
+)
+
+var schemaSimpleTypeFinalValueOrder = [...]struct {
+	bit   schemaSimpleTypeFinalSet
+	value string
+}{
+	{bit: schemaSimpleTypeFinalExtension, value: "extension"},
+	{bit: schemaSimpleTypeFinalRestriction, value: "restriction"},
+	{bit: schemaSimpleTypeFinalList, value: "list"},
+	{bit: schemaSimpleTypeFinalUnion, value: "union"},
+}
+
+func (set schemaSimpleTypeFinalSet) values() []string {
+	if set == 0 {
+		return nil
+	}
+	values := make([]string, 0, len(schemaSimpleTypeFinalValueOrder))
+	for _, item := range schemaSimpleTypeFinalValueOrder {
+		if set&item.bit != 0 {
+			values = append(values, item.value)
+		}
+	}
+	return values
+}
+
+type schemaSimpleTypeFinalPolicy struct {
+	set schemaSimpleTypeFinalSet
+	loc Loc
+}
+
+//nolint:gocognit // Keep final lexical validation and canonicalization together.
+func schemaSimpleTypeFinalPolicyFromAttribute(attribute syntaxAttribute, version XSDVersion) (schemaSimpleTypeFinalPolicy, error) {
+	lexeme := collapseXMLWhitespace(attribute.value)
+	if lexeme == "" {
+		return schemaSimpleTypeFinalPolicy{}, nil
+	}
+	tokens := strings.Split(lexeme, " ")
+	if len(tokens) == 1 && tokens[0] == "#all" {
+		set := schemaSimpleTypeFinalRestriction | schemaSimpleTypeFinalList | schemaSimpleTypeFinalUnion
+		if version == XSDVersion11 {
+			set |= schemaSimpleTypeFinalExtension
+		}
+		return schemaSimpleTypeFinalPolicy{set: set, loc: attribute.loc}, nil
+	}
+	for _, token := range tokens {
+		if token == "#all" {
+			return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q cannot combine #all with other values", attribute.name.local))
+		}
+	}
+	var set schemaSimpleTypeFinalSet
+	for _, token := range tokens {
+		var bit schemaSimpleTypeFinalSet
+		switch token {
+		case "extension":
+			bit = schemaSimpleTypeFinalExtension
+		case "restriction":
+			bit = schemaSimpleTypeFinalRestriction
+		case "list":
+			bit = schemaSimpleTypeFinalList
+		case "union":
+			bit = schemaSimpleTypeFinalUnion
+		default:
+			return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q has an invalid final value %q", attribute.name.local, token))
+		}
+		if bit == schemaSimpleTypeFinalExtension && version == XSDVersion10 {
+			return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q has an invalid final value %q", attribute.name.local, token))
+		}
+		if set&bit != 0 {
+			continue
+		}
+		set |= bit
+	}
+	return schemaSimpleTypeFinalPolicy{set: set, loc: attribute.loc}, nil
+}
+
 var schemaBlockValueOrder = [...]struct {
 	bit   schemaBlockSet
 	value string
@@ -1031,7 +1113,7 @@ func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, 
 	if kind != ComponentKindSimpleTypeDefinition {
 		return declaration, nil
 	}
-	simpleType, err := schemaSimpleTypeInputFromElement(element)
+	simpleType, err := schemaSimpleTypeInputFromElement(element, version)
 	if err != nil {
 		return schemaComponentInput{}, err
 	}
@@ -1238,7 +1320,7 @@ func schemaElementTypeInputForInline(
 	if inlineErr := validateInlineSchemaType(inline, version); inlineErr != nil {
 		return nil, inlineErr
 	}
-	simpleType, simpleTypeErr := schemaSimpleTypeInputFromElement(inline)
+	simpleType, simpleTypeErr := schemaSimpleTypeInputFromElement(inline, version)
 	if simpleTypeErr != nil {
 		return nil, simpleTypeErr
 	}
@@ -1969,7 +2051,8 @@ func expandSchemaModelGroupReferenceQName(element *syntaxElement, attribute synt
 	return qualified, nil
 }
 
-func schemaSimpleTypeInputFromElement(element *syntaxElement) (*schemaSimpleTypeInput, error) {
+//nolint:gocognit // Keep simple-type model dispatch and final capture together.
+func schemaSimpleTypeInputFromElement(element *syntaxElement, version XSDVersion) (*schemaSimpleTypeInput, error) {
 	if element == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "construct simple type input from a nil element")
 	}
@@ -1994,18 +2077,26 @@ func schemaSimpleTypeInputFromElement(element *syntaxElement) (*schemaSimpleType
 	var err error
 	switch modelElement.name.local {
 	case "restriction":
-		model, err = schemaRestrictionModelInput(modelElement)
+		model, err = schemaRestrictionModelInput(modelElement, version)
 	case "list":
-		model, err = schemaListModelInput(modelElement)
+		model, err = schemaListModelInput(modelElement, version)
 	case "union":
-		model, err = schemaUnionModelInput(modelElement)
+		model, err = schemaUnionModelInput(modelElement, version)
 	default:
 		return nil, newSchemaBridgeInvariant(modelElement.loc, "simple type has an unknown model child")
 	}
 	if err != nil {
 		return nil, err
 	}
-	input := &schemaSimpleTypeInput{loc: element.loc, model: model}
+	final := schemaSimpleTypeFinalPolicy{}
+	finalAttributes := syntaxAttributesByLocal(element, "final")
+	if len(finalAttributes) == 1 {
+		final, err = schemaSimpleTypeFinalPolicyFromAttribute(finalAttributes[0], version)
+		if err != nil {
+			return nil, err
+		}
+	}
+	input := &schemaSimpleTypeInput{loc: element.loc, final: final, model: model}
 	if restriction, ok := model.(*schemaSimpleTypeRestrictionModelInput); ok && restriction != nil && restriction.base.kind == schemaSimpleTypeQNameReferenceInput {
 		input.base = restriction.base.name
 		input.baseLoc = restriction.base.loc
@@ -2077,7 +2168,7 @@ func invalidSchemaLocalElementTargetNamespace(attribute syntaxAttribute, targetN
 }
 
 //nolint:gocognit // Keep restriction source cardinality and facet collection together.
-func schemaRestrictionModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, error) {
+func schemaRestrictionModelInput(element *syntaxElement, version XSDVersion) (schemaSimpleTypeModelInput, error) {
 	baseAttributes := syntaxAttributesByLocal(element, "base")
 	inline := inlineSimpleTypeChild(element)
 	if len(baseAttributes) > 1 {
@@ -2102,7 +2193,7 @@ func schemaRestrictionModelInput(element *syntaxElement) (schemaSimpleTypeModelI
 		}
 	}
 	if inline != nil {
-		anonymous, err := schemaSimpleTypeInputFromElement(inline)
+		anonymous, err := schemaSimpleTypeInputFromElement(inline, version)
 		if err != nil {
 			return nil, err
 		}
@@ -2134,7 +2225,7 @@ func schemaRestrictionModelInput(element *syntaxElement) (schemaSimpleTypeModelI
 	}, nil
 }
 
-func schemaListModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, error) {
+func schemaListModelInput(element *syntaxElement, version XSDVersion) (schemaSimpleTypeModelInput, error) {
 	itemTypes := syntaxAttributesByLocal(element, "itemType")
 	inline := inlineSimpleTypeChild(element)
 	if len(itemTypes) > 1 {
@@ -2159,7 +2250,7 @@ func schemaListModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, e
 		}
 	}
 	if inline != nil {
-		anonymous, err := schemaSimpleTypeInputFromElement(inline)
+		anonymous, err := schemaSimpleTypeInputFromElement(inline, version)
 		if err != nil {
 			return nil, err
 		}
@@ -2175,7 +2266,7 @@ func schemaListModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, e
 	}, nil
 }
 
-func schemaUnionModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, error) {
+func schemaUnionModelInput(element *syntaxElement, version XSDVersion) (schemaSimpleTypeModelInput, error) {
 	members := make([]schemaSimpleTypeReferenceInput, 0)
 	memberTypes := syntaxAttributesByLocal(element, "memberTypes")
 	if len(memberTypes) > 1 {
@@ -2201,7 +2292,7 @@ func schemaUnionModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, 
 		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "simpleType" {
 			continue
 		}
-		anonymous, err := schemaSimpleTypeInputFromElement(child)
+		anonymous, err := schemaSimpleTypeInputFromElement(child, version)
 		if err != nil {
 			return nil, err
 		}
@@ -2626,6 +2717,7 @@ type schemaSimpleTypeResult struct {
 	hasItemType      bool
 	memberTypes      []schemaSimpleTypeReferenceComponent
 	facets           schemaSimpleTypeFacetVariant
+	final            schemaSimpleTypeFinalPolicy
 }
 
 type schemaSimpleTypeAtomicKind uint8
@@ -6100,6 +6192,7 @@ func (resolver *schemaSimpleTypeResolver) resolveInput(input *schemaSimpleTypeIn
 	}
 	result.present = true
 	result.anonymous = anonymous
+	result.final = input.final
 	result.loc = input.loc
 	if result.loc.IsZero() {
 		result.loc = fallbackLoc
@@ -6665,6 +6758,7 @@ func schemaSimpleTypeComponentFromResult(result schemaSimpleTypeResult, anonymou
 		hasItemType:      result.hasItemType,
 		memberTypes:      cloneSchemaSimpleTypeReferenceComponents(result.memberTypes),
 		facets:           result.facets,
+		final:            result.final,
 	}
 }
 

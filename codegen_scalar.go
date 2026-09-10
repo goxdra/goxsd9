@@ -855,6 +855,15 @@ func codegenNamedScalarKind(component Component, version XSDVersion) (DigitDatat
 			version,
 		)
 	}
+	if final := definition.Final(); len(final) != 0 {
+		return "", newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has unsupported final derivation controls", component.Name()),
+			appendCodegenRelated(nil, definition.FinalLoc()),
+			fmt.Errorf("%w: simple type final controls are not enforced", errCodegenUnsupported),
+			version,
+		)
+	}
 	if definition.Variety() != SimpleTypeVarietyAtomicRestriction {
 		return "", newCodegenUnsupported(
 			component.Loc(),
@@ -980,6 +989,15 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			fmt.Sprintf("anonymous simple type %q is outside scalar Go generation", component.Name()),
 			nil,
 			fmt.Errorf("%w: anonymous simple type", errCodegenUnsupported),
+			version,
+		)
+	}
+	if final := definition.Final(); len(final) != 0 {
+		return codegenSourceTarget{}, newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has unsupported final derivation controls", component.Name()),
+			appendCodegenRelated(nil, definition.FinalLoc()),
+			fmt.Errorf("%w: simple type final controls are not enforced", errCodegenUnsupported),
 			version,
 		)
 	}

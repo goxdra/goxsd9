@@ -752,6 +752,23 @@ func (definition SimpleTypeDefinition) VarietyLoc() Loc {
 	return definition.facts.varietyLoc
 }
 
+// Final returns the explicit non-empty final derivation controls in
+// specification order. The returned slice is independent of the schema.
+func (definition SimpleTypeDefinition) Final() []string {
+	if definition.facts == nil || definition.facts.anonymous {
+		return nil
+	}
+	return definition.facts.final.set.values()
+}
+
+// FinalLoc returns the location of the explicit final declaration.
+func (definition SimpleTypeDefinition) FinalLoc() Loc {
+	if definition.facts == nil || definition.facts.anonymous {
+		return Loc{}
+	}
+	return definition.facts.final.loc
+}
+
 // Base returns the expanded name written in the restriction's base attribute.
 // It returns the zero QName when the restriction derives from an inline type.
 func (definition SimpleTypeDefinition) Base() QName {
@@ -2070,6 +2087,7 @@ type schemaSimpleTypeInput struct {
 	loc       Loc
 	nodeID    SimpleTypeID
 	hasNodeID bool
+	final     schemaSimpleTypeFinalPolicy
 	model     schemaSimpleTypeModelInput
 
 	// These fields keep the phase-local construction helpers used by existing
@@ -2182,6 +2200,7 @@ type schemaSimpleTypeComponent struct {
 	hasItemType      bool
 	memberTypes      []schemaSimpleTypeReferenceComponent
 	facets           schemaSimpleTypeFacetVariant
+	final            schemaSimpleTypeFinalPolicy
 }
 
 type schemaSimpleTypeFacetVariant interface {
@@ -2878,6 +2897,7 @@ func completeSchemaComponent(
 			hasItemType:      simpleType.hasItemType,
 			memberTypes:      cloneSchemaSimpleTypeReferenceComponents(simpleType.memberTypes),
 			facets:           simpleType.facets,
+			final:            simpleType.final,
 		}
 	}
 	if complexType.present {
@@ -3096,6 +3116,7 @@ func cloneSchemaSimpleTypeInput(input *schemaSimpleTypeInput) *schemaSimpleTypeI
 		loc:       input.loc,
 		nodeID:    input.nodeID,
 		hasNodeID: input.hasNodeID,
+		final:     input.final,
 		base:      input.base,
 		baseLoc:   input.baseLoc,
 		facets:    cloneSchemaFacetInputs(input.facets),

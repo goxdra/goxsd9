@@ -1004,12 +1004,6 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:    "simple type final is unsupported",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="item" final="#all"><xs:restriction base="xs:string"/></xs:simpleType></xs:schema>`,
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:    "complex type mixed is unsupported",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="item" mixed="true"/></xs:schema>`,
 			class:   FailureUnsupported,
@@ -2289,7 +2283,8 @@ func schemaSimpleTypeFinalEmptySnapshot(t *testing.T, policy LanguagePolicy, ver
 	return first
 }
 
-func TestSchemaSimpleTypeFinalNonEmptyValuesRemainLocatedRegisteredUnsupported(t *testing.T) {
+//nolint:gocognit // Keep the policy, edition, and lexical retention matrix together.
+func TestSchemaSimpleTypeFinalNonEmptyValuesAreRetained(t *testing.T) {
 	values := []struct {
 		name  string
 		value string
@@ -2297,11 +2292,8 @@ func TestSchemaSimpleTypeFinalNonEmptyValuesRemainLocatedRegisteredUnsupported(t
 		{name: "all", value: "#all"},
 		{name: "single token", value: "restriction"},
 		{name: "multiple tokens", value: "restriction list"},
+		{name: "duplicate tokens", value: "restriction restriction list"},
 		{name: "reordered tokens", value: "list restriction"},
-	}
-	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
-	if !ok || !feature.Registered() {
-		t.Fatal("schema syntax feature is not registered")
 	}
 	for _, profile := range schemaSimpleTypeFinalProfiles() {
 		for _, version := range schemaSimpleTypeFinalVersions() {
@@ -2309,19 +2301,136 @@ func TestSchemaSimpleTypeFinalNonEmptyValuesRemainLocatedRegisteredUnsupported(t
 				t.Run(profile.name+"/"+version.name+"/"+test.name, func(t *testing.T) {
 					root := schemaSimpleTypeFinalRoot(true, test.value, version.version)
 					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-					assertSchemaSimpleTypeFinalUnsupported(t, schema, err, root, "final", feature.SpecRef(), `global simpleType attribute "final" is not implemented`)
+					if test.value == "#all" && profile.policy == Strict10 {
+						if err != nil {
+							t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+						}
+					}
+					if err != nil {
+						t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+					}
+					definition, ok := schema.Components()[0].SimpleTypeDefinition()
+					if !ok {
+						t.Fatal("simple type view missing")
+					}
+					want := []string{"restriction"}
+					if test.value == "#all" {
+						want = []string{"restriction", "list", "union"}
+						if profile.policy != Strict10 {
+							want = []string{"extension", "restriction", "list", "union"}
+						}
+					}
+					if test.value == "restriction list" || test.value == "list restriction" || test.value == "restriction restriction list" {
+						want = []string{"restriction", "list"}
+					}
+					if !reflect.DeepEqual(definition.Final(), want) {
+						t.Fatalf("Final() = %#v, want %#v", definition.Final(), want)
+					}
+					if definition.FinalLoc().IsZero() {
+						t.Fatal("FinalLoc() is zero")
+					}
 				})
 			}
 		}
 	}
 }
 
+func TestSchemaSimpleTypeFinalQueryIsCopiedAndDeterministic(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Item" final=" union   restriction list "><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Compatibility)
+	if err != nil {
+		t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+	}
+	definition, ok := schema.Components()[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("simple type view missing")
+	}
+	want := []string{"restriction", "list", "union"}
+	first := definition.Final()
+	if !reflect.DeepEqual(first, want) {
+		t.Fatalf("Final() = %#v, want %#v", first, want)
+	}
+	first[0] = "changed"
+	if got := definition.Final(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Final() was not copied: %#v", got)
+	}
+	if got := definition.FinalLoc(); got.IsZero() {
+		t.Fatal("FinalLoc() is zero")
+	}
+}
+
+//nolint:gocognit // Keep list/union identity, variety, and retained-fact assertions together.
+func TestSchemaSimpleTypeFinalIsRetainedForNamedListAndUnion(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
+  <xs:simpleType name="Atomic"><xs:restriction base="xs:integer"/></xs:simpleType>
+  <xs:simpleType name="NamedList" final="union restriction list"><xs:list itemType="t:Atomic"/></xs:simpleType>
+  <xs:simpleType name="NamedUnion" final="list union"><xs:union memberTypes="t:Atomic xs:string"/></xs:simpleType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Compatibility)
+	if err != nil {
+		t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		variety    SimpleTypeVariety
+		final      []string
+		component  Component
+		checkFacts func(*testing.T, SimpleTypeDefinition)
+	}{
+		{
+			name:      "NamedList",
+			variety:   SimpleTypeVarietyList,
+			final:     []string{"restriction", "list", "union"},
+			component: schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "NamedList"))[0],
+			checkFacts: func(t *testing.T, definition SimpleTypeDefinition) {
+				item, ok := definition.ItemType()
+				if !ok || item.Name().Local() != "Atomic" || item.Variety() != SimpleTypeVarietyAtomicRestriction {
+					t.Fatalf("list item = %q/%q/%t, want named Atomic", item.Name(), item.Variety(), ok)
+				}
+			},
+		},
+		{
+			name:      "NamedUnion",
+			variety:   SimpleTypeVarietyUnion,
+			final:     []string{"list", "union"},
+			component: schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", "NamedUnion"))[0],
+			checkFacts: func(t *testing.T, definition SimpleTypeDefinition) {
+				members := definition.MemberTypes()
+				if len(members) != 2 || members[0].Name().Local() != "Atomic" || members[1].Name().Local() != "string" {
+					t.Fatalf("union members = %#v, want Atomic then string", members)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			definition, ok := test.component.SimpleTypeDefinition()
+			if !ok {
+				t.Fatal("simple type view is missing")
+			}
+			if definition.ID().IsZero() {
+				t.Fatal("named simple type identity is missing")
+			}
+			if nodeID, ok := definition.NodeID(); !ok || nodeID.IsZero() {
+				t.Fatal("named simple type model identity is missing")
+			}
+			if definition.Variety() != test.variety || definition.VarietyLoc().IsZero() {
+				t.Fatalf("variety facts = %q/%s, want %q and a location", definition.Variety(), definition.VarietyLoc(), test.variety)
+			}
+			if !reflect.DeepEqual(definition.Final(), test.final) {
+				t.Fatalf("Final() = %#v, want %#v", definition.Final(), test.final)
+			}
+			if definition.FinalLoc().IsZero() {
+				t.Fatal("FinalLoc() is zero")
+			}
+			test.checkFacts(t, definition)
+		})
+	}
+}
+
 //nolint:gocognit // Keep edition-specific lexical validation and metadata assertions together.
 func TestSchemaSimpleTypeFinalExtensionFollowsEditionLexicalRules(t *testing.T) {
-	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
-	if !ok || !feature.Registered() {
-		t.Fatal("schema syntax feature is not registered")
-	}
 	for _, profile := range schemaSimpleTypeFinalProfiles() {
 		for _, version := range schemaSimpleTypeFinalVersions() {
 			t.Run(profile.name+"/"+version.name, func(t *testing.T) {
@@ -2339,14 +2448,20 @@ func TestSchemaSimpleTypeFinalExtensionFollowsEditionLexicalRules(t *testing.T) 
 						t.Fatalf("Strict10 diagnostic = %s, want invalid schema composition", diagnostic)
 					}
 					if diagnostic.Feature() != "" || diagnostic.SpecRef() != "" || errors.Is(err, ErrUnsupported) {
-						t.Fatalf("Strict10 diagnostic was classified as unsupported: %s", diagnostic)
+						t.Fatalf("Strict10 diagnostic was not classified as invalid input: %s", diagnostic)
 					}
 					if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 1, "final") {
 						t.Fatalf("Strict10 diagnostic location = %s, want final attribute", diagnostic.Loc())
 					}
 					return
 				}
-				assertSchemaSimpleTypeFinalUnsupported(t, schema, err, root, "final", feature.SpecRef(), `global simpleType attribute "final" is not implemented`)
+				if err != nil {
+					t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+				}
+				definition, ok := schema.Components()[0].SimpleTypeDefinition()
+				if !ok || !reflect.DeepEqual(definition.Final(), []string{"extension"}) {
+					t.Fatalf("extension final was not retained: %#v", definition.Final())
+				}
 			})
 		}
 	}
