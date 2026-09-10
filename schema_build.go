@@ -238,6 +238,40 @@ type schemaSimpleTypeFinalPolicy struct {
 	loc Loc
 }
 
+type schemaComplexTypeFinalSet uint8
+
+const (
+	schemaComplexTypeFinalExtension schemaComplexTypeFinalSet = 1 << iota
+	schemaComplexTypeFinalRestriction
+)
+
+var schemaComplexTypeFinalValueOrder = [...]struct {
+	bit   schemaComplexTypeFinalSet
+	value string
+}{
+	{bit: schemaComplexTypeFinalExtension, value: "extension"},
+	{bit: schemaComplexTypeFinalRestriction, value: "restriction"},
+}
+
+func (set schemaComplexTypeFinalSet) values() []string {
+	if set == 0 {
+		return nil
+	}
+	values := make([]string, 0, len(schemaComplexTypeFinalValueOrder))
+	for _, item := range schemaComplexTypeFinalValueOrder {
+		if set&item.bit == 0 {
+			continue
+		}
+		values = append(values, item.value)
+	}
+	return values
+}
+
+type schemaComplexTypeFinalPolicy struct {
+	set schemaComplexTypeFinalSet
+	loc Loc
+}
+
 //nolint:gocognit // Keep final lexical validation and canonicalization together.
 func schemaSimpleTypeFinalPolicyFromAttribute(attribute syntaxAttribute, version XSDVersion) (schemaSimpleTypeFinalPolicy, error) {
 	lexeme := collapseXMLWhitespace(attribute.value)
@@ -281,6 +315,63 @@ func schemaSimpleTypeFinalPolicyFromAttribute(attribute syntaxAttribute, version
 		set |= bit
 	}
 	return schemaSimpleTypeFinalPolicy{set: set, loc: attribute.loc}, nil
+}
+
+func schemaComplexTypeFinalPolicyFromAttribute(attribute syntaxAttribute) (schemaComplexTypeFinalPolicy, error) {
+	lexeme := collapseXMLWhitespace(attribute.value)
+	if lexeme == "" {
+		return schemaComplexTypeFinalPolicy{}, nil
+	}
+	tokens := strings.Split(lexeme, " ")
+	if len(tokens) == 1 && tokens[0] == "#all" {
+		return schemaComplexTypeFinalPolicy{
+			set: schemaComplexTypeFinalExtension | schemaComplexTypeFinalRestriction,
+			loc: attribute.loc,
+		}, nil
+	}
+	for _, token := range tokens {
+		if token == "#all" {
+			return schemaComplexTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q cannot combine #all with other values", attribute.name.local))
+		}
+	}
+	var set schemaComplexTypeFinalSet
+	for _, token := range tokens {
+		var bit schemaComplexTypeFinalSet
+		switch token {
+		case "extension":
+			bit = schemaComplexTypeFinalExtension
+		case "restriction":
+			bit = schemaComplexTypeFinalRestriction
+		default:
+			return schemaComplexTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q has an invalid final value %q", attribute.name.local, token))
+		}
+		set |= bit
+	}
+	return schemaComplexTypeFinalPolicy{set: set, loc: attribute.loc}, nil
+}
+
+func schemaComplexTypeFinalPolicyFromElement(element *syntaxElement) (schemaComplexTypeFinalPolicy, error) {
+	finalAttributes := syntaxAttributesByLocal(element, "final")
+	if len(finalAttributes) == 0 {
+		return schemaComplexTypeFinalPolicy{}, nil
+	}
+	if len(finalAttributes) != 1 {
+		return schemaComplexTypeFinalPolicy{}, newSchemaCompositionDiagnostic(
+			finalAttributes[1].loc,
+			`complexType attribute "final" must be unique`,
+		)
+	}
+	return schemaComplexTypeFinalPolicyFromAttribute(finalAttributes[0])
+}
+
+func schemaComplexTypeInputWithDeclarationFacts(
+	input *schemaComplexTypeInput,
+	abstract bool,
+	final schemaComplexTypeFinalPolicy,
+) *schemaComplexTypeInput {
+	input.abstract = abstract
+	input.final = final
+	return input
 }
 
 var schemaBlockValueOrder = [...]struct {
@@ -1438,6 +1529,10 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	if err != nil {
 		return nil, err
 	}
+	final, err := schemaComplexTypeFinalPolicyFromElement(element)
+	if err != nil {
+		return nil, err
+	}
 	abstract, err := schemaComplexTypeBooleanAttribute(element, "abstract")
 	if err != nil {
 		return nil, err
@@ -1449,15 +1544,13 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 			if inputErr != nil {
 				return nil, inputErr
 			}
-			input.abstract = abstract
-			return input, nil
+			return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
 		}
 		input, inputErr := schemaComplexTypeRestrictionInput(complexContent, block)
 		if inputErr != nil {
 			return nil, inputErr
 		}
-		input.abstract = abstract
-		return input, nil
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
 	}
 	model := schemaComplexTypeModel(element)
 	if model == nil {
@@ -1474,6 +1567,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 		}
 		return &schemaComplexTypeInput{
 			abstract:                abstract,
+			final:                   final,
 			body:                    &schemaComplexTypeEmptyBodyInput{},
 			prohibitedSubstitutions: block,
 		}, nil
@@ -1492,23 +1586,20 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 		if inputErr != nil {
 			return nil, inputErr
 		}
-		input.abstract = abstract
-		return input, nil
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
 	}
 	if model.name.local == "choice" {
 		input, inputErr := schemaChoiceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
 		if inputErr != nil {
 			return nil, inputErr
 		}
-		input.abstract = abstract
-		return input, nil
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
 	}
 	input, inputErr := schemaSequenceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
 	if inputErr != nil {
 		return nil, inputErr
 	}
-	input.abstract = abstract
-	return input, nil
+	return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
 }
 
 func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
@@ -4387,6 +4478,7 @@ func unsupportedSequencePrecisionDecimal(input *schemaElementInput, version XSDV
 type schemaComplexTypeResult struct {
 	present                 bool
 	abstract                bool
+	final                   schemaComplexTypeFinalPolicy
 	body                    schemaComplexTypeBodyResult
 	prohibitedSubstitutions schemaBlockPolicy
 }
@@ -4511,6 +4603,7 @@ func (resolver *schemaComplexTypeResolver) resolve(index int) error {
 	resolver.results[index] = schemaComplexTypeResult{
 		present:                 true,
 		abstract:                record.complexType.abstract,
+		final:                   record.complexType.final,
 		body:                    body,
 		prohibitedSubstitutions: record.complexType.prohibitedSubstitutions,
 	}
@@ -4629,6 +4722,15 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBase(
 		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, newSchemaBridgeInvariant(
 			input.loc,
 			"extension base has no completed complex type result",
+		)
+	}
+	if base.final.set&schemaComplexTypeFinalExtension != 0 {
+		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, newSchemaComplexTypeExtensionBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type extension base %q prohibits extension derivation", reference.name),
+			[]Loc{base.final.loc},
+			resolver.version,
+			fmt.Errorf("%w: extension is prohibited by base final", errSchemaComplexTypeBaseUnsupported),
 		)
 	}
 	inherited, err := resolver.extensionBaseFacts(base.body, resolver.records[candidate].loc, input.loc)

@@ -1038,6 +1038,9 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		_, err := schemaSimpleTypeFinalPolicyFromAttribute(attribute, version)
 		return "", err
 	}
+	if kind == ComponentKindComplexTypeDefinition && attribute.name.local == "final" {
+		return "", validateSchemaRestrictionList(attribute, "extension", "restriction")
+	}
 	if version == XSDVersion11 &&
 		kind == ComponentKindComplexTypeDefinition &&
 		attribute.name.namespace == "" &&
@@ -1062,9 +1065,6 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 					fmt.Sprintf("global %s attribute %q is an XSD 1.1-only construct", element.name.local, attribute.name.local),
 				)
 			}
-			return "", nil
-		}
-		if kind == ComponentKindComplexTypeDefinition && attribute.name.local == "final" && collapseXMLWhitespace(attribute.value) == "" {
 			return "", nil
 		}
 		if version == XSDVersion10 && isXSD11GlobalSchemaAttribute(kind, attribute.name.local) {
