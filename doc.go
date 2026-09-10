@@ -79,9 +79,9 @@
 // unsupported. Nonzero wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
 // gates. Scalar elements contain only character data;
-// global string/token values, local string/token particles, lists/unions,
-// attributes, broader particles, and other semantics remain explicit unsupported
-// behavior.
+// global string/token values, global attribute validation, local string/token
+// particles, lists/unions, broader particles, and other semantics remain
+// explicit unsupported behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal/
 // atomic-string scalar components, default-occurrence all-Boolean or numeric
 // direct choices, and default-bounded direct integer/decimal sequences; token,

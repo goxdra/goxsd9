@@ -449,20 +449,25 @@ func TestSchemaNMTOKENDiagnosticsAndConsumerBoundaries(t *testing.T) {
 				}
 			})
 
-			t.Run("global attribute boundary", func(t *testing.T) {
+			t.Run("global attribute model", func(t *testing.T) {
 				root := nmtokenConsumerAttributeRoot(profile.version)
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err == nil {
-					t.Fatal("discoverSchema silently accepted global xs:NMTOKEN attribute use")
+				if err != nil {
+					t.Fatalf("discoverSchema: %v", err)
 				}
-				assertNMTOKENNoSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
-					t.Fatalf("global attribute NMTOKEN diagnostic = %s/%q/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Code(), diagnostic.Feature())
+				components := schema.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:test", "item"))
+				if len(components) != 1 {
+					t.Fatalf("global NMTOKEN attribute matches = %d, want one", len(components))
 				}
-				if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 2, `type="xs:NMTOKEN"`) || diagnostic.SpecRef() != schemaAttributeTypeSpecRef(profile.version) || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("global attribute NMTOKEN diagnostic facts are wrong: %v", err)
+				declaration, ok := components[0].Attribute()
+				if !ok {
+					t.Fatal("global NMTOKEN attribute has no declaration view")
 				}
+				reference, ok := declaration.TypeReference()
+				if !ok {
+					t.Fatal("global NMTOKEN attribute has no type reference")
+				}
+				assertNMTOKENBuiltinReference(t, reference, mustSchemaTokenLoc(t, "root.xsd", root, 2, `type="xs:NMTOKEN"`))
 			})
 
 			t.Run("local particle boundary", func(t *testing.T) {

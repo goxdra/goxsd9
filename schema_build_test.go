@@ -878,18 +878,19 @@ func TestSchemaBridgeRejectsActiveTextAndAttributesWithoutPartialSchema(t *testi
 	}
 }
 
-func TestSchemaBridgeRecognizedGlobalAttributeIsUnsupported(t *testing.T) {
+func TestSchemaBridgeAcceptsTypedGlobalStringAttribute(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="item" type="xs:string"/></xs:schema>`
 	schema, err := discoverTestSchema(t, root, nil)
-	if err == nil {
-		t.Fatal("discoverSchema accepted an unimplemented global attribute")
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
 	}
-	if schema.storage != nil {
-		t.Fatal("discoverSchema returned a partial schema")
+	declaration, ok := schema.Components()[0].Attribute()
+	if !ok {
+		t.Fatal("typed global string attribute has no declaration view")
 	}
-	diagnostic := requireDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
-		t.Fatalf("diagnostic = %s, want schema syntax unsupported", diagnostic)
+	reference, ok := declaration.TypeReference()
+	if !ok || !reference.IsBuiltin() || reference.Name() != mustTestQName(t, testXSDNamespace, "string") {
+		t.Fatalf("typed global string reference = %#v/%t, want built-in xs:string", reference, ok)
 	}
 }
 
