@@ -431,12 +431,11 @@ func TestSchemaNMTOKENDiagnosticsAndConsumerBoundaries(t *testing.T) {
 					t.Fatalf("discoverSchema: %v", err)
 				}
 				generated, err := GenerateGo(schema, "generated")
-				if generated != nil || err == nil {
-					t.Fatalf("GenerateGo result = (%q, %v), want unsupported with no source", generated, err)
+				if err != nil || generated == nil {
+					t.Fatalf("GenerateGo result = (%q, %v), want NMTOKEN source", generated, err)
 				}
-				codegenDiagnostic := requireDiagnostic(t, err)
-				if codegenDiagnostic.Class() != FailureUnsupported || codegenDiagnostic.Feature() != FeatureCodegen || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("GenerateGo NMTOKEN diagnostic = %s/%q/%q, want codegen unsupported", codegenDiagnostic, codegenDiagnostic.Class(), codegenDiagnostic.Feature())
+				if !strings.Contains(string(generated), "type Item struct {\n\tValue string\n}") {
+					t.Fatalf("GenerateGo NMTOKEN source is missing Item string declaration: %s", generated)
 				}
 
 				validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<item xmlns="urn:test">value</item>`)))

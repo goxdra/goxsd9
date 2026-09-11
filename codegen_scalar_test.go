@@ -70,6 +70,42 @@ func TestCodegenScalarSourceIsDeterministicLocatedAndCompiling(t *testing.T) {
 	compileGeneratedCode(t, first)
 }
 
+func TestCodegenScalarSourcePreservesTokenFamilyIdentity(t *testing.T) {
+	schema, err := discoverTestSchema(t, `<xs:schema xmlns:xs="`+testXSDNamespace+`" targetNamespace="urn:test">
+  <xs:element name="token" type="xs:token"/>
+  <xs:element name="nmtoken" type="xs:NMTOKEN"/>
+</xs:schema>`, nil)
+	if err != nil {
+		t.Fatalf("discoverTestSchema: %v", err)
+	}
+	plan, err := planCodegenSource(schema, mustScalarCodegenNaming(t, schema))
+	if err != nil {
+		t.Fatalf("planCodegenSource: %v", err)
+	}
+	if len(plan.declarations) != 2 {
+		t.Fatalf("planned declarations = %d, want two", len(plan.declarations))
+	}
+	if plan.declarations[0].target.scalarKind != codegenSourceScalarToken {
+		t.Fatalf("token target scalar kind = %d, want token", plan.declarations[0].target.scalarKind)
+	}
+	if plan.declarations[1].target.scalarKind != codegenSourceScalarNMTOKEN {
+		t.Fatalf("NMTOKEN target scalar kind = %d, want NMTOKEN", plan.declarations[1].target.scalarKind)
+	}
+}
+
+func mutateCodegenStringWhiteSpace(t *testing.T, facets *schemaSimpleTypeFacetVariant, value string, fixed bool) {
+	t.Helper()
+	stringFacets, ok := (*facets).(schemaStringFacetVariant)
+	if !ok || stringFacets.whiteSpace == nil {
+		t.Fatalf("string facets = %#v/%t, want completed whiteSpace facts", *facets, ok)
+	}
+	whiteSpace := *stringFacets.whiteSpace
+	whiteSpace.value = value
+	whiteSpace.fixed = fixed
+	stringFacets.whiteSpace = &whiteSpace
+	*facets = stringFacets
+}
+
 //nolint:gocognit,funlen // Keep coordinated scalar-plan and schema-fact mutations together.
 func TestCodegenScalarSourceRejectsStaleBooleanPlanAtRenderBoundary(t *testing.T) {
 	tests := []struct {
@@ -212,8 +248,8 @@ func TestCodegenScalarSourceRejectsStaleNamedBooleanFacetsForElementAtRenderBoun
 	}
 }
 
-//nolint:gocognit // Keep the supported string fact corruption cases at the render boundary.
-func TestCodegenScalarSourceRejectsCorruptStringFactsAtRenderBoundary(t *testing.T) {
+//nolint:gocognit,funlen // Keep the supported string-family fact corruption cases at the render boundary.
+func TestCodegenScalarSourceRejectsCorruptStringFamilyFactsAtRenderBoundary(t *testing.T) {
 	tests := []struct {
 		name   string
 		root   string
@@ -239,6 +275,83 @@ func TestCodegenScalarSourceRejectsCorruptStringFactsAtRenderBoundary(t *testing
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:element name="item"><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType></xs:element></xs:schema>`,
 			mutate: func(schema Schema) {
 				schema.Components()[0].element.typeReference.anonymous.atomicKind = schemaSimpleTypeAtomicToken
+			},
+		},
+		{
+			name: "built-in token atomic kind",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:element name="item" type="xs:token"/></xs:schema>`,
+			mutate: func(schema Schema) {
+				schema.Components()[0].element.typeReference.atomicKind = schemaSimpleTypeAtomicNMTOKEN
+			},
+		},
+		{
+			name: "built-in NMTOKEN atomic kind",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:element name="item" type="xs:NMTOKEN"/></xs:schema>`,
+			mutate: func(schema Schema) {
+				schema.Components()[0].element.typeReference.atomicKind = schemaSimpleTypeAtomicToken
+			},
+		},
+		{
+			name: "named token base family",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:element name="item" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:token"/></xs:simpleType></xs:schema>`,
+			mutate: func(schema Schema) {
+				schema.Components()[1].simpleType.baseReference.atomicKind = schemaSimpleTypeAtomicString
+			},
+		},
+		{
+			name: "named NMTOKEN facets",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:element name="item" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:NMTOKEN"/></xs:simpleType></xs:schema>`,
+			mutate: func(schema Schema) {
+				schema.Components()[1].simpleType.facets = schemaBooleanFacetVariant{}
+			},
+		},
+		{
+			name: "inline NMTOKEN base family",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:element name="item"><xs:simpleType><xs:restriction base="xs:NMTOKEN"/></xs:simpleType></xs:element></xs:schema>`,
+			mutate: func(schema Schema) {
+				schema.Components()[0].element.typeReference.anonymous.baseReference.atomicKind = schemaSimpleTypeAtomicToken
+			},
+		},
+		{
+			name: "direct token preserve",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:element name="item" type="xs:token"/></xs:schema>`,
+			mutate: func(schema Schema) {
+				mutateCodegenStringWhiteSpace(t, &schema.Components()[0].element.typeReference.facets, "preserve", true)
+			},
+		},
+		{
+			name: "direct NMTOKEN non-fixed",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:element name="item" type="xs:NMTOKEN"/></xs:schema>`,
+			mutate: func(schema Schema) {
+				mutateCodegenStringWhiteSpace(t, &schema.Components()[0].element.typeReference.facets, "collapse", false)
+			},
+		},
+		{
+			name: "named token replace",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:element name="item" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:token"/></xs:simpleType></xs:schema>`,
+			mutate: func(schema Schema) {
+				mutateCodegenStringWhiteSpace(t, &schema.Components()[1].simpleType.facets, "replace", true)
+			},
+		},
+		{
+			name: "inherited NMTOKEN base non-fixed",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:element name="item" type="t:Child"/><xs:simpleType name="Base"><xs:restriction base="xs:NMTOKEN"/></xs:simpleType><xs:simpleType name="Child"><xs:restriction base="t:Base"/></xs:simpleType></xs:schema>`,
+			mutate: func(schema Schema) {
+				mutateCodegenStringWhiteSpace(t, &schema.Components()[2].simpleType.baseReference.facets, "collapse", false)
+			},
+		},
+		{
+			name: "inline token preserve",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:element name="item"><xs:simpleType><xs:restriction base="xs:token"/></xs:simpleType></xs:element></xs:schema>`,
+			mutate: func(schema Schema) {
+				mutateCodegenStringWhiteSpace(t, &schema.Components()[0].element.typeReference.anonymous.facets, "preserve", true)
+			},
+		},
+		{
+			name: "inline NMTOKEN base replace",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:element name="item"><xs:simpleType><xs:restriction base="xs:NMTOKEN"/></xs:simpleType></xs:element></xs:schema>`,
+			mutate: func(schema Schema) {
+				mutateCodegenStringWhiteSpace(t, &schema.Components()[0].element.typeReference.anonymous.baseReference.facets, "replace", true)
 			},
 		},
 	}

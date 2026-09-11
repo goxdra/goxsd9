@@ -91,8 +91,8 @@
 // attributes, broader particles, and other semantics remain explicit unsupported
 // behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal/
-// atomic-string scalar components, default-occurrence all-Boolean or numeric
-// direct choices, and default-bounded direct integer/decimal sequences; token/NMTOKEN,
-// boolean facets, local Boolean direct sequences, mixed direct choices, and
-// local string/token/NMTOKEN particles remain unsupported.
+// atomic string/token/NMTOKEN scalar components, default-occurrence all-Boolean or
+// numeric direct choices, and default-bounded direct integer/decimal sequences;
+// boolean facets, local Boolean direct sequences, mixed direct choices, and local
+// string/token/NMTOKEN particles remain unsupported.
 package goxsd9
