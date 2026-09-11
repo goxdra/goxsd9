@@ -990,6 +990,17 @@ func validateCodegenStringFamilyFacts(
 			version,
 		)
 	}
+	if expectedAtomicKind == schemaSimpleTypeAtomicToken || expectedAtomicKind == schemaSimpleTypeAtomicNMTOKEN {
+		if stringFacets.whiteSpace.Value() != "collapse" || !stringFacets.whiteSpace.Fixed() {
+			return newCodegenInternalWithSpec(
+				loc,
+				context+" has non-fixed token-family whiteSpace facts",
+				related,
+				fmt.Errorf("%w: token-family whiteSpace must be fixed collapse", errCodegenSchemaInvariant),
+				version,
+			)
+		}
+	}
 	return nil
 }
 
