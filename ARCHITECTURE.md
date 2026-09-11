@@ -124,8 +124,8 @@ Global Boolean references, local token/NMTOKEN particles, strings, lists/unions,
 query-only: nonzero terms are rejected with edition-selected diagnostics; `0/0` absent.
 
 Generation: named/inherited global boolean/integer/decimal/string/token/NMTOKEN scalars, inline anonymous global string/token/NMTOKEN elements, numeric choices,
-default all-Boolean local choices, and default-bounded sequences; local Boolean sequences, mixed/other choices, and repeated/other references remain unsupported; only
-default global integer/decimal references generate.
+default all-Boolean choices and default-bounded numeric/all-Boolean sequences; mixed Boolean/numeric sequences, other choices, and repeated/other
+references remain unsupported; only default global integer/decimal references generate.
 
 ## Conformance
 

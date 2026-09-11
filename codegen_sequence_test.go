@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"go/format"
 	"io"
 	"strings"
@@ -95,6 +96,206 @@ func useGeneratedSequences() {
 }
 `)
 		})
+	}
+}
+
+//nolint:gocognit,funlen // Keep the Boolean sequence graph and generated-source golden together.
+func TestGenerateGoDirectBooleanSequencesAcrossPolicies(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  goxsd9.LanguagePolicy
+		version string
+	}{
+		{name: "Compatibility", policy: goxsd9.Compatibility},
+		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0"},
+		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1"},
+	}
+	rootContents := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root"%s>
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:complexType name="empty"><xs:sequence/></xs:complexType>
+  <xs:complexType name="runtime"><xs:sequence/></xs:complexType>
+  <xs:complexType name="One"><xs:sequence><xs:element name="flag" type="xs:boolean"/></xs:sequence></xs:complexType>
+  <xs:complexType name="Record"><xs:sequence>
+    <xs:element name="line-item" type="xs:boolean"/>
+    <xs:element name="LINE_ITEM" type="r:DerivedFlag"/>
+    <xs:element name="forward" type="r:ForwardFlag"/>
+    <xs:element name="included" type="r:IncludedFlag"/>
+    <xs:element name="imported" type="o:ImportedFlag"/>
+  </xs:sequence></xs:complexType>
+  <xs:simpleType name="DerivedFlag"><xs:restriction base="r:BaseFlag"/></xs:simpleType>
+  <xs:simpleType name="BaseFlag"><xs:restriction base="xs:boolean"/></xs:simpleType>
+  <xs:simpleType name="ForwardFlag"><xs:restriction base="r:ForwardBase"/></xs:simpleType>
+  <xs:simpleType name="ForwardBase"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`
+	chameleonContents := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `">
+  <xs:simpleType name="IncludedFlag"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`
+	otherContents := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" targetNamespace="urn:other">
+  <xs:simpleType name="ImportedFlag"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`
+
+	var baseline []byte
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			version := ""
+			if profile.version != "" {
+				version = ` version="` + profile.version + `"`
+			}
+			root := fmt.Sprintf(rootContents, version)
+			schema, err := parseSequenceSchemaResult(t, profile.policy, root, map[string]string{
+				"chameleon.xsd": chameleonContents,
+				"other.xsd":     otherContents,
+			})
+			if err != nil {
+				t.Fatalf("ParseSchemaWithPolicy: %v", err)
+			}
+
+			first, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo: %v", err)
+			}
+			second, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo second: %v", err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatalf("repeated Boolean sequence output differs:\nfirst:\n%s\nsecond:\n%s", first, second)
+			}
+			formatted, err := format.Source(first)
+			if err != nil {
+				t.Fatalf("format generated Boolean sequence source: %v\n%s", err, first)
+			}
+			if !bytes.Equal(first, formatted) {
+				t.Fatalf("generated Boolean sequence source is not formatted:\n%s", first)
+			}
+			if baseline != nil && !bytes.Equal(first, baseline) {
+				t.Fatalf("equivalent Boolean sequence schemas differ across policies:\nwant:\n%s\ngot:\n%s", baseline, first)
+			}
+			if baseline == nil {
+				baseline = append([]byte(nil), first...)
+			}
+
+			source := string(first)
+			if strings.Contains(source, `github.com/goxdra/goxsd9`) || strings.Contains(source, "import ") {
+				t.Fatalf("Boolean-only direct sequence output unexpectedly imports the runtime:\n%s", source)
+			}
+			for _, name := range []string{
+				"Empty", "Runtime", "One", "Record", "DerivedFlag", "BaseFlag",
+				"ForwardFlag", "ForwardBase", "IncludedFlag", "ImportedFlag",
+			} {
+				if got := strings.Count(source, "type "+name+" "); got != 1 {
+					t.Fatalf("generated Boolean sequence declares %s %d times, want once:\n%s", name, got, source)
+				}
+			}
+			for _, fragment := range []string{
+				"type Empty struct{}",
+				"type Runtime struct{}",
+				"type One struct {\n\tFlag bool\n}",
+				"type Record struct {\n\tLineItem  bool\n\tLineItem2 DerivedFlag\n\tForward   ForwardFlag\n\tIncluded  IncludedFlag\n\tImported  ImportedFlag\n}",
+				"type DerivedFlag struct {\n\tValue bool\n}",
+			} {
+				if !strings.Contains(source, fragment) {
+					t.Fatalf("generated Boolean sequence source is missing %q:\n%s", fragment, source)
+				}
+			}
+			compilePublicGeneratedCode(t, first, `package consumer
+
+import generated "generated.test"
+
+func useGeneratedBooleanSequences() {
+	var empty generated.Empty
+	var one generated.One
+	var record generated.Record
+	var _ generated.Empty = empty
+	var _ generated.Runtime = generated.Runtime{}
+	var _ bool = one.Flag
+	var _ bool = record.LineItem
+	var _ generated.DerivedFlag = record.LineItem2
+	var _ generated.ForwardFlag = record.Forward
+	var _ generated.IncludedFlag = record.Included
+	var _ generated.ImportedFlag = record.Imported
+}
+`)
+		})
+	}
+}
+
+//nolint:gocognit // Keep policy, location, and stable diagnostic assertions together.
+func TestGenerateGoRejectsMixedBooleanDirectSequencesAcrossPolicies(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  goxsd9.LanguagePolicy
+		version string
+		wantRef string
+	}{
+		{name: "Compatibility", policy: goxsd9.Compatibility, wantRef: "xsd11-structures#element-sequence"},
+		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0", wantRef: "xsd10-structures#element-sequence"},
+		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1", wantRef: "xsd11-structures#element-sequence"},
+	}
+	orders := []struct {
+		name string
+		body string
+	}{
+		{name: "Boolean then numeric", body: `<xs:element name="flag" type="xs:boolean"/><xs:element name="count" type="xs:integer"/>`},
+		{name: "numeric then Boolean", body: `<xs:element name="count" type="xs:integer"/><xs:element name="flag" type="xs:boolean"/>`},
+	}
+	for _, profile := range profiles {
+		for _, order := range orders {
+			t.Run(profile.name+"/"+order.name, func(t *testing.T) {
+				version := ""
+				if profile.version != "" {
+					version = ` version="` + profile.version + `"`
+				}
+				root := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" targetNamespace="urn:sequence"` + version + `>
+  <xs:complexType name="Record"><xs:sequence>` + order.body + `</xs:sequence></xs:complexType>
+</xs:schema>`
+				schema, err := parseSequenceSchemaResult(t, profile.policy, root, nil)
+				if err != nil {
+					t.Fatalf("ParseSchemaWithPolicy: %v", err)
+				}
+				definition := sequenceTestDefinition(t, schema, "urn:sequence")
+				sequence, ok := definition.Particle().(goxsd9.SequenceParticle)
+				if !ok {
+					t.Fatalf("Record particle = %T, want SequenceParticle", definition.Particle())
+				}
+				particles := sequence.Particles()
+				if len(particles) != 2 {
+					t.Fatalf("Record particle count = %d, want 2", len(particles))
+				}
+
+				source, err := goxsd9.GenerateGo(schema, "generated")
+				if source != nil || err == nil {
+					t.Fatalf("mixed Boolean sequence result = (%q, %v), want nil source and error", source, err)
+				}
+				diagnostic := requirePublicCodegenDiagnostic(t, err)
+				if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode {
+					t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic", diagnostic)
+				}
+				if diagnostic.Feature() != goxsd9.FeatureCodegen || diagnostic.SpecRef() != profile.wantRef {
+					t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), goxsd9.FeatureCodegen, profile.wantRef)
+				}
+				if diagnostic.Loc() != particles[1].Loc() {
+					t.Fatalf("diagnostic primary location = %s, want conflicting field location %s", diagnostic.Loc(), particles[1].Loc())
+				}
+				related := diagnostic.Related()
+				wantRelated := []goxsd9.Loc{sequence.Loc(), particles[0].Loc(), particles[1].Loc()}
+				if len(related) != len(wantRelated) {
+					t.Fatalf("diagnostic related location count = %d, want %d: %v", len(related), len(wantRelated), related)
+				}
+				for index, want := range wantRelated {
+					if related[index] != want {
+						t.Fatalf("diagnostic related location %d = %s, want %s", index, related[index], want)
+					}
+				}
+				if diagnostic.Message() != "direct sequence mixes Boolean and non-Boolean scalar fields outside Go code generation" {
+					t.Fatalf("diagnostic message = %q, want stable mixed-family message", diagnostic.Message())
+				}
+				if !errors.Is(err, goxsd9.ErrUnsupported) {
+					t.Fatalf("diagnostic lost unsupported cause: %v", err)
+				}
+			})
+		}
 	}
 }
 
@@ -192,11 +393,6 @@ func TestGenerateGoRejectsUnsupportedDirectSequenceShapes(t *testing.T) {
 			name:     "non-default child occurrences",
 			body:     `<xs:sequence><xs:element name="value" type="xs:integer" minOccurs="0"/></xs:sequence>`,
 			wantSpec: "xsd11-structures#Particle_details",
-		},
-		{
-			name:     "boolean child",
-			body:     `<xs:sequence><xs:element name="value" type="xs:boolean"/></xs:sequence>`,
-			wantSpec: "xsd11-structures#element-sequence",
 		},
 		{
 			name:     "attribute wildcard",
@@ -314,14 +510,12 @@ func TestGenerateGoRejectsDirectSequenceElementReference(t *testing.T) {
 	}
 }
 
-func TestGenerateGoRejectsNamedBooleanDirectSequenceElement(t *testing.T) {
+func TestGenerateGoSupportsNamedBooleanDirectSequenceElement(t *testing.T) {
 	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict10, goxsd9.Strict11} {
 		t.Run(string(policy), func(t *testing.T) {
 			version := "1.0"
-			wantSpec := "xsd10-structures#element-sequence"
 			if policy == goxsd9.Strict11 {
 				version = "1.1"
-				wantSpec = "xsd11-structures#element-sequence"
 			}
 			root := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" xmlns:r="urn:sequence" targetNamespace="urn:sequence" version="` + version + `">
   <xs:complexType name="Record"><xs:sequence><xs:element name="value" type="r:Flag"/></xs:sequence></xs:complexType>
@@ -331,7 +525,15 @@ func TestGenerateGoRejectsNamedBooleanDirectSequenceElement(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseSchemaWithPolicy: %v", err)
 			}
-			assertPublicUnsupportedCodegen(t, schema, wantSpec)
+			source, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo: %v", err)
+			}
+			if !strings.Contains(string(source), "type Record struct {\n\tValue Flag\n}") ||
+				!strings.Contains(string(source), "type Flag struct {\n\tValue bool\n}") {
+				t.Fatalf("generated named Boolean sequence is incomplete:\n%s", source)
+			}
+			compilePublicGeneratedCode(t, source)
 		})
 	}
 }

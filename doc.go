@@ -61,7 +61,7 @@
 // immutable particles retaining `TargetID` without expanding target members;
 // `ValidateInstance` and `GenerateGo` reject them. Nested, local, recursive, and
 // broader group-reference shapes remain unsupported.
-// Default-bounded direct integer and decimal sequences are emitted as ordered Go
+// Default-bounded numeric or all-Boolean sequences are emitted as ordered Go
 // struct fields; repeated-field generation and direct-choice repetition remain
 // unsupported.
 // Bounded attribute-free complexContent/extension over named empty-content
@@ -93,7 +93,7 @@
 // behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal/
 // atomic string/token/NMTOKEN scalar components, default-occurrence all-Boolean or
-// numeric direct choices, and default-bounded direct integer/decimal sequences;
-// boolean facets, local Boolean direct sequences, mixed direct choices, and local
+// numeric direct choices, and default-bounded numeric or all-Boolean local sequences;
+// boolean facets, mixed Boolean/numeric sequences, mixed direct choices, and local
 // string/token/NMTOKEN particles remain unsupported.
 package goxsd9
