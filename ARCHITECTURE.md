@@ -116,9 +116,9 @@ distinctions and broader value spaces remain staged and report unsupported behav
 ## Validation and code generation
 
 `ValidateInstance` supports root globals with built-in or named `boolean`/`token`/`NMTOKEN`/`integer`/`decimal`/`precisionDecimal` types, plus named
-complexes with direct choices or sequences. Choices accept default-occurrence local Boolean/integer/decimal/precisionDecimal elements and
-default-occurrence references only to global integer/decimal elements. Local integer/decimal sequences honor finite/unbounded and above-`uint64`
-ranges under all policies. References use `TargetID`/`Lookup`; model-group IDs rejected.
+complexes with direct choices/sequences. Choices accept default-occurrence local Boolean/integer/decimal/precisionDecimal elements and
+default-occurrence references only to global integer/decimal elements. Homogeneous Boolean/numeric sequences honor finite/unbounded and
+above-`uint64` ranges under all policies; mixed sequences remain unsupported. References use `TargetID`; model groups rejected.
 `token`/`NMTOKEN` collapse XML whitespace before effective enumeration; NMTOKEN enforces repository XML NameChar policy; raw facts unchanged.
 Global Boolean references, local token/NMTOKEN particles, strings, lists/unions, attributes, and structures are unsupported. Direct `xs:any` is
 query-only: nonzero terms are rejected with edition-selected diagnostics; `0/0` absent.

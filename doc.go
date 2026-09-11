@@ -71,14 +71,15 @@
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal/
-// xs:precisionDecimal, or as a named global complex type with one direct local
-// integer/decimal sequence or one direct choice whose scalar alternatives use
-// default occurrences and contain local built-in or named
+// xs:precisionDecimal, or as a named global complex type with one direct
+// Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
+// restriction elements, one direct integer/decimal sequence, or one direct choice
+// whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, integer, decimal, or precisionDecimal elements, or default-occurrence references
 // to global integer/decimal elements. Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
-// and Strict11. Direct-choice repetition and excluded particle/target shapes
+// and Strict11. Mixed Boolean/numeric sequences, direct-choice repetition, and excluded particle/target shapes
 // remain explicit unsupported behavior. Reference alternatives exclude boolean
 // and precisionDecimal targets. Mixed local Boolean/numeric choices are
 // unsupported. Nonzero wildcard-bearing particles are explicit unsupported
