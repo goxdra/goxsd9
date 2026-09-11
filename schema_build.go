@@ -2071,17 +2071,30 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 	if err != nil {
 		return schemaWildcardParticleInput{}, err
 	}
-	if len(syntaxAttributesByLocal(element, "namespace")) != 0 ||
-		len(syntaxAttributesByLocal(element, "notNamespace")) != 0 ||
+	namespace := "##any"
+	namespaceLoc := Loc{}
+	if attributes := syntaxAttributesByLocal(element, "namespace"); len(attributes) == 1 {
+		namespace = collapseXMLWhitespace(attributes[0].value)
+		namespaceLoc = attributes[0].loc
+	}
+	processContents := "strict"
+	processContentsLoc := Loc{}
+	if attributes := syntaxAttributesByLocal(element, "processContents"); len(attributes) == 1 {
+		processContents = collapseXMLWhitespace(attributes[0].value)
+		processContentsLoc = attributes[0].loc
+	}
+	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 ||
 		len(syntaxAttributesByLocal(element, "notQName")) != 0 ||
-		len(syntaxAttributesByLocal(element, "processContents")) != 0 {
-		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "explicit wildcard constraints reached component construction")
+		namespace != "##any" || processContents != "strict" {
+		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
 	}
 	return schemaWildcardParticleInput{
-		loc:             element.loc,
-		occurrences:     occurrences,
-		namespace:       "##any",
-		processContents: "strict",
+		loc:                element.loc,
+		occurrences:        occurrences,
+		namespace:          namespace,
+		namespaceLoc:       namespaceLoc,
+		processContents:    processContents,
+		processContentsLoc: processContentsLoc,
 	}, nil
 }
 
@@ -5629,7 +5642,7 @@ func resolveSchemaWildcardParticle(input schemaWildcardParticleInput) (Particle,
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
-	if input.namespace != "##any" || input.processContents != "strict" || !input.namespaceLoc.IsZero() || !input.processContentsLoc.IsZero() {
+	if input.namespace != "##any" || input.processContents != "strict" {
 		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
 	}
 	return WildcardParticle{facts: &schemaWildcardParticle{
