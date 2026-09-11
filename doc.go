@@ -71,9 +71,10 @@
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal/
-// xs:precisionDecimal, or as a named global complex type with one direct local
-// one direct Boolean-only or integer/decimal sequence or one direct choice whose scalar alternatives use
-// default occurrences and contain local built-in or named
+// xs:precisionDecimal, or as a named global complex type with one direct
+// Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
+// restriction elements, one direct integer/decimal sequence, or one direct choice
+// whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, integer, decimal, or precisionDecimal elements, or default-occurrence references
 // to global integer/decimal elements. Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
