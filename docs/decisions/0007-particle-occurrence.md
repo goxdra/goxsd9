@@ -100,8 +100,9 @@ same exact occurrence representation also covers bounded attribute-free `complex
 over named empty-content complex bases: the model retains extension/base
 identities and locations and inherited bounded wildcard facts, while validation
 and code generation reject extension types as unsupported.
-Default-bounded direct integer/decimal sequence children are emitted as ordered
-Go struct fields; repeated-field generation remains unsupported. XSD 1.1
+Default-bounded direct integer/decimal or all-Boolean sequence children are emitted
+as ordered Go struct fields; mixed Boolean/numeric sequences and repeated-field
+generation remain unsupported. XSD 1.1
 default-occurrence direct choices may use `precisionDecimal` only when the
 choice and each mapped `precisionDecimal` alternative use default occurrences;
 non-precision alternatives may retain non-default ranges for queries. Non-`0/0`
@@ -197,7 +198,8 @@ numeric elements, while all other validator and code-generator consumption of di
 text-only boolean validation is supported under
 Compatibility, Strict10, and Strict11; global boolean scalar generation is
 supported. Default-occurrence direct-choice validation supports local Boolean
-alternatives, including named restrictions; mixed Boolean/numeric sequences and Boolean sequence generation remain unsupported; Go generation supports default-occurrence all-Boolean direct choices;
+alternatives, including named restrictions; mixed Boolean/numeric sequences remain unsupported; Go generation supports default-occurrence all-Boolean direct choices and
+default-bounded all-Boolean direct sequences;
 the parser does not support `all` mapping. The exact value has no fixed
 resource limit; later phases must set bounded input and materialization
 policies.
