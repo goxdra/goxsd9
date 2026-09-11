@@ -171,6 +171,13 @@ func TestValidateInstanceKeepsTokenOutsideRootScalarBoundaryUnsupported(t *testi
 			if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedInstanceValidationCode || diagnostic.Feature() != goxsd9.FeatureInstanceValidation {
 				t.Fatalf("choice token diagnostic = %s/%q/%q/%q, want instance-validation unsupported", diagnostic, diagnostic.Class(), diagnostic.Code(), diagnostic.Feature())
 			}
+			wantSpecRef := "xsd11-structures#cvc-elt"
+			if policy.version == goxsd9.XSDVersion10 {
+				wantSpecRef = "xsd10-structures#cvc-elt"
+			}
+			if diagnostic.SpecRef() != wantSpecRef {
+				t.Fatalf("choice token SpecRef() = %q, want %q", diagnostic.SpecRef(), wantSpecRef)
+			}
 			if !errors.Is(err, goxsd9.ErrUnsupported) || diagnostic.Loc().IsZero() {
 				t.Fatalf("choice token diagnostic lost unsupported classification or location: %v", err)
 			}

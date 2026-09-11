@@ -1417,7 +1417,7 @@ func instanceScalarTypeForTarget(
 				errInstanceUnsupportedType,
 			)
 		}
-		return instanceBuiltInScalarType(declaredType, related, loc, allowPrecisionDecimal, allowToken, booleanVersion)
+		return instanceBuiltInScalarType(declaredType, related, loc, fallbackVersion, allowPrecisionDecimal, allowToken, booleanVersion)
 	}
 	if !hasTypeID || typeID.IsZero() {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
@@ -1647,7 +1647,7 @@ func instanceScalarEnumerationFor(definition SimpleTypeDefinition, kind DigitDat
 	}
 }
 
-func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, allowPrecisionDecimal, allowToken bool, booleanVersion XSDVersion) (instanceScalarType, error) {
+func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowPrecisionDecimal, allowToken bool, booleanVersion XSDVersion) (instanceScalarType, error) {
 	switch declaredType.Local() {
 	case "integer":
 		facets, err := NewIntegerDigitFacets(nil, instanceBuiltInValidationVersion)
@@ -1708,7 +1708,7 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, allow
 				loc,
 				fmt.Sprintf("global element type %q is outside scalar validation", declaredType),
 				related,
-				instanceBuiltInValidationVersion,
+				fallbackVersion,
 				errInstanceUnsupportedType,
 			)
 		}
