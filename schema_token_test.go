@@ -438,7 +438,7 @@ func TestSchemaTokenRestrictionCyclesRemainLocatedAndProduceNoSchema(t *testing.
 }
 
 //nolint:gocognit // Keep direct, named, local-particle, and consumer gates together.
-func TestSchemaTokenConsumerBoundariesRemainExplicitlyUnsupported(t *testing.T) {
+func TestSchemaTokenConsumerBoundariesPreserveScope(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			for _, test := range []struct {
@@ -468,15 +468,8 @@ func TestSchemaTokenConsumerBoundariesRemainExplicitlyUnsupported(t *testing.T) 
 					}
 
 					validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(test.body)))
-					if validationErr == nil {
-						t.Fatal("ValidateInstance silently accepted xs:token")
-					}
-					validationDiagnostic := requireDiagnostic(t, validationErr)
-					if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || validationDiagnostic.Feature() != FeatureInstanceValidation {
-						t.Fatalf("ValidateInstance diagnostic = %s/%q/%q/%q, want instance-validation unsupported", validationDiagnostic, validationDiagnostic.Class(), validationDiagnostic.Code(), validationDiagnostic.Feature())
-					}
-					if !errors.Is(validationErr, ErrUnsupported) || !errors.Is(validationErr, errInstanceUnsupportedType) {
-						t.Fatalf("ValidateInstance diagnostic lost unsupported cause: %v", validationErr)
+					if validationErr != nil {
+						t.Fatalf("ValidateInstance token scalar = %v, want supported", validationErr)
 					}
 				})
 			}

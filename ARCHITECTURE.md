@@ -115,17 +115,17 @@ distinctions and broader value spaces remain staged and report unsupported behav
 
 ## Validation and code generation
 
-`ValidateInstance` supports scalar `boolean`/`integer`/`decimal`/`precisionDecimal` globals and named complexes with
-integer/decimal sequences in lexical order. Sequences honor finite, unbounded, and above-`uint64` ranges under all policies. Direct choices allow
-default local scalars or global integer/decimal references; mixed and non-default forms are query-only. Non-default
-`precisionDecimal` ranges are unsupported. References use `TargetID`/`Lookup`; model-group refs retain IDs but consumers reject; default Boolean/integer/decimal choices validate.
-Local Boolean sequences remain unsupported; generation supports default all-Boolean local choices. Repetition/excluded shapes—global Boolean
-references, strings/tokens, lists/unions, attributes, structures—unsupported. Direct `xs:any` is query-only: consumers reject nonzero terms with
+`ValidateInstance` supports scalar `boolean`/`token`/`integer`/`decimal`/`precisionDecimal` globals and named complexes with
+integer/decimal sequences in lexical order. Sequences honor finite/unbounded and above-`uint64` ranges under all policies. Direct choices allow
+default local or global integer/decimal references; mixed/non-default forms are query-only. Non-default
+`precisionDecimal` ranges are unsupported. References use `TargetID`/`Lookup`; model-group IDs remain but are rejected; default Boolean/integer/decimal choices validate.
+`token` collapses XML whitespace before effective enumeration; raw facts unchanged. Local Boolean sequences unsupported; default all-Boolean choices generate. Repetition/excluded shapes—global Boolean
+references, strings/NMTOKEN, lists/unions, attributes, structures—unsupported. Direct `xs:any` is query-only: consumers reject nonzero terms with
 edition-selected diagnostics; `0/0` absent.
 
 Generation: named/inherited global boolean/integer/decimal/string scalars, inline anonymous global strings, numeric choices, default all-Boolean local
-choices, and default-bounded sequences; local Boolean sequences, mixed/other choices, and repeated/other references remain unsupported; only default
-references to global integer/decimal declarations are generated.
+choices, and default-bounded sequences; token/NMTOKEN, local Boolean sequences, mixed/other choices, and repeated/other references remain unsupported; only
+default global integer/decimal references generate.
 
 ## Conformance
 
