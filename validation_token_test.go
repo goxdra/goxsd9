@@ -185,10 +185,10 @@ func TestValidateInstanceKeepsTokenOutsideRootScalarBoundaryUnsupported(t *testi
 	}
 }
 
-func TestValidateInstanceKeepsExcludedGlobalStringFamiliesUnsupported(t *testing.T) {
+func TestValidateInstanceKeepsExcludedGlobalStringUnsupported(t *testing.T) {
 	for _, policy := range validationTokenPolicies() {
 		t.Run(policy.name, func(t *testing.T) {
-			for _, datatype := range []string{"string", "NMTOKEN"} {
+			for _, datatype := range []string{"string"} {
 				t.Run(datatype, func(t *testing.T) {
 					root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" targetNamespace="` + validationTokenNamespace + `" version="` + string(policy.version) + `">
   <xs:element name="item" type="xs:` + datatype + `"/>

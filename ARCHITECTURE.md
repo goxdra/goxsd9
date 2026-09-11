@@ -115,13 +115,13 @@ distinctions and broader value spaces remain staged and report unsupported behav
 
 ## Validation and code generation
 
-`ValidateInstance` supports root globals with built-in or named `boolean`/`token`/`integer`/`decimal`/`precisionDecimal` types, plus named
+`ValidateInstance` supports root globals with built-in or named `boolean`/`token`/`NMTOKEN`/`integer`/`decimal`/`precisionDecimal` types, plus named
 complexes with direct choices or sequences. Choices accept default-occurrence local Boolean/integer/decimal/precisionDecimal elements and
-default-occurrence references only to global integer/decimal elements. Direct sequences remain local integer/decimal. Sequences honor
-finite/unbounded and above-`uint64` ranges under all policies. References use `TargetID`/`Lookup`; model-group IDs remain but are rejected.
-`token` collapses XML whitespace before effective enumeration; raw facts unchanged. Global Boolean references, local token particles, strings/NMTOKEN,
-lists/unions, attributes, and structures remain unsupported. Direct `xs:any` is query-only: consumers reject nonzero terms with
-edition-selected diagnostics; `0/0` absent.
+default-occurrence references only to global integer/decimal elements. Local integer/decimal sequences honor finite/unbounded and above-`uint64`
+ranges under all policies. References use `TargetID`/`Lookup`; model-group IDs rejected.
+`token`/`NMTOKEN` collapse XML whitespace before effective enumeration; NMTOKEN enforces repository XML NameChar policy; raw facts unchanged.
+Global Boolean references, local token/NMTOKEN particles, strings, lists/unions, attributes, and structures are unsupported. Direct `xs:any` is
+query-only: nonzero terms are rejected with edition-selected diagnostics; `0/0` absent.
 
 Generation: named/inherited global boolean/integer/decimal/string scalars, inline anonymous global strings, numeric choices, default all-Boolean local
 choices, and default-bounded sequences; token/NMTOKEN, local Boolean sequences, mixed/other choices, and repeated/other references remain unsupported; only

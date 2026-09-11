@@ -7,7 +7,7 @@
 // supported schema-level components, including simple-type atomic restrictions,
 // lists, and unions. Anonymous simple types and resolved built-in, named, and
 // anonymous simple-type references are modeled, along with global xs:boolean
-// and atomic xs:string/xs:token declarations and their named or anonymous
+// and atomic xs:string/xs:token/xs:NMTOKEN declarations and their named or anonymous
 // restrictions.
 // Queries and walks are deterministic. SimpleTypeDefinition.IsBoolean,
 // StringEnumerationFacets, and StringWhiteSpaceFacet report immutable kind
@@ -45,7 +45,7 @@
 // non-default precisionDecimal choice or alternative ranges and non-0/0
 // direct-sequence precisionDecimal ranges that map to particles are
 // schema-unsupported. Anonymous, nested, and broader particles remain
-// unsupported; local string/token particles remain unsupported. Anonymous simple-type
+// unsupported; local string/token/NMTOKEN particles remain unsupported. Anonymous simple-type
 // models and resolved built-in, named, and anonymous simple-type references are
 // modeled. Direct element references are queryable immutable particles;
 // validation and code generation support default-occurrence direct choices
@@ -70,7 +70,7 @@
 // validation and code generation reject extension types as unsupported.
 //
 // ValidateInstance supports one complete instance rooted at a global element
-// declared as built-in or named xs:boolean/xs:token/xs:integer/xs:decimal/
+// declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal/
 // xs:precisionDecimal, or as a named global complex type with one direct local
 // integer/decimal sequence or one direct choice whose scalar alternatives use
 // default occurrences and contain local built-in or named
@@ -85,12 +85,14 @@
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
 // gates. Scalar elements contain only character data. Global token values
 // collapse XML whitespace before effective enumeration comparison without
-// changing retained schema facts. Global string/NMTOKEN values, local string/token particles, lists/unions,
+// changing retained schema facts. Global NMTOKEN values also collapse XML
+// whitespace and enforce the repository XML NameChar policy. Global string
+// values, local string/token/NMTOKEN particles, lists/unions,
 // attributes, broader particles, and other semantics remain explicit unsupported
 // behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal/
 // atomic-string scalar components, default-occurrence all-Boolean or numeric
-// direct choices, and default-bounded direct integer/decimal sequences; token,
+// direct choices, and default-bounded direct integer/decimal sequences; token/NMTOKEN,
 // boolean facets, local Boolean direct sequences, mixed direct choices, and
-// local string/token particles remain unsupported.
+// local string/token/NMTOKEN particles remain unsupported.
 package goxsd9
