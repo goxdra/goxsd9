@@ -178,8 +178,9 @@ type instanceChoiceProgram struct {
 // NMTOKEN, integer, decimal, or precisionDecimal, or a named complex type with one
 // direct choice or sequence. Direct choices accept default-occurrence local
 // Boolean, integer, decimal, or precisionDecimal elements and default-occurrence
-// references only to global integer and decimal elements. Direct sequences remain
-// local integer and decimal elements. Local token/NMTOKEN particles remain unsupported.
+// references only to global integer and decimal elements. Direct sequences contain
+// only local Boolean elements or only local integer/decimal elements. Mixed
+// Boolean/numeric and local token/NMTOKEN particles remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint

@@ -92,7 +92,7 @@ particles exposes ordered children with exact ranges; its sequence uses
 grammar-default 1/1; compositor occurrence attrs are unsupported. Named complex type or bounded attribute-free extension may expose a direct model-group reference with target ID/exact
 range; members are not copied. `0/0` group or child maps to absence. Sequence/choice/child mapping maps `0/0` to absence before gating.
 The exact representation is retained for choice facts. `ValidateInstance`
-supports named global complex types with direct local integer/decimal sequences,
+supports named global complex types with homogeneous Boolean/numeric sequences,
 matching expanded names in lexical declaration order and honoring exact finite,
 unbounded, and above-`uint64` outer and child ranges under `Compatibility`,
 `Strict10`, and `Strict11`. Direct-choice repetition remains unsupported. The
@@ -161,7 +161,7 @@ Currently, the occurrence boundary supports one named global complex type
 with one direct sequence or direct choice of local built-in `xs:boolean`, named
 boolean-restriction, integer, or decimal scalar elements, or one global named model group with one direct choice or sequence of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. They retain exact ranges and target IDs. Extensions retain extension/base identities, locations, inherited bounded wildcard facts, and exact direct choice/sequence occurrences; validation and code generation reject them as unsupported. Direct default-effective `xs:any` terms (omitted or canonical defaults) are supported in named direct choice/sequence and bounded extensions as immutable wildcard particles; non-default constraints and broader placements remain unsupported, and consumers reject nonzero wildcard terms. All supported forms
 retain exact ranges; `0/0` maps to absence.
-For instance validation, named global complex direct local integer/decimal sequences
+For instance validation, named global complex homogeneous Boolean/numeric sequences
 match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`
 outer and child ranges under `Compatibility`, `Strict10`, and `Strict11`; direct-choice validation
 remains limited to default occurrences; excluded particle and target shapes remain unsupported.
@@ -191,13 +191,13 @@ element-reference particles are supported in the schema model for local choice
 and sequence children and for global named-group direct choices or sequences; direct model-group references are
 supported only as the top-level particle of a named complex type or bounded attribute-free extension;
 they retain target IDs without expanding group members; nested group references remain unsupported. Validator consumption covers named global complex direct
-local integer/decimal sequences and direct choices with default-occurrence local scalar
+homogeneous Boolean/numeric sequences and direct choices with default-occurrence scalar
 alternatives or references to global integer/decimal scalar elements; code generation also supports only default-occurrence direct-choice references to those global
 numeric elements, while all other validator and code-generator consumption of direct references remains unsupported. Global
 text-only boolean validation is supported under
 Compatibility, Strict10, and Strict11; global boolean scalar generation is
 supported. Default-occurrence direct-choice validation supports local Boolean
-alternatives, including named restrictions; local Boolean direct-sequence validation and generation remain unsupported; Go generation supports default-occurrence direct choices made entirely of local Boolean elements;
+alternatives, including named restrictions; mixed Boolean/numeric sequences and Boolean sequence generation remain unsupported; Go generation supports default-occurrence all-Boolean direct choices;
 the parser does not support `all` mapping. The exact value has no fixed
 resource limit; later phases must set bounded input and materialization
 policies.
