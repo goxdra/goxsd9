@@ -456,15 +456,17 @@ func TestSchemaTokenConsumerBoundariesPreserveScope(t *testing.T) {
 					}
 
 					generated, err := GenerateGo(schema, "generated")
-					if generated != nil || err == nil {
-						t.Fatalf("GenerateGo result = (%q, %v), want explicit unsupported with no source", generated, err)
+					if err != nil || generated == nil {
+						t.Fatalf("GenerateGo result = (%q, %v), want token-family source", generated, err)
 					}
-					codegenDiagnostic := requireDiagnostic(t, err)
-					if codegenDiagnostic.Class() != FailureUnsupported || codegenDiagnostic.Code() != diagnosticCodegenUnsupported || codegenDiagnostic.Feature() != FeatureCodegen {
-						t.Fatalf("GenerateGo diagnostic = %s/%q/%q/%q, want codegen unsupported", codegenDiagnostic, codegenDiagnostic.Class(), codegenDiagnostic.Code(), codegenDiagnostic.Feature())
+					wantFragments := []string{"type Item struct {\n\tValue string\n}"}
+					if test.name == "named" {
+						wantFragments = []string{"type Item struct {\n\tValue Token\n}", "type Token struct {\n\tValue string\n}"}
 					}
-					if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
-						t.Fatalf("GenerateGo diagnostic lost unsupported cause: %v", err)
+					for _, fragment := range wantFragments {
+						if !strings.Contains(string(generated), fragment) {
+							t.Fatalf("GenerateGo source is missing %q: %s", fragment, generated)
+						}
 					}
 
 					validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(test.body)))

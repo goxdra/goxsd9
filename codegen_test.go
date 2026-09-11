@@ -321,21 +321,205 @@ func useStringScalars() {
 	}
 }
 
-//nolint:gocognit // Keep token-family negative cases together.
-func TestGenerateGoRejectsTokenDerivedGlobalStringFamilies(t *testing.T) {
-	for _, typeName := range []string{"token", "NMTOKEN"} {
-		t.Run(typeName, func(t *testing.T) {
-			schema := parsePublicCodegenSchema(t, `<xs:schema xmlns:xs="`+parseTestXSDNamespace+`" targetNamespace="urn:test"><xs:element name="item" type="xs:`+typeName+`"/></xs:schema>`)
+//nolint:gocognit,funlen // Keep the token-family graph, policy, and consumer gate together.
+func TestGenerateGoGlobalTokenFamilyScalarsAcrossPolicies(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  goxsd9.LanguagePolicy
+		version string
+	}{
+		{name: "Compatibility", policy: goxsd9.Compatibility},
+		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0"},
+		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			version := ""
+			if test.version != "" {
+				version = ` version="` + test.version + `"`
+			}
+			rootContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root"` + version + `>
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:element name="tokenDirect" type="xs:token"/>
+  <xs:element name="nmTokenDirect" type="xs:NMTOKEN"/>
+  <xs:element name="tokenNamedElement" type="r:TokenNamed"/>
+  <xs:element name="nmTokenNamedElement" type="r:NmTokenNamed"/>
+  <xs:element name="tokenInheritedElement" type="r:TokenInherited"/>
+  <xs:element name="nmTokenInheritedElement" type="r:NmTokenInherited"/>
+  <xs:element name="tokenForwardElement" type="r:TokenForward"/>
+  <xs:element name="nmTokenForwardElement" type="r:NmTokenForward"/>
+  <xs:element name="includedTokenElement" type="r:IncludedToken"/>
+  <xs:element name="includedNmTokenElement" type="r:IncludedNmToken"/>
+  <xs:element name="importedTokenElement" type="o:ImportedToken"/>
+  <xs:element name="importedNmTokenElement" type="o:ImportedNmToken"/>
+  <xs:element name="tokenInline">
+    <xs:simpleType>
+      <xs:restriction base="xs:token"><xs:enumeration value="inline"/></xs:restriction>
+    </xs:simpleType>
+  </xs:element>
+  <xs:element name="nmTokenInline">
+    <xs:simpleType>
+      <xs:restriction base="xs:NMTOKEN"><xs:enumeration value="inline"/></xs:restriction>
+    </xs:simpleType>
+  </xs:element>
+  <xs:simpleType name="TokenNamed"><xs:restriction base="xs:token"><xs:enumeration value="named"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="NmTokenNamed"><xs:restriction base="xs:NMTOKEN"><xs:enumeration value="named"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="TokenInherited"><xs:restriction base="r:TokenNamed"/></xs:simpleType>
+  <xs:simpleType name="NmTokenInherited"><xs:restriction base="r:NmTokenNamed"/></xs:simpleType>
+  <xs:simpleType name="TokenForward"><xs:restriction base="r:TokenBase"/></xs:simpleType>
+  <xs:simpleType name="NmTokenForward"><xs:restriction base="r:NmTokenBase"/></xs:simpleType>
+  <xs:simpleType name="TokenBase"><xs:restriction base="xs:token"/></xs:simpleType>
+  <xs:simpleType name="NmTokenBase"><xs:restriction base="xs:NMTOKEN"/></xs:simpleType>
+</xs:schema>`
+			chameleonContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `">
+  <xs:simpleType name="IncludedToken"><xs:restriction base="xs:token"/></xs:simpleType>
+  <xs:simpleType name="IncludedNmToken"><xs:restriction base="xs:NMTOKEN"/></xs:simpleType>
+</xs:schema>`
+			otherContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" targetNamespace="urn:other"` + version + `>
+  <xs:simpleType name="ImportedToken"><xs:restriction base="xs:token"/></xs:simpleType>
+  <xs:simpleType name="ImportedNmToken"><xs:restriction base="xs:NMTOKEN"/></xs:simpleType>
+</xs:schema>`
+			root, err := goxsd9.NewResolvedSource(context.Background(), "root.xsd", newParseTestReader(rootContents))
+			if err != nil {
+				t.Fatalf("NewResolvedSource: %v", err)
+			}
+			schema, err := goxsd9.ParseSchemaWithPolicy(root, &publicCodegenResolver{
+				contents: map[string]string{
+					"chameleon.xsd": chameleonContents,
+					"other.xsd":     otherContents,
+				},
+			}, test.policy)
+			if err != nil {
+				t.Fatalf("ParseSchemaWithPolicy: %v", err)
+			}
+
+			first, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo: %v", err)
+			}
+			second, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo second: %v", err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatalf("repeated token-family output differs:\nfirst:\n%s\nsecond:\n%s", first, second)
+			}
+			formatted, err := format.Source(first)
+			if err != nil {
+				t.Fatalf("format generated token-family source: %v\n%s", err, first)
+			}
+			if !bytes.Equal(first, formatted) {
+				t.Fatalf("generated token-family source is not complete go/format output:\n%s", first)
+			}
+			source := string(first)
+			if strings.Contains(source, `github.com/goxdra/goxsd9`) || strings.Contains(source, "import ") {
+				t.Fatalf("token-family-only output unexpectedly imports the runtime:\n%s", source)
+			}
+			for _, fragment := range []string{
+				"type TokenDirect struct {\n\tValue string\n}",
+				"type NmTokenDirect struct {\n\tValue string\n}",
+				"type TokenNamedElement struct {\n\tValue TokenNamed\n}",
+				"type NmTokenNamedElement struct {\n\tValue NmTokenNamed\n}",
+				"type TokenInheritedElement struct {\n\tValue TokenInherited\n}",
+				"type NmTokenInheritedElement struct {\n\tValue NmTokenInherited\n}",
+				"type TokenForwardElement struct {\n\tValue TokenForward\n}",
+				"type NmTokenForwardElement struct {\n\tValue NmTokenForward\n}",
+				"type IncludedTokenElement struct {\n\tValue IncludedToken\n}",
+				"type IncludedNmTokenElement struct {\n\tValue IncludedNmToken\n}",
+				"type ImportedTokenElement struct {\n\tValue ImportedToken\n}",
+				"type ImportedNmTokenElement struct {\n\tValue ImportedNmToken\n}",
+				"type TokenInline struct {\n\tValue string\n}",
+				"type NmTokenInline struct {\n\tValue string\n}",
+				"type TokenNamed struct {\n\tValue string\n}",
+				"type NmTokenNamed struct {\n\tValue string\n}",
+				"type TokenInherited struct {\n\tValue string\n}",
+				"type NmTokenInherited struct {\n\tValue string\n}",
+				"type TokenForward struct {\n\tValue string\n}",
+				"type NmTokenForward struct {\n\tValue string\n}",
+				"type TokenBase struct {\n\tValue string\n}",
+				"type NmTokenBase struct {\n\tValue string\n}",
+				"type IncludedToken struct {\n\tValue string\n}",
+				"type IncludedNmToken struct {\n\tValue string\n}",
+				"type ImportedToken struct {\n\tValue string\n}",
+				"type ImportedNmToken struct {\n\tValue string\n}",
+			} {
+				if !strings.Contains(source, fragment) {
+					t.Fatalf("generated token-family source is missing %q:\n%s", fragment, source)
+				}
+			}
+			orderedNames := []string{
+				"TokenDirect", "NmTokenDirect", "TokenNamedElement", "NmTokenNamedElement",
+				"TokenInheritedElement", "NmTokenInheritedElement", "TokenForwardElement", "NmTokenForwardElement",
+				"IncludedTokenElement", "IncludedNmTokenElement", "ImportedTokenElement", "ImportedNmTokenElement",
+				"TokenInline", "NmTokenInline", "TokenNamed", "NmTokenNamed", "TokenInherited", "NmTokenInherited",
+				"TokenForward", "NmTokenForward", "TokenBase", "NmTokenBase", "IncludedToken", "IncludedNmToken",
+				"ImportedToken", "ImportedNmToken",
+			}
+			last := -1
+			for _, name := range orderedNames {
+				position := strings.Index(source, "type "+name+" ")
+				if position <= last {
+					t.Fatalf("generated token-family declarations do not preserve schema order at %s:\n%s", name, source)
+				}
+				last = position
+				if strings.Count(source, "type "+name+" ") != 1 {
+					t.Fatalf("generated token-family source declares %s an unexpected number of times:\n%s", name, source)
+				}
+			}
+			compilePublicGeneratedCode(t, first, `package consumer
+
+import generated "generated.test"
+
+func useTokenFamilyScalars() {
+		var direct generated.TokenDirect
+		var named generated.TokenNamedElement
+		var inherited generated.NmTokenInheritedElement
+		var imported generated.ImportedTokenElement
+		var inline generated.NmTokenInline
+		var _ string = direct.Value
+		var _ generated.TokenNamed = named.Value
+		var _ generated.NmTokenInherited = inherited.Value
+		var _ generated.ImportedToken = imported.Value
+		var _ string = inline.Value
+}
+`)
+		})
+	}
+}
+
+//nolint:gocognit // Keep the excluded token-family shape matrix together.
+func TestGenerateGoRejectsExcludedTokenFamilyShapes(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+	}{
+		{
+			name: "language",
+			root: `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:simpleType name="Language"><xs:restriction base="xs:language"/></xs:simpleType></xs:schema>`,
+		},
+		{
+			name: "list",
+			root: `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" targetNamespace="urn:test"><xs:simpleType name="TokenList"><xs:list itemType="xs:token"/></xs:simpleType></xs:schema>`,
+		},
+		{
+			name: "union",
+			root: `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" targetNamespace="urn:test"><xs:simpleType name="TokenUnion"><xs:union memberTypes="xs:token"/></xs:simpleType></xs:schema>`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema := parsePublicCodegenSchema(t, test.root)
 			output, err := goxsd9.GenerateGo(schema, "generated")
 			if output != nil || err == nil {
-				t.Fatalf("global %s result = (%q, %v), want nil output and error", typeName, output, err)
+				t.Fatalf("excluded %s result = (%q, %v), want nil output and error", test.name, output, err)
 			}
 			diagnostic := requirePublicCodegenDiagnostic(t, err)
 			if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode {
 				t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic", diagnostic)
 			}
-			if diagnostic.SpecRef() != "xsd11-structures#Element_Declaration_details" {
-				t.Fatalf("diagnostic spec reference = %q, want xsd11-structures#Element_Declaration_details", diagnostic.SpecRef())
+			if diagnostic.SpecRef() != "xsd11-structures#Simple_Type_Definition" {
+				t.Fatalf("diagnostic spec reference = %q, want xsd11-structures#Simple_Type_Definition", diagnostic.SpecRef())
 			}
 			if diagnostic.Loc().Source() != "root.xsd" || !errors.Is(err, goxsd9.ErrUnsupported) {
 				t.Fatalf("diagnostic location/cause = %s/%v, want root.xsd and unsupported", diagnostic.Loc(), err)
