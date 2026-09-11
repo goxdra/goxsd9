@@ -43,6 +43,8 @@ const (
 	instanceIntegerXSD11SpecRef     = "xsd11-datatypes#integer"
 	instanceDecimalXSD10SpecRef     = "xsd10-datatypes#decimal"
 	instanceDecimalXSD11SpecRef     = "xsd11-datatypes#decimal"
+	instanceTokenXSD10SpecRef       = "xsd10-datatypes#token"
+	instanceTokenXSD11SpecRef       = "xsd11-datatypes#token" //nolint:gosec // Specification references are not credentials.
 	// Completed built-in element views do not retain their document version.
 	// Compatibility validation uses the repository's XSD 1.1-compatible default.
 	instanceBuiltInValidationVersion XSDVersion = XSDVersion11
@@ -125,6 +127,12 @@ type instanceBooleanScalar struct{}
 
 func (instanceBooleanScalar) instanceScalarValue() {}
 
+type instanceTokenScalar struct {
+	enumeration StringEnumerationFacets
+}
+
+func (instanceTokenScalar) instanceScalarValue() {}
+
 type instancePrecisionDecimalScalar struct {
 	facets PrecisionDecimalFacets
 }
@@ -151,11 +159,12 @@ type instanceChoiceProgram struct {
 
 // ValidateInstance consumes, drains, and closes reader exactly once, then
 // validates one XML instance against schema. The supported semantic slice is
-// a single global element whose declared type is built-in or named XSD
-// boolean, integer, decimal, or precisionDecimal, or a named complex type with
-// one direct scalar choice or sequence. Direct choices may use local scalar
-// declarations, or default-occurrence references to global integer and decimal
-// declarations. Direct sequences use local integer and decimal declarations.
+// a single root global whose type is built-in or named XSD boolean, token,
+// integer, decimal, or precisionDecimal, or a named complex type with one
+// direct choice or sequence. Direct choices accept default-occurrence local
+// Boolean, integer, decimal, or precisionDecimal elements and default-occurrence
+// references only to global integer and decimal elements. Direct sequences remain
+// local integer and decimal elements. Local token particles remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint
@@ -981,6 +990,7 @@ func instanceChoiceReferenceScalarFor(
 		version,
 		false,
 		false,
+		false,
 		version,
 	)
 }
@@ -1005,6 +1015,7 @@ func instanceChoiceAlternativeFor(
 		version,
 		true,
 		true,
+		false,
 		version,
 	)
 	if err != nil {
@@ -1224,6 +1235,8 @@ func validateScalarLexicalValue(name syntaxName, lexical string, valueLoc Loc, s
 		return validatePrecisionDecimalScalarValue(lexical, valueLoc, scalar, typed)
 	case instanceBooleanScalar:
 		return validateBooleanScalarValue(lexical, valueLoc, scalar)
+	case instanceTokenScalar:
+		return validateTokenScalarValue(lexical, valueLoc, scalar, typed)
 	default:
 		return newInstanceValidationInternal(
 			valueLoc,
@@ -1332,6 +1345,27 @@ func validateBooleanScalarValue(lexical string, valueLoc Loc, scalar instanceSca
 	return instanceDecorateDiagnostic(parseErr, scalar.related, strictBooleanSpecRef(scalar.version), valueLoc)
 }
 
+func validateTokenScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, typed instanceTokenScalar) error {
+	if !typed.enumeration.HasEnumeration() {
+		return nil
+	}
+	enumerationErr := validateTokenEnumerationValue(typed.enumeration, lexical, valueLoc)
+	if enumerationErr == nil {
+		return nil
+	}
+	return instanceDecorateDiagnostic(enumerationErr, scalar.related, instanceTokenSpecRef(scalar.version), valueLoc)
+}
+
+func validateTokenEnumerationValue(facets StringEnumerationFacets, lexical string, valueLoc Loc) error {
+	if err := facets.validate(); err != nil {
+		return err
+	}
+	if stringEnumerationContainsInValueSpace(facets.values, lexical, collapseXMLWhitespace) {
+		return nil
+	}
+	return enumerationValueViolationDiagnostic(valueLoc, facets.Locations(), facets.Version(), "token")
+}
+
 func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Loc) (instanceScalarType, error) {
 	typeID, hasTypeID := declaration.TypeID()
 	return instanceScalarTypeForTarget(
@@ -1342,6 +1376,7 @@ func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Lo
 		[]Loc{declaration.Loc()},
 		loc,
 		instanceBuiltInValidationVersion,
+		true,
 		true,
 		true,
 		instanceSchemaValidationVersion(schema),
@@ -1359,6 +1394,7 @@ func instanceScalarTypeForTarget(
 	fallbackVersion XSDVersion,
 	allowBoolean bool,
 	allowPrecisionDecimal bool,
+	allowToken bool,
 	booleanVersion XSDVersion,
 ) (instanceScalarType, error) {
 	if declaredType.IsZero() {
@@ -1380,7 +1416,7 @@ func instanceScalarTypeForTarget(
 				errInstanceUnsupportedType,
 			)
 		}
-		return instanceBuiltInScalarType(declaredType, related, loc, allowPrecisionDecimal, booleanVersion)
+		return instanceBuiltInScalarType(declaredType, related, loc, fallbackVersion, allowPrecisionDecimal, allowToken, booleanVersion)
 	}
 	if !hasTypeID || typeID.IsZero() {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
@@ -1479,6 +1515,46 @@ func instanceScalarTypeForTarget(
 			related: related,
 		}, nil
 	}
+	if definition.facts != nil && definition.facts.atomicKind == schemaSimpleTypeAtomicToken {
+		if !allowToken {
+			return instanceScalarType{}, newInstanceValidationUnsupported(
+				loc,
+				fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()),
+				related,
+				fallbackVersion,
+				errInstanceUnsupportedType,
+			)
+		}
+		stringFacets, ok := definition.facts.facets.(schemaStringFacetVariant)
+		if !ok || stringFacets.whiteSpace == nil || stringFacets.whiteSpace.Value() != "collapse" {
+			return instanceScalarType{}, newInstanceValidationInternal(
+				loc,
+				fmt.Sprintf("named simple type %q has incomplete token whitespace facts", definition.Name()),
+				related,
+				errInstanceValidationInvariant,
+			)
+		}
+		enumeration := stringFacets.enumeration
+		if enumeration.Version() != XSDVersion10 && enumeration.Version() != XSDVersion11 {
+			return instanceScalarType{}, newInstanceValidationInternal(
+				loc,
+				fmt.Sprintf("named simple type %q has an unknown token enumeration version", definition.Name()),
+				related,
+				errInstanceValidationInvariant,
+			)
+		}
+		scalar := instanceScalarType{
+			value:   instanceTokenScalar{enumeration: enumeration},
+			version: enumeration.Version(),
+			related: related,
+		}
+		if enumeration.HasEnumeration() {
+			for _, location := range enumeration.Locations() {
+				scalar.related = appendInstanceRelated(scalar.related, location)
+			}
+		}
+		return scalar, nil
+	}
 	if definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal && definition.facts.atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
@@ -1570,7 +1646,7 @@ func instanceScalarEnumerationFor(definition SimpleTypeDefinition, kind DigitDat
 	}
 }
 
-func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, allowPrecisionDecimal bool, booleanVersion XSDVersion) (instanceScalarType, error) {
+func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowPrecisionDecimal, allowToken bool, booleanVersion XSDVersion) (instanceScalarType, error) {
 	switch declaredType.Local() {
 	case "integer":
 		facets, err := NewIntegerDigitFacets(nil, instanceBuiltInValidationVersion)
@@ -1623,6 +1699,21 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, allow
 		return instanceScalarType{
 			value:   instanceBooleanScalar{},
 			version: booleanVersion,
+			related: related,
+		}, nil
+	case "token":
+		if !allowToken {
+			return instanceScalarType{}, newInstanceValidationUnsupported(
+				loc,
+				fmt.Sprintf("global element type %q is outside scalar validation", declaredType),
+				related,
+				fallbackVersion,
+				errInstanceUnsupportedType,
+			)
+		}
+		return instanceScalarType{
+			value:   instanceTokenScalar{},
+			version: instanceBuiltInValidationVersion,
 			related: related,
 		}, nil
 	case "language", "NCName", "anyURI", "ID":
@@ -1687,6 +1778,13 @@ func instanceDecimalSpecRef(version XSDVersion) string {
 		return instanceDecimalXSD10SpecRef
 	}
 	return instanceDecimalXSD11SpecRef
+}
+
+func instanceTokenSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceTokenXSD10SpecRef
+	}
+	return instanceTokenXSD11SpecRef
 }
 
 func newInstanceValidationInvalid(code string, loc Loc, message string, related []Loc, specRef string, cause error) Diagnostic {
