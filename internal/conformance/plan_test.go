@@ -80,7 +80,9 @@ func TestSelectionPlanWalksCatalogOrderWithMixedPolicies(t *testing.T) {
 		t.Fatalf("repeated plan reports differ:\nfirst:\n%s\nsecond:\n%s", first.String(), second.String())
 	}
 	if !strings.Contains(first.String(), "W3C XML Schema bounded schema execution plan\n") ||
-		!strings.Contains(first.String(), "cases: 2\nheadline-eligible: 2\n") {
+		!strings.Contains(first.String(), "cases: 2\nheadline-eligible: 2\n") ||
+		!strings.Contains(first.String(), "diagnostic case=2 index=1 ") ||
+		!strings.Contains(first.String(), "feature=\"\" loc=") {
 		t.Fatalf("plan report summary missing:\n%s", first.String())
 	}
 }

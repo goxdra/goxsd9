@@ -206,6 +206,137 @@ func TestSelectionReportsAreDeterministicAcrossRepeatedRuns(t *testing.T) {
 			t.Fatalf("report case %d does not preserve catalog order for %q", index, want)
 		}
 	}
+	assertSelectionDiagnosticRows(t, outputs[0])
+}
+
+func assertSelectionDiagnosticRows(t *testing.T, output string) {
+	t.Helper()
+	wantDiagnostics := []struct {
+		caseIndex int
+		feature   goxsd9.FeatureID
+	}{
+		{caseIndex: 2},
+		{caseIndex: 3},
+		{caseIndex: 5, feature: goxsd9.FeatureSchemaSyntax},
+		{caseIndex: 6},
+		{caseIndex: 9},
+		{caseIndex: 10},
+	}
+	diagnosticLines := make([]string, 0, len(wantDiagnostics))
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, "diagnostic ") {
+			diagnosticLines = append(diagnosticLines, line)
+		}
+	}
+	if len(diagnosticLines) != len(wantDiagnostics) {
+		t.Fatalf("diagnostic row count = %d, want %d:\n%s", len(diagnosticLines), len(wantDiagnostics), output)
+	}
+	for index, want := range wantDiagnostics {
+		line := diagnosticLines[index]
+		prefix := fmt.Sprintf("diagnostic case=%d index=1 ", want.caseIndex)
+		if !strings.HasPrefix(line, prefix) || !strings.Contains(line, fmt.Sprintf("feature=%q loc=", want.feature)) {
+			t.Fatalf("diagnostic row %d = %q, want case order %q and feature %q", index, line, prefix, want.feature)
+		}
+	}
+}
+
+func TestReportWriteLeavesFeatureEmptyForInternalDiagnostic(t *testing.T) {
+	internalErr := goxsd9.ValidateDecimalFacets(goxsd9.StrictDecimal{}, goxsd9.DigitFacets{}, goxsd9.Loc{})
+	if internalErr == nil {
+		t.Fatal("ValidateDecimalFacets accepted zero digit facets")
+	}
+	diagnostics := parserDiagnostics(internalErr)
+	if len(diagnostics) != 1 {
+		t.Fatalf("zero digit facet diagnostics = %d, want one: %v", len(diagnostics), internalErr)
+	}
+	diagnostic := diagnostics[0]
+	if diagnostic.Class() != goxsd9.FailureInternal || diagnostic.Feature() != "" {
+		t.Fatalf("zero digit facet diagnostic = class %q feature %q, want internal and empty feature", diagnostic.Class(), diagnostic.Feature())
+	}
+
+	report := Report{
+		selector: Selector{Version: "1.0", SetPath: "synthetic.testSet", CaseName: "internal"},
+		policy:   goxsd9.Strict10,
+		cases: []CaseResult{{
+			setPath:          "synthetic.testSet",
+			setName:          "synthetic-set",
+			groupName:        "internal-group",
+			caseName:         "internal",
+			origin:           originMain,
+			version:          "1.0",
+			policy:           goxsd9.Strict10,
+			status:           statusAccepted,
+			expected:         []string{"valid"},
+			expectedValidity: "valid",
+			usable:           true,
+			actual:           ActualUnknown,
+			actualClass:      goxsd9.FailureInternal,
+			outcome:          OutcomeInternalFailure,
+			headline:         true,
+			diagnostics:      diagnostics,
+			err:              internalErr,
+		}},
+	}
+
+	var output bytes.Buffer
+	if err := report.Write(&output); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	cause := ""
+	if diagnostic.Unwrap() != nil {
+		cause = diagnostic.Unwrap().Error()
+	}
+	wantDiagnostic := fmt.Sprintf(
+		"diagnostic case=1 index=1 class=%s code=%q feature=%q loc=%q spec=%q message=%q cause=%q",
+		diagnostic.Class(), diagnostic.Code(), diagnostic.Feature(), diagnostic.Loc().String(),
+		diagnostic.SpecRef(), diagnostic.Message(), cause,
+	)
+	if !strings.Contains(output.String(), wantDiagnostic) {
+		t.Fatalf("internal diagnostic row = %q, want %q", output.String(), wantDiagnostic)
+	}
+}
+
+func TestReportWritePreservesDiagnosticWriteFailureCause(t *testing.T) {
+	fsys := executionFixtureFS()
+	inventory, err := Read(fsys)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	selection, err := inventory.Select(Selector{
+		Version:  "1.0",
+		SetPath:  "sets/execution.testSet",
+		CaseName: "invalid",
+	})
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	report, err := selection.Execute(context.Background(), fsys)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	cause := errors.New("diagnostic sink failed")
+	writeErr := report.Write(executionDiagnosticFailingWriter{cause: cause})
+	if writeErr == nil {
+		t.Fatal("Write succeeded with a failing diagnostic writer")
+	}
+	if !errors.Is(writeErr, cause) {
+		t.Fatalf("Write error = %v, want cause %v", writeErr, cause)
+	}
+	if !strings.Contains(writeErr.Error(), "write case 1 diagnostic 1") {
+		t.Fatalf("Write error = %v, want diagnostic row context", writeErr)
+	}
+}
+
+type executionDiagnosticFailingWriter struct {
+	cause error
+}
+
+func (writer executionDiagnosticFailingWriter) Write(data []byte) (int, error) {
+	if bytes.HasPrefix(data, []byte("diagnostic ")) {
+		return 0, writer.cause
+	}
+	return len(data), nil
 }
 
 func selectionCaseFromReport(output string, index int, want string) (string, bool) {
