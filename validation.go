@@ -159,11 +159,13 @@ type instanceChoiceProgram struct {
 
 // ValidateInstance consumes, drains, and closes reader exactly once, then
 // validates one XML instance against schema. The supported semantic slice is
-// a single global element whose declared type is built-in or named XSD
-// boolean, token, integer, decimal, or precisionDecimal, or a named complex
-// type with one direct scalar choice or sequence. Direct choices may use local scalar
-// declarations, or default-occurrence references to global integer and decimal
-// declarations. Direct sequences use local integer and decimal declarations.
+// a single root global whose type is built-in or named XSD boolean, token,
+// integer, decimal, or precisionDecimal, or a named complex type with one
+// direct choice or sequence. Direct choices accept default-occurrence local
+// Boolean, integer, decimal, or precisionDecimal elements and default-occurrence
+// references only to global integer and decimal elements. Direct sequences remain
+// local integer and decimal elements. Local token particles and token generation
+// remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint

@@ -115,12 +115,12 @@ distinctions and broader value spaces remain staged and report unsupported behav
 
 ## Validation and code generation
 
-`ValidateInstance` supports scalar `boolean`/`token`/`integer`/`decimal`/`precisionDecimal` globals and named complexes with
-integer/decimal sequences in lexical order. Sequences honor finite/unbounded and above-`uint64` ranges under all policies. Direct choices allow
-default local or global integer/decimal references; mixed/non-default forms are query-only. Non-default
-`precisionDecimal` ranges are unsupported. References use `TargetID`/`Lookup`; model-group IDs remain but are rejected; default Boolean/integer/decimal choices validate.
-`token` collapses XML whitespace before effective enumeration; raw facts unchanged. Local Boolean sequences unsupported; default all-Boolean choices generate. Repetition/excluded shapes—global Boolean
-references, strings/NMTOKEN, lists/unions, attributes, structures—unsupported. Direct `xs:any` is query-only: consumers reject nonzero terms with
+`ValidateInstance` supports root globals with built-in or named `boolean`/`token`/`integer`/`decimal`/`precisionDecimal` types, plus named
+complexes with direct choices or sequences. Choices accept default-occurrence local Boolean/integer/decimal/precisionDecimal elements and
+default-occurrence references only to global integer/decimal elements. Direct sequences remain local integer/decimal. Sequences honor
+finite/unbounded and above-`uint64` ranges under all policies. References use `TargetID`/`Lookup`; model-group IDs remain but are rejected.
+`token` collapses XML whitespace before effective enumeration; raw facts unchanged. Global Boolean references, local token particles, strings/NMTOKEN,
+lists/unions, attributes, structures, and token generation remain unsupported. Direct `xs:any` is query-only: consumers reject nonzero terms with
 edition-selected diagnostics; `0/0` absent.
 
 Generation: named/inherited global boolean/integer/decimal/string scalars, inline anonymous global strings, numeric choices, default all-Boolean local
