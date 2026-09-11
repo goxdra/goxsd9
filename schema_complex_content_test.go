@@ -110,7 +110,7 @@ func TestSchemaBridgeBuildsComplexContentExtensionAcrossPolicies(t *testing.T) {
 func TestSchemaBridgeResolvesForwardComposedComplexContentExtensionBase(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:b="urn:base" xmlns:t="urn:root" targetNamespace="urn:root" version="1.1">
   <xs:import namespace="urn:base" schemaLocation="base.xsd"/>
-  <xs:complexType name="Derived"><xs:complexContent><xs:extension base="b:Base"><xs:choice minOccurs="0" maxOccurs="2"><xs:element name="local" type="xs:integer" minOccurs="2" maxOccurs="4"/><xs:element ref="t:target" minOccurs="1" maxOccurs="3"/></xs:choice></xs:extension></xs:complexContent></xs:complexType>
+  <xs:complexType name="Derived"><xs:complexContent><xs:extension base="b:Base"><xs:openContent mode="none"><xs:annotation/></xs:openContent><xs:choice minOccurs="0" maxOccurs="2"><xs:element name="local" type="xs:integer" minOccurs="2" maxOccurs="4"/><xs:element ref="t:target" minOccurs="1" maxOccurs="3"/></xs:choice></xs:extension></xs:complexContent></xs:complexType>
   <xs:element name="target" type="xs:decimal"/>
 </xs:schema>`
 	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:base" version="1.1">

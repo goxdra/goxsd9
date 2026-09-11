@@ -2889,6 +2889,8 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 		switch child.name.local {
 		case "annotation":
 			continue
+		case "openContent":
+			continue
 		case "choice", "sequence", "group":
 			modelCount++
 		default:
@@ -3047,7 +3049,8 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 			openContentSeen = true
 			openContentLoc = child.loc
-			if err := validateOpenContent(child, version, false); err != nil && !candidate.considerError(err) {
+			allowModeNone := complexContent && element.name.local == "extension"
+			if err := validateOpenContent(child, version, allowModeNone); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "group", "all", "sequence":
