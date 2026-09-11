@@ -70,7 +70,7 @@
 // validation and code generation reject extension types as unsupported.
 //
 // ValidateInstance supports one complete instance rooted at a global element
-// declared as built-in or named xs:boolean/xs:token/xs:integer/xs:decimal/
+// declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal/
 // xs:precisionDecimal, or as a named global complex type with one direct local
 // integer/decimal sequence or one direct choice whose scalar alternatives use
 // default occurrences and contain local built-in or named
@@ -85,7 +85,9 @@
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
 // gates. Scalar elements contain only character data. Global token values
 // collapse XML whitespace before effective enumeration comparison without
-// changing retained schema facts. Global string/NMTOKEN values, local string/token particles, lists/unions,
+// changing retained schema facts. Global NMTOKEN values also collapse XML
+// whitespace and enforce the repository XML NameChar policy. Global string
+// values, local string/token/NMTOKEN particles, lists/unions,
 // attributes, broader particles, and other semantics remain explicit unsupported
 // behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal/

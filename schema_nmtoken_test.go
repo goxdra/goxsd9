@@ -440,12 +440,8 @@ func TestSchemaNMTOKENDiagnosticsAndConsumerBoundaries(t *testing.T) {
 				}
 
 				validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<item xmlns="urn:test">value</item>`)))
-				if validationErr == nil {
-					t.Fatal("ValidateInstance silently accepted xs:NMTOKEN")
-				}
-				validationDiagnostic := requireDiagnostic(t, validationErr)
-				if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || validationDiagnostic.Feature() != FeatureInstanceValidation || !errors.Is(validationErr, ErrUnsupported) {
-					t.Fatalf("ValidateInstance NMTOKEN diagnostic = %s/%q/%q, want instance-validation unsupported", validationDiagnostic, validationDiagnostic.Class(), validationDiagnostic.Feature())
+				if validationErr != nil {
+					t.Fatalf("ValidateInstance NMTOKEN: %v", validationErr)
 				}
 			})
 
