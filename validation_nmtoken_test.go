@@ -75,7 +75,7 @@ func TestValidateInstanceReportsGlobalNMTOKENDiagnosticsAcrossPolicies(t *testin
 					selfClosing: true,
 					code:        goxsd9.InvalidNMTOKENLexicalCode,
 					message:     "NMTOKEN value is empty after XML whitespace collapse",
-					specRef:     validationNMTOKENDatatypeSpecRef(goxsd9.XSDVersion11),
+					specRef:     validationNMTOKENDatatypeSpecRef(policy.version),
 				},
 				{
 					name:    "whitespace-only value",
@@ -83,7 +83,7 @@ func TestValidateInstanceReportsGlobalNMTOKENDiagnosticsAcrossPolicies(t *testin
 					value:   " \t\r\n ",
 					code:    goxsd9.InvalidNMTOKENLexicalCode,
 					message: "NMTOKEN value is whitespace-only after XML whitespace collapse",
-					specRef: validationNMTOKENDatatypeSpecRef(goxsd9.XSDVersion11),
+					specRef: validationNMTOKENDatatypeSpecRef(policy.version),
 				},
 				{
 					name:    "invalid NameChar",
@@ -91,7 +91,7 @@ func TestValidateInstanceReportsGlobalNMTOKENDiagnosticsAcrossPolicies(t *testin
 					value:   "bad/value",
 					code:    goxsd9.InvalidNMTOKENLexicalCode,
 					message: "NMTOKEN value contains an invalid NameChar",
-					specRef: validationNMTOKENDatatypeSpecRef(goxsd9.XSDVersion11),
+					specRef: validationNMTOKENDatatypeSpecRef(policy.version),
 				},
 				{
 					name:      "invalid NameChar is checked before enumeration",
@@ -315,16 +315,16 @@ func validationNMTOKENRelated(t *testing.T, schema goxsd9.Schema, element, typeN
 
 func validationNMTOKENDatatypeSpecRef(version goxsd9.XSDVersion) string {
 	if version == goxsd9.XSDVersion10 {
-		return "xsd10-datatypes#cvc-datatype-valid"
+		return "xsd10-datatypes#dt-NMTOKEN"
 	}
-	return "xsd11-datatypes#cvc-datatype-valid"
+	return "xsd11-datatypes#dt-NMTOKEN"
 }
 
 func validationNMTOKENEnumerationSpecRef(version goxsd9.XSDVersion) string {
 	if version == goxsd9.XSDVersion10 {
-		return "xsd10-datatypes#cvc-enumeration-valid"
+		return "xsd10-datatypes#NMTOKEN-facets"
 	}
-	return "xsd11-datatypes#cvc-enumeration-valid"
+	return "xsd11-datatypes#NMTOKEN-facets"
 }
 
 func validationNMTOKENElement(t *testing.T, schema goxsd9.Schema, local string) goxsd9.ElementDeclaration {

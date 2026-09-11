@@ -37,18 +37,20 @@ const (
 )
 
 const (
-	instanceValidationXSD10SpecRef  = "xsd10-structures#cvc-elt"
-	instanceValidationXSD11SpecRef  = "xsd11-structures#cvc-elt"
-	instanceComplexTypeXSD10SpecRef = "xsd10-structures#cvc-complex-type"
-	instanceComplexTypeXSD11SpecRef = "xsd11-structures#sec-cvc-type"
-	instanceIntegerXSD10SpecRef     = "xsd10-datatypes#integer"
-	instanceIntegerXSD11SpecRef     = "xsd11-datatypes#integer"
-	instanceDecimalXSD10SpecRef     = "xsd10-datatypes#decimal"
-	instanceDecimalXSD11SpecRef     = "xsd11-datatypes#decimal"
-	instanceTokenXSD10SpecRef       = "xsd10-datatypes#token"
-	instanceTokenXSD11SpecRef       = "xsd11-datatypes#token" //nolint:gosec // Specification references are not credentials.
-	instanceNMTOKENXSD10SpecRef     = "xsd10-datatypes#cvc-datatype-valid"
-	instanceNMTOKENXSD11SpecRef     = "xsd11-datatypes#cvc-datatype-valid" //nolint:gosec // Specification references are not credentials.
+	instanceValidationXSD10SpecRef    = "xsd10-structures#cvc-elt"
+	instanceValidationXSD11SpecRef    = "xsd11-structures#cvc-elt"
+	instanceComplexTypeXSD10SpecRef   = "xsd10-structures#cvc-complex-type"
+	instanceComplexTypeXSD11SpecRef   = "xsd11-structures#sec-cvc-type"
+	instanceIntegerXSD10SpecRef       = "xsd10-datatypes#integer"
+	instanceIntegerXSD11SpecRef       = "xsd11-datatypes#integer"
+	instanceDecimalXSD10SpecRef       = "xsd10-datatypes#decimal"
+	instanceDecimalXSD11SpecRef       = "xsd11-datatypes#decimal"
+	instanceTokenXSD10SpecRef         = "xsd10-datatypes#token"
+	instanceTokenXSD11SpecRef         = "xsd11-datatypes#token" //nolint:gosec // Specification references are not credentials.
+	instanceNMTOKENXSD10SpecRef       = "xsd10-datatypes#dt-NMTOKEN"
+	instanceNMTOKENXSD11SpecRef       = "xsd11-datatypes#dt-NMTOKEN" //nolint:gosec // Specification references are not credentials.
+	instanceNMTOKENFacetsXSD10SpecRef = "xsd10-datatypes#NMTOKEN-facets"
+	instanceNMTOKENFacetsXSD11SpecRef = "xsd11-datatypes#NMTOKEN-facets" //nolint:gosec // Specification references are not credentials.
 	// Completed built-in element views do not retain their document version.
 	// Compatibility validation uses the repository's XSD 1.1-compatible default.
 	instanceBuiltInValidationVersion XSDVersion = XSDVersion11
@@ -183,11 +185,12 @@ type instanceChoiceProgram struct {
 // Built-in element views do not retain a document version, so this entrypoint
 // uses the repository's compatibility/default XSD 1.1-compatible datatype
 // rules for built-in integer and decimal values. Boolean values use the
-// selected graph-wide policy for their versioned datatype diagnostics. Named
-// numeric types use the version retained by their completed effective facets;
-// named boolean types use the selected graph-wide policy. A successful
-// validation returns nil. Unsupported semantic structures return a
-// registered xsd.instance.validation diagnostic.
+// selected graph-wide policy for their versioned datatype diagnostics. Built-in
+// NMTOKEN values also use that selected policy. Named numeric types use the
+// version retained by their completed effective facets; named boolean types use
+// the selected graph-wide policy. A successful validation returns nil.
+// Unsupported semantic structures return a registered xsd.instance.validation
+// diagnostic.
 func ValidateInstance(schema Schema, sourceID SourceID, reader io.ReadCloser) error {
 	if reader == nil {
 		return newDiagnostic(
@@ -1426,7 +1429,9 @@ func validateNMTOKENEnumerationValue(facets StringEnumerationFacets, normalized 
 	if stringEnumerationContainsInValueSpace(facets.values, normalized, collapseXMLWhitespace) {
 		return nil
 	}
-	return enumerationValueViolationDiagnostic(valueLoc, facets.Locations(), facets.Version(), "NMTOKEN")
+	diagnostic := enumerationValueViolationDiagnostic(valueLoc, facets.Locations(), facets.Version(), "NMTOKEN")
+	diagnostic.specRef = instanceNMTOKENFacetsSpecRef(facets.Version())
+	return diagnostic
 }
 
 func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Loc) (instanceScalarType, error) {
@@ -1737,9 +1742,9 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 	case "boolean":
 		return instanceBuiltInBooleanScalarType(related, booleanVersion), nil
 	case "token":
-		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowToken, instanceTokenScalar{})
+		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowToken, instanceTokenScalar{}, instanceBuiltInValidationVersion)
 	case "NMTOKEN":
-		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowNMTOKEN, instanceNMTOKENScalar{})
+		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowNMTOKEN, instanceNMTOKENScalar{}, booleanVersion)
 	case "language", "NCName", "anyURI", "ID":
 		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
 	default:
@@ -1808,7 +1813,7 @@ func instanceBuiltInBooleanScalarType(related []Loc, version XSDVersion) instanc
 	}
 }
 
-func instanceBuiltInStringScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowed bool, value instanceScalarValue) (instanceScalarType, error) {
+func instanceBuiltInStringScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowed bool, value instanceScalarValue, version XSDVersion) (instanceScalarType, error) {
 	if !allowed {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
@@ -1820,7 +1825,7 @@ func instanceBuiltInStringScalarType(declaredType QName, related []Loc, loc Loc,
 	}
 	return instanceScalarType{
 		value:   value,
-		version: instanceBuiltInValidationVersion,
+		version: version,
 		related: related,
 	}, nil
 }
@@ -1892,6 +1897,13 @@ func instanceNMTOKENSpecRef(version XSDVersion) string {
 		return instanceNMTOKENXSD10SpecRef
 	}
 	return instanceNMTOKENXSD11SpecRef
+}
+
+func instanceNMTOKENFacetsSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceNMTOKENFacetsXSD10SpecRef
+	}
+	return instanceNMTOKENFacetsXSD11SpecRef
 }
 
 func newInstanceValidationInvalid(code string, loc Loc, message string, related []Loc, specRef string, cause error) Diagnostic {
