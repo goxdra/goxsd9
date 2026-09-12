@@ -84,9 +84,10 @@ boundary:
 
 The current schema preflight uses this exact private range to validate lexical
 occurrence input. A named global complex type with one direct sequence of local
-built-in `xs:boolean`, named boolean-restriction, integer, or decimal scalar
-elements, or one direct choice of those scalar elements, maps the completed
-range and ordered children into the public schema. The same supported named choice/sequence boundary maps direct `xs:any` with omitted or canonical default attributes to an immutable public `WildcardParticle` with effective `##any`/strict facts, retaining lexical order, exact locations, and occurrence ranges; non-default wildcard constraints remain unsupported. A supported global named
+built-in boolean/token/NMTOKEN or named boolean/token/NMTOKEN restriction,
+integer, or decimal scalar elements, or one direct choice of those scalar
+elements, maps the completed
+range and ordered children into the public schema. The same boundary maps default direct `xs:any` to immutable `WildcardParticle` facts with effective `##any`/strict, exact locations, ranges, and lexical order; non-default constraints remain unsupported. A supported global named
 model group with one direct choice or sequence of global element-reference
 particles exposes ordered children with exact ranges; its sequence uses
 grammar-default 1/1; compositor occurrence attrs are unsupported. Named complex type or bounded attribute-free extension may expose a direct model-group reference with target ID/exact
@@ -99,7 +100,7 @@ unbounded, and above-`uint64` outer and child ranges under `Compatibility`,
 same exact occurrence representation also covers bounded attribute-free `complexContent`/`extension`
 over named empty-content complex bases: the model retains extension/base
 identities and locations and inherited bounded wildcard facts, while validation
-and code generation reject extension types as unsupported.
+and code generation reject extension types as unsupported. Local token/NMTOKEN facts are retained; consumers reject them.
 Default-bounded direct integer/decimal or all-Boolean sequence children are emitted
 as ordered Go struct fields; mixed Boolean/numeric sequences and repeated-field
 generation remain unsupported. XSD 1.1
@@ -159,8 +160,9 @@ behavior. An error-level diagnostic returns no schema.
 ## Non-goals, risks, and follow-up
 
 Currently, the occurrence boundary supports one named global complex type
-with one direct sequence or direct choice of local built-in `xs:boolean`, named
-boolean-restriction, integer, or decimal scalar elements, or one global named model group with one direct choice or sequence of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. They retain exact ranges and target IDs. Extensions retain extension/base identities, locations, inherited bounded wildcard facts, and exact direct choice/sequence occurrences; validation and code generation reject them as unsupported. Direct default-effective `xs:any` terms (omitted or canonical defaults) are supported in named direct choice/sequence and bounded extensions as immutable wildcard particles; non-default constraints and broader placements remain unsupported, and consumers reject nonzero wildcard terms. All supported forms
+with one direct sequence or direct choice of local built-in boolean/token/NMTOKEN
+or named boolean/token/NMTOKEN restrictions, integer, or decimal scalar elements,
+or one global named model group with one direct choice or sequence of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. They retain exact ranges and target IDs. Extensions retain extension/base identities, locations, inherited bounded wildcard facts, and exact direct choice/sequence occurrences; validation and code generation reject them as unsupported. Direct default-effective `xs:any` terms (omitted or canonical defaults) are supported in named direct choice/sequence and bounded extensions as immutable wildcard particles; non-default constraints and broader placements remain unsupported, and consumers reject nonzero wildcard terms. All supported forms
 retain exact ranges; `0/0` maps to absence.
 For instance validation, named global complex homogeneous Boolean/numeric sequences
 match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`

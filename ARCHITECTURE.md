@@ -84,7 +84,8 @@ Documents follow identity-discovery order (root, queue); named declarations foll
 declaration ordinals; lookup maps never define observable order. Local particles use scoped component
 facts/indexes; validator/generator state is on-demand.
 
-Primitive status follows type-relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`/`xs:NMTOKEN` retain `DeclaredType`;
+Primitive status follows type-relations. Global boolean/string/token/NMTOKEN retain `DeclaredType`;
+Local token/NMTOKEN particles retain references;
 named/anonymous restrictions retain immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins lack synthetic IDs.
 Built-in/named integer/decimal attrs retain immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
 exact-typed-value, source-location. Named global complex types accept unqualified `mixed="false|0"`; omitted=element-only
@@ -94,11 +95,12 @@ Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline fo
 `defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
 Root `xpathDefaultNamespace` is inert: Compatibility/Strict11 validate and discard it; malformed values are invalid, Strict10 reports a located mismatch, and XPath constructs remain unsupported.
-Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string, string/boolean/precisionDecimal attrs unsupported.
+Schema-level `defaultAttributes`/default-group-application, non-particle local forms, inline-non-atomic-string,
+and string/boolean/precisionDecimal attrs unsupported.
 
 Complexes: `IsAbstract()` (non-inherited); named global complex types: explicit non-empty `final`; `Final()`: canonical extension-then-restriction order; `FinalLoc()`: source location; XSD 1.0/1.1; Compatibility; `final=extension` or `#all` rejects extension derivation.
-Model-group refs and attribute-free extensions retain IDs/locations; consumers reject. Direct sequence/choice `anyAttribute`: omitted/default `##any`/strict or explicit `##any`/strict/`##other`/lax; locations; omitted=0. Default-effective `xs:any` wildcards retain namespace/process/ranges/locations; `0/0` absent; nonzero rejected. Inert `openContent mode="none"` supports named globals and bounded attribute-free extensions under Compatibility/Strict11; Strict10 reports a located mismatch. Other open-content/restriction/simpleContent/inline/broader derivations unsupported; malformed=invalid.
-Model groups expose direct choice/sequence global-element facts with exact ranges; consumers reject expansion.
+Model-group refs/extensions retain IDs/locations; consumers reject. Direct sequence/choice `anyAttribute`: omitted/default `##any`/strict or explicit `##any`/strict/`##other`/lax; locations; omitted=0. Default-effective `xs:any` wildcards retain namespace/process/ranges/locations; `0/0` absent; nonzero rejected. Inert `openContent mode="none"` supports named globals and bounded attribute-free extensions under Compatibility/Strict11; Strict10 reports a located mismatch. Other open-content/restriction/simpleContent/inline/broader derivations unsupported; malformed=invalid.
+Model groups expose ordered global-element facts; consumers reject.
 
 ## Datatypes
 
@@ -120,12 +122,12 @@ complexes with direct choices/sequences. Choices accept default-occurrence local
 default-occurrence references only to global integer/decimal elements. Homogeneous Boolean/numeric sequences honor finite/unbounded and
 above-`uint64` ranges under all policies; mixed sequences remain unsupported. References use `TargetID`; model groups rejected.
 `token`/`NMTOKEN` collapse XML whitespace before effective enumeration; NMTOKEN enforces repository XML NameChar policy; raw facts unchanged.
-Global Boolean references, local token/NMTOKEN particles, strings, lists/unions, attributes, and structures are unsupported. Direct `xs:any` is
+Global Boolean references, local token/NMTOKEN particles, strings, lists/unions, attributes, and structures remain validation-unsupported. Direct `xs:any` is
 query-only: nonzero terms are rejected with edition-selected diagnostics; `0/0` absent.
 
 Generation: named/inherited global boolean/integer/decimal/string/token/NMTOKEN scalars, inline anonymous global string/token/NMTOKEN elements, numeric choices,
-default all-Boolean choices and default-bounded numeric/all-Boolean sequences; mixed Boolean/numeric sequences, other choices, and repeated/other
-references remain unsupported; only default global integer/decimal references generate.
+default all-Boolean choices and default-bounded numeric/all-Boolean sequences; mixed Boolean/numeric sequences,
+other choices, and repeated/other references remain unsupported; only default global integer/decimal references generate.
 
 ## Conformance
 

@@ -45,7 +45,8 @@
 // non-default precisionDecimal choice or alternative ranges and non-0/0
 // direct-sequence precisionDecimal ranges that map to particles are
 // schema-unsupported. Anonymous, nested, and broader particles remain
-// unsupported; local string/token/NMTOKEN particles remain unsupported. Anonymous simple-type
+// unsupported; supported direct local token/NMTOKEN particles are modeled but remain
+// unsupported to consumers; local string particles remain unsupported. Anonymous simple-type
 // models and resolved built-in, named, and anonymous simple-type references are
 // modeled. Direct element references are queryable immutable particles;
 // validation and code generation support default-occurrence direct choices
@@ -88,12 +89,13 @@
 // collapse XML whitespace before effective enumeration comparison without
 // changing retained schema facts. Global NMTOKEN values also collapse XML
 // whitespace and enforce the repository XML NameChar policy. Global string
-// values, local string/token/NMTOKEN particles, lists/unions,
+// values, local string particles, lists/unions,
 // attributes, broader particles, and other semantics remain explicit unsupported
 // behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal/
 // atomic string/token/NMTOKEN scalar components, default-occurrence all-Boolean or
 // numeric direct choices, and default-bounded numeric or all-Boolean local sequences;
 // boolean facets, mixed Boolean/numeric sequences, mixed direct choices, and local
-// string/token/NMTOKEN particles remain unsupported.
+// string particles remain unsupported; modeled local token/NMTOKEN particles are
+// rejected by generation.
 package goxsd9
