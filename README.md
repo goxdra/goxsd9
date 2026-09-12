@@ -10,8 +10,8 @@ XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Named complexes: element-onl
 `openContent mode="none"`: Compatibility/Strict11 supports globals/bounded extensions; Strict10 mismatches. Other open-content modes/derivation shapes unsupported; malformed=invalid.
 Named direct sequence/choice default-effective `xs:any` (omitted or canonical defaults): immutable `WildcardParticle` (`##any`/`strict`), exact ranges/locations; nonzero unsupported, `0/0` absent. `anyAttribute`
 defaults to `##any`/strict or supports explicit `##other`/lax; locations retained.
-Direct model-group refs and named group choices/sequences: query-only; consumers reject. Local `xs:token`/`xs:NMTOKEN` particles in direct
-choices/sequences and bounded attribute-free extensions are modeled; consumers reject.
+Model-group refs/choices: query-only; consumers reject. Explicitly typed built-in or supported named
+`xs:token`/`xs:NMTOKEN` in supported direct choices/sequences and bounded attribute-free extensions are modeled; inline/local-value/default/fixed/local-attribute/broader shapes remain unsupported.
 
 `abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. Contract: [ARCHITECTURE.md](ARCHITECTURE.md).
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).

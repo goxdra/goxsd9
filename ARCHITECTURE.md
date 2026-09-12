@@ -84,8 +84,8 @@ Documents follow identity-discovery order (root, queue); named declarations foll
 declaration ordinals; lookup maps never define observable order. Local particles use scoped component
 facts/indexes; validator/generator state is on-demand.
 
-Primitive status follows type-relations. Global boolean/string/token/NMTOKEN retain `DeclaredType`;
-Local token/NMTOKEN particles retain references;
+Primitive status: Global scalars retain `DeclaredType`; local explicit built-in/supported-named
+token/NMTOKEN refs retain references in supported direct shapes;
 named/anonymous restrictions retain immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins lack synthetic IDs.
 Built-in/named integer/decimal attrs retain immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
 exact-typed-value, source-location. Named global complex types accept unqualified `mixed="false|0"`; omitted=element-only
@@ -95,8 +95,8 @@ Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline fo
 `defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
 Root `xpathDefaultNamespace` is inert: Compatibility/Strict11 validate and discard it; malformed values are invalid, Strict10 reports a located mismatch, and XPath constructs remain unsupported.
-Schema-level `defaultAttributes`/default-group-application, non-particle local forms, inline-non-atomic-string,
-and string/boolean/precisionDecimal attrs unsupported.
+Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
+non-atomic-string/string/boolean/precisionDecimal attrs unsupported.
 
 Complexes: `IsAbstract()` (non-inherited); named global complex types: explicit non-empty `final`; `Final()`: canonical extension-then-restriction order; `FinalLoc()`: source location; XSD 1.0/1.1; Compatibility; `final=extension` or `#all` rejects extension derivation.
 Model-group refs/extensions retain IDs/locations; consumers reject. Direct sequence/choice `anyAttribute`: omitted/default `##any`/strict or explicit `##any`/strict/`##other`/lax; locations; omitted=0. Default-effective `xs:any` wildcards retain namespace/process/ranges/locations; `0/0` absent; nonzero rejected. Inert `openContent mode="none"` supports named globals and bounded attribute-free extensions under Compatibility/Strict11; Strict10 reports a located mismatch. Other open-content/restriction/simpleContent/inline/broader derivations unsupported; malformed=invalid.

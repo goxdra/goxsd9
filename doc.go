@@ -44,9 +44,11 @@
 // and each mapped precisionDecimal alternative use default occurrences;
 // non-default precisionDecimal choice or alternative ranges and non-0/0
 // direct-sequence precisionDecimal ranges that map to particles are
-// schema-unsupported. Anonymous, nested, and broader particles remain
-// unsupported; supported direct local token/NMTOKEN particles are modeled but remain
-// unsupported to consumers; local string particles remain unsupported. Anonymous simple-type
+// schema-unsupported. Anonymous/inline local types, local value/default/fixed/attribute
+// constraints, nested, and broader particles remain unsupported; explicitly typed built-in or
+// supported named token/NMTOKEN elements in direct choices/sequences and bounded
+// attribute-free extensions are modeled but remain unsupported to consumers; local string
+// particles remain unsupported. Anonymous simple-type
 // models and resolved built-in, named, and anonymous simple-type references are
 // modeled. Direct element references are queryable immutable particles;
 // validation and code generation support default-occurrence direct choices
