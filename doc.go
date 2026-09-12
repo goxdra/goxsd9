@@ -25,10 +25,12 @@
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
 //
-// The schema model also exposes one direct ordered sequence of local built-in
-// xs:boolean, named boolean-restriction, integer, and decimal scalar elements
-// for a named global complex type, and direct choices of those scalar elements,
-// including exact immutable occurrence ranges. Direct xs:any terms with omitted
+// The schema model exposes one direct ordered sequence and direct choices of local
+// built-in xs:boolean, named boolean-restriction, integer, decimal, and explicitly
+// typed built-in or supported named xs:token/xs:NMTOKEN particles for named global
+// complex types. Token/NMTOKEN local particles are modeled but unsupported to
+// consumers; exact immutable occurrence ranges are retained.
+// Direct xs:any terms with omitted
 // or canonical explicit-default namespace="##any" and/or processContents="strict"
 // spellings are also exposed as immutable WildcardParticle values with effective
 // namespace ##any and strict processing; explicit constraint-attribute locations
@@ -44,8 +46,11 @@
 // and each mapped precisionDecimal alternative use default occurrences;
 // non-default precisionDecimal choice or alternative ranges and non-0/0
 // direct-sequence precisionDecimal ranges that map to particles are
-// schema-unsupported. Anonymous, nested, and broader particles remain
-// unsupported; local string/token/NMTOKEN particles remain unsupported. Anonymous simple-type
+// schema-unsupported. Anonymous/inline local types, local value/default/fixed/attribute
+// constraints, nested, and broader particles remain unsupported; explicitly typed built-in or
+// supported named token/NMTOKEN elements in direct choices/sequences and bounded
+// attribute-free extensions are modeled but remain unsupported to consumers; local string
+// particles remain unsupported. Anonymous simple-type
 // models and resolved built-in, named, and anonymous simple-type references are
 // modeled. Direct element references are queryable immutable particles;
 // validation and code generation support default-occurrence direct choices
@@ -88,12 +93,13 @@
 // collapse XML whitespace before effective enumeration comparison without
 // changing retained schema facts. Global NMTOKEN values also collapse XML
 // whitespace and enforce the repository XML NameChar policy. Global string
-// values, local string/token/NMTOKEN particles, lists/unions,
+// values, local string particles, lists/unions,
 // attributes, broader particles, and other semantics remain explicit unsupported
 // behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal/
 // atomic string/token/NMTOKEN scalar components, default-occurrence all-Boolean or
 // numeric direct choices, and default-bounded numeric or all-Boolean local sequences;
 // boolean facets, mixed Boolean/numeric sequences, mixed direct choices, and local
-// string/token/NMTOKEN particles remain unsupported.
+// string particles remain unsupported; modeled local token/NMTOKEN particles are
+// rejected by generation.
 package goxsd9

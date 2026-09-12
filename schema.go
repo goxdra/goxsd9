@@ -1541,6 +1541,15 @@ func (particle ElementParticle) DeclaredType() QName {
 	return particle.facts.declaredType
 }
 
+// TypeReference returns the resolved simple-type reference used by the local
+// element declaration, when it has one.
+func (particle ElementParticle) TypeReference() (SimpleTypeReference, bool) {
+	if particle.facts == nil || !particle.facts.hasTypeReference {
+		return SimpleTypeReference{}, false
+	}
+	return SimpleTypeReference{facts: &particle.facts.typeReference}, true
+}
+
 // IsNillable reports the effective nillable fact of the local element
 // declaration.
 func (particle ElementParticle) IsNillable() bool {
@@ -2510,6 +2519,8 @@ type schemaElementParticle struct {
 	occurrences             particleOccurrenceRange
 	name                    QName
 	declaredType            QName
+	typeReference           schemaSimpleTypeReferenceComponent
+	hasTypeReference        bool
 	nillable                bool
 	disallowedSubstitutions schemaBlockPolicy
 	typeID                  ComponentID

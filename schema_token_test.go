@@ -478,18 +478,8 @@ func TestSchemaTokenConsumerBoundariesPreserveScope(t *testing.T) {
 
 			t.Run("local particle", func(t *testing.T) {
 				root := tokenConsumerLocalRoot(profile.version)
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err == nil {
-					t.Fatal("discoverSchema silently accepted local xs:token scalar use")
-				}
-				assertTokenNoSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
-					t.Fatalf("local token diagnostic = %s/%q/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Code(), diagnostic.Feature())
-				}
-				if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 4, `type="xs:token"`) || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("local token diagnostic location or cause is wrong: %v", err)
-				}
+				schema := discoverLocalTokenParticleSchema(t, root, profile.policy)
+				assertLocalTokenParticleConsumersUnsupported(t, schema, `<box xmlns="urn:test"><item xmlns="">value</item></box>`, "token")
 			})
 		})
 	}
