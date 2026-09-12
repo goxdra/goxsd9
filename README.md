@@ -10,7 +10,7 @@ XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Named complexes: element-onl
 `openContent mode="none"`: Compatibility/Strict11 supports globals/bounded extensions; Strict10 mismatches. Other open-content modes/derivation shapes unsupported; malformed=invalid.
 Named direct sequence/choice default-effective `xs:any` (omitted or canonical defaults): immutable `WildcardParticle` (`##any`/`strict`), exact ranges/locations; nonzero unsupported, `0/0` absent. `anyAttribute`
 defaults to `##any`/strict or supports explicit `##other`/lax; locations retained.
-Only direct model-group refs and named global groups' direct choice/sequence reference particles are queryable; other groups unsupported. Explicitly typed built-in or supported named
+Supported top-level direct model-group refs and named-global groups' direct choice/sequence reference particles queryable; nested/other group shapes unsupported. Explicitly typed built-in or supported named
 `xs:token`/`xs:NMTOKEN` refs in supported direct shapes are modeled; local inline/value/default/fixed/attribute/broader shapes unsupported; ValidateInstance/GenerateGo reject; global token/NMTOKEN scalars generate.
 
 `abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. [ARCHITECTURE.md](ARCHITECTURE.md).
