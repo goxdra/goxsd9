@@ -25,10 +25,12 @@
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
 //
-// The schema model also exposes one direct ordered sequence of local built-in
-// xs:boolean, named boolean-restriction, integer, and decimal scalar elements
-// for a named global complex type, and direct choices of those scalar elements,
-// including exact immutable occurrence ranges. Direct xs:any terms with omitted
+// The schema model exposes one direct ordered sequence and direct choices of local
+// built-in xs:boolean, named boolean-restriction, integer, decimal, and explicitly
+// typed built-in or supported named xs:token/xs:NMTOKEN particles for named global
+// complex types. Token/NMTOKEN local particles are modeled but unsupported to
+// consumers; exact immutable occurrence ranges are retained.
+// Direct xs:any terms with omitted
 // or canonical explicit-default namespace="##any" and/or processContents="strict"
 // spellings are also exposed as immutable WildcardParticle values with effective
 // namespace ##any and strict processing; explicit constraint-attribute locations
