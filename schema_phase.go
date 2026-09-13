@@ -2897,7 +2897,7 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 			return false
 		}
 	}
-	return modelCount == 1
+	return modelCount <= 1
 }
 
 func schemaBooleanAttributeTrue(element *syntaxElement) bool {

@@ -98,9 +98,7 @@ matching expanded names in lexical declaration order and honoring exact finite,
 unbounded, and above-`uint64` outer and child ranges under `Compatibility`,
 `Strict10`, and `Strict11`. Direct-choice repetition remains unsupported. The
 same exact occurrence representation also covers bounded attribute-free `complexContent`/`extension`
-over named empty-content complex bases: the model retains extension/base
-identities and locations and inherited bounded wildcard facts, while validation
-and code generation reject extension types as unsupported. Local token/NMTOKEN facts are retained; consumers reject them.
+over named empty-content complex bases: extension/base identities, locations, and inherited bounded wildcard facts are retained; model-less extensions keep nil particles without synthetic content. Validation and code generation reject extensions. Local token/NMTOKEN facts remain; consumers reject them.
 Default-bounded direct integer/decimal or all-Boolean sequence children are emitted
 as ordered Go struct fields; mixed Boolean/numeric sequences and repeated-field
 generation remain unsupported. XSD 1.1

@@ -1652,58 +1652,57 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 		return nil, err
 	}
 	model := schemaComplexTypeModel(extension)
-	if model == nil {
-		return nil, newSchemaBridgeInvariant(extension.loc, "supported complexContent extension has no particle")
-	}
-	occurrences, err := schemaParticleOccurrenceRange(model, version)
-	if err != nil {
-		return nil, err
-	}
 	var particle schemaComplexTypeParticleInput
-	switch model.name.local {
-	case "group":
-		particle, err = schemaModelGroupReferenceParticleInputFromElementWithFacts(model, occurrences, facts)
-		if err != nil {
-			return nil, err
+	if model != nil {
+		occurrences, occurrenceErr := schemaParticleOccurrenceRange(model, version)
+		if occurrenceErr != nil {
+			return nil, occurrenceErr
 		}
-	case "choice":
-		choice := &schemaChoiceParticleInput{
-			loc:          model.loc,
-			occurrences:  occurrences,
-			alternatives: make([]schemaParticleTermInput, 0),
-		}
-		for _, node := range model.children {
-			child, ok := node.(*syntaxElement)
-			if !ok || child.name.local == "annotation" {
-				continue
+		switch model.name.local {
+		case "group":
+			particle, err = schemaModelGroupReferenceParticleInputFromElementWithFacts(model, occurrences, facts)
+			if err != nil {
+				return nil, err
 			}
-			alternative, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version)
-			if particleErr != nil {
-				return nil, particleErr
+		case "choice":
+			choice := &schemaChoiceParticleInput{
+				loc:          model.loc,
+				occurrences:  occurrences,
+				alternatives: make([]schemaParticleTermInput, 0),
 			}
-			choice.alternatives = append(choice.alternatives, alternative)
-		}
-		particle = choice
-	case "sequence":
-		sequence := &schemaSequenceParticleInput{
-			loc:         model.loc,
-			occurrences: occurrences,
-			particles:   make([]schemaParticleTermInput, 0),
-		}
-		for _, node := range model.children {
-			child, ok := node.(*syntaxElement)
-			if !ok || child.name.local == "annotation" {
-				continue
+			for _, node := range model.children {
+				child, ok := node.(*syntaxElement)
+				if !ok || child.name.local == "annotation" {
+					continue
+				}
+				alternative, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version)
+				if particleErr != nil {
+					return nil, particleErr
+				}
+				choice.alternatives = append(choice.alternatives, alternative)
 			}
-			input, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version)
-			if particleErr != nil {
-				return nil, particleErr
+			particle = choice
+		case "sequence":
+			sequence := &schemaSequenceParticleInput{
+				loc:         model.loc,
+				occurrences: occurrences,
+				particles:   make([]schemaParticleTermInput, 0),
 			}
-			sequence.particles = append(sequence.particles, input)
+			for _, node := range model.children {
+				child, ok := node.(*syntaxElement)
+				if !ok || child.name.local == "annotation" {
+					continue
+				}
+				input, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version)
+				if particleErr != nil {
+					return nil, particleErr
+				}
+				sequence.particles = append(sequence.particles, input)
+			}
+			particle = sequence
+		default:
+			return nil, newSchemaBridgeInvariant(model.loc, "supported complexContent extension has an unknown particle")
 		}
-		particle = sequence
-	default:
-		return nil, newSchemaBridgeInvariant(model.loc, "supported complexContent extension has an unknown particle")
 	}
 	return &schemaComplexTypeInput{
 		body: &schemaComplexTypeExtensionBodyInput{
@@ -4730,20 +4729,24 @@ func (resolver *schemaComplexTypeResolver) resolveBody(
 			anyAttribute:      schemaAnyAttributeResultFromInput(body.anyAttribute),
 		}, nil
 	case *schemaComplexTypeExtensionBodyInput:
-		if body == nil || body.particle == nil {
-			return nil, newSchemaBridgeInvariant(owner.loc, "extension complex type body has no particle input")
+		if body == nil {
+			return nil, newSchemaBridgeInvariant(owner.loc, "extension complex type body is nil")
 		}
-		particle, err := resolveSchemaComplexTypeParticle(
-			body.particle,
-			owner,
-			resolver.records,
-			resolver.byName,
-			resolver.visibleSources,
-			resolver.simpleTypes,
-			resolver.version,
-		)
-		if err != nil {
-			return nil, err
+		var particle Particle
+		if body.particle != nil {
+			resolvedParticle, particleErr := resolveSchemaComplexTypeParticle(
+				body.particle,
+				owner,
+				resolver.records,
+				resolver.byName,
+				resolver.visibleSources,
+				resolver.simpleTypes,
+				resolver.version,
+			)
+			if particleErr != nil {
+				return nil, particleErr
+			}
+			particle = resolvedParticle
 		}
 		base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex)
 		if err != nil {

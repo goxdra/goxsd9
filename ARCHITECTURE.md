@@ -95,9 +95,9 @@ Root `xpathDefaultNamespace` is inert: Compatibility/Strict11 validate and disca
 Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
 non-atomic-string/string/boolean/precisionDecimal attrs unsupported.
 
-Complexes: `IsAbstract()` (non-inherited); named global complex types: explicit non-empty `final`; `Final()`: canonical extension-then-restriction order; `FinalLoc()`: source location; XSD 1.0/1.1; Compatibility; `final=extension` or `#all` rejects extension derivation.
-Model-group refs/extensions retain IDs/locations; consumers reject. Direct sequence/choice `anyAttribute`: omitted/default `##any`/strict or explicit `##any`/strict/`##other`/lax; locations; omitted=0. Default-effective `xs:any` wildcards retain namespace/process/ranges/locations; `0/0` absent; nonzero rejected. Inert `openContent mode="none"` supports named globals and bounded attribute-free extensions under Compatibility/Strict11; Strict10 reports a located mismatch. Other open-content/restriction/simpleContent/inline/broader derivations unsupported; malformed=invalid.
-Named global groups expose ordered direct choice/sequence reference particles, exact occurrence ranges; broader shapes unsupported; consumers reject.
+Complexes: `IsAbstract()` (non-inherited); named complex types: explicit non-empty `final`; `Final()`: canonical extension-then-restriction order; `FinalLoc()`: source location; XSD 1.0/1.1; Compatibility; `final=extension` or `#all` rejects extension derivation.
+Model-group refs/extensions retain IDs/locations; consumers reject. Model-less bounded extensions require completed empty-body bases; retain nil particles and inherited facts without synthetic content. `anyAttribute` defaults `##any`/strict or explicit `##any`/strict/`##other`/lax; locations. `xs:any` wildcards retain ranges/locations; `0/0` absent; nonzero rejected. Inert `openContent mode="none"` supports globals/bounded extensions under Compatibility/Strict11; Strict10 mismatches. Other open-content/restriction/simpleContent/inline/broader derivations unsupported; malformed=invalid.
+Named groups expose ordered references with exact ranges; broader shapes unsupported; consumers reject.
 
 ## Datatypes
 
