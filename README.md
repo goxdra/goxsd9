@@ -6,7 +6,7 @@ goxsd9 parses/validates/generates Go; unsupported remains explicit.
 
 `ParseSchema`: immutable components; callers provide `ResolvedSource`/`Resolver`; sequential calls, opaque locations; Compatibility default.
 
-XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Named complexes: element-only, model-group refs, bounded attribute-free extensions; model-less extensions over completed named empty-body bases retain nil particles. `defaultAttributesApply`: named globals under XSD 1.1/Compatibility.
+XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Complexes: element-only/model-group refs/bounded attribute-free extensions; model-less extensions over completed named empty-content bases: nil/no-synthetic-particle; only bounded/representable inherited `##other`/lax wildcards. `defaultAttributesApply`: named globals under XSD 1.1/Compatibility.
 `openContent mode="none"`: supports globals/bounded extensions under Compatibility/Strict11; Strict10 mismatches. Other forms unsupported; malformed=invalid.
 Named direct sequence/choice default-effective `xs:any` (omitted or canonical defaults): immutable `WildcardParticle` (`##any`/`strict`), exact ranges/locations; nonzero unsupported, `0/0` absent. `anyAttribute`
 defaults to `##any`/strict or supports explicit `##other`/lax; locations retained.

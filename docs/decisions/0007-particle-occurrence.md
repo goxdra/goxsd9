@@ -96,9 +96,9 @@ The exact representation is retained for choice facts. `ValidateInstance`
 supports named global complex types with homogeneous Boolean/numeric sequences,
 matching expanded names in lexical declaration order and honoring exact finite,
 unbounded, and above-`uint64` outer and child ranges under `Compatibility`,
-`Strict10`, and `Strict11`. Direct-choice repetition remains unsupported. The
-same exact occurrence representation also covers bounded attribute-free `complexContent`/`extension`
-over named empty-content complex bases: extension/base identities, locations, and inherited bounded wildcard facts are retained; model-less extensions keep nil particles without synthetic content. Validation and code generation reject extensions. Local token/NMTOKEN facts remain; consumers reject them.
+`Strict10`, and `Strict11`. Direct-choice repetition is unsupported. The
+same exact occurrence representation covers bounded attribute-free `complexContent`/`extension`
+over named empty-content bases. Extensions retain extension/base identities/locations and only bounded/representable inherited `##other`/lax wildcard facts. Extensions with present direct choice/sequence particles retain exact occurrences; model-less extensions retain those identities/locations but no particle or occurrence or synthetic content. Validation and code generation reject extensions. Local token/NMTOKEN facts remain; consumers reject them.
 Default-bounded direct integer/decimal or all-Boolean sequence children are emitted
 as ordered Go struct fields; mixed Boolean/numeric sequences and repeated-field
 generation remain unsupported. XSD 1.1
@@ -160,8 +160,7 @@ behavior. An error-level diagnostic returns no schema.
 Currently, the occurrence boundary supports one named global complex type
 with one direct sequence or direct choice of local built-in boolean/token/NMTOKEN
 or named boolean/token/NMTOKEN restrictions, integer, or decimal scalar elements,
-or one global named model group with one direct choice or sequence of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. They retain exact ranges and target IDs. Extensions retain extension/base identities, locations, inherited bounded wildcard facts, and exact direct choice/sequence occurrences; validation and code generation reject them as unsupported. Direct default-effective `xs:any` terms (omitted or canonical defaults) are supported in named direct choice/sequence and bounded extensions as immutable wildcard particles; non-default constraints and broader placements remain unsupported, and consumers reject nonzero wildcard terms. All supported forms
-retain exact ranges; `0/0` maps to absence.
+or one global named model group with one direct choice or sequence of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. Direct model-group references retain exact ranges and target IDs. For bounded attribute-free extensions, exact occurrences apply only with a present direct choice or sequence particle. Model-less extensions retain extension/base identities and locations but no particle or occurrence or synthetic content; validation and code generation reject them. Wildcard terms follow rules above. Supported forms retain exact ranges; `0/0` maps to absence.
 For instance validation, named global complex homogeneous Boolean/numeric sequences
 match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`
 outer and child ranges under `Compatibility`, `Strict10`, and `Strict11`; direct-choice validation

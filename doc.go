@@ -64,18 +64,19 @@
 // Top-level direct model-group references on named complex types and bounded
 // attribute-free extensions over named empty-content bases are queryable as exact
 // immutable facts without expanding target members. Direct model-group references
-// retain `TargetID`; an extension with no model group retains a nil optional
-// particle and its named base identity. `ValidateInstance` and `GenerateGo` reject
-// them. Nested, local, recursive, and broader group-reference shapes remain
-// unsupported.
+// retain `TargetID`. Nested, local, recursive, and broader group-reference shapes
+// remain unsupported.
 // Default-bounded numeric or all-Boolean sequences are emitted as ordered Go
 // struct fields; repeated-field generation and direct-choice repetition remain
 // unsupported.
 // Bounded attribute-free complexContent/extension over named empty-content
-// complex bases is modeled with extension/base identities and locations,
-// inherited bounded wildcard facts, and exact direct choice/sequence occurrences.
-// When the model group is absent, the completed extension keeps its nil optional
-// particle; validation and code generation reject extension types as unsupported.
+// complex bases, including the supported named `complexContent/restriction` over
+// `xs:anyType` representation, retains extension/base identities and locations
+// and only inherited bounded, representable wildcard facts (`##other`/`lax`).
+// An extension with a present direct choice or sequence particle retains its exact
+// occurrence. A model-less extension retains its named base identity and locations
+// with a nil optional particle, no occurrence, and no synthetic content; validation
+// and code generation reject extension types as unsupported.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal/
