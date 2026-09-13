@@ -85,11 +85,12 @@ type addBlockedByResponse struct {
 }
 
 var (
-	validAreas    = []string{"codegen", "datatypes", "docs", "parser", "resolver", "schema", "specs", "validator", "workflow", "xpath"}
-	validTypes    = []string{"bug", "conformance", "docs", "feature", "refactor", "research", "tooling"}
-	validEfforts  = []string{"XS", "S", "M", "L", "XL"}
-	validPhases   = []string{"Bootstrap", "Vertical Slice", "Schema Model", "Validation", "Codegen", "Conformance", "XPath"}
-	validStatuses = []string{"Backlog", "Ready"}
+	validAreas      = []string{"codegen", "datatypes", "docs", "parser", "resolver", "schema", "specs", "validator", "workflow", "xpath"}
+	validTypes      = []string{"bug", "conformance", "docs", "feature", "refactor", "research", "tooling"}
+	validPriorities = []string{"P0", "P1", "P2", "P3", "P4"}
+	validEfforts    = []string{"XS", "S", "M", "L", "XL"}
+	validPhases     = []string{"Bootstrap", "Vertical Slice", "Schema Model", "Validation", "Codegen", "Conformance", "XPath"}
+	validStatuses   = []string{"Backlog", "Ready"}
 )
 
 func (values *intValues) String() string {
@@ -117,6 +118,9 @@ func (a app) runIssue(args []string) error {
 }
 
 func (a app) createIssue(args []string) error {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		return writeLine(a.stdout, "%s", issueCreateHelpText())
+	}
 	flags := flag.NewFlagSet("issue create", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	title := flags.String("title", "", "issue title")
@@ -195,7 +199,7 @@ func validateIssueInput(title, bodyFile, area, typeName, priority, effort, phase
 	if !strings.Contains(string(body), "## Acceptance") {
 		return errors.New("issue body must contain an Acceptance section")
 	}
-	if priorityRank(priority) > 4 {
+	if !containsString(validPriorities, priority) {
 		return fmt.Errorf("invalid priority %q", priority)
 	}
 	if !containsString(validAreas, area) {
@@ -217,6 +221,47 @@ func validateIssueInput(title, bodyFile, area, typeName, priority, effort, phase
 		return errors.New("ready issues must be XS, S, or M")
 	}
 	return nil
+}
+
+func issueCreateHelpText() string {
+	return fmt.Sprintf(`Usage:
+  go tool workflowctl issue create [flags]
+
+Create a GitHub issue and configure its Project metadata.
+
+Required flags:
+  --title TITLE
+        issue title (required; must not be blank)
+  --body-file FILE
+        Markdown body file (required; regular file containing "## Acceptance")
+  --area AREA
+        area label suffix (required; one of: %s)
+  --type TYPE
+        type label suffix (required; one of: %s)
+
+Project flags:
+  --priority PRIORITY
+        Project priority (default: P2; one of: %s)
+  --effort EFFORT
+        Project effort (default: S; one of: %s)
+  --phase PHASE
+        Project phase (default: Bootstrap; one of: %s)
+  --status STATUS
+        Project status (default: Backlog; one of: %s; Ready requires XS, S, or M effort)
+
+Dependency flags:
+  --blocked-by ISSUE
+        blocking issue number (positive integer; repeatable; no duplicates; maximum 50 values)
+
+Help:
+  -h, --help
+        print this help; recognized only when it is the sole argument after "issue create"
+
+Validation:
+  --body-file must contain an "## Acceptance" section marker.
+  Unknown flags, missing values, invalid values, and positional operands are usage errors.`,
+		strings.Join(validAreas, ", "), strings.Join(validTypes, ", "), strings.Join(validPriorities, ", "),
+		strings.Join(validEfforts, ", "), strings.Join(validPhases, ", "), strings.Join(validStatuses, ", "))
 }
 
 func containsString(values []string, target string) bool {
