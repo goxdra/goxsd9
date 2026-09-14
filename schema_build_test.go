@@ -2447,8 +2447,8 @@ func TestSchemaSimpleTypeFinalExtensionFollowsEditionLexicalRules(t *testing.T) 
 					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
 						t.Fatalf("Strict10 diagnostic = %s, want invalid schema composition", diagnostic)
 					}
-					if diagnostic.Feature() != "" || diagnostic.SpecRef() != "" || errors.Is(err, ErrUnsupported) {
-						t.Fatalf("Strict10 diagnostic was not classified as invalid input: %s", diagnostic)
+					if diagnostic.Feature() != "" || diagnostic.SpecRef() != schemaSimpleTypeXSD10SpecRef || errors.Is(err, ErrUnsupported) || !errors.Is(err, errLanguagePolicyMismatch) {
+						t.Fatalf("Strict10 diagnostic was not classified as an invalid edition mismatch: %s", diagnostic)
 					}
 					if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 1, "final") {
 						t.Fatalf("Strict10 diagnostic location = %s, want final attribute", diagnostic.Loc())
