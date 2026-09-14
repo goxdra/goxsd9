@@ -30,13 +30,12 @@
 // typed built-in or supported named xs:token/xs:NMTOKEN particles for named global
 // complex types. Token/NMTOKEN local particles are modeled but unsupported to
 // consumers; exact immutable occurrence ranges are retained.
-// Direct xs:any terms with omitted or canonical explicit-default
-// namespace="##any" and/or processContents="strict" spellings, and the exact
-// explicit namespace="##other" processContents="lax" pair, are also exposed as
-// immutable WildcardParticle values with their effective namespace and
-// processing facts; explicit constraint-attribute locations are retained, in
-// lexical order with element and reference terms. Other wildcard constraints
-// and broader wildcard placements remain unsupported.
+// Direct xs:any terms with effective ##any/strict, ##any/lax (including an
+// omitted namespace with processContents="lax"), and ##other/lax forms are
+// also exposed as immutable WildcardParticle values with their effective
+// namespace and processing facts; explicit constraint-attribute locations are
+// retained, in lexical order with element and reference terms. Other wildcard
+// constraints and broader wildcard placements remain unsupported.
 // Effective 0/0 sequence, choice, child, and wildcard ranges map
 // to absence. Non-0/0 integer/decimal choice and
 // alternative ranges are queryable, but direct-choice repetition is not
