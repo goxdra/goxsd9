@@ -1977,7 +1977,7 @@ func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAn
 		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
 		processContentsLoc = processContentsAttributes[0].loc
 	}
-	if namespace == "##any" && processContents == "strict" {
+	if processContents == "strict" && (namespace == "##any" || namespace == "##other") {
 		return &schemaAnyAttributeInput{
 			loc:                wildcard.loc,
 			namespace:          namespace,

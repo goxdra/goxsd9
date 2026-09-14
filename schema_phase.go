@@ -3572,6 +3572,12 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	if len(namespaceAttributes) == 1 && len(processContentsAttributes) == 1 && collapseXMLWhitespace(namespaceAttributes[0].value) == "##any" && collapseXMLWhitespace(processContentsAttributes[0].value) == "strict" {
 		return true
 	}
+	if len(namespaceAttributes) == 1 && collapseXMLWhitespace(namespaceAttributes[0].value) == "##other" && len(processContentsAttributes) == 0 {
+		return true
+	}
+	if len(namespaceAttributes) == 1 && len(processContentsAttributes) == 1 && collapseXMLWhitespace(namespaceAttributes[0].value) == "##other" && collapseXMLWhitespace(processContentsAttributes[0].value) == "strict" {
+		return true
+	}
 	return isSupportedAnyAttribute(element)
 }
 

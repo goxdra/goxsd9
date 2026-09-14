@@ -181,12 +181,13 @@ including nested choices and `all`; nested, local, recursive, or broader group s
 and broader wildcard/attribute remain unsupported. Direct
 named-complex/bounded-extension group refs remain supported facts; anonymous simple-type
 models and resolved built-in, named, and anonymous simple-type
-references are modeled. Supported named direct sequence/choice types expose
-direct `anyAttribute` with effective `##any`/`strict` defaults when each
-attribute is omitted or explicitly spells its canonical value under XSD 1.0,
-XSD 1.1, and Compatibility; explicit `##other`/`lax` remains supported.
-The `anyAttribute` element location and explicitly present `namespace`/`processContents` attribute locations are retained; omitted default-attribute locations are zero. Wildcard-bearing validation and code-generation consumers remain
-unsupported. Direct
+references are modeled. Named direct sequence/choice types expose direct
+`anyAttribute`: omitted attributes default to `##any`/`strict`; canonical
+explicit values remain supported in XSD 1.0, XSD 1.1, and Compatibility.
+`##other`/`lax` remains supported; `##other`/`strict` is supported with omitted
+or explicit `processContents`. The `anyAttribute` element and explicit
+`namespace`/`processContents` locations are retained; omitted defaults are
+zero. Validation and code-generation consumers remain unsupported. Direct
 element-reference particles are supported in the schema model for local choice
 and sequence children and for global named-group direct choices or sequences; direct model-group references are
 supported only as the top-level particle of a named complex type or bounded attribute-free extension;
