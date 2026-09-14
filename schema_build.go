@@ -2084,7 +2084,7 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 	}
 	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 ||
 		len(syntaxAttributesByLocal(element, "notQName")) != 0 ||
-		namespace != "##any" || processContents != "strict" {
+		!isSupportedDirectAnyParticleFacts(namespace, processContents) {
 		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
 	}
 	return schemaWildcardParticleInput{
@@ -5654,11 +5654,11 @@ func resolveSchemaParticleTerm(
 }
 
 func resolveSchemaWildcardParticle(input schemaWildcardParticleInput) (Particle, error) {
+	if !isSupportedDirectAnyParticleFacts(input.namespace, input.processContents) {
+		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
+	}
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
-	}
-	if input.namespace != "##any" || input.processContents != "strict" {
-		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
 	}
 	return WildcardParticle{facts: &schemaWildcardParticle{
 		loc:                input.loc,

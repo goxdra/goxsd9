@@ -4888,6 +4888,23 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 	return validateAnyParticleWithOptions(element, version, false)
 }
 
+func isSupportedDirectAnyParticleFacts(namespace, processContents string) bool {
+	return namespace == "##any" && processContents == "strict" ||
+		namespace == "##other" && processContents == "lax"
+}
+
+func isSupportedDirectAnyParticle(element *syntaxElement) bool {
+	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
+	processContentsAttributes := syntaxAttributesByLocal(element, "processContents")
+	if len(namespaceAttributes) != 1 || len(processContentsAttributes) != 1 {
+		return false
+	}
+	return isSupportedDirectAnyParticleFacts(
+		collapseXMLWhitespace(namespaceAttributes[0].value),
+		collapseXMLWhitespace(processContentsAttributes[0].value),
+	)
+}
+
 //nolint:gocognit,funlen // Keep wildcard particle grammar and unsupported classification together.
 func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, allowDefault bool) error {
 	var candidate schemaChildUnsupportedCandidate
@@ -4896,6 +4913,7 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 	}
 	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
 	notNamespaceAttributes := syntaxAttributesByLocal(element, "notNamespace")
+	supportedDirectFacts := allowDefault && isSupportedDirectAnyParticle(element)
 	if err := validateSchemaParticleOccurrences(element, version); err != nil {
 		return err
 	}
@@ -4932,7 +4950,7 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 					return err
 				}
 				if allowDefault {
-					if collapseXMLWhitespace(attribute.value) == "##any" {
+					if supportedDirectFacts || collapseXMLWhitespace(attribute.value) == "##any" {
 						continue
 					}
 					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard namespace constraints are not implemented", version))
@@ -4964,7 +4982,7 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 				return err
 			}
 			if allowDefault {
-				if collapseXMLWhitespace(attribute.value) == "strict" {
+				if supportedDirectFacts || collapseXMLWhitespace(attribute.value) == "strict" {
 					continue
 				}
 				candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard processContents constraints are not implemented", version))

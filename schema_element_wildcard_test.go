@@ -2,6 +2,7 @@ package goxsd9
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -42,6 +43,12 @@ func TestSchemaBridgeModelsDirectAnyParticles(t *testing.T) {
 			namespaceMarker:       `namespace="&#xA;##any&#x9;"`,
 			processContentsMarker: `processContents="&#xD;strict&#x9;"`,
 		},
+		{
+			name:                  "other_lax",
+			attributes:            ` namespace="&#xA;##other&#x9;" processContents="&#xD;lax&#x9;"`,
+			namespaceMarker:       `namespace="&#xA;##other&#x9;"`,
+			processContentsMarker: `processContents="&#xD;lax&#x9;"`,
+		},
 	}
 	occurrences := []directWildcardOccurrenceCase{
 		{name: "default", wantRange: "1/1", wantTerm: true},
@@ -81,6 +88,44 @@ func TestSchemaBridgeModelsDirectAnyParticles(t *testing.T) {
 					}
 				}
 			}
+		}
+	}
+}
+
+//nolint:gocognit // Keep the absent-owner policy and edition matrix explicit.
+func TestSchemaBridgeModelsOtherWildcardWithAbsentOwnerNamespace(t *testing.T) {
+	for _, version := range []string{"1.0", "1.1"} {
+		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+			t.Run(version+"/"+string(policy), func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + version + `">
+  <xs:complexType name="Record"><xs:choice><xs:any namespace="&#xA;##other&#x9;" processContents="&#xD;lax&#x9;"/></xs:choice></xs:complexType>
+</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err != nil {
+					t.Fatalf("discover schema: %v", err)
+				}
+				components := schema.Components()
+				if len(components) != 1 {
+					t.Fatalf("component count = %d, want 1", len(components))
+				}
+				if got := components[0].Name().Namespace(); got != "" {
+					t.Fatalf("owner namespace = %q, want absent empty namespace", got)
+				}
+				definition, ok := components[0].ComplexType()
+				if !ok {
+					t.Fatal("Record component has no complex type view")
+				}
+				wildcard := directWildcardFromParticle(t, definition.Particle())
+				if wildcard.Namespace() != "##other" || wildcard.ProcessContents() != "lax" {
+					t.Fatalf("wildcard facts = %q/%q, want ##other/lax", wildcard.Namespace(), wildcard.ProcessContents())
+				}
+				if wildcard.NamespaceLoc() != wildcardParticleTestLoc(t, root, `namespace="&#xA;##other&#x9;"`) {
+					t.Fatalf("namespace location = %s, want explicit location", wildcard.NamespaceLoc())
+				}
+				if wildcard.ProcessContentsLoc() != wildcardParticleTestLoc(t, root, `processContents="&#xD;lax&#x9;"`) {
+					t.Fatalf("processContents location = %s, want explicit location", wildcard.ProcessContentsLoc())
+				}
+			})
 		}
 	}
 }
@@ -200,8 +245,14 @@ func assertDirectWildcardSequence(t *testing.T, root string, sequence SequencePa
 //nolint:gocognit // Keep all public wildcard fact and occurrence assertions together.
 func assertDirectWildcardFacts(t *testing.T, root string, wildcard WildcardParticle, occurrence directWildcardOccurrenceCase, constraint directWildcardConstraintCase) {
 	t.Helper()
-	if wildcard.Namespace() != "##any" || wildcard.ProcessContents() != "strict" {
-		t.Fatalf("wildcard facts = %q/%q, want ##any/strict", wildcard.Namespace(), wildcard.ProcessContents())
+	wantNamespace := "##any"
+	wantProcessContents := "strict"
+	if constraint.name == "other_lax" {
+		wantNamespace = "##other"
+		wantProcessContents = "lax"
+	}
+	if wildcard.Namespace() != wantNamespace || wildcard.ProcessContents() != wantProcessContents {
+		t.Fatalf("wildcard facts = %q/%q, want %s/%s", wildcard.Namespace(), wildcard.ProcessContents(), wantNamespace, wantProcessContents)
 	}
 	if wildcard.Loc() != wildcardParticleTestLoc(t, root, "<xs:any") {
 		t.Fatalf("wildcard location = %s, want xs:any location", wildcard.Loc())
@@ -274,10 +325,13 @@ func TestSchemaBridgeRejectsNonDefaultDirectAnyParticleConstraints(t *testing.T)
 		{name: "uri_namespace", attributes: ` namespace="urn:other"`, marker: `namespace="urn:other"`},
 		{name: "uri_namespace_list", attributes: ` namespace="urn:one urn:two"`, marker: `namespace="urn:one urn:two"`},
 		{name: "other_namespace", attributes: ` namespace="##other"`, marker: `namespace="##other"`},
+		{name: "other_strict", attributes: ` namespace="##other" processContents="strict"`, marker: `namespace="##other"`},
 		{name: "local_namespace", attributes: ` namespace="##local"`, marker: `namespace="##local"`},
 		{name: "target_namespace", attributes: ` namespace="##targetNamespace"`, marker: `namespace="##targetNamespace"`},
 		{name: "lax_process_contents", attributes: ` processContents="lax"`, marker: `processContents="lax"`},
+		{name: "any_lax", attributes: ` namespace="##any" processContents="lax"`, marker: `processContents="lax"`},
 		{name: "skip_process_contents", attributes: ` processContents="skip"`, marker: `processContents="skip"`},
+		{name: "other_skip", attributes: ` namespace="##other" processContents="skip"`, marker: `namespace="##other"`},
 		{name: "not_namespace", attributes: ` notNamespace="##local"`, marker: `notNamespace="##local"`, mismatch10: true},
 		{name: "not_qname", attributes: ` notQName="xs:integer"`, marker: `notQName="xs:integer"`, mismatch10: true},
 	}
@@ -358,16 +412,34 @@ func TestSchemaBridgePreservesMultipleWildcardLexicalOrder(t *testing.T) {
 				t.Fatalf("term count = %d, want 3", len(terms))
 			}
 			first, ok := wildcardParticleValue(terms[0])
-			if !ok || first.Loc() != wildcardParticleTestLoc(t, root, `<xs:any/>`) {
+			if !ok {
 				t.Fatalf("first term = %T/%s, want first wildcard", terms[0], terms[0].Loc())
+			}
+			if first.Loc() != wildcardParticleTestLoc(t, root, `<xs:any/>`) {
+				t.Fatalf("first wildcard location = %s, want first wildcard", first.Loc())
+			}
+			if first.Namespace() != "##any" || first.ProcessContents() != "strict" {
+				t.Fatalf("first wildcard facts = %q/%q, want ##any/strict", first.Namespace(), first.ProcessContents())
 			}
 			middle, ok := elementParticleValue(terms[1])
 			if !ok || middle.Name().Local() != "middle" {
 				t.Fatalf("middle term = %T, want middle element", terms[1])
 			}
 			last, ok := wildcardParticleValue(terms[2])
-			if !ok || last.Loc() != wildcardParticleTestLoc(t, root, `<xs:any minOccurs`) {
+			if !ok {
 				t.Fatalf("last term = %T/%s, want second wildcard", terms[2], terms[2].Loc())
+			}
+			if last.Loc() != wildcardParticleTestLoc(t, root, `<xs:any namespace`) {
+				t.Fatalf("last wildcard location = %s, want second wildcard", last.Loc())
+			}
+			if last.Namespace() != "##other" || last.ProcessContents() != "lax" {
+				t.Fatalf("last wildcard facts = %q/%q, want ##other/lax", last.Namespace(), last.ProcessContents())
+			}
+			if last.NamespaceLoc() != wildcardParticleTestLoc(t, root, `namespace="##other"`) {
+				t.Fatalf("last wildcard namespace location = %s, want explicit location", last.NamespaceLoc())
+			}
+			if last.ProcessContentsLoc() != wildcardParticleTestLoc(t, root, `processContents="lax"`) {
+				t.Fatalf("last wildcard processContents location = %s, want explicit location", last.ProcessContentsLoc())
 			}
 		})
 	}
@@ -456,6 +528,66 @@ func TestSchemaBridgePreservesExplicitWildcardGraphProvenance(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep graph order, owner namespaces, and wildcard provenance together.
+func TestSchemaBridgePreservesOtherWildcardGraphProvenance(t *testing.T) {
+	for _, version := range []string{"1.0", "1.1"} {
+		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+			t.Run(version+"/"+string(policy), func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:root" version="` + version + `">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+</xs:schema>`
+				chameleon := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" version="` + version + `">
+  <xs:complexType name="includedType">
+    <xs:choice><xs:any namespace="&#xA;##other&#x9;" processContents="&#xD;lax&#x9;"/></xs:choice>
+  </xs:complexType>
+</xs:schema>`
+				other := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:other" version="` + version + `">
+  <xs:complexType name="importedType">
+    <xs:sequence><xs:any namespace="&#xA;##other&#x9;" processContents="&#xD;lax&#x9;"/></xs:sequence>
+  </xs:complexType>
+</xs:schema>`
+				fixtures := map[string]discoveryFixture{
+					"chameleon.xsd": {id: "chameleon.xsd", contents: chameleon},
+					"other.xsd":     {id: "other.xsd", contents: other},
+				}
+				schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy)
+				if err != nil {
+					t.Fatalf("discover schema: %v", err)
+				}
+				components := schema.Components()
+				if len(components) != 2 {
+					t.Fatalf("component count = %d, want 2", len(components))
+				}
+				wantNames := []QName{mustTestQName(t, "urn:root", "includedType"), mustTestQName(t, "urn:other", "importedType")}
+				wantSources := []SourceID{"chameleon.xsd", "other.xsd"}
+				for index, component := range components {
+					if got := component.Name(); got != wantNames[index] {
+						t.Errorf("component %d name = %q, want %q", index, got, wantNames[index])
+					}
+					definition, ok := component.ComplexType()
+					if !ok {
+						t.Fatalf("component %d has no complex type view", index)
+					}
+					wildcard := directWildcardFromParticle(t, definition.Particle())
+					if wildcard.Namespace() != "##other" || wildcard.ProcessContents() != "lax" {
+						t.Fatalf("component %d wildcard facts = %q/%q, want ##other/lax", index, wildcard.Namespace(), wildcard.ProcessContents())
+					}
+					if got := wildcard.Loc().Source(); got != wantSources[index] {
+						t.Errorf("component %d wildcard source = %q, want %q", index, got, wantSources[index])
+					}
+					if got := wildcard.NamespaceLoc().Source(); got != wantSources[index] {
+						t.Errorf("component %d namespace source = %q, want %q", index, got, wantSources[index])
+					}
+					if got := wildcard.ProcessContentsLoc().Source(); got != wantSources[index] {
+						t.Errorf("component %d processContents source = %q, want %q", index, got, wantSources[index])
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestSchemaBridgePreservesDirectAnyValidationPrecedence(t *testing.T) {
 	root := directWildcardSchema("1.1", "choice", false, ` namespace="##any" processContents="bad"`)
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
@@ -518,6 +650,7 @@ func TestSchemaBridgeRejectsWildcardConsumersExplicitly(t *testing.T) {
 	}{
 		{name: "omitted"},
 		{name: "explicit_defaults", attributes: ` processContents="&#xD;strict&#x9;" namespace="&#xA;##any&#x9;"`},
+		{name: "other_lax", attributes: ` namespace="&#xA;##other&#x9;" processContents="&#xD;lax&#x9;"`},
 	}
 	for _, version := range []string{"1.0", "1.1"} {
 		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
@@ -617,6 +750,104 @@ func TestSchemaBridgeOmitsZeroZeroWildcardBeforeConsumers(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the zero/zero validation-precedence matrix explicit.
+func TestSchemaBridgeValidatesOtherWildcardBeforeZeroZeroElision(t *testing.T) {
+	tests := []struct {
+		name            string
+		attributes      string
+		marker          string
+		wantClass       FailureClass
+		wantUnsupported bool
+		wantCause       error
+	}{
+		{
+			name:            "excluded_namespace",
+			attributes:      ` namespace="##other" processContents="strict" minOccurs="0" maxOccurs="0"`,
+			marker:          `namespace="##other"`,
+			wantClass:       FailureUnsupported,
+			wantUnsupported: true,
+			wantCause:       errSchemaAnyParticleUnsupported,
+		},
+		{
+			name:            "excluded_process_contents",
+			attributes:      ` namespace="##any" processContents="lax" minOccurs="0" maxOccurs="0"`,
+			marker:          `processContents="lax"`,
+			wantClass:       FailureUnsupported,
+			wantUnsupported: true,
+			wantCause:       errSchemaAnyParticleUnsupported,
+		},
+		{
+			name:       "malformed_process_contents",
+			attributes: ` namespace="##other" processContents="bad" minOccurs="0" maxOccurs="0"`,
+			marker:     `processContents="bad"`,
+			wantClass:  FailureInvalid,
+		},
+		{
+			name:       "malformed_minimum",
+			attributes: ` namespace="##other" processContents="lax" minOccurs="bad" maxOccurs="0"`,
+			marker:     `minOccurs="bad"`,
+			wantClass:  FailureInvalid,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := directWildcardSchema("1.1", "choice", false, test.attributes)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+			if err == nil {
+				t.Fatal("discover schema succeeded, want diagnostic")
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			if got := diagnostic.Class(); got != test.wantClass {
+				t.Fatalf("diagnostic class = %v, want %v", got, test.wantClass)
+			}
+			if got := diagnostic.Loc(); got != wildcardParticleTestLoc(t, root, test.marker) {
+				t.Fatalf("diagnostic location = %s, want %s", got, wildcardParticleTestLoc(t, root, test.marker))
+			}
+			if test.wantUnsupported {
+				if diagnostic.Code() != UnsupportedSchemaSyntaxCode || !errors.Is(err, test.wantCause) {
+					t.Fatalf("diagnostic = %s, want unsupported wildcard cause", diagnostic)
+				}
+				return
+			}
+			if diagnostic.Code() != invalidSchemaCompositionCode || errors.Is(err, ErrUnsupported) || errors.Is(err, errSchemaAnyParticleUnsupported) {
+				t.Fatalf("diagnostic = %s, want invalid without unsupported cause", diagnostic)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeKeepsOtherWildcardPlacementsUnsupported(t *testing.T) {
+	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="1.1">%s</xs:schema>`
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "nested",
+			body: `<xs:complexType name="Record"><xs:choice><xs:sequence><xs:any namespace="##other" processContents="lax"/></xs:sequence></xs:choice></xs:complexType>`,
+		},
+		{
+			name: "model_group",
+			body: `<xs:group name="G"><xs:choice><xs:any namespace="##other" processContents="lax"/></xs:choice></xs:group><xs:complexType name="Record"><xs:group ref="t:G"/></xs:complexType>`,
+		},
+		{
+			name: "open_content",
+			body: `<xs:complexType name="Record"><xs:openContent mode="suffix"><xs:any namespace="##other" processContents="lax"/></xs:openContent><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:complexType>`,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, fmt.Sprintf(base, test.body), nil, Strict11)
+			if err == nil {
+				t.Fatal("discover schema succeeded, want unsupported diagnostic")
+			}
+			assertZeroSchema(t, schema)
+			assertUnsupportedSchemaSyntaxDiagnostic(t, err)
+		})
+	}
+}
+
 func TestSchemaBridgePreservesExtensionConsumerGatePrecedence(t *testing.T) {
 	root := directWildcardSchema("1.1", "sequence", true, ` processContents="strict" namespace="##any"`)
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
@@ -697,7 +928,7 @@ func directWildcardSchemaWithTerms(version, model string, extension bool, wildca
 }
 
 func multipleDirectWildcardSchema(model string) string {
-	modelElement := `<xs:` + model + `><xs:any/><xs:element name="middle" type="xs:integer"/><xs:any minOccurs="0"/></xs:` + model + `>`
+	modelElement := `<xs:` + model + `><xs:any/><xs:element name="middle" type="xs:integer"/><xs:any namespace="##other" processContents="lax"/></xs:` + model + `>`
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="1.1">
   <xs:element name="root" type="t:Record" xmlns:t="urn:root"/>
   <xs:complexType name="Record">` + modelElement + `</xs:complexType>
