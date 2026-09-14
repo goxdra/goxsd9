@@ -95,12 +95,15 @@ wildcard facts that #414 can represent. This packet does not add or expand
 broader bases, `xs:anyType` direct extension, another derivation kind, value
 constraints, or consumer behavior.
 
-The identity facts from [#213](https://github.com/goxdra/goxsd9/issues/213)
-remain distinct from list/union value semantics. The identity-only built-ins
-from [#312](https://github.com/goxdra/goxsd9/issues/312)—`xs:language`,
+The simple-type variety and reference identities from
+[#213](https://github.com/goxdra/goxsd9/issues/213) remain distinct from
+list/union value semantics. Named simple-type `final` facts are retained by
+[#385](https://github.com/goxdra/goxsd9/issues/385), and merged
+[#429](https://github.com/goxdra/goxsd9/issues/429) enforces those controls.
+This packet excludes union value semantics. The identity-only built-ins from
+[#312](https://github.com/goxdra/goxsd9/issues/312)—`xs:language`,
 `xs:NCName`, `xs:anyURI`, and `xs:ID`—are not widened into local attribute
-lexical or value support. Union-valued `final` remains governed by #213's
-existing simple-type control boundary. For a local use, `name` is an
+lexical or value support. For a local use, `name` is an
 unqualified NCName and `ref` is an expanded QName; they are mutually exclusive
 and do not share the global-declaration name path.
 
@@ -152,26 +155,30 @@ expanded here.
 
 ## Classification and sibling-axis matrix
 
-Structural violations are invalid input. Unresolved, inaccessible, ambiguous,
-or wrong-kind references are resolution failures. A well-formed,
-specification-valid form outside the exact slice is explicit unsupported
-behavior with a registered feature ID, stable diagnostic code, primary `Loc`,
-and edition-specific `SpecRef`. No error-level result returns a partial schema.
+Structural violations and referenced-component target failures are invalid
+input. Unresolved, inaccessible, ambiguous, or wrong-kind component targets
+retain their existing `FailureInvalid` XSD codes, causes, primary reference-use
+`Loc`, related target locations, and edition-specific `SpecRef`;
+`FailureResolution` is reserved for acquisition of a referenced source through
+the caller's resolver. A well-formed, specification-valid form outside the
+exact slice is explicit unsupported behavior with a registered feature ID,
+stable diagnostic code, primary `Loc`, and edition-specific `SpecRef`. No
+error-level result returns a partial schema.
 
 | Affected axis | Supported | Invalid | Resolution failure | Explicit unsupported | N/A |
 | --- | --- | --- | --- | --- | --- |
 | Edition/policy | XSD 1.0/1.1 under Compatibility, Strict10, or Strict11; one policy for the whole graph. | Malformed edition-specific attributes or grammar. | N/A. | Valid XSD 1.1 open-content/assertion behavior, or any valid shape outside this slice, gets a feature/`Loc`/`SpecRef`; a label never selects policy. | Edition selection from `schema/@version` is N/A. |
-| Named/anonymous/inline/ref shape | Named global owner and named #414 base; one direct named group ref; #317 local declaration/ref uses and its supported anonymous scalar types. | Missing/duplicate model child; malformed QName/NCName; both or neither `name`/`ref`; invalid use/form/occurrences; duplicate effective name. | Unresolved, invisible, ambiguous, or wrong-kind group, base, global attribute, or simple-type target. | Anonymous/local complex owners, multiple/nested/anonymous groups, attribute groups, unsupported #213 varieties, and #312 identity-only value semantics. | Global inline attributes (#333) and local element inline types (#400) are N/A. |
-| Graph visibility/cycles | Forward, included, imported, chameleon, repeated, and interned discovery identities with existing visibility. | N/A unless graph syntax itself violates the XSD representation. | Inaccessible/ambiguous/unresolved/wrong-kind targets; base/simple-type cycles at existing diagnostics. | Group or attribute-group recursive expansion and broader graph composition are not followed. | Group-member traversal is N/A because the particle is opaque. |
-| Supported/invalid/explicit unsupported | Exact slice publishes facts; malformed structure is invalid; valid unavailable behavior is explicit unsupported. | Stable structural code, primary source `Loc`, related locations where useful, cause, and edition `SpecRef`. | Existing direct-group XSD3047–XSD3050 and #317 XSD3030/XSD3045–XSD3052 families retain their causes and locations. | Registered feature ID, stable code, `Loc`, `SpecRef`, `ErrUnsupported`, and no schema; validation/generation reject explicitly. | Conformance and instance execution are N/A to this research record. |
-| Location/order/provenance | Preserve group QName/ref/use locations, exact range, target ID, ordered #317 uses, effective names, type/form locations, and declaration order; validate before `0/0` omission. | Primary offending source location, related first duplicate/target/bounds, and lexical cause remain attached. | Reference use-site is primary; target declaration/source locations are related; package boundaries preserve the underlying cause. | The unsupported construct's source `Loc` and versioned `SpecRef` remain attached. | Unordered map iteration is N/A to observable order; ordered slices are authoritative. |
+| Named/anonymous/inline/ref shape | Named global owner and named #414 base; one direct named group ref; #317 local declaration/ref uses and its supported anonymous scalar types. | Missing/duplicate model child; malformed QName/NCName; both or neither `name`/`ref`; invalid use/form/occurrences; duplicate effective name; unresolved, inaccessible, ambiguous, or wrong-kind component targets remain `FailureInvalid`. | Referenced-source acquisition failures only, through the caller's resolver. | Anonymous/local complex owners, multiple/nested/anonymous groups, attribute groups, unsupported #213 varieties, and #312 identity-only value semantics. | Global inline attributes (#333) and local element inline types (#400) are N/A. |
+| Graph visibility/cycles | Forward, included, imported, chameleon, repeated, and interned discovery identities with existing visibility. | Inaccessible/ambiguous/unresolved/wrong-kind component targets; base/simple-type cycles at existing diagnostics. | Referenced-source acquisition failures only at the resolver/discovery boundary. | Group or attribute-group recursive expansion and broader graph composition are not followed. | Group-member traversal is N/A because the particle is opaque. |
+| Supported/invalid/explicit unsupported | Exact slice publishes facts; malformed structure is invalid; valid unavailable behavior is explicit unsupported. | Stable structural/component-target `FailureInvalid` code, primary source `Loc`, related locations where useful, cause, and edition `SpecRef`; existing direct-group XSD3047–XSD3050 and #317 XSD3030/XSD3045–XSD3052 families retain these details. | Only referenced-source acquisition failures are `FailureResolution` at the resolver/discovery boundary. | Registered feature ID, stable code, `Loc`, `SpecRef`, `ErrUnsupported`, and no schema; validation/generation reject explicitly. | Conformance and instance execution are N/A to this research record. |
+| Location/order/provenance | Preserve group QName/ref/use locations, exact range, target ID, ordered #317 uses, effective names, type/form locations, and declaration order; validate before `0/0` omission. | Primary reference-use `Loc`, related target declaration/duplicate/bounds locations, and existing cause remain attached. | Resolver/discovery acquisition location and underlying cause remain attached. | The unsupported construct's source `Loc` and versioned `SpecRef` remain attached. | Unordered map iteration is N/A to observable order; ordered slices are authoritative. |
 
 ## Dependency and decomposition
 
 | Packet or foundation | Contract used here | Boundary preserved |
 | --- | --- | --- |
 | [#317](https://github.com/goxdra/goxsd9/issues/317) | Required implementation prerequisite: the single immutable local `AttributeUse` API, order, form/chameleon policy, use kind, type identity, locations, and diagnostics. | No second attribute representation; no copied global declaration facts. |
-| [#213](https://github.com/goxdra/goxsd9/issues/213) | Anonymous simple-type identities and atomic/list/union model facts. | No list/union value semantics or union-valued `final` widening. |
+| [#213](https://github.com/goxdra/goxsd9/issues/213) | Simple-type variety and reference identities. | No list/union value semantics. |
 | [#312](https://github.com/goxdra/goxsd9/issues/312) | Identity-only XML built-in reference facts. | `xs:ID`/`xs:NCName`/`xs:anyURI`/`xs:language` lexical, value, and uniqueness work remains separate. |
 | [#392](https://github.com/goxdra/goxsd9/issues/392) | Direct group reference QName, locations, exact range, target identity, and XSD3047–XSD3050 diagnostics. | Opaque particle only; no member expansion. |
 | [#404](https://github.com/goxdra/goxsd9/issues/404) | Named-group direct sequence/choice facts. | Target members remain owned by the named group and are not flattened here. |
