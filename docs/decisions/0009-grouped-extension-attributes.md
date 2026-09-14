@@ -29,7 +29,7 @@ Validation and Go generation remain explicit unsupported consumer boundaries.
 
 ## Normative and pinned-artifact evidence
 
-The fresh Scribe synthesis follows the paired XSD 1.0 and XSD 1.1 anchors for
+The paired XSD 1.0 and XSD 1.1 normative anchors for
 [`complexContent/extension`](https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/#element-complexContent..extension),
 [`group`](https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/#element-group),
 [`declare-contentModel`](https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/#declare-contentModel),
@@ -82,10 +82,9 @@ The supported future input is:
 - local uses accepted by #317's scalar/type and namespace allowlists,
   including its supported anonymous local simple-type identities.
 
-The fresh Mason synthesis fixes this exact shape and its implementation order:
-the group is resolved as an opaque #392 particle, local uses are resolved
-through #317, and the named base follows through #414. No consumer model is
-introduced by the composition.
+The tagged implementation contract is ordered: the group is resolved as an
+opaque #392 particle, local uses are resolved through #317, and the named base
+follows through #414. No consumer model is introduced by the composition.
 
 The group may be `0/0`, subject to target validation and the normalization
 above. A syntactically absent group is not silently inferred for this packet.
@@ -195,8 +194,7 @@ varieties into value support. Visibility and base-cycle handling can also
 regress if composition bypasses the existing seams. Ordered slices and tagged
 variants are the safeguards against map-order and impossible-state bugs.
 
-Next, land #317's prerequisite, implement #437 from current `main` with paired
-edition/policy fixtures and focused invalid/resolution/unsupported diagnostics,
-then keep validation, generation, and broad auxiliary consumption in their
-own packets. This record defines future behavior only; it reports neither
+Implementation remains scoped to #437 and depends on #317's local-attribute
+foundation. Validation, generation, and broad auxiliary consumption remain
+separate packets. This record defines future behavior only; it reports neither
 implementation, validation, nor conformance.
