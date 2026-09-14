@@ -4890,13 +4890,20 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 
 func isSupportedDirectAnyParticleFacts(namespace, processContents string) bool {
 	return namespace == "##any" && processContents == "strict" ||
+		namespace == "##any" && processContents == "lax" ||
 		namespace == "##other" && processContents == "lax"
 }
 
 func isSupportedDirectAnyParticle(element *syntaxElement) bool {
 	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
 	processContentsAttributes := syntaxAttributesByLocal(element, "processContents")
-	if len(namespaceAttributes) != 1 || len(processContentsAttributes) != 1 {
+	if len(processContentsAttributes) != 1 {
+		return false
+	}
+	if len(namespaceAttributes) == 0 {
+		return collapseXMLWhitespace(processContentsAttributes[0].value) == "lax"
+	}
+	if len(namespaceAttributes) != 1 {
 		return false
 	}
 	return isSupportedDirectAnyParticleFacts(
