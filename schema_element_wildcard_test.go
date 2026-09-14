@@ -38,10 +38,21 @@ func TestSchemaBridgeModelsDirectAnyParticles(t *testing.T) {
 			processContentsMarker: `processContents="&#x9;strict&#xD;"`,
 		},
 		{
+			name:                  "omitted_namespace_lax",
+			attributes:            ` processContents="&#x9;lax&#xD;"`,
+			processContentsMarker: `processContents="&#x9;lax&#xD;"`,
+		},
+		{
 			name:                  "both",
 			attributes:            ` processContents="&#xD;strict&#x9;" namespace="&#xA;##any&#x9;"`,
 			namespaceMarker:       `namespace="&#xA;##any&#x9;"`,
 			processContentsMarker: `processContents="&#xD;strict&#x9;"`,
+		},
+		{
+			name:                  "any_lax",
+			attributes:            ` processContents="&#xD;lax&#x9;" namespace="&#xA;##any&#x9;"`,
+			namespaceMarker:       `namespace="&#xA;##any&#x9;"`,
+			processContentsMarker: `processContents="&#xD;lax&#x9;"`,
 		},
 		{
 			name:                  "other_lax",
@@ -251,6 +262,9 @@ func assertDirectWildcardFacts(t *testing.T, root string, wildcard WildcardParti
 		wantNamespace = "##other"
 		wantProcessContents = "lax"
 	}
+	if constraint.name == "omitted_namespace_lax" || constraint.name == "any_lax" {
+		wantProcessContents = "lax"
+	}
 	if wildcard.Namespace() != wantNamespace || wildcard.ProcessContents() != wantProcessContents {
 		t.Fatalf("wildcard facts = %q/%q, want %s/%s", wildcard.Namespace(), wildcard.ProcessContents(), wantNamespace, wantProcessContents)
 	}
@@ -328,8 +342,6 @@ func TestSchemaBridgeRejectsNonDefaultDirectAnyParticleConstraints(t *testing.T)
 		{name: "other_strict", attributes: ` namespace="##other" processContents="strict"`, marker: `namespace="##other"`},
 		{name: "local_namespace", attributes: ` namespace="##local"`, marker: `namespace="##local"`},
 		{name: "target_namespace", attributes: ` namespace="##targetNamespace"`, marker: `namespace="##targetNamespace"`},
-		{name: "lax_process_contents", attributes: ` processContents="lax"`, marker: `processContents="lax"`},
-		{name: "any_lax", attributes: ` namespace="##any" processContents="lax"`, marker: `processContents="lax"`},
 		{name: "skip_process_contents", attributes: ` processContents="skip"`, marker: `processContents="skip"`},
 		{name: "other_skip", attributes: ` namespace="##other" processContents="skip"`, marker: `namespace="##other"`},
 		{name: "not_namespace", attributes: ` notNamespace="##local"`, marker: `notNamespace="##local"`, mismatch10: true},
@@ -650,6 +662,8 @@ func TestSchemaBridgeRejectsWildcardConsumersExplicitly(t *testing.T) {
 	}{
 		{name: "omitted"},
 		{name: "explicit_defaults", attributes: ` processContents="&#xD;strict&#x9;" namespace="&#xA;##any&#x9;"`},
+		{name: "omitted_namespace_lax", attributes: ` processContents="lax"`},
+		{name: "any_lax", attributes: ` namespace="##any" processContents="lax"`},
 		{name: "other_lax", attributes: ` namespace="&#xA;##other&#x9;" processContents="&#xD;lax&#x9;"`},
 	}
 	for _, version := range []string{"1.0", "1.1"} {
@@ -764,14 +778,6 @@ func TestSchemaBridgeValidatesOtherWildcardBeforeZeroZeroElision(t *testing.T) {
 			name:            "excluded_namespace",
 			attributes:      ` namespace="##other" processContents="strict" minOccurs="0" maxOccurs="0"`,
 			marker:          `namespace="##other"`,
-			wantClass:       FailureUnsupported,
-			wantUnsupported: true,
-			wantCause:       errSchemaAnyParticleUnsupported,
-		},
-		{
-			name:            "excluded_process_contents",
-			attributes:      ` namespace="##any" processContents="lax" minOccurs="0" maxOccurs="0"`,
-			marker:          `processContents="lax"`,
 			wantClass:       FailureUnsupported,
 			wantUnsupported: true,
 			wantCause:       errSchemaAnyParticleUnsupported,
