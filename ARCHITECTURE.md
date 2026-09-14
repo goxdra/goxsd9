@@ -73,13 +73,13 @@ for unlock ranking.
 ## Schema model
 
 Raw XSD syntax is internal. Immutable model retains component `Loc`; queries use names/identities.
-Walks preserve document-discovery/lexical declaration order; unordered sets use stable sorting.
+Walks preserve document-discovery/lexical order; unordered sets sort stably.
 
 Schema skeleton exposes `Schema`, `SchemaDocument`, `Component`, `ComponentID`, and expanded `QName`.
 Documents follow identity-discovery order (root, queue); named declarations follow lexical order.
-`Components`, `Documents`, `Find`, and `Walk` return copies. IDs combine source identity/one-based
-declaration ordinals; lookup maps never define observable order. Local particles use scoped component
-facts/indexes; validator/generator state is on-demand.
+`Components`/`Documents`/`Find`/`Walk` return copies. IDs combine source identity/one-based
+declaration ordinals; lookup maps define no order. Local particles use scoped facts/indexes;
+validator/generator state: on-demand.
 
 Primitive status: Global scalars retain `DeclaredType`; local built-in/supported-named
 token/NMTOKEN refs retain supported direct-shape facts;
@@ -88,15 +88,16 @@ Built-in/named integer/decimal attrs retain immutable value-constraint-facts: ki
 exact-typed-value, source-location. Named global complex types accept unqualified `mixed="false|0"`; omitted=element-only
 (unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1 forms; anonymous global complex/other shapes unsupported.
 Typed global attributes expose immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
-Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline forms unsupported.
+Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
 `defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
-`defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
-Root `xpathDefaultNamespace` is inert: Compatibility/Strict11 validate and discard it; malformed values are invalid, Strict10 reports a located mismatch, and XPath constructs remain unsupported.
+`defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
+Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard it; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
 Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
 non-atomic-string/string/boolean/precisionDecimal attrs unsupported.
 
 Complexes: `IsAbstract()` (non-inherited); named complex types: explicit non-empty `final`; `Final()`: canonical extension-then-restriction order; `FinalLoc()`: source location; XSD 1.0/1.1; Compatibility; `final=extension` or `#all` rejects extension derivation.
-Model-group refs/extensions retain IDs/locations. Model-less bounded extensions use empty-content bases; retain nil particles; inherited `##other`/lax. `anyAttribute`: default `##any`/strict; explicit `##any`/strict/`##other`/lax; locations. Supported direct `xs:any` particles (`##any`/strict, `##other`/lax) retain exact non-`0/0` ranges/locations; `0/0` absent. `ValidateInstance`/`GenerateGo` reject wildcard consumers; other facts/placements unsupported. `openContent none`: globals/bounded extensions supported in Compatibility/Strict11; Strict10 mismatches. Derivations unsupported; malformed=invalid.
+Simple types: named types retain immutable final controls/locations; supported direct restriction/list/union edges enforce matching controls under selected graph policy; Strict10 rejects `final=extension` lexically; existing unsupported boundaries remain.
+Model-group refs/extensions retain IDs/locations; model-less bounded extensions: empty-content bases/nil particles/inherited `##other`/lax. `anyAttribute`: `##any`/strict default; explicit adds `##other`/lax; locations. Direct `xs:any`: supported `##any`/strict/`##other`/lax; exact non-`0/0` ranges/locations; `0/0` absent. `ValidateInstance`/`GenerateGo` reject wildcards; other facts/placements unsupported. `openContent none` supports globals/bounded extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported complex-type derivation boundaries remain; malformed=invalid.
 Named groups expose ordered references with exact ranges; broader shapes unsupported; consumers reject.
 
 ## Datatypes

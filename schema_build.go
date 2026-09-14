@@ -54,6 +54,8 @@ const (
 const (
 	schemaSimpleTypeXSD10SpecRef                = "xsd10-structures#Simple_Type_Definitions"
 	schemaSimpleTypeXSD11SpecRef                = "xsd11-structures#Simple_Type_Definition"
+	schemaSimpleTypeRestrictionXSD10SpecRef     = "xsd10-structures#cos-st-restricts"
+	schemaSimpleTypeRestrictionXSD11SpecRef     = "xsd11-structures#cos-st-restricts"
 	schemaElementTypeXSD10SpecRef               = "xsd10-structures#Element_Declaration_details"
 	schemaElementTypeXSD11SpecRef               = "xsd11-structures#Element_Declaration_details"
 	schemaElementTargetNamespaceXSD11SpecRef    = "xsd11-structures#dcl.elt.local"
@@ -307,7 +309,7 @@ func schemaSimpleTypeFinalPolicyFromAttribute(attribute syntaxAttribute, version
 			return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q has an invalid final value %q", attribute.name.local, token))
 		}
 		if bit == schemaSimpleTypeFinalExtension && version == XSDVersion10 {
-			return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q has an invalid final value %q", attribute.name.local, token))
+			return schemaSimpleTypeFinalPolicy{}, newSchemaSimpleTypeFinalEditionMismatch(attribute, token)
 		}
 		if set&bit != 0 {
 			continue
@@ -6541,6 +6543,9 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 			version,
 		)
 	}
+	if finalErr := resolver.rejectNamedSimpleTypeFinal(base, schemaSimpleTypeFinalRestriction, "restriction base", model.base.loc, version); finalErr != nil {
+		return schemaSimpleTypeResult{}, finalErr
+	}
 	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
 		return schemaSimpleTypeResult{}, enumerationErr
 	}
@@ -6600,6 +6605,9 @@ func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTy
 		if err := resolver.validateAtomicUnionMembers(itemType, version, make(map[schemaSimpleTypeReferenceIdentity]struct{})); err != nil {
 			return schemaSimpleTypeResult{}, err
 		}
+	}
+	if err := resolver.rejectNamedSimpleTypeFinal(itemType, schemaSimpleTypeFinalList, "list item type", model.itemType.loc, version); err != nil {
+		return schemaSimpleTypeResult{}, err
 	}
 	return schemaSimpleTypeResult{
 		loc:         input.loc,
@@ -6770,6 +6778,9 @@ func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleT
 				resolver.simpleTypeReferenceRelatedLocations(resolved),
 				version,
 			)
+		}
+		if err := resolver.rejectNamedSimpleTypeFinal(resolved, schemaSimpleTypeFinalUnion, "union member type", member.loc, version); err != nil {
+			return schemaSimpleTypeResult{}, err
 		}
 		members = append(members, resolved)
 	}
@@ -7008,6 +7019,57 @@ func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeReference(
 	}, nil
 }
 
+func (resolver *schemaSimpleTypeResolver) rejectNamedSimpleTypeFinal(
+	reference schemaSimpleTypeReferenceComponent,
+	derivation schemaSimpleTypeFinalSet,
+	useDescription string,
+	useLoc Loc,
+	version XSDVersion,
+) error {
+	if reference.kind != SimpleTypeReferenceNamed {
+		return nil
+	}
+	if !reference.hasID || reference.id.IsZero() {
+		return newSchemaBridgeInvariant(useLoc, "named simple type final check has no component identity")
+	}
+	value, ok := schemaSimpleTypeFinalValue(derivation)
+	if !ok {
+		return newSchemaBridgeInvariant(useLoc, "named simple type final check has an invalid derivation")
+	}
+	for index, record := range resolver.records {
+		if record.id != reference.id {
+			continue
+		}
+		result := resolver.results[index]
+		if !result.present {
+			return newSchemaBridgeInvariant(useLoc, "named simple type final check has no completed result")
+		}
+		if result.final.set&derivation == 0 {
+			return nil
+		}
+		if result.final.loc.IsZero() {
+			return newSchemaBridgeInvariant(useLoc, "named simple type final check has no final declaration location")
+		}
+		return newSchemaSimpleTypeFinalDiagnostic(
+			useLoc,
+			fmt.Sprintf("simple type %s %q prohibits %s derivation", useDescription, reference.name, value),
+			result.final.loc,
+			value,
+			version,
+		)
+	}
+	return newSchemaBridgeInvariant(useLoc, "named simple type final check has an unresolved component identity")
+}
+
+func schemaSimpleTypeFinalValue(derivation schemaSimpleTypeFinalSet) (string, bool) {
+	for _, item := range schemaSimpleTypeFinalValueOrder {
+		if item.bit == derivation {
+			return item.value, true
+		}
+	}
+	return "", false
+}
+
 func schemaSimpleTypeComponentFromResult(result schemaSimpleTypeResult, anonymous bool) *schemaSimpleTypeComponent {
 	return &schemaSimpleTypeComponent{
 		loc:              result.loc,
@@ -7047,6 +7109,18 @@ func invalidSimpleTypeDerivation(loc Loc, message string, related []Loc, version
 		version,
 		fmt.Errorf("%w: %s", errSchemaSimpleTypeInvalidDerivation, message),
 	)
+}
+
+func newSchemaSimpleTypeFinalDiagnostic(loc Loc, message string, finalLoc Loc, value string, version XSDVersion) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaSimpleTypeBaseCode,
+		loc:     loc,
+		message: message,
+		related: []Loc{finalLoc},
+		specRef: schemaSimpleTypeRestrictionSpecRef(version),
+		cause:   fmt.Errorf("%w: %s derivation is prohibited by final", errSchemaSimpleTypeInvalidDerivation, value),
+	}
 }
 
 //nolint:gocognit // Keep numeric and precision facet construction in one phase.
@@ -7932,11 +8006,29 @@ func newSchemaSimpleTypeDiagnostic(code string, loc Loc, message string, related
 	}
 }
 
+func newSchemaSimpleTypeFinalEditionMismatch(attribute syntaxAttribute, value string) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    invalidSchemaCompositionCode,
+		loc:     attribute.loc,
+		message: fmt.Sprintf("attribute %q has an invalid final value %q", attribute.name.local, value),
+		specRef: schemaSimpleTypeXSD10SpecRef,
+		cause:   fmt.Errorf("%w: simple type final value %q is not available in the selected XSD 1.0 policy", errLanguagePolicyMismatch, value),
+	}
+}
+
 func schemaSimpleTypeSpecRef(version XSDVersion) string {
 	if version == XSDVersion10 {
 		return schemaSimpleTypeXSD10SpecRef
 	}
 	return schemaSimpleTypeXSD11SpecRef
+}
+
+func schemaSimpleTypeRestrictionSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaSimpleTypeRestrictionXSD10SpecRef
+	}
+	return schemaSimpleTypeRestrictionXSD11SpecRef
 }
 
 func newSchemaCompositionDiagnostic(loc Loc, message string) Diagnostic {
