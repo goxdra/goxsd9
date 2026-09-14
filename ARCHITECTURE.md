@@ -96,7 +96,7 @@ Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/b
 non-atomic-string/string/boolean/precisionDecimal attrs unsupported.
 
 Complexes: `IsAbstract()` (non-inherited); named complex types: explicit non-empty `final`; `Final()`: canonical extension-then-restriction order; `FinalLoc()`: source location; XSD 1.0/1.1; Compatibility; `final=extension` or `#all` rejects extension derivation.
-Model-group refs/extensions retain IDs/locations; consumers reject. Model-less bounded extensions require completed named empty-content bases; retain nil particles without synthetic content; only bounded/representable inherited `##other`/lax wildcard facts. `anyAttribute`: default `##any`/strict; explicit `##any`/strict/`##other`/lax; locations. `xs:any` retains ranges/locations; `0/0` absent; nonzero rejected. `openContent mode="none"` supports globals/bounded extensions under Compatibility/Strict11; Strict10 mismatches. Other derivations unsupported; malformed=invalid.
+Model-group refs/extensions retain IDs/locations. Model-less bounded extensions use empty-content bases; retain nil particles; inherited `##other`/lax. `anyAttribute`: default `##any`/strict; explicit `##any`/strict/`##other`/lax; locations. Supported direct `xs:any` particles (`##any`/strict, `##other`/lax) retain exact non-`0/0` ranges/locations; `0/0` absent. `ValidateInstance`/`GenerateGo` reject wildcard consumers; other facts/placements unsupported. `openContent none`: globals/bounded extensions supported in Compatibility/Strict11; Strict10 mismatches. Derivations unsupported; malformed=invalid.
 Named groups expose ordered references with exact ranges; broader shapes unsupported; consumers reject.
 
 ## Datatypes

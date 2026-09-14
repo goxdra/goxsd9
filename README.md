@@ -8,7 +8,7 @@ goxsd9 parses/validates/generates Go; unsupported remains explicit.
 
 XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Complexes: element-only/model-group refs/bounded attribute-free extensions; model-less extensions over completed named empty-content bases: nil/no-synthetic-particle; only bounded/representable inherited `##other`/lax wildcards. `defaultAttributesApply`: named globals under XSD 1.1/Compatibility.
 `openContent mode="none"`: supports globals/bounded extensions under Compatibility/Strict11; Strict10 mismatches. Other forms unsupported; malformed=invalid.
-Named direct sequence/choice default-effective `xs:any` (omitted or canonical defaults): immutable `WildcardParticle` (`##any`/`strict`), exact ranges/locations; nonzero unsupported, `0/0` absent. `anyAttribute`
+Supported direct `xs:any` (`##any`/strict, `##other`/lax) retain exact non-`0/0` ranges/locations; `0/0` absent. `ValidateInstance`/`GenerateGo` reject wildcard consumers; other facts/placements unsupported. `anyAttribute`
 defaults to `##any`/strict or supports explicit `##other`/lax; locations retained.
 Supported top-level direct model-group refs and named-global groups' direct choice/sequence reference particles queryable; nested/other group shapes unsupported. Explicitly typed built-in or supported named
 `xs:token`/`xs:NMTOKEN` refs in supported direct shapes are modeled; local inline/value/default/fixed/attribute/broader shapes unsupported; ValidateInstance/GenerateGo reject; global token/NMTOKEN scalars generate.
