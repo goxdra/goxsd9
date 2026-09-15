@@ -1747,7 +1747,8 @@ func (particle ModelGroupReferenceParticle) TargetID() ComponentID {
 }
 
 // WildcardParticle is a direct element wildcard particle. Its supported
-// effective facts are ##any/strict, ##any/lax, ##other/lax, and ##other/strict.
+// effective facts are ##any/strict, ##any/lax, ##any/skip with explicit
+// processContents, ##other/lax, and ##other/strict.
 type WildcardParticle struct {
 	facts *schemaWildcardParticle
 }
