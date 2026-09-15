@@ -31,7 +31,7 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    edit/push/reuse/change Project; ask workflowctl for an eligible issue/worktree.
    Never backlog-loop/widen.
 3. Read issue, `README.md`, `ARCHITECTURE.md`, `PLAN.md` phase, decisions; claim
-   at most one companion for shared implementation/proof.
+   at most one companion for implementation/proof.
 4. Give Scribe specification and Mason architecture questions, context, handoff contract.
 5. Decompose packet; give Smith contract/files/evidence. For affected phase
    boundaries, matrix only covers sibling axes (edition/policy; named/anonymous/
@@ -111,6 +111,6 @@ signals, never gates; quality must not regress. Never require sessions or teleme
 ## Failure behavior
 
 - Transient failures remain retryable. Exactly three authenticated Examiner `fail`
-  receipts mark `needs-human`; no-PR recovery requires exact trusted evidence. Never infer.
+  receipts mark `needs-human`; no-PR recovery requires trusted evidence. Never infer.
 - Preserve incomplete worktrees; never force-push claim or bypass checks. After
   one bounded reselection, do not backlog-loop or widen scope.
