@@ -1419,20 +1419,29 @@ func genericHandoffNoActionList(tokens []string) bool {
 
 func genericHandoffNegativePR(tokens []string, mention handoffPRMention) bool {
 	if mention.start > 0 && tokens[mention.start-1] == "no" {
-		return true
+		return genericHandoffNoPRAtParagraphEnd(tokens, mention.end)
 	}
 	if mention.start > 1 && tokens[mention.start-2] == "no" {
-		return tokens[mention.start-1] == "open" || tokens[mention.start-1] == "existing" ||
-			tokens[mention.start-1] == "any"
+		if tokens[mention.start-1] != "open" && tokens[mention.start-1] != "existing" && tokens[mention.start-1] != "any" {
+			return false
+		}
+		return genericHandoffNoPRAtParagraphEnd(tokens, mention.end)
 	}
 	if mention.start > 1 && tokens[mention.start-2] == "without" {
-		return tokens[mention.start-1] == "a" || tokens[mention.start-1] == "an" || tokens[mention.start-1] == "any"
+		if tokens[mention.start-1] != "a" && tokens[mention.start-1] != "an" && tokens[mention.start-1] != "any" {
+			return false
+		}
+		return genericHandoffNoPRAtParagraphEnd(tokens, mention.end)
 	}
 	if mention.start > 1 && tokens[mention.start-2] == "not" &&
 		(tokens[mention.start-1] == "a" || tokens[mention.start-1] == "an") {
-		return true
+		return genericHandoffNoPRAtParagraphEnd(tokens, mention.end)
 	}
 	return false
+}
+
+func genericHandoffNoPRAtParagraphEnd(tokens []string, end int) bool {
+	return end == len(tokens)
 }
 
 func genericHandoffNoActionMention(tokens []string, mention handoffPRMention) bool {
