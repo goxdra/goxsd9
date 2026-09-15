@@ -28,9 +28,9 @@ and [`xsd11-datatypes#nonNegativeInteger`](https://www.w3.org/TR/2012/REC-xmlsch
 
 ## Normative occurrence table
 
-The table describes the value and mapping boundary for both editions. An
-entry that maps to no component is not a public particle with zeroed fields.
-Edition-specific `all` restrictions follow the table.
+The table describes value and mapping for both editions. Entries mapping to no
+component are not public particles with zeroed fields. Edition-specific `all`
+restrictions follow.
 
 | Input or condition | XSD 1.0 | XSD 1.1 |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ Edition-specific `all` restrictions follow the table.
 | Negative value such as `-1` | Invalid non-negative value; negative zero denotes exact zero and is accepted by the datatype mapping. | Invalid non-negative value; negative zero denotes exact zero and is accepted by the datatype mapping. |
 | `unbounded` in `minOccurs` or another attribute | Invalid lexical/value for that attribute; only a maximum may use the keyword. | Invalid lexical/value for that attribute; only a maximum may use the keyword. |
 
-Finite comparison is the only comparison used for the `min <= max` rule. An
+Only finite comparison is used for the `min <= max` rule. An
 unbounded maximum satisfies the range boundary without comparing a numeric
 sentinel. The `0/0` mapping is applied after effective defaults and before a
 public component is allocated.
@@ -183,7 +183,8 @@ named-complex/bounded-extension group refs remain supported facts; anonymous sim
 models and resolved built-in, named, and anonymous simple-type
 references are modeled. Named direct sequence/choice types expose direct
 `anyAttribute`: omitted attributes default to `##any`/`strict`; omitted or
-explicit `##any`/`lax` is supported under all editions/policies. Canonical
+explicit `##any`/`lax` and omitted or explicit `##any`/`skip` with explicit
+`processContents` are supported under all editions/policies. Canonical
 explicit strict values remain supported.
 `##other`/`lax` remains supported; `##other`/`strict` is supported with omitted
 or explicit `processContents`. The `anyAttribute` element and explicit

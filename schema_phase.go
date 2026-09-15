@@ -3574,7 +3574,7 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	if len(processContentsAttributes) == 1 {
 		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
 	}
-	if namespace == "##any" && (processContents == "strict" || processContents == "lax") {
+	if namespace == "##any" && (processContents == "strict" || processContents == "lax" || processContents == "skip") {
 		return true
 	}
 	if namespace == "##other" && processContents == "strict" {

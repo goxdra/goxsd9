@@ -125,6 +125,8 @@ func TestValidateInstanceRejectsDirectChoiceAttributeWildcardAcrossPolicies(t *t
 		{name: "default"},
 		{name: "omitted_namespace_lax", attributes: ` processContents="lax"`},
 		{name: "explicit_any_lax", attributes: ` namespace="##any" processContents="lax"`},
+		{name: "omitted_namespace_skip", attributes: ` processContents="skip"`},
+		{name: "explicit_any_skip_reversed", attributes: ` processContents="skip" namespace="##any"`},
 	}
 	for _, test := range []struct {
 		name     string
