@@ -97,6 +97,53 @@ func TestPRResumeRejectsSourceBearingAndMergeClaimMarkersBeforeMutation(t *testi
 	}
 }
 
+func TestPRResumeRejectsConflictingCanonicalClaimMarkersBeforeMutation(t *testing.T) {
+	fixture := newResumeFixture(t)
+	head := makeConflictingClaimMarkersResumeHead(t, &fixture)
+	fixture.expected = head
+	backend := newResumeBackend(t, fixture)
+	localBefore := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	remoteBefore := resumeRemoteHead(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	err := application.run(append(resumeArgs(head), "--dry-run"))
+	if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), "conflicting canonical claim markers") {
+		t.Fatalf("conflicting marker error = %v, disposition %d, want terminal conflict refusal", err, operationDispositionOf(err))
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("conflicting marker mutations = %d, want zero", backend.mutations)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != localBefore {
+		t.Fatalf("conflicting marker moved local head from %s to %s", localBefore, got)
+	}
+	if got := resumeRemoteHead(t, fixture); got != remoteBefore {
+		t.Fatalf("conflicting marker moved remote head from %s to %s", remoteBefore, got)
+	}
+}
+
+func TestPRResumeMissingRemoteObjectPreservesTrackingRefsOnRejection(t *testing.T) {
+	fixture := newResumeFixture(t)
+	writeFixtureFile(t, fixture.seed, "remote-movement", "remote movement\n")
+	runGitTest(t, fixture.seed, "add", "remote-movement")
+	runGitTest(t, fixture.seed, "commit", "--no-gpg-sign", "-m", "remote movement")
+	remoteHead := runGitTest(t, fixture.seed, "rev-parse", "HEAD")
+	runGitTest(t, fixture.seed, "push", "--force", "origin", remoteHead+":refs/heads/agent/issue-14")
+	trackingBefore := runGitTest(t, fixture.primary, "for-each-ref", "--format=%(refname) %(objectname)", "refs/remotes/origin/agent/*")
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	err := application.run(resumeArgs(fixture.expected))
+	if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), "differs from local head") {
+		t.Fatalf("missing remote object rejection = %v, disposition %d, want terminal moved-head refusal", err, operationDispositionOf(err))
+	}
+	trackingAfter := runGitTest(t, fixture.primary, "for-each-ref", "--format=%(refname) %(objectname)", "refs/remotes/origin/agent/*")
+	if trackingAfter != trackingBefore {
+		t.Fatalf("missing remote object rejection changed tracking refs from %q to %q", trackingBefore, trackingAfter)
+	}
+	temporaryRef := "refs/workflowctl/remote-agent-proof/agent/issue-14"
+	if output := runGitAllowFailure(t, fixture.primary, "show-ref", "--verify", temporaryRef); output != "" {
+		t.Fatalf("temporary remote proof ref remains after rejection: %s", output)
+	}
+}
+
 //nolint:gocognit,funlen // The independent integration subtests share one real-Git harness.
 func TestPRResumeInjectedIntegration(t *testing.T) {
 	t.Run("dry run has zero mutation", func(t *testing.T) {
@@ -905,6 +952,18 @@ func makeMergeClaimMarkerResumeHead(t *testing.T, fixture *resumeFixture) string
 	return marker
 }
 
+func makeConflictingClaimMarkersResumeHead(t *testing.T, fixture *resumeFixture) string {
+	t.Helper()
+	base := runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^")
+	tree := runGitTest(t, fixture.worktree, "rev-parse", base+"^{tree}")
+	other := createResumeCommitTree(t, fixture.worktree, tree, []string{base},
+		claimMessage(14, "run-other", time.Now().UTC().Add(-time.Hour).Truncate(time.Second)))
+	head := createResumeCommitTree(t, fixture.worktree, tree, []string{fixture.expected, other}, "Merge test PR head\n")
+	runGitTest(t, fixture.worktree, "reset", "--hard", head)
+	runGitTest(t, fixture.primary, "push", "--force", "origin", head+":refs/heads/agent/issue-14")
+	return head
+}
+
 func createResumeCommitTree(t *testing.T, root, tree string, parents []string, message string) string {
 	t.Helper()
 	args := make([]string, 0, 2+2*len(parents))
@@ -1188,6 +1247,8 @@ func TestRemoteClaimHeadObjectDisposition(t *testing.T) {
 		{name: "commit", object: "commit"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			fetchRef := "refs/workflowctl/remote-agent-proof/" + branch
+			temporaryRefPresent := false
 			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 				command := name + " " + strings.Join(args, " ")
 				switch command {
@@ -1202,7 +1263,18 @@ func TestRemoteClaimHeadObjectDisposition(t *testing.T) {
 						return "", sentinel
 					}
 					return strings.TrimSpace(string(value)) + " " + test.object, nil
-				case "git fetch --no-tags --no-write-fetch-head origin refs/heads/" + branch:
+				case "git for-each-ref --format=%(objectname) " + fetchRef:
+					if temporaryRefPresent {
+						return sha, nil
+					}
+					return "", nil
+				case "git fetch --no-tags --no-write-fetch-head --refmap= origin refs/heads/" + branch + ":" + fetchRef:
+					temporaryRefPresent = true
+					return "", nil
+				case "git rev-parse " + fetchRef:
+					return sha, nil
+				case "git update-ref -d " + fetchRef + " " + sha:
+					temporaryRefPresent = false
 					return "", nil
 				default:
 					return "", fmt.Errorf("unexpected command: %s", command)
