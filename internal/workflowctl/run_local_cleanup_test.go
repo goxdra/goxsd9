@@ -147,6 +147,8 @@ func TestStrictRemoteAgentRefInventoryObjectDisposition(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fetches := 0
+			fetchRef := "refs/workflowctl/remote-agent-proof/" + branch
+			temporaryRefPresent := false
 			application := app{executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 				command := name + " " + strings.Join(args, " ")
 				switch command {
@@ -165,11 +167,22 @@ func TestStrictRemoteAgentRefInventoryObjectDisposition(t *testing.T) {
 						return queried + " missing", nil
 					}
 					return queried + " " + test.object, nil
-				case "git fetch --no-tags --no-write-fetch-head origin refs/heads/" + branch:
+				case "git for-each-ref --format=%(objectname) " + fetchRef:
+					if temporaryRefPresent {
+						return sha, nil
+					}
+					return "", nil
+				case "git fetch --no-tags --no-write-fetch-head --refmap= origin refs/heads/" + branch + ":" + fetchRef:
 					if test.object == "fetch-transport" {
 						return "", sentinel
 					}
 					fetches++
+					temporaryRefPresent = true
+					return "", nil
+				case "git rev-parse " + fetchRef:
+					return sha, nil
+				case "git update-ref -d " + fetchRef + " " + sha:
+					temporaryRefPresent = false
 					return "", nil
 				default:
 					return "", fmt.Errorf("unexpected command: %s", command)
@@ -192,6 +205,51 @@ func TestStrictRemoteAgentRefInventoryObjectDisposition(t *testing.T) {
 				t.Fatalf("fetches = %d, want zero for %s", fetches, test.name)
 			}
 		})
+	}
+}
+
+func TestStrictRemoteAgentRefMissingObjectPreservesTrackingRefs(t *testing.T) {
+	fixture := newBaseRepositoryFixture(t, false)
+	const branch = "agent/issue-12-run-missing"
+	writeFixtureFile(t, fixture.seed, "missing", "remote object\n")
+	runGitTest(t, fixture.seed, "add", "missing")
+	runGitTest(t, fixture.seed, "commit", "--no-gpg-sign", "-m", "missing remote object")
+	missingSHA := runGitTest(t, fixture.seed, "rev-parse", "HEAD")
+	runGitTest(t, fixture.seed, "push", "origin", missingSHA+":refs/heads/"+branch)
+
+	trackingBefore := runGitTest(t, fixture.primary, "for-each-ref", "--format=%(refname) %(objectname)", "refs/remotes/origin/agent/*")
+	temporaryRef := "refs/workflowctl/remote-agent-proof/" + branch
+	application := app{ctx: context.Background(), executeCommand: func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		command := name + " " + strings.Join(args, " ")
+		if command == "git cat-file --batch-check=%(objectname) %(objecttype)" {
+			value, err := io.ReadAll(input)
+			if err != nil {
+				return "", fmt.Errorf("read object query: %w", err)
+			}
+			if strings.TrimSpace(string(value)) == missingSHA {
+				return missingSHA + " missing", nil
+			}
+		}
+		// #nosec G204 -- the injected executor runs fixed Git commands against the fixture repository.
+		commandProcess := exec.CommandContext(context.Background(), name, args...)
+		commandProcess.Dir = dir
+		commandProcess.Stdin = input
+		output, err := commandProcess.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("run %s: %w: %s", command, err, strings.TrimSpace(string(output)))
+		}
+		return strings.TrimSpace(string(output)), nil
+	}}
+	_, err := application.strictRemoteAgentRefInventory(fixture.primary)
+	if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), "advertises missing object") {
+		t.Fatalf("missing remote object error = %v, disposition %d, want terminal missing-object refusal", err, operationDispositionOf(err))
+	}
+	trackingAfter := runGitTest(t, fixture.primary, "for-each-ref", "--format=%(refname) %(objectname)", "refs/remotes/origin/agent/*")
+	if trackingAfter != trackingBefore {
+		t.Fatalf("missing-object rejection changed tracking refs from %q to %q", trackingBefore, trackingAfter)
+	}
+	if output := runGitAllowFailure(t, fixture.primary, "show-ref", "--verify", temporaryRef); output != "" {
+		t.Fatalf("temporary remote proof ref remains after rejection: %s", output)
 	}
 }
 

@@ -376,9 +376,9 @@ func (a app) validateLocalAgentCommit(root, sha, description string) error {
 }
 
 // validateRemoteAgentCommit first accepts an already fetched object, then
-// performs an exact no-ref fetch for a remote object that is not present
-// locally. The fetch is deliberately transport-only: it does not update a
-// tracking ref or FETCH_HEAD, and command failures remain retryable.
+// fetches a missing remote object into an isolated proof ref. The fetch does
+// not update a tracking ref or FETCH_HEAD, and command failures remain
+// retryable.
 func (a app) validateRemoteAgentCommit(root, branch, sha string) error {
 	state, err := a.readAgentCommitObject(root, sha, "remote agent ref "+branch)
 	if err != nil {
@@ -387,17 +387,61 @@ func (a app) validateRemoteAgentCommit(root, branch, sha string) error {
 	if state == agentCommitObjectPresent {
 		return nil
 	}
-	if _, fetchErr := a.command(root, "git", "fetch", "--no-tags", "--no-write-fetch-head", "origin", "refs/heads/"+branch); fetchErr != nil {
-		return retryableOperation("fetch remote agent ref "+branch, fmt.Errorf("fetch advertised object %s: %w", sha, fetchErr))
+	fetchRef := "refs/workflowctl/remote-agent-proof/" + branch
+	existing, checkErr := a.command(root, "git", "for-each-ref", "--format=%(objectname)", fetchRef)
+	if checkErr != nil {
+		return retryableOperation("fetch remote agent ref "+branch,
+			fmt.Errorf("inspect temporary remote agent proof ref %s: %w", fetchRef, checkErr))
+	}
+	if strings.TrimSpace(existing) != "" {
+		return terminalOperation("fetch remote agent ref "+branch,
+			stateError("temporary remote agent proof ref %s already exists; preserve claim artifacts", fetchRef))
+	}
+	fetchSpec := "refs/heads/" + branch + ":" + fetchRef
+	if _, fetchErr := a.command(root, "git", "fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", fetchSpec); fetchErr != nil {
+		cleanupErr := a.deleteTemporaryRemoteAgentProofRef(root, fetchRef)
+		return retryableOperation("fetch remote agent ref "+branch,
+			fmt.Errorf("fetch advertised object %s: %w", sha, errors.Join(fetchErr, cleanupErr)))
+	}
+	fetchedOutput, fetchRefErr := a.command(root, "git", "rev-parse", fetchRef)
+	if fetchRefErr != nil {
+		cleanupErr := a.deleteTemporaryRemoteAgentProofRef(root, fetchRef)
+		return retryableOperation("fetch remote agent ref "+branch,
+			fmt.Errorf("read temporary remote agent proof ref %s: %w", fetchRef, errors.Join(fetchRefErr, cleanupErr)))
+	}
+	fetchedSHA := strings.TrimSpace(fetchedOutput)
+	if !validExactCommitSHA(fetchedSHA) || fetchedSHA != sha {
+		cleanupErr := a.deleteTemporaryRemoteAgentProofRef(root, fetchRef)
+		return terminalOperation("verify remote agent ref "+branch,
+			errors.Join(stateError("remote agent ref %s changed while fetching: advertised %s, fetched %s; preserve claim artifacts", branch, sha, fetchedSHA), cleanupErr))
 	}
 	state, err = a.readAgentCommitObject(root, sha, "remote agent ref "+branch)
+	cleanupErr := a.deleteRefIfExact(root, fetchRef, fetchedSHA, "temporary remote agent proof ref "+branch)
 	if err != nil {
+		if cleanupErr != nil {
+			return errors.Join(err, fmt.Errorf("clean up temporary remote agent proof ref %s: %w", fetchRef, cleanupErr))
+		}
 		return err
+	}
+	if cleanupErr != nil {
+		return retryableOperation("clean up temporary remote agent proof ref "+branch, cleanupErr)
 	}
 	if state == agentCommitObjectMissing {
 		return terminalOperation("verify remote agent ref "+branch, stateError("remote agent ref %s advertises missing object %s; preserve claim artifacts", branch, sha))
 	}
 	return nil
+}
+
+func (a app) deleteTemporaryRemoteAgentProofRef(root, ref string) error {
+	output, err := a.command(root, "git", "for-each-ref", "--format=%(objectname)", ref)
+	if err != nil {
+		return fmt.Errorf("inspect temporary remote agent proof ref %s for cleanup: %w", ref, err)
+	}
+	sha := strings.TrimSpace(output)
+	if sha == "" {
+		return nil
+	}
+	return a.deleteRefIfExact(root, ref, sha, "temporary remote agent proof ref")
 }
 
 func classifyAgentRef(branch string) (agentRefKind, int, string) {
