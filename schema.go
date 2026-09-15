@@ -1746,9 +1746,46 @@ func (particle ModelGroupReferenceParticle) TargetID() ComponentID {
 	return particle.facts.targetID
 }
 
+// WildcardNamespaceConstraintVariety identifies the supported namespace
+// constraint varieties.
+type WildcardNamespaceConstraintVariety string
+
+const (
+	// WildcardNamespaceConstraintAny identifies the any namespace constraint.
+	WildcardNamespaceConstraintAny WildcardNamespaceConstraintVariety = "any"
+	// WildcardNamespaceConstraintEnumeration identifies a positive namespace set.
+	WildcardNamespaceConstraintEnumeration WildcardNamespaceConstraintVariety = "enumeration"
+)
+
+// WildcardNamespaceConstraint is an immutable effective namespace constraint.
+// Namespaces contains absent as the empty string.
+type WildcardNamespaceConstraint struct {
+	variety    WildcardNamespaceConstraintVariety
+	namespaces []string
+	lexical    string
+	loc        Loc
+}
+
+// Variety returns the namespace constraint variety.
+func (constraint WildcardNamespaceConstraint) Variety() WildcardNamespaceConstraintVariety {
+	return constraint.variety
+}
+
+// Namespaces returns the sorted, unique effective namespace names. The empty
+// string represents an absent namespace.
+func (constraint WildcardNamespaceConstraint) Namespaces() []string {
+	return append([]string(nil), constraint.namespaces...)
+}
+
+// LexicalForm returns the normalized namespace attribute value.
+func (constraint WildcardNamespaceConstraint) LexicalForm() string { return constraint.lexical }
+
+// Loc returns the namespace attribute location.
+func (constraint WildcardNamespaceConstraint) Loc() Loc { return constraint.loc }
+
 // WildcardParticle is a direct element wildcard particle. Its supported
-// effective facts are ##any/strict, ##any/lax, ##any/skip with explicit
-// processContents, ##other/lax, and ##other/strict.
+// effective facts include positive namespace enumerations with strict
+// processContents, as well as the previously modeled wildcard forms.
 type WildcardParticle struct {
 	facts *schemaWildcardParticle
 }
@@ -1799,6 +1836,19 @@ func (particle WildcardParticle) Namespace() string {
 		return ""
 	}
 	return particle.facts.namespace
+}
+
+// NamespaceConstraint returns the immutable effective namespace constraint.
+func (particle WildcardParticle) NamespaceConstraint() WildcardNamespaceConstraint {
+	if particle.facts == nil {
+		return WildcardNamespaceConstraint{}
+	}
+	return WildcardNamespaceConstraint{
+		variety:    particle.facts.namespaceConstraint.variety,
+		namespaces: append([]string(nil), particle.facts.namespaceConstraint.namespaces...),
+		lexical:    particle.facts.namespaceConstraint.lexical,
+		loc:        particle.facts.namespaceConstraint.loc,
+	}
 }
 
 // NamespaceLoc returns the location of an explicit namespace attribute. It is
@@ -2394,12 +2444,21 @@ type schemaElementParticleInput struct {
 func (schemaElementParticleInput) schemaParticleTermInput() {}
 
 type schemaWildcardParticleInput struct {
-	loc                Loc
-	occurrences        particleOccurrenceRange
-	namespace          string
-	namespaceLoc       Loc
-	processContents    string
-	processContentsLoc Loc
+	loc                 Loc
+	occurrences         particleOccurrenceRange
+	namespace           string
+	namespaceLoc        Loc
+	namespaceConstraint schemaWildcardNamespaceConstraint
+	processContents     string
+	processContentsLoc  Loc
+}
+
+type schemaWildcardNamespaceConstraint struct {
+	variety    WildcardNamespaceConstraintVariety
+	terms      []string
+	namespaces []string
+	lexical    string
+	loc        Loc
 }
 
 func (schemaWildcardParticleInput) schemaParticleTermInput() {}
@@ -2545,12 +2604,13 @@ type schemaModelGroupReferenceParticle struct {
 }
 
 type schemaWildcardParticle struct {
-	loc                Loc
-	occurrences        particleOccurrenceRange
-	namespace          string
-	namespaceLoc       Loc
-	processContents    string
-	processContentsLoc Loc
+	loc                 Loc
+	occurrences         particleOccurrenceRange
+	namespace           string
+	namespaceLoc        Loc
+	namespaceConstraint schemaWildcardNamespaceConstraint
+	processContents     string
+	processContentsLoc  Loc
 }
 
 type schemaSequenceParticle struct {
@@ -3372,11 +3432,15 @@ func cloneSchemaParticleTermInputs(inputs []schemaParticleTermInput) []schemaPar
 		case schemaWildcardParticleInput:
 			clone := term
 			clone.occurrences = term.occurrences.clone()
+			clone.namespaceConstraint.terms = append([]string(nil), term.namespaceConstraint.terms...)
+			clone.namespaceConstraint.namespaces = append([]string(nil), term.namespaceConstraint.namespaces...)
 			clones[index] = clone
 		case *schemaWildcardParticleInput:
 			if term != nil {
 				clone := *term
 				clone.occurrences = term.occurrences.clone()
+				clone.namespaceConstraint.terms = append([]string(nil), term.namespaceConstraint.terms...)
+				clone.namespaceConstraint.namespaces = append([]string(nil), term.namespaceConstraint.namespaces...)
 				clones[index] = clone
 			}
 		default:

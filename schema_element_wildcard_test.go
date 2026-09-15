@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -128,6 +129,53 @@ func TestSchemaBridgeModelsDirectAnyParticles(t *testing.T) {
 								}
 							})
 						}
+					}
+				}
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Keep the cross-edition, policy, model, extension, and copy matrix explicit.
+func TestSchemaBridgeModelsPositiveWildcardNamespaceConstraints(t *testing.T) {
+	cases := []struct {
+		name        string
+		value       string
+		want        []string
+		wantLexical string
+	}{
+		{name: "local", value: "##local", want: []string{""}, wantLexical: "##local"},
+		{name: "target", value: "##targetNamespace", want: []string{"urn:root"}, wantLexical: "##targetNamespace"},
+		{name: "list", value: "urn:z ##local urn:a ##local", want: []string{"", "urn:a", "urn:z"}, wantLexical: "urn:z ##local urn:a ##local"},
+	}
+	for _, version := range []string{"1.0", "1.1"} {
+		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+			for _, model := range []string{"choice", "sequence"} {
+				for _, extension := range []bool{false, true} {
+					for _, test := range cases {
+						t.Run(version+"/"+string(policy)+"/"+model+"/extension="+strconv.FormatBool(extension)+"/"+test.name, func(t *testing.T) {
+							root := directWildcardSchema(version, model, extension, ` namespace="`+test.value+`"`)
+							schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+							if err != nil {
+								t.Fatalf("discover schema: %v", err)
+							}
+							wildcard := directWildcardFromParticle(t, directWildcardDefinition(t, schema).Particle())
+							constraint := wildcard.NamespaceConstraint()
+							if constraint.Variety() != WildcardNamespaceConstraintEnumeration {
+								t.Fatalf("variety = %q, want enumeration", constraint.Variety())
+							}
+							if got := constraint.Namespaces(); !reflect.DeepEqual(got, test.want) {
+								t.Fatalf("namespaces = %#v, want %#v", got, test.want)
+							}
+							if constraint.LexicalForm() != test.wantLexical || constraint.Loc() != wildcard.NamespaceLoc() {
+								t.Fatalf("constraint lexical facts = %q/%s, want %q/%s", constraint.LexicalForm(), constraint.Loc(), test.wantLexical, wildcard.NamespaceLoc())
+							}
+							values := constraint.Namespaces()
+							values[0] = "mutated"
+							if got := constraint.Namespaces()[0]; got != test.want[0] {
+								t.Fatalf("mutating namespace copy changed constraint to %q", got)
+							}
+						})
 					}
 				}
 			}
@@ -389,10 +437,6 @@ func TestSchemaBridgeRejectsNonDefaultDirectAnyParticleConstraints(t *testing.T)
 		mismatch10 bool
 	}{
 		{name: "empty_namespace", attributes: ` namespace="&#x9;"`, marker: `namespace="&#x9;"`},
-		{name: "uri_namespace", attributes: ` namespace="urn:other"`, marker: `namespace="urn:other"`},
-		{name: "uri_namespace_list", attributes: ` namespace="urn:one urn:two"`, marker: `namespace="urn:one urn:two"`},
-		{name: "local_namespace", attributes: ` namespace="##local"`, marker: `namespace="##local"`},
-		{name: "target_namespace", attributes: ` namespace="##targetNamespace"`, marker: `namespace="##targetNamespace"`},
 		{name: "other_skip", attributes: ` namespace="##other" processContents="skip"`, marker: `namespace="##other"`},
 		{name: "not_namespace", attributes: ` notNamespace="##local"`, marker: `notNamespace="##local"`, mismatch10: true},
 		{name: "not_qname", attributes: ` notQName="xs:integer"`, marker: `notQName="xs:integer"`, mismatch10: true},
@@ -827,7 +871,7 @@ func TestSchemaBridgeRejectsInvalidDirectAnyParticleForms(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Keep the cross-edition, policy, consumer, cause, and immutability matrix explicit.
+//nolint:gocognit,funlen // Keep the cross-edition, policy, consumer, cause, and immutability matrix explicit.
 func TestSchemaBridgeRejectsWildcardConsumersExplicitly(t *testing.T) {
 	wildcardForms := []struct {
 		name       string
@@ -842,6 +886,9 @@ func TestSchemaBridgeRejectsWildcardConsumersExplicitly(t *testing.T) {
 		{name: "other_lax", attributes: ` namespace="&#xA;##other&#x9;" processContents="&#xD;lax&#x9;"`},
 		{name: "other_strict_omitted", attributes: ` namespace="##other"`},
 		{name: "other_strict_explicit", attributes: ` namespace="##other" processContents="strict"`},
+		{name: "local_strict", attributes: ` namespace="##local"`},
+		{name: "target_strict", attributes: ` namespace="##targetNamespace"`},
+		{name: "enumeration_strict", attributes: ` namespace="urn:a urn:b"`},
 	}
 	for _, version := range []string{"1.0", "1.1"} {
 		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {

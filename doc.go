@@ -32,12 +32,14 @@
 // consumers; exact immutable occurrence ranges are retained.
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
 // omitted namespace with processContents="lax"), ##any/skip with explicit
-// processContents="skip", ##other/lax, and ##other/strict forms are also
-// exposed as immutable WildcardParticle values with their effective namespace
-// and processing facts; explicit
-// constraint-attribute locations are retained, in lexical order with element
-// and reference terms. Other wildcard constraints and broader wildcard
-// placements remain unsupported.
+// processContents="skip", ##other/lax, and ##other/strict forms, plus strict-only
+// positive namespace constraints (##local, ##targetNamespace, and URI lists),
+// are exposed as immutable WildcardParticle values. Positive constraints retain
+// immutable effective namespace values in sorted order, their lexical form, and
+// source location; explicit constraint-attribute locations are retained in
+// lexical order with element and reference terms. Other wildcard constraints
+// and broader wildcard placements remain unsupported. Nonzero wildcard-bearing
+// particles remain unsupported to validation and generation consumers.
 // Named global direct sequence and choice complex types also expose immutable
 // anyAttribute facts for effective ##any/skip when processContents="skip" is
 // explicit; omitted and explicit namespace spellings retain their location
