@@ -4901,7 +4901,18 @@ func isSupportedDirectAnyParticleFacts(namespace, processContents string) bool {
 		namespace == "##any" && processContents == "lax" ||
 		namespace == "##any" && processContents == "skip" ||
 		namespace == "##other" && processContents == "lax" ||
-		namespace == "##other" && processContents == "strict"
+		namespace == "##other" && processContents == "strict" ||
+		isPositiveWildcardNamespace(namespace) && processContents == "strict"
+}
+
+func isPositiveWildcardNamespace(namespace string) bool {
+	if namespace == "##local" || namespace == "##targetNamespace" {
+		return true
+	}
+	if strings.HasPrefix(namespace, "##") {
+		return false
+	}
+	return namespace != ""
 }
 
 func isSupportedDirectAnyParticle(element *syntaxElement) bool {

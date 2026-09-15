@@ -3,6 +3,7 @@ package goxsd9
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -2091,13 +2092,23 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 		!isSupportedDirectAnyParticleFacts(namespace, processContents) {
 		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
 	}
+	constraint := schemaWildcardNamespaceConstraint{
+		variety: WildcardNamespaceConstraintAny,
+		lexical: namespace,
+		loc:     namespaceLoc,
+	}
+	if isPositiveWildcardNamespace(namespace) {
+		constraint.variety = WildcardNamespaceConstraintEnumeration
+		constraint.terms = strings.Split(namespace, " ")
+	}
 	return schemaWildcardParticleInput{
-		loc:                element.loc,
-		occurrences:        occurrences,
-		namespace:          namespace,
-		namespaceLoc:       namespaceLoc,
-		processContents:    processContents,
-		processContentsLoc: processContentsLoc,
+		loc:                 element.loc,
+		occurrences:         occurrences,
+		namespace:           namespace,
+		namespaceLoc:        namespaceLoc,
+		namespaceConstraint: constraint,
+		processContents:     processContents,
+		processContentsLoc:  processContentsLoc,
 	}, nil
 }
 
@@ -5658,31 +5669,51 @@ func resolveSchemaParticleTerm(
 		}
 		return resolveSchemaElementParticle(*term, owner, records, byName, visibleSources, simpleTypes, version, model)
 	case schemaWildcardParticleInput:
-		return resolveSchemaWildcardParticle(term)
+		return resolveSchemaWildcardParticle(term, owner)
 	case *schemaWildcardParticleInput:
 		if term == nil {
 			return nil, newSchemaBridgeInvariant(Loc{}, "particle term has a nil wildcard input")
 		}
-		return resolveSchemaWildcardParticle(*term)
+		return resolveSchemaWildcardParticle(*term, owner)
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "particle term has an unknown input")
 	}
 }
 
-func resolveSchemaWildcardParticle(input schemaWildcardParticleInput) (Particle, error) {
+func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner schemaComponentRecord) (Particle, error) {
 	if !isSupportedDirectAnyParticleFacts(input.namespace, input.processContents) {
 		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
 	}
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
+	constraint := input.namespaceConstraint
+	if constraint.variety == WildcardNamespaceConstraintEnumeration {
+		seen := make(map[string]struct{}, len(constraint.terms))
+		for _, term := range constraint.terms {
+			namespace := term
+			if term == "##local" {
+				namespace = ""
+			}
+			if term == "##targetNamespace" {
+				namespace = owner.name.Namespace()
+			}
+			seen[namespace] = struct{}{}
+		}
+		constraint.namespaces = make([]string, 0, len(seen))
+		for namespace := range seen {
+			constraint.namespaces = append(constraint.namespaces, namespace)
+		}
+		sort.Strings(constraint.namespaces)
+	}
 	return WildcardParticle{facts: &schemaWildcardParticle{
-		loc:                input.loc,
-		occurrences:        input.occurrences.clone(),
-		namespace:          input.namespace,
-		namespaceLoc:       input.namespaceLoc,
-		processContents:    input.processContents,
-		processContentsLoc: input.processContentsLoc,
+		loc:                 input.loc,
+		occurrences:         input.occurrences.clone(),
+		namespace:           input.namespace,
+		namespaceLoc:        input.namespaceLoc,
+		namespaceConstraint: constraint,
+		processContents:     input.processContents,
+		processContentsLoc:  input.processContentsLoc,
 	}}, nil
 }
 
