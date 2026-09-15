@@ -38,6 +38,10 @@
 // constraint-attribute locations are retained, in lexical order with element
 // and reference terms. Other wildcard constraints and broader wildcard
 // placements remain unsupported.
+// Named global direct sequence and choice complex types also expose immutable
+// anyAttribute facts for effective ##any/skip when processContents="skip" is
+// explicit; omitted and explicit namespace spellings retain their location
+// distinction. Attribute-wildcard validation and generation remain unsupported.
 // Effective 0/0 sequence, choice, child, and wildcard ranges map
 // to absence. Non-0/0 integer/decimal choice and
 // alternative ranges are queryable, but direct-choice repetition is not
