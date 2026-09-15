@@ -252,6 +252,14 @@ type handoffPRAdversarialCase struct {
 func normalizedHandoffPRAdversarialCases(context string) []handoffPRAdversarialCase {
 	return []handoffPRAdversarialCase{
 		{name: "plural pull requests", text: "Pull requests were created during " + context + "."},
+		{name: "no PR merged", text: "No PR was merged during " + context + "."},
+		{name: "no PR submitted", text: "No PR was submitted during " + context + "."},
+		{name: "no PR created", text: "No PR was created during " + context + "."},
+		{name: "no PR opened", text: "No PR was opened during " + context + "."},
+		{name: "no PR open", text: "No PR was open during " + context + "."},
+		{name: "no PR remains open", text: "No PR remains open during " + context + "."},
+		{name: "no open PR merged", text: "No open PR was merged during " + context + "."},
+		{name: "without a PR submitted", text: "Without a PR being submitted during " + context + "."},
 		{name: "copula not merged", text: "PR was not merged during " + context + "."},
 		{name: "copula not submitted", text: "PR was not submitted during " + context + "."},
 		{name: "copula not created", text: "PR was not created during " + context + "."},
@@ -470,6 +478,32 @@ func TestClaimResumeNormalizedGenericPRGrammarHasZeroMutation(t *testing.T) {
 			}
 			if backend.mutations != 0 {
 				t.Fatalf("adversarial generic mutations = %d, want zero", backend.mutations)
+			}
+		})
+	}
+}
+
+func TestClaimResumeGenericPRLifecycleNegativesHaveZeroMutation(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		text string
+	}{
+		{name: "merged closed PR", text: "No PR was merged during retry."},
+		{name: "submitted", text: "No PR was submitted during retry."},
+		{name: "open", text: "No PR was open during retry."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newClaimResumeFixture(t)
+			fixture.handoffBody = fmt.Sprintf("## Blocker\n\nIssue #14 was claimed in %s.\n\n## Evidence\n\n- Issue #14 remained OPEN in the Project.\n- The claim worktree was clean at the final read.\n- No implementation, tests, commit, push, PR, or evaluation record was made.\n\n## Decisions and risks\n\n- Preserve the claim.\n\n## Next action\n\nResume after the blocker is cleared.\n", fixture.worktree) + "\n" + test.text + "\n"
+			backend := newClaimResumeBackend(t, fixture)
+			backend.openPR = false
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			err := application.run(claimResumeArgs(fixture, true))
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+				t.Fatalf("%s generic lifecycle error = %v, disposition %d, want terminal", test.name, err, operationDispositionOf(err))
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("%s generic lifecycle mutations = %d, want zero", test.name, backend.mutations)
 			}
 		})
 	}
