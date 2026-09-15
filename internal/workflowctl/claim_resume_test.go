@@ -65,6 +65,130 @@ only after implementation exists. Do not widen issue #305 or infer completion
 from the clean worktree.
 `
 
+func issue240TerminalHandoffBodyForTest() string {
+	return strings.Join([]string{
+		"## Blocker",
+		"",
+		"Issue #240 is claimed in `/home/paseouser/workspace/goxsd9-worktrees/issue-240-run-f7b007edf02f55c6` on branch `agent/issue-240-run-f7b007edf02f55c6`. The required Smith implementation could not be completed because the Smith execution service failed to return a handoff in two bounded writer contexts. The first context was stopped after a 600-second wait and a bounded status follow-up; the single permitted bounded reselection was also stopped after a 600-second wait. Neither context changed the issue worktree.",
+		"",
+		"## Evidence",
+		"",
+		"- Coordination `doctor` passed: clean canonical `main`, equal to fetched `origin/main`, recursive pins ready, and required tooling available.",
+		"- Issue #240 was selected and claimed through `go tool workflowctl`; the issue remained OPEN and in the Roadmap Project.",
+		"- The issue worktree was clean at the final read, with only the generated claim commit (`8a71247`, `chore(workflow): claim issue #240`) ahead of `main`.",
+		"- Fresh Scribe consultation completed with the required XSD 1.0/1.1 sequence, particle-occurrence, attribute, and specification-reference findings. The handoff identified `xsd10-structures#cvc-model-group`, `xsd10-structures#cvc-particle`, `xsd11-structures#sec-sequences`, `xsd11-structures#cvc-model-group`, `xsd11-structures#cvc-accept`, and the relevant `cvc-complex-type`/`cvc-type` rules.",
+		"- Fresh Mason consultation completed with the architecture boundary: per-call plans in `validation.go`, ordered `SequenceParticle.Particles()`, exact `StrictInteger`/unbounded counts, an event sink over `instance.go`, checked read/drain/close behavior, and focused validation tests. No files were edited by either consultant.",
+		"- `go tool workflowctl claim verify` passed during the attempt; the claim was valid through `2026-09-02T02:01:03Z`.",
+		"- The multi-agent registry reported zero visible agents for the issue worktree after the first timeout; both Smith contexts were explicitly closed, preserving the incomplete worktree.",
+		"",
+		"## Decisions and risks",
+		"",
+		"- No implementation, tests, documentation, commit, push, PR, evidence, challenge, or Examiner review was attempted after the Smith blocker.",
+		"- The packet must retain the consultation decisions: ordered direct sequence matching, exact occurrence comparisons without `uint64` narrowing or untrusted preallocation, no Schema cache/mutation, instance-primary diagnostics with related schema locations, and explicit unsupported behavior for excluded shapes.",
+		"- The remaining risk is entirely unimplemented packet work; no source regression was introduced by this attempt.",
+		"",
+		"## Next action",
+		"",
+		"Human intervention is required to restore or rerun the Smith implementation context. Preserve the claimed issue worktree and its claim commit; do not widen the issue or backlog-loop. After implementation, run `go tool workflowctl check` and resume the normal PR/evidence/Curator/Examiner/finish workflow.",
+	}, "\n") + "\n"
+}
+
+func TestClaimResumeAcceptsExactIssue240TerminalHandoff(t *testing.T) {
+	body := issue240TerminalHandoffBodyForTest()
+	if err := validateTerminalClaimHandoffBody(body, 240); err != nil {
+		t.Fatalf("exact issue #240 terminal handoff: %v", err)
+	}
+}
+
+func TestClaimResumeExactIssue240DryRunHasZeroMutation(t *testing.T) {
+	const historicalLease = "2026-09-02T02:01:03Z"
+	fixture := newClaimResumeIssueFixtureAtLease(t, 240, "run-f7b007edf02f55c6", time.Date(2026, time.September, 2, 2, 1, 3, 0, time.UTC), "")
+	fixture.handoff = 5501405525
+	fixture.handoffBody = strings.Replace(issue240TerminalHandoffBodyForTest(),
+		"/home/paseouser/workspace/goxsd9-worktrees/issue-240-run-f7b007edf02f55c6", fixture.worktree, 1)
+	if !strings.Contains(fixture.handoffBody, historicalLease) {
+		t.Fatal("issue #240 fixture lost its historical claim lease")
+	}
+	backend := newClaimResumeBackend(t, fixture)
+	var output bytes.Buffer
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: &output}
+	if err := application.run(claimResumeArgs(fixture, true)); err != nil {
+		t.Fatalf("issue #240 claim resume dry-run: %v", err)
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("issue #240 dry-run mutations = %d, want zero", backend.mutations)
+	}
+	if !strings.Contains(output.String(), "handoff-comment 5501405525") {
+		t.Fatalf("issue #240 dry-run output = %q", output.String())
+	}
+}
+
+func issue287TerminalHandoffBodyForTest() string {
+	return strings.Join([]string{
+		"## Blocker",
+		"",
+		"Issue #287 was claimed successfully, but the develop protocol is blocked at",
+		"its mandatory fresh read-only Scribe/Mason consultation barrier. The Scribe",
+		"and Mason role agents were spawned with the exact configured roles and",
+		"read-only scope. Seven bounded waits returned `timed_out: true` with no final",
+		"handoff or error status. One bounded follow-up to each existing agent was",
+		"accepted, and the next bounded wait also timed out. No replacement agents",
+		"were spawned and no scope was widened.",
+		"",
+		"Without those consultations, the root cannot assign Smith the required",
+		"implementation contract under the develop protocol. No source or test files",
+		"were changed, no checks, push, PR, challenge, or evaluation record was made.",
+		"",
+		"## Evidence",
+		"",
+		"- `go tool workflowctl doctor` passed: coordination `main` was clean and equal",
+		"  to fetched `origin/main`, with recursive pins and required tools ready.",
+		"- `go tool workflowctl pick` selected #287, “Model inline simple types on",
+		"  global attributes”.",
+		"- Claim worktree preserved at",
+		"  `/home/paseouser/workspace/goxsd9-worktrees/issue-287-run-36de80f997095582`.",
+		"- Scribe agent: `01a05b22-06da-7883-8245-16de2e761011`; Mason agent:",
+		"  `01a05b22-0664-7881-aca3-3489d7ddc2f4`. Follow-up submissions were",
+		"  `01a05b2a-8aa3-7cd3-921f-84566ec6d35a` and",
+		"  `01a05b2a-8ab6-79c3-aa73-139fcbf7b0bd`.",
+		"- Issue context and required `README.md`, `ARCHITECTURE.md`, `PLAN.md`, and",
+		"  agent role configurations were read in the preserved worktree.",
+		"",
+		"## Risk and next action",
+		"",
+		"The claimed branch currently contains only the generated workflow claim",
+		"commit. Proceeding without specification and architecture handoffs could",
+		"mis-state XSD 1.0/1.1 behavior and violate the repository phase invariants.",
+		"Keep the worktree and claim artifacts intact; resume issue #287 when the",
+		"configured consultation agents can return their bounded handoffs.",
+	}, "\n") + "\n"
+}
+
+func TestClaimResumeAcceptsExactIssue287TerminalHandoff(t *testing.T) {
+	if err := validateTerminalClaimHandoffBody(issue287TerminalHandoffBodyForTest(), 287); err != nil {
+		t.Fatalf("exact issue #287 terminal handoff: %v", err)
+	}
+}
+
+func TestClaimResumeExactIssue287DryRunHasZeroMutation(t *testing.T) {
+	fixture := newClaimResumeIssueFixtureAtLease(t, 287, "run-36de80f997095582", time.Date(2026, time.September, 1, 8, 1, 37, 0, time.UTC), "")
+	fixture.handoff = 5488794928
+	fixture.handoffBody = strings.Replace(issue287TerminalHandoffBodyForTest(),
+		"/home/paseouser/workspace/goxsd9-worktrees/issue-287-run-36de80f997095582", fixture.worktree, 1)
+	backend := newClaimResumeBackend(t, fixture)
+	var output bytes.Buffer
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: &output}
+	if err := application.run(claimResumeArgs(fixture, true)); err != nil {
+		t.Fatalf("issue #287 claim resume dry-run: %v", err)
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("issue #287 dry-run mutations = %d, want zero", backend.mutations)
+	}
+	if !strings.Contains(output.String(), "handoff-comment 5488794928") {
+		t.Fatalf("issue #287 dry-run output = %q", output.String())
+	}
+}
+
 func TestClaimResumeAcceptsExactIssue305TerminalHandoff(t *testing.T) {
 	if err := validateTerminalClaimHandoffBody(issue305TerminalHandoffBody, 305); err != nil {
 		t.Fatalf("exact issue #305 terminal handoff: %v", err)
@@ -128,6 +252,13 @@ type handoffPRAdversarialCase struct {
 func normalizedHandoffPRAdversarialCases(context string) []handoffPRAdversarialCase {
 	return []handoffPRAdversarialCase{
 		{name: "plural pull requests", text: "Pull requests were created during " + context + "."},
+		{name: "copula not merged", text: "PR was not merged during " + context + "."},
+		{name: "copula not submitted", text: "PR was not submitted during " + context + "."},
+		{name: "copula not created", text: "PR was not created during " + context + "."},
+		{name: "copula not open", text: "PR was not open during " + context + "."},
+		{name: "pull request copula not merged", text: "Pull request was not merged during " + context + "."},
+		{name: "hyphenated pull request copula not submitted", text: "A pull-request was not submitted during " + context + "."},
+		{name: "underscored pull request copula not created", text: "A pull_request was not created during " + context + "."},
 		{name: "punctuated PR", text: "A PR? exists."},
 		{name: "word attached exists", text: "PRexists during " + context + "."},
 		{name: "word attached created", text: "PRwascreated during " + context + "."},
@@ -260,45 +391,7 @@ func TestClaimResumeTerminalEvidenceParser(t *testing.T) {
 	if err := validateTerminalClaimHandoffBody(workflowOnly, 14); err != nil {
 		t.Fatalf("workflow-only terminal evidence: %v", err)
 	}
-	exact287 := strings.Join([]string{
-		"## Blocker",
-		"",
-		"Issue #287 was claimed successfully, but the develop protocol is blocked at",
-		"its mandatory fresh read-only Scribe/Mason consultation barrier. The Scribe",
-		"and Mason role agents were spawned with the exact configured roles and",
-		"read-only scope. Seven bounded waits returned `timed_out: true` with no final",
-		"handoff or error status. One bounded follow-up to each existing agent was",
-		"accepted, and the next bounded wait also timed out. No replacement agents",
-		"were spawned and no scope was widened.",
-		"",
-		"Without those consultations, the root cannot assign Smith the required",
-		"implementation contract under the develop protocol. No source or test files",
-		"were changed, no checks, push, PR, challenge, or evaluation record was made.",
-		"",
-		"## Evidence",
-		"",
-		"- `go tool workflowctl doctor` passed: coordination `main` was clean and equal",
-		"  to fetched `origin/main`, with recursive pins and required tools ready.",
-		"- `go tool workflowctl pick` selected #287, “Model inline simple types on",
-		"  global attributes”.",
-		"- Claim worktree preserved at",
-		"  `/home/paseouser/workspace/goxsd9-worktrees/issue-287-run-36de80f997095582`.",
-		"- Scribe agent: `01a05b22-06da-7883-8245-16de2e761011`; Mason agent:",
-		"  `01a05b22-0664-7881-aca3-3489d7ddc2f4`. Follow-up submissions were",
-		"  `01a05b2a-8aa3-7cd3-921f-84566ec6d35a` and",
-		"  `01a05b2a-8ab6-79c3-aa73-139fcbf7b0bd`.",
-		"- Issue context and required `README.md`, `ARCHITECTURE.md`, `PLAN.md`, and",
-		"  agent role configurations were read in the preserved worktree.",
-		"",
-		"## Risk and next action",
-		"",
-		"The claimed branch currently contains only the generated workflow claim",
-		"commit. Proceeding without specification and architecture handoffs could",
-		"mis-state XSD 1.0/1.1 behavior and violate the repository phase invariants.",
-		"Keep the worktree and claim artifacts intact; resume issue #287 when the",
-		"configured consultation agents can return their bounded handoffs.",
-	}, "\n") + "\n"
-	if err := validateTerminalClaimHandoffBody(exact287, 287); err != nil {
+	if err := validateTerminalClaimHandoffBody(issue287TerminalHandoffBodyForTest(), 287); err != nil {
 		t.Fatalf("exact #287 terminal evidence: %v", err)
 	}
 	malformed := []struct {
@@ -653,9 +746,12 @@ func newClaimResumeFixture(t *testing.T) claimResumeFixture {
 }
 
 func newClaimResumeIssueFixture(t *testing.T, issue int, runID, handoffBody string) claimResumeFixture {
+	return newClaimResumeIssueFixtureAtLease(t, issue, runID, time.Now().UTC().Add(-time.Hour).Truncate(time.Second), handoffBody)
+}
+
+func newClaimResumeIssueFixtureAtLease(t *testing.T, issue int, runID string, lease time.Time, handoffBody string) claimResumeFixture {
 	t.Helper()
 	base := newBaseRepositoryFixture(t, false)
-	lease := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	parent := runGitTest(t, base.primary, "rev-parse", "HEAD")
 	expected := createResumeTestCommit(t, base.primary, parent, claimMessage(issue, runID, lease))
 	runGitTest(t, base.primary, "push", "origin", expected+":refs/heads/"+claimBranch(issue))

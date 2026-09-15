@@ -777,9 +777,8 @@ func handoffPRProseTokens(body string) []string {
 		word.Reset()
 	}
 	for index := 0; index < len(values); {
-		if handoffPRWorkflowPathAt(values, index) {
+		if path, ok := handoffPRWorkflowPathAt(values, index); ok {
 			flush()
-			const path = "pr/evidence/curator/examiner"
 			tokens = append(tokens, path)
 			index += len([]rune(path))
 			continue
@@ -817,16 +816,17 @@ func handoffAbsolutePathAt(values []rune, index int) bool {
 	return previous != '/' && !unicode.IsLetter(previous) && !unicode.IsDigit(previous) && previous != ':'
 }
 
-func handoffPRWorkflowPathAt(values []rune, index int) bool {
-	const path = "pr/evidence/curator/examiner"
-	pathValues := []rune(path)
-	if !handoffPRSequenceAt(values, index, pathValues) {
-		return false
+func handoffPRWorkflowPathAt(values []rune, index int) (string, bool) {
+	for _, path := range []string{"pr/evidence/curator/examiner", "pr/evidence/curator/examiner/finish"} {
+		pathValues := []rune(path)
+		if !handoffPRSequenceAt(values, index, pathValues) || !handoffPRSequenceBoundary(values, index, len(pathValues)) {
+			continue
+		}
+		if handoffPRWorkflowWordAt(values, index+len(pathValues)) {
+			return path, true
+		}
 	}
-	if !handoffPRSequenceBoundary(values, index, len(pathValues)) {
-		return false
-	}
-	return handoffPRWorkflowWordAt(values, index+len(pathValues))
+	return "", false
 }
 
 func handoffPRSequenceAt(values []rune, sequenceStart int, want []rune) bool {
@@ -927,7 +927,7 @@ func handoffPRCompoundParts(word string) ([]string, bool) {
 // boundary resembles PR is treated as a mention.
 func isApprovedHandoffPRWord(word string) bool {
 	switch word {
-	case "preserve", "preserved", "previous", "producing", "proceeding", "project", "proof", "provenance", "protocol":
+	case "preallocation", "preserve", "preserved", "preserving", "previous", "primary", "producing", "proceeding", "project", "proof", "provenance", "protocol":
 		return true
 	default:
 		return false
@@ -1411,7 +1411,7 @@ func handoffPRMentions(tokens []string) []handoffPRMention {
 func genericHandoffNoActionList(tokens []string) bool {
 	for index := 0; index+1 < len(tokens); index++ {
 		if tokens[index] == "no" && (tokens[index+1] == "implementation" || tokens[index+1] == "source") {
-			return containsHandoffToken(tokens, "made") || containsHandoffToken(tokens, "changed")
+			return containsHandoffToken(tokens, "attempted") || containsHandoffToken(tokens, "made") || containsHandoffToken(tokens, "changed")
 		}
 	}
 	return false
@@ -1430,10 +1430,6 @@ func genericHandoffNegativePR(tokens []string, mention handoffPRMention) bool {
 	}
 	if mention.start > 1 && tokens[mention.start-2] == "not" &&
 		(tokens[mention.start-1] == "a" || tokens[mention.start-1] == "an") {
-		return true
-	}
-	if mention.end+1 < len(tokens) && (tokens[mention.end] == "was" || tokens[mention.end] == "were" || tokens[mention.end] == "is" || tokens[mention.end] == "are" || tokens[mention.end] == "does" || tokens[mention.end] == "did") &&
-		(tokens[mention.end+1] == "not" || tokens[mention.end+1] == "never") {
 		return true
 	}
 	return false
@@ -1479,12 +1475,12 @@ func genericHandoffNoActionSequence(tokens []string, start int) bool {
 }
 
 func isHandoffActionResult(token string) bool {
-	return token == "made" || token == "changed"
+	return token == "attempted" || token == "made" || token == "changed"
 }
 
 func isHandoffNoActionListWord(token string) bool {
 	switch token {
-	case "implementation", "implementations", "source", "sources", "files", "changes", "change", "diff", "diffs", "tests", "test", "documentation", "docs", "commit", "commits", "push", "pushes", "check", "checks", "challenge", "challenges", "evidence", "record", "records", "evaluation", "evaluations":
+	case "implementation", "implementations", "source", "sources", "files", "changes", "change", "diff", "diffs", "tests", "test", "documentation", "docs", "commit", "commits", "push", "pushes", "check", "checks", "challenge", "challenges", "evidence", "record", "records", "evaluation", "evaluations", "examiner", "review":
 		return true
 	default:
 		return false

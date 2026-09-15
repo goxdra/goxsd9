@@ -258,6 +258,8 @@ func (a app) readResumeExpectedClaim(root, expectedHead string, issue int) (cano
 	if err := a.verifyRunLocalHistoryRecords(root, branch, records); err != nil {
 		return canonicalClaimCommit{}, err
 	}
+	selected := canonicalClaimCommit{}
+	selectedCommit := ""
 	for _, record := range records {
 		identity, canonical, parseErr := parseCanonicalRunLocalClaim(record.message, issue)
 		if parseErr != nil {
@@ -273,7 +275,16 @@ func (a app) readResumeExpectedClaim(root, expectedHead string, issue int) (cano
 		if observedIssue != issue {
 			return canonicalClaimCommit{}, stateError("expected PR head %s ancestry marker %s claims issue #%d, not issue #%d; preserve claim artifacts", expectedHead, record.commit, observedIssue, issue)
 		}
-		return canonicalClaimCommit{message: record.message, issue: observedIssue, runID: observedRunID, lease: lease}, nil
+		if selectedCommit != "" && selected.runID != observedRunID {
+			return canonicalClaimCommit{}, stateError("expected PR head %s ancestry has conflicting canonical claim markers %s (run %s) and %s (run %s); preserve claim artifacts", expectedHead, selectedCommit, selected.runID, record.commit, observedRunID)
+		}
+		if selectedCommit == "" {
+			selected = canonicalClaimCommit{message: record.message, issue: observedIssue, runID: observedRunID, lease: lease}
+			selectedCommit = record.commit
+		}
+	}
+	if selectedCommit != "" {
+		return selected, nil
 	}
 	return canonicalClaimCommit{}, stateError("expected PR head %s ancestry has no canonical claim marker for issue #%d; preserve claim artifacts", expectedHead, issue)
 }
