@@ -21,7 +21,7 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Phases consume prior results. Local construction may use unexported
+Phases consume results. Local construction uses unexported
 slices/tables; completed components are immutable and never backpatched. Identities
 are interned before discovery; repeated includes/imports reuse them,
 so cycles do not recurse. Acyclic dependencies use stable topological order.
@@ -75,8 +75,8 @@ for unlock ranking.
 Raw XSD syntax is internal. Immutable model retains component `Loc`; queries use names/identities.
 Walks preserve document-discovery/lexical order; unordered sets sort stably.
 
-Schema skeleton exposes `Schema`, `SchemaDocument`, `Component`, `ComponentID`, and expanded `QName`.
-Documents follow identity-discovery order (root, queue); named declarations follow lexical order.
+Schema skeleton exposes `Schema`, `SchemaDocument`, `Component`, `ComponentID`, expanded `QName`.
+Documents follow identity-discovery order; declarations follow lexical order.
 `Components`/`Documents`/`Find`/`Walk` return copies. IDs combine source identity/one-based
 declaration ordinals; lookup maps define no order. Local particles use scoped facts/indexes;
 validator/generator state: on-demand.
@@ -95,9 +95,9 @@ Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard it; 
 Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
 non-atomic-string/string/boolean/precisionDecimal attrs unsupported.
 
-Complexes: `IsAbstract()` (non-inherited); named complex types: explicit non-empty `final`; `Final()`: canonical extension-then-restriction order; `FinalLoc()`: source location; XSD 1.0/1.1; Compatibility; `final=extension` or `#all` rejects extension derivation.
-Simple types: named types retain immutable final controls/locations; supported direct restriction/list/union edges enforce matching controls under selected graph policy; Strict10 rejects `final=extension` lexically; unsupported boundaries.
-Groups/extensions retain IDs/locations; model-less extensions: empty bases/nil particles/inherited `##other`/lax. `anyAttribute` defaults `##any`/strict; named sequence/choice: `##any`/lax, `##any`/skip (namespace optional/explicit; processContents=explicit), `##other`/lax, `##other`/strict; locations preserved. `xs:any` supports `##any`/strict, `##any`/lax, `##any`/skip (explicit), `##other`/lax, `##other`/strict; ranges; `0/0` absent. Consumers reject wildcards; placements unsupported. `openContent=none` supports globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed=invalid.
+Complexes: `IsAbstract()` (non-inherited); named types: non-empty `final`; `Final()`: canonical extension-then-restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension` or `#all` rejects extension.
+Simple types retain immutable final controls/locations; direct restriction/list/union edges enforce matching controls under graph policy; Strict10 rejects `final=extension`; unsupported boundaries.
+Groups/extensions retain IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. `anyAttribute`: `##any`/strict by default; sequence/choice: `##any`/lax, `##any`/skip (namespace optional/explicit; explicit processContents), `##other`/lax, `##other`/strict; locations retained. `xs:any`: `##any`/strict, `##any`/lax, `##any`/skip (explicit), `##other`/lax, `##other`/strict, and strict-only positive constraints (`##local`, `##targetNamespace`, URI lists) with immutable sorted effective values and retained lexical/source locations; ranges; `0/0` absent. Consumers reject nonzero wildcards; broader placements unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed=invalid.
 Named groups expose ordered references with exact ranges; broader shapes unsupported; consumers reject.
 
 ## Datatypes
