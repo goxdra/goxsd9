@@ -4412,8 +4412,11 @@ func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleT
 //nolint:gocognit // Keep built-in scalar scope and version branches explicit.
 func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
-	case "string", "token", "NMTOKEN":
+	case "string", "token", "NMTOKEN", "language", "NCName", "anyURI", "ID":
 		if input.declaredType.Local() == "string" && scope != schemaScalarTypeGlobalElement {
+			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
+		}
+		if schemaSimpleTypeAtomicKindIsUnsupportedBuiltin(input.declaredType.Local()) && scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
 		reference, err := builtinSchemaElementTypeReference(input, version)
@@ -4495,6 +4498,15 @@ func builtinSchemaElementTypeReference(input *schemaElementInput, version XSDVer
 		name: input.declaredType,
 		loc:  input.typeLoc,
 	}, version)
+}
+
+func schemaSimpleTypeAtomicKindIsUnsupportedBuiltin(local string) bool {
+	switch local {
+	case "language", "NCName", "anyURI", "ID":
+		return true
+	default:
+		return false
+	}
 }
 
 func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
