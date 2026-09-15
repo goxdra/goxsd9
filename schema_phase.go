@@ -3560,22 +3560,24 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	if len(syntaxAttributesByLocal(element, "notNamespace")) > 0 || len(syntaxAttributesByLocal(element, "notQName")) > 0 {
 		return false
 	}
+	if len(namespaceAttributes) > 1 || len(processContentsAttributes) > 1 {
+		return false
+	}
 	if len(namespaceAttributes) == 0 && len(processContentsAttributes) == 0 {
 		return true
 	}
-	if len(namespaceAttributes) == 1 && collapseXMLWhitespace(namespaceAttributes[0].value) == "##any" && len(processContentsAttributes) == 0 {
+	namespace := "##any"
+	if len(namespaceAttributes) == 1 {
+		namespace = collapseXMLWhitespace(namespaceAttributes[0].value)
+	}
+	processContents := "strict"
+	if len(processContentsAttributes) == 1 {
+		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
+	}
+	if namespace == "##any" && (processContents == "strict" || processContents == "lax") {
 		return true
 	}
-	if len(namespaceAttributes) == 0 && len(processContentsAttributes) == 1 && collapseXMLWhitespace(processContentsAttributes[0].value) == "strict" {
-		return true
-	}
-	if len(namespaceAttributes) == 1 && len(processContentsAttributes) == 1 && collapseXMLWhitespace(namespaceAttributes[0].value) == "##any" && collapseXMLWhitespace(processContentsAttributes[0].value) == "strict" {
-		return true
-	}
-	if len(namespaceAttributes) == 1 && collapseXMLWhitespace(namespaceAttributes[0].value) == "##other" && len(processContentsAttributes) == 0 {
-		return true
-	}
-	if len(namespaceAttributes) == 1 && len(processContentsAttributes) == 1 && collapseXMLWhitespace(namespaceAttributes[0].value) == "##other" && collapseXMLWhitespace(processContentsAttributes[0].value) == "strict" {
+	if namespace == "##other" && processContents == "strict" {
 		return true
 	}
 	return isSupportedAnyAttribute(element)

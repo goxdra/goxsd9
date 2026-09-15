@@ -182,8 +182,9 @@ and broader wildcard/attribute remain unsupported. Direct
 named-complex/bounded-extension group refs remain supported facts; anonymous simple-type
 models and resolved built-in, named, and anonymous simple-type
 references are modeled. Named direct sequence/choice types expose direct
-`anyAttribute`: omitted attributes default to `##any`/`strict`; canonical
-explicit values remain supported in XSD 1.0, XSD 1.1, and Compatibility.
+`anyAttribute`: omitted attributes default to `##any`/`strict`; omitted or
+explicit `##any`/`lax` is supported under all editions/policies. Canonical
+explicit strict values remain supported.
 `##other`/`lax` remains supported; `##other`/`strict` is supported with omitted
 or explicit `processContents`. The `anyAttribute` element and explicit
 `namespace`/`processContents` locations are retained; omitted defaults are

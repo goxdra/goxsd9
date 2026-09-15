@@ -496,6 +496,14 @@ func codegenDirectChoiceReferenceTestParticle(t *testing.T, schema Schema) Eleme
 
 //nolint:gocognit // Keep edition-specific wildcard diagnostic assertions together.
 func TestPlanCodegenDirectChoicesRejectsAttributeWildcardAcrossEditions(t *testing.T) {
+	wildcardForms := []struct {
+		name       string
+		attributes string
+	}{
+		{name: "other_lax", attributes: ` namespace="##other" processContents="lax"`},
+		{name: "omitted_namespace_lax", attributes: ` processContents="lax"`},
+		{name: "explicit_any_lax", attributes: ` processContents="lax" namespace="##any"`},
+	}
 	for _, test := range []struct {
 		name     string
 		policy   LanguagePolicy
@@ -505,52 +513,54 @@ func TestPlanCodegenDirectChoicesRejectsAttributeWildcardAcrossEditions(t *testi
 		{name: "Strict10", policy: Strict10, version: "1.0", wantSpec: "xsd10-structures#element-choice"},
 		{name: "Strict11", policy: Strict11, version: "1.1", wantSpec: "xsd11-structures#element-choice"},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:choice" version="` + test.version + `">
-  <xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:integer"/></xs:choice><xs:anyAttribute namespace="##other" processContents="lax"/></xs:complexType>
+		for _, wildcardForm := range wildcardForms {
+			t.Run(test.name+"/"+wildcardForm.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:choice" version="` + test.version + `">
+  <xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:integer"/></xs:choice><xs:anyAttribute` + wildcardForm.attributes + `/></xs:complexType>
 </xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
-			if err != nil {
-				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
-			}
-			definition, ok := schema.Components()[0].ComplexType()
-			if !ok {
-				t.Fatal("Choice has no complex type view")
-			}
-			choice, ok := definition.Particle().(ChoiceParticle)
-			if !ok {
-				t.Fatalf("Choice particle = %T, want ChoiceParticle", definition.Particle())
-			}
-			wildcard, ok := definition.AnyAttribute()
-			if !ok {
-				t.Fatal("Choice has no anyAttribute wildcard")
-			}
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+				if err != nil {
+					t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+				}
+				definition, ok := schema.Components()[0].ComplexType()
+				if !ok {
+					t.Fatal("Choice has no complex type view")
+				}
+				choice, ok := definition.Particle().(ChoiceParticle)
+				if !ok {
+					t.Fatalf("Choice particle = %T, want ChoiceParticle", definition.Particle())
+				}
+				wildcard, ok := definition.AnyAttribute()
+				if !ok {
+					t.Fatal("Choice has no anyAttribute wildcard")
+				}
 
-			plan, err := planCodegenDirectChoices(schema, "generated")
-			if !reflect.DeepEqual(plan, codegenDirectChoicePlan{}) {
-				t.Fatalf("failure plan = %#v, want zero plan", plan)
-			}
-			if err == nil {
-				t.Fatal("planCodegenDirectChoices accepted a direct choice with an attribute wildcard")
-			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported {
-				t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic", diagnostic)
-			}
-			if diagnostic.Feature() != FeatureCodegen || diagnostic.SpecRef() != test.wantSpec {
-				t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), FeatureCodegen, test.wantSpec)
-			}
-			if diagnostic.Loc() != wildcard.Loc() {
-				t.Fatalf("diagnostic primary location = %s, want wildcard location %s", diagnostic.Loc(), wildcard.Loc())
-			}
-			related := diagnostic.Related()
-			if len(related) != 1 || related[0] != choice.Loc() {
-				t.Fatalf("diagnostic related locations = %v, want [%s]", related, choice.Loc())
-			}
-			if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
-				t.Fatalf("diagnostic lost unsupported cause: %v", err)
-			}
-		})
+				plan, err := planCodegenDirectChoices(schema, "generated")
+				if !reflect.DeepEqual(plan, codegenDirectChoicePlan{}) {
+					t.Fatalf("failure plan = %#v, want zero plan", plan)
+				}
+				if err == nil {
+					t.Fatal("planCodegenDirectChoices accepted a direct choice with an attribute wildcard")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported {
+					t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic", diagnostic)
+				}
+				if diagnostic.Feature() != FeatureCodegen || diagnostic.SpecRef() != test.wantSpec {
+					t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), FeatureCodegen, test.wantSpec)
+				}
+				if diagnostic.Loc() != wildcard.Loc() {
+					t.Fatalf("diagnostic primary location = %s, want wildcard location %s", diagnostic.Loc(), wildcard.Loc())
+				}
+				related := diagnostic.Related()
+				if len(related) != 1 || related[0] != choice.Loc() {
+					t.Fatalf("diagnostic related locations = %v, want [%s]", related, choice.Loc())
+				}
+				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+					t.Fatalf("diagnostic lost unsupported cause: %v", err)
+				}
+			})
+		}
 	}
 }
 
