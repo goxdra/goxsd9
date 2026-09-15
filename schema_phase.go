@@ -4897,25 +4897,28 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 func isSupportedDirectAnyParticleFacts(namespace, processContents string) bool {
 	return namespace == "##any" && processContents == "strict" ||
 		namespace == "##any" && processContents == "lax" ||
-		namespace == "##other" && processContents == "lax"
+		namespace == "##other" && processContents == "lax" ||
+		namespace == "##other" && processContents == "strict"
 }
 
 func isSupportedDirectAnyParticle(element *syntaxElement) bool {
+	namespace := "##any"
 	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
+	if len(namespaceAttributes) > 1 {
+		return false
+	}
+	if len(namespaceAttributes) == 1 {
+		namespace = collapseXMLWhitespace(namespaceAttributes[0].value)
+	}
+	processContents := "strict"
 	processContentsAttributes := syntaxAttributesByLocal(element, "processContents")
-	if len(processContentsAttributes) != 1 {
+	if len(processContentsAttributes) > 1 {
 		return false
 	}
-	if len(namespaceAttributes) == 0 {
-		return collapseXMLWhitespace(processContentsAttributes[0].value) == "lax"
+	if len(processContentsAttributes) == 1 {
+		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
 	}
-	if len(namespaceAttributes) != 1 {
-		return false
-	}
-	return isSupportedDirectAnyParticleFacts(
-		collapseXMLWhitespace(namespaceAttributes[0].value),
-		collapseXMLWhitespace(processContentsAttributes[0].value),
-	)
+	return isSupportedDirectAnyParticleFacts(namespace, processContents)
 }
 
 //nolint:gocognit,funlen // Keep wildcard particle grammar and unsupported classification together.
