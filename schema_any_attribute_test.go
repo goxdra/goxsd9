@@ -127,6 +127,110 @@ func assertDefaultAnyAttributeFacts(t *testing.T, attribute AnyAttribute, root, 
 	}
 }
 
+//nolint:gocognit // Keep the direct ##any/lax policy, edition, shape, and location matrix together.
+func TestSchemaBridgeExposesDirectLaxAnyAttributeFacts(t *testing.T) {
+	policies := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "compatibility", policy: Compatibility},
+		{name: "strict10", policy: Strict10},
+		{name: "strict11", policy: Strict11},
+	}
+	forms := []struct {
+		name                  string
+		attributes            string
+		namespaceMarker       string
+		processContentsMarker string
+	}{
+		{
+			name:                  "omitted_namespace",
+			attributes:            ` processContents="&#x9;lax&#xA;"`,
+			processContentsMarker: `processContents="&#x9;lax&#xA;"`,
+		},
+		{
+			name:                  "explicit_namespace_reversed",
+			attributes:            ` processContents="&#xD;lax&#x9;" namespace="&#xA;##any&#x9;"`,
+			namespaceMarker:       `namespace="&#xA;##any&#x9;"`,
+			processContentsMarker: `processContents="&#xD;lax&#x9;"`,
+		},
+	}
+	for _, policy := range policies {
+		for _, version := range []string{"1.0", "1.1"} {
+			for _, model := range []string{"sequence", "choice"} {
+				for _, form := range forms {
+					name := policy.name + "/schema-" + version + "/" + model + "/" + form.name
+					t.Run(name, func(t *testing.T) {
+						root := directLaxAnyAttributeSchema(version, model, form.attributes)
+						schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
+						if err != nil {
+							t.Fatalf("discover schema: %v", err)
+						}
+						components := schema.Components()
+						if len(components) != 2 {
+							t.Fatalf("component count = %d, want 2", len(components))
+						}
+						if got := components[0].Name().Local(); got != "before" {
+							t.Fatalf("first component = %q, want before", got)
+						}
+						definition := requireAnyAttributeComplexType(t, components[1], model)
+						attribute, ok := definition.AnyAttribute()
+						if !ok {
+							t.Fatal("direct ##any/lax AnyAttribute is absent")
+						}
+						assertLaxAnyAttributeFacts(t, attribute, "root.xsd", root, form.namespaceMarker, form.processContentsMarker)
+						assertAnyAttributeWalkOrder(t, schema, components)
+						assertAnyAttributeComponentCopies(t, schema, components, definition, "##any", "lax")
+					})
+				}
+			}
+		}
+	}
+}
+
+func directLaxAnyAttributeSchema(version, model, attributes string) string {
+	return `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:root" version="` + version + `">
+  <xs:element name="before"/>
+  <xs:complexType name="directType">
+    <xs:` + model + `><xs:element name="value" type="xs:integer"/></xs:` + model + `>
+    <xs:anyAttribute` + attributes + `/>
+  </xs:complexType>
+</xs:schema>`
+}
+
+func assertLaxAnyAttributeFacts(t *testing.T, attribute AnyAttribute, sourceID SourceID, source, namespaceMarker, processContentsMarker string) {
+	t.Helper()
+	if got := attribute.Namespace(); got != "##any" {
+		t.Errorf("namespace = %q, want ##any", got)
+	}
+	if got := attribute.ProcessContents(); got != "lax" {
+		t.Errorf("processContents = %q, want lax", got)
+	}
+	if got := attribute.Loc(); got != anyAttributeTestLocForSource(sourceID, source, "<xs:anyAttribute") {
+		t.Errorf("element location = %v, want anyAttribute element location", got)
+	}
+	if namespaceMarker == "" {
+		if got := attribute.NamespaceLoc(); !got.IsZero() {
+			t.Errorf("omitted namespace location = %v, want zero", got)
+		}
+	}
+	if namespaceMarker != "" {
+		if got := attribute.NamespaceLoc(); got != anyAttributeTestLocForSource(sourceID, source, namespaceMarker) {
+			t.Errorf("namespace location = %v, want explicit namespace location", got)
+		}
+	}
+	if processContentsMarker == "" {
+		if got := attribute.ProcessContentsLoc(); !got.IsZero() {
+			t.Errorf("omitted processContents location = %v, want zero", got)
+		}
+	}
+	if processContentsMarker != "" {
+		if got := attribute.ProcessContentsLoc(); got != anyAttributeTestLocForSource(sourceID, source, processContentsMarker) {
+			t.Errorf("processContents location = %v, want explicit processContents location", got)
+		}
+	}
+}
+
 //nolint:gocognit // Keep the policy, edition, shape, and location matrix together.
 func TestSchemaBridgeExposesExplicitDirectAnyAttributeDefaults(t *testing.T) {
 	policies := []struct {
@@ -559,6 +663,103 @@ func TestSchemaBridgePreservesExplicitAnyAttributeGraphProvenance(t *testing.T) 
 	}
 }
 
+//nolint:gocognit,funlen // Keep graph order, chameleon ownership, and lax wildcard provenance together.
+func TestSchemaBridgePreservesLaxAnyAttributeGraphProvenance(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:root" version="` + test.version + `">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+</xs:schema>`
+			chameleon := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" version="` + test.version + `">
+  <xs:include schemaLocation="root.xsd"/>
+  <xs:complexType name="includedType">
+    <xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence>
+    <xs:anyAttribute processContents="&#xA;lax&#x9;"/>
+  </xs:complexType>
+</xs:schema>`
+			other := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:other" version="` + test.version + `">
+  <xs:complexType name="importedType">
+    <xs:choice><xs:element name="value" type="xs:integer"/></xs:choice>
+    <xs:anyAttribute processContents="&#xD;lax&#x9;" namespace="&#xA;##any&#x9;"/>
+  </xs:complexType>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+				"chameleon.xsd": {id: "chameleon.xsd", contents: chameleon},
+				"other.xsd":     {id: "other.xsd", contents: other},
+				"root.xsd":      {id: "root.xsd", contents: root},
+			}, test.policy)
+			if err != nil {
+				t.Fatalf("discover schema: %v", err)
+			}
+			documents := schema.Documents()
+			if len(documents) != 3 {
+				t.Fatalf("document count = %d, want 3", len(documents))
+			}
+			for index, want := range []SourceID{"root.xsd", "chameleon.xsd", "other.xsd"} {
+				if got := documents[index].Source(); got != want {
+					t.Errorf("document %d source = %q, want %q", index, got, want)
+				}
+			}
+			if got := documents[1].TargetNamespace(); got != "urn:root" {
+				t.Errorf("chameleon target namespace = %q, want urn:root", got)
+			}
+			if got := documents[2].TargetNamespace(); got != "urn:other" {
+				t.Errorf("imported target namespace = %q, want urn:other", got)
+			}
+
+			components := schema.Components()
+			if len(components) != 2 {
+				t.Fatalf("component count = %d, want 2", len(components))
+			}
+			if got := components[0].Name(); got != mustTestQName(t, "urn:root", "includedType") {
+				t.Errorf("chameleon component name = %q, want urn:root:includedType", got)
+			}
+			if got := components[1].Name(); got != mustTestQName(t, "urn:other", "importedType") {
+				t.Errorf("imported component name = %q, want urn:other:importedType", got)
+			}
+
+			chameleonDefinition := requireAnyAttributeComplexType(t, components[0], "chameleon component")
+			chameleonAttribute, ok := chameleonDefinition.AnyAttribute()
+			if !ok {
+				t.Fatal("chameleon AnyAttribute is absent")
+			}
+			assertLaxAnyAttributeFacts(t, chameleonAttribute, "chameleon.xsd", chameleon, "", `processContents="&#xA;lax&#x9;"`)
+
+			importedDefinition := requireAnyAttributeComplexType(t, components[1], "imported component")
+			importedAttribute, ok := importedDefinition.AnyAttribute()
+			if !ok {
+				t.Fatal("imported AnyAttribute is absent")
+			}
+			assertLaxAnyAttributeFacts(t, importedAttribute, "other.xsd", other, `namespace="&#xA;##any&#x9;"`, `processContents="&#xD;lax&#x9;"`)
+
+			for iteration := 0; iteration < 2; iteration++ {
+				walked := make([]ComponentID, 0, len(components))
+				if err := schema.Walk(func(component Component) error {
+					walked = append(walked, component.ID())
+					return nil
+				}); err != nil {
+					t.Fatalf("walk iteration %d: %v", iteration, err)
+				}
+				for index, component := range components {
+					if walked[index] != component.ID() {
+						t.Errorf("walk iteration %d item %d ID = %v, want %v", iteration, index, walked[index], component.ID())
+					}
+				}
+			}
+		})
+	}
+}
+
 //nolint:gocognit // Keep graph order, chameleon ownership, and wildcard provenance together.
 func TestSchemaBridgePreservesOtherStrictAnyAttributeGraphProvenance(t *testing.T) {
 	for _, test := range []struct {
@@ -686,12 +887,12 @@ func TestSchemaBridgeRejectsExcludedAnyAttributeForms(t *testing.T) {
 		attributes string
 		wantSpec   string
 	}{
-		{name: "default_namespace", policy: Strict11, version: "1.1", attributes: `processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
-		{name: "any_namespace", policy: Strict10, version: "1.0", attributes: `namespace="##any" processContents="lax"`, wantSpec: schemaAnyAttributeXSD10SpecRef},
 		{name: "uri", policy: Strict10, version: "1.0", attributes: `namespace="urn:other" processContents="lax"`, wantSpec: schemaAnyAttributeXSD10SpecRef},
 		{name: "uri_list", policy: Strict10, version: "1.0", attributes: `namespace="urn:one urn:two" processContents="lax"`, wantSpec: schemaAnyAttributeXSD10SpecRef},
 		{name: "namespace_list", policy: Strict11, version: "1.1", attributes: `namespace="##local ##targetNamespace" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "local_namespace", policy: Strict10, version: "1.0", attributes: `namespace="##local" processContents="strict"`, wantSpec: schemaAnyAttributeXSD10SpecRef},
+		{name: "target_namespace", policy: Strict11, version: "1.1", attributes: `namespace="##targetNamespace" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
+		{name: "any_skip", policy: Strict11, version: "1.1", attributes: `namespace="##any" processContents="skip"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "skip", policy: Compatibility, version: "1.1", attributes: `namespace="##other" processContents="skip"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "not_namespace", policy: Strict11, version: "1.1", attributes: `notNamespace="##local" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "not_qname", policy: Strict11, version: "1.1", attributes: `notQName="xs:string" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
@@ -718,6 +919,10 @@ func assertExcludedAnyAttributeForm(t *testing.T, policy LanguagePolicy, version
 	}
 	assertZeroSchema(t, schema)
 	assertAnyAttributeUnsupportedDiagnostic(t, err, wantSpec)
+	diagnostic := requireDiagnostic(t, err)
+	if got := diagnostic.Loc(); got != anyAttributeTestLoc(root, "<xs:anyAttribute") {
+		t.Errorf("diagnostic location = %v, want anyAttribute element location", got)
+	}
 }
 
 func TestSchemaBridgeRejectsMalformedAnyAttributeBeforeUnsupportedClassification(t *testing.T) {
@@ -733,6 +938,7 @@ func TestSchemaBridgeRejectsMalformedAnyAttributeBeforeUnsupportedClassification
 		{name: "namespace_composition", policy: Strict11, version: "1.1", attributes: `namespace="##any" notNamespace="##local"`, wantCode: invalidSchemaCompositionCode, wantMarker: `namespace="##any"`},
 		{name: "namespace_token", policy: Strict11, version: "1.1", attributes: `namespace="##bad" processContents="lax"`, wantCode: invalidSchemaCompositionCode, wantMarker: `namespace="##bad"`},
 		{name: "namespace_list_composition", policy: Strict11, version: "1.1", attributes: `namespace="##other urn:extra" processContents="lax"`, wantCode: invalidSchemaCompositionCode, wantMarker: `namespace="##other urn:extra"`},
+		{name: "omitted_namespace_process_contents_enum", policy: Strict11, version: "1.1", attributes: `processContents="relaxed"`, wantCode: invalidSchemaCompositionCode, wantMarker: `processContents="relaxed"`},
 		{name: "process_contents_enum", policy: Strict11, version: "1.1", attributes: `namespace="##other" processContents="relaxed"`, wantCode: invalidSchemaCompositionCode, wantMarker: `processContents="relaxed"`},
 		{name: "not_namespace_token", policy: Strict11, version: "1.1", attributes: `notNamespace="##bad" processContents="lax"`, wantCode: invalidSchemaCompositionCode, wantMarker: `notNamespace="##bad"`},
 		{name: "not_qname_lexical", policy: Strict11, version: "1.1", attributes: `notQName="bad:q:name" processContents="lax"`, wantCode: invalidSchemaConditionalCode, wantMarker: `notQName="bad:q:name"`},
@@ -788,8 +994,17 @@ func TestSchemaBridgeKeepsAnyAttributeShapeBoundariesUnsupported(t *testing.T) {
 			wantWildcardCause: true,
 		},
 		{
+			name:              "any_attribute_only_lax_any",
+			body:              `<xs:complexType name="onlyWildcard"><xs:anyAttribute processContents="lax"/></xs:complexType>`,
+			wantWildcardCause: true,
+		},
+		{
 			name: "anonymous_inline",
 			body: `<xs:element name="inline"><xs:complexType><xs:sequence/><xs:anyAttribute namespace="##other" processContents="lax"/></xs:complexType></xs:element>`,
+		},
+		{
+			name: "anonymous_inline_lax_any",
+			body: `<xs:element name="inline"><xs:complexType><xs:sequence/><xs:anyAttribute processContents="lax"/></xs:complexType></xs:element>`,
 		},
 		{
 			name:              "attribute_group",
@@ -816,6 +1031,33 @@ func TestSchemaBridgeKeepsAnyAttributeShapeBoundariesUnsupported(t *testing.T) {
 				return
 			}
 			assertUnsupportedSchemaSyntaxDiagnostic(t, err)
+		})
+	}
+}
+
+func TestSchemaBridgeKeepsLaxAnyAttributeGroupOwnersUnsupported(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		policy   LanguagePolicy
+		version  string
+		wantSpec string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1", wantSpec: schemaAnyAttributeXSD11SpecRef},
+		{name: "strict10", policy: Strict10, version: "1.0", wantSpec: schemaAnyAttributeXSD10SpecRef},
+		{name: "strict11", policy: Strict11, version: "1.1", wantSpec: schemaAnyAttributeXSD11SpecRef},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:root" targetNamespace="urn:root" version="` + test.version + `">
+  <xs:group name="group"><xs:sequence><xs:element ref="t:value"/></xs:sequence></xs:group>
+  <xs:complexType name="groupOwner"><xs:group ref="t:group"/><xs:anyAttribute processContents="lax"/></xs:complexType>
+  <xs:element name="value" type="xs:integer"/>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+			if err == nil {
+				t.Fatal("group owner with direct ##any/lax attribute wildcard unexpectedly succeeded")
+			}
+			assertZeroSchema(t, schema)
+			assertAnyAttributeUnsupportedDiagnostic(t, err, test.wantSpec)
 		})
 	}
 }
