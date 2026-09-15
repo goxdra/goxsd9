@@ -57,6 +57,19 @@ func TestSchemaBridgeModelsDirectAnyParticles(t *testing.T) {
 			processContentsMarker: `processContents="&#xD;lax&#x9;"`,
 		},
 		{
+			name:                  "omitted_namespace_skip",
+			attributes:            ` processContents="&#xD;skip&#x9;"`,
+			processContentsMarker: `processContents="&#xD;skip&#x9;"`,
+			wantProcessContents:   "skip",
+		},
+		{
+			name:                  "any_skip",
+			attributes:            ` processContents="&#xD;skip&#x9;" namespace="&#xA;##any&#x9;"`,
+			namespaceMarker:       `namespace="&#xA;##any&#x9;"`,
+			processContentsMarker: `processContents="&#xD;skip&#x9;"`,
+			wantProcessContents:   "skip",
+		},
+		{
 			name:                  "other_lax",
 			attributes:            ` namespace="&#xA;##other&#x9;" processContents="&#xD;lax&#x9;"`,
 			namespaceMarker:       `namespace="&#xA;##other&#x9;"`,
@@ -380,7 +393,6 @@ func TestSchemaBridgeRejectsNonDefaultDirectAnyParticleConstraints(t *testing.T)
 		{name: "uri_namespace_list", attributes: ` namespace="urn:one urn:two"`, marker: `namespace="urn:one urn:two"`},
 		{name: "local_namespace", attributes: ` namespace="##local"`, marker: `namespace="##local"`},
 		{name: "target_namespace", attributes: ` namespace="##targetNamespace"`, marker: `namespace="##targetNamespace"`},
-		{name: "skip_process_contents", attributes: ` processContents="skip"`, marker: `processContents="skip"`},
 		{name: "other_skip", attributes: ` namespace="##other" processContents="skip"`, marker: `namespace="##other"`},
 		{name: "not_namespace", attributes: ` notNamespace="##local"`, marker: `notNamespace="##local"`, mismatch10: true},
 		{name: "not_qname", attributes: ` notQName="xs:integer"`, marker: `notQName="xs:integer"`, mismatch10: true},
@@ -578,6 +590,92 @@ func TestSchemaBridgePreservesExplicitWildcardGraphProvenance(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep graph order, skip facts, and wildcard provenance together.
+func TestSchemaBridgePreservesAnySkipWildcardGraphProvenance(t *testing.T) {
+	root := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:root">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+</xs:schema>`
+	chameleon := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:complexType name="includedType">
+    <xs:choice><xs:any processContents="&#xA;skip&#x9;"/></xs:choice>
+  </xs:complexType>
+</xs:schema>`
+	other := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:other">
+  <xs:complexType name="importedType">
+    <xs:sequence><xs:any namespace="&#xA;##any&#x9;" processContents="&#xD;skip&#x9;"/></xs:sequence>
+  </xs:complexType>
+</xs:schema>`
+	fixtures := map[string]discoveryFixture{
+		"chameleon.xsd": {id: "chameleon.xsd", contents: chameleon},
+		"other.xsd":     {id: "other.xsd", contents: other},
+	}
+	for run := 0; run < 2; run++ {
+		schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, Strict11)
+		if err != nil {
+			t.Fatalf("discover schema run %d: %v", run, err)
+		}
+		documents := schema.Documents()
+		if len(documents) != 3 {
+			t.Fatalf("run %d document count = %d, want 3", run, len(documents))
+		}
+		for index, want := range []SourceID{"root.xsd", "chameleon.xsd", "other.xsd"} {
+			if got := documents[index].Source(); got != want {
+				t.Errorf("run %d document %d source = %q, want %q", run, index, got, want)
+			}
+		}
+		components := schema.Components()
+		if len(components) != 2 {
+			t.Fatalf("run %d component count = %d, want 2", run, len(components))
+		}
+		wantNames := []QName{mustTestQName(t, "urn:root", "includedType"), mustTestQName(t, "urn:other", "importedType")}
+		wantSources := []SourceID{"chameleon.xsd", "other.xsd"}
+		for index, component := range components {
+			if got := component.Name(); got != wantNames[index] {
+				t.Errorf("run %d component %d name = %q, want %q", run, index, got, wantNames[index])
+			}
+			definition, ok := component.ComplexType()
+			if !ok {
+				t.Fatalf("run %d component %d has no complex type view", run, index)
+			}
+			wildcard := directWildcardFromParticle(t, definition.Particle())
+			if wildcard.Namespace() != "##any" || wildcard.ProcessContents() != "skip" {
+				t.Errorf("run %d component %d wildcard facts = %q/%q, want ##any/skip", run, index, wildcard.Namespace(), wildcard.ProcessContents())
+			}
+			if got := wildcard.Loc().Source(); got != wantSources[index] {
+				t.Errorf("run %d component %d wildcard source = %q, want %q", run, index, got, wantSources[index])
+			}
+			if index == 0 {
+				if !wildcard.NamespaceLoc().IsZero() {
+					t.Errorf("run %d chameleon omitted namespace location = %s, want zero", run, wildcard.NamespaceLoc())
+				}
+				if got := wildcard.ProcessContentsLoc().Source(); got != "chameleon.xsd" {
+					t.Errorf("run %d chameleon processContents source = %q, want chameleon.xsd", run, got)
+				}
+				continue
+			}
+			if got := wildcard.NamespaceLoc().Source(); got != "other.xsd" {
+				t.Errorf("run %d imported namespace source = %q, want other.xsd", run, got)
+			}
+			if got := wildcard.ProcessContentsLoc().Source(); got != "other.xsd" {
+				t.Errorf("run %d imported processContents source = %q, want other.xsd", run, got)
+			}
+		}
+		walked := make([]ComponentID, 0, len(components))
+		if err := schema.Walk(func(component Component) error {
+			walked = append(walked, component.ID())
+			return nil
+		}); err != nil {
+			t.Fatalf("run %d walk schema: %v", run, err)
+		}
+		for index, component := range components {
+			if walked[index] != component.ID() {
+				t.Errorf("run %d walk item %d ID = %v, want %v", run, index, walked[index], component.ID())
+			}
+		}
+	}
+}
+
 //nolint:gocognit,funlen // Keep graph order, owner namespaces, and wildcard provenance together.
 func TestSchemaBridgePreservesOtherWildcardGraphProvenance(t *testing.T) {
 	forms := []struct {
@@ -739,6 +837,8 @@ func TestSchemaBridgeRejectsWildcardConsumersExplicitly(t *testing.T) {
 		{name: "explicit_defaults", attributes: ` processContents="&#xD;strict&#x9;" namespace="&#xA;##any&#x9;"`},
 		{name: "omitted_namespace_lax", attributes: ` processContents="lax"`},
 		{name: "any_lax", attributes: ` namespace="##any" processContents="lax"`},
+		{name: "omitted_namespace_skip", attributes: ` processContents="skip"`},
+		{name: "any_skip", attributes: ` namespace="##any" processContents="skip"`},
 		{name: "other_lax", attributes: ` namespace="&#xA;##other&#x9;" processContents="&#xD;lax&#x9;"`},
 		{name: "other_strict_omitted", attributes: ` namespace="##other"`},
 		{name: "other_strict_explicit", attributes: ` namespace="##other" processContents="strict"`},
@@ -826,6 +926,8 @@ func TestSchemaBridgeOmitsZeroZeroWildcardBeforeConsumers(t *testing.T) {
 		attributes string
 	}{
 		{name: "default"},
+		{name: "omitted_namespace_skip", attributes: ` processContents="skip"`},
+		{name: "any_skip", attributes: ` namespace="##any" processContents="skip"`},
 		{name: "other_strict_omitted", attributes: ` namespace="##other"`},
 		{name: "other_strict_explicit", attributes: ` namespace="##other" processContents="strict"`},
 	}
@@ -935,6 +1037,8 @@ func TestSchemaBridgeKeepsOtherWildcardPlacementsUnsupported(t *testing.T) {
 		attributes string
 	}{
 		{name: "other_lax", attributes: ` namespace="##other" processContents="lax"`},
+		{name: "omitted_namespace_skip", attributes: ` processContents="skip"`},
+		{name: "any_skip", attributes: ` namespace="##any" processContents="skip"`},
 		{name: "other_strict_omitted", attributes: ` namespace="##other"`},
 		{name: "other_strict_explicit", attributes: ` namespace="##other" processContents="strict"`},
 	}

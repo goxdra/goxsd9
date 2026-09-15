@@ -31,9 +31,10 @@
 // complex types. Token/NMTOKEN local particles are modeled but unsupported to
 // consumers; exact immutable occurrence ranges are retained.
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
-// omitted namespace with processContents="lax"), ##other/lax, and
-// ##other/strict forms are also exposed as immutable WildcardParticle values
-// with their effective namespace and processing facts; explicit
+// omitted namespace with processContents="lax"), ##any/skip with explicit
+// processContents="skip", ##other/lax, and ##other/strict forms are also
+// exposed as immutable WildcardParticle values with their effective namespace
+// and processing facts; explicit
 // constraint-attribute locations are retained, in lexical order with element
 // and reference terms. Other wildcard constraints and broader wildcard
 // placements remain unsupported.
