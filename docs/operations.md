@@ -26,7 +26,7 @@ Reread incomplete/ambiguous phases before retry.
 Claim resume binds exact handoff/comment/run/head, expired claim, no PR, Project
 identity/status, and a unique clean/unlocked same-run worktree. Three complete
 generic no-PR forms each cover every PR/pull-request/workflow-path mention.
-#287 is generic; #240/#305 compatibility is isolated. Generic handoffs may
+Compatibility exceptions are exact, issue-scoped complete forms. Generic handoffs may
 omit head/SHA/commit labels; present labels require one full 40-hex expected SHA;
 malformed/ambiguous labels are terminal before mutation.
 Claim/renewal markers are exact-message single-parent empty commits;
