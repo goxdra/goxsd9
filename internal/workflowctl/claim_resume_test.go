@@ -494,6 +494,17 @@ func TestClaimResumeGenericPRLifecycleNegativesHaveZeroMutation(t *testing.T) {
 		{name: "positive PR after attempted implementation", text: "No implementation was attempted; a review, PR and check were made."},
 		{name: "positive PR after implementation clause", text: "No implementation; review, PR and check were made."},
 		{name: "positive pull request after changed source", text: "No source was changed, but a review and pull request were made."},
+		{name: "parenthesized predicate", text: "No implementation (review, PR and check were made)."},
+		{name: "colon predicate", text: "No implementation: review, PR and check were made."},
+		{name: "conjoined predicate", text: "No implementation was attempted and a review, PR and check were made."},
+		{name: "bare review list item", text: "No implementation, review, PR and check were made."},
+		{name: "bare review pull-request list item", text: "No implementation, review, pull request and check were made."},
+		{name: "parenthesized pull-request predicate", text: "No implementation (review, pull request and check were made)."},
+		{name: "closed PR in parentheses", text: "No implementation (PR was closed)."},
+		{name: "closed pull request in parentheses", text: "No implementation (pull request was closed)."},
+		{name: "positive pull request after attempted implementation", text: "No implementation was attempted; a pull request was made."},
+		{name: "conjoined positive pull request", text: "No implementation was attempted and a pull request was made."},
+		{name: "positive pull request after changed source with colon", text: "No source was changed: a pull request was made."},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newClaimResumeFixture(t)
@@ -503,7 +514,7 @@ func TestClaimResumeGenericPRLifecycleNegativesHaveZeroMutation(t *testing.T) {
 			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
 			localBefore := runGitTest(t, fixture.worktree, "rev-parse", "refs/heads/"+claimLocalBranch(fixture.issue, fixture.runID))
 			remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue))
-			err := application.run(claimResumeArgs(fixture, true))
+			err := application.run(claimResumeArgs(fixture, false))
 			if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
 				t.Fatalf("%s generic lifecycle error = %v, disposition %d, want terminal", test.name, err, operationDispositionOf(err))
 			}
@@ -569,6 +580,45 @@ func TestClaimResumeInjectedIntegration(t *testing.T) {
 		}
 		if backend.mutations != mutations || countClaimResumePushes(backend.calls) != pushes {
 			t.Fatalf("idempotent rerun mutations/pushes = %d/%d, want %d/%d", backend.mutations, countClaimResumePushes(backend.calls), mutations, pushes)
+		}
+	})
+
+	t.Run("existing renewal malformed labels stop before reconciliation", func(t *testing.T) {
+		fixture := newClaimResumeFixture(t)
+		backend := newClaimResumeBackend(t, fixture)
+		application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+		if err := application.run(claimResumeArgs(fixture, false)); err != nil {
+			t.Fatalf("first claim resume: %v", err)
+		}
+		assertClaimResumeRenewed(t, fixture, backend)
+		localBefore := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+		remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue))
+		mutationsBefore := backend.mutations
+		needsHumanBefore := backend.needsHuman
+		projectStatusBefore := backend.projectStatus
+		callsBefore := len(backend.calls)
+		backend.malformedIssueLabels = true
+		err := application.run(claimResumeArgs(fixture, false))
+		if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+			t.Fatalf("malformed renewal label error = %v, disposition %d; want terminal", err, operationDispositionOf(err))
+		}
+		if backend.mutations != mutationsBefore {
+			t.Fatalf("malformed renewal label mutations = %d, want unchanged %d", backend.mutations, mutationsBefore)
+		}
+		if backend.needsHuman != needsHumanBefore || backend.projectStatus != projectStatusBefore {
+			t.Fatalf("malformed renewal label external state = needs-human %t, Project %s; want needs-human %t, Project %s", backend.needsHuman, backend.projectStatus, needsHumanBefore, projectStatusBefore)
+		}
+		for _, call := range backend.calls[callsBefore:] {
+			if strings.HasPrefix(call, "git commit-tree ") || strings.HasPrefix(call, "git update-ref ") ||
+				strings.HasPrefix(call, "git push ") || strings.HasPrefix(call, "gh issue edit ") || strings.Contains(call, "gh project item-edit") {
+				t.Fatalf("malformed renewal label reached mutation %q", call)
+			}
+		}
+		if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != localBefore {
+			t.Fatalf("malformed renewal label moved local head from %s to %s", localBefore, got)
+		}
+		if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue)); got != remoteBefore {
+			t.Fatalf("malformed renewal label moved remote head from %q to %q", remoteBefore, got)
 		}
 	})
 
@@ -878,6 +928,7 @@ type claimResumeBackend struct {
 	ambiguousProject           bool
 	malformedRemoteRefs        bool
 	malformedIssue             bool
+	malformedIssueLabels       bool
 	freshProofFailure          error
 	raceOpenPR                 bool
 	raceProjectPicked          bool
@@ -941,13 +992,16 @@ func (b *claimResumeBackend) execute(dir string, input io.Reader, name string, a
 	return strings.TrimSpace(string(output)), nil
 }
 
-//nolint:gocognit // The injected GitHub backend models each mutation boundary and response race.
+//nolint:gocognit,funlen // The injected GitHub backend models each mutation boundary and response race.
 func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 	joined := strings.Join(args, " ")
 	switch {
 	case joined == fmt.Sprintf("api repos/goxdra/goxsd9/issues/%d", b.fixture.issue):
 		if b.malformedIssue {
 			return "{", nil
+		}
+		if b.malformedIssueLabels {
+			return `{"state":"open","labels":[null]}`, nil
 		}
 		if b.freshProofFailure != nil && b.issueStatusReads() == 2 {
 			err := b.freshProofFailure

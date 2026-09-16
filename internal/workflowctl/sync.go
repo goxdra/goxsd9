@@ -10,11 +10,13 @@ import (
 	"time"
 )
 
+type issueStatusLabel struct {
+	Name string
+}
+
 type issueStatus struct {
-	Labels []struct {
-		Name string `json:"name"`
-	} `json:"labels"`
-	State string `json:"state"`
+	Labels []issueStatusLabel
+	State  string `json:"state"`
 }
 
 func (a app) runSync(args []string) error {
@@ -98,10 +100,8 @@ func (a app) readIssueStatus(root string, number int) (issueStatus, error) {
 		return issueStatus{}, retryableOperation("read issue status", fmt.Errorf("read issue #%d: %w", number, err))
 	}
 	var response struct {
-		Labels *[]struct {
-			Name string `json:"name"`
-		} `json:"labels"`
-		State *string `json:"state"`
+		Labels *json.RawMessage `json:"labels"`
+		State  *string          `json:"state"`
 	}
 	if err := json.Unmarshal([]byte(output), &response); err != nil {
 		return issueStatus{}, terminalOperation("issue status", fmt.Errorf("decode issue #%d: %w", number, err))
@@ -109,12 +109,40 @@ func (a app) readIssueStatus(root string, number int) (issueStatus, error) {
 	if response.State == nil || response.Labels == nil {
 		return issueStatus{}, terminalOperation("issue status", fmt.Errorf("decode issue #%d: response omitted mandatory state or labels", number))
 	}
-	status := issueStatus{Labels: *response.Labels, State: *response.State}
+	labels, decodeErr := decodeIssueStatusLabels(*response.Labels, number)
+	if decodeErr != nil {
+		return issueStatus{}, terminalOperation("issue status", decodeErr)
+	}
+	status := issueStatus{Labels: labels, State: *response.State}
 	status.State = strings.ToUpper(status.State)
 	if status.State != "OPEN" && status.State != "CLOSED" {
 		return issueStatus{}, terminalOperation("issue status", fmt.Errorf("decode issue #%d: unsupported state %q", number, status.State))
 	}
 	return status, nil
+}
+
+func decodeIssueStatusLabels(raw json.RawMessage, number int) ([]issueStatusLabel, error) {
+	if strings.TrimSpace(string(raw)) == "null" {
+		return nil, fmt.Errorf("decode issue #%d: labels must be an array", number)
+	}
+	var elements []json.RawMessage
+	if err := json.Unmarshal(raw, &elements); err != nil {
+		return nil, fmt.Errorf("decode issue #%d: labels must be an array: %w", number, err)
+	}
+	labels := make([]issueStatusLabel, len(elements))
+	for index, element := range elements {
+		var label struct {
+			Name *string `json:"name"`
+		}
+		if err := json.Unmarshal(element, &label); err != nil {
+			return nil, fmt.Errorf("decode issue #%d: label %d must be an object with a nonblank string name: %w", number, index+1, err)
+		}
+		if label.Name == nil || strings.TrimSpace(*label.Name) == "" {
+			return nil, fmt.Errorf("decode issue #%d: label %d must have a nonblank string name", number, index+1)
+		}
+		labels[index] = issueStatusLabel{Name: *label.Name}
+	}
+	return labels, nil
 }
 
 func issueNeedsHuman(status issueStatus) bool {
