@@ -5,7 +5,7 @@
 goxsd9 exposes schema parsing, immutable queries/walks, XML validation, and Go
 generation. Schema model: validation/generation leaf; no validator/generator caches.
 
-Runtime uses standard-library facilities; development tooling is outside the library graph.
+Runtime uses standard-library facilities; development tooling is outside library graph.
 
 ## Deterministic phase pipeline
 
@@ -22,18 +22,18 @@ flowchart LR
 ```
 
 Phases consume results. Local construction uses unexported
-slices/tables; completed components are immutable and never backpatched. Identities
+slices/tables; completed components are immutable, never backpatched. Identities
 are interned before discovery; repeated includes/imports reuse them,
 so cycles do not recurse. Acyclic dependencies use stable topological order.
 
-Maps support lookup; ordered slices define observable walks/output, with
-stable fallback keys.
+Maps support lookup; ordered slices define observable walks/output; stable
+fallback keys.
 
 ## Input and resolution
 
-Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Callers create
-roots with `NewResolvedSource`; resolvers supply references and policy. Parsing
-closes streams; identities decode once; repeats/cycles close without decoding.
+Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Roots use
+`NewResolvedSource`; resolvers supply references/policy. Parsing closes streams;
+identities decode once; repeats/cycles close without decoding.
 
 ```go
 type Resolver interface {
@@ -45,26 +45,26 @@ type Resolver interface {
 }
 ```
 
-Each source carries opaque identity, reader-closer, and child context; resolvers
-may store typed private base-location state. Discovery passes parent context FIFO
-and preserves child context for nested references. Identities and lexical
-locations stay opaque: the parser does not interpret paths, open files, or make
-network requests. Resolver calls are sequential.
+Each source carries opaque identity, reader-closer, child context; resolvers may
+store typed private base-location state. Discovery passes parent context FIFO,
+preserving child context for nested references. Identities and lexical locations
+stay opaque: parser neither interprets paths nor opens files or makes network
+requests. Resolver calls are sequential.
 
 Streaming decode captures one-based line and Unicode-code-point columns; syntax/final
 components retain `Loc`, not source bytes/excerpts.
 
 ## Diagnostics
 
-Structured diagnostics are deterministic and classify failures as:
+Structured diagnostics deterministically classify failures as:
 
 - invalid schema or instance input;
 - unsupported specification behavior;
 - source resolution failure; or
 - internal invariant failure.
 
-Diagnostics have stable codes, primary `Loc`, optional related locations, and
-specification references; causes survive boundaries, and error-level diagnostics
+Diagnostics have stable codes, primary `Loc`, optional related locations,
+specification references; causes survive boundaries; error-level diagnostics
 prevent schema return.
 
 Unsupported features have stable identifiers; conformance reports aggregate them
@@ -75,8 +75,8 @@ for unlock ranking.
 Raw XSD syntax is internal. Immutable model retains component `Loc`; queries use names/identities.
 Walks preserve document-discovery/lexical order; unordered sets sort stably.
 
-Schema skeleton exposes `Schema`, `SchemaDocument`, `Component`, `ComponentID`, expanded `QName`.
-Documents follow identity-discovery order; declarations follow lexical order.
+Skeleton exposes `Schema`, `SchemaDocument`, `Component`, `ComponentID`, expanded `QName`.
+Documents: identity-discovery order; declarations: lexical order.
 `Components`/`Documents`/`Find`/`Walk` return copies. IDs combine source identity/one-based
 declaration ordinals; lookup maps define no order. Local particles use scoped facts/indexes;
 validator/generator state: on-demand.
@@ -95,8 +95,8 @@ Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard it; 
 Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
 non-atomic-string/string/boolean/precisionDecimal attrs unsupported.
 
-Complexes: `IsAbstract()` (non-inherited); named types: non-empty `final`; `Final()`: canonical extension-then-restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension` or `#all` rejects extension.
-Simple types retain immutable final controls/locations; direct restriction/list/union edges enforce matching controls under graph policy; Strict10 rejects `final=extension`; unsupported boundaries.
+Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
+Simple types: non-empty schema `finalDefault` supplies named simple types lacking local `final`; explicit empty/non-empty local `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
 Groups/extensions retain IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. `anyAttribute`: `##any`/strict by default; sequence/choice: `##any`/lax, `##any`/skip (namespace optional/explicit; explicit processContents), `##other`/lax, `##other`/strict; locations retained. `xs:any`: `##any`/strict, `##any`/lax, `##any`/skip (explicit), `##other`/lax, `##other`/strict, and strict-only positive constraints (`##local`, `##targetNamespace`, URI lists) with immutable sorted effective values and retained lexical/source locations; ranges; `0/0` absent. Consumers reject nonzero wildcards; broader placements unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed=invalid.
 Named groups expose ordered references with exact ranges; broader shapes unsupported; consumers reject.
 

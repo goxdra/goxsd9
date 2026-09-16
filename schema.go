@@ -752,7 +752,7 @@ func (definition SimpleTypeDefinition) VarietyLoc() Loc {
 	return definition.facts.varietyLoc
 }
 
-// Final returns the explicit non-empty final derivation controls in
+// Final returns the effective non-empty final derivation controls in
 // specification order. The returned slice is independent of the schema.
 func (definition SimpleTypeDefinition) Final() []string {
 	if definition.facts == nil || definition.facts.anonymous {
@@ -761,7 +761,8 @@ func (definition SimpleTypeDefinition) Final() []string {
 	return definition.facts.final.set.values()
 }
 
-// FinalLoc returns the location of the explicit final declaration.
+// FinalLoc returns the location of the effective final declaration or
+// document default.
 func (definition SimpleTypeDefinition) FinalLoc() Loc {
 	if definition.facts == nil || definition.facts.anonymous {
 		return Loc{}
