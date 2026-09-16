@@ -181,6 +181,7 @@ type schemaDocumentFacts struct {
 	targetNamespace             schemaTargetNamespace
 	elementFormDefaultQualified bool
 	blockDefault                schemaBlockPolicy
+	simpleTypeFinalDefault      schemaSimpleTypeFinalPolicy
 	chameleon                   bool
 }
 
@@ -275,8 +276,16 @@ type schemaComplexTypeFinalPolicy struct {
 	loc Loc
 }
 
-//nolint:gocognit // Keep final lexical validation and canonicalization together.
 func schemaSimpleTypeFinalPolicyFromAttribute(attribute syntaxAttribute, version XSDVersion) (schemaSimpleTypeFinalPolicy, error) {
+	return schemaSimpleTypeFinalPolicyFromAttributeMode(attribute, version, false)
+}
+
+func schemaSimpleTypeFinalPolicyFromRootAttribute(attribute syntaxAttribute, version XSDVersion) (schemaSimpleTypeFinalPolicy, error) {
+	return schemaSimpleTypeFinalPolicyFromAttributeMode(attribute, version, true)
+}
+
+//nolint:gocognit // Keep final lexical validation and canonicalization together.
+func schemaSimpleTypeFinalPolicyFromAttributeMode(attribute syntaxAttribute, version XSDVersion, rootDefault bool) (schemaSimpleTypeFinalPolicy, error) {
 	lexeme := collapseXMLWhitespace(attribute.value)
 	if lexeme == "" {
 		return schemaSimpleTypeFinalPolicy{}, nil
@@ -309,13 +318,19 @@ func schemaSimpleTypeFinalPolicyFromAttribute(attribute syntaxAttribute, version
 		default:
 			return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q has an invalid final value %q", attribute.name.local, token))
 		}
-		if bit == schemaSimpleTypeFinalExtension && version == XSDVersion10 {
+		if bit == schemaSimpleTypeFinalExtension && version == XSDVersion10 && !rootDefault {
 			return schemaSimpleTypeFinalPolicy{}, newSchemaSimpleTypeFinalEditionMismatch(attribute, token)
+		}
+		if bit == schemaSimpleTypeFinalExtension && version == XSDVersion10 {
+			continue
 		}
 		if set&bit != 0 {
 			continue
 		}
 		set |= bit
+	}
+	if set == 0 {
+		return schemaSimpleTypeFinalPolicy{}, nil
 	}
 	return schemaSimpleTypeFinalPolicy{set: set, loc: attribute.loc}, nil
 }
@@ -694,10 +709,15 @@ func schemaDocumentInputAt(
 	if err != nil {
 		return schemaDocumentInput{}, err
 	}
+	simpleTypeFinalDefault, err := syntaxDocumentFinalDefaultPolicy(document, version)
+	if err != nil {
+		return schemaDocumentInput{}, err
+	}
 	facts := schemaDocumentFacts{
 		targetNamespace:             namespaces[index],
 		elementFormDefaultQualified: elementFormDefaultQualified,
 		blockDefault:                blockDefault,
+		simpleTypeFinalDefault:      simpleTypeFinalDefault,
 		chameleon:                   !declaredNamespace.present && namespaces[index].present,
 	}
 	declarations, err := schemaDocumentDeclarationsWithFacts(document, facts, version)
@@ -736,6 +756,20 @@ func syntaxDocumentElementFormDefault(document *syntaxDocument) (bool, error) {
 		return false, err
 	}
 	return collapseXMLWhitespace(attributes[0].value) == "qualified", nil
+}
+
+func syntaxDocumentFinalDefaultPolicy(document *syntaxDocument, version XSDVersion) (schemaSimpleTypeFinalPolicy, error) {
+	if document == nil || document.root == nil {
+		return schemaSimpleTypeFinalPolicy{}, newSchemaBridgeInvariant(Loc{}, "schema document has no root while reading finalDefault")
+	}
+	attributes := syntaxAttributesByLocal(document.root, "finalDefault")
+	if len(attributes) == 0 {
+		return schemaSimpleTypeFinalPolicy{}, nil
+	}
+	if len(attributes) != 1 {
+		return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attributes[1].loc, "schema root attribute \"finalDefault\" must be unique")
+	}
+	return schemaSimpleTypeFinalPolicyFromRootAttribute(attributes[0], version)
 }
 
 func syntaxDocumentTargetNamespace(document *syntaxDocument) (schemaTargetNamespace, error) {
@@ -1207,7 +1241,7 @@ func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, 
 	if kind != ComponentKindSimpleTypeDefinition {
 		return declaration, nil
 	}
-	simpleType, err := schemaSimpleTypeInputFromElement(element, version)
+	simpleType, err := schemaSimpleTypeInputFromElementWithDefault(element, version, facts.simpleTypeFinalDefault)
 	if err != nil {
 		return schemaComponentInput{}, err
 	}
@@ -2210,8 +2244,12 @@ func expandSchemaModelGroupReferenceQName(element *syntaxElement, attribute synt
 	return qualified, nil
 }
 
-//nolint:gocognit // Keep simple-type model dispatch and final capture together.
 func schemaSimpleTypeInputFromElement(element *syntaxElement, version XSDVersion) (*schemaSimpleTypeInput, error) {
+	return schemaSimpleTypeInputFromElementWithDefault(element, version, schemaSimpleTypeFinalPolicy{})
+}
+
+//nolint:gocognit // Keep simple-type model dispatch and final capture together.
+func schemaSimpleTypeInputFromElementWithDefault(element *syntaxElement, version XSDVersion, defaultFinal schemaSimpleTypeFinalPolicy) (*schemaSimpleTypeInput, error) {
 	if element == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "construct simple type input from a nil element")
 	}
@@ -2247,7 +2285,7 @@ func schemaSimpleTypeInputFromElement(element *syntaxElement, version XSDVersion
 	if err != nil {
 		return nil, err
 	}
-	final := schemaSimpleTypeFinalPolicy{}
+	final := defaultFinal
 	finalAttributes := syntaxAttributesByLocal(element, "final")
 	if len(finalAttributes) == 1 {
 		final, err = schemaSimpleTypeFinalPolicyFromAttribute(finalAttributes[0], version)
