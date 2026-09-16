@@ -100,9 +100,74 @@ func TestClaimResumeAcceptsExactIssue240TerminalHandoff(t *testing.T) {
 	}
 }
 
+func TestClaimResumeIssue240HistoricalFormsStayExact(t *testing.T) {
+	body := issue240TerminalHandoffBodyForTest()
+	for _, test := range issue240HistoricalMutationsForTest() {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateTerminalClaimHandoffBody(test.mutate(body), 240); err == nil {
+				t.Fatal("historical mutation unexpectedly accepted")
+			}
+		})
+	}
+}
+
+func issue240HistoricalMutationsForTest() []struct {
+	name   string
+	mutate func(string) string
+} {
+	return []struct {
+		name   string
+		mutate func(string) string
+	}{
+		{name: "missing workflow path", mutate: func(body string) string {
+			return strings.Replace(body, "PR/evidence/Curator/Examiner/finish workflow", "the workflow", 1)
+		}},
+		{name: "missing historical sentence", mutate: func(body string) string {
+			return strings.Replace(body, terminalIssue240Form, terminalGenericFormTwo, 1)
+		}},
+		{name: "sentence punctuation", mutate: func(body string) string {
+			return strings.Replace(body, "push, PR, evidence", "push; PR, evidence", 1)
+		}},
+		{name: "sentence conjunction", mutate: func(body string) string {
+			return strings.Replace(body, ", or Examiner review", ", and Examiner review", 1)
+		}},
+		{name: "sentence lifecycle", mutate: func(body string) string {
+			return strings.Replace(body, "was attempted after", "was made after", 1)
+		}},
+		{name: "sentence suffix", mutate: func(body string) string {
+			return strings.Replace(body, "Smith blocker.", "Smith blocker, with no PR.", 1)
+		}},
+		{name: "workflow path suffix", mutate: func(body string) string {
+			return strings.Replace(body, "PR/evidence/Curator/Examiner/finish", "PR/evidence/Curator/Examiner/finish/extra", 1)
+		}},
+		{name: "workflow path punctuation", mutate: func(body string) string {
+			return strings.Replace(body, "PR/evidence/Curator/Examiner/finish", "PR-evidence/Curator/Examiner/challenge/Examiner/finish", 1)
+		}},
+		{name: "workflow context", mutate: func(body string) string {
+			return strings.Replace(body, "resume the normal PR/evidence/Curator/Examiner/finish workflow.", "the PR/evidence/Curator/Examiner/finish workflow is open.", 1)
+		}},
+	}
+}
+
+func TestClaimResumeIssue240HistoricalMutationsHaveZeroMutation(t *testing.T) {
+	const historicalLease = "2026-09-02T02:01:03Z"
+	for _, test := range issue240HistoricalMutationsForTest() {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newClaimResumeIssueFixtureAtLease(t, 240, "run-f7b007edf02f55c6", time.Date(2026, time.September, 2, 2, 1, 3, 0, time.UTC))
+			fixture.handoff = 5501405525
+			fixture.handoffBody = strings.Replace(issue240TerminalHandoffBodyForTest(),
+				"/home/paseouser/workspace/goxsd9-worktrees/issue-240-run-f7b007edf02f55c6", fixture.worktree, 1)
+			if !strings.Contains(fixture.handoffBody, historicalLease) {
+				t.Fatal("issue #240 fixture lost its historical claim lease")
+			}
+			assertClaimResumeRejectedWithoutMutation(t, fixture, test.mutate(fixture.handoffBody))
+		})
+	}
+}
+
 func TestClaimResumeExactIssue240DryRunHasZeroMutation(t *testing.T) {
 	const historicalLease = "2026-09-02T02:01:03Z"
-	fixture := newClaimResumeIssueFixtureAtLease(t, 240, "run-f7b007edf02f55c6", time.Date(2026, time.September, 2, 2, 1, 3, 0, time.UTC), "")
+	fixture := newClaimResumeIssueFixtureAtLease(t, 240, "run-f7b007edf02f55c6", time.Date(2026, time.September, 2, 2, 1, 3, 0, time.UTC))
 	fixture.handoff = 5501405525
 	fixture.handoffBody = strings.Replace(issue240TerminalHandoffBodyForTest(),
 		"/home/paseouser/workspace/goxsd9-worktrees/issue-240-run-f7b007edf02f55c6", fixture.worktree, 1)
@@ -171,7 +236,7 @@ func TestClaimResumeAcceptsExactIssue287TerminalHandoff(t *testing.T) {
 }
 
 func TestClaimResumeExactIssue287DryRunHasZeroMutation(t *testing.T) {
-	fixture := newClaimResumeIssueFixtureAtLease(t, 287, "run-36de80f997095582", time.Date(2026, time.September, 1, 8, 1, 37, 0, time.UTC), "")
+	fixture := newClaimResumeIssueFixtureAtLease(t, 287, "run-36de80f997095582", time.Date(2026, time.September, 1, 8, 1, 37, 0, time.UTC))
 	fixture.handoff = 5488794928
 	fixture.handoffBody = strings.Replace(issue287TerminalHandoffBodyForTest(),
 		"/home/paseouser/workspace/goxsd9-worktrees/issue-287-run-36de80f997095582", fixture.worktree, 1)
@@ -206,7 +271,7 @@ func TestClaimResumeAcceptsExactIssue305TerminalHandoff(t *testing.T) {
 }
 
 func TestClaimResumeExactIssue305DryRunHasZeroMutation(t *testing.T) {
-	fixture := newClaimResumeIssueFixture(t, 305, "run-0e4ad40a7c3a6857", "")
+	fixture := newClaimResumeIssueFixture(t, 305, "run-0e4ad40a7c3a6857")
 	fixture.handoff = 5517524887
 	fixture.handoffBody = strings.Replace(issue305TerminalHandoffBody,
 		"/home/paseouser/workspace/goxsd9-worktrees/issue-305-run-0e4ad40a7c3a6857", fixture.worktree, 1)
@@ -244,12 +309,51 @@ func TestClaimResumeIssue305HandoffRejectsPositivePRAssertions(t *testing.T) {
 	}
 }
 
+func TestClaimResumeIssue305PRFormsStayExact(t *testing.T) {
+	branch := "agent/issue-305-run-0e4ad40a7c3a6857"
+	branchForm := "Its branch is `" + branch + "`, with no diff, commit, push, PR, check, evidence, challenge, or Examiner receipt."
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "branch punctuation", body: strings.Replace(issue305TerminalHandoffBody, "push, PR", "push; PR", 1)},
+		{name: "branch conjunction", body: strings.Replace(issue305TerminalHandoffBody, ", or Examiner receipt", ", and Examiner receipt", 1)},
+		{name: "branch lifecycle", body: strings.Replace(issue305TerminalHandoffBody, "no diff, commit", "no diff, review, commit", 1)},
+		{name: "branch suffix", body: strings.Replace(issue305TerminalHandoffBody, "Examiner receipt.", "Examiner receipt, with no PR.", 1)},
+		{name: "lifecycle punctuation", body: strings.Replace(issue305TerminalHandoffBody, "PR or review lifecycle", "PR and review lifecycle", 1)},
+		{name: "lifecycle suffix", body: strings.Replace(issue305TerminalHandoffBody, "stale evidence to\n  reuse.", "stale evidence to\n  reuse, with no PR.", 1)},
+		{name: "path punctuation", body: strings.Replace(issue305TerminalHandoffBody, "PR/evidence/Curator/Examiner", "PR-evidence/Curator/Examiner", 1)},
+		{name: "path suffix", body: strings.Replace(issue305TerminalHandoffBody, "PR/evidence/Curator/Examiner", "PR/evidence/Curator/Examiner/extra", 1)},
+		{name: "path context", body: strings.Replace(issue305TerminalHandoffBody, "the full PR/evidence/Curator/Examiner workflow\nonly after implementation exists.", "no PR/evidence/Curator/Examiner workflow exists.", 1)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateTerminalClaimHandoffBody(test.body, 305); err == nil {
+				t.Fatal("historical mutation unexpectedly accepted")
+			}
+		})
+	}
+	if spans := terminalCompleteFormSpans(issue305TerminalHandoffBody, terminalRawLexemes(issue305TerminalHandoffBody), branchForm); len(spans) != 1 {
+		t.Fatalf("exact issue #305 branch form spans = %d, want one", len(spans))
+	}
+}
+
+func TestClaimResumeIssue305WorkflowContextMutationHasZeroMutation(t *testing.T) {
+	fixture := newClaimResumeIssueFixture(t, 305, "run-0e4ad40a7c3a6857")
+	fixture.handoff = 5517524887
+	fixture.handoffBody = strings.Replace(issue305TerminalHandoffBody,
+		"/home/paseouser/workspace/goxsd9-worktrees/issue-305-run-0e4ad40a7c3a6857", fixture.worktree, 1)
+	fixture.handoffBody = strings.Replace(fixture.handoffBody,
+		"the full PR/evidence/Curator/Examiner workflow\nonly after implementation exists.",
+		"no PR/evidence/Curator/Examiner workflow exists.", 1)
+	assertClaimResumeRejectedWithoutMutation(t, fixture, fixture.handoffBody)
+}
+
 type handoffPRAdversarialCase struct {
 	name string
 	text string
 }
 
-func normalizedHandoffPRAdversarialCases(context string) []handoffPRAdversarialCase {
+func handoffPRAdversarialCases(context string) []handoffPRAdversarialCase {
 	return []handoffPRAdversarialCase{
 		{name: "plural pull requests", text: "Pull requests were created during " + context + "."},
 		{name: "no PR merged", text: "No PR was merged during " + context + "."},
@@ -291,8 +395,8 @@ func normalizedHandoffPRAdversarialCases(context string) []handoffPRAdversarialC
 	}
 }
 
-func TestClaimResumeNormalizedIssue305PRGrammarRejectsAdversarialForms(t *testing.T) {
-	variants := normalizedHandoffPRAdversarialCases("the recovery attempt")
+func TestClaimResumeIssue305PRGrammarRejectsAdversarialForms(t *testing.T) {
+	variants := handoffPRAdversarialCases("the recovery attempt")
 	for _, test := range variants {
 		t.Run(test.name, func(t *testing.T) {
 			body := issue305TerminalHandoffBody + "\n" + test.text + "\n"
@@ -306,7 +410,7 @@ func TestClaimResumeNormalizedIssue305PRGrammarRejectsAdversarialForms(t *testin
 	}
 }
 
-func TestClaimResumeNormalizedIssue305PRGrammarHasZeroMutation(t *testing.T) {
+func TestClaimResumeIssue305PRGrammarHasZeroMutation(t *testing.T) {
 	variants := []string{
 		"Pull requests were created during the recovery attempt.",
 		"A PR? exists.",
@@ -330,18 +434,26 @@ func TestClaimResumeNormalizedIssue305PRGrammarHasZeroMutation(t *testing.T) {
 	}
 	for _, text := range variants {
 		t.Run(strings.ReplaceAll(strings.ToLower(text), " ", "-"), func(t *testing.T) {
-			fixture := newClaimResumeIssueFixture(t, 305, "run-0e4ad40a7c3a6857", "")
+			fixture := newClaimResumeIssueFixture(t, 305, "run-0e4ad40a7c3a6857")
 			fixture.handoff = 5517524887
 			fixture.handoffBody = strings.Replace(issue305TerminalHandoffBody,
 				"/home/paseouser/workspace/goxsd9-worktrees/issue-305-run-0e4ad40a7c3a6857", fixture.worktree, 1) + "\n" + text + "\n"
 			backend := newClaimResumeBackend(t, fixture)
 			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
-			err := application.run(claimResumeArgs(fixture, true))
+			localBefore := runGitTest(t, fixture.worktree, "rev-parse", "refs/heads/"+claimLocalBranch(fixture.issue, fixture.runID))
+			remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue))
+			err := application.run(claimResumeArgs(fixture, false))
 			if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
 				t.Fatalf("adversarial issue #305 resume error = %v, disposition %d, want terminal", err, operationDispositionOf(err))
 			}
-			if backend.mutations != 0 {
-				t.Fatalf("adversarial issue #305 mutations = %d, want zero", backend.mutations)
+			if backend.mutations != 0 || backend.needsHuman != true || backend.projectStatus != "Backlog" {
+				t.Fatalf("adversarial issue #305 mutation/state = %d/%t/%s, want zero/true/Backlog", backend.mutations, backend.needsHuman, backend.projectStatus)
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "refs/heads/"+claimLocalBranch(fixture.issue, fixture.runID)); got != localBefore {
+				t.Fatalf("adversarial issue #305 moved local ref from %s to %s", localBefore, got)
+			}
+			if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue)); got != remoteBefore {
+				t.Fatalf("adversarial issue #305 moved remote ref from %q to %q", remoteBefore, got)
 			}
 		})
 	}
@@ -351,21 +463,28 @@ func TestClaimResumePRProseTokenClassifier(t *testing.T) {
 	tests := []struct {
 		name string
 		text string
-		want string
+		want int
 	}{
-		{name: "attached remains", text: "PRremains", want: "pr"},
-		{name: "attached submitted", text: "PRsubmitted", want: "pr"},
-		{name: "attached merged", text: "PRmerged", want: "pr"},
-		{name: "unknown attached prefix", text: "PRunknownattached", want: "pr"},
-		{name: "unknown attached suffix", text: "unknownpullrequest", want: "pr"},
-		{name: "unknown PR suffix", text: "statusPR", want: "pr"},
-		{name: "ordinary approved words", text: "previous producing preserved project proof provenance proceeding protocol", want: "previous producing preserved project proof provenance proceeding protocol"},
+		{name: "standalone PR", text: "PR", want: 1},
+		{name: "pull request", text: "pull request", want: 1},
+		{name: "attached remains", text: "PRremains", want: 1},
+		{name: "attached submitted", text: "PRsubmitted", want: 1},
+		{name: "attached merged", text: "PRmerged", want: 1},
+		{name: "unknown attached prefix", text: "PRunknownattached", want: 1},
+		{name: "lowercase attached prefix", text: "prexists", want: 1},
+		{name: "unknown attached suffix", text: "unknownpullrequest", want: 1},
+		{name: "unknown PR suffix", text: "statusPR", want: 1},
+		{name: "obfuscated PR", text: "P.R.", want: 1},
+		{name: "repeated obfuscation", text: "P--R", want: 1},
+		{name: "spaced obfuscation", text: "P R", want: 1},
+		{name: "repeated pull-request punctuation", text: "pull--request", want: 1},
+		{name: "ordinary words", text: "previous producing preserved project proof provenance proceeding protocol", want: 0},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := strings.Join(handoffPRProseTokens(test.text), " ")
+			got := len(terminalPRMentionSpans(test.text, terminalRawLexemes(test.text)))
 			if got != test.want {
-				t.Fatalf("handoffPRProseTokens(%q) = %q, want %q", test.text, got, test.want)
+				t.Fatalf("terminalPRMentionSpans(%q) = %d, want %d", test.text, got, test.want)
 			}
 		})
 	}
@@ -421,13 +540,215 @@ func TestClaimResumeTerminalEvidenceParser(t *testing.T) {
 	}
 }
 
-func TestClaimResumeNormalizedGenericPRGrammarRejectsAdversarialForms(t *testing.T) {
+func TestClaimResumeFiniteNoPRForms(t *testing.T) {
+	const issue = 14
+	const worktree = "/worktrees/issue-14-run-proof"
+	for _, test := range terminalGenericNoPRFormsForTest() {
+		t.Run(test.name, func(t *testing.T) {
+			body := claimResumeHandoffBodyWithNoPRForm(issue, worktree, test.form)
+			if err := validateTerminalClaimHandoffBody(body, issue); err != nil {
+				t.Fatalf("exact form: %v", err)
+			}
+			if err := validateTerminalClaimHandoffBody(strings.Replace(body, test.form, strings.ToUpper(test.form), 1), issue); err != nil {
+				t.Fatalf("case-insensitive form: %v", err)
+			}
+			wrapped := strings.Replace(body, " record was", " record\nwas", 1)
+			if err := validateTerminalClaimHandoffBody(wrapped, issue); err != nil {
+				t.Fatalf("historical line-wrap form: %v", err)
+			}
+		})
+	}
+}
+
+func TestClaimResumeFiniteNoPRFormMutations(t *testing.T) {
+	for _, form := range terminalGenericNoPRFormsForTest() {
+		for _, mutation := range terminalNoPRFormMutationsForTest() {
+			t.Run(form.name+"/"+mutation.name, func(t *testing.T) {
+				mutated := mutation.mutate(form.form)
+				body := claimResumeHandoffBodyWithNoPRForm(14, "/worktrees/issue-14-run-proof", mutated)
+				if err := validateTerminalClaimHandoffBody(body, 14); err == nil {
+					t.Fatalf("mutation %q unexpectedly accepted", mutated)
+				}
+			})
+		}
+	}
+}
+
+func TestClaimResumeFiniteNoPRFormsRejectEveryLexemeBoundaryMutation(t *testing.T) {
+	for _, form := range terminalGenericNoPRFormsForTest() {
+		for _, mutation := range terminalExhaustiveNoPRMutationsForTest(form.form) {
+			t.Run(form.name+"/"+mutation.name, func(t *testing.T) {
+				if err := validateGenericHandoffPRGrammar(mutation.value, 14); err == nil {
+					t.Fatalf("mutation %q unexpectedly accepted", mutation.value)
+				}
+			})
+		}
+	}
+}
+
+func TestClaimResumeFiniteNoPRFormApplyRejectionsHaveZeroMutation(t *testing.T) {
+	for formIndex, form := range terminalGenericNoPRFormsForTest() {
+		for _, mutation := range terminalNoPRFormMutationsForTest() {
+			t.Run(fmt.Sprintf("form-%d/%s", formIndex+1, mutation.name), func(t *testing.T) {
+				fixture := newClaimResumeFixture(t)
+				assertClaimResumeRejectedWithoutMutation(t, fixture,
+					claimResumeHandoffBodyWithNoPRForm(fixture.issue, fixture.worktree, mutation.mutate(form.form)))
+			})
+		}
+	}
+}
+
+func assertClaimResumeRejectedWithoutMutation(t *testing.T, fixture claimResumeFixture, body string) {
+	t.Helper()
+	fixture.handoffBody = body
+	backend := newClaimResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	localBefore := runGitTest(t, fixture.worktree, "rev-parse", "refs/heads/"+claimLocalBranch(fixture.issue, fixture.runID))
+	remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue))
+	err := application.run(claimResumeArgs(fixture, false))
+	if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+		t.Fatalf("mutation error = %v, disposition %d, want terminal", err, operationDispositionOf(err))
+	}
+	if backend.mutations != 0 || !backend.needsHuman || backend.projectStatus != "Backlog" {
+		t.Fatalf("mutation/state = %d/%t/%s, want zero/true/Backlog", backend.mutations, backend.needsHuman, backend.projectStatus)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "refs/heads/"+claimLocalBranch(fixture.issue, fixture.runID)); got != localBefore {
+		t.Fatalf("mutation moved local ref from %s to %s", localBefore, got)
+	}
+	if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue)); got != remoteBefore {
+		t.Fatalf("mutation moved remote ref from %q to %q", remoteBefore, got)
+	}
+}
+
+func TestClaimResumeRejectsAdversarialNoPRLists(t *testing.T) {
+	for _, form := range []string{
+		"No implementation, PR and check were made.",
+		"No implementation, PR was made.",
+		"No implementation, pull request and check were made.",
+		"No implementation, pull request was made.",
+	} {
+		t.Run(strings.ReplaceAll(form, " ", "-"), func(t *testing.T) {
+			body := claimResumeHandoffBodyWithNoPRForm(14, "/worktrees/issue-14-run-proof", form)
+			if err := validateTerminalClaimHandoffBody(body, 14); err == nil {
+				t.Fatal("adversarial no-PR list unexpectedly accepted")
+			}
+		})
+	}
+}
+
+func terminalGenericNoPRFormsForTest() []struct {
+	name string
+	form string
+} {
+	return []struct {
+		name string
+		form string
+	}{
+		{name: "implementation list", form: "No implementation, tests, commit, push, PR, or evaluation record was made."},
+		{name: "implementation documentation list", form: "No implementation, tests, documentation, commit, push, PR, or evaluation record was made."},
+		{name: "source list", form: "No source or test files were changed, no checks, push, PR, challenge, or evaluation record was made."},
+	}
+}
+
+type terminalFormMutationForTest struct {
+	name  string
+	value string
+}
+
+func terminalExhaustiveNoPRMutationsForTest(form string) []terminalFormMutationForTest {
+	lexemes := terminalRawLexemes(form)
+	mutations := make([]terminalFormMutationForTest, 0, len(lexemes)*len(lexemes))
+	for index, lexeme := range lexemes {
+		mutations = append(mutations,
+			terminalFormMutationForTest{
+				name:  fmt.Sprintf("delete-lexeme-%d", index),
+				value: form[:lexeme.start] + form[lexeme.end:],
+			},
+			terminalFormMutationForTest{
+				name:  fmt.Sprintf("replace-lexeme-%d", index),
+				value: form[:lexeme.start] + terminalReplacementLexemeForTest(lexeme) + form[lexeme.end:],
+			},
+		)
+		if index+1 >= len(lexemes) {
+			continue
+		}
+		next := lexemes[index+1]
+		separator := form[lexeme.end:next.start]
+		mutations = append(mutations, terminalFormMutationForTest{
+			name:  fmt.Sprintf("swap-lexemes-%d-%d", index, index+1),
+			value: form[:lexeme.start] + next.text + separator + lexeme.text + form[next.end:],
+		})
+	}
+	boundaries := make([]int, 0, len(lexemes)+1)
+	boundaries = append(boundaries, 0)
+	for _, lexeme := range lexemes {
+		boundaries = append(boundaries, lexeme.end)
+	}
+	for first, boundary := range boundaries {
+		mutations = append(mutations, terminalFormMutationForTest{
+			name:  fmt.Sprintf("insert-boundary-%d", first),
+			value: form[:boundary] + " extra " + form[boundary:],
+		})
+		for second := first + 1; second < len(boundaries); second++ {
+			higher := boundaries[second]
+			value := form[:higher] + " extra " + form[higher:]
+			value = value[:boundary] + " extra " + value[boundary:]
+			mutations = append(mutations, terminalFormMutationForTest{
+				name:  fmt.Sprintf("insert-boundaries-%d-%d", first, second),
+				value: value,
+			})
+		}
+	}
+	return mutations
+}
+
+func terminalReplacementLexemeForTest(lexeme terminalRawLexeme) string {
+	if lexeme.kind == terminalWordLexeme {
+		return "mutated"
+	}
+	if lexeme.text != ";" {
+		return ";"
+	}
+	return ":"
+}
+
+func terminalNoPRFormMutationsForTest() []struct {
+	name   string
+	mutate func(string) string
+} {
+	return []struct {
+		name   string
+		mutate func(string) string
+	}{
+		{name: "insertion", mutate: func(form string) string { return strings.Replace(form, "No ", "No extra ", 1) }},
+		{name: "deletion", mutate: func(form string) string {
+			if strings.Contains(form, ", tests") {
+				return strings.Replace(form, ", tests", " tests", 1)
+			}
+			return strings.Replace(form, " test files", " files", 1)
+		}},
+		{name: "reordering", mutate: func(form string) string {
+			if strings.Contains(form, ", commit, push") {
+				return strings.Replace(form, ", commit, push", ", push, commit", 1)
+			}
+			return strings.Replace(form, ", push, PR", ", PR, push", 1)
+		}},
+		{name: "punctuation", mutate: func(form string) string { return strings.Replace(form, ",", ";", 1) }},
+		{name: "conjunction", mutate: func(form string) string { return strings.Replace(form, ", or ", ", and ", 1) }},
+		{name: "prefix", mutate: func(form string) string { return "x" + form }},
+		{name: "suffix", mutate: func(form string) string { return form + "x" }},
+		{name: "extra token", mutate: func(form string) string { return strings.Replace(form, " record was", " extra record was", 1) }},
+		{name: "lifecycle", mutate: func(form string) string { return strings.Replace(form, " was made.", " was attempted.", 1) }},
+	}
+}
+
+func TestClaimResumeGenericPRGrammarRejectsAdversarialForms(t *testing.T) {
 	worktree := "/worktrees/issue-14-run-proof"
 	valid := fmt.Sprintf("## Blocker\n\nIssue #14 was claimed in %s.\n\n## Evidence\n\n- Issue #14 remained OPEN in the Project.\n- The claim worktree was clean at the final read.\n- No implementation, tests, commit, push, PR, or evaluation record was made.\n\n## Decisions and risks\n\n- Preserve the claim.\n\n## Next action\n\nResume after the blocker is cleared.\n", worktree)
 	variants := append([]handoffPRAdversarialCase{
 		{name: "existing pull request", text: "An existing pull request remains open under review."},
 		{name: "created PR", text: "PR was created during retry."},
-	}, normalizedHandoffPRAdversarialCases("retry")...)
+	}, handoffPRAdversarialCases("retry")...)
 	for _, test := range variants {
 		t.Run(test.name, func(t *testing.T) {
 			body := valid + "\n" + test.text + "\n"
@@ -441,7 +762,7 @@ func TestClaimResumeNormalizedGenericPRGrammarRejectsAdversarialForms(t *testing
 	}
 }
 
-func TestClaimResumeNormalizedGenericPRGrammarHasZeroMutation(t *testing.T) {
+func TestClaimResumeGenericPRGrammarHasZeroMutation(t *testing.T) {
 	variants := []string{
 		"An existing pull request remains open under review.",
 		"PR was created during retry.",
@@ -498,7 +819,11 @@ func TestClaimResumeGenericPRLifecycleNegativesHaveZeroMutation(t *testing.T) {
 		{name: "colon predicate", text: "No implementation: review, PR and check were made."},
 		{name: "conjoined predicate", text: "No implementation was attempted and a review, PR and check were made."},
 		{name: "bare review list item", text: "No implementation, review, PR and check were made."},
+		{name: "bare positive list", text: "No implementation, PR and check were made."},
+		{name: "bare positive short list", text: "No implementation, PR was made."},
 		{name: "bare review pull-request list item", text: "No implementation, review, pull request and check were made."},
+		{name: "bare positive pull-request list", text: "No implementation, pull request and check were made."},
+		{name: "bare positive pull-request short list", text: "No implementation, pull request was made."},
 		{name: "parenthesized pull-request predicate", text: "No implementation (review, pull request and check were made)."},
 		{name: "closed PR in parentheses", text: "No implementation (PR was closed)."},
 		{name: "closed pull request in parentheses", text: "No implementation (pull request was closed)."},
@@ -882,14 +1207,14 @@ type claimResumeFixture struct {
 }
 
 func newClaimResumeFixture(t *testing.T) claimResumeFixture {
-	return newClaimResumeIssueFixture(t, 14, "run-resume-test", "")
+	return newClaimResumeIssueFixture(t, 14, "run-resume-test")
 }
 
-func newClaimResumeIssueFixture(t *testing.T, issue int, runID, handoffBody string) claimResumeFixture {
-	return newClaimResumeIssueFixtureAtLease(t, issue, runID, time.Now().UTC().Add(-time.Hour).Truncate(time.Second), handoffBody)
+func newClaimResumeIssueFixture(t *testing.T, issue int, runID string) claimResumeFixture {
+	return newClaimResumeIssueFixtureAtLease(t, issue, runID, time.Now().UTC().Add(-time.Hour).Truncate(time.Second))
 }
 
-func newClaimResumeIssueFixtureAtLease(t *testing.T, issue int, runID string, lease time.Time, handoffBody string) claimResumeFixture {
+func newClaimResumeIssueFixtureAtLease(t *testing.T, issue int, runID string, lease time.Time) claimResumeFixture {
 	t.Helper()
 	base := newBaseRepositoryFixture(t, false)
 	parent := runGitTest(t, base.primary, "rev-parse", "HEAD")
@@ -897,7 +1222,7 @@ func newClaimResumeIssueFixtureAtLease(t *testing.T, issue int, runID string, le
 	runGitTest(t, base.primary, "push", "origin", expected+":refs/heads/"+claimBranch(issue))
 	worktree := filepath.Join(t.TempDir(), fmt.Sprintf("issue-%d-%s", issue, runID))
 	runGitTest(t, base.primary, "worktree", "add", "-b", claimLocalBranch(issue, runID), worktree, expected)
-	return claimResumeFixture{baseRepositoryFixture: base, issue: issue, expected: expected, runID: runID, worktree: worktree, handoff: 2, lease: lease, handoffBody: handoffBody}
+	return claimResumeFixture{baseRepositoryFixture: base, issue: issue, expected: expected, runID: runID, worktree: worktree, handoff: 2, lease: lease}
 }
 
 func claimResumeArgs(fixture claimResumeFixture, dryRun bool) []string {
@@ -910,7 +1235,11 @@ func claimResumeArgs(fixture claimResumeFixture, dryRun bool) []string {
 }
 
 func claimResumeGenericHandoffBody(issue int, worktree string) string {
-	return fmt.Sprintf("## Blocker\n\nIssue #%d was claimed in %s.\n\n## Evidence\n\n- Issue #%d remained OPEN in the Roadmap Project.\n- The claim worktree was clean at the final read: %s.\n- No implementation, tests, documentation, commit, push, PR, or evaluation record was made.\n\n## Decisions and risks\n\n- The generated claim is preserved.\n\n## Next action\n\nResume the issue after the blocker is cleared.\n", issue, worktree, issue, worktree)
+	return claimResumeHandoffBodyWithNoPRForm(issue, worktree, terminalGenericFormTwo)
+}
+
+func claimResumeHandoffBodyWithNoPRForm(issue int, worktree, form string) string {
+	return fmt.Sprintf("## Blocker\n\nIssue #%d was claimed in %s.\n\n## Evidence\n\n- Issue #%d remained OPEN in the Roadmap Project.\n- The claim worktree was clean at the final read: %s.\n- %s\n\n## Decisions and risks\n\n- The generated claim is preserved.\n\n## Next action\n\nResume the issue after the blocker is cleared.\n", issue, worktree, issue, worktree, form)
 }
 
 func addClaimResumeHeadLabel(body, label, value string) string {

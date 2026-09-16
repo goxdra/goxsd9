@@ -17,8 +17,13 @@ dirty, detached, locked, duplicate, ambiguous, malformed, moved, or untrusted
 artifacts without mutation. Exact issue/path/run/lease/fixed/local tokens must
 be checked when present in evidence; a generic handoff may omit head/SHA/commit
 labels, but any present recognized label must carry one full 40-hex expected SHA.
-Malformed or ambiguous labels are terminal before mutation; token substrings and
-contradictory prose never authenticate a handoff.
+Malformed or ambiguous labels are terminal before mutation. Generic no-PR
+authentication uses only the finite complete forms recorded by workflowctl;
+every PR, pull-request, or workflow-path mention must be wholly covered by an
+approved form. The #287 form is generic; historical #240/#305 compatibility
+remains isolated, and token substrings or contradictory prose never authenticate a handoff.
+Forms are case-insensitive and permit only historical line-wrap whitespace;
+punctuation, word boundaries, conjunctions, and clause boundaries stay exact.
 
 The reusable matrix accepts authentic terminal handoffs, blocks missing terminal
 evidence, and fails closed while preserving dirty or ambiguous artifacts. Ordinary

@@ -769,191 +769,6 @@ func handoffTokens(body string) []string {
 	return values
 }
 
-// handoffPRProseTokens is an ephemeral lexer for the no-PR grammar.  The
-// binding/path helpers above deliberately retain handoffTokens' exact legacy
-// behavior, while this lexer normalizes only prose words used to authenticate
-// pull-request absence.
-func handoffPRProseTokens(body string) []string {
-	tokens := make([]string, 0, len(strings.Fields(body)))
-	values := []rune(strings.ToLower(body))
-	var word strings.Builder
-	flush := func() {
-		if word.Len() == 0 {
-			return
-		}
-		appendHandoffPRProseWord(&tokens, word.String())
-		word.Reset()
-	}
-	for index := 0; index < len(values); {
-		if path, ok := handoffPRWorkflowPathAt(values, index); ok {
-			flush()
-			tokens = append(tokens, path)
-			index += len([]rune(path))
-			continue
-		}
-		if handoffAbsolutePathAt(values, index) {
-			flush()
-			start := index
-			for index < len(values) && !unicode.IsSpace(values[index]) {
-				index++
-			}
-			tokens = append(tokens, string(values[start:index]))
-			continue
-		}
-		value := values[index]
-		if unicode.IsLetter(value) || unicode.IsDigit(value) {
-			word.WriteRune(value)
-			index++
-			continue
-		}
-		flush()
-		index++
-	}
-	flush()
-	return normalizeHandoffPRTokenPairs(tokens)
-}
-
-func handoffAbsolutePathAt(values []rune, index int) bool {
-	if values[index] != '/' || index+1 >= len(values) || unicode.IsSpace(values[index+1]) {
-		return false
-	}
-	if index == 0 {
-		return true
-	}
-	previous := values[index-1]
-	return previous != '/' && !unicode.IsLetter(previous) && !unicode.IsDigit(previous) && previous != ':'
-}
-
-func handoffPRWorkflowPathAt(values []rune, index int) (string, bool) {
-	for _, path := range []string{"pr/evidence/curator/examiner", "pr/evidence/curator/examiner/finish"} {
-		pathValues := []rune(path)
-		if !handoffPRSequenceAt(values, index, pathValues) || !handoffPRSequenceBoundary(values, index, len(pathValues)) {
-			continue
-		}
-		if handoffPRWorkflowWordAt(values, index+len(pathValues)) {
-			return path, true
-		}
-	}
-	return "", false
-}
-
-func handoffPRSequenceAt(values []rune, sequenceStart int, want []rune) bool {
-	if sequenceStart+len(want) > len(values) {
-		return false
-	}
-	for offset, value := range want {
-		if values[sequenceStart+offset] != value {
-			return false
-		}
-	}
-	return true
-}
-
-func handoffPRSequenceBoundary(values []rune, start, length int) bool {
-	if start > 0 {
-		previous := values[start-1]
-		if unicode.IsLetter(previous) || unicode.IsDigit(previous) || previous == '/' {
-			return false
-		}
-	}
-	end := start + length
-	if end < len(values) {
-		next := values[end]
-		if unicode.IsLetter(next) || unicode.IsDigit(next) || next == '/' {
-			return false
-		}
-	}
-	return true
-}
-
-func handoffPRWorkflowWordAt(values []rune, start int) bool {
-	nextIndex := start
-	for nextIndex < len(values) && unicode.IsSpace(values[nextIndex]) {
-		nextIndex++
-	}
-	const workflow = "workflow"
-	workflowValues := []rune(workflow)
-	if !handoffPRSequenceAt(values, nextIndex, workflowValues) {
-		return false
-	}
-	return handoffPRSequenceBoundary(values, nextIndex, len(workflowValues))
-}
-
-func normalizeHandoffPRTokenPairs(tokens []string) []string {
-	normalized := make([]string, 0, len(tokens))
-	for index := 0; index < len(tokens); index++ {
-		if tokens[index] == "p" && index+1 < len(tokens) && tokens[index+1] == "r" {
-			normalized = append(normalized, "pr")
-			index++
-			continue
-		}
-		normalized = append(normalized, tokens[index])
-	}
-	return normalized
-}
-
-func appendHandoffPRProseWord(tokens *[]string, word string) {
-	if word == "prs" {
-		*tokens = append(*tokens, word)
-		return
-	}
-	if parts, ok := handoffPRCompoundParts(word); ok {
-		*tokens = append(*tokens, parts...)
-		return
-	}
-	if isApprovedHandoffPRWord(word) {
-		*tokens = append(*tokens, word)
-		return
-	}
-	if isHandoffPRMentionWord(word) {
-		*tokens = append(*tokens, "pr")
-		return
-	}
-	*tokens = append(*tokens, word)
-}
-
-// handoffPRCompoundParts normalizes the small set of compounds that carry an
-// explicit grammar word. Unknown compounds are handled by the boundary rule
-// below, rather than by growing a list of positive PR predicates.
-func handoffPRCompoundParts(word string) ([]string, bool) {
-	switch word {
-	case "pullrequest":
-		return []string{"pull", "request"}, true
-	case "pullrequests":
-		return []string{"pull", "requests"}, true
-	case "nopr":
-		return []string{"no", "pr"}, true
-	case "noprs":
-		return []string{"no", "prs"}, true
-	default:
-		return nil, false
-	}
-}
-
-// isApprovedHandoffPRWord is the ordinary-word side of the PR lexer. These
-// words are present in the exact terminal grammars; every other token whose
-// boundary resembles PR is treated as a mention.
-func isApprovedHandoffPRWord(word string) bool {
-	switch word {
-	case "preallocation", "preserve", "preserved", "preserving", "previous", "primary", "producing", "proceeding", "project", "proof", "provenance", "protocol":
-		return true
-	default:
-		return false
-	}
-}
-
-func isHandoffPRMentionWord(word string) bool {
-	if len(word) <= len("pr") {
-		return false
-	}
-	for _, prefix := range []string{"pullrequests", "pullrequest", "pr"} {
-		if strings.HasPrefix(word, prefix) || strings.HasSuffix(word, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func handoffAbsolutePaths(body string) []string {
 	paths := make([]string, 0, 2)
 	appendPath := func(value string) {
@@ -1286,13 +1101,6 @@ func parseIssue305TerminalHandoff(body string, issue int) (issue305TerminalHando
 		!containsHandoffWords(body, "no implementation changes") {
 		return issue305TerminalHandoff{}, errors.New("body lacks the approved issue #305 blocker and no-source evidence")
 	}
-	if !containsHandoffPRWords(body, "with no diff commit push pr check evidence challenge or examiner receipt") ||
-		!containsHandoffPRWords(body, "no pr or review lifecycle has started") {
-		return issue305TerminalHandoff{}, errors.New("body lacks the approved issue #305 no-PR evidence")
-	}
-	if err := rejectUnapprovedIssue305PRTokens(body); err != nil {
-		return issue305TerminalHandoff{}, err
-	}
 	decisionStart := headingIndexes[1] + 1
 	decisionEnd := headingIndexes[2]
 	var worktree string
@@ -1337,6 +1145,9 @@ func parseIssue305TerminalHandoff(body string, issue int) (issue305TerminalHando
 	if worktree == "" || branch == "" {
 		return issue305TerminalHandoff{}, errors.New("body lacks the preserved issue worktree and branch fields")
 	}
+	if err := validateIssue305PRMentions(body, branch); err != nil {
+		return issue305TerminalHandoff{}, err
+	}
 	for _, path := range handoffAbsolutePaths(body) {
 		if path != worktree {
 			return issue305TerminalHandoff{}, fmt.Errorf("body contains an unapproved worktree path %q", path)
@@ -1348,30 +1159,6 @@ func parseIssue305TerminalHandoff(body string, issue int) (issue305TerminalHando
 		}
 	}
 	return issue305TerminalHandoff{worktree: worktree, branch: branch}, nil
-}
-
-func rejectUnapprovedIssue305PRTokens(body string) error {
-	tokens := handoffPRProseTokens(body)
-	for index, token := range tokens {
-		if token == "prs" {
-			return errors.New("body contains an unapproved pull-request assertion")
-		}
-		if token == "pull" && index+1 < len(tokens) && (tokens[index+1] == "request" || tokens[index+1] == "requests") {
-			return errors.New("body contains an unapproved pull-request assertion")
-		}
-		if token != "pr" {
-			continue
-		}
-		firstAllowed := index >= 4 && index+1 < len(tokens) &&
-			tokens[index-4] == "no" && tokens[index-3] == "diff" &&
-			tokens[index-2] == "commit" && tokens[index-1] == "push" && tokens[index+1] == "check"
-		secondAllowed := index >= 1 && index+2 < len(tokens) &&
-			tokens[index-1] == "no" && tokens[index+1] == "or" && tokens[index+2] == "review"
-		if !firstAllowed && !secondAllowed {
-			return errors.New("body contains an unapproved PR assertion")
-		}
-	}
-	return nil
 }
 
 //nolint:funlen,gocognit // Exact historical handoff grammar is deliberately fail-closed.
@@ -1463,423 +1250,436 @@ func validateTerminalClaimHandoffBody(body string, issue int) error {
 		containsHandoffWords(folded, "worktree is dirty") || containsHandoffWords(folded, "worktree is unclean") {
 		return errors.New("body contradicts the clean worktree evidence")
 	}
-	return validateGenericHandoffPRGrammar(body)
+	return validateGenericHandoffPRGrammar(body, issue)
 }
 
-type handoffPRMention struct {
+type terminalLexemeKind uint8
+
+const (
+	terminalWordLexeme terminalLexemeKind = iota
+	terminalPunctuationLexeme
+)
+
+type terminalRawLexeme struct {
+	kind  terminalLexemeKind
+	text  string
 	start int
 	end   int
 }
 
-type genericHandoffLexeme struct {
-	word        string
-	punctuation rune
-}
-
-type genericHandoffClause struct {
+type terminalSpan struct {
 	start int
 	end   int
 }
 
-func validateGenericHandoffPRGrammar(body string) error {
-	negative := false
-	for _, paragraph := range strings.Split(body, "\n\n") {
-		lexemes := genericHandoffPRLexemes(paragraph)
-		mentions := genericHandoffPRMentions(lexemes)
-		if len(mentions) == 0 {
-			continue
-		}
-		noActionClauses := genericHandoffNoActionClauses(lexemes)
-		for _, mention := range mentions {
-			if genericHandoffMentionInNoActionClause(mention, noActionClauses) || genericHandoffDirectNoPRMention(lexemes, mention) {
-				negative = true
-				continue
-			}
-			return errors.New("body contains an unapproved PR assertion")
+const (
+	terminalGenericFormOne   = "No implementation, tests, commit, push, PR, or evaluation record was made."
+	terminalGenericFormTwo   = "No implementation, tests, documentation, commit, push, PR, or evaluation record was made."
+	terminalGenericFormThree = "No source or test files were changed, no checks, push, PR, challenge, or evaluation record was made."
+	terminalIssue240Form     = "No implementation, tests, documentation, commit, push, PR, evidence, challenge, or Examiner review was attempted after the Smith blocker."
+	terminalIssue240Workflow = "Human intervention is required to restore or rerun the Smith implementation context. Preserve the claimed issue worktree and its claim commit; do not widen the issue or backlog-loop. After implementation, run `go tool workflowctl check` and resume the normal PR/evidence/Curator/Examiner/finish workflow."
+	terminalIssue305Workflow = "Resume from the preserved claim/worktree with a fresh Smith implementation agent, using the completed Scribe/Mason decisions above. Re-run focused tests, `go tool workflowctl check`, and the full PR/evidence/Curator/Examiner workflow only after implementation exists. Do not widen issue #305 or infer completion from the clean worktree."
+)
+
+// validateGenericHandoffPRGrammar authenticates only complete, ordered forms.
+// The raw lexeme sequence retains punctuation and spans, so every PR-like
+// mention must be covered by an approved form for this issue.
+func validateGenericHandoffPRGrammar(body string, issue int) error {
+	lexemes := terminalRawLexemes(body)
+	mentions := terminalPRMentionSpans(body, lexemes)
+	if len(mentions) == 0 {
+		return errors.New("body lacks an explicit no-PR statement")
+	}
+	if issue == 240 {
+		historical := terminalCompleteFormSpans(body, lexemes, terminalIssue240Form)
+		workflow := terminalCompleteFormSpans(body, lexemes, terminalIssue240Workflow)
+		if len(historical) != 1 || len(workflow) != 1 {
+			return errors.New("issue #240 compatibility requires exactly one approved evidence sentence and action paragraph")
 		}
 	}
-	if !negative {
-		return errors.New("body lacks an explicit no-PR statement")
+	approved := terminalApprovedFormSpans(body, lexemes, issue)
+	if len(approved) == 0 {
+		return errors.New("body lacks an approved complete no-PR form")
+	}
+	if err := terminalRequireCoveredMentions(mentions, approved); err != nil {
+		return err
 	}
 	return nil
 }
 
-//nolint:gocognit // The lexer keeps punctuation and approved PR compounds in one ordered pass.
-func genericHandoffPRLexemes(body string) []genericHandoffLexeme {
-	lexemes := make([]genericHandoffLexeme, 0, len(strings.Fields(body)))
-	values := []rune(strings.ToLower(body))
-	var word strings.Builder
-	flush := func() {
-		if word.Len() == 0 {
-			return
-		}
-		words := make([]string, 0, 2)
-		appendHandoffPRProseWord(&words, word.String())
-		for _, value := range words {
-			lexemes = append(lexemes, genericHandoffLexeme{word: value})
-		}
-		word.Reset()
+func terminalApprovedFormSpans(body string, lexemes []terminalRawLexeme, issue int) []terminalSpan {
+	forms := []string{terminalGenericFormOne, terminalGenericFormTwo, terminalGenericFormThree}
+	if issue == 240 {
+		forms = []string{terminalIssue240Form}
 	}
-	for index := 0; index < len(values); {
-		if path, ok := handoffPRWorkflowPathAt(values, index); ok {
-			flush()
-			lexemes = append(lexemes, genericHandoffLexeme{word: path})
-			index += len([]rune(path))
-			continue
-		}
-		if handoffAbsolutePathAt(values, index) {
-			flush()
-			start := index
-			for index < len(values) && !unicode.IsSpace(values[index]) {
-				index++
+	spans := make([]terminalSpan, 0, len(forms))
+	for _, form := range forms {
+		spans = append(spans, terminalCompleteFormSpans(body, lexemes, form)...)
+	}
+	if issue == 240 {
+		spans = append(spans, terminalCompleteFormSpans(body, lexemes, terminalIssue240Workflow)...)
+	}
+	return spans
+}
+
+func terminalRequireCoveredMentions(mentions, approved []terminalSpan) error {
+	for _, mention := range mentions {
+		covered := false
+		for _, form := range approved {
+			if mention.start >= form.start && mention.end <= form.end {
+				covered = true
+				break
 			}
-			appendGenericHandoffPathLexemes(&lexemes, string(values[start:index]))
+		}
+		if !covered {
+			return errors.New("body contains an unapproved PR assertion")
+		}
+	}
+	return nil
+}
+
+func terminalRawLexemes(body string) []terminalRawLexeme {
+	lexemes := make([]terminalRawLexeme, 0, len(body)/2)
+	for index := 0; index < len(body); {
+		value, size := utf8.DecodeRuneInString(body[index:])
+		if unicode.IsSpace(value) {
+			index += size
 			continue
 		}
-		value := values[index]
+		start := index
 		if unicode.IsLetter(value) || unicode.IsDigit(value) {
-			word.WriteRune(value)
-			index++
-			continue
-		}
-		flush()
-		if !unicode.IsSpace(value) {
-			lexemes = append(lexemes, genericHandoffLexeme{punctuation: value})
-		}
-		index++
-	}
-	flush()
-	return normalizeGenericHandoffLexemes(lexemes)
-}
-
-func appendGenericHandoffPathLexemes(lexemes *[]genericHandoffLexeme, path string) {
-	values := []rune(path)
-	end := len(values)
-	for end > 0 && (isGenericHandoffClauseBreak(values[end-1]) || values[end-1] == ',') {
-		end--
-	}
-	if end == 0 {
-		*lexemes = append(*lexemes, genericHandoffLexeme{word: path})
-		return
-	}
-	*lexemes = append(*lexemes, genericHandoffLexeme{word: string(values[:end])})
-	for _, value := range values[end:] {
-		*lexemes = append(*lexemes, genericHandoffLexeme{punctuation: value})
-	}
-}
-
-func normalizeGenericHandoffLexemes(lexemes []genericHandoffLexeme) []genericHandoffLexeme {
-	normalized := make([]genericHandoffLexeme, 0, len(lexemes))
-	for index := 0; index < len(lexemes); index++ {
-		if index+2 < len(lexemes) && lexemes[index].word == "p" &&
-			isGenericHandoffSoftPunctuation(lexemes[index+1].punctuation) && lexemes[index+2].word == "r" {
-			normalized = append(normalized, genericHandoffLexeme{word: "pr"})
-			index += 2
-			continue
-		}
-		if index+2 < len(lexemes) && lexemes[index].word == "pull" &&
-			isGenericHandoffSoftPunctuation(lexemes[index+1].punctuation) &&
-			(lexemes[index+2].word == "request" || lexemes[index+2].word == "requests") {
-			normalized = append(normalized, genericHandoffLexeme{word: "pull"}, lexemes[index+2])
-			index += 2
-			continue
-		}
-		if index+2 < len(lexemes) && lexemes[index].word == "no" &&
-			isGenericHandoffSoftPunctuation(lexemes[index+1].punctuation) &&
-			(lexemes[index+2].word == "pr" || lexemes[index+2].word == "prs") {
-			normalized = append(normalized, genericHandoffLexeme{word: "no"}, lexemes[index+2])
-			index += 2
-			continue
-		}
-		if index+1 < len(lexemes) && lexemes[index].word == "p" && lexemes[index+1].word == "r" {
-			normalized = append(normalized, genericHandoffLexeme{word: "pr"})
-			index++
-			continue
-		}
-		normalized = append(normalized, lexemes[index])
-	}
-	return normalized
-}
-
-func isGenericHandoffSoftPunctuation(value rune) bool {
-	return value == '.' || value == '-' || value == '_' || value == '/'
-}
-
-func genericHandoffPRMentions(lexemes []genericHandoffLexeme) []handoffPRMention {
-	mentions := make([]handoffPRMention, 0, 1)
-	for index, lexeme := range lexemes {
-		if lexeme.punctuation != 0 {
-			continue
-		}
-		switch lexeme.word {
-		case "pr", "prs":
-			mentions = append(mentions, handoffPRMention{start: index, end: index + 1})
-		case "pull":
-			if index+1 < len(lexemes) && lexemes[index+1].punctuation == 0 &&
-				(lexemes[index+1].word == "request" || lexemes[index+1].word == "requests") {
-				mentions = append(mentions, handoffPRMention{start: index, end: index + 2})
+			index += size
+			for index < len(body) {
+				next, nextSize := utf8.DecodeRuneInString(body[index:])
+				if !unicode.IsLetter(next) && !unicode.IsDigit(next) {
+					break
+				}
+				index += nextSize
 			}
-		}
-	}
-	return mentions
-}
-
-func genericHandoffClauseRanges(lexemes []genericHandoffLexeme) []genericHandoffClause {
-	clauses := make([]genericHandoffClause, 0, 2)
-	start := 0
-	for index, lexeme := range lexemes {
-		if !isGenericHandoffClauseBreak(lexeme.punctuation) {
+			lexemes = append(lexemes, terminalRawLexeme{kind: terminalWordLexeme, text: body[start:index], start: start, end: index})
 			continue
 		}
-		clauses = append(clauses, genericHandoffClause{start: start, end: index})
-		start = index + 1
+		index += size
+		lexemes = append(lexemes, terminalRawLexeme{kind: terminalPunctuationLexeme, text: body[start:index], start: start, end: index})
 	}
-	clauses = append(clauses, genericHandoffClause{start: start, end: len(lexemes)})
-	return clauses
+	return lexemes
 }
 
-func isGenericHandoffClauseBreak(value rune) bool {
-	switch value {
-	case '(', ')', '[', ']', '{', '}', ';', ':', '.', '!', '?':
-		return true
-	default:
-		return false
-	}
-}
-
-func genericHandoffClauseStart(lexemes []genericHandoffLexeme, start, end int) int {
-	for start < end && (lexemes[start].punctuation == '-' || lexemes[start].punctuation == '*' || lexemes[start].punctuation == '+') {
-		start++
-	}
-	return start
-}
-
-type genericHandoffNoActionParse struct {
-	start int
-	end   int
-	root  bool
-}
-
-//nolint:gocognit // Clause discovery preserves ordered boundaries and only admits complete roots.
-func genericHandoffNoActionClauses(lexemes []genericHandoffLexeme) []genericHandoffNoActionParse {
-	clauses := make([]genericHandoffNoActionParse, 0, 2)
-	for _, clause := range genericHandoffClauseRanges(lexemes) {
-		clauseStart := genericHandoffClauseStart(lexemes, clause.start, clause.end)
-		for index := clauseStart; index < clause.end; index++ {
-			if !genericHandoffWordAt(lexemes, index, "no") {
-				continue
-			}
-			if !genericHandoffNoActionStartAllowed(lexemes, clauseStart, index) {
-				continue
-			}
-			parsed, ok := parseGenericHandoffNoActionClause(lexemes, index, clause.end)
-			if !ok {
-				continue
-			}
-			clauses = append(clauses, parsed)
-			index = parsed.end - 1
-		}
-	}
-	root := false
-	for _, clause := range clauses {
-		if clause.root {
-			root = true
-			break
-		}
-	}
-	if !root {
+func terminalCompleteFormSpans(body string, bodyLexemes []terminalRawLexeme, form string) []terminalSpan {
+	formLexemes := terminalRawLexemes(form)
+	if len(formLexemes) == 0 || len(bodyLexemes) < len(formLexemes) {
 		return nil
 	}
-	return clauses
-}
-
-func genericHandoffNoActionStartAllowed(lexemes []genericHandoffLexeme, clauseStart, index int) bool {
-	if index == clauseStart {
-		return true
-	}
-	return index > clauseStart && lexemes[index-1].punctuation == ','
-}
-
-//nolint:gocognit // The phase-specific list parser rejects every unrecognized transition.
-func parseGenericHandoffNoActionClause(lexemes []genericHandoffLexeme, start, end int) (genericHandoffNoActionParse, bool) {
-	if start+1 >= end || !genericHandoffWordAt(lexemes, start, "no") {
-		return genericHandoffNoActionParse{}, false
-	}
-	itemEnd, ok := genericHandoffNoActionItemAt(lexemes, start+1, end)
-	if !ok {
-		return genericHandoffNoActionParse{}, false
-	}
-	root := lexemes[start+1].word == "implementation" || lexemes[start+1].word == "source"
-	index := itemEnd
-	needItem := false
-	for index < end {
-		lexeme := lexemes[index]
-		if lexeme.punctuation != 0 {
-			if lexeme.punctuation != ',' || needItem {
-				return genericHandoffNoActionParse{}, false
-			}
-			needItem = true
-			index++
+	spans := make([]terminalSpan, 0, 1)
+	for start := 0; start+len(formLexemes) <= len(bodyLexemes); start++ {
+		if !terminalFormLexemesMatch(body, form, bodyLexemes, start, formLexemes) {
 			continue
 		}
-		if lexeme.word == "was" || lexeme.word == "were" {
-			if needItem || index+1 >= end || !isHandoffActionResult(lexemes[index+1].word) {
-				return genericHandoffNoActionParse{}, false
-			}
-			terminalEnd := index + 2
-			historicalSuffix := genericHandoffNoActionHistoricalSuffix(lexemes, terminalEnd, end)
-			if terminalEnd != end && !historicalSuffix && !genericHandoffNoActionCommaContinuation(lexemes, terminalEnd, end) {
-				return genericHandoffNoActionParse{}, false
-			}
-			if historicalSuffix {
-				terminalEnd = end
-			}
-			return genericHandoffNoActionParse{start: start, end: terminalEnd, root: root}, true
-		}
-		if lexeme.word == "and" || lexeme.word == "or" || lexeme.word == "nor" {
-			if needItem && (index == start+2 || lexemes[index-1].punctuation != ',') {
-				return genericHandoffNoActionParse{}, false
-			}
-			needItem = true
-			index++
+		span := terminalSpan{start: bodyLexemes[start].start, end: bodyLexemes[start+len(formLexemes)-1].end}
+		if !terminalFormBoundaryAllowed(body, span, strings.HasSuffix(form, ".")) {
 			continue
 		}
-		if needItem && lexeme.word == "no" {
-			return genericHandoffNoActionParse{}, false
-		}
-		itemEnd, ok := genericHandoffNoActionItemAt(lexemes, index, end)
-		if !ok {
-			return genericHandoffNoActionParse{}, false
-		}
-		needItem = false
-		index = itemEnd
+		spans = append(spans, span)
 	}
-	return genericHandoffNoActionParse{}, false
+	return spans
 }
 
-func genericHandoffNoActionCommaContinuation(lexemes []genericHandoffLexeme, index, end int) bool {
-	return index+1 < end && lexemes[index].punctuation == ',' && genericHandoffWordAt(lexemes, index+1, "no")
-}
-
-func genericHandoffNoActionHistoricalSuffix(lexemes []genericHandoffLexeme, index, end int) bool {
-	// Preserve the exact historical #240 list tail without reopening prose.
-	const suffixLength = 4
-	if index+suffixLength != end {
-		return false
-	}
-	for offset, want := range []string{"after", "the", "smith", "blocker"} {
-		if !genericHandoffWordAt(lexemes, index+offset, want) {
+func terminalFormLexemesMatch(body, form string, bodyLexemes []terminalRawLexeme, bodyStart int, formLexemes []terminalRawLexeme) bool {
+	for offset, want := range formLexemes {
+		observed := bodyLexemes[bodyStart+offset]
+		if observed.kind != want.kind || !terminalLexemeEqual(observed, want) {
+			return false
+		}
+		if offset == 0 {
+			continue
+		}
+		if !terminalFormSeparatorAllowed(body, form, formLexemes[offset-1], want, bodyLexemes[bodyStart+offset-1], observed) {
 			return false
 		}
 	}
 	return true
 }
 
-func genericHandoffNoActionItemAt(lexemes []genericHandoffLexeme, index, end int) (int, bool) {
-	if index >= end {
-		return index, false
+func terminalLexemeEqual(observed, want terminalRawLexeme) bool {
+	if observed.kind != terminalWordLexeme {
+		return observed.text == want.text
 	}
-	if mentionEnd, ok := genericHandoffPRMentionAt(lexemes, index); ok && mentionEnd <= end {
-		return mentionEnd, true
-	}
-	if genericHandoffWordAt(lexemes, index, "examiner") && genericHandoffWordAt(lexemes, index+1, "review") && index+2 <= end {
-		return index + 2, true
-	}
-	if !isHandoffNoActionListWord(lexemes[index].word) {
-		return index, false
-	}
-	return index + 1, true
+	return strings.EqualFold(observed.text, want.text)
 }
 
-func genericHandoffPRMentionAt(lexemes []genericHandoffLexeme, index int) (int, bool) {
-	if index >= len(lexemes) || lexemes[index].punctuation != 0 {
-		return index, false
+func terminalFormSeparatorAllowed(body, form string, formPrevious, formCurrent, bodyPrevious, bodyCurrent terminalRawLexeme) bool {
+	formSeparator := form[formPrevious.end:formCurrent.start]
+	bodySeparator := body[bodyPrevious.end:bodyCurrent.start]
+	if formSeparator == "" {
+		return bodySeparator == ""
 	}
-	if lexemes[index].word == "pr" || lexemes[index].word == "prs" {
-		return index + 1, true
+	if formSeparator != " " {
+		return bodySeparator == formSeparator
 	}
-	if lexemes[index].word != "pull" || index+1 >= len(lexemes) || lexemes[index+1].punctuation != 0 {
-		return index, false
+	if bodySeparator == " " {
+		return true
 	}
-	if lexemes[index+1].word != "request" && lexemes[index+1].word != "requests" {
-		return index, false
-	}
-	return index + 2, true
+	return terminalLineWrapWhitespace(bodySeparator)
 }
 
-func genericHandoffWordAt(lexemes []genericHandoffLexeme, index int, word string) bool {
-	return index >= 0 && index < len(lexemes) && lexemes[index].punctuation == 0 && lexemes[index].word == word
+func terminalLineWrapWhitespace(value string) bool {
+	if strings.Count(value, "\n") != 1 {
+		return false
+	}
+	for _, current := range value {
+		if current != '\n' && current != ' ' && current != '\t' {
+			return false
+		}
+	}
+	return true
 }
 
-func isHandoffActionResult(token string) bool {
-	return token == "attempted" || token == "made" || token == "changed"
+func terminalFormBoundaryAllowed(body string, span terminalSpan, sentence bool) bool {
+	return terminalFormStartBoundaryAllowed(body, span.start, sentence) && terminalFormEndBoundaryAllowed(body, span.end, sentence)
 }
 
-func genericHandoffMentionInNoActionClause(mention handoffPRMention, clauses []genericHandoffNoActionParse) bool {
-	for _, clause := range clauses {
-		if mention.start >= clause.start && mention.end <= clause.end {
+func terminalFormStartBoundaryAllowed(body string, start int, sentence bool) bool {
+	if start == 0 {
+		return true
+	}
+	previous, _ := utf8.DecodeLastRuneInString(body[:start])
+	if unicode.IsLetter(previous) || unicode.IsDigit(previous) || previous == '_' {
+		return false
+	}
+	return !sentence || terminalSentencePrefixAllowed(body, start)
+}
+
+func terminalFormEndBoundaryAllowed(body string, end int, sentence bool) bool {
+	if end >= len(body) {
+		return true
+	}
+	next, _ := utf8.DecodeRuneInString(body[end:])
+	if unicode.IsLetter(next) || unicode.IsDigit(next) || next == '_' || !unicode.IsSpace(next) {
+		return false
+	}
+	if !sentence {
+		return true
+	}
+	last, _ := utf8.DecodeLastRuneInString(body[:end])
+	if last != '.' {
+		return true
+	}
+	return terminalSentenceSuffixAllowed(body, end)
+}
+
+func terminalSentenceSuffixAllowed(body string, end int) bool {
+	for index := end; index < len(body); {
+		value, size := utf8.DecodeRuneInString(body[index:])
+		if value == '\n' {
 			return true
 		}
+		if !unicode.IsSpace(value) {
+			return false
+		}
+		index += size
 	}
-	return false
+	return true
 }
 
-//nolint:gocognit // Direct no-PR forms are deliberately enumerated at clause boundaries.
-func genericHandoffDirectNoPRMention(lexemes []genericHandoffLexeme, mention handoffPRMention) bool {
-	for _, clause := range genericHandoffClauseRanges(lexemes) {
-		start := genericHandoffClauseStart(lexemes, clause.start, clause.end)
-		if mention.start < start || mention.end > clause.end {
-			continue
-		}
-		if genericHandoffWordAt(lexemes, start, "no") {
-			if mention.start == start+1 && mention.end == clause.end {
-				return true
-			}
-			if mention.start == start+2 && mention.end == clause.end &&
-				(genericHandoffWordAt(lexemes, start+1, "open") || genericHandoffWordAt(lexemes, start+1, "existing") || genericHandoffWordAt(lexemes, start+1, "any")) {
-				return true
-			}
-		}
-		if genericHandoffWordAt(lexemes, start, "without") && mention.start == start+2 && mention.end == clause.end &&
-			(genericHandoffWordAt(lexemes, start+1, "a") || genericHandoffWordAt(lexemes, start+1, "an") || genericHandoffWordAt(lexemes, start+1, "any")) {
-			return true
-		}
-		if genericHandoffWordAt(lexemes, start, "not") && mention.start == start+2 && mention.end == clause.end &&
-			(genericHandoffWordAt(lexemes, start+1, "a") || genericHandoffWordAt(lexemes, start+1, "an")) {
-			return true
-		}
+func terminalSentencePrefixAllowed(body string, start int) bool {
+	lineStart := strings.LastIndexByte(body[:start], '\n') + 1
+	prefix := body[lineStart:start]
+	trimmed := strings.TrimRight(prefix, " \t")
+	if trimmed == "" {
+		return true
 	}
-	return false
+	marker := trimmed[len(trimmed)-1]
+	if (marker == '-' || marker == '*' || marker == '+') && strings.TrimSpace(trimmed[:len(trimmed)-1]) == "" {
+		return true
+	}
+	if marker != '.' {
+		return false
+	}
+	return len(prefix) > len(trimmed)
 }
 
-func isHandoffNoActionListWord(token string) bool {
-	switch token {
-	case "implementation", "implementations", "source", "sources", "files", "changes", "change", "diff", "diffs", "tests", "test", "documentation", "docs", "commit", "commits", "push", "pushes", "check", "checks", "challenge", "challenges", "evidence", "record", "records", "evaluation", "evaluations":
+func terminalPRMentionSpans(body string, lexemes []terminalRawLexeme) []terminalSpan {
+	mentions := make([]terminalSpan, 0, 2)
+	for index := range lexemes {
+		mention, ok := terminalWordPRMention(lexemes, index)
+		if ok && !terminalSpanInsideAbsolutePath(body, mention) {
+			mentions = append(mentions, mention)
+		}
+	}
+	for _, mention := range terminalPRPathMentionSpans(body, lexemes) {
+		if !terminalSpanInsideAbsolutePath(body, mention) {
+			mentions = append(mentions, mention)
+		}
+	}
+	for _, mention := range terminalObfuscatedPRMentionSpans(lexemes) {
+		if !terminalSpanInsideAbsolutePath(body, mention) {
+			mentions = append(mentions, mention)
+		}
+	}
+	return mentions
+}
+
+func terminalWordPRMention(lexemes []terminalRawLexeme, index int) (terminalSpan, bool) {
+	if index >= len(lexemes) || lexemes[index].kind != terminalWordLexeme {
+		return terminalSpan{}, false
+	}
+	lexeme := lexemes[index]
+	if terminalWordEqual(lexeme.text, "pr") || terminalWordEqual(lexeme.text, "prs") || terminalWordHasAttachedPR(lexeme.text) || terminalWordContainsPullRequest(lexeme.text) {
+		return terminalSpan{start: lexeme.start, end: lexeme.end}, true
+	}
+	return terminalPullRequestMention(lexemes, index)
+}
+
+func terminalPullRequestMention(lexemes []terminalRawLexeme, index int) (terminalSpan, bool) {
+	if index >= len(lexemes) || lexemes[index].kind != terminalWordLexeme || !terminalWordEqual(lexemes[index].text, "pull") {
+		return terminalSpan{}, false
+	}
+	next := index + 1
+	for next < len(lexemes) && lexemes[next].kind == terminalPunctuationLexeme {
+		next++
+	}
+	if next >= len(lexemes) || lexemes[next].kind != terminalWordLexeme ||
+		(!terminalWordEqual(lexemes[next].text, "request") && !terminalWordEqual(lexemes[next].text, "requests")) {
+		return terminalSpan{}, false
+	}
+	return terminalSpan{start: lexemes[index].start, end: lexemes[next].end}, true
+}
+
+func terminalWordEqual(value, want string) bool {
+	return strings.EqualFold(value, want)
+}
+
+func terminalWordContainsPullRequest(value string) bool {
+	lower := strings.ToLower(value)
+	return strings.Contains(lower, "pullrequest")
+}
+
+func terminalWordHasAttachedPR(value string) bool {
+	lower := strings.ToLower(value)
+	if !strings.HasPrefix(lower, "pr") && !strings.HasSuffix(lower, "pr") {
+		return false
+	}
+	if strings.EqualFold(value, "pr") || strings.EqualFold(value, "prs") {
+		return false
+	}
+	// These words occur in the preserved historical handoffs and are ordinary
+	// prose, not attached PR mentions. Every other attached boundary is unsafe.
+	switch lower {
+	case "preallocation", "preserve", "preserved", "preserving", "previous", "primary", "producing", "proceeding", "project", "proof", "provenance", "protocol":
+		return false
+	default:
+		return true
+	}
+}
+
+func terminalPRPathMentionSpans(body string, lexemes []terminalRawLexeme) []terminalSpan {
+	mentions := make([]terminalSpan, 0, 1)
+	for index := range lexemes {
+		if mention, ok := terminalPRPathMentionSpan(body, lexemes, index); ok {
+			mentions = append(mentions, mention)
+		}
+	}
+	return mentions
+}
+
+func terminalPRPathMentionSpan(body string, lexemes []terminalRawLexeme, index int) (terminalSpan, bool) {
+	if index >= len(lexemes) || lexemes[index].kind != terminalWordLexeme || !terminalWordEqual(lexemes[index].text, "pr") || index+1 >= len(lexemes) {
+		return terminalSpan{}, false
+	}
+	pathStart := lexemes[index]
+	slash := lexemes[index+1]
+	if slash.kind != terminalPunctuationLexeme || slash.text != "/" || body[pathStart.end:slash.start] != "" {
+		return terminalSpan{}, false
+	}
+	end := slash.end
+	for end < len(body) {
+		value, size := utf8.DecodeRuneInString(body[end:])
+		if unicode.IsSpace(value) {
+			break
+		}
+		end += size
+	}
+	for end > slash.end {
+		value, size := utf8.DecodeLastRuneInString(body[:end])
+		if !terminalPathTrailingPunctuation(value) {
+			break
+		}
+		end -= size
+	}
+	if end <= slash.end {
+		return terminalSpan{}, false
+	}
+	return terminalSpan{start: pathStart.start, end: end}, true
+}
+
+func terminalPathTrailingPunctuation(value rune) bool {
+	switch value {
+	case '.', ',', ';', ':', '!', '?', ')', ']', '}', '`', '"', '\'':
 		return true
 	default:
 		return false
 	}
 }
 
-func containsHandoffPRWords(text, phrase string) bool {
-	observed := handoffPRProseTokens(text)
-	want := handoffPRProseTokens(phrase)
-	if len(want) == 0 || len(observed) < len(want) {
-		return false
-	}
-	for start := 0; start+len(want) <= len(observed); start++ {
-		match := true
-		for index := range want {
-			if observed[start+index] != want[index] {
-				match = false
-				break
-			}
+func terminalObfuscatedPRMentionSpans(lexemes []terminalRawLexeme) []terminalSpan {
+	mentions := make([]terminalSpan, 0, 1)
+	for index := 0; index+1 < len(lexemes); index++ {
+		if lexemes[index].kind != terminalWordLexeme || !terminalWordEqual(lexemes[index].text, "p") {
+			continue
 		}
-		if match {
-			return true
+		next := index + 1
+		for next < len(lexemes) && lexemes[next].kind == terminalPunctuationLexeme {
+			next++
 		}
+		if next >= len(lexemes) || lexemes[next].kind != terminalWordLexeme || !terminalWordEqual(lexemes[next].text, "r") {
+			continue
+		}
+		mentions = append(mentions, terminalSpan{start: lexemes[index].start, end: lexemes[next].end})
 	}
-	return false
+	return mentions
+}
+
+func terminalSpanInsideAbsolutePath(body string, span terminalSpan) bool {
+	start := span.start
+	for start > 0 {
+		value, size := utf8.DecodeLastRuneInString(body[:start])
+		if unicode.IsSpace(value) {
+			break
+		}
+		start -= size
+	}
+	end := span.end
+	for end < len(body) {
+		value, size := utf8.DecodeRuneInString(body[end:])
+		if unicode.IsSpace(value) {
+			break
+		}
+		end += size
+	}
+	token := strings.Trim(body[start:end], "`\"'()[]{}<>,.;:")
+	// Test and worktree paths may contain PR-like directory names without
+	// asserting a pull-request lifecycle.
+	return strings.HasPrefix(token, "/")
+}
+
+func validateIssue305PRMentions(body, branch string) error {
+	lexemes := terminalRawLexemes(body)
+	mentions := terminalPRMentionSpans(body, lexemes)
+	branchForm := "Its branch is `" + branch + "`, with no diff, commit, push, PR, check, evidence, challenge, or Examiner receipt."
+	branchSpans := terminalCompleteFormSpans(body, lexemes, branchForm)
+	if len(branchSpans) != 1 {
+		return errors.New("body lacks exactly one approved issue #305 PR branch sentence")
+	}
+	lifecycleSpans := terminalCompleteFormSpans(body, lexemes, "No PR or review lifecycle has started, so there is no stale evidence to reuse.")
+	if len(lifecycleSpans) != 1 {
+		return errors.New("body lacks exactly one approved issue #305 PR lifecycle sentence")
+	}
+	workflowSpans := terminalCompleteFormSpans(body, lexemes, terminalIssue305Workflow)
+	if len(workflowSpans) != 1 {
+		return errors.New("body lacks exactly one approved issue #305 action paragraph")
+	}
+	approved := append(append(append([]terminalSpan{}, branchSpans...), lifecycleSpans...), workflowSpans...)
+	return terminalRequireCoveredMentions(mentions, approved)
 }
 
 func containsHandoffWords(text, phrase string) bool {
