@@ -1471,23 +1471,27 @@ type handoffPRMention struct {
 	end   int
 }
 
-const genericHandoffClauseBreakToken = "handoffclausebreak"
+type genericHandoffLexeme struct {
+	word        string
+	punctuation rune
+}
+
+type genericHandoffClause struct {
+	start int
+	end   int
+}
 
 func validateGenericHandoffPRGrammar(body string) error {
 	negative := false
 	for _, paragraph := range strings.Split(body, "\n\n") {
-		tokens := genericHandoffPRProseTokens(paragraph)
-		mentions := handoffPRMentions(tokens)
+		lexemes := genericHandoffPRLexemes(paragraph)
+		mentions := genericHandoffPRMentions(lexemes)
 		if len(mentions) == 0 {
 			continue
 		}
-		noActionList := genericHandoffNoActionList(tokens)
+		noActionClauses := genericHandoffNoActionClauses(lexemes)
 		for _, mention := range mentions {
-			if genericHandoffNegativePR(tokens, mention) {
-				negative = true
-				continue
-			}
-			if noActionList && genericHandoffNoActionMention(tokens, mention) {
+			if genericHandoffMentionInNoActionClause(mention, noActionClauses) || genericHandoffDirectNoPRMention(lexemes, mention) {
 				negative = true
 				continue
 			}
@@ -1500,44 +1504,119 @@ func validateGenericHandoffPRGrammar(body string) error {
 	return nil
 }
 
-func genericHandoffPRProseTokens(body string) []string {
-	// Keep clause punctuation visible to the no-action grammar; commas remain list separators.
-	var prose strings.Builder
-	prose.Grow(len(body))
-	for _, value := range body {
-		switch value {
-		case ';', ':', '.', '!', '?':
-			prose.WriteByte(' ')
-			prose.WriteString(genericHandoffClauseBreakToken)
-			prose.WriteByte(' ')
-		default:
-			prose.WriteRune(value)
+//nolint:gocognit // The lexer keeps punctuation and approved PR compounds in one ordered pass.
+func genericHandoffPRLexemes(body string) []genericHandoffLexeme {
+	lexemes := make([]genericHandoffLexeme, 0, len(strings.Fields(body)))
+	values := []rune(strings.ToLower(body))
+	var word strings.Builder
+	flush := func() {
+		if word.Len() == 0 {
+			return
 		}
+		words := make([]string, 0, 2)
+		appendHandoffPRProseWord(&words, word.String())
+		for _, value := range words {
+			lexemes = append(lexemes, genericHandoffLexeme{word: value})
+		}
+		word.Reset()
 	}
-	return normalizeGenericHandoffPRCompound(handoffPRProseTokens(prose.String()))
+	for index := 0; index < len(values); {
+		if path, ok := handoffPRWorkflowPathAt(values, index); ok {
+			flush()
+			lexemes = append(lexemes, genericHandoffLexeme{word: path})
+			index += len([]rune(path))
+			continue
+		}
+		if handoffAbsolutePathAt(values, index) {
+			flush()
+			start := index
+			for index < len(values) && !unicode.IsSpace(values[index]) {
+				index++
+			}
+			appendGenericHandoffPathLexemes(&lexemes, string(values[start:index]))
+			continue
+		}
+		value := values[index]
+		if unicode.IsLetter(value) || unicode.IsDigit(value) {
+			word.WriteRune(value)
+			index++
+			continue
+		}
+		flush()
+		if !unicode.IsSpace(value) {
+			lexemes = append(lexemes, genericHandoffLexeme{punctuation: value})
+		}
+		index++
+	}
+	flush()
+	return normalizeGenericHandoffLexemes(lexemes)
 }
 
-func normalizeGenericHandoffPRCompound(tokens []string) []string {
-	normalized := make([]string, 0, len(tokens))
-	for index := 0; index < len(tokens); index++ {
-		if index+2 < len(tokens) && tokens[index] == "p" && tokens[index+1] == genericHandoffClauseBreakToken && tokens[index+2] == "r" {
-			normalized = append(normalized, "pr")
+func appendGenericHandoffPathLexemes(lexemes *[]genericHandoffLexeme, path string) {
+	values := []rune(path)
+	end := len(values)
+	for end > 0 && (isGenericHandoffClauseBreak(values[end-1]) || values[end-1] == ',') {
+		end--
+	}
+	if end == 0 {
+		*lexemes = append(*lexemes, genericHandoffLexeme{word: path})
+		return
+	}
+	*lexemes = append(*lexemes, genericHandoffLexeme{word: string(values[:end])})
+	for _, value := range values[end:] {
+		*lexemes = append(*lexemes, genericHandoffLexeme{punctuation: value})
+	}
+}
+
+func normalizeGenericHandoffLexemes(lexemes []genericHandoffLexeme) []genericHandoffLexeme {
+	normalized := make([]genericHandoffLexeme, 0, len(lexemes))
+	for index := 0; index < len(lexemes); index++ {
+		if index+2 < len(lexemes) && lexemes[index].word == "p" &&
+			isGenericHandoffSoftPunctuation(lexemes[index+1].punctuation) && lexemes[index+2].word == "r" {
+			normalized = append(normalized, genericHandoffLexeme{word: "pr"})
 			index += 2
 			continue
 		}
-		normalized = append(normalized, tokens[index])
+		if index+2 < len(lexemes) && lexemes[index].word == "pull" &&
+			isGenericHandoffSoftPunctuation(lexemes[index+1].punctuation) &&
+			(lexemes[index+2].word == "request" || lexemes[index+2].word == "requests") {
+			normalized = append(normalized, genericHandoffLexeme{word: "pull"}, lexemes[index+2])
+			index += 2
+			continue
+		}
+		if index+2 < len(lexemes) && lexemes[index].word == "no" &&
+			isGenericHandoffSoftPunctuation(lexemes[index+1].punctuation) &&
+			(lexemes[index+2].word == "pr" || lexemes[index+2].word == "prs") {
+			normalized = append(normalized, genericHandoffLexeme{word: "no"}, lexemes[index+2])
+			index += 2
+			continue
+		}
+		if index+1 < len(lexemes) && lexemes[index].word == "p" && lexemes[index+1].word == "r" {
+			normalized = append(normalized, genericHandoffLexeme{word: "pr"})
+			index++
+			continue
+		}
+		normalized = append(normalized, lexemes[index])
 	}
 	return normalized
 }
 
-func handoffPRMentions(tokens []string) []handoffPRMention {
+func isGenericHandoffSoftPunctuation(value rune) bool {
+	return value == '.' || value == '-' || value == '_' || value == '/'
+}
+
+func genericHandoffPRMentions(lexemes []genericHandoffLexeme) []handoffPRMention {
 	mentions := make([]handoffPRMention, 0, 1)
-	for index, token := range tokens {
-		switch token {
+	for index, lexeme := range lexemes {
+		if lexeme.punctuation != 0 {
+			continue
+		}
+		switch lexeme.word {
 		case "pr", "prs":
 			mentions = append(mentions, handoffPRMention{start: index, end: index + 1})
 		case "pull":
-			if index+1 < len(tokens) && (tokens[index+1] == "request" || tokens[index+1] == "requests") {
+			if index+1 < len(lexemes) && lexemes[index+1].punctuation == 0 &&
+				(lexemes[index+1].word == "request" || lexemes[index+1].word == "requests") {
 				mentions = append(mentions, handoffPRMention{start: index, end: index + 2})
 			}
 		}
@@ -1545,122 +1624,241 @@ func handoffPRMentions(tokens []string) []handoffPRMention {
 	return mentions
 }
 
-func genericHandoffNoActionList(tokens []string) bool {
-	for index := 0; index+1 < len(tokens); index++ {
-		if tokens[index] == "no" && (tokens[index+1] == "implementation" || tokens[index+1] == "source") {
-			return containsHandoffToken(tokens, "attempted") || containsHandoffToken(tokens, "made") || containsHandoffToken(tokens, "changed")
-		}
-	}
-	return false
-}
-
-func genericHandoffNegativePR(tokens []string, mention handoffPRMention) bool {
-	if mention.start > 0 && tokens[mention.start-1] == "no" {
-		return genericHandoffNoPRAtParagraphEnd(tokens, mention.end)
-	}
-	if mention.start > 1 && tokens[mention.start-2] == "no" {
-		if tokens[mention.start-1] != "open" && tokens[mention.start-1] != "existing" && tokens[mention.start-1] != "any" {
-			return false
-		}
-		return genericHandoffNoPRAtParagraphEnd(tokens, mention.end)
-	}
-	if mention.start > 1 && tokens[mention.start-2] == "without" {
-		if tokens[mention.start-1] != "a" && tokens[mention.start-1] != "an" && tokens[mention.start-1] != "any" {
-			return false
-		}
-		return genericHandoffNoPRAtParagraphEnd(tokens, mention.end)
-	}
-	if mention.start > 1 && tokens[mention.start-2] == "not" &&
-		(tokens[mention.start-1] == "a" || tokens[mention.start-1] == "an") {
-		return genericHandoffNoPRAtParagraphEnd(tokens, mention.end)
-	}
-	return false
-}
-
-func genericHandoffNoPRAtParagraphEnd(tokens []string, end int) bool {
-	for _, token := range tokens[end:] {
-		if token != genericHandoffClauseBreakToken {
-			return false
-		}
-	}
-	return true
-}
-
-func genericHandoffNoActionMention(tokens []string, mention handoffPRMention) bool {
-	if mention.start == 0 || !isHandoffNoActionListWord(tokens[mention.start-1]) {
-		return false
-	}
-	if !hasGenericHandoffNoActionHead(tokens, mention.start) {
-		return false
-	}
-	return genericHandoffNoActionSequence(tokens, mention.end)
-}
-
-func hasGenericHandoffNoActionHead(tokens []string, end int) bool {
-	for index := end - 2; index >= 0; index-- {
-		if tokens[index] != "no" || !isHandoffNoActionListWord(tokens[index+1]) {
+func genericHandoffClauseRanges(lexemes []genericHandoffLexeme) []genericHandoffClause {
+	clauses := make([]genericHandoffClause, 0, 2)
+	start := 0
+	for index, lexeme := range lexemes {
+		if !isGenericHandoffClauseBreak(lexeme.punctuation) {
 			continue
 		}
-		if genericHandoffNoActionListPrefix(tokens, index+2, end) {
-			return true
-		}
+		clauses = append(clauses, genericHandoffClause{start: start, end: index})
+		start = index + 1
 	}
-	return false
+	clauses = append(clauses, genericHandoffClause{start: start, end: len(lexemes)})
+	return clauses
 }
 
-func genericHandoffNoActionListPrefix(tokens []string, start, end int) bool {
-	if start >= end {
-		return true
-	}
-	for _, token := range tokens[start:end] {
-		if isHandoffNoActionListWord(token) || token == "and" || token == "or" || token == "nor" {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func genericHandoffNoActionSequence(tokens []string, start int) bool {
-	sawAction := false
-	for index := start; index < len(tokens); index++ {
-		switch tokens[index] {
-		case "was", "were":
-			return sawAction && index+1 < len(tokens) && isHandoffActionResult(tokens[index+1])
-		case "made", "changed":
-			return sawAction
-		case "and", "or", "nor":
-			continue
-		default:
-			if !isHandoffNoActionListWord(tokens[index]) {
-				return false
-			}
-			sawAction = true
-		}
-	}
-	return false
-}
-
-func isHandoffActionResult(token string) bool {
-	return token == "attempted" || token == "made" || token == "changed"
-}
-
-func isHandoffNoActionListWord(token string) bool {
-	switch token {
-	case "implementation", "implementations", "source", "sources", "files", "changes", "change", "diff", "diffs", "tests", "test", "documentation", "docs", "commit", "commits", "push", "pushes", "check", "checks", "challenge", "challenges", "evidence", "record", "records", "evaluation", "evaluations", "examiner", "review":
+func isGenericHandoffClauseBreak(value rune) bool {
+	switch value {
+	case '(', ')', '[', ']', '{', '}', ';', ':', '.', '!', '?':
 		return true
 	default:
 		return false
 	}
 }
 
-func containsHandoffToken(tokens []string, want string) bool {
-	for _, token := range tokens {
-		if token == want {
+func genericHandoffClauseStart(lexemes []genericHandoffLexeme, start, end int) int {
+	for start < end && (lexemes[start].punctuation == '-' || lexemes[start].punctuation == '*' || lexemes[start].punctuation == '+') {
+		start++
+	}
+	return start
+}
+
+type genericHandoffNoActionParse struct {
+	start int
+	end   int
+	root  bool
+}
+
+//nolint:gocognit // Clause discovery preserves ordered boundaries and only admits complete roots.
+func genericHandoffNoActionClauses(lexemes []genericHandoffLexeme) []genericHandoffNoActionParse {
+	clauses := make([]genericHandoffNoActionParse, 0, 2)
+	for _, clause := range genericHandoffClauseRanges(lexemes) {
+		clauseStart := genericHandoffClauseStart(lexemes, clause.start, clause.end)
+		for index := clauseStart; index < clause.end; index++ {
+			if !genericHandoffWordAt(lexemes, index, "no") {
+				continue
+			}
+			if !genericHandoffNoActionStartAllowed(lexemes, clauseStart, index) {
+				continue
+			}
+			parsed, ok := parseGenericHandoffNoActionClause(lexemes, index, clause.end)
+			if !ok {
+				continue
+			}
+			clauses = append(clauses, parsed)
+			index = parsed.end - 1
+		}
+	}
+	root := false
+	for _, clause := range clauses {
+		if clause.root {
+			root = true
+			break
+		}
+	}
+	if !root {
+		return nil
+	}
+	return clauses
+}
+
+func genericHandoffNoActionStartAllowed(lexemes []genericHandoffLexeme, clauseStart, index int) bool {
+	if index == clauseStart {
+		return true
+	}
+	return index > clauseStart && lexemes[index-1].punctuation == ','
+}
+
+//nolint:gocognit // The phase-specific list parser rejects every unrecognized transition.
+func parseGenericHandoffNoActionClause(lexemes []genericHandoffLexeme, start, end int) (genericHandoffNoActionParse, bool) {
+	if start+1 >= end || !genericHandoffWordAt(lexemes, start, "no") {
+		return genericHandoffNoActionParse{}, false
+	}
+	itemEnd, ok := genericHandoffNoActionItemAt(lexemes, start+1, end)
+	if !ok {
+		return genericHandoffNoActionParse{}, false
+	}
+	root := lexemes[start+1].word == "implementation" || lexemes[start+1].word == "source"
+	index := itemEnd
+	needItem := false
+	for index < end {
+		lexeme := lexemes[index]
+		if lexeme.punctuation != 0 {
+			if lexeme.punctuation != ',' || needItem {
+				return genericHandoffNoActionParse{}, false
+			}
+			needItem = true
+			index++
+			continue
+		}
+		if lexeme.word == "was" || lexeme.word == "were" {
+			if needItem || index+1 >= end || !isHandoffActionResult(lexemes[index+1].word) {
+				return genericHandoffNoActionParse{}, false
+			}
+			terminalEnd := index + 2
+			historicalSuffix := genericHandoffNoActionHistoricalSuffix(lexemes, terminalEnd, end)
+			if terminalEnd != end && !historicalSuffix && !genericHandoffNoActionCommaContinuation(lexemes, terminalEnd, end) {
+				return genericHandoffNoActionParse{}, false
+			}
+			if historicalSuffix {
+				terminalEnd = end
+			}
+			return genericHandoffNoActionParse{start: start, end: terminalEnd, root: root}, true
+		}
+		if lexeme.word == "and" || lexeme.word == "or" || lexeme.word == "nor" {
+			if needItem && (index == start+2 || lexemes[index-1].punctuation != ',') {
+				return genericHandoffNoActionParse{}, false
+			}
+			needItem = true
+			index++
+			continue
+		}
+		if needItem && lexeme.word == "no" {
+			return genericHandoffNoActionParse{}, false
+		}
+		itemEnd, ok := genericHandoffNoActionItemAt(lexemes, index, end)
+		if !ok {
+			return genericHandoffNoActionParse{}, false
+		}
+		needItem = false
+		index = itemEnd
+	}
+	return genericHandoffNoActionParse{}, false
+}
+
+func genericHandoffNoActionCommaContinuation(lexemes []genericHandoffLexeme, index, end int) bool {
+	return index+1 < end && lexemes[index].punctuation == ',' && genericHandoffWordAt(lexemes, index+1, "no")
+}
+
+func genericHandoffNoActionHistoricalSuffix(lexemes []genericHandoffLexeme, index, end int) bool {
+	// Preserve the exact historical #240 list tail without reopening prose.
+	const suffixLength = 4
+	if index+suffixLength != end {
+		return false
+	}
+	for offset, want := range []string{"after", "the", "smith", "blocker"} {
+		if !genericHandoffWordAt(lexemes, index+offset, want) {
+			return false
+		}
+	}
+	return true
+}
+
+func genericHandoffNoActionItemAt(lexemes []genericHandoffLexeme, index, end int) (int, bool) {
+	if index >= end {
+		return index, false
+	}
+	if mentionEnd, ok := genericHandoffPRMentionAt(lexemes, index); ok && mentionEnd <= end {
+		return mentionEnd, true
+	}
+	if genericHandoffWordAt(lexemes, index, "examiner") && genericHandoffWordAt(lexemes, index+1, "review") && index+2 <= end {
+		return index + 2, true
+	}
+	if !isHandoffNoActionListWord(lexemes[index].word) {
+		return index, false
+	}
+	return index + 1, true
+}
+
+func genericHandoffPRMentionAt(lexemes []genericHandoffLexeme, index int) (int, bool) {
+	if index >= len(lexemes) || lexemes[index].punctuation != 0 {
+		return index, false
+	}
+	if lexemes[index].word == "pr" || lexemes[index].word == "prs" {
+		return index + 1, true
+	}
+	if lexemes[index].word != "pull" || index+1 >= len(lexemes) || lexemes[index+1].punctuation != 0 {
+		return index, false
+	}
+	if lexemes[index+1].word != "request" && lexemes[index+1].word != "requests" {
+		return index, false
+	}
+	return index + 2, true
+}
+
+func genericHandoffWordAt(lexemes []genericHandoffLexeme, index int, word string) bool {
+	return index >= 0 && index < len(lexemes) && lexemes[index].punctuation == 0 && lexemes[index].word == word
+}
+
+func isHandoffActionResult(token string) bool {
+	return token == "attempted" || token == "made" || token == "changed"
+}
+
+func genericHandoffMentionInNoActionClause(mention handoffPRMention, clauses []genericHandoffNoActionParse) bool {
+	for _, clause := range clauses {
+		if mention.start >= clause.start && mention.end <= clause.end {
 			return true
 		}
 	}
 	return false
+}
+
+//nolint:gocognit // Direct no-PR forms are deliberately enumerated at clause boundaries.
+func genericHandoffDirectNoPRMention(lexemes []genericHandoffLexeme, mention handoffPRMention) bool {
+	for _, clause := range genericHandoffClauseRanges(lexemes) {
+		start := genericHandoffClauseStart(lexemes, clause.start, clause.end)
+		if mention.start < start || mention.end > clause.end {
+			continue
+		}
+		if genericHandoffWordAt(lexemes, start, "no") {
+			if mention.start == start+1 && mention.end == clause.end {
+				return true
+			}
+			if mention.start == start+2 && mention.end == clause.end &&
+				(genericHandoffWordAt(lexemes, start+1, "open") || genericHandoffWordAt(lexemes, start+1, "existing") || genericHandoffWordAt(lexemes, start+1, "any")) {
+				return true
+			}
+		}
+		if genericHandoffWordAt(lexemes, start, "without") && mention.start == start+2 && mention.end == clause.end &&
+			(genericHandoffWordAt(lexemes, start+1, "a") || genericHandoffWordAt(lexemes, start+1, "an") || genericHandoffWordAt(lexemes, start+1, "any")) {
+			return true
+		}
+		if genericHandoffWordAt(lexemes, start, "not") && mention.start == start+2 && mention.end == clause.end &&
+			(genericHandoffWordAt(lexemes, start+1, "a") || genericHandoffWordAt(lexemes, start+1, "an")) {
+			return true
+		}
+	}
+	return false
+}
+
+func isHandoffNoActionListWord(token string) bool {
+	switch token {
+	case "implementation", "implementations", "source", "sources", "files", "changes", "change", "diff", "diffs", "tests", "test", "documentation", "docs", "commit", "commits", "push", "pushes", "check", "checks", "challenge", "challenges", "evidence", "record", "records", "evaluation", "evaluations":
+		return true
+	default:
+		return false
+	}
 }
 
 func containsHandoffPRWords(text, phrase string) bool {
