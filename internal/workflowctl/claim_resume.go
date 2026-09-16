@@ -598,7 +598,7 @@ func exactBacktickField(line, prefix string) (string, error) {
 	return value, nil
 }
 
-//nolint:gocognit // Each recorded handoff identity is checked before recovery.
+//nolint:gocognit,funlen // Each recorded handoff identity is checked before recovery.
 func validateClaimResumeHandoffBindings(body string, issue int, expectedHead, fixedBranch, localBranch, root, runID string, lease time.Time) error {
 	if strings.HasPrefix(body, "# Handoff: issue #") {
 		handoff, err := parseIssue305TerminalHandoff(body, issue)
@@ -667,10 +667,18 @@ func validateClaimResumeHandoffBindings(body string, issue int, expectedHead, fi
 	if handoffHasLeaseMarker(body) && len(leases) == 0 {
 		return errors.New("handoff records a malformed lease")
 	}
-	for _, observed := range handoffHeads(body) {
-		if observed != expectedHead {
-			return fmt.Errorf("handoff records head %q, not expected head %s", observed, expectedHead)
+	headBinding := parseHandoffHeadBinding(body)
+	switch headBinding.kind {
+	case handoffHeadAbsent:
+		// The generic handoff head binding is optional when absent.
+	case handoffHeadValid:
+		if headBinding.value != expectedHead {
+			return fmt.Errorf("handoff records head %q, not expected head %s", headBinding.value, expectedHead)
 		}
+	case handoffHeadMalformed:
+		return errors.New("handoff contains a malformed recognized head/SHA/commit label")
+	case handoffHeadAmbiguous:
+		return errors.New("handoff contains ambiguous recognized head/SHA/commit labels")
 	}
 	return nil
 }
@@ -1029,39 +1037,139 @@ func handoffHasLeaseMarker(body string) bool {
 	return false
 }
 
-func handoffHeads(body string) []string {
-	heads := make([]string, 0, 1)
-	appendHead := func(value string) {
-		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
-		if len(value) < 7 || !isHexString(value) {
-			return
-		}
-		heads = append(heads, value)
-	}
+type handoffHeadBindingKind uint8
+
+const (
+	handoffHeadAbsent handoffHeadBindingKind = iota
+	handoffHeadValid
+	handoffHeadMalformed
+	handoffHeadAmbiguous
+)
+
+type handoffHeadBinding struct {
+	kind  handoffHeadBindingKind
+	value string
+}
+
+// parseHandoffHeadBinding reads each recognized generic head label once. It
+// does not combine independent backtick and token scans, so one lexical value
+// cannot be counted twice. A second label or value is ambiguous even when it
+// repeats the same SHA.
+func parseHandoffHeadBinding(body string) handoffHeadBinding {
+	binding := handoffHeadBinding{kind: handoffHeadAbsent}
+	recognized := 0
 	for _, rawLine := range strings.Split(body, "\n") {
 		line := strings.TrimSpace(strings.TrimPrefix(rawLine, "- "))
 		label, found := handoffHeadLabel(line)
 		if !found {
 			continue
 		}
+		recognized++
+		if recognized > 1 {
+			binding.kind = handoffHeadAmbiguous
+			continue
+		}
 		remainder := strings.TrimSpace(line[len(label):])
-		for _, value := range handoffBacktickValues(remainder) {
-			appendHead(value)
+		if strings.HasPrefix(remainder, ":") {
+			remainder = strings.TrimSpace(remainder[1:])
 		}
-		for _, value := range handoffTokens(remainder) {
-			if strings.Contains(value, "-") || strings.Contains(value, "/") {
-				continue
-			}
-			appendHead(value)
-		}
+		value, kind := parseHandoffHeadValue(remainder)
+		binding = handoffHeadBinding{kind: kind, value: value}
 	}
-	return heads
+	if recognized > 1 {
+		binding.kind = handoffHeadAmbiguous
+	}
+	return binding
+}
+
+func parseHandoffHeadValue(remainder string) (string, handoffHeadBindingKind) {
+	if remainder == "" {
+		return "", handoffHeadMalformed
+	}
+	if strings.ContainsAny(remainder, "\r\n") {
+		return "", handoffHeadMalformed
+	}
+	if isHandoffHeadQuote(remainder[0]) {
+		return parseHandoffHeadQuotedValue(remainder)
+	}
+	if strings.ContainsAny(remainder, "`\"'") {
+		return "", handoffHeadMalformed
+	}
+	fields := strings.Fields(remainder)
+	if len(fields) == 0 {
+		return "", handoffHeadMalformed
+	}
+	if len(fields) != 1 {
+		return "", handoffHeadAmbiguous
+	}
+	value := strings.Trim(fields[0], "`\"'()[]{}<>,.;:")
+	return validateHandoffHeadValue(value)
+}
+
+func parseHandoffHeadQuotedValue(remainder string) (string, handoffHeadBindingKind) {
+	quote := remainder[0]
+	closeIndex := strings.IndexByte(remainder[1:], quote)
+	if closeIndex < 0 {
+		return "", handoffHeadMalformed
+	}
+	closeIndex++
+	value := remainder[1:closeIndex]
+	if value == "" || strings.ContainsAny(value, " \t`\"'") {
+		return "", handoffHeadMalformed
+	}
+	if _, kind := validateHandoffHeadValue(value); kind != handoffHeadValid {
+		return "", kind
+	}
+	rawTail := remainder[closeIndex+1:]
+	tail := strings.TrimSpace(rawTail)
+	if tail == "" {
+		return value, handoffHeadValid
+	}
+	tailStart := strings.TrimLeftFunc(rawTail, unicode.IsSpace)
+	if strings.ContainsAny(tail, "`\"'") {
+		return "", handoffHeadAmbiguous
+	}
+	if tailStart == "" || !isHandoffHeadTailPunctuation(tailStart[0]) {
+		return "", handoffHeadMalformed
+	}
+	if strings.Trim(tail, "()[]{}<>,.;:") != "" {
+		return "", handoffHeadAmbiguous
+	}
+	return value, handoffHeadValid
+}
+
+func validateHandoffHeadValue(value string) (string, handoffHeadBindingKind) {
+	if value == "" || !validExactCommitSHA(value) {
+		return "", handoffHeadMalformed
+	}
+	return value, handoffHeadValid
+}
+
+func handoffHeads(body string) []string {
+	binding := parseHandoffHeadBinding(body)
+	if binding.kind != handoffHeadValid {
+		return nil
+	}
+	return []string{binding.value}
+}
+
+func isHandoffHeadQuote(value byte) bool {
+	return value == '`' || value == '"' || value == '\''
+}
+
+func isHandoffHeadTailPunctuation(value byte) bool {
+	return value == '(' || value == ')' || value == '[' || value == ']' || value == '{' || value == '}' ||
+		value == '<' || value == '>' || value == ',' || value == '.' || value == ';' || value == ':' ||
+		value == ' ' || value == '\t'
 }
 
 func handoffHeadLabel(line string) (string, bool) {
 	for _, label := range []string{"expected head", "claim head", "fixed head", "expected sha", "claim sha", "expected commit", "commit sha", "commit-sha", "head", "sha", "commit"} {
-		if len(line) <= len(label) || !strings.EqualFold(line[:len(label)], label) {
+		if len(line) < len(label) || !strings.EqualFold(line[:len(label)], label) {
 			continue
+		}
+		if len(line) == len(label) {
+			return line, true
 		}
 		separator := line[len(label)]
 		if separator == ':' || separator == ' ' || separator == '\t' {

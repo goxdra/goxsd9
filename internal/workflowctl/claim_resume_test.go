@@ -803,6 +803,16 @@ func claimResumeArgs(fixture claimResumeFixture, dryRun bool) []string {
 	return args
 }
 
+func claimResumeGenericHandoffBody(issue int, worktree string) string {
+	return fmt.Sprintf("## Blocker\n\nIssue #%d was claimed in %s.\n\n## Evidence\n\n- Issue #%d remained OPEN in the Roadmap Project.\n- The claim worktree was clean at the final read: %s.\n- No implementation, tests, documentation, commit, push, PR, or evaluation record was made.\n\n## Decisions and risks\n\n- The generated claim is preserved.\n\n## Next action\n\nResume the issue after the blocker is cleared.\n", issue, worktree, issue, worktree)
+}
+
+func addClaimResumeHeadLabel(body, label, value string) string {
+	const marker = "## Next action\n\n"
+	replacement := fmt.Sprintf("- %s: %s\n\n%s", label, value, marker)
+	return strings.Replace(body, marker, replacement, 1)
+}
+
 type claimResumeBackend struct {
 	t                   *testing.T
 	fixture             claimResumeFixture
@@ -833,7 +843,7 @@ func newClaimResumeBackend(t *testing.T, fixture claimResumeFixture) *claimResum
 	claim.CreatedAt = lease.Add(-time.Minute)
 	terminalBody := fixture.handoffBody
 	if terminalBody == "" {
-		terminalBody = fmt.Sprintf("## Blocker\n\nIssue #%d was claimed in %s.\n\n## Evidence\n\n- Issue #%d remained OPEN in the Roadmap Project.\n- The claim worktree was clean at the final read: %s.\n- No implementation, tests, documentation, commit, push, PR, or evaluation record was made.\n\n## Decisions and risks\n\n- The generated claim is preserved.\n\n## Next action\n\nResume the issue after the blocker is cleared.\n", issue, fixture.worktree, issue, fixture.worktree)
+		terminalBody = claimResumeGenericHandoffBody(issue, fixture.worktree)
 	}
 	terminal := issueCommentAPI{ID: fixture.handoff, Body: terminalBody}
 	terminal.User.Login = trustedActor
@@ -1116,6 +1126,118 @@ func TestClaimResumeHandoffBindingsRejectSpoofedTokens(t *testing.T) {
 	}
 	if err := validateTerminalClaimHandoffBody(strings.Replace(valid, "No source or implementation changed", "No source or implementation changed; a PR exists", 1), issue); err == nil {
 		t.Fatal("contradictory PR handoff unexpectedly accepted")
+	}
+}
+
+func TestClaimResumeGenericHandoffHeadAliases(t *testing.T) {
+	const (
+		issue       = 14
+		root        = "/worktrees/issue-14-run-proof"
+		fixedBranch = "agent/issue-14"
+		localBranch = "agent/issue-14-run-proof"
+		runID       = "run-proof"
+		expected    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	lease := time.Date(2026, time.August, 15, 6, 0, 0, 0, time.UTC)
+	base := claimResumeGenericHandoffBody(issue, root)
+	if binding := parseHandoffHeadBinding(base); binding.kind != handoffHeadAbsent {
+		t.Fatalf("absent head binding = %#v, want absent", binding)
+	}
+	for _, label := range []string{
+		"Expected head", "Claim head", "Fixed head", "Expected sha", "Claim sha",
+		"Expected commit", "Commit sha", "commit-sha", "head", "sha", "commit",
+	} {
+		t.Run(label, func(t *testing.T) {
+			body := addClaimResumeHeadLabel(base, label, "`"+expected+"`.")
+			binding := parseHandoffHeadBinding(body)
+			if binding.kind != handoffHeadValid || binding.value != expected {
+				t.Fatalf("%s binding = %#v, want valid %s", label, binding, expected)
+			}
+			if heads := handoffHeads(body); len(heads) != 1 || heads[0] != expected {
+				t.Fatalf("%s heads = %#v, want one %s", label, heads, expected)
+			}
+			if err := validateClaimResumeHandoffBindings(body, issue, expected, fixedBranch, localBranch, root, runID, lease); err != nil {
+				t.Fatalf("%s handoff binding: %v", label, err)
+			}
+		})
+	}
+}
+
+func TestClaimResumeGenericHandoffHeadBindingStates(t *testing.T) {
+	const (
+		issue    = 14
+		root     = "/worktrees/issue-14-run-proof"
+		expected = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	base := claimResumeGenericHandoffBody(issue, root)
+	tests := []struct {
+		name  string
+		value string
+		kind  handoffHeadBindingKind
+	}{
+		{name: "empty", value: "", kind: handoffHeadMalformed},
+		{name: "non-hex", value: "`not-a-sha`.", kind: handoffHeadMalformed},
+		{name: "short", value: "`bbbbbbb`.", kind: handoffHeadMalformed},
+		{name: "extra byte", value: "`" + expected + "0`.", kind: handoffHeadMalformed},
+		{name: "unmatched quoting", value: "`" + expected + ".", kind: handoffHeadMalformed},
+		{name: "multiple values", value: "`" + expected + "` `" + expected + "`.", kind: handoffHeadAmbiguous},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := addClaimResumeHeadLabel(base, "Expected head", test.value)
+			if binding := parseHandoffHeadBinding(body); binding.kind != test.kind {
+				t.Fatalf("binding = %#v, want kind %d", binding, test.kind)
+			}
+		})
+	}
+	repeated := addClaimResumeHeadLabel(base, "Expected head", "`"+expected+"`.")
+	repeated = addClaimResumeHeadLabel(repeated, "Claim head", "`"+expected+"`.")
+	if binding := parseHandoffHeadBinding(repeated); binding.kind != handoffHeadAmbiguous {
+		t.Fatalf("repeated binding = %#v, want ambiguous", binding)
+	}
+}
+
+//nolint:gocognit // Each malformed/ambiguous lexical class proves the same injected pre-mutation boundary.
+func TestClaimResumeGenericHandoffHeadRejectionsHaveZeroMutation(t *testing.T) {
+	const expectedLabel = "Expected head"
+	tests := []struct {
+		name      string
+		withValue func(expected string) string
+		repeat    bool
+	}{
+		{name: "empty", withValue: func(string) string { return "" }},
+		{name: "non-hex", withValue: func(string) string { return "`not-a-sha`." }},
+		{name: "short", withValue: func(string) string { return "`bbbbbbb`." }},
+		{name: "extra byte", withValue: func(expected string) string { return "`" + expected + "0`." }},
+		{name: "unmatched quoting", withValue: func(expected string) string { return "`" + expected + "." }},
+		{name: "multiple values", withValue: func(expected string) string { return "`" + expected + "` `" + expected + "`." }},
+		{name: "repeated labels", repeat: true, withValue: func(expected string) string { return "`" + expected + "`." }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newClaimResumeFixture(t)
+			fixture.handoffBody = addClaimResumeHeadLabel(claimResumeGenericHandoffBody(fixture.issue, fixture.worktree), expectedLabel, test.withValue(fixture.expected))
+			if test.repeat {
+				fixture.handoffBody = addClaimResumeHeadLabel(fixture.handoffBody, "Claim head", test.withValue(fixture.expected))
+			}
+			backend := newClaimResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			localBefore := runGitTest(t, fixture.worktree, "rev-parse", "refs/heads/"+claimLocalBranch(fixture.issue, fixture.runID))
+			remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue))
+			err := application.run(claimResumeArgs(fixture, true))
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+				t.Fatalf("head rejection error = %v, disposition %d, want terminal", err, operationDispositionOf(err))
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("head rejection mutations = %d, want zero", backend.mutations)
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "refs/heads/"+claimLocalBranch(fixture.issue, fixture.runID)); got != localBefore {
+				t.Fatalf("head rejection moved local ref from %s to %s", localBefore, got)
+			}
+			if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue)); got != remoteBefore {
+				t.Fatalf("head rejection moved remote ref from %q to %q", remoteBefore, got)
+			}
+		})
 	}
 }
 
