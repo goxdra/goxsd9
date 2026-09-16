@@ -1471,10 +1471,12 @@ type handoffPRMention struct {
 	end   int
 }
 
+const genericHandoffClauseBreakToken = "handoffclausebreak"
+
 func validateGenericHandoffPRGrammar(body string) error {
 	negative := false
 	for _, paragraph := range strings.Split(body, "\n\n") {
-		tokens := handoffPRProseTokens(paragraph)
+		tokens := genericHandoffPRProseTokens(paragraph)
 		mentions := handoffPRMentions(tokens)
 		if len(mentions) == 0 {
 			continue
@@ -1496,6 +1498,36 @@ func validateGenericHandoffPRGrammar(body string) error {
 		return errors.New("body lacks an explicit no-PR statement")
 	}
 	return nil
+}
+
+func genericHandoffPRProseTokens(body string) []string {
+	// Keep clause punctuation visible to the no-action grammar; commas remain list separators.
+	var prose strings.Builder
+	prose.Grow(len(body))
+	for _, value := range body {
+		switch value {
+		case ';', ':', '.', '!', '?':
+			prose.WriteByte(' ')
+			prose.WriteString(genericHandoffClauseBreakToken)
+			prose.WriteByte(' ')
+		default:
+			prose.WriteRune(value)
+		}
+	}
+	return normalizeGenericHandoffPRCompound(handoffPRProseTokens(prose.String()))
+}
+
+func normalizeGenericHandoffPRCompound(tokens []string) []string {
+	normalized := make([]string, 0, len(tokens))
+	for index := 0; index < len(tokens); index++ {
+		if index+2 < len(tokens) && tokens[index] == "p" && tokens[index+1] == genericHandoffClauseBreakToken && tokens[index+2] == "r" {
+			normalized = append(normalized, "pr")
+			index += 2
+			continue
+		}
+		normalized = append(normalized, tokens[index])
+	}
+	return normalized
 }
 
 func handoffPRMentions(tokens []string) []handoffPRMention {
@@ -1546,7 +1578,12 @@ func genericHandoffNegativePR(tokens []string, mention handoffPRMention) bool {
 }
 
 func genericHandoffNoPRAtParagraphEnd(tokens []string, end int) bool {
-	return end == len(tokens)
+	for _, token := range tokens[end:] {
+		if token != genericHandoffClauseBreakToken {
+			return false
+		}
+	}
+	return true
 }
 
 func genericHandoffNoActionMention(tokens []string, mention handoffPRMention) bool {
@@ -1560,12 +1597,28 @@ func genericHandoffNoActionMention(tokens []string, mention handoffPRMention) bo
 }
 
 func hasGenericHandoffNoActionHead(tokens []string, end int) bool {
-	for index := 0; index+1 < end; index++ {
-		if tokens[index] == "no" && (tokens[index+1] == "implementation" || tokens[index+1] == "source") {
+	for index := end - 2; index >= 0; index-- {
+		if tokens[index] != "no" || !isHandoffNoActionListWord(tokens[index+1]) {
+			continue
+		}
+		if genericHandoffNoActionListPrefix(tokens, index+2, end) {
 			return true
 		}
 	}
 	return false
+}
+
+func genericHandoffNoActionListPrefix(tokens []string, start, end int) bool {
+	if start >= end {
+		return true
+	}
+	for _, token := range tokens[start:end] {
+		if isHandoffNoActionListWord(token) || token == "and" || token == "or" || token == "nor" {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func genericHandoffNoActionSequence(tokens []string, start int) bool {
@@ -2205,14 +2258,16 @@ func (a app) reconcileClaimResumeIssue(proof claimResumeProof, renewal claimResu
 		return nil
 	}
 	if err := a.setProjectField(proof.preflight.root, target.item.ID, "Status", "Picked"); err != nil {
-		items, readErr := a.projectItems(proof.preflight.root)
+		latest, readErr := a.readClaimResumeReconciliationTarget(state.afterLabel())
 		if readErr == nil {
-			latest, itemErr := canonicalClaimResumeProjectItem(items, proof.preflight.issue)
-			if itemErr == nil && latest.ID == proof.preflight.projectItemID && latest.Status == "Picked" {
+			if !issueNeedsHuman(latest.status) && latest.item.Status == "Picked" {
 				return nil
 			}
-			if itemErr != nil {
-				return itemErr
+			if issueNeedsHuman(latest.status) {
+				readErr = stateError("issue #%d still has needs-human; Project status will not be changed", proof.preflight.issue)
+			}
+			if readErr == nil {
+				readErr = stateError("issue #%d Project Picked response was not verified; preserve renewed artifacts", proof.preflight.issue)
 			}
 		}
 		return claimResumeMutationFailure(proof, "Project Picked", err, readErr)
