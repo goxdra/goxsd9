@@ -491,6 +491,9 @@ func TestClaimResumeGenericPRLifecycleNegativesHaveZeroMutation(t *testing.T) {
 		{name: "merged closed PR", text: "No PR was merged during retry."},
 		{name: "submitted", text: "No PR was submitted during retry."},
 		{name: "open", text: "No PR was open during retry."},
+		{name: "positive PR after attempted implementation", text: "No implementation was attempted; a review, PR and check were made."},
+		{name: "positive PR after implementation clause", text: "No implementation; review, PR and check were made."},
+		{name: "positive pull request after changed source", text: "No source was changed, but a review and pull request were made."},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newClaimResumeFixture(t)
@@ -498,12 +501,20 @@ func TestClaimResumeGenericPRLifecycleNegativesHaveZeroMutation(t *testing.T) {
 			backend := newClaimResumeBackend(t, fixture)
 			backend.openPR = false
 			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			localBefore := runGitTest(t, fixture.worktree, "rev-parse", "refs/heads/"+claimLocalBranch(fixture.issue, fixture.runID))
+			remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue))
 			err := application.run(claimResumeArgs(fixture, true))
 			if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
 				t.Fatalf("%s generic lifecycle error = %v, disposition %d, want terminal", test.name, err, operationDispositionOf(err))
 			}
 			if backend.mutations != 0 {
 				t.Fatalf("%s generic lifecycle mutations = %d, want zero", test.name, backend.mutations)
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "refs/heads/"+claimLocalBranch(fixture.issue, fixture.runID)); got != localBefore {
+				t.Fatalf("%s moved local ref from %s to %s", test.name, localBefore, got)
+			}
+			if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue)); got != remoteBefore {
+				t.Fatalf("%s moved remote ref from %q to %q", test.name, remoteBefore, got)
 			}
 		})
 	}
@@ -586,6 +597,39 @@ func TestClaimResumeInjectedIntegration(t *testing.T) {
 		}
 		assertClaimResumeRenewed(t, fixture, backend)
 	})
+
+	for _, test := range []struct {
+		name string
+		set  func(*claimResumeBackend)
+		want string
+	}{
+		{name: "needs-human label re-addition", set: func(backend *claimResumeBackend) {
+			backend.ambiguousProject = true
+			backend.raceNeedsHumanAfterProject = true
+		}, want: "still has needs-human"},
+		{name: "open PR appears", set: func(backend *claimResumeBackend) {
+			backend.ambiguousProject = true
+			backend.raceOpenPRAfterProject = true
+		}, want: "open PR"},
+	} {
+		t.Run("ambiguous Project response rereads "+test.name, func(t *testing.T) {
+			fixture := newClaimResumeFixture(t)
+			backend := newClaimResumeBackend(t, fixture)
+			test.set(backend)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			err := application.run(claimResumeArgs(fixture, false))
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ambiguous Project race error = %v, disposition %d, want terminal %q", err, operationDispositionOf(err), test.want)
+			}
+			assertClaimResumeRenewalArtifacts(t, fixture)
+			if len(claimResumeGitHubMutations(backend.calls)) != 2 {
+				t.Fatalf("ambiguous Project race GitHub mutations = %v, want label and Project edits only", claimResumeGitHubMutations(backend.calls))
+			}
+			if backend.projectStatus != "Picked" {
+				t.Fatalf("ambiguous Project race Project status = %s, want Picked", backend.projectStatus)
+			}
+		})
+	}
 
 	t.Run("transient label failure remains retryable", func(t *testing.T) {
 		fixture := newClaimResumeFixture(t)
@@ -823,23 +867,25 @@ func genericHandoffHeadLabelsForTest() []string {
 }
 
 type claimResumeBackend struct {
-	t                   *testing.T
-	fixture             claimResumeFixture
-	comments            []issueCommentAPI
-	needsHuman          bool
-	projectStatus       string
-	openPR              bool
-	ambiguousPush       bool
-	ambiguousLabel      bool
-	ambiguousProject    bool
-	malformedRemoteRefs bool
-	malformedIssue      bool
-	freshProofFailure   error
-	raceOpenPR          bool
-	raceProjectPicked   bool
-	labelFailure        error
-	mutations           int
-	calls               []string
+	t                          *testing.T
+	fixture                    claimResumeFixture
+	comments                   []issueCommentAPI
+	needsHuman                 bool
+	projectStatus              string
+	openPR                     bool
+	ambiguousPush              bool
+	ambiguousLabel             bool
+	ambiguousProject           bool
+	malformedRemoteRefs        bool
+	malformedIssue             bool
+	freshProofFailure          error
+	raceOpenPR                 bool
+	raceProjectPicked          bool
+	raceNeedsHumanAfterProject bool
+	raceOpenPRAfterProject     bool
+	labelFailure               error
+	mutations                  int
+	calls                      []string
 }
 
 func newClaimResumeBackend(t *testing.T, fixture claimResumeFixture) *claimResumeBackend {
@@ -949,11 +995,21 @@ func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 		b.projectStatus = "Picked"
 		if b.ambiguousProject {
 			b.ambiguousProject = false
+			b.applyProjectResponseRaces()
 			return "", errors.New("simulated lost Project response")
 		}
 		return "", nil
 	default:
 		return "", fmt.Errorf("unexpected gh command: %s", joined)
+	}
+}
+
+func (b *claimResumeBackend) applyProjectResponseRaces() {
+	if b.raceNeedsHumanAfterProject {
+		b.needsHuman = true
+	}
+	if b.raceOpenPRAfterProject {
+		b.openPR = true
 	}
 }
 
@@ -989,6 +1045,14 @@ func claimResumeGitHubMutations(calls []string) []string {
 
 func assertClaimResumeRenewed(t *testing.T, fixture claimResumeFixture, backend *claimResumeBackend) {
 	t.Helper()
+	assertClaimResumeRenewalArtifacts(t, fixture)
+	if backend.needsHuman || backend.projectStatus != "Picked" {
+		t.Fatalf("reconciled state = needs-human %t, Project %s", backend.needsHuman, backend.projectStatus)
+	}
+}
+
+func assertClaimResumeRenewalArtifacts(t *testing.T, fixture claimResumeFixture) {
+	t.Helper()
 	head := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
 	if head == fixture.expected {
 		t.Fatal("claim resume did not create a renewal child")
@@ -999,11 +1063,8 @@ func assertClaimResumeRenewed(t *testing.T, fixture claimResumeFixture, backend 
 	if got, want := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^{tree}"), runGitTest(t, fixture.worktree, "rev-parse", "HEAD^^{tree}"); got != want {
 		t.Fatalf("renewal tree = %s, want %s", got, want)
 	}
-	if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/agent/issue-14"); !strings.HasPrefix(got, head+"\t") {
+	if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue)); !strings.HasPrefix(got, head+"\t") {
 		t.Fatalf("remote fixed branch = %q, want %s", got, head)
-	}
-	if backend.needsHuman || backend.projectStatus != "Picked" {
-		t.Fatalf("reconciled state = needs-human %t, Project %s", backend.needsHuman, backend.projectStatus)
 	}
 }
 
