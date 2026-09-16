@@ -583,44 +583,56 @@ func TestClaimResumeInjectedIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("existing renewal malformed labels stop before reconciliation", func(t *testing.T) {
-		fixture := newClaimResumeFixture(t)
-		backend := newClaimResumeBackend(t, fixture)
-		application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
-		if err := application.run(claimResumeArgs(fixture, false)); err != nil {
-			t.Fatalf("first claim resume: %v", err)
-		}
-		assertClaimResumeRenewed(t, fixture, backend)
-		localBefore := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
-		remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue))
-		mutationsBefore := backend.mutations
-		needsHumanBefore := backend.needsHuman
-		projectStatusBefore := backend.projectStatus
-		callsBefore := len(backend.calls)
-		backend.malformedIssueLabels = true
-		err := application.run(claimResumeArgs(fixture, false))
-		if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
-			t.Fatalf("malformed renewal label error = %v, disposition %d; want terminal", err, operationDispositionOf(err))
-		}
-		if backend.mutations != mutationsBefore {
-			t.Fatalf("malformed renewal label mutations = %d, want unchanged %d", backend.mutations, mutationsBefore)
-		}
-		if backend.needsHuman != needsHumanBefore || backend.projectStatus != projectStatusBefore {
-			t.Fatalf("malformed renewal label external state = needs-human %t, Project %s; want needs-human %t, Project %s", backend.needsHuman, backend.projectStatus, needsHumanBefore, projectStatusBefore)
-		}
-		for _, call := range backend.calls[callsBefore:] {
-			if strings.HasPrefix(call, "git commit-tree ") || strings.HasPrefix(call, "git update-ref ") ||
-				strings.HasPrefix(call, "git push ") || strings.HasPrefix(call, "gh issue edit ") || strings.Contains(call, "gh project item-edit") {
-				t.Fatalf("malformed renewal label reached mutation %q", call)
+	for _, test := range []struct {
+		name   string
+		labels string
+	}{
+		{name: "null element", labels: `[null]`},
+		{name: "empty object", labels: `[{}]`},
+		{name: "null name", labels: `[{"name":null}]`},
+		{name: "blank name", labels: `[{"name":" "}]`},
+		{name: "scalar element", labels: `[1]`},
+		{name: "non-string name", labels: `[{"name":1}]`},
+	} {
+		t.Run("existing renewal malformed labels stop before reconciliation/"+test.name, func(t *testing.T) {
+			fixture := newClaimResumeFixture(t)
+			backend := newClaimResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			if err := application.run(claimResumeArgs(fixture, false)); err != nil {
+				t.Fatalf("first claim resume: %v", err)
 			}
-		}
-		if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != localBefore {
-			t.Fatalf("malformed renewal label moved local head from %s to %s", localBefore, got)
-		}
-		if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue)); got != remoteBefore {
-			t.Fatalf("malformed renewal label moved remote head from %q to %q", remoteBefore, got)
-		}
-	})
+			assertClaimResumeRenewed(t, fixture, backend)
+			localBefore := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+			remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue))
+			mutationsBefore := backend.mutations
+			needsHumanBefore := backend.needsHuman
+			projectStatusBefore := backend.projectStatus
+			callsBefore := len(backend.calls)
+			backend.malformedIssueLabels = test.labels
+			err := application.run(claimResumeArgs(fixture, false))
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+				t.Fatalf("malformed renewal label error = %v, disposition %d; want terminal", err, operationDispositionOf(err))
+			}
+			if backend.mutations != mutationsBefore {
+				t.Fatalf("malformed renewal label mutations = %d, want unchanged %d", backend.mutations, mutationsBefore)
+			}
+			if backend.needsHuman != needsHumanBefore || backend.projectStatus != projectStatusBefore {
+				t.Fatalf("malformed renewal label external state = needs-human %t, Project %s; want needs-human %t, Project %s", backend.needsHuman, backend.projectStatus, needsHumanBefore, projectStatusBefore)
+			}
+			for _, call := range backend.calls[callsBefore:] {
+				if strings.HasPrefix(call, "git commit-tree ") || strings.HasPrefix(call, "git update-ref ") ||
+					strings.HasPrefix(call, "git push ") || strings.HasPrefix(call, "gh issue edit ") || strings.Contains(call, "gh project item-edit") {
+					t.Fatalf("malformed renewal label reached mutation %q", call)
+				}
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != localBefore {
+				t.Fatalf("malformed renewal label moved local head from %s to %s", localBefore, got)
+			}
+			if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue)); got != remoteBefore {
+				t.Fatalf("malformed renewal label moved remote head from %q to %q", remoteBefore, got)
+			}
+		})
+	}
 
 	t.Run("ambiguous push response converges", func(t *testing.T) {
 		fixture := newClaimResumeFixture(t)
@@ -928,7 +940,7 @@ type claimResumeBackend struct {
 	ambiguousProject           bool
 	malformedRemoteRefs        bool
 	malformedIssue             bool
-	malformedIssueLabels       bool
+	malformedIssueLabels       string
 	freshProofFailure          error
 	raceOpenPR                 bool
 	raceProjectPicked          bool
@@ -1000,8 +1012,8 @@ func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 		if b.malformedIssue {
 			return "{", nil
 		}
-		if b.malformedIssueLabels {
-			return `{"state":"open","labels":[null]}`, nil
+		if b.malformedIssueLabels != "" {
+			return `{"state":"open","labels":` + b.malformedIssueLabels + `}`, nil
 		}
 		if b.freshProofFailure != nil && b.issueStatusReads() == 2 {
 			err := b.freshProofFailure
