@@ -1145,14 +1145,6 @@ func validateHandoffHeadValue(value string) (string, handoffHeadBindingKind) {
 	return value, handoffHeadValid
 }
 
-func handoffHeads(body string) []string {
-	binding := parseHandoffHeadBinding(body)
-	if binding.kind != handoffHeadValid {
-		return nil
-	}
-	return []string{binding.value}
-}
-
 func isHandoffHeadQuote(value byte) bool {
 	return value == '`' || value == '"' || value == '\''
 }
@@ -1164,7 +1156,12 @@ func isHandoffHeadTailPunctuation(value byte) bool {
 }
 
 func handoffHeadLabel(line string) (string, bool) {
-	for _, label := range []string{"expected head", "claim head", "fixed head", "expected sha", "claim sha", "expected commit", "commit sha", "commit-sha", "head", "sha", "commit"} {
+	for _, label := range []string{
+		"expected head", "claim head", "fixed head",
+		"expected sha", "claim sha", "fixed sha",
+		"expected commit", "claim commit", "fixed commit",
+		"commit sha", "commit-sha", "head", "sha", "commit",
+	} {
 		if len(line) < len(label) || !strings.EqualFold(line[:len(label)], label) {
 			continue
 		}

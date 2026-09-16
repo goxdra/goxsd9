@@ -813,6 +813,15 @@ func addClaimResumeHeadLabel(body, label, value string) string {
 	return strings.Replace(body, marker, replacement, 1)
 }
 
+func genericHandoffHeadLabelsForTest() []string {
+	return []string{
+		"Expected head", "Claim head", "Fixed head",
+		"Expected sha", "Claim sha", "Fixed sha",
+		"Expected commit", "Claim commit", "Fixed commit",
+		"Commit sha", "commit-sha", "head", "sha", "commit",
+	}
+}
+
 type claimResumeBackend struct {
 	t                   *testing.T
 	fixture             claimResumeFixture
@@ -1143,27 +1152,25 @@ func TestClaimResumeGenericHandoffHeadAliases(t *testing.T) {
 	if binding := parseHandoffHeadBinding(base); binding.kind != handoffHeadAbsent {
 		t.Fatalf("absent head binding = %#v, want absent", binding)
 	}
-	for _, label := range []string{
-		"Expected head", "Claim head", "Fixed head", "Expected sha", "Claim sha",
-		"Expected commit", "Commit sha", "commit-sha", "head", "sha", "commit",
-	} {
+	for _, label := range genericHandoffHeadLabelsForTest() {
 		t.Run(label, func(t *testing.T) {
 			body := addClaimResumeHeadLabel(base, label, "`"+expected+"`.")
 			binding := parseHandoffHeadBinding(body)
 			if binding.kind != handoffHeadValid || binding.value != expected {
 				t.Fatalf("%s binding = %#v, want valid %s", label, binding, expected)
 			}
-			if heads := handoffHeads(body); len(heads) != 1 || heads[0] != expected {
-				t.Fatalf("%s heads = %#v, want one %s", label, heads, expected)
-			}
 			if err := validateClaimResumeHandoffBindings(body, issue, expected, fixedBranch, localBranch, root, runID, lease); err != nil {
 				t.Fatalf("%s handoff binding: %v", label, err)
 			}
 		})
 	}
+	unquoted := addClaimResumeHeadLabel(base, "Expected head", expected+".")
+	if binding := parseHandoffHeadBinding(unquoted); binding.kind != handoffHeadValid || binding.value != expected {
+		t.Fatalf("unquoted binding = %#v, want valid %s", binding, expected)
+	}
 }
 
-func TestClaimResumeGenericHandoffHeadBindingStates(t *testing.T) {
+func TestClaimResumeGenericHandoffMalformedHeadAliases(t *testing.T) {
 	const (
 		issue    = 14
 		root     = "/worktrees/issue-14-run-proof"
@@ -1173,14 +1180,40 @@ func TestClaimResumeGenericHandoffHeadBindingStates(t *testing.T) {
 	tests := []struct {
 		name  string
 		value string
+	}{
+		{name: "empty", value: ""},
+		{name: "non-hex", value: "`not-a-sha`."},
+		{name: "short", value: "`bbbbbbb`."},
+		{name: "extra byte", value: "`" + expected + "0`."},
+	}
+	for _, label := range genericHandoffHeadLabelsForTest() {
+		for _, test := range tests {
+			t.Run(label+"/"+test.name, func(t *testing.T) {
+				body := addClaimResumeHeadLabel(base, label, test.value)
+				if binding := parseHandoffHeadBinding(body); binding.kind != handoffHeadMalformed {
+					t.Fatalf("binding = %#v, want malformed", binding)
+				}
+			})
+		}
+	}
+}
+
+func TestClaimResumeGenericHandoffAmbiguousHeadBindings(t *testing.T) {
+	const (
+		issue    = 14
+		root     = "/worktrees/issue-14-run-proof"
+		expected = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		other    = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	base := claimResumeGenericHandoffBody(issue, root)
+	tests := []struct {
+		name  string
+		value string
 		kind  handoffHeadBindingKind
 	}{
-		{name: "empty", value: "", kind: handoffHeadMalformed},
-		{name: "non-hex", value: "`not-a-sha`.", kind: handoffHeadMalformed},
-		{name: "short", value: "`bbbbbbb`.", kind: handoffHeadMalformed},
-		{name: "extra byte", value: "`" + expected + "0`.", kind: handoffHeadMalformed},
 		{name: "unmatched quoting", value: "`" + expected + ".", kind: handoffHeadMalformed},
-		{name: "multiple values", value: "`" + expected + "` `" + expected + "`.", kind: handoffHeadAmbiguous},
+		{name: "multiple identical values", value: "`" + expected + "` `" + expected + "`.", kind: handoffHeadAmbiguous},
+		{name: "multiple distinct values", value: "`" + expected + "` `" + other + "`.", kind: handoffHeadAmbiguous},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1193,32 +1226,47 @@ func TestClaimResumeGenericHandoffHeadBindingStates(t *testing.T) {
 	repeated := addClaimResumeHeadLabel(base, "Expected head", "`"+expected+"`.")
 	repeated = addClaimResumeHeadLabel(repeated, "Claim head", "`"+expected+"`.")
 	if binding := parseHandoffHeadBinding(repeated); binding.kind != handoffHeadAmbiguous {
-		t.Fatalf("repeated binding = %#v, want ambiguous", binding)
+		t.Fatalf("repeated identical binding = %#v, want ambiguous", binding)
+	}
+	repeated = addClaimResumeHeadLabel(base, "Expected head", "`"+expected+"`.")
+	repeated = addClaimResumeHeadLabel(repeated, "Claim head", "`"+other+"`.")
+	if binding := parseHandoffHeadBinding(repeated); binding.kind != handoffHeadAmbiguous {
+		t.Fatalf("repeated distinct binding = %#v, want ambiguous", binding)
 	}
 }
 
 //nolint:gocognit // Each malformed/ambiguous lexical class proves the same injected pre-mutation boundary.
 func TestClaimResumeGenericHandoffHeadRejectionsHaveZeroMutation(t *testing.T) {
 	const expectedLabel = "Expected head"
+	const other = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	tests := []struct {
-		name      string
-		withValue func(expected string) string
-		repeat    bool
+		name        string
+		withValue   func(expected string) string
+		repeat      bool
+		repeatValue func(expected string) string
 	}{
 		{name: "empty", withValue: func(string) string { return "" }},
 		{name: "non-hex", withValue: func(string) string { return "`not-a-sha`." }},
 		{name: "short", withValue: func(string) string { return "`bbbbbbb`." }},
 		{name: "extra byte", withValue: func(expected string) string { return "`" + expected + "0`." }},
 		{name: "unmatched quoting", withValue: func(expected string) string { return "`" + expected + "." }},
-		{name: "multiple values", withValue: func(expected string) string { return "`" + expected + "` `" + expected + "`." }},
-		{name: "repeated labels", repeat: true, withValue: func(expected string) string { return "`" + expected + "`." }},
+		{name: "multiple identical values", withValue: func(expected string) string { return "`" + expected + "` `" + expected + "`." }},
+		{name: "multiple distinct values", withValue: func(expected string) string { return "`" + expected + "` `" + other + "`." }},
+		{name: "repeated identical labels", repeat: true, withValue: func(expected string) string { return "`" + expected + "`." }},
+		{name: "repeated distinct labels", repeat: true,
+			withValue:   func(expected string) string { return "`" + expected + "`." },
+			repeatValue: func(string) string { return "`" + other + "`." }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newClaimResumeFixture(t)
 			fixture.handoffBody = addClaimResumeHeadLabel(claimResumeGenericHandoffBody(fixture.issue, fixture.worktree), expectedLabel, test.withValue(fixture.expected))
 			if test.repeat {
-				fixture.handoffBody = addClaimResumeHeadLabel(fixture.handoffBody, "Claim head", test.withValue(fixture.expected))
+				repeatValue := test.withValue(fixture.expected)
+				if test.repeatValue != nil {
+					repeatValue = test.repeatValue(fixture.expected)
+				}
+				fixture.handoffBody = addClaimResumeHeadLabel(fixture.handoffBody, "Claim head", repeatValue)
 			}
 			backend := newClaimResumeBackend(t, fixture)
 			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
