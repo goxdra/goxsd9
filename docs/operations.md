@@ -25,10 +25,12 @@ Backlog. Write blocker/evidence Markdown, then run
 OPEN plus Project identity, applies `needs-human`/Backlog, and posts last.
 Reread incomplete or ambiguous phases before retrying.
 Claim resume binds exact handoff/comment/run/head, expired claim, no PR, Project
-identity/status, and a unique clean/unlocked same-run worktree. Claim/renewal
-markers are exact-message single-parent empty commits; source-bearing/merge
-commits and malformed ref namespaces are terminal. Require `refs/heads/` for
-remote and `origin/` for tracking refs. Keep `needs-human` until renewal
+identity/status, and a unique clean/unlocked same-run worktree. Generic handoffs
+may omit head/SHA/commit labels; labels must carry one full 40-hex expected SHA;
+malformed/ambiguous labels are terminal before mutation.
+Claim/renewal markers are exact-message single-parent empty commits;
+source-bearing/merge commits and malformed ref namespaces are terminal. Require
+`refs/heads/` for remote and `origin/` for tracking refs. Keep `needs-human` until renewal
 verification, then converge to Project `Picked`. Initial resume requires
 OPEN+needs-human+Backlog before mutation; only a verified renewal child permits
 idempotent convergence from Backlog/Picked even with the label removed.

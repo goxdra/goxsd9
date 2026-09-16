@@ -14,9 +14,11 @@ worktree, and no open fixed-branch PR before mutation. Claim and renewal
 markers must be generated empty single-parent commits with exact raw message /
 trailers; source-bearing and merge commits are terminal. Preserve and reject
 dirty, detached, locked, duplicate, ambiguous, malformed, moved, or untrusted
-artifacts without mutation. Exact issue/path/run/lease/fixed/local/head tokens
-must be checked when present in evidence; token substrings and contradictory
-prose never authenticate a handoff.
+artifacts without mutation. Exact issue/path/run/lease/fixed/local tokens must
+be checked when present in evidence; a generic handoff may omit head/SHA/commit
+labels, but any present recognized label must carry one full 40-hex expected SHA.
+Malformed or ambiguous labels are terminal before mutation; token substrings and
+contradictory prose never authenticate a handoff.
 
 The reusable matrix accepts authentic terminal handoffs, blocks missing terminal
 evidence, and fails closed while preserving dirty or ambiguous artifacts. Ordinary
