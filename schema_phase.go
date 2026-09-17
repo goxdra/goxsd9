@@ -4899,7 +4899,7 @@ func isSupportedDirectAnyParticleFacts(namespace, processContents string) bool {
 		namespace == "##any" && processContents == "skip" ||
 		namespace == "##other" && processContents == "lax" ||
 		namespace == "##other" && processContents == "strict" ||
-		isPositiveWildcardNamespace(namespace) && (processContents == "strict" || processContents == "lax")
+		isPositiveWildcardNamespace(namespace) && (processContents == "strict" || processContents == "lax" || processContents == "skip")
 }
 
 func isPositiveWildcardNamespace(namespace string) bool {
