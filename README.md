@@ -8,8 +8,8 @@ goxsd9 parses/validates/generates Go; unsupported remains explicit.
 
 XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Complexes: element-only/model-group refs/bounded attribute-free extensions; model-less extensions over completed named empty-content bases: nil/no-synthetic-particle; bounded/representable inherited `##other`/lax wildcards. `defaultAttributesApply`: named globals under XSD 1.1/Compatibility.
 `openContent mode="none"`: supports globals/bounded extensions under Compatibility/Strict11; Strict10 mismatches. Other forms unsupported; malformed=invalid.
-Direct `xs:any` supports `##any`/strict, `##any`/lax, `##any`/skip, `##other`/lax, `##other`/strict, and strict-only positive namespace forms (`##local`, `##targetNamespace`, URI lists). `anyAttribute` defaults `##any`/strict; sequence/choice supports `##any`/lax (omitted/explicit), `##any`/skip (namespace=omitted/explicit; processContents=explicit), `##other`/lax, `##other`/strict; locations preserved.
-Top-level direct model-group refs and named-global groups' direct choice/sequence reference particles queryable; nested/other group shapes unsupported. Explicitly typed built-in or supported named
+`xs:any` supports `##any`/strict, `##any`/lax, `##any`/skip, `##other`/lax, `##other`/strict, and strict-only positive namespace forms (`##local`, `##targetNamespace`, URI lists). `anyAttribute` defaults `##any`/strict; sequence/choice: `##any`/lax (omitted/explicit), `##any`/skip (namespace=omitted/explicit; processContents=explicit), `##other`/lax, `##other`/strict, explicit `##other`/skip; locations preserved.
+Top-level model-group refs and named-global groups' direct choice/sequence reference particles queryable; nested/other group shapes unsupported. Typed built-in or supported named
 `xs:token`/`xs:NMTOKEN` refs in supported direct shapes are modeled; local inline/value/default/fixed/attribute/broader shapes unsupported; ValidateInstance/GenerateGo reject; global token/NMTOKEN scalars generate.
 
 `abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. [ARCHITECTURE.md](ARCHITECTURE.md).

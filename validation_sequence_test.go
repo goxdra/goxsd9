@@ -576,6 +576,10 @@ func TestValidateInstanceKeepsDirectSequenceExclusionsExplicit(t *testing.T) {
 			name: "skip any attribute wildcard",
 			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:anyAttribute processContents="skip"/></xs:complexType>`,
 		},
+		{
+			name: "other skip attribute wildcard",
+			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:anyAttribute processContents="skip" namespace="##other"/></xs:complexType>`,
+		},
 	}
 	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
 		t.Run(string(policy), func(t *testing.T) {

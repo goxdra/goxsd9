@@ -2014,7 +2014,7 @@ func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAn
 	}
 	if (processContents == "strict" && (namespace == "##any" || namespace == "##other")) ||
 		(processContents == "lax" && namespace == "##any") ||
-		(processContents == "skip" && namespace == "##any") {
+		(processContents == "skip" && (namespace == "##any" || namespace == "##other")) {
 		return &schemaAnyAttributeInput{
 			loc:                wildcard.loc,
 			namespace:          namespace,

@@ -505,6 +505,7 @@ func TestPlanCodegenDirectChoicesRejectsAttributeWildcardAcrossEditions(t *testi
 		{name: "explicit_any_lax", attributes: ` processContents="lax" namespace="##any"`},
 		{name: "omitted_namespace_skip", attributes: ` processContents="skip"`},
 		{name: "explicit_any_skip_reversed", attributes: ` processContents="skip" namespace="##any"`},
+		{name: "explicit_other_skip_reversed", attributes: ` processContents="skip" namespace="##other"`},
 	}
 	for _, test := range []struct {
 		name     string

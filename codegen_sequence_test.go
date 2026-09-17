@@ -409,6 +409,11 @@ func TestGenerateGoRejectsUnsupportedDirectSequenceShapes(t *testing.T) {
 			body:     `<xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:anyAttribute processContents="skip"/>`,
 			wantSpec: "xsd11-structures#element-sequence",
 		},
+		{
+			name:     "other skip attribute wildcard",
+			body:     `<xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:anyAttribute processContents="skip" namespace="##other"/>`,
+			wantSpec: "xsd11-structures#element-sequence",
+		},
 	}
 	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict10, goxsd9.Strict11} {
 		for _, test := range tests {
@@ -444,6 +449,7 @@ func TestGenerateGoRejectsDirectChoiceAttributeWildcardAcrossEditions(t *testing
 		{name: "explicit_any_lax", attributes: ` processContents="lax" namespace="##any"`},
 		{name: "omitted_namespace_skip", attributes: ` processContents="skip"`},
 		{name: "explicit_any_skip_reversed", attributes: ` processContents="skip" namespace="##any"`},
+		{name: "explicit_other_skip_reversed", attributes: ` processContents="skip" namespace="##other"`},
 	}
 	for _, test := range []struct {
 		name     string
