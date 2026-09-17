@@ -1785,7 +1785,7 @@ func (constraint WildcardNamespaceConstraint) LexicalForm() string { return cons
 func (constraint WildcardNamespaceConstraint) Loc() Loc { return constraint.loc }
 
 // WildcardParticle is a direct element wildcard particle. Its supported
-// effective facts include positive namespace enumerations with strict
+// effective facts include positive namespace enumerations with strict or lax
 // processContents, as well as the previously modeled wildcard forms.
 type WildcardParticle struct {
 	facts *schemaWildcardParticle
