@@ -105,6 +105,52 @@ func TestPlanCodegenDirectChoicesPreservesTargetsOrderAndIDs(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the built-in/named identity and scalar-family assertions together.
+func TestPlanCodegenDirectChoiceBooleanReferencesRetainTargetIDs(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		target string
+	}{
+		{name: "built-in", target: `<xs:element name="item" type="xs:boolean"/>`},
+		{name: "named restriction", target: `<xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType><xs:element name="item" type="r:Flag"/>`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			schema := codegenDirectChoiceReferenceTestSchema(t, test.target, `<xs:element ref="r:item"/>`, Compatibility)
+			plan, err := planCodegenDirectChoices(schema, "generated")
+			if err != nil {
+				t.Fatalf("planCodegenDirectChoices: %v", err)
+			}
+			if len(plan.owners) != 1 || len(plan.owners[0].alternatives) != 1 {
+				t.Fatalf("plan owners = %#v, want one owner and alternative", plan.owners)
+			}
+			targetElement := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:reference-root", "item"))
+			if len(targetElement) != 1 {
+				t.Fatalf("target element count = %d, want one", len(targetElement))
+			}
+			reference := codegenDirectChoiceReferenceTestParticle(t, schema)
+			if reference.TargetID() != targetElement[0].ID() {
+				t.Fatalf("reference target ID = %v, want %v", reference.TargetID(), targetElement[0].ID())
+			}
+			switch test.name {
+			case "built-in":
+				builtin, ok := plan.owners[0].alternatives[0].target.(codegenDirectChoiceBuiltinTarget)
+				if !ok || builtin.family != codegenDirectChoiceScalarBoolean || builtin.kind != "" || !builtin.hasElementID || builtin.elementID != targetElement[0].ID() {
+					t.Fatalf("built-in target = %#v, want Boolean family and target element identity", plan.owners[0].alternatives[0].target)
+				}
+			case "named restriction":
+				named, ok := plan.owners[0].alternatives[0].target.(codegenDirectChoiceNamedTarget)
+				if !ok || named.family != codegenDirectChoiceScalarBoolean || named.kind != "" || !named.hasElementID || named.elementID != targetElement[0].ID() {
+					t.Fatalf("named target = %#v, want Boolean family and target element identity", plan.owners[0].alternatives[0].target)
+				}
+				typeComponents := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:reference-root", "Flag"))
+				if len(typeComponents) != 1 || named.id != typeComponents[0].ID() {
+					t.Fatalf("named target type ID = %v, want %v", named.id, typeComponents[0].ID())
+				}
+			}
+		})
+	}
+}
+
 func TestPlanCodegenDirectChoicesIsDeterministicAcrossXSDPolicies(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
   <xs:complexType name="Choice"><xs:choice><xs:element name="value" type="t:Amount"/></xs:choice></xs:complexType>
@@ -320,6 +366,15 @@ func TestPlanCodegenDirectChoiceReferencesRetainUnsupportedPrecedence(t *testing
 			wantUnsupported: true,
 		},
 		{
+			name:            "non-default Boolean optional",
+			alternative:     `<xs:element ref="r:item" minOccurs="0" maxOccurs="1"/>`,
+			target:          `<xs:element name="item" type="xs:boolean"/>`,
+			policy:          Strict11,
+			wantSpec:        codegenDirectChoiceXSD11ParticleDetailsSpecRef,
+			wantCause:       errCodegenUnsupported,
+			wantUnsupported: true,
+		},
+		{
 			name:            "non-default finite",
 			alternative:     `<xs:element ref="r:item" minOccurs="2" maxOccurs="5"/>`,
 			target:          `<xs:element name="item" type="xs:integer"/>`,
@@ -347,27 +402,9 @@ func TestPlanCodegenDirectChoiceReferencesRetainUnsupportedPrecedence(t *testing
 			wantUnsupported: true,
 		},
 		{
-			name:            "boolean target",
-			alternative:     `<xs:element ref="r:item"/>`,
-			target:          `<xs:element name="item" type="xs:boolean"/>`,
-			policy:          Compatibility,
-			wantSpec:        codegenDirectChoiceXSD11ElementChoiceSpecRef,
-			wantCause:       errCodegenUnsupported,
-			wantUnsupported: true,
-		},
-		{
 			name:            "string target",
 			alternative:     `<xs:element ref="r:item"/>`,
 			target:          `<xs:element name="item" type="xs:string"/>`,
-			policy:          Compatibility,
-			wantSpec:        codegenDirectChoiceXSD11ElementChoiceSpecRef,
-			wantCause:       errCodegenUnsupported,
-			wantUnsupported: true,
-		},
-		{
-			name:            "named boolean target",
-			alternative:     `<xs:element ref="r:item"/>`,
-			target:          `<xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType><xs:element name="item" type="r:Flag"/>`,
 			policy:          Compatibility,
 			wantSpec:        codegenDirectChoiceXSD11ElementChoiceSpecRef,
 			wantCause:       errCodegenUnsupported,
@@ -423,6 +460,46 @@ func TestPlanCodegenDirectChoiceReferencesRetainUnsupportedPrecedence(t *testing
 				t.Fatalf("diagnostic causes = %v, want %v and unsupported sentinels", err, test.wantCause)
 			}
 		})
+	}
+}
+
+func TestPlanCodegenDirectChoiceReferencesRejectMixedBooleanAndNumeric(t *testing.T) {
+	schema := codegenDirectChoiceReferenceTestSchema(
+		t,
+		`<xs:element name="boolean" type="xs:boolean"/><xs:element name="count" type="xs:integer"/>`,
+		`<xs:element ref="r:boolean"/><xs:element ref="r:count"/>`,
+		Compatibility,
+	)
+	components := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:reference-root", "Choice"))
+	if len(components) != 1 {
+		t.Fatalf("Choice component count = %d, want one", len(components))
+	}
+	definition, ok := components[0].ComplexType()
+	if !ok {
+		t.Fatal("Choice component has no complex type definition")
+	}
+	choice, ok := definition.Particle().(ChoiceParticle)
+	if !ok || len(choice.facts.alternatives) != 2 {
+		t.Fatalf("Choice particle = %#v, want two reference alternatives", definition.Particle())
+	}
+	second, ok := choice.facts.alternatives[1].(ElementReferenceParticle)
+	if !ok {
+		t.Fatalf("second alternative = %T, want element reference", choice.facts.alternatives[1])
+	}
+
+	output, err := GenerateGo(schema, "generated")
+	if output != nil || err == nil {
+		t.Fatalf("GenerateGo result = (%q, %v), want nil output and an unsupported diagnostic", output, err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureCodegen || diagnostic.SpecRef() != codegenDirectChoiceXSD11ElementChoiceSpecRef {
+		t.Fatalf("diagnostic = %s, want unsupported element-choice diagnostic", diagnostic)
+	}
+	if diagnostic.Loc() != second.Loc() {
+		t.Fatalf("diagnostic location = %s, want second reference location %s", diagnostic.Loc(), second.Loc())
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+		t.Fatalf("diagnostic causes = %v, want unsupported sentinels", err)
 	}
 }
 
