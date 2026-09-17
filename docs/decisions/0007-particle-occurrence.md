@@ -87,7 +87,7 @@ occurrence input. A named global complex type with one direct sequence of local
 built-in boolean/token/NMTOKEN or named boolean/token/NMTOKEN restriction,
 integer, or decimal scalar elements, or one direct choice of those scalar
 elements, maps the completed
-range and ordered children into the public schema. Direct `xs:any` `##any`/strict|lax|skip, `##other`/lax|strict, positive namespaces (`##local`, `##targetNamespace`, URI lists)/strict|lax map to `WildcardParticle` with exact locations/ranges, lexical order; broader/other constraints and consumers unsupported. A supported named
+range and ordered children into the public schema. Direct `xs:any` `##any`/strict|lax|skip, `##other`/lax|strict, positive namespaces (`##local`, `##targetNamespace`, URI lists)/strict|lax|skip (skip explicit) map to `WildcardParticle` with exact locations/ranges, lexical order; broader/other constraints and consumers unsupported. A supported named
 model group with one direct choice or sequence of global element-reference
 particles exposes ordered children with exact ranges; its sequence uses
 grammar-default 1/1; compositor occurrence attrs are unsupported. Named complex type or bounded attribute-free extension may expose a direct model-group reference with target ID/exact
