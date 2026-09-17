@@ -94,12 +94,13 @@
 // restriction elements, one direct integer/decimal sequence, or one direct choice
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, integer, decimal, or precisionDecimal elements, or default-occurrence references
-// to global integer/decimal elements. Direct local sequences match expanded
+// to global Boolean, integer, or decimal elements. Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
 // and Strict11. Mixed Boolean/numeric sequences, direct-choice repetition, and excluded particle/target shapes
-// remain explicit unsupported behavior. Reference alternatives exclude boolean
-// and precisionDecimal targets. Mixed local Boolean/numeric choices are
+// remain explicit unsupported behavior. Reference alternatives exclude precisionDecimal
+// targets. Boolean facets remain an explicit schema-construction unsupported boundary.
+// Mixed local Boolean/numeric choices are
 // unsupported. Nonzero wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
 // gates. Scalar elements contain only character data. Global token values
