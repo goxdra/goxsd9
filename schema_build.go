@@ -3256,12 +3256,11 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
-		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID:
+		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID, schemaSimpleTypeAtomicNegativeInteger:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicNMTOKEN,
-		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		return false
 	default:
