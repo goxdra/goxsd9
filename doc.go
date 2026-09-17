@@ -32,9 +32,9 @@
 // consumers; exact immutable occurrence ranges are retained.
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
 // omitted namespace with processContents="lax"), ##any/skip with explicit
-// processContents="skip", ##other/lax, and ##other/strict forms, plus strict-only
-// positive namespace constraints (##local, ##targetNamespace, and URI lists),
-// are exposed as immutable WildcardParticle values. Positive constraints retain
+// processContents="skip", ##other/lax, and ##other/strict forms, plus positive
+// namespace constraints (##local, ##targetNamespace, and URI lists) with strict
+// or lax processing, are exposed as immutable WildcardParticle values. Positive constraints retain
 // immutable effective namespace values in sorted order, their lexical form, and
 // source location; explicit constraint-attribute locations are retained in
 // lexical order with element and reference terms. Other wildcard constraints
