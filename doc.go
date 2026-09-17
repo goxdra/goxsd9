@@ -61,12 +61,13 @@
 // attribute-free extensions are modeled but remain unsupported to consumers; local string
 // particles remain unsupported. Anonymous simple-type
 // models and resolved built-in, named, and anonymous simple-type references are
-// modeled. Direct element references are queryable immutable particles;
-// validation and code generation support default-occurrence direct choices
-// made entirely of references to global integer/decimal scalar elements, while
-// other reference particles beyond the supported top-level direct
-// `ModelGroupReferenceParticle` form, repetition, and broader shapes remain
-// explicitly unsupported.
+// modeled. Direct element references are queryable immutable particles.
+// ValidateInstance supports default-occurrence direct choices made entirely of
+// references to global Boolean, integer, or decimal scalar elements;
+// GenerateGo supports only default-occurrence direct choices made entirely of
+// references to global integer/decimal scalar elements. Reference particles
+// beyond the supported top-level direct `ModelGroupReferenceParticle` form,
+// repetition, and broader shapes remain explicitly unsupported.
 // Named global model groups expose direct choices or sequences of global
 // element-reference particles as immutable query facts with exact ranges;
 // validation and code generation do not expand them.
@@ -94,12 +95,13 @@
 // restriction elements, one direct integer/decimal sequence, or one direct choice
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, integer, decimal, or precisionDecimal elements, or default-occurrence references
-// to global integer/decimal elements. Direct local sequences match expanded
+// to global Boolean, integer, or decimal elements. Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
 // and Strict11. Mixed Boolean/numeric sequences, direct-choice repetition, and excluded particle/target shapes
-// remain explicit unsupported behavior. Reference alternatives exclude boolean
-// and precisionDecimal targets. Mixed local Boolean/numeric choices are
+// remain explicit unsupported behavior. Reference alternatives exclude precisionDecimal
+// targets.
+// Mixed local Boolean/numeric choices are
 // unsupported. Nonzero wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
 // gates. Scalar elements contain only character data. Global token values

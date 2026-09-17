@@ -342,7 +342,6 @@ func instanceSequenceProgramFor(
 			childRelated,
 			loc,
 			version,
-			true,
 			false,
 			false,
 			false,

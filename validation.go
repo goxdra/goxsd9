@@ -178,7 +178,7 @@ type instanceChoiceProgram struct {
 // NMTOKEN, integer, decimal, or precisionDecimal, or a named complex type with one
 // direct choice or sequence. Direct choices accept default-occurrence local
 // Boolean, integer, decimal, or precisionDecimal elements and default-occurrence
-// references only to global integer and decimal elements. Direct sequences contain
+// references to global Boolean, integer, and decimal elements. Direct sequences contain
 // only local Boolean elements or only local integer/decimal elements. Mixed
 // Boolean/numeric and local token/NMTOKEN particles remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
@@ -1008,7 +1008,6 @@ func instanceChoiceReferenceScalarFor(
 		false,
 		false,
 		false,
-		false,
 		version,
 	)
 }
@@ -1031,7 +1030,6 @@ func instanceChoiceAlternativeFor(
 		alternativeRelated,
 		element.Loc(),
 		version,
-		true,
 		true,
 		false,
 		false,
@@ -1448,7 +1446,6 @@ func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Lo
 		true,
 		true,
 		true,
-		true,
 		instanceSchemaValidationVersion(schema),
 	)
 }
@@ -1462,7 +1459,6 @@ func instanceScalarTypeForTarget(
 	related []Loc,
 	loc Loc,
 	fallbackVersion XSDVersion,
-	allowBoolean bool,
 	allowPrecisionDecimal bool,
 	allowToken bool,
 	allowNMTOKEN bool,
@@ -1478,15 +1474,6 @@ func instanceScalarTypeForTarget(
 		)
 	}
 	if declaredType.Namespace() == xsdNamespaceURI {
-		if declaredType.Local() == "boolean" && !allowBoolean {
-			return instanceScalarType{}, newInstanceValidationUnsupported(
-				loc,
-				fmt.Sprintf("element type %q is outside scalar validation", declaredType),
-				related,
-				fallbackVersion,
-				errInstanceUnsupportedType,
-			)
-		}
 		return instanceBuiltInScalarType(declaredType, related, loc, fallbackVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, booleanVersion)
 	}
 	if !hasTypeID || typeID.IsZero() {
@@ -1571,15 +1558,6 @@ func instanceScalarTypeForTarget(
 		}, nil
 	}
 	if definition.IsBoolean() {
-		if !allowBoolean {
-			return instanceScalarType{}, newInstanceValidationUnsupported(
-				loc,
-				fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()),
-				related,
-				fallbackVersion,
-				errInstanceUnsupportedType,
-			)
-		}
 		return instanceScalarType{
 			value:   instanceBooleanScalar{},
 			version: booleanVersion,
