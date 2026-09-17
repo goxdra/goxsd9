@@ -65,8 +65,8 @@
 // ValidateInstance supports default-occurrence direct choices made entirely of
 // references to global Boolean, integer, or decimal scalar elements;
 // GenerateGo supports only default-occurrence direct choices made entirely of
-// references to global integer/decimal scalar elements. Reference particles
-// beyond the supported top-level direct `ModelGroupReferenceParticle` form,
+// references to global Boolean, integer, or decimal scalar elements. Reference
+// particles beyond the supported top-level direct `ModelGroupReferenceParticle` form,
 // repetition, and broader shapes remain explicitly unsupported.
 // Named global model groups expose direct choices or sequences of global
 // element-reference particles as immutable query facts with exact ranges;

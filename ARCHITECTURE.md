@@ -125,7 +125,7 @@ query-only: nonzero terms are rejected with edition-selected diagnostics; `0/0` 
 
 Generation: named/inherited global boolean/integer/decimal/string/token/NMTOKEN scalars, inline anonymous global string/token/NMTOKEN elements, numeric choices,
 default all-Boolean choices and default-bounded numeric/all-Boolean sequences; mixed Boolean/numeric sequences,
-other choices, and repeated/other references remain unsupported; only default global integer/decimal references generate.
+other choices, and non-default/other references remain unsupported; default-occurrence direct-choice references to global Boolean/integer/decimal elements generate.
 
 ## Conformance
 
