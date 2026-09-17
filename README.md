@@ -6,11 +6,11 @@ goxsd9 parses/validates/generates Go; unsupported remains explicit.
 
 `ParseSchema`: immutable components; caller-provided `ResolvedSource`/`Resolver`; sequential calls, opaque locations; Compatibility default.
 
-XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Complexes: element-only/model-group refs/bounded attribute-free extensions; model-less extensions over completed named empty-content bases: nil/no-synthetic-particle; bounded/representable inherited `##other`/lax wildcards. `defaultAttributesApply`: named globals under XSD 1.1/Compatibility.
-`openContent mode="none"`: supports globals/bounded extensions under Compatibility/Strict11; Strict10 mismatches. Other forms unsupported; malformed=invalid.
-`xs:any` supports `##any`/strict, `##any`/lax, `##any`/skip, `##other`/lax, `##other`/strict, and strict-only positive namespace forms (`##local`, `##targetNamespace`, URI lists). `anyAttribute` defaults `##any`/strict; sequence/choice: `##any`/lax (omitted/explicit), `##any`/skip (namespace=omitted/explicit; processContents=explicit), `##other`/lax, `##other`/strict, explicit `##other`/skip; locations preserved.
-Top-level model-group refs and named-global groups' direct choice/sequence reference particles queryable; nested/other group shapes unsupported. Typed built-in or supported named
-`xs:token`/`xs:NMTOKEN` refs in supported direct shapes are modeled; local inline/value/default/fixed/attribute/broader shapes unsupported; ValidateInstance/GenerateGo reject; global token/NMTOKEN scalars generate.
+XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Complexes: element-only/model-group refs/bounded attribute-free extensions; model-less extensions over completed named empty-content bases: nil/no-synthetic-particle; bounded/representable inherited `##other`/lax wildcards. `defaultAttributesApply`: named globals, XSD 1.1/Compatibility.
+`openContent=none`: globals/bounded extensions in Compatibility/Strict11; Strict10 mismatch; other unsupported; malformed invalid.
+Direct `xs:any` supports `##any`/strict|lax|skip, `##other`/lax|strict, strict-only positive namespaces (`##local`, `##targetNamespace`, URI lists); broader placements unsupported; consumers reject nonzero wildcards. Named-global complex-type direct sequence/choice owners: `anyAttribute`, default `##any`/strict; `##any`/lax|skip (namespace omitted/explicit; skip processContents explicit), `##other`/lax|strict, explicit `##other`/skip; locations preserved; validation and Go generation unsupported.
+Only top-level direct model-group refs and named-global groups direct choice/sequence refs queryable; nested/other groups unsupported. Typed built-in/supported named
+`xs:token`/`xs:NMTOKEN` refs modeled; local inline/value/default/fixed/attribute/broader shapes unsupported; ValidateInstance/GenerateGo reject; global token/NMTOKEN scalars generate.
 
 `abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. [ARCHITECTURE.md](ARCHITECTURE.md).
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
