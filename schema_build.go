@@ -3250,6 +3250,9 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 	if reference.variety != SimpleTypeVarietyAtomicRestriction {
 		return false
 	}
+	if _, ok := reference.facets.(schemaBooleanFacetVariant); ok {
+		return true
+	}
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,

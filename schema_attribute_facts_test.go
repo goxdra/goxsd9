@@ -393,6 +393,199 @@ func TestSchemaBridgeExposesImportedGlobalAttributeScalarType(t *testing.T) {
 	}
 }
 
+//nolint:gocognit,funlen // Keep the cross-policy Boolean attribute graph contract together.
+func TestSchemaBridgeRetainsGlobalBooleanAttributeFactsAcrossPolicies(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "Compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "XSD 1.0", policy: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", policy: Strict11, version: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := globalBooleanAttributeSchemaRoot(profile.version)
+			fixtures := map[string]discoveryFixture{
+				"chameleon.xsd": {
+					id:       "chameleon.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Included"><xs:restriction base="xs:boolean"/></xs:simpleType></xs:schema>`,
+				},
+				"other.xsd": {
+					id:       "other.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:simpleType name="Imported"><xs:restriction base="xs:boolean"/></xs:simpleType></xs:schema>`,
+				},
+			}
+			first, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			second, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("repeated discoverTestSchemaWithPolicy: %v", err)
+			}
+			if !reflect.DeepEqual(first.Components(), second.Components()) {
+				t.Fatal("repeated Boolean attribute builds changed component facts or order")
+			}
+			if first.LanguagePolicy() != profile.policy {
+				t.Fatalf("LanguagePolicy = %q, want %q", first.LanguagePolicy(), profile.policy)
+			}
+
+			want := []struct {
+				name         string
+				declaredType QName
+				typeLexical  string
+				typeSource   SourceID
+				builtin      bool
+			}{
+				{name: "direct", declaredType: mustTestQName(t, testXSDNamespace, "boolean"), typeLexical: "xs:boolean", builtin: true},
+				{name: "forward", declaredType: mustTestQName(t, "urn:root", "Forward"), typeLexical: "r:Forward", typeSource: "root.xsd"},
+				{name: "imported", declaredType: mustTestQName(t, "urn:other", "Imported"), typeLexical: "o:Imported", typeSource: "other.xsd"},
+				{name: "chameleon", declaredType: mustTestQName(t, "urn:root", "Included"), typeLexical: "r:Included", typeSource: "chameleon.xsd"},
+				{name: "named", declaredType: mustTestQName(t, "urn:root", "Flag"), typeLexical: "r:Flag", typeSource: "root.xsd"},
+			}
+			components := first.Components()
+			attributes := make([]Component, 0, len(want))
+			for _, component := range components {
+				if component.Kind() == ComponentKindAttributeDeclaration {
+					attributes = append(attributes, component)
+				}
+			}
+			if len(attributes) != len(want) {
+				t.Fatalf("global attribute count = %d, want %d", len(attributes), len(want))
+			}
+			for index, expected := range want {
+				component := attributes[index]
+				if component.Name() != mustTestQName(t, "urn:root", expected.name) {
+					t.Fatalf("attribute %d name = %q, want %q", index, component.Name(), expected.name)
+				}
+				declaration, ok := component.AttributeDeclaration()
+				if !ok {
+					t.Fatalf("attribute %q has no declaration view", expected.name)
+				}
+				if declaration.DeclaredType() != expected.declaredType {
+					t.Fatalf("attribute %q declared type = %q, want %q", expected.name, declaration.DeclaredType(), expected.declaredType)
+				}
+				if declaration.Loc() != schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `<xs:attribute name="`+expected.name+`"`, root, fixtures) {
+					t.Fatalf("attribute %q declaration location = %s, want lexical declaration location", expected.name, declaration.Loc())
+				}
+				reference, ok := declaration.TypeReference()
+				if !ok || reference.Name() != expected.declaredType {
+					t.Fatalf("attribute %q type reference = %q/%t, want %q", expected.name, reference.Name(), ok, expected.declaredType)
+				}
+				wantTypeLoc := schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `type="`+expected.typeLexical+`"`, root, fixtures)
+				if reference.Loc() != wantTypeLoc || reference.Variety() != SimpleTypeVarietyAtomicRestriction || reference.VarietyLoc().IsZero() {
+					t.Fatalf("attribute %q reference facts = %s/%q/%s, want type location and atomic Boolean facts", expected.name, reference.Loc(), reference.Variety(), reference.VarietyLoc())
+				}
+				if reference.facts == nil {
+					t.Fatalf("attribute %q has no immutable reference facts", expected.name)
+				}
+				if _, ok := reference.facts.facets.(schemaBooleanFacetVariant); !ok {
+					t.Fatalf("attribute %q facets = %T, want Boolean facts", expected.name, reference.facts.facets)
+				}
+				if expected.builtin {
+					if reference.Kind() != SimpleTypeReferenceBuiltin {
+						t.Fatalf("attribute %q reference kind = %q, want built-in", expected.name, reference.Kind())
+					}
+					if typeID, hasTypeID := declaration.TypeID(); hasTypeID || !typeID.IsZero() {
+						t.Fatalf("attribute %q built-in type ID = %v/%t, want zero/false", expected.name, typeID, hasTypeID)
+					}
+					if typeID, hasTypeID := reference.ComponentID(); hasTypeID || !typeID.IsZero() {
+						t.Fatalf("attribute %q built-in reference ID = %v/%t, want zero/false", expected.name, typeID, hasTypeID)
+					}
+					continue
+				}
+				if reference.Kind() != SimpleTypeReferenceNamed || reference.Loc().Source() != "root.xsd" {
+					t.Fatalf("attribute %q reference kind/source = %q/%q, want named/root.xsd use-site", expected.name, reference.Kind(), reference.Loc().Source())
+				}
+				wantID := componentIDForName(t, first, expected.declaredType)
+				if typeID, hasTypeID := declaration.TypeID(); !hasTypeID || typeID != wantID || typeID.Source() != expected.typeSource {
+					t.Fatalf("attribute %q type ID = %v/%t, want %v/true from %q", expected.name, typeID, hasTypeID, wantID, expected.typeSource)
+				}
+			}
+
+			before := first.Components()
+			returned := first.Components()
+			returned[0] = Component{}
+			found := first.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:root", "direct"))
+			found[0] = Component{}
+			documentComponents := first.Documents()[0].Components()
+			documentComponents[0] = Component{}
+			if !reflect.DeepEqual(before, first.Components()) {
+				t.Fatal("mutating copied Boolean attribute views changed Schema")
+			}
+			walked := make([]ComponentID, 0, len(before))
+			if err := first.Walk(func(component Component) error {
+				walked = append(walked, component.ID())
+				return nil
+			}); err != nil {
+				t.Fatalf("Walk: %v", err)
+			}
+			for index, component := range before {
+				if walked[index] != component.ID() {
+					t.Fatalf("Walk ID %d = %v, want %v", index, walked[index], component.ID())
+				}
+			}
+		})
+	}
+}
+
+func globalBooleanAttributeSchemaRoot(version XSDVersion) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root" version="` + string(version) + `">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:attribute name="direct" type="xs:boolean"/>
+  <xs:attribute name="forward" type="r:Forward"/>
+  <xs:attribute name="imported" type="o:Imported"/>
+  <xs:attribute name="chameleon" type="r:Included"/>
+  <xs:attribute name="named" type="r:Flag"/>
+  <xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>
+  <xs:simpleType name="Forward"><xs:restriction base="r:Later"/></xs:simpleType>
+  <xs:simpleType name="Later"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`
+}
+
+//nolint:gocognit // Keep the policy and facet diagnostic matrix together.
+func TestSchemaBridgeGlobalBooleanAttributeFacetsRemainUnsupported(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "Compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "XSD 1.0", policy: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", policy: Strict11, version: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		for _, facet := range []struct {
+			name string
+			body string
+		}{
+			{name: "enumeration", body: `<xs:enumeration value="true"/>`},
+			{name: "pattern", body: `<xs:pattern value="true"/>`},
+		} {
+			t.Run(profile.name+"/"+facet.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:attribute name="value" type="r:Flag"/><xs:simpleType name="Flag"><xs:restriction base="xs:boolean">` + facet.body + `</xs:restriction></xs:simpleType></xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
+					t.Fatal("discoverSchema accepted a value-constrained Boolean attribute or returned a schema")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedDatatypeFacetCode || diagnostic.Feature() != FeatureDatatypeFacets {
+					t.Fatalf("diagnostic = %s/%q/%q, want unsupported Boolean facet", diagnostic, diagnostic.Code(), diagnostic.Feature())
+				}
+				if diagnostic.SpecRef() != schemaBooleanDatatypeSpecRef(profile.version) || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, "<xs:"+facet.name) {
+					t.Fatalf("diagnostic metadata = %s/%q, want facet location and Boolean specification", diagnostic.Loc(), diagnostic.SpecRef())
+				}
+				if !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("diagnostic lost unsupported classification: %v", err)
+				}
+			})
+		}
+	}
+}
+
 //nolint:gocognit,funlen // Keep target failures and diagnostic evidence together.
 func TestSchemaBridgeGlobalAttributeTypeDiagnostics(t *testing.T) {
 	tests := []struct {
@@ -559,7 +752,7 @@ func TestSchemaBridgeGlobalAttributePrecisionDecimalStrict10Policy(t *testing.T)
 }
 
 func testSchemaBridgeGlobalAttributeUnsupportedTypes(t *testing.T) {
-	unsupportedTypes := []string{"string", "boolean", "precisionDecimal"}
+	unsupportedTypes := []string{"string", "precisionDecimal"}
 	for _, local := range unsupportedTypes {
 		t.Run("unsupported "+local, func(t *testing.T) {
 			testSchemaBridgeGlobalAttributeUnsupportedType(t, local)
