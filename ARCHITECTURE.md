@@ -81,8 +81,8 @@ Documents: identity-discovery order; declarations: lexical order.
 declaration ordinals; lookup maps define no order. Local particles use scoped facts/indexes;
 validator/generator state: on-demand.
 
-Primitive status: Global scalars retain `DeclaredType`; local built-in/supported-named
-token/NMTOKEN refs retain supported direct-shape facts;
+Primitive status: Global scalars retain `DeclaredType`; Boolean attrs retain immutable type
+facts; local token/NMTOKEN refs retain direct-shape facts;
 named/anonymous restrictions retain immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins lack synthetic IDs.
 Built-in/named integer/decimal attrs retain immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
 exact-typed-value, source-location. Named global complex types accept unqualified `mixed="false|0"`; omitted=element-only
@@ -93,7 +93,7 @@ Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
 `defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
 Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard it; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
 Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
-non-atomic-string/string/boolean/precisionDecimal attrs unsupported.
+non-atomic-string/string/precisionDecimal attrs unsupported.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
 Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
