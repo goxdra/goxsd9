@@ -120,7 +120,7 @@ complexes with direct choices/sequences. Choices accept default-occurrence local
 default-occurrence Boolean/integer/decimal references. Homogeneous Boolean/numeric sequences honor finite/unbounded and
 above-`uint64` ranges under all policies; mixed sequences remain unsupported. References use `TargetID`; model groups rejected.
 `token`/`NMTOKEN` collapse XML whitespace before effective enumeration; NMTOKEN enforces repository XML NameChar policy; raw facts unchanged.
-Validation and generation reject local token/NMTOKEN particles; validation rejects strings, lists/unions, attributes, and structures. Boolean facets remain schema-unsupported. Direct `xs:any` is
+Validation and generation reject local token/NMTOKEN particles; validation rejects strings, lists/unions, attributes, and structures. Direct `xs:any` is
 query-only: nonzero terms are rejected with edition-selected diagnostics; `0/0` absent.
 
 Generation: named/inherited global boolean/integer/decimal/string/token/NMTOKEN scalars, inline anonymous global string/token/NMTOKEN elements, numeric choices,

@@ -194,7 +194,7 @@ and sequence children and for global named-group direct choices or sequences; di
 supported only as the top-level particle of a named complex type or bounded attribute-free extension;
 they retain target IDs without expanding group members; nested group references remain unsupported. Validator consumption covers named global complex direct
 homogeneous Boolean/numeric sequences and direct choices with default-occurrence scalar
-alternatives or references to global integer/decimal scalar elements; code generation also supports only default-occurrence direct-choice references to those global
+alternatives or references to global Boolean/integer/decimal scalar elements; code generation also supports only default-occurrence direct-choice references to those global
 numeric elements, while all other validator and code-generator consumption of direct references remains unsupported. Global
 text-only boolean validation is supported under
 Compatibility, Strict10, and Strict11; global boolean scalar generation is
