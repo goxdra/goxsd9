@@ -271,7 +271,15 @@ func directLaxAnyAttributeSchema(version, model, attributes string) string {
 }
 
 func directAnyAttributeSchema(version, model, attributes string) string {
-	return `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:root" version="` + version + `">
+	return directAnyAttributeSchemaWithTargetNamespace(version, model, attributes, "urn:root")
+}
+
+func directAnyAttributeSchemaWithTargetNamespace(version, model, attributes, targetNamespace string) string {
+	targetNamespaceAttribute := ""
+	if targetNamespace != "" {
+		targetNamespaceAttribute = ` targetNamespace="` + targetNamespace + `"`
+	}
+	return `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"` + targetNamespaceAttribute + ` version="` + version + `">
   <xs:element name="before"/>
   <xs:complexType name="directType">
     <xs:` + model + `><xs:element name="value" type="xs:integer"/></xs:` + model + `>
@@ -315,8 +323,18 @@ func assertLaxAnyAttributeFacts(t *testing.T, attribute AnyAttribute, sourceID S
 
 func assertSkipAnyAttributeFacts(t *testing.T, attribute AnyAttribute, sourceID SourceID, source, namespaceMarker, processContentsMarker string) {
 	t.Helper()
-	if got := attribute.Namespace(); got != "##any" {
-		t.Errorf("namespace = %q, want ##any", got)
+	assertSkipAnyAttributeFactsForNamespace(t, attribute, "##any", sourceID, source, namespaceMarker, processContentsMarker)
+}
+
+func assertOtherSkipAnyAttributeFacts(t *testing.T, attribute AnyAttribute, sourceID SourceID, source, namespaceMarker, processContentsMarker string) {
+	t.Helper()
+	assertSkipAnyAttributeFactsForNamespace(t, attribute, "##other", sourceID, source, namespaceMarker, processContentsMarker)
+}
+
+func assertSkipAnyAttributeFactsForNamespace(t *testing.T, attribute AnyAttribute, wantNamespace string, sourceID SourceID, source, namespaceMarker, processContentsMarker string) {
+	t.Helper()
+	if got := attribute.Namespace(); got != wantNamespace {
+		t.Errorf("namespace = %q, want %s", got, wantNamespace)
 	}
 	if got := attribute.ProcessContents(); got != "skip" {
 		t.Errorf("processContents = %q, want skip", got)
@@ -523,6 +541,96 @@ func directOtherStrictAnyAttributeSchema(version, model, attributes string) stri
     <xs:anyAttribute` + attributes + `/>
   </xs:complexType>
 </xs:schema>`
+}
+
+//nolint:gocognit // Keep the direct ##other/skip policy, edition, shape, namespace, and location matrix together.
+func TestSchemaBridgeExposesDirectOtherSkipAnyAttributeFacts(t *testing.T) {
+	policies := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "compatibility", policy: Compatibility},
+		{name: "strict10", policy: Strict10},
+		{name: "strict11", policy: Strict11},
+	}
+	targets := []struct {
+		name            string
+		targetNamespace string
+		ownerNamespace  string
+	}{
+		{name: "target_namespace", targetNamespace: "urn:root", ownerNamespace: "urn:root"},
+		{name: "absent_target_namespace", ownerNamespace: ""},
+	}
+	forms := []struct {
+		name                  string
+		attributes            string
+		namespaceMarker       string
+		processContentsMarker string
+	}{
+		{
+			name:                  "explicit",
+			attributes:            ` namespace="&#xA;##other&#x9;" processContents="&#xD;skip&#x9;"`,
+			namespaceMarker:       `namespace="&#xA;##other&#x9;"`,
+			processContentsMarker: `processContents="&#xD;skip&#x9;"`,
+		},
+		{
+			name:                  "explicit_reversed",
+			attributes:            ` processContents="&#x9;skip&#xA;" namespace="&#xD;##other&#x9;"`,
+			namespaceMarker:       `namespace="&#xD;##other&#x9;"`,
+			processContentsMarker: `processContents="&#x9;skip&#xA;"`,
+		},
+	}
+	for _, policy := range policies {
+		for _, version := range []string{"1.0", "1.1"} {
+			for _, target := range targets {
+				for _, model := range []string{"sequence", "choice"} {
+					for _, form := range forms {
+						name := policy.name + "/schema-" + version + "/" + target.name + "/" + model + "/" + form.name
+						t.Run(name, func(t *testing.T) {
+							root := directOtherSkipAnyAttributeSchemaWithTargetNamespace(version, model, form.attributes, target.targetNamespace)
+							schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
+							if err != nil {
+								t.Fatalf("discover schema: %v", err)
+							}
+							components := schema.Components()
+							if len(components) != 2 {
+								t.Fatalf("component count = %d, want 2", len(components))
+							}
+							wantOwner := mustTestQName(t, target.ownerNamespace, "directType")
+							if got := components[1].Name(); got != wantOwner {
+								t.Errorf("owner name = %q, want %q", got, wantOwner)
+							}
+							definition := requireAnyAttributeComplexType(t, components[1], model)
+							attribute, ok := definition.AnyAttribute()
+							if !ok {
+								t.Fatal("direct ##other/skip AnyAttribute is absent")
+							}
+							assertOtherSkipAnyAttributeFacts(t, attribute, "root.xsd", root, form.namespaceMarker, form.processContentsMarker)
+							if repeated, repeatedOK := definition.AnyAttribute(); !repeatedOK || !reflect.DeepEqual(attribute, repeated) {
+								t.Fatalf("repeated AnyAttribute query = %#v, %v; first = %#v", repeated, repeatedOK, attribute)
+							}
+							switch model {
+							case "sequence":
+								if _, ok := definition.Particle().(SequenceParticle); !ok {
+									t.Fatalf("particle type = %T, want SequenceParticle", definition.Particle())
+								}
+							case "choice":
+								if _, ok := definition.Particle().(ChoiceParticle); !ok {
+									t.Fatalf("particle type = %T, want ChoiceParticle", definition.Particle())
+								}
+							}
+							assertAnyAttributeWalkOrder(t, schema, components)
+							assertAnyAttributeComponentCopies(t, schema, components, definition, "##other", "skip")
+						})
+					}
+				}
+			}
+		}
+	}
+}
+
+func directOtherSkipAnyAttributeSchemaWithTargetNamespace(version, model, attributes, targetNamespace string) string {
+	return directAnyAttributeSchemaWithTargetNamespace(version, model, attributes, targetNamespace)
 }
 
 func assertAnyAttributeComponentNames(t *testing.T, components []Component) {
@@ -980,6 +1088,105 @@ func TestSchemaBridgePreservesSkipAnyAttributeGraphProvenance(t *testing.T) {
 	}
 }
 
+//nolint:gocognit,funlen // Keep graph order, chameleon ownership, and other/skip wildcard provenance together.
+func TestSchemaBridgePreservesOtherSkipAnyAttributeGraphProvenance(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:root" version="` + test.version + `">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+</xs:schema>`
+			chameleon := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" version="` + test.version + `">
+  <xs:include schemaLocation="root.xsd"/>
+  <xs:complexType name="includedType">
+    <xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence>
+    <xs:anyAttribute namespace="&#xA;##other&#x9;" processContents="&#xD;skip&#x9;"/>
+  </xs:complexType>
+</xs:schema>`
+			other := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:other" version="` + test.version + `">
+  <xs:complexType name="importedType">
+    <xs:choice><xs:element name="value" type="xs:integer"/></xs:choice>
+    <xs:anyAttribute processContents="&#xA;skip&#x9;" namespace="&#xD;##other&#x9;"/>
+  </xs:complexType>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+				"chameleon.xsd": {id: "chameleon.xsd", contents: chameleon},
+				"other.xsd":     {id: "other.xsd", contents: other},
+				"root.xsd":      {id: "root.xsd", contents: root},
+			}, test.policy)
+			if err != nil {
+				t.Fatalf("discover schema: %v", err)
+			}
+			documents := schema.Documents()
+			if len(documents) != 3 {
+				t.Fatalf("document count = %d, want 3", len(documents))
+			}
+			for index, want := range []SourceID{"root.xsd", "chameleon.xsd", "other.xsd"} {
+				if got := documents[index].Source(); got != want {
+					t.Errorf("document %d source = %q, want %q", index, got, want)
+				}
+			}
+			if got := documents[1].TargetNamespace(); got != "urn:root" {
+				t.Errorf("chameleon target namespace = %q, want urn:root", got)
+			}
+			if got := documents[2].TargetNamespace(); got != "urn:other" {
+				t.Errorf("imported target namespace = %q, want urn:other", got)
+			}
+
+			components := schema.Components()
+			if len(components) != 2 {
+				t.Fatalf("component count = %d, want 2", len(components))
+			}
+			if got := components[0].Name(); got != mustTestQName(t, "urn:root", "includedType") {
+				t.Errorf("chameleon component name = %q, want urn:root:includedType", got)
+			}
+			if got := components[1].Name(); got != mustTestQName(t, "urn:other", "importedType") {
+				t.Errorf("imported component name = %q, want urn:other:importedType", got)
+			}
+
+			chameleonDefinition := requireAnyAttributeComplexType(t, components[0], "chameleon component")
+			chameleonAttribute, ok := chameleonDefinition.AnyAttribute()
+			if !ok {
+				t.Fatal("chameleon AnyAttribute is absent")
+			}
+			assertOtherSkipAnyAttributeFacts(t, chameleonAttribute, "chameleon.xsd", chameleon, `namespace="&#xA;##other&#x9;"`, `processContents="&#xD;skip&#x9;"`)
+
+			importedDefinition := requireAnyAttributeComplexType(t, components[1], "imported component")
+			importedAttribute, ok := importedDefinition.AnyAttribute()
+			if !ok {
+				t.Fatal("imported AnyAttribute is absent")
+			}
+			assertOtherSkipAnyAttributeFacts(t, importedAttribute, "other.xsd", other, `namespace="&#xD;##other&#x9;"`, `processContents="&#xA;skip&#x9;"`)
+
+			assertAnyAttributeWalkOrder(t, schema, components)
+			originalComponents := schema.Components()
+			components[0] = Component{}
+			components[1] = Component{}
+			if got := schema.Components()[0].Name().Local(); got != "includedType" {
+				t.Errorf("mutating Components result changed schema: first name = %q", got)
+			}
+			if !reflect.DeepEqual(originalComponents, schema.Components()) {
+				t.Error("schema component results are not stable after caller mutation")
+			}
+			if repeated, repeatedOK := chameleonDefinition.AnyAttribute(); !repeatedOK || !reflect.DeepEqual(chameleonAttribute, repeated) {
+				t.Fatalf("repeated chameleon AnyAttribute query = %#v, %v; first = %#v", repeated, repeatedOK, chameleonAttribute)
+			}
+			if repeated, repeatedOK := importedDefinition.AnyAttribute(); !repeatedOK || !reflect.DeepEqual(importedAttribute, repeated) {
+				t.Fatalf("repeated imported AnyAttribute query = %#v, %v; first = %#v", repeated, repeatedOK, importedAttribute)
+			}
+		})
+	}
+}
+
 //nolint:gocognit // Keep graph order, chameleon ownership, and wildcard provenance together.
 func TestSchemaBridgePreservesOtherStrictAnyAttributeGraphProvenance(t *testing.T) {
 	for _, test := range []struct {
@@ -1112,7 +1319,7 @@ func TestSchemaBridgeRejectsExcludedAnyAttributeForms(t *testing.T) {
 		{name: "namespace_list", policy: Strict11, version: "1.1", attributes: `namespace="##local ##targetNamespace" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "local_namespace", policy: Strict10, version: "1.0", attributes: `namespace="##local" processContents="strict"`, wantSpec: schemaAnyAttributeXSD10SpecRef},
 		{name: "target_namespace", policy: Strict11, version: "1.1", attributes: `namespace="##targetNamespace" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
-		{name: "skip", policy: Compatibility, version: "1.1", attributes: `namespace="##other" processContents="skip"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
+		{name: "uri_skip", policy: Strict11, version: "1.1", attributes: `namespace="urn:other" processContents="skip"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "not_namespace", policy: Strict11, version: "1.1", attributes: `notNamespace="##local" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "not_qname", policy: Strict11, version: "1.1", attributes: `notQName="xs:string" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 	}
@@ -1159,6 +1366,8 @@ func TestSchemaBridgeRejectsMalformedAnyAttributeBeforeUnsupportedClassification
 		{name: "namespace_list_composition", policy: Strict11, version: "1.1", attributes: `namespace="##other urn:extra" processContents="lax"`, wantCode: invalidSchemaCompositionCode, wantMarker: `namespace="##other urn:extra"`},
 		{name: "omitted_namespace_process_contents_enum", policy: Strict11, version: "1.1", attributes: `processContents="relaxed"`, wantCode: invalidSchemaCompositionCode, wantMarker: `processContents="relaxed"`},
 		{name: "skip_invalid_child", policy: Strict11, version: "1.1", attributes: `namespace="##any" processContents="skip"`, child: `<xs:element/>`, wantCode: invalidSchemaCompositionCode, wantMarker: `<xs:element/>`},
+		{name: "other_skip_invalid_child", policy: Strict11, version: "1.1", attributes: `namespace="##other" processContents="skip"`, child: `<xs:element/>`, wantCode: invalidSchemaCompositionCode, wantMarker: `<xs:element/>`},
+		{name: "other_skip_namespace_composition", policy: Strict11, version: "1.1", attributes: `namespace="##other" processContents="skip" notNamespace="##local"`, wantCode: invalidSchemaCompositionCode, wantMarker: `namespace="##other"`},
 		{name: "process_contents_enum", policy: Strict11, version: "1.1", attributes: `namespace="##other" processContents="relaxed"`, wantCode: invalidSchemaCompositionCode, wantMarker: `processContents="relaxed"`},
 		{name: "not_namespace_token", policy: Strict11, version: "1.1", attributes: `notNamespace="##bad" processContents="lax"`, wantCode: invalidSchemaCompositionCode, wantMarker: `notNamespace="##bad"`},
 		{name: "not_qname_lexical", policy: Strict11, version: "1.1", attributes: `notQName="bad:q:name" processContents="lax"`, wantCode: invalidSchemaConditionalCode, wantMarker: `notQName="bad:q:name"`},
@@ -1224,6 +1433,11 @@ func TestSchemaBridgeKeepsAnyAttributeShapeBoundariesUnsupported(t *testing.T) {
 			wantWildcardCause: true,
 		},
 		{
+			name:              "any_attribute_only_other_skip",
+			body:              `<xs:complexType name="onlyWildcard"><xs:anyAttribute namespace="##other" processContents="skip"/></xs:complexType>`,
+			wantWildcardCause: true,
+		},
+		{
 			name: "anonymous_inline",
 			body: `<xs:element name="inline"><xs:complexType><xs:sequence/><xs:anyAttribute namespace="##other" processContents="lax"/></xs:complexType></xs:element>`,
 		},
@@ -1234,6 +1448,10 @@ func TestSchemaBridgeKeepsAnyAttributeShapeBoundariesUnsupported(t *testing.T) {
 		{
 			name: "anonymous_inline_skip_any",
 			body: `<xs:element name="inline"><xs:complexType><xs:sequence/><xs:anyAttribute processContents="skip"/></xs:complexType></xs:element>`,
+		},
+		{
+			name: "anonymous_inline_other_skip",
+			body: `<xs:element name="inline"><xs:complexType><xs:sequence/><xs:anyAttribute namespace="##other" processContents="skip"/></xs:complexType></xs:element>`,
 		},
 		{
 			name:              "attribute_group",
@@ -1253,6 +1471,11 @@ func TestSchemaBridgeKeepsAnyAttributeShapeBoundariesUnsupported(t *testing.T) {
 		{
 			name:              "complex_content_restriction_skip_any",
 			body:              `<xs:complexType name="restricted"><xs:complexContent><xs:restriction base="xs:anyType"><xs:anyAttribute processContents="skip"/></xs:restriction></xs:complexContent></xs:complexType>`,
+			wantWildcardCause: true,
+		},
+		{
+			name:              "complex_content_restriction_other_skip",
+			body:              `<xs:complexType name="restricted"><xs:complexContent><xs:restriction base="xs:anyType"><xs:anyAttribute namespace="##other" processContents="skip"/></xs:restriction></xs:complexContent></xs:complexType>`,
 			wantWildcardCause: true,
 		},
 	}
@@ -1312,19 +1535,27 @@ func TestSchemaBridgeKeepsSkipAnyAttributeGroupOwnersUnsupported(t *testing.T) {
 		{name: "strict10", policy: Strict10, version: "1.0", wantSpec: schemaAnyAttributeXSD10SpecRef},
 		{name: "strict11", policy: Strict11, version: "1.1", wantSpec: schemaAnyAttributeXSD11SpecRef},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:root" targetNamespace="urn:root" version="` + test.version + `">
+		for _, wildcard := range []struct {
+			name       string
+			attributes string
+		}{
+			{name: "any", attributes: ` processContents="skip"`},
+			{name: "other", attributes: ` namespace="##other" processContents="skip"`},
+		} {
+			t.Run(test.name+"/"+wildcard.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:root" targetNamespace="urn:root" version="` + test.version + `">
   <xs:group name="group"><xs:sequence><xs:element ref="t:value"/></xs:sequence></xs:group>
-  <xs:complexType name="groupOwner"><xs:group ref="t:group"/><xs:anyAttribute processContents="skip"/></xs:complexType>
+  <xs:complexType name="groupOwner"><xs:group ref="t:group"/><xs:anyAttribute` + wildcard.attributes + `/></xs:complexType>
   <xs:element name="value" type="xs:integer"/>
 </xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
-			if err == nil {
-				t.Fatal("group owner with direct ##any/skip attribute wildcard unexpectedly succeeded")
-			}
-			assertZeroSchema(t, schema)
-			assertAnyAttributeUnsupportedDiagnostic(t, err, test.wantSpec)
-		})
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+				if err == nil {
+					t.Fatal("group owner with skip attribute wildcard unexpectedly succeeded")
+				}
+				assertZeroSchema(t, schema)
+				assertAnyAttributeUnsupportedDiagnostic(t, err, test.wantSpec)
+			})
+		}
 	}
 }
 

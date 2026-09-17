@@ -186,8 +186,7 @@ references are modeled. Named direct sequence/choice types expose direct
 explicit `##any`/`lax` and omitted or explicit `##any`/`skip` with explicit
 `processContents` are supported under all editions/policies. Canonical
 explicit strict values remain supported.
-`##other`/`lax` remains supported; `##other`/`strict` is supported with omitted
-or explicit `processContents`. The `anyAttribute` element and explicit
+`##other`/`lax` and `##other`/`strict` (omitted/explicit `processContents`), plus explicit `##other`/`skip` are supported across editions/policies. The `anyAttribute` element and explicit
 `namespace`/`processContents` locations are retained; omitted defaults are
 zero. Validation and code-generation consumers remain unsupported. Direct
 element-reference particles are supported in the schema model for local choice

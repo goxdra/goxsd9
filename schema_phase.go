@@ -3574,7 +3574,7 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	if namespace == "##any" && (processContents == "strict" || processContents == "lax" || processContents == "skip") {
 		return true
 	}
-	if namespace == "##other" && processContents == "strict" {
+	if namespace == "##other" && (processContents == "strict" || processContents == "skip") {
 		return true
 	}
 	return isSupportedAnyAttribute(element)
