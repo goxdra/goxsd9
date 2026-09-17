@@ -531,6 +531,207 @@ func TestSchemaBridgeRetainsGlobalBooleanAttributeFactsAcrossPolicies(t *testing
 	}
 }
 
+//nolint:gocognit,funlen // Keep the cross-policy negativeInteger attribute contract together.
+func TestSchemaBridgeRetainsGlobalNegativeIntegerAttributeFactsAcrossPolicies(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "Compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "XSD 1.0", policy: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", policy: Strict11, version: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := globalNegativeIntegerAttributeSchemaRoot()
+			fixtures := map[string]discoveryFixture{
+				"chameleon.xsd": {
+					id:       "chameleon.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Included"><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:schema>`,
+				},
+				"other.xsd": {
+					id:       "other.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:simpleType name="Imported"><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:schema>`,
+				},
+			}
+			first, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			second, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("repeated discoverTestSchemaWithPolicy: %v", err)
+			}
+			if first.LanguagePolicy() != profile.policy {
+				t.Fatalf("LanguagePolicy = %q, want %q", first.LanguagePolicy(), profile.policy)
+			}
+			firstComponents := first.Components()
+			if !reflect.DeepEqual(firstComponents, second.Components()) {
+				t.Fatal("repeated negativeInteger attribute builds changed component facts or order")
+			}
+
+			want := []struct {
+				name          string
+				declaredType  QName
+				typeLexical   string
+				typeSource    SourceID
+				boundSource   SourceID
+				boundNeedle   string
+				boundValue    string
+				varietySource SourceID
+				varietyNeedle string
+				builtin       bool
+			}{
+				{name: "direct", declaredType: mustTestQName(t, testXSDNamespace, "negativeInteger"), typeLexical: "xs:negativeInteger", typeSource: "root.xsd", boundSource: "root.xsd", boundNeedle: `type="xs:negativeInteger"`, boundValue: "-1", varietySource: "root.xsd", varietyNeedle: `type="xs:negativeInteger"`, builtin: true},
+				{name: "forward", declaredType: mustTestQName(t, "urn:root", "Forward"), typeLexical: "r:Forward", typeSource: "root.xsd", boundSource: "root.xsd", boundNeedle: `base="xs:negativeInteger"`, boundValue: "-1", varietySource: "root.xsd", varietyNeedle: `<xs:restriction base="r:Later"/>`},
+				{name: "imported", declaredType: mustTestQName(t, "urn:other", "Imported"), typeLexical: "o:Imported", typeSource: "other.xsd", boundSource: "other.xsd", boundNeedle: `base="xs:negativeInteger"`, boundValue: "-1", varietySource: "other.xsd", varietyNeedle: `<xs:restriction`},
+				{name: "chameleon", declaredType: mustTestQName(t, "urn:root", "Included"), typeLexical: "r:Included", typeSource: "chameleon.xsd", boundSource: "chameleon.xsd", boundNeedle: `base="xs:negativeInteger"`, boundValue: "-1", varietySource: "chameleon.xsd", varietyNeedle: `<xs:restriction`},
+				{name: "narrowed", declaredType: mustTestQName(t, "urn:root", "Narrowed"), typeLexical: "r:Narrowed", typeSource: "root.xsd", boundSource: "root.xsd", boundNeedle: `value="-10"`, boundValue: "-10", varietySource: "root.xsd", varietyNeedle: `<xs:restriction base="r:Later"><xs:maxInclusive`},
+			}
+			components := make([]Component, 0, len(want))
+			for _, component := range firstComponents {
+				if component.Kind() == ComponentKindAttributeDeclaration {
+					components = append(components, component)
+				}
+			}
+			if len(components) != len(want) {
+				t.Fatalf("global attribute count = %d, want %d", len(components), len(want))
+			}
+			for index, expected := range want {
+				component := components[index]
+				if component.Name() != mustTestQName(t, "urn:root", expected.name) {
+					t.Fatalf("attribute %d name = %q, want %q", index, component.Name(), expected.name)
+				}
+				if component.ID().Source() != "root.xsd" || component.ID().Ordinal() != uint64(index+1) {
+					t.Fatalf("attribute %q identity = %v, want root.xsd ordinal %d", expected.name, component.ID(), index+1)
+				}
+				declaration, ok := component.AttributeDeclaration()
+				if !ok {
+					t.Fatalf("attribute %q has no declaration view", expected.name)
+				}
+				if declaration.DeclaredType() != expected.declaredType {
+					t.Fatalf("attribute %q declared type = %q, want %q", expected.name, declaration.DeclaredType(), expected.declaredType)
+				}
+				if declaration.Loc() != schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `<xs:attribute name="`+expected.name+`"`, root, fixtures) {
+					t.Fatalf("attribute %q declaration location = %s, want lexical declaration location", expected.name, declaration.Loc())
+				}
+				reference, ok := declaration.TypeReference()
+				if !ok || reference.Name() != expected.declaredType || reference.Loc() != schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `type="`+expected.typeLexical+`"`, root, fixtures) {
+					t.Fatalf("attribute %q reference = %q/%s/%t, want written QName and type location", expected.name, reference.Name(), reference.Loc(), ok)
+				}
+				if reference.Variety() != SimpleTypeVarietyAtomicRestriction || reference.facts == nil || reference.facts.atomicKind != schemaSimpleTypeAtomicNegativeInteger {
+					t.Fatalf("attribute %q reference variety/category = %q/%v, want atomic negativeInteger", expected.name, reference.Variety(), reference.facts)
+				}
+				if reference.VarietyLoc() != schemaBuiltinReferenceAttributeLoc(t, expected.varietySource, expected.varietyNeedle, root, fixtures) {
+					t.Fatalf("attribute %q variety location = %s, want target model location", expected.name, reference.VarietyLoc())
+				}
+				var digits DigitFacets
+				var bounds IntegerBoundFacets
+				switch facets := reference.facts.facets.(type) {
+				case schemaDigitFacetVariant:
+					digits = facets.value
+					bounds = facets.integerBounds
+				case schemaIntegerFacetVariant:
+					digits = facets.digits
+					bounds = facets.bounds
+				default:
+					t.Fatalf("attribute %q digit facts = %T, want integer facets", expected.name, reference.facts.facets)
+				}
+				if digits.Kind() != DigitDatatypeInteger || digits.Version() != profile.version {
+					t.Fatalf("attribute %q digit facts = %T/%q/%q, want integer/%q", expected.name, reference.facts.facets, digits.Kind(), digits.Version(), profile.version)
+				}
+				fraction, fractionPresent := digits.FractionDigits()
+				if !fractionPresent || fraction.Canonical() != "0" {
+					t.Fatalf("attribute %q fractionDigits = %q/%t, want 0/true", expected.name, fraction.Canonical(), fractionPresent)
+				}
+				if bounds.Version() != profile.version {
+					t.Fatalf("attribute %q bound version = %q, want %q", expected.name, bounds.Version(), profile.version)
+				}
+				maximum, present := bounds.MaxInclusive()
+				if !present || maximum.Canonical() != expected.boundValue {
+					t.Fatalf("attribute %q maxInclusive = %q/%t, want %s/true", expected.name, maximum.Canonical(), present, expected.boundValue)
+				}
+				maximumFacet, present := bounds.MaxInclusiveFacet()
+				if !present || maximumFacet.Kind() != BoundMaxInclusive || maximumFacet.Value().Canonical() != expected.boundValue || maximumFacet.Loc() != schemaBuiltinReferenceAttributeLoc(t, expected.boundSource, expected.boundNeedle, root, fixtures) || maximumFacet.Version() != profile.version {
+					t.Fatalf("attribute %q maxInclusive facts = %q/%s/%q, want %s/location/%q", expected.name, maximumFacet.Value().Canonical(), maximumFacet.Loc(), maximumFacet.Kind(), expected.boundValue, profile.version)
+				}
+				if expected.builtin {
+					if reference.Kind() != SimpleTypeReferenceBuiltin {
+						t.Fatalf("attribute %q reference kind = %q, want built-in", expected.name, reference.Kind())
+					}
+					if typeID, hasTypeID := declaration.TypeID(); hasTypeID || !typeID.IsZero() {
+						t.Fatalf("attribute %q built-in type ID = %v/%t, want zero/false", expected.name, typeID, hasTypeID)
+					}
+					if typeID, hasTypeID := reference.ComponentID(); hasTypeID || !typeID.IsZero() {
+						t.Fatalf("attribute %q built-in reference ID = %v/%t, want zero/false", expected.name, typeID, hasTypeID)
+					}
+					continue
+				}
+				if reference.Kind() != SimpleTypeReferenceNamed {
+					t.Fatalf("attribute %q reference kind = %q, want named", expected.name, reference.Kind())
+				}
+				typeID, hasTypeID := reference.ComponentID()
+				wantTypeID := componentIDForName(t, first, expected.declaredType)
+				if !hasTypeID || typeID != wantTypeID || typeID.Source() != expected.typeSource {
+					t.Fatalf("attribute %q type ID = %v/%t, want %v/true from %q", expected.name, typeID, hasTypeID, wantTypeID, expected.typeSource)
+				}
+				declarationTypeID, declarationHasTypeID := declaration.TypeID()
+				if !declarationHasTypeID || declarationTypeID != typeID {
+					t.Fatalf("attribute %q declaration type ID = %v/%t, want reference ID %v/true", expected.name, declarationTypeID, declarationHasTypeID, typeID)
+				}
+			}
+
+			before := first.Components()
+			returned := first.Components()
+			returned[0] = Component{}
+			found := first.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:root", "direct"))
+			found[0] = Component{}
+			documentComponents := first.Documents()[0].Components()
+			documentComponents[0] = Component{}
+			if !reflect.DeepEqual(before, first.Components()) {
+				t.Fatal("mutating copied negativeInteger attribute views changed Schema")
+			}
+			direct, ok := components[0].AttributeDeclaration()
+			if !ok {
+				t.Fatal("direct negativeInteger attribute view is missing")
+			}
+			directReference, ok := direct.TypeReference()
+			if !ok || directReference.facts == nil {
+				t.Fatal("direct negativeInteger type reference is missing")
+			}
+			directFacets, ok := directReference.facts.facets.(schemaDigitFacetVariant)
+			if !ok {
+				t.Fatal("direct negativeInteger reference has non-digit facets")
+			}
+			mutatedMaximum, present := directFacets.integerBounds.MaxInclusive()
+			if !present {
+				t.Fatal("direct negativeInteger reference has no maxInclusive bound")
+			}
+			_ = mutatedMaximum.value.SetInt64(7)
+			storedMaximum, present := directFacets.integerBounds.MaxInclusive()
+			if !present || storedMaximum.Canonical() != "-1" {
+				t.Fatalf("mutating returned maxInclusive changed stored bound to %q", storedMaximum.Canonical())
+			}
+		})
+	}
+}
+
+func globalNegativeIntegerAttributeSchemaRoot() string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root" version="1.1">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:attribute name="direct" type="xs:negativeInteger"/>
+  <xs:attribute name="forward" type="r:Forward"/>
+  <xs:attribute name="imported" type="o:Imported"/>
+  <xs:attribute name="chameleon" type="r:Included"/>
+  <xs:attribute name="narrowed" type="r:Narrowed"/>
+  <xs:simpleType name="Forward"><xs:restriction base="r:Later"/></xs:simpleType>
+  <xs:simpleType name="Later"><xs:restriction base="xs:negativeInteger"/></xs:simpleType>
+  <xs:simpleType name="Narrowed"><xs:restriction base="r:Later"><xs:maxInclusive value="-10"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+}
+
 func globalBooleanAttributeSchemaRoot(version XSDVersion) string {
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root" version="` + string(version) + `">
   <xs:include schemaLocation="chameleon.xsd"/>
