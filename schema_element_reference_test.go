@@ -503,17 +503,17 @@ func TestSchemaElementReferenceDownstreamConsumersPreserveReferenceBoundaries(t 
 		t.Fatalf("validation: %v", validationErr)
 	}
 
-	_, err = GenerateGo(schema, "reference_example")
-	if err == nil {
-		t.Fatal("code generation accepted a reference particle")
+	generated, err := GenerateGo(schema, "reference_example")
+	if err != nil {
+		t.Fatalf("code generation: %v", err)
 	}
-	codegenDiagnostic := requireDiagnostic(t, err)
-	if codegenDiagnostic.Class() != FailureUnsupported || codegenDiagnostic.Feature() != FeatureCodegen || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
-		t.Fatalf("codegen diagnostic = %s, want explicit unsupported code generation", codegenDiagnostic)
+	if !strings.Contains(string(generated), "type Choice interface {") || !strings.Contains(string(generated), "StrictInteger") {
+		t.Fatalf("generated reference choice is missing its interface or scalar variant:\n%s", generated)
 	}
-	if codegenDiagnostic.Loc().Source() != "root.xsd" || codegenDiagnostic.SpecRef() == "" {
-		t.Fatalf("codegen diagnostic location/spec = %s/%q, want located specification-backed failure", codegenDiagnostic.Loc(), codegenDiagnostic.SpecRef())
+	if strings.Contains(string(generated), "type Item struct") {
+		t.Fatalf("generated reference choice emitted a global-element wrapper:\n%s", generated)
 	}
+	compileGeneratedCode(t, generated)
 }
 
 func elementReferenceTestSchema(t *testing.T, policy LanguagePolicy) (Schema, *discoveryResolver) {

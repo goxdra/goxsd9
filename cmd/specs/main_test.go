@@ -72,7 +72,7 @@ func TestBootstrapPrintsPinnedPlans(t *testing.T) {
 			version: "1.0",
 			want: "version\t1.0\n" +
 				"id\trole\trepresentation\tdependencies\tlexical_aliases\n" +
-				"xsd10-datatypes-schema\tdependency\thtml-cdata-pre\t[]\t[]\n" +
+				"xsd10-datatypes-schema\tdependency\thtml-cdata-pre-xsd10-datatypes\t[]\t[]\n" +
 				"xml-schema\tdependency\txml\t[]\t[\"http://www.w3.org/2001/xml.xsd\"]\n" +
 				"xsd10-schema-for-schemas\tentry\txml\t[\"xsd10-datatypes-schema\",\"xml-schema\"]\t[]\n",
 		},

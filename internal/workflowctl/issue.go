@@ -85,11 +85,12 @@ type addBlockedByResponse struct {
 }
 
 var (
-	validAreas    = []string{"codegen", "datatypes", "docs", "parser", "resolver", "schema", "specs", "validator", "workflow", "xpath"}
-	validTypes    = []string{"bug", "conformance", "docs", "feature", "refactor", "research", "tooling"}
-	validEfforts  = []string{"XS", "S", "M", "L", "XL"}
-	validPhases   = []string{"Bootstrap", "Vertical Slice", "Schema Model", "Validation", "Codegen", "Conformance", "XPath"}
-	validStatuses = []string{"Backlog", "Ready"}
+	validAreas      = []string{"codegen", "datatypes", "docs", "parser", "resolver", "schema", "specs", "validator", "workflow", "xpath"}
+	validTypes      = []string{"bug", "conformance", "docs", "feature", "refactor", "research", "tooling"}
+	validPriorities = []string{"P0", "P1", "P2", "P3", "P4"}
+	validEfforts    = []string{"XS", "S", "M", "L", "XL"}
+	validPhases     = []string{"Bootstrap", "Vertical Slice", "Schema Model", "Validation", "Codegen", "Conformance", "XPath"}
+	validStatuses   = []string{"Backlog", "Ready"}
 )
 
 func (values *intValues) String() string {
@@ -117,6 +118,9 @@ func (a app) runIssue(args []string) error {
 }
 
 func (a app) createIssue(args []string) error {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		return writeLine(a.stdout, "%s", issueCreateHelpText())
+	}
 	flags := flag.NewFlagSet("issue create", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	title := flags.String("title", "", "issue title")
@@ -195,7 +199,7 @@ func validateIssueInput(title, bodyFile, area, typeName, priority, effort, phase
 	if !strings.Contains(string(body), "## Acceptance") {
 		return errors.New("issue body must contain an Acceptance section")
 	}
-	if priorityRank(priority) > 4 {
+	if !containsString(validPriorities, priority) {
 		return fmt.Errorf("invalid priority %q", priority)
 	}
 	if !containsString(validAreas, area) {
@@ -217,6 +221,47 @@ func validateIssueInput(title, bodyFile, area, typeName, priority, effort, phase
 		return errors.New("ready issues must be XS, S, or M")
 	}
 	return nil
+}
+
+func issueCreateHelpText() string {
+	return fmt.Sprintf(`Usage:
+  go tool workflowctl issue create [flags]
+
+Create a GitHub issue and configure its Project metadata.
+
+Required flags:
+  --title TITLE
+        issue title (required; must not be blank)
+  --body-file FILE
+        Markdown body file (required; regular file containing "## Acceptance")
+  --area AREA
+        area label suffix (required; one of: %s)
+  --type TYPE
+        type label suffix (required; one of: %s)
+
+Project flags:
+  --priority PRIORITY
+        Project priority (default: P2; one of: %s)
+  --effort EFFORT
+        Project effort (default: S; one of: %s)
+  --phase PHASE
+        Project phase (default: Bootstrap; one of: %s)
+  --status STATUS
+        Project status (default: Backlog; one of: %s; Ready requires XS, S, or M effort)
+
+Dependency flags:
+  --blocked-by ISSUE
+        blocking issue number (positive integer; repeatable; no duplicates; maximum 50 values)
+
+Help:
+  -h, --help
+        print this help; recognized only when it is the sole argument after "issue create"
+
+Validation:
+  --body-file must contain an "## Acceptance" section marker.
+  Unknown flags, missing values, invalid values, and positional operands are usage errors.`,
+		strings.Join(validAreas, ", "), strings.Join(validTypes, ", "), strings.Join(validPriorities, ", "),
+		strings.Join(validEfforts, ", "), strings.Join(validPhases, ", "), strings.Join(validStatuses, ", "))
 }
 
 func containsString(values []string, target string) bool {
@@ -761,17 +806,55 @@ func (a app) readIssueComments(root string, number int) ([]issueCommentAPI, erro
 	endpoint := "repos/" + repositoryKey + "/issues/" + strconv.Itoa(number) + "/comments?per_page=100"
 	output, err := a.command(root, "gh", "api", "--paginate", endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("read issue #%d comments: %w", number, err)
+		return nil, retryableOperation("read issue comments", fmt.Errorf("read issue #%d comments: %w", number, err))
 	}
 	pages, err := decodeJSONDocuments[[]issueCommentAPI](output)
 	if err != nil {
-		return nil, fmt.Errorf("decode issue #%d comments: %w", number, err)
+		return nil, terminalOperation("issue comments", fmt.Errorf("decode issue #%d comments: %w", number, err))
+	}
+	if err := validateIssueCommentPages(number, pages); err != nil {
+		return nil, terminalOperation("issue comments", err)
 	}
 	comments := make([]issueCommentAPI, 0)
 	for _, page := range pages {
 		comments = append(comments, page...)
 	}
 	return comments, nil
+}
+
+func validateIssueCommentPages(number int, pages [][]issueCommentAPI) error {
+	seenIDs := make(map[int64]struct{})
+	for pageIndex, page := range pages {
+		if page == nil {
+			return fmt.Errorf("issue #%d comments page %d is null", number, pageIndex+1)
+		}
+		for commentIndex, comment := range page {
+			if err := validateIssueComment(number, pageIndex, commentIndex, comment, seenIDs); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateIssueComment(number, pageIndex, commentIndex int, comment issueCommentAPI, seenIDs map[int64]struct{}) error {
+	if comment.ID < 1 {
+		return fmt.Errorf("issue #%d comments page %d object %d has invalid ID %d", number, pageIndex+1, commentIndex+1, comment.ID)
+	}
+	if strings.TrimSpace(comment.User.Login) == "" {
+		return fmt.Errorf("issue #%d comments page %d object %d has no user login", number, pageIndex+1, commentIndex+1)
+	}
+	if strings.TrimSpace(comment.Body) == "" {
+		return fmt.Errorf("issue #%d comments page %d object %d has no body", number, pageIndex+1, commentIndex+1)
+	}
+	if comment.CreatedAt.IsZero() {
+		return fmt.Errorf("issue #%d comments page %d object %d has no created-at timestamp", number, pageIndex+1, commentIndex+1)
+	}
+	if _, duplicate := seenIDs[comment.ID]; duplicate {
+		return fmt.Errorf("issue #%d comments contain duplicate ID %d", number, comment.ID)
+	}
+	seenIDs[comment.ID] = struct{}{}
+	return nil
 }
 
 func exactTrustedIssueComment(comments []issueCommentAPI, body string) bool {

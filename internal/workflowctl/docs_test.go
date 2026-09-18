@@ -123,7 +123,7 @@ func TestDocumentationAuditStableReport(t *testing.T) {
 	for _, want := range []string{
 		"Head: head-sha", "Base: base-sha", "Merge base: merge-sha",
 		`"AGENTS.md" [modified]: +2 -2`, `"README.md" [modified]: +3 -1`,
-		`"evals/agent/curator/accretion.md"`, "Curator review: required",
+		`"evals/agent/curator/accretion.md"`, "Current-state review triggers:", "Curator review: required",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("audit output missing %q:\n%s", want, output)
@@ -148,7 +148,8 @@ func TestDocumentationAuditJSONSeparatesDiffAndFixtures(t *testing.T) {
 		t.Fatalf("decode JSON audit: %v\n%s", err, output.String())
 	}
 	if report.Schema != documentationAuditSchema || report.Base != "base-sha" || report.Head != "head-sha" ||
-		report.MergeBase != "merge-sha" || len(report.ManagedChanges) != 2 || len(report.EvaluationFixtures) != 1 {
+		report.MergeBase != "merge-sha" || len(report.ManagedChanges) != 2 || len(report.EvaluationFixtures) != 1 ||
+		report.CurrentStateReviewTriggers == nil {
 		t.Fatalf("audit report = %#v", report)
 	}
 	if report.ManagedChanges[0].Path != "AGENTS.md" || report.ManagedChanges[1].Path != "README.md" ||
@@ -174,8 +175,104 @@ func TestDocumentationAuditUnchanged(t *testing.T) {
 		t.Fatalf("auditDocs: %v", err)
 	}
 	output := stdout.String()
-	if strings.Count(output, "- None") != 2 || !strings.Contains(output, "Curator review: not required") {
+	if strings.Count(output, "- None") != 3 || !strings.Contains(output, "Curator review: not required") {
 		t.Fatalf("unchanged audit output:\n%s", output)
+	}
+}
+
+func TestCurrentStateReviewTriggerPathClassification(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "schema.go", want: true},
+		{path: "internal/schema.go", want: true},
+		{path: "cmd/goxsd9/main.go", want: true},
+		{path: "internal/workflowctl/audit.go", want: false},
+		{path: "cmd/workflowctl/main.go", want: false},
+		{path: "schema_test.go", want: false},
+		{path: "testdata/schema.go", want: false},
+		{path: "pkg/testdata/schema.go", want: false},
+		{path: "evals/agent/develop/schema.go", want: false},
+		{path: "pkg/evals/schema.go", want: false},
+		{path: "schema.txt", want: false},
+		{path: "internal/workflowctlx/audit.go", want: true},
+		{path: "cmd/workflowctlx/main.go", want: true},
+	}
+	for _, test := range tests {
+		if got := isCurrentStateReviewTriggerPath(test.path); got != test.want {
+			t.Errorf("isCurrentStateReviewTriggerPath(%q) = %t, want %t", test.path, got, test.want)
+		}
+	}
+}
+
+func TestDocumentationAuditCurrentStateTriggersAreSeparateAndSorted(t *testing.T) {
+	application, stdout := testAuditApplication(t,
+		"T\x00pkg/z.go\x00M\x00internal/workflowctl/audit.go\x00A\x00pkg/a.go\x00D\x00pkg/a_test.go\x00M\x00evals/agent/develop/case.go\x00M\x00testdata/fixture.go\x00",
+		"")
+	if err := application.auditDocs(t.TempDir(), "base-ref"); err != nil {
+		t.Fatalf("auditDocs: %v", err)
+	}
+	output := stdout.String()
+	section := strings.Index(output, "Current-state review triggers:")
+	if section < 0 {
+		t.Fatalf("missing trigger section:\n%s", output)
+	}
+	triggerOutput := output[section:]
+	if !strings.Contains(triggerOutput, `- "pkg/a.go"`) || !strings.Contains(triggerOutput, `- "pkg/z.go"`) {
+		t.Fatalf("trigger paths missing:\n%s", output)
+	}
+	if strings.Index(triggerOutput, `- "pkg/a.go"`) >= strings.Index(triggerOutput, `- "pkg/z.go"`) {
+		t.Fatalf("trigger paths are not sorted:\n%s", output)
+	}
+	if strings.Contains(triggerOutput, "workflowctl") || strings.Contains(triggerOutput, "testdata") || strings.Contains(triggerOutput, "evals") || strings.Contains(triggerOutput, "_test.go") {
+		t.Fatalf("excluded paths appeared as triggers:\n%s", output)
+	}
+	if !strings.Contains(output, "Curator review: required") {
+		t.Fatalf("source-only triggers did not require Curator:\n%s", output)
+	}
+}
+
+func TestDocumentationAuditWorkflowAndTestOnlyPathsRemainNotRequired(t *testing.T) {
+	application, stdout := testAuditApplication(t,
+		"M\x00internal/workflowctl/audit.go\x00M\x00cmd/workflowctl/main.go\x00M\x00schema_test.go\x00M\x00testdata/fixture.go\x00M\x00evals/agent/develop/case.go\x00",
+		"")
+	if err := application.auditDocs(t.TempDir(), "base-ref"); err != nil {
+		t.Fatalf("auditDocs: %v", err)
+	}
+	output := stdout.String()
+	section := strings.Index(output, "Current-state review triggers:")
+	if section < 0 || !strings.Contains(output[section:], "- None") {
+		t.Fatalf("workflow/test-only paths produced triggers:\n%s", output)
+	}
+	if !strings.Contains(output, "Curator review: not required") {
+		t.Fatalf("workflow/test-only paths required Curator:\n%s", output)
+	}
+}
+
+func TestDocumentationAuditCurrentStateTriggersJSONIsDeterministic(t *testing.T) {
+	application, _ := testAuditApplication(t,
+		"M\x00pkg/z.go\x00A\x00pkg/a.go\x00", "")
+	var first bytes.Buffer
+	application.stdout = &first
+	if err := application.auditDocsWithFormat(t.TempDir(), "base-ref", "json"); err != nil {
+		t.Fatalf("first JSON audit: %v", err)
+	}
+	var report documentationAuditReport
+	if err := json.Unmarshal(first.Bytes(), &report); err != nil {
+		t.Fatalf("decode JSON audit: %v", err)
+	}
+	if report.CurrentStateReviewTriggers == nil || len(report.CurrentStateReviewTriggers) != 2 ||
+		report.CurrentStateReviewTriggers[0] != "pkg/a.go" || report.CurrentStateReviewTriggers[1] != "pkg/z.go" {
+		t.Fatalf("trigger report = %#v", report.CurrentStateReviewTriggers)
+	}
+	var second bytes.Buffer
+	application.stdout = &second
+	if err := application.auditDocsWithFormat(t.TempDir(), "base-ref", "json"); err != nil {
+		t.Fatalf("second JSON audit: %v", err)
+	}
+	if !bytes.Equal(first.Bytes(), second.Bytes()) {
+		t.Fatalf("JSON audit is not deterministic:\n%s\n---\n%s", first.Bytes(), second.Bytes())
 	}
 }
 

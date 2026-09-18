@@ -3,62 +3,71 @@ package goxsd9
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
 
 const (
-	invalidSchemaTargetNamespaceCode               = "XSD3009"
-	invalidSchemaCompositionCode                   = "XSD3010"
-	invalidSchemaDeclarationNameCode               = "XSD3011"
-	diagnosticSchemaSimpleTypeUnresolvedCode       = "XSD3014"
-	diagnosticSchemaSimpleTypeWrongKindCode        = "XSD3015"
-	diagnosticSchemaSimpleTypeAmbiguousCode        = "XSD3016"
-	diagnosticSchemaSimpleTypeCycleCode            = "XSD3017"
-	diagnosticSchemaSimpleTypeBaseCode             = "XSD3018"
-	diagnosticSchemaElementTypeUnresolvedCode      = "XSD3019"
-	diagnosticSchemaElementTypeWrongKindCode       = "XSD3020"
-	diagnosticSchemaElementTypeAmbiguousCode       = "XSD3021"
-	diagnosticSchemaElementTypeUnsupportedCode     = "XSD3022"
-	diagnosticSchemaGlobalDuplicateCode            = "XSD3023"
-	diagnosticSchemaElementDuplicateCode           = diagnosticSchemaGlobalDuplicateCode
-	diagnosticSchemaElementReferenceUnresolvedCode = "XSD3024"
-	diagnosticSchemaElementReferenceWrongKindCode  = "XSD3025"
-	diagnosticSchemaElementReferenceAmbiguousCode  = "XSD3026"
-	diagnosticSchemaElementReferenceNamespaceCode  = "XSD3027"
-	diagnosticSchemaElementReferenceDuplicateCode  = "XSD3028"
-	diagnosticSchemaPrecisionDecimalVersionCode    = "XSD3030"
-	diagnosticSchemaAllOccurrenceVersionCode       = diagnosticSchemaPrecisionDecimalVersionCode
-	diagnosticSchemaNotationCode                   = "XSD3031"
-	diagnosticSchemaAttributeTypeUnresolvedCode    = "XSD3032"
-	diagnosticSchemaAttributeTypeWrongKindCode     = "XSD3033"
-	diagnosticSchemaAttributeTypeAmbiguousCode     = "XSD3034"
-	diagnosticSchemaAttributeTypeCycleCode         = "XSD3035"
-	diagnosticSchemaSubstitutionUnresolvedCode     = "XSD3037"
-	diagnosticSchemaSubstitutionWrongKindCode      = "XSD3038"
-	diagnosticSchemaSubstitutionAmbiguousCode      = "XSD3039"
-	diagnosticSchemaSubstitutionSelfCode           = "XSD3040"
-	diagnosticSchemaSubstitutionImportCode         = "XSD3042"
-	diagnosticSchemaSubstitutionTypeCode           = "XSD3043"
-	diagnosticSchemaSubstitutionCycleCode          = "XSD3044"
-	diagnosticSchemaBlockCode                      = "XSD3045"
-	// XSD3045 is retained for existing block diagnostics. Attribute-reference
-	// unresolved diagnostics share it to preserve the issue's stable family
-	// without changing the established #283 block contract.
+	invalidSchemaTargetNamespaceCode                  = "XSD3009"
+	invalidSchemaCompositionCode                      = "XSD3010"
+	invalidSchemaDeclarationNameCode                  = "XSD3011"
+	diagnosticSchemaSimpleTypeUnresolvedCode          = "XSD3014"
+	diagnosticSchemaSimpleTypeWrongKindCode           = "XSD3015"
+	diagnosticSchemaSimpleTypeAmbiguousCode           = "XSD3016"
+	diagnosticSchemaSimpleTypeCycleCode               = "XSD3017"
+	diagnosticSchemaSimpleTypeBaseCode                = "XSD3018"
+	diagnosticSchemaElementTypeUnresolvedCode         = "XSD3019"
+	diagnosticSchemaElementTypeWrongKindCode          = "XSD3020"
+	diagnosticSchemaElementTypeAmbiguousCode          = "XSD3021"
+	diagnosticSchemaElementTypeUnsupportedCode        = "XSD3022"
+	diagnosticSchemaGlobalDuplicateCode               = "XSD3023"
+	diagnosticSchemaElementDuplicateCode              = diagnosticSchemaGlobalDuplicateCode
+	diagnosticSchemaElementReferenceUnresolvedCode    = "XSD3024"
+	diagnosticSchemaElementReferenceWrongKindCode     = "XSD3025"
+	diagnosticSchemaElementReferenceAmbiguousCode     = "XSD3026"
+	diagnosticSchemaElementReferenceNamespaceCode     = "XSD3027"
+	diagnosticSchemaElementReferenceDuplicateCode     = "XSD3028"
+	diagnosticSchemaPrecisionDecimalVersionCode       = "XSD3030"
+	diagnosticSchemaAllOccurrenceVersionCode          = diagnosticSchemaPrecisionDecimalVersionCode
+	diagnosticSchemaNotationCode                      = "XSD3031"
+	diagnosticSchemaAttributeTypeUnresolvedCode       = "XSD3032"
+	diagnosticSchemaAttributeTypeWrongKindCode        = "XSD3033"
+	diagnosticSchemaAttributeTypeAmbiguousCode        = "XSD3034"
+	diagnosticSchemaAttributeTypeCycleCode            = "XSD3035"
+	diagnosticSchemaAttributeValueConstraintCode      = "XSD3036"
+	diagnosticSchemaSubstitutionUnresolvedCode        = "XSD3037"
+	diagnosticSchemaSubstitutionWrongKindCode         = "XSD3038"
+	diagnosticSchemaSubstitutionAmbiguousCode         = "XSD3039"
+	diagnosticSchemaSubstitutionSelfCode              = "XSD3040"
+	diagnosticSchemaSubstitutionImportCode            = "XSD3042"
+	diagnosticSchemaSubstitutionTypeCode              = "XSD3043"
+	diagnosticSchemaSubstitutionCycleCode             = "XSD3044"
+	diagnosticSchemaBlockCode                         = "XSD3045"
+	diagnosticSchemaElementReferenceBlockCode         = "XSD3046"
+	diagnosticSchemaModelGroupReferenceUnresolvedCode = "XSD3047"
+	diagnosticSchemaModelGroupReferenceWrongKindCode  = "XSD3048"
+	diagnosticSchemaModelGroupReferenceAmbiguousCode  = "XSD3049"
+	diagnosticSchemaModelGroupReferenceNamespaceCode  = "XSD3050"
+	diagnosticSchemaBridgeInvariantCode               = "GOXSD9025"
+	// Attribute-reference and simple-content diagnostics retain the #317
+	// stable family. Some values intentionally share codes with model-group
+	// diagnostics introduced later; their causes and locations distinguish them.
 	diagnosticSchemaAttributeReferenceUnresolvedCode = diagnosticSchemaBlockCode
-	diagnosticSchemaAttributeReferenceWrongKindCode  = "XSD3046"
-	diagnosticSchemaAttributeReferenceAmbiguousCode  = "XSD3047"
-	diagnosticSchemaAttributeReferenceNamespaceCode  = "XSD3048"
-	diagnosticSchemaSimpleContentBaseUnresolvedCode  = "XSD3049"
-	diagnosticSchemaSimpleContentBaseWrongKindCode   = "XSD3050"
+	diagnosticSchemaAttributeReferenceWrongKindCode  = diagnosticSchemaElementReferenceBlockCode
+	diagnosticSchemaAttributeReferenceAmbiguousCode  = diagnosticSchemaModelGroupReferenceUnresolvedCode
+	diagnosticSchemaAttributeReferenceNamespaceCode  = diagnosticSchemaModelGroupReferenceWrongKindCode
+	diagnosticSchemaSimpleContentBaseUnresolvedCode  = diagnosticSchemaModelGroupReferenceAmbiguousCode
+	diagnosticSchemaSimpleContentBaseWrongKindCode   = diagnosticSchemaModelGroupReferenceNamespaceCode
 	diagnosticSchemaSimpleContentBaseAmbiguousCode   = "XSD3051"
 	diagnosticSchemaAttributeUseDuplicateCode        = "XSD3052"
-	diagnosticSchemaBridgeInvariantCode              = "GOXSD9025"
 )
 
 const (
 	schemaSimpleTypeXSD10SpecRef                = "xsd10-structures#Simple_Type_Definitions"
 	schemaSimpleTypeXSD11SpecRef                = "xsd11-structures#Simple_Type_Definition"
+	schemaSimpleTypeRestrictionXSD10SpecRef     = "xsd10-structures#cos-st-restricts"
+	schemaSimpleTypeRestrictionXSD11SpecRef     = "xsd11-structures#cos-st-restricts"
 	schemaElementTypeXSD10SpecRef               = "xsd10-structures#Element_Declaration_details"
 	schemaElementTypeXSD11SpecRef               = "xsd11-structures#Element_Declaration_details"
 	schemaElementTargetNamespaceXSD11SpecRef    = "xsd11-structures#dcl.elt.local"
@@ -70,12 +79,22 @@ const (
 	schemaElementDuplicateXSD11SpecRef          = schemaGlobalDuplicateXSD11SpecRef
 	schemaElementReferenceXSD10SpecRef          = "xsd10-structures#src-resolve"
 	schemaElementReferenceXSD11SpecRef          = "xsd11-structures#src-resolve"
+	schemaElementReferenceBlockXSD10SpecRef     = "xsd10-structures#src-element"
+	schemaElementReferenceBlockXSD11SpecRef     = "xsd11-structures#anchor8458"
 	schemaElementReferenceDuplicateXSD10SpecRef = "xsd10-structures#coss-particle"
 	schemaElementReferenceDuplicateXSD11SpecRef = "xsd11-structures#coss-particle"
 	schemaElementReferenceImportXSD10SpecRef    = "xsd10-structures#composition-importLicenseReferences"
 	schemaElementReferenceImportXSD11SpecRef    = "xsd11-structures#composition-importLicenseReferences"
+	schemaModelGroupReferenceXSD10SpecRef       = "xsd10-structures#src-model_group"
+	schemaModelGroupReferenceXSD11SpecRef       = "xsd11-structures#sec-src-model_group"
+	schemaModelGroupReferenceImportXSD10SpecRef = "xsd10-structures#src-import"
+	schemaModelGroupReferenceImportXSD11SpecRef = "xsd11-structures#src-import"
 	schemaAttributeTypeXSD10SpecRef             = "xsd10-structures#Attribute_Declaration_details"
 	schemaAttributeTypeXSD11SpecRef             = "xsd11-structures#Attribute_Declaration_details"
+	schemaAttributeValueConstraintXSD10SpecRef  = "xsd10-structures#a-value_constraint"
+	schemaAttributeValueConstraintXSD11SpecRef  = "xsd11-structures#ad-value_constraint"
+	schemaAttributeValueXSD10SpecRef            = "xsd10-structures#element-attribute"
+	schemaAttributeValueXSD11SpecRef            = "xsd11-structures#vc_a"
 	schemaNotationXSD10SpecRef                  = "xsd10-structures#Notation_Declaration_details"
 	schemaNotationXSD11SpecRef                  = "xsd11-structures#Notation_Declaration_details"
 	schemaSubstitutionAffiliationXSD10SpecRef   = "xsd10-structures#Element_Declaration_details"
@@ -92,6 +111,8 @@ const (
 	schemaBlockDefaultXSD11SpecRef              = "xsd11-structures#element-schema"
 	schemaAnyAttributeXSD10SpecRef              = "xsd10-structures#element-anyAttribute"
 	schemaAnyAttributeXSD11SpecRef              = "xsd11-structures#element-anyAttribute"
+	schemaAnyParticleXSD10SpecRef               = "xsd10-structures#element-any"
+	schemaAnyParticleXSD11SpecRef               = "xsd11-structures#element-any"
 	schemaComplexTypeDerivationXSD10SpecRef     = "xsd10-structures#derivation-ok-restriction"
 	schemaComplexTypeDerivationXSD11SpecRef     = "xsd11-structures#derivation-ok-restriction"
 	schemaAttributeUseXSD10SpecRef              = "xsd10-structures#AU_details"
@@ -100,63 +121,81 @@ const (
 	schemaAttributeUseResolveXSD11SpecRef       = "xsd11-structures#coss-attruse"
 	schemaSimpleContentXSD10SpecRef             = "xsd10-structures#element-simpleContent..extension"
 	schemaSimpleContentXSD11SpecRef             = "xsd11-structures#element-simpleContent..extension"
+	schemaComplexContentExtensionXSD10SpecRef   = "xsd10-structures#element-complexContent..extension"
+	schemaComplexContentExtensionXSD11SpecRef   = "xsd11-structures#element-complexContent..extension"
+	schemaComplexTypeExtensionXSD10SpecRef      = "xsd10-structures#cos-ct-extends"
+	schemaComplexTypeExtensionXSD11SpecRef      = "xsd11-structures#cos-ct-extends"
+	schemaComplexParticleExtensionXSD10SpecRef  = "xsd10-structures#cos-particle-extend"
+	schemaComplexParticleExtensionXSD11SpecRef  = "xsd11-structures#cos-particle-extend"
 )
 
 var (
-	errSchemaSimpleTypeBaseUnresolved         = errors.New("simple type base is unresolved")
-	errSchemaSimpleTypeBaseWrongKind          = errors.New("simple type base has the wrong kind")
-	errSchemaSimpleTypeBaseAmbiguous          = errors.New("simple type base is ambiguous")
-	errSchemaSimpleTypeBaseCycle              = errors.New("simple type base is cyclic")
-	errSchemaSimpleTypeInvalidDerivation      = errors.New("simple type derivation is invalid")
-	errSchemaSimpleTypeRestrictionUnsupported = errors.New("simple type restriction variety is not implemented")
-	errSchemaElementTypeUnresolved            = errors.New("element type is unresolved")
-	errSchemaElementTypeWrongKind             = errors.New("element type has the wrong kind")
-	errSchemaElementTypeAmbiguous             = errors.New("element type is ambiguous")
-	errSchemaElementReferenceUnresolved       = errors.New("element reference is unresolved")
-	errSchemaElementReferenceWrongKind        = errors.New("element reference has the wrong target kind")
-	errSchemaElementReferenceAmbiguous        = errors.New("element reference is ambiguous")
-	errSchemaElementReferenceNamespace        = errors.New("element reference namespace is not imported")
-	errSchemaElementReferenceDuplicate        = errors.New("element reference particle is duplicated")
-	errSchemaAttributeTypeUnresolved          = errors.New("attribute type is unresolved")
-	errSchemaAttributeTypeWrongKind           = errors.New("attribute type has the wrong kind")
-	errSchemaAttributeTypeAmbiguous           = errors.New("attribute type is ambiguous")
-	errSchemaAttributeTypeUnsupported         = errors.New("attribute type is unsupported")
-	errSchemaAttributeUseUnsupported          = errors.New("attribute use is unsupported")
-	errSchemaAttributeReferenceUnresolved     = errors.New("attribute reference is unresolved")
-	errSchemaAttributeReferenceWrongKind      = errors.New("attribute reference has the wrong target kind")
-	errSchemaAttributeReferenceAmbiguous      = errors.New("attribute reference is ambiguous")
-	errSchemaAttributeReferenceNamespace      = errors.New("attribute reference namespace is not imported")
-	errSchemaAttributeReferenceUnsupported    = errors.New("attribute reference target is unsupported")
-	errSchemaAttributeUseDuplicate            = errors.New("attribute use is duplicated")
-	errSchemaSimpleContentBaseUnresolved      = errors.New("simpleContent base is unresolved")
-	errSchemaSimpleContentBaseWrongKind       = errors.New("simpleContent base has the wrong kind")
-	errSchemaSimpleContentBaseAmbiguous       = errors.New("simpleContent base is ambiguous")
-	errSchemaSimpleContentBaseUnsupported     = errors.New("simpleContent base is unsupported")
-	errSchemaAttributeTargetNamespace         = errors.New("local attribute targetNamespace is not representable in the supported model")
-	errSchemaGlobalDeclarationDuplicate       = errors.New("global declaration is duplicated")
-	errSchemaElementDuplicate                 = errors.New("global element declaration is duplicated")
-	errSchemaElementTargetNamespace           = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
-	errSchemaPrecisionDecimalVersion          = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
-	errSchemaNotationPublic                   = errors.New("notation public identifier is invalid")
-	errSchemaNotationSystem                   = errors.New("notation system identifier is invalid")
-	errSchemaSubstitutionQName                = errors.New("substitution-group affiliation QName is invalid")
-	errSchemaSubstitutionCardinality          = errors.New("substitutionGroup has invalid cardinality")
-	errSchemaSubstitutionUnresolved           = errors.New("substitution-group head is unresolved")
-	errSchemaSubstitutionWrongKind            = errors.New("substitution-group head has the wrong kind")
-	errSchemaSubstitutionAmbiguous            = errors.New("substitution-group head is ambiguous")
-	errSchemaSubstitutionSelf                 = errors.New("element affiliates with itself")
-	errSchemaSubstitutionImport               = errors.New("substitution-group head namespace is not directly imported")
-	errSchemaSubstitutionTypeInvalid          = errors.New("substitution-group type derivation is invalid")
-	errSchemaSubstitutionTypeUnsupported      = errors.New("substitution-group type derivation is not implemented")
-	errSchemaSubstitutionCycle                = errors.New("substitution-group affiliations form a cycle")
-	errSchemaBlock                            = errors.New("schema block value is invalid")
-	errSchemaAnyAttributeUnsupported          = errors.New("anyAttribute wildcard is not implemented")
-	errSchemaComplexTypeBaseUnresolved        = errors.New("complex type base is unresolved")
-	errSchemaComplexTypeBaseWrongKind         = errors.New("complex type base has the wrong kind")
-	errSchemaComplexTypeBaseAmbiguous         = errors.New("complex type base is ambiguous")
-	errSchemaComplexTypeBaseUnsupported       = errors.New("complex type named base is not implemented")
-	errSchemaComplexTypeBaseRequired          = errors.New("complex type base is required")
-	errLanguagePolicyMismatch                 = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
+	errSchemaSimpleTypeBaseUnresolved            = errors.New("simple type base is unresolved")
+	errSchemaSimpleTypeBaseWrongKind             = errors.New("simple type base has the wrong kind")
+	errSchemaSimpleTypeBaseAmbiguous             = errors.New("simple type base is ambiguous")
+	errSchemaSimpleTypeBaseCycle                 = errors.New("simple type base is cyclic")
+	errSchemaSimpleTypeInvalidDerivation         = errors.New("simple type derivation is invalid")
+	errSchemaNMTOKENValueViolation               = errors.New("NMTOKEN value is invalid")
+	errSchemaSimpleTypeRestrictionUnsupported    = errors.New("simple type restriction variety is not implemented")
+	errSchemaElementTypeUnresolved               = errors.New("element type is unresolved")
+	errSchemaElementTypeWrongKind                = errors.New("element type has the wrong kind")
+	errSchemaElementTypeAmbiguous                = errors.New("element type is ambiguous")
+	errSchemaElementReferenceUnresolved          = errors.New("element reference is unresolved")
+	errSchemaElementReferenceWrongKind           = errors.New("element reference has the wrong target kind")
+	errSchemaElementReferenceAmbiguous           = errors.New("element reference is ambiguous")
+	errSchemaElementReferenceNamespace           = errors.New("element reference namespace is not imported")
+	errSchemaElementReferenceDuplicate           = errors.New("element reference particle is duplicated")
+	errSchemaElementReferenceBlock               = errors.New("element reference cannot specify block")
+	errSchemaModelGroupReferenceUnresolved       = errors.New("model-group reference is unresolved")
+	errSchemaModelGroupReferenceWrongKind        = errors.New("model-group reference has the wrong target kind")
+	errSchemaModelGroupReferenceAmbiguous        = errors.New("model-group reference is ambiguous")
+	errSchemaModelGroupReferenceNamespace        = errors.New("model-group reference namespace is not imported")
+	errSchemaAttributeTypeUnresolved             = errors.New("attribute type is unresolved")
+	errSchemaAttributeTypeWrongKind              = errors.New("attribute type has the wrong kind")
+	errSchemaAttributeTypeAmbiguous              = errors.New("attribute type is ambiguous")
+	errSchemaAttributeTypeUnsupported            = errors.New("attribute type is unsupported")
+	errSchemaAttributeUseUnsupported             = errors.New("attribute use is unsupported")
+	errSchemaAttributeReferenceUnresolved        = errors.New("attribute reference is unresolved")
+	errSchemaAttributeReferenceWrongKind         = errors.New("attribute reference has the wrong target kind")
+	errSchemaAttributeReferenceAmbiguous         = errors.New("attribute reference is ambiguous")
+	errSchemaAttributeReferenceNamespace         = errors.New("attribute reference namespace is not imported")
+	errSchemaAttributeReferenceUnsupported       = errors.New("attribute reference target is unsupported")
+	errSchemaAttributeUseDuplicate               = errors.New("attribute use is duplicated")
+	errSchemaSimpleContentBaseUnresolved         = errors.New("simpleContent base is unresolved")
+	errSchemaSimpleContentBaseWrongKind          = errors.New("simpleContent base has the wrong kind")
+	errSchemaSimpleContentBaseAmbiguous          = errors.New("simpleContent base is ambiguous")
+	errSchemaSimpleContentBaseUnsupported        = errors.New("simpleContent base is unsupported")
+	errSchemaAttributeTargetNamespace            = errors.New("local attribute targetNamespace is not representable in the supported model")
+	errSchemaAttributeValueConstraintInvalid     = errors.New("attribute value constraint is invalid")
+	errSchemaAttributeValueConstraintConflict    = errors.New("attribute value constraints are mutually exclusive")
+	errSchemaAttributeValueConstraintUnsupported = errors.New("attribute value constraint is unsupported")
+	errSchemaGlobalDeclarationDuplicate          = errors.New("global declaration is duplicated")
+	errSchemaElementDuplicate                    = errors.New("global element declaration is duplicated")
+	errSchemaElementTargetNamespace              = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
+	errSchemaPrecisionDecimalVersion             = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
+	errSchemaNotationPublic                      = errors.New("notation public identifier is invalid")
+	errSchemaNotationSystem                      = errors.New("notation system identifier is invalid")
+	errSchemaSubstitutionQName                   = errors.New("substitution-group affiliation QName is invalid")
+	errSchemaSubstitutionCardinality             = errors.New("substitutionGroup has invalid cardinality")
+	errSchemaSubstitutionUnresolved              = errors.New("substitution-group head is unresolved")
+	errSchemaSubstitutionWrongKind               = errors.New("substitution-group head has the wrong kind")
+	errSchemaSubstitutionAmbiguous               = errors.New("substitution-group head is ambiguous")
+	errSchemaSubstitutionSelf                    = errors.New("element affiliates with itself")
+	errSchemaSubstitutionImport                  = errors.New("substitution-group head namespace is not directly imported")
+	errSchemaSubstitutionTypeInvalid             = errors.New("substitution-group type derivation is invalid")
+	errSchemaSubstitutionTypeUnsupported         = errors.New("substitution-group type derivation is not implemented")
+	errSchemaSubstitutionCycle                   = errors.New("substitution-group affiliations form a cycle")
+	errSchemaBlock                               = errors.New("schema block value is invalid")
+	errSchemaAnyAttributeUnsupported             = errors.New("anyAttribute wildcard is not implemented")
+	errSchemaAnyParticleUnsupported              = errors.New("any wildcard particle is not implemented")
+	errSchemaComplexTypeBaseUnresolved           = errors.New("complex type base is unresolved")
+	errSchemaComplexTypeBaseWrongKind            = errors.New("complex type base has the wrong kind")
+	errSchemaComplexTypeBaseAmbiguous            = errors.New("complex type base is ambiguous")
+	errSchemaComplexTypeBaseUnsupported          = errors.New("complex type named base is not implemented")
+	errSchemaComplexTypeBaseRequired             = errors.New("complex type base is required")
+	errSchemaComplexTypeBaseCycle                = errors.New("complex type bases form a cycle")
+	errSchemaComplexTypeBaseNonEmpty             = errors.New("complex type base has nonempty content")
+	errLanguagePolicyMismatch                    = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
 const schemaInstanceNamespaceURI = "http://www.w3.org/2001/XMLSchema-instance"
@@ -172,6 +211,7 @@ type schemaDocumentFacts struct {
 	elementFormDefaultQualified   bool
 	attributeFormDefaultQualified bool
 	blockDefault                  schemaBlockPolicy
+	simpleTypeFinalDefault        schemaSimpleTypeFinalPolicy
 	chameleon                     bool
 }
 
@@ -193,6 +233,193 @@ type schemaBlockPolicy struct {
 	set     schemaBlockSet
 	loc     Loc
 	present bool
+}
+
+type schemaSimpleTypeFinalSet uint8
+
+const (
+	schemaSimpleTypeFinalExtension schemaSimpleTypeFinalSet = 1 << iota
+	schemaSimpleTypeFinalRestriction
+	schemaSimpleTypeFinalList
+	schemaSimpleTypeFinalUnion
+)
+
+var schemaSimpleTypeFinalValueOrder = [...]struct {
+	bit   schemaSimpleTypeFinalSet
+	value string
+}{
+	{bit: schemaSimpleTypeFinalExtension, value: "extension"},
+	{bit: schemaSimpleTypeFinalRestriction, value: "restriction"},
+	{bit: schemaSimpleTypeFinalList, value: "list"},
+	{bit: schemaSimpleTypeFinalUnion, value: "union"},
+}
+
+func (set schemaSimpleTypeFinalSet) values() []string {
+	if set == 0 {
+		return nil
+	}
+	values := make([]string, 0, len(schemaSimpleTypeFinalValueOrder))
+	for _, item := range schemaSimpleTypeFinalValueOrder {
+		if set&item.bit != 0 {
+			values = append(values, item.value)
+		}
+	}
+	return values
+}
+
+type schemaSimpleTypeFinalPolicy struct {
+	set schemaSimpleTypeFinalSet
+	loc Loc
+}
+
+type schemaComplexTypeFinalSet uint8
+
+const (
+	schemaComplexTypeFinalExtension schemaComplexTypeFinalSet = 1 << iota
+	schemaComplexTypeFinalRestriction
+)
+
+var schemaComplexTypeFinalValueOrder = [...]struct {
+	bit   schemaComplexTypeFinalSet
+	value string
+}{
+	{bit: schemaComplexTypeFinalExtension, value: "extension"},
+	{bit: schemaComplexTypeFinalRestriction, value: "restriction"},
+}
+
+func (set schemaComplexTypeFinalSet) values() []string {
+	if set == 0 {
+		return nil
+	}
+	values := make([]string, 0, len(schemaComplexTypeFinalValueOrder))
+	for _, item := range schemaComplexTypeFinalValueOrder {
+		if set&item.bit == 0 {
+			continue
+		}
+		values = append(values, item.value)
+	}
+	return values
+}
+
+type schemaComplexTypeFinalPolicy struct {
+	set schemaComplexTypeFinalSet
+	loc Loc
+}
+
+func schemaSimpleTypeFinalPolicyFromAttribute(attribute syntaxAttribute, version XSDVersion) (schemaSimpleTypeFinalPolicy, error) {
+	return schemaSimpleTypeFinalPolicyFromAttributeMode(attribute, version, false)
+}
+
+func schemaSimpleTypeFinalPolicyFromRootAttribute(attribute syntaxAttribute, version XSDVersion) (schemaSimpleTypeFinalPolicy, error) {
+	return schemaSimpleTypeFinalPolicyFromAttributeMode(attribute, version, true)
+}
+
+//nolint:gocognit // Keep final lexical validation and canonicalization together.
+func schemaSimpleTypeFinalPolicyFromAttributeMode(attribute syntaxAttribute, version XSDVersion, rootDefault bool) (schemaSimpleTypeFinalPolicy, error) {
+	lexeme := collapseXMLWhitespace(attribute.value)
+	if lexeme == "" {
+		return schemaSimpleTypeFinalPolicy{}, nil
+	}
+	tokens := strings.Split(lexeme, " ")
+	if len(tokens) == 1 && tokens[0] == "#all" {
+		set := schemaSimpleTypeFinalRestriction | schemaSimpleTypeFinalList | schemaSimpleTypeFinalUnion
+		if version == XSDVersion11 {
+			set |= schemaSimpleTypeFinalExtension
+		}
+		return schemaSimpleTypeFinalPolicy{set: set, loc: attribute.loc}, nil
+	}
+	for _, token := range tokens {
+		if token == "#all" {
+			return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q cannot combine #all with other values", attribute.name.local))
+		}
+	}
+	var set schemaSimpleTypeFinalSet
+	for _, token := range tokens {
+		var bit schemaSimpleTypeFinalSet
+		switch token {
+		case "extension":
+			bit = schemaSimpleTypeFinalExtension
+		case "restriction":
+			bit = schemaSimpleTypeFinalRestriction
+		case "list":
+			bit = schemaSimpleTypeFinalList
+		case "union":
+			bit = schemaSimpleTypeFinalUnion
+		default:
+			return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q has an invalid final value %q", attribute.name.local, token))
+		}
+		if bit == schemaSimpleTypeFinalExtension && version == XSDVersion10 && !rootDefault {
+			return schemaSimpleTypeFinalPolicy{}, newSchemaSimpleTypeFinalEditionMismatch(attribute, token)
+		}
+		if bit == schemaSimpleTypeFinalExtension && version == XSDVersion10 {
+			continue
+		}
+		if set&bit != 0 {
+			continue
+		}
+		set |= bit
+	}
+	if set == 0 {
+		return schemaSimpleTypeFinalPolicy{}, nil
+	}
+	return schemaSimpleTypeFinalPolicy{set: set, loc: attribute.loc}, nil
+}
+
+func schemaComplexTypeFinalPolicyFromAttribute(attribute syntaxAttribute) (schemaComplexTypeFinalPolicy, error) {
+	lexeme := collapseXMLWhitespace(attribute.value)
+	if lexeme == "" {
+		return schemaComplexTypeFinalPolicy{}, nil
+	}
+	tokens := strings.Split(lexeme, " ")
+	if len(tokens) == 1 && tokens[0] == "#all" {
+		return schemaComplexTypeFinalPolicy{
+			set: schemaComplexTypeFinalExtension | schemaComplexTypeFinalRestriction,
+			loc: attribute.loc,
+		}, nil
+	}
+	for _, token := range tokens {
+		if token == "#all" {
+			return schemaComplexTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q cannot combine #all with other values", attribute.name.local))
+		}
+	}
+	var set schemaComplexTypeFinalSet
+	for _, token := range tokens {
+		var bit schemaComplexTypeFinalSet
+		switch token {
+		case "extension":
+			bit = schemaComplexTypeFinalExtension
+		case "restriction":
+			bit = schemaComplexTypeFinalRestriction
+		default:
+			return schemaComplexTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q has an invalid final value %q", attribute.name.local, token))
+		}
+		set |= bit
+	}
+	return schemaComplexTypeFinalPolicy{set: set, loc: attribute.loc}, nil
+}
+
+func schemaComplexTypeFinalPolicyFromElement(element *syntaxElement) (schemaComplexTypeFinalPolicy, error) {
+	finalAttributes := syntaxAttributesByLocal(element, "final")
+	if len(finalAttributes) == 0 {
+		return schemaComplexTypeFinalPolicy{}, nil
+	}
+	if len(finalAttributes) != 1 {
+		return schemaComplexTypeFinalPolicy{}, newSchemaCompositionDiagnostic(
+			finalAttributes[1].loc,
+			`complexType attribute "final" must be unique`,
+		)
+	}
+	return schemaComplexTypeFinalPolicyFromAttribute(finalAttributes[0])
+}
+
+func schemaComplexTypeInputWithDeclarationFacts(
+	input *schemaComplexTypeInput,
+	abstract bool,
+	final schemaComplexTypeFinalPolicy,
+) *schemaComplexTypeInput {
+	input.abstract = abstract
+	input.final = final
+	return input
 }
 
 var schemaBlockValueOrder = [...]struct {
@@ -516,11 +743,16 @@ func schemaDocumentInputAt(
 	if err != nil {
 		return schemaDocumentInput{}, err
 	}
+	simpleTypeFinalDefault, err := syntaxDocumentFinalDefaultPolicy(document, version)
+	if err != nil {
+		return schemaDocumentInput{}, err
+	}
 	facts := schemaDocumentFacts{
 		targetNamespace:               namespaces[index],
 		elementFormDefaultQualified:   elementFormDefaultQualified,
 		attributeFormDefaultQualified: attributeFormDefaultQualified,
 		blockDefault:                  blockDefault,
+		simpleTypeFinalDefault:        simpleTypeFinalDefault,
 		chameleon:                     !declaredNamespace.present && namespaces[index].present,
 	}
 	declarations, err := schemaDocumentDeclarationsWithFacts(document, facts, version)
@@ -576,6 +808,20 @@ func syntaxDocumentAttributeFormDefault(document *syntaxDocument) (bool, error) 
 		return false, err
 	}
 	return collapseXMLWhitespace(attributes[0].value) == "qualified", nil
+}
+
+func syntaxDocumentFinalDefaultPolicy(document *syntaxDocument, version XSDVersion) (schemaSimpleTypeFinalPolicy, error) {
+	if document == nil || document.root == nil {
+		return schemaSimpleTypeFinalPolicy{}, newSchemaBridgeInvariant(Loc{}, "schema document has no root while reading finalDefault")
+	}
+	attributes := syntaxAttributesByLocal(document.root, "finalDefault")
+	if len(attributes) == 0 {
+		return schemaSimpleTypeFinalPolicy{}, nil
+	}
+	if len(attributes) != 1 {
+		return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attributes[1].loc, "schema root attribute \"finalDefault\" must be unique")
+	}
+	return schemaSimpleTypeFinalPolicyFromRootAttribute(attributes[0], version)
 }
 
 func syntaxDocumentTargetNamespace(document *syntaxDocument) (schemaTargetNamespace, error) {
@@ -1047,7 +1293,7 @@ func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, 
 	if kind != ComponentKindSimpleTypeDefinition {
 		return declaration, nil
 	}
-	simpleType, err := schemaSimpleTypeInputFromElement(element)
+	simpleType, err := schemaSimpleTypeInputFromElementWithDefault(element, version, facts.simpleTypeFinalDefault)
 	if err != nil {
 		return schemaComponentInput{}, err
 	}
@@ -1059,6 +1305,10 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 	if element == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "construct attribute type input from a nil element")
 	}
+	valueConstraint, err := schemaAttributeValueConstraintInputFromElement(element, version)
+	if err != nil {
+		return nil, err
+	}
 	attributes := syntaxAttributesByLocal(element, "type")
 	inline := inlineSimpleTypeChild(element)
 	if len(attributes) > 1 {
@@ -1069,10 +1319,13 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 	}
 	if len(attributes) == 0 {
 		if inline == nil {
-			return nil, nil
+			if valueConstraint == nil {
+				return nil, nil
+			}
+			return &schemaAttributeInput{valueConstraint: valueConstraint}, nil
 		}
-		if err := validateInlineSchemaType(inline, version); err != nil {
-			return nil, err
+		if inlineErr := validateInlineSchemaType(inline, version); inlineErr != nil {
+			return nil, inlineErr
 		}
 		return nil, newSchemaSyntaxUnsupportedForVersion(
 			inline.loc,
@@ -1080,14 +1333,57 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 			version,
 		)
 	}
+	inheritable, err := schemaAttributeInheritableValue(element)
+	if err != nil {
+		return nil, err
+	}
 	declaredType, err := expandSchemaQName(element, attributes[0])
 	if err != nil {
 		return nil, err
 	}
 	return &schemaAttributeInput{
-		declaredType: declaredType,
-		typeLoc:      attributes[0].loc,
+		declaredType:    declaredType,
+		typeLoc:         attributes[0].loc,
+		inheritable:     inheritable,
+		valueConstraint: valueConstraint,
 	}, nil
+}
+
+func schemaAttributeInheritableValue(element *syntaxElement) (bool, error) {
+	attributes := syntaxAttributesByLocal(element, "inheritable")
+	if len(attributes) > 1 {
+		return false, newSchemaCompositionDiagnostic(attributes[1].loc, "attribute \"inheritable\" must be unique")
+	}
+	if len(attributes) == 0 {
+		return false, nil
+	}
+	return schemaBooleanValue(attributes[0])
+}
+
+func schemaAttributeValueConstraintInputFromElement(element *syntaxElement, version XSDVersion) (*schemaAttributeValueConstraintInput, error) {
+	if element == nil {
+		return nil, newSchemaBridgeInvariant(Loc{}, "construct attribute value constraint input from a nil element")
+	}
+	defaults := syntaxAttributesByLocal(element, "default")
+	fixed := syntaxAttributesByLocal(element, "fixed")
+	if len(defaults) > 0 && len(fixed) > 0 {
+		return nil, invalidSchemaAttributeValueConstraintConflict(fixed[0].loc, defaults[0].loc, element.name.local, version)
+	}
+	if len(defaults) == 1 {
+		return &schemaAttributeValueConstraintInput{
+			kind:    AttributeValueConstraintDefault,
+			lexical: defaults[0].value,
+			loc:     defaults[0].loc,
+		}, nil
+	}
+	if len(fixed) == 1 {
+		return &schemaAttributeValueConstraintInput{
+			kind:    AttributeValueConstraintFixed,
+			lexical: fixed[0].value,
+			loc:     fixed[0].loc,
+		}, nil
+	}
+	return nil, nil
 }
 
 func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaElementInput, error) {
@@ -1204,7 +1500,7 @@ func schemaElementTypeInputForInline(
 	if inlineErr := validateInlineSchemaType(inline, version); inlineErr != nil {
 		return nil, inlineErr
 	}
-	simpleType, simpleTypeErr := schemaSimpleTypeInputFromElement(inline)
+	simpleType, simpleTypeErr := schemaSimpleTypeInputFromElement(inline, version)
 	if simpleTypeErr != nil {
 		return nil, simpleTypeErr
 	}
@@ -1296,6 +1592,21 @@ func schemaElementBooleanAttribute(element *syntaxElement, local string) (bool, 
 	return value, true, attributes[0].loc, err
 }
 
+func schemaComplexTypeBooleanAttribute(element *syntaxElement, local string) (bool, error) {
+	attributes := syntaxAttributesByLocal(element, local)
+	if len(attributes) == 0 {
+		return false, nil
+	}
+	if len(attributes) != 1 {
+		return false, newSchemaCompositionDiagnostic(
+			attributes[1].loc,
+			fmt.Sprintf("complexType attribute %q must be unique", local),
+		)
+	}
+	return schemaBooleanValue(attributes[0])
+}
+
+//nolint:gocognit // Keep complex-type body selection and effective fact propagation together.
 func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
 	block, explicitBlock, err := schemaDeclarationBlockPolicy(
 		element,
@@ -1307,9 +1618,28 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	if err != nil {
 		return nil, err
 	}
+	final, err := schemaComplexTypeFinalPolicyFromElement(element)
+	if err != nil {
+		return nil, err
+	}
+	abstract, err := schemaComplexTypeBooleanAttribute(element, "abstract")
+	if err != nil {
+		return nil, err
+	}
 	complexContent := schemaComplexContentChild(element)
 	if complexContent != nil {
-		return schemaComplexTypeRestrictionInput(complexContent, block)
+		if schemaComplexContentExtensionChild(complexContent) != nil {
+			input, inputErr := schemaComplexTypeExtensionInput(complexContent, facts, version, block)
+			if inputErr != nil {
+				return nil, inputErr
+			}
+			return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
+		}
+		input, inputErr := schemaComplexTypeRestrictionInput(complexContent, block)
+		if inputErr != nil {
+			return nil, inputErr
+		}
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
 	}
 	attributeUses, err := schemaAttributeUseInputsFromChildren(element, facts, version)
 	if err != nil {
@@ -1321,21 +1651,44 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	}
 	simpleContent := schemaSimpleContentChild(element)
 	if simpleContent != nil {
-		return schemaSimpleContentInputFromElement(simpleContent, facts, version, block)
+		input, inputErr := schemaSimpleContentInputFromElement(simpleContent, facts, version, block)
+		if inputErr != nil {
+			return nil, inputErr
+		}
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
 	}
 	model := schemaComplexTypeModel(element)
 	if model == nil {
-		return schemaComplexTypeInputWithoutModel(element, attributeUses, anyAttribute, explicitBlock, block, version)
+		input, inputErr := schemaComplexTypeInputWithoutModel(element, attributeUses, anyAttribute, explicitBlock, block, version)
+		if inputErr != nil {
+			return nil, inputErr
+		}
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
 	}
 
 	occurrences, err := schemaParticleOccurrenceRange(model, version)
 	if err != nil {
 		return nil, err
 	}
-	if model.name.local == "choice" {
-		return schemaChoiceComplexTypeInput(model, occurrences, attributeUses, facts, version, block, anyAttribute)
+	if model.name.local == "group" {
+		input, inputErr := schemaModelGroupReferenceComplexTypeInput(model, occurrences, facts, block, anyAttribute)
+		if inputErr != nil {
+			return nil, inputErr
+		}
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
 	}
-	return schemaSequenceComplexTypeInput(model, occurrences, attributeUses, facts, version, block, anyAttribute)
+	if model.name.local == "choice" {
+		input, inputErr := schemaChoiceComplexTypeInput(model, occurrences, attributeUses, facts, version, block, anyAttribute)
+		if inputErr != nil {
+			return nil, inputErr
+		}
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
+	}
+	input, inputErr := schemaSequenceComplexTypeInput(model, occurrences, attributeUses, facts, version, block, anyAttribute)
+	if inputErr != nil {
+		return nil, inputErr
+	}
+	return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
 }
 
 func schemaComplexTypeInputWithoutModel(
@@ -1359,7 +1712,10 @@ func schemaComplexTypeInputWithoutModel(
 		return nil, newSchemaAnyAttributeUnsupported(anyAttribute.loc, version)
 	}
 	if !explicitBlock && block.set == 0 {
-		return nil, nil
+		return &schemaComplexTypeInput{
+			body:                    &schemaComplexTypeEmptyBodyInput{},
+			prohibitedSubstitutions: block,
+		}, nil
 	}
 	loc := block.loc
 	if loc.IsZero() {
@@ -1402,6 +1758,88 @@ func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block sche
 				loc:  baseAttributes[0].loc,
 			},
 			anyAttribute: anyAttribute,
+		},
+		prohibitedSubstitutions: block,
+	}, nil
+}
+
+//nolint:gocognit // Keep direct extension particle conversion in source order.
+func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
+	extension := schemaComplexContentExtensionChild(complexContent)
+	if extension == nil {
+		return nil, newSchemaBridgeInvariant(complexContent.loc, "supported complexContent has no extension child")
+	}
+	baseAttributes := syntaxAttributesByLocal(extension, "base")
+	if len(baseAttributes) != 1 {
+		return nil, newSchemaBridgeInvariant(extension.loc, "supported complexContent extension has no unique base")
+	}
+	base, err := expandSchemaQName(extension, baseAttributes[0])
+	if err != nil {
+		return nil, err
+	}
+	model := schemaComplexTypeModel(extension)
+	var particle schemaComplexTypeParticleInput
+	if model != nil {
+		occurrences, occurrenceErr := schemaParticleOccurrenceRange(model, version)
+		if occurrenceErr != nil {
+			return nil, occurrenceErr
+		}
+		switch model.name.local {
+		case "group":
+			particle, err = schemaModelGroupReferenceParticleInputFromElementWithFacts(model, occurrences, facts)
+			if err != nil {
+				return nil, err
+			}
+		case "choice":
+			choice := &schemaChoiceParticleInput{
+				loc:          model.loc,
+				occurrences:  occurrences,
+				alternatives: make([]schemaParticleTermInput, 0),
+			}
+			for _, node := range model.children {
+				child, ok := node.(*syntaxElement)
+				if !ok || child.name.local == "annotation" {
+					continue
+				}
+				alternative, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version)
+				if particleErr != nil {
+					return nil, particleErr
+				}
+				choice.alternatives = append(choice.alternatives, alternative)
+			}
+			particle = choice
+		case "sequence":
+			sequence := &schemaSequenceParticleInput{
+				loc:         model.loc,
+				occurrences: occurrences,
+				particles:   make([]schemaParticleTermInput, 0),
+			}
+			for _, node := range model.children {
+				child, ok := node.(*syntaxElement)
+				if !ok || child.name.local == "annotation" {
+					continue
+				}
+				input, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version)
+				if particleErr != nil {
+					return nil, particleErr
+				}
+				sequence.particles = append(sequence.particles, input)
+			}
+			particle = sequence
+		default:
+			return nil, newSchemaBridgeInvariant(model.loc, "supported complexContent extension has an unknown particle")
+		}
+	}
+	return &schemaComplexTypeInput{
+		body: &schemaComplexTypeExtensionBodyInput{
+			complexContentLoc: complexContent.loc,
+			extensionLoc:      extension.loc,
+			base: schemaComplexTypeReferenceInput{
+				kind: schemaComplexTypeQNameReferenceInput,
+				name: base,
+				loc:  baseAttributes[0].loc,
+			},
+			particle: particle,
 		},
 		prohibitedSubstitutions: block,
 	}, nil
@@ -1574,7 +2012,7 @@ func schemaAttributeUseTypeInput(element *syntaxElement, input schemaAttributeUs
 	if inlineErr := validateInlineSchemaType(inline, version); inlineErr != nil && !deferLocalAttributeInlineTypePolicyMismatch(inlineErr, version) {
 		return schemaAttributeUseInput{}, inlineErr
 	}
-	simpleType, err := schemaSimpleTypeInputFromElement(inline)
+	simpleType, err := schemaSimpleTypeInputFromElement(inline, version)
 	if err != nil {
 		return schemaAttributeUseInput{}, err
 	}
@@ -1597,10 +2035,24 @@ func schemaComplexContentRestrictionChild(element *syntaxElement) *syntaxElement
 	return nil
 }
 
+func schemaComplexContentExtensionChild(element *syntaxElement) *syntaxElement {
+	if element == nil {
+		return nil
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "extension" {
+			continue
+		}
+		return child
+	}
+	return nil
+}
+
 func schemaComplexTypeModel(element *syntaxElement) *syntaxElement {
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
-		if !ok || child.name.local != "choice" && child.name.local != "sequence" {
+		if !ok || child.name.local != "choice" && child.name.local != "sequence" && child.name.local != "group" {
 			continue
 		}
 		return child
@@ -1624,6 +2076,9 @@ func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts sch
 	if model == nil {
 		return nil, newSchemaBridgeInvariant(element.loc, "model group definition has no model child")
 	}
+	if model.name.local == "sequence" {
+		return schemaModelGroupSequenceInputFromElementWithFacts(model, facts, version)
+	}
 	if model.name.local != "choice" {
 		return nil, newSchemaSyntaxUnsupportedForVersion(
 			model.loc,
@@ -1638,7 +2093,7 @@ func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts sch
 	choice := &schemaChoiceParticleInput{
 		loc:          model.loc,
 		occurrences:  occurrences,
-		alternatives: make([]schemaElementParticleInput, 0),
+		alternatives: make([]schemaParticleTermInput, 0),
 	}
 	for _, node := range model.children {
 		child, ok := node.(*syntaxElement)
@@ -1668,18 +2123,56 @@ func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts sch
 	return &schemaModelGroupInput{particle: choice}, nil
 }
 
+func schemaModelGroupSequenceInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaModelGroupInput, error) {
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
+	if err != nil {
+		return nil, err
+	}
+	sequence := &schemaSequenceParticleInput{
+		loc:         element.loc,
+		occurrences: occurrences,
+		particles:   make([]schemaParticleTermInput, 0),
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local == "annotation" {
+			continue
+		}
+		if child.name.local != "element" {
+			return nil, newSchemaSyntaxUnsupportedForVersion(
+				child.loc,
+				fmt.Sprintf("named model-group sequence child <%s> is not implemented", child.name.local),
+				version,
+			)
+		}
+		particle, particleErr := schemaElementParticleInputFromElementWithFacts(child, facts, version, false)
+		if particleErr != nil {
+			return nil, particleErr
+		}
+		if particle.reference == nil {
+			return nil, newSchemaSyntaxUnsupportedForVersion(
+				child.loc,
+				"named model-group sequences require global element references",
+				version,
+			)
+		}
+		sequence.particles = append(sequence.particles, particle)
+	}
+	return &schemaModelGroupInput{particle: sequence}, nil
+}
+
 func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, attributeUses []schemaAttributeUseInput, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy, anyAttribute *schemaAnyAttributeInput) (*schemaComplexTypeInput, error) {
 	input := &schemaChoiceParticleInput{
 		loc:          model.loc,
 		occurrences:  occurrences,
-		alternatives: make([]schemaElementParticleInput, 0),
+		alternatives: make([]schemaParticleTermInput, 0),
 	}
 	for _, node := range model.children {
 		child, ok := node.(*syntaxElement)
-		if !ok || child.name.local != "element" {
+		if !ok || child.name.local == "annotation" {
 			continue
 		}
-		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, true)
+		alternative, err := schemaParticleTermInputFromElementWithFacts(child, facts, version)
 		if err != nil {
 			return nil, err
 		}
@@ -1699,27 +2192,47 @@ func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOc
 	input := &schemaSequenceParticleInput{
 		loc:         model.loc,
 		occurrences: occurrences,
-		elements:    make([]schemaElementParticleInput, 0),
+		particles:   make([]schemaParticleTermInput, 0),
 	}
 	for _, node := range model.children {
 		child, ok := node.(*syntaxElement)
 		if !ok {
 			continue
 		}
-		if child.name.local != "element" {
+		if child.name.local == "annotation" {
 			continue
 		}
-		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, true)
+		alternative, err := schemaParticleTermInputFromElementWithFacts(child, facts, version)
 		if err != nil {
 			return nil, err
 		}
-		input.elements = append(input.elements, alternative)
+		input.particles = append(input.particles, alternative)
 	}
 	return &schemaComplexTypeInput{
 		body: &schemaComplexTypeDirectBodyInput{
 			particle:      input,
 			attributeUses: attributeUses,
 			anyAttribute:  anyAttribute,
+		},
+		prohibitedSubstitutions: block,
+	}, nil
+}
+
+func schemaModelGroupReferenceComplexTypeInput(
+	model *syntaxElement,
+	occurrences particleOccurrenceRange,
+	facts schemaDocumentFacts,
+	block schemaBlockPolicy,
+	anyAttribute *schemaAnyAttributeInput,
+) (*schemaComplexTypeInput, error) {
+	particle, err := schemaModelGroupReferenceParticleInputFromElementWithFacts(model, occurrences, facts)
+	if err != nil {
+		return nil, err
+	}
+	return &schemaComplexTypeInput{
+		body: &schemaComplexTypeDirectBodyInput{
+			particle:     particle,
+			anyAttribute: anyAttribute,
 		},
 		prohibitedSubstitutions: block,
 	}, nil
@@ -1740,11 +2253,27 @@ func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAn
 	}
 	namespaceAttributes := syntaxAttributesByLocal(wildcard, "namespace")
 	processContentsAttributes := syntaxAttributesByLocal(wildcard, "processContents")
-	if len(namespaceAttributes) == 0 && len(processContentsAttributes) == 0 {
+	namespace := "##any"
+	namespaceLoc := Loc{}
+	if len(namespaceAttributes) == 1 {
+		namespace = collapseXMLWhitespace(namespaceAttributes[0].value)
+		namespaceLoc = namespaceAttributes[0].loc
+	}
+	processContents := "strict"
+	processContentsLoc := Loc{}
+	if len(processContentsAttributes) == 1 {
+		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
+		processContentsLoc = processContentsAttributes[0].loc
+	}
+	if (processContents == "strict" && (namespace == "##any" || namespace == "##other")) ||
+		(processContents == "lax" && namespace == "##any") ||
+		(processContents == "skip" && (namespace == "##any" || namespace == "##other")) {
 		return &schemaAnyAttributeInput{
-			loc:             wildcard.loc,
-			namespace:       "##any",
-			processContents: "strict",
+			loc:                wildcard.loc,
+			namespace:          namespace,
+			namespaceLoc:       namespaceLoc,
+			processContents:    processContents,
+			processContentsLoc: processContentsLoc,
 		}, nil
 	}
 	return schemaExplicitAnyAttributeInputFromElement(wildcard)
@@ -1791,6 +2320,85 @@ func schemaExplicitAnyAttributeInputFromElement(wildcard *syntaxElement) (*schem
 	}, nil
 }
 
+func schemaParticleTermInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (schemaParticleTermInput, error) {
+	if element == nil {
+		return nil, newSchemaBridgeInvariant(Loc{}, "construct particle term input from a nil element")
+	}
+	switch element.name.local {
+	case "element":
+		return schemaElementParticleInputFromElementWithFacts(element, facts, version, true)
+	case "any":
+		return schemaWildcardParticleInputFromElement(element, version)
+	default:
+		return nil, newSchemaBridgeInvariant(element.loc, "supported particle term has an unknown child")
+	}
+}
+
+func schemaModelGroupReferenceParticleInputFromElementWithFacts(
+	element *syntaxElement,
+	occurrences particleOccurrenceRange,
+	facts schemaDocumentFacts,
+) (*schemaModelGroupReferenceParticleInput, error) {
+	refAttributes := syntaxAttributesByLocal(element, "ref")
+	if len(refAttributes) != 1 {
+		return nil, newSchemaBridgeInvariant(element.loc, "model-group reference ref attribute is not unique")
+	}
+	ref, err := expandSchemaModelGroupReferenceQName(element, refAttributes[0], facts)
+	if err != nil {
+		return nil, err
+	}
+	return &schemaModelGroupReferenceParticleInput{
+		loc:         element.loc,
+		occurrences: occurrences,
+		reference: &schemaModelGroupReferenceInput{
+			name: ref,
+			loc:  refAttributes[0].loc,
+		},
+	}, nil
+}
+
+func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDVersion) (schemaWildcardParticleInput, error) {
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
+	if err != nil {
+		return schemaWildcardParticleInput{}, err
+	}
+	namespace := "##any"
+	namespaceLoc := Loc{}
+	if attributes := syntaxAttributesByLocal(element, "namespace"); len(attributes) == 1 {
+		namespace = collapseXMLWhitespace(attributes[0].value)
+		namespaceLoc = attributes[0].loc
+	}
+	processContents := "strict"
+	processContentsLoc := Loc{}
+	if attributes := syntaxAttributesByLocal(element, "processContents"); len(attributes) == 1 {
+		processContents = collapseXMLWhitespace(attributes[0].value)
+		processContentsLoc = attributes[0].loc
+	}
+	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 ||
+		len(syntaxAttributesByLocal(element, "notQName")) != 0 ||
+		!isSupportedDirectAnyParticleFacts(namespace, processContents) {
+		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
+	}
+	constraint := schemaWildcardNamespaceConstraint{
+		variety: WildcardNamespaceConstraintAny,
+		lexical: namespace,
+		loc:     namespaceLoc,
+	}
+	if isPositiveWildcardNamespace(namespace) {
+		constraint.variety = WildcardNamespaceConstraintEnumeration
+		constraint.terms = strings.Split(namespace, " ")
+	}
+	return schemaWildcardParticleInput{
+		loc:                 element.loc,
+		occurrences:         occurrences,
+		namespace:           namespace,
+		namespaceLoc:        namespaceLoc,
+		namespaceConstraint: constraint,
+		processContents:     processContents,
+		processContentsLoc:  processContentsLoc,
+	}, nil
+}
+
 func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, allowNamespacePolicy bool) (schemaElementParticleInput, error) {
 	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
@@ -1811,6 +2419,16 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 	if len(refAttributes) > 1 {
 		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "local element ref attribute is not unique")
 	}
+	block, _, err := schemaDeclarationBlockPolicy(
+		element,
+		facts.blockDefault,
+		schemaBlockElementMask,
+		version,
+		schemaBlockElement,
+	)
+	if err != nil {
+		return schemaElementParticleInput{}, err
+	}
 	nameAttributes := syntaxAttributesByLocal(element, "name")
 	if len(nameAttributes) != 1 {
 		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "local element input has an invalid name attribute")
@@ -1820,10 +2438,16 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 	if err != nil {
 		return schemaElementParticleInput{}, err
 	}
+	nillable, _, _, err := schemaElementBooleanAttribute(element, "nillable")
+	if err != nil {
+		return schemaElementParticleInput{}, err
+	}
 	input := schemaElementParticleInput{
 		loc:         element.loc,
 		name:        name,
 		occurrences: occurrences,
+		nillable:    nillable,
+		block:       block,
 	}
 	typeAttributes := syntaxAttributesByLocal(element, "type")
 	if len(typeAttributes) == 0 {
@@ -1858,7 +2482,27 @@ func expandSchemaElementReferenceQName(element *syntaxElement, attribute syntaxA
 	return qualified, nil
 }
 
-func schemaSimpleTypeInputFromElement(element *syntaxElement) (*schemaSimpleTypeInput, error) {
+func expandSchemaModelGroupReferenceQName(element *syntaxElement, attribute syntaxAttribute, facts schemaDocumentFacts) (QName, error) {
+	ref, err := expandSchemaQName(element, attribute)
+	if err != nil {
+		return QName{}, err
+	}
+	if !facts.chameleon || !facts.targetNamespace.present || ref.Namespace() != "" {
+		return ref, nil
+	}
+	qualified, err := NewQName(facts.targetNamespace.value, ref.Local())
+	if err != nil {
+		return QName{}, newSchemaBridgeInvariant(attribute.loc, "construct chameleon model-group reference QName")
+	}
+	return qualified, nil
+}
+
+func schemaSimpleTypeInputFromElement(element *syntaxElement, version XSDVersion) (*schemaSimpleTypeInput, error) {
+	return schemaSimpleTypeInputFromElementWithDefault(element, version, schemaSimpleTypeFinalPolicy{})
+}
+
+//nolint:gocognit // Keep simple-type model dispatch and final capture together.
+func schemaSimpleTypeInputFromElementWithDefault(element *syntaxElement, version XSDVersion, defaultFinal schemaSimpleTypeFinalPolicy) (*schemaSimpleTypeInput, error) {
 	if element == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "construct simple type input from a nil element")
 	}
@@ -1883,18 +2527,26 @@ func schemaSimpleTypeInputFromElement(element *syntaxElement) (*schemaSimpleType
 	var err error
 	switch modelElement.name.local {
 	case "restriction":
-		model, err = schemaRestrictionModelInput(modelElement)
+		model, err = schemaRestrictionModelInput(modelElement, version)
 	case "list":
-		model, err = schemaListModelInput(modelElement)
+		model, err = schemaListModelInput(modelElement, version)
 	case "union":
-		model, err = schemaUnionModelInput(modelElement)
+		model, err = schemaUnionModelInput(modelElement, version)
 	default:
 		return nil, newSchemaBridgeInvariant(modelElement.loc, "simple type has an unknown model child")
 	}
 	if err != nil {
 		return nil, err
 	}
-	input := &schemaSimpleTypeInput{loc: element.loc, model: model}
+	final := defaultFinal
+	finalAttributes := syntaxAttributesByLocal(element, "final")
+	if len(finalAttributes) == 1 {
+		final, err = schemaSimpleTypeFinalPolicyFromAttribute(finalAttributes[0], version)
+		if err != nil {
+			return nil, err
+		}
+	}
+	input := &schemaSimpleTypeInput{loc: element.loc, final: final, model: model}
 	if restriction, ok := model.(*schemaSimpleTypeRestrictionModelInput); ok && restriction != nil && restriction.base.kind == schemaSimpleTypeQNameReferenceInput {
 		input.base = restriction.base.name
 		input.baseLoc = restriction.base.loc
@@ -2040,7 +2692,7 @@ func invalidSchemaLocalElementTargetNamespace(attribute syntaxAttribute, targetN
 }
 
 //nolint:gocognit // Keep restriction source cardinality and facet collection together.
-func schemaRestrictionModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, error) {
+func schemaRestrictionModelInput(element *syntaxElement, version XSDVersion) (schemaSimpleTypeModelInput, error) {
 	baseAttributes := syntaxAttributesByLocal(element, "base")
 	inline := inlineSimpleTypeChild(element)
 	if len(baseAttributes) > 1 {
@@ -2065,7 +2717,7 @@ func schemaRestrictionModelInput(element *syntaxElement) (schemaSimpleTypeModelI
 		}
 	}
 	if inline != nil {
-		anonymous, err := schemaSimpleTypeInputFromElement(inline)
+		anonymous, err := schemaSimpleTypeInputFromElement(inline, version)
 		if err != nil {
 			return nil, err
 		}
@@ -2097,7 +2749,7 @@ func schemaRestrictionModelInput(element *syntaxElement) (schemaSimpleTypeModelI
 	}, nil
 }
 
-func schemaListModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, error) {
+func schemaListModelInput(element *syntaxElement, version XSDVersion) (schemaSimpleTypeModelInput, error) {
 	itemTypes := syntaxAttributesByLocal(element, "itemType")
 	inline := inlineSimpleTypeChild(element)
 	if len(itemTypes) > 1 {
@@ -2122,7 +2774,7 @@ func schemaListModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, e
 		}
 	}
 	if inline != nil {
-		anonymous, err := schemaSimpleTypeInputFromElement(inline)
+		anonymous, err := schemaSimpleTypeInputFromElement(inline, version)
 		if err != nil {
 			return nil, err
 		}
@@ -2138,7 +2790,7 @@ func schemaListModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, e
 	}, nil
 }
 
-func schemaUnionModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, error) {
+func schemaUnionModelInput(element *syntaxElement, version XSDVersion) (schemaSimpleTypeModelInput, error) {
 	members := make([]schemaSimpleTypeReferenceInput, 0)
 	memberTypes := syntaxAttributesByLocal(element, "memberTypes")
 	if len(memberTypes) > 1 {
@@ -2164,7 +2816,7 @@ func schemaUnionModelInput(element *syntaxElement) (schemaSimpleTypeModelInput, 
 		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "simpleType" {
 			continue
 		}
-		anonymous, err := schemaSimpleTypeInputFromElement(child)
+		anonymous, err := schemaSimpleTypeInputFromElement(child, version)
 		if err != nil {
 			return nil, err
 		}
@@ -2558,6 +3210,18 @@ func validNCNameChar(character rune) bool {
 		character >= 0x203F && character <= 0x2040
 }
 
+func validXMLNmtoken(value string) bool {
+	if value == "" || !utf8.ValidString(value) {
+		return false
+	}
+	for _, character := range value {
+		if character != ':' && !validNCNameChar(character) {
+			return false
+		}
+	}
+	return true
+}
+
 type schemaSimpleTypeResult struct {
 	present          bool
 	loc              Loc
@@ -2577,6 +3241,7 @@ type schemaSimpleTypeResult struct {
 	hasItemType      bool
 	memberTypes      []schemaSimpleTypeReferenceComponent
 	facets           schemaSimpleTypeFacetVariant
+	final            schemaSimpleTypeFinalPolicy
 }
 
 type schemaSimpleTypeAtomicKind uint8
@@ -2584,6 +3249,8 @@ type schemaSimpleTypeAtomicKind uint8
 const (
 	schemaSimpleTypeAtomicUnknown schemaSimpleTypeAtomicKind = iota
 	schemaSimpleTypeAtomicString
+	schemaSimpleTypeAtomicToken
+	schemaSimpleTypeAtomicNMTOKEN
 	schemaSimpleTypeAtomicInteger
 	schemaSimpleTypeAtomicNegativeInteger
 	schemaSimpleTypeAtomicDecimal
@@ -2603,6 +3270,8 @@ func schemaSimpleTypeAtomicKindIsUnsupported(kind schemaSimpleTypeAtomicKind) bo
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInteger,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicDecimal,
@@ -2734,6 +3403,8 @@ type schemaAttributeTypeResult struct {
 	present          bool
 	typeReference    schemaSimpleTypeReferenceComponent
 	hasTypeReference bool
+	inheritable      bool
+	valueConstraint  *AttributeValueConstraint
 }
 
 func resolvedSchemaAttributeTypeResult(reference schemaSimpleTypeReferenceComponent) schemaAttributeTypeResult {
@@ -2781,6 +3452,13 @@ func resolveSchemaAttributeType(
 	if resolver == nil {
 		return schemaAttributeTypeResult{}, newSchemaBridgeInvariant(input.typeLoc, "attribute type resolution has no simple type resolver")
 	}
+	if input.valueConstraint != nil && input.declaredType.IsZero() {
+		return schemaAttributeTypeResult{}, unsupportedSchemaAttributeValueConstraint(
+			input,
+			version,
+			"global attribute value constraints require a declared supported type",
+		)
+	}
 	reference, err := resolver.resolveReference(schemaSimpleTypeReferenceInput{
 		kind: schemaSimpleTypeQNameReferenceInput,
 		name: input.declaredType,
@@ -2796,22 +3474,174 @@ func resolveSchemaAttributeType(
 			fmt.Sprintf("attribute type %q has an unsupported simple type model", input.declaredType),
 		)
 	}
-	return resolvedSchemaAttributeTypeResult(reference), nil
+	if input.valueConstraint != nil && !schemaAttributeValueConstraintReferenceSupported(reference) {
+		return schemaAttributeTypeResult{}, unsupportedSchemaAttributeValueConstraint(
+			input,
+			version,
+			fmt.Sprintf("attribute value constraint for type %q is not implemented", input.declaredType),
+		)
+	}
+	result := resolvedSchemaAttributeTypeResult(reference)
+	result.inheritable = input.inheritable
+	if input.valueConstraint == nil {
+		return result, nil
+	}
+	valueConstraint, err := resolveSchemaAttributeValueConstraint(input.valueConstraint, reference, version)
+	if err != nil {
+		return schemaAttributeTypeResult{}, err
+	}
+	result.valueConstraint = valueConstraint
+	return result, nil
+}
+
+func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleTypeReferenceComponent) bool {
+	if reference.variety != SimpleTypeVarietyAtomicRestriction {
+		return false
+	}
+	switch reference.atomicKind {
+	case schemaSimpleTypeAtomicInteger:
+		switch facets := reference.facets.(type) {
+		case schemaDigitFacetVariant:
+			return facets.value.Kind() == DigitDatatypeInteger
+		case schemaIntegerFacetVariant:
+			return facets.digits.Kind() == DigitDatatypeInteger
+		default:
+			return false
+		}
+	case schemaSimpleTypeAtomicDecimal:
+		switch facets := reference.facets.(type) {
+		case schemaDigitFacetVariant:
+			return facets.value.Kind() == DigitDatatypeDecimal
+		case schemaDecimalFacetVariant:
+			return facets.digits.Kind() == DigitDatatypeDecimal
+		default:
+			return false
+		}
+	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNMTOKEN,
+		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicPrecisionDecimal,
+		schemaSimpleTypeAtomicLanguage,
+		schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI,
+		schemaSimpleTypeAtomicID:
+		return false
+	default:
+		return false
+	}
+}
+
+func resolveSchemaAttributeValueConstraint(
+	input *schemaAttributeValueConstraintInput,
+	reference schemaSimpleTypeReferenceComponent,
+	version XSDVersion,
+) (*AttributeValueConstraint, error) {
+	if input == nil {
+		return nil, nil
+	}
+	lexical := collapseXMLWhitespace(input.lexical)
+	constraint := &AttributeValueConstraint{
+		kind:    input.kind,
+		lexical: lexical,
+		loc:     input.loc,
+	}
+	switch reference.atomicKind {
+	case schemaSimpleTypeAtomicInteger:
+		value, err := ParseStrictInteger(input.lexical, input.loc)
+		if err != nil {
+			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+		}
+		if err := validateSchemaAttributeIntegerValue(reference, value, input.loc); err != nil {
+			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+		}
+		constraint.integer = value
+		constraint.hasInteger = true
+		return constraint, nil
+	case schemaSimpleTypeAtomicDecimal:
+		value, err := ParseStrictDecimalFor(version, input.lexical, input.loc)
+		if err != nil {
+			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+		}
+		if err := validateSchemaAttributeDecimalValue(reference, value, input.loc); err != nil {
+			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+		}
+		constraint.decimal = value
+		constraint.hasDecimal = true
+		return constraint, nil
+	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNMTOKEN,
+		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicPrecisionDecimal,
+		schemaSimpleTypeAtomicLanguage,
+		schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI,
+		schemaSimpleTypeAtomicID:
+		return nil, newSchemaBridgeInvariant(input.loc, "convert an unsupported attribute value constraint type")
+	default:
+		return nil, newSchemaBridgeInvariant(input.loc, "convert an unsupported attribute value constraint type")
+	}
+}
+
+func validateSchemaAttributeIntegerValue(reference schemaSimpleTypeReferenceComponent, value StrictInteger, loc Loc) error {
+	switch facets := reference.facets.(type) {
+	case schemaDigitFacetVariant:
+		if err := facets.value.ValidateInteger(value, loc); err != nil {
+			return err
+		}
+		return facets.integerBounds.ValidateInteger(value, loc)
+	case schemaIntegerFacetVariant:
+		if err := facets.digits.ValidateInteger(value, loc); err != nil {
+			return err
+		}
+		if err := facets.bounds.ValidateInteger(value, loc); err != nil {
+			return err
+		}
+		return facets.enumeration.ValidateInteger(value, loc)
+	default:
+		return newSchemaBridgeInvariant(reference.loc, "validate an integer attribute value against a non-integer facet model")
+	}
+}
+
+func validateSchemaAttributeDecimalValue(reference schemaSimpleTypeReferenceComponent, value StrictDecimal, loc Loc) error {
+	switch facets := reference.facets.(type) {
+	case schemaDigitFacetVariant:
+		if err := facets.value.ValidateDecimal(value, loc); err != nil {
+			return err
+		}
+		return facets.decimalBounds.ValidateDecimal(value, loc)
+	case schemaDecimalFacetVariant:
+		if err := facets.digits.ValidateDecimal(value, loc); err != nil {
+			return err
+		}
+		if err := facets.bounds.ValidateDecimal(value, loc); err != nil {
+			return err
+		}
+		return facets.enumeration.ValidateDecimal(value, loc)
+	default:
+		return newSchemaBridgeInvariant(reference.loc, "validate a decimal attribute value against a non-decimal facet model")
+	}
 }
 
 func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceComponent) bool {
 	if reference.variety != SimpleTypeVarietyAtomicRestriction {
 		return false
 	}
+	if _, ok := reference.facets.(schemaBooleanFacetVariant); ok {
+		return true
+	}
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicDecimal,
-		schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
-		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID:
+		schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID, schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicPrecisionDecimal:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
-		schemaSimpleTypeAtomicNegativeInteger,
-		schemaSimpleTypeAtomicPrecisionDecimal:
+		schemaSimpleTypeAtomicNMTOKEN:
 		return false
 	default:
 		return false
@@ -2907,6 +3737,82 @@ func unsupportedSchemaAttributeType(input *schemaAttributeInput, version XSDVers
 	if diagnostic.Class() == FailureUnsupported {
 		diagnostic.specRef = schemaAttributeTypeSpecRef(version)
 	}
+	return diagnostic
+}
+
+func unsupportedSchemaAttributeValueConstraint(input *schemaAttributeInput, version XSDVersion, message string) Diagnostic {
+	if input == nil || input.valueConstraint == nil {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaBridgeInvariantCode,
+			Loc{},
+			"attribute value constraint is missing its syntax input",
+			errSchemaAttributeValueConstraintUnsupported,
+		)
+	}
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticUnregisteredFeatureCode,
+			input.valueConstraint.loc,
+			"schema syntax feature is not registered",
+			errSchemaAttributeValueConstraintUnsupported,
+		)
+	}
+	diagnostic := newUnsupportedForVersionWithCause(
+		feature,
+		UnsupportedSchemaSyntaxCode,
+		input.valueConstraint.loc,
+		message,
+		version,
+		errSchemaAttributeValueConstraintUnsupported,
+	)
+	if diagnostic.Class() == FailureUnsupported {
+		diagnostic.specRef = schemaAttributeValueConstraintSpecRef(version)
+	}
+	return diagnostic
+}
+
+func invalidSchemaAttributeValueConstraint(input *schemaAttributeValueConstraintInput, version XSDVersion, cause error) error {
+	if input == nil {
+		return newSchemaBridgeInvariant(Loc{}, "attribute value constraint validation has no input")
+	}
+	var diagnostic Diagnostic
+	if !errors.As(cause, &diagnostic) {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaBridgeInvariantCode,
+			input.loc,
+			"attribute value constraint validation returned an unlocated error",
+			errors.Join(errSchemaAttributeValueConstraintInvalid, cause),
+		)
+	}
+	if diagnostic.Class() != FailureInvalid {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaBridgeInvariantCode,
+			input.loc,
+			"attribute value constraint validation returned a non-invalid diagnostic",
+			errors.Join(errSchemaAttributeValueConstraintInvalid, cause),
+		)
+	}
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaAttributeValueConstraintCode,
+		loc:     input.loc,
+		message: fmt.Sprintf("global attribute %s value constraint is invalid", input.kind),
+		related: diagnostic.Related(),
+		specRef: schemaAttributeValueSpecRef(version),
+		cause:   errors.Join(errSchemaAttributeValueConstraintInvalid, cause),
+	}
+}
+
+func invalidSchemaAttributeValueConstraintConflict(loc, related Loc, kind string, version XSDVersion) Diagnostic {
+	diagnostic := newSchemaCompositionDiagnostic(loc, fmt.Sprintf("global %s cannot specify both default and fixed", kind))
+	diagnostic.related = []Loc{related}
+	diagnostic.specRef = schemaAttributeValueConstraintSpecRef(version)
+	diagnostic.cause = errSchemaAttributeValueConstraintConflict
 	return diagnostic
 }
 
@@ -3023,6 +3929,20 @@ func schemaPrecisionDecimalUseMatches(name QName, typeLoc Loc, reference *schema
 		return QName{}, Loc{}, nil, false
 	}
 	return name, typeLoc, graphLocations, true
+}
+
+func schemaAttributeValueConstraintSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaAttributeValueConstraintXSD10SpecRef
+	}
+	return schemaAttributeValueConstraintXSD11SpecRef
+}
+
+func schemaAttributeValueSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaAttributeValueXSD10SpecRef
+	}
+	return schemaAttributeValueXSD11SpecRef
 }
 
 // reframeSchemaAttributeTypeCycle retains the shared simple-type cycle cause
@@ -3409,6 +4329,36 @@ func resolvedSchemaElementTypeResult(input *schemaElementInput, typeID Component
 		abstract:     input.abstract,
 		nillable:     input.nillable,
 		block:        input.block,
+	}
+}
+
+func resolvedSchemaElementTypeResultWithReference(
+	input *schemaElementInput,
+	typeID ComponentID,
+	hasTypeID bool,
+	reference schemaSimpleTypeReferenceComponent,
+) schemaElementTypeResult {
+	result := resolvedSchemaElementTypeResult(input, typeID, hasTypeID)
+	result.typeReference = reference
+	result.hasTypeReference = true
+	return result
+}
+
+func schemaNamedSimpleTypeReferenceFromResult(
+	input *schemaElementInput,
+	typeID ComponentID,
+	result schemaSimpleTypeResult,
+) schemaSimpleTypeReferenceComponent {
+	return schemaSimpleTypeReferenceComponent{
+		kind:       SimpleTypeReferenceNamed,
+		name:       input.declaredType,
+		loc:        input.typeLoc,
+		id:         typeID,
+		hasID:      true,
+		variety:    result.variety,
+		varietyLoc: result.varietyLoc,
+		atomicKind: result.atomicKind,
+		facets:     result.facets,
 	}
 }
 
@@ -4094,7 +5044,7 @@ func resolveSchemaElementType(
 	}
 	candidate := typeCandidates[0]
 	if records[candidate].kind == ComponentKindComplexTypeDefinition {
-		if !complexTypes[candidate].present {
+		if !complexTypes[candidate].present || schemaComplexTypeResultIsEmpty(complexTypes[candidate]) {
 			return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
 				input.typeLoc,
 				fmt.Sprintf("named complex type %q is not implemented for global elements", input.declaredType),
@@ -4112,27 +5062,16 @@ func resolveSchemaElementType(
 	if err := rejectUnsupportedSchemaSimpleTypeVariety(input, simpleTypes.results[candidate], version, "for global elements"); err != nil {
 		return schemaElementTypeResult{}, err
 	}
-	return schemaElementTypeResult{
-		present:      true,
-		declaredType: input.declaredType,
-		typeID:       records[candidate].id,
-		hasTypeID:    true,
-		typeReference: schemaSimpleTypeReferenceComponent{
-			kind:       SimpleTypeReferenceNamed,
-			name:       input.declaredType,
-			loc:        input.typeLoc,
-			id:         records[candidate].id,
-			hasID:      true,
-			variety:    simpleTypes.results[candidate].variety,
-			varietyLoc: simpleTypes.results[candidate].varietyLoc,
-			atomicKind: simpleTypes.results[candidate].atomicKind,
-			facets:     simpleTypes.results[candidate].facets,
-		},
-		hasTypeReference: true,
-		abstract:         input.abstract,
-		nillable:         input.nillable,
-		block:            input.block,
-	}, nil
+	reference := schemaNamedSimpleTypeReferenceFromResult(input, records[candidate].id, simpleTypes.results[candidate])
+	return resolvedSchemaElementTypeResultWithReference(input, records[candidate].id, true, reference), nil
+}
+
+func schemaComplexTypeResultIsEmpty(result schemaComplexTypeResult) bool {
+	if !result.present || result.body == nil {
+		return false
+	}
+	_, ok := result.body.(*schemaComplexTypeEmptyBodyResult)
+	return ok
 }
 
 func resolveSchemaScalarType(
@@ -4196,7 +5135,8 @@ func resolveSchemaScalarType(
 	if err := rejectUnsupportedLocalScalarType(input, simpleTypes[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
 		return schemaElementTypeResult{}, err
 	}
-	return resolvedSchemaElementTypeResult(input, records[candidate].id, true), nil
+	reference := schemaNamedSimpleTypeReferenceFromResult(input, records[candidate].id, simpleTypes[candidate])
+	return resolvedSchemaElementTypeResultWithReference(input, records[candidate].id, true, reference), nil
 }
 
 func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, context string) error {
@@ -4217,8 +5157,11 @@ func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleT
 //nolint:gocognit // Keep built-in scalar scope and version branches explicit.
 func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
-	case "string":
-		if scope != schemaScalarTypeGlobalElement {
+	case "string", "token", "NMTOKEN", "language", "NCName", "anyURI", "ID":
+		if input.declaredType.Local() == "string" && scope != schemaScalarTypeGlobalElement {
+			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
+		}
+		if schemaSimpleTypeAtomicKindIsUnsupportedBuiltin(input.declaredType.Local()) && scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
 		reference, err := builtinSchemaElementTypeReference(input, version)
@@ -4302,6 +5245,15 @@ func builtinSchemaElementTypeReference(input *schemaElementInput, version XSDVer
 	}, version)
 }
 
+func schemaSimpleTypeAtomicKindIsUnsupportedBuiltin(local string) bool {
+	switch local {
+	case "language", "NCName", "anyURI", "ID":
+		return true
+	default:
+		return false
+	}
+}
+
 func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
 	if scope != schemaScalarTypeLocalParticle {
 		return nil
@@ -4314,6 +5266,8 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 		schemaSimpleTypeAtomicID:
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInteger,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicDecimal,
@@ -4347,6 +5301,8 @@ func unsupportedSequencePrecisionDecimal(input *schemaElementInput, version XSDV
 
 type schemaComplexTypeResult struct {
 	present                 bool
+	abstract                bool
+	final                   schemaComplexTypeFinalPolicy
 	body                    schemaComplexTypeBodyResult
 	prohibitedSubstitutions schemaBlockPolicy
 }
@@ -4392,6 +5348,16 @@ type schemaComplexTypeRestrictionBodyResult struct {
 
 func (*schemaComplexTypeRestrictionBodyResult) schemaComplexTypeBodyResult() {}
 
+type schemaComplexTypeExtensionBodyResult struct {
+	complexContentLoc Loc
+	extensionLoc      Loc
+	base              schemaComplexTypeReferenceComponent
+	particle          Particle
+	anyAttribute      schemaAnyAttributeResult
+}
+
+func (*schemaComplexTypeExtensionBodyResult) schemaComplexTypeBodyResult() {}
+
 type schemaAnyAttributeResult struct {
 	present            bool
 	loc                Loc
@@ -4417,55 +5383,128 @@ func resolveSchemaComplexTypes(
 	if len(simpleTypes.results) != len(records) || len(attributes) != len(records) {
 		return nil, newSchemaBridgeInvariant(Loc{}, "complex type resolution has incomplete simple type results")
 	}
-	results := make([]schemaComplexTypeResult, len(records))
+	resolver := schemaComplexTypeResolver{
+		records:              records,
+		byName:               byName,
+		visibleSources:       visibleSources,
+		simpleTypes:          simpleTypes.results,
+		simpleTypeResolution: simpleTypes,
+		version:              version,
+		results:              make([]schemaComplexTypeResult, len(records)),
+		state:                make([]uint8, len(records)),
+		stack:                make([]int, 0),
+		attributes:           attributes,
+	}
 	for index, record := range records {
 		if record.complexType == nil {
 			continue
 		}
-		if record.complexType.body == nil {
-			return nil, newSchemaBridgeInvariant(record.loc, "complex type resolution has no body input")
+		if err := resolver.resolve(index); err != nil {
+			return nil, err
 		}
-		body, err := resolveSchemaComplexTypeBody(
-			record.complexType.body,
-			record,
-			records,
-			byName,
-			visibleSources,
-			simpleTypes,
-			attributes,
-			version,
-		)
+	}
+	return resolver.results, nil
+}
+
+type schemaComplexTypeResolver struct {
+	records              []schemaComponentRecord
+	byName               map[QName][]int
+	visibleSources       map[SourceID][]SourceID
+	simpleTypes          []schemaSimpleTypeResult
+	simpleTypeResolution schemaSimpleTypeResolution
+	attributes           []schemaAttributeTypeResult
+	version              XSDVersion
+	results              []schemaComplexTypeResult
+	state                []uint8
+	stack                []int
+}
+
+func (resolver *schemaComplexTypeResolver) resolve(index int) error {
+	if index < 0 || index >= len(resolver.records) {
+		return newSchemaBridgeInvariant(Loc{}, "complex type resolution has an invalid record index")
+	}
+	if resolver.records[index].complexType == nil {
+		return newSchemaBridgeInvariant(resolver.records[index].loc, "complex type resolution has no input")
+	}
+	if resolver.state[index] == 2 {
+		return nil
+	}
+	if resolver.state[index] == 1 {
+		return resolver.cycleDiagnostic(index, resolver.records[index].loc)
+	}
+	resolver.state[index] = 1
+	resolver.stack = append(resolver.stack, index)
+	record := resolver.records[index]
+	if record.complexType.body == nil {
+		return newSchemaBridgeInvariant(record.loc, "complex type resolution has no body input")
+	}
+	body, err := resolver.resolveBody(record.complexType.body, index)
+	if err != nil {
+		return err
+	}
+	resolver.stack = resolver.stack[:len(resolver.stack)-1]
+	resolver.state[index] = 2
+	resolver.results[index] = schemaComplexTypeResult{
+		present:                 true,
+		abstract:                record.complexType.abstract,
+		final:                   record.complexType.final,
+		body:                    body,
+		prohibitedSubstitutions: record.complexType.prohibitedSubstitutions,
+	}
+	return nil
+}
+
+//nolint:gocognit // Keep the phase-specific body variants explicit.
+func (resolver *schemaComplexTypeResolver) resolveBody(
+	input schemaComplexTypeBodyInput,
+	ownerIndex int,
+) (schemaComplexTypeBodyResult, error) {
+	owner := resolver.records[ownerIndex]
+	switch body := input.(type) {
+	case *schemaComplexTypeDirectBodyInput:
+		return resolveSchemaComplexTypeDirectBody(body, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypeResolution, resolver.attributes, resolver.version)
+	case *schemaComplexTypeAttributeOnlyBodyInput:
+		return resolveSchemaComplexTypeAttributeOnlyBody(body, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypeResolution, resolver.attributes, resolver.version)
+	case *schemaComplexTypeSimpleContentBodyInput:
+		return resolveSchemaComplexTypeSimpleContentBody(body, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypeResolution, resolver.attributes, resolver.version)
+	case *schemaComplexTypeRestrictionBodyInput:
+		return resolveSchemaComplexTypeRestrictionBody(body, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.version)
+	case *schemaComplexTypeEmptyBodyInput:
+		if body == nil {
+			return nil, newSchemaBridgeInvariant(owner.loc, "empty complex type body is nil")
+		}
+		return &schemaComplexTypeEmptyBodyResult{}, nil
+	case *schemaComplexTypeExtensionBodyInput:
+		if body == nil {
+			return nil, newSchemaBridgeInvariant(owner.loc, "extension complex type body is nil")
+		}
+		var particle Particle
+		if body.particle != nil {
+			resolvedParticle, particleErr := resolveSchemaComplexTypeParticle(
+				body.particle,
+				owner,
+				resolver.records,
+				resolver.byName,
+				resolver.visibleSources,
+				resolver.simpleTypes,
+				resolver.version,
+			)
+			if particleErr != nil {
+				return nil, particleErr
+			}
+			particle = resolvedParticle
+		}
+		base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex)
 		if err != nil {
 			return nil, err
 		}
-		results[index] = schemaComplexTypeResult{
-			present:                 true,
-			body:                    body,
-			prohibitedSubstitutions: record.complexType.prohibitedSubstitutions,
-		}
-	}
-	return results, nil
-}
-
-func resolveSchemaComplexTypeBody(
-	input schemaComplexTypeBodyInput,
-	owner schemaComponentRecord,
-	records []schemaComponentRecord,
-	byName map[QName][]int,
-	visibleSources map[SourceID][]SourceID,
-	simpleTypes schemaSimpleTypeResolution,
-	attributes []schemaAttributeTypeResult,
-	version XSDVersion,
-) (schemaComplexTypeBodyResult, error) {
-	switch body := input.(type) {
-	case *schemaComplexTypeDirectBodyInput:
-		return resolveSchemaComplexTypeDirectBody(body, owner, records, byName, visibleSources, simpleTypes, attributes, version)
-	case *schemaComplexTypeAttributeOnlyBodyInput:
-		return resolveSchemaComplexTypeAttributeOnlyBody(body, owner, records, byName, visibleSources, simpleTypes, attributes, version)
-	case *schemaComplexTypeSimpleContentBodyInput:
-		return resolveSchemaComplexTypeSimpleContentBody(body, owner, records, byName, visibleSources, simpleTypes, attributes, version)
-	case *schemaComplexTypeRestrictionBodyInput:
-		return resolveSchemaComplexTypeRestrictionBody(body, owner, records, byName, visibleSources, version)
+		return &schemaComplexTypeExtensionBodyResult{
+			complexContentLoc: body.complexContentLoc,
+			extensionLoc:      body.extensionLoc,
+			base:              base,
+			particle:          particle,
+			anyAttribute:      anyAttribute,
+		}, nil
 	default:
 		return nil, newSchemaBridgeInvariant(owner.loc, "complex type body has an unknown input variant")
 	}
@@ -5203,6 +6242,173 @@ func newSchemaAttributeUseDuplicateDiagnostic(loc Loc, name QName, first Loc, ve
 	}
 }
 
+func (resolver *schemaComplexTypeResolver) resolveExtensionBase(
+	input schemaComplexTypeReferenceInput,
+	ownerIndex int,
+) (schemaComplexTypeReferenceComponent, schemaAnyAttributeResult, error) {
+	owner := resolver.records[ownerIndex]
+	candidate, reference, err := resolveSchemaComplexTypeExtensionReference(
+		input,
+		owner,
+		resolver.records,
+		resolver.byName,
+		resolver.visibleSources,
+		resolver.version,
+	)
+	if err != nil {
+		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, err
+	}
+	if resolver.state[candidate] == 1 {
+		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, resolver.cycleDiagnostic(candidate, input.loc)
+	}
+	if resolveErr := resolver.resolve(candidate); resolveErr != nil {
+		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, resolveErr
+	}
+	base := resolver.results[candidate]
+	if !base.present || base.body == nil {
+		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, newSchemaBridgeInvariant(
+			input.loc,
+			"extension base has no completed complex type result",
+		)
+	}
+	if base.final.set&schemaComplexTypeFinalExtension != 0 {
+		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, newSchemaComplexTypeExtensionBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type extension base %q prohibits extension derivation", reference.name),
+			[]Loc{base.final.loc},
+			resolver.version,
+			fmt.Errorf("%w: extension is prohibited by base final", errSchemaComplexTypeBaseUnsupported),
+		)
+	}
+	inherited, err := resolver.extensionBaseFacts(base.body, resolver.records[candidate].loc, input.loc)
+	if err != nil {
+		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, err
+	}
+	reference.id = resolver.records[candidate].id
+	reference.hasID = true
+	return reference, inherited, nil
+}
+
+func (resolver *schemaComplexTypeResolver) extensionBaseFacts(
+	body schemaComplexTypeBodyResult,
+	baseLoc Loc,
+	baseReferenceLoc Loc,
+) (schemaAnyAttributeResult, error) {
+	switch typed := body.(type) {
+	case *schemaComplexTypeEmptyBodyResult:
+		if typed == nil {
+			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "empty extension base result is nil")
+		}
+		return resolver.representableInheritedWildcard(typed.anyAttribute, baseLoc, baseReferenceLoc)
+	case *schemaComplexTypeRestrictionBodyResult:
+		if typed == nil {
+			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "restriction extension base result is nil")
+		}
+		if typed.base.kind != ComplexTypeReferenceBuiltin || typed.base.name.Namespace() != xsdNamespaceURI || typed.base.name.Local() != "anyType" {
+			return schemaAnyAttributeResult{}, resolver.unsupportedExtensionBase(
+				baseReferenceLoc,
+				"named complex type extension base has unsupported restriction composition",
+				[]Loc{baseLoc, typed.restrictionLoc},
+				fmt.Errorf("%w: restriction composition", errSchemaComplexTypeBaseUnsupported),
+			)
+		}
+		return resolver.representableInheritedWildcard(typed.anyAttribute, baseLoc, baseReferenceLoc)
+	case *schemaComplexTypeDirectBodyResult:
+		if typed == nil {
+			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "direct extension base result is nil")
+		}
+		related := []Loc{baseLoc, typed.particle.Loc()}
+		return schemaAnyAttributeResult{}, resolver.unsupportedExtensionBase(
+			baseReferenceLoc,
+			"named complex type extension base has nonempty content",
+			related,
+			fmt.Errorf("%w: %w", errSchemaComplexTypeBaseUnsupported, errSchemaComplexTypeBaseNonEmpty),
+		)
+	case *schemaComplexTypeExtensionBodyResult:
+		if typed == nil {
+			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "extension extension base result is nil")
+		}
+		related := []Loc{baseLoc, typed.extensionLoc}
+		if !typed.particleIsNil() {
+			related = append(related, typed.particleLoc())
+		}
+		return schemaAnyAttributeResult{}, resolver.unsupportedExtensionBase(
+			baseReferenceLoc,
+			"named complex type extension base has unsupported extension composition",
+			related,
+			fmt.Errorf("%w: extension composition", errSchemaComplexTypeBaseUnsupported),
+		)
+	default:
+		return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "extension base has an unknown completed body")
+	}
+}
+
+func (resolver *schemaComplexTypeResolver) representableInheritedWildcard(
+	wildcard schemaAnyAttributeResult,
+	baseLoc Loc,
+	baseReferenceLoc Loc,
+) (schemaAnyAttributeResult, error) {
+	if !wildcard.present {
+		return schemaAnyAttributeResult{}, nil
+	}
+	if wildcard.namespace == "##other" && wildcard.processContents == "lax" {
+		return wildcard, nil
+	}
+	return schemaAnyAttributeResult{}, resolver.unsupportedExtensionBase(
+		baseReferenceLoc,
+		"named complex type extension base has an unrepresentable attribute wildcard",
+		[]Loc{baseLoc, wildcard.loc},
+		fmt.Errorf("%w: attribute wildcard", errSchemaComplexTypeBaseUnsupported),
+	)
+}
+
+func (resolver *schemaComplexTypeResolver) unsupportedExtensionBase(loc Loc, message string, related []Loc, cause error) error {
+	return newSchemaComplexTypeUnsupportedWithSpec(
+		loc,
+		message,
+		related,
+		resolver.version,
+		cause,
+		schemaComplexTypeExtensionSpecRef(resolver.version),
+	)
+}
+
+func (resolver *schemaComplexTypeResolver) cycleDiagnostic(target int, edgeLoc Loc) error {
+	start := 0
+	for index, node := range resolver.stack {
+		if node == target {
+			start = index
+			break
+		}
+	}
+	related := make([]Loc, 0, len(resolver.stack)-start+1)
+	for _, node := range resolver.stack[start:] {
+		body, ok := resolver.records[node].complexType.body.(*schemaComplexTypeExtensionBodyInput)
+		if !ok || body == nil || body.base.loc.IsZero() || body.base.loc == edgeLoc {
+			continue
+		}
+		related = append(related, body.base.loc)
+	}
+	return newSchemaComplexTypeExtensionBaseDiagnostic(
+		edgeLoc,
+		"named complex type extension bases form a cycle",
+		related,
+		resolver.version,
+		errSchemaComplexTypeBaseCycle,
+	)
+}
+
+func (body *schemaComplexTypeExtensionBodyResult) particleIsNil() bool {
+	return body == nil || body.particle == nil
+}
+
+func (body *schemaComplexTypeExtensionBodyResult) particleLoc() Loc {
+	if body == nil || body.particle == nil {
+		return Loc{}
+	}
+	return body.particle.Loc()
+}
+
 func schemaAnyAttributeResultFromInput(input *schemaAnyAttributeInput) schemaAnyAttributeResult {
 	if input == nil {
 		return schemaAnyAttributeResult{}
@@ -5317,6 +6523,121 @@ func resolveSchemaComplexTypeReference(
 	)
 }
 
+// resolveSchemaComplexTypeExtensionReference classifies the named base before
+// the resolver follows its completed complex-type result. Component IDs are
+// already allocated by the caller's declaration phase.
+//
+//nolint:gocognit,funlen // Keep visibility, kind, and representation precedence together.
+func resolveSchemaComplexTypeExtensionReference(
+	input schemaComplexTypeReferenceInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	version XSDVersion,
+) (int, schemaComplexTypeReferenceComponent, error) {
+	if input.kind != schemaComplexTypeQNameReferenceInput {
+		return 0, schemaComplexTypeReferenceComponent{}, newSchemaBridgeInvariant(input.loc, "complex type extension base reference has an unknown kind")
+	}
+	if input.name.IsZero() {
+		return 0, schemaComplexTypeReferenceComponent{}, newSchemaBridgeInvariant(input.loc, "complex type extension base reference is empty")
+	}
+	if input.name.Namespace() == xsdNamespaceURI {
+		if input.name.Local() == "anyType" {
+			return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeUnsupportedWithSpec(
+				input.loc,
+				fmt.Sprintf("complex type extension base %q is not a named complex type", input.name),
+				nil,
+				version,
+				errSchemaComplexTypeBaseUnsupported,
+				schemaComplexTypeExtensionSpecRef(version),
+			)
+		}
+		return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeExtensionBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type extension base %q is not a supported complex type", input.name),
+			nil,
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseWrongKind, input.name),
+		)
+	}
+
+	candidates := byName[input.name]
+	if len(candidates) == 0 {
+		return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeExtensionBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type extension base %q cannot be resolved", input.name),
+			nil,
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseUnresolved, input.name),
+		)
+	}
+	visibleCandidates, err := schemaVisibleCandidates(candidates, owner.id.Source(), records, visibleSources, input.loc)
+	if err != nil {
+		return 0, schemaComplexTypeReferenceComponent{}, err
+	}
+	if len(visibleCandidates) == 0 {
+		return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeExtensionBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type extension base %q is not visible from its schema document", input.name),
+			schemaComponentLocations(records, candidates),
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseUnresolved, input.name),
+		)
+	}
+	typeCandidates := make([]int, 0, len(visibleCandidates))
+	for _, candidate := range visibleCandidates {
+		kind := records[candidate].kind
+		if kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
+			continue
+		}
+		typeCandidates = append(typeCandidates, candidate)
+	}
+	if len(typeCandidates) > 1 {
+		return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeExtensionBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type extension base %q is ambiguous", input.name),
+			schemaComponentLocations(records, typeCandidates),
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseAmbiguous, input.name),
+		)
+	}
+	if len(typeCandidates) == 0 {
+		return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeExtensionBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type extension base %q does not name a type definition", input.name),
+			schemaComponentLocations(records, visibleCandidates),
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseWrongKind, input.name),
+		)
+	}
+	candidate := typeCandidates[0]
+	if records[candidate].kind != ComponentKindComplexTypeDefinition {
+		return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeExtensionBaseDiagnostic(
+			input.loc,
+			fmt.Sprintf("complex type extension base %q names a simple type", input.name),
+			[]Loc{records[candidate].loc},
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseWrongKind, input.name),
+		)
+	}
+	if records[candidate].complexType == nil {
+		return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeUnsupportedWithSpec(
+			input.loc,
+			fmt.Sprintf("complex type extension base %q has unsupported content", input.name),
+			[]Loc{records[candidate].loc},
+			version,
+			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseUnsupported, input.name),
+			schemaComplexTypeExtensionSpecRef(version),
+		)
+	}
+	return candidate, schemaComplexTypeReferenceComponent{
+		kind: ComplexTypeReferenceNamed,
+		name: input.name,
+		loc:  input.loc,
+	}, nil
+}
+
 func newSchemaComplexTypeBaseDiagnostic(loc Loc, message string, related []Loc, version XSDVersion, cause error) Diagnostic {
 	return Diagnostic{
 		class:   FailureInvalid,
@@ -5330,6 +6651,22 @@ func newSchemaComplexTypeBaseDiagnostic(loc Loc, message string, related []Loc, 
 }
 
 func newSchemaComplexTypeUnsupported(loc Loc, message string, related []Loc, version XSDVersion, cause error) error {
+	return newSchemaComplexTypeUnsupportedWithSpec(loc, message, related, version, cause, schemaComplexTypeDerivationSpecRef(version))
+}
+
+func newSchemaComplexTypeExtensionBaseDiagnostic(loc Loc, message string, related []Loc, version XSDVersion, cause error) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    invalidSchemaCompositionCode,
+		loc:     loc,
+		message: message,
+		related: append([]Loc(nil), related...),
+		specRef: schemaComplexTypeExtensionSpecRef(version),
+		cause:   cause,
+	}
+}
+
+func newSchemaComplexTypeUnsupportedWithSpec(loc Loc, message string, related []Loc, version XSDVersion, cause error, specRef string) error {
 	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
 	if !ok {
 		return newDiagnostic(
@@ -5350,7 +6687,7 @@ func newSchemaComplexTypeUnsupported(loc Loc, message string, related []Loc, ver
 	)
 	if diagnostic.Class() == FailureUnsupported {
 		diagnostic.related = append([]Loc(nil), related...)
-		diagnostic.specRef = schemaComplexTypeDerivationSpecRef(version)
+		diagnostic.specRef = specRef
 	}
 	return diagnostic
 }
@@ -5360,6 +6697,27 @@ func schemaComplexTypeDerivationSpecRef(version XSDVersion) string {
 		return schemaComplexTypeDerivationXSD10SpecRef
 	}
 	return schemaComplexTypeDerivationXSD11SpecRef
+}
+
+func schemaComplexContentExtensionSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaComplexContentExtensionXSD10SpecRef
+	}
+	return schemaComplexContentExtensionXSD11SpecRef
+}
+
+func schemaComplexTypeExtensionSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaComplexTypeExtensionXSD10SpecRef
+	}
+	return schemaComplexTypeExtensionXSD11SpecRef
+}
+
+func schemaComplexParticleExtensionSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaComplexParticleExtensionXSD10SpecRef
+	}
+	return schemaComplexParticleExtensionXSD11SpecRef
 }
 
 func resolveSchemaModelGroups(
@@ -5380,7 +6738,7 @@ func resolveSchemaModelGroups(
 		if record.modelGroup.particle == nil {
 			return nil, newSchemaBridgeInvariant(record.loc, "model group resolution has no particle input")
 		}
-		particle, err := resolveSchemaChoiceParticleWithOptions(
+		particle, err := resolveSchemaModelGroupParticle(
 			record.modelGroup.particle,
 			record,
 			records,
@@ -5388,7 +6746,6 @@ func resolveSchemaModelGroups(
 			visibleSources,
 			simpleTypes,
 			version,
-			true,
 		)
 		if err != nil {
 			return nil, err
@@ -5399,6 +6756,117 @@ func resolveSchemaModelGroups(
 		}
 	}
 	return results, nil
+}
+
+func resolveSchemaModelGroupParticle(
+	input schemaModelGroupParticleInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
+) (Particle, error) {
+	switch particle := input.(type) {
+	case *schemaChoiceParticleInput:
+		if particle == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "model group choice particle input is nil")
+		}
+		if err := schemaModelGroupParticleTermsAreElements(particle.alternatives, particle.loc); err != nil {
+			return nil, err
+		}
+		return resolveSchemaChoiceParticleWithOptions(
+			particle,
+			owner,
+			records,
+			byName,
+			visibleSources,
+			simpleTypes,
+			version,
+			true,
+		)
+	case *schemaSequenceParticleInput:
+		if particle == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "model group sequence particle input is nil")
+		}
+		if err := schemaModelGroupParticleTermsAreElements(particle.particles, particle.loc); err != nil {
+			return nil, err
+		}
+		return resolveSchemaModelGroupSequenceParticle(particle, owner, records, byName, visibleSources, version)
+	default:
+		return nil, newSchemaBridgeInvariant(Loc{}, "model group has an unknown particle input")
+	}
+}
+
+func schemaModelGroupParticleTermsAreElements(terms []schemaParticleTermInput, loc Loc) error {
+	for _, term := range terms {
+		switch typed := term.(type) {
+		case schemaElementParticleInput:
+		case *schemaElementParticleInput:
+			if typed == nil {
+				return newSchemaBridgeInvariant(loc, "model group has a nil element particle input")
+			}
+		default:
+			return newSchemaBridgeInvariant(loc, "model group has a non-element particle input")
+		}
+	}
+	return nil
+}
+
+func resolveSchemaModelGroupSequenceParticle(
+	input *schemaSequenceParticleInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	version XSDVersion,
+) (Particle, error) {
+	particles := make([]Particle, 0, len(input.particles))
+	seenReferences := make(map[QName]Loc)
+	for _, termInput := range input.particles {
+		elementInput, ok := schemaElementParticleInputValue(termInput)
+		if !ok || elementInput.reference == nil {
+			return nil, newSchemaBridgeInvariant(input.loc, "model group sequence has a non-reference element particle input")
+		}
+		reference := elementInput.reference
+		particle, err := resolveSchemaElementReferenceParticle(
+			elementInput,
+			owner,
+			records,
+			byName,
+			visibleSources,
+			version,
+		)
+		if err != nil {
+			return nil, err
+		}
+		firstLoc, seen := seenReferences[reference.name]
+		if seen {
+			return nil, newSchemaElementReferenceDuplicateDiagnosticForModel(
+				reference,
+				firstLoc,
+				version,
+				"sequence",
+			)
+		}
+		seenReferences[reference.name] = reference.loc
+		if !elementInput.occurrences.mapsToParticle() {
+			continue
+		}
+		if particle == nil {
+			return nil, newSchemaBridgeInvariant(input.loc, "model group sequence reference resolved to no particle")
+		}
+		particles = append(particles, particle)
+	}
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	sequence := &schemaSequenceParticle{
+		loc:         input.loc,
+		occurrences: input.occurrences.clone(),
+		particles:   particles,
+	}
+	return SequenceParticle{facts: sequence}, nil
 }
 
 func resolveSchemaComplexTypeParticle(
@@ -5421,6 +6889,11 @@ func resolveSchemaComplexTypeParticle(
 			return nil, newSchemaBridgeInvariant(Loc{}, "sequence particle input is nil")
 		}
 		return resolveSchemaSequenceParticle(particle, owner, records, byName, visibleSources, simpleTypes, version)
+	case *schemaModelGroupReferenceParticleInput:
+		if particle == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "model-group reference particle input is nil")
+		}
+		return resolveSchemaModelGroupReferenceParticle(particle, owner, records, byName, visibleSources, version)
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "complex type has an unknown particle input")
 	}
@@ -5461,12 +6934,21 @@ func resolveSchemaChoiceParticleWithOptions(
 	mapsToParticle := input.occurrences.mapsToParticle()
 	alternatives := make([]Particle, 0, len(input.alternatives))
 	seenReferences := make(map[QName]Loc)
-	for _, elementInput := range input.alternatives {
-		if !mapsToParticle && elementInput.reference == nil {
+	for _, termInput := range input.alternatives {
+		termOccurrences, err := schemaParticleTermInputOccurrences(termInput)
+		if err != nil {
+			return nil, err
+		}
+		reference, hasReference, err := schemaParticleTermInputReference(termInput)
+		if err != nil {
+			return nil, err
+		}
+		if !mapsToParticle && !hasReference {
 			continue
 		}
-		if !input.occurrences.isDefault() && elementInput.occurrences.mapsToParticle() && elementInput.typeInput != nil {
-			isPrecisionDecimal, err := schemaScalarTypeIsPrecisionDecimal(
+		elementInput, isElement := schemaElementParticleInputValue(termInput)
+		if !input.occurrences.isDefault() && termOccurrences.mapsToParticle() && isElement && elementInput.typeInput != nil {
+			isPrecisionDecimal, precisionErr := schemaScalarTypeIsPrecisionDecimal(
 				elementInput.typeInput.declaredType,
 				records,
 				byName,
@@ -5476,15 +6958,15 @@ func resolveSchemaChoiceParticleWithOptions(
 				elementInput.loc,
 				version,
 			)
-			if err != nil {
-				return nil, err
+			if precisionErr != nil {
+				return nil, precisionErr
 			}
 			if isPrecisionDecimal {
 				return nil, unsupportedChoicePrecisionDecimalParticle(input, version)
 			}
 		}
-		element, err := resolveSchemaElementParticle(
-			elementInput,
+		particle, err := resolveSchemaParticleTerm(
+			termInput,
 			owner,
 			records,
 			byName,
@@ -5496,21 +6978,21 @@ func resolveSchemaChoiceParticleWithOptions(
 		if err != nil {
 			return nil, err
 		}
-		if rejectDuplicateReferences && elementInput.reference != nil {
-			firstLoc, seen := seenReferences[elementInput.reference.name]
+		if rejectDuplicateReferences && hasReference {
+			firstLoc, seen := seenReferences[reference.name]
 			if seen {
 				return nil, newSchemaElementReferenceDuplicateDiagnostic(
-					elementInput.reference,
+					reference,
 					firstLoc,
 					version,
 				)
 			}
-			seenReferences[elementInput.reference.name] = elementInput.reference.loc
+			seenReferences[reference.name] = reference.loc
 		}
-		if element == nil || !elementInput.occurrences.mapsToParticle() {
+		if particle == nil || !termOccurrences.mapsToParticle() {
 			continue
 		}
-		alternatives = append(alternatives, element)
+		alternatives = append(alternatives, particle)
 	}
 	if !mapsToParticle {
 		return nil, nil
@@ -5535,10 +7017,10 @@ func resolveSchemaSequenceParticle(
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
-	particles := make([]Particle, 0, len(input.elements))
-	for _, elementInput := range input.elements {
-		element, err := resolveSchemaElementParticle(
-			elementInput,
+	particles := make([]Particle, 0, len(input.particles))
+	for _, termInput := range input.particles {
+		particle, err := resolveSchemaParticleTerm(
+			termInput,
 			owner,
 			records,
 			byName,
@@ -5550,10 +7032,10 @@ func resolveSchemaSequenceParticle(
 		if err != nil {
 			return nil, err
 		}
-		if element == nil {
+		if particle == nil {
 			continue
 		}
-		particles = append(particles, element)
+		particles = append(particles, particle)
 	}
 	sequence := &schemaSequenceParticle{
 		loc:         input.loc,
@@ -5561,6 +7043,129 @@ func resolveSchemaSequenceParticle(
 		particles:   particles,
 	}
 	return SequenceParticle{facts: sequence}, nil
+}
+
+func schemaParticleTermInputOccurrences(input schemaParticleTermInput) (particleOccurrenceRange, error) {
+	switch term := input.(type) {
+	case schemaElementParticleInput:
+		return term.occurrences, nil
+	case *schemaElementParticleInput:
+		if term == nil {
+			return particleOccurrenceRange{}, newSchemaBridgeInvariant(Loc{}, "particle term has a nil element input")
+		}
+		return term.occurrences, nil
+	case schemaWildcardParticleInput:
+		return term.occurrences, nil
+	case *schemaWildcardParticleInput:
+		if term == nil {
+			return particleOccurrenceRange{}, newSchemaBridgeInvariant(Loc{}, "particle term has a nil wildcard input")
+		}
+		return term.occurrences, nil
+	default:
+		return particleOccurrenceRange{}, newSchemaBridgeInvariant(Loc{}, "particle term has an unknown input")
+	}
+}
+
+func schemaParticleTermInputReference(input schemaParticleTermInput) (*schemaElementReferenceInput, bool, error) {
+	element, ok := schemaElementParticleInputValue(input)
+	if !ok {
+		switch term := input.(type) {
+		case schemaWildcardParticleInput:
+			return nil, false, nil
+		case *schemaWildcardParticleInput:
+			if term == nil {
+				return nil, false, newSchemaBridgeInvariant(Loc{}, "particle term has a nil wildcard input")
+			}
+			return nil, false, nil
+		default:
+			return nil, false, newSchemaBridgeInvariant(Loc{}, "particle term has an unknown reference input")
+		}
+	}
+	if element.reference == nil {
+		return nil, false, nil
+	}
+	return element.reference, true, nil
+}
+
+func schemaElementParticleInputValue(input schemaParticleTermInput) (schemaElementParticleInput, bool) {
+	switch term := input.(type) {
+	case schemaElementParticleInput:
+		return term, true
+	case *schemaElementParticleInput:
+		if term == nil {
+			return schemaElementParticleInput{}, false
+		}
+		return *term, true
+	default:
+		return schemaElementParticleInput{}, false
+	}
+}
+
+func resolveSchemaParticleTerm(
+	input schemaParticleTermInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	simpleTypes []schemaSimpleTypeResult,
+	version XSDVersion,
+	model string,
+) (Particle, error) {
+	switch term := input.(type) {
+	case schemaElementParticleInput:
+		return resolveSchemaElementParticle(term, owner, records, byName, visibleSources, simpleTypes, version, model)
+	case *schemaElementParticleInput:
+		if term == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "particle term has a nil element input")
+		}
+		return resolveSchemaElementParticle(*term, owner, records, byName, visibleSources, simpleTypes, version, model)
+	case schemaWildcardParticleInput:
+		return resolveSchemaWildcardParticle(term, owner)
+	case *schemaWildcardParticleInput:
+		if term == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "particle term has a nil wildcard input")
+		}
+		return resolveSchemaWildcardParticle(*term, owner)
+	default:
+		return nil, newSchemaBridgeInvariant(Loc{}, "particle term has an unknown input")
+	}
+}
+
+func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner schemaComponentRecord) (Particle, error) {
+	if !isSupportedDirectAnyParticleFacts(input.namespace, input.processContents) {
+		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
+	}
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	constraint := input.namespaceConstraint
+	if constraint.variety == WildcardNamespaceConstraintEnumeration {
+		seen := make(map[string]struct{}, len(constraint.terms))
+		for _, term := range constraint.terms {
+			namespace := term
+			if term == "##local" {
+				namespace = ""
+			}
+			if term == "##targetNamespace" {
+				namespace = owner.name.Namespace()
+			}
+			seen[namespace] = struct{}{}
+		}
+		constraint.namespaces = make([]string, 0, len(seen))
+		for namespace := range seen {
+			constraint.namespaces = append(constraint.namespaces, namespace)
+		}
+		sort.Strings(constraint.namespaces)
+	}
+	return WildcardParticle{facts: &schemaWildcardParticle{
+		loc:                 input.loc,
+		occurrences:         input.occurrences.clone(),
+		namespace:           input.namespace,
+		namespaceLoc:        input.namespaceLoc,
+		namespaceConstraint: constraint,
+		processContents:     input.processContents,
+		processContentsLoc:  input.processContentsLoc,
+	}}, nil
 }
 
 func resolveSchemaElementParticle(
@@ -5626,12 +7231,16 @@ func resolveSchemaElementParticle(
 		return nil, err
 	}
 	facts := &schemaElementParticle{
-		loc:          input.loc,
-		occurrences:  input.occurrences.clone(),
-		name:         input.name,
-		declaredType: resolved.declaredType,
-		typeID:       resolved.typeID,
-		hasTypeID:    resolved.hasTypeID,
+		loc:                     input.loc,
+		occurrences:             input.occurrences.clone(),
+		name:                    input.name,
+		declaredType:            resolved.declaredType,
+		typeReference:           resolved.typeReference,
+		hasTypeReference:        resolved.hasTypeReference,
+		nillable:                input.nillable,
+		disallowedSubstitutions: input.block,
+		typeID:                  resolved.typeID,
+		hasTypeID:               resolved.hasTypeID,
 	}
 	return ElementParticle{facts: facts}, nil
 }
@@ -5698,6 +7307,126 @@ func resolveSchemaElementReferenceParticle(
 		targetID:    records[visible[0]].id,
 	}
 	return ElementReferenceParticle{facts: facts}, nil
+}
+
+func resolveSchemaModelGroupReferenceParticle(
+	input *schemaModelGroupReferenceParticleInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	version XSDVersion,
+) (Particle, error) {
+	if input.reference == nil {
+		return nil, newSchemaBridgeInvariant(input.loc, "model-group reference input is nil")
+	}
+	reference := input.reference
+	candidates := byName[reference.name]
+	if len(candidates) == 0 {
+		return nil, newSchemaModelGroupReferenceDiagnostic(
+			diagnosticSchemaModelGroupReferenceUnresolvedCode,
+			reference.loc,
+			fmt.Sprintf("model-group reference %q is unresolved", reference.name),
+			nil,
+			version,
+			errSchemaModelGroupReferenceUnresolved,
+		)
+	}
+	groupCandidates, err := schemaModelGroupReferenceCandidates(candidates, records, reference.loc)
+	if err != nil {
+		return nil, err
+	}
+	if len(groupCandidates) == 0 {
+		return nil, newSchemaModelGroupReferenceDiagnostic(
+			diagnosticSchemaModelGroupReferenceWrongKindCode,
+			reference.loc,
+			fmt.Sprintf("model-group reference %q does not name a global model-group definition", reference.name),
+			schemaComponentLocations(records, candidates),
+			version,
+			errSchemaModelGroupReferenceWrongKind,
+		)
+	}
+	visible, err := schemaVisibleCandidates(groupCandidates, owner.id.Source(), records, visibleSources, reference.loc)
+	if err != nil {
+		return nil, err
+	}
+	if len(visible) == 0 {
+		return nil, schemaModelGroupReferenceVisibilityDiagnostic(reference, owner, records, groupCandidates, version)
+	}
+	if len(visible) > 1 {
+		return nil, newSchemaModelGroupReferenceDiagnostic(
+			diagnosticSchemaModelGroupReferenceAmbiguousCode,
+			reference.loc,
+			fmt.Sprintf("model-group reference %q is ambiguous", reference.name),
+			schemaComponentLocations(records, visible),
+			version,
+			errSchemaModelGroupReferenceAmbiguous,
+		)
+	}
+	target := records[visible[0]]
+	if target.modelGroup == nil {
+		return nil, newSchemaBridgeInvariant(reference.loc, "model-group reference target has no model-group input")
+	}
+	if target.id.IsZero() || target.id.Source() == "" || target.id.Ordinal() == 0 {
+		return nil, newSchemaBridgeInvariant(reference.loc, "model-group reference target has no allocated identity")
+	}
+	facts := &schemaModelGroupReferenceParticle{
+		loc:         input.loc,
+		occurrences: input.occurrences.clone(),
+		name:        reference.name,
+		refLoc:      reference.loc,
+		targetID:    target.id,
+	}
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	return ModelGroupReferenceParticle{facts: facts}, nil
+}
+
+func schemaModelGroupReferenceCandidates(
+	candidates []int,
+	records []schemaComponentRecord,
+	loc Loc,
+) ([]int, error) {
+	groupCandidates := make([]int, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate < 0 || candidate >= len(records) {
+			return nil, newSchemaBridgeInvariant(loc, "model-group reference lookup has an invalid record index")
+		}
+		if records[candidate].kind != ComponentKindModelGroupDefinition {
+			continue
+		}
+		groupCandidates = append(groupCandidates, candidate)
+	}
+	return groupCandidates, nil
+}
+
+func schemaModelGroupReferenceVisibilityDiagnostic(
+	reference *schemaModelGroupReferenceInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	groupCandidates []int,
+	version XSDVersion,
+) error {
+	related := schemaComponentLocations(records, groupCandidates)
+	if reference.name.Namespace() != owner.name.Namespace() {
+		return newSchemaModelGroupReferenceImportDiagnostic(
+			diagnosticSchemaModelGroupReferenceNamespaceCode,
+			reference.loc,
+			fmt.Sprintf("model-group reference %q names a namespace that is not imported into %q", reference.name, owner.name.Namespace()),
+			related,
+			version,
+			errSchemaModelGroupReferenceNamespace,
+		)
+	}
+	return newSchemaModelGroupReferenceDiagnostic(
+		diagnosticSchemaModelGroupReferenceUnresolvedCode,
+		reference.loc,
+		fmt.Sprintf("model-group reference %q is not visible from its schema document", reference.name),
+		related,
+		version,
+		errSchemaModelGroupReferenceUnresolved,
+	)
 }
 
 func schemaElementReferenceElementCandidates(
@@ -6039,12 +7768,46 @@ func newSchemaElementReferenceDiagnostic(
 	}
 }
 
+func newSchemaModelGroupReferenceDiagnostic(
+	code string,
+	loc Loc,
+	message string,
+	related []Loc,
+	version XSDVersion,
+	cause error,
+) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    code,
+		loc:     loc,
+		message: message,
+		related: append([]Loc(nil), related...),
+		specRef: schemaModelGroupReferenceSpecRef(version),
+		cause:   cause,
+	}
+}
+
+func newSchemaElementReferenceBlockDiagnostic(attribute syntaxAttribute, version XSDVersion) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaElementReferenceBlockCode,
+		loc:     attribute.loc,
+		message: `local element ref cannot combine with "block"`,
+		specRef: schemaElementReferenceBlockSpecRef(version),
+		cause:   errSchemaElementReferenceBlock,
+	}
+}
+
 func newSchemaElementReferenceDuplicateDiagnostic(reference *schemaElementReferenceInput, firstLoc Loc, version XSDVersion) Diagnostic {
+	return newSchemaElementReferenceDuplicateDiagnosticForModel(reference, firstLoc, version, "choice")
+}
+
+func newSchemaElementReferenceDuplicateDiagnosticForModel(reference *schemaElementReferenceInput, firstLoc Loc, version XSDVersion, model string) Diagnostic {
 	return Diagnostic{
 		class:   FailureInvalid,
 		code:    diagnosticSchemaElementReferenceDuplicateCode,
 		loc:     reference.loc,
-		message: fmt.Sprintf("element reference %q is duplicated in the named model-group choice", reference.name),
+		message: fmt.Sprintf("element reference %q is duplicated in the named model-group %s", reference.name, model),
 		related: []Loc{firstLoc},
 		specRef: schemaElementReferenceDuplicateSpecRef(version),
 		cause:   fmt.Errorf("%w: %q", errSchemaElementReferenceDuplicate, reference.name),
@@ -6064,11 +7827,45 @@ func newSchemaElementReferenceImportDiagnostic(
 	return diagnostic
 }
 
+func newSchemaModelGroupReferenceImportDiagnostic(
+	code string,
+	loc Loc,
+	message string,
+	related []Loc,
+	version XSDVersion,
+	cause error,
+) Diagnostic {
+	diagnostic := newSchemaModelGroupReferenceDiagnostic(code, loc, message, related, version, cause)
+	diagnostic.specRef = schemaModelGroupReferenceImportSpecRef(version)
+	return diagnostic
+}
+
 func schemaElementReferenceSpecRef(version XSDVersion) string {
 	if version == XSDVersion10 {
 		return schemaElementReferenceXSD10SpecRef
 	}
 	return schemaElementReferenceXSD11SpecRef
+}
+
+func schemaModelGroupReferenceSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaModelGroupReferenceXSD10SpecRef
+	}
+	return schemaModelGroupReferenceXSD11SpecRef
+}
+
+func schemaModelGroupReferenceImportSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaModelGroupReferenceImportXSD10SpecRef
+	}
+	return schemaModelGroupReferenceImportXSD11SpecRef
+}
+
+func schemaElementReferenceBlockSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaElementReferenceBlockXSD10SpecRef
+	}
+	return schemaElementReferenceBlockXSD11SpecRef
 }
 
 func schemaElementReferenceDuplicateSpecRef(version XSDVersion) string {
@@ -6170,6 +7967,7 @@ func (resolver *schemaSimpleTypeResolver) resolveInput(input *schemaSimpleTypeIn
 	}
 	result.present = true
 	result.anonymous = anonymous
+	result.final = input.final
 	result.loc = input.loc
 	if result.loc.IsZero() {
 		result.loc = fallbackLoc
@@ -6249,10 +8047,13 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 			version,
 		)
 	}
+	if finalErr := resolver.rejectNamedSimpleTypeFinal(base, schemaSimpleTypeFinalRestriction, "restriction base", model.base.loc, version); finalErr != nil {
+		return schemaSimpleTypeResult{}, finalErr
+	}
 	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
 		return schemaSimpleTypeResult{}, enumerationErr
 	}
-	facets, err := restrictSchemaSimpleTypeFacets(base.facets, model.facets, version)
+	facets, err := restrictSchemaSimpleTypeFacets(base.facets, base.atomicKind, model.facets, version)
 	if err != nil {
 		return schemaSimpleTypeResult{}, err
 	}
@@ -6308,6 +8109,9 @@ func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTy
 		if err := resolver.validateAtomicUnionMembers(itemType, version, make(map[schemaSimpleTypeReferenceIdentity]struct{})); err != nil {
 			return schemaSimpleTypeResult{}, err
 		}
+	}
+	if err := resolver.rejectNamedSimpleTypeFinal(itemType, schemaSimpleTypeFinalList, "list item type", model.itemType.loc, version); err != nil {
+		return schemaSimpleTypeResult{}, err
 	}
 	return schemaSimpleTypeResult{
 		loc:         input.loc,
@@ -6479,6 +8283,9 @@ func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleT
 				version,
 			)
 		}
+		if err := resolver.rejectNamedSimpleTypeFinal(resolved, schemaSimpleTypeFinalUnion, "union member type", member.loc, version); err != nil {
+			return schemaSimpleTypeResult{}, err
+		}
 		members = append(members, resolved)
 	}
 	return schemaSimpleTypeResult{
@@ -6535,6 +8342,10 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 	switch input.name.Local() {
 	case "string":
 		return resolveBuiltinStringSchemaSimpleTypeReference(input, version)
+	case "token":
+		return resolveBuiltinTokenSchemaSimpleTypeReference(input, version)
+	case "NMTOKEN":
+		return resolveBuiltinNMTOKENSchemaSimpleTypeReference(input, version)
 	case "integer":
 		facets, err := NewIntegerDigitFacets(nil, version)
 		if err != nil {
@@ -6614,6 +8425,18 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 }
 
 func resolveBuiltinStringSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+	return resolveBuiltinStringLikeSchemaSimpleTypeReference(input, version, schemaSimpleTypeAtomicString, defaultStringWhiteSpaceFacet())
+}
+
+func resolveBuiltinTokenSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+	return resolveBuiltinStringLikeSchemaSimpleTypeReference(input, version, schemaSimpleTypeAtomicToken, defaultTokenWhiteSpaceFacet())
+}
+
+func resolveBuiltinNMTOKENSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+	return resolveBuiltinStringLikeSchemaSimpleTypeReference(input, version, schemaSimpleTypeAtomicNMTOKEN, defaultTokenWhiteSpaceFacet())
+}
+
+func resolveBuiltinStringLikeSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion, atomicKind schemaSimpleTypeAtomicKind, whiteSpace *StringWhiteSpaceFacet) (schemaSimpleTypeReferenceComponent, error) {
 	enumeration, err := NewStringEnumerationFacets(nil, version)
 	if err != nil {
 		return schemaSimpleTypeReferenceComponent{}, err
@@ -6624,8 +8447,8 @@ func resolveBuiltinStringSchemaSimpleTypeReference(input schemaSimpleTypeReferen
 		loc:        input.loc,
 		variety:    SimpleTypeVarietyAtomicRestriction,
 		varietyLoc: input.loc,
-		atomicKind: schemaSimpleTypeAtomicString,
-		facets:     schemaStringFacetVariant{enumeration: enumeration},
+		atomicKind: atomicKind,
+		facets:     schemaStringFacetVariant{enumeration: enumeration, whiteSpace: whiteSpace},
 	}, nil
 }
 
@@ -6700,6 +8523,57 @@ func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeReference(
 	}, nil
 }
 
+func (resolver *schemaSimpleTypeResolver) rejectNamedSimpleTypeFinal(
+	reference schemaSimpleTypeReferenceComponent,
+	derivation schemaSimpleTypeFinalSet,
+	useDescription string,
+	useLoc Loc,
+	version XSDVersion,
+) error {
+	if reference.kind != SimpleTypeReferenceNamed {
+		return nil
+	}
+	if !reference.hasID || reference.id.IsZero() {
+		return newSchemaBridgeInvariant(useLoc, "named simple type final check has no component identity")
+	}
+	value, ok := schemaSimpleTypeFinalValue(derivation)
+	if !ok {
+		return newSchemaBridgeInvariant(useLoc, "named simple type final check has an invalid derivation")
+	}
+	for index, record := range resolver.records {
+		if record.id != reference.id {
+			continue
+		}
+		result := resolver.results[index]
+		if !result.present {
+			return newSchemaBridgeInvariant(useLoc, "named simple type final check has no completed result")
+		}
+		if result.final.set&derivation == 0 {
+			return nil
+		}
+		if result.final.loc.IsZero() {
+			return newSchemaBridgeInvariant(useLoc, "named simple type final check has no final declaration location")
+		}
+		return newSchemaSimpleTypeFinalDiagnostic(
+			useLoc,
+			fmt.Sprintf("simple type %s %q prohibits %s derivation", useDescription, reference.name, value),
+			result.final.loc,
+			value,
+			version,
+		)
+	}
+	return newSchemaBridgeInvariant(useLoc, "named simple type final check has an unresolved component identity")
+}
+
+func schemaSimpleTypeFinalValue(derivation schemaSimpleTypeFinalSet) (string, bool) {
+	for _, item := range schemaSimpleTypeFinalValueOrder {
+		if item.bit == derivation {
+			return item.value, true
+		}
+	}
+	return "", false
+}
+
 func schemaSimpleTypeComponentFromResult(result schemaSimpleTypeResult, anonymous bool) *schemaSimpleTypeComponent {
 	return &schemaSimpleTypeComponent{
 		loc:              result.loc,
@@ -6719,6 +8593,7 @@ func schemaSimpleTypeComponentFromResult(result schemaSimpleTypeResult, anonymou
 		hasItemType:      result.hasItemType,
 		memberTypes:      cloneSchemaSimpleTypeReferenceComponents(result.memberTypes),
 		facets:           result.facets,
+		final:            result.final,
 	}
 }
 
@@ -6740,9 +8615,22 @@ func invalidSimpleTypeDerivation(loc Loc, message string, related []Loc, version
 	)
 }
 
+func newSchemaSimpleTypeFinalDiagnostic(loc Loc, message string, finalLoc Loc, value string, version XSDVersion) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaSimpleTypeBaseCode,
+		loc:     loc,
+		message: message,
+		related: []Loc{finalLoc},
+		specRef: schemaSimpleTypeRestrictionSpecRef(version),
+		cause:   fmt.Errorf("%w: %s derivation is prohibited by final", errSchemaSimpleTypeInvalidDerivation, value),
+	}
+}
+
 //nolint:gocognit // Keep numeric and precision facet construction in one phase.
 func restrictSchemaSimpleTypeFacets(
 	base schemaSimpleTypeFacetVariant,
+	atomicKind schemaSimpleTypeAtomicKind,
 	inputs []schemaFacetInput,
 	version XSDVersion,
 ) (schemaSimpleTypeFacetVariant, error) {
@@ -6793,12 +8681,15 @@ func restrictSchemaSimpleTypeFacets(
 		}
 		return schemaPrecisionDecimalFacetVariant{value: facets}, nil
 	case schemaStringFacetVariant:
-		return restrictSchemaStringFacets(typed, inputs, version)
+		return restrictSchemaStringFacets(typed, atomicKind, inputs, version)
 	case schemaBooleanFacetVariant:
 		return restrictSchemaBooleanFacets(typed, inputs, version)
 	case schemaAtomicFacetVariant:
 		if len(inputs) == 0 {
 			return typed, nil
+		}
+		if err := validateStringWhiteSpaceFacetInputs(inputs, version); err != nil {
+			return nil, err
 		}
 		return nil, unsupportedSchemaDatatypeFacet(inputs[0], version)
 	default:
@@ -6806,22 +8697,36 @@ func restrictSchemaSimpleTypeFacets(
 	}
 }
 
-func restrictSchemaStringFacets(base schemaStringFacetVariant, inputs []schemaFacetInput, version XSDVersion) (schemaSimpleTypeFacetVariant, error) {
-	if len(inputs) == 0 {
-		return base, nil
-	}
+func restrictSchemaStringFacets(base schemaStringFacetVariant, atomicKind schemaSimpleTypeAtomicKind, inputs []schemaFacetInput, version XSDVersion) (schemaSimpleTypeFacetVariant, error) {
 	local, err := schemaStringFacetDeclarations(inputs, version)
 	if err != nil {
 		return nil, err
 	}
-	enumeration, err := RestrictStringEnumerationFacets(base.enumeration, local.enumeration)
+	if atomicKind == schemaSimpleTypeAtomicNMTOKEN {
+		validationErr := validateSchemaNMTOKENEnumerationBaseValueSpace(local.enumeration, version)
+		if validationErr != nil {
+			return nil, validationErr
+		}
+	}
+	enumeration, err := restrictSchemaStringEnumeration(base, local.enumeration)
+	if err != nil {
+		return nil, err
+	}
+	whiteSpace, err := restrictStringWhiteSpaceFacet(base.whiteSpace, local.whiteSpace, version)
 	if err != nil {
 		return nil, err
 	}
 	if local.deferredUnsupported != nil {
 		return nil, local.deferredUnsupported
 	}
-	return schemaStringFacetVariant{enumeration: enumeration}, nil
+	return schemaStringFacetVariant{enumeration: enumeration, whiteSpace: &whiteSpace}, nil
+}
+
+func restrictSchemaStringEnumeration(base schemaStringFacetVariant, local StringEnumerationFacetDeclarations) (StringEnumerationFacets, error) {
+	if base.whiteSpace != nil && base.whiteSpace.Value() == "collapse" {
+		return restrictStringEnumerationFacetsInValueSpace(base.enumeration, local)
+	}
+	return RestrictStringEnumerationFacets(base.enumeration, local)
 }
 
 func restrictSchemaIntegerFacets(
@@ -7015,38 +8920,113 @@ func schemaEnumerationBaseValueSpaceDiagnostic(
 	)
 }
 
+func validateSchemaNMTOKENEnumerationBaseValueSpace(local StringEnumerationFacetDeclarations, version XSDVersion) error {
+	if local.Values == nil {
+		return nil
+	}
+	for index := range local.Values {
+		declaration := local.Values[index]
+		value := collapseXMLWhitespace(declaration.Value())
+		if validXMLNmtoken(value) {
+			continue
+		}
+		cause := fmt.Errorf("%w: %q", errSchemaNMTOKENValueViolation, value)
+		return schemaEnumerationBaseValueSpaceDiagnostic(
+			declaration.Loc(),
+			nil,
+			version,
+			"NMTOKEN",
+			cause,
+		)
+	}
+	return nil
+}
+
 type schemaStringFacetDeclarationSet struct {
 	enumeration         StringEnumerationFacetDeclarations
+	whiteSpace          *StringWhiteSpaceFacet
 	deferredUnsupported error
 }
 
 func schemaStringFacetDeclarations(inputs []schemaFacetInput, version XSDVersion) (schemaStringFacetDeclarationSet, error) {
 	var enumeration []StringEnumerationFacet
+	var whiteSpace *StringWhiteSpaceFacet
 	var deferredUnsupported error
 	for _, input := range inputs {
-		if input.kind == schemaFacetEnumeration {
-			facet, err := ParseStringEnumerationFacetFor(version, input.lexical, schemaFacetValueLocation(input))
-			if err != nil {
-				return schemaStringFacetDeclarationSet{}, err
-			}
-			enumeration = append(enumeration, facet)
-			continue
-		}
-		err := unsupportedSchemaDatatypeFacet(input, version)
-		if err == nil {
-			continue
-		}
-		if !isUnsupportedSchemaDatatypeFacetError(err) {
+		declaration, err := schemaStringFacetDeclaration(input, whiteSpace != nil, version)
+		if err != nil {
 			return schemaStringFacetDeclarationSet{}, err
 		}
+		if declaration.enumeration != nil {
+			enumeration = append(enumeration, *declaration.enumeration)
+			continue
+		}
+		if declaration.whiteSpace != nil {
+			whiteSpace = declaration.whiteSpace
+			continue
+		}
+		if declaration.deferredUnsupported == nil {
+			continue
+		}
 		if deferredUnsupported == nil {
-			deferredUnsupported = err
+			deferredUnsupported = declaration.deferredUnsupported
 		}
 	}
 	return schemaStringFacetDeclarationSet{
 		enumeration:         NewStringEnumerationFacetDeclarations(enumeration),
+		whiteSpace:          whiteSpace,
 		deferredUnsupported: deferredUnsupported,
 	}, nil
+}
+
+type schemaStringFacetDeclarationResult struct {
+	enumeration         *StringEnumerationFacet
+	whiteSpace          *StringWhiteSpaceFacet
+	deferredUnsupported error
+}
+
+func schemaStringFacetDeclaration(input schemaFacetInput, duplicateWhiteSpace bool, version XSDVersion) (schemaStringFacetDeclarationResult, error) {
+	if input.kind == schemaFacetEnumeration {
+		facet, err := ParseStringEnumerationFacetFor(version, input.lexical, schemaFacetValueLocation(input))
+		if err != nil {
+			return schemaStringFacetDeclarationResult{}, err
+		}
+		return schemaStringFacetDeclarationResult{enumeration: &facet}, nil
+	}
+	if input.kind == schemaFacetWhiteSpace {
+		facet, err := schemaStringWhiteSpaceDeclaration(input, duplicateWhiteSpace, version)
+		if err != nil {
+			return schemaStringFacetDeclarationResult{}, err
+		}
+		return schemaStringFacetDeclarationResult{whiteSpace: facet}, nil
+	}
+	deferred, err := schemaStringUnsupportedFacet(input, version)
+	if err != nil {
+		return schemaStringFacetDeclarationResult{}, err
+	}
+	return schemaStringFacetDeclarationResult{deferredUnsupported: deferred}, nil
+}
+
+func schemaStringUnsupportedFacet(input schemaFacetInput, version XSDVersion) (error, error) {
+	err := unsupportedSchemaDatatypeFacet(input, version)
+	if err == nil {
+		return nil, nil
+	}
+	if isUnsupportedSchemaDatatypeFacetError(err) {
+		return err, nil
+	}
+	return nil, err
+}
+
+func schemaStringWhiteSpaceDeclaration(input schemaFacetInput, duplicate bool, version XSDVersion) (*StringWhiteSpaceFacet, error) {
+	if duplicate {
+		return nil, duplicateStringWhiteSpaceFacetDiagnostic(schemaFacetValueLocation(input), version)
+	}
+	facet, err := ParseStringWhiteSpaceFacetForWithFixed(version, input.lexical, schemaFacetValueLocation(input), input.fixed)
+	if err != nil {
+		return nil, err
+	}
+	return &facet, nil
 }
 
 func isUnsupportedSchemaDatatypeFacetError(err error) bool {
@@ -7126,6 +9106,9 @@ func validateSchemaBooleanFacetInput(input schemaFacetInput, version XSDVersion)
 		}
 		return nil
 	case schemaFacetWhiteSpace:
+		if _, err := ParseStringWhiteSpaceFacetFor(version, input.lexical, valueLoc); err != nil {
+			return err
+		}
 		return validateSchemaBooleanFacetEnum(input, "collapse")
 	case schemaFacetExplicitTimezone:
 		return validateSchemaBooleanFacetEnum(input, "prohibited", "optional", "required")
@@ -7225,8 +9208,23 @@ func schemaNumericFacetDeclarations(
 				return schemaNumericFacetDeclarationSet{}, err
 			}
 			decimalBounds = append(decimalBounds, facet)
+		case schemaFacetWhiteSpace:
+			if _, err := ParseStringWhiteSpaceFacetFor(version, input.lexical, loc); err != nil {
+				return schemaNumericFacetDeclarationSet{}, err
+			}
+			err := unsupportedSchemaDatatypeFacet(input, version)
+			if err == nil {
+				continue
+			}
+			var diagnostic Diagnostic
+			if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+				return schemaNumericFacetDeclarationSet{}, err
+			}
+			if deferredUnsupported == nil {
+				deferredUnsupported = err
+			}
 		case schemaFacetMinScale, schemaFacetMaxScale, schemaFacetPattern,
-			schemaFacetWhiteSpace, schemaFacetLength, schemaFacetMinLength, schemaFacetMaxLength,
+			schemaFacetLength, schemaFacetMinLength, schemaFacetMaxLength,
 			schemaFacetPrecision, schemaFacetExplicitTimezone:
 			err := unsupportedSchemaDatatypeFacet(input, version)
 			if err == nil {
@@ -7512,11 +9510,29 @@ func newSchemaSimpleTypeDiagnostic(code string, loc Loc, message string, related
 	}
 }
 
+func newSchemaSimpleTypeFinalEditionMismatch(attribute syntaxAttribute, value string) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    invalidSchemaCompositionCode,
+		loc:     attribute.loc,
+		message: fmt.Sprintf("attribute %q has an invalid final value %q", attribute.name.local, value),
+		specRef: schemaSimpleTypeXSD10SpecRef,
+		cause:   fmt.Errorf("%w: simple type final value %q is not available in the selected XSD 1.0 policy", errLanguagePolicyMismatch, value),
+	}
+}
+
 func schemaSimpleTypeSpecRef(version XSDVersion) string {
 	if version == XSDVersion10 {
 		return schemaSimpleTypeXSD10SpecRef
 	}
 	return schemaSimpleTypeXSD11SpecRef
+}
+
+func schemaSimpleTypeRestrictionSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaSimpleTypeRestrictionXSD10SpecRef
+	}
+	return schemaSimpleTypeRestrictionXSD11SpecRef
 }
 
 func newSchemaCompositionDiagnostic(loc Loc, message string) Diagnostic {
@@ -7580,11 +9596,43 @@ func newSchemaAnyAttributeUnsupported(loc Loc, version XSDVersion) Diagnostic {
 	return diagnostic
 }
 
+func newSchemaAnyParticleUnsupported(loc Loc, message string, version XSDVersion) Diagnostic {
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSyntaxFeatureCode,
+			loc,
+			"schema syntax feature is not registered",
+			errSchemaAnyParticleUnsupported,
+		)
+	}
+	diagnostic := newUnsupportedForVersionWithCause(
+		feature,
+		UnsupportedSchemaSyntaxCode,
+		loc,
+		message,
+		version,
+		errSchemaAnyParticleUnsupported,
+	)
+	if diagnostic.Class() == FailureUnsupported {
+		diagnostic.specRef = schemaAnyParticleSpecRef(version)
+	}
+	return diagnostic
+}
+
 func schemaAnyAttributeSpecRef(version XSDVersion) string {
 	if version == XSDVersion10 {
 		return schemaAnyAttributeXSD10SpecRef
 	}
 	return schemaAnyAttributeXSD11SpecRef
+}
+
+func schemaAnyParticleSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaAnyParticleXSD10SpecRef
+	}
+	return schemaAnyParticleXSD11SpecRef
 }
 
 func newXSD11FeatureMismatch(featureID FeatureID, code string, loc Loc, message string) Diagnostic {

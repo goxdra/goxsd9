@@ -397,7 +397,7 @@ func validateSchemaRootChild(child *syntaxElement, phase schemaGrammarPhase, ver
 			return phase, newSchemaCompositionDiagnostic(child.loc, "schema child <defaultOpenContent> is not permitted after global declarations")
 		}
 		nextPhase := schemaGrammarDefaultOpenContent
-		if err := validateOpenContentLike(child, version, "defaultOpenContent", true); err != nil {
+		if err := validateOpenContentLike(child, version, "defaultOpenContent", true, false); err != nil {
 			return nextPhase, err
 		}
 		return nextPhase, newSchemaSyntaxUnsupportedForVersion(child.loc, "XSD schema child <defaultOpenContent> is not implemented", version)
@@ -729,10 +729,7 @@ func validateSchemaRootUnqualifiedAttribute(element *syntaxElement, attribute sy
 		if err := validateSchemaRestrictionList(attribute, "extension", "restriction", "list", "union"); err != nil {
 			return "", err
 		}
-		if collapseXMLWhitespace(attribute.value) == "" {
-			return "", nil
-		}
-		return "schema root attribute \"finalDefault\" is not implemented", nil
+		return "", nil
 	case "defaultAttributes":
 		if err := validateConditionalQNameForSchema(element, attribute); err != nil {
 			return "", err
@@ -758,7 +755,7 @@ func validateSchemaRootUnqualifiedAttribute(element *syntaxElement, attribute sy
 				"schema root attribute \"xpathDefaultNamespace\" is an XSD 1.1-only construct",
 			)
 		}
-		return fmt.Sprintf("schema root attribute %q is not implemented", attribute.name.local), nil
+		return "", nil
 	default:
 		return "", newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("schema root has unknown attribute %q", attribute.name.local))
 	}
@@ -872,26 +869,23 @@ func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion)
 	if !ok {
 		return newSchemaBridgeInvariant(element.loc, "global declaration has an unknown kind")
 	}
-	var candidate schemaChildUnsupportedCandidate
-	for _, attribute := range element.attrs {
-		message, err := validateGlobalSchemaAttribute(element, kind, attribute, version)
-		if err != nil {
-			if !candidate.considerError(err) {
-				return err
-			}
-			continue
-		}
-		if message != "" {
-			candidate.considerAt(attribute.loc, message)
-		}
-	}
-	if err := validateGlobalSchemaDeclarationRequirements(element, kind, version); err != nil {
+	candidate, deferredMixedFalse, err := validateGlobalSchemaDeclarationAttributes(element, kind, version, true)
+	if err != nil {
 		return err
 	}
-	if err := validateGlobalSchemaAttributeCooccurrence(element); err != nil {
-		return err
+	if declarationErr := validateGlobalSchemaDeclarationRequirements(element, kind, version); declarationErr != nil {
+		return declarationErr
+	}
+	if declarationErr := validateGlobalSchemaAttributeCooccurrence(element, version); declarationErr != nil {
+		return declarationErr
 	}
 	childrenErr := validateGlobalSchemaChildren(element, version)
+	if deferredMixedFalse && schemaDiagnosticClass(childrenErr) == FailureUnsupported {
+		candidate, _, err = validateGlobalSchemaDeclarationAttributes(element, kind, version, false)
+		if err != nil {
+			return err
+		}
+	}
 	if childrenErr != nil {
 		childrenErr = preferSchemaUnsupported(childrenErr, candidate.loc, candidate.message)
 		if !candidate.considerError(childrenErr) {
@@ -899,6 +893,66 @@ func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion)
 		}
 	}
 	return candidate.err()
+}
+
+//nolint:gocognit // Keep attribute validation and unsupported-candidate staging together.
+func validateGlobalSchemaDeclarationAttributes(element *syntaxElement, kind ComponentKind, version XSDVersion, deferMixedFalse bool) (schemaChildUnsupportedCandidate, bool, error) {
+	var candidate schemaChildUnsupportedCandidate
+	if kind == ComponentKindSimpleTypeDefinition {
+		finalAttributes := syntaxAttributesByLocal(element, "final")
+		if len(finalAttributes) > 1 {
+			return candidate, false, newSchemaCompositionDiagnostic(finalAttributes[1].loc, `simpleType attribute "final" must be unique`)
+		}
+	}
+	deferredMixedFalse := false
+	for _, attribute := range element.attrs {
+		if deferMixedFalse {
+			deferAttribute, err := deferNamedComplexTypeMixedFalse(element, kind, attribute)
+			if err != nil {
+				return candidate, deferredMixedFalse, err
+			}
+			if deferAttribute {
+				deferredMixedFalse = true
+				continue
+			}
+		}
+		message, err := validateGlobalSchemaAttribute(element, kind, attribute, version)
+		if err != nil {
+			if !candidate.considerError(err) {
+				return candidate, deferredMixedFalse, err
+			}
+			continue
+		}
+		if message != "" {
+			candidate.considerAt(attribute.loc, message)
+		}
+	}
+	return candidate, deferredMixedFalse, nil
+}
+
+func deferNamedComplexTypeMixedFalse(element *syntaxElement, kind ComponentKind, attribute syntaxAttribute) (bool, error) {
+	if kind != ComponentKindComplexTypeDefinition || attribute.name.namespace != "" || attribute.name.local != "mixed" {
+		return false, nil
+	}
+	if len(syntaxAttributesByLocal(element, "name")) != 1 || len(syntaxAttributesByLocal(element, "mixed")) != 1 {
+		return false, nil
+	}
+	mixed, err := schemaBooleanValue(attribute)
+	if err != nil {
+		return false, err
+	}
+	return !mixed, nil
+}
+
+func schemaDiagnosticClass(err error) FailureClass {
+	if err == nil {
+		return ""
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		return ""
+	}
+	return diagnostic.Class()
 }
 
 func validateGlobalSchemaNamePresence(element *syntaxElement) error {
@@ -933,18 +987,22 @@ func preferSchemaUnsupported(err error, loc Loc, message string) error {
 	return newSchemaSyntaxUnsupported(loc, message)
 }
 
-func validateGlobalSchemaAttributeCooccurrence(element *syntaxElement) error {
+func validateGlobalSchemaAttributeCooccurrence(element *syntaxElement, version XSDVersion) error {
 	if element.name.local != "element" && element.name.local != "attribute" {
 		return nil
 	}
 	defaults := syntaxAttributesByLocal(element, "default")
 	fixed := syntaxAttributesByLocal(element, "fixed")
 	if len(defaults) > 0 && len(fixed) > 0 {
+		if element.name.local == "attribute" {
+			return invalidSchemaAttributeValueConstraintConflict(fixed[0].loc, defaults[0].loc, element.name.local, version)
+		}
 		return newSchemaCompositionDiagnostic(fixed[0].loc, fmt.Sprintf("global %s cannot specify both default and fixed", element.name.local))
 	}
 	return nil
 }
 
+//nolint:gocognit // Keep global attribute classification and precedence together.
 func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, attribute syntaxAttribute, version XSDVersion) (string, error) {
 	if attribute.name.namespace == xsdVersioningNamespaceURI {
 		return "", nil
@@ -964,6 +1022,23 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	if implementedGlobalElementBooleanAttribute(element, kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
+	if implementedGlobalComplexTypeBooleanAttribute(kind, attribute.name.local) {
+		return "", validateSchemaBoolean(attribute)
+	}
+	if kind == ComponentKindSimpleTypeDefinition && attribute.name.local == "final" {
+		_, err := schemaSimpleTypeFinalPolicyFromAttribute(attribute, version)
+		return "", err
+	}
+	if kind == ComponentKindComplexTypeDefinition && attribute.name.local == "final" {
+		return "", validateSchemaRestrictionList(attribute, "extension", "restriction")
+	}
+	if version == XSDVersion11 &&
+		kind == ComponentKindComplexTypeDefinition &&
+		attribute.name.namespace == "" &&
+		attribute.name.local == "defaultAttributesApply" &&
+		len(syntaxAttributesByLocal(element, "name")) == 1 {
+		return "", validateSchemaBoolean(attribute)
+	}
 	status := globalSchemaAttributeStatus(kind, attribute.name.local)
 	switch status {
 	case schemaAttributeAllowed:
@@ -971,6 +1046,17 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	case schemaAttributeUnsupported:
 		if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
 			return "", err
+		}
+		if kind == ComponentKindAttributeDeclaration && attribute.name.local == "inheritable" && len(syntaxAttributesByLocal(element, "type")) > 0 {
+			if version == XSDVersion10 {
+				return "", newXSD11FeatureMismatch(
+					FeatureSchemaSyntax,
+					UnsupportedSchemaSyntaxCode,
+					attribute.loc,
+					fmt.Sprintf("global %s attribute %q is an XSD 1.1-only construct", element.name.local, attribute.name.local),
+				)
+			}
+			return "", nil
 		}
 		if version == XSDVersion10 && isXSD11GlobalSchemaAttribute(kind, attribute.name.local) {
 			return "", newXSD11FeatureMismatch(
@@ -999,6 +1085,10 @@ func implementedGlobalElementBooleanAttribute(element *syntaxElement, kind Compo
 		return true
 	}
 	return inlineSimpleTypeChild(element) != nil
+}
+
+func implementedGlobalComplexTypeBooleanAttribute(kind ComponentKind, local string) bool {
+	return kind == ComponentKindComplexTypeDefinition && local == "abstract"
 }
 
 func isXSD11GlobalSchemaAttribute(kind ComponentKind, local string) bool {
@@ -1132,7 +1222,9 @@ func elementSchemaAttributeStatus(local string) schemaAttributeStatus {
 
 func attributeSchemaAttributeStatus(local string) schemaAttributeStatus {
 	switch local {
-	case "default", "fixed", "targetNamespace", "inheritable":
+	case "default", "fixed":
+		return schemaAttributeAllowed
+	case "targetNamespace", "inheritable":
 		return schemaAttributeUnsupported
 	case "type":
 		return schemaAttributeAllowed
@@ -1169,6 +1261,9 @@ func validateRecognizedUnsupportedAttribute(element *syntaxElement, attribute sy
 		return validateSchemaBlockAttribute(attribute, schemaBlockComplexMask, version, schemaBlockComplex)
 	case "final":
 		if element.name.local == "simpleType" {
+			if version == XSDVersion10 {
+				return validateSchemaRestrictionList(attribute, "restriction", "list", "union")
+			}
 			return validateSchemaRestrictionList(attribute, "extension", "restriction", "list", "union")
 		}
 		return validateSchemaRestrictionList(attribute, "extension", "restriction")
@@ -1270,10 +1365,10 @@ func validateConditionalQNameForSchema(element *syntaxElement, attribute syntaxA
 }
 
 func validateGlobalSchemaChildren(element *syntaxElement, version XSDVersion) error {
-	return validateGlobalSchemaChildrenWithFacetBridge(element, version, true, false)
+	return validateGlobalSchemaChildrenWithFacetBridge(element, version, true, false, true)
 }
 
-func validateGlobalSchemaChildrenWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets, bridgeStringEnumeration bool) error {
+func validateGlobalSchemaChildrenWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets, bridgeStringEnumeration, allowOpenContentNone bool) error {
 	children, candidate, err := collectGlobalSchemaChildren(element)
 	if err != nil {
 		return err
@@ -1287,7 +1382,7 @@ func validateGlobalSchemaChildrenWithFacetBridge(element *syntaxElement, version
 	case "simpleType":
 		childErr = validateSimpleTypeGlobalChildren(element, children, version, bridgeFacets, bridgeStringEnumeration)
 	case "complexType":
-		childErr = validateComplexTypeGlobalChildren(element, children, version)
+		childErr = validateComplexTypeGlobalChildren(element, children, version, allowOpenContentNone)
 	case "group":
 		childErr = validateGroupGlobalChildren(element, children, version)
 	case "attributeGroup":
@@ -2106,6 +2201,9 @@ func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractio
 				return candidate.err()
 			}
 			if facetSeen[child.name.local] && !repeatedSimpleTypeFacetAllowed(child.name.local, version) {
+				if child.name.local == "whiteSpace" {
+					return duplicateStringWhiteSpaceFacetDiagnostic(stringWhiteSpaceFacetSyntaxValueLocation(child), version)
+				}
 				return newSchemaCompositionDiagnostic(child.loc, fmt.Sprintf("simple type restriction facet <%s> must be unique", child.name.local))
 			}
 			facetSeen[child.name.local] = true
@@ -2123,7 +2221,7 @@ func validateSimpleTypeRestrictionFacet(child *syntaxElement, totalSeen, fractio
 			if candidate.present {
 				return candidate.err()
 			}
-			if bridgeFacets || bridgeStringEnumeration && child.name.local == "enumeration" {
+			if bridgeFacets || child.name.local == "whiteSpace" || bridgeStringEnumeration && child.name.local == "enumeration" {
 				return nil
 			}
 		}
@@ -2367,10 +2465,6 @@ func validateSimpleTypeFacetAttributes(element *syntaxElement, candidate *schema
 		if parsed.Sign() <= 0 {
 			return newSchemaCompositionDiagnostic(value.loc, "precision facet value must be positive")
 		}
-	case "whiteSpace":
-		if err := validateSchemaEnum(value, "preserve", "replace", "collapse"); err != nil {
-			return err
-		}
 	case "explicitTimezone":
 		if err := validateSchemaEnum(value, "prohibited", "optional", "required"); err != nil {
 			return err
@@ -2505,7 +2599,7 @@ func isXSD11SimpleTypeFacet(local string) bool {
 }
 
 //nolint:gocognit,funlen // Keep mutually-exclusive complexType grammar branches explicit.
-func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntaxElement, version XSDVersion) error {
+func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntaxElement, version XSDVersion, allowOpenContentNone bool) error {
 	annotationSeen := false
 	contentSeen := false
 	specialSeen := false
@@ -2553,10 +2647,27 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				return newSchemaCompositionDiagnostic(child.loc, "complexType openContent must precede the model and attributes")
 			}
 			openContentSeen = true
-			if err := validateOpenContent(child, version); err != nil && !candidate.considerError(err) {
+			if err := validateOpenContent(child, version, allowOpenContentNone); err != nil && !candidate.considerError(err) {
 				return err
 			}
-		case "group", "all":
+		case "group":
+			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
+				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
+			}
+			modelSeen = true
+			groupErr := validateUnsupportedModelParticle(child, version)
+			if len(syntaxAttributesByLocal(parent, "name")) == 1 {
+				groupErr = validateSupportedGroupParticle(child, version)
+			}
+			if err := groupErr; err != nil {
+				if !candidate.considerError(err) {
+					return err
+				}
+			}
+			if len(syntaxAttributesByLocal(parent, "name")) != 1 && !candidate.present {
+				candidate.consider(child, parent.name.local)
+			}
+		case "all":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
 			}
@@ -2690,11 +2801,27 @@ func validateComplexTypeContentChild(parent, element *syntaxElement, version XSD
 	if element.name.local == "complexContent" {
 		restriction := schemaComplexContentRestrictionChild(element)
 		if boundedComplexContentRestrictionCandidate(restriction, true) {
-			if schemaBooleanAttributeTrue(parent, "mixed") || schemaBooleanAttributeTrue(element, "mixed") {
+			if schemaBooleanAttributeTrue(parent) || schemaBooleanAttributeTrue(element) {
 				return newSchemaSyntaxUnsupportedForVersion(
 					element.loc,
 					"complexContent restriction with mixed content is not implemented",
 					version,
+				)
+			}
+			return nil
+		}
+		extension := schemaComplexContentExtensionChild(element)
+		if boundedComplexContentExtensionCandidate(extension) {
+			if schemaBooleanAttributeTrue(parent) || schemaBooleanAttributeTrue(element) {
+				return reframeSchemaComplexContentExtensionUnsupported(
+					newSchemaSyntaxUnsupportedForVersion(
+						element.loc,
+						"complexContent extension with mixed content is not implemented",
+						version,
+					),
+					version,
+					schemaComplexTypeModel(extension),
+					nil,
 				)
 			}
 			return nil
@@ -2751,11 +2878,41 @@ func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexCo
 	return anyAttributeSeen
 }
 
-func schemaBooleanAttributeTrue(element *syntaxElement, local string) bool {
+func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
+	if element == nil || element.name.namespace != xsdNamespaceURI || element.name.local != "extension" {
+		return false
+	}
+	if len(syntaxAttributesByLocal(element, "base")) != 1 {
+		return false
+	}
+	modelCount := 0
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if child.name.namespace != xsdNamespaceURI {
+			return false
+		}
+		switch child.name.local {
+		case "annotation":
+			continue
+		case "openContent":
+			continue
+		case "choice", "sequence", "group":
+			modelCount++
+		default:
+			return false
+		}
+	}
+	return modelCount <= 1
+}
+
+func schemaBooleanAttributeTrue(element *syntaxElement) bool {
 	if element == nil {
 		return false
 	}
-	attributes := syntaxAttributesByLocal(element, local)
+	attributes := syntaxAttributesByLocal(element, "mixed")
 	if len(attributes) != 1 {
 		return false
 	}
@@ -2814,6 +2971,15 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				errSchemaComplexTypeBaseRequired,
 			)
 		}
+		if complexContent && element.name.local == "extension" {
+			return newSchemaComplexTypeExtensionBaseDiagnostic(
+				element.loc,
+				element.name.local+" requires a base attribute",
+				nil,
+				version,
+				errSchemaComplexTypeBaseRequired,
+			)
+		}
 		return newSchemaCompositionDiagnostic(element.loc, element.name.local+" requires a base attribute")
 	}
 	if err := validateConditionalQNameForSchema(element, baseAttributes[0]); err != nil {
@@ -2853,6 +3019,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	anyAttributeSeen := false
 	assertSeen := false
 	simpleInlineSeen := false
+	var particleUnsupported error
 	totalSeen := false
 	fractionSeen := false
 	facetSeen := make(map[string]bool)
@@ -2890,7 +3057,8 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 			openContentSeen = true
 			openContentLoc = child.loc
-			if err := validateOpenContent(child, version); err != nil && !candidate.considerError(err) {
+			allowModeNone := complexContent && element.name.local == "extension"
+			if err := validateOpenContent(child, version, allowModeNone); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "group", "all", "sequence":
@@ -2901,7 +3069,17 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			if err := validateUnsupportedModelParticle(child, version); err != nil && !candidate.considerError(err) {
+			particleErr := versionNamedModelGroupUnsupported(validateUnsupportedModelParticle(child, version), version)
+			if complexContent && element.name.local == "extension" && child.name.local == "group" && boundedComplexContentExtensionCandidate(element) {
+				particleErr = validateSupportedGroupParticle(child, version)
+			}
+			if complexContent && element.name.local == "extension" && child.name.local == "sequence" {
+				particleErr = validateSupportedSequenceParticle(child, version)
+			}
+			if particleErr != nil {
+				particleUnsupported = particleErr
+			}
+			if err := particleErr; err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "choice":
@@ -2912,7 +3090,14 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			if err := validateChoiceParticleWithNamespacePolicy(child, version, false); err != nil && !candidate.considerError(err) {
+			particleErr := versionNamedModelGroupUnsupported(validateChoiceParticleWithNamespacePolicy(child, version, false), version)
+			if complexContent && element.name.local == "extension" {
+				particleErr = validateChoiceParticleWithOptions(child, version, true, true)
+			}
+			if particleErr != nil {
+				particleUnsupported = particleErr
+			}
+			if err := particleErr; err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "attribute", "attributeGroup":
@@ -2966,8 +3151,14 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	if derivationErr == nil && !complexContent && element.name.local == "extension" && !simpleRestriction {
 		return nil
 	}
+	if derivationErr == nil && complexContent && element.name.local == "extension" && boundedComplexContentExtensionCandidate(element) {
+		return nil
+	}
 	if derivationErr == nil {
 		derivationErr = newSchemaSyntaxUnsupported(element.loc, element.name.local+" derivation is not implemented")
+	}
+	if complexContent && element.name.local == "extension" {
+		return reframeSchemaComplexContentExtensionUnsupported(derivationErr, version, schemaComplexTypeModel(element), particleUnsupported)
 	}
 	if simpleRestriction {
 		return preferPrecisionDecimalRestrictionMismatch(element, version, derivationErr)
@@ -2975,12 +3166,37 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	return derivationErr
 }
 
-func validateOpenContent(element *syntaxElement, version XSDVersion) error {
-	return validateOpenContentLike(element, version, "openContent", false)
+func reframeSchemaComplexContentExtensionUnsupported(err error, version XSDVersion, model *syntaxElement, particleErr error) error {
+	if err == nil || errors.Is(err, errLanguagePolicyMismatch) {
+		return err
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
+		return err
+	}
+	if errors.Is(err, errSchemaAnyParticleUnsupported) {
+		return diagnostic
+	}
+	specRef := schemaComplexContentExtensionSpecRef(version)
+	if model != nil {
+		specRef = schemaComplexTypeExtensionSpecRef(version)
+	}
+	if particleErr != nil {
+		var particleDiagnostic Diagnostic
+		if errors.As(particleErr, &particleDiagnostic) && particleDiagnostic.Class() == FailureUnsupported && diagnostic.Loc() == particleDiagnostic.Loc() {
+			specRef = schemaComplexParticleExtensionSpecRef(version)
+		}
+	}
+	diagnostic.specRef = specRef
+	return diagnostic
+}
+
+func validateOpenContent(element *syntaxElement, version XSDVersion, allowModeNone bool) error {
+	return validateOpenContentLike(element, version, "openContent", false, allowModeNone)
 }
 
 //nolint:gocognit // Keep the shared open-content grammar and policy boundary together.
-func validateOpenContentLike(element *syntaxElement, version XSDVersion, owner string, defaultOpenContent bool) error {
+func validateOpenContentLike(element *syntaxElement, version XSDVersion, owner string, defaultOpenContent, allowModeNone bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateOpenContentAttributesLike(element, owner, defaultOpenContent, &candidate); err != nil {
 		return err
@@ -3039,6 +3255,9 @@ func validateOpenContentLike(element *syntaxElement, version XSDVersion, owner s
 			element.loc,
 			owner+" is an XSD 1.1-only construct",
 		))
+		return candidate.err()
+	}
+	if allowModeNone && mode == "none" {
 		return candidate.err()
 	}
 	if candidate.present {
@@ -3377,7 +3596,24 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	if len(syntaxAttributesByLocal(element, "notNamespace")) > 0 || len(syntaxAttributesByLocal(element, "notQName")) > 0 {
 		return false
 	}
+	if len(namespaceAttributes) > 1 || len(processContentsAttributes) > 1 {
+		return false
+	}
 	if len(namespaceAttributes) == 0 && len(processContentsAttributes) == 0 {
+		return true
+	}
+	namespace := "##any"
+	if len(namespaceAttributes) == 1 {
+		namespace = collapseXMLWhitespace(namespaceAttributes[0].value)
+	}
+	processContents := "strict"
+	if len(processContentsAttributes) == 1 {
+		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
+	}
+	if namespace == "##any" && (processContents == "strict" || processContents == "lax" || processContents == "skip") {
+		return true
+	}
+	if namespace == "##other" && (processContents == "strict" || processContents == "skip") {
 		return true
 	}
 	return isSupportedAnyAttribute(element)
@@ -3468,8 +3704,19 @@ func validateAnyAttributeSyntax(element *syntaxElement, version XSDVersion) erro
 }
 
 func validateWildcardNamespace(attribute syntaxAttribute) error {
+	return validateWildcardNamespaceWithEmptyList(attribute, false)
+}
+
+func validateAnyParticleWildcardNamespace(attribute syntaxAttribute) error {
+	return validateWildcardNamespaceWithEmptyList(attribute, true)
+}
+
+func validateWildcardNamespaceWithEmptyList(attribute syntaxAttribute, allowEmpty bool) error {
 	lexeme := collapseXMLWhitespace(attribute.value)
 	if lexeme == "" {
+		if allowEmpty {
+			return nil
+		}
 		return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q has an invalid wildcard namespace", attribute.name.local))
 	}
 	tokens := strings.Split(lexeme, " ")
@@ -3620,7 +3867,7 @@ func validateModelParticleChildren(element *syntaxElement, model string, version
 	return validateModelParticleChildrenWithOptions(element, model, version, false, false)
 }
 
-//nolint:gocognit // Keep the supported direct-sequence grammar in the shared traversal.
+//nolint:gocognit,funlen // Keep the supported direct-sequence grammar in the shared traversal.
 func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences, allowNamespacePolicy bool) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
 	annotationSeen := false
@@ -3658,7 +3905,25 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 				return candidate, err
 			}
 			candidate.merge(localCandidate)
-		case "group", "choice", "sequence", "any":
+		case "group", "choice", "sequence":
+			if err := validateUnsupportedParticle(child, version); err != nil {
+				if !candidate.considerError(err) {
+					return candidate, err
+				}
+				continue
+			}
+			if !candidate.present {
+				candidate.considerAt(child.loc, fmt.Sprintf("%s child <%s> is not implemented", model, child.name.local))
+			}
+		case "any":
+			if allowElementOccurrences && allowNamespacePolicy {
+				if err := validateAnyParticleWithOptions(child, version, true); err != nil {
+					if !candidate.considerError(err) {
+						return candidate, err
+					}
+				}
+				continue
+			}
 			if err := validateUnsupportedParticle(child, version); err != nil {
 				if !candidate.considerError(err) {
 					return candidate, err
@@ -3992,7 +4257,7 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 		}
 	}
 	bridgeStringEnumeration := element.name.local == "simpleType" && inlineSimpleTypeMayHaveStringRestrictionBase(element)
-	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, false, bridgeStringEnumeration); err != nil {
+	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, false, bridgeStringEnumeration, false); err != nil {
 		if !candidate.considerError(err) {
 			return err
 		}
@@ -4003,6 +4268,7 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 	return nil
 }
 
+//nolint:gocognit // Keep inline restriction-base recognition in syntax order.
 func inlineSimpleTypeMayHaveStringRestrictionBase(element *syntaxElement) bool {
 	if element == nil || element.name.local != "simpleType" {
 		return false
@@ -4024,7 +4290,7 @@ func inlineSimpleTypeMayHaveStringRestrictionBase(element *syntaxElement) bool {
 			return false
 		}
 		if base.Namespace() == xsdNamespaceURI {
-			return base.Local() == "string"
+			return base.Local() == "string" || base.Local() == "token" || base.Local() == "NMTOKEN" || base.Local() == "derivationControl"
 		}
 		return true
 	}
@@ -4107,11 +4373,22 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			}
 		case "abstract", "substitutionGroup":
 			return candidate, newSchemaCompositionDiagnostic(attribute.loc, "local element has forbidden attribute "+attribute.name.local)
-		case "default", "fixed", "block", "nillable":
+		case "default", "fixed":
 			if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
 				return candidate, err
 			}
 			candidate.considerAt(attribute.loc, fmt.Sprintf("local element attribute %q is not implemented", attribute.name.local))
+		case "block":
+			if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
+				return candidate, err
+			}
+			if !allowNamespacePolicy {
+				candidate.considerAt(attribute.loc, "local element attribute \"block\" is not implemented")
+			}
+		case "nillable":
+			if err := validateSchemaBoolean(attribute); err != nil {
+				return candidate, err
+			}
 		default:
 			return candidate, newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("local element has forbidden attribute %q", attribute.name.local))
 		}
@@ -4127,6 +4404,9 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			attributes := syntaxAttributesByLocal(element, local)
 			if len(attributes) == 0 {
 				continue
+			}
+			if local == "block" {
+				return candidate, newSchemaElementReferenceBlockDiagnostic(attributes[0], version)
 			}
 			return candidate, newSchemaCompositionDiagnostic(attributes[0].loc, fmt.Sprintf("local element ref cannot combine with %q", local))
 		}
@@ -4283,7 +4563,7 @@ func validateComplexTypeSequenceParticle(parent, sequence *syntaxElement, versio
 }
 
 //nolint:gocognit // Keep group particle grammar and support classification together.
-func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
+func validateGroupParticleWithOptions(element *syntaxElement, version XSDVersion, allowOccurrences bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateSchemaParticleOccurrences(element, version); err != nil {
 		return err
@@ -4317,9 +4597,13 @@ func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
 				return err
 			}
 			refSeen = true
-			candidate.considerAt(attribute.loc, "group reference particles are not implemented")
+			if !allowOccurrences {
+				candidate.considerAt(attribute.loc, "group reference particles are not implemented")
+			}
 		case "minOccurs", "maxOccurs":
-			candidate.considerAt(attribute.loc, fmt.Sprintf("group attribute %q is not implemented", attribute.name.local))
+			if !allowOccurrences {
+				candidate.considerAt(attribute.loc, fmt.Sprintf("group attribute %q is not implemented", attribute.name.local))
+			}
 		default:
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("group has forbidden attribute %q", attribute.name.local))
 		}
@@ -4327,6 +4611,13 @@ func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
 	if !refSeen {
 		return newSchemaCompositionDiagnostic(element.loc, "group particle requires a ref attribute")
 	}
+	if err := validateGroupParticleChildren(element, &candidate); err != nil {
+		return err
+	}
+	return candidate.err()
+}
+
+func validateGroupParticleChildren(element *syntaxElement, candidate *schemaChildUnsupportedCandidate) error {
 	annotationSeen := false
 	for _, node := range element.children {
 		textNode, ok := node.(syntaxText)
@@ -4347,11 +4638,19 @@ func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
 			return newSchemaCompositionDiagnostic(child.loc, "group annotation must be unique")
 		}
 		annotationSeen = true
-		if err := stageSchemaCandidateError(&candidate, validateSchemaAnnotationElement(child)); err != nil {
+		if err := stageSchemaCandidateError(candidate, validateSchemaAnnotationElement(child)); err != nil {
 			return err
 		}
 	}
-	return candidate.err()
+	return nil
+}
+
+func validateGroupParticle(element *syntaxElement, version XSDVersion) error {
+	return validateGroupParticleWithOptions(element, version, false)
+}
+
+func validateSupportedGroupParticle(element *syntaxElement, version XSDVersion) error {
+	return validateGroupParticleWithOptions(element, version, true)
 }
 
 func validateAllParticle(element *syntaxElement, version XSDVersion) error {
@@ -4629,14 +4928,58 @@ func schemaParticleOccurrenceLoc(element *syntaxElement, local string) Loc {
 	return element.loc
 }
 
-//nolint:gocognit,funlen // Keep wildcard particle grammar and unsupported classification together.
 func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
+	return validateAnyParticleWithOptions(element, version, false)
+}
+
+func isSupportedDirectAnyParticleFacts(namespace, processContents string) bool {
+	return namespace == "##any" && processContents == "strict" ||
+		namespace == "##any" && processContents == "lax" ||
+		namespace == "##any" && processContents == "skip" ||
+		namespace == "##other" && processContents == "lax" ||
+		namespace == "##other" && processContents == "strict" ||
+		isPositiveWildcardNamespace(namespace) && (processContents == "strict" || processContents == "lax" || processContents == "skip")
+}
+
+func isPositiveWildcardNamespace(namespace string) bool {
+	if namespace == "##local" || namespace == "##targetNamespace" {
+		return true
+	}
+	if strings.HasPrefix(namespace, "##") {
+		return false
+	}
+	return namespace != ""
+}
+
+func isSupportedDirectAnyParticle(element *syntaxElement) bool {
+	namespace := "##any"
+	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
+	if len(namespaceAttributes) > 1 {
+		return false
+	}
+	if len(namespaceAttributes) == 1 {
+		namespace = collapseXMLWhitespace(namespaceAttributes[0].value)
+	}
+	processContents := "strict"
+	processContentsAttributes := syntaxAttributesByLocal(element, "processContents")
+	if len(processContentsAttributes) > 1 {
+		return false
+	}
+	if len(processContentsAttributes) == 1 {
+		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
+	}
+	return isSupportedDirectAnyParticleFacts(namespace, processContents)
+}
+
+//nolint:gocognit,funlen // Keep wildcard particle grammar and unsupported classification together.
+func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, allowDefault bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateUniqueSchemaAttributes(element, "id", "minOccurs", "maxOccurs", "namespace", "notNamespace", "processContents", "notQName"); err != nil {
 		return err
 	}
 	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
 	notNamespaceAttributes := syntaxAttributesByLocal(element, "notNamespace")
+	supportedDirectFacts := allowDefault && isSupportedDirectAnyParticle(element)
 	if err := validateSchemaParticleOccurrences(element, version); err != nil {
 		return err
 	}
@@ -4664,11 +5007,20 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 				return newSchemaCompositionDiagnostic(attribute.loc, "any id must be a valid NCName")
 			}
 		case "minOccurs", "maxOccurs":
-			candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
+			if !allowDefault {
+				candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
+			}
 		case "namespace", "notNamespace":
 			if attribute.name.local == "namespace" {
-				if err := validateWildcardNamespace(attribute); err != nil {
+				if err := validateAnyParticleWildcardNamespace(attribute); err != nil {
 					return err
+				}
+				if allowDefault {
+					if supportedDirectFacts || collapseXMLWhitespace(attribute.value) == "##any" {
+						continue
+					}
+					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard namespace constraints are not implemented", version))
+					continue
 				}
 				candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
 				continue
@@ -4685,11 +5037,22 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 				), element, attributeIndex)
 			}
 			if version != XSDVersion10 {
+				if allowDefault {
+					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard notNamespace constraints are not implemented", version))
+					continue
+				}
 				candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
 			}
 		case "processContents":
 			if err := validateSchemaEnum(attribute, "lax", "skip", "strict"); err != nil {
 				return err
+			}
+			if allowDefault {
+				if supportedDirectFacts || collapseXMLWhitespace(attribute.value) == "strict" {
+					continue
+				}
+				candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard processContents constraints are not implemented", version))
+				continue
 			}
 			candidate.considerAt(attribute.loc, "wildcard particles are not implemented")
 		case "notQName":
@@ -4705,6 +5068,10 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 				), element, attributeIndex)
 			}
 			if version != XSDVersion10 {
+				if allowDefault {
+					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard notQName constraints are not implemented", version))
+					continue
+				}
 				candidate.considerAt(attribute.loc, "wildcard particles are not implemented")
 			}
 		default:
@@ -4755,7 +5122,7 @@ func validateGroupGlobalChildren(parent *syntaxElement, children []*syntaxElemen
 			continue
 		}
 		switch child.name.local {
-		case "all", "sequence":
+		case "all":
 			if modelSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "group requires exactly one model child")
 			}
@@ -4766,6 +5133,14 @@ func validateGroupGlobalChildren(parent *syntaxElement, children []*syntaxElemen
 			}
 			if !candidate.present {
 				candidate.considerAtVersion(child.loc, fmt.Sprintf("global %s child <%s> is not implemented", parent.name.local, child.name.local), version)
+			}
+		case "sequence":
+			if modelSeen {
+				return newSchemaCompositionDiagnostic(child.loc, "group requires exactly one model child")
+			}
+			modelSeen = true
+			if err := validateNamedModelGroupSequence(child, version); err != nil && !candidate.considerError(err) {
+				return err
 			}
 		case "choice":
 			if modelSeen {
@@ -4788,7 +5163,6 @@ func validateGroupGlobalChildren(parent *syntaxElement, children []*syntaxElemen
 	return candidate.err()
 }
 
-//nolint:gocognit // Keep the narrow named-group choice grammar and support boundary together.
 func validateNamedModelGroupChoice(element *syntaxElement, version XSDVersion) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateSchemaParticleOccurrences(element, version); err != nil {
@@ -4807,6 +5181,32 @@ func validateNamedModelGroupChoice(element *syntaxElement, version XSDVersion) e
 		return err
 	}
 	candidate.merge(versionNamedModelGroupCandidate(collectedCandidate, version))
+	if err := validateNamedModelGroupChildren(children, version, "choice", &candidate); err != nil {
+		return err
+	}
+	return candidate.err()
+}
+
+func validateNamedModelGroupSequence(element *syntaxElement, version XSDVersion) error {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSchemaParticleOccurrences(element, version); err != nil {
+		return err
+	}
+	if err := validateSchemaParticleAttributes(element, &candidate, version); err != nil {
+		return err
+	}
+	children, collectedCandidate, err := collectGlobalSchemaChildren(element)
+	if err != nil {
+		return err
+	}
+	candidate.merge(versionNamedModelGroupCandidate(collectedCandidate, version))
+	if err := validateNamedModelGroupChildren(children, version, "sequence", &candidate); err != nil {
+		return err
+	}
+	return candidate.err()
+}
+
+func validateNamedModelGroupChildren(children []*syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
 	annotationSeen := false
 	contentSeen := false
 	for _, child := range children {
@@ -4817,39 +5217,56 @@ func validateNamedModelGroupChoice(element *syntaxElement, version XSDVersion) e
 		if handled {
 			continue
 		}
-		switch child.name.local {
-		case "element":
-			childCandidate, childErr := validateLocalElementParticle(child, version, true, "model-group choice", false)
-			if childErr != nil {
-				return childErr
-			}
-			if childCandidate.present {
-				candidate.merge(versionNamedModelGroupCandidate(childCandidate, version))
-				continue
-			}
-			if len(syntaxAttributesByLocal(child, "ref")) == 1 {
-				continue
-			}
-			candidate.considerAtVersion(child.loc, "named model-group choice local element declarations are not implemented", version)
-		case "group", "choice", "sequence", "any":
-			unsupportedErr := versionNamedModelGroupUnsupported(validateUnsupportedParticle(child, version), version)
-			if unsupportedErr != nil {
-				if !candidate.considerError(unsupportedErr) {
-					return unsupportedErr
-				}
-				continue
-			}
-			candidate.considerAtVersion(child.loc, fmt.Sprintf("named model-group choice child <%s> is not implemented", child.name.local), version)
-		case "all":
-			return newSchemaCompositionDiagnostic(child.loc, "choice cannot contain an all particle")
-		default:
-			if err := forbiddenGlobalSchemaChild("model-group choice", child); err != nil {
-				return err
-			}
-			candidate.considerAtVersion(child.loc, fmt.Sprintf("named model-group choice child <%s> is not implemented", child.name.local), version)
+		if err := validateNamedModelGroupChild(child, version, model, candidate); err != nil {
+			return err
 		}
 	}
-	return candidate.err()
+	return nil
+}
+
+func validateNamedModelGroupChild(child *syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
+	switch child.name.local {
+	case "element":
+		return validateNamedModelGroupElementChild(child, version, model, candidate)
+	case "group", "choice", "sequence", "any":
+		return validateNamedModelGroupUnsupportedChild(child, version, model, candidate)
+	case "all":
+		return newSchemaCompositionDiagnostic(child.loc, model+" cannot contain an all particle")
+	default:
+		if err := forbiddenGlobalSchemaChild("model-group "+model, child); err != nil {
+			return err
+		}
+		candidate.considerAtVersion(child.loc, fmt.Sprintf("named model-group %s child <%s> is not implemented", model, child.name.local), version)
+		return nil
+	}
+}
+
+func validateNamedModelGroupElementChild(child *syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
+	childCandidate, err := validateLocalElementParticle(child, version, true, "model-group "+model, false)
+	if err != nil {
+		return err
+	}
+	if childCandidate.present {
+		candidate.merge(versionNamedModelGroupCandidate(childCandidate, version))
+		return nil
+	}
+	if len(syntaxAttributesByLocal(child, "ref")) == 1 {
+		return nil
+	}
+	candidate.considerAtVersion(child.loc, "named model-group "+model+" local element declarations are not implemented", version)
+	return nil
+}
+
+func validateNamedModelGroupUnsupportedChild(child *syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
+	unsupportedErr := versionNamedModelGroupUnsupported(validateUnsupportedParticle(child, version), version)
+	if unsupportedErr != nil {
+		if !candidate.considerError(unsupportedErr) {
+			return unsupportedErr
+		}
+		return nil
+	}
+	candidate.considerAtVersion(child.loc, fmt.Sprintf("named model-group %s child <%s> is not implemented", model, child.name.local), version)
+	return nil
 }
 
 func versionNamedModelGroupUnsupported(err error, version XSDVersion) error {

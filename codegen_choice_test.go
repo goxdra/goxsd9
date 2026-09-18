@@ -1,7 +1,9 @@
 package goxsd9
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"go/format"
 	"reflect"
 	"strings"
@@ -103,6 +105,52 @@ func TestPlanCodegenDirectChoicesPreservesTargetsOrderAndIDs(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the built-in/named identity and scalar-family assertions together.
+func TestPlanCodegenDirectChoiceBooleanReferencesRetainTargetIDs(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		target string
+	}{
+		{name: "built-in", target: `<xs:element name="item" type="xs:boolean"/>`},
+		{name: "named restriction", target: `<xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType><xs:element name="item" type="r:Flag"/>`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			schema := codegenDirectChoiceReferenceTestSchema(t, test.target, `<xs:element ref="r:item"/>`, Compatibility)
+			plan, err := planCodegenDirectChoices(schema, "generated")
+			if err != nil {
+				t.Fatalf("planCodegenDirectChoices: %v", err)
+			}
+			if len(plan.owners) != 1 || len(plan.owners[0].alternatives) != 1 {
+				t.Fatalf("plan owners = %#v, want one owner and alternative", plan.owners)
+			}
+			targetElement := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:reference-root", "item"))
+			if len(targetElement) != 1 {
+				t.Fatalf("target element count = %d, want one", len(targetElement))
+			}
+			reference := codegenDirectChoiceReferenceTestParticle(t, schema)
+			if reference.TargetID() != targetElement[0].ID() {
+				t.Fatalf("reference target ID = %v, want %v", reference.TargetID(), targetElement[0].ID())
+			}
+			switch test.name {
+			case "built-in":
+				builtin, ok := plan.owners[0].alternatives[0].target.(codegenDirectChoiceBuiltinTarget)
+				if !ok || builtin.family != codegenDirectChoiceScalarBoolean || builtin.kind != "" || !builtin.hasElementID || builtin.elementID != targetElement[0].ID() {
+					t.Fatalf("built-in target = %#v, want Boolean family and target element identity", plan.owners[0].alternatives[0].target)
+				}
+			case "named restriction":
+				named, ok := plan.owners[0].alternatives[0].target.(codegenDirectChoiceNamedTarget)
+				if !ok || named.family != codegenDirectChoiceScalarBoolean || named.kind != "" || !named.hasElementID || named.elementID != targetElement[0].ID() {
+					t.Fatalf("named target = %#v, want Boolean family and target element identity", plan.owners[0].alternatives[0].target)
+				}
+				typeComponents := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:reference-root", "Flag"))
+				if len(typeComponents) != 1 || named.id != typeComponents[0].ID() {
+					t.Fatalf("named target type ID = %v, want %v", named.id, typeComponents[0].ID())
+				}
+			}
+		})
+	}
+}
+
 func TestPlanCodegenDirectChoicesIsDeterministicAcrossXSDPolicies(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">
   <xs:complexType name="Choice"><xs:choice><xs:element name="value" type="t:Amount"/></xs:choice></xs:complexType>
@@ -129,8 +177,413 @@ func TestPlanCodegenDirectChoicesIsDeterministicAcrossXSDPolicies(t *testing.T) 
 	}
 }
 
+//nolint:gocognit // Keep the graph, policy, naming, and consumer gates together.
+func TestGenerateGoDirectChoiceReferencesAcrossGraphPolicies(t *testing.T) {
+	rootTemplate := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:reference-root" xmlns:o="urn:reference-other" targetNamespace="urn:reference-root"%s>
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:reference-other" schemaLocation="other.xsd"/>
+  <xs:element name="backward" type="xs:integer"/>
+  <xs:element name="shared" type="xs:integer"/>
+  <xs:complexType name="Choice"><xs:choice>
+    <xs:element ref="r:backward"/>
+    <xs:element ref="r:forward"/>
+    <xs:element ref="r:includedInteger"/>
+    <xs:element ref="o:importedDecimal"/>
+    <xs:element ref="r:namedAmount"/>
+    <xs:element ref="r:shared"/>
+    <xs:element ref="o:shared"/>
+    <xs:element ref="r:backward"/>
+  </xs:choice></xs:complexType>
+  <xs:element name="forward" type="xs:decimal"/>
+  <xs:simpleType name="NamedAmount"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:element name="namedAmount" type="r:NamedAmount"/>
+  <xs:element name="root" type="r:Choice"/>
+</xs:schema>`
+	chameleon := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:element name="includedInteger" type="xs:integer"/>
+</xs:schema>`
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:reference-other">
+  <xs:element name="importedDecimal" type="xs:decimal"/>
+  <xs:element name="shared" type="xs:decimal"/>
+</xs:schema>`
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "Compatibility", policy: Compatibility, version: ` version="1.0"`},
+		{name: "Strict10", policy: Strict10, version: ` version="1.0"`},
+		{name: "Strict11", policy: Strict11, version: ` version="1.1"`},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := fmt.Sprintf(rootTemplate, profile.version)
+			schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+				"chameleon.xsd": {id: "chameleon.xsd", contents: chameleon},
+				"other.xsd":     {id: "other.xsd", contents: other},
+			}, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			first, err := GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo: %v", err)
+			}
+			second, err := GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo second: %v", err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatalf("repeated reference output differs:\nfirst:\n%s\nsecond:\n%s", first, second)
+			}
+			formatted, err := format.Source(first)
+			if err != nil {
+				t.Fatalf("format generated reference source: %v\n%s", err, first)
+			}
+			if !bytes.Equal(first, formatted) {
+				t.Fatalf("generated reference source is not go/format output:\n%s", first)
+			}
+			source := string(first)
+			for _, fragment := range []string{
+				"type Choice interface {",
+				"StrictInteger",
+				"StrictDecimal",
+				"type NamedAmount ",
+				"type Shared3 struct {",
+				"type Shared4 struct {",
+				"type Backward3 struct {",
+			} {
+				if !strings.Contains(source, fragment) {
+					t.Fatalf("generated reference source is missing %q:\n%s", fragment, source)
+				}
+			}
+			for _, target := range []string{"backward", "forward", "includedInteger", "importedDecimal", "shared"} {
+				generatedName := strings.ToUpper(target[:1]) + target[1:]
+				if strings.Contains(source, "type "+generatedName+" struct {\n\tValue ") {
+					t.Fatalf("generated reference source emitted a global-element wrapper for %q:\n%s", target, source)
+				}
+			}
+			if got := strings.Count(source, "type Choice interface {"); got != 1 {
+				t.Fatalf("generated reference choice declaration count = %d, want 1", got)
+			}
+			compileGeneratedCode(t, first)
+		})
+	}
+}
+
+func TestPlanCodegenDirectChoiceReferencesFailClosed(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(Schema)
+	}{
+		{
+			name: "zero target ID",
+			mutate: func(schema Schema) {
+				codegenDirectChoiceReferenceTestParticle(t, schema).facts.targetID = ComponentID{}
+			},
+		},
+		{
+			name: "invalid target source",
+			mutate: func(schema Schema) {
+				codegenDirectChoiceReferenceTestParticle(t, schema).facts.targetID = ComponentID{ordinal: 1}
+			},
+		},
+		{
+			name: "invalid target ordinal",
+			mutate: func(schema Schema) {
+				codegenDirectChoiceReferenceTestParticle(t, schema).facts.targetID = ComponentID{source: "missing.xsd"}
+			},
+		},
+		{
+			name: "missing nonzero target",
+			mutate: func(schema Schema) {
+				codegenDirectChoiceReferenceTestParticle(t, schema).facts.targetID = ComponentID{source: "missing.xsd", ordinal: 1}
+			},
+		},
+		{
+			name: "wrong target kind",
+			mutate: func(schema Schema) {
+				component := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:reference-root", "notElement"))[0]
+				codegenDirectChoiceReferenceTestParticle(t, schema).facts.targetID = component.ID()
+			},
+		},
+		{
+			name: "target name mismatch",
+			mutate: func(schema Schema) {
+				component := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:reference-root", "other"))[0]
+				codegenDirectChoiceReferenceTestParticle(t, schema).facts.targetID = component.ID()
+			},
+		},
+		{
+			name: "corrupt reference name",
+			mutate: func(schema Schema) {
+				codegenDirectChoiceReferenceTestParticle(t, schema).facts.name = QName{}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema := codegenDirectChoiceReferenceTestSchema(t, `<xs:element name="item" type="xs:integer"/><xs:element name="other" type="xs:integer"/><xs:simpleType name="notElement"><xs:restriction base="xs:integer"/></xs:simpleType>`, `<xs:element ref="r:item"/>`, Compatibility)
+			reference := codegenDirectChoiceReferenceTestParticle(t, schema)
+			wantLoc := reference.RefLoc()
+			test.mutate(schema)
+			output, err := GenerateGo(schema, "generated")
+			if output != nil || err == nil {
+				t.Fatalf("GenerateGo result = (%q, %v), want nil output and an internal failure", output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+				t.Fatalf("diagnostic = %s, want internal codegen invariant", diagnostic)
+			}
+			if diagnostic.Loc() != wantLoc {
+				t.Fatalf("diagnostic location = %s, want ref location %s", diagnostic.Loc(), wantLoc)
+			}
+			if !errors.Is(err, errCodegenDirectChoiceTarget) {
+				t.Fatalf("diagnostic lost target invariant cause: %v", err)
+			}
+		})
+	}
+}
+
+//nolint:gocognit,funlen // Keep the unsupported-shape precedence table together.
+func TestPlanCodegenDirectChoiceReferencesRetainUnsupportedPrecedence(t *testing.T) {
+	tests := []struct {
+		name            string
+		alternative     string
+		target          string
+		policy          LanguagePolicy
+		wantSpec        string
+		wantCause       error
+		wantUnsupported bool
+	}{
+		{
+			name:            "non-default optional",
+			alternative:     `<xs:element ref="r:item" minOccurs="0" maxOccurs="1"/>`,
+			target:          `<xs:element name="item" type="xs:integer"/>`,
+			policy:          Strict11,
+			wantSpec:        codegenDirectChoiceXSD11ParticleDetailsSpecRef,
+			wantCause:       errCodegenUnsupported,
+			wantUnsupported: true,
+		},
+		{
+			name:            "non-default Boolean optional",
+			alternative:     `<xs:element ref="r:item" minOccurs="0" maxOccurs="1"/>`,
+			target:          `<xs:element name="item" type="xs:boolean"/>`,
+			policy:          Strict11,
+			wantSpec:        codegenDirectChoiceXSD11ParticleDetailsSpecRef,
+			wantCause:       errCodegenUnsupported,
+			wantUnsupported: true,
+		},
+		{
+			name:            "non-default finite",
+			alternative:     `<xs:element ref="r:item" minOccurs="2" maxOccurs="5"/>`,
+			target:          `<xs:element name="item" type="xs:integer"/>`,
+			policy:          Compatibility,
+			wantSpec:        codegenDirectChoiceXSD11ParticleDetailsSpecRef,
+			wantCause:       errCodegenUnsupported,
+			wantUnsupported: true,
+		},
+		{
+			name:            "non-default unbounded",
+			alternative:     `<xs:element ref="r:item" minOccurs="2" maxOccurs="unbounded"/>`,
+			target:          `<xs:element name="item" type="xs:integer"/>`,
+			policy:          Strict10,
+			wantSpec:        codegenDirectChoiceXSD10ParticleDetailsSpecRef,
+			wantCause:       errCodegenUnsupported,
+			wantUnsupported: true,
+		},
+		{
+			name:            "non-default above uint64",
+			alternative:     `<xs:element ref="r:item" minOccurs="3" maxOccurs="18446744073709551616"/>`,
+			target:          `<xs:element name="item" type="xs:integer"/>`,
+			policy:          Strict11,
+			wantSpec:        codegenDirectChoiceXSD11ParticleDetailsSpecRef,
+			wantCause:       errCodegenUnsupported,
+			wantUnsupported: true,
+		},
+		{
+			name:            "string target",
+			alternative:     `<xs:element ref="r:item"/>`,
+			target:          `<xs:element name="item" type="xs:string"/>`,
+			policy:          Compatibility,
+			wantSpec:        codegenDirectChoiceXSD11ElementChoiceSpecRef,
+			wantCause:       errCodegenUnsupported,
+			wantUnsupported: true,
+		},
+		{
+			name:            "precision decimal target",
+			alternative:     `<xs:element ref="r:item"/>`,
+			target:          `<xs:element name="item" type="xs:precisionDecimal"/>`,
+			policy:          Strict11,
+			wantSpec:        codegenDirectChoiceXSD11ElementChoiceSpecRef,
+			wantCause:       errCodegenUnsupported,
+			wantUnsupported: true,
+		},
+		{
+			name:            "complex target",
+			alternative:     `<xs:element ref="r:item"/>`,
+			target:          `<xs:complexType name="Payload"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:complexType><xs:element name="item" type="r:Payload"/>`,
+			policy:          Compatibility,
+			wantSpec:        codegenDirectChoiceXSD11ElementChoiceSpecRef,
+			wantCause:       errCodegenUnsupported,
+			wantUnsupported: true,
+		},
+		{
+			name:            "mixed alternatives",
+			alternative:     `<xs:element ref="r:item"/><xs:element name="local" type="xs:integer"/>`,
+			target:          `<xs:element name="item" type="xs:integer"/>`,
+			policy:          Compatibility,
+			wantSpec:        codegenDirectChoiceXSD11ElementChoiceSpecRef,
+			wantCause:       errCodegenDirectChoiceMixed,
+			wantUnsupported: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema := codegenDirectChoiceReferenceTestSchema(t, test.target, test.alternative, test.policy)
+			reference := codegenDirectChoiceReferenceTestParticle(t, schema)
+			output, err := GenerateGo(schema, "generated")
+			if output != nil || err == nil {
+				t.Fatalf("GenerateGo result = (%q, %v), want nil output and an unsupported diagnostic", output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if !test.wantUnsupported || diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureCodegen {
+				t.Fatalf("diagnostic = %s, want supported-feature unsupported diagnostic", diagnostic)
+			}
+			if diagnostic.Loc() != reference.RefLoc() {
+				t.Fatalf("diagnostic location = %s, want ref location %s", diagnostic.Loc(), reference.RefLoc())
+			}
+			if diagnostic.SpecRef() != test.wantSpec {
+				t.Fatalf("diagnostic specification reference = %q, want %q", diagnostic.SpecRef(), test.wantSpec)
+			}
+			if !errors.Is(err, test.wantCause) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+				t.Fatalf("diagnostic causes = %v, want %v and unsupported sentinels", err, test.wantCause)
+			}
+		})
+	}
+}
+
+func TestPlanCodegenDirectChoiceReferencesRejectMixedBooleanAndNumeric(t *testing.T) {
+	schema := codegenDirectChoiceReferenceTestSchema(
+		t,
+		`<xs:element name="boolean" type="xs:boolean"/><xs:element name="count" type="xs:integer"/>`,
+		`<xs:element ref="r:boolean"/><xs:element ref="r:count"/>`,
+		Compatibility,
+	)
+	components := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:reference-root", "Choice"))
+	if len(components) != 1 {
+		t.Fatalf("Choice component count = %d, want one", len(components))
+	}
+	definition, ok := components[0].ComplexType()
+	if !ok {
+		t.Fatal("Choice component has no complex type definition")
+	}
+	choice, ok := definition.Particle().(ChoiceParticle)
+	if !ok || len(choice.facts.alternatives) != 2 {
+		t.Fatalf("Choice particle = %#v, want two reference alternatives", definition.Particle())
+	}
+	second, ok := choice.facts.alternatives[1].(ElementReferenceParticle)
+	if !ok {
+		t.Fatalf("second alternative = %T, want element reference", choice.facts.alternatives[1])
+	}
+
+	output, err := GenerateGo(schema, "generated")
+	if output != nil || err == nil {
+		t.Fatalf("GenerateGo result = (%q, %v), want nil output and an unsupported diagnostic", output, err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureCodegen || diagnostic.SpecRef() != codegenDirectChoiceXSD11ElementChoiceSpecRef {
+		t.Fatalf("diagnostic = %s, want unsupported element-choice diagnostic", diagnostic)
+	}
+	if diagnostic.Loc() != second.Loc() {
+		t.Fatalf("diagnostic location = %s, want second reference location %s", diagnostic.Loc(), second.Loc())
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+		t.Fatalf("diagnostic causes = %v, want unsupported sentinels", err)
+	}
+}
+
+func TestPlanCodegenDirectChoiceReferencesRejectSubstitutionBehavior(t *testing.T) {
+	tests := []struct {
+		name        string
+		alternative string
+		target      string
+	}{
+		{
+			name:        "member target",
+			alternative: `<xs:element ref="r:member"/>`,
+			target:      `<xs:element name="head" type="xs:integer"/><xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>`,
+		},
+		{
+			name:        "reachable member",
+			alternative: `<xs:element ref="r:head"/>`,
+			target:      `<xs:element name="head" type="xs:integer"/><xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema := codegenDirectChoiceReferenceTestSchema(t, test.target, test.alternative, Compatibility)
+			reference := codegenDirectChoiceReferenceTestParticle(t, schema)
+			output, err := GenerateGo(schema, "generated")
+			if output != nil || err == nil {
+				t.Fatalf("GenerateGo result = (%q, %v), want nil output and an unsupported diagnostic", output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureCodegen || diagnostic.SpecRef() != codegenDirectChoiceXSD11ElementChoiceSpecRef {
+				t.Fatalf("diagnostic = %s/%q, want unsupported element-choice diagnostic", diagnostic, diagnostic.SpecRef())
+			}
+			if diagnostic.Loc() != reference.RefLoc() || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+				t.Fatalf("diagnostic location/causes = %s/%v, want ref location and unsupported causes", diagnostic.Loc(), err)
+			}
+		})
+	}
+}
+
+func codegenDirectChoiceReferenceTestSchema(t *testing.T, target, alternative string, policy LanguagePolicy) Schema {
+	t.Helper()
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:reference-root" targetNamespace="urn:reference-root">
+  <xs:complexType name="Choice"><xs:choice>` + alternative + `</xs:choice></xs:complexType>` + target + `
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+	if err != nil {
+		t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+	}
+	return schema
+}
+
+func codegenDirectChoiceReferenceTestParticle(t *testing.T, schema Schema) ElementReferenceParticle {
+	components := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:reference-root", "Choice"))
+	if len(components) != 1 {
+		panic("reference choice test schema did not build one Choice component")
+	}
+	definition, ok := components[0].ComplexType()
+	if !ok {
+		panic("reference choice test schema has no complex type definition")
+	}
+	choice, ok := definition.Particle().(ChoiceParticle)
+	if !ok || len(choice.facts.alternatives) == 0 {
+		panic("reference choice test schema did not build a choice reference")
+	}
+	reference, ok := choice.facts.alternatives[0].(ElementReferenceParticle)
+	if !ok {
+		panic("reference choice test schema first alternative is not an element reference")
+	}
+	return reference
+}
+
 //nolint:gocognit // Keep edition-specific wildcard diagnostic assertions together.
 func TestPlanCodegenDirectChoicesRejectsAttributeWildcardAcrossEditions(t *testing.T) {
+	wildcardForms := []struct {
+		name       string
+		attributes string
+	}{
+		{name: "other_lax", attributes: ` namespace="##other" processContents="lax"`},
+		{name: "omitted_namespace_lax", attributes: ` processContents="lax"`},
+		{name: "explicit_any_lax", attributes: ` processContents="lax" namespace="##any"`},
+		{name: "omitted_namespace_skip", attributes: ` processContents="skip"`},
+		{name: "explicit_any_skip_reversed", attributes: ` processContents="skip" namespace="##any"`},
+		{name: "explicit_other_skip_reversed", attributes: ` processContents="skip" namespace="##other"`},
+	}
 	for _, test := range []struct {
 		name     string
 		policy   LanguagePolicy
@@ -140,52 +593,54 @@ func TestPlanCodegenDirectChoicesRejectsAttributeWildcardAcrossEditions(t *testi
 		{name: "Strict10", policy: Strict10, version: "1.0", wantSpec: "xsd10-structures#element-choice"},
 		{name: "Strict11", policy: Strict11, version: "1.1", wantSpec: "xsd11-structures#element-choice"},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:choice" version="` + test.version + `">
-  <xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:integer"/></xs:choice><xs:anyAttribute namespace="##other" processContents="lax"/></xs:complexType>
+		for _, wildcardForm := range wildcardForms {
+			t.Run(test.name+"/"+wildcardForm.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:choice" version="` + test.version + `">
+  <xs:complexType name="Choice"><xs:choice><xs:element name="value" type="xs:integer"/></xs:choice><xs:anyAttribute` + wildcardForm.attributes + `/></xs:complexType>
 </xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
-			if err != nil {
-				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
-			}
-			definition, ok := schema.Components()[0].ComplexType()
-			if !ok {
-				t.Fatal("Choice has no complex type view")
-			}
-			choice, ok := definition.Particle().(ChoiceParticle)
-			if !ok {
-				t.Fatalf("Choice particle = %T, want ChoiceParticle", definition.Particle())
-			}
-			wildcard, ok := definition.AnyAttribute()
-			if !ok {
-				t.Fatal("Choice has no anyAttribute wildcard")
-			}
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+				if err != nil {
+					t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+				}
+				definition, ok := schema.Components()[0].ComplexType()
+				if !ok {
+					t.Fatal("Choice has no complex type view")
+				}
+				choice, ok := definition.Particle().(ChoiceParticle)
+				if !ok {
+					t.Fatalf("Choice particle = %T, want ChoiceParticle", definition.Particle())
+				}
+				wildcard, ok := definition.AnyAttribute()
+				if !ok {
+					t.Fatal("Choice has no anyAttribute wildcard")
+				}
 
-			plan, err := planCodegenDirectChoices(schema, "generated")
-			if !reflect.DeepEqual(plan, codegenDirectChoicePlan{}) {
-				t.Fatalf("failure plan = %#v, want zero plan", plan)
-			}
-			if err == nil {
-				t.Fatal("planCodegenDirectChoices accepted a direct choice with an attribute wildcard")
-			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported {
-				t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic", diagnostic)
-			}
-			if diagnostic.Feature() != FeatureCodegen || diagnostic.SpecRef() != test.wantSpec {
-				t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), FeatureCodegen, test.wantSpec)
-			}
-			if diagnostic.Loc() != wildcard.Loc() {
-				t.Fatalf("diagnostic primary location = %s, want wildcard location %s", diagnostic.Loc(), wildcard.Loc())
-			}
-			related := diagnostic.Related()
-			if len(related) != 1 || related[0] != choice.Loc() {
-				t.Fatalf("diagnostic related locations = %v, want [%s]", related, choice.Loc())
-			}
-			if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
-				t.Fatalf("diagnostic lost unsupported cause: %v", err)
-			}
-		})
+				plan, err := planCodegenDirectChoices(schema, "generated")
+				if !reflect.DeepEqual(plan, codegenDirectChoicePlan{}) {
+					t.Fatalf("failure plan = %#v, want zero plan", plan)
+				}
+				if err == nil {
+					t.Fatal("planCodegenDirectChoices accepted a direct choice with an attribute wildcard")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported {
+					t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic", diagnostic)
+				}
+				if diagnostic.Feature() != FeatureCodegen || diagnostic.SpecRef() != test.wantSpec {
+					t.Fatalf("diagnostic feature/specification reference = %q/%q, want %q/%q", diagnostic.Feature(), diagnostic.SpecRef(), FeatureCodegen, test.wantSpec)
+				}
+				if diagnostic.Loc() != wildcard.Loc() {
+					t.Fatalf("diagnostic primary location = %s, want wildcard location %s", diagnostic.Loc(), wildcard.Loc())
+				}
+				related := diagnostic.Related()
+				if len(related) != 1 || related[0] != choice.Loc() {
+					t.Fatalf("diagnostic related locations = %v, want [%s]", related, choice.Loc())
+				}
+				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+					t.Fatalf("diagnostic lost unsupported cause: %v", err)
+				}
+			})
+		}
 	}
 }
 
@@ -1136,7 +1591,7 @@ func codegenDirectChoiceCollisionSchema(t *testing.T) Schema {
 						particle: &schemaChoiceParticleInput{
 							loc:         choiceLoc,
 							occurrences: codegenTestParticleOccurrenceRange(t, "1", "1"),
-							alternatives: []schemaElementParticleInput{
+							alternatives: []schemaParticleTermInput{
 								codegenDirectChoiceElementInput(t, "line-item", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "owner.xsd", 5, 7)),
 								codegenDirectChoiceElementInput(t, "LINE_ITEM", mustTestQName(t, testXSDNamespace, "decimal"), mustTestLoc(t, "owner.xsd", 6, 7)),
 								codegenDirectChoiceElementInput(t, "shared", mustTestQName(t, "urn:other", "shared"), mustTestLoc(t, "owner.xsd", 7, 7)),
@@ -1172,7 +1627,7 @@ func codegenDirectChoiceFailureSchema(t *testing.T) Schema {
 				particle: &schemaChoiceParticleInput{
 					loc:          mustTestLoc(t, "choice.xsd", 3, 5),
 					occurrences:  codegenTestParticleOccurrenceRange(t, "1", "1"),
-					alternatives: []schemaElementParticleInput{codegenDirectChoiceElementInput(t, "value", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "choice.xsd", 4, 7))},
+					alternatives: []schemaParticleTermInput{codegenDirectChoiceElementInput(t, "value", mustTestQName(t, testXSDNamespace, "integer"), mustTestLoc(t, "choice.xsd", 4, 7))},
 				},
 			}},
 		}},
