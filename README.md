@@ -10,7 +10,7 @@ XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Complexes: element-only/mode
 `openContent=none`: globals/bounded extensions in Compatibility/Strict11; Strict10 mismatch; other unsupported; malformed invalid.
 Direct `xs:any` supports `##any`/strict|lax|skip, `##other`/lax|strict, and positive namespaces (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing; broader placements unsupported; consumers reject nonzero wildcards. Named-global complex sequence/choice owners: `anyAttribute`, default `##any`/strict; `##any`/lax|skip (namespace omitted/explicit; skip processContents explicit), `##other`/lax|strict, explicit `##other`/skip; locations preserved; validation/Go generation unsupported.
 Only top-level direct model-group refs and named-global groups direct choice/sequence refs queryable; nested/other groups unsupported. Typed built-in/supported named
-`xs:token`/`xs:NMTOKEN` refs modeled; local inline/value/default/fixed/attribute/broader shapes unsupported; ValidateInstance/GenerateGo reject; global token/NMTOKEN scalars generate.
+`xs:token`/`xs:NMTOKEN` particles modeled; default-occurrence all-token choices validate; local NMTOKEN/sequences unsupported; globals/generation unchanged.
 
 `abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. [ARCHITECTURE.md](ARCHITECTURE.md).
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).

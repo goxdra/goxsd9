@@ -177,10 +177,11 @@ type instanceChoiceProgram struct {
 // a single root global whose type is built-in or named XSD boolean, token,
 // NMTOKEN, integer, decimal, or precisionDecimal, or a named complex type with one
 // direct choice or sequence. Direct choices accept default-occurrence local
-// Boolean, integer, decimal, or precisionDecimal elements and default-occurrence
-// references to global Boolean, integer, and decimal elements. Direct sequences contain
-// only local Boolean elements or only local integer/decimal elements. Mixed
-// Boolean/numeric and local token/NMTOKEN particles remain unsupported.
+// Boolean, token, integer, decimal, or precisionDecimal elements and
+// default-occurrence references to global Boolean, integer, and decimal elements.
+// Direct sequences contain only local Boolean elements or only local integer/decimal
+// elements. Mixed Boolean/numeric choices, mixed token/non-token choices, and local
+// NMTOKEN or token sequence particles remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint
@@ -613,15 +614,28 @@ func instanceChoiceAlternativesFor(
 	}
 	if len(alternatives) > 0 {
 		booleanCount := 0
+		tokenCount := 0
 		for _, alternative := range alternatives {
-			if _, ok := alternative.scalar.value.(instanceBooleanScalar); ok {
+			switch alternative.scalar.value.(type) {
+			case instanceBooleanScalar:
 				booleanCount++
+			case instanceTokenScalar:
+				tokenCount++
 			}
 		}
 		if booleanCount > 0 && booleanCount != len(alternatives) {
 			return nil, nil, newInstanceValidationUnsupported(
 				loc,
 				"direct choice mixes Boolean and non-Boolean local declarations",
+				related,
+				version,
+				errInstanceChoiceMixed,
+			)
+		}
+		if tokenCount > 0 && tokenCount != len(alternatives) {
+			return nil, nil, newInstanceValidationUnsupported(
+				loc,
+				"direct choice mixes token and non-token local declarations",
 				related,
 				version,
 				errInstanceChoiceMixed,
@@ -1031,7 +1045,7 @@ func instanceChoiceAlternativeFor(
 		element.Loc(),
 		version,
 		true,
-		false,
+		true,
 		false,
 		version,
 	)
