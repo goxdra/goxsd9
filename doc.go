@@ -29,7 +29,7 @@
 // built-in xs:boolean, named boolean-restriction, integer, decimal, and explicitly
 // typed built-in or supported named xs:token/xs:NMTOKEN particles for named global
 // complex types. Token/NMTOKEN local particles are modeled; validation supports
-// only default-occurrence direct choices made entirely of local token alternatives,
+// only default-occurrence direct choices made entirely of local token or NMTOKEN alternatives,
 // while other consumers and shapes remain unsupported. Exact immutable occurrence
 // ranges are retained.
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
@@ -61,7 +61,7 @@
 // constraints, nested, and broader particles remain unsupported; explicitly typed built-in or
 // supported named token/NMTOKEN elements in direct choices/sequences and bounded
 // attribute-free extensions are modeled; validation supports only default-occurrence
-// all-token direct choices, while local NMTOKEN/token sequences and generation remain
+// all-token/NMTOKEN direct choices, while local token/NMTOKEN sequences and generation remain
 // unsupported. Local string particles remain unsupported. Anonymous simple-type
 // models and resolved built-in, named, and anonymous simple-type references are
 // modeled. Direct element references are queryable immutable particles.
@@ -97,14 +97,14 @@
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
 // restriction elements, one direct integer/decimal sequence, or one direct choice
 // whose scalar alternatives use default occurrences and contain local built-in or named
-// Boolean, token, integer, decimal, or precisionDecimal elements, or default-occurrence references
+// Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or default-occurrence references
 // to global Boolean, integer, or decimal elements. Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
 // and Strict11. Mixed Boolean/numeric sequences, direct-choice repetition, and excluded particle/target shapes
 // remain explicit unsupported behavior. Reference alternatives exclude precisionDecimal
 // targets.
-// Mixed local Boolean/numeric or token/non-token choices are unsupported. Nonzero
+// Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices are unsupported. Nonzero
 // wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
 // gates. Scalar elements contain only character data. Global and supported
@@ -112,7 +112,7 @@
 // collapse XML whitespace before effective enumeration comparison without
 // changing retained schema facts. Global NMTOKEN values also collapse XML
 // whitespace and enforce the repository XML NameChar policy. Global string
-// values, local string/NMTOKEN particles, token sequence particles, lists/unions,
+// values, local string particles, token/NMTOKEN sequence particles, lists/unions,
 // attributes, broader particles, and other semantics remain explicit unsupported
 // behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal/
