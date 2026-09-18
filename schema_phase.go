@@ -3109,6 +3109,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if child.name.local == "attributeGroup" {
 				childErr = validateAttributeGroupReference(child)
 			}
+			if child.name.local == "attribute" && complexContent && childErr == nil {
+				childErr = newSchemaSyntaxUnsupported(child.loc, "local attribute declarations are not implemented")
+			}
 			if childErr != nil && !candidate.considerError(childErr) {
 				return childErr
 			}

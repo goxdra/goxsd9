@@ -3399,6 +3399,7 @@ func completeSchemaComponent(
 	return component, nil
 }
 
+//nolint:gocognit // Keep phase-specific complex-type body completion together.
 func completeSchemaComplexTypeBody(result schemaComplexTypeBodyResult, loc Loc) (schemaComplexTypeBodyComponent, error) {
 	if result == nil {
 		return nil, newSchemaBridgeInvariant(loc, "completed complex type has no body")

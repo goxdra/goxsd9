@@ -200,6 +200,19 @@ func instanceSequenceProgramFor(
 			errInstanceOpenAttrsType,
 		)
 	}
+	attributeUses := definition.AttributeUses()
+	if len(attributeUses) > 0 {
+		for _, use := range attributeUses {
+			related = appendInstanceRelated(related, use.Loc())
+		}
+		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+			attributeUses[0].Loc(),
+			fmt.Sprintf("named complex type %q attribute uses are outside direct sequence validation", definition.Name()),
+			related,
+			version,
+			errInstanceAttributes,
+		)
+	}
 	if anyAttribute, ok := definition.AnyAttribute(); ok {
 		related = appendInstanceRelated(related, anyAttribute.Loc())
 		return instanceSequenceProgram{}, newInstanceValidationUnsupported(

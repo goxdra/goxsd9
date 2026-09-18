@@ -1606,7 +1606,7 @@ func schemaComplexTypeBooleanAttribute(element *syntaxElement, local string) (bo
 	return schemaBooleanValue(attributes[0])
 }
 
-//nolint:gocognit // Keep complex-type body selection and effective fact propagation together.
+//nolint:gocognit,funlen // Keep complex-type body selection and effective fact propagation together.
 func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
 	block, explicitBlock, err := schemaDeclarationBlockPolicy(
 		element,
@@ -5454,7 +5454,7 @@ func (resolver *schemaComplexTypeResolver) resolve(index int) error {
 	return nil
 }
 
-//nolint:gocognit // Keep the phase-specific body variants explicit.
+// Keep the phase-specific body variants explicit.
 func (resolver *schemaComplexTypeResolver) resolveBody(
 	input schemaComplexTypeBodyInput,
 	ownerIndex int,
@@ -5809,6 +5809,8 @@ func schemaLocalAttributeSimpleTypeSupported(reference schemaSimpleTypeReference
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
@@ -5871,6 +5873,8 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,

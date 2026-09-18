@@ -218,7 +218,7 @@ func planCodegenDirectChoices(schema Schema, packageName string) (codegenDirectC
 	return plan, nil
 }
 
-//nolint:gocognit // Keep direct-choice collection and shape dispatch together.
+//nolint:gocognit,funlen // Keep direct-choice collection and shape dispatch together.
 func collectCodegenDirectChoices(
 	schema Schema,
 	components []Component,
