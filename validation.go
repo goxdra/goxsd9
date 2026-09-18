@@ -177,11 +177,11 @@ type instanceChoiceProgram struct {
 // a single root global whose type is built-in or named XSD boolean, token,
 // NMTOKEN, integer, decimal, or precisionDecimal, or a named complex type with one
 // direct choice or sequence. Direct choices accept default-occurrence local
-// Boolean, token, integer, decimal, or precisionDecimal elements and
+// Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements and
 // default-occurrence references to global Boolean, integer, and decimal elements.
 // Direct sequences contain only local Boolean elements or only local integer/decimal
-// elements. Mixed Boolean/numeric choices, mixed token/non-token choices, and local
-// NMTOKEN or token sequence particles remain unsupported.
+// elements. Mixed Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices,
+// and local NMTOKEN or token sequence particles remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint
@@ -615,12 +615,15 @@ func instanceChoiceAlternativesFor(
 	if len(alternatives) > 0 {
 		booleanCount := 0
 		tokenCount := 0
+		nmtokenCount := 0
 		for _, alternative := range alternatives {
 			switch alternative.scalar.value.(type) {
 			case instanceBooleanScalar:
 				booleanCount++
 			case instanceTokenScalar:
 				tokenCount++
+			case instanceNMTOKENScalar:
+				nmtokenCount++
 			}
 		}
 		if booleanCount > 0 && booleanCount != len(alternatives) {
@@ -636,6 +639,15 @@ func instanceChoiceAlternativesFor(
 			return nil, nil, newInstanceValidationUnsupported(
 				loc,
 				"direct choice mixes token and non-token local declarations",
+				related,
+				version,
+				errInstanceChoiceMixed,
+			)
+		}
+		if nmtokenCount > 0 && nmtokenCount != len(alternatives) {
+			return nil, nil, newInstanceValidationUnsupported(
+				loc,
+				"direct choice mixes NMTOKEN and non-NMTOKEN local declarations",
 				related,
 				version,
 				errInstanceChoiceMixed,
@@ -1046,7 +1058,7 @@ func instanceChoiceAlternativeFor(
 		version,
 		true,
 		true,
-		false,
+		true,
 		version,
 	)
 	if err != nil {

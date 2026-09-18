@@ -153,9 +153,9 @@ func TestValidateInstanceKeepsExcludedLocalTokenChoiceShapesUnsupported(t *testi
 					child:        "token",
 				},
 				{
-					name:         "local NMTOKEN",
-					alternatives: `<xs:element name="value" type="xs:NMTOKEN"/>`,
-					child:        "value",
+					name:         "mixed token and NMTOKEN families",
+					alternatives: `<xs:element name="token" type="xs:token"/><xs:element name="nmtoken" type="xs:NMTOKEN"/>`,
+					child:        "token",
 				},
 				{
 					name:         "non-default token occurrence",
@@ -237,31 +237,7 @@ func validationLocalTokenChoiceInstance(child, value string, selfClosing bool) s
 
 func validationLocalTokenChoiceDefinition(t *testing.T, schema goxsd9.Schema) (goxsd9.Component, goxsd9.Component, goxsd9.ChoiceParticle) {
 	t.Helper()
-	rootName, err := goxsd9.NewQName(validationLocalTokenChoiceNamespace, "choiceRoot")
-	if err != nil {
-		t.Fatalf("NewQName choiceRoot: %v", err)
-	}
-	rootComponents := schema.FindKind(goxsd9.ComponentKindElementDeclaration, rootName)
-	if len(rootComponents) != 1 {
-		t.Fatalf("choiceRoot declarations = %d, want one", len(rootComponents))
-	}
-	choiceName, err := goxsd9.NewQName(validationLocalTokenChoiceNamespace, "Choice")
-	if err != nil {
-		t.Fatalf("NewQName Choice: %v", err)
-	}
-	choiceComponents := schema.FindKind(goxsd9.ComponentKindComplexTypeDefinition, choiceName)
-	if len(choiceComponents) != 1 {
-		t.Fatalf("Choice definitions = %d, want one", len(choiceComponents))
-	}
-	definition, ok := choiceComponents[0].ComplexTypeDefinition()
-	if !ok {
-		t.Fatal("Choice has no complex type definition view")
-	}
-	choice, ok := definition.Particle().(goxsd9.ChoiceParticle)
-	if !ok {
-		t.Fatal("Choice has no choice particle")
-	}
-	return rootComponents[0], choiceComponents[0], choice
+	return validationLocalChoiceDefinitionFor(t, schema, validationLocalTokenChoiceNamespace)
 }
 
 func validationLocalTokenChoiceElement(t *testing.T, choice goxsd9.ChoiceParticle, local string) goxsd9.ElementParticle {
