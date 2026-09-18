@@ -116,7 +116,7 @@ distinctions and broader value spaces remain staged and report unsupported behav
 ## Validation and code generation
 
 `ValidateInstance` supports root globals with built-in or named `boolean`/`token`/`NMTOKEN`/`integer`/`decimal`/`precisionDecimal` types, plus named
-complexes with direct choices/sequences. Choices accept default-occurrence local Boolean/token/integer/decimal/precisionDecimal elements and
+complexes with direct choices/sequences. Choices accept default-occurrence local Boolean/token/NMTOKEN/integer/decimal/precisionDecimal elements and
 default Boolean/integer/decimal references. Homogeneous Boolean/numeric sequences honor finite/unbounded and
 above-`uint64` ranges; mixed sequences remain unsupported. References use `TargetID`; model groups rejected.
 `token`/`NMTOKEN` collapse XML whitespace before effective enumeration; NMTOKEN enforces XML NameChar policy; facts unchanged.
