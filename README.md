@@ -6,14 +6,11 @@ goxsd9 parses/validates/generates Go; unsupported remains explicit.
 
 `ParseSchema`: immutable components; caller-provided `ResolvedSource`/`Resolver`; sequential calls, opaque locations; Compatibility default.
 
-XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Complexes: element-only/model-group refs/bounded attribute-free extensions; model-less extensions over completed named empty-content bases: nil/no-synthetic-particle; bounded/representable inherited `##other`/lax wildcards. `defaultAttributesApply`: named globals, XSD 1.1/Compatibility.
-`openContent=none`: globals/bounded extensions in Compatibility/Strict11; Strict10 mismatch; other unsupported; malformed invalid.
-Direct `xs:any` supports `##any`/strict|lax|skip, `##other`/lax|strict, and positive namespaces (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing; broader placements unsupported; consumers reject nonzero wildcards. Named-global complex sequence/choice owners: `anyAttribute`, default `##any`/strict; `##any`/lax|skip (namespace omitted/explicit; skip processContents explicit), `##other`/lax|strict, explicit `##other`/skip; locations preserved; validation/Go generation unsupported.
-Particle-plus-uses and attribute-only bodies expose immutable ordered local and global-reference `AttributeUse` views with lexical locations and resolved type/reference identities; one bounded scalar-base `simpleContent` extension retains its base and local/ref uses without a particle. Optional/required uses are effective and prohibited declarations are omitted; attribute-bearing validation/generation, value constraints, inheritable attributes, and broader derivation remain unsupported.
-Only top-level direct model-group refs and named-global groups direct choice/sequence refs queryable; nested/other groups unsupported. Typed built-in/supported named
-`xs:token`/`xs:NMTOKEN` particles modeled; default-occurrence all-token/NMTOKEN choices validate; local token/NMTOKEN sequences unsupported; globals/generation unchanged.
-
-`abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. [ARCHITECTURE.md](ARCHITECTURE.md).
+XSD 1.0/1.1 graphs, restrictions, limited facets, `openAttrs`, and bounded extensions are modeled. XSD 1.1 `defaultAttributesApply`, `openContent=none`, abstract/final controls, and policy mismatches retain located facts/diagnostics.
+Direct `xs:any` and named-complex `anyAttribute` retain namespace, process-content, location, and range facts; nonzero wildcard consumers reject.
+Particle-plus-uses and attribute-only bodies expose immutable ordered local/ref `AttributeUse` views with lexical locations and resolved type/reference identities; one bounded scalar-base `simpleContent` extension retains its base and local/ref uses without a particle.
+Optional/required uses are effective; prohibited uses are omitted. Attribute-bearing validation/generation, value constraints, inheritable attributes, broader wildcards/groups/derivation remain unsupported.
+Model-group references and token/NMTOKEN facts are queryable within their documented boundaries; validation/generation remain explicit about unsupported shapes. [ARCHITECTURE.md](ARCHITECTURE.md).
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
 
 ## Product CLI

@@ -88,14 +88,7 @@ built-in boolean/token/NMTOKEN or named boolean/token/NMTOKEN restriction,
 integer, or decimal scalar elements, or one direct choice of those scalar
 elements, maps the completed
 range and ordered children into the public schema. Direct `xs:any` `##any`/strict|lax|skip, `##other`/lax|strict, positive namespaces (`##local`, `##targetNamespace`, URI lists)/strict|lax|skip (skip explicit) map to `WildcardParticle` with exact locations/ranges, lexical order; broader/other constraints and consumers unsupported. A supported named
-complex type's particle-plus-uses and attribute-only bodies also expose immutable,
-ordered local declarations and global references as `AttributeUse` views with
-lexical locations and resolved type/reference identities. One bounded scalar-base
-simpleContent extension retains its base/reference and local/ref uses without a
-particle; optional/required uses are effective and prohibited declarations are
-not materialized. Attribute-bearing validation and code generation remain
-unsupported, as do value constraints, inheritable attributes, groups, wildcards,
-and broader derivation.
+complex type's particle-plus-uses and attribute-only bodies expose immutable ordered local/ref `AttributeUse` views with lexical locations and resolved type/reference identities. One bounded scalar-base `simpleContent` extension retains its base/ref and local/ref uses without a particle; optional/required uses are effective and prohibited declarations omitted. Attribute-bearing validation/generation, value constraints, inheritable attributes, groups, wildcards, and broader derivation remain unsupported.
 
 A supported named
 model group with one direct choice or sequence of global element-reference
@@ -171,35 +164,16 @@ Currently, the occurrence boundary supports one named global complex type
 with one direct sequence or direct choice of local built-in boolean/token/NMTOKEN
 or named boolean/token/NMTOKEN restrictions, integer, or decimal scalar elements,
 or one global named model group with one direct choice or sequence of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. Direct model-group references retain exact ranges and target IDs. For bounded attribute-free extensions, exact occurrences apply with a present direct choice, sequence, or group-reference particle. Model-less extensions retain extension/base identities and locations but no particle or occurrence or synthetic content; validation and code generation reject them. Wildcard terms follow rules above. Supported forms retain exact ranges; `0/0` maps to absence.
-For instance validation, named global complex homogeneous Boolean/numeric sequences
-match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`
-outer and child ranges under `Compatibility`, `Strict10`, and `Strict11`; direct-choice validation
-remains limited to default occurrences; excluded particle and target shapes remain unsupported.
-Direct choices may also include XSD 1.1 `precisionDecimal` elements only when
-the choice and each mapped `precisionDecimal` alternative use default
-occurrences. Non-precision alternatives may retain non-default ranges for
-queries. Non-`0/0` direct-sequence `precisionDecimal` ranges that map to a
-particle remain unsupported even under XSD 1.1 and Compatibility. An effective
-`0/0` sequence, choice, or child maps to absence before type-specific support
-gating. Supported direct-choice occurrence attributes and non-`0/0`
-alternative ranges are parsed and queryable, but direct-choice repetition is not
-implemented in validation, and effective total ranges are not calculated. Non-default
-direct sequence occurrences are not generated as repeated fields. Non-default
-`precisionDecimal` choice and alternative ranges that map to a particle are
-schema-unsupported. Boolean facets and anonymous, nested, or broader particles,
-including nested choices and `all`; nested, local, recursive, or broader group shapes
-and broader wildcard/attribute remain unsupported. Direct
-named-complex/bounded-extension group refs remain supported facts; anonymous simple-type
-models and resolved built-in, named, and anonymous simple-type
-references are modeled. Named direct sequence/choice types expose direct
-local declarations and global references as immutable, ordered `AttributeUse`
-views with lexical locations and resolved type/reference identities in
-particle-plus-uses and attribute-only bodies. One bounded `simpleContent`
-extension retains its scalar base/reference and local/ref uses without a
-particle. Effective optional/required uses are returned; prohibited source
-declarations are not materialized. Validation and code-generation consumers
-explicitly reject attribute-bearing types. Named direct sequence/choice types
-also expose direct
+Sequence validation honors exact finite, unbounded, and above-`uint64` ranges for its documented homogeneous scalar shapes; direct-choice validation remains limited to default occurrences.
+XSD 1.1 direct choices may include `precisionDecimal` only with default choice
+and mapped-alternative occurrences; non-precision alternatives retain non-default
+ranges for queries. Non-default `precisionDecimal` ranges that map to particles
+remain unsupported. Effective `0/0` maps to absence before gating. Non-default
+direct-choice ranges are queryable, but repetition validation and repeated-field
+generation remain unsupported. Boolean facets, anonymous/nested/broader particles,
+groups, and broader wildcard/attribute shapes remain unsupported. Direct
+named-complex/bounded-extension group refs retain facts; anonymous simple-type models
+and resolved built-in/named/anonymous references are modeled. Named direct sequence/choice types expose local/ref `AttributeUse` views with lexical locations and resolved type/reference identities in particle-plus-uses and attribute-only bodies. One bounded `simpleContent` extension retains its scalar base/ref and local/ref uses without a particle; optional/required uses are returned and prohibited declarations omitted. Validation/code-generation consumers reject attribute-bearing types. Named direct sequence/choice types expose direct
 `anyAttribute`: omitted attributes default to `##any`/`strict`; omitted or
 explicit `##any`/`lax` and omitted or explicit `##any`/`skip` with explicit
 `processContents` are supported under all editions/policies. Canonical
