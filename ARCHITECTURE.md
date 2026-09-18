@@ -3,7 +3,7 @@
 ## Boundaries
 
 goxsd9 exposes schema parsing, immutable queries/walks, XML validation, and Go
-generation. Schema model: validation/generation leaf; no validator/generator caches.
+generation. Schema model: validation/generation leaf.
 
 Runtime uses standard-library facilities; development tooling is outside library graph.
 
@@ -26,8 +26,7 @@ slices/tables; completed components are immutable, never backpatched. Identities
 are interned before discovery; repeated includes/imports reuse them,
 so cycles do not recurse. Acyclic dependencies use stable topological order.
 
-Maps support lookup; ordered slices define observable walks/output; stable
-fallback keys.
+Ordered slices define observable walks/output; stable fallback keys.
 
 ## Input and resolution
 
@@ -75,23 +74,24 @@ for unlock ranking.
 Raw XSD syntax is internal. Immutable model retains component `Loc`; queries use names/identities.
 Walks preserve document-discovery/lexical order; unordered sets sort stably.
 
-Skeleton exposes `Schema`, `SchemaDocument`, `Component`, `ComponentID`, expanded `QName`.
+Skeleton: `Schema`, `SchemaDocument`, `Component`, `ComponentID`, expanded `QName`.
 Documents: identity-discovery order; declarations: lexical order.
-`Components`/`Documents`/`Find`/`Walk` return copies. IDs combine source identity/one-based
-declaration ordinals; lookup maps define no order. Local particles use scoped facts/indexes;
-validator/generator state: on-demand.
+`Components`/`Documents`/`Find`/`Walk`: copies. IDs: source identity/one-based
+declaration ordinals; lookup maps: unordered. Local particles: scoped facts/indexes;
+validator/generator: on-demand.
 
-Primitive status: Global scalars retain `DeclaredType`; Boolean attrs retain immutable type
-facts; local token/NMTOKEN refs retain direct-shape facts;
-named/anonymous restrictions retain immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins lack synthetic IDs.
-Built-in/named integer/decimal attrs retain immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
-exact-typed-value, source-location. Named global complex types accept unqualified `mixed="false|0"`; omitted=element-only
-(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1 forms; anonymous global complex/other shapes unsupported.
-Typed global attributes expose immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
+Primitive: global scalars: `DeclaredType`; immutable Boolean-attr type facts;
+direct-shape local token/NMTOKEN refs; immutable named/anonymous restriction boolean-kind/string-enumeration/string-`whiteSpace`;
+built-ins lack synthetic IDs.
+Built-in `xs:nonNegativeInteger` references are immutable with effective `minInclusive=0`; simple-type references and direct global-element modeling are supported, while local particles, attributes/value constraints, validation, and Go generation remain unsupported.
+Built-in/named integer/decimal attrs: immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
+exact-typed-value, source-location. Named global complexes accept unqualified `mixed="false|0"`; omitted=element-only
+(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1; anonymous global complex/other shapes unsupported.
+Typed global attrs: immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
 Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
-`defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
+`defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
-Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard it; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
+Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
 Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
 non-atomic-string/string attrs unsupported.
 
