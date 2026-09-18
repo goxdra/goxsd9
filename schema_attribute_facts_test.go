@@ -732,6 +732,266 @@ func globalNegativeIntegerAttributeSchemaRoot() string {
 </xs:schema>`
 }
 
+//nolint:gocognit,funlen // Keep the optional precisionDecimal attribute graph contract together.
+func TestSchemaBridgeRetainsGlobalPrecisionDecimalAttributeFactsAcrossPolicies(t *testing.T) {
+	root := globalPrecisionDecimalAttributeSchemaRoot()
+	fixtures := map[string]discoveryFixture{
+		"chameleon.xsd": {
+			id:       "chameleon.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.1"><xs:simpleType name="Included"><xs:restriction base="xs:precisionDecimal"><xs:enumeration value="NaN"/></xs:restriction></xs:simpleType></xs:schema>`,
+		},
+		"other.xsd": {
+			id:       "other.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="1.1"><xs:simpleType name="Imported"><xs:restriction base="xs:precisionDecimal"><xs:minInclusive value="-INF"/><xs:maxExclusive value="INF"/></xs:restriction></xs:simpleType></xs:schema>`,
+		},
+	}
+	for _, profile := range []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "XSD 1.1", policy: Strict11},
+	} {
+		t.Run(profile.name, func(t *testing.T) {
+			first, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			second, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("repeated discoverTestSchemaWithPolicy: %v", err)
+			}
+			if first.LanguagePolicy() != profile.policy || second.LanguagePolicy() != profile.policy {
+				t.Fatalf("language policies = %q/%q, want %q", first.LanguagePolicy(), second.LanguagePolicy(), profile.policy)
+			}
+
+			want := []struct {
+				name          string
+				declaredType  QName
+				typeLexical   string
+				typeSource    SourceID
+				varietySource SourceID
+				varietyNeedle string
+				inheritable   bool
+				builtin       bool
+			}{
+				{name: "direct", declaredType: mustTestQName(t, testXSDNamespace, "precisionDecimal"), typeLexical: "xs:precisionDecimal", typeSource: "root.xsd", varietySource: "root.xsd", varietyNeedle: `type="xs:precisionDecimal"`, builtin: true},
+				{name: "forward", declaredType: mustTestQName(t, "urn:root", "Forward"), typeLexical: "r:Forward", typeSource: "root.xsd", varietySource: "root.xsd", varietyNeedle: `<xs:restriction base="r:Later"/>`, inheritable: true},
+				{name: "imported", declaredType: mustTestQName(t, "urn:other", "Imported"), typeLexical: "o:Imported", typeSource: "other.xsd", varietySource: "other.xsd", varietyNeedle: `<xs:restriction base="xs:precisionDecimal">`},
+				{name: "chameleon", declaredType: mustTestQName(t, "urn:root", "Included"), typeLexical: "r:Included", typeSource: "chameleon.xsd", varietySource: "chameleon.xsd", varietyNeedle: `<xs:restriction base="xs:precisionDecimal">`},
+				{name: "narrowed", declaredType: mustTestQName(t, "urn:root", "Narrowed"), typeLexical: "r:Narrowed", typeSource: "root.xsd", varietySource: "root.xsd", varietyNeedle: `<xs:restriction base="r:Later"><xs:totalDigits`},
+			}
+			attributes := make([]Component, 0, len(want))
+			for _, component := range first.Components() {
+				if component.Kind() == ComponentKindAttributeDeclaration {
+					attributes = append(attributes, component)
+				}
+			}
+			if len(attributes) != len(want) {
+				t.Fatalf("global attribute count = %d, want %d", len(attributes), len(want))
+			}
+			for index, expected := range want {
+				component := attributes[index]
+				if component.Name() != mustTestQName(t, "urn:root", expected.name) {
+					t.Fatalf("attribute %d name = %q, want %q", index, component.Name(), expected.name)
+				}
+				if component.ID().Source() != "root.xsd" || component.ID().Ordinal() != uint64(index+1) {
+					t.Fatalf("attribute %q identity = %v, want root.xsd ordinal %d", expected.name, component.ID(), index+1)
+				}
+				declaration, ok := component.AttributeDeclaration()
+				if !ok {
+					t.Fatalf("attribute %q has no declaration view", expected.name)
+				}
+				if declaration.DeclaredType() != expected.declaredType || declaration.IsInheritable() != expected.inheritable {
+					t.Fatalf("attribute %q declaration facts = %q/%t, want %q/%t", expected.name, declaration.DeclaredType(), declaration.IsInheritable(), expected.declaredType, expected.inheritable)
+				}
+				if declaration.Loc() != schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `<xs:attribute name="`+expected.name+`"`, root, fixtures) {
+					t.Fatalf("attribute %q declaration location = %s, want lexical declaration location", expected.name, declaration.Loc())
+				}
+				reference, ok := declaration.TypeReference()
+				if !ok || reference.Name() != expected.declaredType {
+					t.Fatalf("attribute %q type reference = %q/%t, want %q", expected.name, reference.Name(), ok, expected.declaredType)
+				}
+				wantTypeLoc := schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `type="`+expected.typeLexical+`"`, root, fixtures)
+				if reference.Loc() != wantTypeLoc || reference.Variety() != SimpleTypeVarietyAtomicRestriction {
+					t.Fatalf("attribute %q reference location/variety = %s/%q, want type location/atomic restriction", expected.name, reference.Loc(), reference.Variety())
+				}
+				if reference.VarietyLoc() != schemaBuiltinReferenceAttributeLoc(t, expected.varietySource, expected.varietyNeedle, root, fixtures) {
+					t.Fatalf("attribute %q variety location = %s, want target model location", expected.name, reference.VarietyLoc())
+				}
+				if reference.facts == nil || reference.facts.atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
+					t.Fatalf("attribute %q reference facts = %v, want precisionDecimal facts", expected.name, reference.facts)
+				}
+				precisionFacets, ok := reference.facts.facets.(schemaPrecisionDecimalFacetVariant)
+				if !ok {
+					t.Fatalf("attribute %q facets = %T, want precisionDecimal facts", expected.name, reference.facts.facets)
+				}
+
+				if expected.builtin {
+					if reference.Kind() != SimpleTypeReferenceBuiltin {
+						t.Fatalf("attribute %q reference kind = %q, want built-in", expected.name, reference.Kind())
+					}
+					if typeID, hasTypeID := declaration.TypeID(); hasTypeID || !typeID.IsZero() {
+						t.Fatalf("attribute %q built-in type ID = %v/%t, want zero/false", expected.name, typeID, hasTypeID)
+					}
+					if typeID, hasTypeID := reference.ComponentID(); hasTypeID || !typeID.IsZero() {
+						t.Fatalf("attribute %q built-in reference ID = %v/%t, want zero/false", expected.name, typeID, hasTypeID)
+					}
+					if precisionFacets.value.HasTotalDigits() || precisionFacets.value.HasMinScale() || precisionFacets.value.HasMaxScale() || precisionFacets.value.HasEnumeration() {
+						t.Fatalf("attribute %q built-in precision facets unexpectedly contain declarations", expected.name)
+					}
+					continue
+				}
+				if reference.Kind() != SimpleTypeReferenceNamed {
+					t.Fatalf("attribute %q reference kind = %q, want named", expected.name, reference.Kind())
+				}
+				typeID, hasTypeID := reference.ComponentID()
+				wantTypeID := componentIDForName(t, first, expected.declaredType)
+				if !hasTypeID || typeID != wantTypeID || typeID.Source() != expected.typeSource {
+					t.Fatalf("attribute %q type ID = %v/%t, want %v/true from %q", expected.name, typeID, hasTypeID, wantTypeID, expected.typeSource)
+				}
+				declarationTypeID, declarationHasTypeID := declaration.TypeID()
+				if !declarationHasTypeID || declarationTypeID != typeID {
+					t.Fatalf("attribute %q declaration type ID = %v/%t, want reference ID %v/true", expected.name, declarationTypeID, declarationHasTypeID, typeID)
+				}
+
+				switch expected.name {
+				case "forward":
+					if precisionFacets.value.HasTotalDigits() || precisionFacets.value.HasMinScale() || precisionFacets.value.HasMaxScale() || precisionFacets.value.HasEnumeration() {
+						t.Fatalf("attribute %q inherited empty precision facets unexpectedly contain declarations", expected.name)
+					}
+				case "imported":
+					minimum, present := precisionFacets.value.MinInclusiveFacet()
+					if !present || !minimum.Value().IsNegativeInfinity() || minimum.Loc() != schemaBuiltinReferenceAttributeLoc(t, "other.xsd", `value="-INF"`, root, fixtures) {
+						t.Fatalf("attribute %q minInclusive = %t/%s, want -INF at imported facet", expected.name, present, minimum.Loc())
+					}
+					maximum, present := precisionFacets.value.MaxExclusiveFacet()
+					if !present || !maximum.Value().IsPositiveInfinity() || maximum.Loc() != schemaBuiltinReferenceAttributeLoc(t, "other.xsd", `value="INF"`, root, fixtures) {
+						t.Fatalf("attribute %q maxExclusive = %t/%s, want INF at imported facet", expected.name, present, maximum.Loc())
+					}
+				case "chameleon":
+					enumeration := precisionFacets.value.EnumerationDeclarations()
+					if len(enumeration) != 1 {
+						t.Fatalf("attribute %q enumeration count = %d, want 1", expected.name, len(enumeration))
+					}
+					if !enumeration[0].Value().IsNaN() || enumeration[0].Loc() != schemaBuiltinReferenceAttributeLoc(t, "chameleon.xsd", `value="NaN"`, root, fixtures) {
+						t.Fatalf("attribute %q enumeration value/location = %t/%s, want NaN at chameleon facet", expected.name, enumeration[0].Value().IsNaN(), enumeration[0].Loc())
+					}
+				case "narrowed":
+					totalDigits, present := precisionFacets.value.TotalDigits()
+					if !present || totalDigits.Canonical() != "6" {
+						t.Fatalf("attribute %q totalDigits = %q/%t, want 6/true", expected.name, totalDigits.Canonical(), present)
+					}
+					if totalDigitsLoc, ok := precisionFacets.value.TotalDigitsLoc(); !ok || totalDigitsLoc != schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `value="6"`, root, fixtures) {
+						t.Fatalf("attribute %q totalDigits location = %s/%t, want facet location", expected.name, totalDigitsLoc, ok)
+					}
+					minimumScale, present := precisionFacets.value.MinScale()
+					if !present || minimumScale.Canonical() != "-2" {
+						t.Fatalf("attribute %q minScale = %q/%t, want -2/true", expected.name, minimumScale.Canonical(), present)
+					}
+					if minimumScaleLoc, ok := precisionFacets.value.MinScaleLoc(); !ok || minimumScaleLoc != schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `value="-2"`, root, fixtures) {
+						t.Fatalf("attribute %q minScale location = %s/%t, want facet location", expected.name, minimumScaleLoc, ok)
+					}
+					maximumScale, present := precisionFacets.value.MaxScale()
+					if !present || maximumScale.Canonical() != "4" {
+						t.Fatalf("attribute %q maxScale = %q/%t, want 4/true", expected.name, maximumScale.Canonical(), present)
+					}
+					if maximumScaleLoc, ok := precisionFacets.value.MaxScaleLoc(); !ok || maximumScaleLoc != schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `value="4"`, root, fixtures) {
+						t.Fatalf("attribute %q maxScale location = %s/%t, want facet location", expected.name, maximumScaleLoc, ok)
+					}
+					enumeration := precisionFacets.value.EnumerationDeclarations()
+					if len(enumeration) != 2 {
+						t.Fatalf("attribute %q enumeration count = %d, want 2", expected.name, len(enumeration))
+					}
+					finite, canonicalErr := enumeration[0].Value().Canonical(64, Loc{})
+					if canonicalErr != nil || finite != "1.0" || enumeration[0].Loc() != schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `value="1.0"`, root, fixtures) {
+						t.Fatalf("attribute %q finite enumeration = %q/%v/%s, want 1.0 at facet location", expected.name, finite, canonicalErr, enumeration[0].Loc())
+					}
+					if !enumeration[1].Value().IsNaN() || enumeration[1].Loc() != schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `value="NaN"`, root, fixtures) {
+						t.Fatalf("attribute %q special enumeration = %t/%s, want NaN at facet location", expected.name, enumeration[1].Value().IsNaN(), enumeration[1].Loc())
+					}
+					minimum, present := precisionFacets.value.MinInclusiveFacet()
+					if !present || !minimum.Value().IsNegativeInfinity() || minimum.Loc() != schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `value="-INF"`, root, fixtures) {
+						t.Fatalf("attribute %q minInclusive = %t/%s, want -INF at facet location", expected.name, present, minimum.Loc())
+					}
+					maximum, present := precisionFacets.value.MaxExclusiveFacet()
+					if !present || !maximum.Value().IsPositiveInfinity() || maximum.Loc() != schemaBuiltinReferenceAttributeLoc(t, "root.xsd", `value="INF"`, root, fixtures) {
+						t.Fatalf("attribute %q maxExclusive = %t/%s, want INF at facet location", expected.name, present, maximum.Loc())
+					}
+				}
+			}
+
+			before := first.Components()
+			returned := first.Components()
+			returned[0] = Component{}
+			found := first.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:root", "direct"))
+			found[0] = Component{}
+			documentComponents := first.Documents()[0].Components()
+			documentComponents[0] = Component{}
+			if !reflect.DeepEqual(before, first.Components()) {
+				t.Fatal("mutating copied precisionDecimal attribute views changed Schema")
+			}
+			narrowed := first.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:root", "narrowed"))
+			if len(narrowed) != 1 {
+				t.Fatalf("narrowed attribute count = %d, want 1", len(narrowed))
+			}
+			declaration, ok := narrowed[0].AttributeDeclaration()
+			if !ok {
+				t.Fatal("narrowed attribute view is missing")
+			}
+			reference, ok := declaration.TypeReference()
+			if !ok || reference.facts == nil {
+				t.Fatal("narrowed precisionDecimal type reference is missing")
+			}
+			precisionFacets, ok := reference.facts.facets.(schemaPrecisionDecimalFacetVariant)
+			if !ok {
+				t.Fatal("narrowed precisionDecimal facets are missing")
+			}
+			copiedEnumeration := precisionFacets.value.EnumerationDeclarations()
+			if len(copiedEnumeration) != 2 {
+				t.Fatalf("narrowed precisionDecimal enumeration count = %d, want 2", len(copiedEnumeration))
+			}
+			copiedFinite, ok := copiedEnumeration[0].value.(precisionDecimalFinite)
+			if !ok {
+				t.Fatalf("narrowed precisionDecimal copied enumeration value = %T, want finite", copiedEnumeration[0].value)
+			}
+			copiedFinite.coefficient.SetInt64(99)
+			storedEnumeration := precisionFacets.value.EnumerationDeclarations()
+			storedFinite, canonicalErr := storedEnumeration[0].Value().Canonical(64, Loc{})
+			if canonicalErr != nil || storedFinite != "1.0" {
+				t.Fatalf("mutating returned enumeration changed stored facet to %q/%v", storedFinite, canonicalErr)
+			}
+			walked := make([]ComponentID, 0, len(before))
+			if err := first.Walk(func(component Component) error {
+				walked = append(walked, component.ID())
+				return nil
+			}); err != nil {
+				t.Fatalf("Walk: %v", err)
+			}
+			for index, component := range before {
+				if walked[index] != component.ID() {
+					t.Fatalf("Walk ID %d = %v, want %v", index, walked[index], component.ID())
+				}
+			}
+		})
+	}
+}
+
+func globalPrecisionDecimalAttributeSchemaRoot() string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root" version="1.1">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:attribute name="direct" type="xs:precisionDecimal"/>
+  <xs:attribute name="forward" type="r:Forward" inheritable="true"/>
+  <xs:attribute name="imported" type="o:Imported"/>
+  <xs:attribute name="chameleon" type="r:Included"/>
+  <xs:attribute name="narrowed" type="r:Narrowed"/>
+  <xs:simpleType name="Forward"><xs:restriction base="r:Later"/></xs:simpleType>
+  <xs:simpleType name="Later"><xs:restriction base="xs:precisionDecimal"/></xs:simpleType>
+  <xs:simpleType name="Narrowed"><xs:restriction base="r:Later"><xs:totalDigits value="6"/><xs:minScale value="-2"/><xs:maxScale value="4"/><xs:enumeration value="1.0"/><xs:enumeration value="NaN"/><xs:minInclusive value="-INF"/><xs:maxExclusive value="INF"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+}
+
 func globalBooleanAttributeSchemaRoot(version XSDVersion) string {
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root" version="` + string(version) + `">
   <xs:include schemaLocation="chameleon.xsd"/>
@@ -953,7 +1213,7 @@ func TestSchemaBridgeGlobalAttributePrecisionDecimalStrict10Policy(t *testing.T)
 }
 
 func testSchemaBridgeGlobalAttributeUnsupportedTypes(t *testing.T) {
-	unsupportedTypes := []string{"string", "precisionDecimal"}
+	unsupportedTypes := []string{"string"}
 	for _, local := range unsupportedTypes {
 		t.Run("unsupported "+local, func(t *testing.T) {
 			testSchemaBridgeGlobalAttributeUnsupportedType(t, local)

@@ -253,6 +253,16 @@ func TestSchemaBridgeGlobalAttributeValueConstraintDiagnostics(t *testing.T) {
 			cause:   errSchemaAttributeValueConstraintUnsupported,
 		},
 		{
+			name:    "unsupported precisionDecimal default",
+			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:precisionDecimal" default="1.0"/></xs:schema>`,
+			policy:  Strict11,
+			class:   FailureUnsupported,
+			code:    UnsupportedSchemaSyntaxCode,
+			specRef: schemaAttributeValueConstraintXSD11SpecRef,
+			primary: "default=",
+			cause:   errSchemaAttributeValueConstraintUnsupported,
+		},
+		{
 			name:    "missing type",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" default="1"/></xs:schema>`,
 			policy:  Strict11,
