@@ -93,7 +93,7 @@ Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
 `defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
 Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard it; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
 Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
-non-atomic-string/string/precisionDecimal attrs unsupported.
+non-atomic-string/string attrs unsupported.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
 Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
