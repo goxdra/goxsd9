@@ -3,9 +3,9 @@
 ## Boundaries
 
 goxsd9 exposes schema parsing, immutable queries/walks, XML validation, and Go
-generation. Schema model: validation/generation leaf.
+generation. Schema model: validation/generation.
 
-Runtime uses standard-library facilities; development tooling is outside library graph.
+Runtime uses standard-library facilities; tooling is outside library graph.
 
 ## Deterministic phase pipeline
 
@@ -23,15 +23,15 @@ flowchart LR
 
 Phases consume results. Local construction uses unexported
 slices/tables; completed components are immutable, never backpatched. Identities
-are interned before discovery; repeated includes/imports reuse them,
-so cycles do not recurse. Acyclic dependencies use stable topological order.
+are interned before discovery; repeated includes/imports reuse them, so cycles
+do not recurse. Acyclic dependencies use topological order.
 
-Ordered slices define observable walks/output; stable fallback keys.
+Ordered slices define walks/output; stable fallback keys.
 
 ## Input and resolution
 
 Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Roots use
-`NewResolvedSource`; resolvers supply references/policy. Parsing closes streams;
+`NewResolvedSource`; resolvers supply references. Parsing closes streams;
 identities decode once; repeats/cycles close without decoding.
 
 ```go
@@ -50,8 +50,8 @@ preserving child context for nested references. Identities and lexical locations
 stay opaque: parser neither interprets paths nor opens files or makes network
 requests. Resolver calls are sequential.
 
-Streaming decode captures one-based line and Unicode-code-point columns; syntax/final
-components retain `Loc`, not source bytes/excerpts.
+Streaming decode captures one-based line/Unicode columns; components retain `Loc`, not
+source bytes.
 
 ## Diagnostics
 
@@ -83,7 +83,7 @@ validator/generator: on-demand.
 Primitive: global scalars: `DeclaredType`; immutable Boolean-attr type facts;
 direct-shape local token/NMTOKEN refs; immutable named/anonymous restriction boolean-kind/string-enumeration/string-`whiteSpace`;
 built-ins lack synthetic IDs.
-Built-in `xs:nonNegativeInteger` refs are immutable at `minInclusive=0`; global built-in/facet-free named Boolean/integer/decimal/token value constraints are supported, while local/inline attribute uses, broader/non-atomic forms, validation, and Go generation remain unsupported.
+Built-in `xs:nonNegativeInteger` refs are immutable at `minInclusive=0`; global built-in/facet-free named Boolean/integer/decimal/token value constraints are supported. Scalar local/referenced/anonymous-inline uses expose immutable `AttributeUse` facts; local value constraints, identity-only/non-atomic/string forms, attribute validation/generation remain unsupported.
 Built-in/named Boolean/integer/decimal/token attrs: immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
 exact Boolean/numeric values, source-location; token/Boolean collapse. Named complexes: `mixed="false|0"`; omitted=element-only
 (unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1; anonymous complex/other shapes unsupported.
@@ -91,14 +91,16 @@ Typed global attrs: immutable `AttributeDeclaration.IsInheritable()`: `inheritab
 Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
 `defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
-Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
-Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
-non-atomic-string/string attrs unsupported.
+Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard it; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
+Schema defaults; attribute-only/particle-plus-use bodies expose ordered scalar
+local/ref/anonymous-inline `AttributeUse` facts. Only bounded scalar `simpleContent`
+extensions retain base/type refs and ordered local/ref/anonymous-inline uses; broader
+forms, local value/default/fixed/inheritance, broader
+groups/derivations, and attribute validation/generation unsupported.
 
-Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
-Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
-Groups/extensions: IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. Named-global sequence/choice owners: `anyAttribute`, default `##any`/strict; `##any`/lax|skip (namespace optional/explicit; skip), `##other`/lax|strict, explicit `##other`/skip, and positive namespaces (`##local`, `##targetNamespace`, URI lists) strict; locations/values retained; attribute validation/generation unsupported. `xs:any`: `##any`/strict|lax|skip (skip explicit), `##other`/lax|strict, positive constraints (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing and sorted effective values; lexical/source locations; ranges; `0/0` absent. Consumers reject nonzero wildcards; broader unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed=invalid.
-Named groups expose ordered references/ranges; broader shapes unsupported; consumers reject.
+Complexes expose non-inherited `IsAbstract()` and final controls (`Final()`/`FinalLoc()`); named types enforce extension/restriction policy across XSD 1.0/1.1/Compatibility and reject prohibited derivations. Simple types apply schema `finalDefault` unless local `final` overrides it; graph-policy controls and Strict10 mismatches are diagnosed.
+Groups/extensions retain IDs/locations; model-less retain empty bases/nil particles, inherited `##other`/lax. Only named global complex types with direct sequence/choice expose `anyAttribute`: omitted `##any`/strict; `##any` strict/lax/skip; `##other` strict/lax/skip; positive namespaces strict-only. ProcessContents/locations/effective namespaces remain. Direct `xs:any` separately supports `##any` strict/lax/skip, `##other` strict/lax, and positive namespaces strict/lax/skip; `0/0` absent; broader placements/nonzero consumers unsupported.
+Named groups expose ordered choice/sequence global refs; top-level group refs retain queryable ranges/IDs; nested/local/recursive/broader shapes/consumers unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; located Strict10 mismatch; malformed invalid.
 
 ## Datatypes
 
