@@ -182,13 +182,14 @@ and broader wildcard/attribute remain unsupported. Direct
 named-complex/bounded-extension group refs remain supported facts; anonymous simple-type
 models and resolved built-in, named, and anonymous simple-type
 references are modeled. Named direct sequence/choice types expose direct
-`anyAttribute`: omitted attributes default to `##any`/`strict`; omitted or
-explicit `##any`/`lax` and omitted or explicit `##any`/`skip` with explicit
-`processContents` are supported under all editions/policies. Canonical
-explicit strict values remain supported.
-`##other`/`lax` and `##other`/`strict` (omitted/explicit `processContents`), plus explicit `##other`/`skip` are supported across editions/policies. The `anyAttribute` element and explicit
-`namespace`/`processContents` locations are retained; omitted defaults are
-zero. Validation and code-generation consumers remain unsupported. Direct
+`anyAttribute`: omitted attributes default to `##any`/`strict`;
+`##any`/`##other` supported. Positive namespace enumerations
+(`##local`, `##targetNamespace`, URI lists) allow only strict `processContents`
+(omitted/explicit). Markers use the owner's effective schema namespace after
+graph composition: `##local` is absent; no-target `##targetNamespace` is absent.
+Values are sorted, unique, copied. `anyAttribute` location, normalized lexical form, and
+namespace/processContents locations remain; omitted locations are zero.
+Validation and code generation remain unsupported. Direct
 element-reference particles are supported in the schema model for local choice
 and sequence children and for global named-group direct choices or sequences; direct model-group references are
 supported only as the top-level particle of a named complex type or bounded attribute-free extension;

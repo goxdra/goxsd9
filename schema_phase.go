@@ -3554,14 +3554,17 @@ func isSupportedAnyAttribute(element *syntaxElement) bool {
 func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool {
 	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
 	processContentsAttributes := syntaxAttributesByLocal(element, "processContents")
-	if len(syntaxAttributesByLocal(element, "notNamespace")) > 0 || len(syntaxAttributesByLocal(element, "notQName")) > 0 {
+	if len(syntaxAttributesByLocal(element, "notNamespace")) > 0 {
 		return false
 	}
-	if len(namespaceAttributes) > 1 || len(processContentsAttributes) > 1 {
+	if len(syntaxAttributesByLocal(element, "notQName")) > 0 {
 		return false
 	}
-	if len(namespaceAttributes) == 0 && len(processContentsAttributes) == 0 {
-		return true
+	if len(namespaceAttributes) > 1 {
+		return false
+	}
+	if len(processContentsAttributes) > 1 {
+		return false
 	}
 	namespace := "##any"
 	if len(namespaceAttributes) == 1 {
@@ -3571,13 +3574,17 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	if len(processContentsAttributes) == 1 {
 		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
 	}
-	if namespace == "##any" && (processContents == "strict" || processContents == "lax" || processContents == "skip") {
+	if isSupportedAnyAttribute(element) {
 		return true
 	}
-	if namespace == "##other" && (processContents == "strict" || processContents == "skip") {
-		return true
+	switch namespace {
+	case "##any":
+		return processContents == "strict" || processContents == "lax" || processContents == "skip"
+	case "##other":
+		return processContents == "strict" || processContents == "skip"
+	default:
+		return isPositiveWildcardNamespace(namespace) && processContents == "strict"
 	}
-	return isSupportedAnyAttribute(element)
 }
 
 //nolint:gocognit // Keep wildcard lexical/co-occurrence checks together.
@@ -3606,7 +3613,7 @@ func validateAnyAttributeSyntax(element *syntaxElement, version XSDVersion) erro
 				return newSchemaCompositionDiagnostic(attribute.loc, "anyAttribute id must be a valid NCName")
 			}
 		case "namespace":
-			if err := validateWildcardNamespace(attribute); err != nil {
+			if err := validateWildcardNamespaceWithEmptyList(attribute, true); err != nil {
 				return err
 			}
 		case "processContents":
@@ -3662,10 +3669,6 @@ func validateAnyAttributeSyntax(element *syntaxElement, version XSDVersion) erro
 		return candidate.err()
 	}
 	return nil
-}
-
-func validateWildcardNamespace(attribute syntaxAttribute) error {
-	return validateWildcardNamespaceWithEmptyList(attribute, false)
 }
 
 func validateAnyParticleWildcardNamespace(attribute syntaxAttribute) error {
@@ -4903,13 +4906,18 @@ func isSupportedDirectAnyParticleFacts(namespace, processContents string) bool {
 }
 
 func isPositiveWildcardNamespace(namespace string) bool {
-	if namespace == "##local" || namespace == "##targetNamespace" {
-		return true
-	}
-	if strings.HasPrefix(namespace, "##") {
+	if namespace == "" {
 		return false
 	}
-	return namespace != ""
+	for _, token := range strings.Split(namespace, " ") {
+		if token == "##local" || token == "##targetNamespace" { //nolint:gosec // XSD wildcard keywords are not credentials.
+			continue
+		}
+		if strings.HasPrefix(token, "##") {
+			return false
+		}
+	}
+	return true
 }
 
 func isSupportedDirectAnyParticle(element *syntaxElement) bool {
