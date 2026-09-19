@@ -213,6 +213,9 @@ func instanceSequenceProgramFor(
 	rawParticles := sequence.Particles()
 	hasElement := false
 	hasReference := false
+	hasModelGroupReference := false
+	modelGroupReferenceLoc := Loc{}
+	hasWildcard := false
 	hasOther := false
 	for _, rawParticle := range rawParticles {
 		if rawParticle == nil {
@@ -229,7 +232,41 @@ func instanceSequenceProgramFor(
 			related = appendInstanceRelated(related, reference.Loc())
 			continue
 		}
+		if reference, ok := modelGroupReferenceParticleValue(rawParticle); ok {
+			hasModelGroupReference = true
+			if modelGroupReferenceLoc.IsZero() {
+				modelGroupReferenceLoc = reference.RefLoc()
+				if modelGroupReferenceLoc.IsZero() {
+					modelGroupReferenceLoc = reference.Loc()
+				}
+			}
+			related = appendInstanceRelated(related, reference.Loc())
+			continue
+		}
+		if wildcard, ok := wildcardParticleValue(rawParticle); ok {
+			hasWildcard = true
+			related = appendInstanceRelated(related, wildcard.Loc())
+			continue
+		}
 		hasOther = true
+	}
+	if hasWildcard {
+		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+			loc,
+			"direct sequence wildcard particles are outside instance validation",
+			related,
+			version,
+			errInstanceSequenceWildcard,
+		)
+	}
+	if hasModelGroupReference {
+		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+			modelGroupReferenceLoc,
+			"direct sequence model-group references are outside instance validation",
+			related,
+			version,
+			errInstanceModelGroupReference,
+		)
 	}
 	if hasElement && hasReference {
 		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
@@ -307,6 +344,7 @@ func instanceSequenceProgramFor(
 			version,
 			false,
 			false,
+			false,
 			version,
 		)
 		if err != nil {
@@ -318,6 +356,26 @@ func instanceSequenceProgramFor(
 			occurrences: element.facts.occurrences.clone(),
 			scalar:      scalar,
 		})
+	}
+	if len(particles) > 0 {
+		booleanCount := 0
+		for _, particle := range particles {
+			if _, ok := particle.scalar.value.(instanceBooleanScalar); ok {
+				booleanCount++
+			}
+		}
+		if booleanCount > 0 && booleanCount != len(particles) {
+			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+				loc,
+				"direct sequence mixes Boolean and non-Boolean local declarations",
+				related,
+				version,
+				errInstanceSequenceMixed,
+			)
+		}
+	}
+	if definition.IsAbstract() {
+		return instanceSequenceProgram{}, newInstanceAbstractComplexTypeUnsupported(definition, loc, related, version)
 	}
 	return instanceSequenceProgram{
 		version:     version,

@@ -62,7 +62,7 @@ func (a app) commandOutputWithContextAndEnv(ctx context.Context, dir string, env
 	cmd.Dir = dir
 	cmd.Stdin = input
 	if len(env) != 0 {
-		cmd.Env = append(os.Environ(), env...)
+		cmd.Env = commandEnvironment(env)
 	}
 
 	var output bytes.Buffer
@@ -84,7 +84,7 @@ func (a app) commandOutputWithEnv(dir string, env []string, input io.Reader, tri
 	cmd.Dir = dir
 	cmd.Stdin = input
 	if len(env) != 0 {
-		cmd.Env = append(os.Environ(), env...)
+		cmd.Env = commandEnvironment(env)
 	}
 
 	var output bytes.Buffer

@@ -110,7 +110,7 @@ func TestSchemaBridgeBuildsComplexContentExtensionAcrossPolicies(t *testing.T) {
 func TestSchemaBridgeResolvesForwardComposedComplexContentExtensionBase(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:b="urn:base" xmlns:t="urn:root" targetNamespace="urn:root" version="1.1">
   <xs:import namespace="urn:base" schemaLocation="base.xsd"/>
-  <xs:complexType name="Derived"><xs:complexContent><xs:extension base="b:Base"><xs:choice minOccurs="0" maxOccurs="2"><xs:element name="local" type="xs:integer" minOccurs="2" maxOccurs="4"/><xs:element ref="t:target" minOccurs="1" maxOccurs="3"/></xs:choice></xs:extension></xs:complexContent></xs:complexType>
+  <xs:complexType name="Derived"><xs:complexContent><xs:extension base="b:Base"><xs:openContent mode="none"><xs:annotation/></xs:openContent><xs:choice minOccurs="0" maxOccurs="2"><xs:element name="local" type="xs:integer" minOccurs="2" maxOccurs="4"/><xs:element ref="t:target" minOccurs="1" maxOccurs="3"/></xs:choice></xs:extension></xs:complexContent></xs:complexType>
   <xs:element name="target" type="xs:decimal"/>
 </xs:schema>`
 	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:base" version="1.1">
@@ -150,6 +150,799 @@ func TestSchemaBridgeResolvesForwardComposedComplexContentExtensionBase(t *testi
 		t.Fatalf("composed inherited wildcard = %q/%q/%v at %s, want base.xsd ##other/lax", attribute.Namespace(), attribute.ProcessContents(), ok, attribute.Loc())
 	}
 	assertComplexContentExtensionParticle(t, derived.Particle(), "choice", components[1].ID(), root)
+}
+
+//nolint:gocognit,funlen // Keep the cross-policy graph and immutable extension facts together.
+func TestSchemaBridgeBuildsEmptyComplexContentExtensionAcrossPoliciesAndGraphs(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	}
+	graphs := []string{"forward", "included", "imported", "chameleon"}
+	for _, profile := range profiles {
+		for _, graph := range graphs {
+			t.Run(profile.name+"/"+graph, func(t *testing.T) {
+				fixture := emptyComplexContentExtensionGraph(t, profile.version, graph)
+				schema, err := discoverTestSchemaWithPolicy(t, fixture.root, fixture.fixtures, profile.policy)
+				if err != nil {
+					t.Fatalf("discover empty extension schema: %v", err)
+				}
+				components := schema.Components()
+				if len(components) != 2 {
+					t.Fatalf("component count = %d, want 2", len(components))
+				}
+				if components[0].Name().Local() != "Derived" || components[1].Name().Local() != "Base" {
+					t.Fatalf("component order = %q/%q, want Derived/Base", components[0].Name(), components[1].Name())
+				}
+				if components[0].Document() != "root.xsd" || components[1].Document() != fixture.baseSource {
+					t.Fatalf("component sources = %q/%q, want root.xsd/%q", components[0].Document(), components[1].Document(), fixture.baseSource)
+				}
+				derived, ok := components[0].ComplexType()
+				if !ok {
+					t.Fatal("derived complex type view is absent")
+				}
+				baseName := mustTestQName(t, fixture.baseNamespace, "Base")
+				baseLoc := complexContentTestLoc(t, fixture.root, `base="`+fixture.baseLexical+`"`)
+				if derived.Base() != baseName || derived.BaseLoc() != baseLoc {
+					t.Fatalf("base facts = %q/%s, want %q/%s", derived.Base(), derived.BaseLoc(), baseName, baseLoc)
+				}
+				if derived.Derivation() != ComplexTypeDerivationExtension || derived.DerivationLoc() != complexContentTestLoc(t, fixture.root, "<xs:extension") {
+					t.Fatalf("derivation facts = %q/%s, want extension at extension location", derived.Derivation(), derived.DerivationLoc())
+				}
+				if derived.Particle() != nil {
+					t.Fatalf("particle = %T, want direct empty absence", derived.Particle())
+				}
+				body := derived.extensionBody()
+				if body == nil || body.particle != nil {
+					t.Fatalf("completed body = %#v, want extension body with nil particle", body)
+				}
+				if _, emptyBody := derived.facts.body.(*schemaComplexTypeEmptyBodyComponent); emptyBody {
+					t.Fatal("empty extension was converted to the plain empty-body variant")
+				}
+				if body.complexContentLoc != complexContentTestLoc(t, fixture.root, "<xs:complexContent") || body.extensionLoc != derived.DerivationLoc() || body.base.loc != baseLoc {
+					t.Fatal("extension use-site or base locations were not retained")
+				}
+				if body.base.kind != ComplexTypeReferenceNamed || !body.base.hasID || body.base.id != components[1].ID() {
+					t.Fatalf("completed base identity = %#v, want named Base identity", body.base)
+				}
+				baseReference, referenceOK := derived.BaseReference()
+				baseID, baseIDOK := baseReference.ComponentID()
+				if !referenceOK || !baseReference.IsNamed() || baseReference.IsBuiltin() || !baseIDOK || baseID != components[1].ID() {
+					t.Fatalf("public base reference = %#v/%v, want named Base identity", baseReference, referenceOK)
+				}
+				attribute, attributeOK := derived.AnyAttribute()
+				if !attributeOK || attribute.Namespace() != "##other" || attribute.ProcessContents() != "lax" {
+					t.Fatalf("inherited wildcard facts = %q/%q/%v, want ##other/lax/present", attribute.Namespace(), attribute.ProcessContents(), attributeOK)
+				}
+				wantAttributeLoc := complexContentTestSourceLoc(t, fixture.baseSource, fixture.baseContents, "<xs:anyAttribute")
+				if attribute.Loc() != wantAttributeLoc || attribute.NamespaceLoc() != complexContentTestSourceLoc(t, fixture.baseSource, fixture.baseContents, `namespace="##other"`) || attribute.ProcessContentsLoc() != complexContentTestSourceLoc(t, fixture.baseSource, fixture.baseContents, `processContents="lax"`) {
+					t.Fatal("inherited wildcard locations were not retained")
+				}
+
+				walkSources := make([]SourceID, 0, len(components))
+				if walkErr := schema.Walk(func(component Component) error {
+					walkSources = append(walkSources, component.Document())
+					return nil
+				}); walkErr != nil {
+					t.Fatalf("walk schema: %v", walkErr)
+				}
+				if !reflect.DeepEqual(walkSources, []SourceID{"root.xsd", fixture.baseSource}[:len(walkSources)]) {
+					t.Fatalf("walk source order = %v", walkSources)
+				}
+				snapshot := schema.Components()
+				mutated := schema.Components()
+				mutated[0] = Component{}
+				mutated[1] = Component{}
+				if !reflect.DeepEqual(snapshot, schema.Components()) {
+					t.Fatal("mutating returned component copies changed the schema")
+				}
+				for iteration := 0; iteration < 3; iteration++ {
+					repeated, repeatErr := discoverTestSchemaWithPolicy(t, fixture.root, fixture.fixtures, profile.policy)
+					if repeatErr != nil {
+						t.Fatalf("repeat %d discover schema: %v", iteration, repeatErr)
+					}
+					if !reflect.DeepEqual(snapshot, repeated.Components()) {
+						t.Fatalf("repeat %d changed component facts", iteration)
+					}
+				}
+			})
+		}
+	}
+}
+
+type emptyComplexContentExtensionFixture struct {
+	root          string
+	fixtures      map[string]discoveryFixture
+	baseNamespace string
+	baseSource    SourceID
+	baseContents  string
+	baseLexical   string
+}
+
+func emptyComplexContentExtensionGraph(t *testing.T, version, graph string) emptyComplexContentExtensionFixture {
+	t.Helper()
+	baseNamespace := "urn:root"
+	baseSource := SourceID("root.xsd")
+	baseLexical := "t:Base"
+	var baseContents string
+	fixtures := map[string]discoveryFixture{}
+	var root string
+	switch graph {
+	case "forward":
+		root = emptyComplexContentExtensionRoot(version, `xmlns:t="urn:root"`, "", baseLexical, emptyComplexContentBaseDeclaration())
+		baseContents = root
+	case "included":
+		baseSource = "included.xsd"
+		baseContents = emptyComplexContentBase("urn:root", version)
+		fixtures[string(baseSource)] = discoveryFixture{id: baseSource, contents: baseContents}
+		root = emptyComplexContentExtensionRoot(version, `xmlns:t="urn:root"`, `<xs:include schemaLocation="included.xsd"/>`, baseLexical, "")
+	case "imported":
+		baseNamespace = "urn:base"
+		baseSource = "imported.xsd"
+		baseLexical = "b:Base"
+		baseContents = emptyComplexContentBase(baseNamespace, version)
+		fixtures[string(baseSource)] = discoveryFixture{id: baseSource, contents: baseContents}
+		root = emptyComplexContentExtensionRoot(version, `xmlns:b="urn:base"`, `<xs:import namespace="urn:base" schemaLocation="imported.xsd"/>`, baseLexical, "")
+	case "chameleon":
+		baseSource = "chameleon.xsd"
+		baseContents = emptyComplexContentBase("", version)
+		fixtures[string(baseSource)] = discoveryFixture{id: baseSource, contents: baseContents}
+		root = emptyComplexContentExtensionRoot(version, `xmlns:t="urn:root"`, `<xs:include schemaLocation="chameleon.xsd"/>`, baseLexical, "")
+	default:
+		panic("unknown empty complex-content extension graph: " + graph)
+	}
+	return emptyComplexContentExtensionFixture{
+		root:          root,
+		fixtures:      fixtures,
+		baseNamespace: baseNamespace,
+		baseSource:    baseSource,
+		baseContents:  baseContents,
+		baseLexical:   baseLexical,
+	}
+}
+
+func emptyComplexContentExtensionRoot(version, namespace, directive, baseLexical, baseDeclaration string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" ` + namespace + ` targetNamespace="urn:root" version="` + version + `">
+  ` + directive + `
+  <xs:complexType name="Derived"><xs:complexContent><xs:extension base="` + baseLexical + `"/></xs:complexContent></xs:complexType>
+  ` + baseDeclaration + `
+</xs:schema>`
+}
+
+func emptyComplexContentBase(namespace, version string) string {
+	targetNamespace := ""
+	if namespace != "" {
+		targetNamespace = ` targetNamespace="` + namespace + `"`
+	}
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `"` + targetNamespace + ` version="` + version + `">
+  ` + emptyComplexContentBaseDeclaration() + `
+</xs:schema>`
+}
+
+func emptyComplexContentBaseDeclaration() string {
+	return `<xs:complexType name="Base"><xs:complexContent><xs:restriction base="xs:anyType"><xs:anyAttribute namespace="##other" processContents="lax"/></xs:restriction></xs:complexContent></xs:complexType>`
+}
+
+//nolint:gocognit // Keep the policy-mismatch and successful-fact assertions together.
+func TestSchemaBridgeEmptyComplexContentExtensionOpenContentNonePolicy(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			fixture := emptyComplexContentExtensionGraph(t, profile.version, "forward")
+			fixture.root = strings.Replace(
+				fixture.root,
+				`<xs:extension base="t:Base"/>`,
+				`<xs:extension base="t:Base"><xs:openContent mode="none"/></xs:extension>`,
+				1,
+			)
+			schema, err := discoverTestSchemaWithPolicy(t, fixture.root, fixture.fixtures, profile.policy)
+			if profile.policy == Strict10 {
+				if err == nil {
+					t.Fatal("Strict10 accepted derivation-local openContent mode=none")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+					t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Code(), diagnostic.Feature())
+				}
+				if diagnostic.Loc() != complexContentTestLoc(t, fixture.root, "<xs:openContent") || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errLanguagePolicyMismatch) {
+					t.Fatalf("Strict10 diagnostic = %s/%v, want located policy mismatch", diagnostic.Loc(), err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("discover mode=none empty extension: %v", err)
+			}
+			matches := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:root", "Derived"))
+			if len(matches) != 1 {
+				t.Fatalf("Derived matches = %d, want one", len(matches))
+			}
+			derived, ok := matches[0].ComplexType()
+			if !ok || derived.Particle() != nil || derived.Derivation() != ComplexTypeDerivationExtension {
+				t.Fatalf("mode=none extension facts = %#v/%v, want extension with nil particle", derived, ok)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep the empty-body base and extension identity assertions together.
+func TestSchemaBridgeAcceptsEmptyComplexContentExtensionOverEmptyBodyBase(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := complexContentExtensionRoot(`<xs:extension base="t:Base"/>`, `<xs:complexType name="Base"/>`)
+			if profile.version == "1.0" {
+				root = strings.Replace(root, `version="1.1"`, `version="1.0"`, 1)
+			}
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err != nil {
+				t.Fatalf("discover empty-body extension: %v", err)
+			}
+			components := schema.Components()
+			if len(components) != 2 {
+				t.Fatalf("component count = %d, want 2", len(components))
+			}
+			derived, ok := components[0].ComplexType()
+			if !ok {
+				t.Fatal("derived complex type view is absent")
+			}
+			if derived.Particle() != nil || derived.Derivation() != ComplexTypeDerivationExtension {
+				t.Fatalf("derived facts = %T/%q, want extension with nil particle", derived.Particle(), derived.Derivation())
+			}
+			body := derived.extensionBody()
+			if body == nil || body.particle != nil || body.base.kind != ComplexTypeReferenceNamed || body.base.id != components[1].ID() {
+				t.Fatalf("derived completed body = %#v, want named empty-body base and nil particle", body)
+			}
+			base, ok := components[1].ComplexType()
+			if !ok {
+				t.Fatal("base complex type view is absent")
+			}
+			if _, emptyBody := base.facts.body.(*schemaComplexTypeEmptyBodyComponent); !emptyBody || base.Particle() != nil {
+				t.Fatalf("base facts = %#v/%T, want genuine empty-body variant", base.facts.body, base.Particle())
+			}
+			baseReference, referenceOK := derived.BaseReference()
+			baseID, baseIDOK := baseReference.ComponentID()
+			if !referenceOK || !baseReference.IsNamed() || baseReference.IsBuiltin() || !baseIDOK || baseID != components[1].ID() {
+				t.Fatalf("base reference = %#v/%v, want named base identity", baseReference, referenceOK)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep the present-model shape matrix and public particle assertions together.
+func TestSchemaBridgeKeepsPresentComplexContentExtensionModelsDistinct(t *testing.T) {
+	cases := []struct {
+		name        string
+		extension   string
+		model       string
+		occurrences string
+		unsupported bool
+	}{
+		{
+			name:      "absent model",
+			extension: `<xs:extension base="t:Base"/>`,
+		},
+		{
+			name:        "empty sequence",
+			extension:   `<xs:extension base="t:Base"><xs:sequence/></xs:extension>`,
+			model:       "sequence",
+			occurrences: "1/1",
+		},
+		{
+			name:        "empty choice",
+			extension:   `<xs:extension base="t:Base"><xs:choice/></xs:extension>`,
+			model:       "choice",
+			occurrences: "1/1",
+		},
+		{
+			name:        "optional sequence",
+			extension:   `<xs:extension base="t:Base"><xs:sequence minOccurs="0"/></xs:extension>`,
+			model:       "sequence",
+			occurrences: "0/1",
+		},
+		{
+			name:        "all model",
+			extension:   `<xs:extension base="t:Base"><xs:all/></xs:extension>`,
+			unsupported: true,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			root := complexContentExtensionRoot(test.extension, `<xs:complexType name="Base"/>`)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+			if test.unsupported {
+				if err == nil {
+					t.Fatal("all extension model unexpectedly succeeded")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("all diagnostic = %s/%q/%q/%v, want schema-syntax unsupported", diagnostic, diagnostic.Code(), diagnostic.Feature(), err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("discover %s extension: %v", test.name, err)
+			}
+			matches := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:root", "Derived"))
+			if len(matches) != 1 {
+				t.Fatalf("Derived matches = %d, want one", len(matches))
+			}
+			derived, ok := matches[0].ComplexType()
+			if !ok || derived.extensionBody() == nil {
+				t.Fatal("Derived extension body is absent")
+			}
+			if test.model == "" {
+				if derived.Particle() != nil || derived.extensionBody().particle != nil {
+					t.Fatalf("absent-model particle = %T/%T, want nil", derived.Particle(), derived.extensionBody().particle)
+				}
+				return
+			}
+			particle := derived.Particle()
+			if particle == nil || particle.Occurrences().String() != test.occurrences {
+				t.Fatalf("%s particle = %T/%v, want %s/%s", test.name, particle, particle, test.model, test.occurrences)
+			}
+			switch test.model {
+			case "choice":
+				choice, choiceOK := particle.(ChoiceParticle)
+				if !choiceOK || len(choice.Alternatives()) != 0 {
+					t.Fatalf("choice particle = %T/%d, want empty choice", particle, len(choice.Alternatives()))
+				}
+			case "sequence":
+				sequence, sequenceOK := particle.(SequenceParticle)
+				if !sequenceOK || len(sequence.Particles()) != 0 {
+					t.Fatalf("sequence particle = %T/%d, want empty sequence", particle, len(sequence.Particles()))
+				}
+			default:
+				t.Fatalf("unknown test model %q", test.model)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep the unchanged validation and generation extension gates together.
+func TestSchemaBridgeKeepsEmptyComplexContentExtensionConsumersUnsupported(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="` + profile.version + `">
+  <xs:element name="root" type="t:Derived"/>
+  <xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base"/></xs:complexContent></xs:complexType>
+  <xs:complexType name="Base"><xs:complexContent><xs:restriction base="xs:anyType"><xs:anyAttribute namespace="##other" processContents="lax"/></xs:restriction></xs:complexContent></xs:complexType>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err != nil {
+				t.Fatalf("discover empty extension consumer schema: %v", err)
+			}
+			extensionLoc := complexContentTestLoc(t, root, "<xs:extension")
+
+			validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:root"/>`)))
+			if validationErr == nil {
+				t.Fatal("validation unexpectedly accepted empty extension content")
+			}
+			validationDiagnostic := requireDiagnostic(t, validationErr)
+			if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || validationDiagnostic.Feature() != FeatureInstanceValidation || validationDiagnostic.Loc() != extensionLoc {
+				t.Fatalf("validation diagnostic = %s/%q/%q/%s, want located instance unsupported", validationDiagnostic.Class(), validationDiagnostic.Code(), validationDiagnostic.Feature(), validationDiagnostic.Loc())
+			}
+			if !errors.Is(validationErr, ErrUnsupported) || !errors.Is(validationErr, errInstanceComplexContentExtension) || len(validationDiagnostic.Related()) == 0 {
+				t.Fatalf("validation diagnostic lost extension cause or related facts: %v/%v", validationErr, validationDiagnostic.Related())
+			}
+
+			generated, generationErr := GenerateGo(schema, "generated")
+			if generationErr == nil || generated != nil {
+				t.Fatalf("generation result = (%q, %v), want nil output and unsupported error", generated, generationErr)
+			}
+			generationDiagnostic := requireDiagnostic(t, generationErr)
+			if generationDiagnostic.Class() != FailureUnsupported || generationDiagnostic.Code() != diagnosticCodegenUnsupported || generationDiagnostic.Feature() != FeatureCodegen || generationDiagnostic.Loc() != extensionLoc {
+				t.Fatalf("generation diagnostic = %s/%q/%q/%s, want located codegen unsupported", generationDiagnostic.Class(), generationDiagnostic.Code(), generationDiagnostic.Feature(), generationDiagnostic.Loc())
+			}
+			if !errors.Is(generationErr, ErrUnsupported) || !errors.Is(generationErr, errCodegenUnsupported) || len(generationDiagnostic.Related()) == 0 {
+				t.Fatalf("generation diagnostic lost extension cause or related facts: %v/%v", generationErr, generationDiagnostic.Related())
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeRejectsUnmodeledEmptyComplexContentExtensionAdditions(t *testing.T) {
+	cases := []struct {
+		name      string
+		extension string
+		root      string
+	}{
+		{
+			name:      "local attribute",
+			extension: `<xs:extension base="t:Base"><xs:attribute name="local" type="xs:string"/></xs:extension>`,
+		},
+		{
+			name:      "attribute group",
+			extension: `<xs:extension base="t:Base"><xs:attributeGroup ref="t:attrs"/></xs:extension>`,
+		},
+		{
+			name:      "new wildcard",
+			extension: `<xs:extension base="t:Base"><xs:anyAttribute namespace="##other" processContents="lax"/></xs:extension>`,
+		},
+		{
+			name:      "assertion",
+			extension: `<xs:extension base="t:Base"><xs:assert test="true()"/></xs:extension>`,
+		},
+		{
+			name:      "open content",
+			extension: `<xs:extension base="t:Base"><xs:openContent mode="interleave"><xs:any namespace="##any" processContents="skip"/></xs:openContent></xs:extension>`,
+		},
+		{
+			name:      "all model",
+			extension: `<xs:extension base="t:Base"><xs:all/></xs:extension>`,
+		},
+		{
+			name: "mixed content",
+			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:complexType name="Derived"><xs:complexContent mixed="true"><xs:extension base="t:Base"/></xs:complexContent></xs:complexType>
+  <xs:complexType name="Base"/>
+</xs:schema>`,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			root := test.root
+			if root == "" {
+				root = complexContentExtensionRoot(test.extension, `<xs:complexType name="Base"/>`)
+			}
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+			if err == nil {
+				t.Fatal("unmodeled extension addition unexpectedly succeeded")
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("unmodeled addition diagnostic = %s/%q/%q/%v, want schema-syntax unsupported", diagnostic, diagnostic.Code(), diagnostic.Feature(), err)
+			}
+		})
+	}
+}
+
+//nolint:gocognit,funlen // Keep the empty-extension base classification matrix together.
+func TestSchemaBridgeRejectsEmptyComplexContentExtensionBaseFailures(t *testing.T) {
+	cases := []struct {
+		name          string
+		extension     string
+		suffix        string
+		class         FailureClass
+		cause         error
+		primaryMarker string
+		relatedMarker string
+	}{
+		{
+			name:          "missing base",
+			extension:     `<xs:extension/>`,
+			class:         FailureInvalid,
+			cause:         errSchemaComplexTypeBaseRequired,
+			primaryMarker: "<xs:extension/>",
+		},
+		{
+			name:          "unresolved base",
+			extension:     `<xs:extension base="t:Missing"/>`,
+			class:         FailureInvalid,
+			cause:         errSchemaComplexTypeBaseUnresolved,
+			primaryMarker: `base="t:Missing"`,
+		},
+		{
+			name:          "wrong kind base",
+			extension:     `<xs:extension base="t:Simple"/>`,
+			suffix:        `<xs:simpleType name="Simple"><xs:restriction base="xs:integer"/></xs:simpleType>`,
+			class:         FailureInvalid,
+			cause:         errSchemaComplexTypeBaseWrongKind,
+			primaryMarker: `base="t:Simple"`,
+			relatedMarker: "<xs:simpleType",
+		},
+		{
+			name:          "nonempty named base",
+			extension:     `<xs:extension base="t:Base"/>`,
+			suffix:        `<xs:complexType name="Base"><xs:sequence><xs:element name="item" type="xs:integer"/></xs:sequence></xs:complexType>`,
+			class:         FailureUnsupported,
+			cause:         errSchemaComplexTypeBaseNonEmpty,
+			primaryMarker: `base="t:Base"`,
+			relatedMarker: "<xs:sequence>",
+		},
+		{
+			name:          "empty sequence base is not empty variant",
+			extension:     `<xs:extension base="t:Base"/>`,
+			suffix:        `<xs:complexType name="Base"><xs:sequence/></xs:complexType>`,
+			class:         FailureUnsupported,
+			cause:         errSchemaComplexTypeBaseNonEmpty,
+			primaryMarker: `base="t:Base"`,
+			relatedMarker: "<xs:sequence/>",
+		},
+		{
+			name:          "unsupported extension base",
+			extension:     `<xs:extension base="t:Base"/>`,
+			suffix:        `<xs:complexType name="Empty"/><xs:complexType name="Base"><xs:complexContent><xs:extension base="t:Empty"><xs:choice><xs:element name="item" type="xs:integer"/></xs:choice></xs:extension></xs:complexContent></xs:complexType>`,
+			class:         FailureUnsupported,
+			cause:         errSchemaComplexTypeBaseUnsupported,
+			primaryMarker: `base="t:Base"`,
+		},
+		{
+			name:          "empty extension base is not empty variant",
+			extension:     `<xs:extension base="t:Base"/>`,
+			suffix:        `<xs:complexType name="Empty"/><xs:complexType name="Base"><xs:complexContent><xs:extension base="t:Empty"/></xs:complexContent></xs:complexType>`,
+			class:         FailureUnsupported,
+			cause:         errSchemaComplexTypeBaseUnsupported,
+			primaryMarker: `base="t:Base"`,
+		},
+		{
+			name:          "built-in anyType base",
+			extension:     `<xs:extension base="xs:anyType"/>`,
+			class:         FailureUnsupported,
+			cause:         errSchemaComplexTypeBaseUnsupported,
+			primaryMarker: `base="xs:anyType"`,
+		},
+	}
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "strict10", policy: Strict10, version: XSDVersion10},
+		{name: "strict11", policy: Strict11, version: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		for _, test := range cases {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := complexContentExtensionRoot(test.extension, test.suffix)
+				if profile.version == XSDVersion10 {
+					root = strings.Replace(root, `version="1.1"`, `version="1.0"`, 1)
+				}
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("empty extension base failure unexpectedly returned a schema")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != test.class || diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(profile.version) {
+					t.Fatalf("diagnostic = %s/%q, want %q/%q", diagnostic.Class(), diagnostic.SpecRef(), test.class, schemaComplexTypeExtensionSpecRef(profile.version))
+				}
+				if diagnostic.Loc() != complexContentTestLoc(t, root, test.primaryMarker) {
+					t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), complexContentTestLoc(t, root, test.primaryMarker))
+				}
+				if test.relatedMarker != "" && !complexContentDiagnosticHasLocation(diagnostic, complexContentTestLoc(t, root, test.relatedMarker)) {
+					t.Fatalf("diagnostic related = %v, want %s", diagnostic.Related(), complexContentTestLoc(t, root, test.relatedMarker))
+				}
+				if !errors.Is(err, test.cause) {
+					t.Fatalf("diagnostic lost cause %v: %v", test.cause, err)
+				}
+				if test.class == FailureUnsupported && (!errors.Is(err, ErrUnsupported) || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax) {
+					t.Fatalf("unsupported diagnostic = %s/%v, want registered schema-syntax unsupported", diagnostic, err)
+				}
+				if test.class == FailureInvalid && diagnostic.Code() != invalidSchemaCompositionCode {
+					t.Fatalf("invalid diagnostic code = %q, want invalid schema composition", diagnostic.Code())
+				}
+			})
+		}
+	}
+}
+
+func complexContentDiagnosticHasLocation(diagnostic Diagnostic, want Loc) bool {
+	for _, related := range diagnostic.Related() {
+		if related == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSchemaBridgeRejectsEmptyComplexContentExtensionCycles(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+		xsd     XSDVersion
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1", xsd: XSDVersion11},
+		{name: "strict10", policy: Strict10, version: "1.0", xsd: XSDVersion10},
+		{name: "strict11", policy: Strict11, version: "1.1", xsd: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="` + profile.version + `">
+  <xs:complexType name="A"><xs:complexContent><xs:extension base="t:B"/></xs:complexContent></xs:complexType>
+  <xs:complexType name="B"><xs:complexContent><xs:extension base="t:A"/></xs:complexContent></xs:complexType>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err == nil {
+				t.Fatal("cyclic empty extension bases unexpectedly succeeded")
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(profile.xsd) || !errors.Is(err, errSchemaComplexTypeBaseCycle) {
+				t.Fatalf("cycle diagnostic = %s/%q/%v, want extension cycle invalid", diagnostic.Loc(), diagnostic.SpecRef(), err)
+			}
+			if diagnostic.Loc() != complexContentTestLoc(t, root, `base="t:A"`) || len(diagnostic.Related()) == 0 {
+				t.Fatalf("cycle diagnostic locations = %s/%v, want use-site and related base", diagnostic.Loc(), diagnostic.Related())
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeRejectsInvisibleEmptyComplexContentExtensionBase(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+		xsd     XSDVersion
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1", xsd: XSDVersion11},
+		{name: "strict10", policy: Strict10, version: "1.0", xsd: XSDVersion10},
+		{name: "strict11", policy: Strict11, version: "1.1", xsd: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:b="urn:base" targetNamespace="urn:root" version="` + profile.version + `">
+  <xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/>
+  <xs:complexType name="Derived"><xs:complexContent><xs:extension base="b:Base"/></xs:complexContent></xs:complexType>
+</xs:schema>`
+			bridge := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:bridge" version="` + profile.version + `"><xs:import namespace="urn:base" schemaLocation="base.xsd"/></xs:schema>`
+			base := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:base" version="` + profile.version + `"><xs:complexType name="Base"/></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+				"bridge.xsd": {id: "bridge.xsd", contents: bridge},
+				"base.xsd":   {id: "base.xsd", contents: base},
+			}, profile.policy)
+			if err == nil {
+				t.Fatal("invisible empty extension base unexpectedly succeeded")
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(profile.xsd) || !errors.Is(err, errSchemaComplexTypeBaseUnresolved) {
+				t.Fatalf("invisible-base diagnostic = %s/%q/%v, want extension-base resolution failure", diagnostic.Loc(), diagnostic.SpecRef(), err)
+			}
+			if diagnostic.Loc() != complexContentTestLoc(t, root, `base="b:Base"`) || len(diagnostic.Related()) == 0 || diagnostic.Related()[0] != complexContentTestSourceLoc(t, "base.xsd", base, `<xs:complexType`) {
+				t.Fatalf("invisible-base locations = %s/%v, want use-site and base declaration", diagnostic.Loc(), diagnostic.Related())
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeClassifiesAmbiguousEmptyComplexContentExtensionBase(t *testing.T) {
+	name := mustTestQName(t, "urn:base", "Base")
+	owner := schemaComponentRecord{
+		id:          ComponentID{source: "root.xsd", ordinal: 1},
+		kind:        ComponentKindComplexTypeDefinition,
+		name:        mustTestQName(t, "urn:root", "Derived"),
+		loc:         mustTestLoc(t, "root.xsd", 2, 3),
+		complexType: &schemaComplexTypeInput{body: &schemaComplexTypeEmptyBodyInput{}},
+	}
+	first := schemaComponentRecord{
+		id:          ComponentID{source: "one.xsd", ordinal: 1},
+		kind:        ComponentKindComplexTypeDefinition,
+		name:        name,
+		loc:         mustTestLoc(t, "one.xsd", 2, 3),
+		complexType: &schemaComplexTypeInput{body: &schemaComplexTypeEmptyBodyInput{}},
+	}
+	second := schemaComponentRecord{
+		id:          ComponentID{source: "two.xsd", ordinal: 1},
+		kind:        ComponentKindComplexTypeDefinition,
+		name:        name,
+		loc:         mustTestLoc(t, "two.xsd", 2, 3),
+		complexType: &schemaComplexTypeInput{body: &schemaComplexTypeEmptyBodyInput{}},
+	}
+	referenceLoc := mustTestLoc(t, "root.xsd", 3, 25)
+	_, _, err := resolveSchemaComplexTypeExtensionReference(
+		schemaComplexTypeReferenceInput{kind: schemaComplexTypeQNameReferenceInput, name: name, loc: referenceLoc},
+		owner,
+		[]schemaComponentRecord{owner, first, second},
+		map[QName][]int{name: {1, 2}},
+		map[SourceID][]SourceID{"root.xsd": {"root.xsd", "one.xsd", "two.xsd"}},
+		XSDVersion11,
+	)
+	if err == nil {
+		t.Fatal("ambiguous empty extension base unexpectedly resolved")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.SpecRef() != schemaComplexTypeExtensionXSD11SpecRef || !errors.Is(err, errSchemaComplexTypeBaseAmbiguous) {
+		t.Fatalf("ambiguous diagnostic = %s/%q/%v, want invalid extension-base ambiguity", diagnostic.Loc(), diagnostic.SpecRef(), err)
+	}
+	if diagnostic.Loc() != referenceLoc || !reflect.DeepEqual(diagnostic.Related(), []Loc{first.loc, second.loc}) {
+		t.Fatalf("ambiguous locations = %s/%v, want %s/%v", diagnostic.Loc(), diagnostic.Related(), referenceLoc, []Loc{first.loc, second.loc})
+	}
+}
+
+//nolint:gocognit // Keep edition, policy, final-value, and diagnostic provenance together.
+func TestSchemaBridgeRejectsExtensionBaseFinalControls(t *testing.T) {
+	cases := []struct {
+		name       string
+		final      string
+		prohibited bool
+	}{
+		{name: "extension", final: "extension", prohibited: true},
+		{name: "all", final: "#all", prohibited: true},
+		{name: "restriction only", final: "restriction"},
+	}
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "strict10", policy: Strict10, version: XSDVersion10},
+		{name: "strict11", policy: Strict11, version: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		for _, test := range cases {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := complexContentExtensionRoot(
+					`<xs:extension base="t:Base"><xs:choice><xs:element name="item" type="xs:integer"/></xs:choice></xs:extension>`,
+					`<xs:complexType name="Base" final="`+test.final+`"/>`,
+				)
+				if profile.version == XSDVersion10 {
+					root = strings.Replace(root, `version="1.1"`, `version="1.0"`, 1)
+				}
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if !test.prohibited {
+					if err != nil {
+						t.Fatalf("discover schema: %v", err)
+					}
+					base := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:root", "Base"))
+					if len(base) != 1 {
+						t.Fatalf("Base matches = %d, want one", len(base))
+					}
+					definition, ok := base[0].ComplexTypeDefinition()
+					if !ok || !reflect.DeepEqual(definition.Final(), []string{"restriction"}) {
+						t.Fatalf("Base final = %#v/%t, want restriction", definition.Final(), ok)
+					}
+					return
+				}
+				if err == nil {
+					t.Fatal("prohibited extension unexpectedly succeeded")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+					t.Fatalf("diagnostic = %s, want invalid schema composition", diagnostic)
+				}
+				if diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(profile.version) {
+					t.Fatalf("diagnostic spec ref = %q, want extension constraint", diagnostic.SpecRef())
+				}
+				if diagnostic.Loc() != complexContentTestLoc(t, root, `base="t:Base"`) {
+					t.Fatalf("diagnostic location = %s, want extension base use", diagnostic.Loc())
+				}
+				wantRelated := complexContentTestLoc(t, root, `final="`+test.final+`"`)
+				if !reflect.DeepEqual(diagnostic.Related(), []Loc{wantRelated}) {
+					t.Fatalf("diagnostic related = %v, want [%s]", diagnostic.Related(), wantRelated)
+				}
+				if !errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
+					t.Fatalf("diagnostic lost existing base cause: %v", err)
+				}
+			})
+		}
+	}
 }
 
 func assertComplexContentExtensionParticle(t *testing.T, particle Particle, model string, targetID ComponentID, root string) {
@@ -796,6 +1589,10 @@ func complexContentNestedParticleSchema(model, nested string) string {
 }
 
 func complexContentTestLoc(t *testing.T, root, marker string) Loc {
+	return complexContentTestSourceLoc(t, "root.xsd", root, marker)
+}
+
+func complexContentTestSourceLoc(t *testing.T, source SourceID, root, marker string) Loc {
 	t.Helper()
 	index := strings.Index(root, marker)
 	if index < 0 {
@@ -811,7 +1608,7 @@ func complexContentTestLoc(t *testing.T, root, marker string) Loc {
 		}
 		column++
 	}
-	return mustTestLoc(t, "root.xsd", line, column)
+	return mustTestLoc(t, source, line, column)
 }
 
 func boundedOpenAttrsSchemaWithRestriction(restriction string) string {

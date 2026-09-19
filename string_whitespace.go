@@ -43,7 +43,8 @@ func (facet StringWhiteSpaceFacet) Value() string {
 }
 
 // Loc returns the source location of the declaration that supplied the
-// effective value. Built-in xs:string and xs:token have zero locations.
+// effective value. Built-in xs:string, xs:token, and xs:NMTOKEN have zero
+// locations.
 func (facet StringWhiteSpaceFacet) Loc() Loc {
 	return facet.loc
 }

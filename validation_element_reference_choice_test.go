@@ -150,6 +150,120 @@ func TestValidateInstanceSupportsDirectNumericReferenceChoicesAcrossPolicies(t *
 	}
 }
 
+//nolint:gocognit // Keep policy, graph-visibility, lexical, and diagnostic coverage together.
+func TestValidateInstanceSupportsDirectBooleanReferenceChoicesAcrossPolicies(t *testing.T) {
+	for _, policy := range validationBooleanPolicies() {
+		t.Run(policy.name, func(t *testing.T) {
+			schema := validationReferenceBooleanChoiceSchema(t, policy.policy)
+			evidence := validationReferenceChoiceEvidenceFor(t, schema)
+			before := schema.Components()
+
+			for _, lexical := range []string{"true", "false", "1", "0"} {
+				t.Run("backward/"+lexical, func(t *testing.T) {
+					input := validationReferenceChoiceInstance("r", "backward", lexical)
+					if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+						t.Fatalf("ValidateInstance(%q): %v", input, err)
+					}
+				})
+			}
+
+			for _, test := range []struct {
+				name   string
+				prefix string
+				child  string
+				value  string
+			}{
+				{name: "forward named restriction", prefix: "r", child: "forward", value: "false"},
+				{name: "included chameleon", prefix: "r", child: "included", value: "1"},
+				{name: "imported named restriction", prefix: "o", child: "imported", value: "0"},
+				{name: "collapsed whitespace", prefix: "o", child: "imported", value: " \n\ttrue \r "},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					input := validationReferenceChoiceInstance(test.prefix, test.child, test.value)
+					if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+						t.Fatalf("ValidateInstance(%q): %v", input, err)
+					}
+				})
+			}
+
+			for _, test := range []struct {
+				name  string
+				child string
+				value string
+			}{
+				{name: "built-in lexical failure", child: "backward", value: "True"},
+				{name: "named lexical failure", child: "forward", value: "maybe"},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					input := validationReferenceChoiceInstance("r", test.child, test.value)
+					diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+					if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != goxsd9.InvalidBooleanLexicalCode {
+						t.Fatalf("Boolean diagnostic = %s/%q, want invalid Boolean lexical", diagnostic, diagnostic.Code())
+					}
+					if diagnostic.Loc() != validationReferenceChoiceTextLoc(t, input, "r", test.child) {
+						t.Fatalf("Boolean diagnostic location = %s, want selected text location", diagnostic.Loc())
+					}
+					if diagnostic.SpecRef() != policy.specRef {
+						t.Fatalf("Boolean diagnostic specification = %q, want %q", diagnostic.SpecRef(), policy.specRef)
+					}
+					if !reflect.DeepEqual(diagnostic.Related(), validationReferenceChoiceAlternativeRelated(t, evidence, test.child, false)) {
+						t.Fatalf("Boolean diagnostic related = %v, want target evidence", diagnostic.Related())
+					}
+				})
+			}
+
+			unknown := `<r:choiceRoot xmlns:r="` + validationReferenceChoiceNamespace + `" xmlns:o="` + validationReferenceChoiceOtherNamespace + `"><r:unknown>true</r:unknown></r:choiceRoot>`
+			diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(unknown))))
+			if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != goxsd9.InvalidInstanceChoiceCode {
+				t.Fatalf("unknown-child diagnostic = %s/%q, want invalid choice", diagnostic, diagnostic.Code())
+			}
+			if !reflect.DeepEqual(diagnostic.Related(), evidence.related) {
+				t.Fatalf("unknown-child related = %v, want ordered alternatives %v", diagnostic.Related(), evidence.related)
+			}
+
+			repeated := `<r:choiceRoot xmlns:r="` + validationReferenceChoiceNamespace + `" xmlns:o="` + validationReferenceChoiceOtherNamespace + `"><r:backward>true</r:backward><r:backward>false</r:backward></r:choiceRoot>`
+			diagnostic = validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(repeated))))
+			if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != goxsd9.InvalidInstanceChoiceCode {
+				t.Fatalf("repeated-child diagnostic = %s/%q, want invalid choice", diagnostic, diagnostic.Code())
+			}
+			if diagnostic.Loc() != validationReferenceChoiceLastMarkerLoc(t, repeated, "<r:backward>") {
+				t.Fatalf("repeated-child location = %s, want second child", diagnostic.Loc())
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("Boolean reference-choice validation mutated the completed schema")
+			}
+		})
+	}
+}
+
+func validationReferenceBooleanChoiceSchema(t *testing.T, policy goxsd9.LanguagePolicy) goxsd9.Schema {
+	t.Helper()
+	version := "1.1"
+	if policy == goxsd9.Strict10 {
+		version = "1.0"
+	}
+	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationReferenceChoiceNamespace + `" xmlns:o="` + validationReferenceChoiceOtherNamespace + `" targetNamespace="` + validationReferenceChoiceNamespace + `" version="` + version + `">
+  <xs:include schemaLocation="reference-boolean-chameleon.xsd"/>
+  <xs:import namespace="` + validationReferenceChoiceOtherNamespace + `" schemaLocation="reference-boolean-other.xsd"/>
+  <xs:element name="backward" type="xs:boolean"/>
+  <xs:element name="choiceRoot" type="r:Choice"/>
+  <xs:complexType name="Choice"><xs:choice>
+    <xs:element ref="r:backward"/>
+    <xs:element ref="r:forward"/>
+    <xs:element ref="r:included"/>
+    <xs:element ref="o:imported"/>
+  </xs:choice></xs:complexType>
+  <xs:element name="forward" type="r:Flag"/>
+  <xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`
+	chameleon := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `"><xs:element name="included" type="xs:boolean"/></xs:schema>`
+	other := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:o="` + validationReferenceChoiceOtherNamespace + `" targetNamespace="` + validationReferenceChoiceOtherNamespace + `" version="` + version + `"><xs:simpleType name="ImportedFlag"><xs:restriction base="xs:boolean"/></xs:simpleType><xs:element name="imported" type="o:ImportedFlag"/></xs:schema>`
+	return validationTestSchemaWithPolicy(t, root, map[string]validationTestFixture{
+		"reference-boolean-chameleon.xsd": {id: "reference-boolean-chameleon.xsd", contents: chameleon},
+		"reference-boolean-other.xsd":     {id: "reference-boolean-other.xsd", contents: other},
+	}, policy)
+}
+
 type validationReferenceChoiceSubstitutionCase struct {
 	name                   string
 	body                   string
@@ -429,13 +543,13 @@ type validationReferenceChoiceUnsupportedCase struct {
 func TestValidateInstanceKeepsReferenceChoiceExclusionsExplicit(t *testing.T) {
 	cases := []validationReferenceChoiceUnsupportedCase{
 		{
-			name:            "boolean target",
-			body:            `<xs:element name="target" type="xs:boolean"/><xs:element name="choiceRoot" type="r:Choice"/><xs:complexType name="Choice"><xs:choice><xs:element ref="r:target"/></xs:choice></xs:complexType>`,
+			name:            "abstract Boolean target",
+			body:            `<xs:element name="target" type="xs:boolean" abstract="true"/><xs:element name="choiceRoot" type="r:Choice"/><xs:complexType name="Choice"><xs:choice><xs:element ref="r:target"/></xs:choice></xs:complexType>`,
 			wantInstanceLoc: true, wantTargetEvidence: true,
 		},
 		{
-			name:            "named boolean target",
-			body:            `<xs:element name="target" type="r:Flag"/><xs:element name="choiceRoot" type="r:Choice"/><xs:complexType name="Choice"><xs:choice><xs:element ref="r:target"/></xs:choice></xs:complexType><xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>`,
+			name:            "nillable Boolean target",
+			body:            `<xs:element name="target" type="xs:boolean" nillable="true"/><xs:element name="choiceRoot" type="r:Choice"/><xs:complexType name="Choice"><xs:choice><xs:element ref="r:target"/></xs:choice></xs:complexType>`,
 			wantInstanceLoc: true, wantTargetEvidence: true,
 		},
 		{
