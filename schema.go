@@ -448,6 +448,16 @@ func (declaration AttributeDeclaration) TypeReference() (SimpleTypeReference, bo
 	return SimpleTypeReference{facts: &declaration.facts.typeReference}, true
 }
 
+// InlineSimpleType returns the anonymous simple type declared inside the
+// attribute, when it has one.
+func (declaration AttributeDeclaration) InlineSimpleType() (SimpleTypeDefinition, bool) {
+	reference, ok := declaration.TypeReference()
+	if !ok {
+		return SimpleTypeDefinition{}, false
+	}
+	return reference.AnonymousType()
+}
+
 // TypeID returns the identity of a named declared type. Built-in datatypes do
 // not have synthetic component identities and return the zero ID.
 func (declaration AttributeDeclaration) TypeID() (ComponentID, bool) {
@@ -2160,10 +2170,11 @@ type schemaElementSubstitutionGroupInput struct {
 }
 
 type schemaAttributeInput struct {
-	declaredType    QName
-	typeLoc         Loc
-	inheritable     bool
-	valueConstraint *schemaAttributeValueConstraintInput
+	declaredType     QName
+	typeLoc          Loc
+	inlineSimpleType *schemaSimpleTypeInput
+	inheritable      bool
+	valueConstraint  *schemaAttributeValueConstraintInput
 }
 
 type schemaNotationInput struct {
@@ -3268,10 +3279,11 @@ func cloneSchemaAttributeInput(input *schemaAttributeInput) *schemaAttributeInpu
 		return nil
 	}
 	return &schemaAttributeInput{
-		declaredType:    input.declaredType,
-		typeLoc:         input.typeLoc,
-		inheritable:     input.inheritable,
-		valueConstraint: cloneSchemaAttributeValueConstraintInput(input.valueConstraint),
+		declaredType:     input.declaredType,
+		typeLoc:          input.typeLoc,
+		inlineSimpleType: cloneSchemaSimpleTypeInput(input.inlineSimpleType),
+		inheritable:      input.inheritable,
+		valueConstraint:  cloneSchemaAttributeValueConstraintInput(input.valueConstraint),
 	}
 }
 
@@ -3347,6 +3359,7 @@ func cloneSchemaSimpleTypeReferenceComponents(inputs []schemaSimpleTypeReference
 	return clones
 }
 
+//nolint:gocognit // Keep declaration-order identity allocation in one pass.
 func allocateSchemaSimpleTypeNodeIDs(records []schemaComponentRecord) error {
 	nextBySource := make(map[SourceID]uint64)
 	seen := make(map[*schemaSimpleTypeInput]SimpleTypeID)
@@ -3356,11 +3369,15 @@ func allocateSchemaSimpleTypeNodeIDs(records []schemaComponentRecord) error {
 				return err
 			}
 		}
-		if record.element == nil || record.element.inlineSimpleType == nil {
-			continue
+		if record.element != nil && record.element.inlineSimpleType != nil {
+			if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
+				return err
+			}
 		}
-		if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
-			return err
+		if record.attribute != nil && record.attribute.inlineSimpleType != nil {
+			if err := allocateSchemaSimpleTypeNodeID(record.attribute.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -1718,11 +1718,8 @@ func validateAttributeGlobalChildren(parent *syntaxElement, children []*syntaxEl
 				return newSchemaCompositionDiagnostic(child.loc, "attribute simpleType child must be unique")
 			}
 			simpleTypeSeen = true
-			if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
+			if err := validateInlineSchemaTypeWithFacetBridge(child, version, true); err != nil && !candidate.considerError(err) {
 				return err
-			}
-			if !candidate.present {
-				candidate.consider(child, parent.name.local)
 			}
 			continue
 		}
@@ -4189,8 +4186,12 @@ func validateChoiceElementAlternative(element *syntaxElement, version XSDVersion
 	return candidate.err()
 }
 
-//nolint:gocognit // Keep inline type attribute support and child preflight together.
 func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error {
+	return validateInlineSchemaTypeWithFacetBridge(element, version, false)
+}
+
+//nolint:gocognit // Keep the global attribute facet bridge at its syntax boundary.
+func validateInlineSchemaTypeWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets bool) error {
 	kind, ok := schemaDeclarationKind(element.name.local)
 	if !ok || kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
 		return newSchemaBridgeInvariant(element.loc, "inline schema type has an unknown kind")
@@ -4221,7 +4222,7 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 		}
 	}
 	bridgeStringEnumeration := element.name.local == "simpleType" && inlineSimpleTypeMayHaveStringRestrictionBase(element)
-	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, false, bridgeStringEnumeration, false); err != nil {
+	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, bridgeFacets, bridgeStringEnumeration, false); err != nil {
 		if !candidate.considerError(err) {
 			return err
 		}

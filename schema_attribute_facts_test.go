@@ -1271,15 +1271,6 @@ func testSchemaBridgeGlobalAttributeExcludedShapes(t *testing.T) {
 			wantFeature: FeatureSchemaSyntax,
 		},
 		{
-			name:        "inline type",
-			policy:      Strict11,
-			root:        `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:attribute></xs:schema>`,
-			class:       FailureUnsupported,
-			code:        UnsupportedSchemaSyntaxCode,
-			primary:     "<xs:simpleType>",
-			wantFeature: FeatureSchemaSyntax,
-		},
-		{
 			name:    "type and inline type",
 			policy:  Strict11,
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:integer"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:attribute></xs:schema>`,

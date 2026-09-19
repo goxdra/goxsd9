@@ -133,7 +133,7 @@ var bootstrapProbeRows = []bootstrapProbeRow{
 				code:    goxsd9.UnsupportedSchemaSyntaxCode,
 				feature: goxsd9.FeatureSchemaSyntax,
 				source:  "xml-schema",
-				line:    78,
+				line:    158,
 				column:  3,
 				specRef: "xsd10-structures#schema-document",
 			},

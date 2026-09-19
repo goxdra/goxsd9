@@ -11,6 +11,7 @@ XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Complexes: element-only/mode
 `xs:any` supports `##any`/strict|lax|skip, `##other`/lax|strict, and positive namespaces (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing; broader placements unsupported; consumers reject nonzero wildcards. Named-global sequence/choice owners: `anyAttribute`, `##any`/strict; `##any`/lax|skip (optional/explicit namespace; skip), `##other`/lax|strict, `##other`/skip, positive namespaces (`##local`, `##targetNamespace`, URI lists) strict; locations retained; validation/generation unsupported.
 Only top-level direct model-group refs and named-global groups direct choice/sequence refs queryable; nested/other groups unsupported. Typed built-in/supported named
 `xs:token`/`xs:NMTOKEN` particles modeled; default-occurrence all-token/NMTOKEN choices validate; local token/NMTOKEN sequences unsupported; globals/generation unchanged.
+Global attributes preserve supported inline anonymous restriction/list/union references, model identities, locations, and effective facets; inline defaults/fixed values, local uses, validation, and generation remain unsupported.
 
 `abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. [ARCHITECTURE.md](ARCHITECTURE.md).
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
