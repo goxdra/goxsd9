@@ -160,11 +160,7 @@ behavior. An error-level diagnostic returns no schema.
 
 ## Non-goals, risks, and follow-up
 
-Currently, the occurrence boundary supports one named global complex type
-with one direct sequence or direct choice of local built-in boolean/token/NMTOKEN
-or named boolean/token/NMTOKEN restrictions, integer, or decimal scalar elements,
-or one global named model group with one direct choice or sequence of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. Direct model-group references retain exact ranges and target IDs. For bounded attribute-free extensions, exact occurrences apply with a present direct choice, sequence, or group-reference particle. Model-less extensions retain extension/base identities and locations but no particle or occurrence or synthetic content; validation and code generation reject them. Wildcard terms follow rules above. Supported forms retain exact ranges; `0/0` maps to absence.
-Sequence validation honors exact finite, unbounded, and above-`uint64` ranges for its documented homogeneous scalar shapes; direct-choice validation remains limited to default occurrences. Boolean facets, anonymous/nested/broader particles, groups, and broader wildcard/attribute shapes remain unsupported. Direct named-complex/bounded-extension group refs retain facts; anonymous simple-type models and resolved built-in/named/anonymous references are modeled. Named direct sequence/choice types expose local/ref `AttributeUse` views with lexical locations and resolved type/reference identities in particle-plus-uses and attribute-only bodies. One bounded `simpleContent` extension retains its scalar base/ref and local/ref uses without a particle; optional/required uses are returned and prohibited declarations omitted. Validation/code-generation consumers reject attribute-bearing types.
+Current scope covers named global complexes with direct sequence/choice local built-in or named Boolean/token/NMTOKEN, integer, and decimal elements; named groups with direct global element references; top-level group references; and bounded attribute-free extensions over named empty-content bases in XSD 1.0/1.1. Exact ranges, target IDs, and lexical order remain; `0/0` is absent. Model-less extensions retain base/extension identities and locations but no particle or synthetic content; consumers reject them. Wildcards retain namespace, process-content, location, and range facts; broader forms and wildcard consumers remain unsupported. Particle-plus-uses and attribute-only bodies expose ordered `AttributeUse` facts; bounded scalar `simpleContent` retains base/ref and uses without a particle. Optional/required uses remain effective, prohibited omitted; attribute-bearing validation/generation, value constraints, inheritance, groups, and broader derivation remain unsupported.
 
 For instance validation, named global complex homogeneous Boolean/numeric sequences
 match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`
@@ -181,12 +177,7 @@ alternative ranges are parsed and queryable, but direct-choice repetition is not
 implemented in validation, and effective total ranges are not calculated. Non-default
 direct sequence occurrences are not generated as repeated fields. Non-default
 `precisionDecimal` choice and alternative ranges that map to a particle are
-schema-unsupported. Boolean facets and anonymous, nested, or broader particles,
-including nested choices and `all`; nested, local, recursive, or broader group shapes
-and broader wildcard/attribute remain unsupported. Direct
-named-complex/bounded-extension group refs remain supported facts; anonymous simple-type
-models and resolved built-in, named, and anonymous simple-type
-references are modeled. Named direct sequence/choice types expose direct
+schema-unsupported. Named direct sequence/choice types expose direct
 `anyAttribute`: omitted attributes default to `##any`/`strict`;
 `##any`/`##other` supported. Positive namespace enumerations
 (`##local`, `##targetNamespace`, URI lists) allow only strict `processContents`

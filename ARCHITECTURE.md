@@ -3,9 +3,9 @@
 ## Boundaries
 
 goxsd9 exposes schema parsing, immutable queries/walks, XML validation, and Go
-generation. Schema model: validation/generation leaf.
+generation. Schema model: validation/generation.
 
-Runtime uses standard-library facilities; development tooling is outside library graph.
+Runtime uses standard-library facilities; tooling is outside library graph.
 
 ## Deterministic phase pipeline
 
@@ -23,15 +23,15 @@ flowchart LR
 
 Phases consume results. Local construction uses unexported
 slices/tables; completed components are immutable, never backpatched. Identities
-are interned before discovery; repeated includes/imports reuse them,
-so cycles do not recurse. Acyclic dependencies use stable topological order.
+are interned before discovery; repeated includes/imports reuse them, so cycles
+do not recurse. Acyclic dependencies use topological order.
 
-Ordered slices define observable walks/output; stable fallback keys.
+Ordered slices define walks/output; stable fallback keys.
 
 ## Input and resolution
 
 Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Roots use
-`NewResolvedSource`; resolvers supply references/policy. Parsing closes streams;
+`NewResolvedSource`; resolvers supply references. Parsing closes streams;
 identities decode once; repeats/cycles close without decoding.
 
 ```go
@@ -50,8 +50,8 @@ preserving child context for nested references. Identities and lexical locations
 stay opaque: parser neither interprets paths nor opens files or makes network
 requests. Resolver calls are sequential.
 
-Streaming decode captures one-based line and Unicode-code-point columns; syntax/final
-components retain `Loc`, not source bytes/excerpts.
+Streaming decode captures one-based line/Unicode columns; components retain `Loc`, not
+source bytes.
 
 ## Diagnostics
 
@@ -95,11 +95,9 @@ Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard it; 
 Schema-level defaults; local non-particle/inline/value/default/fixed/broader forms and
 non-atomic-string/string attrs unsupported.
 
-Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
-Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
-Complexes retain non-inherited `IsAbstract()` and final controls with source locations; named types expose canonical extension→restriction final controls (`Final()`/`FinalLoc()`) across XSD 1.0/1.1/Compatibility and reject prohibited derivations. Simple types retain effective `finalDefault` controls and enforce graph-policy matching; local final overrides document defaults; Strict10 rejects XSD 1.1 extension behavior.
-Groups/extensions retain IDs and locations; model-less extensions retain empty bases, nil particles, and inherited `##other`/lax wildcards. Named direct sequence/choice owners expose `anyAttribute` defaults and supported explicit wildcards: default `##any`/strict; `##any`/lax|skip (namespace optional/explicit; skip); `##other`/lax|strict; explicit `##other`/skip; and positive namespaces (`##local`, `##targetNamespace`, URI lists) with strict processing. Locations, normalized lexical values, and sorted effective namespace values are retained; wildcard consumers reject nonzero terms. Direct `xs:any` supports `##any`/strict|lax|skip, `##other`/lax|strict, and positive namespaces with strict/lax/explicit-skip processing; effective `0/0` maps to absence; broader placements remain unsupported.
-Particle-plus-uses and attribute-only bodies expose immutable ordered local/ref `AttributeUse` views with lexical locations and resolved type/reference identities; one bounded scalar-base `simpleContent` extension retains its base and local/ref uses without a particle. Optional/required uses are effective and prohibited declarations omitted; attribute-bearing validation/generation, value constraints, inheritable attributes, broader derivation, and broader wildcard/group shapes remain unsupported. Named groups expose ordered references/ranges; nested/other groups and unsupported derivations are rejected. `openContent=none` remains policy-gated: globals and bounded extensions are supported in Compatibility/Strict11, Strict10 is a mismatch, and malformed forms are invalid.
+Complexes expose non-inherited `IsAbstract()` and final controls (`Final()`/`FinalLoc()`); named types enforce extension/restriction policy across XSD 1.0/1.1/Compatibility and reject prohibited derivations. Simple types apply schema `finalDefault` unless local `final` overrides it; graph-policy controls and Strict10 mismatches are diagnosed.
+Groups/extensions retain IDs and locations; model-less forms retain empty bases, nil particles, and inherited `##other`/lax wildcards. Direct owners expose `anyAttribute`: default `##any`/strict, supported `##any`/lax|skip, `##other`/lax|strict|skip, and positive namespaces with strict processing; locations, normalized lexical forms, and sorted effective values are retained. Direct `xs:any` supports any/other/positive namespaces with strict/lax/skip; effective `0/0` is absent; broader placements and nonzero wildcard consumers are unsupported.
+Particle-plus-uses/attribute-only bodies expose immutable ordered local/ref `AttributeUse` facts with locations/types/IDs; bounded scalar `simpleContent` retains base/ref and uses without a particle. Optional/required returned, prohibited omitted; attribute validation/generation and broader groups/derivations unsupported. Named groups expose ordered refs/ranges; `openContent=none` supports globals/extensions only in Compatibility/Strict11 (Strict10 mismatch; malformed invalid).
 
 ## Datatypes
 
