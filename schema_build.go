@@ -3139,9 +3139,11 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		default:
 			return false
 		}
+	case schemaSimpleTypeAtomicToken:
+		facets, ok := reference.facets.(schemaStringFacetVariant)
+		return ok && facets.whiteSpace != nil && facets.whiteSpace.Value() == "collapse"
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
-		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
@@ -3193,9 +3195,10 @@ func resolveSchemaAttributeValueConstraint(
 		constraint.decimal = value
 		constraint.hasDecimal = true
 		return constraint, nil
+	case schemaSimpleTypeAtomicToken:
+		return resolveSchemaAttributeTokenValueConstraint(input, reference, version, constraint, lexical)
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
-		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
@@ -3208,6 +3211,30 @@ func resolveSchemaAttributeValueConstraint(
 	default:
 		return nil, newSchemaBridgeInvariant(input.loc, "convert an unsupported attribute value constraint type")
 	}
+}
+
+func resolveSchemaAttributeTokenValueConstraint(
+	input *schemaAttributeValueConstraintInput,
+	reference schemaSimpleTypeReferenceComponent,
+	version XSDVersion,
+	constraint *AttributeValueConstraint,
+	lexical string,
+) (*AttributeValueConstraint, error) {
+	facets, ok := reference.facets.(schemaStringFacetVariant)
+	if !ok || facets.whiteSpace == nil || facets.whiteSpace.Value() != "collapse" {
+		return nil, newSchemaBridgeInvariant(input.loc, "validate a token attribute value against an incomplete string facet model")
+	}
+	if err := facets.enumeration.validate(); err != nil {
+		return nil, err
+	}
+	if !facets.enumeration.HasEnumeration() || stringEnumerationContainsInValueSpace(facets.enumeration.values, lexical, collapseXMLWhitespace) {
+		return constraint, nil
+	}
+	return nil, invalidSchemaAttributeValueConstraint(
+		input,
+		version,
+		enumerationValueViolationDiagnostic(input.loc, facets.enumeration.Locations(), facets.enumeration.Version(), "token"),
+	)
 }
 
 func validateSchemaAttributeIntegerValue(reference schemaSimpleTypeReferenceComponent, value StrictInteger, loc Loc) error {
