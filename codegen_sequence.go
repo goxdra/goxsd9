@@ -16,13 +16,15 @@ const (
 )
 
 var (
-	errCodegenDirectSequenceQName    = errors.New("direct sequence QName is malformed")
-	errCodegenDirectSequenceParticle = errors.New("direct sequence particle fact is incomplete")
-	errCodegenDirectSequenceTarget   = errors.New("direct sequence scalar target fact is incomplete")
-	errCodegenDirectSequenceResolve  = errors.New("direct sequence scalar target could not be resolved")
-	errCodegenDirectSequenceNaming   = errors.New("direct sequence naming table is misaligned")
-	errCodegenDirectSequencePlan     = errors.New("direct sequence plan invariant is broken")
-	errCodegenDirectParticlePlan     = errors.New("direct particle plan invariant is broken")
+	errCodegenDirectSequenceQName       = errors.New("direct sequence QName is malformed")
+	errCodegenDirectSequenceParticle    = errors.New("direct sequence particle fact is incomplete")
+	errCodegenDirectSequenceTarget      = errors.New("direct sequence scalar target fact is incomplete")
+	errCodegenDirectSequenceResolve     = errors.New("direct sequence scalar target could not be resolved")
+	errCodegenDirectSequenceNaming      = errors.New("direct sequence naming table is misaligned")
+	errCodegenDirectSequencePlan        = errors.New("direct sequence plan invariant is broken")
+	errCodegenDirectSequenceWildcard    = errors.New("direct sequence contains an unsupported wildcard particle")
+	errCodegenDirectModelGroupReference = errors.New("model-group reference particle is outside Go code generation")
+	errCodegenDirectParticlePlan        = errors.New("direct particle plan invariant is broken")
 )
 
 type codegenDirectParticleKind uint8
@@ -169,7 +171,18 @@ func collectCodegenDirectParticles(
 				related,
 				fmt.Errorf("%w: bounded openAttrs complex type", errCodegenUnsupported),
 				version,
-				codegenDirectSequenceParticlesReference,
+			)
+		}
+		if body := definition.extensionBody(); body != nil {
+			if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(body.particle); groupReferenceOK {
+				return nil, newCodegenDirectModelGroupReferenceUnsupported(schema, component, groupReference, version)
+			}
+			return nil, newCodegenDirectParticleUnsupported(
+				body.extensionLoc,
+				fmt.Sprintf("complex type %q uses complex-content extension outside direct particle generation", component.Name()),
+				codegenComplexContentExtensionRelated(body),
+				fmt.Errorf("%w: complex-content extension", errCodegenUnsupported),
+				version,
 			)
 		}
 		particle := definition.Particle()
@@ -180,7 +193,6 @@ func collectCodegenDirectParticles(
 				nil,
 				fmt.Errorf("%w: complex type has no modeled particle", errCodegenUnsupported),
 				version,
-				codegenDirectSequenceParticlesReference,
 			)
 		}
 		if directChoiceTypedNilParticle(particle) {
@@ -191,6 +203,9 @@ func collectCodegenDirectParticles(
 				errCodegenDirectParticlePlan,
 			)
 		}
+		if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(particle); groupReferenceOK {
+			return nil, newCodegenDirectModelGroupReferenceUnsupported(schema, component, groupReference, version)
+		}
 		anyAttribute, anyAttributeOK := definition.AnyAttribute()
 		if choice, choiceOK := directChoiceValue(particle); choiceOK {
 			if anyAttributeOK {
@@ -199,6 +214,9 @@ func collectCodegenDirectParticles(
 			owner, ownerErr := collectCodegenDirectChoiceOwner(schema, component, choice, version)
 			if ownerErr != nil {
 				return nil, ownerErr
+			}
+			if abstractErr := rejectCodegenAbstractComplexType(definition, component.Loc(), appendCodegenRelated(nil, definition.Loc()), version); abstractErr != nil {
+				return nil, abstractErr
 			}
 			owners = append(owners, codegenDirectParticleCollectedOwner{
 				kind:   codegenDirectParticleChoice,
@@ -221,6 +239,9 @@ func collectCodegenDirectParticles(
 			if ownerErr != nil {
 				return nil, ownerErr
 			}
+			if abstractErr := rejectCodegenAbstractComplexType(definition, component.Loc(), appendCodegenRelated(nil, definition.Loc()), version); abstractErr != nil {
+				return nil, abstractErr
+			}
 			owners = append(owners, codegenDirectParticleCollectedOwner{
 				kind:     codegenDirectParticleSequence,
 				sequence: &owner,
@@ -233,10 +254,26 @@ func collectCodegenDirectParticles(
 			nil,
 			fmt.Errorf("%w: complex type particle is not a direct choice or sequence", errCodegenUnsupported),
 			version,
-			codegenDirectSequenceParticlesReference,
 		)
 	}
 	return owners, nil
+}
+
+func codegenComplexContentExtensionRelated(body *schemaComplexTypeExtensionBodyComponent) []Loc {
+	if body == nil {
+		return nil
+	}
+	related := make([]Loc, 0, 5)
+	related = appendCodegenRelated(related, body.complexContentLoc)
+	related = appendCodegenRelated(related, body.extensionLoc)
+	related = appendCodegenRelated(related, body.base.loc)
+	if body.particle != nil {
+		related = appendCodegenRelated(related, body.particle.Loc())
+	}
+	if body.anyAttribute != nil {
+		related = appendCodegenRelated(related, body.anyAttribute.loc)
+	}
+	return related
 }
 
 func directSequenceValue(particle Particle) (SequenceParticle, bool) {
@@ -304,6 +341,12 @@ func collectCodegenDirectSequenceOwner(
 				errCodegenDirectSequenceParticle,
 			)
 		}
+		if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(particle); groupReferenceOK {
+			return codegenDirectSequenceCollectedOwner{}, newCodegenDirectModelGroupReferenceUnsupported(schema, component, groupReference, version)
+		}
+		if wildcard, wildcardOK := wildcardParticleValue(particle); wildcardOK {
+			return codegenDirectSequenceCollectedOwner{}, newCodegenDirectSequenceWildcardUnsupported(sequence, wildcard, version)
+		}
 		if reference, referenceOK := elementReferenceParticleValue(particle); referenceOK {
 			if reference.facts == nil {
 				return codegenDirectSequenceCollectedOwner{}, newCodegenInternal(
@@ -359,6 +402,16 @@ func collectCodegenDirectSequenceOwner(
 				errCodegenDirectSequenceParticle,
 			)
 		}
+		if element.IsNillable() {
+			return codegenDirectSequenceCollectedOwner{}, newCodegenDirectSequenceUnsupported(
+				element.Loc(),
+				fmt.Sprintf("local element %q has nillable=true outside Go code generation", element.Name()),
+				nil,
+				fmt.Errorf("%w: non-default nillable local element fact", errCodegenUnsupported),
+				version,
+				codegenDirectSequenceElementReference,
+			)
+		}
 		if err := validateCodegenDirectSequenceBounds(
 			element.facts.occurrences,
 			element.Occurrences(),
@@ -382,7 +435,55 @@ func collectCodegenDirectSequenceOwner(
 			target: target,
 		})
 	}
+	if err := validateCodegenDirectSequenceScalarFamilies(owner, version); err != nil {
+		return codegenDirectSequenceCollectedOwner{}, err
+	}
 	return owner, nil
+}
+
+func validateCodegenDirectSequenceScalarFamilies(
+	owner codegenDirectSequenceCollectedOwner,
+	version XSDVersion,
+) error {
+	if len(owner.fields) == 0 {
+		return nil
+	}
+	firstFamily, firstOK := codegenDirectChoiceScalarFamilyFromSourceKind(owner.fields[0].target.scalarKind)
+	if !firstOK {
+		return newCodegenInternal(
+			owner.fields[0].loc,
+			"direct-sequence target has an unknown scalar family",
+			nil,
+			errCodegenDirectSequenceTarget,
+		)
+	}
+	for index, field := range owner.fields[1:] {
+		family, familyOK := codegenDirectChoiceScalarFamilyFromSourceKind(field.target.scalarKind)
+		if !familyOK {
+			return newCodegenInternal(
+				field.loc,
+				"direct-sequence target has an unknown scalar family",
+				nil,
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		if family == firstFamily || firstFamily != codegenDirectChoiceScalarBoolean && family != codegenDirectChoiceScalarBoolean {
+			continue
+		}
+		related := appendCodegenRelated(nil, owner.sequenceLoc)
+		for _, relatedField := range owner.fields {
+			related = appendCodegenRelated(related, relatedField.loc)
+		}
+		return newCodegenDirectSequenceUnsupported(
+			field.loc,
+			"direct sequence mixes Boolean and non-Boolean scalar fields outside Go code generation",
+			related,
+			fmt.Errorf("%w: mixed direct-sequence scalar families at field %d", errCodegenUnsupported, index+2),
+			version,
+			codegenDirectSequenceElementReference,
+		)
+	}
+	return nil
 }
 
 func codegenDirectSequencePath(index int) ([]uint32, error) {
@@ -434,6 +535,23 @@ func validateCodegenDirectSequenceElementName(name QName, loc Loc) error {
 	return nil
 }
 
+func newCodegenDirectSequenceWildcardUnsupported(sequence SequenceParticle, wildcard WildcardParticle, version XSDVersion) error {
+	loc := wildcard.Loc()
+	if loc.IsZero() {
+		loc = sequence.Loc()
+	}
+	related := appendCodegenRelated(nil, sequence.Loc())
+	related = appendCodegenRelated(related, wildcard.Loc())
+	return newCodegenDirectSequenceUnsupported(
+		loc,
+		"direct sequence wildcard particles are outside Go code generation",
+		related,
+		fmt.Errorf("%w: %w", errCodegenUnsupported, errCodegenDirectSequenceWildcard),
+		version,
+		codegenDirectSequenceElementReference,
+	)
+}
+
 //nolint:gocognit,funlen // Keep scalar identity and named-target validation together.
 func validateCodegenDirectSequenceTarget(
 	schema Schema,
@@ -474,6 +592,8 @@ func validateCodegenDirectSequenceTarget(
 		}
 		var kind codegenSourceScalarKind
 		switch declaredType.Local() {
+		case "boolean":
+			kind = codegenSourceScalarBoolean
 		case "integer":
 			kind = codegenSourceScalarInteger
 		case "decimal":
@@ -562,10 +682,12 @@ func validateCodegenDirectSequenceTarget(
 	if err != nil {
 		return codegenSourceTarget{}, decorateCodegenElementError(err, element.Loc(), related)
 	}
-	if scalarTarget.scalarKind != codegenSourceScalarInteger && scalarTarget.scalarKind != codegenSourceScalarDecimal {
+	if scalarTarget.scalarKind != codegenSourceScalarBoolean &&
+		scalarTarget.scalarKind != codegenSourceScalarInteger &&
+		scalarTarget.scalarKind != codegenSourceScalarDecimal {
 		return codegenSourceTarget{}, newCodegenDirectSequenceUnsupported(
 			element.Loc(),
-			fmt.Sprintf("named direct-sequence type %q is outside integer and decimal sequence generation", declaredType),
+			fmt.Sprintf("named direct-sequence type %q is outside scalar sequence generation", declaredType),
 			related,
 			fmt.Errorf("%w: named scalar kind %q", errCodegenUnsupported, scalarTarget.scalarKind),
 			version,
@@ -657,9 +779,36 @@ func newCodegenDirectParticleUnsupported(
 	related []Loc,
 	cause error,
 	version XSDVersion,
-	reference codegenDirectSequenceReference,
 ) error {
-	return newCodegenDirectSequenceUnsupported(loc, message, related, cause, version, reference)
+	return newCodegenDirectSequenceUnsupported(loc, message, related, cause, version, codegenDirectSequenceParticlesReference)
+}
+
+func newCodegenDirectModelGroupReferenceUnsupported(
+	schema Schema,
+	component Component,
+	reference ModelGroupReferenceParticle,
+	version XSDVersion,
+) error {
+	loc := reference.RefLoc()
+	if loc.IsZero() {
+		loc = reference.Loc()
+	}
+	if loc.IsZero() {
+		loc = component.Loc()
+	}
+	related := appendCodegenRelated(nil, component.Loc())
+	related = appendCodegenRelated(related, reference.Loc())
+	related = appendCodegenRelated(related, reference.RefLoc())
+	if target, ok := schema.Lookup(reference.TargetID()); ok {
+		related = appendCodegenRelated(related, target.Loc())
+	}
+	return newCodegenDirectParticleUnsupported(
+		loc,
+		fmt.Sprintf("complex type %q uses a model-group reference outside Go code generation", component.Name()),
+		related,
+		fmt.Errorf("%w: %w", errCodegenUnsupported, errCodegenDirectModelGroupReference),
+		version,
+	)
 }
 
 func newCodegenDirectSequenceResolution(loc Loc, message string, related []Loc, cause error) error {

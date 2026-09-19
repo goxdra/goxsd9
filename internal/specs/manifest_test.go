@@ -58,6 +58,19 @@ func TestValidateManifest(t *testing.T) {
 			},
 		},
 		{
+			name: "XSD 1.0 datatype representation has a fixed artifact",
+			mutate: func(manifest *Manifest) {
+				manifest.BootstrapArtifacts[0].Representation = manifestXSD10DatatypesRepresentation
+			},
+		},
+		{
+			name: "XSD 1.0 datatype representation requires a dependency role",
+			mutate: func(manifest *Manifest) {
+				artifact := &manifest.BootstrapArtifacts[3]
+				artifact.Entry = true
+			},
+		},
+		{
 			name: "missing bootstrap version",
 			mutate: func(manifest *Manifest) {
 				manifest.BootstrapArtifacts[1].Entry = false
@@ -162,6 +175,7 @@ func validTestManifest() Manifest {
 				XSDVersions:    []string{"1.0"},
 				Representation: "xml",
 				Entry:          true,
+				Dependencies:   []string{xsd10DatatypesSchemaID},
 			},
 			{
 				ID:             "xsd11-entry",
@@ -180,6 +194,14 @@ func validTestManifest() Manifest {
 				XSDVersions:    []string{"1.0", "1.1"},
 				Representation: "xml",
 				Aliases:        []string{"http://www.w3.org/2001/xml.xsd"},
+			},
+			{
+				ID:             xsd10DatatypesSchemaID,
+				Title:          "XSD 1.0 datatype schema",
+				URL:            "https://www.w3.org/TR/2004/REC-example/datatypes.xsd",
+				SHA256:         digest,
+				XSDVersions:    []string{"1.0"},
+				Representation: manifestXSD10DatatypesRepresentation,
 			},
 		},
 	}

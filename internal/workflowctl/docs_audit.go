@@ -51,14 +51,14 @@ func (a app) auditDocsWithFormat(root, baseRef, format string) error {
 	if err != nil {
 		return err
 	}
-	changes, fixtures, err := a.documentationChanges(root, rangeValue.mergeBase, rangeValue.head)
+	changes, fixtures, triggers, err := a.documentationChanges(root, rangeValue.mergeBase, rangeValue.head)
 	if err != nil {
 		return err
 	}
 	if format == "json" {
-		return a.writeDocumentationAuditJSON(documentationAuditReportFrom(rangeValue, changes, fixtures))
+		return a.writeDocumentationAuditJSON(documentationAuditReportFrom(rangeValue, changes, fixtures, triggers))
 	}
-	return a.writeDocumentationAudit(rangeValue, changes, fixtures)
+	return a.writeDocumentationAudit(rangeValue, changes, fixtures, triggers)
 }
 
 func (a app) documentationAuditReportForCommits(root, base, head string) (documentationAuditReport, error) {
@@ -79,11 +79,11 @@ func (a app) documentationAuditReportForCommits(root, base, head string) (docume
 		}
 		return documentationAuditReport{}, fmt.Errorf("find documentation audit merge base: %w", err)
 	}
-	changes, fixtures, err := a.documentationChanges(root, strings.TrimSpace(mergeBase), head)
+	changes, fixtures, triggers, err := a.documentationChanges(root, strings.TrimSpace(mergeBase), head)
 	if err != nil {
 		return documentationAuditReport{}, err
 	}
-	return documentationAuditReportFrom(documentationRange{base: base, head: head, mergeBase: strings.TrimSpace(mergeBase)}, changes, fixtures), nil
+	return documentationAuditReportFrom(documentationRange{base: base, head: head, mergeBase: strings.TrimSpace(mergeBase)}, changes, fixtures, triggers), nil
 }
 
 func (a app) documentationAuditRange(root, baseRef string) (documentationRange, error) {
@@ -115,7 +115,7 @@ func (a app) documentationAuditRange(root, baseRef string) (documentationRange, 
 	return documentationRange{base: base, head: head, mergeBase: mergeBase}, nil
 }
 
-func (a app) writeDocumentationAudit(rangeValue documentationRange, changes []documentationChange, fixtures []string) error {
+func (a app) writeDocumentationAudit(rangeValue documentationRange, changes []documentationChange, fixtures, triggers []string) error {
 	if err := writeLine(a.stdout, "Documentation audit"); err != nil {
 		return err
 	}
@@ -134,8 +134,11 @@ func (a app) writeDocumentationAudit(rangeValue documentationRange, changes []do
 	if err := a.writeNewEvaluationFixtures(fixtures); err != nil {
 		return err
 	}
+	if err := a.writeCurrentStateReviewTriggers(triggers); err != nil {
+		return err
+	}
 	review := "not required"
-	if len(changes) > 0 {
+	if len(changes) > 0 || len(triggers) > 0 {
 		review = "required"
 	}
 	return writeLine(a.stdout, "\nCurator review: %s", review)
@@ -184,6 +187,21 @@ func (a app) writeNewEvaluationFixtures(fixtures []string) error {
 	return nil
 }
 
+func (a app) writeCurrentStateReviewTriggers(triggers []string) error {
+	if err := writeLine(a.stdout, "\nCurrent-state review triggers:"); err != nil {
+		return err
+	}
+	if len(triggers) == 0 {
+		return writeLine(a.stdout, "- None")
+	}
+	for _, trigger := range triggers {
+		if err := writeLine(a.stdout, "- %s", strconv.Quote(trigger)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a app) resolveCommit(root, ref string) (string, error) {
 	commit, err := a.command(root, "git", "rev-parse", "--verify", "--end-of-options", ref+"^{commit}")
 	if err != nil {
@@ -195,29 +213,33 @@ func (a app) resolveCommit(root, ref string) (string, error) {
 	return commit, nil
 }
 
-func (a app) documentationChanges(root, base, head string) ([]documentationChange, []string, error) {
+func (a app) documentationChanges(root, base, head string) ([]documentationChange, []string, []string, error) {
 	statusOutput, err := a.gitRaw(root, "diff", "--name-status", "-z", "--no-renames", base, head, "--")
 	if err != nil {
-		return nil, nil, fmt.Errorf("read documentation paths: %w", err)
+		return nil, nil, nil, fmt.Errorf("read documentation paths: %w", err)
 	}
 	statuses, err := parseGitDocumentStatuses(statusOutput)
 	if err != nil {
-		return nil, nil, fmt.Errorf("parse documentation paths: %w", err)
+		return nil, nil, nil, fmt.Errorf("parse documentation paths: %w", err)
 	}
 	statOutput, err := a.gitRaw(root, "diff", "--numstat", "-z", "--no-renames", base, head, "--")
 	if err != nil {
-		return nil, nil, fmt.Errorf("read documentation line changes: %w", err)
+		return nil, nil, nil, fmt.Errorf("read documentation line changes: %w", err)
 	}
 	lineStats, err := parseGitLineStats(statOutput)
 	if err != nil {
-		return nil, nil, fmt.Errorf("parse documentation line changes: %w", err)
+		return nil, nil, nil, fmt.Errorf("parse documentation line changes: %w", err)
 	}
 	changes := make([]documentationChange, 0, len(statuses))
 	fixtures := make([]string, 0)
+	triggers := make([]string, 0)
 	for _, status := range statuses {
+		if isCurrentStateReviewTriggerPath(status.path) {
+			triggers = append(triggers, status.path)
+		}
 		change, fixture, managed, classifyErr := classifyDocumentationChange(root, status, lineStats)
 		if classifyErr != nil {
-			return nil, nil, classifyErr
+			return nil, nil, nil, classifyErr
 		}
 		if fixture != "" {
 			fixtures = append(fixtures, fixture)
@@ -228,7 +250,23 @@ func (a app) documentationChanges(root, base, head string) ([]documentationChang
 	}
 	sort.Slice(changes, func(left, right int) bool { return changes[left].path < changes[right].path })
 	sort.Strings(fixtures)
-	return changes, fixtures, nil
+	sort.Strings(triggers)
+	return changes, fixtures, triggers, nil
+}
+
+func isCurrentStateReviewTriggerPath(pathValue string) bool {
+	if !strings.HasSuffix(pathValue, ".go") || strings.HasSuffix(pathValue, "_test.go") {
+		return false
+	}
+	if strings.HasPrefix(pathValue, "internal/workflowctl/") || strings.HasPrefix(pathValue, "cmd/workflowctl/") {
+		return false
+	}
+	for _, segment := range strings.Split(pathValue, "/") {
+		if segment == "testdata" || segment == "evals" {
+			return false
+		}
+	}
+	return true
 }
 
 func classifyDocumentationChange(root string, status gitDocumentStatus,

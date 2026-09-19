@@ -501,6 +501,13 @@ func RestrictStringEnumerationFacets(base StringEnumerationFacets, local StringE
 	return completeStringEnumerationFacets(base, NewStringEnumerationFacetDeclarations(local.Values), true)
 }
 
+func restrictStringEnumerationFacetsInValueSpace(base StringEnumerationFacets, local StringEnumerationFacetDeclarations) (StringEnumerationFacets, error) {
+	if err := base.validate(); err != nil {
+		return StringEnumerationFacets{}, err
+	}
+	return completeStringEnumerationFacetsWithNormalizer(base, NewStringEnumerationFacetDeclarations(local.Values), true, collapseXMLWhitespace)
+}
+
 // ConstructStringEnumerationFacets is the phase-oriented name for
 // RestrictStringEnumerationFacets.
 func ConstructStringEnumerationFacets(base StringEnumerationFacets, local StringEnumerationFacetDeclarations) (StringEnumerationFacets, error) {
@@ -774,6 +781,10 @@ func completeDecimalEnumerationFacets(base DecimalEnumerationFacets, local Decim
 }
 
 func completeStringEnumerationFacets(base StringEnumerationFacets, local StringEnumerationFacetDeclarations, derived bool) (StringEnumerationFacets, error) {
+	return completeStringEnumerationFacetsWithNormalizer(base, local, derived, nil)
+}
+
+func completeStringEnumerationFacetsWithNormalizer(base StringEnumerationFacets, local StringEnumerationFacetDeclarations, derived bool, normalize func(string) string) (StringEnumerationFacets, error) {
 	if err := base.validateForConstruction(); err != nil {
 		return StringEnumerationFacets{}, err
 	}
@@ -790,7 +801,7 @@ func completeStringEnumerationFacets(base StringEnumerationFacets, local StringE
 	}
 	if derived && base.values != nil {
 		for index := range local.Values {
-			if stringEnumerationContains(base.values, local.Values[index].value) {
+			if stringEnumerationContainsInValueSpace(base.values, local.Values[index].value, normalize) {
 				continue
 			}
 			return StringEnumerationFacets{}, enumerationRestrictionDiagnostic(
@@ -1015,6 +1026,21 @@ func decimalEnumerationContains(values []DecimalEnumerationFacet, candidate Stri
 func stringEnumerationContains(values []StringEnumerationFacet, candidate string) bool {
 	for index := range values {
 		if candidate == values[index].value {
+			return true
+		}
+	}
+	return false
+}
+
+func stringEnumerationContainsInValueSpace(values []StringEnumerationFacet, candidate string, normalize func(string) string) bool {
+	if normalize == nil {
+		return stringEnumerationContains(values, candidate)
+	}
+	candidate = normalize(candidate)
+	for index := range values {
+		value := values[index].value
+		value = normalize(value)
+		if candidate == value {
 			return true
 		}
 	}

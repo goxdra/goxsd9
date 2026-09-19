@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -184,6 +185,184 @@ func TestSchemaBridgeBuildsBooleanLocalParticles(t *testing.T) {
 				t.Fatal("repeated schema builds disagree")
 			}
 		})
+	}
+}
+
+//nolint:gocognit,funlen // Keep the policy, lexical, particle-shape, and ownership matrix together.
+func TestSchemaBridgeExposesLocalElementNillableFactsAcrossPolicies(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "Compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "Strict10", policy: Strict10, version: XSDVersion10},
+		{name: "Strict11", policy: Strict11, version: XSDVersion11},
+	}
+	lexicals := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "omitted", want: false},
+		{name: "false", value: "false", want: false},
+		{name: "zero", value: "0", want: false},
+		{name: "true", value: "true", want: true},
+		{name: "one", value: "1", want: true},
+	}
+	kinds := []struct {
+		name     string
+		typeName string
+	}{
+		{name: "integer", typeName: "integer"},
+		{name: "boolean", typeName: "boolean"},
+	}
+
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			var choiceChildren strings.Builder
+			var sequenceChildren strings.Builder
+			for _, kind := range kinds {
+				for _, lexical := range lexicals {
+					attribute := ""
+					if lexical.value != "" {
+						attribute = ` nillable="` + lexical.value + `"`
+					}
+					choiceChildren.WriteString(`<xs:element name="choice`)
+					choiceChildren.WriteString(kind.name)
+					choiceChildren.WriteString(lexical.name)
+					choiceChildren.WriteString(`" type="xs:`)
+					choiceChildren.WriteString(kind.typeName)
+					choiceChildren.WriteString(`"`)
+					choiceChildren.WriteString(attribute)
+					choiceChildren.WriteString(`/>`)
+					sequenceChildren.WriteString(`<xs:element name="sequence`)
+					sequenceChildren.WriteString(kind.name)
+					sequenceChildren.WriteString(lexical.name)
+					sequenceChildren.WriteString(`" type="xs:`)
+					sequenceChildren.WriteString(kind.typeName)
+					sequenceChildren.WriteString(`"`)
+					sequenceChildren.WriteString(attribute)
+					sequenceChildren.WriteString(`/>`)
+				}
+			}
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(profile.version) + `">` +
+				`<xs:complexType name="Choice"><xs:choice>` + choiceChildren.String() + `</xs:choice></xs:complexType>` +
+				`<xs:complexType name="Sequence"><xs:sequence>` + sequenceChildren.String() + `</xs:sequence></xs:complexType>` +
+				`</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+
+			if got := (ElementParticle{}).IsNillable(); got {
+				t.Fatal("zero ElementParticle IsNillable() = true, want false")
+			}
+			choiceDefinition := booleanParticleComplexType(t, schema, "Choice")
+			choice, ok := choiceDefinition.Particle().(ChoiceParticle)
+			if !ok {
+				t.Fatalf("choice particle = %T, want ChoiceParticle", choiceDefinition.Particle())
+			}
+			sequenceDefinition := booleanParticleComplexType(t, schema, "Sequence")
+			sequence, ok := sequenceDefinition.Particle().(SequenceParticle)
+			if !ok {
+				t.Fatalf("sequence particle = %T, want SequenceParticle", sequenceDefinition.Particle())
+			}
+
+			choiceAlternatives := choice.Alternatives()
+			sequenceElements := sequence.Elements()
+			wantCount := len(kinds) * len(lexicals)
+			if len(choiceAlternatives) != wantCount || len(sequenceElements) != wantCount {
+				t.Fatalf("particle counts = choice %d, sequence %d, want %d", len(choiceAlternatives), len(sequenceElements), wantCount)
+			}
+			index := 0
+			for _, kind := range kinds {
+				for _, lexical := range lexicals {
+					choiceElement := requireBooleanElementParticle(t, choiceAlternatives[index], index)
+					sequenceElement := sequenceElements[index]
+					wantChoiceName := "choice" + kind.name + lexical.name
+					wantSequenceName := "sequence" + kind.name + lexical.name
+					if choiceElement.Name().Local() != wantChoiceName || sequenceElement.Name().Local() != wantSequenceName {
+						t.Fatalf("particle %d names = %q/%q, want %q/%q", index, choiceElement.Name().Local(), sequenceElement.Name().Local(), wantChoiceName, wantSequenceName)
+					}
+					if choiceElement.IsNillable() != lexical.want || sequenceElement.IsNillable() != lexical.want {
+						t.Fatalf("particle %d nillable = %t/%t, want %t", index, choiceElement.IsNillable(), sequenceElement.IsNillable(), lexical.want)
+					}
+					if choiceElement.Loc().IsZero() || sequenceElement.Loc().IsZero() {
+						t.Fatalf("particle %d lost local declaration location", index)
+					}
+					index++
+				}
+			}
+
+			before := schema.Components()
+			choiceAlternatives[0] = nil
+			sequenceElements[0] = ElementParticle{}
+			if choiceElement := requireBooleanElementParticle(t, choice.Alternatives()[0], 0); choiceElement.IsNillable() {
+				t.Fatal("mutating choice query changed nillable fact")
+			}
+			if sequenceElement := sequence.Elements()[0]; sequenceElement.IsNillable() {
+				t.Fatal("mutating sequence query changed nillable fact")
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("mutating particle query results changed the completed schema")
+			}
+			repeated, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err != nil {
+				t.Fatalf("repeated discoverSchema: %v", err)
+			}
+			if !reflect.DeepEqual(before, repeated.Components()) {
+				t.Fatal("repeated schema builds disagree")
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep the invalid lexical and reference-combination matrix together.
+func TestSchemaBridgeRejectsInvalidLocalElementNillableInput(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "Compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "Strict10", policy: Strict10, version: XSDVersion10},
+		{name: "Strict11", policy: Strict11, version: XSDVersion11},
+	}
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "malformed boolean",
+			body: `<xs:complexType name="Record"><xs:choice><xs:element name="value" type="xs:integer" nillable="maybe"/></xs:choice></xs:complexType>`,
+		},
+		{
+			name: "reference combination",
+			body: `<xs:element name="target" type="xs:integer"/><xs:complexType name="Record"><xs:choice><xs:element ref="r:target" nillable="true"/></xs:choice></xs:complexType>`,
+		},
+	}
+	for _, profile := range profiles {
+		for _, test := range cases {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("discoverSchema accepted invalid local nillable input")
+				}
+				if schema.storage != nil || len(schema.Components()) != 0 {
+					t.Fatal("discoverSchema returned a partial schema")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+					t.Fatalf("diagnostic = %s, want invalid/%s", diagnostic, invalidSchemaCompositionCode)
+				}
+				wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, 1, "nillable")
+				if diagnostic.Loc() != wantLoc {
+					t.Fatalf("diagnostic location = %s, want nillable attribute %s", diagnostic.Loc(), wantLoc)
+				}
+			})
+		}
 	}
 }
 
