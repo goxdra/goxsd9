@@ -4573,7 +4573,7 @@ func builtinStringSchemaScalarTypeAllowedInScope(local string, scope schemaScala
 	if scope == schemaScalarTypeGlobalElement {
 		return true
 	}
-	return local == "token" || local == "NMTOKEN"
+	return local == "string" || local == "token" || local == "NMTOKEN"
 }
 
 func resolveBuiltinPrecisionDecimalSchemaScalarType(input *schemaElementInput, version XSDVersion, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
@@ -4615,8 +4615,9 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 		return nil
 	}
 	switch simpleType.atomicKind {
-	case schemaSimpleTypeAtomicString,
-		schemaSimpleTypeAtomicLanguage,
+	case schemaSimpleTypeAtomicString:
+		return nil
+	case schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
 		schemaSimpleTypeAtomicID:

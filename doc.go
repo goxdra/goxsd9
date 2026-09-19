@@ -66,7 +66,8 @@
 // supported named token/NMTOKEN elements in direct choices/sequences and bounded
 // attribute-free extensions are modeled; validation supports only default-occurrence
 // all-token/NMTOKEN direct choices, while local token/NMTOKEN sequences and generation remain
-// unsupported. Local string particles remain unsupported. Anonymous simple-type
+// unsupported. Local atomic string particles retain immutable resolved type/facet facts;
+// validation and generation remain unsupported. Anonymous simple-type
 // models and resolved built-in, named, and anonymous simple-type references are
 // modeled. Direct element references are queryable immutable particles.
 // ValidateInstance supports default-occurrence direct choices made entirely of
@@ -116,7 +117,8 @@
 // collapse XML whitespace before effective enumeration comparison without
 // changing retained schema facts. Global NMTOKEN values also collapse XML
 // whitespace and enforce the repository XML NameChar policy. Global string
-// values, local string particles, token/NMTOKEN sequence particles, lists/unions,
+// values and local atomic string particles retain schema facts but remain
+// unsupported to consumers; token/NMTOKEN sequence particles, lists/unions,
 // attributes, broader particles, and other semantics remain explicit unsupported
 // behavior.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal/

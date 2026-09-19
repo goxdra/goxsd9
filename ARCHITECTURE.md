@@ -5,7 +5,7 @@
 goxsd9 exposes schema parsing, immutable queries/walks, XML validation, and Go
 generation. Schema model: validation/generation leaf.
 
-Runtime uses standard-library facilities; development tooling is outside library graph.
+Runtime uses stdlib; tooling is outside the library graph.
 
 ## Deterministic phase pipeline
 
@@ -21,10 +21,9 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Phases consume results. Local construction uses unexported
-slices/tables; completed components are immutable, never backpatched. Identities
-are interned before discovery; repeated includes/imports reuse them,
-so cycles do not recurse. Acyclic dependencies use stable topological order.
+Phases consume results. Construction uses unexported slices/tables; completed
+components are immutable. Interned identities prevent recursive repeated
+includes/imports; dependencies use stable topological order.
 
 Ordered slices define observable walks/output; stable fallback keys.
 
@@ -44,14 +43,13 @@ type Resolver interface {
 }
 ```
 
-Each source carries opaque identity, reader-closer, child context; resolvers may
-store typed private base-location state. Discovery passes parent context FIFO,
-preserving child context for nested references. Identities and lexical locations
-stay opaque: parser neither interprets paths nor opens files or makes network
-requests. Resolver calls are sequential.
+Sources carry opaque identity, reader-closer, and child context; resolvers may
+store typed private base state. FIFO discovery preserves nested context.
+Identities/locations remain opaque: parser does not interpret paths, open files,
+or make network requests. Calls are sequential.
 
-Streaming decode captures one-based line and Unicode-code-point columns; syntax/final
-components retain `Loc`, not source bytes/excerpts.
+Decode captures one-based line/Unicode-code-point columns; syntax/final components
+retain `Loc`, not source bytes or excerpts.
 
 ## Diagnostics
 
@@ -99,6 +97,9 @@ Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final(
 Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
 Groups/extensions: IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. Named-global sequence/choice owners: `anyAttribute`, default `##any`/strict; `##any`/lax|skip (namespace optional/explicit; skip), `##other`/lax|strict, explicit `##other`/skip, and positive namespaces (`##local`, `##targetNamespace`, URI lists) strict; locations/values retained; attribute validation/generation unsupported. `xs:any`: `##any`/strict|lax|skip (skip explicit), `##other`/lax|strict, positive constraints (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing and sorted effective values; lexical/source locations; ranges; `0/0` absent. Consumers reject nonzero wildcards; broader unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed=invalid.
 Named groups expose ordered references/ranges; broader shapes unsupported; consumers reject.
+Local `xs:string` particles and named restrictions retain immutable type/facet
+facts, locations, and occurrences in choices, sequences, bounded extensions;
+consumers reject them. Inline/token-derived forms unsupported.
 
 ## Datatypes
 
