@@ -43,9 +43,13 @@
 // and broader wildcard placements remain unsupported. Nonzero wildcard-bearing
 // particles remain unsupported to validation and generation consumers.
 // Named global direct sequence and choice complex types also expose immutable
-// anyAttribute facts for effective ##any/skip and explicit ##other/skip when
-// processContents="skip" is explicit; omitted and explicit namespace spellings
-// retain their location distinction. Attribute-wildcard validation and
+// anyAttribute facts for effective ##any and ##other constraints, plus positive
+// ##local, ##targetNamespace, and URI namespace enumerations with strict
+// processing (omitted processContents defaults to strict). NamespaceConstraint
+// resolves markers against the owner's effective schema namespace and returns
+// copied, sorted, deduplicated effective values. Normalized lexical forms and
+// exact anyAttribute, namespace, and processContents source locations are
+// retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
 // Effective 0/0 sequence, choice, child, and wildcard ranges map
 // to absence. Non-0/0 integer/decimal choice and
