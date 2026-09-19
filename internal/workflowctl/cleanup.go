@@ -643,11 +643,14 @@ func (a app) evaluatedRunLocalLineage(root string, packet mergedPacket, candidat
 	if err != nil {
 		return runLocalLineage{}, err
 	}
+	if err := a.verifyRunLocalHistoryRecords(root, candidate.branch, records); err != nil {
+		return runLocalLineage{}, err
+	}
 	lineage := runLocalLineage{identities: make([]runLocalHistoryIdentity, 0)}
 	for _, record := range records {
 		identity, canonical, parseErr := parseCanonicalRunLocalClaim(record.message, issue)
 		if parseErr != nil {
-			return runLocalLineage{}, stateError("preserve run-local ref %s at history commit %s: malformed canonical claim marker: %w", candidate.branch, record.commit, parseErr)
+			return runLocalLineage{}, terminalRunLocalHistoryError(stateError("preserve run-local ref %s at history commit %s: malformed canonical claim marker: %w", candidate.branch, record.commit, parseErr))
 		}
 		if !canonical {
 			continue
@@ -980,7 +983,14 @@ func (a app) runLocalHistoryProof(root string, ref runLocalRefCandidate, proofHe
 	if err != nil {
 		return runLocalHistoryProof{}, err
 	}
-	return parseBoundedRunLocalHistoryProof(history, ref.branch)
+	records, err := splitRunLocalHistory(history, ref.branch)
+	if err != nil {
+		return runLocalHistoryProof{}, err
+	}
+	if err := a.verifyRunLocalHistoryRecords(root, ref.branch, records); err != nil {
+		return runLocalHistoryProof{}, err
+	}
+	return parseBoundedRunLocalHistoryProofRecords(records, ref.branch)
 }
 
 func (a app) evaluatedClaimHistory(root string, ref runLocalRefCandidate, proofHead string) (string, error) {
@@ -989,10 +999,13 @@ func (a app) evaluatedClaimHistory(root string, ref runLocalRefCandidate, proofH
 	if err == nil {
 		return history, nil
 	}
+	if operationDispositionOf(err) != operationDispositionUnknown {
+		return "", err
+	}
 	fetchRef := "refs/workflowctl/run-local-proof/" + ref.branch
 	existing, checkErr := a.command(root, "git", "for-each-ref", "--format=%(objectname)", fetchRef)
 	if checkErr != nil {
-		return "", fmt.Errorf("inspect temporary evaluated claim ref %s: %w", fetchRef, checkErr)
+		return "", retryableOperation("read evaluated claim history", fmt.Errorf("inspect temporary evaluated claim ref %s after history command: %w", fetchRef, errors.Join(err, checkErr)))
 	}
 	if strings.TrimSpace(existing) != "" {
 		return "", stateError("preserve run-local ref %s: temporary evaluated claim ref %s already exists", ref.branch, fetchRef)
@@ -1001,21 +1014,25 @@ func (a app) evaluatedClaimHistory(root string, ref runLocalRefCandidate, proofH
 	_, fetchErr := a.command(root, "git", "fetch", "--no-tags", "--no-write-fetch-head", "origin", fetchSpec)
 	if fetchErr != nil {
 		cleanupErr := a.deleteTemporaryRunLocalProofRef(root, fetchRef)
-		return "", fmt.Errorf("read evaluated claim history for run-local ref %s at %s: %w", ref.branch, proofHead, errors.Join(err, fmt.Errorf("fetch run-local claim: %w", errors.Join(fetchErr, cleanupErr))))
+		return "", retryableOperation("read evaluated claim history", fmt.Errorf("read evaluated claim history for run-local ref %s at %s: %w", ref.branch, proofHead, errors.Join(err, fmt.Errorf("fetch run-local claim: %w", errors.Join(fetchErr, cleanupErr)))))
 	}
 	fetchedSHA, fetchRefErr := a.command(root, "git", "rev-parse", fetchRef)
 	if fetchRefErr != nil {
 		cleanupErr := a.deleteTemporaryRunLocalProofRef(root, fetchRef)
-		return "", fmt.Errorf("read temporary evaluated claim ref %s: %w", fetchRef, errors.Join(fetchRefErr, cleanupErr))
+		return "", retryableOperation("read evaluated claim history", fmt.Errorf("read temporary evaluated claim ref %s: %w", fetchRef, errors.Join(fetchRefErr, cleanupErr)))
 	}
 	fetchedSHA = strings.TrimSpace(fetchedSHA)
+	if !validExactCommitSHA(fetchedSHA) {
+		cleanupErr := a.deleteTemporaryRunLocalProofRef(root, fetchRef)
+		return "", terminalRunLocalHistoryError(stateError("temporary evaluated claim ref %s returned malformed head %q; preserve claim artifacts: %v", fetchRef, fetchedSHA, cleanupErr))
+	}
 	history, historyErr := a.command(root, "git", "log", "--format="+format, proofHead)
 	cleanupErr := a.deleteRefIfExact(root, fetchRef, fetchedSHA, "temporary evaluated claim ref "+ref.branch)
 	if historyErr != nil {
-		return "", fmt.Errorf("read evaluated claim history for run-local ref %s at %s after fetch: %w", ref.branch, proofHead, errors.Join(historyErr, cleanupErr))
+		return "", retryableOperation("read evaluated claim history", fmt.Errorf("read evaluated claim history for run-local ref %s at %s after fetch: %w", ref.branch, proofHead, errors.Join(historyErr, cleanupErr)))
 	}
 	if cleanupErr != nil {
-		return "", cleanupErr
+		return "", retryableOperation("read evaluated claim history cleanup", cleanupErr)
 	}
 	return history, nil
 }
@@ -1037,23 +1054,55 @@ type runLocalHistoryRecord struct {
 	message string
 }
 
+func terminalRunLocalHistoryError(err error) error {
+	if err == nil || operationDispositionOf(err) != operationDispositionUnknown {
+		return err
+	}
+	return terminalOperation("run-local history", err)
+}
+
 func splitRunLocalHistory(history, branch string) ([]runLocalHistoryRecord, error) {
 	fields := strings.Split(history, "\x00")
 	if len(fields) == 1 && strings.TrimSpace(fields[0]) == "" {
-		return nil, stateError("preserve run-local ref %s: evaluated head history is empty", branch)
+		return nil, terminalRunLocalHistoryError(stateError("preserve run-local ref %s: evaluated head history is empty", branch))
 	}
 	records := make([]runLocalHistoryRecord, 0, len(fields)/2)
 	for index := 0; index+1 < len(fields); index += 2 {
-		commit := strings.TrimSpace(fields[index])
-		if commit == "" {
-			return nil, stateError("preserve run-local ref %s: evaluated head history contains an empty commit", branch)
+		// git log places its record-separator newline before each later hash.
+		commit := strings.TrimPrefix(fields[index], "\n")
+		if !validExactCommitSHA(commit) {
+			return nil, terminalRunLocalHistoryError(stateError("preserve run-local ref %s: evaluated head history contains malformed commit token %q; preserve claim artifacts", branch, commit))
 		}
 		records = append(records, runLocalHistoryRecord{commit: commit, message: fields[index+1]})
 	}
 	if len(fields)%2 != 1 || strings.TrimSpace(fields[len(fields)-1]) != "" {
-		return nil, stateError("preserve run-local ref %s: evaluated head history is malformed", branch)
+		return nil, terminalRunLocalHistoryError(stateError("preserve run-local ref %s: evaluated head history is malformed", branch))
 	}
 	return records, nil
+}
+
+func (a app) verifyRunLocalHistoryRecords(root, branch string, records []runLocalHistoryRecord) error {
+	for _, record := range records {
+		if err := a.validateLocalAgentCommit(root, record.commit, "run-local history commit "+record.commit+" for "+branch); err != nil {
+			return err
+		}
+		if !isCanonicalClaimMarkerShape(record.message) {
+			continue
+		}
+		marker, err := a.readCanonicalClaimIdentity(root, record.commit, "")
+		if err != nil {
+			return retryableOperationIfRecoverable("verify run-local history marker", fmt.Errorf("verify canonical claim marker %s for %s: %w", record.commit, branch, err))
+		}
+		if marker.message != record.message {
+			return terminalOperation("verify run-local history marker", stateError("preserve run-local ref %s: history commit %s message differs from its canonical Git object", branch, record.commit))
+		}
+	}
+	return nil
+}
+
+func isCanonicalClaimMarkerShape(message string) bool {
+	lines := strings.Split(message, "\n")
+	return len(lines) > 0 && strings.HasPrefix(lines[0], "chore(workflow): claim issue #")
 }
 
 func parseRunLocalHistoryRecords(records []runLocalHistoryRecord, branch string) ([]runLocalHistoryIdentity, error) {
@@ -1080,21 +1129,29 @@ func parseBoundedRunLocalHistory(history, branch string) ([]runLocalHistoryIdent
 }
 
 func parseBoundedRunLocalHistoryProof(history, branch string) (runLocalHistoryProof, error) {
-	kind, issue, runID := classifyAgentRef(branch)
+	kind, _, runID := classifyAgentRef(branch)
 	if kind != agentRefRunLocal || runID == "" {
-		return runLocalHistoryProof{}, stateError("preserve run-local ref %s: run identity is malformed", branch)
+		return runLocalHistoryProof{}, terminalRunLocalHistoryError(stateError("preserve run-local ref %s: run identity is malformed", branch))
 	}
 	records, err := splitRunLocalHistory(history, branch)
 	if err != nil {
 		return runLocalHistoryProof{}, err
 	}
+	return parseBoundedRunLocalHistoryProofRecords(records, branch)
+}
+
+func parseBoundedRunLocalHistoryProofRecords(records []runLocalHistoryRecord, branch string) (runLocalHistoryProof, error) {
+	kind, issue, runID := classifyAgentRef(branch)
+	if kind != agentRefRunLocal || runID == "" {
+		return runLocalHistoryProof{}, terminalRunLocalHistoryError(stateError("preserve run-local ref %s: run identity is malformed", branch))
+	}
 	anchor, err := findRunLocalHistoryAnchor(records, branch, runID, issue)
 	if err != nil {
-		return runLocalHistoryProof{}, err
+		return runLocalHistoryProof{}, terminalRunLocalHistoryError(err)
 	}
 	identities, err := parseRunLocalHistoryRecords(records[:anchor+1], branch)
 	if err != nil {
-		return runLocalHistoryProof{}, err
+		return runLocalHistoryProof{}, terminalRunLocalHistoryError(err)
 	}
 	return runLocalHistoryProof{identities: identities, anchor: records[anchor].commit}, nil
 }
@@ -1266,7 +1323,7 @@ func (a app) validateCurrentRemoteRunLocalRef(root string, ref runLocalRefCandid
 	remoteRef := "refs/heads/" + ref.branch
 	output, err := a.command(root, "git", "ls-remote", "--heads", "origin", remoteRef)
 	if err != nil {
-		return fmt.Errorf("inspect run-local ref %s before cleanup: %w", ref.branch, err)
+		return retryableOperation("inspect run-local ref "+ref.branch+" before cleanup", fmt.Errorf("inspect run-local ref %s before cleanup: %w", ref.branch, err))
 	}
 	remoteSHA, present, err := exactRemoteRef(output, remoteRef)
 	if err != nil {
@@ -1890,15 +1947,21 @@ func provenRunLocalWorktreeAllowed(worktree gitWorktree, refs []provenRunLocalRe
 func (a app) localTrackingClaimRefs(root string) ([]remoteClaim, error) {
 	output, err := a.command(root, "git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin/agent/issue-*")
 	if err != nil {
-		return nil, fmt.Errorf("list remote-tracking claim refs: %w", err)
+		return nil, retryableOperation("list remote-tracking claim refs", fmt.Errorf("list remote-tracking claim refs: %w", err))
 	}
 	var claims []remoteClaim
 	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		branch := strings.TrimPrefix(fields[0], "origin/")
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			return nil, terminalOperation("list remote-tracking claim refs", fmt.Errorf("remote-tracking claim ref listing contains malformed entry %q", line))
+		}
+		branch, namespaceErr := trackingAgentRefBranch(fields[0])
+		if namespaceErr != nil {
+			return nil, terminalOperation("list remote-tracking claim refs", namespaceErr)
+		}
 		kind, number, _ := classifyAgentRef(branch)
 		if kind != agentRefClaim {
 			continue
@@ -1915,29 +1978,34 @@ func (a app) localTrackingClaimRefs(root string) ([]remoteClaim, error) {
 }
 
 func (a app) localRunLocalRefs(root string) ([]runLocalRef, []agentRef, error) {
-	output, err := a.command(root, "git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/agent/issue-*")
+	return a.listRunLocalRefs(root, "refs/heads/agent/issue-*", claimRefLocal)
+}
+
+func (a app) localTrackingRunLocalRefs(root string) ([]runLocalRef, []agentRef, error) {
+	return a.listRunLocalRefs(root, "refs/remotes/origin/agent/issue-*", claimRefTracking)
+}
+
+func (a app) listRunLocalRefs(root, namespace string, source claimRefSource) ([]runLocalRef, []agentRef, error) {
+	label := sourceName(source)
+	output, err := a.command(root, "git", "for-each-ref", "--format=%(refname:short) %(objectname)", namespace)
 	if err != nil {
-		return nil, nil, fmt.Errorf("list local run-local refs: %w", err)
+		return nil, nil, retryableOperation("list "+label+" run-local refs", fmt.Errorf("list %s run-local refs: %w", label, err))
 	}
 	var refs []runLocalRef
 	var malformed []agentRef
 	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
+		ref, badRef, present, parseErr := parseRunLocalRefLine(line, source)
+		if parseErr != nil {
+			return nil, nil, terminalOperation("list "+label+" run-local refs", parseErr)
+		}
+		if !present {
 			continue
 		}
-		if len(fields) != 2 {
-			return nil, nil, fmt.Errorf("local run-local ref listing contains malformed entry %q", line)
-		}
-		branch := fields[0]
-		kind, number, runID := classifyAgentRef(branch)
-		if kind == agentRefRunLocal {
-			refs = append(refs, runLocalRef{branch: branch, number: number, runID: runID, sha: fields[1], source: claimRefLocal})
+		if badRef.branch != "" {
+			malformed = append(malformed, badRef)
 			continue
 		}
-		if kind == agentRefMalformed {
-			malformed = append(malformed, agentRef{branch: branch, sha: fields[1]})
-		}
+		refs = append(refs, ref)
 	}
 	sort.Slice(refs, func(left, right int) bool {
 		if refs[left].branch != refs[right].branch {
@@ -1954,44 +2022,26 @@ func (a app) localRunLocalRefs(root string) ([]runLocalRef, []agentRef, error) {
 	return refs, malformed, nil
 }
 
-func (a app) localTrackingRunLocalRefs(root string) ([]runLocalRef, []agentRef, error) {
-	output, err := a.command(root, "git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin/agent/issue-*")
+func parseRunLocalRefLine(line string, source claimRefSource) (runLocalRef, agentRef, bool, error) {
+	if strings.TrimSpace(line) == "" {
+		return runLocalRef{}, agentRef{}, false, nil
+	}
+	fields := strings.Fields(line)
+	if len(fields) != 2 {
+		return runLocalRef{}, agentRef{}, false, fmt.Errorf("%s run-local ref listing contains malformed entry %q", sourceName(source), line)
+	}
+	branch, err := agentRefBranchForSource(fields[0], source)
 	if err != nil {
-		return nil, nil, fmt.Errorf("list remote-tracking run-local refs: %w", err)
+		return runLocalRef{}, agentRef{}, false, err
 	}
-	var refs []runLocalRef
-	var malformed []agentRef
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		if len(fields) != 2 {
-			return nil, nil, fmt.Errorf("remote-tracking run-local ref listing contains malformed entry %q", line)
-		}
-		branch := strings.TrimPrefix(fields[0], "origin/")
-		kind, number, runID := classifyAgentRef(branch)
-		if kind == agentRefRunLocal {
-			refs = append(refs, runLocalRef{branch: branch, number: number, runID: runID, sha: fields[1], source: claimRefTracking})
-			continue
-		}
-		if kind == agentRefMalformed {
-			malformed = append(malformed, agentRef{branch: branch, sha: fields[1]})
-		}
+	kind, number, runID := classifyAgentRef(branch)
+	if kind == agentRefRunLocal {
+		return runLocalRef{branch: branch, number: number, runID: runID, sha: fields[1], source: source}, agentRef{}, true, nil
 	}
-	sort.Slice(refs, func(left, right int) bool {
-		if refs[left].branch != refs[right].branch {
-			return refs[left].branch < refs[right].branch
-		}
-		return refs[left].sha < refs[right].sha
-	})
-	sort.Slice(malformed, func(left, right int) bool {
-		if malformed[left].branch != malformed[right].branch {
-			return malformed[left].branch < malformed[right].branch
-		}
-		return malformed[left].sha < malformed[right].sha
-	})
-	return refs, malformed, nil
+	if kind == agentRefMalformed {
+		return runLocalRef{}, agentRef{branch: branch, sha: fields[1]}, true, nil
+	}
+	return runLocalRef{}, agentRef{}, false, nil
 }
 
 func exactClaimSHAFromSources(claims []remoteClaim, branch string, sources ...claimRefSource) (string, bool, error) {
@@ -2062,7 +2112,7 @@ func (a app) validateRemoteClaimRef(root string, claim claimArtifact) error {
 	ref := "refs/heads/" + claim.branch
 	output, err := a.command(root, "git", "ls-remote", "--heads", "origin", ref)
 	if err != nil {
-		return fmt.Errorf("inspect remote claim %s before cleanup: %w", claim.branch, err)
+		return retryableOperation("inspect remote claim "+claim.branch+" before cleanup", fmt.Errorf("inspect remote claim %s before cleanup: %w", claim.branch, err))
 	}
 	remoteSHA, present, err := exactRemoteRef(output, ref)
 	if err != nil {
@@ -2172,7 +2222,7 @@ func (a app) removeRunLocalRef(root string, ref provenRunLocalRef) error {
 		remoteRef := "refs/heads/" + ref.branch
 		output, err := a.command(root, "git", "ls-remote", "--heads", "origin", remoteRef)
 		if err != nil {
-			return fmt.Errorf("inspect run-local ref %s before deletion: %w", ref.branch, err)
+			return retryableOperation("inspect run-local ref "+ref.branch+" before deletion", fmt.Errorf("inspect run-local ref %s before deletion: %w", ref.branch, err))
 		}
 		remoteSHA, present, err := exactRemoteRef(output, remoteRef)
 		if err != nil {
@@ -2315,7 +2365,7 @@ func (a app) deleteRemoteClaim(root string, claim claimArtifact) error {
 	ref := "refs/heads/" + claim.branch
 	output, err := a.command(root, "git", "ls-remote", "--heads", "origin", ref)
 	if err != nil {
-		return fmt.Errorf("inspect remote claim %s before cleanup: %w", claim.branch, err)
+		return retryableOperation("inspect remote claim "+claim.branch+" before cleanup", fmt.Errorf("inspect remote claim %s before cleanup: %w", claim.branch, err))
 	}
 	remoteSHA, present, err := exactRemoteRef(output, ref)
 	if err != nil {
@@ -2334,17 +2384,26 @@ func (a app) deleteRemoteClaim(root string, claim claimArtifact) error {
 }
 
 func exactRemoteRef(output, ref string) (string, bool, error) {
+	if _, err := remoteAgentRefBranch(ref); err != nil {
+		return "", false, terminalOperation("parse remote claim listing", err)
+	}
 	var found string
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
 			continue
 		}
-		if len(fields) != 2 || fields[1] != ref {
-			return "", false, fmt.Errorf("remote claim listing contains unexpected ref %q", line)
+		if len(fields) != 2 {
+			return "", false, terminalOperation("parse remote claim listing", fmt.Errorf("remote claim listing contains malformed entry %q", line))
+		}
+		if _, err := remoteAgentRefBranch(fields[1]); err != nil {
+			return "", false, terminalOperation("parse remote claim listing", err)
+		}
+		if fields[1] != ref {
+			return "", false, terminalOperation("parse remote claim listing", fmt.Errorf("remote claim listing contains unexpected ref %q", line))
 		}
 		if found != "" {
-			return "", false, fmt.Errorf("remote claim %s is ambiguous", ref)
+			return "", false, terminalOperation("parse remote claim listing", fmt.Errorf("remote claim %s is ambiguous", ref))
 		}
 		found = fields[0]
 	}
