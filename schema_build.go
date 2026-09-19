@@ -3120,6 +3120,9 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 	if reference.variety != SimpleTypeVarietyAtomicRestriction {
 		return false
 	}
+	if _, ok := reference.facets.(schemaBooleanFacetVariant); ok {
+		return true
+	}
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicInteger:
 		switch facets := reference.facets.(type) {
@@ -3171,6 +3174,15 @@ func resolveSchemaAttributeValueConstraint(
 		kind:    input.kind,
 		lexical: lexical,
 		loc:     input.loc,
+	}
+	if _, ok := reference.facets.(schemaBooleanFacetVariant); ok {
+		value, err := ParseStrictBooleanFor(version, input.lexical, input.loc)
+		if err != nil {
+			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+		}
+		constraint.boolean = value
+		constraint.hasBoolean = true
+		return constraint, nil
 	}
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicInteger:
