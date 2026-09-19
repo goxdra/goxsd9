@@ -1,7 +1,6 @@
 package goxsd9
 
 import (
-	"errors"
 	"reflect"
 	"testing"
 )
@@ -54,36 +53,6 @@ func localStringParticleTestSchema(version string) string {
   <xs:simpleType name="Text"><xs:restriction base="xs:string"><xs:whiteSpace value="collapse"/><xs:enumeration value=" first "/><xs:enumeration value=""/></xs:restriction></xs:simpleType>
   <xs:simpleType name="Inherited"><xs:restriction base="r:Text"><xs:enumeration value="first"/></xs:restriction></xs:simpleType>
 </xs:schema>`
-}
-
-//nolint:gocognit // Keep exact atomic-kind exclusion and no-schema evidence together.
-func TestSchemaBridgeRejectsNamedTokenDerivedLocalParticles(t *testing.T) {
-	for _, profile := range tokenPolicyProfiles() {
-		for _, model := range []string{"choice", "sequence"} {
-			t.Run(profile.name+"/"+model, func(t *testing.T) {
-				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:token-particles" targetNamespace="urn:token-particles" version="` + string(profile.version) + `">
-  <xs:complexType name="Container"><xs:` + model + `><xs:element name="item" type="r:Token"/></xs:` + model + `></xs:complexType>
-  <xs:simpleType name="Token"><xs:restriction base="xs:token"/></xs:simpleType>
-</xs:schema>`
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err == nil {
-					t.Fatal("discoverSchema accepted a named token-derived local particle")
-				}
-				assertTokenNoSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
-					t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Feature())
-				}
-				wantSpec := "xsd11-structures#cSchemaDocument"
-				if profile.version == XSDVersion10 {
-					wantSpec = "xsd10-structures#schema-document"
-				}
-				if diagnostic.SpecRef() != wantSpec || diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 2, `type="r:Token"`) || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("diagnostic evidence = %s/%q, want located %s unsupported", diagnostic.Loc(), diagnostic.SpecRef(), wantSpec)
-				}
-			})
-		}
-	}
 }
 
 func localStringParticleTestComplexType(t *testing.T, schema Schema, local string) ComplexTypeDefinition {

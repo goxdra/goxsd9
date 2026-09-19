@@ -180,6 +180,36 @@ func TestValidateInstanceSupportsBuiltInNamedForwardAndCrossDocumentScalars(t *t
 	}
 }
 
+func TestValidateInstanceRejectsNamedSimpleTypeFinalWithSchemaEvidence(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">
+  <xs:element name="value" type="r:Amount"/>
+  <xs:simpleType name="Amount" final="restriction"><xs:restriction base="xs:integer"/></xs:simpleType>
+</xs:schema>`
+	schema := validationTestSchema(t, root, nil)
+	components := schema.Components()
+	if len(components) != 2 {
+		t.Fatalf("components = %d, want element and simple type", len(components))
+	}
+	definition, ok := components[1].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("simple type view is missing")
+	}
+	input := `<value xmlns="urn:root">1</value>`
+	diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+	if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedInstanceValidationCode {
+		t.Fatalf("diagnostic = %s, want unsupported instance validation", diagnostic)
+	}
+	if diagnostic.Feature() != goxsd9.FeatureInstanceValidation || diagnostic.SpecRef() != "xsd11-structures#cvc-elt" {
+		t.Fatalf("diagnostic feature/spec ref = %q/%q, want instance validation/XSD element constraint", diagnostic.Feature(), diagnostic.SpecRef())
+	}
+	if !validationTestHasRelated(diagnostic.Related(), components[0].Loc()) || !validationTestHasRelated(diagnostic.Related(), components[1].Loc()) || !validationTestHasRelated(diagnostic.Related(), definition.FinalLoc()) {
+		t.Fatalf("diagnostic related locations = %v, want element, type, and final declaration", diagnostic.Related())
+	}
+	if !errors.Is(diagnostic, goxsd9.ErrUnsupported) {
+		t.Fatalf("diagnostic lost unsupported cause: %v", diagnostic)
+	}
+}
+
 func TestValidateInstanceExpandsNamespacesAndConcatenatesDecodedText(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" targetNamespace="urn:root">
   <xs:element name="count" type="xs:integer"/>

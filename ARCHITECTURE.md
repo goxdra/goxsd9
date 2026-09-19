@@ -3,11 +3,9 @@
 ## Boundaries
 
 goxsd9 exposes schema parsing, immutable queries/walks, XML validation, and Go
-generation. The schema model is the leaf dependency for validation and generation
-and has no validator/generator caches.
+generation. Schema model: validation/generation leaf.
 
-Runtime uses standard-library facilities; development tooling is outside the
-library dependency graph.
+Runtime uses stdlib; tooling is outside the library graph.
 
 ## Deterministic phase pipeline
 
@@ -23,23 +21,17 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Each phase consumes a complete prior result and produces a new one. Local
-construction may append to unexported slices or populate lookup tables, but
-completed components are never mutated or backpatched. Document identities are
-interned before discovery. Repeated includes/imports reuse that identity, so
-cycles do not recurse. Acyclic dependencies are processed in stable topological
-order.
+Phases consume results. Construction uses unexported slices/tables; completed
+components are immutable. Interned identities prevent recursive repeated
+includes/imports; dependencies use stable topological order.
 
-Maps support lookup, but ordered slices are primary for observable walks and
-output. Every fallback ordering uses explicit stable keys.
+Ordered slices define observable walks/output; stable fallback keys.
 
 ## Input and resolution
 
-The entrypoint is `ParseSchema(root ResolvedSource, resolver Resolver)`.
-Caller creates root `ResolvedSource`; the resolver creates referenced sources
-and supplies policy. Parsing
-closes root and every resolver-supplied stream; it drains and decodes only
-unseen identities. Repeated/cyclic identities are closed without decoding.
+Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Roots use
+`NewResolvedSource`; resolvers supply references/policy. Parsing closes streams;
+identities decode once; repeats/cycles close without decoding.
 
 ```go
 type Resolver interface {
@@ -51,58 +43,64 @@ type Resolver interface {
 }
 ```
 
-Each result carries an opaque source identity, reader-closer, and child context.
-Resolvers can store typed private base-location state there. Discovery passes
-parent context to each FIFO call and preserves returned child context for nested
-references. Source identities and lexical schema locations remain opaque; the
-parser never interprets paths, opens files, or performs network requests.
-Resolver calls are sequential.
+Sources carry opaque identity, reader-closer, and child context; resolvers may
+store typed private base state. FIFO discovery preserves nested context.
+Identities/locations remain opaque: parser does not interpret paths, open files,
+or make network requests. Calls are sequential.
 
-The decoder captures one-based line and code-point columns
-while streaming. Syntax nodes and final components retain `Loc` values, not
-source bytes or excerpts.
+Decode captures one-based line/Unicode-code-point columns; syntax/final components
+retain `Loc`, not source bytes or excerpts.
 
 ## Diagnostics
 
-Structured diagnostics are deterministic and classify failures as:
+Structured diagnostics deterministically classify failures as:
 
 - invalid schema or instance input;
 - unsupported specification behavior;
 - source resolution failure; or
 - internal invariant failure.
 
-Each diagnostic has stable code, primary `Loc`, related locations, and spec
-reference. Causes survive package boundaries.
-Error-level diagnostics prevent a schema from being returned.
+Diagnostics have stable codes, primary `Loc`, optional related locations,
+specification references; causes survive boundaries; error-level diagnostics
+prevent schema return.
 
-Unsupported features have stable identifiers. Conformance reports aggregate
-them to show which implementation work unlocks the most tests.
+Unsupported features have stable identifiers; conformance reports aggregate them
+for unlock ranking.
 
 ## Schema model
 
 Raw XSD syntax is internal. Immutable model retains component `Loc`; queries use names/identities.
-Walks preserve document-discovery/lexical declaration order; unordered sets use stable sorting.
+Walks preserve document-discovery/lexical order; unordered sets sort stably.
 
-Schema skeleton exposes `Schema`, `SchemaDocument`, `Component`, `ComponentID`, and expanded `QName`.
-Documents follow identity-discovery order (root, queue); named declarations follow lexical order.
-`Components`, `Documents`, `Find`, and `Walk` return copies. IDs combine source identity/one-based
-declaration ordinals; lookup maps never define observable order. Local particles use scoped component
-facts/indexes; validator/generator state is on-demand.
+Skeleton: `Schema`, `SchemaDocument`, `Component`, `ComponentID`, expanded `QName`.
+Documents: identity-discovery order; declarations: lexical order.
+`Components`/`Documents`/`Find`/`Walk`: copies. IDs: source identity/one-based
+declaration ordinals; lookup maps: unordered. Local particles: scoped facts/indexes;
+validator/generator: on-demand.
 
-Model stores facts; primitive status follows relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`
-elements retain `DeclaredType`; restrictions expose immutable boolean-kind, string-enumeration, and
-string-`whiteSpace` facts; built-ins lack synthetic IDs. Supported integer/decimal attributes retain immutable
-default/fixed facts: kind, normalized lexical form, typed value, source location. Local uses, inline types,
-string/boolean/precisionDecimal attributes, and other wildcard/attribute forms are unsupported; consumers do not
-consume attributes.
+Primitive: global scalars: `DeclaredType`; immutable Boolean-attr type facts;
+direct-shape local token/NMTOKEN refs; immutable named/anonymous restriction boolean-kind/string-enumeration/string-`whiteSpace`;
+built-ins lack synthetic IDs.
+Built-in `xs:nonNegativeInteger` refs are immutable at `minInclusive=0`; global built-in/facet-free named Boolean/integer/decimal/token value constraints are supported, while local/inline attribute uses, broader/non-atomic forms, validation, and Go generation remain unsupported.
+Built-in/named Boolean/integer/decimal/token attrs: immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
+exact Boolean/numeric values, source-location; token/Boolean collapse. Named complexes: `mixed="false|0"`; omitted=element-only
+(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1; anonymous complex/other shapes unsupported.
+Typed global attrs: immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
+Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
+`defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
+`defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
+Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
+Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
+non-atomic-string/string attrs unsupported.
 
-Named complex types: particles; bounded openAttrs restrictions; bounded attribute-free complexContent/extension over named empty-content bases;
-extensions retain base/extension identities/locations, inherited bounded wildcard facts, exact direct-choice/sequence occurrences; validation/generation
-reject. Direct sequence/choice: local xs:boolean, exact-atomic-string, named boolean-restriction/integer/decimal; exact ranges (0/0 absent).
-Local exact-string particles retain resolved references and effective facets; XSD 1.1 precisionDecimal choices require default occurrences;
-ranges are queryable. Token-derived families, Boolean facets, anonymous/nested/broader particles remain unsupported.
-References retain immutable target facts. Choices/sequences expose attribute-free anyAttribute: omitted=##any/strict; explicit=##other/lax supported across policies.
-Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
+Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
+Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
+Groups/extensions: IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. Named-global sequence/choice owners: `anyAttribute`, default `##any`/strict; `##any`/lax|skip (namespace optional/explicit; skip), `##other`/lax|strict, explicit `##other`/skip, and positive namespaces (`##local`, `##targetNamespace`, URI lists) strict; locations/values retained; attribute validation/generation unsupported. `xs:any`: `##any`/strict|lax|skip (skip explicit), `##other`/lax|strict, positive constraints (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing and sorted effective values; lexical/source locations; ranges; `0/0` absent. Consumers reject nonzero wildcards; broader unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed=invalid.
+Named groups expose ordered references/ranges; broader shapes unsupported; consumers reject.
+Local atomic `xs:string` particles and named restrictions retain immutable
+type/facet facts, locations, and occurrences across choices, sequences, and
+bounded extensions. Consumers query but reject them; inline and token-derived
+string forms remain unsupported.
 
 ## Datatypes
 
@@ -119,28 +117,24 @@ distinctions and broader value spaces remain staged and report unsupported behav
 
 ## Validation and code generation
 
-`ValidateInstance` supports built-in/named scalar `boolean`/`integer`/`decimal`/`precisionDecimal` globals and named global complex
-types with direct local integer/decimal sequences using expanded-name lexical order.
-Sequences honor exact finite, unbounded, and above-`uint64` outer/child ranges under
-`Compatibility`, `Strict10`, and `Strict11`. Direct choices allow default local scalars
-or default global integer/decimal references; mixed local/reference choices and non-default
-direct-choice/alternative occurrences unsupported/query-only. Non-default
-`precisionDecimal` choice/alternative ranges are schema-unsupported. Reference targets use
-immutable `TargetID`/`Lookup`; direct-choice repetition and excluded particle/target shapes,
-including modelled local string particles, local boolean particles, attributes, and broader
-structures, remain unsupported by validation. Locations are primary.
+`ValidateInstance` supports root globals with built-in or named `boolean`/`token`/`NMTOKEN`/`integer`/`decimal`/`precisionDecimal` types, plus named
+complexes with direct choices/sequences. Choices accept default-occurrence local Boolean/token/NMTOKEN/integer/decimal/precisionDecimal elements and
+default Boolean/integer/decimal references. Homogeneous Boolean/numeric sequences honor finite/unbounded and
+above-`uint64` ranges; mixed sequences remain unsupported. References use `TargetID`; model groups rejected.
+`token`/`NMTOKEN` collapse XML whitespace before effective enumeration; NMTOKEN enforces XML NameChar policy; facts unchanged.
+Validation accepts default-occurrence all-token/NMTOKEN choices; local token/NMTOKEN sequences, strings, lists/unions, attributes, and structures remain unsupported. Generation rejects local token/NMTOKEN particles. Direct `xs:any` is
+query-only: nonzero terms are rejected with edition-selected diagnostics; `0/0` absent.
 
-Generation emits deterministic choice switches, global booleans, and default-bounded integer/decimal sequence structs;
-repeated-field and direct-reference generation, direct-choice repetition, string, boolean facets, and local boolean/string
-particles remain unsupported.
+Generation: named/inherited global boolean/integer/decimal/string/token/NMTOKEN scalars, inline anonymous global string/token/NMTOKEN elements, numeric choices,
+default all-Boolean choices and default-bounded numeric/all-Boolean sequences; mixed Boolean/numeric sequences,
+other choices, and non-default/other references remain unsupported; default-occurrence direct-choice references to global Boolean/integer/decimal elements generate.
 
 ## Conformance
 
-The W3C XSD test suite is pinned as a submodule. Catalog status is preserved
-independently from execution outcome: submitted, accepted, stable, queried,
-disputed-test, and disputed-spec are not collapsed. The harness separately
-reports pass, conformance failure, unsupported, resolution failure, and
-internal failure. Queried, disputed-test, and disputed-spec cases remain
+W3C XSD test suite is pinned as a submodule. Catalog status is independent
+of execution: submitted, accepted, stable, queried, disputed-test, and disputed-spec
+remain distinct. The harness reports pass, conformance failure, unsupported,
+resolution failure, and internal failure. These cases remain
 visible but affect neither the headline score nor backlog unlock ranking.
 
 Specifications pin XSD 1.0/1.1 schema-for-schemas artifacts by URL and

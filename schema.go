@@ -458,6 +458,15 @@ func (declaration AttributeDeclaration) DeclaredType() QName {
 	return declaration.facts.typeReference.name
 }
 
+// IsInheritable reports the effective inheritable fact of the attribute
+// declaration.
+func (declaration AttributeDeclaration) IsInheritable() bool {
+	if declaration.facts == nil {
+		return false
+	}
+	return declaration.facts.inheritable
+}
+
 // TypeReference returns the resolved simple-type reference used by the
 // declaration, when it has one.
 func (declaration AttributeDeclaration) TypeReference() (SimpleTypeReference, bool) {
@@ -771,6 +780,24 @@ func (definition SimpleTypeDefinition) VarietyLoc() Loc {
 	return definition.facts.varietyLoc
 }
 
+// Final returns the effective non-empty final derivation controls in
+// specification order. The returned slice is independent of the schema.
+func (definition SimpleTypeDefinition) Final() []string {
+	if definition.facts == nil || definition.facts.anonymous {
+		return nil
+	}
+	return definition.facts.final.set.values()
+}
+
+// FinalLoc returns the location of the effective final declaration or
+// document default.
+func (definition SimpleTypeDefinition) FinalLoc() Loc {
+	if definition.facts == nil || definition.facts.anonymous {
+		return Loc{}
+	}
+	return definition.facts.final.loc
+}
+
 // Base returns the expanded name written in the restriction's base attribute.
 // It returns the zero QName when the restriction derives from an inline type.
 func (definition SimpleTypeDefinition) Base() QName {
@@ -852,7 +879,9 @@ func (definition SimpleTypeDefinition) IsString() bool {
 	if definition.facts == nil {
 		return false
 	}
-	return definition.facts.atomicKind == schemaSimpleTypeAtomicString || definition.facts.atomicKind == schemaSimpleTypeAtomicToken
+	return definition.facts.atomicKind == schemaSimpleTypeAtomicString ||
+		definition.facts.atomicKind == schemaSimpleTypeAtomicToken ||
+		definition.facts.atomicKind == schemaSimpleTypeAtomicNMTOKEN
 }
 
 // DigitFacets returns the effective totalDigits and fractionDigits facets.
@@ -1048,8 +1077,8 @@ func (definition ModelGroupDefinition) Loc() Loc {
 	return definition.component.Loc()
 }
 
-// Particle returns the immutable direct-choice particle of the model group.
-// It is nil when the group's choice has exact 0/0 occurrences.
+// Particle returns the immutable direct choice or sequence particle of the
+// model group. It is nil when the group's particle has exact 0/0 occurrences.
 func (definition ModelGroupDefinition) Particle() Particle {
 	if definition.facts == nil {
 		return nil
@@ -1093,6 +1122,32 @@ func (definition ComplexTypeDefinition) Name() QName {
 // Loc returns the declaration location of the complex type definition.
 func (definition ComplexTypeDefinition) Loc() Loc {
 	return definition.component.Loc()
+}
+
+// IsAbstract reports the effective abstract fact of the complex-type
+// definition.
+func (definition ComplexTypeDefinition) IsAbstract() bool {
+	if definition.facts == nil {
+		return false
+	}
+	return definition.facts.abstract
+}
+
+// Final returns the explicit non-empty final derivation controls in
+// specification order. The returned slice is independent of the schema.
+func (definition ComplexTypeDefinition) Final() []string {
+	if definition.facts == nil {
+		return nil
+	}
+	return definition.facts.final.set.values()
+}
+
+// FinalLoc returns the location of the explicit final declaration.
+func (definition ComplexTypeDefinition) FinalLoc() Loc {
+	if definition.facts == nil {
+		return Loc{}
+	}
+	return definition.facts.final.loc
 }
 
 // AnyAttribute returns the immutable attribute wildcard fact when the
@@ -1245,7 +1300,7 @@ func (definition ComplexTypeDefinition) boundedOpenAttrsRestrictionBody() (*sche
 	if body == nil || body.base.kind != ComplexTypeReferenceBuiltin || body.base.name.Namespace() != xsdNamespaceURI || body.base.name.Local() != "anyType" {
 		return nil, false
 	}
-	if body.anyAttribute == nil || body.anyAttribute.namespace != "##other" || body.anyAttribute.processContents != "lax" {
+	if body.anyAttribute == nil || body.anyAttribute.namespaceConstraint.lexical != "##other" || body.anyAttribute.processContents != "lax" {
 		return nil, false
 	}
 	return body, true
@@ -1288,7 +1343,20 @@ func (attribute AnyAttribute) Namespace() string {
 	if attribute.facts == nil {
 		return ""
 	}
-	return attribute.facts.namespace
+	return attribute.facts.namespaceConstraint.lexical
+}
+
+// NamespaceConstraint returns the immutable effective namespace constraint.
+func (attribute AnyAttribute) NamespaceConstraint() WildcardNamespaceConstraint {
+	if attribute.facts == nil {
+		return WildcardNamespaceConstraint{}
+	}
+	return WildcardNamespaceConstraint{
+		variety:    attribute.facts.namespaceConstraint.variety,
+		namespaces: append([]string(nil), attribute.facts.namespaceConstraint.namespaces...),
+		lexical:    attribute.facts.namespaceConstraint.lexical,
+		loc:        attribute.facts.namespaceConstraint.loc,
+	}
 }
 
 // NamespaceLoc returns the location of the explicit namespace attribute. It is
@@ -1297,7 +1365,7 @@ func (attribute AnyAttribute) NamespaceLoc() Loc {
 	if attribute.facts == nil {
 		return Loc{}
 	}
-	return attribute.facts.namespaceLoc
+	return attribute.facts.namespaceConstraint.loc
 }
 
 // ProcessContents returns the normalized processContents mode.
@@ -1516,7 +1584,7 @@ func (particle ElementParticle) DeclaredType() QName {
 }
 
 // TypeReference returns the resolved simple-type reference used by the local
-// element, when it has one.
+// element declaration, when it has one.
 func (particle ElementParticle) TypeReference() (SimpleTypeReference, bool) {
 	if particle.facts == nil || !particle.facts.hasTypeReference {
 		return SimpleTypeReference{}, false
@@ -1640,7 +1708,218 @@ func (particle ElementReferenceParticle) TargetID() ComponentID {
 	return particle.facts.targetID
 }
 
-// SequenceParticle is an ordered direct sequence of element particles.
+// ModelGroupReferenceParticle is a direct model-group reference particle. It
+// retains the expanded QName and source location of ref, plus the identity of
+// the referenced global model-group definition. It does not copy members from
+// that definition.
+type ModelGroupReferenceParticle struct {
+	facts *schemaModelGroupReferenceParticle
+}
+
+func (ModelGroupReferenceParticle) particle() {}
+
+// Loc returns the location of the model-group reference particle.
+func (particle ModelGroupReferenceParticle) Loc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.loc
+}
+
+// Occurrences returns the exact immutable occurrence range.
+func (particle ModelGroupReferenceParticle) Occurrences() ParticleOccurrenceRange {
+	if particle.facts == nil {
+		return ParticleOccurrenceRange{}
+	}
+	return newPublicParticleOccurrenceRange(particle.facts.occurrences)
+}
+
+// MinOccurs returns the default minimum occurrence bound.
+//
+// Deprecated: use Occurrences().Minimum(). This compatibility accessor is
+// defined only for default-only model-group reference particles and returns
+// zero otherwise.
+func (particle ModelGroupReferenceParticle) MinOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// MaxOccurs returns the default maximum occurrence bound.
+//
+// Deprecated: use Occurrences().Maximum(). This compatibility accessor is
+// defined only for default-only model-group reference particles and returns
+// zero otherwise.
+func (particle ModelGroupReferenceParticle) MaxOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// Name returns the expanded QName in the ref attribute.
+func (particle ModelGroupReferenceParticle) Name() QName {
+	if particle.facts == nil {
+		return QName{}
+	}
+	return particle.facts.name
+}
+
+// Ref returns the expanded QName in the ref attribute.
+func (particle ModelGroupReferenceParticle) Ref() QName {
+	return particle.Name()
+}
+
+// RefLoc returns the location of the ref attribute.
+func (particle ModelGroupReferenceParticle) RefLoc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.refLoc
+}
+
+// TargetID returns the identity of the referenced global model-group
+// definition.
+func (particle ModelGroupReferenceParticle) TargetID() ComponentID {
+	if particle.facts == nil {
+		return ComponentID{}
+	}
+	return particle.facts.targetID
+}
+
+// WildcardNamespaceConstraintVariety identifies the supported namespace
+// constraint varieties.
+type WildcardNamespaceConstraintVariety string
+
+const (
+	// WildcardNamespaceConstraintAny identifies the any namespace constraint.
+	WildcardNamespaceConstraintAny WildcardNamespaceConstraintVariety = "any"
+	// WildcardNamespaceConstraintEnumeration identifies a positive namespace set.
+	WildcardNamespaceConstraintEnumeration WildcardNamespaceConstraintVariety = "enumeration"
+)
+
+// WildcardNamespaceConstraint is an immutable effective namespace constraint.
+// Namespaces contains absent as the empty string.
+type WildcardNamespaceConstraint struct {
+	variety    WildcardNamespaceConstraintVariety
+	namespaces []string
+	lexical    string
+	loc        Loc
+}
+
+// Variety returns the namespace constraint variety.
+func (constraint WildcardNamespaceConstraint) Variety() WildcardNamespaceConstraintVariety {
+	return constraint.variety
+}
+
+// Namespaces returns the sorted, unique effective namespace names. The empty
+// string represents an absent namespace.
+func (constraint WildcardNamespaceConstraint) Namespaces() []string {
+	return append([]string(nil), constraint.namespaces...)
+}
+
+// LexicalForm returns the normalized namespace attribute value.
+func (constraint WildcardNamespaceConstraint) LexicalForm() string { return constraint.lexical }
+
+// Loc returns the namespace attribute location.
+func (constraint WildcardNamespaceConstraint) Loc() Loc { return constraint.loc }
+
+// WildcardParticle is a direct element wildcard particle. Its supported
+// effective facts include ##any and ##other namespace constraints, as well as
+// positive namespace enumerations with strict, lax, or explicit skip processContents.
+type WildcardParticle struct {
+	facts *schemaWildcardParticle
+}
+
+func (WildcardParticle) particle() {}
+
+// Loc returns the location of the xs:any particle.
+func (particle WildcardParticle) Loc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.loc
+}
+
+// Occurrences returns the exact immutable occurrence range.
+func (particle WildcardParticle) Occurrences() ParticleOccurrenceRange {
+	if particle.facts == nil {
+		return ParticleOccurrenceRange{}
+	}
+	return newPublicParticleOccurrenceRange(particle.facts.occurrences)
+}
+
+// MinOccurs returns the default minimum occurrence bound.
+//
+// Deprecated: use Occurrences().Minimum(). This compatibility accessor is
+// defined only for default-only wildcard particles and returns zero otherwise.
+func (particle WildcardParticle) MinOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// MaxOccurs returns the default maximum occurrence bound.
+//
+// Deprecated: use Occurrences().Maximum(). This compatibility accessor is
+// defined only for default-only wildcard particles and returns zero otherwise.
+func (particle WildcardParticle) MaxOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// Namespace returns the effective wildcard namespace constraint.
+func (particle WildcardParticle) Namespace() string {
+	if particle.facts == nil {
+		return ""
+	}
+	return particle.facts.namespaceConstraint.lexical
+}
+
+// NamespaceConstraint returns the immutable effective namespace constraint.
+func (particle WildcardParticle) NamespaceConstraint() WildcardNamespaceConstraint {
+	if particle.facts == nil {
+		return WildcardNamespaceConstraint{}
+	}
+	return WildcardNamespaceConstraint{
+		variety:    particle.facts.namespaceConstraint.variety,
+		namespaces: append([]string(nil), particle.facts.namespaceConstraint.namespaces...),
+		lexical:    particle.facts.namespaceConstraint.lexical,
+		loc:        particle.facts.namespaceConstraint.loc,
+	}
+}
+
+// NamespaceLoc returns the location of an explicit namespace attribute. It is
+// zero when the namespace attribute is omitted.
+func (particle WildcardParticle) NamespaceLoc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.namespaceConstraint.loc
+}
+
+// ProcessContents returns the effective wildcard processing mode.
+func (particle WildcardParticle) ProcessContents() string {
+	if particle.facts == nil {
+		return ""
+	}
+	return particle.facts.processContents
+}
+
+// ProcessContentsLoc returns the location of an explicit processContents
+// attribute. It is zero when the processContents attribute is omitted.
+func (particle WildcardParticle) ProcessContentsLoc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.processContentsLoc
+}
+
+// SequenceParticle is an ordered direct sequence of particles.
 type SequenceParticle struct {
 	facts *schemaSequenceParticle
 }
@@ -1707,7 +1986,7 @@ func (particle SequenceParticle) Elements() []ElementParticle {
 
 // Particles returns direct sequence particles in lexical declaration order.
 // The returned slice is independent of the completed schema and may contain
-// both ElementParticle and ElementReferenceParticle values.
+// element, reference, and wildcard particles.
 func (particle SequenceParticle) Particles() []Particle {
 	if particle.facts == nil || len(particle.facts.particles) == 0 {
 		return nil
@@ -1911,6 +2190,7 @@ type schemaElementSubstitutionGroupInput struct {
 type schemaAttributeInput struct {
 	declaredType    QName
 	typeLoc         Loc
+	inheritable     bool
 	valueConstraint *schemaAttributeValueConstraintInput
 }
 
@@ -1926,6 +2206,7 @@ type schemaSimpleTypeInput struct {
 	loc       Loc
 	nodeID    SimpleTypeID
 	hasNodeID bool
+	final     schemaSimpleTypeFinalPolicy
 	model     schemaSimpleTypeModelInput
 
 	// These fields keep the phase-local construction helpers used by existing
@@ -2038,6 +2319,7 @@ type schemaSimpleTypeComponent struct {
 	hasItemType      bool
 	memberTypes      []schemaSimpleTypeReferenceComponent
 	facets           schemaSimpleTypeFacetVariant
+	final            schemaSimpleTypeFinalPolicy
 }
 
 type schemaSimpleTypeFacetVariant interface {
@@ -2092,6 +2374,8 @@ type schemaAtomicFacetVariant struct{}
 func (schemaAtomicFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
+	abstract                bool
+	final                   schemaComplexTypeFinalPolicy
 	body                    schemaComplexTypeBodyInput
 	prohibitedSubstitutions schemaBlockPolicy
 }
@@ -2140,36 +2424,53 @@ type schemaComplexTypeReferenceInput struct {
 }
 
 type schemaAnyAttributeInput struct {
-	loc                Loc
-	namespace          string
-	namespaceLoc       Loc
-	processContents    string
-	processContentsLoc Loc
+	loc                 Loc
+	namespaceConstraint schemaWildcardNamespaceConstraint
+	processContents     string
+	processContentsLoc  Loc
 }
 
 type schemaModelGroupInput struct {
-	particle *schemaChoiceParticleInput
+	particle schemaModelGroupParticleInput
+}
+
+type schemaModelGroupParticleInput interface {
+	schemaModelGroupParticleInput()
 }
 
 type schemaComplexTypeParticleInput interface {
 	schemaComplexTypeParticleInput()
 }
 
+type schemaParticleTermInput interface {
+	schemaParticleTermInput()
+}
+
 type schemaChoiceParticleInput struct {
 	loc          Loc
 	occurrences  particleOccurrenceRange
-	alternatives []schemaElementParticleInput
+	alternatives []schemaParticleTermInput
 }
 
 func (*schemaChoiceParticleInput) schemaComplexTypeParticleInput() {}
+func (*schemaChoiceParticleInput) schemaModelGroupParticleInput()  {}
 
 type schemaSequenceParticleInput struct {
 	loc         Loc
 	occurrences particleOccurrenceRange
-	elements    []schemaElementParticleInput
+	particles   []schemaParticleTermInput
 }
 
 func (*schemaSequenceParticleInput) schemaComplexTypeParticleInput() {}
+func (*schemaSequenceParticleInput) schemaModelGroupParticleInput()  {}
+
+type schemaModelGroupReferenceParticleInput struct {
+	loc         Loc
+	reference   *schemaModelGroupReferenceInput
+	occurrences particleOccurrenceRange
+}
+
+func (*schemaModelGroupReferenceParticleInput) schemaComplexTypeParticleInput() {}
 
 type schemaElementParticleInput struct {
 	loc         Loc
@@ -2181,7 +2482,32 @@ type schemaElementParticleInput struct {
 	typeInput   *schemaElementInput
 }
 
+func (schemaElementParticleInput) schemaParticleTermInput() {}
+
+type schemaWildcardParticleInput struct {
+	loc                 Loc
+	occurrences         particleOccurrenceRange
+	namespaceConstraint schemaWildcardNamespaceConstraint
+	processContents     string
+	processContentsLoc  Loc
+}
+
+type schemaWildcardNamespaceConstraint struct {
+	variety    WildcardNamespaceConstraintVariety
+	terms      []string
+	namespaces []string
+	lexical    string
+	loc        Loc
+}
+
+func (schemaWildcardParticleInput) schemaParticleTermInput() {}
+
 type schemaElementReferenceInput struct {
+	name QName
+	loc  Loc
+}
+
+type schemaModelGroupReferenceInput struct {
 	name QName
 	loc  Loc
 }
@@ -2206,6 +2532,7 @@ type schemaElementSubstitutionGroup struct {
 type schemaAttributeComponent struct {
 	typeReference    schemaSimpleTypeReferenceComponent
 	hasTypeReference bool
+	inheritable      bool
 	valueConstraint  *AttributeValueConstraint
 }
 
@@ -2218,6 +2545,8 @@ type schemaNotationComponent struct {
 }
 
 type schemaComplexTypeComponent struct {
+	abstract                bool
+	final                   schemaComplexTypeFinalPolicy
 	body                    schemaComplexTypeBodyComponent
 	prohibitedSubstitutions schemaBlockPolicy
 }
@@ -2267,11 +2596,10 @@ type schemaComplexTypeReferenceComponent struct {
 }
 
 type schemaAnyAttributeComponent struct {
-	loc                Loc
-	namespace          string
-	namespaceLoc       Loc
-	processContents    string
-	processContentsLoc Loc
+	loc                 Loc
+	namespaceConstraint schemaWildcardNamespaceConstraint
+	processContents     string
+	processContentsLoc  Loc
 }
 
 type schemaModelGroupComponent struct {
@@ -2303,6 +2631,22 @@ type schemaElementReferenceParticle struct {
 	name        QName
 	refLoc      Loc
 	targetID    ComponentID
+}
+
+type schemaModelGroupReferenceParticle struct {
+	loc         Loc
+	occurrences particleOccurrenceRange
+	name        QName
+	refLoc      Loc
+	targetID    ComponentID
+}
+
+type schemaWildcardParticle struct {
+	loc                 Loc
+	occurrences         particleOccurrenceRange
+	namespaceConstraint schemaWildcardNamespaceConstraint
+	processContents     string
+	processContentsLoc  Loc
 }
 
 type schemaSequenceParticle struct {
@@ -2654,6 +2998,7 @@ func completeSchemaComponent(
 		component.attribute = &schemaAttributeComponent{
 			typeReference:    attribute.typeReference,
 			hasTypeReference: attribute.hasTypeReference,
+			inheritable:      attribute.inheritable,
 			valueConstraint:  cloneAttributeValueConstraint(attribute.valueConstraint),
 		}
 	}
@@ -2685,6 +3030,7 @@ func completeSchemaComponent(
 			hasItemType:      simpleType.hasItemType,
 			memberTypes:      cloneSchemaSimpleTypeReferenceComponents(simpleType.memberTypes),
 			facets:           simpleType.facets,
+			final:            simpleType.final,
 		}
 	}
 	if complexType.present {
@@ -2693,6 +3039,8 @@ func completeSchemaComponent(
 			return Component{}, err
 		}
 		component.complexType = &schemaComplexTypeComponent{
+			abstract:                complexType.abstract,
+			final:                   complexType.final,
 			body:                    body,
 			prohibitedSubstitutions: complexType.prohibitedSubstitutions,
 		}
@@ -2754,11 +3102,10 @@ func completeSchemaAnyAttribute(result schemaAnyAttributeResult) *schemaAnyAttri
 		return nil
 	}
 	return &schemaAnyAttributeComponent{
-		loc:                result.loc,
-		namespace:          result.namespace,
-		namespaceLoc:       result.namespaceLoc,
-		processContents:    result.processContents,
-		processContentsLoc: result.processContentsLoc,
+		loc:                 result.loc,
+		namespaceConstraint: cloneSchemaWildcardNamespaceConstraint(result.namespaceConstraint),
+		processContents:     result.processContents,
+		processContentsLoc:  result.processContentsLoc,
 	}
 }
 
@@ -2780,6 +3127,8 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 		return nil
 	}
 	clone := &schemaComplexTypeInput{
+		abstract:                input.abstract,
+		final:                   input.final,
 		body:                    cloneSchemaComplexTypeBodyInput(input.body),
 		prohibitedSubstitutions: input.prohibitedSubstitutions,
 	}
@@ -2835,7 +3184,7 @@ func cloneSchemaComplexTypeParticleInput(input schemaComplexTypeParticleInput) s
 		return &schemaChoiceParticleInput{
 			loc:          particle.loc,
 			occurrences:  particle.occurrences.clone(),
-			alternatives: cloneSchemaElementParticleInputs(particle.alternatives),
+			alternatives: cloneSchemaParticleTermInputs(particle.alternatives),
 		}
 	case *schemaSequenceParticleInput:
 		if particle == nil {
@@ -2844,8 +3193,21 @@ func cloneSchemaComplexTypeParticleInput(input schemaComplexTypeParticleInput) s
 		return &schemaSequenceParticleInput{
 			loc:         particle.loc,
 			occurrences: particle.occurrences.clone(),
-			elements:    cloneSchemaElementParticleInputs(particle.elements),
+			particles:   cloneSchemaParticleTermInputs(particle.particles),
 		}
+	case *schemaModelGroupReferenceParticleInput:
+		if particle == nil {
+			return (*schemaModelGroupReferenceParticleInput)(nil)
+		}
+		clone := &schemaModelGroupReferenceParticleInput{
+			loc:         particle.loc,
+			occurrences: particle.occurrences.clone(),
+		}
+		if particle.reference != nil {
+			reference := *particle.reference
+			clone.reference = &reference
+		}
+		return clone
 	default:
 		return nil
 	}
@@ -2856,12 +3218,17 @@ func cloneSchemaAnyAttributeInput(input *schemaAnyAttributeInput) *schemaAnyAttr
 		return nil
 	}
 	return &schemaAnyAttributeInput{
-		loc:                input.loc,
-		namespace:          input.namespace,
-		namespaceLoc:       input.namespaceLoc,
-		processContents:    input.processContents,
-		processContentsLoc: input.processContentsLoc,
+		loc:                 input.loc,
+		namespaceConstraint: cloneSchemaWildcardNamespaceConstraint(input.namespaceConstraint),
+		processContents:     input.processContents,
+		processContentsLoc:  input.processContentsLoc,
 	}
+}
+
+func cloneSchemaWildcardNamespaceConstraint(input schemaWildcardNamespaceConstraint) schemaWildcardNamespaceConstraint {
+	input.terms = append([]string(nil), input.terms...)
+	input.namespaces = append([]string(nil), input.namespaces...)
+	return input
 }
 
 func cloneSchemaModelGroupInput(input *schemaModelGroupInput) *schemaModelGroupInput {
@@ -2869,13 +3236,25 @@ func cloneSchemaModelGroupInput(input *schemaModelGroupInput) *schemaModelGroupI
 		return nil
 	}
 	clone := &schemaModelGroupInput{}
-	if input.particle == nil {
-		return clone
-	}
-	clone.particle = &schemaChoiceParticleInput{
-		loc:          input.particle.loc,
-		occurrences:  input.particle.occurrences.clone(),
-		alternatives: cloneSchemaElementParticleInputs(input.particle.alternatives),
+	switch particle := input.particle.(type) {
+	case *schemaChoiceParticleInput:
+		if particle == nil {
+			return clone
+		}
+		clone.particle = &schemaChoiceParticleInput{
+			loc:          particle.loc,
+			occurrences:  particle.occurrences.clone(),
+			alternatives: cloneSchemaParticleTermInputs(particle.alternatives),
+		}
+	case *schemaSequenceParticleInput:
+		if particle == nil {
+			return clone
+		}
+		clone.particle = &schemaSequenceParticleInput{
+			loc:         particle.loc,
+			occurrences: particle.occurrences.clone(),
+			particles:   cloneSchemaParticleTermInputs(particle.particles),
+		}
 	}
 	return clone
 }
@@ -2888,6 +3267,7 @@ func cloneSchemaSimpleTypeInput(input *schemaSimpleTypeInput) *schemaSimpleTypeI
 		loc:       input.loc,
 		nodeID:    input.nodeID,
 		hasNodeID: input.hasNodeID,
+		final:     input.final,
 		base:      input.base,
 		baseLoc:   input.baseLoc,
 		facets:    cloneSchemaFacetInputs(input.facets),
@@ -2918,6 +3298,7 @@ func cloneSchemaAttributeInput(input *schemaAttributeInput) *schemaAttributeInpu
 	return &schemaAttributeInput{
 		declaredType:    input.declaredType,
 		typeLoc:         input.typeLoc,
+		inheritable:     input.inheritable,
 		valueConstraint: cloneSchemaAttributeValueConstraintInput(input.valueConstraint),
 	}
 }
@@ -3074,24 +3455,50 @@ func allocateSchemaSimpleTypeNodeID(
 	}
 }
 
-func cloneSchemaElementParticleInputs(inputs []schemaElementParticleInput) []schemaElementParticleInput {
+func cloneSchemaParticleTermInputs(inputs []schemaParticleTermInput) []schemaParticleTermInput {
 	if len(inputs) == 0 {
 		return nil
 	}
-	clones := make([]schemaElementParticleInput, len(inputs))
+	clones := make([]schemaParticleTermInput, len(inputs))
 	for index, input := range inputs {
-		clones[index] = input
-		clones[index].occurrences = input.occurrences.clone()
-		if input.reference != nil {
-			reference := *input.reference
-			clones[index].reference = &reference
+		switch term := input.(type) {
+		case schemaElementParticleInput:
+			clones[index] = cloneSchemaElementParticleInput(term)
+		case *schemaElementParticleInput:
+			if term != nil {
+				clone := cloneSchemaElementParticleInput(*term)
+				clones[index] = clone
+			}
+		case schemaWildcardParticleInput:
+			clone := term
+			clone.occurrences = term.occurrences.clone()
+			clone.namespaceConstraint = cloneSchemaWildcardNamespaceConstraint(term.namespaceConstraint)
+			clones[index] = clone
+		case *schemaWildcardParticleInput:
+			if term != nil {
+				clone := *term
+				clone.occurrences = term.occurrences.clone()
+				clone.namespaceConstraint = cloneSchemaWildcardNamespaceConstraint(term.namespaceConstraint)
+				clones[index] = clone
+			}
+		default:
+			clones[index] = nil
 		}
-		if input.typeInput == nil {
-			continue
-		}
-		clones[index].typeInput = cloneSchemaElementInput(input.typeInput)
 	}
 	return clones
+}
+
+func cloneSchemaElementParticleInput(input schemaElementParticleInput) schemaElementParticleInput {
+	clone := input
+	clone.occurrences = input.occurrences.clone()
+	if input.reference != nil {
+		reference := *input.reference
+		clone.reference = &reference
+	}
+	if input.typeInput != nil {
+		clone.typeInput = cloneSchemaElementInput(input.typeInput)
+	}
+	return clone
 }
 
 func elementParticleValue(particle Particle) (ElementParticle, bool) {
@@ -3119,5 +3526,33 @@ func elementReferenceParticleValue(particle Particle) (ElementReferenceParticle,
 		return *concrete, true
 	default:
 		return ElementReferenceParticle{}, false
+	}
+}
+
+func modelGroupReferenceParticleValue(particle Particle) (ModelGroupReferenceParticle, bool) {
+	switch concrete := particle.(type) {
+	case ModelGroupReferenceParticle:
+		return concrete, true
+	case *ModelGroupReferenceParticle:
+		if concrete == nil {
+			return ModelGroupReferenceParticle{}, false
+		}
+		return *concrete, true
+	default:
+		return ModelGroupReferenceParticle{}, false
+	}
+}
+
+func wildcardParticleValue(particle Particle) (WildcardParticle, bool) {
+	switch concrete := particle.(type) {
+	case WildcardParticle:
+		return concrete, true
+	case *WildcardParticle:
+		if concrete == nil {
+			return WildcardParticle{}, false
+		}
+		return *concrete, true
+	default:
+		return WildcardParticle{}, false
 	}
 }
