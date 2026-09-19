@@ -46,15 +46,11 @@ Before evidence/challenge/finish, resolve/match REST base/head, recompute signal
 compare canonical JSON, preserve non-owned PR bytes, and use exact `pending`/
 `evidence-ready` records. Challenge/finish bind exact REST base/head, audit,
 Curator, current-state triggers, and body/evidence digests.
-Unresolved challenges survive snapshots; original comments and authenticated
-records remain immutable. One-use challenges expire after two hours;
+Challenges, comments, and records remain immutable.
 `go tool workflowctl evaluation resolve PR --challenge ID --reason-file FILE`
-records authenticated-no-verdict after expiry, or before expiry when a fresh
-authenticated REST read confirms that the PR head changed and no complete-equivalent
-trusted Examiner receipt exists; the marker preserves historical and observed
-heads. It grants no verdict or merge authority. Fresh Examiner contexts reject
-wrong-head/stale/reused/malformed/caller-selected results;
-complete-equivalent trusted receipts form rounds and a pass is merge proof.
+records no-verdict after expiry, or earlier when REST proves
+changed head and no receipt; it binds both heads and grants no merge authority.
+Fresh Examiners reject stale/malformed/caller-selected results; equivalent receipts form rounds; passes prove merge.
 Cleanup verifies packet-scoped ownership, preserves ambiguity/unrelated refs, and
 is exact/idempotent; `claim prune ISSUE` requires merged proof. Finish/recovery
 use SHA-bound REST and exact GitHub-effective references. Pass `pr finish` a
