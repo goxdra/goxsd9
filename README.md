@@ -13,7 +13,6 @@ Only top-level direct model-group refs and named-global groups direct choice/seq
 `xs:token`/`xs:NMTOKEN` particles modeled; default-occurrence all-token/NMTOKEN choices validate; local token/NMTOKEN sequences unsupported; globals/generation unchanged.
 
 `abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. [ARCHITECTURE.md](ARCHITECTURE.md).
-Direct local atomic `xs:string` particles and named string restrictions are also modeled with immutable resolved type/facet facts across choices, sequences, and bounded extensions; inline string forms and token-derived string restrictions remain unsupported. Validation and generation reject modeled local strings explicitly.
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
 
 ## Product CLI

@@ -82,12 +82,12 @@ boundary:
 5. Validator and code-generator plans consume exact bounds on demand; they do
    not cache derived repetition programs in the schema.
 
-The current schema preflight uses this exact private range to validate lexical
+The schema preflight uses this exact private range to validate lexical
 occurrence input. A named global complex type with one direct sequence of local
-built-in boolean/token/NMTOKEN or exact-atomic `xs:string`, or named
-boolean/token/NMTOKEN or exact-string restriction,
+built-in boolean/token/NMTOKEN or atomic `xs:string`, or named
+boolean/token/NMTOKEN or string restriction,
 integer, or decimal scalar elements, or one direct choice of those scalar
-elements, maps the completed
+elements, maps the
 range and ordered children into the public schema. Direct `xs:any` `##any`/strict|lax|skip, `##other`/lax|strict, positive namespaces (`##local`, `##targetNamespace`, URI lists)/strict|lax|skip (skip explicit) map to `WildcardParticle` with exact locations/ranges, lexical order; broader/other constraints and consumers unsupported. A supported named
 model group with one direct choice or sequence of global element-reference
 particles exposes ordered children with exact ranges; its sequence uses
@@ -158,9 +158,9 @@ behavior. An error-level diagnostic returns no schema.
 
 ## Non-goals, risks, and follow-up
 
-Currently, the occurrence boundary supports one named global complex type
+The occurrence boundary supports one named global complex type
 with one direct sequence or direct choice of local built-in boolean/token/NMTOKEN
-or exact-atomic `xs:string`, or named boolean/token/NMTOKEN/string restrictions, integer, or decimal scalar elements,
+or atomic `xs:string`, or named boolean/token/NMTOKEN/string restrictions, integer, or decimal scalar elements,
 or one global named model group with one direct choice or sequence of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. Direct model-group references retain exact ranges and target IDs. For bounded attribute-free extensions, exact occurrences apply with a present direct choice, sequence, or group-reference particle. Model-less extensions retain extension/base identities and locations but no particle or occurrence or synthetic content; validation and code generation reject them. Wildcard terms follow rules above. Supported forms retain exact ranges; `0/0` maps to absence.
 For instance validation, named global complex homogeneous Boolean/numeric sequences
 match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`

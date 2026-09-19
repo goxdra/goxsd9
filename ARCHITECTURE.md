@@ -97,10 +97,9 @@ Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final(
 Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
 Groups/extensions: IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. Named-global sequence/choice owners: `anyAttribute`, default `##any`/strict; `##any`/lax|skip (namespace optional/explicit; skip), `##other`/lax|strict, explicit `##other`/skip, and positive namespaces (`##local`, `##targetNamespace`, URI lists) strict; locations/values retained; attribute validation/generation unsupported. `xs:any`: `##any`/strict|lax|skip (skip explicit), `##other`/lax|strict, positive constraints (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing and sorted effective values; lexical/source locations; ranges; `0/0` absent. Consumers reject nonzero wildcards; broader unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed=invalid.
 Named groups expose ordered references/ranges; broader shapes unsupported; consumers reject.
-Local atomic `xs:string` particles and named restrictions retain immutable
-type/facet facts, locations, and occurrences across choices, sequences, and
-bounded extensions. Consumers query but reject them; inline and token-derived
-string forms remain unsupported.
+Local `xs:string` particles and named restrictions retain immutable type/facet
+facts, locations, and occurrences in choices, sequences, bounded extensions;
+consumers reject them. Inline/token-derived forms unsupported.
 
 ## Datatypes
 
