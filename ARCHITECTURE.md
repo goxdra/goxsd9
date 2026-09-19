@@ -84,9 +84,9 @@ Primitive: global scalars: `DeclaredType`; immutable Boolean-attr type facts;
 direct-shape local token/NMTOKEN refs; immutable named/anonymous restriction boolean-kind/string-enumeration/string-`whiteSpace`;
 built-ins lack synthetic IDs.
 Built-in `xs:nonNegativeInteger` references are immutable with effective `minInclusive=0`; simple-type references and direct global-element modeling are supported, while local particles, attributes/value constraints, validation, and Go generation remain unsupported.
-Built-in/named integer/decimal attrs: immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
-exact-typed-value, source-location. Named global complexes accept unqualified `mixed="false|0"`; omitted=element-only
-(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1; anonymous global complex/other shapes unsupported.
+Built-in/named integer/decimal/token attrs: immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
+exact-typed-numeric-value, source-location; token values collapse. Named complexes accept `mixed="false|0"`; omitted=element-only
+(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1; anonymous complex/other shapes unsupported.
 Typed global attrs: immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
 Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
 `defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
