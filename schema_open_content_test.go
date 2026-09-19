@@ -196,10 +196,6 @@ func TestSchemaBridgeGlobalOpenContentUnsupportedFormsRemainExplicit(t *testing.
 			root: schemaGlobalNamedOpenContentRoot(`<xs:openContent><xs:any namespace="##any"/></xs:openContent>`, ""),
 		},
 		{
-			name: "derivation-local",
-			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="1.1"><xs:complexType name="Base"/><xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base"><xs:openContent mode="none"/><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType></xs:schema>`,
-		},
-		{
 			name: "inline",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.1"><xs:element name="item"><xs:complexType><xs:openContent mode="none"/></xs:complexType></xs:element></xs:schema>`,
 		},
@@ -214,6 +210,261 @@ func TestSchemaBridgeGlobalOpenContentUnsupportedFormsRemainExplicit(t *testing.
 			assertOpenContentUnsupported(t, schema, err)
 		})
 	}
+}
+
+//nolint:gocognit // Keep the complete omission-equivalence matrix together.
+func TestSchemaBridgeComplexContentExtensionOpenContentNoneMatchesOmission(t *testing.T) {
+	openContents := []struct {
+		name  string
+		value string
+	}{
+		{name: "without annotation", value: `<xs:openContent mode="none"/>`},
+		{name: "with annotation", value: `<xs:openContent mode="none"><xs:annotation/></xs:openContent>`},
+	}
+	models := []string{"choice", "sequence", "group"}
+	policies := []struct {
+		name   string
+		policy LanguagePolicy
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict11", policy: Strict11},
+	}
+	queryName := mustTestQName(t, "urn:root", "Derived")
+	for _, openContent := range openContents {
+		for _, model := range models {
+			for _, profile := range policies {
+				t.Run(openContent.name+"/"+model+"/"+profile.name, func(t *testing.T) {
+					withNone := complexContentExtensionOpenContentSchema("1.1", model, openContent.value)
+					omitted := strings.Replace(withNone, openContent.value, strings.Repeat(" ", len(openContent.value)), 1)
+					omittedSchema, err := discoverTestSchemaWithPolicy(t, omitted, nil, profile.policy)
+					if err != nil {
+						t.Fatalf("omitted openContent: %v", err)
+					}
+					noneSchema, err := discoverTestSchemaWithPolicy(t, withNone, nil, profile.policy)
+					if err != nil {
+						t.Fatalf("mode=none openContent: %v", err)
+					}
+					omittedSnapshot := snapshotSchemaForComponentKind(t, omittedSchema, queryName, ComponentKindComplexTypeDefinition)
+					noneSnapshot := snapshotSchemaForComponentKind(t, noneSchema, queryName, ComponentKindComplexTypeDefinition)
+					if !reflect.DeepEqual(noneSnapshot, omittedSnapshot) {
+						t.Fatalf("public component snapshot differs: mode=none=%#v omitted=%#v", noneSnapshot, omittedSnapshot)
+					}
+					assertComplexContentExtensionOpenContentParticle(t, noneSchema, model, withNone)
+
+					components := noneSchema.Components()
+					components[0] = Component{}
+					definition, ok := noneSchema.FindKind(ComponentKindComplexTypeDefinition, queryName)[0].ComplexTypeDefinition()
+					if !ok {
+						t.Fatal("derived complex type view is absent after component-copy mutation")
+					}
+					switch particle := definition.Particle().(type) {
+					case ChoiceParticle:
+						alternatives := particle.Alternatives()
+						if len(alternatives) > 0 {
+							alternatives[0] = nil
+						}
+					case SequenceParticle:
+						particles := particle.Particles()
+						if len(particles) > 0 {
+							particles[0] = nil
+						}
+					}
+					if got := snapshotSchemaForComponentKind(t, noneSchema, queryName, ComponentKindComplexTypeDefinition); !reflect.DeepEqual(got, noneSnapshot) {
+						t.Fatalf("mutating returned component or particle copies changed the schema: %#v", got)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSchemaBridgeComplexContentExtensionOpenContentNoneHonorsStrict10Policy(t *testing.T) {
+	openContent := `<xs:openContent mode="none"><xs:annotation/></xs:openContent>`
+	root := complexContentExtensionOpenContentSchema("1.0", "choice", openContent)
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err == nil {
+		t.Fatal("Strict10 accepted derivation-local openContent mode=none")
+	}
+	assertZeroSchema(t, schema)
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("diagnostic = %s, want located schema-syntax unsupported", diagnostic)
+	}
+	if diagnostic.Loc() != complexContentTestLoc(t, root, "<xs:openContent") {
+		t.Fatalf("diagnostic location = %s, want openContent location", diagnostic.Loc())
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errLanguagePolicyMismatch) {
+		t.Fatalf("diagnostic lost unsupported or policy-mismatch cause: %v", err)
+	}
+}
+
+func TestSchemaBridgeComplexContentExtensionOpenContentUnsupportedFormsRemainExplicit(t *testing.T) {
+	base := `<xs:complexType name="Base"/>`
+	tests := []struct {
+		name   string
+		root   string
+		marker string
+	}{
+		{
+			name:   "restriction",
+			root:   complexContentDerivationRoot(`<xs:restriction base="xs:anyType"><xs:openContent mode="none"/><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:restriction>`, ""),
+			marker: "<xs:openContent",
+		},
+		{
+			name:   "non-none mode",
+			root:   complexContentExtensionRoot(`<xs:extension base="t:Base"><xs:openContent mode="suffix"><xs:any/></xs:openContent><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:extension>`, base),
+			marker: "<xs:openContent",
+		},
+		{
+			name:   "assertion",
+			root:   complexContentExtensionRoot(`<xs:extension base="t:Base"><xs:openContent mode="none"/><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:assert test="true()"/></xs:extension>`, base),
+			marker: "<xs:assert",
+		},
+		{
+			name:   "built-in base",
+			root:   complexContentExtensionRoot(`<xs:extension base="xs:anyType"><xs:openContent mode="none"/><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:extension>`, ""),
+			marker: `base="xs:anyType"`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Strict11)
+			if err == nil {
+				t.Fatal("unsupported complex-content openContent form unexpectedly succeeded")
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+				t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Code(), diagnostic.Feature())
+			}
+			if diagnostic.Loc() != complexContentTestLoc(t, test.root, test.marker) {
+				t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), complexContentTestLoc(t, test.root, test.marker))
+			}
+			if !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("unsupported diagnostic lost cause: %v", err)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeComplexContentExtensionOpenContentMalformedFormsRemainInvalid(t *testing.T) {
+	base := `<xs:complexType name="Base"/>`
+	tests := []struct {
+		name string
+		root string
+	}{
+		{
+			name: "none with any",
+			root: complexContentExtensionRoot(`<xs:extension base="t:Base"><xs:openContent mode="none"><xs:any/></xs:openContent><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:extension>`, base),
+		},
+		{
+			name: "invalid mode",
+			root: complexContentExtensionRoot(`<xs:extension base="t:Base"><xs:openContent mode="bad"/><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:extension>`, base),
+		},
+		{
+			name: "duplicate openContent",
+			root: complexContentExtensionRoot(`<xs:extension base="t:Base"><xs:openContent mode="none"/><xs:openContent mode="none"/><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:extension>`, base),
+		},
+		{
+			name: "duplicate annotation",
+			root: complexContentExtensionRoot(`<xs:extension base="t:Base"><xs:openContent mode="none"><xs:annotation/><xs:annotation/></xs:openContent><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:extension>`, base),
+		},
+		{
+			name: "misplaced after model",
+			root: complexContentExtensionRoot(`<xs:extension base="t:Base"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:openContent mode="none"/></xs:extension>`, base),
+		},
+		{
+			name: "malformed later sibling",
+			root: complexContentExtensionRoot(`<xs:extension base="t:Base"><xs:openContent mode="none"><xs:unknown/><xs:sequence/></xs:openContent><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:extension>`, base),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, Compatibility)
+			if err == nil {
+				t.Fatal("malformed complex-content openContent form unexpectedly succeeded")
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode {
+				t.Fatalf("diagnostic = %s, want invalid schema composition", diagnostic)
+			}
+			if errors.Is(err, ErrUnsupported) || errors.Is(err, errLanguagePolicyMismatch) {
+				t.Fatalf("invalid openContent form retained an unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep direct particle-shape and identity assertions together.
+func assertComplexContentExtensionOpenContentParticle(t *testing.T, schema Schema, model, root string) {
+	t.Helper()
+	derived := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:root", "Derived"))
+	if len(derived) != 1 {
+		t.Fatalf("derived complex type count = %d, want one", len(derived))
+	}
+	definition, ok := derived[0].ComplexTypeDefinition()
+	if !ok {
+		t.Fatal("derived complex type definition is absent")
+	}
+	particle := definition.Particle()
+	if particle == nil {
+		t.Fatal("derived extension particle is absent")
+	}
+	wantLoc := "<xs:" + model
+	if model == "group" {
+		wantLoc = `<xs:group ref="t:Added"`
+	}
+	if particle.Loc() != complexContentTestLoc(t, root, wantLoc) {
+		t.Fatalf("particle location = %s, want %s", particle.Loc(), complexContentTestLoc(t, root, wantLoc))
+	}
+	if model == "group" {
+		group, ok := particle.(ModelGroupReferenceParticle)
+		if !ok || group.Ref() != mustTestQName(t, "urn:root", "Added") {
+			t.Fatalf("particle = %#v, want direct Added group reference", particle)
+		}
+		groups := schema.FindKind(ComponentKindModelGroupDefinition, mustTestQName(t, "urn:root", "Added"))
+		if len(groups) != 1 || group.TargetID() != groups[0].ID() {
+			t.Fatalf("group target identity = %v, want %v", group.TargetID(), groups[0].ID())
+		}
+		return
+	}
+	switch model {
+	case "choice":
+		if _, ok := particle.(ChoiceParticle); !ok {
+			t.Fatalf("particle = %T, want choice", particle)
+		}
+	case "sequence":
+		if _, ok := particle.(SequenceParticle); !ok {
+			t.Fatalf("particle = %T, want sequence", particle)
+		}
+	default:
+		t.Fatalf("unknown extension model %q", model)
+	}
+}
+
+func complexContentExtensionOpenContentSchema(version, model, openContent string) string {
+	if model == "group" {
+		return complexContentExtensionGroupSchema(version, openContent)
+	}
+	root := complexContentExtensionSchema(version, model)
+	return strings.Replace(root, `<xs:extension base="t:Base">`, `<xs:extension base="t:Base">`+openContent, 1)
+}
+
+func complexContentExtensionGroupSchema(version, openContent string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="` + version + `">
+  <xs:group name="Added"><xs:choice><xs:element ref="t:target"/></xs:choice></xs:group>
+  <xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base">` + openContent + `<xs:group ref="t:Added" minOccurs="0" maxOccurs="2"/></xs:extension></xs:complexContent></xs:complexType>
+  <xs:element name="target" type="xs:decimal"/>
+  <xs:complexType name="Base"><xs:complexContent><xs:restriction base="xs:anyType"><xs:anyAttribute namespace="##other" processContents="lax"/></xs:restriction></xs:complexContent></xs:complexType>
+</xs:schema>`
+}
+
+func complexContentDerivationRoot(derivation, suffix string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:complexType name="Derived"><xs:complexContent>` + derivation + `</xs:complexContent></xs:complexType>
+  ` + suffix + `
+</xs:schema>`
 }
 
 func TestSchemaBridgeGlobalOpenContentNoneMalformedFormsRemainInvalid(t *testing.T) {

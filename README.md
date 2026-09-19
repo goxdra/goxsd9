@@ -1,24 +1,23 @@
 # goxsd9
 
-goxsd9 targets XSD parsing, validation, Go generation; unsupported is explicit.
+goxsd9 parses/validates/generates Go; unsupported remains explicit.
 
-## Schema parsing
+## [Schema parsing](ARCHITECTURE.md#schema-model)
 
-`ParseSchema` exposes immutable components; callers provide `ResolvedSource`/`Resolver`. Calls sequential; locations opaque. Compatibility default.
+`ParseSchema`: immutable components; caller-provided `ResolvedSource`/`Resolver`; sequential calls, opaque locations; Compatibility default.
 
-XSD 1.0/1.1; limited `precisionDecimal`/string facets, `openAttrs`, extensions. Named complexes: element-only, direct global model-group refs, bounded attribute-free extensions; `defaultAttributesApply`: named globals only, XSD 1.1/Compatibility; no schema-level `defaultAttributes`.
-Named XSD 1.1 `openContent mode="none"` inert under Compatibility/Strict11; Strict10 mismatches. Other open-content/inline/derivation unsupported; malformed=invalid.
-Named direct sequence/choice default-form `xs:any`: immutable `WildcardParticle`
-(`##any`/`strict`), exact ranges; nonzero unsupported, `0/0` absent. Named direct sequence/choice support `anyAttribute`:
-omitted/canonical `##any`/strict; explicit `##other`/lax; locations retained; omitted=0. Direct model-group refs are schema-queryable only; ValidateInstance and GenerateGo reject them. Other groups/shapes, local uses/attributes,
-broader `xs:any` unsupported. Consumers support sequences/choices/element refs; default local all-Boolean choices; scalar generation separate.
+XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Complexes: element-only/model-group refs/bounded attribute-free extensions; model-less extensions over completed named empty-content bases: nil/no-synthetic-particle; bounded/representable inherited `##other`/lax wildcards. `defaultAttributesApply`: named globals, XSD 1.1/Compatibility.
+`openContent=none`: globals/bounded extensions in Compatibility/Strict11; Strict10 mismatch; other unsupported; malformed invalid.
+`xs:any` supports `##any`/strict|lax|skip, `##other`/lax|strict, and positive namespaces (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing; broader placements unsupported; consumers reject nonzero wildcards. Named-global sequence/choice owners: `anyAttribute`, `##any`/strict; `##any`/lax|skip (optional/explicit namespace; skip), `##other`/lax|strict, `##other`/skip, positive namespaces (`##local`, `##targetNamespace`, URI lists) strict; locations retained; validation/generation unsupported.
+Only top-level direct model-group refs and named-global groups direct choice/sequence refs queryable; nested/other groups unsupported. Typed built-in/supported named
+`xs:token`/`xs:NMTOKEN` particles modeled; default-occurrence all-token/NMTOKEN choices validate; local token/NMTOKEN sequences unsupported; globals/generation unchanged.
 
-`abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. Contract: [ARCHITECTURE.md](ARCHITECTURE.md).
+`abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. [ARCHITECTURE.md](ARCHITECTURE.md).
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
 
 ## Product CLI
 
-`parse`, `validate`, and `generate` use public APIs; [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
+`parse`, `validate`, and `generate` use APIs; [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
 [`examples/root.xsd`](examples/root.xsd), [`examples/valid.xml`](examples/valid.xml), [`examples/invalid.xml`](examples/invalid.xml)
 
 ```console
@@ -31,18 +30,18 @@ exit status 1
 $ go run ./cmd/goxsd9 generate --package sample examples/root.xsd > generated.go
 ```
 
-Parse stdout; validation silent on success. Invalid validation exits 1 with located diagnostic; usage 2.
+Parse stdout; validation silent on success. Invalid exits 1 with located diagnostic; usage 2.
 
 ## Design goals
 
 Exact value spaces/facets, streaming resolver input, immutable deterministic queries/walks,
-located diagnostics, no goroutines/locks or map-order output, and measured conformance.
+located diagnostics, no goroutines/locks/map-order output, measured conformance.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [PLAN.md](PLAN.md).
 
 ## Repository checks
 
-Fresh checkout; inventory remains metadata-only. Bounded schema requires exact `-version 1.0` or `-version 1.1` plus `-set` or `-case`; instances never run:
+Fresh checkout; inventory metadata-only. Bounded schema requires exact `-version 1.0` or `-version 1.1` plus `-set` or `-case`; instances never run:
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
@@ -59,11 +58,11 @@ go tool specs build -id xsd11-structures
 go tool specs search -id xsd11-structures -query "content model"
 go tool specs bootstrap -version 1.1
 ```
-Use `-root`, `-output`, `-index`; `bootstrap` previews without fetching.
+Use `-root`/`-output`/`-index`; `bootstrap` previews without fetching.
 
 ## Project workflow
 
-See [GitHub Issues](https://github.com/goxdra/goxsd9/issues), [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), and [AGENTS.md](AGENTS.md) for workflow rules.
+See [GitHub Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), and [AGENTS.md](AGENTS.md) for workflow rules.
 
 ## Test data licensing
 

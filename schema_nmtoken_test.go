@@ -431,21 +431,16 @@ func TestSchemaNMTOKENDiagnosticsAndConsumerBoundaries(t *testing.T) {
 					t.Fatalf("discoverSchema: %v", err)
 				}
 				generated, err := GenerateGo(schema, "generated")
-				if generated != nil || err == nil {
-					t.Fatalf("GenerateGo result = (%q, %v), want unsupported with no source", generated, err)
+				if err != nil || generated == nil {
+					t.Fatalf("GenerateGo result = (%q, %v), want NMTOKEN source", generated, err)
 				}
-				codegenDiagnostic := requireDiagnostic(t, err)
-				if codegenDiagnostic.Class() != FailureUnsupported || codegenDiagnostic.Feature() != FeatureCodegen || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("GenerateGo NMTOKEN diagnostic = %s/%q/%q, want codegen unsupported", codegenDiagnostic, codegenDiagnostic.Class(), codegenDiagnostic.Feature())
+				if !strings.Contains(string(generated), "type Item struct {\n\tValue string\n}") {
+					t.Fatalf("GenerateGo NMTOKEN source is missing Item string declaration: %s", generated)
 				}
 
 				validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<item xmlns="urn:test">value</item>`)))
-				if validationErr == nil {
-					t.Fatal("ValidateInstance silently accepted xs:NMTOKEN")
-				}
-				validationDiagnostic := requireDiagnostic(t, validationErr)
-				if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || validationDiagnostic.Feature() != FeatureInstanceValidation || !errors.Is(validationErr, ErrUnsupported) {
-					t.Fatalf("ValidateInstance NMTOKEN diagnostic = %s/%q/%q, want instance-validation unsupported", validationDiagnostic, validationDiagnostic.Class(), validationDiagnostic.Feature())
+				if validationErr != nil {
+					t.Fatalf("ValidateInstance NMTOKEN: %v", validationErr)
 				}
 			})
 
@@ -472,18 +467,8 @@ func TestSchemaNMTOKENDiagnosticsAndConsumerBoundaries(t *testing.T) {
 
 			t.Run("local particle boundary", func(t *testing.T) {
 				root := nmtokenConsumerLocalRoot(profile.version)
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err == nil {
-					t.Fatal("discoverSchema silently accepted local xs:NMTOKEN scalar use")
-				}
-				assertNMTOKENNoSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
-					t.Fatalf("local NMTOKEN diagnostic = %s/%q/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Code(), diagnostic.Feature())
-				}
-				if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 4, `type="xs:NMTOKEN"`) || diagnostic.SpecRef() != schemaSyntaxSpecRefForVersion(profile.version) || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("local NMTOKEN diagnostic facts are wrong: %v", err)
-				}
+				schema := discoverLocalTokenParticleSchema(t, root, profile.policy)
+				assertLocalTokenParticleConsumersUnsupported(t, schema, `<box xmlns="urn:test"><item xmlns="">value</item></box>`, "NMTOKEN")
 			})
 		})
 	}

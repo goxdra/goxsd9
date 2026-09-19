@@ -83,7 +83,7 @@ func codegenDirectChoiceScalarFamilyFromDigit(kind DigitDatatype) (codegenDirect
 
 func codegenDirectChoiceScalarFamilyFromSourceKind(kind codegenSourceScalarKind) (codegenDirectChoiceScalarFamily, bool) {
 	switch kind {
-	case codegenSourceScalarInvalid, codegenSourceScalarString:
+	case codegenSourceScalarInvalid, codegenSourceScalarString, codegenSourceScalarToken, codegenSourceScalarNMTOKEN:
 		return codegenDirectChoiceScalarInvalid, false
 	case codegenSourceScalarBoolean:
 		return codegenDirectChoiceScalarBoolean, true
@@ -831,6 +831,8 @@ func validateCodegenDirectChoiceReferenceTarget(
 		var kind DigitDatatype
 		var scalarKind codegenSourceScalarKind
 		switch declaredType.Local() {
+		case "boolean":
+			scalarKind = codegenSourceScalarBoolean
 		case "integer":
 			kind = DigitDatatypeInteger
 			scalarKind = codegenSourceScalarInteger
@@ -846,11 +848,11 @@ func validateCodegenDirectChoiceReferenceTarget(
 				version,
 			)
 		}
-		family, familyOK := codegenDirectChoiceScalarFamilyFromDigit(kind)
+		family, familyOK := codegenDirectChoiceScalarFamilyFromSourceKind(scalarKind)
 		if !familyOK {
 			return nil, newCodegenInternal(
 				loc,
-				fmt.Sprintf("built-in referenced global element %q has an unknown numeric scalar family", declaration.Name()),
+				fmt.Sprintf("built-in referenced global element %q has an unknown scalar family", declaration.Name()),
 				related,
 				errCodegenDirectChoiceTarget,
 			)
@@ -924,6 +926,48 @@ func validateCodegenDirectChoiceReferenceTarget(
 				errCodegenDirectChoiceTarget,
 			)
 		}
+		if definition.IsBoolean() {
+			scalarTarget, scalarErr := codegenNamedScalarTarget(schema, typeComponent, version)
+			if scalarErr != nil {
+				var diagnostic Diagnostic
+				if errors.As(scalarErr, &diagnostic) && diagnostic.Class() == FailureUnsupported {
+					return nil, newCodegenDirectChoiceReferenceTargetUnsupported(
+						loc,
+						fmt.Sprintf("named referenced global element type %q is outside scalar generation", declaredType),
+						mergeCodegenRelated(related, codegenSimpleTypeRelatedLocations(definition, definition.DigitFacets())),
+						fmt.Errorf("%w: %w", errCodegenUnsupported, scalarErr),
+						version,
+					)
+				}
+				return nil, decorateCodegenDirectChoiceError(scalarErr, loc, related)
+			}
+			if scalarTarget.scalarKind != codegenSourceScalarBoolean {
+				return nil, newCodegenInternal(
+					loc,
+					fmt.Sprintf("named referenced global element %q has an inconsistent Boolean scalar plan", declaration.Name()),
+					related,
+					errCodegenDirectChoiceTarget,
+				)
+			}
+			sourceTarget := codegenSourceTarget{
+				form:         codegenSourceTargetNamed,
+				declaredType: declaredType,
+				typeID:       typeID,
+				hasTypeID:    true,
+				scalarKind:   scalarTarget.scalarKind,
+			}
+			if err := validateCodegenElementTypeReference(declaration, sourceTarget, loc, version); err != nil {
+				return nil, decorateCodegenDirectChoiceError(err, loc, related)
+			}
+			return codegenDirectChoiceNamedTarget{
+				declaredType: declaredType,
+				id:           typeID,
+				family:       codegenDirectChoiceScalarBoolean,
+				elementID:    targetID,
+				hasElementID: true,
+			}, nil
+		}
+
 		kind, kindErr := codegenNamedScalarKind(typeComponent, version)
 		if kindErr != nil {
 			var diagnostic Diagnostic

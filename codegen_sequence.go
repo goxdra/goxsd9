@@ -435,7 +435,55 @@ func collectCodegenDirectSequenceOwner(
 			target: target,
 		})
 	}
+	if err := validateCodegenDirectSequenceScalarFamilies(owner, version); err != nil {
+		return codegenDirectSequenceCollectedOwner{}, err
+	}
 	return owner, nil
+}
+
+func validateCodegenDirectSequenceScalarFamilies(
+	owner codegenDirectSequenceCollectedOwner,
+	version XSDVersion,
+) error {
+	if len(owner.fields) == 0 {
+		return nil
+	}
+	firstFamily, firstOK := codegenDirectChoiceScalarFamilyFromSourceKind(owner.fields[0].target.scalarKind)
+	if !firstOK {
+		return newCodegenInternal(
+			owner.fields[0].loc,
+			"direct-sequence target has an unknown scalar family",
+			nil,
+			errCodegenDirectSequenceTarget,
+		)
+	}
+	for index, field := range owner.fields[1:] {
+		family, familyOK := codegenDirectChoiceScalarFamilyFromSourceKind(field.target.scalarKind)
+		if !familyOK {
+			return newCodegenInternal(
+				field.loc,
+				"direct-sequence target has an unknown scalar family",
+				nil,
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		if family == firstFamily || firstFamily != codegenDirectChoiceScalarBoolean && family != codegenDirectChoiceScalarBoolean {
+			continue
+		}
+		related := appendCodegenRelated(nil, owner.sequenceLoc)
+		for _, relatedField := range owner.fields {
+			related = appendCodegenRelated(related, relatedField.loc)
+		}
+		return newCodegenDirectSequenceUnsupported(
+			field.loc,
+			"direct sequence mixes Boolean and non-Boolean scalar fields outside Go code generation",
+			related,
+			fmt.Errorf("%w: mixed direct-sequence scalar families at field %d", errCodegenUnsupported, index+2),
+			version,
+			codegenDirectSequenceElementReference,
+		)
+	}
+	return nil
 }
 
 func codegenDirectSequencePath(index int) ([]uint32, error) {
@@ -544,6 +592,8 @@ func validateCodegenDirectSequenceTarget(
 		}
 		var kind codegenSourceScalarKind
 		switch declaredType.Local() {
+		case "boolean":
+			kind = codegenSourceScalarBoolean
 		case "integer":
 			kind = codegenSourceScalarInteger
 		case "decimal":
@@ -632,10 +682,12 @@ func validateCodegenDirectSequenceTarget(
 	if err != nil {
 		return codegenSourceTarget{}, decorateCodegenElementError(err, element.Loc(), related)
 	}
-	if scalarTarget.scalarKind != codegenSourceScalarInteger && scalarTarget.scalarKind != codegenSourceScalarDecimal {
+	if scalarTarget.scalarKind != codegenSourceScalarBoolean &&
+		scalarTarget.scalarKind != codegenSourceScalarInteger &&
+		scalarTarget.scalarKind != codegenSourceScalarDecimal {
 		return codegenSourceTarget{}, newCodegenDirectSequenceUnsupported(
 			element.Loc(),
-			fmt.Sprintf("named direct-sequence type %q is outside integer and decimal sequence generation", declaredType),
+			fmt.Sprintf("named direct-sequence type %q is outside scalar sequence generation", declaredType),
 			related,
 			fmt.Errorf("%w: named scalar kind %q", errCodegenUnsupported, scalarTarget.scalarKind),
 			version,

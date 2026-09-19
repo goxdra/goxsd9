@@ -438,7 +438,7 @@ func TestSchemaTokenRestrictionCyclesRemainLocatedAndProduceNoSchema(t *testing.
 }
 
 //nolint:gocognit // Keep direct, named, local-particle, and consumer gates together.
-func TestSchemaTokenConsumerBoundariesRemainExplicitlyUnsupported(t *testing.T) {
+func TestSchemaTokenConsumerBoundariesPreserveScope(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			for _, test := range []struct {
@@ -456,45 +456,30 @@ func TestSchemaTokenConsumerBoundariesRemainExplicitlyUnsupported(t *testing.T) 
 					}
 
 					generated, err := GenerateGo(schema, "generated")
-					if generated != nil || err == nil {
-						t.Fatalf("GenerateGo result = (%q, %v), want explicit unsupported with no source", generated, err)
+					if err != nil || generated == nil {
+						t.Fatalf("GenerateGo result = (%q, %v), want token-family source", generated, err)
 					}
-					codegenDiagnostic := requireDiagnostic(t, err)
-					if codegenDiagnostic.Class() != FailureUnsupported || codegenDiagnostic.Code() != diagnosticCodegenUnsupported || codegenDiagnostic.Feature() != FeatureCodegen {
-						t.Fatalf("GenerateGo diagnostic = %s/%q/%q/%q, want codegen unsupported", codegenDiagnostic, codegenDiagnostic.Class(), codegenDiagnostic.Code(), codegenDiagnostic.Feature())
+					wantFragments := []string{"type Item struct {\n\tValue string\n}"}
+					if test.name == "named" {
+						wantFragments = []string{"type Item struct {\n\tValue Token\n}", "type Token struct {\n\tValue string\n}"}
 					}
-					if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
-						t.Fatalf("GenerateGo diagnostic lost unsupported cause: %v", err)
+					for _, fragment := range wantFragments {
+						if !strings.Contains(string(generated), fragment) {
+							t.Fatalf("GenerateGo source is missing %q: %s", fragment, generated)
+						}
 					}
 
 					validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(test.body)))
-					if validationErr == nil {
-						t.Fatal("ValidateInstance silently accepted xs:token")
-					}
-					validationDiagnostic := requireDiagnostic(t, validationErr)
-					if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || validationDiagnostic.Feature() != FeatureInstanceValidation {
-						t.Fatalf("ValidateInstance diagnostic = %s/%q/%q/%q, want instance-validation unsupported", validationDiagnostic, validationDiagnostic.Class(), validationDiagnostic.Code(), validationDiagnostic.Feature())
-					}
-					if !errors.Is(validationErr, ErrUnsupported) || !errors.Is(validationErr, errInstanceUnsupportedType) {
-						t.Fatalf("ValidateInstance diagnostic lost unsupported cause: %v", validationErr)
+					if validationErr != nil {
+						t.Fatalf("ValidateInstance token scalar = %v, want supported", validationErr)
 					}
 				})
 			}
 
 			t.Run("local particle", func(t *testing.T) {
 				root := tokenConsumerLocalRoot(profile.version)
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err == nil {
-					t.Fatal("discoverSchema silently accepted local xs:token scalar use")
-				}
-				assertTokenNoSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
-					t.Fatalf("local token diagnostic = %s/%q/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Code(), diagnostic.Feature())
-				}
-				if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 4, `type="xs:token"`) || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("local token diagnostic location or cause is wrong: %v", err)
-				}
+				schema := discoverLocalTokenParticleSchema(t, root, profile.policy)
+				assertLocalTokenParticleConsumersUnsupported(t, schema, `<box xmlns="urn:test"><item xmlns="">value</item></box>`, "token")
 			})
 		})
 	}

@@ -344,6 +344,7 @@ func instanceSequenceProgramFor(
 			version,
 			false,
 			false,
+			false,
 			version,
 		)
 		if err != nil {
@@ -355,6 +356,23 @@ func instanceSequenceProgramFor(
 			occurrences: element.facts.occurrences.clone(),
 			scalar:      scalar,
 		})
+	}
+	if len(particles) > 0 {
+		booleanCount := 0
+		for _, particle := range particles {
+			if _, ok := particle.scalar.value.(instanceBooleanScalar); ok {
+				booleanCount++
+			}
+		}
+		if booleanCount > 0 && booleanCount != len(particles) {
+			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+				loc,
+				"direct sequence mixes Boolean and non-Boolean local declarations",
+				related,
+				version,
+				errInstanceSequenceMixed,
+			)
+		}
 	}
 	if definition.IsAbstract() {
 		return instanceSequenceProgram{}, newInstanceAbstractComplexTypeUnsupported(definition, loc, related, version)
