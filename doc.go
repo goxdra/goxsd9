@@ -61,14 +61,17 @@
 // and each mapped precisionDecimal alternative use default occurrences;
 // non-default precisionDecimal choice or alternative ranges and non-0/0
 // direct-sequence precisionDecimal ranges that map to particles are
-// schema-unsupported. Anonymous/inline local types, local value/default/fixed/attribute
-// constraints, nested, and broader particles remain unsupported; explicitly typed built-in or
-// supported named token/NMTOKEN elements in direct choices/sequences and bounded
-// attribute-free extensions are modeled; validation supports only default-occurrence
-// all-token/NMTOKEN direct choices, while local token/NMTOKEN sequences and generation remain
-// unsupported. Local string particles remain unsupported. Anonymous simple-type
-// models and resolved built-in, named, and anonymous simple-type references are
-// modeled. Direct element references are queryable immutable particles.
+// schema-unsupported. Scalar local, referenced, and anonymous-inline attribute uses in
+// particle-plus-use and attribute-only bodies expose ordered immutable AttributeUse facts.
+// A bounded scalar simpleContent extension retains its base/type references and ordered
+// local, referenced, and anonymous-inline uses without a particle. Local value/default/fixed/
+// inheritable semantics, attribute validation/generation, and broader particle forms remain
+// explicitly unsupported. Explicitly typed built-in or supported named token/NMTOKEN elements
+// in direct choices/sequences and bounded attribute-free extensions are modeled; validation
+// supports only default-occurrence all-token/NMTOKEN direct choices, while local token/NMTOKEN
+// sequences and generation remain unsupported. Local string particles remain unsupported.
+// Anonymous simple-type models and resolved built-in, named, and anonymous simple-type
+// references are modeled. Direct element references are queryable immutable particles.
 // ValidateInstance supports default-occurrence direct choices made entirely of
 // references to global Boolean, integer, or decimal scalar elements;
 // GenerateGo supports only default-occurrence direct choices made entirely of
