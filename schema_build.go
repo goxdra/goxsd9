@@ -49,6 +49,7 @@ const (
 	diagnosticSchemaModelGroupReferenceWrongKindCode  = "XSD3048"
 	diagnosticSchemaModelGroupReferenceAmbiguousCode  = "XSD3049"
 	diagnosticSchemaModelGroupReferenceNamespaceCode  = "XSD3050"
+	diagnosticSchemaElementValueConstraintCode        = "XSD3051"
 	diagnosticSchemaBridgeInvariantCode               = "GOXSD9025"
 )
 
@@ -84,6 +85,10 @@ const (
 	schemaAttributeValueConstraintXSD11SpecRef  = "xsd11-structures#ad-value_constraint"
 	schemaAttributeValueXSD10SpecRef            = "xsd10-structures#element-attribute"
 	schemaAttributeValueXSD11SpecRef            = "xsd11-structures#vc_a"
+	schemaElementValueConstraintXSD10SpecRef    = "xsd10-structures#e-value_constraint"
+	schemaElementValueConstraintXSD11SpecRef    = "xsd11-structures#ed-value_constraint"
+	schemaElementValueXSD10SpecRef              = "xsd10-structures#element-element"
+	schemaElementValueXSD11SpecRef              = "xsd11-structures#vc_e"
 	schemaNotationXSD10SpecRef                  = "xsd10-structures#Notation_Declaration_details"
 	schemaNotationXSD11SpecRef                  = "xsd11-structures#Notation_Declaration_details"
 	schemaSubstitutionAffiliationXSD10SpecRef   = "xsd10-structures#Element_Declaration_details"
@@ -140,6 +145,9 @@ var (
 	errSchemaAttributeValueConstraintInvalid     = errors.New("attribute value constraint is invalid")
 	errSchemaAttributeValueConstraintConflict    = errors.New("attribute value constraints are mutually exclusive")
 	errSchemaAttributeValueConstraintUnsupported = errors.New("attribute value constraint is unsupported")
+	errSchemaElementValueConstraintInvalid       = errors.New("element value constraint is invalid")
+	errSchemaElementValueConstraintConflict      = errors.New("element value constraints are mutually exclusive")
+	errSchemaElementValueConstraintUnsupported   = errors.New("element value constraint is unsupported")
 	errSchemaGlobalDeclarationDuplicate          = errors.New("global declaration is duplicated")
 	errSchemaElementDuplicate                    = errors.New("global element declaration is duplicated")
 	errSchemaElementTargetNamespace              = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
@@ -1334,7 +1342,43 @@ func schemaAttributeValueConstraintInputFromElement(element *syntaxElement, vers
 	return nil, nil
 }
 
+func schemaElementValueConstraintInputFromElement(element *syntaxElement, version XSDVersion) (*schemaValueConstraintInput, error) {
+	if element == nil {
+		return nil, newSchemaBridgeInvariant(Loc{}, "construct element value constraint input from a nil element")
+	}
+	defaults := syntaxAttributesByLocal(element, "default")
+	fixed := syntaxAttributesByLocal(element, "fixed")
+	if len(defaults) > 0 && len(fixed) > 0 {
+		return nil, invalidSchemaElementValueConstraintConflict(fixed[0].loc, defaults[0].loc, element.name.local, version)
+	}
+	if len(defaults) > 1 {
+		return nil, invalidSchemaElementValueConstraintConflict(defaults[1].loc, defaults[0].loc, element.name.local, version)
+	}
+	if len(fixed) > 1 {
+		return nil, invalidSchemaElementValueConstraintConflict(fixed[1].loc, fixed[0].loc, element.name.local, version)
+	}
+	if len(defaults) == 1 {
+		return &schemaAttributeValueConstraintInput{
+			kind:    ValueConstraintDefault,
+			lexical: defaults[0].value,
+			loc:     defaults[0].loc,
+		}, nil
+	}
+	if len(fixed) == 1 {
+		return &schemaAttributeValueConstraintInput{
+			kind:    ValueConstraintFixed,
+			lexical: fixed[0].value,
+			loc:     fixed[0].loc,
+		}, nil
+	}
+	return nil, nil
+}
+
 func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaElementInput, error) {
+	valueConstraint, err := schemaElementValueConstraintInputFromElement(element, version)
+	if err != nil {
+		return nil, err
+	}
 	abstract, abstractPresent, abstractLoc, err := schemaElementBooleanAttribute(element, "abstract")
 	if err != nil {
 		return nil, err
@@ -1373,13 +1417,14 @@ func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, v
 			substitutionGroup,
 			block,
 			explicitBlock,
+			valueConstraint,
 		)
 	}
 	if len(attributes) == 1 && inline != nil {
 		return nil, newSchemaCompositionDiagnostic(inline.loc, "element cannot combine type attribute with an inline simpleType")
 	}
 	if inline != nil {
-		return schemaElementTypeInputForInline(inline, version, abstract, nillable, substitutionGroup, block)
+		return schemaElementTypeInputForInline(inline, version, abstract, nillable, substitutionGroup, block, valueConstraint)
 	}
 	declaredType, err := expandSchemaQName(element, attributes[0])
 	if err != nil {
@@ -1392,6 +1437,7 @@ func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, v
 		nillable:          nillable,
 		block:             block,
 		substitutionGroup: substitutionGroup,
+		valueConstraint:   valueConstraint,
 	}, nil
 }
 
@@ -1405,9 +1451,17 @@ func schemaElementTypeInputWithoutDeclaredType(
 	substitutionGroup []schemaElementSubstitutionGroupInput,
 	block schemaBlockPolicy,
 	explicitBlock bool,
+	valueConstraint *schemaValueConstraintInput,
 ) (*schemaElementInput, error) {
 	if noTypeErr := validateSchemaElementWithoutDeclaredType(element, version, abstractPresent, abstractLoc, nillablePresent, nillableLoc); noTypeErr != nil {
 		return nil, noTypeErr
+	}
+	if valueConstraint != nil {
+		return nil, unsupportedSchemaElementValueConstraint(
+			&schemaElementInput{valueConstraint: valueConstraint},
+			version,
+			"global element value constraints require a declared supported simple type",
+		)
 	}
 	if explicitBlock || block.set != 0 {
 		loc := block.loc
@@ -1437,6 +1491,7 @@ func schemaElementTypeInputForInline(
 	nillable bool,
 	substitutionGroup []schemaElementSubstitutionGroupInput,
 	block schemaBlockPolicy,
+	valueConstraint *schemaValueConstraintInput,
 ) (*schemaElementInput, error) {
 	if len(substitutionGroup) > 0 {
 		return nil, newSchemaSyntaxUnsupportedForVersion(
@@ -1445,19 +1500,28 @@ func schemaElementTypeInputForInline(
 			version,
 		)
 	}
-	if inlineErr := validateInlineSchemaType(inline, version); inlineErr != nil {
+	var inlineErr error
+	if valueConstraint == nil {
+		inlineErr = validateInlineSchemaType(inline, version)
+	}
+	if valueConstraint != nil {
+		inlineErr = validateInlineSchemaTypeWithFacetBridge(inline, version, true)
+	}
+	if inlineErr != nil {
 		return nil, inlineErr
 	}
 	simpleType, simpleTypeErr := schemaSimpleTypeInputFromElement(inline, version)
 	if simpleTypeErr != nil {
 		return nil, simpleTypeErr
 	}
+	simpleType.allowAnonymousNonStringEnumeration = valueConstraint != nil
 	return &schemaElementInput{
 		typeLoc:          inline.loc,
 		inlineSimpleType: simpleType,
 		abstract:         abstract,
 		nillable:         nillable,
 		block:            block,
+		valueConstraint:  valueConstraint,
 	}, nil
 }
 
@@ -3198,7 +3262,7 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 }
 
 func resolveSchemaAttributeValueConstraint(
-	input *schemaAttributeValueConstraintInput,
+	input *schemaValueConstraintInput,
 	reference schemaSimpleTypeReferenceComponent,
 	version XSDVersion,
 ) (*AttributeValueConstraint, error) {
@@ -3283,6 +3347,208 @@ func resolveSchemaAttributeTokenValueConstraint(
 		version,
 		enumerationValueViolationDiagnostic(input.loc, facets.enumeration.Locations(), facets.enumeration.Version(), "token"),
 	)
+}
+
+func schemaElementValueConstraintReferenceSupported(reference schemaSimpleTypeReferenceComponent) bool {
+	if reference.variety != SimpleTypeVarietyAtomicRestriction {
+		return false
+	}
+	if _, ok := reference.facets.(schemaBooleanFacetVariant); ok {
+		return true
+	}
+	switch reference.atomicKind {
+	case schemaSimpleTypeAtomicInteger,
+		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicNonNegativeInteger:
+		switch facets := reference.facets.(type) {
+		case schemaDigitFacetVariant:
+			return facets.value.Kind() == DigitDatatypeInteger
+		case schemaIntegerFacetVariant:
+			return facets.digits.Kind() == DigitDatatypeInteger
+		default:
+			return false
+		}
+	case schemaSimpleTypeAtomicDecimal:
+		switch facets := reference.facets.(type) {
+		case schemaDigitFacetVariant:
+			return facets.value.Kind() == DigitDatatypeDecimal
+		case schemaDecimalFacetVariant:
+			return facets.digits.Kind() == DigitDatatypeDecimal
+		default:
+			return false
+		}
+	case schemaSimpleTypeAtomicPrecisionDecimal:
+		_, ok := reference.facets.(schemaPrecisionDecimalFacetVariant)
+		return ok
+	case schemaSimpleTypeAtomicString, schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicNMTOKEN:
+		facets, ok := reference.facets.(schemaStringFacetVariant)
+		return ok && facets.whiteSpace != nil
+	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicLanguage,
+		schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI,
+		schemaSimpleTypeAtomicID:
+		return false
+	default:
+		return false
+	}
+}
+
+//nolint:gocognit,funlen // Keep typed value conversion and facet validation together.
+func resolveSchemaElementValueConstraint(
+	input *schemaAttributeValueConstraintInput,
+	reference schemaSimpleTypeReferenceComponent,
+	version XSDVersion,
+) (*ValueConstraint, error) {
+	if input == nil {
+		return nil, nil
+	}
+	lexical := collapseXMLWhitespace(input.lexical)
+	constraint := &ValueConstraint{
+		kind:    input.kind,
+		lexical: lexical,
+		loc:     input.loc,
+	}
+	if _, ok := reference.facets.(schemaBooleanFacetVariant); ok {
+		value, err := ParseStrictBooleanFor(version, input.lexical, input.loc)
+		if err != nil {
+			return nil, invalidSchemaElementValueConstraint(input, version, err)
+		}
+		constraint.boolean = value
+		constraint.hasBoolean = true
+		return constraint, nil
+	}
+	switch reference.atomicKind {
+	case schemaSimpleTypeAtomicInteger,
+		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicNonNegativeInteger:
+		value, err := ParseStrictInteger(input.lexical, input.loc)
+		if err != nil {
+			return nil, invalidSchemaElementValueConstraint(input, version, err)
+		}
+		if err := validateSchemaElementIntegerValue(reference, value, input.loc); err != nil {
+			return nil, invalidSchemaElementValueConstraint(input, version, err)
+		}
+		constraint.integer = value
+		constraint.hasInteger = true
+		return constraint, nil
+	case schemaSimpleTypeAtomicDecimal:
+		value, err := ParseStrictDecimalFor(version, input.lexical, input.loc)
+		if err != nil {
+			return nil, invalidSchemaElementValueConstraint(input, version, err)
+		}
+		if err := validateSchemaElementDecimalValue(reference, value, input.loc); err != nil {
+			return nil, invalidSchemaElementValueConstraint(input, version, err)
+		}
+		constraint.decimal = value
+		constraint.hasDecimal = true
+		return constraint, nil
+	case schemaSimpleTypeAtomicPrecisionDecimal:
+		facets, ok := reference.facets.(schemaPrecisionDecimalFacetVariant)
+		if !ok {
+			return nil, newSchemaBridgeInvariant(input.loc, "convert an element precisionDecimal value against an incomplete facet model")
+		}
+		if err := facets.value.Validate(input.lexical, input.loc); err != nil {
+			return nil, invalidSchemaElementValueConstraint(input, version, err)
+		}
+		value, err := ParseStrictPrecisionDecimal(input.lexical, input.loc)
+		if err != nil {
+			return nil, invalidSchemaElementValueConstraint(input, version, err)
+		}
+		constraint.precisionDecimal = value
+		constraint.hasPrecisionDecimal = true
+		return constraint, nil
+	case schemaSimpleTypeAtomicString, schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicNMTOKEN:
+		facets, ok := reference.facets.(schemaStringFacetVariant)
+		if !ok || facets.whiteSpace == nil {
+			return nil, newSchemaBridgeInvariant(input.loc, "convert an element string value against an incomplete facet model")
+		}
+		value := normalizeSchemaElementStringValue(input.lexical, facets.whiteSpace.Value())
+		if reference.atomicKind == schemaSimpleTypeAtomicNMTOKEN && !validXMLNmtoken(value) {
+			cause := fmt.Errorf("%w: %q", errSchemaNMTOKENValueViolation, value)
+			diagnostic := newDiagnostic(
+				FailureInvalid,
+				InvalidNMTOKENLexicalCode,
+				input.loc,
+				"NMTOKEN value is invalid",
+				cause,
+			)
+			return nil, invalidSchemaElementValueConstraint(input, version, diagnostic)
+		}
+		if err := facets.enumeration.ValidateString(value, input.loc); err != nil {
+			return nil, invalidSchemaElementValueConstraint(input, version, err)
+		}
+		constraint.stringValue = value
+		constraint.hasString = true
+		constraint.lexical = value
+		return constraint, nil
+	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicLanguage,
+		schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI,
+		schemaSimpleTypeAtomicID:
+		return nil, newSchemaBridgeInvariant(input.loc, "convert an excluded element value constraint type")
+	default:
+		return nil, newSchemaBridgeInvariant(input.loc, "convert an unsupported element value constraint type")
+	}
+}
+
+func normalizeSchemaElementStringValue(value string, whiteSpace string) string {
+	if whiteSpace == "preserve" {
+		return value
+	}
+	replaced := strings.Map(func(character rune) rune {
+		switch character {
+		case '\t', '\n', '\r':
+			return ' '
+		default:
+			return character
+		}
+	}, value)
+	if whiteSpace == "replace" {
+		return replaced
+	}
+	return collapseXMLWhitespace(replaced)
+}
+
+func validateSchemaElementIntegerValue(reference schemaSimpleTypeReferenceComponent, value StrictInteger, loc Loc) error {
+	switch facets := reference.facets.(type) {
+	case schemaDigitFacetVariant:
+		if err := facets.value.ValidateInteger(value, loc); err != nil {
+			return err
+		}
+		return facets.integerBounds.ValidateInteger(value, loc)
+	case schemaIntegerFacetVariant:
+		if err := facets.digits.ValidateInteger(value, loc); err != nil {
+			return err
+		}
+		if err := facets.bounds.ValidateInteger(value, loc); err != nil {
+			return err
+		}
+		return facets.enumeration.ValidateInteger(value, loc)
+	default:
+		return newSchemaBridgeInvariant(reference.loc, "validate an integer element value against a non-integer facet model")
+	}
+}
+
+func validateSchemaElementDecimalValue(reference schemaSimpleTypeReferenceComponent, value StrictDecimal, loc Loc) error {
+	switch facets := reference.facets.(type) {
+	case schemaDigitFacetVariant:
+		if err := facets.value.ValidateDecimal(value, loc); err != nil {
+			return err
+		}
+		return facets.decimalBounds.ValidateDecimal(value, loc)
+	case schemaDecimalFacetVariant:
+		if err := facets.digits.ValidateDecimal(value, loc); err != nil {
+			return err
+		}
+		if err := facets.bounds.ValidateDecimal(value, loc); err != nil {
+			return err
+		}
+		return facets.enumeration.ValidateDecimal(value, loc)
+	default:
+		return newSchemaBridgeInvariant(reference.loc, "validate a decimal element value against a non-decimal facet model")
+	}
 }
 
 func validateSchemaAttributeIntegerValue(reference schemaSimpleTypeReferenceComponent, value StrictInteger, loc Loc) error {
@@ -3474,6 +3740,40 @@ func unsupportedSchemaAttributeValueConstraint(input *schemaAttributeInput, vers
 	return diagnostic
 }
 
+func unsupportedSchemaElementValueConstraint(input *schemaElementInput, version XSDVersion, message string) Diagnostic {
+	if input == nil || input.valueConstraint == nil {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaBridgeInvariantCode,
+			Loc{},
+			"element value constraint is missing its syntax input",
+			errSchemaElementValueConstraintUnsupported,
+		)
+	}
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticUnregisteredFeatureCode,
+			input.valueConstraint.loc,
+			"schema syntax feature is not registered",
+			errSchemaElementValueConstraintUnsupported,
+		)
+	}
+	diagnostic := newUnsupportedForVersionWithCause(
+		feature,
+		UnsupportedSchemaSyntaxCode,
+		input.valueConstraint.loc,
+		message,
+		version,
+		errSchemaElementValueConstraintUnsupported,
+	)
+	if diagnostic.Class() == FailureUnsupported {
+		diagnostic.specRef = schemaElementValueConstraintSpecRef(version)
+	}
+	return diagnostic
+}
+
 func invalidSchemaAttributeValueConstraint(input *schemaAttributeValueConstraintInput, version XSDVersion, cause error) error {
 	if input == nil {
 		return newSchemaBridgeInvariant(Loc{}, "attribute value constraint validation has no input")
@@ -3508,11 +3808,53 @@ func invalidSchemaAttributeValueConstraint(input *schemaAttributeValueConstraint
 	}
 }
 
+func invalidSchemaElementValueConstraint(input *schemaValueConstraintInput, version XSDVersion, cause error) error {
+	if input == nil {
+		return newSchemaBridgeInvariant(Loc{}, "element value constraint validation has no input")
+	}
+	var diagnostic Diagnostic
+	if !errors.As(cause, &diagnostic) {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaBridgeInvariantCode,
+			input.loc,
+			"element value constraint validation returned an unlocated error",
+			errors.Join(errSchemaElementValueConstraintInvalid, cause),
+		)
+	}
+	if diagnostic.Class() != FailureInvalid {
+		return newDiagnostic(
+			FailureInternal,
+			diagnosticSchemaBridgeInvariantCode,
+			input.loc,
+			"element value constraint validation returned a non-invalid diagnostic",
+			errors.Join(errSchemaElementValueConstraintInvalid, cause),
+		)
+	}
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaElementValueConstraintCode,
+		loc:     input.loc,
+		message: fmt.Sprintf("global element %s value constraint is invalid", input.kind),
+		related: diagnostic.Related(),
+		specRef: schemaElementValueSpecRef(version),
+		cause:   errors.Join(errSchemaElementValueConstraintInvalid, cause),
+	}
+}
+
 func invalidSchemaAttributeValueConstraintConflict(loc, related Loc, kind string, version XSDVersion) Diagnostic {
 	diagnostic := newSchemaCompositionDiagnostic(loc, fmt.Sprintf("global %s cannot specify both default and fixed", kind))
 	diagnostic.related = []Loc{related}
 	diagnostic.specRef = schemaAttributeValueConstraintSpecRef(version)
 	diagnostic.cause = errSchemaAttributeValueConstraintConflict
+	return diagnostic
+}
+
+func invalidSchemaElementValueConstraintConflict(loc, related Loc, kind string, version XSDVersion) Diagnostic {
+	diagnostic := newSchemaCompositionDiagnostic(loc, fmt.Sprintf("global %s cannot specify both default and fixed", kind))
+	diagnostic.related = []Loc{related}
+	diagnostic.specRef = schemaElementValueConstraintSpecRef(version)
+	diagnostic.cause = errSchemaElementValueConstraintConflict
 	return diagnostic
 }
 
@@ -3547,6 +3889,20 @@ func schemaAttributeValueSpecRef(version XSDVersion) string {
 		return schemaAttributeValueXSD10SpecRef
 	}
 	return schemaAttributeValueXSD11SpecRef
+}
+
+func schemaElementValueConstraintSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaElementValueConstraintXSD10SpecRef
+	}
+	return schemaElementValueConstraintXSD11SpecRef
+}
+
+func schemaElementValueSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaElementValueXSD10SpecRef
+	}
+	return schemaElementValueXSD11SpecRef
 }
 
 // reframeSchemaAttributeTypeCycle retains the shared simple-type cycle cause
@@ -3706,17 +4062,19 @@ type schemaElementTypeResult struct {
 	nillable          bool
 	block             schemaBlockPolicy
 	substitutionGroup []schemaElementSubstitutionGroup
+	valueConstraint   *ValueConstraint
 }
 
 func resolvedSchemaElementTypeResult(input *schemaElementInput, typeID ComponentID, hasTypeID bool) schemaElementTypeResult {
 	return schemaElementTypeResult{
-		present:      true,
-		declaredType: input.declaredType,
-		typeID:       typeID,
-		hasTypeID:    hasTypeID,
-		abstract:     input.abstract,
-		nillable:     input.nillable,
-		block:        input.block,
+		present:         true,
+		declaredType:    input.declaredType,
+		typeID:          typeID,
+		hasTypeID:       hasTypeID,
+		abstract:        input.abstract,
+		nillable:        input.nillable,
+		block:           input.block,
+		valueConstraint: nil,
 	}
 }
 
@@ -4382,7 +4740,7 @@ func resolveSchemaElementType(
 				"inline element simple type has no allocated model identity",
 			)
 		}
-		return schemaElementTypeResult{
+		elementResult := schemaElementTypeResult{
 			present:  true,
 			abstract: input.abstract,
 			nillable: input.nillable,
@@ -4399,10 +4757,15 @@ func resolveSchemaElementType(
 				facets:         result.facets,
 			},
 			hasTypeReference: true,
-		}, nil
+		}
+		return resolveSchemaElementValueConstraintResult(input, elementResult, version)
 	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveSchemaScalarType(input, records, byName, visibleSources, record.id.Source(), simpleTypes.results, version, "for global elements", schemaScalarTypeGlobalElement, true)
+		elementResult, err := resolveSchemaScalarType(input, records, byName, visibleSources, record.id.Source(), simpleTypes.results, version, "for global elements", schemaScalarTypeGlobalElement, true)
+		if err != nil {
+			return schemaElementTypeResult{}, err
+		}
+		return resolveSchemaElementValueConstraintResult(input, elementResult, version)
 	}
 
 	candidates := byName[input.declaredType]
@@ -4433,13 +4796,21 @@ func resolveSchemaElementType(
 	candidate := typeCandidates[0]
 	if records[candidate].kind == ComponentKindComplexTypeDefinition {
 		if !complexTypes[candidate].present || schemaComplexTypeResultIsEmpty(complexTypes[candidate]) {
+			if input.valueConstraint != nil {
+				return schemaElementTypeResult{}, unsupportedSchemaElementValueConstraint(
+					input,
+					version,
+					fmt.Sprintf("element value constraint for type %q is not implemented", input.declaredType),
+				)
+			}
 			return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
 				input.typeLoc,
 				fmt.Sprintf("named complex type %q is not implemented for global elements", input.declaredType),
 				version,
 			)
 		}
-		return resolvedSchemaElementTypeResult(input, records[candidate].id, true), nil
+		elementResult := resolvedSchemaElementTypeResult(input, records[candidate].id, true)
+		return resolveSchemaElementValueConstraintResult(input, elementResult, version)
 	}
 	if !simpleTypes.results[candidate].present {
 		return schemaElementTypeResult{}, newSchemaBridgeInvariant(
@@ -4451,7 +4822,38 @@ func resolveSchemaElementType(
 		return schemaElementTypeResult{}, err
 	}
 	reference := schemaNamedSimpleTypeReferenceFromResult(input, records[candidate].id, simpleTypes.results[candidate])
-	return resolvedSchemaElementTypeResultWithReference(input, records[candidate].id, true, reference), nil
+	elementResult := resolvedSchemaElementTypeResultWithReference(input, records[candidate].id, true, reference)
+	return resolveSchemaElementValueConstraintResult(input, elementResult, version)
+}
+
+func resolveSchemaElementValueConstraintResult(
+	input *schemaElementInput,
+	result schemaElementTypeResult,
+	version XSDVersion,
+) (schemaElementTypeResult, error) {
+	if input == nil || input.valueConstraint == nil {
+		return result, nil
+	}
+	if !result.hasTypeReference {
+		return schemaElementTypeResult{}, unsupportedSchemaElementValueConstraint(
+			input,
+			version,
+			"global element value constraints require a resolved simple type",
+		)
+	}
+	if !schemaElementValueConstraintReferenceSupported(result.typeReference) {
+		return schemaElementTypeResult{}, unsupportedSchemaElementValueConstraint(
+			input,
+			version,
+			fmt.Sprintf("element value constraint for type %q is not implemented", input.declaredType),
+		)
+	}
+	valueConstraint, err := resolveSchemaElementValueConstraint(input.valueConstraint, result.typeReference, version)
+	if err != nil {
+		return schemaElementTypeResult{}, err
+	}
+	result.valueConstraint = valueConstraint
+	return result, nil
 }
 
 func schemaComplexTypeResultIsEmpty(result schemaComplexTypeResult) bool {
@@ -6659,7 +7061,7 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 	if finalErr := resolver.rejectNamedSimpleTypeFinal(base, schemaSimpleTypeFinalRestriction, "restriction base", model.base.loc, version); finalErr != nil {
 		return schemaSimpleTypeResult{}, finalErr
 	}
-	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
+	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous, input.allowAnonymousNonStringEnumeration); enumerationErr != nil {
 		return schemaSimpleTypeResult{}, enumerationErr
 	}
 	facets, err := restrictSchemaSimpleTypeFacets(base.facets, base.atomicKind, model.facets, version)
@@ -6686,8 +7088,8 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 	return result, nil
 }
 
-func rejectAnonymousNonStringEnumeration(base schemaSimpleTypeReferenceComponent, inputs []schemaFacetInput, version XSDVersion, anonymous bool) error {
-	if !anonymous {
+func rejectAnonymousNonStringEnumeration(base schemaSimpleTypeReferenceComponent, inputs []schemaFacetInput, version XSDVersion, anonymous, allow bool) error {
+	if !anonymous || allow {
 		return nil
 	}
 	if _, ok := base.facets.(schemaStringFacetVariant); ok {

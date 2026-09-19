@@ -456,6 +456,17 @@ func rejectCodegenElementFacts(components []Component, version XSDVersion) error
 				version,
 			)
 		}
+		constraint, ok := declaration.ValueConstraint()
+		if !ok {
+			continue
+		}
+		return newCodegenElementUnsupported(
+			constraint.Loc(),
+			fmt.Sprintf("global element %q has a %s value constraint outside Go generation", declaration.Name(), constraint.Kind()),
+			[]Loc{declaration.Loc()},
+			fmt.Errorf("%w: element value constraint", errCodegenUnsupported),
+			version,
+		)
 	}
 	return nil
 }

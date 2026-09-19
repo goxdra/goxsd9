@@ -467,7 +467,8 @@ func (declaration AttributeDeclaration) ValueConstraint() (AttributeValueConstra
 }
 
 // ElementDeclaration is the immutable type-specific view of a supported
-// global element declaration with a resolved type.
+// global element declaration with a resolved type and optional value
+// constraint.
 type ElementDeclaration struct {
 	component Component
 	facts     *schemaElementComponent
@@ -516,6 +517,15 @@ func (declaration ElementDeclaration) IsNillable() bool {
 		return false
 	}
 	return declaration.facts.nillable
+}
+
+// ValueConstraint returns the declaration's default or fixed value
+// constraint, when present.
+func (declaration ElementDeclaration) ValueConstraint() (ElementValueConstraint, bool) {
+	if declaration.facts == nil || declaration.facts.valueConstraint == nil {
+		return ElementValueConstraint{}, false
+	}
+	return *cloneAttributeValueConstraint(declaration.facts.valueConstraint), true
 }
 
 // DisallowedSubstitutions returns the effective substitution methods disallowed
@@ -2152,6 +2162,7 @@ type schemaElementInput struct {
 	nillable          bool
 	block             schemaBlockPolicy
 	substitutionGroup []schemaElementSubstitutionGroupInput
+	valueConstraint   *schemaValueConstraintInput
 }
 
 type schemaElementSubstitutionGroupInput struct {
@@ -2175,11 +2186,12 @@ type schemaNotationInput struct {
 }
 
 type schemaSimpleTypeInput struct {
-	loc       Loc
-	nodeID    SimpleTypeID
-	hasNodeID bool
-	final     schemaSimpleTypeFinalPolicy
-	model     schemaSimpleTypeModelInput
+	loc                                Loc
+	nodeID                             SimpleTypeID
+	hasNodeID                          bool
+	final                              schemaSimpleTypeFinalPolicy
+	model                              schemaSimpleTypeModelInput
+	allowAnonymousNonStringEnumeration bool
 
 	// These fields keep the phase-local construction helpers used by existing
 	// callers source-compatible. New syntax construction stores the tagged
@@ -2494,6 +2506,7 @@ type schemaElementComponent struct {
 	nillable                bool
 	disallowedSubstitutions schemaBlockPolicy
 	substitutionGroup       []schemaElementSubstitutionGroup
+	valueConstraint         *ValueConstraint
 }
 
 type schemaElementSubstitutionGroup struct {
@@ -2964,6 +2977,7 @@ func completeSchemaComponent(
 			nillable:                element.nillable,
 			disallowedSubstitutions: element.block,
 			substitutionGroup:       cloneSchemaElementSubstitutionGroups(element.substitutionGroup),
+			valueConstraint:         cloneAttributeValueConstraint(element.valueConstraint),
 		}
 	}
 	if attribute.present {
@@ -3236,13 +3250,14 @@ func cloneSchemaSimpleTypeInput(input *schemaSimpleTypeInput) *schemaSimpleTypeI
 		return nil
 	}
 	clone := &schemaSimpleTypeInput{
-		loc:       input.loc,
-		nodeID:    input.nodeID,
-		hasNodeID: input.hasNodeID,
-		final:     input.final,
-		base:      input.base,
-		baseLoc:   input.baseLoc,
-		facets:    cloneSchemaFacetInputs(input.facets),
+		loc:                                input.loc,
+		nodeID:                             input.nodeID,
+		hasNodeID:                          input.hasNodeID,
+		final:                              input.final,
+		allowAnonymousNonStringEnumeration: input.allowAnonymousNonStringEnumeration,
+		base:                               input.base,
+		baseLoc:                            input.baseLoc,
+		facets:                             cloneSchemaFacetInputs(input.facets),
 	}
 	clone.model = cloneSchemaSimpleTypeModelInput(input.model)
 	return clone
@@ -3260,6 +3275,7 @@ func cloneSchemaElementInput(input *schemaElementInput) *schemaElementInput {
 		nillable:          input.nillable,
 		block:             input.block,
 		substitutionGroup: cloneSchemaElementSubstitutionGroupInputs(input.substitutionGroup),
+		valueConstraint:   cloneSchemaAttributeValueConstraintInput(input.valueConstraint),
 	}
 }
 
