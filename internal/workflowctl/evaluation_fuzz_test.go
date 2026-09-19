@@ -41,6 +41,7 @@ var evaluationEvidenceReservedSequences = [...]evaluationEvidenceReservedSequenc
 	{value: "<!-- workflowctl-evaluation-repair-v1 ", receiptEvidence: true},
 	{value: "<!-- workflowctl-evaluation-challenge ", receiptEvidence: false},
 	{value: "<!-- workflowctl-evaluation-resolution-v1 ", receiptEvidence: true},
+	{value: "<!-- workflowctl-evaluation-resolution-v2 ", receiptEvidence: true},
 	{value: "<!-- workflowctl-evaluation-convergence-v1 ", receiptEvidence: true},
 	{value: "## Examiner evaluation — round receipt\n\n", receiptEvidence: true},
 	{value: "## Examiner evaluation — no-verdict resolution\n\n", receiptEvidence: true},
@@ -353,7 +354,7 @@ func expectedEvaluationEvidenceConvergenceSemantics(body []byte) evaluationEvide
 	if expectedEvaluationEvidenceHasReceipt(body) ||
 		expectedEvaluationEvidenceHasMarker(body, evaluationChallengeMarker) ||
 		expectedEvaluationEvidenceHasMarker(body, evaluationRepairMarker) ||
-		expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarker) ||
+		expectedEvaluationEvidenceHasResolutionMarker(body) ||
 		bytes.Contains(body, []byte(evaluationResolutionHeading)) {
 		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
 	}
@@ -393,7 +394,7 @@ func expectedEvaluationEvidenceRepairSemantics(frame evaluationEvidenceFrame, in
 	if expectedEvaluationEvidenceHasReceipt(body) ||
 		expectedEvaluationEvidenceHasAttestationEvidence(body) ||
 		expectedEvaluationEvidenceHasMarker(body, evaluationChallengeMarker) ||
-		expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarker) ||
+		expectedEvaluationEvidenceHasResolutionMarker(body) ||
 		bytes.Contains(body, []byte(evaluationResolutionHeading)) {
 		return evaluationEvidenceCommentSemantics{classification: evaluationEvidenceMarkerRejected}
 	}
@@ -412,7 +413,7 @@ func expectedEvaluationEvidenceRepairSemantics(frame evaluationEvidenceFrame, in
 
 func expectedEvaluationEvidenceTrustedCommentSemantics(frame evaluationEvidenceFrame, index int) evaluationEvidenceCommentSemantics {
 	body := frame.bodies[index]
-	if expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarker) ||
+	if expectedEvaluationEvidenceHasResolutionMarker(body) ||
 		bytes.Contains(body, []byte(evaluationResolutionHeading)) ||
 		expectedEvaluationEvidenceHasMarker(body, evaluationConvergenceMarker) ||
 		bytes.Contains(body, []byte(evaluationConvergenceHeading)) {
@@ -433,6 +434,11 @@ func expectedEvaluationEvidenceTrustedCommentSemantics(frame evaluationEvidenceF
 
 func expectedEvaluationEvidenceHasMarker(body []byte, marker string) bool {
 	return bytes.Contains(body, []byte("<!-- "+marker))
+}
+
+func expectedEvaluationEvidenceHasResolutionMarker(body []byte) bool {
+	return expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarker) ||
+		expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarkerV2)
 }
 
 func expectedEvaluationEvidenceHasReceipt(body []byte) bool {
@@ -456,7 +462,7 @@ func expectedEvaluationEvidenceHasAttestationEvidence(body []byte) bool {
 	return expectedEvaluationEvidenceHasMarker(body, evaluationReportBase64Marker) ||
 		expectedEvaluationEvidenceHasMarker(body, evaluationAttestationBase64Marker) ||
 		expectedEvaluationEvidenceHasMarker(body, evaluationAttestationMarker) ||
-		expectedEvaluationEvidenceHasMarker(body, evaluationResolutionMarker) ||
+		expectedEvaluationEvidenceHasResolutionMarker(body) ||
 		bytes.Contains(body, []byte(evaluationResolutionHeading)) ||
 		expectedEvaluationEvidenceHasMarker(body, evaluationConvergenceMarker) ||
 		bytes.Contains(body, []byte(evaluationConvergenceHeading))
