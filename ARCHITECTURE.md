@@ -82,18 +82,17 @@ validator/generator: on-demand.
 
 Primitive: global scalars: `DeclaredType`; immutable Boolean-attr type facts;
 direct-shape local token/NMTOKEN refs; immutable named/anonymous restriction boolean-kind/string-enumeration/string-`whiteSpace`,
-list item, and union member references; built-ins lack synthetic IDs.
-Built-in `xs:nonNegativeInteger` refs are immutable at `minInclusive=0`; global built-in/facet-free named Boolean/integer/decimal/token value constraints are supported. Global attributes also retain supported anonymous restriction/list/union model facts, identities, locations, and effective facets; local attribute uses, inline value constraints, broader/non-atomic forms, validation, and Go generation remain unsupported.
+built-ins lack synthetic IDs.
+Built-in `xs:nonNegativeInteger` refs have `minInclusive=0`; named scalar constraints supported. Global attrs retain anonymous restriction/list/union facts, IDs, locations, facets; local uses, inline values, validation, generation unsupported.
 Built-in/named Boolean/integer/decimal/token attrs: immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
 exact Boolean/numeric values, source-location; token/Boolean collapse. Named complexes: `mixed="false|0"`; omitted=element-only
 (unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1; anonymous complex/other shapes unsupported.
 Typed global attrs: immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
-Compatibility/Strict11 accept, Strict10 mismatches; untyped attributes remain unsupported, while inline simple-type references expose their immutable model facts.
+Compatibility/Strict11 accept, Strict10 mismatch; untyped unsupported.
 `defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
 Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
-Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
-direct global `xs:string`/`xs:NMTOKEN` attribute references remain unsupported.
+Schema defaults; local inline/value/default/fixed/attribute forms; global string/NMTOKEN refs unsupported.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
 Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
