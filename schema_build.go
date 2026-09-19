@@ -3156,8 +3156,8 @@ func resolveSchemaAttributeType(
 			atomicKind:     resolved.atomicKind,
 			facets:         resolved.facets,
 		}
-		message = "inline attribute type has an unsupported simple type model"
-	} else {
+	}
+	if input.inlineSimpleType == nil {
 		var err error
 		reference, err = resolver.resolveReference(schemaSimpleTypeReferenceInput{
 			kind: schemaSimpleTypeQNameReferenceInput,
