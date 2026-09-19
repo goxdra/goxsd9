@@ -1016,6 +1016,7 @@ func codegenSourceScalarKindFromAtomicKind(kind schemaSimpleTypeAtomicKind) (cod
 		schemaSimpleTypeAtomicInteger,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
+		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage,

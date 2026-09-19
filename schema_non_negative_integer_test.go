@@ -433,38 +433,9 @@ func TestSchemaNonNegativeIntegerRejectsNegativeRestrictions(t *testing.T) {
 
 func TestSchemaNonNegativeIntegerExcludedShapesRemainUnsupported(t *testing.T) {
 	for _, profile := range nonNegativeIntegerPolicyProfiles() {
-		for _, test := range []struct {
-			name string
-			root string
-		}{
-			{
-				name: "local direct particle",
-				root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:complexType name="Root"><xs:sequence><xs:element name="item" type="xs:nonNegativeInteger"/></xs:sequence></xs:complexType></xs:schema>`,
-			},
-			{
-				name: "local named particle",
-				root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:simpleType name="Alias"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType><xs:complexType name="Root"><xs:sequence><xs:element name="item" type="t:Alias"/></xs:sequence></xs:complexType></xs:schema>`,
-			},
-			{
-				name: "global attribute",
-				root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:nonNegativeInteger"/></xs:schema>`,
-			},
-			{
-				name: "attribute value constraint",
-				root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:nonNegativeInteger" default="-0"/></xs:schema>`,
-			},
-		} {
-			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
-				schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, profile.policy)
-				if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
-					t.Fatal("discoverTestSchemaWithPolicy accepted an excluded nonNegativeInteger shape or returned a schema")
-				}
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Loc().IsZero() || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("diagnostic = %s, want located unsupported with preserved cause", diagnostic)
-				}
-			})
-		}
+		t.Run(profile.name, func(t *testing.T) {
+			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "nonNegativeInteger", "-0")
+		})
 	}
 }
 
