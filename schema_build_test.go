@@ -5008,11 +5008,6 @@ func TestSchemaBridgePreservesExistingElementExclusions(t *testing.T) {
 			class: FailureInvalid,
 		},
 		{
-			name:  "type and default",
-			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" type="xs:integer" default="1"/></xs:schema>`,
-			class: FailureUnsupported,
-		},
-		{
 			name:  "default and fixed remain invalid",
 			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" type="xs:integer" default="1" fixed="2"/></xs:schema>`,
 			class: FailureInvalid,

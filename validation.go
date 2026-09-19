@@ -65,6 +65,7 @@ var (
 	errInstanceAmbiguousSchemaRoot     = errors.New("instance root has ambiguous global element declarations")
 	errInstanceNoDeclaredType          = errors.New("global element has no supported declared type")
 	errInstanceUnsupportedType         = errors.New("global element type is outside scalar validation")
+	errInstanceElementValueConstraint  = errors.New("global element value constraint is outside instance validation")
 	errInstanceNMTOKENEmpty            = errors.New("NMTOKEN value is empty after XML whitespace collapse")
 	errInstanceNMTOKENWhitespaceOnly   = errors.New("NMTOKEN value is whitespace-only after XML whitespace collapse")
 	errInstanceNMTOKENNameChar         = errors.New("NMTOKEN value contains an invalid NameChar")
@@ -345,7 +346,18 @@ func rejectUnsupportedInstanceElementFactsWithRelated(declaration ElementDeclara
 			errInstanceElementFacts,
 		)
 	}
-	return nil
+	constraint, ok := declaration.ValueConstraint()
+	if !ok {
+		return nil
+	}
+	related = appendInstanceRelated(related, constraint.Loc())
+	return newInstanceValidationUnsupported(
+		loc,
+		fmt.Sprintf("global element %q has a %s value constraint outside instance validation", declaration.Name(), constraint.Kind()),
+		related,
+		version,
+		errInstanceElementValueConstraint,
+	)
 }
 
 func instanceSchemaElement(schema Schema, rootName QName, loc Loc) (ElementDeclaration, error) {

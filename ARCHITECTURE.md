@@ -83,7 +83,7 @@ validator/generator: on-demand.
 Primitive: global scalars: `DeclaredType`; immutable Boolean-attr type facts;
 direct-shape local token/NMTOKEN refs; immutable named/anonymous restriction boolean-kind/string-enumeration/string-`whiteSpace`;
 built-ins lack synthetic IDs.
-Built-in `xs:nonNegativeInteger` refs are immutable at `minInclusive=0`; global built-in/facet-free named Boolean/integer/decimal/token value constraints are supported, while local/inline attribute uses, broader/non-atomic forms, validation, and Go generation remain unsupported.
+Built-in `xs:nonNegativeInteger` refs are immutable at `minInclusive=0`; global scalar elements retain default/fixed, lexical, typed value, and location. Attributes keep Boolean/integer/decimal/token; local/inline, broader, validation, and generation unsupported.
 Built-in/named Boolean/integer/decimal/token attrs: immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
 exact Boolean/numeric values, source-location; token/Boolean collapse. Named complexes: `mixed="false|0"`; omitted=element-only
 (unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1; anonymous complex/other shapes unsupported.

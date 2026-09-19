@@ -572,11 +572,6 @@ func TestSchemaBridgeKeepsElementFactExclusionsUnsupported(t *testing.T) {
 			version: XSDVersion11,
 		},
 		{
-			name:    "value constraint",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" type="xs:integer" abstract="true" default="1"/></xs:schema>`,
-			version: XSDVersion11,
-		},
-		{
 			name:    "substitution on untyped element",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:element name="item" substitutionGroup="r:head"/></xs:schema>`,
 			version: XSDVersion11,

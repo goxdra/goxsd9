@@ -1003,7 +1003,7 @@ func validateGlobalSchemaAttributeCooccurrence(element *syntaxElement, version X
 		if element.name.local == "attribute" {
 			return invalidSchemaAttributeValueConstraintConflict(fixed[0].loc, defaults[0].loc, element.name.local, version)
 		}
-		return newSchemaCompositionDiagnostic(fixed[0].loc, fmt.Sprintf("global %s cannot specify both default and fixed", element.name.local))
+		return invalidSchemaElementValueConstraintConflict(fixed[0].loc, defaults[0].loc, element.name.local, version)
 	}
 	return nil
 }
@@ -1215,8 +1215,10 @@ func validateSchemaNotationAttribute(attribute syntaxAttribute, version XSDVersi
 
 func elementSchemaAttributeStatus(local string) schemaAttributeStatus {
 	switch local {
-	case "abstract", "default", "fixed", "nillable", "substitutionGroup", "targetNamespace", "final":
+	case "abstract", "nillable", "substitutionGroup", "targetNamespace", "final":
 		return schemaAttributeUnsupported
+	case "default", "fixed":
+		return schemaAttributeAllowed
 	case "block":
 		return schemaAttributeAllowed
 	case "type":
@@ -1666,7 +1668,8 @@ func validateElementGlobalChildren(parent *syntaxElement, children []*syntaxElem
 			}
 			typeSeen = true
 			phase = elementGlobalAlternativePhase
-			if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
+			bridgeFacets := len(syntaxAttributesByLocal(parent, "default")) > 0 || len(syntaxAttributesByLocal(parent, "fixed")) > 0
+			if err := validateInlineSchemaTypeWithFacetBridge(child, version, bridgeFacets); err != nil && !candidate.considerError(err) {
 				return err
 			}
 			if child.name.local == "complexType" && !candidate.present {
@@ -4189,8 +4192,12 @@ func validateChoiceElementAlternative(element *syntaxElement, version XSDVersion
 	return candidate.err()
 }
 
-//nolint:gocognit // Keep inline type attribute support and child preflight together.
 func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error {
+	return validateInlineSchemaTypeWithFacetBridge(element, version, false)
+}
+
+//nolint:gocognit // Keep inline type attribute support and child preflight together.
+func validateInlineSchemaTypeWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets bool) error {
 	kind, ok := schemaDeclarationKind(element.name.local)
 	if !ok || kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
 		return newSchemaBridgeInvariant(element.loc, "inline schema type has an unknown kind")
@@ -4221,7 +4228,7 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 		}
 	}
 	bridgeStringEnumeration := element.name.local == "simpleType" && inlineSimpleTypeMayHaveStringRestrictionBase(element)
-	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, false, bridgeStringEnumeration, false); err != nil {
+	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, bridgeFacets, bridgeStringEnumeration, false); err != nil {
 		if !candidate.considerError(err) {
 			return err
 		}
