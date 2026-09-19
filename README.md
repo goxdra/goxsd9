@@ -1,17 +1,21 @@
 # goxsd9
 
-goxsd9 targets XSD 1.1/1.0 parsing, XML validation, Go generation; unsupported behavior is explicit.
+goxsd9 parses/validates/generates Go; unsupported remains explicit.
 
-## Schema parsing
+## [Schema parsing](ARCHITECTURE.md#schema-model)
 
-`ParseSchema` exposes immutable components; callers provide `ResolvedSource` and `Resolver`. Calls sequential; locations opaque.
+`ParseSchema`: immutable components; caller-provided `ResolvedSource`/`Resolver`; sequential calls, opaque locations; Compatibility default.
 
-XSD 1.0/1.1 graphs/restrictions work; limited `precisionDecimal`; immutable built-in/named scalar/string-enumeration facts. Bounded `openAttrs` restrictions: empty content, `##other`/`lax` wildcard facts; validation/generation reject them. Supported named direct sequence/choice: attribute-free `anyAttribute` under XSD 1.0/1.1/Compatibility; omitted attrs effectively `##any`/`strict`; explicit `##other`/`lax` supported; wildcard element locations retained; omitted default-attribute locations zero. Other wildcard/attribute forms; wildcard-bearing validation/generation unsupported. Choice/sequence ranges exact; `0/0` omitted; local strings unsupported. `Strict10` reports XSD 1.1. Malformed input invalid; digit facets work. `ParseSchema` defaults Compatibility; `ParseSchemaWithPolicy` selects; errors: no schema. `ValidateInstance`: direct named-complex choices support default-occurrence global integer/decimal element references; reference code generation remains unsupported. `GenerateGo`: deterministic global boolean/integer/decimal, default-choice, default-bounded direct integer/decimal sequence structs; unsupported strings/boolean-facets/local-particles.
+XSD 1.0/1.1 graphs, restrictions, limited facets, `openAttrs`, and bounded extensions are modeled. XSD 1.1 `defaultAttributesApply`, `openContent=none`, abstract/final controls, and policy mismatches retain located facts/diagnostics.
+Direct `xs:any` and named-complex `anyAttribute` retain namespace, process-content, location, and range facts; nonzero wildcard consumers reject.
+Particle-plus-uses and attribute-only bodies expose immutable ordered local/ref `AttributeUse` views with lexical locations and resolved type/reference identities; one bounded scalar-base `simpleContent` extension retains its base and local/ref uses without a particle.
+Optional/required uses are effective; prohibited uses are omitted. Attribute-bearing validation/generation, value constraints, inheritable attributes, broader wildcards/groups/derivation remain unsupported.
+Model-group references and token/NMTOKEN facts are queryable within their documented boundaries; validation/generation remain explicit about unsupported shapes. [ARCHITECTURE.md](ARCHITECTURE.md).
 [Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
 
 ## Product CLI
 
-`parse`, `validate`, and `generate` use public APIs; [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
+`parse`, `validate`, and `generate` use APIs; [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
 [`examples/root.xsd`](examples/root.xsd), [`examples/valid.xml`](examples/valid.xml), [`examples/invalid.xml`](examples/invalid.xml)
 
 ```console
@@ -24,18 +28,18 @@ exit status 1
 $ go run ./cmd/goxsd9 generate --package sample examples/root.xsd > generated.go
 ```
 
-Parse writes stdout; validation is silent on success. Invalid validation exits 1 with a located diagnostic; usage 2.
+Parse stdout; validation silent on success. Invalid exits 1 with located diagnostic; usage 2.
 
 ## Design goals
 
 Exact value spaces/facets, streaming resolver input, immutable deterministic queries/walks,
-located diagnostics, no goroutines/locks or map-order output, and measured conformance.
+located diagnostics, no goroutines/locks/map-order output, measured conformance.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [PLAN.md](PLAN.md).
 
 ## Repository checks
 
-Fresh checkout; inventory remains metadata-only. Bounded schema requires exact `-version 1.0` or `-version 1.1` plus `-set` or `-case`; instances never run:
+Fresh checkout; inventory metadata-only. Bounded schema requires exact `-version 1.0` or `-version 1.1` plus `-set` or `-case`; instances never run:
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
@@ -52,11 +56,11 @@ go tool specs build -id xsd11-structures
 go tool specs search -id xsd11-structures -query "content model"
 go tool specs bootstrap -version 1.1
 ```
-Use `-root`, `-output`, `-index`; `bootstrap` previews without fetching.
+Use `-root`/`-output`/`-index`; `bootstrap` previews without fetching.
 
 ## Project workflow
 
-See [GitHub Issues](https://github.com/goxdra/goxsd9/issues), [goxsd9 Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), and [AGENTS.md](AGENTS.md) for workflow rules.
+See [GitHub Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), and [AGENTS.md](AGENTS.md) for workflow rules.
 
 ## Test data licensing
 
