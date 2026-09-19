@@ -71,37 +71,34 @@ for unlock ranking.
 
 ## Schema model
 
-Raw XSD syntax is internal. Immutable model retains component `Loc`; queries use names/identities.
-Walks preserve document-discovery/lexical order; unordered sets sort stably.
+Raw XSD syntax is internal; model retains component `Loc`; queries use names/identities.
+Walks preserve discovery/lexical order; unordered sets sort stably.
 
-Skeleton: `Schema`, `SchemaDocument`, `Component`, `ComponentID`, expanded `QName`.
-Documents: identity-discovery order; declarations: lexical order.
-`Components`/`Documents`/`Find`/`Walk`: copies. IDs: source identity/one-based
-declaration ordinals; lookup maps: unordered. Local particles: scoped facts/indexes;
-validator/generator: on-demand.
+Skeleton: `Schema`, `SchemaDocument`, `Component`, `ComponentID`, `QName`.
+Documents/declarations follow discovery/lexical order.
+Queries return copies; IDs use source/ordinal; maps are unordered. Local particles use scoped facts;
+consumers compute state.
 
-Primitive: global scalars: `DeclaredType`; immutable Boolean-attr type facts;
-direct-shape local token/NMTOKEN refs; immutable named/anonymous restriction boolean-kind/string-enumeration/string-`whiteSpace`;
-built-ins lack synthetic IDs.
-Built-in `xs:nonNegativeInteger` refs are immutable at `minInclusive=0`; global built-in/facet-free named Boolean/integer/decimal/token value constraints are supported, while local/inline attribute uses, broader/non-atomic forms, validation, and Go generation remain unsupported.
-Built-in/named Boolean/integer/decimal/token attrs: immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
-exact Boolean/numeric values, source-location; token/Boolean collapse. Named complexes: `mixed="false|0"`; omitted=element-only
+Primitive: global scalars retain `DeclaredType`; immutable Boolean-attr facts and named/anonymous restriction
+boolean-kind/string-enumeration/string-`whiteSpace`; direct local token/NMTOKEN refs; built-ins lack IDs.
+Built-in `xs:nonNegativeInteger` refs retain `minInclusive=0`; global built-in/facet-free Boolean/integer/decimal/token constraints are supported; local/inline uses, broader forms, validation, and generation remain unsupported.
+Built-in/named Boolean/integer/decimal/token attrs retain immutable default/fixed facts (normalized lexical, value, source);
+token/Boolean collapse. Named complexes: `mixed="false|0"`; omitted=element-only
 (unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1; anonymous complex/other shapes unsupported.
 Typed global attrs: immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
 Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
-Explicit global `xs:string`/`xs:NMTOKEN` references and supported named atomic string-family restrictions retain immutable
-simple-type reference facts (written QName, type identity, variety, effective enumeration, and whitespace facets); local,
-inline, list, union, and other attribute shapes remain unsupported.
+Global `xs:string`/`xs:NMTOKEN` attribute refs retain immutable QNames, IDs, varieties, enumerations, whitespace;
+local/inline/list/union unsupported.
 `defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
-Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
+Root `xpathDefaultNamespace` inert: validate/discard in Compatibility/Strict11; malformed invalid, Strict10 mismatch; XPath unsupported.
 Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
 non-atomic-string/string attrs unsupported.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
 Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
 Groups/extensions: IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. Named-global sequence/choice owners: `anyAttribute`, default `##any`/strict; `##any`/lax|skip (namespace optional/explicit; skip), `##other`/lax|strict, explicit `##other`/skip, and positive namespaces (`##local`, `##targetNamespace`, URI lists) strict; locations/values retained; attribute validation/generation unsupported. `xs:any`: `##any`/strict|lax|skip (skip explicit), `##other`/lax|strict, positive constraints (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing and sorted effective values; lexical/source locations; ranges; `0/0` absent. Consumers reject nonzero wildcards; broader unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed=invalid.
-Named groups expose ordered references/ranges; broader shapes unsupported; consumers reject.
+Named groups expose ordered refs; consumers reject broader shapes.
 
 ## Datatypes
 
