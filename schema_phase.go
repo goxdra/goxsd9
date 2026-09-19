@@ -4189,8 +4189,16 @@ func validateChoiceElementAlternative(element *syntaxElement, version XSDVersion
 	return candidate.err()
 }
 
-//nolint:gocognit // Keep inline type attribute support and child preflight together.
 func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error {
+	return validateInlineSchemaTypeWithOptions(element, version, false)
+}
+
+func validateLocalElementInlineSchemaType(element *syntaxElement, version XSDVersion) error {
+	return validateInlineSchemaTypeWithOptions(element, version, true)
+}
+
+//nolint:gocognit // Keep inline type attributes and child preflight together.
+func validateInlineSchemaTypeWithOptions(element *syntaxElement, version XSDVersion, bridgeAtomicFacets bool) error {
 	kind, ok := schemaDeclarationKind(element.name.local)
 	if !ok || kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
 		return newSchemaBridgeInvariant(element.loc, "inline schema type has an unknown kind")
@@ -4221,7 +4229,8 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 		}
 	}
 	bridgeStringEnumeration := element.name.local == "simpleType" && inlineSimpleTypeMayHaveStringRestrictionBase(element)
-	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, false, bridgeStringEnumeration, false); err != nil {
+	allowAtomicFacets := bridgeAtomicFacets && element.name.local == "simpleType" && localInlineSimpleTypeAtomicRestriction(element)
+	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, allowAtomicFacets, bridgeStringEnumeration, false); err != nil {
 		if !candidate.considerError(err) {
 			return err
 		}
@@ -4427,11 +4436,12 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			if typeChildSeen || constraintPhase {
 				return candidate, newSchemaCompositionDiagnostic(child.loc, "local element type child must be unique and precede constraints")
 			}
-			if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
-				return candidate, err
+			validateType := validateLocalElementInlineSchemaType(child, version)
+			if validateType != nil && !candidate.considerError(validateType) {
+				return candidate, validateType
 			}
 			typeChildSeen = true
-			if !candidate.present {
+			if !candidate.present && (child.name.local != "simpleType" || !localInlineSimpleTypeAtomicRestriction(child)) {
 				candidate.considerAt(child.loc, fmt.Sprintf("local element child <%s> is not implemented", child.name.local))
 			}
 		case "alternative":
@@ -4463,6 +4473,36 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 	}
 	candidate.considerAt(element.loc, fmt.Sprintf("local %s elements without declared types are not implemented", model))
 	return candidate, nil
+}
+
+// localInlineSimpleTypeAtomicRestriction recognizes the one inline local type
+// shape resolved by the schema model. Detailed base and facet validation stays
+// in the simple-type input and resolution phases so invalid causes retain their
+// source locations.
+func localInlineSimpleTypeAtomicRestriction(element *syntaxElement) bool {
+	if element == nil || element.name.namespace != xsdNamespaceURI || element.name.local != "simpleType" {
+		return false
+	}
+	var restriction *syntaxElement
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.namespace != xsdNamespaceURI {
+			continue
+		}
+		switch child.name.local {
+		case "list", "union":
+			return false
+		case "restriction":
+			if restriction != nil {
+				return false
+			}
+			restriction = child
+		}
+	}
+	if restriction == nil || inlineSimpleTypeChild(restriction) != nil {
+		return false
+	}
+	return len(syntaxAttributesByLocal(restriction, "base")) == 1
 }
 
 func validateUnsupportedParticle(element *syntaxElement, version XSDVersion) error {

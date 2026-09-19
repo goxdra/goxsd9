@@ -1268,6 +1268,7 @@ func validateCodegenDirectChoiceTarget(
 ) (codegenDirectChoiceTarget, error) {
 	declaredType := element.DeclaredType()
 	typeID, hasTypeID := element.TypeID()
+	typeReference, hasTypeReference := element.TypeReference()
 	if declaredType.IsZero() {
 		if hasTypeID || !typeID.IsZero() {
 			return nil, newCodegenInternal(
@@ -1275,6 +1276,16 @@ func validateCodegenDirectChoiceTarget(
 				"anonymous direct-choice type has a synthetic component identity",
 				nil,
 				errCodegenDirectChoiceTarget,
+			)
+		}
+		if hasTypeReference && typeReference.Kind() == SimpleTypeReferenceAnonymous {
+			return nil, newCodegenDirectChoiceUnsupported(
+				element.Loc(),
+				"anonymous direct-choice element types are outside direct choice generation",
+				appendCodegenRelated(nil, typeReference.Loc()),
+				fmt.Errorf("%w: anonymous element type", errCodegenUnsupported),
+				version,
+				codegenDirectChoiceElementChoiceReference,
 			)
 		}
 		return nil, newCodegenDirectChoiceUnsupported(

@@ -2715,11 +2715,11 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
-	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes.results, version)
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, version)
 	if err != nil {
 		return Schema{}, err
 	}
-	modelGroups, err := resolveSchemaModelGroups(records, byName, visibleSources, simpleTypes.results, version)
+	modelGroups, err := resolveSchemaModelGroups(records, byName, visibleSources, simpleTypes, version)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -3347,6 +3347,7 @@ func cloneSchemaSimpleTypeReferenceComponents(inputs []schemaSimpleTypeReference
 	return clones
 }
 
+//nolint:gocognit // Keep deterministic anonymous-node allocation in source order.
 func allocateSchemaSimpleTypeNodeIDs(records []schemaComponentRecord) error {
 	nextBySource := make(map[SourceID]uint64)
 	seen := make(map[*schemaSimpleTypeInput]SimpleTypeID)
@@ -3356,10 +3357,83 @@ func allocateSchemaSimpleTypeNodeIDs(records []schemaComponentRecord) error {
 				return err
 			}
 		}
-		if record.element == nil || record.element.inlineSimpleType == nil {
+		if record.element != nil && record.element.inlineSimpleType != nil {
+			if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
+				return err
+			}
+		}
+		if record.complexType != nil {
+			if err := allocateSchemaSimpleTypeNodeIDsInComplexType(record.complexType, record.id.Source(), nextBySource, seen); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func allocateSchemaSimpleTypeNodeIDsInComplexType(
+	input *schemaComplexTypeInput,
+	source SourceID,
+	nextBySource map[SourceID]uint64,
+	seen map[*schemaSimpleTypeInput]SimpleTypeID,
+) error {
+	if input == nil || input.body == nil {
+		return newSchemaBridgeInvariant(Loc{}, "complex type simple type allocation has incomplete inputs")
+	}
+	switch body := input.body.(type) {
+	case *schemaComplexTypeDirectBodyInput:
+		if body == nil || body.particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "direct complex type simple type allocation has no particle input")
+		}
+		return allocateSchemaSimpleTypeNodeIDsInComplexParticle(body.particle, source, nextBySource, seen)
+	case *schemaComplexTypeExtensionBodyInput:
+		if body == nil || body.particle == nil {
+			return nil
+		}
+		return allocateSchemaSimpleTypeNodeIDsInComplexParticle(body.particle, source, nextBySource, seen)
+	case *schemaComplexTypeEmptyBodyInput, *schemaComplexTypeRestrictionBodyInput:
+		return nil
+	default:
+		return newSchemaBridgeInvariant(Loc{}, "complex type simple type allocation has an unknown body input")
+	}
+}
+
+func allocateSchemaSimpleTypeNodeIDsInComplexParticle(
+	input schemaComplexTypeParticleInput,
+	source SourceID,
+	nextBySource map[SourceID]uint64,
+	seen map[*schemaSimpleTypeInput]SimpleTypeID,
+) error {
+	switch particle := input.(type) {
+	case *schemaChoiceParticleInput:
+		if particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "choice simple type allocation has a nil particle input")
+		}
+		return allocateSchemaSimpleTypeNodeIDsInParticleTerms(particle.alternatives, source, nextBySource, seen)
+	case *schemaSequenceParticleInput:
+		if particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "sequence simple type allocation has a nil particle input")
+		}
+		return allocateSchemaSimpleTypeNodeIDsInParticleTerms(particle.particles, source, nextBySource, seen)
+	case *schemaModelGroupReferenceParticleInput:
+		return nil
+	default:
+		return newSchemaBridgeInvariant(Loc{}, "complex particle simple type allocation has an unknown particle input")
+	}
+}
+
+func allocateSchemaSimpleTypeNodeIDsInParticleTerms(
+	terms []schemaParticleTermInput,
+	source SourceID,
+	nextBySource map[SourceID]uint64,
+	seen map[*schemaSimpleTypeInput]SimpleTypeID,
+) error {
+	for _, term := range terms {
+		input, ok := schemaElementParticleInputValue(term)
+		if !ok || input.typeInput == nil || input.typeInput.inlineSimpleType == nil {
 			continue
 		}
-		if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
+		if err := allocateSchemaSimpleTypeNodeID(input.typeInput.inlineSimpleType, source, nextBySource, seen); err != nil {
 			return err
 		}
 	}

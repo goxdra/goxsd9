@@ -333,6 +333,17 @@ func instanceSequenceProgramFor(
 				errInstanceLocalElementFacts,
 			)
 		}
+		typeReference, hasTypeReference := element.TypeReference()
+		if hasTypeReference && typeReference.Kind() == SimpleTypeReferenceAnonymous {
+			anonymousRelated := appendInstanceRelated(relCopy(childRelated), typeReference.Loc())
+			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+				element.Loc(),
+				fmt.Sprintf("local sequence element %q uses an anonymous simple type outside instance validation", element.Name()),
+				anonymousRelated,
+				version,
+				errInstanceSequenceTarget,
+			)
+		}
 		typeID, hasTypeID := element.TypeID()
 		scalar, err := instanceScalarTypeForTarget(
 			schema,

@@ -2182,6 +2182,7 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 	}, nil
 }
 
+//nolint:gocognit // Keep local element facts and inline type parsing together.
 func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, allowNamespacePolicy bool) (schemaElementParticleInput, error) {
 	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
@@ -2233,11 +2234,29 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 		block:       block,
 	}
 	typeAttributes := syntaxAttributesByLocal(element, "type")
+	inline := inlineSimpleTypeChild(element)
 	if len(typeAttributes) == 0 {
+		if inline == nil {
+			return input, nil
+		}
+		if inlineErr := validateLocalElementInlineSchemaType(inline, version); inlineErr != nil {
+			return schemaElementParticleInput{}, inlineErr
+		}
+		simpleType, simpleTypeErr := schemaSimpleTypeInputFromElement(inline, version)
+		if simpleTypeErr != nil {
+			return schemaElementParticleInput{}, simpleTypeErr
+		}
+		input.typeInput = &schemaElementInput{
+			typeLoc:          inline.loc,
+			inlineSimpleType: simpleType,
+		}
 		return input, nil
 	}
 	if len(typeAttributes) != 1 {
 		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "local element type attribute is not unique")
+	}
+	if inline != nil {
+		return schemaElementParticleInput{}, newSchemaCompositionDiagnostic(inline.loc, "local element cannot combine type attribute with an inline simpleType")
 	}
 	declaredType, err := expandSchemaQName(element, typeAttributes[0])
 	if err != nil {
@@ -3018,6 +3037,7 @@ type schemaSimpleTypeResolution struct {
 	resolver *schemaSimpleTypeResolver
 }
 
+//nolint:gocognit // Keep ordered simple-type allocation and local input resolution together.
 func resolveSchemaSimpleTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
@@ -3043,11 +3063,15 @@ func resolveSchemaSimpleTypes(
 		}
 	}
 	for _, record := range records {
-		if record.element == nil || record.element.inlineSimpleType == nil {
-			continue
+		if record.element != nil && record.element.inlineSimpleType != nil {
+			if _, err := resolver.resolveInput(record.element.inlineSimpleType, record.element.inlineSimpleType.loc, true, record.id.Source(), version); err != nil {
+				return schemaSimpleTypeResolution{}, err
+			}
 		}
-		if _, err := resolver.resolveInput(record.element.inlineSimpleType, record.element.inlineSimpleType.loc, true, record.id.Source(), version); err != nil {
-			return schemaSimpleTypeResolution{}, err
+		if record.complexType != nil {
+			if err := resolveSchemaSimpleTypeInputsInComplexType(record.complexType, record.id.Source(), &resolver, version); err != nil {
+				return schemaSimpleTypeResolution{}, err
+			}
 		}
 	}
 	return schemaSimpleTypeResolution{
@@ -3055,6 +3079,79 @@ func resolveSchemaSimpleTypes(
 		byInput:  resolver.inputResults,
 		resolver: &resolver,
 	}, nil
+}
+
+func resolveSchemaSimpleTypeInputsInComplexType(
+	input *schemaComplexTypeInput,
+	source SourceID,
+	resolver *schemaSimpleTypeResolver,
+	version XSDVersion,
+) error {
+	if input == nil || input.body == nil || resolver == nil {
+		return newSchemaBridgeInvariant(Loc{}, "complex type simple type resolution has incomplete inputs")
+	}
+	switch body := input.body.(type) {
+	case *schemaComplexTypeDirectBodyInput:
+		if body == nil || body.particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "direct complex type simple type resolution has no particle input")
+		}
+		return resolveSchemaSimpleTypeInputsInComplexParticle(body.particle, source, resolver, version)
+	case *schemaComplexTypeExtensionBodyInput:
+		if body == nil || body.particle == nil {
+			return nil
+		}
+		return resolveSchemaSimpleTypeInputsInComplexParticle(body.particle, source, resolver, version)
+	case *schemaComplexTypeEmptyBodyInput, *schemaComplexTypeRestrictionBodyInput:
+		return nil
+	default:
+		return newSchemaBridgeInvariant(Loc{}, "complex type simple type resolution has an unknown body input")
+	}
+}
+
+func resolveSchemaSimpleTypeInputsInComplexParticle(
+	input schemaComplexTypeParticleInput,
+	source SourceID,
+	resolver *schemaSimpleTypeResolver,
+	version XSDVersion,
+) error {
+	switch particle := input.(type) {
+	case *schemaChoiceParticleInput:
+		if particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "choice simple type resolution has a nil particle input")
+		}
+		return resolveSchemaSimpleTypeInputsInParticleTerms(particle.alternatives, source, resolver, version)
+	case *schemaSequenceParticleInput:
+		if particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "sequence simple type resolution has a nil particle input")
+		}
+		return resolveSchemaSimpleTypeInputsInParticleTerms(particle.particles, source, resolver, version)
+	case *schemaModelGroupReferenceParticleInput:
+		return nil
+	default:
+		return newSchemaBridgeInvariant(Loc{}, "complex particle simple type resolution has an unknown particle input")
+	}
+}
+
+func resolveSchemaSimpleTypeInputsInParticleTerms(
+	terms []schemaParticleTermInput,
+	source SourceID,
+	resolver *schemaSimpleTypeResolver,
+	version XSDVersion,
+) error {
+	for _, term := range terms {
+		input, ok := schemaElementParticleInputValue(term)
+		if !ok || input.typeInput == nil || input.typeInput.inlineSimpleType == nil {
+			continue
+		}
+		fallbackLoc := input.typeInput.typeLoc
+		if fallbackLoc.IsZero() {
+			fallbackLoc = input.typeInput.inlineSimpleType.loc
+		}
+		if _, err := resolver.resolveInput(input.typeInput.inlineSimpleType, fallbackLoc, true, source, version); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type schemaAttributeTypeResult struct {
@@ -3750,6 +3847,32 @@ func schemaNamedSimpleTypeReferenceFromResult(
 	}
 }
 
+func resolvedAnonymousSchemaSimpleTypeReference(
+	input *schemaElementInput,
+	result schemaSimpleTypeResult,
+) (schemaSimpleTypeReferenceComponent, error) {
+	if input == nil || input.inlineSimpleType == nil {
+		return schemaSimpleTypeReferenceComponent{}, newSchemaBridgeInvariant(Loc{}, "anonymous simple type reference has no input")
+	}
+	if !result.hasNodeID || result.nodeID.IsZero() {
+		return schemaSimpleTypeReferenceComponent{}, newSchemaBridgeInvariant(
+			input.typeLoc,
+			"anonymous simple type reference has no allocated model identity",
+		)
+	}
+	return schemaSimpleTypeReferenceComponent{
+		kind:           SimpleTypeReferenceAnonymous,
+		loc:            input.typeLoc,
+		anonymousID:    result.nodeID,
+		hasAnonymousID: true,
+		anonymous:      schemaSimpleTypeComponentFromResult(result, true),
+		variety:        result.variety,
+		varietyLoc:     result.varietyLoc,
+		atomicKind:     result.atomicKind,
+		facets:         result.facets,
+	}, nil
+}
+
 type schemaScalarTypeScope uint8
 
 const (
@@ -4402,7 +4525,7 @@ func resolveSchemaElementType(
 		}, nil
 	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveSchemaScalarType(input, records, byName, visibleSources, record.id.Source(), simpleTypes.results, version, "for global elements", schemaScalarTypeGlobalElement, true)
+		return resolveSchemaScalarType(input, records, byName, visibleSources, record.id.Source(), simpleTypes, version, "for global elements", schemaScalarTypeGlobalElement, true)
 	}
 
 	candidates := byName[input.declaredType]
@@ -4462,18 +4585,46 @@ func schemaComplexTypeResultIsEmpty(result schemaComplexTypeResult) bool {
 	return ok
 }
 
+//nolint:gocognit // Keep named, built-in, and anonymous scalar resolution together.
 func resolveSchemaScalarType(
 	input *schemaElementInput,
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
 	referringSource SourceID,
-	simpleTypes []schemaSimpleTypeResult,
+	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 	complexTargetSuffix string,
 	scope schemaScalarTypeScope,
 	allowPrecisionDecimal bool,
 ) (schemaElementTypeResult, error) {
+	if input.inlineSimpleType != nil {
+		result, ok := simpleTypes.byInput[input.inlineSimpleType]
+		if !ok || !result.present {
+			return schemaElementTypeResult{}, newSchemaBridgeInvariant(
+				input.typeLoc,
+				"inline local element simple type has no resolved result",
+			)
+		}
+		if err := rejectUnsupportedSchemaSimpleTypeVariety(input, result, version, complexTargetSuffix); err != nil {
+			return schemaElementTypeResult{}, err
+		}
+		if err := rejectUnsupportedLocalScalarType(input, result, version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
+			return schemaElementTypeResult{}, err
+		}
+		reference, err := resolvedAnonymousSchemaSimpleTypeReference(input, result)
+		if err != nil {
+			return schemaElementTypeResult{}, err
+		}
+		return schemaElementTypeResult{
+			present:          true,
+			typeReference:    reference,
+			hasTypeReference: true,
+			abstract:         input.abstract,
+			nillable:         input.nillable,
+			block:            input.block,
+		}, nil
+	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
 		return resolveBuiltinSchemaScalarType(input, version, complexTargetSuffix, scope, allowPrecisionDecimal)
 	}
@@ -4511,19 +4662,19 @@ func resolveSchemaScalarType(
 			version,
 		)
 	}
-	if !simpleTypes[candidate].present {
+	if !simpleTypes.results[candidate].present {
 		return schemaElementTypeResult{}, newSchemaBridgeInvariant(
 			input.typeLoc,
 			"element type resolution has an incomplete simple type result",
 		)
 	}
-	if err := rejectUnsupportedSchemaSimpleTypeVariety(input, simpleTypes[candidate], version, complexTargetSuffix); err != nil {
+	if err := rejectUnsupportedSchemaSimpleTypeVariety(input, simpleTypes.results[candidate], version, complexTargetSuffix); err != nil {
 		return schemaElementTypeResult{}, err
 	}
-	if err := rejectUnsupportedLocalScalarType(input, simpleTypes[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
+	if err := rejectUnsupportedLocalScalarType(input, simpleTypes.results[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
 		return schemaElementTypeResult{}, err
 	}
-	reference := schemaNamedSimpleTypeReferenceFromResult(input, records[candidate].id, simpleTypes[candidate])
+	reference := schemaNamedSimpleTypeReferenceFromResult(input, records[candidate].id, simpleTypes.results[candidate])
 	return resolvedSchemaElementTypeResultWithReference(input, records[candidate].id, true, reference), nil
 }
 
@@ -4614,6 +4765,25 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 	if scope != schemaScalarTypeLocalParticle {
 		return nil
 	}
+	if input.inlineSimpleType != nil {
+		switch simpleType.atomicKind {
+		case schemaSimpleTypeAtomicString,
+			schemaSimpleTypeAtomicToken,
+			schemaSimpleTypeAtomicNMTOKEN,
+			schemaSimpleTypeAtomicPrecisionDecimal:
+			return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
+		case schemaSimpleTypeAtomicUnknown,
+			schemaSimpleTypeAtomicInteger,
+			schemaSimpleTypeAtomicNegativeInteger,
+			schemaSimpleTypeAtomicNonNegativeInteger,
+			schemaSimpleTypeAtomicDecimal,
+			schemaSimpleTypeAtomicLanguage,
+			schemaSimpleTypeAtomicNCName,
+			schemaSimpleTypeAtomicAnyURI,
+			schemaSimpleTypeAtomicID:
+			break
+		}
+	}
 	switch simpleType.atomicKind {
 	case schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicLanguage,
@@ -4642,6 +4812,13 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 }
 
 func unsupportedLocalSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string) Diagnostic {
+	if input.declaredType.IsZero() {
+		return newSchemaSyntaxUnsupportedForVersion(
+			input.typeLoc,
+			"inline anonymous simple type is not implemented "+complexTargetSuffix,
+			version,
+		)
+	}
 	return newSchemaSyntaxUnsupportedForVersion(
 		input.typeLoc,
 		fmt.Sprintf("element type %q is not implemented %s", input.declaredType, complexTargetSuffix),
@@ -4718,10 +4895,10 @@ func resolveSchemaComplexTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
-	simpleTypes []schemaSimpleTypeResult,
+	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 ) ([]schemaComplexTypeResult, error) {
-	if len(simpleTypes) != len(records) {
+	if len(simpleTypes.results) != len(records) || simpleTypes.byInput == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "complex type resolution has incomplete simple type results")
 	}
 	resolver := schemaComplexTypeResolver{
@@ -4749,7 +4926,7 @@ type schemaComplexTypeResolver struct {
 	records        []schemaComponentRecord
 	byName         map[QName][]int
 	visibleSources map[SourceID][]SourceID
-	simpleTypes    []schemaSimpleTypeResult
+	simpleTypes    schemaSimpleTypeResolution
 	version        XSDVersion
 	results        []schemaComplexTypeResult
 	state          []uint8
@@ -5361,10 +5538,10 @@ func resolveSchemaModelGroups(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
-	simpleTypes []schemaSimpleTypeResult,
+	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 ) ([]schemaModelGroupResult, error) {
-	if len(simpleTypes) != len(records) {
+	if len(simpleTypes.results) != len(records) || simpleTypes.byInput == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "model group resolution has incomplete simple type results")
 	}
 	results := make([]schemaModelGroupResult, len(records))
@@ -5401,7 +5578,7 @@ func resolveSchemaModelGroupParticle(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
-	simpleTypes []schemaSimpleTypeResult,
+	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 ) (Particle, error) {
 	switch particle := input.(type) {
@@ -5512,7 +5689,7 @@ func resolveSchemaComplexTypeParticle(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
-	simpleTypes []schemaSimpleTypeResult,
+	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 ) (Particle, error) {
 	switch particle := input.(type) {
@@ -5542,7 +5719,7 @@ func resolveSchemaChoiceParticle(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
-	simpleTypes []schemaSimpleTypeResult,
+	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 ) (Particle, error) {
 	return resolveSchemaChoiceParticleWithOptions(
@@ -5564,7 +5741,7 @@ func resolveSchemaChoiceParticleWithOptions(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
-	simpleTypes []schemaSimpleTypeResult,
+	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 	rejectDuplicateReferences bool,
 ) (Particle, error) {
@@ -5591,7 +5768,7 @@ func resolveSchemaChoiceParticleWithOptions(
 				byName,
 				owner.id.Source(),
 				visibleSources,
-				simpleTypes,
+				simpleTypes.results,
 				elementInput.loc,
 				version,
 			)
@@ -5648,7 +5825,7 @@ func resolveSchemaSequenceParticle(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
-	simpleTypes []schemaSimpleTypeResult,
+	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 ) (Particle, error) {
 	if !input.occurrences.mapsToParticle() {
@@ -5744,7 +5921,7 @@ func resolveSchemaParticleTerm(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
-	simpleTypes []schemaSimpleTypeResult,
+	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 	model string,
 ) (Particle, error) {
@@ -5791,7 +5968,7 @@ func resolveSchemaElementParticle(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
-	simpleTypes []schemaSimpleTypeResult,
+	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 	model string,
 ) (Particle, error) {
@@ -5815,7 +5992,7 @@ func resolveSchemaElementParticle(
 			byName,
 			owner.id.Source(),
 			visibleSources,
-			simpleTypes,
+			simpleTypes.results,
 			input.loc,
 			version,
 		)
