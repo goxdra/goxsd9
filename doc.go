@@ -117,8 +117,10 @@
 // changing retained schema facts. Global NMTOKEN values also collapse XML
 // whitespace and enforce the repository XML NameChar policy. Global string
 // values, local string particles, token/NMTOKEN sequence particles, lists/unions,
-// attributes, broader particles, and other semantics remain explicit unsupported
-// behavior.
+// attribute validation, broader particles, and other semantics remain explicit
+// unsupported behavior. Explicit global string/NMTOKEN attribute type references
+// and supported named atomic restrictions are retained as immutable schema facts;
+// local and inline attribute types remain unsupported.
 // GenerateGo produces deterministic Go source for global boolean/integer/decimal/
 // atomic string/token/NMTOKEN scalar components, default-occurrence all-Boolean or
 // numeric direct choices, and default-bounded numeric or all-Boolean local sequences;
