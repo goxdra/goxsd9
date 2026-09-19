@@ -1529,7 +1529,7 @@ func (definition ComplexTypeDefinition) boundedOpenAttrsRestrictionBody() (*sche
 	if body == nil || body.base.kind != ComplexTypeReferenceBuiltin || body.base.name.Namespace() != xsdNamespaceURI || body.base.name.Local() != "anyType" {
 		return nil, false
 	}
-	if body.anyAttribute == nil || body.anyAttribute.namespace != "##other" || body.anyAttribute.processContents != "lax" {
+	if body.anyAttribute == nil || body.anyAttribute.namespaceConstraint.lexical != "##other" || body.anyAttribute.processContents != "lax" {
 		return nil, false
 	}
 	return body, true
@@ -1572,7 +1572,20 @@ func (attribute AnyAttribute) Namespace() string {
 	if attribute.facts == nil {
 		return ""
 	}
-	return attribute.facts.namespace
+	return attribute.facts.namespaceConstraint.lexical
+}
+
+// NamespaceConstraint returns the immutable effective namespace constraint.
+func (attribute AnyAttribute) NamespaceConstraint() WildcardNamespaceConstraint {
+	if attribute.facts == nil {
+		return WildcardNamespaceConstraint{}
+	}
+	return WildcardNamespaceConstraint{
+		variety:    attribute.facts.namespaceConstraint.variety,
+		namespaces: append([]string(nil), attribute.facts.namespaceConstraint.namespaces...),
+		lexical:    attribute.facts.namespaceConstraint.lexical,
+		loc:        attribute.facts.namespaceConstraint.loc,
+	}
 }
 
 // NamespaceLoc returns the location of the explicit namespace attribute. It is
@@ -1581,7 +1594,7 @@ func (attribute AnyAttribute) NamespaceLoc() Loc {
 	if attribute.facts == nil {
 		return Loc{}
 	}
-	return attribute.facts.namespaceLoc
+	return attribute.facts.namespaceConstraint.loc
 }
 
 // ProcessContents returns the normalized processContents mode.
@@ -2093,7 +2106,7 @@ func (particle WildcardParticle) Namespace() string {
 	if particle.facts == nil {
 		return ""
 	}
-	return particle.facts.namespace
+	return particle.facts.namespaceConstraint.lexical
 }
 
 // NamespaceConstraint returns the immutable effective namespace constraint.
@@ -2115,7 +2128,7 @@ func (particle WildcardParticle) NamespaceLoc() Loc {
 	if particle.facts == nil {
 		return Loc{}
 	}
-	return particle.facts.namespaceLoc
+	return particle.facts.namespaceConstraint.loc
 }
 
 // ProcessContents returns the effective wildcard processing mode.
@@ -2661,11 +2674,10 @@ type schemaComplexTypeReferenceInput struct {
 }
 
 type schemaAnyAttributeInput struct {
-	loc                Loc
-	namespace          string
-	namespaceLoc       Loc
-	processContents    string
-	processContentsLoc Loc
+	loc                 Loc
+	namespaceConstraint schemaWildcardNamespaceConstraint
+	processContents     string
+	processContentsLoc  Loc
 }
 
 type schemaModelGroupInput struct {
@@ -2725,8 +2737,6 @@ func (schemaElementParticleInput) schemaParticleTermInput() {}
 type schemaWildcardParticleInput struct {
 	loc                 Loc
 	occurrences         particleOccurrenceRange
-	namespace           string
-	namespaceLoc        Loc
 	namespaceConstraint schemaWildcardNamespaceConstraint
 	processContents     string
 	processContentsLoc  Loc
@@ -2900,11 +2910,10 @@ type schemaComplexTypeReferenceComponent struct {
 }
 
 type schemaAnyAttributeComponent struct {
-	loc                Loc
-	namespace          string
-	namespaceLoc       Loc
-	processContents    string
-	processContentsLoc Loc
+	loc                 Loc
+	namespaceConstraint schemaWildcardNamespaceConstraint
+	processContents     string
+	processContentsLoc  Loc
 }
 
 type schemaModelGroupComponent struct {
@@ -2949,8 +2958,6 @@ type schemaModelGroupReferenceParticle struct {
 type schemaWildcardParticle struct {
 	loc                 Loc
 	occurrences         particleOccurrenceRange
-	namespace           string
-	namespaceLoc        Loc
 	namespaceConstraint schemaWildcardNamespaceConstraint
 	processContents     string
 	processContentsLoc  Loc
@@ -3468,11 +3475,10 @@ func completeSchemaAnyAttribute(result schemaAnyAttributeResult) *schemaAnyAttri
 		return nil
 	}
 	return &schemaAnyAttributeComponent{
-		loc:                result.loc,
-		namespace:          result.namespace,
-		namespaceLoc:       result.namespaceLoc,
-		processContents:    result.processContents,
-		processContentsLoc: result.processContentsLoc,
+		loc:                 result.loc,
+		namespaceConstraint: cloneSchemaWildcardNamespaceConstraint(result.namespaceConstraint),
+		processContents:     result.processContents,
+		processContentsLoc:  result.processContentsLoc,
 	}
 }
 
@@ -3628,12 +3634,17 @@ func cloneSchemaAnyAttributeInput(input *schemaAnyAttributeInput) *schemaAnyAttr
 		return nil
 	}
 	return &schemaAnyAttributeInput{
-		loc:                input.loc,
-		namespace:          input.namespace,
-		namespaceLoc:       input.namespaceLoc,
-		processContents:    input.processContents,
-		processContentsLoc: input.processContentsLoc,
+		loc:                 input.loc,
+		namespaceConstraint: cloneSchemaWildcardNamespaceConstraint(input.namespaceConstraint),
+		processContents:     input.processContents,
+		processContentsLoc:  input.processContentsLoc,
 	}
+}
+
+func cloneSchemaWildcardNamespaceConstraint(input schemaWildcardNamespaceConstraint) schemaWildcardNamespaceConstraint {
+	input.terms = append([]string(nil), input.terms...)
+	input.namespaces = append([]string(nil), input.namespaces...)
+	return input
 }
 
 func cloneSchemaModelGroupInput(input *schemaModelGroupInput) *schemaModelGroupInput {
@@ -3919,15 +3930,13 @@ func cloneSchemaParticleTermInputs(inputs []schemaParticleTermInput) []schemaPar
 		case schemaWildcardParticleInput:
 			clone := term
 			clone.occurrences = term.occurrences.clone()
-			clone.namespaceConstraint.terms = append([]string(nil), term.namespaceConstraint.terms...)
-			clone.namespaceConstraint.namespaces = append([]string(nil), term.namespaceConstraint.namespaces...)
+			clone.namespaceConstraint = cloneSchemaWildcardNamespaceConstraint(term.namespaceConstraint)
 			clones[index] = clone
 		case *schemaWildcardParticleInput:
 			if term != nil {
 				clone := *term
 				clone.occurrences = term.occurrences.clone()
-				clone.namespaceConstraint.terms = append([]string(nil), term.namespaceConstraint.terms...)
-				clone.namespaceConstraint.namespaces = append([]string(nil), term.namespaceConstraint.namespaces...)
+				clone.namespaceConstraint = cloneSchemaWildcardNamespaceConstraint(term.namespaceConstraint)
 				clones[index] = clone
 			}
 		default:

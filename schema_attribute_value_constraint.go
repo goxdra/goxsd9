@@ -13,11 +13,13 @@ const (
 
 // AttributeValueConstraint is an immutable typed value constraint on a global
 // attribute declaration. Lexical returns the normalized lexical form; the
-// typed accessors retain the exact integer or decimal value.
+// typed accessors retain the exact boolean, integer, or decimal value.
 type AttributeValueConstraint struct {
 	kind       AttributeValueConstraintKind
 	lexical    string
 	loc        Loc
+	boolean    StrictBoolean
+	hasBoolean bool
 	integer    StrictInteger
 	hasInteger bool
 	decimal    StrictDecimal
@@ -47,6 +49,15 @@ func (constraint AttributeValueConstraint) Lexical() string {
 // Loc returns the source location of the default or fixed attribute.
 func (constraint AttributeValueConstraint) Loc() Loc {
 	return constraint.loc
+}
+
+// BooleanValue returns the exact boolean value when the constraint is typed as
+// a boolean.
+func (constraint AttributeValueConstraint) BooleanValue() (StrictBoolean, bool) {
+	if !constraint.hasBoolean {
+		return StrictBoolean{}, false
+	}
+	return constraint.boolean, true
 }
 
 // IntegerValue returns the exact integer value when the constraint is typed as

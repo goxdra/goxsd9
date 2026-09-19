@@ -2246,6 +2246,45 @@ func schemaAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttri
 	return schemaExplicitAnyAttributeInputFromElement(wildcard)
 }
 
+func schemaWildcardNamespaceConstraintFromLexical(lexical string, loc Loc) schemaWildcardNamespaceConstraint {
+	constraint := schemaWildcardNamespaceConstraint{
+		variety: WildcardNamespaceConstraintAny,
+		lexical: lexical,
+		loc:     loc,
+	}
+	if !isPositiveWildcardNamespace(lexical) {
+		return constraint
+	}
+	constraint.variety = WildcardNamespaceConstraintEnumeration
+	constraint.terms = strings.Split(lexical, " ")
+	return constraint
+}
+
+func resolveSchemaWildcardNamespaceConstraint(constraint schemaWildcardNamespaceConstraint, ownerNamespace string) schemaWildcardNamespaceConstraint {
+	if constraint.variety != WildcardNamespaceConstraintEnumeration {
+		return constraint
+	}
+	seen := make(map[string]struct{}, len(constraint.terms))
+	namespaces := make([]string, 0, len(constraint.terms))
+	for _, term := range constraint.terms {
+		namespace := term
+		if term == "##local" {
+			namespace = ""
+		}
+		if term == "##targetNamespace" {
+			namespace = ownerNamespace
+		}
+		if _, ok := seen[namespace]; ok {
+			continue
+		}
+		seen[namespace] = struct{}{}
+		namespaces = append(namespaces, namespace)
+	}
+	sort.Strings(namespaces)
+	constraint.namespaces = namespaces
+	return constraint
+}
+
 func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttributeInput, error) {
 	wildcard, err := schemaAnyAttributeElementFromElement(element)
 	if err != nil || wildcard == nil {
@@ -2265,15 +2304,23 @@ func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAn
 		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
 		processContentsLoc = processContentsAttributes[0].loc
 	}
+	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc)
 	if (processContents == "strict" && (namespace == "##any" || namespace == "##other")) ||
 		(processContents == "lax" && namespace == "##any") ||
 		(processContents == "skip" && (namespace == "##any" || namespace == "##other")) {
 		return &schemaAnyAttributeInput{
-			loc:                wildcard.loc,
-			namespace:          namespace,
-			namespaceLoc:       namespaceLoc,
-			processContents:    processContents,
-			processContentsLoc: processContentsLoc,
+			loc:                 wildcard.loc,
+			namespaceConstraint: constraint,
+			processContents:     processContents,
+			processContentsLoc:  processContentsLoc,
+		}, nil
+	}
+	if isPositiveWildcardNamespace(namespace) && processContents == "strict" {
+		return &schemaAnyAttributeInput{
+			loc:                 wildcard.loc,
+			namespaceConstraint: constraint,
+			processContents:     processContents,
+			processContentsLoc:  processContentsLoc,
 		}, nil
 	}
 	return schemaExplicitAnyAttributeInputFromElement(wildcard)
@@ -2312,11 +2359,10 @@ func schemaExplicitAnyAttributeInputFromElement(wildcard *syntaxElement) (*schem
 		return nil, newSchemaBridgeInvariant(wildcard.loc, "unsupported anyAttribute input reached component construction")
 	}
 	return &schemaAnyAttributeInput{
-		loc:                wildcard.loc,
-		namespace:          namespace,
-		namespaceLoc:       namespaceAttributes[0].loc,
-		processContents:    processContents,
-		processContentsLoc: processContentsAttributes[0].loc,
+		loc:                 wildcard.loc,
+		namespaceConstraint: schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceAttributes[0].loc),
+		processContents:     processContents,
+		processContentsLoc:  processContentsAttributes[0].loc,
 	}, nil
 }
 
@@ -2379,20 +2425,10 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 		!isSupportedDirectAnyParticleFacts(namespace, processContents) {
 		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
 	}
-	constraint := schemaWildcardNamespaceConstraint{
-		variety: WildcardNamespaceConstraintAny,
-		lexical: namespace,
-		loc:     namespaceLoc,
-	}
-	if isPositiveWildcardNamespace(namespace) {
-		constraint.variety = WildcardNamespaceConstraintEnumeration
-		constraint.terms = strings.Split(namespace, " ")
-	}
+	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc)
 	return schemaWildcardParticleInput{
 		loc:                 element.loc,
 		occurrences:         occurrences,
-		namespace:           namespace,
-		namespaceLoc:        namespaceLoc,
 		namespaceConstraint: constraint,
 		processContents:     processContents,
 		processContentsLoc:  processContentsLoc,
@@ -3253,6 +3289,7 @@ const (
 	schemaSimpleTypeAtomicNMTOKEN
 	schemaSimpleTypeAtomicInteger
 	schemaSimpleTypeAtomicNegativeInteger
+	schemaSimpleTypeAtomicNonNegativeInteger
 	schemaSimpleTypeAtomicDecimal
 	schemaSimpleTypeAtomicPrecisionDecimal
 	schemaSimpleTypeAtomicLanguage
@@ -3274,6 +3311,7 @@ func schemaSimpleTypeAtomicKindIsUnsupported(kind schemaSimpleTypeAtomicKind) bo
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInteger,
 		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		return false
@@ -3498,6 +3536,9 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 	if reference.variety != SimpleTypeVarietyAtomicRestriction {
 		return false
 	}
+	if _, ok := reference.facets.(schemaBooleanFacetVariant); ok {
+		return true
+	}
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicInteger:
 		switch facets := reference.facets.(type) {
@@ -3517,11 +3558,14 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		default:
 			return false
 		}
+	case schemaSimpleTypeAtomicToken:
+		facets, ok := reference.facets.(schemaStringFacetVariant)
+		return ok && facets.whiteSpace != nil && facets.whiteSpace.Value() == "collapse"
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
-		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
@@ -3547,6 +3591,15 @@ func resolveSchemaAttributeValueConstraint(
 		lexical: lexical,
 		loc:     input.loc,
 	}
+	if _, ok := reference.facets.(schemaBooleanFacetVariant); ok {
+		value, err := ParseStrictBooleanFor(version, input.lexical, input.loc)
+		if err != nil {
+			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+		}
+		constraint.boolean = value
+		constraint.hasBoolean = true
+		return constraint, nil
+	}
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicInteger:
 		value, err := ParseStrictInteger(input.lexical, input.loc)
@@ -3570,11 +3623,13 @@ func resolveSchemaAttributeValueConstraint(
 		constraint.decimal = value
 		constraint.hasDecimal = true
 		return constraint, nil
+	case schemaSimpleTypeAtomicToken:
+		return resolveSchemaAttributeTokenValueConstraint(input, reference, version, constraint, lexical)
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
-		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
@@ -3584,6 +3639,30 @@ func resolveSchemaAttributeValueConstraint(
 	default:
 		return nil, newSchemaBridgeInvariant(input.loc, "convert an unsupported attribute value constraint type")
 	}
+}
+
+func resolveSchemaAttributeTokenValueConstraint(
+	input *schemaAttributeValueConstraintInput,
+	reference schemaSimpleTypeReferenceComponent,
+	version XSDVersion,
+	constraint *AttributeValueConstraint,
+	lexical string,
+) (*AttributeValueConstraint, error) {
+	facets, ok := reference.facets.(schemaStringFacetVariant)
+	if !ok || facets.whiteSpace == nil || facets.whiteSpace.Value() != "collapse" {
+		return nil, newSchemaBridgeInvariant(input.loc, "validate a token attribute value against an incomplete string facet model")
+	}
+	if err := facets.enumeration.validate(); err != nil {
+		return nil, err
+	}
+	if !facets.enumeration.HasEnumeration() || stringEnumerationContainsInValueSpace(facets.enumeration.values, lexical, collapseXMLWhitespace) {
+		return constraint, nil
+	}
+	return nil, invalidSchemaAttributeValueConstraint(
+		input,
+		version,
+		enumerationValueViolationDiagnostic(input.loc, facets.enumeration.Locations(), facets.enumeration.Version(), "token"),
+	)
 }
 
 func validateSchemaAttributeIntegerValue(reference schemaSimpleTypeReferenceComponent, value StrictInteger, loc Loc) error {
@@ -3641,7 +3720,8 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
-		schemaSimpleTypeAtomicNMTOKEN:
+		schemaSimpleTypeAtomicNMTOKEN,
+		schemaSimpleTypeAtomicNonNegativeInteger:
 		return false
 	default:
 		return false
@@ -5154,80 +5234,23 @@ func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleT
 	)
 }
 
-//nolint:gocognit // Keep built-in scalar scope and version branches explicit.
 func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
 	case "string", "token", "NMTOKEN", "language", "NCName", "anyURI", "ID":
-		if input.declaredType.Local() == "string" && scope != schemaScalarTypeGlobalElement {
+		if !builtinStringSchemaScalarTypeAllowedInScope(input.declaredType.Local(), scope) {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
-		if schemaSimpleTypeAtomicKindIsUnsupportedBuiltin(input.declaredType.Local()) && scope != schemaScalarTypeGlobalElement {
-			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
-		}
-		reference, err := builtinSchemaElementTypeReference(input, version)
-		if err != nil {
-			return schemaElementTypeResult{}, err
-		}
-		return schemaElementTypeResult{
-			present:          true,
-			declaredType:     input.declaredType,
-			typeReference:    reference,
-			hasTypeReference: true,
-			abstract:         input.abstract,
-			nillable:         input.nillable,
-			block:            input.block,
-		}, nil
 	case "integer", "decimal":
-		reference, err := builtinSchemaElementTypeReference(input, version)
-		if err != nil {
-			return schemaElementTypeResult{}, err
+	case "nonNegativeInteger":
+		if scope != schemaScalarTypeGlobalElement {
+			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
-		return schemaElementTypeResult{
-			present:          true,
-			declaredType:     input.declaredType,
-			typeReference:    reference,
-			hasTypeReference: true,
-			abstract:         input.abstract,
-			nillable:         input.nillable,
-			block:            input.block,
-		}, nil
 	case "boolean":
 		if !scope.allowsBoolean() {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
-		reference, err := builtinSchemaElementTypeReference(input, version)
-		if err != nil {
-			return schemaElementTypeResult{}, err
-		}
-		return schemaElementTypeResult{
-			present:          true,
-			declaredType:     input.declaredType,
-			typeReference:    reference,
-			hasTypeReference: true,
-			abstract:         input.abstract,
-			nillable:         input.nillable,
-			block:            input.block,
-		}, nil
 	case "precisionDecimal":
-		if version == XSDVersion10 {
-			return schemaElementTypeResult{}, precisionDecimalSchemaVersionDiagnostic(input.typeLoc, input.declaredType)
-		}
-		if !allowPrecisionDecimal {
-			return schemaElementTypeResult{}, unsupportedSequencePrecisionDecimal(input, version)
-		}
-		reference, err := builtinSchemaElementTypeReference(input, version)
-		if err != nil {
-			return schemaElementTypeResult{}, err
-		}
-		return schemaElementTypeResult{
-			present:          true,
-			declaredType:     input.declaredType,
-			typeReference:    reference,
-			hasTypeReference: true,
-			abstract:         input.abstract,
-			nillable:         input.nillable,
-			block:            input.block,
-		}, nil
+		return resolveBuiltinPrecisionDecimalSchemaScalarType(input, version, allowPrecisionDecimal)
 	default:
 		return schemaElementTypeResult{}, newSchemaSyntaxUnsupportedForVersion(
 			input.typeLoc,
@@ -5235,6 +5258,40 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 			version,
 		)
 	}
+	return resolveBuiltinSchemaScalarTypeReference(input, version)
+}
+
+func builtinStringSchemaScalarTypeAllowedInScope(local string, scope schemaScalarTypeScope) bool {
+	if scope == schemaScalarTypeGlobalElement {
+		return true
+	}
+	return local == "token" || local == "NMTOKEN"
+}
+
+func resolveBuiltinPrecisionDecimalSchemaScalarType(input *schemaElementInput, version XSDVersion, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
+	if version == XSDVersion10 {
+		return schemaElementTypeResult{}, precisionDecimalSchemaVersionDiagnostic(input.typeLoc, input.declaredType)
+	}
+	if !allowPrecisionDecimal {
+		return schemaElementTypeResult{}, unsupportedSequencePrecisionDecimal(input, version)
+	}
+	return resolveBuiltinSchemaScalarTypeReference(input, version)
+}
+
+func resolveBuiltinSchemaScalarTypeReference(input *schemaElementInput, version XSDVersion) (schemaElementTypeResult, error) {
+	reference, err := builtinSchemaElementTypeReference(input, version)
+	if err != nil {
+		return schemaElementTypeResult{}, err
+	}
+	return schemaElementTypeResult{
+		present:          true,
+		declaredType:     input.declaredType,
+		typeReference:    reference,
+		hasTypeReference: true,
+		abstract:         input.abstract,
+		nillable:         input.nillable,
+		block:            input.block,
+	}, nil
 }
 
 func builtinSchemaElementTypeReference(input *schemaElementInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
@@ -5243,15 +5300,6 @@ func builtinSchemaElementTypeReference(input *schemaElementInput, version XSDVer
 		name: input.declaredType,
 		loc:  input.typeLoc,
 	}, version)
-}
-
-func schemaSimpleTypeAtomicKindIsUnsupportedBuiltin(local string) bool {
-	switch local {
-	case "language", "NCName", "anyURI", "ID":
-		return true
-	default:
-		return false
-	}
 }
 
 func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
@@ -5273,6 +5321,8 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 		schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		break
+	case schemaSimpleTypeAtomicNonNegativeInteger:
+		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	}
 	if allowPrecisionDecimal {
 		return nil
@@ -5359,12 +5409,11 @@ type schemaComplexTypeExtensionBodyResult struct {
 func (*schemaComplexTypeExtensionBodyResult) schemaComplexTypeBodyResult() {}
 
 type schemaAnyAttributeResult struct {
-	present            bool
-	loc                Loc
-	namespace          string
-	namespaceLoc       Loc
-	processContents    string
-	processContentsLoc Loc
+	present             bool
+	loc                 Loc
+	namespaceConstraint schemaWildcardNamespaceConstraint
+	processContents     string
+	processContentsLoc  Loc
 }
 
 type schemaModelGroupResult struct {
@@ -5531,7 +5580,7 @@ func resolveSchemaComplexTypeDirectBody(
 	if err != nil {
 		return nil, err
 	}
-	anyAttribute := schemaAnyAttributeResultFromInput(body.anyAttribute)
+	anyAttribute := schemaAnyAttributeResultFromInput(body.anyAttribute, owner)
 	if particle != nil {
 		return &schemaComplexTypeDirectBodyResult{
 			particle:      particle,
@@ -5567,7 +5616,7 @@ func resolveSchemaComplexTypeAttributeOnlyBody(
 	}
 	return &schemaComplexTypeAttributeOnlyBodyResult{
 		attributeUses: attributeUses,
-		anyAttribute:  schemaAnyAttributeResultFromInput(body.anyAttribute),
+		anyAttribute:  schemaAnyAttributeResultFromInput(body.anyAttribute, owner),
 	}, nil
 }
 
@@ -5620,7 +5669,7 @@ func resolveSchemaComplexTypeRestrictionBody(
 		complexContentLoc: body.complexContentLoc,
 		restrictionLoc:    body.restrictionLoc,
 		base:              base,
-		anyAttribute:      schemaAnyAttributeResultFromInput(body.anyAttribute),
+		anyAttribute:      schemaAnyAttributeResultFromInput(body.anyAttribute, owner),
 	}, nil
 }
 
@@ -6355,7 +6404,7 @@ func (resolver *schemaComplexTypeResolver) representableInheritedWildcard(
 	if !wildcard.present {
 		return schemaAnyAttributeResult{}, nil
 	}
-	if wildcard.namespace == "##other" && wildcard.processContents == "lax" {
+	if wildcard.namespaceConstraint.lexical == "##other" && wildcard.processContents == "lax" {
 		return wildcard, nil
 	}
 	return schemaAnyAttributeResult{}, resolver.unsupportedExtensionBase(
@@ -6413,17 +6462,16 @@ func (body *schemaComplexTypeExtensionBodyResult) particleLoc() Loc {
 	return body.particle.Loc()
 }
 
-func schemaAnyAttributeResultFromInput(input *schemaAnyAttributeInput) schemaAnyAttributeResult {
+func schemaAnyAttributeResultFromInput(input *schemaAnyAttributeInput, owner schemaComponentRecord) schemaAnyAttributeResult {
 	if input == nil {
 		return schemaAnyAttributeResult{}
 	}
 	return schemaAnyAttributeResult{
-		present:            true,
-		loc:                input.loc,
-		namespace:          input.namespace,
-		namespaceLoc:       input.namespaceLoc,
-		processContents:    input.processContents,
-		processContentsLoc: input.processContentsLoc,
+		present:             true,
+		loc:                 input.loc,
+		namespaceConstraint: resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, owner.name.Namespace()),
+		processContents:     input.processContents,
+		processContentsLoc:  input.processContentsLoc,
 	}
 }
 
@@ -7136,36 +7184,16 @@ func resolveSchemaParticleTerm(
 }
 
 func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner schemaComponentRecord) (Particle, error) {
-	if !isSupportedDirectAnyParticleFacts(input.namespace, input.processContents) {
+	if !isSupportedDirectAnyParticleFacts(input.namespaceConstraint.lexical, input.processContents) {
 		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
 	}
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
-	constraint := input.namespaceConstraint
-	if constraint.variety == WildcardNamespaceConstraintEnumeration {
-		seen := make(map[string]struct{}, len(constraint.terms))
-		for _, term := range constraint.terms {
-			namespace := term
-			if term == "##local" {
-				namespace = ""
-			}
-			if term == "##targetNamespace" {
-				namespace = owner.name.Namespace()
-			}
-			seen[namespace] = struct{}{}
-		}
-		constraint.namespaces = make([]string, 0, len(seen))
-		for namespace := range seen {
-			constraint.namespaces = append(constraint.namespaces, namespace)
-		}
-		sort.Strings(constraint.namespaces)
-	}
+	constraint := resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, owner.name.Namespace())
 	return WildcardParticle{facts: &schemaWildcardParticle{
 		loc:                 input.loc,
 		occurrences:         input.occurrences.clone(),
-		namespace:           input.namespace,
-		namespaceLoc:        input.namespaceLoc,
 		namespaceConstraint: constraint,
 		processContents:     input.processContents,
 		processContentsLoc:  input.processContentsLoc,
@@ -8375,6 +8403,21 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 			return schemaSimpleTypeReferenceComponent{}, err
 		}
 		result.atomicKind = schemaSimpleTypeAtomicNegativeInteger
+		result.facets = schemaDigitFacetVariant{value: facets, integerBounds: bounds}
+	case "nonNegativeInteger":
+		facets, err := NewIntegerDigitFacets(nil, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		minInclusive, err := ParseIntegerMinInclusiveFacet("0", Loc{}, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		bounds, err := NewIntegerBoundFacets([]IntegerBoundFacet{minInclusive}, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		result.atomicKind = schemaSimpleTypeAtomicNonNegativeInteger
 		result.facets = schemaDigitFacetVariant{value: facets, integerBounds: bounds}
 	case "decimal":
 		facets, err := NewDecimalDigitFacets(nil, nil, version)
