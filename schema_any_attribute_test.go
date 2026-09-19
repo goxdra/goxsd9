@@ -108,6 +108,196 @@ func assertDirectDefaultAnyAttributeFacts(t *testing.T, policy LanguagePolicy, v
 	assertAnyAttributeComponentCopies(t, schema, components, sequence, "##any", "strict")
 }
 
+//nolint:gocognit,funlen // Keep the positive namespace, policy, edition, and location matrix explicit.
+func TestSchemaBridgeModelsPositiveDirectAnyAttributeNamespaceConstraints(t *testing.T) {
+	cases := []struct {
+		name                  string
+		attributes            string
+		wantLexical           string
+		wantNamespaces        []string
+		namespaceMarker       string
+		processContentsMarker string
+	}{
+		{
+			name:            "local_omitted_process_contents",
+			attributes:      ` namespace="##local"`,
+			wantLexical:     "##local",
+			wantNamespaces:  []string{""},
+			namespaceMarker: `namespace="##local"`,
+		},
+		{
+			name:                  "target_explicit_process_contents",
+			attributes:            ` namespace="##targetNamespace" processContents="&#xA;strict&#x9;"`,
+			wantLexical:           "##targetNamespace",
+			wantNamespaces:        []string{"urn:root"},
+			namespaceMarker:       `namespace="##targetNamespace"`,
+			processContentsMarker: `processContents="&#xA;strict&#x9;"`,
+		},
+		{
+			name:            "uri_and_marker_list_with_duplicates",
+			attributes:      ` namespace="&#xA;urn:z&#x9;##targetNamespace&#xA;urn:a&#x9;##local&#xD;urn:a"`,
+			wantLexical:     "urn:z ##targetNamespace urn:a ##local urn:a",
+			wantNamespaces:  []string{"", "urn:a", "urn:root", "urn:z"},
+			namespaceMarker: `namespace="&#xA;urn:z&#x9;##targetNamespace&#xA;urn:a&#x9;##local&#xD;urn:a"`,
+		},
+	}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+		for _, version := range []string{"1.0", "1.1"} {
+			for _, model := range []string{"sequence", "choice"} {
+				for _, test := range cases {
+					t.Run(string(policy)+"/schema-"+version+"/"+model+"/"+test.name, func(t *testing.T) {
+						root := directAnyAttributeSchema(version, model, test.attributes)
+						schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+						if err != nil {
+							t.Fatalf("discover schema: %v", err)
+						}
+						components := schema.Components()
+						definition := requireAnyAttributeComplexType(t, components[1], model)
+						attribute, ok := definition.AnyAttribute()
+						if !ok {
+							t.Fatal("positive AnyAttribute is absent")
+						}
+						if got := attribute.Namespace(); got != test.wantLexical {
+							t.Errorf("namespace = %q, want %q", got, test.wantLexical)
+						}
+						if got := attribute.ProcessContents(); got != "strict" {
+							t.Errorf("processContents = %q, want strict", got)
+						}
+						constraint := attribute.NamespaceConstraint()
+						if constraint.Variety() != WildcardNamespaceConstraintEnumeration {
+							t.Fatalf("variety = %q, want enumeration", constraint.Variety())
+						}
+						if got := constraint.Namespaces(); !reflect.DeepEqual(got, test.wantNamespaces) {
+							t.Fatalf("namespaces = %#v, want %#v", got, test.wantNamespaces)
+						}
+						if constraint.LexicalForm() != test.wantLexical || constraint.Loc() != attribute.NamespaceLoc() {
+							t.Fatalf("constraint lexical facts = %q/%s, want %q/%s", constraint.LexicalForm(), constraint.Loc(), test.wantLexical, attribute.NamespaceLoc())
+						}
+						if got := attribute.Loc(); got != anyAttributeTestLoc(root, "<xs:anyAttribute") {
+							t.Errorf("element location = %v, want anyAttribute location", got)
+						}
+						if got := attribute.NamespaceLoc(); got != anyAttributeTestLoc(root, test.namespaceMarker) {
+							t.Errorf("namespace location = %v, want namespace location", got)
+						}
+						if test.processContentsMarker == "" {
+							if got := attribute.ProcessContentsLoc(); !got.IsZero() {
+								t.Errorf("omitted processContents location = %v, want zero", got)
+							}
+						}
+						if test.processContentsMarker != "" {
+							got := attribute.ProcessContentsLoc()
+							if got != anyAttributeTestLoc(root, test.processContentsMarker) {
+								t.Errorf("processContents location = %v, want exact processContents location", got)
+							}
+						}
+						values := constraint.Namespaces()
+						values[0] = "mutated"
+						if got := attribute.NamespaceConstraint().Namespaces()[0]; got != test.wantNamespaces[0] {
+							t.Errorf("mutating namespace copy changed constraint to %q", got)
+						}
+						if repeated, repeatedOK := definition.AnyAttribute(); !repeatedOK || !reflect.DeepEqual(attribute, repeated) {
+							t.Fatalf("repeated AnyAttribute query = %#v, %v; first = %#v", repeated, repeatedOK, attribute)
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Keep absent target namespace behavior explicit across policies and editions.
+func TestSchemaBridgeModelsPositiveAnyAttributeTargetNamespaceWithoutOwnerNamespace(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+		for _, version := range []string{"1.0", "1.1"} {
+			for _, model := range []string{"sequence", "choice"} {
+				t.Run(string(policy)+"/schema-"+version+"/"+model, func(t *testing.T) {
+					root := directAnyAttributeSchemaWithTargetNamespace(version, model, ` namespace="##targetNamespace"`, "")
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+					if err != nil {
+						t.Fatalf("discover schema: %v", err)
+					}
+					components := schema.Components()
+					definition := requireAnyAttributeComplexType(t, components[1], model)
+					if got := components[1].Name().Namespace(); got != "" {
+						t.Fatalf("owner namespace = %q, want absent namespace", got)
+					}
+					attribute, ok := definition.AnyAttribute()
+					if !ok {
+						t.Fatal("positive targetNamespace AnyAttribute is absent")
+					}
+					if got := attribute.NamespaceConstraint().Namespaces(); !reflect.DeepEqual(got, []string{""}) {
+						t.Fatalf("effective namespaces = %#v, want absent namespace", got)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSchemaBridgeResolvesPositiveAnyAttributeNamespacesAcrossGraphOwners(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:complexType name="ordinaryType"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:anyAttribute namespace="##targetNamespace"/></xs:complexType>
+</xs:schema>`
+	chameleon := `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="includedType"><xs:choice><xs:element name="value" type="xs:integer"/></xs:choice><xs:anyAttribute namespace="##targetNamespace"/></xs:complexType>
+</xs:schema>`
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other">
+  <xs:complexType name="importedType"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:anyAttribute namespace="urn:z ##local ##targetNamespace urn:z"/></xs:complexType>
+</xs:schema>`
+	fixtures := map[string]discoveryFixture{
+		"chameleon.xsd": {id: "chameleon.xsd", contents: chameleon},
+		"other.xsd":     {id: "other.xsd", contents: other},
+	}
+	for run := 0; run < 2; run++ {
+		schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, Strict11)
+		if err != nil {
+			t.Fatalf("discover schema run %d: %v", run, err)
+		}
+		for _, test := range positiveAnyAttributeGraphOwnerCases() {
+			assertPositiveAnyAttributeGraphOwner(t, schema, test)
+		}
+	}
+}
+
+type positiveAnyAttributeGraphOwnerCase struct {
+	name      string
+	namespace string
+	want      []string
+	source    SourceID
+}
+
+func positiveAnyAttributeGraphOwnerCases() []positiveAnyAttributeGraphOwnerCase {
+	return []positiveAnyAttributeGraphOwnerCase{
+		{name: "ordinaryType", namespace: "urn:root", want: []string{"urn:root"}, source: "root.xsd"},
+		{name: "includedType", namespace: "urn:root", want: []string{"urn:root"}, source: "chameleon.xsd"},
+		{name: "importedType", namespace: "urn:other", want: []string{"", "urn:other", "urn:z"}, source: "other.xsd"},
+	}
+}
+
+func assertPositiveAnyAttributeGraphOwner(t *testing.T, schema Schema, test positiveAnyAttributeGraphOwnerCase) {
+	t.Helper()
+	components := schema.Find(mustTestQName(t, test.namespace, test.name))
+	if len(components) != 1 {
+		t.Fatalf("%s component count = %d, want one", test.name, len(components))
+	}
+	definition := requireAnyAttributeComplexType(t, components[0], test.name)
+	attribute, ok := definition.AnyAttribute()
+	if !ok {
+		t.Fatalf("%s positive AnyAttribute is absent", test.name)
+	}
+	if got := attribute.NamespaceConstraint().Namespaces(); !reflect.DeepEqual(got, test.want) {
+		t.Fatalf("%s effective namespaces = %#v, want %#v", test.name, got, test.want)
+	}
+	if got := attribute.Loc().Source(); got != test.source {
+		t.Errorf("%s AnyAttribute source = %q, want %q", test.name, got, test.source)
+	}
+	if got := attribute.NamespaceLoc().Source(); got != test.source {
+		t.Errorf("%s namespace source = %q, want %q", test.name, got, test.source)
+	}
+}
+
 func assertDefaultAnyAttributeFacts(t *testing.T, attribute AnyAttribute, root, elementMarker string) {
 	t.Helper()
 	if got := attribute.Namespace(); got != "##any" {
@@ -1317,9 +1507,10 @@ func TestSchemaBridgeRejectsExcludedAnyAttributeForms(t *testing.T) {
 		{name: "uri", policy: Strict10, version: "1.0", attributes: `namespace="urn:other" processContents="lax"`, wantSpec: schemaAnyAttributeXSD10SpecRef},
 		{name: "uri_list", policy: Strict10, version: "1.0", attributes: `namespace="urn:one urn:two" processContents="lax"`, wantSpec: schemaAnyAttributeXSD10SpecRef},
 		{name: "namespace_list", policy: Strict11, version: "1.1", attributes: `namespace="##local ##targetNamespace" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
-		{name: "local_namespace", policy: Strict10, version: "1.0", attributes: `namespace="##local" processContents="strict"`, wantSpec: schemaAnyAttributeXSD10SpecRef},
+		{name: "local_skip", policy: Strict10, version: "1.0", attributes: `namespace="##local" processContents="skip"`, wantSpec: schemaAnyAttributeXSD10SpecRef},
 		{name: "target_namespace", policy: Strict11, version: "1.1", attributes: `namespace="##targetNamespace" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "uri_skip", policy: Strict11, version: "1.1", attributes: `namespace="urn:other" processContents="skip"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
+		{name: "empty_namespace", policy: Strict11, version: "1.1", attributes: `namespace=""`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "not_namespace", policy: Strict11, version: "1.1", attributes: `notNamespace="##local" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "not_qname", policy: Strict11, version: "1.1", attributes: `notQName="xs:string" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 	}

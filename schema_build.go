@@ -1993,6 +1993,45 @@ func schemaAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttri
 	return schemaExplicitAnyAttributeInputFromElement(wildcard)
 }
 
+func schemaWildcardNamespaceConstraintFromLexical(lexical string, loc Loc) schemaWildcardNamespaceConstraint {
+	constraint := schemaWildcardNamespaceConstraint{
+		variety: WildcardNamespaceConstraintAny,
+		lexical: lexical,
+		loc:     loc,
+	}
+	if !isPositiveWildcardNamespace(lexical) {
+		return constraint
+	}
+	constraint.variety = WildcardNamespaceConstraintEnumeration
+	constraint.terms = strings.Split(lexical, " ")
+	return constraint
+}
+
+func resolveSchemaWildcardNamespaceConstraint(constraint schemaWildcardNamespaceConstraint, ownerNamespace string) schemaWildcardNamespaceConstraint {
+	if constraint.variety != WildcardNamespaceConstraintEnumeration {
+		return constraint
+	}
+	seen := make(map[string]struct{}, len(constraint.terms))
+	namespaces := make([]string, 0, len(constraint.terms))
+	for _, term := range constraint.terms {
+		namespace := term
+		if term == "##local" {
+			namespace = ""
+		}
+		if term == "##targetNamespace" {
+			namespace = ownerNamespace
+		}
+		if _, ok := seen[namespace]; ok {
+			continue
+		}
+		seen[namespace] = struct{}{}
+		namespaces = append(namespaces, namespace)
+	}
+	sort.Strings(namespaces)
+	constraint.namespaces = namespaces
+	return constraint
+}
+
 func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttributeInput, error) {
 	wildcard, err := schemaAnyAttributeElementFromElement(element)
 	if err != nil || wildcard == nil {
@@ -2012,15 +2051,23 @@ func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAn
 		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
 		processContentsLoc = processContentsAttributes[0].loc
 	}
+	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc)
 	if (processContents == "strict" && (namespace == "##any" || namespace == "##other")) ||
 		(processContents == "lax" && namespace == "##any") ||
 		(processContents == "skip" && (namespace == "##any" || namespace == "##other")) {
 		return &schemaAnyAttributeInput{
-			loc:                wildcard.loc,
-			namespace:          namespace,
-			namespaceLoc:       namespaceLoc,
-			processContents:    processContents,
-			processContentsLoc: processContentsLoc,
+			loc:                 wildcard.loc,
+			namespaceConstraint: constraint,
+			processContents:     processContents,
+			processContentsLoc:  processContentsLoc,
+		}, nil
+	}
+	if isPositiveWildcardNamespace(namespace) && processContents == "strict" {
+		return &schemaAnyAttributeInput{
+			loc:                 wildcard.loc,
+			namespaceConstraint: constraint,
+			processContents:     processContents,
+			processContentsLoc:  processContentsLoc,
 		}, nil
 	}
 	return schemaExplicitAnyAttributeInputFromElement(wildcard)
@@ -2059,11 +2106,10 @@ func schemaExplicitAnyAttributeInputFromElement(wildcard *syntaxElement) (*schem
 		return nil, newSchemaBridgeInvariant(wildcard.loc, "unsupported anyAttribute input reached component construction")
 	}
 	return &schemaAnyAttributeInput{
-		loc:                wildcard.loc,
-		namespace:          namespace,
-		namespaceLoc:       namespaceAttributes[0].loc,
-		processContents:    processContents,
-		processContentsLoc: processContentsAttributes[0].loc,
+		loc:                 wildcard.loc,
+		namespaceConstraint: schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceAttributes[0].loc),
+		processContents:     processContents,
+		processContentsLoc:  processContentsAttributes[0].loc,
 	}, nil
 }
 
@@ -2126,20 +2172,10 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 		!isSupportedDirectAnyParticleFacts(namespace, processContents) {
 		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
 	}
-	constraint := schemaWildcardNamespaceConstraint{
-		variety: WildcardNamespaceConstraintAny,
-		lexical: namespace,
-		loc:     namespaceLoc,
-	}
-	if isPositiveWildcardNamespace(namespace) {
-		constraint.variety = WildcardNamespaceConstraintEnumeration
-		constraint.terms = strings.Split(namespace, " ")
-	}
+	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc)
 	return schemaWildcardParticleInput{
 		loc:                 element.loc,
 		occurrences:         occurrences,
-		namespace:           namespace,
-		namespaceLoc:        namespaceLoc,
 		namespaceConstraint: constraint,
 		processContents:     processContents,
 		processContentsLoc:  processContentsLoc,
@@ -4666,12 +4702,11 @@ type schemaComplexTypeExtensionBodyResult struct {
 func (*schemaComplexTypeExtensionBodyResult) schemaComplexTypeBodyResult() {}
 
 type schemaAnyAttributeResult struct {
-	present            bool
-	loc                Loc
-	namespace          string
-	namespaceLoc       Loc
-	processContents    string
-	processContentsLoc Loc
+	present             bool
+	loc                 Loc
+	namespaceConstraint schemaWildcardNamespaceConstraint
+	processContents     string
+	processContentsLoc  Loc
 }
 
 type schemaModelGroupResult struct {
@@ -4779,7 +4814,7 @@ func (resolver *schemaComplexTypeResolver) resolveBody(
 		if err != nil {
 			return nil, err
 		}
-		anyAttribute := schemaAnyAttributeResultFromInput(body.anyAttribute)
+		anyAttribute := schemaAnyAttributeResultFromInput(body.anyAttribute, owner)
 		if particle == nil {
 			return &schemaComplexTypeEmptyBodyResult{anyAttribute: anyAttribute}, nil
 		}
@@ -4807,7 +4842,7 @@ func (resolver *schemaComplexTypeResolver) resolveBody(
 			complexContentLoc: body.complexContentLoc,
 			restrictionLoc:    body.restrictionLoc,
 			base:              base,
-			anyAttribute:      schemaAnyAttributeResultFromInput(body.anyAttribute),
+			anyAttribute:      schemaAnyAttributeResultFromInput(body.anyAttribute, owner),
 		}, nil
 	case *schemaComplexTypeExtensionBodyInput:
 		if body == nil {
@@ -4954,7 +4989,7 @@ func (resolver *schemaComplexTypeResolver) representableInheritedWildcard(
 	if !wildcard.present {
 		return schemaAnyAttributeResult{}, nil
 	}
-	if wildcard.namespace == "##other" && wildcard.processContents == "lax" {
+	if wildcard.namespaceConstraint.lexical == "##other" && wildcard.processContents == "lax" {
 		return wildcard, nil
 	}
 	return schemaAnyAttributeResult{}, resolver.unsupportedExtensionBase(
@@ -5012,17 +5047,16 @@ func (body *schemaComplexTypeExtensionBodyResult) particleLoc() Loc {
 	return body.particle.Loc()
 }
 
-func schemaAnyAttributeResultFromInput(input *schemaAnyAttributeInput) schemaAnyAttributeResult {
+func schemaAnyAttributeResultFromInput(input *schemaAnyAttributeInput, owner schemaComponentRecord) schemaAnyAttributeResult {
 	if input == nil {
 		return schemaAnyAttributeResult{}
 	}
 	return schemaAnyAttributeResult{
-		present:            true,
-		loc:                input.loc,
-		namespace:          input.namespace,
-		namespaceLoc:       input.namespaceLoc,
-		processContents:    input.processContents,
-		processContentsLoc: input.processContentsLoc,
+		present:             true,
+		loc:                 input.loc,
+		namespaceConstraint: resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, owner.name.Namespace()),
+		processContents:     input.processContents,
+		processContentsLoc:  input.processContentsLoc,
 	}
 }
 
@@ -5735,36 +5769,16 @@ func resolveSchemaParticleTerm(
 }
 
 func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner schemaComponentRecord) (Particle, error) {
-	if !isSupportedDirectAnyParticleFacts(input.namespace, input.processContents) {
+	if !isSupportedDirectAnyParticleFacts(input.namespaceConstraint.lexical, input.processContents) {
 		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
 	}
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
-	constraint := input.namespaceConstraint
-	if constraint.variety == WildcardNamespaceConstraintEnumeration {
-		seen := make(map[string]struct{}, len(constraint.terms))
-		for _, term := range constraint.terms {
-			namespace := term
-			if term == "##local" {
-				namespace = ""
-			}
-			if term == "##targetNamespace" {
-				namespace = owner.name.Namespace()
-			}
-			seen[namespace] = struct{}{}
-		}
-		constraint.namespaces = make([]string, 0, len(seen))
-		for namespace := range seen {
-			constraint.namespaces = append(constraint.namespaces, namespace)
-		}
-		sort.Strings(constraint.namespaces)
-	}
+	constraint := resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, owner.name.Namespace())
 	return WildcardParticle{facts: &schemaWildcardParticle{
 		loc:                 input.loc,
 		occurrences:         input.occurrences.clone(),
-		namespace:           input.namespace,
-		namespaceLoc:        input.namespaceLoc,
 		namespaceConstraint: constraint,
 		processContents:     input.processContents,
 		processContentsLoc:  input.processContentsLoc,
