@@ -92,15 +92,15 @@ Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
 `defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
 Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard it; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
-Schema-level defaults; scalar attribute-only/particle-plus-use bodies and bounded scalar
-`simpleContent` expose ordered local/ref/anonymous-inline `AttributeUse` facts; optional/
-required return, prohibited omit. Broader shapes, local value/default/fixed/inheritance
-semantics, non-atomic/string attrs, broader groups/derivations, and attribute
-validation/generation unsupported.
+Schema defaults; attribute-only/particle-plus-use bodies expose ordered scalar
+local/ref/anonymous-inline `AttributeUse` facts. Only bounded scalar `simpleContent`
+extensions retain base/type refs and ordered local/ref/anonymous-inline uses; broader
+forms, local value/default/fixed/inheritance, broader
+groups/derivations, and attribute validation/generation unsupported.
 
 Complexes expose non-inherited `IsAbstract()` and final controls (`Final()`/`FinalLoc()`); named types enforce extension/restriction policy across XSD 1.0/1.1/Compatibility and reject prohibited derivations. Simple types apply schema `finalDefault` unless local `final` overrides it; graph-policy controls and Strict10 mismatches are diagnosed.
-Groups/extensions retain IDs and locations; model-less forms retain empty bases, nil particles, and inherited `##other`/lax wildcards. Direct owners expose `anyAttribute`: default `##any`/strict, supported `##any`/lax|skip, `##other`/lax|strict|skip, and positive namespaces with strict processing; locations, normalized lexical forms, and sorted effective values are retained. Direct `xs:any` supports any/other/positive namespaces with strict/lax/skip; effective `0/0` is absent; broader placements and nonzero wildcard consumers are unsupported.
-Named groups expose ordered refs/ranges; `openContent=none` supports globals/extensions only in Compatibility/Strict11 (Strict10 mismatch; malformed invalid).
+Groups/extensions retain IDs/locations; model-less retain empty bases/nil particles, inherited `##other`/lax. Only named global complex types with direct sequence/choice expose `anyAttribute`: omitted `##any`/strict; `##any` strict/lax/skip; `##other` strict/lax/skip; positive namespaces strict-only. ProcessContents/locations/effective namespaces remain. Direct `xs:any` separately supports `##any` strict/lax/skip, `##other` strict/lax, and positive namespaces strict/lax/skip; `0/0` absent; broader placements/nonzero consumers unsupported.
+Named groups expose ordered choice/sequence global refs; top-level group refs retain queryable ranges/IDs; nested/local/recursive/broader shapes/consumers unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; located Strict10 mismatch; malformed invalid.
 
 ## Datatypes
 
