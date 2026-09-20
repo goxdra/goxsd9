@@ -239,7 +239,7 @@ func assertLongBuiltinReference(t *testing.T, reference SimpleTypeReference, wan
 	if _, hasTotalDigits := facets.value.TotalDigits(); hasTotalDigits {
 		t.Fatal("built-in long unexpectedly has totalDigits")
 	}
-	assertLongBounds(t, facets.integerBounds, version, "-9223372036854775808", "9223372036854775807")
+	assertIntegerBounds(t, facets.integerBounds, version, "-9223372036854775808", "9223372036854775807")
 	for _, bound := range facets.integerBounds.Bounds() {
 		if !bound.Loc().IsZero() {
 			t.Fatalf("built-in long bound %s has source location %s", bound.Kind(), bound.Loc())
@@ -256,13 +256,18 @@ func assertLongBuiltinReference(t *testing.T, reference SimpleTypeReference, wan
 		t.Fatal("built-in reference has no effective maxInclusive")
 	}
 	_ = maximum.value.SetInt64(0)
-	assertLongBounds(t, facets.integerBounds, version, "-9223372036854775808", "9223372036854775807")
+	assertIntegerBounds(t, facets.integerBounds, version, "-9223372036854775808", "9223372036854775807")
 }
 
 func assertLongReferenceFacts(t *testing.T, facts *schemaSimpleTypeReferenceComponent, version XSDVersion, wantMinimum, wantMaximum string) {
 	t.Helper()
-	if facts == nil || facts.atomicKind != schemaSimpleTypeAtomicLong {
-		t.Fatalf("reference facts = %#v, want long facts", facts)
+	assertIntegerReferenceFacts(t, facts, version, schemaSimpleTypeAtomicLong, "long", wantMinimum, wantMaximum)
+}
+
+func assertIntegerReferenceFacts(t *testing.T, facts *schemaSimpleTypeReferenceComponent, version XSDVersion, wantAtomicKind schemaSimpleTypeAtomicKind, wantKindName, wantMinimum, wantMaximum string) {
+	t.Helper()
+	if facts == nil || facts.atomicKind != wantAtomicKind {
+		t.Fatalf("reference facts = %#v, want %s facts", facts, wantKindName)
 	}
 	var bounds IntegerBoundFacets
 	switch facets := facts.facets.(type) {
@@ -279,7 +284,7 @@ func assertLongReferenceFacts(t *testing.T, facts *schemaSimpleTypeReferenceComp
 	default:
 		t.Fatalf("reference facets = %T, want integer facts", facts.facets)
 	}
-	assertLongBounds(t, bounds, version, wantMinimum, wantMaximum)
+	assertIntegerBounds(t, bounds, version, wantMinimum, wantMaximum)
 }
 
 func assertLongDefinition(t *testing.T, definition SimpleTypeDefinition, version XSDVersion, wantMinimum, wantMaximum string) {
@@ -290,7 +295,7 @@ func assertLongDefinition(t *testing.T, definition SimpleTypeDefinition, version
 	assertLongReferenceFacts(t, &schemaSimpleTypeReferenceComponent{atomicKind: definition.facts.atomicKind, facets: definition.facts.facets}, version, wantMinimum, wantMaximum)
 }
 
-func assertLongBounds(t *testing.T, bounds IntegerBoundFacets, version XSDVersion, wantMinimum, wantMaximum string) {
+func assertIntegerBounds(t *testing.T, bounds IntegerBoundFacets, version XSDVersion, wantMinimum, wantMaximum string) {
 	t.Helper()
 	minimum, present := bounds.MinInclusive()
 	if !present || minimum.Canonical() != wantMinimum {
@@ -310,7 +315,7 @@ func assertLongBounds(t *testing.T, bounds IntegerBoundFacets, version XSDVersio
 	}
 	ordered := bounds.Bounds()
 	if len(ordered) != 2 || ordered[0].Kind() != BoundMinInclusive || ordered[1].Kind() != BoundMaxInclusive {
-		t.Fatalf("ordered long bounds = %#v, want minInclusive then maxInclusive", ordered)
+		t.Fatalf("ordered integer bounds = %#v, want minInclusive then maxInclusive", ordered)
 	}
 }
 
