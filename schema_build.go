@@ -2961,6 +2961,7 @@ const (
 	schemaSimpleTypeAtomicToken
 	schemaSimpleTypeAtomicNMTOKEN
 	schemaSimpleTypeAtomicInteger
+	schemaSimpleTypeAtomicLong
 	schemaSimpleTypeAtomicNegativeInteger
 	schemaSimpleTypeAtomicNonNegativeInteger
 	schemaSimpleTypeAtomicNonPositiveInteger
@@ -2984,6 +2985,7 @@ func schemaSimpleTypeAtomicKindIsUnsupported(kind schemaSimpleTypeAtomicKind) bo
 		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInteger,
+		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
@@ -3189,6 +3191,7 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
+		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
@@ -3254,6 +3257,7 @@ func resolveSchemaAttributeValueConstraint(
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
+		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
@@ -3346,7 +3350,8 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
-		schemaSimpleTypeAtomicNonPositiveInteger:
+		schemaSimpleTypeAtomicNonPositiveInteger,
+		schemaSimpleTypeAtomicLong:
 		return false
 	default:
 		return false
@@ -4554,7 +4559,7 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
 	case "integer", "decimal":
-	case "nonNegativeInteger", "nonPositiveInteger":
+	case "long", "nonNegativeInteger", "nonPositiveInteger":
 		if scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
@@ -4634,7 +4639,7 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 		schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		break
-	case schemaSimpleTypeAtomicNonNegativeInteger, schemaSimpleTypeAtomicNonPositiveInteger:
+	case schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicNonNegativeInteger, schemaSimpleTypeAtomicNonPositiveInteger:
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	}
 	if allowPrecisionDecimal {
@@ -7015,6 +7020,25 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 			return schemaSimpleTypeReferenceComponent{}, err
 		}
 		result.atomicKind = schemaSimpleTypeAtomicNonPositiveInteger
+		result.facets = schemaDigitFacetVariant{value: facets, integerBounds: bounds}
+	case "long":
+		facets, err := NewIntegerDigitFacets(nil, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		minInclusive, err := ParseIntegerMinInclusiveFacet("-9223372036854775808", Loc{}, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		maxInclusive, err := ParseIntegerMaxInclusiveFacet("9223372036854775807", Loc{}, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		bounds, err := NewIntegerBoundFacets([]IntegerBoundFacet{minInclusive, maxInclusive}, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		result.atomicKind = schemaSimpleTypeAtomicLong
 		result.facets = schemaDigitFacetVariant{value: facets, integerBounds: bounds}
 	case "decimal":
 		facets, err := NewDecimalDigitFacets(nil, nil, version)

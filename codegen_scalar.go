@@ -1014,6 +1014,7 @@ func codegenSourceScalarKindFromAtomicKind(kind schemaSimpleTypeAtomicKind) (cod
 		return codegenSourceScalarNMTOKEN, true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicInteger,
+		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
