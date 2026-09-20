@@ -1047,6 +1047,17 @@ func instanceChoiceAlternativeFor(
 	version XSDVersion,
 ) (instanceChoiceAlternative, error) {
 	alternativeRelated := []Loc{declaration.Loc(), definition.Loc(), choice.Loc(), element.Loc()}
+	typeReference, hasTypeReference := element.TypeReference()
+	if hasTypeReference && typeReference.Kind() == SimpleTypeReferenceAnonymous {
+		anonymousRelated := appendInstanceRelated(relCopy(alternativeRelated), typeReference.Loc())
+		return instanceChoiceAlternative{}, newInstanceValidationUnsupported(
+			element.Loc(),
+			fmt.Sprintf("local choice element %q uses an anonymous simple type outside instance validation", element.Name()),
+			anonymousRelated,
+			version,
+			errInstanceChoiceTarget,
+		)
+	}
 	typeID, hasTypeID := element.TypeID()
 	scalar, err := instanceScalarTypeForTarget(
 		schema,

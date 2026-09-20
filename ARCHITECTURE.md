@@ -80,10 +80,12 @@ Documents: identity-discovery order; declarations: lexical order.
 declaration ordinals; lookup maps: unordered. Local particles: scoped facts/indexes;
 validator/generator: on-demand.
 
-Primitive: global scalars: `DeclaredType`; immutable Boolean-attr type facts;
-direct-shape local token/NMTOKEN refs; immutable named/anonymous restriction boolean-kind/string-enumeration/string-`whiteSpace`;
-built-ins lack synthetic IDs.
-Built-in `xs:long`/`xs:unsignedLong`/`xs:nonNegativeInteger`/`xs:nonPositiveInteger` refs retain exact effective integer bounds; global built-in/facet-free named Boolean/integer/decimal/token constraints are supported; local/inline attributes, broader/non-atomic forms, validation, and Go generation remain unsupported.
+Primitive: scalar facts retain `DeclaredType`; token/NMTOKEN refs
+and bounded, attribute-free local choice/sequence/extension particles retain
+anonymous atomic Boolean/integer/decimal refs with IDs, facets,
+QName context/locations; locals are not components/walks. Built-ins lack
+IDs.
+Integer-family refs retain bounds; global Boolean/integer/decimal/token constraints supported; broader/non-atomic forms and attribute consumers unsupported.
 Built-in/named Boolean/integer/decimal/token attrs: immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
 exact Boolean/numeric values, source-location; token/Boolean collapse. Named complexes: `mixed="false|0"`; omitted=element-only
 (unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1; anonymous complex/other shapes unsupported.
@@ -120,7 +122,7 @@ complexes with direct choices/sequences. Choices accept default-occurrence local
 default Boolean/integer/decimal references. Homogeneous Boolean/numeric sequences honor finite/unbounded and
 above-`uint64` ranges; mixed sequences remain unsupported. References use `TargetID`; model groups rejected.
 `token`/`NMTOKEN` collapse XML whitespace before effective enumeration; NMTOKEN enforces XML NameChar policy; facts unchanged.
-Validation accepts default-occurrence all-token/NMTOKEN choices; local token/NMTOKEN sequences, strings, lists/unions, attributes, and structures remain unsupported. Generation rejects local token/NMTOKEN particles. Direct `xs:any` is
+Validation accepts default all-token/NMTOKEN choices; anonymous locals are rejected outside validation; local token/NMTOKEN sequences, strings, lists/unions, attributes, structures unsupported. Generation rejects anonymous/token/NMTOKEN locals. Direct `xs:any` is
 query-only: nonzero terms are rejected with edition-selected diagnostics; `0/0` absent.
 
 Generation: named/inherited global boolean/integer/decimal/string/token/NMTOKEN scalars, inline anonymous global string/token/NMTOKEN elements, numeric choices,
