@@ -572,6 +572,79 @@ func TestSchemaBridgeKeepsEmptyComplexContentExtensionConsumersUnsupported(t *te
 	}
 }
 
+//nolint:gocognit // Keep the choice and streaming-sequence extension locations paired.
+func TestSchemaBridgeExtensionConsumerLocationsExcludeAnonymousTargets(t *testing.T) {
+	for _, model := range []string{"choice", "sequence"} {
+		t.Run(model, func(t *testing.T) {
+			root := complexContentExtensionConsumerSchema(model)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Compatibility)
+			if err != nil {
+				t.Fatalf("discover %s extension: %v", model, err)
+			}
+
+			declarationLoc := complexContentTestLoc(t, root, `<xs:element name="root"`)
+			definitionLoc := complexContentTestLoc(t, root, `<xs:complexType name="Derived"`)
+			complexContentLoc := complexContentTestLoc(t, root, "<xs:complexContent")
+			extensionLoc := complexContentTestLoc(t, root, "<xs:extension")
+			baseLoc := complexContentTestLoc(t, root, `base="t:Base"`)
+			particleLoc := complexContentTestLoc(t, root, "<xs:"+model)
+			anonymousLoc := complexContentTestLoc(t, root, "<xs:simpleType")
+
+			validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:root"><value>1</value></root>`)))
+			if validationErr == nil {
+				t.Fatal("validation unexpectedly accepted a complex-content extension")
+			}
+			validationDiagnostic := requireDiagnostic(t, validationErr)
+			if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || validationDiagnostic.Feature() != FeatureInstanceValidation {
+				t.Fatalf("validation diagnostic = %s/%q/%q, want instance unsupported", validationDiagnostic, validationDiagnostic.Code(), validationDiagnostic.Feature())
+			}
+			if !errors.Is(validationErr, ErrUnsupported) || !errors.Is(validationErr, errInstanceComplexContentExtension) {
+				t.Fatalf("validation diagnostic lost extension cause: %v", validationErr)
+			}
+			wantValidationRelated := []Loc{declarationLoc, definitionLoc}
+			if model == "sequence" {
+				wantValidationRelated = append(wantValidationRelated, particleLoc)
+			}
+			wantValidationRelated = append(wantValidationRelated, complexContentLoc, extensionLoc, baseLoc)
+			if model == "choice" {
+				wantValidationRelated = append(wantValidationRelated, particleLoc)
+			}
+			if !reflect.DeepEqual(validationDiagnostic.Related(), wantValidationRelated) {
+				t.Fatalf("validation related locations = %v, want %v", validationDiagnostic.Related(), wantValidationRelated)
+			}
+			if containsLoc(validationDiagnostic.Related(), anonymousLoc) {
+				t.Fatalf("validation related locations = %v, unexpectedly includes anonymous type %s", validationDiagnostic.Related(), anonymousLoc)
+			}
+			wantValidationLoc := extensionLoc
+			if model == "sequence" {
+				wantValidationLoc = mustTestLoc(t, "instance.xml", 1, 1)
+			}
+			if validationDiagnostic.Loc() != wantValidationLoc {
+				t.Fatalf("validation primary location = %s, want %s", validationDiagnostic.Loc(), wantValidationLoc)
+			}
+
+			generated, generationErr := GenerateGo(schema, "generated")
+			if generated != nil || generationErr == nil {
+				t.Fatalf("generation result = (%q, %v), want unsupported with no output", generated, generationErr)
+			}
+			generationDiagnostic := requireDiagnostic(t, generationErr)
+			if generationDiagnostic.Class() != FailureUnsupported || generationDiagnostic.Code() != diagnosticCodegenUnsupported || generationDiagnostic.Feature() != FeatureCodegen || generationDiagnostic.Loc() != extensionLoc {
+				t.Fatalf("generation diagnostic = %s/%q/%q/%s, want extension boundary", generationDiagnostic, generationDiagnostic.Code(), generationDiagnostic.Feature(), generationDiagnostic.Loc())
+			}
+			if !errors.Is(generationErr, ErrUnsupported) || !errors.Is(generationErr, errCodegenUnsupported) {
+				t.Fatalf("generation diagnostic lost extension cause: %v", generationErr)
+			}
+			wantGenerationRelated := []Loc{complexContentLoc, extensionLoc, baseLoc, particleLoc}
+			if !reflect.DeepEqual(generationDiagnostic.Related(), wantGenerationRelated) {
+				t.Fatalf("generation related locations = %v, want %v", generationDiagnostic.Related(), wantGenerationRelated)
+			}
+			if containsLoc(generationDiagnostic.Related(), anonymousLoc) {
+				t.Fatalf("generation related locations = %v, unexpectedly includes anonymous type %s", generationDiagnostic.Related(), anonymousLoc)
+			}
+		})
+	}
+}
+
 func TestSchemaBridgeRejectsUnmodeledEmptyComplexContentExtensionAdditions(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -1170,6 +1243,14 @@ func complexContentExtensionRoot(extension, suffix string) string {
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="1.1">
   <xs:complexType name="Derived"><xs:complexContent>` + extension + `</xs:complexContent></xs:complexType>
   ` + suffix + `
+</xs:schema>`
+}
+
+func complexContentExtensionConsumerSchema(model string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:element name="root" type="t:Derived"/>
+  <xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base"><xs:` + model + `><xs:element name="value"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element></xs:` + model + `></xs:extension></xs:complexContent></xs:complexType>
+  <xs:complexType name="Base"/>
 </xs:schema>`
 }
 
