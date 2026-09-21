@@ -182,15 +182,16 @@ type instanceChoiceProgram struct {
 // global Boolean, integer, and decimal elements. Direct sequences contain only
 // local built-in or named Boolean elements or only local built-in or named
 // integer/decimal elements. Modeled anonymous local inline atomic references
-// remain schema-queryable only: direct choice/sequence target checks return a
-// located FailureUnsupported/ErrUnsupported diagnostic and may include the
-// anonymous type location in related facts. Non-model-group-reference
-// direct-choice, direct-sequence, and model-less complex-content extensions are
-// rejected before target inspection at their extension boundary, retaining
-// declaration/definition owner locations and complex-content/extension/base/
+// remain schema-queryable only: ordinary direct choice/sequence target checks
+// return a located FailureUnsupported/ErrUnsupported diagnostic with
+// element/particle locations and may include the anonymous type location in
+// related facts. Non-model-group-reference complex-content/model-less extension
+// checks run first, before target inspection, at the extension boundary; they
+// retain declaration/definition owners and complex-content/extension/base/
 // particle (and anyAttribute, when present) related locations without an
-// anonymous type location. The streaming sequence path keeps the instance root
-// as primary. Model-group-reference extension particles are classified first by
+// anonymous type location. The choice path uses the extension boundary as
+// primary; the streaming sequence path keeps the instance root as primary.
+// Direct and extension model-group-reference particles are classified first by
 // the group reference: its RefLoc is primary and its particle location is kept
 // in related facts.
 // Mixed Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices, and

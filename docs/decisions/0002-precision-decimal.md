@@ -14,14 +14,15 @@ requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120
 permit, but do not require, primitive datatypes outside the standard set. The
 project implements this datatype as an explicit opt-in library/schema boundary.
 
-The source is pinned as `xsd-precisionDecimal` in [`specs/manifest.json`](../../specs/manifest.json),
-including its digest: [An XSD datatype for IEEE floating-point decimal](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/).
-The precisionDecimal datatype/library and supported global/named model have no
-generic unsupported gate. See [`Decision 0007`](0007-particle-occurrence.md) for
-local placement and consumer limits. Inline local precisionDecimal restrictions
-and non-`0/0` direct-sequence precisionDecimal particles remain schema-unsupported
-with existing located, edition-specific diagnostics; validator/codegen support
-remain separate.
+Manifest pins the source/digest ([precisionDecimal](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/)).
+The precisionDecimal library/global/named model has no generic gate. See
+[`Decision 0007`](0007-particle-occurrence.md) for local placement/consumer limits.
+Compatibility/Strict11 (Strict10 rejects) supports explicitly typed local
+precisionDecimal only in direct choices with default choice/mapped-alternative
+occurrences; non-default choice/alternative and non-`0/0` direct-sequence particles
+are schema-unsupported. Effective `0/0` is absent before gating. Anonymous local
+precisionDecimal restrictions remain schema-unsupported; validator/codegen support
+are separate. `ValidateInstance` supports it; `GenerateGo`/reference consumers do not.
 
 ## Semantic contract
 
@@ -35,7 +36,7 @@ has finite decimal values with [numerical value](https://www.w3.org/TR/2011/NOTE
 Final XSD 1.1 [`cvc-enumeration-valid`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#cvc-enumeration-valid)
 uses `equal or identical`; [`identity`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#identity) lets a `NaN`
 enumeration member accept `NaN`. General comparison leaves `NaN` unordered and unequal to itself; signed zero and
-finite lexical variants use numeric equality. The datatype remains optional.
+finite lexical variants use numeric equality.
 
 The [§3.2 lexical mapping](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#pD-lexical-mapping),
 [`pDecimalRep`](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#nt-precDecRep), and

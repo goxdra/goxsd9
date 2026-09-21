@@ -2,14 +2,15 @@ package goxsd9
 
 // GenerateGo generates deterministic, formatted Go source for the supported
 // scalar components and direct scalar choices or sequences in schema using
-// packageName. Non-model-group-reference direct-choice, direct-sequence, and
-// model-less complex-content extensions are rejected as located
-// FailureUnsupported/ErrUnsupported diagnostics at the extension boundary with
-// the extension location as primary and related complex-content/extension/base/
-// particle (and anyAttribute, when present) locations; they produce no output.
-// Model-group-reference extension particles are classified first as group
-// references: the group RefLoc is primary, with group/component/reference/target
-// related locations.
+// packageName. Ordinary direct-choice/direct-sequence target checks reject
+// modeled anonymous local inline types with located FailureUnsupported/ErrUnsupported
+// diagnostics at element/particle locations; they may relate the anonymous type
+// location and produce no output. Non-model-group-reference complex-content and
+// model-less extension gates reject at the extension boundary with that extension
+// location primary and related complex-content/extension/base/particle (and
+// anyAttribute, when present) locations. Direct and extension model-group
+// references are classified first by group RefLoc, with group/component/reference/
+// target related locations.
 func GenerateGo(schema Schema, packageName string) ([]byte, error) {
 	directParticlePlan, err := planCodegenDirectParticles(schema, packageName)
 	if err != nil {

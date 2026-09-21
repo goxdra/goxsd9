@@ -38,11 +38,13 @@
 // type-specific gating. Local anonymous integer-derived restrictions are admitted
 // by effective atomic kind: effective integer or negativeInteger remains accepted
 // through named, forward, imported, included, and chameleon chains; effective
-// long, unsignedLong, nonNegativeInteger, and nonPositiveInteger remain
-// unsupported. The written base QName, use-site location, and resolved named
-// ownership remain separate facts. The supported anonymous Boolean/integer/decimal
-// restriction facet subset remains queryable; non-string anonymous enumeration
-// remains explicit unsupported at its facet location with no partial schema.
+// long, unsignedLong, nonNegativeInteger, and nonPositiveInteger are valid but
+// unsupported at this local boundary: ParseSchema returns a located
+// FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
+// location and no schema. The written base QName, use-site location, and resolved
+// named ownership remain separate facts. The supported anonymous Boolean/integer/
+// decimal restriction facet subset remains queryable; non-string anonymous
+// enumeration remains explicit unsupported at its facet location with no schema.
 // Explicitly typed built-in/named token/NMTOKEN local particles remain modeled;
 // validation supports only default-occurrence direct choices made entirely of
 // local token or NMTOKEN alternatives, while other consumers and shapes remain
@@ -78,8 +80,8 @@
 // direct-sequence precisionDecimal ranges that map to particles are
 // schema-unsupported. The supported local anonymous model is limited to atomic
 // Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
-// attribute-free extension shapes above. The #501 boundary is local anonymous
-// restriction particles, not all inline forms: local inline complex/list/union and
+// attribute-free extension shapes above. The local anonymous boundary is restriction
+// particles, not all inline forms: local inline complex/list/union and
 // local anonymous string/token/NMTOKEN/precisionDecimal restrictions, local
 // value/default/fixed/attribute constraints, nested, anonymous-reference, and
 // broader forms remain unsupported. Global anonymous inline string/token/NMTOKEN
@@ -118,18 +120,18 @@
 // An extension with a present direct choice or sequence particle retains its exact
 // occurrence. A model-less extension retains its named base identity and locations
 // with a nil optional particle, no occurrence, and no synthetic content. For
-// non-model-group-reference direct-choice, direct-sequence, and model-less
-// extension shapes, validation and code generation reject at the extension
-// boundary with located FailureUnsupported/ErrUnsupported diagnostics. Code
-// generation uses the extension location as primary with related
-// complex-content/extension/base/particle facts (and anyAttribute when present);
-// validation also retains declaration/definition owner locations and keeps the
-// instance-root primary for sequences. Model-group-reference extension particles
-// are the exception: validation uses the group reference RefLoc as primary and
-// retains its particle location in related facts, while code generation uses the
-// group RefLoc as primary with group/component/reference/target related locations.
-// These extension gates do not add an anonymous type location.
-// GenerateGo returns no output.
+// Ordinary direct-choice/direct-sequence target checks use element/particle
+// locations and may include the anonymous type location in related facts.
+// Non-model-group-reference complex-content/model-less extension checks run first
+// at the extension boundary: code generation uses the extension location as
+// primary with related complex-content/extension/base/particle facts (and
+// anyAttribute when present); validation retains declaration/definition owner
+// locations, uses the extension boundary for choices and the instance root for
+// sequences, and never adds an anonymous type location. Direct and extension
+// model-group-reference checks use the group RefLoc as validation and generation
+// primary; validation relates the group particle, while generation relates
+// group/component/reference/target locations. These gates return located
+// FailureUnsupported/ErrUnsupported diagnostics; GenerateGo returns no output.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal/
@@ -147,10 +149,10 @@
 // (and anyAttribute when present) related locations, and do not include the
 // anonymous type location; validation also retains declaration/definition owner
 // locations and keeps the instance-root primary for sequences, while GenerateGo
-// rejects them with the same classification and no output. Model-group-reference
-// extension checks use the group reference RefLoc as validation and generation
-// primary; validation retains the group particle location in related facts, and
-// generation retains group/component/reference/target related locations.
+// rejects them with the same classification and no output. Direct and extension
+// model-group-reference checks use the group reference RefLoc as validation and
+// generation primary; validation retains the group particle location in related
+// facts, and generation retains group/component/reference/target related locations.
 // Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
