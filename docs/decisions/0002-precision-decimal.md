@@ -15,16 +15,16 @@ permit, but do not require, primitive datatypes outside the standard set. The
 project implements this datatype as an explicit opt-in library/schema boundary.
 
 [`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers.
-Explicitly typed local `precisionDecimal`: Compatibility/Strict11 (Strict10
-rejects); direct-only choices; choice and every mapped `precisionDecimal` alternative require
-default occurrences; `0/0` absent; only non-extension default-occurrence direct
-choices validate. Non-default `precisionDecimal` choice/alternative or non-`0/0`
-direct-sequence ranges schema-unsupported; non-precision alternatives retain
-non-default query-only ranges. Local anonymous Boolean/integer/decimal modeled;
-local anonymous token/NMTOKEN/`precisionDecimal` schema-unsupported when mapped;
-effective `0/0` omitted before type-specific gating. Global inline
-`precisionDecimal`: schema/query-valid in Compatibility/Strict11 (Strict10
-rejects); anonymous targets consumer-rejected.
+Mapped anonymous string/token/NMTOKEN/`precisionDecimal` schema-unsupported when
+mapped; Boolean/integer/decimal modeled but consumer-rejected. Typed local
+`precisionDecimal`: policy first; Strict10 returns located `FeatureDatatypeFacets`
+`FailureUnsupported`/`ErrUnsupported` policy-mismatch, including zero-occurrence
+cases. Compatibility/Strict11 omit effective `0/0`; only mapped non-default
+`precisionDecimal` choice/alternative or mapped non-`0/0` direct-sequence ranges are
+schema-syntax-unsupported; choice/mapped alternatives default (1/1); `<all>`
+unsupported; only non-extension default-occurrence direct choices validate;
+non-precision query-only. Inline `precisionDecimal` is schema/query-valid in
+Compatibility/Strict11 (Strict10 rejects); anonymous targets consumer-rejected.
 
 ## Semantic contract
 

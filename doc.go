@@ -47,12 +47,13 @@
 // enumeration remains explicit unsupported at its facet location with no schema.
 // Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
 // named local particles in direct choices, sequences, and bounded attribute-free
-// extensions are modeled and queryable; default-occurrence direct choices made
-// entirely of local token or NMTOKEN alternatives validate. Local token/NMTOKEN
-// sequences, anonymous token/NMTOKEN restrictions, and generation remain
-// unsupported. Direct element references remain queryable, but token/NMTOKEN
-// reference consumers remain unsupported. Global inline string/token/NMTOKEN
-// elements are the separate generation-eligible exception.
+// extensions are modeled and queryable; only non-extension default-occurrence
+// homogeneous direct choices made entirely of local token or NMTOKEN
+// alternatives validate. Local token/NMTOKEN sequences, anonymous token/NMTOKEN
+// restrictions, and generation remain unsupported. Direct element references
+// remain queryable, but token/NMTOKEN reference consumers remain unsupported.
+// Global inline string/token/NMTOKEN elements are the separate generation-eligible
+// exception.
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
 // omitted namespace with processContents="lax"), ##any/skip with explicit
 // processContents="skip", ##other/lax, and ##other/strict forms, plus positive
@@ -78,19 +79,23 @@
 // implemented. Direct choices made entirely of local Boolean elements use
 // built-in xs:boolean or named Boolean restrictions; mixed Boolean/numeric
 // choices remain unsupported.
-// Explicitly typed XSD 1.1 precisionDecimal is supported in direct choices only when the choice
-// and each mapped precisionDecimal alternative use default occurrences;
-// non-default precisionDecimal choice or alternative ranges and non-0/0
-// direct-sequence precisionDecimal ranges that map to particles are
-// schema-unsupported; effective 0/0 maps to absence before type-specific
-// gating, and non-precision alternatives may retain non-default query-only
-// ranges. Only non-extension default-occurrence direct choices are
-// validation-eligible. The supported local anonymous model is limited to atomic
+// Explicitly typed XSD 1.1 precisionDecimal is admitted by policy before
+// occurrence omission. Strict10 returns a located FeatureDatatypeFacets
+// FailureUnsupported/ErrUnsupported policy-mismatch diagnostic, including
+// zero-occurrence cases. Compatibility and Strict11 omit effective 0/0.
+// Under those policies, only mapped non-default precisionDecimal
+// choice/alternative ranges or non-0/0 direct-sequence precisionDecimal ranges
+// that map to particles are schema-unsupported. The choice and each mapped
+// precisionDecimal alternative otherwise require default occurrences, and
+// non-precision alternatives may retain non-default query-only ranges. Only
+// non-extension default-occurrence direct choices are validation-eligible. The
+// supported local anonymous model is limited to atomic
 // Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
 // attribute-free extension shapes above. Local anonymous Boolean/integer/decimal
 // restrictions remain queryable but direct validation and generation reject them;
 // mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions are
-// schema-unsupported, with effective 0/0 omitted before type gating. Global inline
+// schema-unsupported when mapped; effective 0/0 omission follows policy
+// admission. Global inline
 // precisionDecimal is Compatibility/Strict11 schema/query support (Strict10
 // rejects); its anonymous declaration remains a query target, but validation and
 // generation reject anonymous targets.
@@ -182,6 +187,8 @@
 // local built-in or named Boolean/integer/decimal particles. Default-occurrence
 // sequences use the same local particle set. Global inline numeric, Boolean, and
 // precisionDecimal declarations remain query-only; validation and generation
-// reject their anonymous targets. Boolean facets, mixed Boolean/numeric sequences,
-// mixed direct choices, and local string/token/NMTOKEN particles remain unsupported.
+// reject their anonymous targets. Boolean facets, mixed Boolean/numeric,
+// token/non-token, or NMTOKEN/non-NMTOKEN choices, and local
+// string/token/NMTOKEN particles remain unsupported; numeric integer/decimal
+// mixtures remain supported.
 package goxsd9
