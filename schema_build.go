@@ -4761,7 +4761,7 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
 	case "integer", "decimal":
-	case "long", "unsignedLong", "nonNegativeInteger", "nonPositiveInteger":
+	case "long", "unsignedLong", "negativeInteger", "nonNegativeInteger", "nonPositiveInteger":
 		if scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
