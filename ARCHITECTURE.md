@@ -69,36 +69,33 @@ documents discover identities and declarations lexically. `Components`/`Document
 `Find`/`Walk` copy; IDs use source/one-based declaration ordinals; lookup maps
 unordered; local particles scoped; validator/generator on demand.
 
-Primitive: `DeclaredType`; bounded attribute-free local choice/sequence/extensions
-retain immutable anonymous Boolean/integer/decimal refs, `SimpleTypeID`/`NodeID`,
-QName/facets/locations/exact occurrences, and zero `ComponentID`/global-walk
-ownership. Built-ins lack IDs; all policies support this shape; `0/0` is absent
-before gating. Integer refs retain bounds. Exact local anonymous integer allowlist:
-`integer`/`negativeInteger` through named/forward/imported/included/chameleon.
-Excluded `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` are valid
-but unsupported: located `FailureUnsupported`/`ErrUnsupported` at type/facet `Loc`,
-no schema. Written QName/ownership distinct.
-Built-in/named Boolean/integer/decimal/token attrs: immutable default/fixed facts,
-normalized-lexical-form, exact values, source-location; token/Boolean collapse.
-Named complexes: `mixed="false|0"`/omitted=element-only; `mixed="true|1"`
-unsupported. Malformed/contradictory XSD 1.1 syntax: `FailureInvalid`; valid
-shapes outside model: `FailureUnsupported`.
-Typed global attrs: immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
-Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
-`defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
-`defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
-Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
-Anonymous facets queryable; non-string enumeration is located `FailureUnsupported`/`ErrUnsupported` at facet `Loc`, no schema.
+Primitive: `DeclaredType`; bounded attribute-free local choice/sequence/extensions retain immutable anonymous Boolean/integer/decimal refs, `SimpleTypeID`/`NodeID`,
+QName/facets/locations/exact occurrences/integer bounds, and zero `ComponentID`/
+global-walk ownership. Effective `0/0` is absent before gates except policy-first explicit typed `precisionDecimal` admission.
+Integer refs retain bounds. Mapped non-`0/0` anonymous integer particles allow only `integer`/`negativeInteger` through named/forward/imported/included/chameleon;
+excluded `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` are valid but unsupported: located `FailureUnsupported`/`ErrUnsupported` at type/facet `Loc`,
+no schema. Distinct ownership. Attrs: default/fixed and lexical/location facts;
+token/Boolean collapse. Named complexes: `mixed="false|0"`/omitted=element-only;
+`mixed="true|1"` unsupported. Malformed XSD 1.1: `FailureInvalid`; shapes:
+`FailureUnsupported`. Typed global attrs: `AttributeDeclaration.IsInheritable()`;
+Compatibility/Strict11 accept, Strict10 mismatch; untyped/inline unsupported.
+`defaultAttributesApply="true|false|1|0"`: named XSD 1.1/Compatibility globals without `defaultAttributes`; validated/discarded, no model state; Strict10 mismatch.
+Root `xpathDefaultNamespace` inert; Compatibility/Strict11 validate/discard; malformed invalid, Strict10 mismatch; XPath unsupported.
+Anonymous facets queryable; mapped non-`0/0` non-string enumeration: located `FailureUnsupported`/`ErrUnsupported` at facet `Loc`, no schema.
 Ordinary direct choice/sequence checks use element/particle locations and may
-relate anonymous type locations. Complex-content/model-less extension gates reject
+relate anonymous type locations. Complex-content/model-less gates reject
 first: codegen extension primary; validation owner/sequence-instance primary; no
 anonymous location. Direct/extension model-group refs use group `RefLoc` primary;
-validation relates particle, codegen group/component/reference/target. No
-`GenerateGo` output.
-Anonymous Boolean/integer/decimal queryable. Mapped anonymous string/token/NMTOKEN/`precisionDecimal` unsupported; policy precedes omission.
-Typed local `precisionDecimal`: Strict10 returns located `FeatureDatatypeFacets` `FailureUnsupported`/`ErrUnsupported` policy-mismatch, including zero-occurrences cases; Compatibility/Strict11 omit `0/0`.
-Only mapped non-default `precisionDecimal` choice/alternative or non-`0/0` mapped direct-sequence ranges are schema-syntax-unsupported; choice/mapped alternatives require (1/1); `<all>` unsupported; only non-extension default-occurrence direct choices validate; non-precision query-only.
-Token/NMTOKEN queryable. Inline `precisionDecimal`: Compatibility/Strict11 schema/query-valid (Strict10 rejects); anonymous-target rejection.
+validation relates particle, codegen group/component/reference/target. No generated output.
+Anonymous Boolean/integer/decimal queryable; mapped non-`0/0` anonymous
+string/token/NMTOKEN/`precisionDecimal` unsupported; policy precedes `0/0` omission.
+Typed local `precisionDecimal`: Strict10 returns located `FeatureDatatypeFacets`
+`FailureUnsupported`/`ErrUnsupported` policy mismatch, including zero; Compatibility/
+Strict11 omit `0/0`. Mapped non-default precisionDecimal or
+non-`0/0` direct-sequence ranges are schema-syntax-unsupported; mapped terms require
+(1/1); `<all>` unsupported; only non-extension default choices validate; non-precision
+alternatives query-only. Token/NMTOKEN queryable. Inline `precisionDecimal`:
+Compatibility/Strict11 schema/query; Strict10 rejects; anonymous rejected.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
 Simple types: `finalDefault` fills missing `final`; local `final` overrides; `FinalLoc` identifies the supplier; immutable policy controls; Strict10 rejects extension.
@@ -133,12 +130,14 @@ String/list/union/attribute/structure/model-group unsupported. `token`/`NMTOKEN`
 collapse XML whitespace; NMTOKEN enforces XML NameChar. `xs:any` query-only;
 nonzero terms reject with diagnostics; `0/0` absent.
 
-Generation: global built-in/named/inherited/included/imported/inline
-string/token/NMTOKEN scalar components; default all-Boolean/numeric direct
-choices and sequences over local built-in/named Boolean/integer/decimal
-particles; default global Boolean/integer/decimal refs. Anonymous/local
-token/NMTOKEN particles reject. Global inline numeric/Boolean/`precisionDecimal`
-query-only; anonymous targets reject.
+Generation matrix: global built-in/named/inherited/included/imported
+Boolean/integer/decimal/string/token/NMTOKEN components and global inline
+string/token/NMTOKEN generate. Global `precisionDecimal` (built-in/named/inline)
+is queryable but excluded from `GenerateGo`; global inline Boolean/integer/decimal
+are query-only. Locally, only built-in/named Boolean/integer/decimal default
+all-Boolean/numeric choices and default-bounded sequences generate; anonymous/
+token/NMTOKEN consumers, repeated/non-default particles, and anonymous targets
+are rejected.
 
 ## Conformance
 

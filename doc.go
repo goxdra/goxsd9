@@ -35,16 +35,18 @@
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
 // not global components or Walk entries. Effective 0/0 maps to absence before
-// type-specific gating. Local anonymous integer-derived restrictions are admitted
-// by effective atomic kind: effective integer or negativeInteger remains accepted
-// through named, forward, imported, included, and chameleon chains; effective
-// long, unsignedLong, nonNegativeInteger, and nonPositiveInteger are valid but
+// type-specific gating except explicit typed precisionDecimal policy admission.
+// Local anonymous integer-derived restrictions are admitted by effective atomic
+// kind only for mapped non-0/0 particles: effective integer or negativeInteger
+// remains accepted through named, forward, imported, included, and chameleon
+// chains; effective long, unsignedLong, nonNegativeInteger, and nonPositiveInteger are valid but
 // unsupported at this local boundary: ParseSchema returns a located
 // FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
 // location and no schema. The written base QName, use-site location, and resolved
 // named ownership remain separate facts. The supported anonymous Boolean/integer/
-// decimal restriction facet subset remains queryable; non-string anonymous
-// enumeration remains explicit unsupported at its facet location with no schema.
+// decimal restriction facet subset remains queryable; mapped non-0/0 non-string
+// anonymous enumeration remains explicit unsupported at its facet location with
+// no schema.
 // Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
 // named local particles in direct choices, sequences, and bounded attribute-free
 // extensions are modeled and queryable; only non-extension default-occurrence
@@ -180,15 +182,13 @@
 // values, local string particles, token/NMTOKEN sequence particles, lists/unions,
 // attributes, broader particles, and other semantics remain explicit unsupported
 // behavior.
-// GenerateGo produces deterministic Go source for global built-in, named,
-// inherited, included, imported, and inline string/token/NMTOKEN scalar
-// components, built-in/named/inherited global Boolean/integer/decimal scalar
-// components, and default-occurrence all-Boolean or numeric direct choices over
-// local built-in or named Boolean/integer/decimal particles. Default-occurrence
-// sequences use the same local particle set. Global inline numeric, Boolean, and
-// precisionDecimal declarations remain query-only; validation and generation
-// reject their anonymous targets. Boolean facets, mixed Boolean/numeric,
-// token/non-token, or NMTOKEN/non-NMTOKEN choices, and local
-// string/token/NMTOKEN particles remain unsupported; numeric integer/decimal
-// mixtures remain supported.
+// GenerateGo matrix: global built-in/named/inherited/included/imported
+// Boolean/integer/decimal and string/token/NMTOKEN scalar components generate, as
+// do global inline string/token/NMTOKEN scalar components. Global precisionDecimal
+// (built-in, named, or inline) is queryable but rejected by GenerateGo; global
+// inline Boolean/integer/decimal remain query-only. Local built-in/named Boolean/integer/
+// decimal particles generate only in default-occurrence all-Boolean/numeric
+// direct choices and default-bounded direct sequences. Local anonymous and
+// token/NMTOKEN consumers, repeated/non-default particles, and anonymous targets
+// remain unsupported; numeric integer/decimal mixtures remain supported.
 package goxsd9

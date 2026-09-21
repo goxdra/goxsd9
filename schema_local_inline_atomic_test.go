@@ -330,6 +330,225 @@ func TestSchemaBridgeLocalInlinePrecisionDecimalBoundaryAcrossPolicies(t *testin
 	}
 }
 
+//nolint:gocognit // Keep the supported explicit-type precisionDecimal policy matrix together.
+func TestSchemaBridgeExplicitTypePrecisionDecimalPolicyAdmissionAcrossZeroCases(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	}
+	cases := []struct {
+		name              string
+		parentOccurrences string
+		childOccurrences  string
+	}{
+		{name: "mapped"},
+		{name: "zero child", childOccurrences: ` minOccurs="0" maxOccurs="0"`},
+		{name: "zero parent", parentOccurrences: ` minOccurs="0" maxOccurs="0"`},
+		{name: "zero parent and child", parentOccurrences: ` minOccurs="0" maxOccurs="0"`, childOccurrences: ` minOccurs="0" maxOccurs="0"`},
+	}
+	for _, profile := range profiles {
+		for _, model := range []string{"choice", "sequence"} {
+			for _, test := range cases {
+				t.Run(profile.name+"/"+model+"/"+test.name, func(t *testing.T) {
+					root := explicitTypePrecisionDecimalBoundaryRoot(profile.version, model, test.parentOccurrences, test.childOccurrences)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if profile.policy == Strict10 {
+						if err == nil {
+							t.Fatal("Strict10 accepted an explicitly typed local precisionDecimal")
+						}
+						assertZeroSchema(t, schema)
+						diagnostic := requireDiagnostic(t, err)
+						if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != diagnosticSchemaPrecisionDecimalVersionCode {
+							t.Fatalf("Strict10 diagnostic = %s/%q/%q, want located datatype policy mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
+						}
+						if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 1, `type="xs:precisionDecimal"`) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaPrecisionDecimalVersion) {
+							t.Fatalf("Strict10 diagnostic metadata = %s/%v, want type location and preserved policy cause", diagnostic, err)
+						}
+						return
+					}
+					if test.name == "mapped" && model == "sequence" {
+						if err == nil {
+							t.Fatal("Compatibility/Strict11 accepted mapped sequence precisionDecimal")
+						}
+						assertZeroSchema(t, schema)
+						diagnostic := requireDiagnostic(t, err)
+						if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode || !errors.Is(err, ErrUnsupported) {
+							t.Fatalf("mapped sequence diagnostic = %s/%q/%q/%v, want schema-syntax unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code(), err)
+						}
+						return
+					}
+					if err != nil {
+						t.Fatalf("discoverSchema: %v", err)
+					}
+				})
+			}
+		}
+	}
+}
+
+func explicitTypePrecisionDecimalBoundaryRoot(version, model, parentOccurrences, childOccurrences string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + version + `"><xs:complexType name="Record"><xs:` + model + parentOccurrences + `><xs:element name="value" type="xs:precisionDecimal"` + childOccurrences + `/></xs:` + model + `></xs:complexType></xs:schema>`
+}
+
+//nolint:gocognit,funlen // Keep graph provenance and direct-owner acceptance in one matrix.
+func TestSchemaBridgeResolvesLocalInlineAtomicGraphBasesAcrossPoliciesAndOwners(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	}
+	graphs := []struct {
+		name             string
+		baseLexical      string
+		baseName         QName
+		baseKind         SimpleTypeReferenceKind
+		directive        string
+		declarationAfter bool
+		declaration      string
+		fixtureID        SourceID
+		fixture          string
+	}{
+		{
+			name:        "built-in",
+			baseLexical: "xs:integer",
+			baseName:    mustTestQName(t, testXSDNamespace, "integer"),
+			baseKind:    SimpleTypeReferenceBuiltin,
+		},
+		{
+			name:        "named",
+			baseLexical: "r:NamedBase",
+			baseName:    mustTestQName(t, "urn:root", "NamedBase"),
+			baseKind:    SimpleTypeReferenceNamed,
+			declaration: `<xs:simpleType name="NamedBase"><xs:restriction base="xs:integer"/></xs:simpleType>`,
+		},
+		{
+			name:             "forward",
+			baseLexical:      "r:ForwardBase",
+			baseName:         mustTestQName(t, "urn:root", "ForwardBase"),
+			baseKind:         SimpleTypeReferenceNamed,
+			declarationAfter: true,
+			declaration:      `<xs:simpleType name="ForwardBase"><xs:restriction base="xs:integer"/></xs:simpleType>`,
+		},
+		{
+			name:        "imported",
+			baseLexical: "b:ImportedBase",
+			baseName:    mustTestQName(t, "urn:base", "ImportedBase"),
+			baseKind:    SimpleTypeReferenceNamed,
+			directive:   `<xs:import namespace="urn:base" schemaLocation="imported.xsd"/>`,
+			fixtureID:   "imported.xsd",
+			fixture:     `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:base"><xs:simpleType name="ImportedBase"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`,
+		},
+		{
+			name:        "included",
+			baseLexical: "r:IncludedBase",
+			baseName:    mustTestQName(t, "urn:root", "IncludedBase"),
+			baseKind:    SimpleTypeReferenceNamed,
+			directive:   `<xs:include schemaLocation="included.xsd"/>`,
+			fixtureID:   "included.xsd",
+			fixture:     `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:simpleType name="IncludedBase"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`,
+		},
+		{
+			name:        "chameleon",
+			baseLexical: "r:ChameleonBase",
+			baseName:    mustTestQName(t, "urn:root", "ChameleonBase"),
+			baseKind:    SimpleTypeReferenceNamed,
+			directive:   `<xs:include schemaLocation="chameleon.xsd"/>`,
+			fixtureID:   "chameleon.xsd",
+			fixture:     `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="ChameleonBase"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`,
+		},
+	}
+	owners := []struct {
+		name      string
+		model     string
+		extension bool
+	}{
+		{name: "choice", model: "choice"},
+		{name: "sequence", model: "sequence"},
+		{name: "extension choice", model: "choice", extension: true},
+		{name: "extension sequence", model: "sequence", extension: true},
+	}
+	for _, profile := range profiles {
+		for _, graph := range graphs {
+			for _, owner := range owners {
+				t.Run(profile.name+"/"+graph.name+"/"+owner.name, func(t *testing.T) {
+					root := localInlineAtomicGraphOwnerRoot(profile.version, graph, owner)
+					fixtures := make(map[string]discoveryFixture)
+					if graph.fixtureID != "" {
+						fixtures[string(graph.fixtureID)] = discoveryFixture{id: graph.fixtureID, contents: graph.fixture}
+					}
+					schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+					if err != nil {
+						t.Fatalf("discoverSchema: %v", err)
+					}
+					definition := localInlineComplexType(t, schema, "Record")
+					element := localInlineAtomicOwnerElement(t, definition, owner.model)
+					_, anonymous := requireInlineAnonymousReference(t, element)
+					base, ok := anonymous.BaseReference()
+					if !ok || base.Kind() != graph.baseKind || base.Name() != graph.baseName {
+						t.Fatalf("%s base = %q/%q/%t, want %q/%q/true", graph.name, base.Kind(), base.Name(), ok, graph.baseKind, graph.baseName)
+					}
+					if base.Loc().IsZero() || anonymous.BaseLoc().IsZero() {
+						t.Fatalf("%s base locations are incomplete: reference=%s definition=%s", graph.name, base.Loc(), anonymous.BaseLoc())
+					}
+				})
+			}
+		}
+	}
+}
+
+func localInlineAtomicGraphOwnerRoot(version string, graph struct {
+	name             string
+	baseLexical      string
+	baseName         QName
+	baseKind         SimpleTypeReferenceKind
+	directive        string
+	declarationAfter bool
+	declaration      string
+	fixtureID        SourceID
+	fixture          string
+}, owner struct {
+	name      string
+	model     string
+	extension bool
+}) string {
+	element := `<xs:element name="value"><xs:simpleType><xs:restriction base="` + graph.baseLexical + `"/></xs:simpleType></xs:element>`
+	ownerDeclaration := `<xs:complexType name="Record"><xs:` + owner.model + `>` + element + `</xs:` + owner.model + `></xs:complexType>`
+	if owner.extension {
+		ownerDeclaration = `<xs:complexType name="Record"><xs:complexContent><xs:extension base="r:ContainerBase"><xs:` + owner.model + `>` + element + `</xs:` + owner.model + `></xs:extension></xs:complexContent></xs:complexType>`
+	}
+	declarations := graph.declaration + ownerDeclaration
+	if graph.declarationAfter {
+		declarations = ownerDeclaration + graph.declaration
+	}
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:b="urn:base" targetNamespace="urn:root" version="` + version + `">` + graph.directive + `<xs:complexType name="ContainerBase"/>` + declarations + `</xs:schema>`
+}
+
+func localInlineAtomicOwnerElement(t *testing.T, definition ComplexTypeDefinition, model string) ElementParticle {
+	t.Helper()
+	particle := definition.Particle()
+	if model == "choice" {
+		choice, ok := particle.(ChoiceParticle)
+		if !ok || len(choice.Alternatives()) != 1 {
+			t.Fatalf("choice particle = %T/%d, want one alternative", particle, len(choice.Alternatives()))
+		}
+		return requireInlineElementParticle(t, choice.Alternatives()[0])
+	}
+	sequence, ok := particle.(SequenceParticle)
+	if !ok || len(sequence.Elements()) != 1 {
+		t.Fatalf("sequence particle = %T/%d, want one element", particle, len(sequence.Elements()))
+	}
+	return sequence.Elements()[0]
+}
+
 func localInlinePrecisionDecimalBoundaryRoot(version, model, occurrences string) string {
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + version + `"><xs:complexType name="Record"><xs:` + model + `><xs:element name="value"` + occurrences + `><xs:simpleType><xs:restriction base="xs:precisionDecimal"/></xs:simpleType></xs:element></xs:` + model + `></xs:complexType></xs:schema>`
 }

@@ -2182,7 +2182,7 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 	}, nil
 }
 
-//nolint:gocognit // Keep occurrence short-circuiting, inline syntax, and QName bridging together.
+//nolint:gocognit // Keep policy admission, occurrence short-circuiting, and QName bridging together.
 func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, allowNamespacePolicy bool) (schemaElementParticleInput, error) {
 	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
@@ -2233,11 +2233,14 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 		nillable:    nillable,
 		block:       block,
 	}
+	typeAttributes, inline := syntaxAttributesByLocal(element, "type"), inlineSimpleTypeChild(element)
+	if policyErr := rejectExplicitXSD10PrecisionDecimalType(element, typeAttributes, inline, version); policyErr != nil {
+		return schemaElementParticleInput{}, policyErr
+	}
+	var declaredType QName
 	if !occurrences.mapsToParticle() {
 		return input, nil
 	}
-	typeAttributes := syntaxAttributesByLocal(element, "type")
-	inline := inlineSimpleTypeChild(element)
 	if len(typeAttributes) == 0 && inline == nil {
 		return input, nil
 	}
@@ -2261,7 +2264,7 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 	if inline != nil {
 		return schemaElementParticleInput{}, newSchemaCompositionDiagnostic(inline.loc, "local element cannot combine type attribute with an inline simpleType")
 	}
-	declaredType, err := expandSchemaQName(element, typeAttributes[0])
+	declaredType, err = expandSchemaQName(element, typeAttributes[0])
 	if err != nil {
 		return schemaElementParticleInput{}, err
 	}
@@ -2270,6 +2273,29 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 		typeLoc:      typeAttributes[0].loc,
 	}
 	return input, nil
+}
+
+func rejectExplicitXSD10PrecisionDecimalType(element *syntaxElement, typeAttributes []syntaxAttribute, inline *syntaxElement, version XSDVersion) error {
+	if version != XSDVersion10 || len(typeAttributes) != 1 || inline != nil || !isExplicitXSDPrecisionDecimalType(element, typeAttributes[0]) {
+		return nil
+	}
+	declaredType, err := expandSchemaQName(element, typeAttributes[0])
+	if err != nil {
+		return err
+	}
+	return precisionDecimalSchemaVersionDiagnostic(typeAttributes[0].loc, declaredType)
+}
+
+func isExplicitXSDPrecisionDecimalType(element *syntaxElement, attribute syntaxAttribute) bool {
+	prefix, local, ok := splitConditionalQName(collapseXMLWhitespace(attribute.value))
+	if !ok || local != "precisionDecimal" {
+		return false
+	}
+	namespace, bound := element.scope.lookup(prefix)
+	if prefix == "" {
+		return namespace == xsdNamespaceURI
+	}
+	return bound && namespace == xsdNamespaceURI
 }
 
 func expandSchemaElementReferenceQName(element *syntaxElement, attribute syntaxAttribute, facts schemaDocumentFacts) (QName, error) {
