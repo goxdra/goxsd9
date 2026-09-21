@@ -88,7 +88,7 @@ Ordinary direct choice/sequence consumer checks use element/particle locations a
 
 Exact occurrences remain in choice facts. `ValidateInstance` supports named global homogeneous Boolean/numeric sequences with exact ranges; direct-choice repetition is unsupported. Bounded attribute-free extensions over named empty bases retain identities/locations, particles, and inherited `##other`/lax facts; model-less extensions retain no particle/occurrence/content. Local token/NMTOKEN facts remain; default all-token/NMTOKEN choices validate, but their sequences, mixed families, and generation remain unsupported.
 
-Default-bounded direct integer/decimal or all-Boolean sequence children emit ordered fields; mixed and repeated-field generation remain unsupported. XSD 1.1 default-occurrence choices may use `precisionDecimal` only with default choice/alternatives; non-precision alternatives may retain non-default query ranges. Other `precisionDecimal` particle ranges are unsupported. The local anonymous boundary is restriction particles, not all inline forms: local complex/list/union/string/token/NMTOKEN/precisionDecimal and value/default/fixed/attribute/nested/reference/broader forms remain outside the model. Global anonymous string/token/NMTOKEN remain supported; global anonymous `precisionDecimal` is Compatibility/Strict11-only and Strict10-rejected. Explicit typed local token/NMTOKEN remain queryable; exclusions are consumer-only.
+Default-bounded integer/decimal or all-Boolean sequences emit fields; mixed/repeated generation unsupported. XSD 1.1 direct choices use `precisionDecimal` only with default choice/mapped-alternative occurrences; effective `0/0` is absent. Non-default `precisionDecimal` choice/alternative or non-`0/0` direct-sequence `precisionDecimal` ranges are schema-unsupported; non-precision alternatives may retain non-default query-only ranges. Local anonymous inline atomics are query-only; direct validation/generation reject. Global inline string/token/NMTOKEN elements remain generation-eligible; global inline `precisionDecimal` is Compatibility/Strict11 policy-gated schema/query only (Strict10 rejects), not a validation/generation/direct-reference target. Typed local token/NMTOKEN remain queryable; default choices validate, generation unsupported.
 
 ## Public API migration
 
@@ -146,8 +146,9 @@ The anonymous model, effective integer allowlist, facet subset, and consumer
 location rules are above. Direct refs retain target IDs; extensions retain exact
 ranges/base identities/locations; model-less extensions retain no
 particle/occurrence/content. Wildcards and `0/0` follow above.
-`ValidateInstance`/`GenerateGo` reject anonymous inline atomic refs with located
-`FailureUnsupported`/`ErrUnsupported`; `GenerateGo` returns no output.
+`ValidateInstance`/`GenerateGo` reject local anonymous inline atomics with located
+`FailureUnsupported`/`ErrUnsupported`. Global inline string/token/NMTOKEN remain
+generation-eligible; global inline `precisionDecimal` is policy-gated schema/query only.
 For instance validation, named global complex homogeneous Boolean/numeric sequences
 match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`
 outer and child ranges under `Compatibility`, `Strict10`, and `Strict11`; direct-choice validation
@@ -171,9 +172,10 @@ anonymous string/token/NMTOKEN/precisionDecimal restrictions, local value/defaul
 attribute constraints, nested, anonymous-reference, or broader particles, including nested
 choices and `all`; nested, local, recursive, or broader group shapes and broader
 wildcard/attribute remain unsupported. Direct named-complex/bounded-extension
-group refs remain supported facts; anonymous simple-type models and resolved
-built-in, named, and supported anonymous simple-type references are modeled as
-immutable schema-query facts, not consumer targets. Named direct sequence/choice types expose direct
+group refs remain supported facts; anonymous local model/reference facts and
+anonymous global direct-reference targets are query-only. Built-in/named
+element-reference targets are consumer-eligible where allowlists permit. Direct
+refs retain `TargetID` and `RefLoc` diagnostic boundaries. Named direct
 `anyAttribute`: omitted attributes default to `##any`/`strict`;
 `##any`/`##other` supported. Positive namespace enumerations
 (`##local`, `##targetNamespace`, URI lists) allow only strict `processContents`

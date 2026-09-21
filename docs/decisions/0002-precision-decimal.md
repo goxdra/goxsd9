@@ -17,12 +17,13 @@ project implements this datatype as an explicit opt-in library/schema boundary.
 Manifest pins the source/digest ([precisionDecimal](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/)).
 The precisionDecimal library/global/named model has no generic gate. See
 [`Decision 0007`](0007-particle-occurrence.md) for local placement/consumer limits.
-Compatibility/Strict11 (Strict10 rejects) supports explicitly typed local
-precisionDecimal only in direct choices with default choice/mapped-alternative
-occurrences; non-default choice/alternative and non-`0/0` direct-sequence particles
-are schema-unsupported. Effective `0/0` is absent before gating. Anonymous local
-precisionDecimal restrictions remain schema-unsupported; validator/codegen support
-are separate. `ValidateInstance` supports it; `GenerateGo`/reference consumers do not.
+Compatibility/Strict11 (Strict10 rejects) supports typed local `precisionDecimal`
+only in direct choices with default choice/mapped-alternative occurrences; effective
+`0/0` is absent; non-default `precisionDecimal` choice/alternative ranges or non-`0/0`
+direct-sequence `precisionDecimal` ranges are schema-unsupported, while non-precision alternatives
+may retain non-default query-only ranges. Anonymous local `precisionDecimal`
+restrictions unsupported; `ValidateInstance` supports it, but
+`GenerateGo`/reference consumers do not.
 
 ## Semantic contract
 

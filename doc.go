@@ -78,17 +78,22 @@
 // and each mapped precisionDecimal alternative use default occurrences;
 // non-default precisionDecimal choice or alternative ranges and non-0/0
 // direct-sequence precisionDecimal ranges that map to particles are
-// schema-unsupported. The supported local anonymous model is limited to atomic
+// schema-unsupported; effective 0/0 maps to absence before type-specific
+// gating, and non-precision alternatives may retain non-default query-only
+// ranges. The supported local anonymous model is limited to atomic
 // Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
 // attribute-free extension shapes above. The local anonymous boundary is restriction
 // particles, not all inline forms: local inline complex/list/union and
 // local anonymous string/token/NMTOKEN/precisionDecimal restrictions, local
 // value/default/fixed/attribute constraints, nested, anonymous-reference, and
-// broader forms remain unsupported. Global anonymous inline string/token/NMTOKEN
-// remain modeled, and global anonymous precisionDecimal follows the
-// Compatibility/Strict11 policy while Strict10 rejects it. Explicitly typed local
-// token/NMTOKEN particles remain queryable; their validation/generation exclusions
-// apply only at the consumer boundary.
+// broader forms remain unsupported. Local anonymous inline atomic types are
+// query-only; direct validation and generation reject them. Global inline
+// string/token/NMTOKEN elements remain generation-eligible; global inline
+// precisionDecimal is Compatibility/Strict11 policy-gated schema/query support
+// only (Strict10 rejects), not a validation, generation, or direct-reference
+// target. Explicitly typed local token/NMTOKEN particles remain queryable;
+// validation supports only default-occurrence all-token/NMTOKEN direct choices,
+// while local token/NMTOKEN sequences and generation remain unsupported.
 // Explicitly typed built-in or supported named token/NMTOKEN elements in direct
 // choices/sequences and bounded attribute-free extensions are modeled; validation
 // supports only default-occurrence all-token/NMTOKEN direct choices, while local

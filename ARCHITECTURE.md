@@ -82,28 +82,20 @@ Built-in/named Boolean/integer/decimal/token attrs: immutable default/fixed fact
 normalized-lexical-form, exact values, source-location; token/Boolean collapse.
 Named complexes: `mixed="false|0"`/omitted=element-only; `mixed="true|1"`
 unsupported. Malformed/contradictory XSD 1.1 syntax is `FailureInvalid`; valid
-anonymous complex/other shapes outside the model are `FailureUnsupported`.
+shapes outside the model are `FailureUnsupported`.
 Typed global attrs: immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
 Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
 `defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
 Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
-Direct choice/sequence/bounded extensions expose query-only anonymous Boolean/integer/decimal restrictions; supported facets queryable; non-string anonymous enumeration: located `FailureUnsupported`/`ErrUnsupported` at facet `Loc`, no schema.
+Anonymous facets queryable; non-string enumeration is located `FailureUnsupported`/`ErrUnsupported` at facet `Loc`, no schema.
 Ordinary direct choice/sequence checks use element/particle locations and may
 relate anonymous type locations. Complex-content/model-less extension gates reject
 first: codegen extension primary; validation owner/sequence-instance primary; no
 anonymous location. Direct/extension model-group refs use group `RefLoc` primary;
 validation relates particle, codegen group/component/reference/target. No
 `GenerateGo` output.
-Local anonymous restriction particles: complex/list/union/string/token/NMTOKEN/
-precisionDecimal and value/default/fixed/attribute/nested/anonymous-reference/
-broader forms unsupported. Explicitly typed local `precisionDecimal`:
-Compatibility/Strict11 (Strict10 rejects); only direct choices with default
-choice/mapped-alternative occurrences supported; `0/0` absent; non-default
-choice/alternative or nonzero direct-sequence ranges schema-unsupported. Validation
-supports that choice; generation/reference consumers do not. Global anonymous
-string/token/NMTOKEN/precisionDecimal follow policy; explicit local token/NMTOKEN
-queryable.
+Local anonymous inline atomics query-only; direct validation/generation reject. Typed local `precisionDecimal`: Compatibility/Strict11 (Strict10 rejects); default direct choice/mapped-precisionDecimal alternatives; effective `0/0` absent; non-default `precisionDecimal` choice/alternative or non-`0/0` direct-sequence `precisionDecimal` ranges schema-unsupported; non-precision alternatives retain non-default query-only ranges. Typed local token/NMTOKEN queryable; default all-token/NMTOKEN choices validate, generation unsupported. Global inline string/token/NMTOKEN generation-eligible; global inline `precisionDecimal` policy-gated schema/query only (Strict10 rejects), not validation/generation/direct-reference target.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
 Simple types: `finalDefault` fills missing `final`; local `final` overrides; `FinalLoc` identifies the supplier; immutable policy controls; Strict10 rejects extension.
