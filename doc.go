@@ -175,12 +175,13 @@
 // values, local string particles, token/NMTOKEN sequence particles, lists/unions,
 // attributes, broader particles, and other semantics remain explicit unsupported
 // behavior.
-// GenerateGo produces deterministic Go source for built-in, named, or inherited
-// global Boolean/integer/decimal scalar components, explicitly supported global
-// inline string/token/NMTOKEN elements, and default-occurrence all-Boolean or
-// numeric direct choices over supported built-in or named particles. Global inline
-// numeric, Boolean, and precisionDecimal declarations remain queryable; validation
-// and generation reject their anonymous targets. Boolean facets, mixed Boolean/numeric
-// sequences, mixed direct choices, and local string/token/NMTOKEN particles remain
-// unsupported.
+// GenerateGo produces deterministic Go source for global built-in, named,
+// inherited, included, imported, and inline string/token/NMTOKEN scalar
+// components, built-in/named/inherited global Boolean/integer/decimal scalar
+// components, and default-occurrence all-Boolean or numeric direct choices over
+// local built-in or named Boolean/integer/decimal particles. Default-occurrence
+// sequences use the same local particle set. Global inline numeric, Boolean, and
+// precisionDecimal declarations remain query-only; validation and generation
+// reject their anonymous targets. Boolean facets, mixed Boolean/numeric sequences,
+// mixed direct choices, and local string/token/NMTOKEN particles remain unsupported.
 package goxsd9

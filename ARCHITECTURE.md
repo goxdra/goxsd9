@@ -95,7 +95,7 @@ first: codegen extension primary; validation owner/sequence-instance primary; no
 anonymous location. Direct/extension model-group refs use group `RefLoc` primary;
 validation relates particle, codegen group/component/reference/target. No
 `GenerateGo` output.
-Local anonymous Boolean/integer/decimal queryable; consumer-rejected. Mapped local anonymous token/NMTOKEN/`precisionDecimal` schema-unsupported; `0/0` omitted pre-type-gating. Typed local `precisionDecimal`: Compatibility/Strict11 (Strict10 rejects); choice itself and each mapped `precisionDecimal` alternative require default occurrences; unsupported `<all>` mapping; only non-extension default-occurrence direct choices validate. Non-default `precisionDecimal` choice/alternative or non-`0/0` direct-sequence `precisionDecimal` ranges schema-unsupported; non-precision non-default alternatives query-only. Typed token/NMTOKEN queryable. Global inline `precisionDecimal`: Compatibility/Strict11 schema/query-valid (Strict10 rejects); anonymous targets consumer-rejected.
+Local anonymous Boolean/integer/decimal queryable; consumer-rejected. Mapped local anonymous string/token/NMTOKEN/`precisionDecimal` schema-unsupported; `0/0` omitted pre-type-gating. Typed local `precisionDecimal`: Compatibility/Strict11 (Strict10 rejects); choice itself and each mapped `precisionDecimal` alternative require default occurrences; unsupported `<all>` mapping; only non-extension default-occurrence direct choices validate. Non-default `precisionDecimal` choice/alternative or non-`0/0` direct-sequence `precisionDecimal` ranges schema-unsupported; non-precision non-default alternatives query-only. Typed token/NMTOKEN queryable. Global inline `precisionDecimal`: Compatibility/Strict11 schema/query-valid (Strict10 rejects); anonymous targets consumer-rejected.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
 Simple types: `finalDefault` fills missing `final`; local `final` overrides; `FinalLoc` identifies the supplier; immutable policy controls; Strict10 rejects extension.
@@ -115,24 +115,29 @@ value spaces remain unsupported.
 
 ## Validation and code generation
 
-`ValidateInstance` supports built-in/named scalar roots and named direct
-choice/sequence complexes. Consumers accept built-in/named refs and only
-non-extension default-occurrence direct-choice refs to built-in/named global
-Boolean/integer/decimal; anonymous targets are rejected. Element references
-remain queryable without target gating, retaining QName,
-`RefLoc`, `TargetID`, order, and exact occurrences; sequence/repetition/nested/
-recursive/broader forms are excluded.
-Homogeneous Boolean/numeric sequences honor finite/unbounded/above-`uint64`;
-mixed/token/NMTOKEN sequences, strings, lists/unions, attributes, structures, and
-model groups are unsupported.
-`token`/`NMTOKEN` collapse XML whitespace; NMTOKEN enforces XML NameChar; facts unchanged.
-Validation accepts default all-token/NMTOKEN choices. Direct `xs:any` is query-only:
-nonzero terms are rejected with edition diagnostics; `0/0` absent.
+`ValidateInstance` supports built-in/named global scalar roots
+(`Boolean`/`token`/`NMTOKEN`/`integer`/`decimal`/`precisionDecimal`) and named
+complex direct particles. Local built-in/named Boolean sequences and
+integer/decimal sequences honor exact finite, unbounded, and above-`uint64`
+outer/child occurrences. Non-extension direct choices use local
+built-in/named Boolean/integer/decimal/token/NMTOKEN/`precisionDecimal`
+default-occurrence particles; token/NMTOKEN choices are homogeneous, choice-only,
+but sequences/references unsupported. Anonymous local consumers unsupported.
+Queryable references retain
+QName/`RefLoc`/`TargetID`/order/exact occurrences; only non-extension
+default-occurrence direct-choice refs to built-in/named global
+Boolean/integer/decimal are consumer-eligible. Repetition/nested/recursive/
+broader/anonymous-target/mixed/string/list/union/attribute/structure/model-group
+unsupported. `token`/`NMTOKEN` collapse XML whitespace; NMTOKEN enforces XML
+NameChar. `xs:any` query-only; nonzero terms reject with edition
+diagnostics; `0/0` absent.
 
-Generation: named/inherited globals and inline global string/token/NMTOKEN; default
-Boolean/numeric choices and bounded sequences (supported built-in/named particles);
-default global Boolean/integer/decimal refs. Anonymous-local Boolean/integer/decimal
-queryable; consumer-rejected. Mixed/other/non-default unsupported.
+Generation: global built-in/named/inherited/included/imported/inline
+string/token/NMTOKEN scalar components; default all-Boolean/numeric direct
+choices and sequences over local built-in/named Boolean/integer/decimal
+particles; default global Boolean/integer/decimal refs. Anonymous/local
+token/NMTOKEN particles reject. Global inline numeric/Boolean/`precisionDecimal`
+query-only; anonymous targets reject.
 
 ## Conformance
 
