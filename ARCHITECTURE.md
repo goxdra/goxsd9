@@ -129,9 +129,10 @@ model groups are unsupported.
 Validation accepts default all-token/NMTOKEN choices. Direct `xs:any` is query-only:
 nonzero terms are rejected with edition diagnostics; `0/0` absent.
 
-Generation: named/inherited globals and inline global string/token/NMTOKEN; numeric/
-default Boolean choices, bounded sequences, and default refs to global
-Boolean/integer/decimal. Mixed, other, and non-default forms remain unsupported.
+Generation: named/inherited globals and inline global string/token/NMTOKEN; default
+Boolean/numeric choices and bounded sequences (supported built-in/named particles);
+default global Boolean/integer/decimal refs. Anonymous-local Boolean/integer/decimal
+queryable; consumer-rejected. Mixed/other/non-default unsupported.
 
 ## Conformance
 

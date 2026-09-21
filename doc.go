@@ -111,8 +111,10 @@
 // immutable facts without expanding target members. Direct model-group references
 // retain `TargetID`; nested, local, recursive, and broader group-reference shapes
 // remain unsupported.
-// Default-bounded numeric or all-Boolean sequences are emitted as ordered Go
-// struct fields; repeated-field generation and direct-choice repetition remain
+// Default-bounded sequences of supported built-in or named numeric or
+// all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
+// Boolean/integer/decimal particles remain queryable but validation and generation
+// reject them; repeated-field generation and direct-choice repetition remain
 // unsupported.
 // Bounded attribute-free complexContent/extension over named empty-content
 // complex bases, including the supported named `complexContent/restriction` over
@@ -138,7 +140,8 @@
 // declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal/
 // xs:precisionDecimal, or as a named global complex type with one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
-// restriction elements, one direct integer/decimal sequence, or one direct choice
+// restriction elements, one direct integer/decimal sequence of local built-in or
+// named elements, or one direct choice
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or, in
 // non-extension direct choices, default-occurrence references to global Boolean,
@@ -174,9 +177,10 @@
 // behavior.
 // GenerateGo produces deterministic Go source for built-in, named, or inherited
 // global Boolean/integer/decimal scalar components, explicitly supported global
-// inline string/token/NMTOKEN elements, default-occurrence all-Boolean or numeric
-// direct choices, and default-bounded numeric or all-Boolean local sequences.
-// Global inline numeric, Boolean, and precisionDecimal declarations remain queryable;
-// validation and generation reject anonymous targets. Boolean facets, mixed Boolean/numeric sequences, mixed direct
-// choices, and local string/token/NMTOKEN particles remain unsupported.
+// inline string/token/NMTOKEN elements, and default-occurrence all-Boolean or
+// numeric direct choices over supported built-in or named particles. Global inline
+// numeric, Boolean, and precisionDecimal declarations remain queryable; validation
+// and generation reject their anonymous targets. Boolean facets, mixed Boolean/numeric
+// sequences, mixed direct choices, and local string/token/NMTOKEN particles remain
+// unsupported.
 package goxsd9
