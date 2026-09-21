@@ -259,6 +259,81 @@ func TestSchemaBridgeSkipsUnsupportedLocalInlineTypeAtZeroOccurrence(t *testing.
 	}
 }
 
+//nolint:gocognit // Keep mapped and zero-occurrence precisionDecimal boundaries together across policies.
+func TestSchemaBridgeLocalInlinePrecisionDecimalBoundaryAcrossPolicies(t *testing.T) {
+	profiles := []struct {
+		name          string
+		policy        LanguagePolicy
+		version       string
+		zeroSupported bool
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1", zeroSupported: true},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1", zeroSupported: true},
+	}
+	for _, profile := range profiles {
+		for _, model := range []string{"choice", "sequence"} {
+			t.Run(profile.name+"/"+model+"/mapped", func(t *testing.T) {
+				root := localInlinePrecisionDecimalBoundaryRoot(profile.version, model, "")
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("discoverSchema accepted a mapped local anonymous precisionDecimal")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("diagnostic = %s, want located unsupported with preserved cause", diagnostic)
+				}
+				if profile.policy == Strict10 {
+					if diagnostic.Feature() != FeatureDatatypeFacets || !errors.Is(err, errSchemaPrecisionDecimalVersion) {
+						t.Fatalf("Strict10 diagnostic = %s/%q, want precisionDecimal policy mismatch", diagnostic, diagnostic.Feature())
+					}
+					return
+				}
+				if diagnostic.Feature() != FeatureSchemaSyntax {
+					t.Fatalf("diagnostic = %s/%q, want schema-syntax unsupported", diagnostic, diagnostic.Feature())
+				}
+			})
+
+			t.Run(profile.name+"/"+model+"/zero-zero", func(t *testing.T) {
+				root := localInlinePrecisionDecimalBoundaryRoot(profile.version, model, ` minOccurs="0" maxOccurs="0"`)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if !profile.zeroSupported {
+					if err == nil {
+						t.Fatal("Strict10 accepted a local anonymous precisionDecimal")
+					}
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureUnsupported || !errors.Is(err, ErrUnsupported) {
+						t.Fatalf("diagnostic = %s, want precisionDecimal policy mismatch", diagnostic)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("discoverSchema: %v", err)
+				}
+				definition := localInlineComplexType(t, schema, "Record")
+				switch model {
+				case "choice":
+					choice, ok := definition.Particle().(ChoiceParticle)
+					if !ok || len(choice.Alternatives()) != 0 {
+						t.Fatalf("particle = %T/%d, want empty ChoiceParticle", definition.Particle(), len(choice.Alternatives()))
+					}
+				case "sequence":
+					sequence, ok := definition.Particle().(SequenceParticle)
+					if !ok || len(sequence.Particles()) != 0 {
+						t.Fatalf("particle = %T/%d, want empty SequenceParticle", definition.Particle(), len(sequence.Particles()))
+					}
+				}
+			})
+		}
+	}
+}
+
+func localInlinePrecisionDecimalBoundaryRoot(version, model, occurrences string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + version + `"><xs:complexType name="Record"><xs:` + model + `><xs:element name="value"` + occurrences + `><xs:simpleType><xs:restriction base="xs:precisionDecimal"/></xs:simpleType></xs:element></xs:` + model + `></xs:complexType></xs:schema>`
+}
+
 func TestSchemaBridgeRejectsLocalInlineAtomicBoundariesWithoutPartialSchema(t *testing.T) {
 	cases := []struct {
 		name  string

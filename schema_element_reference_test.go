@@ -20,6 +20,113 @@ func TestSchemaElementReferenceParticlesResolveInEveryPolicy(t *testing.T) {
 	}
 }
 
+//nolint:gocognit,funlen // Keep query identity, occurrence order, and consumer boundaries together.
+func TestSchemaElementReferenceRetainsGlobalInlineAnonymousTargetBoundary(t *testing.T) {
+	for _, profile := range []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "Compatibility", policy: Compatibility, version: "1.1"},
+		{name: "Strict10", policy: Strict10, version: "1.0"},
+		{name: "Strict11", policy: Strict11, version: "1.1"},
+	} {
+		t.Run(profile.name, func(t *testing.T) {
+			queryRoot := globalInlineElementReferenceRoot(profile.version, ` minOccurs="2" maxOccurs="4"`)
+			schema, err := discoverTestSchemaWithPolicy(t, queryRoot, nil, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+			targetName := mustTestQName(t, "urn:reference-root", "inline")
+			target := schema.FindKind(ComponentKindElementDeclaration, targetName)
+			if len(target) != 1 {
+				t.Fatalf("inline target count = %d, want 1", len(target))
+			}
+			declaration, ok := target[0].ElementDeclaration()
+			if !ok {
+				t.Fatal("inline target declaration view is missing")
+			}
+			typeReference, ok := declaration.TypeReference()
+			if !ok || !typeReference.IsAnonymous() {
+				t.Fatalf("inline target type reference = %#v/%t, want anonymous", typeReference, ok)
+			}
+			anonymous, ok := typeReference.AnonymousType()
+			if !ok || anonymous.Base().Local() != "integer" {
+				t.Fatalf("inline target anonymous type = %#v/%t, want integer", anonymous, ok)
+			}
+
+			choiceComponent := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:reference-root", "Choice"))
+			if len(choiceComponent) != 1 {
+				t.Fatalf("Choice component count = %d, want 1", len(choiceComponent))
+			}
+			choiceDefinition, ok := choiceComponent[0].ComplexTypeDefinition()
+			if !ok {
+				t.Fatal("Choice definition view is missing")
+			}
+			choice, ok := choiceDefinition.Particle().(ChoiceParticle)
+			if !ok {
+				t.Fatalf("Choice particle = %T, want ChoiceParticle", choiceDefinition.Particle())
+			}
+			alternatives := choice.Alternatives()
+			if len(alternatives) != 2 {
+				t.Fatalf("Choice alternative count = %d, want 2", len(alternatives))
+			}
+			inlineReference, ok := alternatives[0].(ElementReferenceParticle)
+			if !ok {
+				t.Fatalf("first alternative = %T, want ElementReferenceParticle", alternatives[0])
+			}
+			if inlineReference.Name() != targetName || inlineReference.Ref() != targetName {
+				t.Fatalf("inline reference name = %q/%q, want %q", inlineReference.Name(), inlineReference.Ref(), targetName)
+			}
+			if inlineReference.RefLoc() != elementReferenceTestAttributeLoc(t, queryRoot, `ref="r:inline"`) {
+				t.Fatalf("inline reference location = %s, want ref attribute location", inlineReference.RefLoc())
+			}
+			if inlineReference.TargetID() != target[0].ID() {
+				t.Fatalf("inline reference target ID = %v, want %v", inlineReference.TargetID(), target[0].ID())
+			}
+			if inlineReference.Occurrences().String() != "2/4" {
+				t.Fatalf("inline reference occurrences = %q, want 2/4", inlineReference.Occurrences())
+			}
+			builtinReference, ok := alternatives[1].(ElementReferenceParticle)
+			if !ok || builtinReference.Name() != mustTestQName(t, "urn:reference-root", "builtin") || builtinReference.Occurrences().String() != "1/1" {
+				t.Fatalf("second alternative = %#v, want default builtin reference", alternatives[1])
+			}
+
+			consumerRoot := globalInlineElementReferenceRoot(profile.version, "")
+			consumerSchema, err := discoverTestSchemaWithPolicy(t, consumerRoot, nil, profile.policy)
+			if err != nil {
+				t.Fatalf("discover consumer schema: %v", err)
+			}
+			instance := `<r:root xmlns:r="urn:reference-root"><r:inline>1</r:inline></r:root>`
+			validationErr := ValidateInstance(consumerSchema, "instance.xml", io.NopCloser(strings.NewReader(instance)))
+			if validationErr == nil {
+				t.Fatal("ValidateInstance accepted a global inline anonymous reference target")
+			}
+			validationDiagnostic := requireDiagnostic(t, validationErr)
+			if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Feature() != FeatureInstanceValidation || !errors.Is(validationErr, ErrUnsupported) {
+				t.Fatalf("validation diagnostic = %s, want explicit unsupported with preserved cause", validationDiagnostic)
+			}
+			generated, generationErr := GenerateGo(consumerSchema, "generated")
+			if generated != nil || generationErr == nil {
+				t.Fatalf("GenerateGo result = (%q, %v), want unsupported with no output", generated, generationErr)
+			}
+			generationDiagnostic := requireDiagnostic(t, generationErr)
+			if generationDiagnostic.Class() != FailureUnsupported || generationDiagnostic.Feature() != FeatureCodegen || !errors.Is(generationErr, ErrUnsupported) {
+				t.Fatalf("generation diagnostic = %s, want explicit unsupported with preserved cause", generationDiagnostic)
+			}
+		})
+	}
+}
+
+func globalInlineElementReferenceRoot(version, referenceOccurrences string) string {
+	return `<xs:schema xmlns:xs="` + elementReferenceTestXSDNamespace + `" xmlns:r="urn:reference-root" targetNamespace="urn:reference-root" version="` + version + `">
+  <xs:element name="root" type="r:Choice"/>
+  <xs:element name="inline"><xs:simpleType><xs:restriction base="xs:integer"><xs:totalDigits value="3"/></xs:restriction></xs:simpleType></xs:element>
+  <xs:element name="builtin" type="xs:integer"/>
+  <xs:complexType name="Choice"><xs:choice><xs:element ref="r:inline"` + referenceOccurrences + `/><xs:element ref="r:builtin"/></xs:choice></xs:complexType>
+</xs:schema>`
+}
+
 func elementReferenceTestAssertPolicy(t *testing.T, policy LanguagePolicy) {
 	t.Helper()
 	schema, resolver := elementReferenceTestSchema(t, policy)

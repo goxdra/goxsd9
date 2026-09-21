@@ -84,23 +84,25 @@
 // direct-sequence precisionDecimal ranges that map to particles are
 // schema-unsupported; effective 0/0 maps to absence before type-specific
 // gating, and non-precision alternatives may retain non-default query-only
-// ranges. The supported local anonymous model is limited to atomic
+// ranges. Only non-extension default-occurrence direct choices are
+// validation-eligible. The supported local anonymous model is limited to atomic
 // Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
-// attribute-free extension shapes above. The local anonymous boundary is restriction
-// particles, not all inline forms: local inline complex/list/union and
-// local anonymous string/token/NMTOKEN/precisionDecimal restrictions, local
-// value/default/fixed/attribute constraints, nested, anonymous-reference, and
-// broader forms remain unsupported. Local anonymous inline atomic types are
-// query-only; direct validation and generation reject them. Global inline
-// precisionDecimal is Compatibility/Strict11 policy-gated schema/query support
-// only (Strict10 rejects), not a validation, generation, or direct-reference
-// target.
+// attribute-free extension shapes above. Local anonymous Boolean/integer/decimal
+// restrictions remain queryable but direct validation and generation reject them;
+// mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions are
+// schema-unsupported, with effective 0/0 omitted before type gating. Global inline
+// precisionDecimal is Compatibility/Strict11 schema/query support (Strict10
+// rejects); its anonymous declaration remains a query target, but validation and
+// generation reject anonymous targets.
 // Element-reference matrix: element-reference particles in local content and
-// named groups are queryable immutable facts. ValidateInstance and GenerateGo
-// consume only supported default-occurrence direct-choice references to global
+// named groups are queryable immutable facts. Resolution retains QName, RefLoc,
+// TargetID, lexical order, and exact occurrences without target-type gating.
+// ValidateInstance and GenerateGo consume only supported non-extension
+// default-occurrence direct-choice references to built-in or named global
 // Boolean, integer, or decimal targets; only those targets are consumer-eligible.
-// Sequence references, anonymous targets, repetition, nested or recursive
-// references, and broader element-reference shapes remain unsupported.
+// Sequence, anonymous-target, repetition, nested, recursive, and broader
+// element-reference forms are consumer exclusions; query references retain their
+// resolved facts.
 // Model-group reference particles are limited to the supported top-level direct
 // `ModelGroupReferenceParticle` form. Named global model groups expose direct
 // element-reference choices or sequences without expansion.
@@ -138,8 +140,9 @@
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
 // restriction elements, one direct integer/decimal sequence, or one direct choice
 // whose scalar alternatives use default occurrences and contain local built-in or named
-// Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or default-occurrence references
-// to global Boolean, integer, or decimal elements. Local scalar consumers accept
+// Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or, in
+// non-extension direct choices, default-occurrence references to global Boolean,
+// integer, or decimal elements. Local scalar consumers accept
 // built-in or named references only: direct choice/sequence checks reject modeled
 // anonymous local inline atomic references with located
 // FailureUnsupported/ErrUnsupported diagnostics that may include the anonymous
@@ -156,8 +159,8 @@
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
 // and Strict11. Mixed Boolean/numeric sequences, direct-choice repetition, and excluded particle/target shapes
-// remain explicit unsupported behavior. Reference alternatives exclude precisionDecimal
-// targets.
+// remain explicit unsupported behavior. Reference consumers exclude precisionDecimal
+// and anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices are unsupported. Nonzero
 // wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
@@ -173,7 +176,7 @@
 // global Boolean/integer/decimal scalar components, explicitly supported global
 // inline string/token/NMTOKEN elements, default-occurrence all-Boolean or numeric
 // direct choices, and default-bounded numeric or all-Boolean local sequences.
-// Global inline numeric, Boolean, and precisionDecimal forms remain query-only or
-// consumer-rejected; boolean facets, mixed Boolean/numeric sequences, mixed direct
+// Global inline numeric, Boolean, and precisionDecimal declarations remain queryable;
+// validation and generation reject anonymous targets. Boolean facets, mixed Boolean/numeric sequences, mixed direct
 // choices, and local string/token/NMTOKEN particles remain unsupported.
 package goxsd9

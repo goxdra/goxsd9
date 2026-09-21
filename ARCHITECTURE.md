@@ -95,7 +95,7 @@ first: codegen extension primary; validation owner/sequence-instance primary; no
 anonymous location. Direct/extension model-group refs use group `RefLoc` primary;
 validation relates particle, codegen group/component/reference/target. No
 `GenerateGo` output.
-Local anonymous inline atomics query-only; direct validation/generation reject. Typed local `precisionDecimal`: Compatibility/Strict11 (Strict10 rejects); default direct choice/mapped-precisionDecimal alternatives; effective `0/0` absent; non-default `precisionDecimal` choice/alternative or non-`0/0` direct-sequence `precisionDecimal` ranges schema-unsupported; non-precision alternatives retain non-default query-only ranges. Typed local token/NMTOKEN queryable; default all-token/NMTOKEN choices validate, generation unsupported. Global inline string/token/NMTOKEN generation-eligible; global inline `precisionDecimal` policy-gated schema/query only (Strict10 rejects), not validation/generation/direct-reference target.
+Local anonymous Boolean/integer/decimal restrictions queryable; consumers reject them. Mapped local anonymous token/NMTOKEN/`precisionDecimal` are schema-unsupported for mapped particles; `0/0` is omitted before type gating. Typed local `precisionDecimal`: Compatibility/Strict11 (Strict10 rejects), default direct-choice/mapped alternatives; only non-extension default-occurrence direct choices validate. Typed token/NMTOKEN queryable. Global inline `precisionDecimal` is a Compatibility/Strict11 schema/query target (Strict10 rejects); consumers reject anonymous targets.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
 Simple types: `finalDefault` fills missing `final`; local `final` overrides; `FinalLoc` identifies the supplier; immutable policy controls; Strict10 rejects extension.
@@ -116,20 +116,22 @@ value spaces remain unsupported.
 ## Validation and code generation
 
 `ValidateInstance` supports built-in/named scalar roots and named direct
-choice/sequence complexes. Local consumers accept built-in/named refs plus default
-global Boolean/integer/decimal refs; anonymous locals are query-only and direct
-choice/sequence consumers reject them as above. Homogeneous Boolean/numeric
-sequences honor finite/unbounded/above-`uint64`; mixed/token/NMTOKEN sequences,
-strings, lists/unions, attributes, structures, and model groups are unsupported;
-references use `TargetID`.
+choice/sequence complexes. Consumers accept built-in/named refs and only
+non-extension default-occurrence direct-choice refs to built-in/named global
+Boolean/integer/decimal; anonymous targets are rejected. Element references
+remain queryable without target gating, retaining QName,
+`RefLoc`, `TargetID`, order, and exact occurrences; sequence/repetition/nested/
+recursive/broader forms are excluded.
+Homogeneous Boolean/numeric sequences honor finite/unbounded/above-`uint64`;
+mixed/token/NMTOKEN sequences, strings, lists/unions, attributes, structures, and
+model groups are unsupported.
 `token`/`NMTOKEN` collapse XML whitespace; NMTOKEN enforces XML NameChar; facts unchanged.
 Validation accepts default all-token/NMTOKEN choices. Direct `xs:any` is query-only:
 nonzero terms are rejected with edition diagnostics; `0/0` absent.
 
-Generation: named/inherited global scalar types and inline global string/token/NMTOKEN
-elements; numeric choices, default Boolean choices, default-bounded numeric/Boolean
-sequences, and default-occurrence refs to global Boolean/integer/decimal. Mixed,
-other, and non-default choices/references remain unsupported.
+Generation: named/inherited globals and inline global string/token/NMTOKEN; numeric/
+default Boolean choices, bounded sequences, and default refs to global
+Boolean/integer/decimal. Mixed, other, and non-default forms remain unsupported.
 
 ## Conformance
 
