@@ -45,10 +45,14 @@
 // named ownership remain separate facts. The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; non-string anonymous
 // enumeration remains explicit unsupported at its facet location with no schema.
-// Explicitly typed built-in/named token/NMTOKEN local particles remain modeled;
-// validation supports only default-occurrence direct choices made entirely of
-// local token or NMTOKEN alternatives, while other consumers and shapes remain
-// unsupported.
+// Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
+// named local particles in direct choices, sequences, and bounded attribute-free
+// extensions are modeled and queryable; default-occurrence direct choices made
+// entirely of local token or NMTOKEN alternatives validate. Local token/NMTOKEN
+// sequences, anonymous token/NMTOKEN restrictions, and generation remain
+// unsupported. Direct element references remain queryable, but token/NMTOKEN
+// reference consumers remain unsupported. Global inline string/token/NMTOKEN
+// elements are the separate generation-eligible exception.
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
 // omitted namespace with processContents="lax"), ##any/skip with explicit
 // processContents="skip", ##other/lax, and ##other/strict forms, plus positive
@@ -88,32 +92,22 @@
 // value/default/fixed/attribute constraints, nested, anonymous-reference, and
 // broader forms remain unsupported. Local anonymous inline atomic types are
 // query-only; direct validation and generation reject them. Global inline
-// string/token/NMTOKEN elements remain generation-eligible; global inline
 // precisionDecimal is Compatibility/Strict11 policy-gated schema/query support
 // only (Strict10 rejects), not a validation, generation, or direct-reference
-// target. Explicitly typed local token/NMTOKEN particles remain queryable;
-// validation supports only default-occurrence all-token/NMTOKEN direct choices,
-// while local token/NMTOKEN sequences and generation remain unsupported.
-// Explicitly typed built-in or supported named token/NMTOKEN elements in direct
-// choices/sequences and bounded attribute-free extensions are modeled; validation
-// supports only default-occurrence all-token/NMTOKEN direct choices, while local
-// token/NMTOKEN sequences and generation remain unsupported. Local string particles
-// remain unsupported. Supported anonymous simple-type models and references are
-// modeled for schema queries; direct element references are queryable immutable
-// particles.
-// ValidateInstance supports default-occurrence direct choices made entirely of
-// references to global Boolean, integer, or decimal scalar elements;
-// GenerateGo supports only default-occurrence direct choices made entirely of
-// references to global Boolean, integer, or decimal scalar elements. Reference
-// particles beyond the supported top-level direct `ModelGroupReferenceParticle` form,
-// repetition, and broader shapes remain explicitly unsupported.
-// Named global model groups expose direct choices or sequences of global
-// element-reference particles as immutable query facts with exact ranges;
-// validation and code generation do not expand them.
+// target.
+// Element-reference matrix: element-reference particles in local content and
+// named groups are queryable immutable facts. ValidateInstance and GenerateGo
+// consume only supported default-occurrence direct-choice references to global
+// Boolean, integer, or decimal targets; only those targets are consumer-eligible.
+// Sequence references, anonymous targets, repetition, nested or recursive
+// references, and broader element-reference shapes remain unsupported.
+// Model-group reference particles are limited to the supported top-level direct
+// `ModelGroupReferenceParticle` form. Named global model groups expose direct
+// element-reference choices or sequences without expansion.
 // Top-level direct model-group references on named complex types and bounded
 // attribute-free extensions over named empty-content bases are queryable as exact
 // immutable facts without expanding target members. Direct model-group references
-// retain `TargetID`. Nested, local, recursive, and broader group-reference shapes
+// retain `TargetID`; nested, local, recursive, and broader group-reference shapes
 // remain unsupported.
 // Default-bounded numeric or all-Boolean sequences are emitted as ordered Go
 // struct fields; repeated-field generation and direct-choice repetition remain
@@ -175,10 +169,11 @@
 // values, local string particles, token/NMTOKEN sequence particles, lists/unions,
 // attributes, broader particles, and other semantics remain explicit unsupported
 // behavior.
-// GenerateGo produces deterministic Go source for global boolean/integer/decimal/
-// atomic string/token/NMTOKEN scalar components, default-occurrence all-Boolean or
-// numeric direct choices, and default-bounded numeric or all-Boolean local sequences;
-// boolean facets, mixed Boolean/numeric sequences, mixed direct choices, and local
-// string particles remain unsupported; modeled local token/NMTOKEN particles are
-// rejected by generation.
+// GenerateGo produces deterministic Go source for built-in, named, or inherited
+// global Boolean/integer/decimal scalar components, explicitly supported global
+// inline string/token/NMTOKEN elements, default-occurrence all-Boolean or numeric
+// direct choices, and default-bounded numeric or all-Boolean local sequences.
+// Global inline numeric, Boolean, and precisionDecimal forms remain query-only or
+// consumer-rejected; boolean facets, mixed Boolean/numeric sequences, mixed direct
+// choices, and local string/token/NMTOKEN particles remain unsupported.
 package goxsd9

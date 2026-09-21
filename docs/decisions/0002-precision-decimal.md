@@ -14,16 +14,16 @@ requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120
 permit, but do not require, primitive datatypes outside the standard set. The
 project implements this datatype as an explicit opt-in library/schema boundary.
 
-Manifest pins the source/digest ([precisionDecimal](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/)).
-The precisionDecimal library/global/named model has no generic gate. See
-[`Decision 0007`](0007-particle-occurrence.md) for local placement/consumer limits.
-Compatibility/Strict11 (Strict10 rejects) supports typed local `precisionDecimal`
-only in direct choices with default choice/mapped-alternative occurrences; effective
-`0/0` is absent; non-default `precisionDecimal` choice/alternative ranges or non-`0/0`
-direct-sequence `precisionDecimal` ranges are schema-unsupported, while non-precision alternatives
-may retain non-default query-only ranges. Anonymous local `precisionDecimal`
-restrictions unsupported; `ValidateInstance` supports it, but
-`GenerateGo`/reference consumers do not.
+No generic gate; see [`Decision 0007`](0007-particle-occurrence.md) for
+placement and consumers. Named/explicitly typed local `precisionDecimal` is
+supported in Compatibility/Strict11 (Strict10 rejects) only in direct choices
+with default choice/mapped-alternative occurrences; `0/0` absent; only these
+placements are validation-eligible. Non-default `precisionDecimal`
+choice/alternative or non-`0/0` direct-sequence ranges are schema-unsupported;
+non-precision alternatives may retain non-default query-only ranges. Anonymous
+local `precisionDecimal` is query-only and consumer-rejected. Global inline
+`precisionDecimal` is schema/query-only in Compatibility and Strict11; Strict10
+rejects it.
 
 ## Semantic contract
 
