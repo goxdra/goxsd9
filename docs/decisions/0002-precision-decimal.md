@@ -16,9 +16,9 @@ This is an opt-in library/schema boundary.
 
 [`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers:
 
-- Schema/query: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; Strict10 rejects them pre-validation with located `FeatureDatatypeFacets`/`FailureUnsupported`/`ErrUnsupported`. Mapped local-anonymous precision is unsupported when mapped: policy precedes `0/0`; Strict10 rejects typed forms including zero; Compatibility/Strict11 omit zero and admit default direct/bounded attr-free extensions. Non-default choices/non-`0/0` direct sequences reject; nonprecision alternatives query-only.
-- Validation: Compatibility/Strict11 built-in/named `precisionDecimal` roots validate; inline/anonymous targets reject. Non-extension defaults validate; extensions reject.
-- Generation: Compatibility/Strict11 queryable; `GenerateGo` rejects all global/anonymous `precisionDecimal` targets; extensions reject.
+- Schema/query: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; Strict10 rejects them before validation with a located policy diagnostic. Locally, explicit `type="xs:precisionDecimal"` is admitted only in default direct choices and bounded attribute-free extension choices; inline anonymous `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` is unsupported when mapped. Policy-first `0/0`: Strict10 rejects both forms, including zero; Compatibility/Strict11 omits zero. Non-default choices/nonzero direct sequences reject; other alternatives remain query-only.
+- Validation: Compatibility/Strict11 built-in/named `precisionDecimal` roots validate. Only non-extension default choices with explicit local `precisionDecimal` validate; inline/anonymous and extension consumers reject.
+- Generation: Compatibility/Strict11 facts remain queryable; `GenerateGo` rejects every global, local, inline, and anonymous `precisionDecimal` target, including extensions.
 
 ## Semantic contract
 
@@ -70,9 +70,10 @@ The value representation has one private source of truth: a tagged finite, `+INF
 finite value contains an arbitrary-precision, non-negative coefficient, explicit sign (including signed zero),
 and arbitrary signed scale; scale cannot be `int` because the lexical exponent is unbounded. `StrictDecimal` differs:
 it has an `int` scale, elides trailing zeroes, and lacks special values; only its copy techniques may be reused.
-The representation uses no binary floating point, mutable
-numeric internals, raw-lexeme or cached canonical strings, or partially constructed public value. Any private
-`big.Int` is owned or copied before mutation, and coefficient, scale, raw lexeme, and cache state are not exposed.
+The representation exposes no binary floating point, mutable numeric internals,
+raw lexemes, cached canonical strings, or partial public values; private `big.Int`
+values are owned or copied before mutation, and coefficient, scale, and cache state
+remain private.
 
 The private, on-demand `canonicalPrecisionDecimal` canonicalizer accepts a finite, non-negative ASCII-byte budget
 `B` for the exact final canonical lexical form; this grammar is ASCII, so characters and bytes coincide. Let `L` be the
@@ -83,11 +84,11 @@ arbitrary-precision representation before allocating or materializing output. No
 `10^huge` construction, padding expansion before the check, cached canonical string, partial output, truncation,
 or value mutation is permitted.
 
-For a valid value with `L > B`, the private `canonicalPrecisionDecimal` canonicalizer returns no string and leaves
-the value unchanged. It reports a located `FailureInvalid` diagnostic preserving the exported
-`ErrPrecisionDecimalCanonicalOutputLimit` sentinel as its cause and the caller's `Loc`. Public and schema APIs expose
-this completed boundary without exposing the private representation.
-It is a resource/invalid-request result, not lexical invalidity, unsupported behavior, or internal failure.
+For valid `L > B`, `canonicalPrecisionDecimal` returns no string, leaves the value
+unchanged, and reports located `FailureInvalid` with the exported
+`ErrPrecisionDecimalCanonicalOutputLimit` cause and caller `Loc`. Public/schema
+APIs expose this boundary. It is a resource/invalid-request result, not lexical
+invalidity, unsupported behavior, or internal failure.
 
 Canonicalization remains separate from comparison and the optional schema
 policy boundary. Boundary contract:
@@ -115,12 +116,10 @@ conformance claim or a substitute for the per-call resource contract.
 
 ## Bounded follow-up and corpus evidence
 
-The completed optional precisionDecimal boundary covers exact precisionDecimal
-library values and applicable facets, partial comparison, bounded canonical
-output, and immutable schema facts. Assertions and remaining
-precisionDecimal-specific facet work remain separate; integer/decimal
-ordered-bound parsing, effective schema facts, and scalar validation are
-integrated.
+The optional precisionDecimal boundary covers exact values/facets, partial
+comparison, bounded canonical output, and immutable schema facts. Assertions and
+remaining facets stay separate; integer/decimal bound parsing, effective schema
+facts, and scalar validation are integrated.
 
 Pinned catalog’s [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary groups
 [`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)

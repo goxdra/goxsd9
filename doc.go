@@ -39,8 +39,11 @@
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
-// not global components or Walk entries. Effective 0/0 maps to absence before
-// type-specific gating except explicit typed precisionDecimal policy admission.
+// not global components or Walk entries. Strict10 policy admission precedes 0/0
+// omission for both explicitly typed local `type="xs:precisionDecimal"` and
+// inline anonymous `<xs:simpleType><xs:restriction base="xs:precisionDecimal">`
+// forms, including zero-occurrence cases. Compatibility and Strict11 omit
+// effective 0/0 for either mapped form.
 // Local anonymous integer-derived restrictions are admitted by effective atomic
 // kind only for mapped non-0/0 particles: effective integer or negativeInteger
 // remains accepted through named, forward, imported, included, and chameleon
@@ -86,28 +89,30 @@
 // implemented. Direct choices made entirely of local Boolean elements use
 // built-in xs:boolean or named Boolean restrictions; mixed Boolean/numeric
 // choices remain unsupported.
-// Explicitly typed XSD 1.1 precisionDecimal is admitted by policy before
-// occurrence omission. Compatibility and Strict11 admit mapped precisionDecimal
-// in default-occurrence direct choices and bounded attribute-free extension
-// choices and omit effective 0/0. Strict10 returns a located FeatureDatatypeFacets
-// FailureUnsupported/ErrUnsupported policy-mismatch diagnostic first, including
-// zero-occurrence cases. Under Compatibility/Strict11, mapped non-default
-// precisionDecimal choice/alternative ranges or non-0/0 direct-sequence
-// precisionDecimal ranges that map to particles are schema-unsupported. The
-// choice and each mapped precisionDecimal alternative otherwise require default
-// occurrences, and non-precision alternatives may retain non-default query-only
-// ranges. Only non-extension default-occurrence direct choices are
-// validation-eligible; extension choices, including schema-admitted
-// precisionDecimal choices, are rejected by validation and generation. The
-// supported local anonymous model is limited to atomic
+// Local precisionDecimal forms are distinct. Under Compatibility/Strict11,
+// explicitly typed local `type="xs:precisionDecimal"` is admitted only in
+// default-occurrence direct choices and bounded attribute-free extension
+// choices. An inline anonymous `<xs:simpleType><xs:restriction
+// base="xs:precisionDecimal">` restriction is schema-unsupported when mapped;
+// mapped nonzero anonymous restrictions remain unsupported. Strict10 returns a
+// located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy-mismatch
+// diagnostic before 0/0 omission for either mapped form, including zero. Under
+// Compatibility/Strict11, mapped non-default precisionDecimal choice/alternative
+// ranges or non-0/0 direct-sequence precisionDecimal ranges that map to particles
+// are schema-unsupported. The choice and each mapped typed precisionDecimal
+// alternative otherwise require default occurrences, and non-precision
+// alternatives may retain non-default query-only ranges. Only non-extension
+// default-occurrence typed direct choices are validation-eligible; extension
+// choices and all anonymous consumers are rejected by validation and generation.
+// The supported local anonymous model is limited to atomic
 // Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
 // attribute-free extension shapes above. Local anonymous Boolean/integer/decimal
 // restrictions remain queryable but direct validation and generation reject them;
-// mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions are
-// schema-unsupported when mapped; effective 0/0 omission follows policy
-// admission. Global inline precisionDecimal remains a query target only under
-// Compatibility/Strict11; Strict10 rejects it before validation, and its
-// anonymous target is excluded from validation and generation.
+// mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions remain
+// schema-unsupported when nonzero. Global inline precisionDecimal remains a query
+// target only under Compatibility/Strict11; Strict10 rejects it before validation,
+// and every anonymous precisionDecimal target is excluded from validation and
+// generation.
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.
