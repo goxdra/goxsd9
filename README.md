@@ -6,30 +6,20 @@ goxsd9 parses/validates/generates Go; unsupported remains explicit.
 
 `ParseSchema`: immutable components; caller `ResolvedSource`/`Resolver`; sequential, opaque locations; Compatibility default.
 
-XSD 1.0/1.1; bounded attr-free extensions/model-less bases; inherited wildcards; `openContent=none` (Compatibility/Strict11; Strict10 mismatch). `xs:any`/`anyAttribute` retain namespace/process facts; particle `0/0` absent; nonzero wildcard/attribute consumers/broader placements unsupported.
-Element refs retain QName/`RefLoc`/target/order/occurrences; model-group refs query. Global built-in/named long-family refs are query-only with exact integer bounds; malformed refs invalid. Global built-in/named/inline `precisionDecimal` schema/query/validation admission: Compatibility/Strict11 only; Strict10 rejects them before validation with located `FeatureDatatypeFacets`/`FailureUnsupported`/`ErrUnsupported`; built-in/named roots validate, inline anonymous consumers reject.
-Local anonymous Boolean/integer/negativeInteger/decimal query. Mapped non-`0/0` local `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` or non-string enumeration is unsupported at type/facet `Loc`; no schema.
-`precisionDecimal`: under Compatibility/Strict11, explicitly typed local `type="xs:precisionDecimal"` admitted only in default direct choices and bounded attribute-free extension choices. Mapped inline anonymous `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` is unsupported; Compatibility/Strict11 omit `0/0` for either form. Strict10 rejects both forms before omission, including zero. Non-default choices/nonzero direct sequences unsupported; typed defaults validate; extensions/anonymous reject.
-GenerateGo supports global built-in/named Boolean/integer/decimal/string/token/NMTOKEN and inline string/token/NMTOKEN; only non-extension default refs to global Boolean/integer/decimal. Inline long-family/identity-only (`language`/`NCName`/`anyURI`/`ID`) facts query-only; consumers reject. Mapped non-`0/0` local `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger`/identity-only forms have no schema. Compatibility/Strict11 only: `precisionDecimal` queryable; `GenerateGo` rejects global/anonymous; unsupported yields no schema/output.
+XSD 1.0/1.1; `openContent=none` works under Compatibility/Strict11 and mismatches Strict10. Attribute-free extensions only over named empty-content bases; model-less keeps base identity/locations and representable inherited `##other`/lax. `xs:any`/`anyAttribute` keep facts; `0/0` absent; broader placements unsupported.
+Element refs retain QName/`RefLoc`/target/order/occurrences; only top-level direct named model-group refs query; nested/local/recursive/broader refs unsupported. Global long-family refs are query-only with exact bounds; malformed refs invalid. Global built-in/named/inline `precisionDecimal` query under Compatibility/Strict11; Strict10 rejects all before validation. Only built-in/named roots validate; global inline is query-only and consumers reject.
+Local anonymous Boolean/integer/decimal forms are query-only in direct choice/sequence and bounded extensions; validation/`GenerateGo` reject. Mapped nonzero anonymous string/token/NMTOKEN/`precisionDecimal` and non-string enums are unsupported at type/facet `Loc`; no schema.
+`precisionDecimal`: Compatibility/Strict11 admits built-in `xs:precisionDecimal` or named-effective local types only in default direct choices/bounded attribute-free extensions. The owner and each mapped typed child/alternative require default occurrences; nonprecision alternatives may query. Mapped inline anonymous forms are unsupported. Compatibility/Strict11 omit `0/0`; Strict10 rejects first, including zero. Non-default choices/nonzero direct sequences are unsupported; only non-extension default choices validate; extension/anonymous consumers reject.
+GenerateGo supports global built-in/named Boolean/integer/decimal/string/token/NMTOKEN and inline string/token/NMTOKEN; only non-extension default refs to global Boolean/integer/decimal. Global inline long-family/identity-only facts are query-only; mapped local forms unsupported. Compatibility/Strict11: `precisionDecimal` is queryable, but `GenerateGo` rejects every global, explicitly typed local (including named-effective), inline, anonymous, and schema-admitted extension target; no schema/output.
 
-Named complex `abstract` non-inherited; consumers reject it. [ARCHITECTURE.md](ARCHITECTURE.md).
-[Direct-choice example](direct_choice_example_test.go); [scalar quickstart](library_example_test.go).
+Named complex `abstract` is non-inherited; see [ARCHITECTURE.md](ARCHITECTURE.md).
+[Examples](direct_choice_example_test.go), [quickstart](library_example_test.go).
 
 ## Product CLI
 
-CLI APIs; [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) sets contract.
-
-```console
-$ go run ./cmd/goxsd9 parse examples/root.xsd
-documents=1 components=2
-$ go run ./cmd/goxsd9 validate examples/root.xsd examples/valid.xml
-$ go run ./cmd/goxsd9 validate examples/root.xsd examples/invalid.xml
-error class=invalid location=1:8 code=XSD2001
-exit status 1
-$ go run ./cmd/goxsd9 generate --package sample examples/root.xsd > generated.go
-```
-
-Parse stdout; validation silent; invalid 1; usage 2.
+See [Decision 0006](docs/decisions/0006-vertical-slice-cli.md). `parse`,
+`validate`, and `generate` are available; parse prints, validate is silent,
+invalid exits 1, and usage exits 2.
 
 ## Design goals
 
@@ -38,24 +28,22 @@ no goroutines/locks/map-order output, conformance.
 
 ## Repository checks
 
-Fresh checkout; bounded schema needs exact version plus `-set`/`-case`; instances never run:
+Fresh checkout; bounded conformance needs exact version, `-set`, and `-case`; never run instances:
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
 go tool workflowctl check
-go tool conformance inventory
 go tool conformance schema -version 1.0 -set SET -case CASE
 ```
 
 ## Pinned specification corpus
 
-Commands:
 ```sh
 go tool specs build -id xsd11-structures
-go tool specs search -id xsd11-structures -query "content model"
-go tool specs bootstrap -version 1.1
+go tool specs search -id xsd11-structures -query QUERY
+go tool specs bootstrap -version VERSION
 ```
-Use `-root`/`-output`/`-index`; `bootstrap` previews only.
+Use `-root`/`-output`/`-index`; bootstrap previews only.
 
 ## Project workflow
 

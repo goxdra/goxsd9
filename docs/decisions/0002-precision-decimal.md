@@ -12,13 +12,13 @@ datatype and work in progress; it is not a mandatory XSD 1.1 conformance
 requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/)
 §2.5.1 (primitive datatypes; `#dt-primitive`) and [§H.1](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#impl-def)
 permit, but do not require, primitive datatypes outside the standard set.
-This is an opt-in library/schema boundary.
+Opt-in boundary.
 
 [`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers:
 
-- Schema/query: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; Strict10 rejects them before validation with a located policy diagnostic. Locally, explicit `type="xs:precisionDecimal"` is admitted only in default direct choices and bounded attribute-free extension choices; inline anonymous `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` is unsupported when mapped. Policy-first `0/0`: Strict10 rejects both forms, including zero; Compatibility/Strict11 omits zero. Non-default choices/nonzero direct sequences reject; other alternatives remain query-only.
-- Validation: Compatibility/Strict11 built-in/named `precisionDecimal` roots validate. Only non-extension default choices with explicit local `precisionDecimal` validate; inline/anonymous and extension consumers reject.
-- Generation: Compatibility/Strict11 facts remain queryable; `GenerateGo` rejects every global, local, inline, and anonymous `precisionDecimal` target, including extensions.
+- Schema/query: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; Strict10 rejects them before validation with a policy diagnostic. Local built-in `xs:precisionDecimal` or named-effective types are admitted only in default direct choices and bounded attribute-free extensions. The choice owner and every mapped typed child/alternative require default occurrences; nonprecision alternatives may remain query-only. Mapped inline anonymous forms are unsupported. Policy-first `0/0`: Strict10 rejects both local forms before omission, including zero; Compatibility/Strict11 omits zero. Non-default choices/nonzero direct sequences reject.
+- Validation: Compatibility/Strict11 built-in/named roots validate. Only non-extension default choices with built-in or named-effective local `precisionDecimal` validate; inline/anonymous and extension consumers reject.
+- Generation: Facts remain queryable under Compatibility/Strict11; `GenerateGo` rejects every global, explicitly typed local (including named-effective), inline, and anonymous target, including schema-admitted extensions.
 
 ## Semantic contract
 
@@ -116,12 +116,11 @@ conformance claim or a substitute for the per-call resource contract.
 
 ## Bounded follow-up and corpus evidence
 
-The optional precisionDecimal boundary covers exact values/facets, partial
-comparison, bounded canonical output, and immutable schema facts. Assertions and
-remaining facets stay separate; integer/decimal bound parsing, effective schema
-facts, and scalar validation are integrated.
+The boundary covers values/facets, partial comparison, bounded canonical output,
+and schema facts; assertions/remaining facets stay separate,
+while bound parsing, effective facts, and scalar validation integrate.
 
-Pinned catalog’s [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary groups
+Pinned [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary groups
 [`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)
 and [`ibmMeta/precisionDecimal.testSet`](../../testdata/w3c/xsdtests/ibmMeta/precisionDecimal.testSet).
 [#210](https://github.com/goxdra/goxsd9/issues/210) owns resolved auxiliary outcomes; [#196](https://github.com/goxdra/goxsd9/issues/196)

@@ -40,10 +40,11 @@
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
 // not global components or Walk entries. Strict10 policy admission precedes 0/0
-// omission for both explicitly typed local `type="xs:precisionDecimal"` and
-// inline anonymous `<xs:simpleType><xs:restriction base="xs:precisionDecimal">`
-// forms, including zero-occurrence cases. Compatibility and Strict11 omit
-// effective 0/0 for either mapped form.
+// omission for both explicitly typed local built-in or named-effective
+// `precisionDecimal` forms and inline anonymous
+// `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms,
+// including zero-occurrence cases. Compatibility and Strict11 omit effective
+// 0/0 for either mapped form.
 // Local anonymous integer-derived restrictions are admitted by effective atomic
 // kind only for mapped non-0/0 particles: effective integer or negativeInteger
 // remains accepted through named, forward, imported, included, and chameleon
@@ -89,21 +90,23 @@
 // implemented. Direct choices made entirely of local Boolean elements use
 // built-in xs:boolean or named Boolean restrictions; mixed Boolean/numeric
 // choices remain unsupported.
-// Local precisionDecimal forms are distinct. Under Compatibility/Strict11,
-// explicitly typed local `type="xs:precisionDecimal"` is admitted only in
+// Local precisionDecimal forms are distinct. Under Compatibility/Strict11, a
+// local element declared with built-in `type="xs:precisionDecimal"` or a named
+// type whose effective facets are precisionDecimal is admitted only in
 // default-occurrence direct choices and bounded attribute-free extension
-// choices. An inline anonymous `<xs:simpleType><xs:restriction
-// base="xs:precisionDecimal">` restriction is schema-unsupported when mapped;
-// mapped nonzero anonymous restrictions remain unsupported. Strict10 returns a
-// located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy-mismatch
+// choices. The choice owner and every mapped typed precisionDecimal
+// child/alternative require default occurrences; non-precision alternatives
+// may retain non-default query-only ranges. An inline anonymous
+// `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` restriction is
+// schema-unsupported when mapped; mapped nonzero anonymous restrictions remain
+// unsupported. Strict10 returns a located
+// FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy-mismatch
 // diagnostic before 0/0 omission for either mapped form, including zero. Under
 // Compatibility/Strict11, mapped non-default precisionDecimal choice/alternative
 // ranges or non-0/0 direct-sequence precisionDecimal ranges that map to particles
-// are schema-unsupported. The choice and each mapped typed precisionDecimal
-// alternative otherwise require default occurrences, and non-precision
-// alternatives may retain non-default query-only ranges. Only non-extension
-// default-occurrence typed direct choices are validation-eligible; extension
-// choices and all anonymous consumers are rejected by validation and generation.
+// are schema-unsupported. Only non-extension default-occurrence typed direct
+// choices are validation-eligible; extension choices and all anonymous consumers
+// are rejected by validation and generation.
 // The supported local anonymous model is limited to atomic
 // Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
 // attribute-free extension shapes above. Local anonymous Boolean/integer/decimal
@@ -212,8 +215,9 @@
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
 // before validation at the typed reference or type location. Global built-in/named
 // roots validate under those policies, while inline precisionDecimal is an
-// anonymous target rejected by validation. GenerateGo rejects every global
-// precisionDecimal target. Local built-in/named
+// anonymous target rejected by validation. GenerateGo rejects every global,
+// explicitly typed local (including named effective), inline, anonymous, and
+// schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
 // all-Boolean/numeric direct choices and default-bounded direct sequences. Local
 // anonymous and token/NMTOKEN consumers, repeated/non-default particles, and
