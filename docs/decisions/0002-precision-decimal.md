@@ -16,7 +16,7 @@ project implements this datatype as an explicit opt-in library/schema boundary.
 
 [`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers.
 Explicitly typed local `precisionDecimal`: Compatibility/Strict11 (Strict10
-rejects); direct choices only; choice and every mapped alternative require
+rejects); direct-only choices; choice and every mapped `precisionDecimal` alternative require
 default occurrences; `0/0` absent; only non-extension default-occurrence direct
 choices validate. Non-default `precisionDecimal` choice/alternative or non-`0/0`
 direct-sequence ranges schema-unsupported; non-precision alternatives retain
