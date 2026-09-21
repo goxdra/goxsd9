@@ -319,6 +319,61 @@ func TestSchemaBridgeRejectsLocalInlineAtomicBoundariesWithoutPartialSchema(t *t
 	}
 }
 
+//nolint:gocognit // Keep policy profiles and the exact integer allowlist together.
+func TestSchemaBridgeLocalInlineIntegerDerivedAllowlist(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	}
+	cases := []struct {
+		name      string
+		base      string
+		supported bool
+	}{
+		{name: "integer", base: "integer", supported: true},
+		{name: "negativeInteger", base: "negativeInteger", supported: true},
+		{name: "long", base: "long"},
+		{name: "unsignedLong", base: "unsignedLong"},
+		{name: "nonNegativeInteger", base: "nonNegativeInteger"},
+		{name: "nonPositiveInteger", base: "nonPositiveInteger"},
+	}
+	for _, profile := range profiles {
+		for _, test := range cases {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + profile.version + `"><xs:complexType name="Record"><xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="xs:` + test.base + `"/></xs:simpleType></xs:element></xs:choice></xs:complexType></xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if !test.supported {
+					if err == nil {
+						t.Fatal("discoverSchema accepted a rejected integer-derived inline base")
+					}
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureUnsupported || !errors.Is(err, ErrUnsupported) {
+						t.Fatalf("diagnostic = %s, want unsupported with preserved cause", diagnostic)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("discoverSchema: %v", err)
+				}
+				choice, ok := localInlineComplexType(t, schema, "Record").Particle().(ChoiceParticle)
+				if !ok || len(choice.Alternatives()) != 1 {
+					t.Fatalf("particle = %T/%d, want one-element choice", localInlineComplexType(t, schema, "Record").Particle(), len(choice.Alternatives()))
+				}
+				_, definition := requireInlineAnonymousReference(t, requireInlineElementParticle(t, choice.Alternatives()[0]))
+				if definition.Base().Local() != test.base {
+					t.Fatalf("inline base = %q, want %q", definition.Base(), test.base)
+				}
+			})
+		}
+	}
+}
+
 //nolint:gocognit // Keep validation and generation consumer gates paired by particle shape.
 func TestSchemaBridgeRejectsAnonymousLocalsInValidationAndGeneration(t *testing.T) {
 	for _, model := range []string{"choice", "sequence"} {

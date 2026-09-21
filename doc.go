@@ -35,7 +35,9 @@
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
 // not global components or Walk entries. Effective 0/0 maps to absence before
-// type-specific gating. Explicitly typed built-in/named token/NMTOKEN local
+// type-specific gating. Local inline integer-derived restrictions accept only
+// xs:integer and xs:negativeInteger; xs:long, xs:unsignedLong,
+// xs:nonNegativeInteger, and xs:nonPositiveInteger remain unsupported. Explicitly typed built-in/named token/NMTOKEN local
 // particles remain modeled; validation supports only default-occurrence direct
 // choices made entirely of local token or NMTOKEN alternatives, while other
 // consumers and shapes remain unsupported.
@@ -104,7 +106,12 @@
 // An extension with a present direct choice or sequence particle retains its exact
 // occurrence. A model-less extension retains its named base identity and locations
 // with a nil optional particle, no occurrence, and no synthetic content; validation
-// and code generation reject extension types as unsupported.
+// and code generation reject extension types at the extension boundary with
+// located FailureUnsupported/ErrUnsupported diagnostics. Their related locations
+// retain complex-content/extension/base/particle facts (and anyAttribute when
+// present); validation also retains declaration/definition owner locations and
+// its existing primary-location context, not an anonymous type location.
+// GenerateGo returns no output.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal/
@@ -114,10 +121,14 @@
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or default-occurrence references
 // to global Boolean, integer, or decimal elements. Local scalar consumers accept
-// built-in or named references only: modeled anonymous local inline atomic
-// references are schema-queryable but ValidateInstance rejects them with a located
-// FailureUnsupported/ErrUnsupported diagnostic related to the anonymous type
-// location, and GenerateGo rejects them with the same classification and no output.
+// built-in or named references only: direct choice/sequence checks reject modeled
+// anonymous local inline atomic references with located
+// FailureUnsupported/ErrUnsupported diagnostics that may include the anonymous
+// type location in related facts. Extension checks run first at the extension
+// boundary, retain complex-content/extension/base/particle (and anyAttribute
+// when present) related locations, and do not include the anonymous type
+// location; validation also retains declaration/definition owner locations,
+// while GenerateGo rejects them with the same classification and no output.
 // Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,

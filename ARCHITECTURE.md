@@ -85,7 +85,7 @@ retain immutable anonymous Boolean/integer/decimal refs, `SimpleTypeID`/`NodeID`
 QName/facets/locations/exact occurrences, and zero `ComponentID`/global-walk
 ownership. Built-ins lack IDs. Compatibility/Strict10/Strict11 support this shape;
 `0/0` is absent before gating.
-Integer refs retain bounds; global scalar constraints supported; broader/attribute consumers unsupported.
+Integer refs retain bounds; global scalar constraints supported; broader/attribute consumers unsupported. Local inline integer-derived types: `xs:integer`/`xs:negativeInteger` accepted; `xs:long`, `xs:unsignedLong`, `xs:nonNegativeInteger`, and `xs:nonPositiveInteger` rejected.
 Built-in/named Boolean/integer/decimal/token attrs: immutable default/fixed facts,
 normalized-lexical-form, exact values, source-location; token/Boolean collapse.
 Named complexes: `mixed="false|0"`/omitted=element-only; `mixed="true|1"`
@@ -98,39 +98,35 @@ Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
 Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
 Schema-level defaults separate. Direct choice/sequence/bounded attribute-free
 extensions expose query-only anonymous Boolean/integer/decimal restrictions.
-`ValidateInstance`/`GenerateGo` reject them: located
-`FailureUnsupported`/`ErrUnsupported`, related type location; `GenerateGo` no output.
+Direct choice/sequence checks may relate anonymous locations. Extension consumers reject at extension boundary: codegen primary is extension with related complex-content/extension/base/particle locations (optional anyAttribute); validation adds declaration/definition and keeps instance-root primary for sequences. Located `FailureUnsupported`/`ErrUnsupported` excludes anonymous locations; `GenerateGo` returns no output.
 Inline complex/list/union/string/token/NMTOKEN/precisionDecimal,
 value/default/fixed/attribute, nested/anonymous-reference/broader forms unsupported.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
-Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
-Groups/extensions: IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. Named-global sequence/choice owners: `anyAttribute`, default `##any`/strict; `##any`/lax|skip (namespace optional/explicit; skip), `##other`/lax|strict, explicit `##other`/skip, and positive namespaces (`##local`, `##targetNamespace`, URI lists)/strict; locations/values retained; attribute consumers unsupported. `xs:any`: `##any`/strict|lax|skip (skip explicit), `##other`/lax|strict, positive constraints (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing and sorted values; lexical/source locations; ranges; `0/0` absent. Consumers reject nonzero wildcards; broader unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed=invalid.
-Named groups expose ordered references/ranges; broader shapes unsupported; consumers reject.
+Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; `FinalLoc()` identifies the effective supplier; immutable controls/locations; restriction/list/union edges enforce policy; Strict10 rejects extension; unsupported boundaries.
+Groups/extensions: IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. Named-global sequence/choice owners expose `anyAttribute`: default `##any`/strict, `##any` lax|skip, `##other` lax|strict|skip, and positive namespaces strict; locations/values retained; attribute consumers unsupported. `xs:any`: `##any` strict|lax|skip, `##other` lax|strict, and positive namespaces strict|lax|skip; sorted values/locations/ranges; nonzero consumers and broader forms unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed invalid.
+Named groups expose ordered refs/ranges; broader shapes unsupported.
 
 ## Datatypes
 
-Lexical parsing and values are separate. Context-sensitive values such as QName
-retain namespace context.
+Lexical and value representations are separate; QName values retain namespace context.
 
-The datatype library implements XSD string enumeration and lossless
-arbitrary-precision integer/decimal/boolean/precisionDecimal mappings. PrecisionDecimal
-exposes exact finite/special values and facets; immutable named schema components
-retain them under Compatibility/Strict11. It remains optional and implementation-defined,
-not a mandatory XSD 1.1 claim. Boolean whitespace collapse is datatype behavior;
-boolean facets unsupported. Temporal distinctions and broader value spaces remain
-staged and report unsupported behavior.
+Datatype library implements string enumeration plus arbitrary-precision
+integer/decimal/boolean/precisionDecimal mappings. PrecisionDecimal exposes exact
+finite/special values and facets; immutable named components retain them under
+Compatibility/Strict11. It is optional and implementation-defined, not mandatory
+XSD 1.1. Boolean whitespace collapse is datatype behavior; boolean facets,
+temporal distinctions, and broader value spaces remain unsupported.
 
 ## Validation and code generation
 
-`ValidateInstance` supports root globals with built-in/named XSD scalar types
-(`boolean`/`token`/`NMTOKEN`/`integer`/`decimal`/`precisionDecimal`) and named
-direct-choice/sequence complexes. Local consumers accept built-in/named refs only
-plus default global Boolean/integer/decimal refs; anonymous local inline atomic refs
-are query-only and both consumers reject them as above. Homogeneous Boolean/numeric
+`ValidateInstance` supports built-in/named scalar roots and named direct
+choice/sequence complexes. Local consumers accept built-in/named refs plus default
+global Boolean/integer/decimal refs; anonymous locals are query-only and direct
+choice/sequence consumers reject them as above. Homogeneous Boolean/numeric
 sequences honor finite/unbounded/above-`uint64`; mixed/token/NMTOKEN sequences,
-strings, lists/unions, attributes, structures unsupported. References use `TargetID`;
-model groups rejected.
+strings, lists/unions, attributes, structures, and model groups are unsupported;
+references use `TargetID`.
 `token`/`NMTOKEN` collapse XML whitespace before effective enumeration; NMTOKEN enforces XML NameChar policy; facts unchanged.
 Validation accepts default all-token/NMTOKEN choices. Direct `xs:any` is
 query-only: nonzero terms are rejected with edition-selected diagnostics; `0/0` absent.

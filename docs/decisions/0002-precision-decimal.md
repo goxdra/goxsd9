@@ -16,9 +16,12 @@ project implements this datatype as an explicit opt-in library/schema boundary.
 
 The source is pinned as `xsd-precisionDecimal` in [`specs/manifest.json`](../../specs/manifest.json),
 including its digest: [An XSD datatype for IEEE floating-point decimal](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/).
-The completed optional precisionDecimal library/schema boundary has no
-precisionDecimal unsupported gate; validator and code-generation support remain
-separate.
+The precisionDecimal datatype/library and supported global/named model have no
+generic unsupported gate. See [`Decision 0007`](0007-particle-occurrence.md) for
+local placement and consumer limits. Inline local precisionDecimal restrictions
+and non-`0/0` direct-sequence precisionDecimal particles remain schema-unsupported
+with existing located, edition-specific diagnostics; validator/codegen support
+remain separate.
 
 ## Semantic contract
 
@@ -30,18 +33,16 @@ has finite decimal values with [numerical value](https://www.w3.org/TR/2011/NOTE
 +INF is above finite values and -INF; -INF is below finite values and +INF. This is a partial, not total, order.
 
 Final XSD 1.1 [`cvc-enumeration-valid`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#cvc-enumeration-valid)
-uses `equal or identical` membership; [`identity`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#identity) permits a `NaN`
-enumeration member to accept `NaN` by value identity. In general equality/partial comparison, `NaN` remains unordered
-and not equal to itself; signed zero and finite lexical variants use numeric equality. The datatype remains optional.
+uses `equal or identical`; [`identity`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#identity) lets a `NaN`
+enumeration member accept `NaN`. General comparison leaves `NaN` unordered and unequal to itself; signed zero and
+finite lexical variants use numeric equality. The datatype remains optional.
 
 The [§3.2 lexical mapping](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#pD-lexical-mapping),
-its [`pDecimalRep`](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#nt-precDecRep) grammar, and
-the [lexical-map function](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#f-precDecLexmap) apply
-collapsed whitespace and admit decimal, decimal-point, scientific, and special forms (`INF`, `+INF`, `-INF`,
-`NaN`). The [special-value definition](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#dt-specialvalue)
-is part of the value model. Mapping is exact and does not round. Scale is fractional-digit count minus exponent:
-`3.00` retains scale 2, while `3.0e2` has numerical value 300 and scale -1. Retain trailing zeroes; very large
-signed exponents must not acquire a machine-sized bound.
+[`pDecimalRep`](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#nt-precDecRep), and
+[lexical-map function](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#f-precDecLexmap) apply
+collapsed whitespace to decimal, decimal-point, scientific, and special forms; the [special-value definition](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#dt-specialvalue)
+remains part of the value model. Mapping is exact; scale is fractional-digit count minus exponent (`3.00` scale 2,
+`3.0e2` value 300, scale -1). Retain trailing zeroes; signed exponents remain unbounded.
 
 Applicable facets are exactly:
 

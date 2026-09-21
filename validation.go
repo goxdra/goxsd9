@@ -182,10 +182,16 @@ type instanceChoiceProgram struct {
 // global Boolean, integer, and decimal elements. Direct sequences contain only
 // local built-in or named Boolean elements or only local built-in or named
 // integer/decimal elements. Modeled anonymous local inline atomic references
-// remain schema-queryable only: ValidateInstance returns a located
-// FailureUnsupported/ErrUnsupported diagnostic with the anonymous type location
-// related. Mixed Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices,
-// and local NMTOKEN or token sequence particles remain unsupported.
+// remain schema-queryable only: direct choice/sequence target checks return a
+// located FailureUnsupported/ErrUnsupported diagnostic and may include the
+// anonymous type location in related facts. Complex-content extensions are
+// rejected before target inspection at their extension boundary, retaining
+// declaration/definition owner locations and complex-content/extension/base/
+// particle (and anyAttribute, when present) related locations without an
+// anonymous type location. The streaming sequence path keeps the instance root
+// as primary.
+// Mixed Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices, and
+// local NMTOKEN or token sequence particles remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint
