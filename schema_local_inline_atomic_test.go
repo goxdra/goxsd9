@@ -374,6 +374,55 @@ func TestSchemaBridgeLocalInlineIntegerDerivedAllowlist(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the local particle enumeration boundary across shapes and policies.
+func TestSchemaBridgeKeepsLocalNonStringEnumerationUnsupported(t *testing.T) {
+	for _, profile := range []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "strict10", policy: Strict10, version: XSDVersion10},
+		{name: "strict11", policy: Strict11, version: XSDVersion11},
+	} {
+		for _, model := range []string{"choice", "sequence", "extension"} {
+			t.Run(profile.name+"/"+model, func(t *testing.T) {
+				root := localNonStringEnumerationSchemaRoot(profile.version, model)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("discoverSchema accepted a non-string anonymous enumeration")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != UnsupportedDatatypeFacetCode {
+					t.Fatalf("diagnostic = %s/%q/%q, want unsupported datatype facet", diagnostic, diagnostic.Feature(), diagnostic.Code())
+				}
+				if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 4, "<xs:enumeration") {
+					t.Fatalf("diagnostic location = %s, want enumeration location", diagnostic.Loc())
+				}
+				wantSpecRef := "xsd10-datatypes#decimal"
+				if profile.version == XSDVersion11 {
+					wantSpecRef = "xsd11-datatypes#decimal"
+				}
+				if diagnostic.SpecRef() != wantSpecRef || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("diagnostic metadata/classification = %q/%v, want %q/ErrUnsupported", diagnostic.SpecRef(), err, wantSpecRef)
+				}
+			})
+		}
+	}
+}
+
+func localNonStringEnumerationSchemaRoot(version XSDVersion, model string) string {
+	particle := `<xs:` + model + `><xs:element name="value"><xs:simpleType><xs:restriction base="xs:integer"><xs:enumeration value="1"/></xs:restriction></xs:simpleType></xs:element></xs:` + model + `>`
+	if model == "extension" {
+		particle = `<xs:complexContent><xs:extension base="t:Base"><xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="xs:integer"><xs:enumeration value="1"/></xs:restriction></xs:simpleType></xs:element></xs:choice></xs:extension></xs:complexContent>`
+	}
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="` + string(version) + `">
+  <xs:element name="root" type="t:Record"/>
+  <xs:complexType name="Base"/>
+  <xs:complexType name="Record">` + particle + `</xs:complexType>
+</xs:schema>`
+}
+
 //nolint:gocognit // Keep validation and generation consumer gates paired by particle shape.
 func TestSchemaBridgeRejectsAnonymousLocalsInValidationAndGeneration(t *testing.T) {
 	for _, model := range []string{"choice", "sequence"} {

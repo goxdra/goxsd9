@@ -6,13 +6,15 @@ goxsd9 parses/validates/generates Go; unsupported remains explicit.
 
 `ParseSchema`: immutable components; caller-provided `ResolvedSource`/`Resolver`; sequential calls, opaque locations; Compatibility default.
 
-XSD 1.0/1.1; facets/`openAttrs`/extensions. Complexes: element-only/model-group refs, bounded attribute-free extensions; model-less empty bases: nil particle; inherited `##other`/lax wildcards. `defaultAttributesApply`: named globals, XSD 1.1/Compatibility.
-`openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch; other unsupported.
-`xs:any`: `##any` strict|lax|skip, `##other` lax|strict, positive namespaces strict|lax|skip; broader/nonzero unsupported. `anyAttribute`: `##any` strict|lax|skip, `##other` lax|strict|skip, positive namespaces strict.
-Top-level model-group/named-global choice/sequence refs only; nested/other groups unsupported. Local anonymous Boolean/integer/decimal restrictions queryable in direct choice/sequence and bounded attribute-free extensions under all policies; 0/0 absent. Integer-derived: accept `xs:integer`/`xs:negativeInteger`; reject `xs:long`/`xs:unsignedLong`/`xs:nonNegativeInteger`/`xs:nonPositiveInteger`. Direct checks may relate anonymous type location. Extensions reject at boundary with located `FailureUnsupported`/`ErrUnsupported`, extension/base/particle locations (optional anyAttribute), no anonymous location; `GenerateGo` no output. Token/NMTOKEN locals queryable; inline complex/list/union/string/token/NMTOKEN/precisionDecimal, value/default/fixed/attribute, anonymous-reference, nested/broader unsupported.
+XSD 1.0/1.1; facets/`openAttrs`/extensions; element-only/model-group refs; bounded attribute-free extensions; model-less bases nil particles; inherited `##other`/lax; `defaultAttributesApply` named globals in XSD 1.1/Compatibility.
+`openContent=none`: Compatibility/Strict11 globals/extensions; Strict10 mismatch.
+`xs:any`: `##any` strict|lax|skip; `##other` lax|strict; positive namespaces strict|lax|skip; broader/nonzero unsupported. `anyAttribute`: `##any` strict|lax|skip; `##other` lax|strict|skip; positive namespaces strict.
+Model-group/named-global choice/sequence refs only; nested/other unsupported. Anonymous local Boolean/integer/decimal facts queryable with supported facets; non-string enumeration: `FailureUnsupported`/`ErrUnsupported` at facet `Loc`, no schema. Effective `integer`/`negativeInteger` accepted through named/forward/imported/included/chameleon; `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` rejected; written QName/ownership retained. `0/0` absent; direct checks may relate anonymous `Loc`.
+Local anonymous complex/list/union/string/token/NMTOKEN/precisionDecimal/value/default/fixed/attribute/nested/reference/broader unsupported. Global anonymous string/token/NMTOKEN facts; global anonymous `precisionDecimal` Compatibility/Strict11 (Strict10 rejects); explicit-typed token/NMTOKEN queryable; consumer-only.
+Non-group direct-choice/direct-sequence/model-less extensions: codegen extension-primary/complex-content/extension/base/particle; validation owners/sequence-instance; no anonymous `Loc`. Group-ref: validation `RefLoc`/particle; codegen `RefLoc`/group/component/reference/target. `FailureUnsupported`/`ErrUnsupported`; `GenerateGo` no output.
 
-`abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. [ARCHITECTURE.md](ARCHITECTURE.md).
-[Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
+Named complex `abstract` is non-inherited; consumers reject it. [ARCHITECTURE.md](ARCHITECTURE.md).
+[Direct-choice example](direct_choice_example_test.go); run it; [scalar quickstart](library_example_test.go).
 
 ## Product CLI
 

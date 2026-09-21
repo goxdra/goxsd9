@@ -85,7 +85,7 @@ retain immutable anonymous Boolean/integer/decimal refs, `SimpleTypeID`/`NodeID`
 QName/facets/locations/exact occurrences, and zero `ComponentID`/global-walk
 ownership. Built-ins lack IDs. Compatibility/Strict10/Strict11 support this shape;
 `0/0` is absent before gating.
-Integer refs retain bounds; global scalar constraints supported; broader/attribute consumers unsupported. Local inline integer-derived types: `xs:integer`/`xs:negativeInteger` accepted; `xs:long`, `xs:unsignedLong`, `xs:nonNegativeInteger`, and `xs:nonPositiveInteger` rejected.
+Integer refs retain bounds. Local anonymous effective `integer`/`negativeInteger` accepted via named/forward/imported/included/chameleon; effective `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` rejected. Written QName/ownership remain distinct.
 Built-in/named Boolean/integer/decimal/token attrs: immutable default/fixed facts,
 normalized-lexical-form, exact values, source-location; token/Boolean collapse.
 Named complexes: `mixed="false|0"`/omitted=element-only; `mixed="true|1"`
@@ -96,15 +96,13 @@ Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
 `defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
 Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
-Schema-level defaults separate. Direct choice/sequence/bounded attribute-free
-extensions expose query-only anonymous Boolean/integer/decimal restrictions.
-Direct choice/sequence checks may relate anonymous locations. Extension consumers reject at extension boundary: codegen primary is extension with related complex-content/extension/base/particle locations (optional anyAttribute); validation adds declaration/definition and keeps instance-root primary for sequences. Located `FailureUnsupported`/`ErrUnsupported` excludes anonymous locations; `GenerateGo` returns no output.
-Inline complex/list/union/string/token/NMTOKEN/precisionDecimal,
-value/default/fixed/attribute, nested/anonymous-reference/broader forms unsupported.
+Direct choice/sequence/bounded extensions expose query-only anonymous Boolean/integer/decimal restrictions; supported facets queryable, but non-string anonymous enumeration is `FailureUnsupported`/`ErrUnsupported` at facet `Loc`, with no partial schema.
+Non-model-group-reference choice/sequence/model-less extensions reject: codegen extension primary with complex-content/extension/base/particle (+`anyAttribute`) related; validation owners and sequence instance primary. Model-group-reference: group `RefLoc` primary, validation group-particle related, codegen group/component/reference/target related. No `GenerateGo` output.
+Local anonymous restriction particles: complex/list/union/string/token/NMTOKEN/precisionDecimal and value/default/fixed/attribute/nested/anonymous-reference/broader forms unsupported. Global anonymous string/token/NMTOKEN facts; global `precisionDecimal` Compatibility/Strict11-only (Strict10 rejects). Explicit local token/NMTOKEN queryable; consumer exclusions remain.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
-Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; `FinalLoc()` identifies the effective supplier; immutable controls/locations; restriction/list/union edges enforce policy; Strict10 rejects extension; unsupported boundaries.
-Groups/extensions: IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. Named-global sequence/choice owners expose `anyAttribute`: default `##any`/strict, `##any` lax|skip, `##other` lax|strict|skip, and positive namespaces strict; locations/values retained; attribute consumers unsupported. `xs:any`: `##any` strict|lax|skip, `##other` lax|strict, and positive namespaces strict|lax|skip; sorted values/locations/ranges; nonzero consumers and broader forms unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed invalid.
+Simple types: schema `finalDefault` supplies missing `final`; local `final` overrides; `FinalLoc` identifies the supplier; immutable controls/locations; restriction/list/union enforce policy; Strict10 rejects extension; unsupported boundaries.
+Groups/extensions: IDs/locations; model-less empty bases/nil particles/inherited `##other`/lax. Named-global sequence/choice owners expose `anyAttribute`: default `##any`/strict, `##any` lax|skip, `##other` lax|strict|skip, positive namespaces strict; locations/values retained; consumers unsupported. `xs:any`: `##any` strict|lax|skip, `##other` lax|strict, positive namespaces strict|lax|skip; sorted values/locations/ranges; nonzero consumers/broader unsupported. `openContent=none`: globals/extensions Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed invalid.
 Named groups expose ordered refs/ranges; broader shapes unsupported.
 
 ## Datatypes
