@@ -232,6 +232,34 @@ func (reference SimpleTypeReference) AnonymousType() (SimpleTypeDefinition, bool
 	return SimpleTypeDefinition{facts: reference.facts.anonymous}, true
 }
 
+// StringEnumerationFacets returns the effective lexical string enumeration
+// facets of the referenced type. It returns the zero value for a non-string
+// reference.
+func (reference SimpleTypeReference) StringEnumerationFacets() StringEnumerationFacets {
+	if reference.facts == nil {
+		return StringEnumerationFacets{}
+	}
+	facets, ok := reference.facts.facets.(schemaStringFacetVariant)
+	if !ok {
+		return StringEnumerationFacets{}
+	}
+	return facets.enumeration
+}
+
+// StringWhiteSpaceFacet returns the effective string whiteSpace facet of the
+// referenced type. It returns false for a non-string reference or incomplete
+// internal facet facts.
+func (reference SimpleTypeReference) StringWhiteSpaceFacet() (StringWhiteSpaceFacet, bool) {
+	if reference.facts == nil {
+		return StringWhiteSpaceFacet{}, false
+	}
+	facets, ok := reference.facts.facets.(schemaStringFacetVariant)
+	if !ok || facets.whiteSpace == nil {
+		return StringWhiteSpaceFacet{}, false
+	}
+	return *cloneStringWhiteSpaceFacet(facets.whiteSpace), true
+}
+
 // IsBuiltin reports whether the reference names an XSD built-in datatype.
 func (reference SimpleTypeReference) IsBuiltin() bool {
 	return reference.Kind() == SimpleTypeReferenceBuiltin
