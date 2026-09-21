@@ -14,17 +14,17 @@ requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120
 permit, but do not require, primitive datatypes outside the standard set. The
 project implements this datatype as an explicit opt-in library/schema boundary.
 
-[`Decision 0007`](0007-particle-occurrence.md) covers placement/consumers.
-Explicitly typed local `precisionDecimal` supports Compatibility/Strict11
-(Strict10 rejects) only in direct choices with default choice/mapped-alternative
-occurrences; `0/0` absent; only non-extension default-occurrence direct choices
-validate. Non-default `precisionDecimal` choice/alternative or non-`0/0`
-direct-sequence ranges are schema-unsupported; non-precision alternatives retain
-non-default query-only ranges. Modeled local anonymous Boolean/integer/decimal;
-schema-unsupported local anonymous token/NMTOKEN/`precisionDecimal`; `0/0`
-omitted before gating. Global inline `precisionDecimal` is schema/query-valid
-in Compatibility/Strict11 (Strict10 rejects); anonymous targets are
-consumer-rejected.
+[`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers.
+Explicitly typed local `precisionDecimal`: Compatibility/Strict11 (Strict10
+rejects); direct choices only; choice and every mapped alternative require
+default occurrences; `0/0` absent; only non-extension default-occurrence direct
+choices validate. Non-default `precisionDecimal` choice/alternative or non-`0/0`
+direct-sequence ranges schema-unsupported; non-precision alternatives retain
+non-default query-only ranges. Local anonymous Boolean/integer/decimal modeled;
+local anonymous token/NMTOKEN/`precisionDecimal` schema-unsupported when mapped;
+effective `0/0` omitted before type-specific gating. Global inline
+`precisionDecimal`: schema/query-valid in Compatibility/Strict11 (Strict10
+rejects); anonymous targets consumer-rejected.
 
 ## Semantic contract
 

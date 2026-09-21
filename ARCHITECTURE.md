@@ -22,10 +22,10 @@ flowchart LR
 ```
 
 Phases consume results; local construction uses unexported slices/tables; completed
-components are immutable and never backpatched. Identities intern before discovery;
+components are immutable, never backpatched. Identities intern before discovery;
 repeated includes/imports reuse them, so cycles do not recurse; acyclic dependencies
 use stable topological order. Ordered slices define observable walks/output; fallback
-keys are stable.
+keys stable.
 
 ## Input and resolution
 
@@ -44,9 +44,9 @@ type Resolver interface {
 ```
 
 Sources carry opaque identity, reader-closer, child context; resolvers may store
-private base-location state. FIFO discovery preserves nested contexts. The parser
+private base-location state. FIFO discovery preserves nested contexts. Parser
 does not interpret opaque identities/locations, open paths, or make network requests.
-Resolver calls are sequential.
+Resolver calls sequential.
 
 Decode captures one-based line and Unicode-code-point columns; syntax/final
 components retain `Loc`, not source bytes.
@@ -81,8 +81,8 @@ no schema. Written QName/ownership distinct.
 Built-in/named Boolean/integer/decimal/token attrs: immutable default/fixed facts,
 normalized-lexical-form, exact values, source-location; token/Boolean collapse.
 Named complexes: `mixed="false|0"`/omitted=element-only; `mixed="true|1"`
-unsupported. Malformed/contradictory XSD 1.1 syntax is `FailureInvalid`; valid
-shapes outside the model are `FailureUnsupported`.
+unsupported. Malformed/contradictory XSD 1.1 syntax: `FailureInvalid`; valid
+shapes outside model: `FailureUnsupported`.
 Typed global attrs: immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
 Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
 `defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
@@ -95,7 +95,7 @@ first: codegen extension primary; validation owner/sequence-instance primary; no
 anonymous location. Direct/extension model-group refs use group `RefLoc` primary;
 validation relates particle, codegen group/component/reference/target. No
 `GenerateGo` output.
-Local anonymous Boolean/integer/decimal restrictions queryable; consumers reject them. Mapped local anonymous token/NMTOKEN/`precisionDecimal` are schema-unsupported for mapped particles; `0/0` is omitted before type gating. Typed local `precisionDecimal`: Compatibility/Strict11 (Strict10 rejects), default direct-choice/mapped alternatives; only non-extension default-occurrence direct choices validate. Typed token/NMTOKEN queryable. Global inline `precisionDecimal` is a Compatibility/Strict11 schema/query target (Strict10 rejects); consumers reject anonymous targets.
+Local anonymous Boolean/integer/decimal queryable but consumer-rejected. Mapped local anonymous token/NMTOKEN/`precisionDecimal` schema-unsupported; `0/0` omitted before type gating. Typed local `precisionDecimal`: Compatibility/Strict11 (Strict10 rejects); choice/all mapped alternatives require default occurrences; only non-extension default direct choices validate. Non-default `precisionDecimal` choice/alternative or non-`0/0` direct-sequence `precisionDecimal` ranges schema-unsupported; non-precision alternatives retain non-default query-only ranges. Typed token/NMTOKEN queryable. Global inline `precisionDecimal`: Compatibility/Strict11 schema/query target (Strict10 rejects); anonymous targets consumer-rejected.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
 Simple types: `finalDefault` fills missing `final`; local `final` overrides; `FinalLoc` identifies the supplier; immutable policy controls; Strict10 rejects extension.
@@ -109,7 +109,7 @@ Lexical/value representations are separate; QName values retain namespace contex
 Datatype library implements string enumeration and arbitrary-precision
 integer/decimal/boolean/precisionDecimal mappings. PrecisionDecimal exposes exact
 finite/special values/facets; named components retain them under Compatibility/Strict11.
-It is optional and implementation-defined, not mandatory XSD 1.1. Boolean whitespace
+Optional and implementation-defined, not mandatory XSD 1.1. Boolean whitespace
 collapse is datatype behavior; boolean facets, temporal distinctions, and broader
 value spaces remain unsupported.
 
