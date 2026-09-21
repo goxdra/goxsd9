@@ -11,14 +11,14 @@ identify it as a W3C Working Group Note describing an implementation-defined
 datatype and work in progress; it is not a mandatory XSD 1.1 conformance
 requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/)
 §2.5.1 (primitive datatypes; `#dt-primitive`) and [§H.1](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#impl-def)
-permit, but do not require, primitive datatypes outside the standard set. The
-project implements this datatype as an explicit opt-in library/schema boundary.
+permit, but do not require, primitive datatypes outside the standard set.
+This is an opt-in library/schema boundary.
 
-[`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers. Boundary:
+[`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers:
 
-- Schema/query: policy precedes occurrence omission. Strict10 typed `precisionDecimal` (even `0/0`) is unsupported; Compatibility/Strict11 omit `0/0`. They retain mapped precision in default/bounded extension choices; mapped non-default precision choices and non-`0/0` direct sequences reject schema; nonprecision non-default alternatives query-only.
-- Validation: built-in/named `precisionDecimal` roots validate. Only non-extension default choices validate; extensions/anonymous reject.
-- Generation: `precisionDecimal` queryable; `GenerateGo` rejects. Inline admission is Compatibility/Strict11; Strict10 reports its type location.
+- Schema/query: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; Strict10 rejects them pre-validation with located `FeatureDatatypeFacets`/`FailureUnsupported`/`ErrUnsupported`. Mapped local-anonymous precision is unsupported when mapped: policy precedes `0/0`; Strict10 rejects typed forms including zero; Compatibility/Strict11 omit zero and admit default direct/bounded attr-free extensions. Non-default choices/non-`0/0` direct sequences reject; nonprecision alternatives query-only.
+- Validation: Compatibility/Strict11 built-in/named `precisionDecimal` roots validate; inline/anonymous targets reject. Non-extension defaults validate; extensions reject.
+- Generation: Compatibility/Strict11 queryable; `GenerateGo` rejects all global/anonymous `precisionDecimal` targets; extensions reject.
 
 ## Semantic contract
 
@@ -27,7 +27,7 @@ has finite decimal values with [numerical value](https://www.w3.org/TR/2011/NOTE
 [sign](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#vp-pd-sign), significand, and
 [integer scale](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#vp-pd-precision), plus `+INF`/`INF`,
 `-INF`, and `NaN`. Signed zeros are distinct but numerically equal; `NaN` is incomparable, including with itself.
-+INF is above finite values and -INF; -INF is below finite values and +INF. This is a partial, not total, order.
++INF is above finite values and -INF; -INF is below finite values and +INF. This is a partial order.
 
 Final XSD 1.1 [`cvc-enumeration-valid`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#cvc-enumeration-valid)
 uses `equal or identical`; [`identity`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#identity) lets a `NaN`

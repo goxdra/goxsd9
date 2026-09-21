@@ -20,8 +20,12 @@
 // Redefine/override/defaultOpenContent, assertions, and Boolean facets and
 // datatype facets outside the supported string enumeration/whiteSpace, integer/decimal,
 // and optional precisionDecimal boundaries return explicit unsupported diagnostics.
-// Global anonymous inline precisionDecimal is available under Compatibility or
-// Strict11; Strict10 reports a located policy diagnostic at the type location.
+// Global built-in, named, and inline precisionDecimal schema/query facts are
+// available only under Compatibility or Strict11; Strict10 rejects each before
+// validation with a located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported
+// policy diagnostic at the typed reference or type location. Under admitting
+// policies, built-in/named roots validate, while inline anonymous targets remain
+// excluded from validation and generation.
 // Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
@@ -83,25 +87,27 @@
 // built-in xs:boolean or named Boolean restrictions; mixed Boolean/numeric
 // choices remain unsupported.
 // Explicitly typed XSD 1.1 precisionDecimal is admitted by policy before
-// occurrence omission. Strict10 returns a located FeatureDatatypeFacets
-// FailureUnsupported/ErrUnsupported policy-mismatch diagnostic, including
-// zero-occurrence cases. Compatibility and Strict11 omit effective 0/0.
-// Under those policies, only mapped non-default precisionDecimal
-// choice/alternative ranges or non-0/0 direct-sequence precisionDecimal ranges
-// that map to particles are schema-unsupported. The choice and each mapped
-// precisionDecimal alternative otherwise require default occurrences, and
-// non-precision alternatives may retain non-default query-only ranges. Only
-// non-extension default-occurrence direct choices are validation-eligible. The
+// occurrence omission. Compatibility and Strict11 admit mapped precisionDecimal
+// in default-occurrence direct choices and bounded attribute-free extension
+// choices and omit effective 0/0. Strict10 returns a located FeatureDatatypeFacets
+// FailureUnsupported/ErrUnsupported policy-mismatch diagnostic first, including
+// zero-occurrence cases. Under Compatibility/Strict11, mapped non-default
+// precisionDecimal choice/alternative ranges or non-0/0 direct-sequence
+// precisionDecimal ranges that map to particles are schema-unsupported. The
+// choice and each mapped precisionDecimal alternative otherwise require default
+// occurrences, and non-precision alternatives may retain non-default query-only
+// ranges. Only non-extension default-occurrence direct choices are
+// validation-eligible; extension choices, including schema-admitted
+// precisionDecimal choices, are rejected by validation and generation. The
 // supported local anonymous model is limited to atomic
 // Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
 // attribute-free extension shapes above. Local anonymous Boolean/integer/decimal
 // restrictions remain queryable but direct validation and generation reject them;
 // mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions are
 // schema-unsupported when mapped; effective 0/0 omission follows policy
-// admission. Global inline
-// precisionDecimal is Compatibility/Strict11 schema/query support (Strict10
-// rejects); its anonymous declaration remains a query target, but validation and
-// generation reject anonymous targets.
+// admission. Global inline precisionDecimal remains a query target only under
+// Compatibility/Strict11; Strict10 rejects it before validation, and its
+// anonymous target is excluded from validation and generation.
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.
@@ -147,8 +153,9 @@
 // FailureUnsupported/ErrUnsupported diagnostics; GenerateGo returns no output.
 //
 // ValidateInstance supports one complete instance rooted at a global element
-// declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal/
-// xs:precisionDecimal, or as a named global complex type with one direct
+// declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal
+// under all policies, or built-in/named xs:precisionDecimal under Compatibility
+// or Strict11, or as a named global complex type with one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
 // restriction elements, one direct integer/decimal sequence of local built-in or
 // named elements, or one direct choice
@@ -194,10 +201,14 @@
 // anonymous targets are rejected. Global inline Boolean/integer/decimal,
 // long/unsignedLong/negativeInteger/nonNegativeInteger/nonPositiveInteger, and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their
-// anonymous validation and generation consumers are rejected. Global
-// precisionDecimal is queryable and generation-rejected; inline precisionDecimal
-// is schema/query-valid under Compatibility/Strict11, while Strict10 returns the
-// located policy diagnostic at its type location. Local built-in/named
+// anonymous validation and generation consumers are rejected.
+// Global built-in, named, and inline precisionDecimal schema/query facts are
+// available only under Compatibility/Strict11; Strict10 returns the located
+// FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
+// before validation at the typed reference or type location. Global built-in/named
+// roots validate under those policies, while inline precisionDecimal is an
+// anonymous target rejected by validation. GenerateGo rejects every global
+// precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
 // all-Boolean/numeric direct choices and default-bounded direct sequences. Local
 // anonymous and token/NMTOKEN consumers, repeated/non-default particles, and
