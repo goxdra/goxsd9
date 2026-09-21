@@ -273,6 +273,18 @@ func TestSchemaBridgeRejectsLocalInlineAtomicBoundariesWithoutPartialSchema(t *t
 			cause: ErrUnsupported,
 		},
 		{
+			name:  "token restriction remains unsupported",
+			body:  `<xs:complexType name="Record"><xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="xs:token"/></xs:simpleType></xs:element></xs:choice></xs:complexType>`,
+			class: FailureUnsupported,
+			cause: ErrUnsupported,
+		},
+		{
+			name:  "NMTOKEN restriction remains unsupported",
+			body:  `<xs:complexType name="Record"><xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="xs:NMTOKEN"/></xs:simpleType></xs:element></xs:choice></xs:complexType>`,
+			class: FailureUnsupported,
+			cause: ErrUnsupported,
+		},
+		{
 			name:  "list remains unsupported",
 			body:  `<xs:complexType name="Record"><xs:choice><xs:element name="value"><xs:simpleType><xs:list itemType="xs:integer"/></xs:simpleType></xs:element></xs:choice></xs:complexType>`,
 			class: FailureUnsupported,

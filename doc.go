@@ -28,10 +28,17 @@
 // The schema model exposes one direct ordered sequence and direct choices of local
 // built-in xs:boolean, named boolean-restriction, integer, decimal, and explicitly
 // typed built-in or supported named xs:token/xs:NMTOKEN particles for named global
-// complex types. Token/NMTOKEN local particles are modeled; validation supports
-// only default-occurrence direct choices made entirely of local token or NMTOKEN alternatives,
-// while other consumers and shapes remain unsupported. Exact immutable occurrence
-// ranges are retained.
+// complex types. It also exposes local inline anonymous atomic Boolean, integer, and
+// decimal restrictions in direct choices/sequences and bounded attribute-free
+// extensions under Compatibility, Strict10, and Strict11. Their immutable
+// TypeReference/AnonymousType views retain SimpleTypeID ownership through
+// AnonymousID/NodeID, base QName context, effective facets, source locations, and
+// exact particle occurrences; anonymous definitions have zero ComponentID and are
+// not global components or Walk entries. Effective 0/0 maps to absence before
+// type-specific gating. Explicitly typed built-in/named token/NMTOKEN local
+// particles remain modeled; validation supports only default-occurrence direct
+// choices made entirely of local token or NMTOKEN alternatives, while other
+// consumers and shapes remain unsupported.
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
 // omitted namespace with processContents="lax"), ##any/skip with explicit
 // processContents="skip", ##other/lax, and ##other/strict forms, plus positive
@@ -61,14 +68,18 @@
 // and each mapped precisionDecimal alternative use default occurrences;
 // non-default precisionDecimal choice or alternative ranges and non-0/0
 // direct-sequence precisionDecimal ranges that map to particles are
-// schema-unsupported. Anonymous/inline local types, local value/default/fixed/attribute
-// constraints, nested, and broader particles remain unsupported; explicitly typed built-in or
-// supported named token/NMTOKEN elements in direct choices/sequences and bounded
-// attribute-free extensions are modeled; validation supports only default-occurrence
-// all-token/NMTOKEN direct choices, while local token/NMTOKEN sequences and generation remain
-// unsupported. Local string particles remain unsupported. Anonymous simple-type
-// models and resolved built-in, named, and anonymous simple-type references are
-// modeled. Direct element references are queryable immutable particles.
+// schema-unsupported. The supported local anonymous model is limited to atomic
+// Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
+// attribute-free extension shapes above. Inline complex, list/union,
+// string/token/NMTOKEN/precisionDecimal restrictions, local value/default/fixed/
+// attribute constraints, nested, anonymous-reference, and broader forms remain unsupported.
+// Explicitly typed built-in or supported named token/NMTOKEN elements in direct
+// choices/sequences and bounded attribute-free extensions are modeled; validation
+// supports only default-occurrence all-token/NMTOKEN direct choices, while local
+// token/NMTOKEN sequences and generation remain unsupported. Local string particles
+// remain unsupported. Supported anonymous simple-type models and references are
+// modeled for schema queries; direct element references are queryable immutable
+// particles.
 // ValidateInstance supports default-occurrence direct choices made entirely of
 // references to global Boolean, integer, or decimal scalar elements;
 // GenerateGo supports only default-occurrence direct choices made entirely of
@@ -102,7 +113,12 @@
 // restriction elements, one direct integer/decimal sequence, or one direct choice
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or default-occurrence references
-// to global Boolean, integer, or decimal elements. Direct local sequences match expanded
+// to global Boolean, integer, or decimal elements. Local scalar consumers accept
+// built-in or named references only: modeled anonymous local inline atomic
+// references are schema-queryable but ValidateInstance rejects them with a located
+// FailureUnsupported/ErrUnsupported diagnostic related to the anonymous type
+// location, and GenerateGo rejects them with the same classification and no output.
+// Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
 // and Strict11. Mixed Boolean/numeric sequences, direct-choice repetition, and excluded particle/target shapes

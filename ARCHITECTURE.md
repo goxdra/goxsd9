@@ -80,26 +80,32 @@ Documents: identity-discovery order; declarations: lexical order.
 declaration ordinals; lookup maps: unordered. Local particles: scoped facts/indexes;
 validator/generator: on-demand.
 
-Primitive: scalar facts retain `DeclaredType`; token/NMTOKEN refs
-and bounded, attribute-free local choice/sequence/extension particles retain
-anonymous atomic Boolean/integer/decimal refs with IDs, facets,
-QName context/locations; locals are not components/walks. Built-ins lack
-IDs.
-Integer-family refs retain bounds; global Boolean/integer/decimal/token constraints supported; broader/non-atomic forms and attribute consumers unsupported.
-Built-in/named Boolean/integer/decimal/token attrs: immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
-exact Boolean/numeric values, source-location; token/Boolean collapse. Named complexes: `mixed="false|0"`; omitted=element-only
-(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1; anonymous complex/other shapes unsupported.
+Primitive: `DeclaredType`; bounded attribute-free local choice/sequence/extensions
+retain immutable anonymous Boolean/integer/decimal refs, `SimpleTypeID`/`NodeID`,
+QName/facets/locations/exact occurrences, and zero `ComponentID`/global-walk
+ownership. Built-ins lack IDs. Compatibility/Strict10/Strict11 support this shape;
+`0/0` is absent before gating.
+Integer refs retain bounds; global scalar constraints supported; broader/attribute consumers unsupported.
+Built-in/named Boolean/integer/decimal/token attrs: immutable default/fixed facts,
+normalized-lexical-form, exact values, source-location; token/Boolean collapse.
+Named complexes: `mixed="false|0"`/omitted=element-only; `mixed="true|1"`
+unsupported. Malformed/contradictory XSD 1.1 and anonymous complex/other shapes
+unsupported.
 Typed global attrs: immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
 Compatibility/Strict11 accept, Strict10 mismatches; untyped/inline unsupported.
 `defaultAttributesApply="true|false|1|0"`: named globals only in XSD 1.1/Compatibility without schema-level
 `defaultAttributes`; validated/discarded, no public/validator/generator state; Strict10 mismatches.
 Root `xpathDefaultNamespace` inert: Compatibility/Strict11 validate/discard; malformed invalid, Strict10 located mismatch; XPath constructs unsupported.
-Schema-level defaults; local non-particle/inline/value/default/fixed/attribute/broader forms and
-non-atomic-string/string attrs unsupported.
+Schema-level defaults separate. Direct choice/sequence/bounded attribute-free
+extensions expose query-only anonymous Boolean/integer/decimal restrictions.
+`ValidateInstance`/`GenerateGo` reject them: located
+`FailureUnsupported`/`ErrUnsupported`, related type location; `GenerateGo` no output.
+Inline complex/list/union/string/token/NMTOKEN/precisionDecimal,
+value/default/fixed/attribute, nested/anonymous-reference/broader forms unsupported.
 
 Complexes: non-inherited `IsAbstract()`; named types: non-empty `final`; `Final()`: canonical extension→restriction; `FinalLoc()`: source location; XSD 1.0/1.1/Compatibility; `final=extension`/`#all` rejects extension.
 Simple types: non-empty schema `finalDefault` supplies named types lacking local `final`; local empty/non-empty `final` overrides; non-empty effective `final`: `FinalLoc()` identifies supplier local `final`/document `finalDefault`; immutable controls/locations; restriction/list/union edges enforce graph-policy matching controls; Strict10 rejects extension; unsupported boundaries.
-Groups/extensions: IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. Named-global sequence/choice owners: `anyAttribute`, default `##any`/strict; `##any`/lax|skip (namespace optional/explicit; skip), `##other`/lax|strict, explicit `##other`/skip, and positive namespaces (`##local`, `##targetNamespace`, URI lists) strict; locations/values retained; attribute validation/generation unsupported. `xs:any`: `##any`/strict|lax|skip (skip explicit), `##other`/lax|strict, positive constraints (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing and sorted effective values; lexical/source locations; ranges; `0/0` absent. Consumers reject nonzero wildcards; broader unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed=invalid.
+Groups/extensions: IDs/locations; model-less: empty bases/nil particles/inherited `##other`/lax. Named-global sequence/choice owners: `anyAttribute`, default `##any`/strict; `##any`/lax|skip (namespace optional/explicit; skip), `##other`/lax|strict, explicit `##other`/skip, and positive namespaces (`##local`, `##targetNamespace`, URI lists)/strict; locations/values retained; attribute consumers unsupported. `xs:any`: `##any`/strict|lax|skip (skip explicit), `##other`/lax|strict, positive constraints (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing and sorted values; lexical/source locations; ranges; `0/0` absent. Consumers reject nonzero wildcards; broader unsupported. `openContent=none`: globals/extensions in Compatibility/Strict11; Strict10 mismatch. Unsupported derivation; malformed=invalid.
 Named groups expose ordered references/ranges; broader shapes unsupported; consumers reject.
 
 ## Datatypes
@@ -107,22 +113,26 @@ Named groups expose ordered references/ranges; broader shapes unsupported; consu
 Lexical parsing and values are separate. Context-sensitive values such as QName
 retain namespace context.
 
-The datatype library implements XSD string enumeration plus lossless
-integer/decimal/boolean/precisionDecimal mappings with arbitrary-precision numeric
-forms. PrecisionDecimal exposes exact finite/special values and applicable facets; immutable
-schema components retain effective facets when named under Compatibility or
-Strict11. It remains optional and implementation-defined, not a mandatory XSD 1.1 claim.
-Boolean whitespace collapse is datatype behavior; boolean facets unsupported. Temporal
-distinctions and broader value spaces remain staged and report unsupported behavior.
+The datatype library implements XSD string enumeration and lossless
+arbitrary-precision integer/decimal/boolean/precisionDecimal mappings. PrecisionDecimal
+exposes exact finite/special values and facets; immutable named schema components
+retain them under Compatibility/Strict11. It remains optional and implementation-defined,
+not a mandatory XSD 1.1 claim. Boolean whitespace collapse is datatype behavior;
+boolean facets unsupported. Temporal distinctions and broader value spaces remain
+staged and report unsupported behavior.
 
 ## Validation and code generation
 
-`ValidateInstance` supports root globals with built-in or named `boolean`/`token`/`NMTOKEN`/`integer`/`decimal`/`precisionDecimal` types, plus named
-complexes with direct choices/sequences. Choices accept default-occurrence local Boolean/token/NMTOKEN/integer/decimal/precisionDecimal elements and
-default Boolean/integer/decimal references. Homogeneous Boolean/numeric sequences honor finite/unbounded and
-above-`uint64` ranges; mixed sequences remain unsupported. References use `TargetID`; model groups rejected.
+`ValidateInstance` supports root globals with built-in/named XSD scalar types
+(`boolean`/`token`/`NMTOKEN`/`integer`/`decimal`/`precisionDecimal`) and named
+direct-choice/sequence complexes. Local consumers accept built-in/named refs only
+plus default global Boolean/integer/decimal refs; anonymous local inline atomic refs
+are query-only and both consumers reject them as above. Homogeneous Boolean/numeric
+sequences honor finite/unbounded/above-`uint64`; mixed/token/NMTOKEN sequences,
+strings, lists/unions, attributes, structures unsupported. References use `TargetID`;
+model groups rejected.
 `token`/`NMTOKEN` collapse XML whitespace before effective enumeration; NMTOKEN enforces XML NameChar policy; facts unchanged.
-Validation accepts default all-token/NMTOKEN choices; anonymous locals are rejected outside validation; local token/NMTOKEN sequences, strings, lists/unions, attributes, structures unsupported. Generation rejects anonymous/token/NMTOKEN locals. Direct `xs:any` is
+Validation accepts default all-token/NMTOKEN choices. Direct `xs:any` is
 query-only: nonzero terms are rejected with edition-selected diagnostics; `0/0` absent.
 
 Generation: named/inherited global boolean/integer/decimal/string/token/NMTOKEN scalars, inline anonymous global string/token/NMTOKEN elements, numeric choices,

@@ -4800,7 +4800,7 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 	if scope != schemaScalarTypeLocalParticle {
 		return nil
 	}
-	if input.inlineSimpleType != nil && simpleType.atomicKind == schemaSimpleTypeAtomicPrecisionDecimal {
+	if input.inlineSimpleType != nil && (simpleType.atomicKind == schemaSimpleTypeAtomicToken || simpleType.atomicKind == schemaSimpleTypeAtomicNMTOKEN || simpleType.atomicKind == schemaSimpleTypeAtomicPrecisionDecimal) {
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	}
 	switch simpleType.atomicKind {

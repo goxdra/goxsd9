@@ -82,32 +82,9 @@ boundary:
 5. Validator and code-generator plans consume exact bounds on demand; they do
    not cache derived repetition programs in the schema.
 
-The current schema preflight uses this exact private range to validate lexical
-occurrence input. A named global complex type with one direct sequence of local
-built-in boolean/token/NMTOKEN or named boolean/token/NMTOKEN restriction,
-integer, or decimal scalar elements, or one direct choice of those scalar
-elements, maps the completed
-range and ordered children into the public schema. Direct `xs:any` `##any`/strict|lax|skip, `##other`/lax|strict, positive namespaces (`##local`, `##targetNamespace`, URI lists)/strict|lax|skip (skip explicit) map to `WildcardParticle` with exact locations/ranges, lexical order; broader/other constraints and consumers unsupported. A supported named
-model group with one direct choice or sequence of global element-reference
-particles exposes ordered children with exact ranges; its sequence uses
-grammar-default 1/1; compositor occurrence attrs are unsupported. Named complex type or bounded attribute-free extension may expose a direct model-group reference with target ID/exact
-range; members are not copied. `0/0` group or child maps to absence. Sequence/choice/child mapping maps `0/0` to absence before gating.
-The exact representation is retained for choice facts. `ValidateInstance`
-supports named global complex types with homogeneous Boolean/numeric sequences,
-matching expanded names in lexical declaration order and honoring exact finite,
-unbounded, and above-`uint64` outer and child ranges under `Compatibility`,
-`Strict10`, and `Strict11`. Direct-choice repetition is unsupported. The
-same exact occurrence representation covers bounded attribute-free `complexContent`/`extension`
-over named empty-content bases. Extensions retain extension/base identities/locations and only bounded/representable inherited `##other`/lax wildcard facts. Extensions with present direct choice/sequence particles retain exact occurrences; model-less extensions retain those identities/locations but no particle or occurrence or synthetic content. Validation and code generation reject extensions. Local token/NMTOKEN facts remain; default-occurrence all-token/NMTOKEN choices validate; token/NMTOKEN sequences, mixed token-family choices, and local token/NMTOKEN generation remain unsupported.
-Default-bounded direct integer/decimal or all-Boolean sequence children are emitted
-as ordered Go struct fields; mixed Boolean/numeric sequences and repeated-field
-generation remain unsupported. XSD 1.1
-default-occurrence direct choices may use `precisionDecimal` only when the
-choice and each mapped `precisionDecimal` alternative use default occurrences;
-non-precision alternatives may retain non-default ranges for queries. Non-`0/0`
-`precisionDecimal` choice or alternative ranges that map to a particle are
-schema-unsupported, as are non-`0/0` direct-sequence `precisionDecimal` ranges
-that map to a particle.
+The preflight applies exact lexical ranges. Named global complexes expose direct sequence/choice local built-in or named Boolean/integer/decimal/token/NMTOKEN scalar elements and local inline anonymous atomic Boolean/integer/decimal restrictions; bounded attribute-free extensions expose the same local facts. Anonymous facts are immutable query facts under Compatibility/Strict10/Strict11: `SimpleTypeID`/`NodeID`, no `ComponentID`/global-walk ownership, base QName/facets/locations/exact occurrences; `0/0` is absent before gating, non-default ranges are query-only, and `ValidateInstance`/`GenerateGo` reject with located `FailureUnsupported`/`ErrUnsupported` diagnostics (`GenerateGo` no output). Direct `xs:any` `##any`/strict|lax|skip, `##other`/lax|strict, and positive namespaces (`##local`,`##targetNamespace`, URI lists)/strict|lax|skip map ordered `WildcardParticle` facts with locations/ranges; broader/other forms and consumers unsupported. Named groups expose ordered global element references/exact ranges; top-level model-group references retain target IDs without member expansion. `0/0` maps to absence before type gating.
+The exact representation is retained for choice facts. `ValidateInstance` supports named global complex types with homogeneous Boolean/numeric sequences, matching expanded names in lexical declaration order and honoring exact finite, unbounded, and above-`uint64` outer and child ranges under `Compatibility`, `Strict10`, and `Strict11`; direct-choice repetition is unsupported. The same exact occurrence representation covers bounded attribute-free `complexContent`/`extension` over named empty-content bases. Extensions retain extension/base identities/locations and only bounded/representable inherited `##other`/lax wildcard facts; present direct choice/sequence particles retain exact occurrences, while model-less extensions retain no particle, occurrence, or synthetic content. Validation and code generation reject extensions. Local token/NMTOKEN facts remain; default-occurrence all-token/NMTOKEN choices validate; token/NMTOKEN sequences, mixed token-family choices, and local token/NMTOKEN generation remain unsupported.
+Default-bounded direct integer/decimal or all-Boolean sequence children are emitted as ordered Go struct fields; mixed Boolean/numeric sequences and repeated-field generation remain unsupported. XSD 1.1 default-occurrence direct choices may use `precisionDecimal` only when the choice and each mapped alternative use default occurrences; non-precision alternatives may retain non-default ranges for queries. Non-`0/0` `precisionDecimal` choice/alternative or direct-sequence ranges that map to a particle are schema-unsupported. Inline complex, list/union, string/token/NMTOKEN, value/default/fixed/attribute, nested, anonymous-reference, and broader local forms remain outside the anonymous restriction model.
 
 ## Public API migration
 
@@ -157,10 +134,7 @@ behavior. An error-level diagnostic returns no schema.
 
 ## Non-goals, risks, and follow-up
 
-Currently, the occurrence boundary supports one named global complex type
-with one direct sequence or direct choice of local built-in boolean/token/NMTOKEN
-or named boolean/token/NMTOKEN restrictions, integer, or decimal scalar elements,
-or one global named model group with one direct choice or sequence of global element-reference particles, or a top-level direct model-group reference for named complex types or bounded attribute-free extensions over named empty-content bases, in XSD 1.0 and 1.1. Direct model-group references retain exact ranges and target IDs. For bounded attribute-free extensions, exact occurrences apply with a present direct choice, sequence, or group-reference particle. Model-less extensions retain extension/base identities and locations but no particle or occurrence or synthetic content; validation and code generation reject them. Wildcard terms follow rules above. Supported forms retain exact ranges; `0/0` maps to absence.
+Currently, the boundary supports named global complexes with direct sequence/choice local built-in or named Boolean/integer/decimal/token/NMTOKEN or local inline anonymous atomic Boolean/integer/decimal restrictions; named groups/direct element references; and top-level model-group references or bounded attribute-free extensions, in XSD 1.0/1.1. The anonymous model is covered by Compatibility/Strict10/Strict11: immutable `SimpleTypeID`/`NodeID`, no `ComponentID`/global-walk ownership, base QName/facets/locations/exact occurrences. Direct refs retain target IDs; extensions retain exact ranges/base identities/locations, with model-less extensions having no particle/occurrence/synthetic content and consumers rejecting extensions. Wildcards follow above. `0/0` is absent before gating; non-default anonymous ranges are query-only. `ValidateInstance`/`GenerateGo` reject anonymous inline atomic refs with located `FailureUnsupported`/`ErrUnsupported`; `GenerateGo` no output.
 For instance validation, named global complex homogeneous Boolean/numeric sequences
 match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`
 outer and child ranges under `Compatibility`, `Strict10`, and `Strict11`; direct-choice validation
@@ -176,12 +150,14 @@ alternative ranges are parsed and queryable, but direct-choice repetition is not
 implemented in validation, and effective total ranges are not calculated. Non-default
 direct sequence occurrences are not generated as repeated fields. Non-default
 `precisionDecimal` choice and alternative ranges that map to a particle are
-schema-unsupported. Boolean facets and anonymous, nested, or broader particles,
-including nested choices and `all`; nested, local, recursive, or broader group shapes
-and broader wildcard/attribute remain unsupported. Direct
-named-complex/bounded-extension group refs remain supported facts; anonymous simple-type
-models and resolved built-in, named, and anonymous simple-type
-references are modeled. Named direct sequence/choice types expose direct
+schema-unsupported. Boolean facets and inline complex, list/union,
+string/token/NMTOKEN/precisionDecimal restrictions, local value/default/fixed/
+attribute constraints, nested, anonymous-reference, or broader particles, including nested
+choices and `all`; nested, local, recursive, or broader group shapes and broader
+wildcard/attribute remain unsupported. Direct named-complex/bounded-extension
+group refs remain supported facts; anonymous simple-type models and resolved
+built-in, named, and supported anonymous simple-type references are modeled as
+immutable schema-query facts, not consumer targets. Named direct sequence/choice types expose direct
 `anyAttribute`: omitted attributes default to `##any`/`strict`;
 `##any`/`##other` supported. Positive namespace enumerations
 (`##local`, `##targetNamespace`, URI lists) allow only strict `processContents`
@@ -189,11 +165,12 @@ references are modeled. Named direct sequence/choice types expose direct
 graph composition: `##local` is absent; no-target `##targetNamespace` is absent.
 Values are sorted, unique, copied. `anyAttribute` location, normalized lexical form, and
 namespace/processContents locations remain; omitted locations are zero.
-Validation and code generation remain unsupported. Direct
+Validation and code generation remain unsupported for the anonymous local
+restriction references. Direct
 element-reference particles are supported in the schema model for local choice
 and sequence children and for global named-group direct choices or sequences; direct model-group references are
 supported only as the top-level particle of a named complex type or bounded attribute-free extension;
-they retain target IDs without expanding group members; nested group references remain unsupported. Validator consumption covers named global complex homogeneous Boolean/numeric sequences and default-occurrence scalar choices or references to global Boolean/integer/decimal elements; generation supports the latter, other direct references remain unsupported. Global text-only Boolean validation works under Compatibility, Strict10, and Strict11; Boolean scalar generation works. Direct choices support default-occurrence local Boolean (including named restrictions) or all-token/NMTOKEN alternatives; token/NMTOKEN sequences and mixed token-family choices remain unsupported. Generation supports default-occurrence all-Boolean choices and default-bounded all-Boolean sequences; local token/NMTOKEN generation remains unsupported;
+they retain target IDs without expanding group members; nested group references remain unsupported. Validator consumption covers named global complex homogeneous Boolean/numeric sequences and default-occurrence built-in/named scalar choices or references to global Boolean/integer/decimal elements; local anonymous inline atomic references remain query-only and are rejected with located `FailureUnsupported`/`ErrUnsupported` diagnostics. Generation supports the latter, other direct references remain unsupported, and anonymous local rejection returns no output. Global text-only Boolean validation works under Compatibility, Strict10, and Strict11; Boolean scalar generation works. Direct choices support default-occurrence local Boolean (including named restrictions) or all-token/NMTOKEN alternatives; token/NMTOKEN sequences and mixed token-family choices remain unsupported. Generation supports default-occurrence all-Boolean choices and default-bounded all-Boolean sequences; local token/NMTOKEN generation remains unsupported;
 the parser does not support `all` mapping. The exact value has no fixed
 resource limit; later phases must set bounded input and materialization
 policies.

@@ -177,10 +177,14 @@ type instanceChoiceProgram struct {
 // a single root global whose type is built-in or named XSD boolean, token,
 // NMTOKEN, integer, decimal, or precisionDecimal, or a named complex type with one
 // direct choice or sequence. Direct choices accept default-occurrence local
-// Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements and
-// default-occurrence references to global Boolean, integer, and decimal elements.
-// Direct sequences contain only local Boolean elements or only local integer/decimal
-// elements. Mixed Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices,
+// Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements whose
+// type references are built-in or named, and default-occurrence references to
+// global Boolean, integer, and decimal elements. Direct sequences contain only
+// local built-in or named Boolean elements or only local built-in or named
+// integer/decimal elements. Modeled anonymous local inline atomic references
+// remain schema-queryable only: ValidateInstance returns a located
+// FailureUnsupported/ErrUnsupported diagnostic with the anonymous type location
+// related. Mixed Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices,
 // and local NMTOKEN or token sequence particles remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
 //
