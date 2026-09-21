@@ -14,8 +14,11 @@ requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120
 permit, but do not require, primitive datatypes outside the standard set. The
 project implements this datatype as an explicit opt-in library/schema boundary.
 
-[`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers.
-Local anonymous string/token/NMTOKEN/precisionDecimal unsupported; Boolean/integer/decimal queryable, consumers reject. Sequences: local built-in/named Boolean-only or integer/decimal sequences; non-extension default-occurrence direct-choice refs to global Boolean/integer/decimal supported. Only non-extension default-occurrence all-token/all-NMTOKEN choices validate; token/NMTOKEN sequences/refs/generation reject. `precisionDecimal` choice-only: Compatibility/Strict11: only non-extension default `(1/1)` choices/alternatives; non-default choices/non-`0/0` sequences unsupported. Strict10 typed-local: located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported, even `0/0`, before omission. Global inline string/token/NMTOKEN query/generate; inline `precisionDecimal` schema/query-valid in Compatibility/Strict11, Strict10 rejects; anonymous consumers reject.
+[`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers. Boundary:
+
+- Schema/query: policy precedes occurrence omission. Strict10 typed `precisionDecimal` (even `0/0`) is unsupported; Compatibility/Strict11 omit `0/0`. They retain mapped precision in default/bounded extension choices; mapped non-default precision choices and non-`0/0` direct sequences reject schema; nonprecision non-default alternatives query-only.
+- Validation: built-in/named `precisionDecimal` roots validate. Only non-extension default choices validate; extensions/anonymous reject.
+- Generation: `precisionDecimal` queryable; `GenerateGo` rejects. Inline admission is Compatibility/Strict11; Strict10 reports its type location.
 
 ## Semantic contract
 
