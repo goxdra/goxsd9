@@ -395,6 +395,24 @@ func explicitTypePrecisionDecimalBoundaryRoot(version, model, parentOccurrences,
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + version + `"><xs:complexType name="Record"><xs:` + model + parentOccurrences + `><xs:element name="value" type="xs:precisionDecimal"` + childOccurrences + `/></xs:` + model + `></xs:complexType></xs:schema>`
 }
 
+type localInlineAtomicGraphCase struct {
+	name             string
+	baseLexical      string
+	baseName         QName
+	baseKind         SimpleTypeReferenceKind
+	directive        string
+	declarationAfter bool
+	declaration      string
+	fixtureID        SourceID
+	fixture          string
+}
+
+type localInlineAtomicOwnerCase struct {
+	name      string
+	model     string
+	extension bool
+}
+
 //nolint:gocognit,funlen // Keep graph provenance and direct-owner acceptance in one matrix.
 func TestSchemaBridgeResolvesLocalInlineAtomicGraphBasesAcrossPoliciesAndOwners(t *testing.T) {
 	profiles := []struct {
@@ -406,17 +424,7 @@ func TestSchemaBridgeResolvesLocalInlineAtomicGraphBasesAcrossPoliciesAndOwners(
 		{name: "strict10", policy: Strict10, version: "1.0"},
 		{name: "strict11", policy: Strict11, version: "1.1"},
 	}
-	graphs := []struct {
-		name             string
-		baseLexical      string
-		baseName         QName
-		baseKind         SimpleTypeReferenceKind
-		directive        string
-		declarationAfter bool
-		declaration      string
-		fixtureID        SourceID
-		fixture          string
-	}{
+	graphs := []localInlineAtomicGraphCase{
 		{
 			name:        "built-in",
 			baseLexical: "xs:integer",
@@ -466,11 +474,7 @@ func TestSchemaBridgeResolvesLocalInlineAtomicGraphBasesAcrossPoliciesAndOwners(
 			fixture:     `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="ChameleonBase"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`,
 		},
 	}
-	owners := []struct {
-		name      string
-		model     string
-		extension bool
-	}{
+	owners := []localInlineAtomicOwnerCase{
 		{name: "choice", model: "choice"},
 		{name: "sequence", model: "sequence"},
 		{name: "extension choice", model: "choice", extension: true},
@@ -505,21 +509,106 @@ func TestSchemaBridgeResolvesLocalInlineAtomicGraphBasesAcrossPoliciesAndOwners(
 	}
 }
 
-func localInlineAtomicGraphOwnerRoot(version string, graph struct {
-	name             string
-	baseLexical      string
-	baseName         QName
-	baseKind         SimpleTypeReferenceKind
-	directive        string
-	declarationAfter bool
-	declaration      string
-	fixtureID        SourceID
-	fixture          string
-}, owner struct {
-	name      string
-	model     string
-	extension bool
-}) string {
+//nolint:gocognit,funlen // Keep negativeInteger provenance and direct-owner acceptance in one matrix.
+func TestSchemaBridgeResolvesLocalInlineNegativeIntegerGraphBasesAcrossPoliciesAndOwners(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	}
+	graphs := []localInlineAtomicGraphCase{
+		{
+			name:        "named",
+			baseLexical: "r:NamedBase",
+			baseName:    mustTestQName(t, "urn:root", "NamedBase"),
+			baseKind:    SimpleTypeReferenceNamed,
+			declaration: `<xs:simpleType name="NamedBase"><xs:restriction base="xs:negativeInteger"/></xs:simpleType>`,
+		},
+		{
+			name:             "forward",
+			baseLexical:      "r:ForwardBase",
+			baseName:         mustTestQName(t, "urn:root", "ForwardBase"),
+			baseKind:         SimpleTypeReferenceNamed,
+			declarationAfter: true,
+			declaration:      `<xs:simpleType name="ForwardBase"><xs:restriction base="xs:negativeInteger"/></xs:simpleType>`,
+		},
+		{
+			name:        "imported",
+			baseLexical: "b:ImportedBase",
+			baseName:    mustTestQName(t, "urn:base", "ImportedBase"),
+			baseKind:    SimpleTypeReferenceNamed,
+			directive:   `<xs:import namespace="urn:base" schemaLocation="imported-negative.xsd"/>`,
+			fixtureID:   "imported-negative.xsd",
+			fixture:     `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:base"><xs:simpleType name="ImportedBase"><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:schema>`,
+		},
+		{
+			name:        "included",
+			baseLexical: "r:IncludedBase",
+			baseName:    mustTestQName(t, "urn:root", "IncludedBase"),
+			baseKind:    SimpleTypeReferenceNamed,
+			directive:   `<xs:include schemaLocation="included-negative.xsd"/>`,
+			fixtureID:   "included-negative.xsd",
+			fixture:     `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:simpleType name="IncludedBase"><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:schema>`,
+		},
+		{
+			name:        "chameleon",
+			baseLexical: "r:ChameleonBase",
+			baseName:    mustTestQName(t, "urn:root", "ChameleonBase"),
+			baseKind:    SimpleTypeReferenceNamed,
+			directive:   `<xs:include schemaLocation="chameleon-negative.xsd"/>`,
+			fixtureID:   "chameleon-negative.xsd",
+			fixture:     `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="ChameleonBase"><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:schema>`,
+		},
+	}
+	owners := []localInlineAtomicOwnerCase{
+		{name: "choice", model: "choice"},
+		{name: "sequence", model: "sequence"},
+		{name: "extension choice", model: "choice", extension: true},
+		{name: "extension sequence", model: "sequence", extension: true},
+	}
+	for _, profile := range profiles {
+		for _, graph := range graphs {
+			for _, owner := range owners {
+				t.Run(profile.name+"/"+graph.name+"/"+owner.name, func(t *testing.T) {
+					root := localInlineAtomicGraphOwnerRoot(profile.version, graph, owner)
+					fixtures := make(map[string]discoveryFixture)
+					if graph.fixtureID != "" {
+						fixtures[string(graph.fixtureID)] = discoveryFixture{id: graph.fixtureID, contents: graph.fixture}
+					}
+					schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+					if err != nil {
+						t.Fatalf("discoverSchema: %v", err)
+					}
+					definition := localInlineComplexType(t, schema, "Record")
+					element := localInlineAtomicOwnerElement(t, definition, owner.model)
+					_, anonymous := requireInlineAnonymousReference(t, element)
+					base, ok := anonymous.BaseReference()
+					if !ok || base.Kind() != graph.baseKind || base.Name() != graph.baseName {
+						t.Fatalf("%s base = %q/%q/%t, want %q/%q/true", graph.name, base.Kind(), base.Name(), ok, graph.baseKind, graph.baseName)
+					}
+					typeID, hasTypeID := base.ComponentID()
+					if !hasTypeID {
+						t.Fatalf("%s named base has no component ID", graph.name)
+					}
+					component, ok := schema.Lookup(typeID)
+					if !ok {
+						t.Fatalf("%s named base component %v is not in the schema", graph.name, typeID)
+					}
+					simpleDefinition, simpleOK := component.SimpleTypeDefinition()
+					if !simpleOK || simpleDefinition.Base().Local() != "negativeInteger" {
+						t.Fatalf("%s resolved base = %q/%t, want negativeInteger/true", graph.name, simpleDefinition.Base(), simpleOK)
+					}
+				})
+			}
+		}
+	}
+}
+
+func localInlineAtomicGraphOwnerRoot(version string, graph localInlineAtomicGraphCase, owner localInlineAtomicOwnerCase) string {
 	element := `<xs:element name="value"><xs:simpleType><xs:restriction base="` + graph.baseLexical + `"/></xs:simpleType></xs:element>`
 	ownerDeclaration := `<xs:complexType name="Record"><xs:` + owner.model + `>` + element + `</xs:` + owner.model + `></xs:complexType>`
 	if owner.extension {
@@ -530,6 +619,152 @@ func localInlineAtomicGraphOwnerRoot(version string, graph struct {
 		declarations = ownerDeclaration + graph.declaration
 	}
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:b="urn:base" targetNamespace="urn:root" version="` + version + `">` + graph.directive + `<xs:complexType name="ContainerBase"/>` + declarations + `</xs:schema>`
+}
+
+//nolint:gocognit,funlen,gosec // Keep exact named-base diagnostics and XML fixtures together.
+func TestSchemaBridgeRejectsLocalInlineAtomicNamedBaseFailuresWithoutPartialSchema(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+		xsd     XSDVersion
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1", xsd: XSDVersion11},
+		{name: "strict10", policy: Strict10, version: "1.0", xsd: XSDVersion10},
+		{name: "strict11", policy: Strict11, version: "1.1", xsd: XSDVersion11},
+	}
+	tests := []struct {
+		name          string
+		declarations  string
+		code          string
+		cause         error
+		primaryLine   int
+		primaryToken  string
+		relatedLines  []int
+		relatedTokens []string
+	}{
+		{
+			name: "unresolved",
+			declarations: `<xs:complexType name="Record">
+  <xs:choice>
+    <xs:element name="value">
+      <xs:simpleType>
+        <xs:restriction base="m:Missing"/>
+      </xs:simpleType>
+    </xs:element>
+  </xs:choice>
+</xs:complexType>`,
+			code:         diagnosticSchemaSimpleTypeUnresolvedCode,
+			cause:        errSchemaSimpleTypeBaseUnresolved,
+			primaryLine:  6,
+			primaryToken: `base="m:Missing"`,
+		},
+		{
+			name: "wrong kind",
+			declarations: `<xs:element name="Target"/>
+<xs:complexType name="Record">
+  <xs:choice>
+    <xs:element name="value">
+      <xs:simpleType>
+        <xs:restriction base="r:Target"/>
+      </xs:simpleType>
+    </xs:element>
+  </xs:choice>
+</xs:complexType>`,
+			code:          diagnosticSchemaSimpleTypeWrongKindCode,
+			cause:         errSchemaSimpleTypeBaseWrongKind,
+			primaryLine:   7,
+			primaryToken:  `base="r:Target"`,
+			relatedLines:  []int{2},
+			relatedTokens: []string{`<xs:element`},
+		},
+		{
+			name: "conflicting duplicate",
+			declarations: `<xs:simpleType name="Base"><xs:restriction base="xs:integer"/></xs:simpleType>
+<xs:simpleType name="Base"><xs:restriction base="xs:decimal"/></xs:simpleType>
+<xs:complexType name="Record">
+  <xs:choice>
+    <xs:element name="value">
+      <xs:simpleType>
+        <xs:restriction base="r:Base"/>
+      </xs:simpleType>
+    </xs:element>
+  </xs:choice>
+</xs:complexType>`,
+			code:          diagnosticSchemaGlobalDuplicateCode,
+			cause:         errSchemaGlobalDeclarationDuplicate,
+			primaryLine:   3,
+			primaryToken:  `<xs:simpleType`,
+			relatedLines:  []int{2},
+			relatedTokens: []string{`<xs:simpleType`},
+		},
+		{
+			name: "cyclic",
+			declarations: `<xs:simpleType name="One"><xs:restriction base="r:Two"/></xs:simpleType>
+<xs:simpleType name="Two"><xs:restriction base="r:One"/></xs:simpleType>
+<xs:complexType name="Record">
+  <xs:choice>
+    <xs:element name="value">
+      <xs:simpleType>
+        <xs:restriction base="r:One"/>
+      </xs:simpleType>
+    </xs:element>
+  </xs:choice>
+</xs:complexType>`,
+			code:          diagnosticSchemaSimpleTypeCycleCode,
+			cause:         errSchemaSimpleTypeBaseCycle,
+			primaryLine:   2,
+			primaryToken:  `base="r:Two"`,
+			relatedLines:  []int{3},
+			relatedTokens: []string{`base="r:One"`},
+		},
+	}
+	for _, profile := range profiles {
+		for _, test := range tests {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := localInlineAtomicNamedBaseFailureRoot(profile.version, test.declarations)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("discoverSchema accepted an invalid named local-inline base")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code {
+					t.Fatalf("diagnostic = %s, want %s/%s", diagnostic, FailureInvalid, test.code)
+				}
+				if !errors.Is(err, test.cause) {
+					t.Fatalf("diagnostic does not preserve cause %v: %v", test.cause, err)
+				}
+				wantSpec := schemaSimpleTypeSpecRef(profile.xsd)
+				if test.code == diagnosticSchemaGlobalDuplicateCode {
+					wantSpec = schemaGlobalDuplicateSpecRef(profile.xsd)
+				}
+				if diagnostic.SpecRef() != wantSpec {
+					t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), wantSpec)
+				}
+				wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, test.primaryLine, test.primaryToken)
+				if diagnostic.Loc() != wantLoc {
+					t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+				}
+				var related []Loc
+				if len(test.relatedLines) > 0 {
+					related = make([]Loc, 0, len(test.relatedLines))
+				}
+				for index, line := range test.relatedLines {
+					related = append(related, mustSchemaTokenLoc(t, "root.xsd", root, line, test.relatedTokens[index]))
+				}
+				if got := diagnostic.Related(); !reflect.DeepEqual(got, related) {
+					t.Fatalf("diagnostic related locations = %v, want %v", got, related)
+				}
+			})
+		}
+	}
+}
+
+func localInlineAtomicNamedBaseFailureRoot(version, declarations string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:m="urn:missing" targetNamespace="urn:root" version="` + version + `">
+` + declarations + `
+</xs:schema>`
 }
 
 func localInlineAtomicOwnerElement(t *testing.T, definition ComplexTypeDefinition, model string) ElementParticle {

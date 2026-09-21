@@ -15,16 +15,7 @@ permit, but do not require, primitive datatypes outside the standard set. The
 project implements this datatype as an explicit opt-in library/schema boundary.
 
 [`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers.
-Mapped anonymous string/token/NMTOKEN/`precisionDecimal` schema-unsupported when
-mapped; Boolean/integer/decimal modeled but consumer-rejected. Typed local
-`precisionDecimal`: policy first; Strict10 returns located `FeatureDatatypeFacets`
-`FailureUnsupported`/`ErrUnsupported` policy-mismatch, including zero-occurrence
-cases. Compatibility/Strict11 omit effective `0/0`; only mapped non-default
-`precisionDecimal` choice/alternative or mapped non-`0/0` direct-sequence ranges are
-schema-syntax-unsupported; choice/mapped alternatives default (1/1); `<all>`
-unsupported; only non-extension default-occurrence direct choices validate;
-non-precision query-only. Inline `precisionDecimal` is schema/query-valid in
-Compatibility/Strict11 (Strict10 rejects); anonymous targets consumer-rejected.
+Mapped local-anonymous string/token/NMTOKEN/precisionDecimal: schema-unsupported; local-anonymous Boolean/integer/decimal: queryable, consumer-rejected. Named/typed Boolean/numeric sequences, integer/decimal mixtures, and non-extension default-occurrence direct-choice refs to global Boolean/integer/decimal remain supported. Token/NMTOKEN homogeneous choices validate; sequence/ref consumers and generation do not. Global inline string/token/NMTOKEN query/generate; anonymous validation rejects. Typed local precisionDecimal: Strict10 located FeatureDatatypeFacets FailureUnsupported/ErrUnsupported including 0; Compatibility/Strict11 omit 0/0; mapped non-default choices/nonzero sequences unsupported. Inline precisionDecimal: Compatibility/Strict11 schema/query, Strict10 rejects; anonymous consumers reject.
 
 ## Semantic contract
 

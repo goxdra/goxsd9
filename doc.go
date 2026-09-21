@@ -21,7 +21,8 @@
 // datatype facets outside the supported string enumeration/whiteSpace, integer/decimal,
 // and optional precisionDecimal boundaries return explicit unsupported diagnostics.
 // Global anonymous inline precisionDecimal is available under Compatibility or
-// Strict11; Strict10 reports a located policy diagnostic. Paths and URLs are never opened by this package. Parsing closes
+// Strict11; Strict10 reports a located policy diagnostic at the type location.
+// Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
 //
@@ -109,7 +110,9 @@
 // Boolean, integer, or decimal targets; only those targets are consumer-eligible.
 // Sequence, anonymous-target, repetition, nested, recursive, and broader
 // element-reference forms are consumer exclusions; query references retain their
-// resolved facts.
+// resolved facts. Model-group references are a separate top-level direct query
+// boundary with ordered facts and TargetID; nested, local, recursive, and broader
+// model-group references remain unsupported.
 // Model-group reference particles are limited to the supported top-level direct
 // `ModelGroupReferenceParticle` form. Named global model groups expose direct
 // element-reference choices or sequences without expansion.
@@ -184,11 +187,20 @@
 // behavior.
 // GenerateGo matrix: global built-in/named/inherited/included/imported
 // Boolean/integer/decimal and string/token/NMTOKEN scalar components generate, as
-// do global inline string/token/NMTOKEN scalar components. Global precisionDecimal
-// (built-in, named, or inline) is queryable but rejected by GenerateGo; global
-// inline Boolean/integer/decimal remain query-only. Local built-in/named Boolean/integer/
-// decimal particles generate only in default-occurrence all-Boolean/numeric
-// direct choices and default-bounded direct sequences. Local anonymous and
-// token/NMTOKEN consumers, repeated/non-default particles, and anonymous targets
-// remain unsupported; numeric integer/decimal mixtures remain supported.
+// do global inline string/token/NMTOKEN scalar components. Non-extension
+// default-occurrence direct-choice references to global built-in/named Boolean,
+// integer, or decimal targets are also generation-eligible; sequences,
+// repetition/non-default occurrences, nested/recursive/broader references, and
+// anonymous targets are rejected. Global inline Boolean/integer/decimal,
+// long/unsignedLong/negativeInteger/nonNegativeInteger/nonPositiveInteger, and
+// language/NCName/anyURI/ID declarations retain schema/query facts but their
+// anonymous validation and generation consumers are rejected. Global
+// precisionDecimal is queryable and generation-rejected; inline precisionDecimal
+// is schema/query-valid under Compatibility/Strict11, while Strict10 returns the
+// located policy diagnostic at its type location. Local built-in/named
+// Boolean/integer/decimal particles generate only in default-occurrence
+// all-Boolean/numeric direct choices and default-bounded direct sequences. Local
+// anonymous and token/NMTOKEN consumers, repeated/non-default particles, and
+// anonymous targets remain unsupported; numeric integer/decimal mixtures remain
+// supported.
 package goxsd9
