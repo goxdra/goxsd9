@@ -144,6 +144,11 @@
 // complex bases, including the supported named `complexContent/restriction` over
 // `xs:anyType` representation, retains extension/base identities and locations
 // and only inherited bounded, representable wildcard facts (`##other`/`lax`).
+// Named complex `Final()`/`FinalLoc()` use the declaring document's
+// `finalDefault` when local `final` is absent; explicit local values, including
+// an empty value, override it, and effective non-empty controls retain their
+// local or default source location. This does not expand validation or
+// `GenerateGo` consumer support or change occurrence limits.
 // An extension with a present direct choice or sequence particle retains its exact
 // occurrence. A model-less extension retains its named base identity and locations
 // with a nil optional particle, no occurrence, and no synthetic content. For
