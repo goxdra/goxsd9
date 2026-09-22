@@ -1821,7 +1821,7 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 		return instanceBuiltInIntegerScalarType(related, loc)
 	case "nonNegativeInteger":
 		if !allowNonNegativeInteger {
-			return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
+			return instanceBuiltInUnsupportedScalarType(declaredType, related, loc, fallbackVersion)
 		}
 		return instanceBuiltInNonNegativeIntegerScalarType(related, loc, booleanVersion)
 	case "decimal":
@@ -1835,9 +1835,9 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 	case "NMTOKEN":
 		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowNMTOKEN, instanceNMTOKENScalar{}, booleanVersion)
 	case "language", "NCName", "anyURI", "ID":
-		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
+		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc, fallbackVersion)
 	default:
-		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
+		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc, fallbackVersion)
 	}
 }
 
@@ -1939,12 +1939,12 @@ func instanceBuiltInStringScalarType(declaredType QName, related []Loc, loc Loc,
 	}, nil
 }
 
-func instanceBuiltInUnsupportedScalarType(declaredType QName, related []Loc, loc Loc) (instanceScalarType, error) {
+func instanceBuiltInUnsupportedScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion) (instanceScalarType, error) {
 	return instanceScalarType{}, newInstanceValidationUnsupported(
 		loc,
 		fmt.Sprintf("global element type %q is outside scalar validation", declaredType),
 		related,
-		instanceBuiltInValidationVersion,
+		fallbackVersion,
 		errInstanceUnsupportedType,
 	)
 }

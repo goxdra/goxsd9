@@ -230,22 +230,102 @@ func assertNonNegativeIntegerBoundaryUnsupported(t *testing.T, schema goxsd9.Sch
 	}
 }
 
+//nolint:gocognit // Keep policy, target form, and diagnostic evidence together.
 func TestValidateInstanceKeepsNonNegativeIntegerReferenceTargetsUnsupported(t *testing.T) {
 	for _, profile := range validationNonNegativeIntegerPolicies() {
-		t.Run(profile.name, func(t *testing.T) {
-			referenceRoot := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationNonNegativeIntegerNamespace + `" targetNamespace="` + validationNonNegativeIntegerNamespace + `" version="` + string(profile.version) + `">
+		for _, target := range []struct {
+			name  string
+			decl  string
+			named bool
+		}{
+			{name: "built-in", decl: `<xs:element name="target" type="xs:nonNegativeInteger"/>`},
+			{name: "named", decl: `<xs:element name="target" type="r:Named"/><xs:simpleType name="Named"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`, named: true},
+		} {
+			t.Run(profile.name+"/"+target.name, func(t *testing.T) {
+				referenceRoot := validationNonNegativeIntegerReferenceRoot(profile.version, target.decl)
+				schema := validationTestSchemaWithPolicy(t, referenceRoot, nil, profile.policy)
+				input := `<root xmlns="` + validationNonNegativeIntegerNamespace + `"><target>0</target></root>`
+				err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+				diagnostic := validationTestDiagnostic(t, err)
+				if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedInstanceValidationCode || diagnostic.Feature() != goxsd9.FeatureInstanceValidation {
+					t.Fatalf("reference diagnostic = %s/%q/%q, want unsupported instance validation", diagnostic, diagnostic.Code(), diagnostic.Feature())
+				}
+				if !errors.Is(err, goxsd9.ErrUnsupported) || diagnostic.Unwrap() == nil {
+					t.Fatalf("reference diagnostic lost unsupported cause: %v", err)
+				}
+				if diagnostic.Loc() != validationTestLoc(t, "instance.xml", 1, 1) {
+					t.Fatalf("reference diagnostic location = %s, want instance.xml:1:1", diagnostic.Loc())
+				}
+				if diagnostic.SpecRef() != validationNonNegativeIntegerStructureSpecRef(profile.version) {
+					t.Fatalf("reference diagnostic specification = %q, want policy-specific element constraint", diagnostic.SpecRef())
+				}
+				wantRelated := validationNonNegativeIntegerReferenceRelated(t, schema, target.named)
+				if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+					t.Fatalf("reference diagnostic related = %v, want %v", diagnostic.Related(), wantRelated)
+				}
+			})
+		}
+	}
+}
+
+func validationNonNegativeIntegerReferenceRoot(version goxsd9.XSDVersion, target string) string {
+	return `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationNonNegativeIntegerNamespace + `" targetNamespace="` + validationNonNegativeIntegerNamespace + `" version="` + string(version) + `">
   <xs:element name="root" type="r:Choice"/>
-  <xs:element name="target" type="xs:nonNegativeInteger"/>
+  ` + target + `
   <xs:complexType name="Choice"><xs:choice><xs:element ref="r:target"/></xs:choice></xs:complexType>
 </xs:schema>`
-			schema := validationTestSchemaWithPolicy(t, referenceRoot, nil, profile.policy)
-			input := `<root xmlns="` + validationNonNegativeIntegerNamespace + `"><target>0</target></root>`
-			diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
-			if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedInstanceValidationCode || !errors.Is(diagnostic, goxsd9.ErrUnsupported) {
-				t.Fatalf("reference diagnostic = %s, want unsupported instance validation", diagnostic)
-			}
-		})
+}
+
+func validationNonNegativeIntegerReferenceRelated(t *testing.T, schema goxsd9.Schema, named bool) []goxsd9.Loc {
+	t.Helper()
+	root := validationNonNegativeIntegerElement(t, schema, "root")
+	choiceName, err := goxsd9.NewQName(validationNonNegativeIntegerNamespace, "Choice")
+	if err != nil {
+		t.Fatalf("NewQName(Choice): %v", err)
 	}
+	choiceComponents := schema.FindKind(goxsd9.ComponentKindComplexTypeDefinition, choiceName)
+	if len(choiceComponents) != 1 {
+		t.Fatalf("Choice complex types = %d, want one", len(choiceComponents))
+	}
+	choiceComponent := choiceComponents[0]
+	definition, ok := choiceComponent.ComplexTypeDefinition()
+	if !ok {
+		t.Fatal("Choice complex type view is missing")
+	}
+	choice, ok := definition.Particle().(goxsd9.ChoiceParticle)
+	if !ok {
+		t.Fatal("Choice particle is missing")
+	}
+	alternatives := choice.Alternatives()
+	if len(alternatives) != 1 {
+		t.Fatalf("Choice alternatives = %d, want one", len(alternatives))
+	}
+	reference, ok := alternatives[0].(goxsd9.ElementReferenceParticle)
+	if !ok {
+		t.Fatalf("Choice alternative = %T, want element reference", alternatives[0])
+	}
+	target, ok := schema.Lookup(reference.TargetID())
+	if !ok {
+		t.Fatalf("reference target %v is missing", reference.TargetID())
+	}
+	related := make([]goxsd9.Loc, 0, 6)
+	related = append(related, root.Loc(), choiceComponent.Loc(), choice.Loc(), reference.Loc(), target.Loc())
+	if !named {
+		return related
+	}
+	targetDeclaration, ok := target.ElementDeclaration()
+	if !ok {
+		t.Fatal("reference target declaration view is missing")
+	}
+	typeID, hasTypeID := targetDeclaration.TypeID()
+	if !hasTypeID {
+		t.Fatal("named reference target type ID is missing")
+	}
+	typeComponent, ok := schema.Lookup(typeID)
+	if !ok {
+		t.Fatalf("named reference target type %v is missing", typeID)
+	}
+	return append(related, typeComponent.Loc())
 }
 
 func TestValidateInstancePreservesNonNegativeIntegerReaderLifecycle(t *testing.T) {

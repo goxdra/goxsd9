@@ -121,7 +121,8 @@
 // TargetID, lexical order, and exact occurrences without target-type gating.
 // ValidateInstance and GenerateGo consume only supported non-extension
 // default-occurrence direct-choice references to built-in or named global
-// Boolean, integer, or decimal targets; only those targets are consumer-eligible.
+// Boolean, integer, or decimal targets other than built-in or named
+// nonNegativeInteger; only those targets are consumer-eligible.
 // Sequence, anonymous-target, repetition, nested, recursive, and broader
 // element-reference forms are consumer exclusions; query references retain their
 // resolved facts. Model-group references are a separate top-level direct query
@@ -210,9 +211,10 @@
 // Boolean/integer/decimal (excluding nonNegativeInteger) and string/token/NMTOKEN scalar components generate, as
 // do global inline string/token/NMTOKEN scalar components. Non-extension
 // default-occurrence direct-choice references to global built-in/named Boolean,
-// integer, or decimal targets are also generation-eligible; sequences,
-// repetition/non-default occurrences, nested/recursive/broader references, and
-// anonymous targets are rejected. Global inline Boolean/integer/decimal,
+// integer, or decimal targets other than built-in or named nonNegativeInteger
+// are also generation-eligible; sequences, repetition/non-default occurrences,
+// nested/recursive/broader references, and anonymous targets are rejected.
+// Global inline Boolean/integer/decimal,
 // long/unsignedLong/negativeInteger/nonNegativeInteger/nonPositiveInteger, and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their
 // anonymous validation and generation consumers are rejected.
