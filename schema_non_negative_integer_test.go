@@ -439,26 +439,118 @@ func TestSchemaNonNegativeIntegerExcludedShapesRemainUnsupported(t *testing.T) {
 	}
 }
 
-func TestSchemaNonNegativeIntegerConsumersRemainUnsupported(t *testing.T) {
+//nolint:gocognit // Keep policy, target form, and generation evidence together.
+func TestSchemaNonNegativeIntegerGenerationRemainsUnsupported(t *testing.T) {
 	for _, profile := range nonNegativeIntegerPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="xs:nonNegativeInteger"/></xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			if err != nil {
-				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
-			}
-			assertNonNegativeIntegerConsumersUnsupported(t, schema)
-		})
+		for _, test := range []struct {
+			name          string
+			body          string
+			rootElement   string
+			directRef     bool
+			namedRootType bool
+		}{
+			{
+				name:        "built-in root",
+				body:        `<xs:element name="value" type="xs:nonNegativeInteger"/>`,
+				rootElement: "value",
+			},
+			{
+				name:          "named root",
+				body:          `<xs:element name="value" type="r:Named"/><xs:simpleType name="Named"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`,
+				rootElement:   "value",
+				namedRootType: true,
+			},
+			{
+				name:      "built-in direct-choice reference",
+				body:      `<xs:element name="root" type="r:Choice"/><xs:element name="target" type="xs:nonNegativeInteger"/><xs:complexType name="Choice"><xs:choice><xs:element ref="r:target"/></xs:choice></xs:complexType>`,
+				directRef: true,
+			},
+			{
+				name:      "named direct-choice reference",
+				body:      `<xs:element name="root" type="r:Choice"/><xs:element name="target" type="r:Named"/><xs:simpleType name="Named"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType><xs:complexType name="Choice"><xs:choice><xs:element ref="r:target"/></xs:choice></xs:complexType>`,
+				directRef: true,
+			},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := schemaNonNegativeIntegerGenerationRoot(profile.version, test.body)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+				}
+				wantLoc := Loc{}
+				if !test.directRef {
+					wantLoc = requireNonNegativeIntegerElement(t, schema, test.rootElement, "urn:test").Loc()
+				}
+				wantSpec := schemaElementTypeSpecRef(profile.version)
+				if test.namedRootType {
+					wantSpec = schemaSimpleTypeSpecRef(profile.version)
+				}
+				if test.directRef {
+					reference := nonNegativeIntegerGenerationReference(t, schema)
+					wantLoc = reference.RefLoc()
+					wantSpec = nonNegativeIntegerGenerationChoiceSpecRef(profile.version)
+				}
+				assertNonNegativeIntegerGenerateGoUnsupported(t, schema, wantLoc, wantSpec)
+			})
+		}
 	}
 }
 
-func assertNonNegativeIntegerConsumersUnsupported(t *testing.T, schema Schema) {
-	t.Helper()
-	assertNonNegativeIntegerGenerateGoUnsupported(t, schema)
-	assertNonNegativeIntegerValidationUnsupported(t, schema)
+func schemaNonNegativeIntegerGenerationRoot(version XSDVersion, body string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:test" targetNamespace="urn:test" version="` + string(version) + `">` + body + `</xs:schema>`
 }
 
-func assertNonNegativeIntegerGenerateGoUnsupported(t *testing.T, schema Schema) {
+func nonNegativeIntegerGenerationReference(t *testing.T, schema Schema) ElementReferenceParticle {
+	t.Helper()
+	components := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:test", "Choice"))
+	if len(components) != 1 {
+		t.Fatalf("Choice complex types = %d, want one", len(components))
+	}
+	definition, ok := components[0].ComplexType()
+	if !ok {
+		t.Fatal("Choice complex type view is missing")
+	}
+	choice, ok := definition.Particle().(ChoiceParticle)
+	if !ok {
+		t.Fatal("Choice particle is missing")
+	}
+	alternatives := choice.Alternatives()
+	if len(alternatives) != 1 {
+		t.Fatalf("Choice alternatives = %d, want one", len(alternatives))
+	}
+	reference, ok := alternatives[0].(ElementReferenceParticle)
+	if !ok {
+		t.Fatalf("Choice alternative = %T, want element reference", alternatives[0])
+	}
+	return reference
+}
+
+func nonNegativeIntegerGenerationChoiceSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return codegenDirectChoiceXSD10ElementChoiceSpecRef
+	}
+	return codegenDirectChoiceXSD11ElementChoiceSpecRef
+}
+
+func assertNonNegativeIntegerGenerateGoUnsupported(t *testing.T, schema Schema, wantLoc Loc, wantSpec string) {
+	t.Helper()
+	output, err := GenerateGo(schema, "generated")
+	if output != nil || err == nil {
+		t.Fatalf("GenerateGo result = (%q, %v), want unsupported with no source", output, err)
+	}
+	codegenDiagnostic := requireDiagnostic(t, err)
+	if codegenDiagnostic.Class() != FailureUnsupported || codegenDiagnostic.Code() != diagnosticCodegenUnsupported || codegenDiagnostic.Feature() != FeatureCodegen || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("GenerateGo diagnostic = %s, want explicit unsupported", codegenDiagnostic)
+	}
+	if codegenDiagnostic.Loc() != wantLoc {
+		t.Fatalf("GenerateGo diagnostic location = %s, want %s", codegenDiagnostic.Loc(), wantLoc)
+	}
+	if codegenDiagnostic.SpecRef() != wantSpec {
+		t.Fatalf("GenerateGo diagnostic specification = %q, want %q", codegenDiagnostic.SpecRef(), wantSpec)
+	}
+}
+
+func assertIntegerDerivedConsumersUnsupported(t *testing.T, schema Schema) {
 	t.Helper()
 	output, err := GenerateGo(schema, "generated")
 	if output != nil || err == nil {
@@ -468,13 +560,10 @@ func assertNonNegativeIntegerGenerateGoUnsupported(t *testing.T, schema Schema) 
 	if codegenDiagnostic.Class() != FailureUnsupported || codegenDiagnostic.Code() != diagnosticCodegenUnsupported || !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("GenerateGo diagnostic = %s, want explicit unsupported", codegenDiagnostic)
 	}
-}
 
-func assertNonNegativeIntegerValidationUnsupported(t *testing.T, schema Schema) {
-	t.Helper()
 	validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<value xmlns="urn:test">0</value>`)))
 	if validationErr == nil {
-		t.Fatal("ValidateInstance accepted a nonNegativeInteger global element")
+		t.Fatal("ValidateInstance accepted an excluded integer-derived global element")
 	}
 	validationDiagnostic := requireDiagnostic(t, validationErr)
 	if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || !errors.Is(validationErr, ErrUnsupported) {
