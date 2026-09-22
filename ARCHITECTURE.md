@@ -40,25 +40,25 @@ type Resolver interface {
 ```
 
 Sources carry opaque identity, reader-closer, child context; resolvers may store
-private base-location state. FIFO discovery preserves context. Parser leaves opaque
-identities/locations uninterpreted, opens no paths, makes no network requests.
-Resolver calls sequential.
+private base state. FIFO discovery preserves context. Parser leaves opaque
+identities/locations, opens no paths or network requests; resolver calls are
+sequential.
 
-Decode captures one-based line and Unicode-code-point columns; components retain
-`Loc`, not source bytes.
+Decode captures one-based line/Unicode-code-point columns; components retain `Loc`,
+not bytes.
 
 ## Diagnostics
 
 Diagnostics classify invalid, unsupported, resolution, and internal failures; retain
-stable codes, primary `Loc`, related/specification references, and causes; errors prevent
-schema return. Unsupported features have stable report IDs.
+stable codes/report IDs, primary `Loc`, related/specification references, and causes;
+errors prevent schema return.
 
 ## Schema model
 
 Raw syntax is internal; immutable components retain `Loc`; queries use names/identities;
 walks preserve discovery/lexical order and sort unordered sets. `Schema`,
 `SchemaDocument`, `Component`, `ComponentID`, and expanded `QName` expose copied
-views; IDs use source/ordinal, local particles are scoped, consumers are on demand.
+views; IDs use source/ordinal, scoped local particles, on-demand consumers.
 
 Primitive: `DeclaredType`; direct local choices/sequences and bounded attribute-free extensions over named empty-content bases retain anonymous Boolean/integer/decimal refs; default direct and bounded attribute-free extension choices retain local built-in/named-effective `precisionDecimal` facets (locations/occurrences/bounds). Anonymous refs preserve `SimpleTypeID`/`NodeID`/`AnonymousID`, not `ComponentID`/global ownership. Model-less retain base identity/locations. After admission, `0/0` is absent: Compatibility/Strict11 omit; Strict10 rejects, including zero.
 Mapped anonymous integer particles admit only non-`0/0` `integer`/`negativeInteger` via named/forward/imported/included/chameleon; excluded `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` remain valid but unsupported at type/facet `Loc` (`FailureUnsupported`/`ErrUnsupported`), no schema. Across Compatibility/Strict10/Strict11, global `xs:attribute` declarations with built-in/supported-named `nonNegativeInteger` are schema/query-only: written QName, declaration/type `Loc`s, declaration order/graph provenance, and exact lower bounds (built-in `minInclusive=0`; named restrictions narrow); built-in refs lack `ComponentID`, named refs retain IDs; particle occurrence is N/A. Default/fixed fail (`FailureUnsupported`/`ErrUnsupported`) at constraint `Loc`, no schema; local/inline attrs, validation, and `GenerateGo` excluded.
@@ -69,10 +69,11 @@ lower `0`, and `nonPositiveInteger` upper `0`; global `xs:attribute` `long`,
 `unsignedLong`, and `nonPositiveInteger` remain unsupported; malformed refs
 invalid; local admission separate.
 Named complexes accept omitted/`false`/`0`, reject `true`/`1`; malformed XSD 1.1
-invalid; other behavior unsupported. Diagnostics retain code/primary `Loc`, cause,
-`SpecRef`. `IsInheritable` accepts Compatibility/Strict11, mismatches Strict10;
-untyped/inline attrs, `defaultAttributesApply`, XPath remain
-unsupported/inert.
+invalid; diagnostics retain code/primary `Loc`, cause, `SpecRef`. `IsInheritable`
+accepts Compatibility/Strict11, mismatches Strict10. Untyped global `xs:attribute`
+declarations retain generic ordered `Component` identity/order but no resolved
+typed/consumer facts; only typed `AttributeDeclaration` view absent. Inline
+global/local attribute forms, `defaultAttributesApply`, XPath unsupported/inert.
 Anonymous facets remain queryable; mapped non-`0/0` non-string enumeration is `FailureUnsupported`/`ErrUnsupported` at facet `Loc`, no schema. Direct checks use element/particle `Loc`s; extension/model-less gates run first (codegen extension, validation owner/sequence primary; never anonymous). Top-level named model-group refs use group `RefLoc` and retain particle/group/component/reference/target locations; nested/local/recursive/broader refs unsupported; no output.
 Global `precisionDecimal` is queryable under Compatibility/Strict11 only; built-in/named roots validate, inline does not; Strict10 rejects all before validation. Compatibility/Strict11 admit local built-in or named-effective `precisionDecimal` only in default direct choices/bounded attribute-free extension choices; owner and each mapped typed child/alternative require default occurrences; nonprecision alternatives may remain query-only. Mapped inline anonymous `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms unsupported. Compatibility/Strict11 omit `0/0` for either; Strict10 rejects both before omission, including zero. Non-default choices/nonzero direct sequences reject; only non-extension default typed choices validate; extension, inline/anonymous, and `GenerateGo` consumers reject.
 Mapped non-`0/0` anonymous string/token/NMTOKEN unsupported; `<all>` unsupported.
@@ -82,7 +83,7 @@ Complexes expose non-inherited `IsAbstract`; named `final`/`finalDefault`/local 
 ## Datatypes
 
 Lexical/value representations remain separate; QName values retain namespace
-context. Datatypes map string enumeration and arbitrary-precision scalar values;
+context. Datatypes map string enumeration and arbitrary-precision scalars;
 precisionDecimal retains exact values/facets under Compatibility/Strict11. Boolean
 whitespace collapse supported; Boolean facets, temporal distinctions, broader values
 unsupported.
@@ -97,8 +98,8 @@ Global inline Boolean/integer/decimal/long-family/identity-only declarations ret
 
 ## Conformance
 
-W3C XSD artifacts and outcomes are pinned; the harness reports pass, conformance,
+W3C XSD artifacts/outcomes are pinned; the harness reports pass, conformance,
 unsupported, resolution, and internal failures without changing ranking.
 
 XSD 1.0/1.1 artifacts are URL/digest pinned; tooling indexes them and verifies the
-XSD 1.0 envelope/DTD ordering without changing parser or resolver semantics.
+XSD 1.0 envelope/DTD ordering without changing parser/resolver semantics.

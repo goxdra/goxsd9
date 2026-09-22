@@ -148,13 +148,14 @@ positive namespace enumerations require strict processing. `##local` and a
 target-namespace marker without a target are absent; effective values are sorted,
 unique, copied, and retain normalized lexical/source locations. Local inline
 complex/list/union, unsupported Boolean facets, nested/broader particles/groups,
-`all` mapping, and broader wildcard forms remain unsupported. Unsupported value
-constraints (including default/fixed) are limited to local/inline attribute uses
-and global `nonNegativeInteger` declarations; attribute validation and
-`GenerateGo` remain unsupported there, while global Boolean/integer/decimal/token
-value constraints remain supported. Global built-in/named `nonNegativeInteger`
-attribute type facts remain query-only. Exact occurrences have no fixed resource
-limit; later phases must bound input/materialization.
+`all`/broader wildcards remain unsupported. Global attribute
+value constraints support only Boolean, effective `integer`, `decimal`, and
+`token`; `negativeInteger`, `nonNegativeInteger`, `precisionDecimal`, `language`,
+`NCName`, `anyURI`, and `ID` are admitted type-only references. Unsupported type
+diagnostics use type `Loc`; unsupported value-constraint diagnostics use constraint
+`Loc`. Local/inline attribute forms remain
+unsupported; validation and `GenerateGo` remain excluded. Occurrences have
+no limit; phases must bound input/materialization.
 
 Risks are hostile-lexical memory use, delayed exact-accessor API breakage, and
 leaking semantic `0/0` as a public zero component. Range-constructor, ownership,
