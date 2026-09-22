@@ -3807,7 +3807,6 @@ func cloneSchemaSimpleTypeReferenceComponents(inputs []schemaSimpleTypeReference
 	return clones
 }
 
-//nolint:gocognit // Keep deterministic source-order allocation and recursive model traversal together.
 func allocateSchemaSimpleTypeNodeIDs(records []schemaComponentRecord) error {
 	nextBySource := make(map[SourceID]uint64)
 	seen := make(map[*schemaSimpleTypeInput]SimpleTypeID)

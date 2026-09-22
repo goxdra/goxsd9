@@ -3432,7 +3432,6 @@ type schemaSimpleTypeResolution struct {
 	resolver *schemaSimpleTypeResolver
 }
 
-//nolint:gocognit // Keep named, global-inline, and local-particle resolution in source order.
 func resolveSchemaSimpleTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
@@ -5784,7 +5783,6 @@ func (resolver *schemaComplexTypeResolver) effectiveFinalPolicy(record schemaCom
 	return schemaComplexTypeFinalPolicyFromCanonicalDefault(defaultPolicy), nil
 }
 
-//nolint:gocognit // Keep the phase-specific body variants explicit.
 func (resolver *schemaComplexTypeResolver) resolveBody(
 	input schemaComplexTypeBodyInput,
 	ownerIndex int,
@@ -6141,8 +6139,11 @@ func schemaLocalAttributeSimpleTypeSupported(reference schemaSimpleTypeReference
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
+		schemaSimpleTypeAtomicLong,
+		schemaSimpleTypeAtomicUnsignedLong,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
+		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
@@ -6206,8 +6207,11 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
+		schemaSimpleTypeAtomicLong,
+		schemaSimpleTypeAtomicUnsignedLong,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
+		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
