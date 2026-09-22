@@ -3364,6 +3364,9 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 	case schemaSimpleTypeAtomicToken:
 		facets, ok := reference.facets.(schemaStringFacetVariant)
 		return ok && facets.whiteSpace != nil && facets.whiteSpace.Value() == "collapse"
+	case schemaSimpleTypeAtomicPrecisionDecimal:
+		_, ok := reference.facets.(schemaPrecisionDecimalFacetVariant)
+		return ok
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicNMTOKEN,
@@ -3372,7 +3375,6 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicUnsignedLong,
-		schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
@@ -3429,6 +3431,8 @@ func resolveSchemaAttributeValueConstraint(
 		constraint.decimal = value
 		constraint.hasDecimal = true
 		return constraint, nil
+	case schemaSimpleTypeAtomicPrecisionDecimal:
+		return resolveSchemaAttributePrecisionDecimalValueConstraint(input, reference, version, constraint)
 	case schemaSimpleTypeAtomicToken:
 		return resolveSchemaAttributeTokenValueConstraint(input, reference, version, constraint, lexical)
 	case schemaSimpleTypeAtomicUnknown,
@@ -3439,7 +3443,6 @@ func resolveSchemaAttributeValueConstraint(
 		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicUnsignedLong,
-		schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
@@ -3448,6 +3451,29 @@ func resolveSchemaAttributeValueConstraint(
 	default:
 		return nil, newSchemaBridgeInvariant(input.loc, "convert an unsupported attribute value constraint type")
 	}
+}
+
+func resolveSchemaAttributePrecisionDecimalValueConstraint(
+	input *schemaAttributeValueConstraintInput,
+	reference schemaSimpleTypeReferenceComponent,
+	version XSDVersion,
+	constraint *AttributeValueConstraint,
+) (*AttributeValueConstraint, error) {
+	facets, ok := reference.facets.(schemaPrecisionDecimalFacetVariant)
+	if !ok {
+		return nil, newSchemaBridgeInvariant(reference.loc, "validate a precisionDecimal attribute value against a non-precisionDecimal facet model")
+	}
+	facetInput, err := parsePrecisionDecimalFacetInput(input.lexical, input.loc)
+	if err != nil {
+		return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+	}
+	if err := validatePrecisionDecimalFacetInput(facetInput, facets.value, input.loc); err != nil {
+		return nil, invalidSchemaAttributeValueConstraint(input, version, err)
+	}
+	constraint.lexical = facetInput.normalizedLexical
+	constraint.precisionDecimal = StrictPrecisionDecimal{value: clonePrecisionDecimalValue(facetInput.value)}
+	constraint.hasPrecisionDecimal = true
+	return constraint, nil
 }
 
 func resolveSchemaAttributeTokenValueConstraint(
