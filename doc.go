@@ -177,6 +177,11 @@
 // group/component/reference/target locations. These gates return located
 // FailureUnsupported/ErrUnsupported diagnostics; GenerateGo returns no output.
 //
+// Global built-in and named xs:nonNegativeInteger roots remain unsupported by
+// ValidateInstance under Compatibility, Strict10, and Strict11: the call
+// returns FailureUnsupported/XSD4004/ErrUnsupported, and schema-owned bounds
+// and facets receive no runtime facet validation.
+//
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
@@ -219,16 +224,22 @@
 // Global attribute declarations and value constraints are query-only; attribute
 // validation and generation, plus local/inline attribute forms, remain explicit
 // unsupported behavior.
-// GenerateGo matrix: global built-in/named/inherited/included/imported
-// Boolean/integer/decimal/nonNegativeInteger and string/token/NMTOKEN scalar components generate, as
-// do global inline string/token/NMTOKEN scalar components. Non-extension
-// default-occurrence direct-choice references to global built-in/named Boolean,
-// integer, or decimal targets are also generation-eligible; sequences,
-// repetition/non-default occurrences, nested/recursive/broader references, and
-// anonymous targets are rejected. Global inline Boolean/integer/decimal,
-// long/unsignedLong/negativeInteger/nonNegativeInteger/nonPositiveInteger, and
-// language/NCName/anyURI/ID declarations retain schema/query facts but their
-// anonymous validation and generation consumers are rejected.
+// GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
+// built-in and named atomic nonNegativeInteger elements in the resolved graph
+// generate across direct, named, forward, included, imported, and chameleon
+// declarations. Global built-in/named Boolean/integer/decimal and
+// string/token/NMTOKEN scalar components also generate, as do global inline
+// string/token/NMTOKEN scalar components. Non-extension default-occurrence
+// direct-choice references to global built-in/named Boolean, integer, or
+// decimal targets are also generation-eligible; nonNegativeInteger choices,
+// sequences, repetition/non-default occurrences, nested/recursive/broader
+// references, anonymous targets, local/inline forms, lists/unions,
+// attributes/value constraints, and other integer-derived types are explicit
+// unsupported consumers and return no GenerateGo output. Global inline
+// Boolean/integer/decimal, long/unsignedLong/negativeInteger/nonNegativeInteger/
+// nonPositiveInteger, and language/NCName/anyURI/ID declarations retain
+// schema/query facts but their anonymous validation and generation consumers
+// are rejected.
 // Global built-in, named, and inline precisionDecimal schema/query facts are
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
