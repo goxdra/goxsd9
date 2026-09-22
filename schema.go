@@ -1105,7 +1105,7 @@ func (definition ComplexTypeDefinition) IsAbstract() bool {
 	return definition.facts.abstract
 }
 
-// Final returns the explicit non-empty final derivation controls in
+// Final returns the effective non-empty final derivation controls in
 // specification order. The returned slice is independent of the schema.
 func (definition ComplexTypeDefinition) Final() []string {
 	if definition.facts == nil {
@@ -1114,7 +1114,8 @@ func (definition ComplexTypeDefinition) Final() []string {
 	return definition.facts.final.set.values()
 }
 
-// FinalLoc returns the location of the explicit final declaration.
+// FinalLoc returns the location of the effective final declaration or document
+// default.
 func (definition ComplexTypeDefinition) FinalLoc() Loc {
 	if definition.facts == nil {
 		return Loc{}
@@ -2124,6 +2125,9 @@ type schemaDocumentInput struct {
 	source          SourceID
 	rootLoc         Loc
 	targetNamespace string
+	// finalDefault retains the canonical four-token root policy until complex
+	// resolution projects its extension/restriction controls.
+	finalDefault schemaSimpleTypeFinalPolicy
 	// visibleSources is the ordered set of documents whose global
 	// declarations may be referenced from this document.
 	visibleSources []SourceID
@@ -2347,6 +2351,7 @@ func (schemaAtomicFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
 	abstract                bool
+	hasExplicitFinal        bool
 	final                   schemaComplexTypeFinalPolicy
 	body                    schemaComplexTypeBodyInput
 	prohibitedSubstitutions schemaBlockPolicy
@@ -2698,6 +2703,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
+	finalDefaults := schemaDocumentFinalDefaults(inputs)
 	if allocationErr := allocateSchemaSimpleTypeNodeIDs(records); allocationErr != nil {
 		return Schema{}, allocationErr
 	}
@@ -2715,7 +2721,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
-	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, version)
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, finalDefaults, version)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -2828,6 +2834,14 @@ func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []sc
 		}
 	}
 	return documents, records, byName, visibleSources, nil
+}
+
+func schemaDocumentFinalDefaults(inputs []schemaDocumentInput) map[SourceID]schemaSimpleTypeFinalPolicy {
+	defaults := make(map[SourceID]schemaSimpleTypeFinalPolicy, len(inputs))
+	for _, input := range inputs {
+		defaults[input.source] = input.finalDefault
+	}
+	return defaults
 }
 
 func validateSchemaDocumentInput(input schemaDocumentInput, seenSources map[SourceID]struct{}) error {
@@ -3100,6 +3114,7 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 	}
 	clone := &schemaComplexTypeInput{
 		abstract:                input.abstract,
+		hasExplicitFinal:        input.hasExplicitFinal,
 		final:                   input.final,
 		body:                    cloneSchemaComplexTypeBodyInput(input.body),
 		prohibitedSubstitutions: input.prohibitedSubstitutions,

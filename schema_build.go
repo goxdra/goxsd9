@@ -368,26 +368,37 @@ func schemaComplexTypeFinalPolicyFromAttribute(attribute syntaxAttribute) (schem
 	return schemaComplexTypeFinalPolicy{set: set, loc: attribute.loc}, nil
 }
 
-func schemaComplexTypeFinalPolicyFromElement(element *syntaxElement) (schemaComplexTypeFinalPolicy, error) {
+func schemaComplexTypeFinalPolicyFromCanonicalDefault(policy schemaSimpleTypeFinalPolicy) schemaComplexTypeFinalPolicy {
+	set := schemaComplexTypeFinalSet(policy.set & (schemaSimpleTypeFinalExtension | schemaSimpleTypeFinalRestriction))
+	if set == 0 {
+		return schemaComplexTypeFinalPolicy{}
+	}
+	return schemaComplexTypeFinalPolicy{set: set, loc: policy.loc}
+}
+
+func schemaComplexTypeFinalPolicyFromElement(element *syntaxElement) (schemaComplexTypeFinalPolicy, bool, error) {
 	finalAttributes := syntaxAttributesByLocal(element, "final")
 	if len(finalAttributes) == 0 {
-		return schemaComplexTypeFinalPolicy{}, nil
+		return schemaComplexTypeFinalPolicy{}, false, nil
 	}
 	if len(finalAttributes) != 1 {
-		return schemaComplexTypeFinalPolicy{}, newSchemaCompositionDiagnostic(
+		return schemaComplexTypeFinalPolicy{}, true, newSchemaCompositionDiagnostic(
 			finalAttributes[1].loc,
 			`complexType attribute "final" must be unique`,
 		)
 	}
-	return schemaComplexTypeFinalPolicyFromAttribute(finalAttributes[0])
+	policy, err := schemaComplexTypeFinalPolicyFromAttribute(finalAttributes[0])
+	return policy, true, err
 }
 
 func schemaComplexTypeInputWithDeclarationFacts(
 	input *schemaComplexTypeInput,
 	abstract bool,
+	hasExplicitFinal bool,
 	final schemaComplexTypeFinalPolicy,
 ) *schemaComplexTypeInput {
 	input.abstract = abstract
+	input.hasExplicitFinal = hasExplicitFinal
 	input.final = final
 	return input
 }
@@ -713,6 +724,10 @@ func schemaDocumentInputAt(
 	if err != nil {
 		return schemaDocumentInput{}, err
 	}
+	finalDefault, err := syntaxDocumentCanonicalFinalDefaultPolicy(document)
+	if err != nil {
+		return schemaDocumentInput{}, err
+	}
 	facts := schemaDocumentFacts{
 		targetNamespace:             namespaces[index],
 		elementFormDefaultQualified: elementFormDefaultQualified,
@@ -728,6 +743,7 @@ func schemaDocumentInputAt(
 		source:          document.source,
 		rootLoc:         document.root.loc,
 		targetNamespace: namespaces[index].value,
+		finalDefault:    finalDefault,
 		declarations:    declarations,
 	}
 	if visibleSources == nil {
@@ -770,6 +786,23 @@ func syntaxDocumentFinalDefaultPolicy(document *syntaxDocument, version XSDVersi
 		return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attributes[1].loc, "schema root attribute \"finalDefault\" must be unique")
 	}
 	return schemaSimpleTypeFinalPolicyFromRootAttribute(attributes[0], version)
+}
+
+func syntaxDocumentCanonicalFinalDefaultPolicy(document *syntaxDocument) (schemaSimpleTypeFinalPolicy, error) {
+	if document == nil || document.root == nil {
+		return schemaSimpleTypeFinalPolicy{}, newSchemaBridgeInvariant(Loc{}, "schema document has no root while reading finalDefault")
+	}
+	attributes := syntaxAttributesByLocal(document.root, "finalDefault")
+	if len(attributes) == 0 {
+		return schemaSimpleTypeFinalPolicy{}, nil
+	}
+	if len(attributes) != 1 {
+		return schemaSimpleTypeFinalPolicy{}, newSchemaCompositionDiagnostic(attributes[1].loc, "schema root attribute \"finalDefault\" must be unique")
+	}
+	// Keep the full four-token lexical policy here. Simple-type resolution uses
+	// the selected edition's projection separately, while complex resolution
+	// projects extension/restriction from this canonical document fact.
+	return schemaSimpleTypeFinalPolicyFromAttributeMode(attributes[0], XSDVersion11, true)
 }
 
 func syntaxDocumentTargetNamespace(document *syntaxDocument) (schemaTargetNamespace, error) {
@@ -1566,7 +1599,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	if err != nil {
 		return nil, err
 	}
-	final, err := schemaComplexTypeFinalPolicyFromElement(element)
+	final, hasExplicitFinal, err := schemaComplexTypeFinalPolicyFromElement(element)
 	if err != nil {
 		return nil, err
 	}
@@ -1581,13 +1614,13 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 			if inputErr != nil {
 				return nil, inputErr
 			}
-			return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
+			return schemaComplexTypeInputWithDeclarationFacts(input, abstract, hasExplicitFinal, final), nil
 		}
 		input, inputErr := schemaComplexTypeRestrictionInput(complexContent, block)
 		if inputErr != nil {
 			return nil, inputErr
 		}
-		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, hasExplicitFinal, final), nil
 	}
 	model := schemaComplexTypeModel(element)
 	if model == nil {
@@ -1604,6 +1637,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 		}
 		return &schemaComplexTypeInput{
 			abstract:                abstract,
+			hasExplicitFinal:        hasExplicitFinal,
 			final:                   final,
 			body:                    &schemaComplexTypeEmptyBodyInput{},
 			prohibitedSubstitutions: block,
@@ -1623,20 +1657,20 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 		if inputErr != nil {
 			return nil, inputErr
 		}
-		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, hasExplicitFinal, final), nil
 	}
 	if model.name.local == "choice" {
 		input, inputErr := schemaChoiceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
 		if inputErr != nil {
 			return nil, inputErr
 		}
-		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, hasExplicitFinal, final), nil
 	}
 	input, inputErr := schemaSequenceComplexTypeInput(model, occurrences, facts, version, block, anyAttribute)
 	if inputErr != nil {
 		return nil, inputErr
 	}
-	return schemaComplexTypeInputWithDeclarationFacts(input, abstract, final), nil
+	return schemaComplexTypeInputWithDeclarationFacts(input, abstract, hasExplicitFinal, final), nil
 }
 
 func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
@@ -4941,6 +4975,7 @@ func resolveSchemaComplexTypes(
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
 	simpleTypes schemaSimpleTypeResolution,
+	finalDefaults map[SourceID]schemaSimpleTypeFinalPolicy,
 	version XSDVersion,
 ) ([]schemaComplexTypeResult, error) {
 	if len(simpleTypes.results) != len(records) || simpleTypes.byInput == nil {
@@ -4951,6 +4986,7 @@ func resolveSchemaComplexTypes(
 		byName:         byName,
 		visibleSources: visibleSources,
 		simpleTypes:    simpleTypes,
+		finalDefaults:  finalDefaults,
 		version:        version,
 		results:        make([]schemaComplexTypeResult, len(records)),
 		state:          make([]uint8, len(records)),
@@ -4972,6 +5008,7 @@ type schemaComplexTypeResolver struct {
 	byName         map[QName][]int
 	visibleSources map[SourceID][]SourceID
 	simpleTypes    schemaSimpleTypeResolution
+	finalDefaults  map[SourceID]schemaSimpleTypeFinalPolicy
 	version        XSDVersion
 	results        []schemaComplexTypeResult
 	state          []uint8
@@ -4997,6 +5034,10 @@ func (resolver *schemaComplexTypeResolver) resolve(index int) error {
 	if record.complexType.body == nil {
 		return newSchemaBridgeInvariant(record.loc, "complex type resolution has no body input")
 	}
+	final, err := resolver.effectiveFinalPolicy(record)
+	if err != nil {
+		return err
+	}
 	body, err := resolver.resolveBody(record.complexType.body, index)
 	if err != nil {
 		return err
@@ -5006,11 +5047,28 @@ func (resolver *schemaComplexTypeResolver) resolve(index int) error {
 	resolver.results[index] = schemaComplexTypeResult{
 		present:                 true,
 		abstract:                record.complexType.abstract,
-		final:                   record.complexType.final,
+		final:                   final,
 		body:                    body,
 		prohibitedSubstitutions: record.complexType.prohibitedSubstitutions,
 	}
 	return nil
+}
+
+func (resolver *schemaComplexTypeResolver) effectiveFinalPolicy(record schemaComponentRecord) (schemaComplexTypeFinalPolicy, error) {
+	if record.complexType == nil {
+		return schemaComplexTypeFinalPolicy{}, newSchemaBridgeInvariant(record.loc, "complex type final policy has no input")
+	}
+	if record.complexType.hasExplicitFinal {
+		return record.complexType.final, nil
+	}
+	defaultPolicy, ok := resolver.finalDefaults[record.id.Source()]
+	if !ok {
+		return schemaComplexTypeFinalPolicy{}, newSchemaBridgeInvariant(
+			record.loc,
+			"complex type final policy has no source default",
+		)
+	}
+	return schemaComplexTypeFinalPolicyFromCanonicalDefault(defaultPolicy), nil
 }
 
 //nolint:gocognit // Keep the phase-specific body variants explicit.
@@ -5131,6 +5189,10 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBase(
 			"extension base has no completed complex type result",
 		)
 	}
+	inherited, err := resolver.extensionBaseFacts(base.body, resolver.records[candidate].loc, input.loc)
+	if err != nil {
+		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, err
+	}
 	if base.final.set&schemaComplexTypeFinalExtension != 0 {
 		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, newSchemaComplexTypeExtensionBaseDiagnostic(
 			input.loc,
@@ -5139,10 +5201,6 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBase(
 			resolver.version,
 			fmt.Errorf("%w: extension is prohibited by base final", errSchemaComplexTypeBaseUnsupported),
 		)
-	}
-	inherited, err := resolver.extensionBaseFacts(base.body, resolver.records[candidate].loc, input.loc)
-	if err != nil {
-		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, err
 	}
 	reference.id = resolver.records[candidate].id
 	reference.hasID = true

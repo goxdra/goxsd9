@@ -226,7 +226,7 @@ func issue459DefaultFinalViewIteration(t *testing.T, profile schemaFinalDefaultP
 	return snapshot, currentLoc
 }
 
-func TestIssue459DefaultDoesNotApplyToComplexOrAnonymousSimpleTypes(t *testing.T) {
+func TestIssue459DefaultAppliesToNamedComplexButNotAnonymousSimpleTypes(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="1.1" finalDefault="restriction">
   <xs:element name="Inline"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>
   <xs:complexType name="Complex"/>
@@ -249,8 +249,8 @@ func TestIssue459DefaultDoesNotApplyToComplexOrAnonymousSimpleTypes(t *testing.T
 		t.Fatalf("Complex matches = %d, want one", len(complexTypes))
 	}
 	complexDefinition, ok := complexTypes[0].ComplexTypeDefinition()
-	if !ok || len(complexDefinition.Final()) != 0 || !complexDefinition.FinalLoc().IsZero() {
-		t.Fatalf("Complex final = %#v/%s, want empty", complexDefinition.Final(), complexDefinition.FinalLoc())
+	if !ok || !reflect.DeepEqual(complexDefinition.Final(), []string{"restriction"}) || complexDefinition.FinalLoc() != mustSchemaTokenLoc(t, "root.xsd", root, 1, "finalDefault") {
+		t.Fatalf("Complex final = %#v/%s, want restriction at document default", complexDefinition.Final(), complexDefinition.FinalLoc())
 	}
 	inlineComponents := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:test", "Inline"))
 	if len(inlineComponents) != 1 {
