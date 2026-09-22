@@ -190,6 +190,40 @@ func TestSchemaBridgeResolvesImportedAttributeUseByVisibility(t *testing.T) {
 	}
 }
 
+func TestSchemaBridgeRejectsReferencedUnsupportedGlobalAttributeType(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">
+  <xs:attribute name="language" type="xs:language"/>
+  <xs:complexType name="Record">
+    <xs:attribute ref="r:language"/>
+  </xs:complexType>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err == nil {
+		t.Fatal("discoverSchema published an unsupported global attribute reference")
+	}
+	if schema.storage != nil || len(schema.Components()) != 0 {
+		t.Fatal("unsupported global attribute reference returned a partial schema")
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+		t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Feature())
+	}
+	wantReferenceLoc := elementReferenceTestAttributeLoc(t, root, `ref="r:language"`)
+	if diagnostic.Loc() != wantReferenceLoc {
+		t.Fatalf("diagnostic location = %s, want reference location %s", diagnostic.Loc(), wantReferenceLoc)
+	}
+	wantRelated := []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="language"`)}
+	if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+		t.Fatalf("diagnostic related = %v, want target location %v", diagnostic.Related(), wantRelated)
+	}
+	if diagnostic.SpecRef() != schemaAttributeUseXSD11SpecRef {
+		t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), schemaAttributeUseXSD11SpecRef)
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaAttributeReferenceUnsupported) {
+		t.Fatalf("diagnostic lost unsupported reference cause: %v", err)
+	}
+}
+
 func TestSchemaBridgeAttributeReferenceRequiresDirectImport(t *testing.T) {
 	root := elementReferenceTestRoot(`<xs:complexType name="Record"><xs:attribute ref="o:foreign"/></xs:complexType>`)
 	rootDocument := elementReferenceTestSyntaxDocument(t, "root.xsd", root)

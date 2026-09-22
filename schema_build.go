@@ -6454,6 +6454,14 @@ func resolveSchemaAttributeReferenceUse(
 			version,
 		)
 	}
+	if !schemaLocalAttributeSimpleTypeSupported(attributes[target].typeReference) {
+		return AttributeReferenceUse{}, unsupportedSchemaAttributeReference(
+			reference.loc,
+			fmt.Sprintf("attribute reference %q targets a global attribute with an unsupported scalar type", reference.name),
+			schemaComponentLocations(records, []int{target}),
+			version,
+		)
+	}
 	return AttributeReferenceUse{facts: &schemaAttributeReferenceUse{
 		loc:      input.loc,
 		name:     reference.name,
