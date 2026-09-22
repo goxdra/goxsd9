@@ -3525,12 +3525,12 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID, schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicNMTOKEN,
-		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicUnsignedLong:

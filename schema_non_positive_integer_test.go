@@ -523,7 +523,7 @@ func assertNonPositiveIntegerNoPartialSchema(t *testing.T, schema Schema, err er
 	}
 }
 
-func assertSchemaIntegerDerivedExcludedShapes(t *testing.T, policy LanguagePolicy, atomicName, defaultValue string) {
+func assertSchemaIntegerDerivedExcludedShapes(t *testing.T, policy LanguagePolicy, atomicName, defaultValue string, includeGlobalAttribute bool) {
 	t.Helper()
 	for _, test := range []struct {
 		name string
@@ -546,6 +546,9 @@ func assertSchemaIntegerDerivedExcludedShapes(t *testing.T, policy LanguagePolic
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:` + atomicName + `" default="` + defaultValue + `"/></xs:schema>`,
 		},
 	} {
+		if test.name == "global attribute" && !includeGlobalAttribute {
+			continue
+		}
 		t.Run(test.name, func(t *testing.T) {
 			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, policy)
 			if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
@@ -562,7 +565,7 @@ func assertSchemaIntegerDerivedExcludedShapes(t *testing.T, policy LanguagePolic
 func TestSchemaNonPositiveIntegerExcludedShapesRemainUnsupported(t *testing.T) {
 	for _, profile := range nonPositiveIntegerPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
-			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "nonPositiveInteger", "0")
+			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "nonPositiveInteger", "0", true)
 		})
 	}
 }
