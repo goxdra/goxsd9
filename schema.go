@@ -1105,7 +1105,7 @@ func (definition ComplexTypeDefinition) IsAbstract() bool {
 	return definition.facts.abstract
 }
 
-// Final returns the explicit non-empty final derivation controls in
+// Final returns the effective non-empty final derivation controls in
 // specification order. The returned slice is independent of the schema.
 func (definition ComplexTypeDefinition) Final() []string {
 	if definition.facts == nil {
@@ -1114,7 +1114,8 @@ func (definition ComplexTypeDefinition) Final() []string {
 	return definition.facts.final.set.values()
 }
 
-// FinalLoc returns the location of the explicit final declaration.
+// FinalLoc returns the location of the effective final declaration or document
+// default.
 func (definition ComplexTypeDefinition) FinalLoc() Loc {
 	if definition.facts == nil {
 		return Loc{}
@@ -2381,6 +2382,9 @@ type schemaDocumentInput struct {
 	source          SourceID
 	rootLoc         Loc
 	targetNamespace string
+	// finalDefault retains the canonical four-token root policy until complex
+	// resolution projects its extension/restriction controls.
+	finalDefault schemaSimpleTypeFinalPolicy
 	// visibleSources is the ordered set of documents whose global
 	// declarations may be referenced from this document.
 	visibleSources []SourceID
@@ -2604,6 +2608,7 @@ func (schemaAtomicFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
 	abstract                bool
+	hasExplicitFinal        bool
 	final                   schemaComplexTypeFinalPolicy
 	body                    schemaComplexTypeBodyInput
 	prohibitedSubstitutions schemaBlockPolicy
@@ -3040,10 +3045,11 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if err != nil {
 		return Schema{}, err
 	}
+	finalDefaults := schemaDocumentFinalDefaults(inputs)
 	if prepareErr := prepareSchemaRecordsForResolution(records, version); prepareErr != nil {
 		return Schema{}, prepareErr
 	}
-	resolution, err := resolveSchemaBuildResults(inputs, edges, records, byName, visibleSources, version)
+	resolution, err := resolveSchemaBuildResults(inputs, edges, records, byName, visibleSources, finalDefaults, version)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -3095,6 +3101,7 @@ func resolveSchemaBuildResults(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
 	visibleSources map[SourceID][]SourceID,
+	finalDefaults map[SourceID]schemaSimpleTypeFinalPolicy,
 	version XSDVersion,
 ) (schemaBuildResolution, error) {
 	simpleTypes, err := resolveSchemaSimpleTypesForBuild(records, byName, visibleSources, version)
@@ -3105,11 +3112,11 @@ func resolveSchemaBuildResults(
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
-	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, attributes, version)
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, finalDefaults, attributes, version)
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
-	modelGroups, err := resolveSchemaModelGroups(records, byName, visibleSources, simpleTypes.results, version)
+	modelGroups, err := resolveSchemaModelGroups(records, byName, visibleSources, simpleTypes, version)
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
@@ -3211,6 +3218,14 @@ func allocateSchemaRecords(inputs []schemaDocumentInput) ([]SchemaDocument, []sc
 		}
 	}
 	return documents, records, byName, visibleSources, nil
+}
+
+func schemaDocumentFinalDefaults(inputs []schemaDocumentInput) map[SourceID]schemaSimpleTypeFinalPolicy {
+	defaults := make(map[SourceID]schemaSimpleTypeFinalPolicy, len(inputs))
+	for _, input := range inputs {
+		defaults[input.source] = input.finalDefault
+	}
+	return defaults
 }
 
 func validateSchemaDocumentInput(input schemaDocumentInput, seenSources map[SourceID]struct{}) error {
@@ -3501,6 +3516,7 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 	}
 	clone := &schemaComplexTypeInput{
 		abstract:                input.abstract,
+		hasExplicitFinal:        input.hasExplicitFinal,
 		final:                   input.final,
 		body:                    cloneSchemaComplexTypeBodyInput(input.body),
 		prohibitedSubstitutions: input.prohibitedSubstitutions,
@@ -3791,6 +3807,7 @@ func cloneSchemaSimpleTypeReferenceComponents(inputs []schemaSimpleTypeReference
 	return clones
 }
 
+//nolint:gocognit // Keep deterministic source-order allocation and recursive model traversal together.
 func allocateSchemaSimpleTypeNodeIDs(records []schemaComponentRecord) error {
 	nextBySource := make(map[SourceID]uint64)
 	seen := make(map[*schemaSimpleTypeInput]SimpleTypeID)
@@ -3817,11 +3834,89 @@ func allocateSchemaSimpleTypeNodeIDsForRecord(
 			return err
 		}
 	}
+	if record.complexType != nil {
+		if err := allocateSchemaSimpleTypeNodeIDsInComplexType(record.complexType, record.id.Source(), nextBySource, seen); err != nil {
+			return err
+		}
+	}
 	for _, attributeUse := range schemaComplexTypeAttributeUseInputs(record.complexTypeBody()) {
 		if attributeUse.inlineSimple == nil {
 			continue
 		}
 		if err := allocateSchemaSimpleTypeNodeID(attributeUse.inlineSimple, record.id.Source(), nextBySource, seen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func allocateSchemaSimpleTypeNodeIDsInComplexType(
+	input *schemaComplexTypeInput,
+	source SourceID,
+	nextBySource map[SourceID]uint64,
+	seen map[*schemaSimpleTypeInput]SimpleTypeID,
+) error {
+	if input == nil || input.body == nil {
+		return newSchemaBridgeInvariant(Loc{}, "complex type simple type allocation has incomplete body input")
+	}
+	switch body := input.body.(type) {
+	case *schemaComplexTypeDirectBodyInput:
+		if body == nil || body.particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "direct complex type simple type allocation has no particle input")
+		}
+		return allocateSchemaSimpleTypeNodeIDsInComplexParticle(body.particle, source, nextBySource, seen)
+	case *schemaComplexTypeExtensionBodyInput:
+		if body == nil || body.particle == nil {
+			return nil
+		}
+		return allocateSchemaSimpleTypeNodeIDsInComplexParticle(body.particle, source, nextBySource, seen)
+	case *schemaComplexTypeEmptyBodyInput, *schemaComplexTypeAttributeOnlyBodyInput,
+		*schemaComplexTypeSimpleContentBodyInput, *schemaComplexTypeRestrictionBodyInput:
+		return nil
+	default:
+		return newSchemaBridgeInvariant(Loc{}, "complex type simple type allocation has an unknown body input")
+	}
+}
+
+func allocateSchemaSimpleTypeNodeIDsInComplexParticle(
+	input schemaComplexTypeParticleInput,
+	source SourceID,
+	nextBySource map[SourceID]uint64,
+	seen map[*schemaSimpleTypeInput]SimpleTypeID,
+) error {
+	switch particle := input.(type) {
+	case *schemaChoiceParticleInput:
+		if particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "choice simple type allocation has a nil particle input")
+		}
+		return allocateSchemaSimpleTypeNodeIDsInParticleTerms(particle.alternatives, source, nextBySource, seen)
+	case *schemaSequenceParticleInput:
+		if particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "sequence simple type allocation has a nil particle input")
+		}
+		return allocateSchemaSimpleTypeNodeIDsInParticleTerms(particle.particles, source, nextBySource, seen)
+	case *schemaModelGroupReferenceParticleInput:
+		if particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "model-group reference simple type allocation has a nil particle input")
+		}
+		return nil
+	default:
+		return newSchemaBridgeInvariant(Loc{}, "complex particle simple type allocation has an unknown particle input")
+	}
+}
+
+func allocateSchemaSimpleTypeNodeIDsInParticleTerms(
+	terms []schemaParticleTermInput,
+	source SourceID,
+	nextBySource map[SourceID]uint64,
+	seen map[*schemaSimpleTypeInput]SimpleTypeID,
+) error {
+	for _, term := range terms {
+		input, ok := schemaElementParticleInputValue(term)
+		if !ok || input.typeInput == nil || input.typeInput.inlineSimpleType == nil {
+			continue
+		}
+		if err := allocateSchemaSimpleTypeNodeID(input.typeInput.inlineSimpleType, source, nextBySource, seen); err != nil {
 			return err
 		}
 	}

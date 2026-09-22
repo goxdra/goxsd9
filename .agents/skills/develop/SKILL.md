@@ -52,37 +52,39 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    `PR_NUMBER="$(gh pr view --json number --jq '.number')"`; set exact REST
    `BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`.
    Save `develop-signals --base "$BASE_SHA" --format json` and `docs audit
-   --base "$BASE_SHA" --format json` before evidence update. Automatic policy
+   --base "$BASE_SHA" --format json` before evidence update. Policy
    fuzz follows changed boundaries; validate optional repeatable
-   `--additional-fuzz PACKAGE:TARGET` at current head. Request checked-in
-   corpus replay separately (bounded, offline, single-worker). JSON
-   deltas/targets and `no-relevant-target`/`not-measured` are valid; fuzz is
-   health, not conformance. Evidence status must use the exact `pending` and
-   `evidence-ready` records; do not infer either state from prose. Before
-   evidence update, challenge, or finish, workflowctl
-   resolves exact REST base/head, matches local commits, recomputes v2 signals/
-   policy; managed docs/source triggers need exact-head read-only Curator pass
-   (runID/pass/no-findings). Reject omitted/stale/forged/unsorted/duplicate/
-   mismatched triggers before update/challenge/finish/convergence. Classify
-   exact changed paths only; never scan prose/infer behavior. Legacy omission
-   is valid only on exact fresh no-trigger diff. Repeat remediation.
-10. Before challenging, reread the exact full PR body against current
+   `--additional-fuzz PACKAGE:TARGET` at head. Request corpus replay
+   (bounded, offline, single-worker). JSON deltas/targets and
+   `no-relevant-target`/`not-measured` are valid; fuzz is health, not conformance.
+   Evidence status uses exact `pending`/`evidence-ready`, never prose. Before
+   update/challenge/finish, workflowctl resolves exact REST base/head, matches
+   commits, recomputes v2 signals/policy; docs/source triggers need exact-head
+   read-only Curator (runID/pass/no-findings). Workflow-owned PR block is sole
+   Examiner-required audit/Curator artifact: exact JSON by-value/direct Examiner
+   to canonical block; absolute/local-path optional transport,
+   never only copy; no path fields/hashes/schema-v2/nonce/cache/duplicate-review-state.
+   Reject omitted/stale/forged/unsorted/duplicate/mismatched triggers before update/challenge/finish/convergence. Classify exact
+   changed paths; never scan prose/infer behavior. Legacy omission valid only
+   on exact fresh no-trigger diff. Repeat remediation.
+10. Before challenging, reread full PR body against current
     head/evidence/implementation; correct stale freeform claims (including
-    historical issue-class claims) without normalizing Examiner
-    identity. After any body edit, rerun exact-base evidence and documentation
-    audit plus fresh Curator review when applicable, then obtain a fresh
-    body-bound challenge and Examiner attestation. Machine binding proves
-    identity, not prose truth; never reuse a challenge or stale evidence.
-    Run `go tool workflowctl evaluation challenge PR`; give challenge, PR state,
-    tests, audit, Curator result, attestation shape, rubric to fresh
-    read-only, challenge-bound Examiner. Examiner inspects source, reruns audit, rejects
-    stale/missing Curator evidence, returns exact
-    `goxsd9/examiner-attestation/v1` JSON; failure findings require location,
-    impact, and requiredCorrection. Copy it byte-for-byte outside repository;
+    historical issue-class claims) without normalizing Examiner identity. After
+    body edit: rerun exact-base evidence/docs audit + fresh Curator review when
+    applicable, then body-bound challenge/attestation. Same-head: preserve newer Curator
+    JSON bytes unchanged; replace embedded evidence, recompute evidence/body,
+    fresh challenge/Examiner; head/runID cannot prove round freshness (Develop
+    contract, not Go gate). Binding proves identity, not prose truth; never reuse
+    challenge/evidence. Run `go tool workflowctl evaluation challenge PR`; give
+    canonical embedded audit/Curator block; challenge/state/tests/attestation
+    shape/rubric to fresh read-only challenge-bound Examiner. Examiner consumes
+    block, inspects source/reruns audit, rejects stale/missing Curator,
+    returns exact `goxsd9/examiner-attestation/v1` JSON; findings require
+    location/impact/requiredCorrection. Copy bytes byte-for-byte outside repo;
     record with `go tool workflowctl evaluation record PR --attestation-file FILE`;
-    never choose/rewrite verdict. On failure Smith fixes, checks, pushes, and
-    repeats Curator/challenge/Examiner. Exactly three authenticated Examiner fail receipts mark needs-human; transient failures remain retryable. Hand
-    off evidence.
+    never choose/rewrite verdict. On failure Smith fixes/checks/pushes; repeat
+    Curator/challenge/Examiner. Exactly three authenticated Examiner fail
+    receipts mark needs-human; transient failures retryable. Hand off evidence.
 11. On matching-head pass, write a separate plain-text summary outside
     repository for future development/backlog/retrospective; cover
     problem/outcome/rationale/consequential decisions/invariants and omit
@@ -98,10 +100,13 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
     challenge/Examiner.
 ## Waiting and pilot
 
-Waits are logical barriers: continue while healthy work and lease renewal
-permit; never narrow/pressure/spawn/duplicate. Interrupt only for explicit
-failure, cancellation, invalid scope, or lost lease. Follow up only incomplete
-handoffs/bounded input; timing is guidance, not a runtime guarantee.
+Waits: `running` with no output/error stays healthy across repeated
+timeouts/compactions. Keep one agent while lease valid/renewable; never
+narrow/pressure/spawn/duplicate. Elapsed/finite timeout/window count never
+justifies interrupt/pressure/reselection/terminal/workflowctl handoff/`needs-human`.
+Terminal only explicit failure/cancellation/invalid-scope/lost-lease. Follow up
+only incomplete handoffs/bounded input; renew required durable boundary; never
+wake/poll solely to renew; timing guidance, not runtime.
 
 For three packets (mechanical, specification-heavy, remediation), record root
 compactions, peak context, output volume, elapsed time, Examiner rounds/verdict,

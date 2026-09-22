@@ -177,11 +177,25 @@ type instanceChoiceProgram struct {
 // a single root global whose type is built-in or named XSD boolean, token,
 // NMTOKEN, integer, decimal, or precisionDecimal, or a named complex type with one
 // direct choice or sequence. Direct choices accept default-occurrence local
-// Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements and
-// default-occurrence references to global Boolean, integer, and decimal elements.
-// Direct sequences contain only local Boolean elements or only local integer/decimal
-// elements. Mixed Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices,
-// and local NMTOKEN or token sequence particles remain unsupported.
+// Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements whose
+// type references are built-in or named, and default-occurrence references to
+// global Boolean, integer, and decimal elements. Direct sequences contain only
+// local built-in or named Boolean elements or only local built-in or named
+// integer/decimal elements. Modeled anonymous local inline atomic references
+// remain schema-queryable only: ordinary direct choice/sequence target checks
+// return a located FailureUnsupported/ErrUnsupported diagnostic with
+// element/particle locations and may include the anonymous type location in
+// related facts. Non-model-group-reference complex-content/model-less extension
+// checks run first, before target inspection, at the extension boundary; they
+// retain declaration/definition owners and complex-content/extension/base/
+// particle (and anyAttribute, when present) related locations without an
+// anonymous type location. The choice path uses the extension boundary as
+// primary; the streaming sequence path keeps the instance root as primary.
+// Direct and extension model-group-reference particles are classified first by
+// the group reference: its RefLoc is primary and its particle location is kept
+// in related facts.
+// Mixed Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices, and
+// local NMTOKEN or token sequence particles remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint
@@ -1060,6 +1074,17 @@ func instanceChoiceAlternativeFor(
 	version XSDVersion,
 ) (instanceChoiceAlternative, error) {
 	alternativeRelated := []Loc{declaration.Loc(), definition.Loc(), choice.Loc(), element.Loc()}
+	typeReference, hasTypeReference := element.TypeReference()
+	if hasTypeReference && typeReference.Kind() == SimpleTypeReferenceAnonymous {
+		anonymousRelated := appendInstanceRelated(relCopy(alternativeRelated), typeReference.Loc())
+		return instanceChoiceAlternative{}, newInstanceValidationUnsupported(
+			element.Loc(),
+			fmt.Sprintf("local choice element %q uses an anonymous simple type outside instance validation", element.Name()),
+			anonymousRelated,
+			version,
+			errInstanceChoiceTarget,
+		)
+	}
 	typeID, hasTypeID := element.TypeID()
 	scalar, err := instanceScalarTypeForTarget(
 		schema,

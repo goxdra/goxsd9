@@ -4,63 +4,53 @@ goxsd9 parses/validates/generates Go; unsupported remains explicit.
 
 ## [Schema parsing](ARCHITECTURE.md#schema-model)
 
-`ParseSchema`: immutable components; caller-provided `ResolvedSource`/`Resolver`; sequential calls, opaque locations; Compatibility default.
+`ParseSchema`: immutable components; caller `ResolvedSource`/`Resolver`; sequential, opaque locations; Compatibility default.
 
-XSD 1.0/1.1 graphs model restrictions, facets, `openAttrs`, bounded extensions, abstract/final, and located diagnostics. `defaultAttributesApply`: named globals only under XSD 1.1/Compatibility, without schema-level `defaultAttributes`. `openContent=none`: direct globals/bounded extensions in Compatibility/Strict11; located Strict10 mismatch. Element/model-group refs, model-less extensions, inherited `##other`/lax retain facts.
-Named global complex direct sequence/choice types alone expose `anyAttribute`: omitted `##any`/strict; `##any` strict/lax/skip; `##other` strict/lax/skip; positive namespaces strict-only. `xs:any` separately: `##any` strict/lax/skip; `##other` strict/lax; positive namespaces strict/lax/skip; processContents/locations/effective namespaces retained; broader placements/nonzero consumers unsupported.
-Particle-plus-uses/attribute-only expose ordered scalar local/ref/anonymous-inline `AttributeUse` facts; only bounded scalar `simpleContent` extensions retain base/type refs and ordered local/ref/anonymous-inline uses. Broader forms/attribute consumers unsupported; optional/required effective; prohibited omitted.
-Named groups expose direct global-element-reference choice/sequence; top-level group refs retain queryable facts/ranges/identities. Nested/local/recursive/broader shapes/consumers unsupported. Token/NMTOKEN queryable; default all-token/NMTOKEN choices validate; sequences unsupported. [ARCHITECTURE.md](ARCHITECTURE.md).
-[Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
+XSD 1.0/1.1; `openContent=none` works under Compatibility/Strict11; mismatches Strict10. Attribute-free extensions remain limited to named empty-content bases; model-less keeps base identity/locations and representable inherited `##other`/lax. Particle-plus-uses and attribute-only bodies expose ordered scalar local/reference/anonymous-inline `AttributeUse` facts; bounded scalar `simpleContent` extensions retain their base/type references and uses without a particle. Optional/required uses are effective, prohibited uses are omitted, and local value/default/fixed/inheritable semantics, attribute consumers, and broader forms remain unsupported. `xs:any`/`anyAttribute` keep facts; `0/0` absent; broader placements unsupported.
+Element refs retain QName/`RefLoc`/target/order/occurrences; only top-level direct named model-group refs query; nested/local/recursive/broader refs unsupported. Global long-family refs query-only with exact bounds; malformed refs invalid. Global built-in/named/inline `precisionDecimal` query under Compatibility/Strict11; Strict10 rejects all before validation. Only built-in/named roots validate; global inline query-only; consumers reject.
+Local anonymous Boolean/integer/decimal forms are query-only in direct choice/sequence and bounded extensions; validation/`GenerateGo` reject. Mapped nonzero anonymous string/token/NMTOKEN/`precisionDecimal` and non-string enums are unsupported at type/facet `Loc`; no schema.
+`precisionDecimal`: Compatibility/Strict11 admits built-in `xs:precisionDecimal` or named-effective local types only in default direct choices/bounded attribute-free extension choices. Owner and each mapped typed child/alternative require default occurrences; nonprecision alternatives may query. Mapped inline anonymous forms unsupported. Compatibility/Strict11 omit `0/0`; Strict10 rejects first, including zero. Non-default choices/nonzero direct/extension sequences unsupported; only non-extension default choices validate; extension/anonymous consumers reject.
+GenerateGo supports global built-in/named Boolean/integer/decimal/string/token/NMTOKEN and inline string/token/NMTOKEN; only non-extension default-occurrence refs to global Boolean/integer/decimal. Global inline long-family/identity-only facts query-only; mapped local forms unsupported. Compatibility/Strict11: `precisionDecimal` queryable, but `GenerateGo` rejects every global, explicitly typed local (including named-effective), inline, anonymous, and schema-admitted extension target; no schema/output.
+
+Named complex `abstract` is non-inherited; `Final()` uses declaring-document `finalDefault` if
+no local `final`; explicit empty/non-empty locals override it; `FinalLoc()` preserves
+local/default provenance—see [Architecture](ARCHITECTURE.md).
+[Examples](direct_choice_example_test.go), [quickstart](library_example_test.go).
 
 ## Product CLI
 
-`parse`, `validate`, and `generate` use APIs; [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
-[`examples/root.xsd`](examples/root.xsd), [`examples/valid.xml`](examples/valid.xml), [`examples/invalid.xml`](examples/invalid.xml)
-
-```console
-$ go run ./cmd/goxsd9 parse examples/root.xsd
-documents=1 components=2
-$ go run ./cmd/goxsd9 validate examples/root.xsd examples/valid.xml
-$ go run ./cmd/goxsd9 validate examples/root.xsd examples/invalid.xml
-validate stage=validate class=invalid kind=processing source_id=instance/examples/invalid.xml location=1:8 code=XSD2001 related=schema/root.xsd:2:3 spec_ref=xsd11-datatypes#integer invalid xs:integer lexical representation
-exit status 1
-$ go run ./cmd/goxsd9 generate --package sample examples/root.xsd > generated.go
-```
-
-Parse stdout; validation silent on success. Invalid exits 1 with located diagnostic; usage 2.
+See [Decision 0006](docs/decisions/0006-vertical-slice-cli.md). `parse`,
+`validate`, and `generate` available; parse prints, validate silent;
+invalid exits 1, usage exits 2.
 
 ## Design goals
 
-Exact value spaces/facets, streaming resolver input, immutable deterministic queries/walks,
-located diagnostics, no goroutines/locks/map-order output, measured conformance.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) and [PLAN.md](PLAN.md).
+Exact values/facets, streaming input, deterministic queries, located diagnostics;
+no goroutines/locks/map-order output, conformance.
 
 ## Repository checks
 
-Fresh checkout; inventory metadata-only. Bounded schema requires exact `-version 1.0` or `-version 1.1` plus `-set` or `-case`; instances never run:
+Fresh checkout; bounded conformance needs exact version, `-set`, `-case`; never run instances:
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
 go tool workflowctl check
-go tool conformance inventory
 go tool conformance schema -version 1.0 -set SET -case CASE
 ```
 
 ## Pinned specification corpus
 
-Corpus commands:
 ```sh
 go tool specs build -id xsd11-structures
-go tool specs search -id xsd11-structures -query "content model"
-go tool specs bootstrap -version 1.1
+go tool specs search -id xsd11-structures -query QUERY
+go tool specs bootstrap -version VERSION
 ```
-Use `-root`/`-output`/`-index`; `bootstrap` previews without fetching.
+Use `-root`/`-output`/`-index`; bootstrap previews only.
 
 ## Project workflow
 
-See [GitHub Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), and [AGENTS.md](AGENTS.md) for workflow rules.
+See [Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), [AGENTS.md](AGENTS.md).
 
 ## Test data licensing
 
-W3C submodule keeps `00COPYRIGHT`, not Apache-2.0; repository is Apache-2.0 ([LICENSE](LICENSE)).
+W3C submodule keeps `00COPYRIGHT`; Apache-2.0 ([LICENSE](LICENSE)).

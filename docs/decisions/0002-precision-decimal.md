@@ -11,14 +11,14 @@ identify it as a W3C Working Group Note describing an implementation-defined
 datatype and work in progress; it is not a mandatory XSD 1.1 conformance
 requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/)
 §2.5.1 (primitive datatypes; `#dt-primitive`) and [§H.1](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#impl-def)
-permit, but do not require, primitive datatypes outside the standard set. The
-project implements this datatype as an explicit opt-in library/schema boundary.
+permit, but do not require, primitive datatypes outside the standard set.
+Opt-in boundary.
 
-The source is pinned as `xsd-precisionDecimal` in [`specs/manifest.json`](../../specs/manifest.json),
-including its digest: [An XSD datatype for IEEE floating-point decimal](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/).
-The completed optional precisionDecimal library/schema boundary has no
-precisionDecimal unsupported gate; validator and code-generation support remain
-separate.
+[`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers:
+
+- Schema/query: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; Strict10 rejects them before validation with a policy diagnostic. Local built-in `xs:precisionDecimal` or named-effective types are admitted only in default direct choices and bounded attribute-free extension choices. Choice owner and mapped typed children/alternatives require default occurrences; nonprecision alternatives may remain query-only. Mapped inline anonymous forms are unsupported. Policy-first `0/0`: Strict10 rejects both local forms before omission, including zero; Compatibility/Strict11 omits zero. Non-default choices and nonzero direct/extension sequences reject.
+- Validation: Compatibility/Strict11 built-in/named roots validate. Only non-extension default choices with built-in or named-effective local `precisionDecimal` validate; inline/anonymous and extension consumers reject.
+- Generation: Facts remain queryable under Compatibility/Strict11; `GenerateGo` rejects every global, explicitly typed local (including named-effective), inline, and anonymous target, including schema-admitted extensions.
 
 ## Semantic contract
 
@@ -27,21 +27,19 @@ has finite decimal values with [numerical value](https://www.w3.org/TR/2011/NOTE
 [sign](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#vp-pd-sign), significand, and
 [integer scale](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#vp-pd-precision), plus `+INF`/`INF`,
 `-INF`, and `NaN`. Signed zeros are distinct but numerically equal; `NaN` is incomparable, including with itself.
-+INF is above finite values and -INF; -INF is below finite values and +INF. This is a partial, not total, order.
++INF is above finite values and -INF; -INF is below finite values and +INF. This is a partial order.
 
 Final XSD 1.1 [`cvc-enumeration-valid`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#cvc-enumeration-valid)
-uses `equal or identical` membership; [`identity`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#identity) permits a `NaN`
-enumeration member to accept `NaN` by value identity. In general equality/partial comparison, `NaN` remains unordered
-and not equal to itself; signed zero and finite lexical variants use numeric equality. The datatype remains optional.
+uses `equal or identical`; [`identity`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#identity) lets a `NaN`
+enumeration member accept `NaN`. General comparison leaves `NaN` unordered and unequal to itself; signed zero and
+finite lexical variants use numeric equality.
 
 The [§3.2 lexical mapping](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#pD-lexical-mapping),
-its [`pDecimalRep`](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#nt-precDecRep) grammar, and
-the [lexical-map function](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#f-precDecLexmap) apply
-collapsed whitespace and admit decimal, decimal-point, scientific, and special forms (`INF`, `+INF`, `-INF`,
-`NaN`). The [special-value definition](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#dt-specialvalue)
-is part of the value model. Mapping is exact and does not round. Scale is fractional-digit count minus exponent:
-`3.00` retains scale 2, while `3.0e2` has numerical value 300 and scale -1. Retain trailing zeroes; very large
-signed exponents must not acquire a machine-sized bound.
+[`pDecimalRep`](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#nt-precDecRep), and
+[lexical-map function](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#f-precDecLexmap) apply
+collapsed whitespace to decimal, decimal-point, scientific, and special forms; the [special-value definition](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#dt-specialvalue)
+remains part of the value model. Mapping is exact; scale is fractional-digit count minus exponent (`3.00` scale 2,
+`3.0e2` value 300, scale -1). Retain trailing zeroes; signed exponents remain unbounded.
 
 Applicable facets are exactly:
 
@@ -72,9 +70,10 @@ The value representation has one private source of truth: a tagged finite, `+INF
 finite value contains an arbitrary-precision, non-negative coefficient, explicit sign (including signed zero),
 and arbitrary signed scale; scale cannot be `int` because the lexical exponent is unbounded. `StrictDecimal` differs:
 it has an `int` scale, elides trailing zeroes, and lacks special values; only its copy techniques may be reused.
-The representation uses no binary floating point, mutable
-numeric internals, raw-lexeme or cached canonical strings, or partially constructed public value. Any private
-`big.Int` is owned or copied before mutation, and coefficient, scale, raw lexeme, and cache state are not exposed.
+The representation exposes no binary floating point, mutable numeric internals,
+raw lexemes, cached canonical strings, or partial public values; private `big.Int`
+values are owned or copied before mutation, and coefficient, scale, and cache state
+remain private.
 
 The private, on-demand `canonicalPrecisionDecimal` canonicalizer accepts a finite, non-negative ASCII-byte budget
 `B` for the exact final canonical lexical form; this grammar is ASCII, so characters and bytes coincide. Let `L` be the
@@ -85,11 +84,11 @@ arbitrary-precision representation before allocating or materializing output. No
 `10^huge` construction, padding expansion before the check, cached canonical string, partial output, truncation,
 or value mutation is permitted.
 
-For a valid value with `L > B`, the private `canonicalPrecisionDecimal` canonicalizer returns no string and leaves
-the value unchanged. It reports a located `FailureInvalid` diagnostic preserving the exported
-`ErrPrecisionDecimalCanonicalOutputLimit` sentinel as its cause and the caller's `Loc`. Public and schema APIs expose
-this completed boundary without exposing the private representation.
-It is a resource/invalid-request result, not lexical invalidity, unsupported behavior, or internal failure.
+For valid `L > B`, `canonicalPrecisionDecimal` returns no string, leaves the value
+unchanged, and reports located `FailureInvalid` with the exported
+`ErrPrecisionDecimalCanonicalOutputLimit` cause and caller `Loc`. Public/schema
+APIs expose this boundary. It is a resource/invalid-request result, not lexical
+invalidity, unsupported behavior, or internal failure.
 
 Canonicalization remains separate from comparison and the optional schema
 policy boundary. Boundary contract:
@@ -117,14 +116,11 @@ conformance claim or a substitute for the per-call resource contract.
 
 ## Bounded follow-up and corpus evidence
 
-The completed optional precisionDecimal boundary covers exact precisionDecimal
-library values and applicable facets, partial comparison, bounded canonical
-output, and immutable schema facts. Assertions and remaining
-precisionDecimal-specific facet work remain separate; integer/decimal
-ordered-bound parsing, effective schema facts, and scalar validation are
-integrated.
+The boundary covers values/facets, partial comparison, bounded canonical output,
+and schema facts; assertions/remaining facets stay separate,
+while bound parsing, effective facts, and scalar validation integrate.
 
-Pinned catalog’s [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary groups
+Pinned [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary groups
 [`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)
 and [`ibmMeta/precisionDecimal.testSet`](../../testdata/w3c/xsdtests/ibmMeta/precisionDecimal.testSet).
 [#210](https://github.com/goxdra/goxsd9/issues/210) owns resolved auxiliary outcomes; [#196](https://github.com/goxdra/goxsd9/issues/196)

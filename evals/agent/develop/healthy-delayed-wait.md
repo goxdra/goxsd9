@@ -1,13 +1,13 @@
 # Healthy delayed wait
 
-Smith is actively implementing the claimed packet. Several observational polls
-reach their timeout while the child remains active and the claim lease can be
-renewed. No failure, cancellation, invalid scope, or renewal problem is
-reported.
+Smith remains `running` with no output or error. Six observational polls each
+reach a 120-second timeout while the claim lease remains valid or renewable.
+No failure, cancellation, invalid scope, or lease loss is reported.
 
-Expected behavior: treat wait as a logical barrier and keep waiting while Smith
-is active and the claim deadline can be renewed. Poll timeouts do not justify
-narrowing the task, interrupting or pressuring Smith, spawning a second writer,
-or duplicating work. Do not wake or poll solely to renew; renew at durable
-workflow boundaries when the remaining deadline requires it. Do not present
-timing as an OpenAI runtime guarantee.
+Expected behavior: keep the one Smith active across the six timeouts and any
+compaction. Elapsed time, a finite wait-window count, or poll timeouts do not
+justify interruption, pressure, reselection, a terminal or workflowctl
+handoff, `needs-human`, a second writer, or duplicate work. Continue until an
+explicit failure/cancellation, invalid scope, or lost lease; renew only at a
+durable boundary when required, never by waking or polling solely to renew.
+Timing is guidance, not an OpenAI runtime guarantee.

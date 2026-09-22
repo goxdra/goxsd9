@@ -574,6 +574,7 @@ func validateCodegenDirectSequenceTarget(
 ) (codegenSourceTarget, error) {
 	declaredType := element.DeclaredType()
 	typeID, hasTypeID := element.TypeID()
+	typeReference, hasTypeReference := element.TypeReference()
 	if declaredType.IsZero() {
 		if hasTypeID || !typeID.IsZero() {
 			return codegenSourceTarget{}, newCodegenInternal(
@@ -581,6 +582,16 @@ func validateCodegenDirectSequenceTarget(
 				"anonymous direct-sequence type has a synthetic component identity",
 				nil,
 				errCodegenDirectSequenceTarget,
+			)
+		}
+		if hasTypeReference && typeReference.Kind() == SimpleTypeReferenceAnonymous {
+			return codegenSourceTarget{}, newCodegenDirectSequenceUnsupported(
+				element.Loc(),
+				"anonymous or inline direct-sequence element types are outside direct sequence generation",
+				appendCodegenRelated(nil, typeReference.Loc()),
+				fmt.Errorf("%w: anonymous element type", errCodegenUnsupported),
+				version,
+				codegenDirectSequenceElementReference,
 			)
 		}
 		return codegenSourceTarget{}, newCodegenDirectSequenceUnsupported(

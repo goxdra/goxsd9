@@ -4303,6 +4303,32 @@ func inlineSimpleTypeMayHaveStringRestrictionBase(element *syntaxElement) bool {
 	return false
 }
 
+func localInlineSimpleTypeAtomicRestriction(element *syntaxElement) bool {
+	if element == nil || element.name.namespace != xsdNamespaceURI || element.name.local != "simpleType" {
+		return false
+	}
+	var restriction *syntaxElement
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.namespace != xsdNamespaceURI {
+			continue
+		}
+		switch child.name.local {
+		case "list", "union":
+			return false
+		case "restriction":
+			if restriction != nil {
+				return false
+			}
+			restriction = child
+		}
+	}
+	if restriction == nil || inlineSimpleTypeChild(restriction) != nil {
+		return false
+	}
+	return len(syntaxAttributesByLocal(restriction, "base")) == 1
+}
+
 //nolint:gocognit,funlen // Keep local element grammar, lexical checks, and support boundaries together.
 func validateLocalElementParticle(element *syntaxElement, version XSDVersion, allowOccurrences bool, model string, allowNamespacePolicy bool) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
@@ -4443,6 +4469,11 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 	if len(defaults) > 0 && len(fixed) > 0 {
 		return candidate, newSchemaCompositionDiagnostic(fixed[0].loc, "local element cannot specify both default and fixed")
 	}
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
+	if err != nil {
+		return candidate, err
+	}
+	mapsToParticle := occurrences.mapsToParticle()
 	children, collectedCandidate, err := collectGlobalSchemaChildren(element)
 	if err != nil {
 		return candidate, err
@@ -4469,11 +4500,16 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			if typeChildSeen || constraintPhase {
 				return candidate, newSchemaCompositionDiagnostic(child.loc, "local element type child must be unique and precede constraints")
 			}
-			if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
-				return candidate, err
+			if inlineErr := validateInlineSchemaType(child, version); inlineErr != nil {
+				var diagnostic Diagnostic
+				if mapsToParticle || !errors.As(inlineErr, &diagnostic) || diagnostic.Class() != FailureUnsupported || errors.Is(inlineErr, errLanguagePolicyMismatch) {
+					if !candidate.considerError(inlineErr) {
+						return candidate, inlineErr
+					}
+				}
 			}
 			typeChildSeen = true
-			if !candidate.present {
+			if mapsToParticle && !candidate.present && (child.name.local != "simpleType" || !localInlineSimpleTypeAtomicRestriction(child)) {
 				candidate.considerAt(child.loc, fmt.Sprintf("local element child <%s> is not implemented", child.name.local))
 			}
 		case "alternative":
@@ -4499,6 +4535,9 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			}
 			candidate.considerAt(child.loc, fmt.Sprintf("local element child <%s> is not implemented", child.name.local))
 		}
+	}
+	if !mapsToParticle {
+		return candidate, nil
 	}
 	if refSeen || typeSeen || typeChildSeen {
 		return candidate, nil
