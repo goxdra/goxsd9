@@ -60,30 +60,41 @@ walks preserve discovery/lexical order and sort unordered sets. `Schema`,
 `SchemaDocument`, `Component`, `ComponentID`, and expanded `QName` expose copied
 views; IDs use source/ordinal, local particles are scoped, consumers are on demand.
 
-Primitive: `DeclaredType`; direct-local choice/sequence and bounded attribute-free extension choice/sequence over named empty-content bases retain anonymous Boolean/integer/decimal refs; only default direct choices and bounded attribute-free extension choices retain local built-in/named-effective `precisionDecimal` refs (QName/facets/locations/occurrences/bounds). Anonymous refs preserve `SimpleTypeID`/`NodeID`/`AnonymousID`; no `ComponentID`/global-walk ownership. Model-less extensions retain only base identity/locations. After admission, `0/0` absent: Compatibility/Strict11 omit; Strict10 rejects first, including zero.
-Mapped non-`0/0` anonymous integer particles allow only `integer`/`negativeInteger` through named/forward/imported/included/chameleon chains; excluded `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` valid but unsupported at type/facet `Loc`, with `FailureUnsupported`/`ErrUnsupported` and no schema. Attrs retain default/fixed lexical/location facts.
+Primitive: `DeclaredType`; direct-local/bounded attribute-free extension choice/sequence over named empty bases retain anonymous Boolean/integer/decimal refs; default choices and bounded attribute-free extension choices retain local built-in/named-effective `precisionDecimal` refs (QName/facets/locations/occurrences/bounds). Anonymous refs preserve `SimpleTypeID`/`NodeID`/`AnonymousID`, not `ComponentID`/global-walk ownership. Model-less extensions retain base identity/locations. After admission, `0/0` absent: Compatibility/Strict11 omit; Strict10 rejects first, including zero.
+Mapped non-`0/0` anonymous integer particles allow only `integer`/`negativeInteger` through named/forward/imported/included/chameleon chains; excluded long-family types are valid but unsupported at type/facet `Loc` (`FailureUnsupported`/`ErrUnsupported`), with no schema. Attrs retain default/fixed lexical/location facts.
 Global built-in/named long-family refs remain queryable with bounds: `long`
 `[-9223372036854775808, 9223372036854775807]`, `unsignedLong`
 `[0, 18446744073709551615]`, `negativeInteger` upper `-1`, `nonNegativeInteger`
-lower `0`, and `nonPositiveInteger` upper `0`; malformed refs are invalid. These
-facts are separate from local consumer admission.
-Named complexes accept omitted/`false`/`0`, reject `true`/`1`; malformed XSD 1.1
-is invalid, valid behavior outside this slice unsupported. Diagnostics retain code,
-primary `Loc`, cause, `SpecRef`. `IsInheritable` accepts Compatibility/Strict11
-and mismatches Strict10; untyped/inline attrs remain unsupported.
-`defaultAttributesApply="true|false|1|0"` is validated and discarded for named
-globals under Compatibility/Strict11 when no schema-level `defaultAttributes`
-is present; Strict10 reports the located policy mismatch. XPath remains
-unsupported/inert.
-Anonymous facets are queryable; mapped non-`0/0` non-string enumeration is located `FailureUnsupported`/`ErrUnsupported` at its facet `Loc`, with no schema. Direct checks use element/particle `Loc`s; extension/model-less gates run first (codegen extension primary; validation owner/sequence primary, never anonymous). Top-level direct named model-group refs use group `RefLoc` primary and retain particle/group/component/reference/target locations; nested/local/recursive/broader refs remain unsupported; no output is generated.
-Global `precisionDecimal` is queryable only under Compatibility/Strict11; built-in/named roots validate, inline does not; Strict10 rejects all three before validation. Compatibility/Strict11 admit local declared built-in `xs:precisionDecimal` or named types with effective `precisionDecimal` facets only in default direct choices and bounded attribute-free extension choices; choice owner and every mapped typed `precisionDecimal` child/alternative require default occurrences; nonprecision alternatives may remain query-only. Mapped inline anonymous `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms unsupported. Compatibility/Strict11 omit `0/0` for either local form; Strict10 rejects both before omission, including zero. Non-default choices/nonzero direct sequences reject; only non-extension default typed choices validate; extension, inline/anonymous, and `GenerateGo` consumers reject.
+lower `0`, `nonPositiveInteger` upper `0`; malformed refs invalid. These facts are
+separate from local admission.
+Named complexes accept omitted/`false`/`0`, reject `true`/`1`; malformed XSD 1.1 is
+invalid; behavior outside this slice unsupported. Diagnostics retain code, `Loc`,
+cause, `SpecRef`. `IsInheritable` accepts Compatibility/Strict11, mismatches
+Strict10; untyped/inline attrs unsupported.
+`defaultAttributesApply` (`true|false|1|0`) for named globals validates/discards
+under Compatibility/Strict11 without schema-level `defaultAttributes`; Strict10
+mismatches. XPath unsupported/inert.
+Anonymous facets queryable; mapped non-`0/0` non-string enumeration reports
+`FailureUnsupported`/`ErrUnsupported` at facet `Loc`, with no schema. Direct checks
+use element/particle `Loc`; extension/model-less gates run first (codegen extension
+primary; validation owner/sequence primary). Top-level model-group refs use group
+`RefLoc`, retaining particle/group/component/reference/target locations; nested/
+local/recursive/broader refs unsupported; no output.
+`precisionDecimal` queryable only under Compatibility/Strict11; built-in/named roots
+validate, inline does not; Strict10 rejects first. Policy admits local declared
+built-in `xs:precisionDecimal` or named effective-facet types only in default direct
+or bounded attribute-free extension choices; owners and typed children/alternatives
+require default occurrences; nonprecision alternatives remain query-only. Inline anonymous
+`<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms unsupported.
+Compatibility/Strict11 omit `0/0` in both forms; Strict10 rejects both before
+omission, including zero. Non-default choices/nonzero direct sequences reject; only
+non-extension default choices validate; extension, inline/anonymous, and
+`GenerateGo` consumers reject.
 Mapped non-`0/0` anonymous string/token/NMTOKEN unsupported; `<all>` unsupported.
-Particle-plus-use and attribute-only bodies expose ordered scalar local,
-referenced, and anonymous-inline `AttributeUse` facts. Bounded scalar
-`simpleContent` extensions retain base/type references and ordered uses without a
-particle; optional/required uses are effective and prohibited uses are omitted.
-Local value/default/fixed/inheritable semantics, attribute validation/generation,
-and broader group/derivation forms remain unsupported.
+Particle-plus-use/attribute-only bodies expose ordered scalar local/ref/inline
+`AttributeUse` facts; bounded scalar `simpleContent` retains base/type refs/uses.
+Optional/required effective; prohibited omitted. Local value/default/fixed/
+inheritable semantics and attribute consumers unsupported.
 
 Complexes expose non-inherited `IsAbstract`; named `final`/simple-type `finalDefault`/local `final` retain immutable `FinalLoc`. Named complex `Final()` uses declaring document's `finalDefault` only when local `final` is absent; explicit empty/non-empty local values override it; default projects only `extension`/`restriction`. Policies agree; `schema/@version` inert. `FinalLoc()` preserves local/default provenance for non-empty controls; occurrence/validation/`GenerateGo` limits unchanged. Prohibited extension is `FailureInvalid` at use-site, related to local/default control; unsupported-base precedence remains. Groups/extensions retain IDs/locations, model-less bases, nil particles, inherited `##other`/lax. Named globals expose `anyAttribute` facts; wildcard consumers unsupported. Direct `xs:any` exposes sorted facts; non-`0/0` and broader placements are consumer-unsupported; `0/0` absent. `openContent=none` supports globals/extensions under Compatibility/Strict11; Strict10 mismatches. Named groups retain ordered refs/ranges; broader shapes unsupported.
 
