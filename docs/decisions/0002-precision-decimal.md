@@ -16,9 +16,9 @@ Opt-in boundary.
 
 [`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers:
 
-- Schema/query: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; Strict10 rejects them before validation with a policy diagnostic. Local built-in `xs:precisionDecimal` or named-effective types are admitted only in default direct choices and bounded attribute-free extension choices. Choice owner and mapped typed children/alternatives require default occurrences; nonprecision alternatives may remain query-only. Mapped inline anonymous forms are unsupported. Policy-first `0/0`: Strict10 rejects both local forms before omission, including zero; Compatibility/Strict11 omits zero. Non-default choices and nonzero direct/extension sequences reject.
-- Validation: Compatibility/Strict11 built-in/named roots validate. Only non-extension default choices with built-in or named-effective local `precisionDecimal` validate; inline/anonymous and extension consumers reject.
-- Generation: Facts remain queryable under Compatibility/Strict11; `GenerateGo` rejects every global, explicitly typed local (including named-effective), inline, and anonymous target, including schema-admitted extensions.
+- Schema/query: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; Strict10 rejects by policy. Element/particle mappings admit local built-in/named-effective forms only in default direct or bounded attribute-free extension choices with default owners/typed alternatives; inline anonymous, non-default, and nonzero direct/extension sequences reject. Strict10 rejects before `0/0`; other policies omit zero. `AttributeUse` admits Boolean/integer/decimal plus policy-gated `precisionDecimal`; scalar `simpleContent` admits Boolean/string/integer/decimal plus the same. Strict10 rejects those precisionDecimal facts; refs retain use/provenance, not copied types.
+- Validation: Compatibility/Strict11 built-in/named roots validate. Only non-extension default element/particle choices with built-in/named-effective local `precisionDecimal` validate; inline, anonymous, extension, attribute-bearing, and scalar `simpleContent` consumers reject.
+- Generation: Compatibility/Strict11 facts remain queryable; `GenerateGo` rejects global, typed local, inline, anonymous, extension, attribute-bearing, and scalar `simpleContent` precisionDecimal targets.
 
 ## Semantic contract
 

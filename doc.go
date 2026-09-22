@@ -40,11 +40,12 @@
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
 // not global components or Walk entries. Strict10 policy admission precedes 0/0
-// omission for both explicitly typed local built-in or named-effective
-// `precisionDecimal` forms and inline anonymous
+// omission for explicitly typed local built-in or named-effective
+// `precisionDecimal` element/particle mappings and mapped inline anonymous
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms,
 // including zero-occurrence cases. Compatibility and Strict11 omit effective
-// 0/0 for either mapped form.
+// 0/0 for mapped particle forms. AttributeUse and scalar simpleContent facts
+// use separate scalar and policy allowlists below.
 // Local anonymous integer-derived restrictions are admitted by effective atomic
 // kind only for mapped non-0/0 particles: effective integer or negativeInteger
 // remains accepted through named, forward, imported, included, and chameleon
@@ -90,9 +91,10 @@
 // implemented. Direct choices made entirely of local Boolean elements use
 // built-in xs:boolean or named Boolean restrictions; mixed Boolean/numeric
 // choices remain unsupported.
-// Local precisionDecimal forms are distinct. Under Compatibility/Strict11, a
-// local element declared with built-in `type="xs:precisionDecimal"` or a named
-// type whose effective facets are precisionDecimal is admitted only in
+// Local precisionDecimal element/particle mappings are distinct. Under
+// Compatibility/Strict11, a local element declared with built-in
+// `type="xs:precisionDecimal"` or a named type whose effective facets are
+// precisionDecimal is admitted only in
 // default-occurrence direct choices and bounded attribute-free extension
 // choices. The choice owner and every mapped typed precisionDecimal
 // child/alternative require default occurrences; non-precision alternatives
@@ -101,7 +103,7 @@
 // schema-unsupported when mapped; mapped nonzero anonymous restrictions remain
 // unsupported. Strict10 returns a located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy-mismatch
-// diagnostic before 0/0 omission for either mapped form, including zero. Under
+// diagnostic before 0/0 omission for either mapped particle form, including zero. Under
 // Compatibility/Strict11, mapped non-default precisionDecimal choice/alternative
 // ranges or non-0/0 direct-sequence precisionDecimal ranges that map to particles
 // are schema-unsupported. Only non-extension default-occurrence typed direct
@@ -111,17 +113,23 @@
 // Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
 // attribute-free extension shapes above. Local anonymous Boolean/integer/decimal
 // restrictions remain queryable but direct validation and generation reject them;
-// mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions remain
-// schema-unsupported when nonzero. Global inline precisionDecimal remains a query
+// mapped local anonymous string/token/NMTOKEN/precisionDecimal particle restrictions
+// remain schema-unsupported when nonzero. Global inline precisionDecimal remains a query
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
 // and every anonymous precisionDecimal target is excluded from validation and
 // generation.
-// Particle-plus-use and attribute-only bodies expose ordered scalar local,
-// referenced, and anonymous-inline AttributeUse facts. A bounded scalar
-// simpleContent extension retains its base/type references and ordered uses
-// without a particle. Optional/required uses are effective; prohibited uses
-// are omitted. Local value/default/fixed/inheritable semantics, attribute
-// validation/generation, and broader particle/group forms remain unsupported.
+// Particle-plus-use and attribute-only bodies expose ordered local, referenced,
+// and anonymous-inline AttributeUse query facts. Their Boolean/integer/decimal
+// types are allowlisted; precisionDecimal is also queryable under Compatibility
+// and Strict11, while Strict10 rejects it with a located policy diagnostic.
+// References retain QName, RefLoc, TargetID, and use rather than copied types.
+// A bounded scalar simpleContent extension similarly exposes query facts for
+// Boolean/string/integer/decimal bases and precisionDecimal only under
+// Compatibility/Strict11 (Strict10 rejects that base by policy), retaining base,
+// type, and ordered-use locations without a particle. Optional/required uses
+// are effective; prohibited uses are omitted. Local value/default/fixed/
+// inheritable semantics and attribute/simpleContent validation and generation,
+// plus broader particle/group forms, remain unsupported.
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.
