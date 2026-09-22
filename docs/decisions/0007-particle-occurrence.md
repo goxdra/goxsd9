@@ -139,13 +139,7 @@ behavior. An error-level diagnostic returns no schema.
 
 ## Non-goals, risks, and follow-up
 
-Current-state inventory: Global attributes admit built-in/named-effective Boolean,
-integer, decimal, token, language, NCName, anyURI, ID, negativeInteger, and
-`precisionDecimal` under Compatibility/Strict11; default/fixed constraints support
-only Boolean, effective integer/decimal, and token. Type diagnostics primary at
-`type` Loc; constraint diagnostics primary at `default`/`fixed` Loc; causes/related locations
-preserved. Local/inline attributes remain unsupported; validation/`GenerateGo`
-exclude attributes. Local inline complex/list/union, unsupported Boolean facets,
+Inventory: Global typed attributes admit Boolean/integer/decimal/token/language/NCName/anyURI/ID/negativeInteger under Compatibility/Strict10/Strict11; `precisionDecimal` only under Compatibility/Strict11. Default/fixed support Boolean/effective integer/decimal/token; unsupported type declarations are `FailureUnsupported` at `type` `Loc`; unsupported constraints are `FailureUnsupported` at `default`/`fixed` `Loc`, preserving causes/related locations; no schema. `default`+`fixed` is `FailureInvalid` at `fixed`, related `default`. Local/inline attributes remain unsupported; validation/`GenerateGo` exclude attributes. Local inline complex/list/union, unsupported Boolean facets,
 nested/broader particles/groups, `all` mapping, broader wildcard/attribute forms
 remain unsupported. Exact occurrences have no fixed resource limit; later phases
 must bound input/materialization.

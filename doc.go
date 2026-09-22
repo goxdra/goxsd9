@@ -205,7 +205,11 @@
 // changing retained schema facts. Global NMTOKEN values also collapse XML
 // whitespace and enforce the repository XML NameChar policy. Global string
 // values, local string particles, token/NMTOKEN sequence particles, lists/unions,
-// attributes, broader particles, and other semantics remain explicit unsupported
+// broader particles, and other semantics remain explicit unsupported behavior.
+// Supported global typed attribute declarations and supported default/fixed typed
+// value facts remain schema/query-only; untyped global declarations remain generic
+// components without typed facts. Attribute instance validation and GenerateGo
+// exclude attributes; local and inline attribute forms remain explicit unsupported
 // behavior.
 // GenerateGo matrix: global built-in/named/inherited/included/imported
 // Boolean/integer/decimal (excluding nonNegativeInteger) and string/token/NMTOKEN scalar components generate, as
