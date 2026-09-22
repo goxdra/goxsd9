@@ -53,8 +53,9 @@ Apply `0/0` after defaults and before public allocation.
 | XSD 1.0 | XSD 1.0 all members are element particles with minOccurs 0 or 1 and fixed maxOccurs 1; the current parser validates these restrictions and leaves explicit occurrence syntax unsupported. |
 | XSD 1.1 | An `all` model group has `minOccurs` and `maxOccurs` each in `0/1`. It has the permitted model-group-definition/content-type placements, and an `all` term may also occur as a `1/1` particle inside an `all` group. Its member terms that are model groups must themselves be `all`; a group-reference member is fixed at `1/1`. Element and wildcard members use the exact general occurrence model. The XML representation permits element, wildcard, and group children. |
 
-These constrain future construction; the current parser does not support all
-particles or repetition.
+`all` mapping unsupported; admitted exact sequence/choice/child occurrences;
+direct-sequence consumes finite/unbounded/above-`uint64` ranges; direct-choice
+repetition-validation/repeated-field-generation unsupported.
 
 ## Representation and phase boundaries
 
