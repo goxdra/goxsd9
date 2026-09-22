@@ -26,6 +26,15 @@
 // policy diagnostic at the typed reference or type location. Under admitting
 // policies, built-in/named roots validate, while inline anonymous targets remain
 // excluded from validation and generation.
+// Global attributes with explicit built-in or supported named
+// `nonNegativeInteger` type references are schema/query-only under Compatibility,
+// Strict10, and Strict11. They retain exact effective lower-bound facts (built-in
+// `minInclusive=0`, with named restrictions retaining any narrowing), written
+// QName/type location, declaration order/graph provenance, and ownership: built-in
+// references have no synthetic ComponentID, while named references retain their
+// target ID. Default/fixed constraints remain unsupported at their constraint
+// Loc; local/inline attribute forms, attribute value/instance validation, and
+// GenerateGo remain unsupported.
 // Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
@@ -203,8 +212,10 @@
 // changing retained schema facts. Global NMTOKEN values also collapse XML
 // whitespace and enforce the repository XML NameChar policy. Global string
 // values, local string particles, token/NMTOKEN sequence particles, lists/unions,
-// attributes, broader particles, and other semantics remain explicit unsupported
-// behavior.
+// broader particles, and other semantics remain explicit unsupported behavior.
+// Global `nonNegativeInteger` attribute facts remain query-only: attribute value
+// constraints (including default/fixed), attribute instance validation, and
+// GenerateGo remain unsupported; local and inline attribute forms remain excluded.
 // GenerateGo matrix: global built-in/named/inherited/included/imported
 // Boolean/integer/decimal and string/token/NMTOKEN scalar components generate, as
 // do global inline string/token/NMTOKEN scalar components. Non-extension
