@@ -166,7 +166,7 @@
 // FailureUnsupported/ErrUnsupported diagnostics; GenerateGo returns no output.
 //
 // ValidateInstance supports one complete instance rooted at a global element
-// declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal
+// declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:nonNegativeInteger/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
 // or Strict11, or as a named global complex type with one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
@@ -175,7 +175,8 @@
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or, in
 // non-extension direct choices, default-occurrence references to global Boolean,
-// integer, or decimal elements. Local scalar consumers accept
+// integer, or decimal elements. Non-negative-integer roots use the same exact
+// integer plan; direct-choice element-reference consumers exclude them. Local scalar consumers accept
 // built-in or named references only: direct choice/sequence checks reject modeled
 // anonymous local inline atomic references with located
 // FailureUnsupported/ErrUnsupported diagnostics that may include the anonymous
@@ -206,7 +207,7 @@
 // attributes, broader particles, and other semantics remain explicit unsupported
 // behavior.
 // GenerateGo matrix: global built-in/named/inherited/included/imported
-// Boolean/integer/decimal and string/token/NMTOKEN scalar components generate, as
+// Boolean/integer/decimal (excluding nonNegativeInteger) and string/token/NMTOKEN scalar components generate, as
 // do global inline string/token/NMTOKEN scalar components. Non-extension
 // default-occurrence direct-choice references to global built-in/named Boolean,
 // integer, or decimal targets are also generation-eligible; sequences,

@@ -439,7 +439,7 @@ func TestSchemaNonNegativeIntegerExcludedShapesRemainUnsupported(t *testing.T) {
 	}
 }
 
-func TestSchemaNonNegativeIntegerConsumersRemainUnsupported(t *testing.T) {
+func TestSchemaNonNegativeIntegerGenerationRemainsUnsupported(t *testing.T) {
 	for _, profile := range nonNegativeIntegerPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="xs:nonNegativeInteger"/></xs:schema>`
@@ -447,7 +447,7 @@ func TestSchemaNonNegativeIntegerConsumersRemainUnsupported(t *testing.T) {
 			if err != nil {
 				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
 			}
-			assertNonNegativeIntegerConsumersUnsupported(t, schema)
+			assertNonNegativeIntegerGenerateGoUnsupported(t, schema)
 		})
 	}
 }
@@ -474,7 +474,7 @@ func assertNonNegativeIntegerValidationUnsupported(t *testing.T, schema Schema) 
 	t.Helper()
 	validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<value xmlns="urn:test">0</value>`)))
 	if validationErr == nil {
-		t.Fatal("ValidateInstance accepted a nonNegativeInteger global element")
+		t.Fatal("ValidateInstance accepted an excluded integer-derived global element")
 	}
 	validationDiagnostic := requireDiagnostic(t, validationErr)
 	if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || !errors.Is(validationErr, ErrUnsupported) {
