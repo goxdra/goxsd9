@@ -20,12 +20,24 @@
 // Redefine/override/defaultOpenContent, assertions, and Boolean facets and
 // datatype facets outside the supported string enumeration/whiteSpace, integer/decimal,
 // and optional precisionDecimal boundaries return explicit unsupported diagnostics.
-// Global built-in, named, and inline precisionDecimal schema/query facts are
+// Global built-in, named, and global inline-element precisionDecimal schema/query facts are
 // available only under Compatibility or Strict11; Strict10 rejects each before
 // validation with a located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported
 // policy diagnostic at the typed reference or type location. Under admitting
-// policies, built-in/named roots validate, while inline anonymous targets remain
+// policies, built-in/named roots validate, while global inline-element anonymous targets remain
 // excluded from validation and generation.
+// Global attributes with explicit built-in or supported named
+// `nonNegativeInteger` type references are schema/query-only under Compatibility,
+// Strict10, and Strict11. They retain exact effective lower-bound facts (built-in
+// `minInclusive=0`, with named restrictions retaining any narrowing), written
+// QName/type location, declaration order/graph provenance, and ownership: built-in
+// references have no synthetic ComponentID, while named references retain their
+// target ID. An individual `default` or `fixed` constraint may return a
+// `FailureUnsupported`/`ErrUnsupported` diagnostic at its constraint `Loc`; no
+// schema is returned. A default-plus-fixed composition is `FailureInvalid` at
+// `fixed`, with `default` as a related location. Global `xs:attribute` particle
+// occurrence is N/A. Global/local inline-attribute forms, attribute value/instance
+// validation, and `GenerateGo` remain unsupported.
 // Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
@@ -203,24 +215,27 @@
 // changing retained schema facts. Global NMTOKEN values also collapse XML
 // whitespace and enforce the repository XML NameChar policy. Global string
 // values, local string particles, token/NMTOKEN sequence particles, lists/unions,
-// attributes, broader particles, and other semantics remain explicit unsupported
-// behavior.
+// broader particles, and other semantics remain explicit unsupported behavior.
+// Global `nonNegativeInteger` attribute facts remain query-only: attribute value
+// constraints (including individual default/fixed), attribute instance validation,
+// and GenerateGo remain unsupported; global/local inline-attribute forms remain
+// excluded.
 // GenerateGo matrix: global built-in/named/inherited/included/imported
 // Boolean/integer/decimal and string/token/NMTOKEN scalar components generate, as
-// do global inline string/token/NMTOKEN scalar components. Non-extension
+// do global inline-element string/token/NMTOKEN scalar components. Non-extension
 // default-occurrence direct-choice references to global built-in/named Boolean,
 // integer, or decimal targets are also generation-eligible; sequences,
 // repetition/non-default occurrences, nested/recursive/broader references, and
-// anonymous targets are rejected. Global inline Boolean/integer/decimal,
+// anonymous targets are rejected. Global inline-element Boolean/integer/decimal,
 // long/unsignedLong/negativeInteger/nonNegativeInteger/nonPositiveInteger, and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their
 // anonymous validation and generation consumers are rejected.
-// Global built-in, named, and inline precisionDecimal schema/query facts are
+// Global built-in, named, and global inline-element precisionDecimal schema/query facts are
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
 // before validation at the typed reference or type location. Global built-in/named
-// roots validate under those policies, while inline precisionDecimal is an
-// anonymous target rejected by validation. GenerateGo rejects every global,
+// roots validate under those policies, while global inline-element precisionDecimal
+// is an anonymous target rejected by validation. GenerateGo rejects every global,
 // explicitly typed local (including named effective), inline, anonymous, and
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
