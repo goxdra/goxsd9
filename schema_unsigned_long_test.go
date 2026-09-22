@@ -503,7 +503,7 @@ func TestSchemaUnsignedLongConsumersRemainUnsupported(t *testing.T) {
 				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
 			}
 
-			assertNonNegativeIntegerConsumersUnsupported(t, schema)
+			assertIntegerDerivedConsumersUnsupported(t, schema)
 		})
 	}
 }

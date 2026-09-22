@@ -6,9 +6,9 @@
 // current subset discovers mixed XSD 1.0 and XSD 1.1 schema graphs and builds
 // supported schema-level components, including simple-type atomic restrictions,
 // lists, and unions. Anonymous simple types and resolved built-in, named, and
-// anonymous simple-type references are modeled, along with global xs:boolean
-// and atomic xs:string/xs:token/xs:NMTOKEN declarations and their named or anonymous
-// restrictions.
+// anonymous simple-type references are modeled, along with global xs:boolean,
+// xs:nonNegativeInteger, and atomic xs:string/xs:token/xs:NMTOKEN declarations
+// and their named or anonymous restrictions.
 // Queries and walks are deterministic. SimpleTypeDefinition.IsBoolean,
 // StringEnumerationFacets, and StringWhiteSpaceFacet report immutable kind
 // and implemented scalar facts. ParseSchema uses graph-wide Compatibility;
@@ -220,7 +220,7 @@
 // validation and generation, plus local/inline attribute forms, remain explicit
 // unsupported behavior.
 // GenerateGo matrix: global built-in/named/inherited/included/imported
-// Boolean/integer/decimal and string/token/NMTOKEN scalar components generate, as
+// Boolean/integer/decimal/nonNegativeInteger and string/token/NMTOKEN scalar components generate, as
 // do global inline string/token/NMTOKEN scalar components. Non-extension
 // default-occurrence direct-choice references to global built-in/named Boolean,
 // integer, or decimal targets are also generation-eligible; sequences,

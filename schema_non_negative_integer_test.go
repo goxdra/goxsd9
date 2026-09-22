@@ -439,7 +439,7 @@ func TestSchemaNonNegativeIntegerExcludedShapesRemainUnsupported(t *testing.T) {
 	}
 }
 
-func TestSchemaNonNegativeIntegerConsumersRemainUnsupported(t *testing.T) {
+func TestSchemaNonNegativeIntegerValidationRemainsUnsupported(t *testing.T) {
 	for _, profile := range nonNegativeIntegerPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="xs:nonNegativeInteger"/></xs:schema>`
@@ -447,18 +447,12 @@ func TestSchemaNonNegativeIntegerConsumersRemainUnsupported(t *testing.T) {
 			if err != nil {
 				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
 			}
-			assertNonNegativeIntegerConsumersUnsupported(t, schema)
+			assertNonNegativeIntegerValidationUnsupported(t, schema)
 		})
 	}
 }
 
-func assertNonNegativeIntegerConsumersUnsupported(t *testing.T, schema Schema) {
-	t.Helper()
-	assertNonNegativeIntegerGenerateGoUnsupported(t, schema)
-	assertNonNegativeIntegerValidationUnsupported(t, schema)
-}
-
-func assertNonNegativeIntegerGenerateGoUnsupported(t *testing.T, schema Schema) {
+func assertIntegerDerivedConsumersUnsupported(t *testing.T, schema Schema) {
 	t.Helper()
 	output, err := GenerateGo(schema, "generated")
 	if output != nil || err == nil {
