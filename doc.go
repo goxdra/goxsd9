@@ -119,17 +119,20 @@
 // and every anonymous precisionDecimal target is excluded from validation and
 // generation.
 // Particle-plus-use and attribute-only bodies expose ordered local, referenced,
-// and anonymous-inline AttributeUse query facts. Their Boolean/integer/decimal
-// types are allowlisted; precisionDecimal is also queryable under Compatibility
-// and Strict11, while Strict10 rejects it with a located policy diagnostic.
-// References retain QName, RefLoc, TargetID, and use rather than copied types.
-// A bounded scalar simpleContent extension similarly exposes query facts for
-// Boolean/string/integer/decimal bases and precisionDecimal only under
-// Compatibility/Strict11 (Strict10 rejects that base by policy), retaining base,
-// type, and ordered-use locations without a particle. Optional/required uses
-// are effective; prohibited uses are omitted. Local value/default/fixed/
-// inheritable semantics and attribute/simpleContent validation and generation,
-// plus broader particle/group forms, remain unsupported.
+// and anonymous-inline AttributeUse query facts. Local and referenced global
+// targets admit Boolean/integer/decimal plus policy-admitted precisionDecimal;
+// Strict10 rejects precisionDecimal by policy. AttributeReferenceUse retains
+// QName, RefLoc, TargetID, and use. A valid other scalar target fails schema
+// construction with located schema-syntax FailureUnsupported/ErrUnsupported at
+// RefLoc, relates the target declaration, and returns no partial schema;
+// unresolved, wrong-kind, and inaccessible references remain invalid.
+// A bounded scalar simpleContent extension separately admits Boolean/string/
+// integer/decimal bases plus policy-gated precisionDecimal (Strict10 rejects
+// that base by policy), retaining base, type, and ordered-use locations without
+// a particle. Optional/required uses are effective; prohibited uses are
+// omitted. Local value/default/fixed/inheritable semantics and
+// attribute/simpleContent validation and generation, plus broader
+// particle/group forms, remain unsupported.
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.

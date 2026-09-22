@@ -85,13 +85,14 @@ anonymous restrictions unsupported. Compatibility/Strict11 omit `0/0`; Strict10 
 mapped forms first, including zero. Non-default choices/nonzero direct sequences reject;
 only non-extension defaults validate; extension/inline/anonymous/`GenerateGo` reject.
 Mapped non-`0/0` anonymous string/token/NMTOKEN particles and `<all>` unsupported.
-Attribute bodies expose local/ref/inline `AttributeUse` query facts for
-Boolean/integer/decimal and Compatibility/Strict11 `precisionDecimal`; Strict10 gives a
-policy diagnostic. Refs retain QName/RefLoc/
-TargetID/use, not copied types. Bounded scalar `simpleContent` extensions query
-Boolean/string/integer/decimal and Compatibility/Strict11 `precisionDecimal` bases,
-retaining type refs and ordered uses. Optional/required effective; prohibited omitted; local
-value/default/fixed/inheritable semantics and attribute/simpleContent consumers unsupported.
+Attribute bodies expose local/ref/inline `AttributeUse`; targets allow
+Boolean/integer/decimal plus policy `precisionDecimal` (Strict10 rejects).
+`AttributeReferenceUse` retains QName/RefLoc/TargetID/use. Other valid targets fail
+`FailureUnsupported`/`ErrUnsupported` schema syntax at `RefLoc`, related declaration,
+no schema; unresolved/wrong-kind/inaccessible remain invalid. `simpleContent` bases
+allow Boolean/string/integer/decimal plus policy `precisionDecimal`; uses/type refs
+retained. Optional/required effective; prohibited omitted; local
+value/default/fixed/inheritable and attribute/simpleContent consumers unsupported.
 
 Complexes expose non-inherited `IsAbstract`; named `final`/simple-type `finalDefault`/local `final` retain immutable `FinalLoc`. Named complex `Final()` uses declaring document's `finalDefault` only when local `final` is absent; explicit empty/non-empty local values override it; default projects only `extension`/`restriction`. Policies agree; `schema/@version` inert. `FinalLoc()` preserves local/default provenance for non-empty controls; occurrence/validation/`GenerateGo` limits unchanged. Prohibited extension is `FailureInvalid` at use-site, related to local/default control; unsupported-base precedence remains. Groups/extensions retain IDs/locations, model-less bases, nil particles, inherited `##other`/lax. Named globals expose `anyAttribute` facts; wildcard consumers unsupported. Direct `xs:any` exposes sorted facts; non-`0/0` and broader placements are consumer-unsupported; `0/0` absent. `openContent=none` supports globals/extensions under Compatibility/Strict11; Strict10 mismatches. Named groups retain ordered refs/ranges; broader shapes unsupported.
 
@@ -105,11 +106,11 @@ unsupported.
 
 ## Validation and code generation
 
-`ValidateInstance` supports global built-in/named scalar roots (`Boolean`/`token`/`NMTOKEN`/`integer`/`decimal`/`precisionDecimal`) and named complexes. Local built-in/named Boolean/integer/decimal sequences honor exact finite, unbounded, and above-`uint64` ranges; named Boolean validates only facet-free restrictions. Non-extension default choices use local built-in/named Boolean/token/NMTOKEN/integer/decimal or explicitly typed built-in/named-effective `precisionDecimal`; homogeneous Boolean/token/NMTOKEN and integer/decimal mixtures validate. Local anonymous Boolean/integer/decimal forms query-only; mixed Boolean/numeric or token/NMTOKEN choices, repetition/non-default choices, extensions, anonymous consumers unsupported.
-Token/NMTOKEN sequences unsupported. Element refs retain QName/`RefLoc`/`TargetID`/order/exact occurrences; only non-extension default-occurrence direct-choice refs to global built-in/named Boolean/integer/decimal targets are eligible, while sequence/repetition/nested/recursive/broader/anonymous-target/mixed refs are excluded but queryable. Model-group refs are a separate top-level direct query boundary; nested/local/recursive/broader forms remain unsupported. Other string/list/union/attribute forms unsupported; token/NMTOKEN collapse XML whitespace, and `xs:any` is query-only (`0/0` absent, nonzero rejected).
+`ValidateInstance` supports global built-in/named scalar roots (`Boolean`/`token`/`NMTOKEN`/`integer`/`decimal`/`precisionDecimal`) and named complexes. Local built-in/named Boolean/integer/decimal sequences honor exact finite, unbounded, and above-`uint64` ranges; named Boolean validates only facet-free restrictions. Non-extension default choices use local built-in/named Boolean/token/NMTOKEN/integer/decimal or explicitly typed built-in/named-effective `precisionDecimal`; homogeneous Boolean/token/NMTOKEN and integer/decimal mixtures validate. Local anonymous forms query-only; mixed Boolean/numeric or token/NMTOKEN choices, repetition/non-default choices, extensions, and anonymous consumers unsupported.
+Token/NMTOKEN sequences unsupported. Element refs retain QName/`RefLoc`/`TargetID`/order/exact occurrences; only non-extension default-occurrence direct-choice refs to global built-in/named Boolean/integer/decimal targets are eligible, while sequence/repetition/nested/recursive/broader/anonymous-target/mixed refs are excluded but queryable. Model-group refs are a separate top-level direct query boundary; nested/local/recursive/broader forms remain unsupported. Other string/list/union forms and attribute consumers unsupported; token/NMTOKEN collapse XML whitespace, and `xs:any` is query-only (`0/0` absent, nonzero rejected).
 
-Generation: global built-in/named/inherited/included/imported Boolean/integer/decimal/string/token/NMTOKEN and global inline string/token/NMTOKEN components generate. Only non-extension default-occurrence direct-choice refs to global built-in/named Boolean/integer/decimal targets are eligible; sequences, repetition/non-default, nested/recursive/broader refs, and anonymous targets are rejected.
-Global inline Boolean/integer/decimal/long-family/identity-only declarations retain query facts; local inline Boolean/integer/decimal facts are limited to the admitted direct choice/sequence/bounded-extension shapes, while mapped local long-family/identity-only forms remain unsupported. Anonymous consumers reject. Local built-in/named Boolean/integer/decimal default all-Boolean/numeric choices and default-bounded sequences generate; anonymous/token/NMTOKEN and repeated/non-default consumers reject.
+Generation: global built-in/named/inherited/included/imported Boolean/integer/decimal/string/token/NMTOKEN and inline string/token/NMTOKEN components generate. Only non-extension default-occurrence direct-choice refs to global built-in/named Boolean/integer/decimal targets are eligible; sequences, repetition/non-default, nested/recursive/broader, and anonymous refs reject.
+Global inline Boolean/integer/decimal/long-family/identity-only declarations retain query facts; local inline Boolean/integer/decimal facts are limited to admitted direct choice/sequence/bounded-extension shapes, while mapped local long-family/identity-only forms remain unsupported. Anonymous consumers reject. Local built-in/named Boolean/integer/decimal all-Boolean/numeric default choices and bounded sequences generate; anonymous/token/NMTOKEN and repeated/non-default consumers reject.
 
 ## Conformance
 
