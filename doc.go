@@ -32,9 +32,10 @@
 // `minInclusive=0`, with named restrictions retaining any narrowing), written
 // QName/type location, declaration order/graph provenance, and ownership: built-in
 // references have no synthetic ComponentID, while named references retain their
-// target ID. Default/fixed constraints remain unsupported at their constraint
-// Loc; local/inline attribute forms, attribute value/instance validation, and
-// GenerateGo remain unsupported.
+// target ID. Default/fixed constraints return a `FailureUnsupported`/`ErrUnsupported`
+// diagnostic at their constraint `Loc`; no schema is returned. Global
+// `xs:attribute` particle occurrence is N/A. Local/inline attribute forms,
+// attribute value/instance validation, and `GenerateGo` remain unsupported.
 // Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
