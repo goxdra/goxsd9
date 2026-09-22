@@ -16,9 +16,9 @@ Opt-in boundary.
 
 [`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers:
 
-- Schema/query: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; Strict10 rejects them before validation with a policy diagnostic. Local built-in `xs:precisionDecimal` or named-effective types are admitted only in default direct choices and bounded attribute-free extension choices. Choice owner and mapped typed children/alternatives require default occurrences; nonprecision alternatives may remain query-only. Mapped inline anonymous forms are unsupported. Policy-first `0/0`: Strict10 rejects both local forms before omission, including zero; Compatibility/Strict11 omits zero. Non-default choices and nonzero direct/extension sequences reject.
-- Validation: Compatibility/Strict11 built-in/named roots validate. Only non-extension default choices with built-in or named-effective local `precisionDecimal` validate; inline/anonymous and extension consumers reject.
-- Generation: Facts remain queryable under Compatibility/Strict11; `GenerateGo` rejects every global, explicitly typed local (including named-effective), inline, and anonymous target, including schema-admitted extensions.
+- Global attributes (schema/query): Compatibility/Strict11 admits global attributes whose resolved type is built-in `xs:precisionDecimal` or named-effective `precisionDecimal` with one default/fixed `AttributeValueConstraint`. `AttributeDeclaration.ValueConstraint()` copies kind, collapsed lexical spelling, source `Loc`, and exact defensive `StrictPrecisionDecimal` via `PrecisionDecimalValue()`. Strict10 rejects at type `Loc` before conversion; conflict/type/policy/reference errors precede conversion. Inline/local forms and validation/`GenerateGo` remain unsupported; invalid lexical/facet values retain the outer attribute-constraint diagnostic with nested details and no schema.
+- Elements/types (schema/query): Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; Strict10 rejects before validation. Local built-in or named-effective forms require default choices or bounded attribute-free extension choices; inline, non-default, and nonzero sequence forms reject.
+- Consumers: Compatibility/Strict11 validates built-in/named roots and only non-extension default local choices; inline/anonymous/extension forms reject. `GenerateGo` rejects every `precisionDecimal` target.
 
 ## Semantic contract
 

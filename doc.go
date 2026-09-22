@@ -13,6 +13,11 @@
 // StringEnumerationFacets, and StringWhiteSpaceFacet report immutable kind
 // and implemented scalar facts. ParseSchema uses graph-wide Compatibility;
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
+// A successful ParseSchema returns an immutable Schema; Documents, Components,
+// Lookup, Find, FindKind, and Walk expose deterministic query views, while
+// AttributeDeclaration exposes resolved type and value-constraint facts.
+// ValidateInstance and GenerateGo are separate consumers of their supported
+// schema projections and do not expand the query model.
 // The unqualified schema/@version is an inert optional xs:token label: absent,
 // empty, arbitrary, "1.0", and "1.1" values never select or mismatch a policy.
 // Chameleon includes adopt the including target namespace and repair
@@ -20,12 +25,19 @@
 // Redefine/override/defaultOpenContent, assertions, and Boolean facets and
 // datatype facets outside the supported string enumeration/whiteSpace, integer/decimal,
 // and optional precisionDecimal boundaries return explicit unsupported diagnostics.
-// Global built-in, named, and inline precisionDecimal schema/query facts are
+// Global built-in, named, and inline precisionDecimal element/type facts are
 // available only under Compatibility or Strict11; Strict10 rejects each before
 // validation with a located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported
-// policy diagnostic at the typed reference or type location. Under admitting
-// policies, built-in/named roots validate, while inline anonymous targets remain
-// excluded from validation and generation.
+// policy diagnostic at the typed reference or type location. Global attributes
+// whose resolved type is built-in xs:precisionDecimal or a named type with
+// effective precisionDecimal facets retain one default/fixed
+// AttributeValueConstraint for query only under Compatibility or Strict11;
+// AttributeDeclaration.ValueConstraint() exposes its kind, collapsed lexical
+// spelling, source Loc, and exact defensive StrictPrecisionDecimal through
+// PrecisionDecimalValue. Strict10 rejects at the resolved type Loc before
+// conversion; inline/local attributes and attribute validation/GenerateGo remain
+// unsupported. Under admitting policies, built-in/named roots validate, while
+// inline anonymous targets remain excluded from validation and generation.
 // Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
@@ -203,8 +215,10 @@
 // changing retained schema facts. Global NMTOKEN values also collapse XML
 // whitespace and enforce the repository XML NameChar policy. Global string
 // values, local string particles, token/NMTOKEN sequence particles, lists/unions,
-// attributes, broader particles, and other semantics remain explicit unsupported
-// behavior.
+// broader particles, and other semantics remain explicit unsupported behavior.
+// Global attribute declarations and value constraints are query-only; attribute
+// validation and generation, plus local/inline attribute forms, remain explicit
+// unsupported behavior.
 // GenerateGo matrix: global built-in/named/inherited/included/imported
 // Boolean/integer/decimal and string/token/NMTOKEN scalar components generate, as
 // do global inline string/token/NMTOKEN scalar components. Non-extension
