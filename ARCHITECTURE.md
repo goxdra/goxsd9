@@ -67,7 +67,8 @@ Global built-in/named long-family refs remain queryable with bounds: `long`
 `[-9223372036854775808, 9223372036854775807]`, `unsignedLong`
 `[0, 18446744073709551615]`, `negativeInteger` upper `-1`, `nonNegativeInteger`
 lower `0`, and `nonPositiveInteger` upper `0`; malformed refs are invalid. These
-facts stay separate; global nonNegativeInteger elements generate.
+Global `nonNegativeInteger`: built-in-typed/named-atomic elements generate;
+inline/anonymous=query-only (`GenerateGo`/`ValidateInstance` reject).
 Named complexes accept omitted/`false`/`0`, reject `true`/`1`; malformed XSD 1.1
 is invalid, valid behavior outside this slice unsupported. Diagnostics retain code,
 primary `Loc`, cause, `SpecRef`. `IsInheritable` accepts Compatibility/Strict11
