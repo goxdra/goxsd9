@@ -183,6 +183,66 @@ func useNonNegativeIntegerScalars() {
 	}
 }
 
+//nolint:gocognit // Keep the policy and declaration-fact diagnostic matrix together.
+func TestGenerateGoGlobalNonNegativeIntegerRejectsNonOrdinaryDeclarationsAcrossPolicies(t *testing.T) {
+	policies := []struct {
+		name    string
+		policy  goxsd9.LanguagePolicy
+		version string
+		wantRef string
+	}{
+		{name: "Compatibility", policy: goxsd9.Compatibility, wantRef: "xsd11-structures#Element_Declaration_details"},
+		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0", wantRef: "xsd10-structures#Element_Declaration_details"},
+		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1", wantRef: "xsd11-structures#Element_Declaration_details"},
+	}
+	flags := []struct {
+		name      string
+		attribute string
+		message   string
+	}{
+		{name: "abstract", attribute: ` abstract="true"`, message: "abstract=true"},
+		{name: "nillable", attribute: ` nillable="true"`, message: "nillable=true"},
+	}
+	for _, policy := range policies {
+		for _, flag := range flags {
+			t.Run(policy.name+"/"+flag.name, func(t *testing.T) {
+				version := ""
+				if policy.version != "" {
+					version = ` version="` + policy.version + `"`
+				}
+				root := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" targetNamespace="urn:test"` + version + `><xs:element name="value" type="xs:nonNegativeInteger"` + flag.attribute + `/></xs:schema>`
+				schema, err := parsePublicNonNegativeIntegerSchema(t, root, policy.policy)
+				if err != nil {
+					t.Fatalf("ParseSchemaWithPolicy: %v", err)
+				}
+				components := schema.FindKind(goxsd9.ComponentKindElementDeclaration, mustPublicNonNegativeIntegerQName(t, "urn:test", "value"))
+				if len(components) != 1 {
+					t.Fatalf("value declarations = %d, want one", len(components))
+				}
+				declaration, ok := components[0].ElementDeclaration()
+				if !ok {
+					t.Fatal("value declaration view is missing")
+				}
+				if flag.name == "abstract" && !declaration.IsAbstract() {
+					t.Fatal("value declaration lost abstract=true")
+				}
+				if flag.name == "nillable" && !declaration.IsNillable() {
+					t.Fatal("value declaration lost nillable=true")
+				}
+
+				output, generationErr := goxsd9.GenerateGo(schema, "generated")
+				if output != nil || generationErr == nil {
+					t.Fatalf("GenerateGo result = (%q, %v), want unsupported with nil output", output, generationErr)
+				}
+				diagnostic := publicNonNegativeIntegerDiagnostic(t, generationErr)
+				if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode || diagnostic.Feature() != goxsd9.FeatureCodegen || diagnostic.SpecRef() != policy.wantRef || diagnostic.Loc() != declaration.Loc() || !strings.Contains(diagnostic.Message(), flag.message) || !errors.Is(generationErr, goxsd9.ErrUnsupported) {
+					t.Fatalf("GenerateGo diagnostic = %s, want unsupported %s at %s with %s", diagnostic, flag.message, declaration.Loc(), policy.wantRef)
+				}
+			})
+		}
+	}
+}
+
 //nolint:gocognit,funlen // Keep the named nonNegativeInteger phase gates and location evidence together.
 func TestGenerateGoNamedNonNegativeIntegerGatesAcrossPolicies(t *testing.T) {
 	tests := []struct {

@@ -229,7 +229,12 @@
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named atomic nonNegativeInteger elements in the resolved graph
 // generate across direct, named, forward, included, imported, and chameleon
-// declarations. Built-in canonical facts require integer kind/version,
+// declarations only when each global declaration is ordinary: abstract=false
+// and nillable=false. abstract=true or nillable=true is unsupported by
+// GenerateGo with FailureUnsupported/GOXSD9029 and nil output. Built-in element
+// fields use StrictInteger; named nonNegativeInteger types are backed by
+// StrictInteger, and elements using named types use the generated named type.
+// Built-in canonical facts require integer kind/version,
 // fractionDigits exactly 0 and fixed, no totalDigits, and exactly minInclusive=0
 // with no other bounds. Named restrictions may retain schema-owned bounds/facets;
 // malformed/stale named facts fail closed as FailureInternal/GOXSD9030 with nil
