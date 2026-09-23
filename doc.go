@@ -6,9 +6,9 @@
 // current subset discovers mixed XSD 1.0 and XSD 1.1 schema graphs and builds
 // supported schema-level components, including simple-type atomic restrictions,
 // lists, and unions. Anonymous simple types and resolved built-in, named, and
-// anonymous simple-type references are modeled, along with global xs:boolean
-// and atomic xs:string/xs:token/xs:NMTOKEN declarations and their named or anonymous
-// restrictions.
+// anonymous simple-type references are modeled, along with global xs:boolean,
+// xs:nonNegativeInteger, and atomic xs:string/xs:token/xs:NMTOKEN declarations
+// and their named or anonymous restrictions.
 // Queries and walks are deterministic. SimpleTypeDefinition.IsBoolean,
 // StringEnumerationFacets, and StringWhiteSpaceFacet report immutable kind
 // and implemented scalar facts. ParseSchema uses graph-wide Compatibility;
@@ -56,15 +56,20 @@
 // `precisionDecimal` forms and inline anonymous
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms,
 // including zero-occurrence cases. Compatibility and Strict11 omit effective
-// 0/0 for either mapped form.
-// Local anonymous integer-derived restrictions are admitted by effective atomic
-// kind only for mapped non-0/0 particles: effective integer or negativeInteger
-// remains accepted through named, forward, imported, included, and chameleon
-// chains; effective long, unsignedLong, nonNegativeInteger, and nonPositiveInteger are valid but
-// unsupported at this local boundary: ParseSchema returns a located
+// 0/0 for either mapped form. This Strict10-before-omission rule is specific
+// to `precisionDecimal`; ordinary local declared, named, inline, or anonymous
+// `nonNegativeInteger` 0/0 forms are admitted then absent under every policy.
+// Local declared, named, inline, and anonymous integer-derived restrictions are
+// admitted at the mapped non-0/0 boundary only when their effective atomic kind
+// is integer or negativeInteger through named, forward, imported, included, and
+// chameleon chains. Effective long, unsignedLong, nonNegativeInteger, and
+// nonPositiveInteger are valid datatypes but unsupported at this local schema
+// boundary: ParseSchema rejects the mapped form with a located
 // FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
-// location and no schema. The written base QName, use-site location, and resolved
-// named ownership remain separate facts. The supported anonymous Boolean/integer/
+// location and no schema. Ordinary local nonNegativeInteger effective 0/0
+// remains absent after policy admission under every policy. The written base
+// QName, use-site location, and resolved named ownership remain separate facts.
+// The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
 // no schema.
@@ -134,6 +139,9 @@
 // ValidateInstance and GenerateGo consume only supported non-extension
 // default-occurrence direct-choice references to built-in or named global
 // Boolean, integer, or decimal targets; only those targets are consumer-eligible.
+// References to global `nonNegativeInteger` remain queryable without target-type
+// gating; direct-choice and sequence consumers reject them with located
+// unsupported diagnostics and nil GenerateGo output.
 // Sequence, anonymous-target, repetition, nested, recursive, and broader
 // element-reference forms are consumer exclusions; query references retain their
 // resolved facts. Model-group references are a separate top-level direct query
@@ -177,6 +185,11 @@
 // group/component/reference/target locations. These gates return located
 // FailureUnsupported/ErrUnsupported diagnostics; GenerateGo returns no output.
 //
+// Global built-in and named xs:nonNegativeInteger roots remain unsupported by
+// ValidateInstance under Compatibility, Strict10, and Strict11: the call
+// returns FailureUnsupported/XSD4004/ErrUnsupported, and schema-owned bounds
+// and facets receive no runtime facet validation.
+//
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
@@ -219,16 +232,45 @@
 // Global attribute declarations and value constraints are query-only; attribute
 // validation and generation, plus local/inline attribute forms, remain explicit
 // unsupported behavior.
-// GenerateGo matrix: global built-in/named/inherited/included/imported
-// Boolean/integer/decimal and string/token/NMTOKEN scalar components generate, as
-// do global inline string/token/NMTOKEN scalar components. Non-extension
-// default-occurrence direct-choice references to global built-in/named Boolean,
-// integer, or decimal targets are also generation-eligible; sequences,
-// repetition/non-default occurrences, nested/recursive/broader references, and
-// anonymous targets are rejected. Global inline Boolean/integer/decimal,
-// long/unsignedLong/negativeInteger/nonNegativeInteger/nonPositiveInteger, and
+// GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
+// built-in and named-typed nonNegativeInteger element declarations and
+// standalone named atomic nonNegativeInteger simple-type components in the
+// resolved graph generate.
+// Element declarations cover direct, named, forward, included, imported, and
+// chameleon forms and must be ordinary: abstract=false and nillable=false. The
+// abstract/nillable gate applies only to global element declarations; either
+// flag true is unsupported by GenerateGo with FailureUnsupported/GOXSD9029 and
+// nil output. Built-in nonNegativeInteger element fields and standalone named
+// nonNegativeInteger declarations use StrictInteger; named-typed element fields
+// use the generated named type.
+// Built-in canonical facts require integer kind/version,
+// fractionDigits exactly 0 and fixed, no totalDigits, and exactly minInclusive=0
+// with no other bounds. Named restrictions may retain schema-owned bounds/facets;
+// malformed/stale built-in or named facts fail closed as FailureInternal/GOXSD9030
+// with nil output. Named final, atomic-restriction-variety, and effective-facet
+// gates reject unsupported forms with FailureUnsupported/GOXSD9029 and no output.
+// Global built-in/named Boolean/integer/decimal and
+// string/token/NMTOKEN scalar components also generate, as do global inline
+// string/token/NMTOKEN scalar components. Non-extension default-occurrence
+// direct-choice references to global built-in/named Boolean, integer, or
+// decimal targets are also generation-eligible. Mapped non-0/0 local declared,
+// named, inline, and anonymous `nonNegativeInteger` forms are rejected during
+// schema construction with no schema. Exact local declared, named, inline, and
+// anonymous `0/0` forms are admitted then absent
+// under every policy. References to global `nonNegativeInteger` remain queryable
+// without target gating; direct-choice and sequence consumers reject them with
+// located unsupported diagnostics and nil GenerateGo output. Consumer-only
+// exclusions for admitted global `nonNegativeInteger` references include
+// repetition/non-default occurrences, nested/recursive/broader references,
+// anonymous targets, lists/unions, attributes/value constraints, and other
+// integer-derived consumers; they are explicit unsupported behavior with located
+// diagnostics and no GenerateGo output. Global inline/anonymous
+// `nonNegativeInteger` declarations retain schema/query facts; GenerateGo and
+// ValidateInstance reject them with their existing diagnostics.
+// Global inline/anonymous Boolean/integer/decimal and global long/unsignedLong/
+// negativeInteger/nonPositiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their
-// anonymous validation and generation consumers are rejected.
+// validation and generation consumers are rejected.
 // Global built-in, named, and inline precisionDecimal schema/query facts are
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic

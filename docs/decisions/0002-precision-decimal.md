@@ -12,13 +12,11 @@ datatype and work in progress; it is not a mandatory XSD 1.1 conformance
 requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/)
 §2.5.1 (primitive datatypes; `#dt-primitive`) and [§H.1](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#impl-def)
 permit, but do not require, primitive datatypes outside the standard set.
-Opt-in boundary.
-
 [`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers:
 
 - Global attributes (schema/query): Compatibility/Strict11 admits global attributes whose resolved type is built-in `xs:precisionDecimal` or named-effective `precisionDecimal` with one default/fixed `AttributeValueConstraint`. `AttributeDeclaration.ValueConstraint()` copies kind, collapsed lexical spelling, source `Loc`, and exact defensive `StrictPrecisionDecimal` via `PrecisionDecimalValue()`. Strict10 rejects at type `Loc` before conversion; conflict/type/policy/reference errors precede conversion. Inline/local forms and validation/`GenerateGo` remain unsupported; invalid lexical/facet values retain the outer attribute-constraint diagnostic with nested details and no schema.
-- Elements/types (schema/query): Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; Strict10 rejects before validation. Local built-in or named-effective forms require default choices or bounded attribute-free extension choices; inline, non-default, and nonzero sequence forms reject.
-- Consumers: Compatibility/Strict11 validates built-in/named roots and only non-extension default local choices; inline/anonymous/extension forms reject. `GenerateGo` rejects every `precisionDecimal` target.
+- Elements/types (schema/query): Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; local built-in/named-effective forms require default choices or bounded attribute-free extensions. Exact `0/0` is omitted; mapped non-`0/0` inline and non-default/nonzero sequences reject. Strict10 rejects before validation/omission.
+- Consumers: Compatibility/Strict11 validates built-in/named roots and non-extension default local choices; admitted extensions stay queryable; validation/`GenerateGo` reject them. `GenerateGo` rejects every `precisionDecimal` target.
 
 ## Semantic contract
 
