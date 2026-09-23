@@ -63,6 +63,73 @@ func TestCodegenScalarNonNegativeIntegerRejectsStalePlanAndSchemaFacts(t *testin
 	}
 }
 
+//nolint:gocognit // Keep the all-policy render-boundary malformed-fact matrix together.
+func TestCodegenNamedNonNegativeIntegerRejectsMalformedFactsAtRenderBoundaryAcrossPolicies(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, Schema)
+	}{
+		{
+			name: "unknown digit kind",
+			mutate: func(t *testing.T, schema Schema) {
+				t.Helper()
+				facets := &schema.Components()[1].simpleType.facets
+				switch typed := (*facets).(type) {
+				case schemaDigitFacetVariant:
+					typed.value.kind = DigitDatatype("unknown")
+					*facets = typed
+				case schemaIntegerFacetVariant:
+					typed.digits.kind = DigitDatatype("unknown")
+					*facets = typed
+				default:
+					t.Fatalf("named nonNegativeInteger facets = %T, want digit facts", *facets)
+				}
+			},
+		},
+		{
+			name: "non-digit facet variant",
+			mutate: func(_ *testing.T, schema Schema) {
+				schema.Components()[1].simpleType.facets = schemaStringFacetVariant{}
+			},
+		},
+	}
+	for _, profile := range nonNegativeIntegerPolicyProfiles() {
+		for _, test := range tests {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType></xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+				}
+				components := schema.Components()
+				if len(components) != 2 || components[0].Kind() != ComponentKindElementDeclaration || components[1].Kind() != ComponentKindSimpleTypeDefinition {
+					t.Fatalf("schema components = %#v, want element followed by named simple type", components)
+				}
+				plan, err := planCodegenSource(schema, mustScalarCodegenNaming(t, schema))
+				if err != nil {
+					t.Fatalf("planCodegenSource: %v", err)
+				}
+				test.mutate(t, schema)
+
+				output, err := renderCodegenSource(plan, schema)
+				if output != nil || err == nil {
+					t.Fatalf("malformed named nonNegativeInteger result = (%q, %v), want nil output and error", output, err)
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant {
+					t.Fatalf("diagnostic = %s, want internal codegen invariant %s", diagnostic, diagnosticCodegenInvariant)
+				}
+				if diagnostic.Loc() != components[0].Loc() {
+					t.Fatalf("diagnostic location = %s, want global element location %s", diagnostic.Loc(), components[0].Loc())
+				}
+				if !errors.Is(err, errCodegenSchemaInvariant) {
+					t.Fatalf("malformed named nonNegativeInteger error lost its internal cause: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func mutateCodegenNonNegativeIntegerBounds(t *testing.T, facets *schemaSimpleTypeFacetVariant, lexical string) {
 	t.Helper()
 	minimum, err := ParseIntegerMinInclusiveFacet(lexical, mustTestLoc(t, "root.xsd", 1, 1), XSDVersion11)

@@ -249,19 +249,19 @@
 // string/token/NMTOKEN scalar components also generate, as do global inline
 // string/token/NMTOKEN scalar components. Non-extension default-occurrence
 // direct-choice references to global built-in/named Boolean, integer, or
-// decimal targets are also generation-eligible. Local declared, inline, and
-// anonymous non-0/0 nonNegativeInteger forms are rejected during schema
-// construction with no schema. Ordinary local 0/0 nonNegativeInteger forms are
-// admitted then absent under every policy. References to global
-// nonNegativeInteger remain queryable without target gating; direct-choice and
-// sequence consumers reject them with located unsupported diagnostics and nil
-// GenerateGo output. Local `nonNegativeInteger` choices, sequences,
-// repetition/non-default occurrences,
-// nested/recursive/broader references, anonymous targets, lists/unions,
-// attributes/value constraints, and other integer-derived consumers are explicit
-// unsupported behavior with located diagnostics and no GenerateGo output. Global
-// inline/anonymous nonNegativeInteger declarations retain schema/query facts;
-// GenerateGo and ValidateInstance reject them with their existing diagnostics.
+// decimal targets are also generation-eligible. Mapped non-0/0 local declared,
+// inline, and anonymous `nonNegativeInteger` forms are rejected during schema
+// construction with no schema. Exact local `0/0` forms are admitted then absent
+// under every policy. References to global `nonNegativeInteger` remain queryable
+// without target gating; direct-choice and sequence consumers reject them with
+// located unsupported diagnostics and nil GenerateGo output. Consumer-only
+// exclusions for admitted global `nonNegativeInteger` references include
+// repetition/non-default occurrences, nested/recursive/broader references,
+// anonymous targets, lists/unions, attributes/value constraints, and other
+// integer-derived consumers; they are explicit unsupported behavior with located
+// diagnostics and no GenerateGo output. Global inline/anonymous
+// `nonNegativeInteger` declarations retain schema/query facts; GenerateGo and
+// ValidateInstance reject them with their existing diagnostics.
 // Global inline/anonymous Boolean/integer/decimal and global long/unsignedLong/
 // negativeInteger/nonPositiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their

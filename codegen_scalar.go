@@ -880,7 +880,19 @@ func codegenNamedScalarKindWithNonNegative(component Component, version XSDVersi
 			version,
 		)
 	}
-	if definition.facts == nil || schemaSimpleTypeAtomicKindIsUnsupported(definition.facts.atomicKind) {
+	if definition.facts == nil {
+		return "", newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
+			appendCodegenRelated(nil, definition.BaseLoc()),
+			fmt.Errorf("%w: atomic datatype is outside scalar Go generation", errCodegenUnsupported),
+			version,
+		)
+	}
+	if err := validateCodegenNamedNonNegativeIntegerFactsBeforeUnsupported(component, definition, version, allowNonNegative); err != nil {
+		return "", err
+	}
+	if schemaSimpleTypeAtomicKindIsUnsupported(definition.facts.atomicKind) {
 		return "", newCodegenUnsupported(
 			component.Loc(),
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
@@ -921,6 +933,26 @@ func codegenNamedScalarKindWithNonNegative(component Component, version XSDVersi
 		)
 	}
 	return facets.Kind(), nil
+}
+
+func validateCodegenNamedNonNegativeIntegerFactsBeforeUnsupported(
+	component Component,
+	definition SimpleTypeDefinition,
+	version XSDVersion,
+	allowNonNegative bool,
+) error {
+	if !allowNonNegative || definition.facts.atomicKind != schemaSimpleTypeAtomicNonNegativeInteger {
+		return nil
+	}
+	return validateCodegenNonNegativeIntegerFacts(
+		component.Loc(),
+		fmt.Sprintf("named simple type %q", component.Name()),
+		definition.facts.atomicKind,
+		definition.facts.facets,
+		version,
+		codegenSimpleTypeRelatedLocations(definition, definition.DigitFacets()),
+		false,
+	)
 }
 
 func validateCodegenStringFacts(
