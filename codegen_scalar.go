@@ -917,7 +917,7 @@ func codegenNamedScalarKindWithNonNegative(component Component, version XSDVersi
 			component.Loc(),
 			fmt.Sprintf("validate effective digit facets for named simple type %q", component.Name()),
 			codegenSimpleTypeRelatedLocations(definition, facets),
-			err,
+			codegenSchemaInvariantCause(err),
 		)
 	}
 	return facets.Kind(), nil
@@ -1287,7 +1287,7 @@ func validateCodegenNonNegativeIntegerFacts(
 		return err
 	}
 	if err := bounds.validate(); err != nil {
-		return newCodegenInternalWithSpec(loc, context+" has invalid integer bound facts", related, err, version)
+		return newCodegenInternalWithSpec(loc, context+" has invalid integer bound facts", related, codegenSchemaInvariantCause(err), version)
 	}
 	if err := validateCodegenNonNegativeIntegerEnumeration(loc, context, facets, version, related); err != nil {
 		return err
@@ -1374,7 +1374,7 @@ func validateCodegenBuiltinNonNegativeIntegerFacts(
 		return err
 	}
 	if err := bounds.validate(); err != nil {
-		return newCodegenInternalWithSpec(loc, context+" has invalid integer bound facts", related, err, version)
+		return newCodegenInternalWithSpec(loc, context+" has invalid integer bound facts", related, codegenSchemaInvariantCause(err), version)
 	}
 	if !codegenCanonicalBuiltinNonNegativeIntegerBounds(bounds) {
 		return newCodegenInternalWithSpec(
@@ -1481,7 +1481,7 @@ func codegenNonNegativeIntegerBounds(
 			)
 		}
 		if err := typed.enumeration.validate(); err != nil {
-			return IntegerBoundFacets{}, newCodegenInternalWithSpec(loc, context+" has invalid integer enumeration facts", related, err, version)
+			return IntegerBoundFacets{}, newCodegenInternalWithSpec(loc, context+" has invalid integer enumeration facts", related, codegenSchemaInvariantCause(err), version)
 		}
 		return typed.bounds, nil
 	default:
@@ -1512,7 +1512,7 @@ func validateCodegenIntegerDigitFacts(
 		)
 	}
 	if err := facets.validate(); err != nil {
-		return newCodegenInternalWithSpec(loc, context+" has invalid integer digit facts", related, err, version)
+		return newCodegenInternalWithSpec(loc, context+" has invalid integer digit facts", related, codegenSchemaInvariantCause(err), version)
 	}
 	return nil
 }
@@ -3131,6 +3131,13 @@ func renderCodegenSequenceDeclaration(source *strings.Builder, declaration codeg
 
 func validCodegenDirectChoiceMarker(marker string) bool {
 	return strings.HasPrefix(marker, "is") && isGoIdentifier(marker)
+}
+
+func codegenSchemaInvariantCause(err error) error {
+	if err == nil || errors.Is(err, errCodegenSchemaInvariant) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", errCodegenSchemaInvariant, err)
 }
 
 func newCodegenNamingInvariant(loc Loc, message string, cause error) Diagnostic {

@@ -56,16 +56,18 @@
 // `precisionDecimal` forms and inline anonymous
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms,
 // including zero-occurrence cases. Compatibility and Strict11 omit effective
-// 0/0 for either mapped form.
+// 0/0 for either mapped form. This Strict10-before-omission rule is specific
+// to `precisionDecimal`; ordinary local declared, inline, or anonymous
+// `nonNegativeInteger` 0/0 forms are admitted then absent under every policy.
 // Local anonymous integer-derived restrictions are admitted by effective atomic
 // kind only for mapped non-0/0 particles: effective integer or negativeInteger
 // remains accepted through named, forward, imported, included, and chameleon
 // chains; effective long, unsignedLong, nonNegativeInteger, and nonPositiveInteger
 // are valid datatypes but unsupported at this local schema boundary: ParseSchema
 // rejects the mapped form with a located FailureUnsupported/ErrUnsupported
-// diagnostic at the relevant type or facet location and no schema. Effective 0/0
-// remains absent after policy admission: Compatibility/Strict11 omit it and
-// Strict10 rejects it first. The written base QName, use-site location, and resolved
+// diagnostic at the relevant type or facet location and no schema. Ordinary local
+// nonNegativeInteger effective 0/0 remains absent after policy admission under
+// every policy. The written base QName, use-site location, and resolved
 // named ownership remain separate facts. The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
@@ -136,6 +138,9 @@
 // ValidateInstance and GenerateGo consume only supported non-extension
 // default-occurrence direct-choice references to built-in or named global
 // Boolean, integer, or decimal targets; only those targets are consumer-eligible.
+// References to global `nonNegativeInteger` remain queryable without target-type
+// gating; direct-choice and sequence consumers reject them with located
+// unsupported diagnostics and nil GenerateGo output.
 // Sequence, anonymous-target, repetition, nested, recursive, and broader
 // element-reference forms are consumer exclusions; query references retain their
 // resolved facts. Model-group references are a separate top-level direct query
@@ -244,9 +249,14 @@
 // string/token/NMTOKEN scalar components also generate, as do global inline
 // string/token/NMTOKEN scalar components. Non-extension default-occurrence
 // direct-choice references to global built-in/named Boolean, integer, or
-// decimal targets are also generation-eligible. Non-0/0 local nonNegativeInteger
-// forms are rejected during schema construction with no schema; nonNegativeInteger
-// local choices, sequences, repetition/non-default occurrences,
+// decimal targets are also generation-eligible. Local declared, inline, and
+// anonymous non-0/0 nonNegativeInteger forms are rejected during schema
+// construction with no schema. Ordinary local 0/0 nonNegativeInteger forms are
+// admitted then absent under every policy. References to global
+// nonNegativeInteger remain queryable without target gating; direct-choice and
+// sequence consumers reject them with located unsupported diagnostics and nil
+// GenerateGo output. Local `nonNegativeInteger` choices, sequences,
+// repetition/non-default occurrences,
 // nested/recursive/broader references, anonymous targets, lists/unions,
 // attributes/value constraints, and other integer-derived consumers are explicit
 // unsupported behavior with located diagnostics and no GenerateGo output. Global

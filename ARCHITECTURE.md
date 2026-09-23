@@ -60,18 +60,17 @@ walks preserve discovery/lexical order and sort unordered sets. `Schema`,
 `SchemaDocument`, `Component`, `ComponentID`, and expanded `QName` expose copied
 views; IDs use source/ordinal, local particles are scoped, consumers are on demand.
 
-Primitive: `DeclaredType`; direct choices/sequences and bounded attribute-free extensions over named empty-content bases retain anonymous Boolean/integer/decimal refs; only default choices/extensions retain local built-in/named-effective `precisionDecimal` refs (QName/facets/locations/occurrences/bounds). Anonymous refs preserve `SimpleTypeID`/`NodeID`/`AnonymousID`, not `ComponentID`/global ownership. Model-less extensions retain base identity/locations. After admission, `0/0` absent: Compatibility/Strict11 omit; Strict10 rejects first.
-Mapped non-`0/0` anonymous integer particles allow only `integer`/`negativeInteger` through named/forward/imported/included/chameleon chains; excluded `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` are valid but unsupported at type/facet `Loc` with `FailureUnsupported`/`ErrUnsupported` and no schema.
-Global attributes retain at most one immutable declaration-owned default/fixed `AttributeValueConstraint`; `AttributeDeclaration.ValueConstraint()` returns a defensive copy with `Kind()`, collapsed `Lexical()`, source `Loc()`, and exact defensive `StrictPrecisionDecimal` via `PrecisionDecimalValue()`. Built-in/named effective-facet types admit query facts under Compatibility/Strict11; Strict10 rejects at type `Loc` before conversion. Invalid values return no schema with diagnostics; inline/local attributes and validation/`GenerateGo` reject.
+Primitive: `DeclaredType`; direct choices/sequences and bounded attribute-free extensions over named empty-content bases retain anonymous Boolean/integer/decimal refs. Only default choices/extensions retain local built-in/named-effective `precisionDecimal` refs with QName/facets/locations/occurrences/bounds. Anonymous refs preserve `SimpleTypeID`/`NodeID`/`AnonymousID`, not global `ComponentID`; model-less extensions retain base identity. For `precisionDecimal`, Strict10 rejects before `0/0` omission; Compatibility/Strict11 omit it. Ordinary local declared/inline/anonymous `nonNegativeInteger` `0/0` is admitted then absent under all policies.
+Mapped non-`0/0` local declared/inline/anonymous integer particles allow only `integer`/`negativeInteger` through named/forward/imported/included/chameleon chains; excluded `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` are valid but unsupported at type/facet `Loc` with `FailureUnsupported`/`ErrUnsupported` and no schema.
+Global attributes retain one declaration-owned default/fixed `AttributeValueConstraint`; `ValueConstraint()` returns defensive kind, lexical, location, and exact `StrictPrecisionDecimal` facts under Compatibility/Strict11. Strict10 rejects at type `Loc`; invalid values return no schema; inline/local attributes and validation/`GenerateGo` reject.
 Global long-family refs remain queryable with exact bounds: `long` `[-9223372036854775808,
 9223372036854775807]`, `unsignedLong` `[0, 18446744073709551615]`,
 `negativeInteger` upper `-1`, `nonNegativeInteger` lower `0`, and
 `nonPositiveInteger` upper `0`; malformed refs invalid.
-Global built-in/named-atomic `nonNegativeInteger` elements generate under
-Compatibility/Strict10/Strict11 only for ordinary (`abstract=false`,
-`nillable=false`) declarations; either flag true is unsupported by `GenerateGo`
-(`FailureUnsupported`/`GOXSD9029`, nil output). Inline/anonymous forms remain
-query-only; `GenerateGo`/`ValidateInstance` reject them.
+Global built-in/named-atomic `nonNegativeInteger` elements generate under all
+policies only for ordinary (`abstract=false`, `nillable=false`) declarations;
+either flag true is unsupported by `GenerateGo` (`FailureUnsupported`/`GOXSD9029`,
+nil output). Inline/anonymous forms remain query-only; consumers reject them.
 Named complexes accept omitted/`false`/`0`, reject `true`/`1`; malformed XSD 1.1 is
 invalid, other valid behavior unsupported. Diagnostics retain code, primary `Loc`,
 cause, `SpecRef`. `IsInheritable` accepts Compatibility/Strict11, mismatches
@@ -80,14 +79,14 @@ Anonymous facets query; mapped non-0/0 non-string enumeration unsupported at fac
 `Loc` with no schema. Direct checks use element/particle `Locs`; extension/model-less
 gates first. Model-group refs use group `RefLoc` and retain locations;
 nested/local/recursive/broader refs reject.
-Global precisionDecimal facts are queryable under Compatibility/Strict11;
-built-in/named roots validate, inline targets do not, and Strict10 rejects at
-type `Loc`. Local built-in/named-effective refs require default choices or
-bounded attribute-free extension choices; owners and alternatives require
-default occurrences. Compatibility/Strict11 omits 0/0; Strict10 rejects it
-first. Only default non-extension choices validate; non-default/nonzero
-sequences, inline/anonymous forms, extensions, and GenerateGo targets reject.
-Mapped non-`0/0` anonymous string/token/NMTOKEN unsupported; `<all>` unsupported.
+Global `precisionDecimal` facts are queryable under Compatibility/Strict11;
+roots validate, inline targets do not, and Strict10 rejects at type `Loc`.
+Local built-in/named-effective refs require default choices or bounded
+attribute-free extension choices with default occurrences. Compatibility/Strict11
+omits `precisionDecimal` 0/0; Strict10 rejects before omission. Non-default/
+nonzero sequences, inline/anonymous forms, extensions, and GenerateGo targets
+reject. Mapped non-`0/0` anonymous string/token/NMTOKEN and `<all>` are
+unsupported.
 
 Complexes expose non-inherited `IsAbstract`; named final/finalDefault/local final
 keep immutable `FinalLoc` and provenance. `Final()` uses declaring-document
@@ -111,17 +110,37 @@ unsupported.
 
 ## Validation and code generation
 
-`ValidateInstance` supports global built-in/named Boolean/token/NMTOKEN/integer/decimal/precisionDecimal roots and complexes. Global built-in/named `nonNegativeInteger` is GenerateGo-only; validation returns located `FailureUnsupported`/`XSD4004`/`ErrUnsupported` under all policies, without runtime bounds/facets. Local Boolean/integer/decimal sequences honor exact ranges; default choices cover local Boolean/token/NMTOKEN/integer/decimal/precisionDecimal and homogeneous Boolean/token/NMTOKEN or integer/decimal mixtures. Anonymous locals, mixed/token choices, repetition/non-default, extensions, and anonymous consumers reject.
-Token/NMTOKEN sequences, string/list/union/attribute forms, and nonzero `xs:any` are unsupported; token/NMTOKEN collapse whitespace. Element refs retain QName/RefLoc/TargetID/order/occurrences; only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, while sequence/repetition/nested/recursive/broader/anonymous/mixed refs remain queryable but excluded. Model-group refs are top-level direct-query only; nested/local/recursive/broader forms unsupported; `0/0` `xs:any` absent.
+`ValidateInstance` supports global built-in/named Boolean/token/NMTOKEN/integer/
+decimal/precisionDecimal roots and complexes. Global built-in/named
+`nonNegativeInteger` is GenerateGo-only; validation returns located
+`FailureUnsupported`/`XSD4004`/`ErrUnsupported` under all policies. Local
+Boolean/integer/decimal sequences and default choices honor their supported
+ranges; anonymous, mixed/token, repeated/non-default, and extension consumers
+reject.
+Token/NMTOKEN sequences and nonzero `xs:any` are unsupported. Element refs retain
+QName/RefLoc/TargetID/order/occurrences without target gating; only default
+direct-choice refs to global built-in/named Boolean/integer/decimal are eligible,
+while other forms remain queryable but excluded. Global `nonNegativeInteger` refs
+remain queryable; direct-choice/sequence consumers reject them with located
+unsupported diagnostics and nil output. Model-group refs are top-level direct
+query only; broader forms reject.
 
-Generation: `GenerateGo` supports global built-in/named atomic `nonNegativeInteger` elements only for ordinary declarations (`abstract=false`, `nillable=false`); either flag true is unsupported with `FailureUnsupported`/`GOXSD9029` and nil output. Built-in fields use `StrictInteger`; named `nonNegativeInteger` types are backed by `StrictInteger`, and named-typed elements use the generated named type. Canonical built-in facts require integer kind/version, fixed `fractionDigits=0`, no `totalDigits`, `minInclusive=0`, and no other bounds. Named restrictions retain schema bounds/facets; malformed/stale facts fail closed as `FailureInternal`/`GOXSD9030` with nil output. Named final/variety/effective-facet gates; nonempty final unsupported. Local non-0/0: no schema; global inline/anonymous: query-only/rejected/no output. Other supported scalar/direct-choice forms generate.
-Global inline Boolean/integer/decimal/long-family/identity-only remain query-only.
-Local inline
-Boolean/integer/decimal: choice/sequence/bounded-extension; local
-long-family/identity-only reject; anonymous consumers reject. Local
-built-in/named Boolean/integer/decimal generate only in default all-Boolean/numeric
-choices/bounded sequences; anonymous/token/NMTOKEN/repeated/non-default
-consumers reject.
+Generation: `GenerateGo` supports global built-in/named atomic
+`nonNegativeInteger` elements for ordinary (`abstract=false`, `nillable=false`)
+declarations under all policies; either flag true is unsupported with
+`FailureUnsupported`/`GOXSD9029` and nil output. Built-in fields and named types
+use `StrictInteger`; named-typed elements use the generated named type. Canonical
+built-in facts require integer kind/version, fixed `fractionDigits=0`, no
+`totalDigits`, `minInclusive=0`, and no other bounds. Named restrictions retain
+schema bounds/facets; malformed/stale facts fail closed as
+`FailureInternal`/`GOXSD9030` with nil output. Nonempty final is unsupported.
+Local declared/inline/anonymous non-`0/0` forms have no schema; local `0/0`
+forms are admitted then absent under every policy. Global
+`nonNegativeInteger` refs remain queryable without target gating;
+direct-choice/sequence consumers are unsupported with nil output. Global
+inline/anonymous forms remain query-only. Other scalar generation supports
+global inline Boolean/integer/decimal and local default numeric choices; local
+anonymous, repeated, and non-default consumers reject.
 
 ## Conformance
 

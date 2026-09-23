@@ -32,6 +32,192 @@ func TestSchemaNonNegativeIntegerReferencesAcrossPolicies(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the local form, model, and all-policy occurrence matrix together.
+func TestSchemaNonNegativeIntegerLocalBoundaryAcrossPolicies(t *testing.T) {
+	forms := []struct {
+		name string
+		kind string
+	}{
+		{name: "declared", kind: "declared"},
+		{name: "named", kind: "named"},
+		{name: "inline anonymous", kind: "inline"},
+	}
+	for _, profile := range nonNegativeIntegerPolicyProfiles() {
+		for _, model := range []string{"choice", "sequence"} {
+			for _, form := range forms {
+				t.Run(profile.name+"/"+model+"/"+form.name+"/mapped", func(t *testing.T) {
+					root := schemaNonNegativeIntegerLocalBoundaryRoot(profile.version, model, form.kind, "")
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err == nil {
+						t.Fatal("discoverTestSchemaWithPolicy accepted a mapped local nonNegativeInteger form")
+					}
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax || !errors.Is(err, ErrUnsupported) {
+						t.Fatalf("diagnostic = %s, want unsupported schema-syntax diagnostic", diagnostic)
+					}
+					wantMarker := `type="xs:nonNegativeInteger"`
+					if form.kind == "named" {
+						wantMarker = `type="t:Named"`
+					}
+					if form.kind == "inline" {
+						wantMarker = "<xs:simpleType>"
+					}
+					wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, 2, wantMarker)
+					if diagnostic.Loc() != wantLoc {
+						t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+					}
+				})
+			}
+		}
+	}
+
+	for _, profile := range nonNegativeIntegerPolicyProfiles() {
+		for _, model := range []string{"choice", "sequence"} {
+			for _, form := range forms {
+				t.Run(profile.name+"/"+model+"/"+form.name+"/zero-zero", func(t *testing.T) {
+					root := schemaNonNegativeIntegerLocalBoundaryRoot(profile.version, model, form.kind, ` minOccurs="0" maxOccurs="0"`)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err != nil {
+						t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+					}
+					definition := requireNonNegativeIntegerBoundaryComplexType(t, schema)
+					switch model {
+					case "choice":
+						choice, ok := definition.Particle().(ChoiceParticle)
+						if !ok || len(choice.Alternatives()) != 0 {
+							t.Fatalf("zero-occurrence choice = %T/%d, want empty choice", definition.Particle(), len(choice.Alternatives()))
+						}
+					case "sequence":
+						sequence, ok := definition.Particle().(SequenceParticle)
+						if !ok || len(sequence.Particles()) != 0 {
+							t.Fatalf("zero-occurrence sequence = %T/%d, want empty sequence", definition.Particle(), len(sequence.Particles()))
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func schemaNonNegativeIntegerLocalBoundaryRoot(version XSDVersion, model, form, occurrences string) string {
+	var element string
+	simpleType := ""
+	switch form {
+	case "declared":
+		element = ` type="xs:nonNegativeInteger"/>`
+	case "named":
+		element = ` type="t:Named"/>`
+		simpleType = `<xs:simpleType name="Named"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`
+	case "inline":
+		element = `><xs:simpleType><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType></xs:element>`
+	default:
+		panic("unknown local nonNegativeInteger form")
+	}
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(version) + `">
+  <xs:complexType name="Record"><xs:` + model + `><xs:element name="value"` + occurrences + element + `</xs:` + model + `></xs:complexType>` + simpleType + `
+</xs:schema>`
+}
+
+func requireNonNegativeIntegerBoundaryComplexType(t *testing.T, schema Schema) ComplexTypeDefinition {
+	t.Helper()
+	matches := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:test", "Record"))
+	if len(matches) != 1 {
+		t.Fatalf("Record matches = %d, want one", len(matches))
+	}
+	definition, ok := matches[0].ComplexTypeDefinition()
+	if !ok {
+		t.Fatal("Record complex type definition is missing")
+	}
+	return definition
+}
+
+//nolint:gocognit // Keep reference query facts and both consumer diagnostics paired.
+func TestSchemaNonNegativeIntegerElementReferencesRemainQueryableAcrossPolicies(t *testing.T) {
+	for _, profile := range nonNegativeIntegerPolicyProfiles() {
+		for _, model := range []string{"choice", "sequence"} {
+			t.Run(profile.name+"/"+model, func(t *testing.T) {
+				root := schemaNonNegativeIntegerConsumerReferenceRoot(profile.version, model)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+				}
+				reference := requireNonNegativeIntegerConsumerReference(t, schema, model)
+				target := requireNonNegativeIntegerElement(t, schema, "target", "urn:test")
+				if reference.Name() != target.Name() || reference.Ref() != target.Name() || reference.TargetID() != target.ID() || reference.Occurrences().String() != "1/1" {
+					t.Fatalf("reference facts = %q/%q/%v/%s, want target QName/ID/default occurrences", reference.Name(), reference.Ref(), reference.TargetID(), reference.Occurrences())
+				}
+				wantRefLoc := elementReferenceTestAttributeLoc(t, root, `ref="t:target"`)
+				if reference.RefLoc() != wantRefLoc {
+					t.Fatalf("reference location = %s, want %s", reference.RefLoc(), wantRefLoc)
+				}
+
+				output, generationErr := GenerateGo(schema, "generated")
+				if output != nil || generationErr == nil {
+					t.Fatalf("GenerateGo result = (%q, %v), want nil output and unsupported error", output, generationErr)
+				}
+				diagnostic := requireDiagnostic(t, generationErr)
+				wantSpec := codegenDirectChoiceXSD11ElementChoiceSpecRef
+				if model == "sequence" {
+					wantSpec = codegenDirectSequenceXSD11ElementSequenceSpecRef
+				}
+				if profile.version == XSDVersion10 {
+					if model == "choice" {
+						wantSpec = codegenDirectChoiceXSD10ElementChoiceSpecRef
+					}
+					if model == "sequence" {
+						wantSpec = codegenDirectSequenceXSD10ElementSequenceSpecRef
+					}
+				}
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported || diagnostic.Feature() != FeatureCodegen || diagnostic.SpecRef() != wantSpec || diagnostic.Loc() != wantRefLoc || !errors.Is(generationErr, ErrUnsupported) || !errors.Is(generationErr, errCodegenUnsupported) {
+					t.Fatalf("GenerateGo diagnostic = %s, want unsupported %s at %s with preserved cause", diagnostic, wantSpec, wantRefLoc)
+				}
+				wantRelated := []Loc{reference.Loc(), target.Loc()}
+				if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+					t.Fatalf("GenerateGo related locations = %v, want %v", diagnostic.Related(), wantRelated)
+				}
+			})
+		}
+	}
+}
+
+func schemaNonNegativeIntegerConsumerReferenceRoot(version XSDVersion, model string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(version) + `">
+  <xs:element name="target" type="xs:nonNegativeInteger"/>
+  <xs:complexType name="Record"><xs:` + model + `><xs:element ref="t:target"/></xs:` + model + `></xs:complexType>
+</xs:schema>`
+}
+
+func requireNonNegativeIntegerConsumerReference(t *testing.T, schema Schema, model string) ElementReferenceParticle {
+	t.Helper()
+	definition := requireNonNegativeIntegerBoundaryComplexType(t, schema)
+	switch model {
+	case "choice":
+		choice, ok := definition.Particle().(ChoiceParticle)
+		if !ok || len(choice.Alternatives()) != 1 {
+			t.Fatalf("choice particle = %T/%d, want one reference", definition.Particle(), len(choice.Alternatives()))
+		}
+		reference, ok := choice.Alternatives()[0].(ElementReferenceParticle)
+		if !ok {
+			t.Fatalf("choice particle = %T, want element reference", choice.Alternatives()[0])
+		}
+		return reference
+	case "sequence":
+		sequence, ok := definition.Particle().(SequenceParticle)
+		if !ok || len(sequence.Particles()) != 1 {
+			t.Fatalf("sequence particle = %T/%d, want one reference", definition.Particle(), len(sequence.Particles()))
+		}
+		reference, ok := sequence.Particles()[0].(ElementReferenceParticle)
+		if !ok {
+			t.Fatalf("sequence particle = %T, want element reference", sequence.Particles()[0])
+		}
+		return reference
+	default:
+		t.Fatalf("unknown reference model %q", model)
+		return ElementReferenceParticle{}
+	}
+}
+
 func discoverRepeatedNonNegativeIntegerReferenceSchema(t *testing.T, root string, policy LanguagePolicy) Schema {
 	t.Helper()
 	first, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
@@ -737,6 +923,211 @@ func TestCodegenNonNegativeIntegerRejectsNonCanonicalNamedFacts(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Positive named totalDigits and schema-owned bounds/facets remain covered by
+// TestGenerateGoGlobalNonNegativeIntegerScalarsAcrossPolicies.
+//
+//nolint:gocognit,funlen // Keep the named representation and all invariant axes together.
+func TestCodegenNonNegativeIntegerNamedFactMatrixAcrossPolicies(t *testing.T) {
+	type mutation struct {
+		name   string
+		mutate func(*testing.T, *schemaSimpleTypeFacetVariant, XSDVersion)
+	}
+	common := []mutation{
+		{name: "nonzero fractionDigits", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+			mutateCodegenNonNegativeIntegerFractionDigits(t, facets, version, true)
+		}},
+		{name: "nonfixed fractionDigits", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+			mutateCodegenNonNegativeIntegerFractionDigits(t, facets, version, false)
+		}},
+		{name: "missing fractionDigits", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, _ XSDVersion) {
+			mutateCodegenNamedNonNegativeIntegerDigitFacts(t, facets, func(digits *DigitFacets) {
+				digits.fractionDigits = nil
+			})
+		}},
+		{name: "incompatible digit kind", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, _ XSDVersion) {
+			mutateCodegenNamedNonNegativeIntegerDigitFacts(t, facets, func(digits *DigitFacets) {
+				digits.kind = DigitDatatypeDecimal
+			})
+		}},
+		{name: "incompatible digit version", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+			mutateCodegenNamedNonNegativeIntegerDigitFacts(t, facets, func(digits *DigitFacets) {
+				digits.version = otherNonNegativeIntegerVersion(version)
+			})
+		}},
+		{name: "incompatible bound version", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+			mutateCodegenNamedNonNegativeIntegerBoundVersion(t, facets, version)
+		}},
+		{name: "missing effective lower bound", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+			mutateCodegenNamedNonNegativeIntegerBounds(t, facets, IntegerBoundFacets{version: version})
+		}},
+		{name: "negative effective lower bound", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+			minimum, err := ParseIntegerMinExclusiveFacet("-1", mustTestLoc(t, "root.xsd", 1, 3), version)
+			if err != nil {
+				t.Fatalf("ParseIntegerMinExclusiveFacet: %v", err)
+			}
+			bounds, err := NewIntegerBoundFacets([]IntegerBoundFacet{minimum}, version)
+			if err != nil {
+				t.Fatalf("NewIntegerBoundFacets: %v", err)
+			}
+			mutateCodegenNamedNonNegativeIntegerBounds(t, facets, bounds)
+		}},
+		{name: "invalid integer bounds", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+			lower, err := ParseIntegerMinInclusiveFacet("9", mustTestLoc(t, "root.xsd", 1, 3), version)
+			if err != nil {
+				t.Fatalf("ParseIntegerMinInclusiveFacet: %v", err)
+			}
+			upper, err := ParseIntegerMaxInclusiveFacet("2", mustTestLoc(t, "root.xsd", 1, 4), version)
+			if err != nil {
+				t.Fatalf("ParseIntegerMaxInclusiveFacet: %v", err)
+			}
+			bounds := IntegerBoundFacets{
+				version: version,
+				lower:   &integerBoundEndpoint{value: lower.value, loc: lower.loc, fixed: lower.fixed, inclusive: lower.kind.Inclusive()},
+				upper:   &integerBoundEndpoint{value: upper.value, loc: upper.loc, fixed: upper.fixed, inclusive: upper.kind.Inclusive()},
+			}
+			mutateCodegenNamedNonNegativeIntegerBounds(t, facets, bounds)
+		}},
+	}
+	for _, profile := range nonNegativeIntegerPolicyProfiles() {
+		for _, representation := range []struct {
+			name string
+			kind string
+		}{
+			{name: "digit facts", kind: "digit"},
+			{name: "integer facts", kind: "integer"},
+		} {
+			tests := append([]mutation(nil), common...)
+			if representation.kind == "digit" {
+				// schemaIntegerFacetVariant has no decimalBounds field; this stale
+				// mutation is structurally N/A for that named representation.
+				tests = append(tests, mutation{name: "decimal bounds in digit facts", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+					mutateCodegenNonNegativeIntegerDecimalBounds(t, facets, version)
+				}})
+			}
+			if representation.kind == "integer" {
+				// schemaDigitFacetVariant has no enumeration field; these stale
+				// mutations are structurally N/A for that named representation.
+				tests = append(tests,
+					mutation{name: "invalid integer enumeration", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+						mutateCodegenNamedNonNegativeIntegerEnumeration(t, facets, version, "empty")
+					}},
+					mutation{name: "negative integer enumeration", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+						mutateCodegenNamedNonNegativeIntegerEnumeration(t, facets, version, "negative")
+					}},
+					mutation{name: "incompatible enumeration version", mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+						mutateCodegenNamedNonNegativeIntegerEnumeration(t, facets, version, "version")
+					}},
+				)
+			}
+			for _, test := range tests {
+				t.Run(profile.name+"/"+representation.name+"/"+test.name, func(t *testing.T) {
+					root := codegenNamedNonNegativeIntegerStaleRoot(profile.version, representation.kind)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err != nil {
+						t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+					}
+					plan, err := planCodegenSource(schema, mustScalarCodegenNaming(t, schema))
+					if err != nil {
+						t.Fatalf("planCodegenSource: %v", err)
+					}
+					definition := requireNonNegativeIntegerDefinition(t, schema, "Named")
+					wantLoc := requireNonNegativeIntegerElement(t, schema, "value", "urn:test").Loc()
+					test.mutate(t, &definition.facts.facets, profile.version)
+					output, err := renderCodegenSource(plan, schema)
+					if output != nil || err == nil {
+						t.Fatalf("stale named nonNegativeInteger result = (%q, %v), want nil output and internal error", output, err)
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant || diagnostic.Loc() != wantLoc || !errors.Is(err, errCodegenSchemaInvariant) {
+						t.Fatalf("diagnostic = %s, want FailureInternal/GOXSD9030 at %s with preserved cause", diagnostic, wantLoc)
+					}
+				})
+			}
+		}
+	}
+}
+
+func codegenNamedNonNegativeIntegerStaleRoot(version XSDVersion, representation string) string {
+	facets := ""
+	if representation == "integer" {
+		facets = `<xs:minInclusive value="2"/><xs:maxInclusive value="9"/><xs:totalDigits value="2"/><xs:enumeration value="2"/>`
+	}
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(version) + `"><xs:element name="value" type="t:Named"/><xs:simpleType name="Named"><xs:restriction base="xs:nonNegativeInteger">` + facets + `</xs:restriction></xs:simpleType></xs:schema>`
+}
+
+func otherNonNegativeIntegerVersion(version XSDVersion) XSDVersion {
+	if version == XSDVersion10 {
+		return XSDVersion11
+	}
+	return XSDVersion10
+}
+
+func mutateCodegenNamedNonNegativeIntegerDigitFacts(t *testing.T, facets *schemaSimpleTypeFacetVariant, mutate func(*DigitFacets)) {
+	t.Helper()
+	switch typed := (*facets).(type) {
+	case schemaDigitFacetVariant:
+		mutate(&typed.value)
+		*facets = typed
+	case schemaIntegerFacetVariant:
+		mutate(&typed.digits)
+		*facets = typed
+	default:
+		t.Fatalf("nonNegativeInteger facets = %T, want named integer facts", *facets)
+	}
+}
+
+func mutateCodegenNamedNonNegativeIntegerBoundVersion(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+	t.Helper()
+	other := otherNonNegativeIntegerVersion(version)
+	switch typed := (*facets).(type) {
+	case schemaDigitFacetVariant:
+		typed.integerBounds.version = other
+		*facets = typed
+	case schemaIntegerFacetVariant:
+		typed.bounds.version = other
+		*facets = typed
+	default:
+		t.Fatalf("nonNegativeInteger facets = %T, want named integer facts", *facets)
+	}
+}
+
+func mutateCodegenNamedNonNegativeIntegerBounds(t *testing.T, facets *schemaSimpleTypeFacetVariant, bounds IntegerBoundFacets) {
+	t.Helper()
+	switch typed := (*facets).(type) {
+	case schemaDigitFacetVariant:
+		typed.integerBounds = bounds
+		*facets = typed
+	case schemaIntegerFacetVariant:
+		typed.bounds = bounds
+		*facets = typed
+	default:
+		t.Fatalf("nonNegativeInteger facets = %T, want named integer facts", *facets)
+	}
+}
+
+func mutateCodegenNamedNonNegativeIntegerEnumeration(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion, mutation string) {
+	t.Helper()
+	typed, ok := (*facets).(schemaIntegerFacetVariant)
+	if !ok {
+		t.Fatalf("nonNegativeInteger facets = %T, want named integer facts", *facets)
+	}
+	switch mutation {
+	case "empty":
+		typed.enumeration = IntegerEnumerationFacets{version: version, values: []IntegerEnumerationFacet{}}
+	case "negative":
+		value, err := ParseIntegerEnumerationFacetFor(version, "-1", mustTestLoc(t, "root.xsd", 1, 5))
+		if err != nil {
+			t.Fatalf("ParseIntegerEnumerationFacetFor: %v", err)
+		}
+		typed.enumeration = IntegerEnumerationFacets{version: version, values: []IntegerEnumerationFacet{value}}
+	case "version":
+		typed.enumeration.version = otherNonNegativeIntegerVersion(version)
+	default:
+		t.Fatalf("unknown enumeration mutation %q", mutation)
+	}
+	*facets = typed
 }
 
 func mutateCodegenNonNegativeIntegerUpperBound(t *testing.T, facets *schemaSimpleTypeFacetVariant, upperKind BoundKind, version XSDVersion) {
