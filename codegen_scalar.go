@@ -1317,6 +1317,15 @@ func validateCodegenNamedNonNegativeIntegerDigitFacts(
 ) error {
 	switch typed := facets.(type) {
 	case schemaDigitFacetVariant:
+		if typed.decimalBounds.version != "" || typed.decimalBounds.lower != nil || typed.decimalBounds.upper != nil {
+			return newCodegenInternalWithSpec(
+				loc,
+				context+" has inconsistent built-in integer bound facts",
+				related,
+				errCodegenSchemaInvariant,
+				version,
+			)
+		}
 		return validateCodegenCanonicalIntegerDigitFacts(loc, context, typed.value, version, related)
 	case schemaIntegerFacetVariant:
 		return validateCodegenCanonicalIntegerDigitFacts(loc, context, typed.digits, version, related)

@@ -704,6 +704,12 @@ func TestCodegenNonNegativeIntegerRejectsNonCanonicalNamedFacts(t *testing.T) {
 				mutateCodegenNonNegativeIntegerFractionDigits(t, facets, version, false)
 			},
 		},
+		{
+			name: "decimal bounds in digit facts",
+			mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+				mutateCodegenNonNegativeIntegerDecimalBounds(t, facets, version)
+			},
+		},
 	}
 	for _, profile := range nonNegativeIntegerPolicyProfiles() {
 		for _, test := range tests {
@@ -796,6 +802,31 @@ func mutateCodegenNonNegativeIntegerFractionDigits(t *testing.T, facets *schemaS
 	case schemaIntegerFacetVariant:
 		typed.digits.fractionDigits = &fraction
 		*facets = typed
+	default:
+		t.Fatalf("nonNegativeInteger facets = %T, want integer facts", *facets)
+	}
+}
+
+func mutateCodegenNonNegativeIntegerDecimalBounds(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+	t.Helper()
+	minimum, err := ParseDecimalMinInclusiveFacetFor(version, "0", mustTestLoc(t, "root.xsd", 1, 3))
+	if err != nil {
+		t.Fatalf("ParseDecimalMinInclusiveFacetFor: %v", err)
+	}
+	bounds, err := NewDecimalBoundFacets([]DecimalBoundFacet{minimum}, version)
+	if err != nil {
+		t.Fatalf("NewDecimalBoundFacets: %v", err)
+	}
+	switch typed := (*facets).(type) {
+	case schemaDigitFacetVariant:
+		typed.decimalBounds = bounds
+		*facets = typed
+	case schemaIntegerFacetVariant:
+		*facets = schemaDigitFacetVariant{
+			value:         typed.digits,
+			integerBounds: typed.bounds,
+			decimalBounds: bounds,
+		}
 	default:
 		t.Fatalf("nonNegativeInteger facets = %T, want integer facts", *facets)
 	}
