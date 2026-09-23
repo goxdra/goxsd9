@@ -66,9 +66,11 @@ Global attributes retain at most one immutable declaration-owned `AttributeValue
 Global built-in/named long-family refs remain queryable with bounds: `long`
 `[-9223372036854775808, 9223372036854775807]`, `unsignedLong`
 `[0, 18446744073709551615]`, `negativeInteger` upper `-1`, `nonNegativeInteger`
-lower `0`, and `nonPositiveInteger` upper `0`; malformed refs are invalid. These
-Global `nonNegativeInteger`: built-in-typed/named-atomic elements generate;
-inline/anonymous=query-only (`GenerateGo`/`ValidateInstance` reject).
+lower `0`, and `nonPositiveInteger` upper `0`; malformed refs are invalid.
+Global built-in-typed or named-atomic `nonNegativeInteger` elements generate under
+Compatibility/Strict10/Strict11; global inline/anonymous
+`nonNegativeInteger` remains query-only; `GenerateGo`/`ValidateInstance`
+unsupported consumers.
 Named complexes accept omitted/`false`/`0`, reject `true`/`1`; malformed XSD 1.1
 is invalid, valid behavior outside this slice unsupported. Diagnostics retain code,
 primary `Loc`, cause, `SpecRef`. `IsInheritable` accepts Compatibility/Strict11
@@ -93,8 +95,14 @@ unsupported.
 `ValidateInstance` supports global built-in/named Boolean/token/NMTOKEN/integer/decimal/precisionDecimal roots and complexes. Global built-in/named `nonNegativeInteger` is GenerateGo-only: under Compatibility/Strict10/Strict11, `ValidateInstance` returns `FailureUnsupported`/`XSD4004`/`ErrUnsupported`; schema bounds/facets are not runtime-validated. Local Boolean/integer/decimal sequences honor exact ranges; default choices cover local Boolean/token/NMTOKEN/integer/decimal/precisionDecimal and homogeneous Boolean/token/NMTOKEN or integer/decimal mixtures. Anonymous locals, mixed/token choices, repetition/non-default choices, extensions, and anonymous consumers reject.
 Token/NMTOKEN sequences, string/list/union/attribute forms, and nonzero `xs:any` are unsupported; token/NMTOKEN collapse whitespace. Element refs retain QName/RefLoc/TargetID/order/occurrences; only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, with sequence/repetition/nested/recursive/broader/anonymous/mixed refs excluded but queryable. Model-group refs are top-level direct-query only; nested/local/recursive/broader forms remain unsupported; `0/0` `xs:any` is absent.
 
-Generation: Compatibility/Strict10/Strict11 generate resolved-graph global built-in/named atomic `nonNegativeInteger` elements/components in direct, named, forward, included, imported, and chameleon forms. Built-in fields use `StrictInteger`; named element fields retain generated named types with underlying `StrictInteger`; bounds are schema-owned, not runtime-validated. Local/inline nonNegativeInteger, choices/sequences, repetition/non-default, lists/unions, attributes/value constraints, other integer-derived types, nested/recursive/broader/anonymous refs are unsupported with no `GenerateGo` output. Built-in/named Boolean/integer/decimal/string/token/NMTOKEN and inline string/token/NMTOKEN also generate; only default direct-choice Boolean/integer/decimal refs are eligible.
-Global inline Boolean/integer/decimal/long-family/identity-only facts remain query-only. Local inline Boolean/integer/decimal are limited to choice/sequence/bounded-extension shapes; mapped local long-family/identity-only forms and anonymous consumers reject. Local built-in/named Boolean/integer/decimal generate only in default all-Boolean/numeric choices and bounded sequences; anonymous/token/NMTOKEN and repeated/non-default consumers reject.
+Generation: Compatibility/Strict10/Strict11 generate resolved-graph global built-in/named atomic `nonNegativeInteger` elements/components in direct, named, forward, included, imported, and chameleon forms. Built-in fields use `StrictInteger`; named element fields retain generated named types with underlying `StrictInteger`; bounds are schema-owned, not runtime-validated. Local/inline nonNegativeInteger, choices/sequences, repetition/non-default, lists/unions, attributes/value constraints, other integer-derived types, nested/recursive/broader/anonymous refs are unsupported with no `GenerateGo` output. Built-in/named Boolean/integer/decimal/string/token/NMTOKEN and inline string/token/NMTOKEN generate; only default direct-choice Boolean/integer/decimal refs are eligible.
+Global inline Boolean/integer/decimal/long-family/identity-only and global
+inline/anonymous `nonNegativeInteger` remain query-only. Local inline
+Boolean/integer/decimal: choice/sequence/bounded-extension; local
+long-family/identity-only reject; anonymous consumers reject. Local
+built-in/named Boolean/integer/decimal generate only in default all-Boolean/numeric
+choices/bounded sequences; anonymous/token/NMTOKEN/repeated/non-default
+consumers reject.
 
 ## Conformance
 
