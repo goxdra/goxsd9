@@ -189,6 +189,11 @@ func schemaNonNegativeIntegerReferenceRoot(version XSDVersion) string {
 
 func requireNonNegativeIntegerElement(t *testing.T, schema Schema, local, namespace string) ElementDeclaration {
 	t.Helper()
+	return requireSchemaElementDeclaration(t, schema, local, namespace)
+}
+
+func requireSchemaElementDeclaration(t *testing.T, schema Schema, local, namespace string) ElementDeclaration {
+	t.Helper()
 	matches := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, namespace, local))
 	if len(matches) != 1 {
 		t.Fatalf("element %s:%s matches = %d, want 1", namespace, local, len(matches))
@@ -441,14 +446,39 @@ func TestSchemaNonNegativeIntegerExcludedShapesRemainUnsupported(t *testing.T) {
 
 func TestSchemaNonNegativeIntegerValidationRemainsUnsupported(t *testing.T) {
 	for _, profile := range nonNegativeIntegerPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="xs:nonNegativeInteger"/></xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			if err != nil {
-				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
-			}
-			assertNonNegativeIntegerValidationUnsupported(t, schema)
-		})
+		for _, test := range []struct {
+			name          string
+			rootElement   string
+			body          string
+			namedRootType bool
+		}{
+			{
+				name:        "built-in root",
+				rootElement: "value",
+				body:        `<xs:element name="value" type="xs:nonNegativeInteger"/>`,
+			},
+			{
+				name:          "named root",
+				rootElement:   "named",
+				body:          `<xs:element name="named" type="t:Named"/><xs:simpleType name="Named"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`,
+				namedRootType: true,
+			},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+				}
+				declaration := requireSchemaElementDeclaration(t, schema, test.rootElement, "urn:test")
+				wantRelated := []Loc{declaration.Loc()}
+				if test.namedRootType {
+					definition := requireNonNegativeIntegerDefinition(t, schema, "Named")
+					wantRelated = append(wantRelated, definition.Loc())
+				}
+				assertNonNegativeIntegerValidationUnsupported(t, schema, test.rootElement, wantRelated)
+			})
+		}
 	}
 }
 
@@ -462,16 +492,122 @@ func assertIntegerDerivedConsumersUnsupported(t *testing.T, schema Schema) {
 	if codegenDiagnostic.Class() != FailureUnsupported || codegenDiagnostic.Code() != diagnosticCodegenUnsupported || !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("GenerateGo diagnostic = %s, want explicit unsupported", codegenDiagnostic)
 	}
+	declaration := requireSchemaElementDeclaration(t, schema, "value", "urn:test")
+	assertIntegerDerivedValidationUnsupported(t, schema, declaration)
 }
 
-func assertNonNegativeIntegerValidationUnsupported(t *testing.T, schema Schema) {
+func assertIntegerDerivedValidationUnsupported(t *testing.T, schema Schema, declaration ElementDeclaration) {
 	t.Helper()
-	validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<value xmlns="urn:test">0</value>`)))
+	assertGlobalIntegerDerivedValidationUnsupported(t, schema, "value", []Loc{declaration.Loc()})
+}
+
+func assertNonNegativeIntegerValidationUnsupported(t *testing.T, schema Schema, rootElement string, wantRelated []Loc) {
+	t.Helper()
+	assertGlobalIntegerDerivedValidationUnsupported(t, schema, rootElement, wantRelated)
+}
+
+func assertGlobalIntegerDerivedValidationUnsupported(t *testing.T, schema Schema, rootElement string, wantRelated []Loc) {
+	t.Helper()
+	input := `<` + rootElement + ` xmlns="urn:test">0</` + rootElement + `>`
+	validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
 	if validationErr == nil {
-		t.Fatal("ValidateInstance accepted a nonNegativeInteger global element")
+		t.Fatalf("ValidateInstance accepted an excluded global element %q", rootElement)
 	}
 	validationDiagnostic := requireDiagnostic(t, validationErr)
-	if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || !errors.Is(validationErr, ErrUnsupported) {
-		t.Fatalf("ValidateInstance diagnostic = %s, want explicit unsupported", validationDiagnostic)
+	if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || validationDiagnostic.Feature() != FeatureInstanceValidation || !errors.Is(validationErr, ErrUnsupported) {
+		t.Fatalf("ValidateInstance diagnostic = %s, want explicit unsupported instance validation", validationDiagnostic)
 	}
+	wantLoc := mustTestLoc(t, "instance.xml", 1, 1)
+	if validationDiagnostic.Loc() != wantLoc {
+		t.Fatalf("ValidateInstance diagnostic location = %s, want %s", validationDiagnostic.Loc(), wantLoc)
+	}
+	if !reflect.DeepEqual(validationDiagnostic.Related(), wantRelated) {
+		t.Fatalf("ValidateInstance related locations = %v, want %v", validationDiagnostic.Related(), wantRelated)
+	}
+}
+
+func TestCodegenNonNegativeIntegerRejectsNonCanonicalBuiltinFacts(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, *schemaSimpleTypeFacetVariant)
+	}{
+		{
+			name: "maxInclusive",
+			mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant) {
+				mutateCodegenNonNegativeIntegerUpperBound(t, facets, BoundMaxInclusive)
+			},
+		},
+		{
+			name: "maxExclusive",
+			mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant) {
+				mutateCodegenNonNegativeIntegerUpperBound(t, facets, BoundMaxExclusive)
+			},
+		},
+		{
+			name:   "wrong facet variant",
+			mutate: mutateCodegenNonNegativeIntegerFacetVariant,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:element name="value" type="xs:nonNegativeInteger"/></xs:schema>`
+			schema, err := discoverTestSchema(t, root, nil)
+			if err != nil {
+				t.Fatalf("discoverTestSchema: %v", err)
+			}
+			plan, err := planCodegenSource(schema, mustScalarCodegenNaming(t, schema))
+			if err != nil {
+				t.Fatalf("planCodegenSource: %v", err)
+			}
+			components := schema.Components()
+			test.mutate(t, &components[0].element.typeReference.facets)
+			output, err := renderCodegenSource(plan, schema)
+			if output != nil || err == nil {
+				t.Fatalf("non-canonical nonNegativeInteger result = (%q, %v), want nil output and internal error", output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant || !errors.Is(err, errCodegenSchemaInvariant) {
+				t.Fatalf("diagnostic = %s, want internal codegen invariant with preserved cause", diagnostic)
+			}
+		})
+	}
+}
+
+func mutateCodegenNonNegativeIntegerUpperBound(t *testing.T, facets *schemaSimpleTypeFacetVariant, upperKind BoundKind) {
+	t.Helper()
+	digitFacets, ok := (*facets).(schemaDigitFacetVariant)
+	if !ok {
+		t.Fatalf("nonNegativeInteger facets = %T, want digit facts", *facets)
+	}
+	minimum, err := ParseIntegerMinInclusiveFacet("0", mustTestLoc(t, "root.xsd", 1, 1), XSDVersion11)
+	if err != nil {
+		t.Fatalf("ParseIntegerMinInclusiveFacet: %v", err)
+	}
+	var maximum IntegerBoundFacet
+	switch upperKind {
+	case BoundMaxInclusive:
+		maximum, err = ParseIntegerMaxInclusiveFacet("1", mustTestLoc(t, "root.xsd", 1, 2), XSDVersion11)
+	case BoundMaxExclusive:
+		maximum, err = ParseIntegerMaxExclusiveFacet("1", mustTestLoc(t, "root.xsd", 1, 2), XSDVersion11)
+	case BoundMinInclusive, BoundMinExclusive:
+		t.Fatalf("upper bound kind = %q, want max bound", upperKind)
+	}
+	if err != nil {
+		t.Fatalf("parse upper bound: %v", err)
+	}
+	bounds, err := NewIntegerBoundFacets([]IntegerBoundFacet{minimum, maximum}, XSDVersion11)
+	if err != nil {
+		t.Fatalf("NewIntegerBoundFacets: %v", err)
+	}
+	digitFacets.integerBounds = bounds
+	*facets = digitFacets
+}
+
+func mutateCodegenNonNegativeIntegerFacetVariant(t *testing.T, facets *schemaSimpleTypeFacetVariant) {
+	t.Helper()
+	digitFacets, ok := (*facets).(schemaDigitFacetVariant)
+	if !ok {
+		t.Fatalf("nonNegativeInteger facets = %T, want digit facts", *facets)
+	}
+	*facets = schemaIntegerFacetVariant{digits: digitFacets.value, bounds: digitFacets.integerBounds}
 }

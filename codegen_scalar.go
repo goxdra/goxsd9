@@ -1276,6 +1276,9 @@ func validateCodegenNonNegativeIntegerFacts(
 			version,
 		)
 	}
+	if requireZeroLowerBound {
+		return validateCodegenBuiltinNonNegativeIntegerFacts(loc, context, facets, version, related)
+	}
 	bounds, err := codegenNonNegativeIntegerBounds(loc, context, facets, version, related)
 	if err != nil {
 		return err
@@ -1299,10 +1302,93 @@ func validateCodegenNonNegativeIntegerFacts(
 			version,
 		)
 	}
-	if requireZeroLowerBound && (!bounds.HasMinInclusive() || minimum.Canonical() != "0") {
+	return nil
+}
+
+func validateCodegenBuiltinNonNegativeIntegerFacts(
+	loc Loc,
+	context string,
+	facets schemaSimpleTypeFacetVariant,
+	version XSDVersion,
+	related []Loc,
+) error {
+	digitFacets, ok := facets.(schemaDigitFacetVariant)
+	if !ok {
 		return newCodegenInternalWithSpec(
 			loc,
-			context+" has no effective minInclusive=0 lower bound",
+			context+" has inconsistent built-in integer facet facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	if err := validateCodegenBuiltinNonNegativeIntegerDigitFacts(loc, context, digitFacets.value, version, related); err != nil {
+		return err
+	}
+	if digitFacets.decimalBounds.version != "" || digitFacets.decimalBounds.lower != nil || digitFacets.decimalBounds.upper != nil {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has inconsistent built-in integer bound facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	bounds, err := codegenNonNegativeIntegerBounds(loc, context, facets, version, related)
+	if err != nil {
+		return err
+	}
+	if err := bounds.validate(); err != nil {
+		return newCodegenInternalWithSpec(loc, context+" has invalid integer bound facts", related, err, version)
+	}
+	if !codegenCanonicalBuiltinNonNegativeIntegerBounds(bounds) {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has non-canonical built-in integer bounds",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	return nil
+}
+
+func codegenCanonicalBuiltinNonNegativeIntegerBounds(bounds IntegerBoundFacets) bool {
+	effectiveBounds := bounds.Bounds()
+	if len(effectiveBounds) != 1 {
+		return false
+	}
+	if !bounds.HasMinInclusive() || bounds.HasMinExclusive() || bounds.HasMaxInclusive() || bounds.HasMaxExclusive() {
+		return false
+	}
+	return effectiveBounds[0].Kind() == BoundMinInclusive && effectiveBounds[0].Value().Canonical() == "0"
+}
+
+func validateCodegenBuiltinNonNegativeIntegerDigitFacts(
+	loc Loc,
+	context string,
+	facets DigitFacets,
+	version XSDVersion,
+	related []Loc,
+) error {
+	if err := validateCodegenIntegerDigitFacts(loc, context, facets, version, related); err != nil {
+		return err
+	}
+	if facets.HasTotalDigits() {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has non-canonical integer digit facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	fractionDigits, fractionPresent := facets.FractionDigits()
+	fractionFixed, fixedPresent := facets.FractionDigitsFixed()
+	if !fractionPresent || fractionDigits.Canonical() != "0" || !fixedPresent || !fractionFixed {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has non-canonical integer digit facts",
 			related,
 			errCodegenSchemaInvariant,
 			version,

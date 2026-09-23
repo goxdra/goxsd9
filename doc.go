@@ -60,10 +60,12 @@
 // Local anonymous integer-derived restrictions are admitted by effective atomic
 // kind only for mapped non-0/0 particles: effective integer or negativeInteger
 // remains accepted through named, forward, imported, included, and chameleon
-// chains; effective long, unsignedLong, nonNegativeInteger, and nonPositiveInteger are valid but
-// unsupported at this local boundary: ParseSchema returns a located
-// FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
-// location and no schema. The written base QName, use-site location, and resolved
+// chains; effective long, unsignedLong, nonNegativeInteger, and nonPositiveInteger
+// are valid datatypes but unsupported at this local schema boundary: ParseSchema
+// rejects the mapped form with a located FailureUnsupported/ErrUnsupported
+// diagnostic at the relevant type or facet location and no schema. Effective 0/0
+// remains absent after policy admission: Compatibility/Strict11 omit it and
+// Strict10 rejects it first. The written base QName, use-site location, and resolved
 // named ownership remain separate facts. The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
@@ -227,18 +229,21 @@
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named atomic nonNegativeInteger elements in the resolved graph
 // generate across direct, named, forward, included, imported, and chameleon
-// declarations. Global built-in/named Boolean/integer/decimal and
+// declarations. Named forms pass the existing final/variety/effective-facet
+// gates; named forms with nonempty final controls are unsupported with no
+// GenerateGo output. Global built-in/named Boolean/integer/decimal and
 // string/token/NMTOKEN scalar components also generate, as do global inline
 // string/token/NMTOKEN scalar components. Non-extension default-occurrence
 // direct-choice references to global built-in/named Boolean, integer, or
-// decimal targets are also generation-eligible; nonNegativeInteger choices,
+// decimal targets are also generation-eligible. Non-0/0 local nonNegativeInteger
+// forms are rejected during schema construction with no schema; choices,
 // sequences, repetition/non-default occurrences, nested/recursive/broader
-// references, anonymous targets, local/inline forms, lists/unions,
-// attributes/value constraints, and other integer-derived types are explicit
-// unsupported consumers and return no GenerateGo output. Global inline/anonymous
-// Boolean/integer/decimal and inline/anonymous nonNegativeInteger declarations
-// retain schema/query facts but their validation and generation consumers are
-// rejected. Global long/unsignedLong/negativeInteger/nonPositiveInteger and
+// references, anonymous targets, lists/unions, attributes/value constraints,
+// and other integer-derived types are explicit unsupported consumers and return
+// no GenerateGo output. Global inline/anonymous nonNegativeInteger declarations
+// retain schema/query facts, but GenerateGo and ValidateInstance reject them.
+// Global inline/anonymous Boolean/integer/decimal and global long/unsignedLong/
+// negativeInteger/nonPositiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their
 // validation and generation consumers are rejected.
 // Global built-in, named, and inline precisionDecimal schema/query facts are
