@@ -245,9 +245,9 @@
 // Built-in canonical facts require integer kind/version,
 // fractionDigits exactly 0 and fixed, no totalDigits, and exactly minInclusive=0
 // with no other bounds. Named restrictions may retain schema-owned bounds/facets;
-// malformed/stale named facts fail closed as FailureInternal/GOXSD9030 with nil
-// output. Named final, atomic-restriction-variety, and effective-facet gates
-// reject unsupported forms with FailureUnsupported/GOXSD9029 and no output.
+// malformed/stale built-in or named facts fail closed as FailureInternal/GOXSD9030
+// with nil output. Named final, atomic-restriction-variety, and effective-facet
+// gates reject unsupported forms with FailureUnsupported/GOXSD9029 and no output.
 // Global built-in/named Boolean/integer/decimal and
 // string/token/NMTOKEN scalar components also generate, as do global inline
 // string/token/NMTOKEN scalar components. Non-extension default-occurrence

@@ -65,8 +65,9 @@ Mapped non-`0/0` local declared/named/inline/anonymous integer particles allow o
 Global attributes retain one declaration-owned default/fixed `AttributeValueConstraint`; `ValueConstraint()` returns defensive kind, lexical, location, and exact `StrictPrecisionDecimal` facts under Compatibility/Strict11. Strict10 rejects at type `Loc`; invalid values return no schema; inline/local attributes and validation/`GenerateGo` reject.
 Global long-family refs retain exact bounds; malformed refs are invalid.
 Global built-in and named-typed `nonNegativeInteger` elements, plus standalone
-named simple types, remain queryable; inline/anonymous forms are query-only;
-consumers reject.
+named simple types, are `GenerateGo`-supported subject to their gates;
+`ValidateInstance` rejects global `nonNegativeInteger` roots; inline/anonymous
+forms remain query-only and consumer-rejected.
 Named complexes accept omitted/`false`/`0`, reject `true`/`1`; malformed XSD 1.1 is
 invalid, other valid behavior unsupported. Diagnostics retain code, primary `Loc`,
 cause, `SpecRef`. `IsInheritable` accepts Compatibility/Strict11, mismatches
