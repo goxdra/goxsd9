@@ -57,7 +57,7 @@
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms,
 // including zero-occurrence cases. Compatibility and Strict11 omit effective
 // 0/0 for either mapped form. This Strict10-before-omission rule is specific
-// to `precisionDecimal`; ordinary local declared, inline, or anonymous
+// to `precisionDecimal`; ordinary local declared, named, inline, or anonymous
 // `nonNegativeInteger` 0/0 forms are admitted then absent under every policy.
 // Local declared, named, inline, and anonymous integer-derived restrictions are
 // admitted at the mapped non-0/0 boundary only when their effective atomic kind
@@ -233,28 +233,29 @@
 // validation and generation, plus local/inline attribute forms, remain explicit
 // unsupported behavior.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
-// built-in nonNegativeInteger element declarations and standalone named atomic
-// nonNegativeInteger simple-type components in the resolved graph generate.
+// built-in and named-typed nonNegativeInteger element declarations and
+// standalone named atomic nonNegativeInteger simple-type components in the
+// resolved graph generate.
 // Element declarations cover direct, named, forward, included, imported, and
 // chameleon forms and must be ordinary: abstract=false and nillable=false. The
 // abstract/nillable gate applies only to global element declarations; either
 // flag true is unsupported by GenerateGo with FailureUnsupported/GOXSD9029 and
-// nil output. Built-in element fields and named type declarations use
-// StrictInteger; elements using named types use the generated named type.
+// nil output. Built-in element fields and standalone named type declarations
+// use StrictInteger; named-typed element fields use the generated named type.
 // Built-in canonical facts require integer kind/version,
 // fractionDigits exactly 0 and fixed, no totalDigits, and exactly minInclusive=0
 // with no other bounds. Named restrictions may retain schema-owned bounds/facets;
 // malformed/stale named facts fail closed as FailureInternal/GOXSD9030 with nil
 // output. Named final, atomic-restriction-variety, and effective-facet gates
-// reject unsupported forms with FailureUnsupported/GOXSD9029 and no output;
-// malformed/stale named facts fail closed as FailureInternal/GOXSD9030 with nil
-// output. Global built-in/named Boolean/integer/decimal and
+// reject unsupported forms with FailureUnsupported/GOXSD9029 and no output.
+// Global built-in/named Boolean/integer/decimal and
 // string/token/NMTOKEN scalar components also generate, as do global inline
 // string/token/NMTOKEN scalar components. Non-extension default-occurrence
 // direct-choice references to global built-in/named Boolean, integer, or
 // decimal targets are also generation-eligible. Mapped non-0/0 local declared,
-// inline, and anonymous `nonNegativeInteger` forms are rejected during schema
-// construction with no schema. Exact local `0/0` forms are admitted then absent
+// named, inline, and anonymous `nonNegativeInteger` forms are rejected during
+// schema construction with no schema. Exact local declared, named, inline, and
+// anonymous `0/0` forms are admitted then absent
 // under every policy. References to global `nonNegativeInteger` remain queryable
 // without target gating; direct-choice and sequence consumers reject them with
 // located unsupported diagnostics and nil GenerateGo output. Consumer-only
