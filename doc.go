@@ -236,9 +236,11 @@
 // references, anonymous targets, local/inline forms, lists/unions,
 // attributes/value constraints, and other integer-derived types are explicit
 // unsupported consumers and return no GenerateGo output. Global inline/anonymous
-// Boolean/integer/decimal, long/unsignedLong/negativeInteger/nonNegativeInteger/
-// nonPositiveInteger, and language/NCName/anyURI/ID declarations retain
-// schema/query facts but their validation and generation consumers are rejected.
+// Boolean/integer/decimal and inline/anonymous nonNegativeInteger declarations
+// retain schema/query facts but their validation and generation consumers are
+// rejected. Global long/unsignedLong/negativeInteger/nonPositiveInteger and
+// language/NCName/anyURI/ID declarations retain schema/query facts but their
+// validation and generation consumers are rejected.
 // Global built-in, named, and inline precisionDecimal schema/query facts are
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
