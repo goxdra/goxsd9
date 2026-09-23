@@ -113,9 +113,9 @@ unsupported.
 decimal/precisionDecimal roots and complexes. Built-in/named
 `nonNegativeInteger` is GenerateGo-only; validation returns located
 `FailureUnsupported`/`XSD4004`/`ErrUnsupported` under policies. Local
-Boolean/integer/decimal sequences and default choices honor supported
-ranges; homogeneous token sequences honor exact occurrences and value
-space. Anonymous, mixed-family, and extension consumers reject. NMTOKEN
+Boolean/integer/decimal sequences/default choices honor supported ranges;
+homogeneous token sequences honor exact occurrences and value space.
+Anonymous/mixed-family/extension consumers reject. NMTOKEN
 sequences; nonzero `xs:any` are unsupported. Element refs retain
 QName/RefLoc/TargetID/order/occurrences without target gating; only default
 direct-choice refs to global built-in/named Boolean/integer/decimal are eligible,
@@ -139,8 +139,9 @@ final, atomic-restriction-variety, and effective-facet gates are unsupported
 non-`0/0` forms have no schema; `0/0` is admitted then absent under every policy.
 Global `nonNegativeInteger` refs remain queryable without target gating;
 direct-choice/sequence consumers reject with nil output. Global built-in/named
-Boolean/integer/decimal/string/token/NMTOKEN components generate; inline
-generation is string/token/NMTOKEN only, while inline Boolean/integer/decimal
+Boolean/integer/decimal/string/token/NMTOKEN components generate; local built-in/supported
+named token particles/sequences remain `GenerateGo`-unsupported; inline
+string/token/NMTOKEN generation is supported; inline Boolean/integer/decimal
 consumers are query-only/rejected. Local default numeric choices generate;
 anonymous/repeated/non-default consumers reject.
 

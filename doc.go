@@ -225,8 +225,8 @@
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices are unsupported. Nonzero
 // wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
-// gates. Scalar elements contain only character data. Global and supported
-// local-choice token values
+// gates. Scalar elements contain only character data. Global token values and
+// supported local token choices and token sequences
 // collapse XML whitespace before effective enumeration comparison without
 // changing retained schema facts. Global NMTOKEN values also collapse XML
 // whitespace and enforce the repository XML NameChar policy. Global string
