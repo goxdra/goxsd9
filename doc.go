@@ -62,7 +62,7 @@
 // Local declared, named, inline, and anonymous integer-derived restrictions are
 // admitted at the mapped non-0/0 boundary only when their effective atomic kind
 // is integer or negativeInteger through named, forward, imported, included, and
-// chameleon chains. Effective long, unsignedLong, nonNegativeInteger, and
+// chameleon chains. Effective int, long, unsignedLong, nonNegativeInteger, and
 // nonPositiveInteger are valid datatypes but unsupported at this local schema
 // boundary: ParseSchema rejects the mapped form with a located
 // FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
@@ -270,7 +270,7 @@
 // diagnostics and no GenerateGo output. Global inline/anonymous
 // `nonNegativeInteger` declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
-// Global inline/anonymous Boolean/integer/decimal and global long/unsignedLong/
+// Global inline/anonymous Boolean/integer/decimal and global int/long/unsignedLong/
 // negativeInteger/nonPositiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their
 // validation and generation consumers are rejected.

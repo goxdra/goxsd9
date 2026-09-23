@@ -61,9 +61,9 @@ walks preserve discovery/lexical order and sort unordered sets. `Schema`,
 views; IDs use source/ordinal, local particles are scoped, consumers are on demand.
 
 Primitive: `DeclaredType`; direct choices/sequences and bounded attribute-free extensions over named empty-content bases retain anonymous Boolean/integer/decimal refs. Only default choices/extensions retain local built-in/named-effective `precisionDecimal` refs with QName/facets/locations/occurrences/bounds. Anonymous refs preserve `SimpleTypeID`/`NodeID`/`AnonymousID`, not global `ComponentID`; model-less extensions retain base identity. For `precisionDecimal`, Strict10 rejects before `0/0` omission; Compatibility/Strict11 omit it. Ordinary local declared/named/inline/anonymous `nonNegativeInteger` `0/0` is admitted then absent under all policies.
-Mapped non-`0/0` local declared/named/inline/anonymous integer particles allow only `integer`/`negativeInteger` through named/forward/imported/included/chameleon chains; excluded `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` are valid but unsupported at type/facet `Loc` with `FailureUnsupported`/`ErrUnsupported` and no schema.
+Mapped non-`0/0` local declared/named/inline/anonymous integer particles allow only `integer`/`negativeInteger` through named/forward/imported/included/chameleon chains; excluded `int`/`long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` are unsupported at type/facet `Loc` with `FailureUnsupported`/`ErrUnsupported` and no schema.
 Global attributes retain one declaration-owned default/fixed `AttributeValueConstraint`; `ValueConstraint()` returns defensive kind, lexical, location, and exact `StrictPrecisionDecimal` facts under Compatibility/Strict11. Strict10 rejects at type `Loc`; invalid values return no schema; inline/local attributes and validation/`GenerateGo` reject.
-Global long-family refs retain exact bounds; malformed refs are invalid.
+Global `int`/long-family refs retain exact bounds; malformed refs are invalid.
 Global built-in and named-typed `nonNegativeInteger` element declarations, plus
 standalone named atomic `nonNegativeInteger` components, are `GenerateGo`-supported
 subject to their gates; `ValidateInstance` rejects global `nonNegativeInteger`
