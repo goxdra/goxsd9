@@ -180,8 +180,9 @@ type instanceChoiceProgram struct {
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements whose
 // type references are built-in or named, and default-occurrence references to
 // global Boolean, integer, and decimal elements. Direct sequences contain only
-// local built-in or named Boolean elements or only local built-in or named
-// integer/decimal elements. Modeled anonymous local inline atomic references
+// local built-in or named Boolean elements, only local built-in or named
+// integer/decimal elements, or only local built-in or named token elements.
+// Modeled anonymous local inline atomic references
 // remain schema-queryable only: ordinary direct choice/sequence target checks
 // return a located FailureUnsupported/ErrUnsupported diagnostic with
 // element/particle locations and may include the anonymous type location in
@@ -194,8 +195,9 @@ type instanceChoiceProgram struct {
 // Direct and extension model-group-reference particles are classified first by
 // the group reference: its RefLoc is primary and its particle location is kept
 // in related facts.
-// Mixed Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices, and
-// local NMTOKEN or token sequence particles remain unsupported.
+// Mixed Boolean/numeric choices or sequences, mixed token/non-token or
+// NMTOKEN/non-NMTOKEN choices or sequences, and local NMTOKEN sequence particles
+// remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint

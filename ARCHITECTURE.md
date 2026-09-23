@@ -109,14 +109,14 @@ unsupported.
 
 ## Validation and code generation
 
-`ValidateInstance` supports global built-in/named Boolean/token/NMTOKEN/integer/
-decimal/precisionDecimal roots and complexes. Global built-in/named
+`ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/
+decimal/precisionDecimal roots and complexes. Built-in/named
 `nonNegativeInteger` is GenerateGo-only; validation returns located
-`FailureUnsupported`/`XSD4004`/`ErrUnsupported` under all policies. Local
-Boolean/integer/decimal sequences and default choices honor their supported
-ranges; anonymous, mixed/token, repeated/non-default, and extension consumers
-reject.
-Token/NMTOKEN sequences and nonzero `xs:any` are unsupported. Element refs retain
+`FailureUnsupported`/`XSD4004`/`ErrUnsupported` under policies. Local
+Boolean/integer/decimal sequences and default choices honor supported
+ranges; homogeneous token sequences honor exact occurrences and value
+space. Anonymous, mixed-family, and extension consumers reject. NMTOKEN
+sequences; nonzero `xs:any` are unsupported. Element refs retain
 QName/RefLoc/TargetID/order/occurrences without target gating; only default
 direct-choice refs to global built-in/named Boolean/integer/decimal are eligible,
 while other forms remain queryable but excluded. Global `nonNegativeInteger` refs

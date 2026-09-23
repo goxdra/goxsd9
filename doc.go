@@ -77,9 +77,11 @@
 // named local particles in direct choices, sequences, and bounded attribute-free
 // extensions are modeled and queryable; only non-extension default-occurrence
 // homogeneous direct choices made entirely of local token or NMTOKEN
-// alternatives validate. Local token/NMTOKEN sequences, anonymous token/NMTOKEN
-// restrictions, and generation remain unsupported. Direct element references
-// remain queryable, but token/NMTOKEN reference consumers remain unsupported.
+// alternatives validate. Homogeneous direct sequences made entirely of local
+// built-in or supported named token particles also validate with exact
+// occurrences. Local NMTOKEN sequences, anonymous token/NMTOKEN restrictions,
+// and generation remain unsupported. Direct element references remain
+// queryable, but token/NMTOKEN reference consumers remain unsupported.
 // Global inline string/token/NMTOKEN elements are the separate generation-eligible
 // exception.
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
@@ -196,7 +198,8 @@
 // or Strict11, or as a named global complex type with one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
 // restriction elements, one direct integer/decimal sequence of local built-in or
-// named elements, or one direct choice
+// named elements, one homogeneous token sequence of local built-in or supported
+// named token elements, or one direct choice
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or, in
 // non-extension direct choices, default-occurrence references to global Boolean,
@@ -216,7 +219,7 @@
 // Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
-// and Strict11. Mixed Boolean/numeric sequences, direct-choice repetition, and excluded particle/target shapes
+// and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
 // remain explicit unsupported behavior. Reference consumers exclude precisionDecimal
 // and anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices are unsupported. Nonzero
@@ -227,7 +230,7 @@
 // collapse XML whitespace before effective enumeration comparison without
 // changing retained schema facts. Global NMTOKEN values also collapse XML
 // whitespace and enforce the repository XML NameChar policy. Global string
-// values, local string particles, token/NMTOKEN sequence particles, lists/unions,
+// values, local string particles, NMTOKEN sequence particles, lists/unions,
 // broader particles, and other semantics remain explicit unsupported behavior.
 // Global attribute declarations and value constraints are query-only; attribute
 // validation and generation, plus local/inline attribute forms, remain explicit
