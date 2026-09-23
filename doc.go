@@ -59,16 +59,17 @@
 // 0/0 for either mapped form. This Strict10-before-omission rule is specific
 // to `precisionDecimal`; ordinary local declared, inline, or anonymous
 // `nonNegativeInteger` 0/0 forms are admitted then absent under every policy.
-// Local anonymous integer-derived restrictions are admitted by effective atomic
-// kind only for mapped non-0/0 particles: effective integer or negativeInteger
-// remains accepted through named, forward, imported, included, and chameleon
-// chains; effective long, unsignedLong, nonNegativeInteger, and nonPositiveInteger
-// are valid datatypes but unsupported at this local schema boundary: ParseSchema
-// rejects the mapped form with a located FailureUnsupported/ErrUnsupported
-// diagnostic at the relevant type or facet location and no schema. Ordinary local
-// nonNegativeInteger effective 0/0 remains absent after policy admission under
-// every policy. The written base QName, use-site location, and resolved
-// named ownership remain separate facts. The supported anonymous Boolean/integer/
+// Local declared, named, inline, and anonymous integer-derived restrictions are
+// admitted at the mapped non-0/0 boundary only when their effective atomic kind
+// is integer or negativeInteger through named, forward, imported, included, and
+// chameleon chains. Effective long, unsignedLong, nonNegativeInteger, and
+// nonPositiveInteger are valid datatypes but unsupported at this local schema
+// boundary: ParseSchema rejects the mapped form with a located
+// FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
+// location and no schema. Ordinary local nonNegativeInteger effective 0/0
+// remains absent after policy admission under every policy. The written base
+// QName, use-site location, and resolved named ownership remain separate facts.
+// The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
 // no schema.
@@ -232,19 +233,21 @@
 // validation and generation, plus local/inline attribute forms, remain explicit
 // unsupported behavior.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
-// built-in and named atomic nonNegativeInteger elements in the resolved graph
-// generate across direct, named, forward, included, imported, and chameleon
-// declarations only when each global declaration is ordinary: abstract=false
-// and nillable=false. abstract=true or nillable=true is unsupported by
-// GenerateGo with FailureUnsupported/GOXSD9029 and nil output. Built-in element
-// fields use StrictInteger; named nonNegativeInteger types are backed by
-// StrictInteger, and elements using named types use the generated named type.
+// built-in nonNegativeInteger element declarations and standalone named atomic
+// nonNegativeInteger simple-type components in the resolved graph generate.
+// Element declarations cover direct, named, forward, included, imported, and
+// chameleon forms and must be ordinary: abstract=false and nillable=false. The
+// abstract/nillable gate applies only to global element declarations; either
+// flag true is unsupported by GenerateGo with FailureUnsupported/GOXSD9029 and
+// nil output. Built-in element fields and named type declarations use
+// StrictInteger; elements using named types use the generated named type.
 // Built-in canonical facts require integer kind/version,
 // fractionDigits exactly 0 and fixed, no totalDigits, and exactly minInclusive=0
 // with no other bounds. Named restrictions may retain schema-owned bounds/facets;
 // malformed/stale named facts fail closed as FailureInternal/GOXSD9030 with nil
-// output. Named forms pass the existing final/variety/effective-facet gates;
-// named forms with nonempty final controls are unsupported with no GenerateGo
+// output. Named final, atomic-restriction-variety, and effective-facet gates
+// reject unsupported forms with FailureUnsupported/GOXSD9029 and no output;
+// malformed/stale named facts fail closed as FailureInternal/GOXSD9030 with nil
 // output. Global built-in/named Boolean/integer/decimal and
 // string/token/NMTOKEN scalar components also generate, as do global inline
 // string/token/NMTOKEN scalar components. Non-extension default-occurrence
