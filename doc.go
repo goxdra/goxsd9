@@ -236,12 +236,13 @@
 // string/token/NMTOKEN scalar components. Non-extension default-occurrence
 // direct-choice references to global built-in/named Boolean, integer, or
 // decimal targets are also generation-eligible. Non-0/0 local nonNegativeInteger
-// forms are rejected during schema construction with no schema; choices,
-// sequences, repetition/non-default occurrences, nested/recursive/broader
-// references, anonymous targets, lists/unions, attributes/value constraints,
-// and other integer-derived types are explicit unsupported consumers and return
-// no GenerateGo output. Global inline/anonymous nonNegativeInteger declarations
-// retain schema/query facts, but GenerateGo and ValidateInstance reject them.
+// forms are rejected during schema construction with no schema; nonNegativeInteger
+// local choices, sequences, repetition/non-default occurrences,
+// nested/recursive/broader references, anonymous targets, lists/unions,
+// attributes/value constraints, and other integer-derived consumers are explicit
+// unsupported behavior with located diagnostics and no GenerateGo output. Global
+// inline/anonymous nonNegativeInteger declarations retain schema/query facts;
+// GenerateGo and ValidateInstance reject them with their existing diagnostics.
 // Global inline/anonymous Boolean/integer/decimal and global long/unsignedLong/
 // negativeInteger/nonPositiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their

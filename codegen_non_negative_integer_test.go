@@ -3,6 +3,7 @@ package goxsd9_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"go/format"
 	"strings"
 	"testing"
@@ -33,6 +34,7 @@ func TestGenerateGoGlobalNonNegativeIntegerScalarsAcrossPolicies(t *testing.T) {
   <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
   <xs:element name="direct" type="xs:nonNegativeInteger"/>
   <xs:element name="namedElement" type="r:Named"/>
+  <xs:element name="narrowedElement" type="r:Narrowed"/>
   <xs:element name="inheritedElement" type="r:Inherited"/>
   <xs:element name="forwardElement" type="r:Forward"/>
   <xs:element name="includedElement" type="r:Included"/>
@@ -42,6 +44,7 @@ func TestGenerateGoGlobalNonNegativeIntegerScalarsAcrossPolicies(t *testing.T) {
   <xs:simpleType name="Named"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>
   <xs:simpleType name="Later"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>
   <xs:simpleType name="runtime"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>
+	<xs:simpleType name="Narrowed"><xs:restriction base="xs:nonNegativeInteger"><xs:minInclusive value="2"/><xs:maxInclusive value="9"/><xs:totalDigits value="2"/></xs:restriction></xs:simpleType>
 </xs:schema>`
 			ordinaryContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">
   <xs:simpleType name="Included"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>
@@ -65,6 +68,27 @@ func TestGenerateGoGlobalNonNegativeIntegerScalarsAcrossPolicies(t *testing.T) {
 			}, test.policy)
 			if err != nil {
 				t.Fatalf("ParseSchemaWithPolicy: %v", err)
+			}
+			narrowedTypes := schema.FindKind(goxsd9.ComponentKindSimpleTypeDefinition, mustPublicNonNegativeIntegerQName(t, "urn:root", "Narrowed"))
+			if len(narrowedTypes) != 1 {
+				t.Fatalf("Narrowed definitions = %d, want one", len(narrowedTypes))
+			}
+			narrowed, ok := narrowedTypes[0].SimpleTypeDefinition()
+			if !ok {
+				t.Fatal("Narrowed definition view is missing")
+			}
+			bounds, ok := narrowed.IntegerBounds()
+			if !ok {
+				t.Fatal("Narrowed integer bounds are missing")
+			}
+			minimum, hasMinimum := bounds.MinInclusive()
+			maximum, hasMaximum := bounds.MaxInclusive()
+			if !hasMinimum || minimum.Canonical() != "2" || !hasMaximum || maximum.Canonical() != "9" {
+				t.Fatalf("Narrowed bounds = %q/%t, %q/%t, want 2/true and 9/true", minimum.Canonical(), hasMinimum, maximum.Canonical(), hasMaximum)
+			}
+			totalDigits, hasTotalDigits := narrowed.DigitFacets().TotalDigits()
+			if !hasTotalDigits || totalDigits.Canonical() != "2" {
+				t.Fatalf("Narrowed totalDigits = %q/%t, want 2/true", totalDigits.Canonical(), hasTotalDigits)
 			}
 
 			first, err := goxsd9.GenerateGo(schema, "generated")
@@ -91,6 +115,7 @@ func TestGenerateGoGlobalNonNegativeIntegerScalarsAcrossPolicies(t *testing.T) {
 				`import Runtime2 "github.com/goxdra/goxsd9"`,
 				"type Direct struct {\n\tValue Runtime2.StrictInteger\n}",
 				"type NamedElement struct {\n\tValue Named\n}",
+				"type NarrowedElement struct {\n\tValue Narrowed\n}",
 				"type InheritedElement struct {\n\tValue Inherited\n}",
 				"type ForwardElement struct {\n\tValue Forward\n}",
 				"type IncludedElement struct {\n\tValue Included\n}",
@@ -101,6 +126,7 @@ func TestGenerateGoGlobalNonNegativeIntegerScalarsAcrossPolicies(t *testing.T) {
 				"type Named struct {\n\tValue Runtime2.StrictInteger\n}",
 				"type Later struct {\n\tValue Runtime2.StrictInteger\n}",
 				"type Runtime struct {\n\tValue Runtime2.StrictInteger\n}",
+				"type Narrowed struct {\n\tValue Runtime2.StrictInteger\n}",
 				"type Included struct {\n\tValue Runtime2.StrictInteger\n}",
 				"type Imported struct {\n\tValue Runtime2.StrictInteger\n}",
 			} {
@@ -116,8 +142,8 @@ func TestGenerateGoGlobalNonNegativeIntegerScalarsAcrossPolicies(t *testing.T) {
 			}
 
 			orderedNames := []string{
-				"Direct", "NamedElement", "InheritedElement", "ForwardElement", "IncludedElement", "ImportedElement",
-				"Inherited", "Forward", "Named", "Later", "Runtime", "Included", "ChameleonDirect", "Imported",
+				"Direct", "NamedElement", "NarrowedElement", "InheritedElement", "ForwardElement", "IncludedElement", "ImportedElement",
+				"Inherited", "Forward", "Named", "Later", "Runtime", "Narrowed", "Included", "ChameleonDirect", "Imported",
 			}
 			last := -1
 			for _, name := range orderedNames {
@@ -137,6 +163,7 @@ import (
 func useNonNegativeIntegerScalars() {
 	var direct generated.Direct
 	var named generated.NamedElement
+	var narrowed generated.NarrowedElement
 	var inherited generated.InheritedElement
 	var forward generated.ForwardElement
 	var included generated.IncludedElement
@@ -144,6 +171,7 @@ func useNonNegativeIntegerScalars() {
 	var chameleon generated.ChameleonDirect
 	var _ runtime.StrictInteger = direct.Value
 	var _ generated.Named = named.Value
+	var _ generated.Narrowed = narrowed.Value
 	var _ generated.Inherited = inherited.Value
 	var _ generated.Forward = forward.Value
 	var _ generated.Included = included.Value
@@ -153,4 +181,139 @@ func useNonNegativeIntegerScalars() {
 `)
 		})
 	}
+}
+
+//nolint:gocognit,funlen // Keep the named nonNegativeInteger phase gates and location evidence together.
+func TestGenerateGoNamedNonNegativeIntegerGatesAcrossPolicies(t *testing.T) {
+	tests := []struct {
+		name        string
+		typeBody    string
+		withElement bool
+		wantRelated string
+	}{
+		{
+			name:        "final",
+			typeBody:    `<xs:simpleType name="Value" final="restriction"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`,
+			withElement: true,
+			wantRelated: "final=\"restriction\"",
+		},
+		{
+			name:        "variety",
+			typeBody:    `<xs:simpleType name="Value"><xs:union memberTypes="xs:nonNegativeInteger"/></xs:simpleType>`,
+			withElement: false,
+			wantRelated: "<xs:union",
+		},
+		{
+			name:        "effective-facet",
+			typeBody:    `<xs:simpleType name="Value"><xs:restriction base="xs:unsignedLong"><xs:totalDigits value="2"/></xs:restriction></xs:simpleType>`,
+			withElement: false,
+			wantRelated: `base="xs:unsignedLong"`,
+		},
+	}
+	for _, policy := range []struct {
+		name    string
+		policy  goxsd9.LanguagePolicy
+		version string
+	}{
+		{name: "Compatibility", policy: goxsd9.Compatibility},
+		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0"},
+		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1"},
+	} {
+		for _, test := range tests {
+			t.Run(policy.name+"/"+test.name, func(t *testing.T) {
+				version := ""
+				if policy.version != "" {
+					version = ` version="` + policy.version + `"`
+				}
+				element := ""
+				if test.withElement {
+					element = `<xs:element name="value" type="t:Value"/>`
+				}
+				root := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"` + version + `>` + element + test.typeBody + `</xs:schema>`
+				schema, err := parsePublicNonNegativeIntegerSchema(t, root, policy.policy)
+				if err != nil {
+					t.Fatalf("ParseSchemaWithPolicy: %v", err)
+				}
+				var declaration goxsd9.ElementDeclaration
+				if test.withElement {
+					components := schema.FindKind(goxsd9.ComponentKindElementDeclaration, mustPublicNonNegativeIntegerQName(t, "urn:test", "value"))
+					if len(components) != 1 {
+						t.Fatalf("value declarations = %d, want one", len(components))
+					}
+					var declarationOK bool
+					declaration, declarationOK = components[0].ElementDeclaration()
+					if !declarationOK {
+						t.Fatal("value declaration view is missing")
+					}
+				}
+				typeComponents := schema.FindKind(goxsd9.ComponentKindSimpleTypeDefinition, mustPublicNonNegativeIntegerQName(t, "urn:test", "Value"))
+				if len(typeComponents) != 1 {
+					t.Fatalf("Value definitions = %d, want one", len(typeComponents))
+				}
+				definition, ok := typeComponents[0].SimpleTypeDefinition()
+				if !ok {
+					t.Fatal("Value definition view is missing")
+				}
+				output, generationErr := goxsd9.GenerateGo(schema, "generated")
+				if output != nil || generationErr == nil {
+					t.Fatalf("GenerateGo result = (%q, %v), want unsupported with no output", output, generationErr)
+				}
+				diagnostic := publicNonNegativeIntegerDiagnostic(t, generationErr)
+				wantPrimary := definition.Component().Loc()
+				if test.withElement {
+					wantPrimary = declaration.Loc()
+				}
+				if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode || diagnostic.Feature() != goxsd9.FeatureCodegen || diagnostic.Loc() != wantPrimary || !errors.Is(generationErr, goxsd9.ErrUnsupported) {
+					t.Fatalf("GenerateGo diagnostic = %s, want located unsupported gate", diagnostic)
+				}
+				wantRelated := definition.FinalLoc()
+				if test.name == "variety" {
+					wantRelated = definition.VarietyLoc()
+				}
+				if test.name == "effective-facet" {
+					wantRelated = definition.BaseLoc()
+				}
+				related := false
+				for _, location := range diagnostic.Related() {
+					if location == wantRelated {
+						related = true
+						break
+					}
+				}
+				if wantRelated.IsZero() || !related {
+					t.Fatalf("GenerateGo related locations = %v, want %s from %s", diagnostic.Related(), wantRelated, test.wantRelated)
+				}
+			})
+		}
+	}
+}
+
+func parsePublicNonNegativeIntegerSchema(t *testing.T, root string, policy goxsd9.LanguagePolicy) (goxsd9.Schema, error) {
+	t.Helper()
+	source, err := goxsd9.NewResolvedSource(context.Background(), "root.xsd", newParseTestReader(root))
+	if err != nil {
+		t.Fatalf("NewResolvedSource: %v", err)
+	}
+	return goxsd9.ParseSchemaWithPolicy(source, nil, policy)
+}
+
+func mustPublicNonNegativeIntegerQName(t *testing.T, namespace, local string) goxsd9.QName {
+	t.Helper()
+	name, err := goxsd9.NewQName(namespace, local)
+	if err != nil {
+		t.Fatalf("NewQName: %v", err)
+	}
+	return name
+}
+
+func publicNonNegativeIntegerDiagnostic(t *testing.T, err error) goxsd9.Diagnostic {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected diagnostic")
+	}
+	var diagnostic goxsd9.Diagnostic
+	if !errors.As(err, &diagnostic) {
+		t.Fatalf("error = %v, want diagnostic", err)
+	}
+	return diagnostic
 }
