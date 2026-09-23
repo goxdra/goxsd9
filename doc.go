@@ -240,8 +240,9 @@
 // chameleon forms and must be ordinary: abstract=false and nillable=false. The
 // abstract/nillable gate applies only to global element declarations; either
 // flag true is unsupported by GenerateGo with FailureUnsupported/GOXSD9029 and
-// nil output. Built-in element fields and standalone named type declarations
-// use StrictInteger; named-typed element fields use the generated named type.
+// nil output. Built-in nonNegativeInteger element fields and standalone named
+// nonNegativeInteger declarations use StrictInteger; named-typed element fields
+// use the generated named type.
 // Built-in canonical facts require integer kind/version,
 // fractionDigits exactly 0 and fixed, no totalDigits, and exactly minInclusive=0
 // with no other bounds. Named restrictions may retain schema-owned bounds/facets;

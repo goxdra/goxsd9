@@ -64,10 +64,11 @@ Primitive: `DeclaredType`; direct choices/sequences and bounded attribute-free e
 Mapped non-`0/0` local declared/named/inline/anonymous integer particles allow only `integer`/`negativeInteger` through named/forward/imported/included/chameleon chains; excluded `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` are valid but unsupported at type/facet `Loc` with `FailureUnsupported`/`ErrUnsupported` and no schema.
 Global attributes retain one declaration-owned default/fixed `AttributeValueConstraint`; `ValueConstraint()` returns defensive kind, lexical, location, and exact `StrictPrecisionDecimal` facts under Compatibility/Strict11. Strict10 rejects at type `Loc`; invalid values return no schema; inline/local attributes and validation/`GenerateGo` reject.
 Global long-family refs retain exact bounds; malformed refs are invalid.
-Global built-in and named-typed `nonNegativeInteger` elements, plus standalone
-named simple types, are `GenerateGo`-supported subject to their gates;
-`ValidateInstance` rejects global `nonNegativeInteger` roots; inline/anonymous
-forms remain query-only and consumer-rejected.
+Global built-in and named-typed `nonNegativeInteger` element declarations, plus
+standalone named atomic `nonNegativeInteger` components, are `GenerateGo`-supported
+subject to their gates; `ValidateInstance` rejects global `nonNegativeInteger`
+roots; global inline/anonymous `nonNegativeInteger` forms remain query-only and
+consumer-rejected.
 Named complexes accept omitted/`false`/`0`, reject `true`/`1`; malformed XSD 1.1 is
 invalid, other valid behavior unsupported. Diagnostics retain code, primary `Loc`,
 cause, `SpecRef`. `IsInheritable` accepts Compatibility/Strict11, mismatches
@@ -123,12 +124,13 @@ remain queryable; direct-choice/sequence consumers reject them with located
 unsupported diagnostics and nil output. Model-group refs are top-level direct
 query only; broader forms reject.
 
-Generation: `GenerateGo` supports global built-in/named atomic
-`nonNegativeInteger` element declarations and standalone named simple-type
-components under all policies. Only elements require
+Generation: `GenerateGo` supports global built-in and named-typed
+`nonNegativeInteger` element declarations and standalone named atomic
+`nonNegativeInteger` components under all policies. Only elements require
 `abstract=false,nillable=false`; either is unsupported
-(`FailureUnsupported`/`GOXSD9029`, nil). Built-in element fields and named types
-use `StrictInteger`; named-typed elements use generated named type. Canonical
+(`FailureUnsupported`/`GOXSD9029`, nil). Built-in `nonNegativeInteger` element
+fields and standalone named `nonNegativeInteger` declarations use `StrictInteger`;
+named-typed elements use generated named type. Canonical
 facts require integer kind/version, fixed `fractionDigits=0`,
 `minInclusive=0`, and no `totalDigits`/bounds. Named bounds/facets remain;
 final, atomic-restriction-variety, and effective-facet gates are unsupported
