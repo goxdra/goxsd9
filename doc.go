@@ -232,9 +232,11 @@
 // whitespace and enforce the repository XML NameChar policy. Global string
 // values, local string particles, NMTOKEN sequence particles, lists/unions,
 // broader particles, and other semantics remain explicit unsupported behavior.
-// Global attribute declarations and value constraints are query-only; attribute
-// validation and generation, plus local/inline attribute forms, remain explicit
-// unsupported behavior.
+// Only admitted supported global attribute declarations and value constraints are
+// query-only. Global xs:int/long-family attribute declarations and value constraints
+// remain unsupported, returning located FailureUnsupported/ErrUnsupported diagnostics
+// and no Schema. Attribute validation and generation, plus local/inline attribute
+// forms, remain explicit unsupported behavior.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named-typed nonNegativeInteger element declarations and
 // standalone named atomic nonNegativeInteger simple-type components in the

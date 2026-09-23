@@ -143,15 +143,17 @@ behavior. An error-level diagnostic returns no schema.
 
 ## Non-goals, risks, and follow-up
 
-The matrix is the current-state inventory. Other constraints: omitted direct
+This matrix inventories current state. Other constraints: omitted direct
 `anyAttribute` defaults to `##any`/`strict`; `##any`/`##other` are supported, while
 positive namespace enumerations require strict processing. `##local` and a
 target-namespace marker without a target are absent; effective values are sorted,
-unique, copied, and retain normalized lexical/source locations. Local/inline
+unique, copied, retaining normalized lexical/source locations. Local/inline
 complex/list/union and remaining local/inline value/default/fixed/attribute forms,
 unsupported Boolean facets, nested/broader particles/groups, `all` mapping, and
-broader wildcard/attribute forms remain unsupported. Global attribute value
-constraints are query-only; validation/generation consumers do not consume them.
+broader wildcard/attribute forms unsupported. Supported global
+`AttributeValueConstraint` query-only; global `xs:int`/long-family attribute
+declarations/constraints unsupported: located `FailureUnsupported`/`ErrUnsupported`,
+no schema; validation/GenerateGo reject.
 Exact occurrences have no fixed resource limit; later phases must bound
 input/materialization.
 
