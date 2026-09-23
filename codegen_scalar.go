@@ -1279,6 +1279,9 @@ func validateCodegenNonNegativeIntegerFacts(
 	if requireZeroLowerBound {
 		return validateCodegenBuiltinNonNegativeIntegerFacts(loc, context, facets, version, related)
 	}
+	if err := validateCodegenNamedNonNegativeIntegerDigitFacts(loc, context, facets, version, related); err != nil {
+		return err
+	}
 	bounds, err := codegenNonNegativeIntegerBounds(loc, context, facets, version, related)
 	if err != nil {
 		return err
@@ -1303,6 +1306,29 @@ func validateCodegenNonNegativeIntegerFacts(
 		)
 	}
 	return nil
+}
+
+func validateCodegenNamedNonNegativeIntegerDigitFacts(
+	loc Loc,
+	context string,
+	facets schemaSimpleTypeFacetVariant,
+	version XSDVersion,
+	related []Loc,
+) error {
+	switch typed := facets.(type) {
+	case schemaDigitFacetVariant:
+		return validateCodegenCanonicalIntegerDigitFacts(loc, context, typed.value, version, related)
+	case schemaIntegerFacetVariant:
+		return validateCodegenCanonicalIntegerDigitFacts(loc, context, typed.digits, version, related)
+	default:
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has inconsistent integer facet facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
 }
 
 func validateCodegenBuiltinNonNegativeIntegerFacts(
@@ -1371,7 +1397,7 @@ func validateCodegenBuiltinNonNegativeIntegerDigitFacts(
 	version XSDVersion,
 	related []Loc,
 ) error {
-	if err := validateCodegenIntegerDigitFacts(loc, context, facets, version, related); err != nil {
+	if err := validateCodegenCanonicalIntegerDigitFacts(loc, context, facets, version, related); err != nil {
 		return err
 	}
 	if facets.HasTotalDigits() {
@@ -1382,6 +1408,19 @@ func validateCodegenBuiltinNonNegativeIntegerDigitFacts(
 			errCodegenSchemaInvariant,
 			version,
 		)
+	}
+	return nil
+}
+
+func validateCodegenCanonicalIntegerDigitFacts(
+	loc Loc,
+	context string,
+	facets DigitFacets,
+	version XSDVersion,
+	related []Loc,
+) error {
+	if err := validateCodegenIntegerDigitFacts(loc, context, facets, version, related); err != nil {
+		return err
 	}
 	fractionDigits, fractionPresent := facets.FractionDigits()
 	fractionFixed, fixedPresent := facets.FractionDigitsFixed()

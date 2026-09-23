@@ -686,6 +686,53 @@ func TestCodegenNonNegativeIntegerRejectsNonCanonicalBuiltinFacts(t *testing.T) 
 	}
 }
 
+//nolint:gocognit // Keep all-policy named stale-fact mutations and invariant checks together.
+func TestCodegenNonNegativeIntegerRejectsNonCanonicalNamedFacts(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, *schemaSimpleTypeFacetVariant, XSDVersion)
+	}{
+		{
+			name: "nonzero fractionDigits",
+			mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+				mutateCodegenNonNegativeIntegerFractionDigits(t, facets, version, true)
+			},
+		},
+		{
+			name: "nonfixed fractionDigits",
+			mutate: func(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion) {
+				mutateCodegenNonNegativeIntegerFractionDigits(t, facets, version, false)
+			},
+		},
+	}
+	for _, profile := range nonNegativeIntegerPolicyProfiles() {
+		for _, test := range tests {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="t:Named"/><xs:simpleType name="Named"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType></xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+				}
+				plan, err := planCodegenSource(schema, mustScalarCodegenNaming(t, schema))
+				if err != nil {
+					t.Fatalf("planCodegenSource: %v", err)
+				}
+				definition := requireNonNegativeIntegerDefinition(t, schema, "Named")
+				wantLoc := requireNonNegativeIntegerElement(t, schema, "value", "urn:test").Loc()
+				test.mutate(t, &definition.facts.facets, profile.version)
+				output, err := renderCodegenSource(plan, schema)
+				if output != nil || err == nil {
+					t.Fatalf("non-canonical named nonNegativeInteger result = (%q, %v), want nil output and internal error", output, err)
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant || diagnostic.Loc() != wantLoc || !errors.Is(err, errCodegenSchemaInvariant) {
+					t.Fatalf("diagnostic = %s, want located internal codegen invariant at %s with preserved cause", diagnostic, wantLoc)
+				}
+			})
+		}
+	}
+}
+
 func mutateCodegenNonNegativeIntegerUpperBound(t *testing.T, facets *schemaSimpleTypeFacetVariant, upperKind BoundKind, version XSDVersion) {
 	t.Helper()
 	digitFacets, ok := (*facets).(schemaDigitFacetVariant)
@@ -729,7 +776,6 @@ func mutateCodegenNonNegativeIntegerTotalDigits(t *testing.T, facets *schemaSimp
 
 func mutateCodegenNonNegativeIntegerFractionDigits(t *testing.T, facets *schemaSimpleTypeFacetVariant, version XSDVersion, nonzero bool) {
 	t.Helper()
-	digitFacets := requireCodegenNonNegativeIntegerDigitFacets(t, facets)
 	fraction, err := ParseFractionDigitsFacetFor(version, "0", mustTestLoc(t, "root.xsd", 1, 3))
 	if err != nil {
 		t.Fatalf("ParseFractionDigitsFacetFor: %v", err)
@@ -743,8 +789,16 @@ func mutateCodegenNonNegativeIntegerFractionDigits(t *testing.T, facets *schemaS
 	if !nonzero {
 		fraction.fixed = false
 	}
-	digitFacets.value.fractionDigits = &fraction
-	*facets = digitFacets
+	switch typed := (*facets).(type) {
+	case schemaDigitFacetVariant:
+		typed.value.fractionDigits = &fraction
+		*facets = typed
+	case schemaIntegerFacetVariant:
+		typed.digits.fractionDigits = &fraction
+		*facets = typed
+	default:
+		t.Fatalf("nonNegativeInteger facets = %T, want integer facts", *facets)
+	}
 }
 
 func mutateCodegenNonNegativeIntegerDigitKind(t *testing.T, facets *schemaSimpleTypeFacetVariant) {
