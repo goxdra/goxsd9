@@ -71,13 +71,14 @@ valid behavior unsupported. Diagnostics retain code/`Loc`/cause/`SpecRef`;
 `IsInheritable` accepts Compatibility/Strict11 and mismatches Strict10. Untyped/inline attrs,
 `defaultAttributesApply`/XPath, and non-0/0 anonymous enumeration are unsupported. Direct checks
 use `Locs`, extension/model-less gates first, and model-group refs use `RefLoc`; broader forms reject.
-Local built-in/named-effective refs require default choices or bounded
-attribute-free extension choices with default occurrences. Mapped non-`0/0`
-inline/anonymous forms and non-default/nonzero sequences are schema-unsupported.
-Strict10 rejects before `0/0` omission; Compatibility/Strict11 omits exact
-`0/0`. Admitted extensions retain query, policy, occurrence, and `0/0` facts;
-validation/`GenerateGo` reject their consumers/targets. Mapped non-`0/0` anonymous
-string/token/NMTOKEN and `<all>` are unsupported.
+`precisionDecimal` refs require default choices or bounded attribute-free extensions
+with default occurrences; non-`0/0` inline/anonymous forms and non-default/nonzero
+sequences for type-specific mappings remain unsupported. Homogeneous local built-in/supported
+named `token`/`NMTOKEN` sequences admit exact occurrences. Strict10 rejects before
+`0/0`; Compatibility/Strict11 omits it. Extensions remain query-only but
+validation/`GenerateGo` consumers reject; unsupported references remain queryable;
+local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported; `<all>`
+remains unsupported.
 
 Complexes expose non-inherited `IsAbstract`; `Final()` uses declaring-document `finalDefault` when
 local `final` is absent, explicit values override it, and `FinalLoc()` preserves provenance. Policies
