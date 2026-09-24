@@ -210,11 +210,15 @@
 // primary with related complex-content/extension/base/particle facts (and
 // anyAttribute when present); validation retains declaration/definition owner
 // locations, uses the extension boundary for choices and the instance root for
-// sequences, and never adds an anonymous type location. Direct and extension
-// model-group-reference checks use the group RefLoc as validation and generation
-// primary; validation relates the group particle, while generation relates
-// group/component/reference/target locations. These gates return located
-// FailureUnsupported/ErrUnsupported diagnostics; GenerateGo returns no output.
+// sequences, and never adds an anonymous type location. Direct model-group-
+// reference bodies with AttributeUse facts hit the AttributeUse consumer gates
+// first: the first use's Loc is primary, with declaration/definition and
+// AttributeUse locations related. Attribute-free direct and extension
+// model-group-reference checks use the group RefLoc as validation and
+// generation primary; validation relates the group particle and supplied
+// extension context, while generation relates group/component/reference/target
+// locations. These gates return located FailureUnsupported/ErrUnsupported
+// diagnostics; GenerateGo returns no output.
 //
 // Global built-in and named xs:nonNegativeInteger roots remain unsupported by
 // ValidateInstance under Compatibility, Strict10, and Strict11: the call
@@ -241,10 +245,14 @@
 // (and anyAttribute when present) related locations, and do not include the
 // anonymous type location; validation also retains declaration/definition owner
 // locations and keeps the instance-root primary for sequences, while GenerateGo
-// rejects them with the same classification and no output. Direct and extension
+// rejects them with the same classification and no output. Direct model-group-
+// reference bodies with AttributeUse facts hit the AttributeUse consumer gates
+// first: the first use's Loc is primary, with declaration/definition and
+// AttributeUse locations related. Attribute-free direct and extension
 // model-group-reference checks use the group reference RefLoc as validation and
-// generation primary; validation retains the group particle location in related
-// facts, and generation retains group/component/reference/target related locations.
+// generation primary; validation retains the group particle and supplied
+// extension context in related facts, and generation retains
+// group/component/reference/target related locations.
 // Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
