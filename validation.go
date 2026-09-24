@@ -1623,7 +1623,7 @@ func instanceScalarTypeForTarget(
 	if definition.facts != nil && definition.facts.atomicKind == schemaSimpleTypeAtomicNMTOKEN {
 		return instanceNamedStringScalarFor(definition, related, loc, fallbackVersion, "NMTOKEN", allowNMTOKEN, instanceNMTOKENScalarValue)
 	}
-	if definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal && definition.facts.atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
+	if definition.facts == nil || definition.facts.atomicKind == schemaSimpleTypeAtomicInt || definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal && definition.facts.atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", definition.Name()),
@@ -1777,7 +1777,7 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowToken, instanceTokenScalar{}, instanceBuiltInValidationVersion)
 	case "NMTOKEN":
 		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowNMTOKEN, instanceNMTOKENScalar{}, booleanVersion)
-	case "language", "NCName", "anyURI", "ID":
+	case "int", "language", "NCName", "anyURI", "ID":
 		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
 	default:
 		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)

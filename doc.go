@@ -62,7 +62,7 @@
 // Local declared, named, inline, and anonymous integer-derived restrictions are
 // admitted at the mapped non-0/0 boundary only when their effective atomic kind
 // is integer or negativeInteger through named, forward, imported, included, and
-// chameleon chains. Effective long, unsignedLong, nonNegativeInteger, and
+// chameleon chains. Effective int, long, unsignedLong, nonNegativeInteger, and
 // nonPositiveInteger are valid datatypes but unsupported at this local schema
 // boundary: ParseSchema rejects the mapped form with a located
 // FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
@@ -232,9 +232,11 @@
 // whitespace and enforce the repository XML NameChar policy. Global string
 // values, local string particles, NMTOKEN sequence particles, lists/unions,
 // broader particles, and other semantics remain explicit unsupported behavior.
-// Global attribute declarations and value constraints are query-only; attribute
-// validation and generation, plus local/inline attribute forms, remain explicit
-// unsupported behavior.
+// Only admitted supported global attribute declarations and value constraints are
+// query-only. Global xs:int/long-family attribute declarations and value constraints
+// remain unsupported, returning located FailureUnsupported/ErrUnsupported diagnostics
+// and no Schema. Attribute validation and generation, plus local/inline attribute
+// forms, remain explicit unsupported behavior.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named-typed nonNegativeInteger element declarations and
 // standalone named atomic nonNegativeInteger simple-type components in the
@@ -270,7 +272,7 @@
 // diagnostics and no GenerateGo output. Global inline/anonymous
 // `nonNegativeInteger` declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
-// Global inline/anonymous Boolean/integer/decimal and global long/unsignedLong/
+// Global inline/anonymous Boolean/integer/decimal and global int/long/unsignedLong/
 // negativeInteger/nonPositiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their
 // validation and generation consumers are rejected.
