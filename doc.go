@@ -30,14 +30,16 @@
 // validation with a located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported
 // policy diagnostic at the typed reference or type location. Global attributes
 // whose resolved type is built-in xs:precisionDecimal or a named type with
-// effective precisionDecimal facets retain one default/fixed
+// effective precisionDecimal facets retain zero or one optional default/fixed
 // AttributeValueConstraint for query only under Compatibility or Strict11;
-// AttributeDeclaration.ValueConstraint() exposes its kind, collapsed lexical
-// spelling, source Loc, and exact defensive StrictPrecisionDecimal through
-// PrecisionDecimalValue. Strict10 rejects at the resolved type Loc before
-// conversion; inline/local attributes and attribute validation/GenerateGo remain
-// unsupported. Under admitting policies, built-in/named roots validate, while
-// inline anonymous targets remain excluded from validation and generation.
+// type-only declarations return no value constraint. AttributeDeclaration
+// ValueConstraint() exposes its kind, collapsed lexical spelling, source Loc,
+// and exact defensive StrictPrecisionDecimal through PrecisionDecimalValue
+// only when a default or fixed value is present. Strict10 rejects at the
+// resolved type Loc before conversion; inline/local attributes and attribute
+// validation/GenerateGo remain unsupported. Under admitting policies,
+// built-in/named roots validate, while inline anonymous targets remain excluded
+// from validation and generation.
 // Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
@@ -131,7 +133,7 @@
 // attribute-free extension shapes above. Local anonymous Boolean/integer/decimal
 // restrictions remain queryable but direct validation and generation reject them;
 // mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions remain
-// schema-unsupported when nonzero. Global inline precisionDecimal remains a query
+// schema-unsupported when nonzero. Global inline-element precisionDecimal remains a query
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
 // and every anonymous precisionDecimal target is excluded from validation and
 // generation.
@@ -241,9 +243,13 @@
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
 // diagnostic. Declared xs:string, xs:NMTOKEN, xs:int, xs:unsignedLong,
 // xs:nonNegativeInteger, xs:nonPositiveInteger, narrower built-ins, list/union
-// forms, and local/inline/anonymous attribute forms remain explicit unsupported
-// behavior at their type or facet Loc with
-// FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported and no Schema.
+// forms remain explicit unsupported behavior. A valid local attribute declaration
+// reports FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at the
+// local attribute element Loc; a global inline attribute reports the same at its
+// inline simpleType Loc; and a referenced excluded declared type reports it at
+// the use-site type Loc. Invalid syntax, edition/policy mismatches, and
+// resolution/reference failures retain their existing diagnostic, specification
+// reference, cause, and precedence. Unsupported forms return no Schema.
 // Type admission is separate from value-constraint support: only Boolean,
 // integer, decimal, token, and precisionDecimal constraints are supported. For
 // an admitted type, an individual unsupported default or fixed is
@@ -256,11 +262,12 @@
 // the written QName/type Loc, exact effective integer facets/bounds (including
 // narrowed or exclusive bounds), facet/variety locations, provenance, and named
 // target identity; built-in references have no synthetic ComponentID. Admitted
-// global precisionDecimal constraints retain one default/fixed
-// AttributeValueConstraint; ValueConstraint() copies kind, collapsed lexical
-// spelling, source Loc, and exact defensive StrictPrecisionDecimal through
-// PrecisionDecimalValue(). Attribute validation and generation remain
-// unsupported consumers, as do local attribute forms.
+// global precisionDecimal constraints retain zero or one optional default/fixed
+// AttributeValueConstraint; type-only declarations return no value constraint.
+// ValueConstraint() copies kind, collapsed lexical spelling, source Loc, and
+// exact defensive StrictPrecisionDecimal through PrecisionDecimalValue only
+// when present. Attribute validation and generation remain unsupported
+// consumers, as do local attribute forms.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named-typed nonNegativeInteger element declarations and
 // standalone named atomic nonNegativeInteger simple-type components in the
@@ -278,11 +285,14 @@
 // malformed/stale built-in or named facts fail closed as FailureInternal/GOXSD9030
 // with nil output. Named final, atomic-restriction-variety, and effective-facet
 // gates reject unsupported forms with FailureUnsupported/GOXSD9029 and no output.
-// Global built-in/named Boolean/integer/decimal and
-// string/token/NMTOKEN scalar components also generate, as do global inline
-// string/token/NMTOKEN scalar components. Non-extension default-occurrence
-// direct-choice references to global built-in/named Boolean, integer, or
-// decimal targets are also generation-eligible. Mapped non-0/0 local declared,
+// Supported global built-in/named Boolean/integer/decimal and
+// string/token/NMTOKEN simple-type components and supported global element
+// declarations generate, as do global inline-element string/token/NMTOKEN
+// declarations. Non-extension default-occurrence direct-choice references to
+// global built-in/named Boolean, integer, or decimal targets are also
+// generation-eligible. Global attribute declarations remain query-only,
+// inline-attribute consumers remain excluded, and GenerateGo rejects every
+// ComponentKindAttributeDeclaration. Mapped non-0/0 local declared,
 // named, inline, and anonymous `nonNegativeInteger` forms are rejected during
 // schema construction with no schema. Exact local declared, named, inline, and
 // anonymous `0/0` forms are admitted then absent
@@ -294,14 +304,15 @@
 // anonymous targets, lists/unions, attributes/value constraints, and other
 // integer-derived consumers; they are explicit unsupported behavior with located
 // diagnostics and no GenerateGo output. Global inline/anonymous
-// `nonNegativeInteger` declarations retain schema/query facts; GenerateGo and
+// `nonNegativeInteger` element/type declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
-// Global inline/anonymous Boolean/integer/decimal and global element/type int/long/unsignedLong/
-// negativeInteger/nonPositiveInteger and language/NCName/anyURI/ID declarations
+// Global inline-element Boolean/integer/decimal declarations and global
+// element/type int/long/unsignedLong/negativeInteger/nonPositiveInteger and
+// language/NCName/anyURI/ID declarations
 // retain schema/query facts but their validation and generation consumers are
 // rejected. This consumer boundary does not widen the global attribute type or
 // value-constraint model described above.
-// Global built-in, named, and inline precisionDecimal schema/query facts are
+// Global built-in, named, and inline precisionDecimal element/type schema/query facts are
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
 // before validation at the typed reference or type location. Global built-in/named

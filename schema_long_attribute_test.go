@@ -71,6 +71,34 @@ func TestSchemaLongGlobalAttributeFactsAcrossPolicies(t *testing.T) {
 					named:         true,
 				},
 				{
+					local:         "narrowed",
+					namespace:     "urn:root",
+					declaredType:  mustTestQName(t, "urn:root", "NarrowedLong"),
+					typeSource:    "root.xsd",
+					typeNeedle:    `type="r:NarrowedLong"`,
+					varietySource: "root.xsd",
+					varietyNeedle: `<xs:restriction base="xs:long"><xs:minInclusive value="-100"`,
+					named:         true,
+					effectiveBounds: []schemaLongGlobalAttributeBound{
+						{kind: BoundMinInclusive, value: "-100", source: "root.xsd", needle: `value="-100"`},
+						{kind: BoundMaxExclusive, value: "100", source: "root.xsd", needle: `value="100"`},
+					},
+				},
+				{
+					local:         "exclusive",
+					namespace:     "urn:root",
+					declaredType:  mustTestQName(t, "urn:root", "ExclusiveLong"),
+					typeSource:    "root.xsd",
+					typeNeedle:    `type="r:ExclusiveLong"`,
+					varietySource: "root.xsd",
+					varietyNeedle: `<xs:restriction base="xs:long"><xs:minExclusive value="-200"`,
+					named:         true,
+					effectiveBounds: []schemaLongGlobalAttributeBound{
+						{kind: BoundMinExclusive, value: "-200", source: "root.xsd", needle: `value="-200"`},
+						{kind: BoundMaxInclusive, value: "200", source: "root.xsd", needle: `value="200"`},
+					},
+				},
+				{
 					local:         "includedNamed",
 					namespace:     "urn:root",
 					declaredType:  mustTestQName(t, "urn:root", "IncludedLong"),
@@ -158,7 +186,12 @@ func TestSchemaLongGlobalAttributeFactsAcrossPolicies(t *testing.T) {
 					if reference.VarietyLoc() != wantVarietyLoc {
 						t.Fatalf("attribute %q variety location = %s, want %s", expected.local, reference.VarietyLoc(), wantVarietyLoc)
 					}
-					assertLongReferenceFacts(t, reference.facts, profile.version, expected.boundMinOrDefault(), expected.boundMaxOrDefault())
+					if len(expected.effectiveBounds) > 0 {
+						assertLongGlobalAttributeEffectiveBounds(t, reference.facts, profile.version, expected.effectiveBounds, root, fixtures)
+					}
+					if len(expected.effectiveBounds) == 0 {
+						assertLongReferenceFacts(t, reference.facts, profile.version, expected.boundMinOrDefault(), expected.boundMaxOrDefault())
+					}
 					if expected.boundMinNeedle != "" {
 						facets, ok := reference.facts.facets.(schemaIntegerFacetVariant)
 						if !ok {
@@ -223,18 +256,62 @@ func TestSchemaLongGlobalAttributeFactsAcrossPolicies(t *testing.T) {
 }
 
 type schemaLongGlobalAttributeCase struct {
-	local          string
-	namespace      string
-	declaredType   QName
-	typeSource     SourceID
-	typeNeedle     string
-	varietySource  SourceID
-	varietyNeedle  string
-	named          bool
-	boundMin       string
-	boundMax       string
-	boundMinNeedle string
-	boundMaxNeedle string
+	local           string
+	namespace       string
+	declaredType    QName
+	typeSource      SourceID
+	typeNeedle      string
+	varietySource   SourceID
+	varietyNeedle   string
+	named           bool
+	effectiveBounds []schemaLongGlobalAttributeBound
+	boundMin        string
+	boundMax        string
+	boundMinNeedle  string
+	boundMaxNeedle  string
+}
+
+type schemaLongGlobalAttributeBound struct {
+	kind   BoundKind
+	value  string
+	source SourceID
+	needle string
+}
+
+func assertLongGlobalAttributeEffectiveBounds(t *testing.T, facts *schemaSimpleTypeReferenceComponent, version XSDVersion, expected []schemaLongGlobalAttributeBound, root string, fixtures map[string]discoveryFixture) {
+	t.Helper()
+	if facts == nil || facts.atomicKind != schemaSimpleTypeAtomicLong {
+		t.Fatalf("reference facts = %#v, want atomic long facts", facts)
+	}
+	facets, ok := facts.facets.(schemaIntegerFacetVariant)
+	if !ok {
+		t.Fatalf("reference facets = %T, want integer facets", facts.facets)
+	}
+	if facets.digits.Kind() != DigitDatatypeInteger || facets.digits.Version() != version {
+		t.Fatalf("integer digit facts = %q/%q, want integer/%q", facets.digits.Kind(), facets.digits.Version(), version)
+	}
+	fraction, present := facets.digits.FractionDigits()
+	if !present || fraction.Canonical() != "0" {
+		t.Fatalf("effective fractionDigits = %q/%t, want 0/true", fraction.Canonical(), present)
+	}
+	fractionFixed, present := facets.digits.FractionDigitsFixed()
+	if !present || !fractionFixed {
+		t.Fatalf("effective fractionDigits fixed = %t/%t, want true/true", fractionFixed, present)
+	}
+	if _, present := facets.digits.TotalDigits(); present {
+		t.Fatal("named long restriction unexpectedly has totalDigits")
+	}
+	actual := facets.bounds.Bounds()
+	if len(actual) != len(expected) {
+		t.Fatalf("effective bounds = %d, want %d: %#v", len(actual), len(expected), actual)
+	}
+	for index, want := range expected {
+		got := actual[index]
+		wantLoc := schemaBuiltinReferenceAttributeLoc(t, want.source, want.needle, root, fixtures)
+		if got.Kind() != want.kind || got.Value().Canonical() != want.value || got.Loc() != wantLoc || got.Version() != version || got.Fixed() {
+			t.Fatalf("effective bound %d = %s/%q/%s/%q/%t, want %s/%q/%s/%q/false", index, got.Kind(), got.Value().Canonical(), got.Loc(), got.Version(), got.Fixed(), want.kind, want.value, wantLoc, version)
+		}
+	}
 }
 
 func (test schemaLongGlobalAttributeCase) boundMinOrDefault() string {
@@ -272,7 +349,11 @@ func longGlobalAttributeGraphFixtures(version XSDVersion) (string, map[string]di
   <xs:attribute name="forward" type="r:ForwardLong"/>
   <xs:attribute name="imported" type="o:ImportedLong"/>
   <xs:attribute name="chameleon" type="r:ChameleonLong"/>
+  <xs:attribute name="narrowed" type="r:NarrowedLong"/>
+  <xs:attribute name="exclusive" type="r:ExclusiveLong"/>
   <xs:simpleType name="ForwardLong"><xs:restriction base="xs:long"><xs:minInclusive value="-9223372036854775808"/><xs:maxInclusive value="9223372036854775807"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="NarrowedLong"><xs:restriction base="xs:long"><xs:minInclusive value="-100"/><xs:maxExclusive value="100"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="ExclusiveLong"><xs:restriction base="xs:long"><xs:minExclusive value="-200"/><xs:maxInclusive value="200"/></xs:restriction></xs:simpleType>
 </xs:schema>`
 	fixtures := map[string]discoveryFixture{
 		"root.xsd": {id: "root.xsd", contents: root},
@@ -339,6 +420,95 @@ func TestSchemaLongGlobalAttributeBoundsAreDefensiveCopies(t *testing.T) {
 		t.Fatal("repeated forward attribute type reference is missing")
 	}
 	assertLongReferenceFacts(t, second.facts, XSDVersion11, "-9223372036854775808", "9223372036854775807")
+}
+
+func TestSchemaLongGlobalAttributeNamedBoundsAreDefensiveCopiesAcrossPolicies(t *testing.T) {
+	for _, profile := range longPolicyProfiles() {
+		t.Run(profile.name, func(t *testing.T) {
+			root, fixtures := longGlobalAttributeGraphFixtures(profile.version)
+			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			for _, test := range []schemaLongGlobalAttributeBoundsCase{
+				{
+					name: "narrowed",
+					bounds: []schemaLongGlobalAttributeBound{
+						{kind: BoundMinInclusive, value: "-100", source: "root.xsd", needle: `value="-100"`},
+						{kind: BoundMaxExclusive, value: "100", source: "root.xsd", needle: `value="100"`},
+					},
+				},
+				{
+					name: "exclusive",
+					bounds: []schemaLongGlobalAttributeBound{
+						{kind: BoundMinExclusive, value: "-200", source: "root.xsd", needle: `value="-200"`},
+						{kind: BoundMaxInclusive, value: "200", source: "root.xsd", needle: `value="200"`},
+					},
+				},
+			} {
+				assertLongGlobalAttributeNamedBounds(t, schema, profile.version, test.name, test.bounds, root, fixtures)
+			}
+		})
+	}
+}
+
+type schemaLongGlobalAttributeBoundsCase struct {
+	name   string
+	bounds []schemaLongGlobalAttributeBound
+}
+
+func assertLongGlobalAttributeNamedBounds(t *testing.T, schema Schema, version XSDVersion, name string, expected []schemaLongGlobalAttributeBound, root string, fixtures map[string]discoveryFixture) {
+	t.Helper()
+	component := schema.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:root", name))
+	if len(component) != 1 {
+		t.Fatalf("%s attribute matches = %d, want one", name, len(component))
+	}
+	declaration, ok := component[0].AttributeDeclaration()
+	if !ok {
+		t.Fatalf("%s attribute has no declaration view", name)
+	}
+	reference, ok := declaration.TypeReference()
+	if !ok || reference.facts == nil {
+		t.Fatalf("%s attribute has no type reference facts", name)
+	}
+	facets, ok := reference.facts.facets.(schemaIntegerFacetVariant)
+	if !ok {
+		t.Fatalf("%s attribute facets = %T, want integer facets", name, reference.facts.facets)
+	}
+	for _, bound := range facets.bounds.Bounds() {
+		_ = bound.value.value.SetInt64(0)
+	}
+	for _, bound := range expected {
+		zeroLongGlobalAttributeBound(t, facets.bounds, name, bound.kind)
+	}
+	assertLongGlobalAttributeEffectiveBounds(t, reference.facts, version, expected, root, fixtures)
+	repeated, ok := declaration.TypeReference()
+	if !ok {
+		t.Fatalf("%s repeated type reference is missing", name)
+	}
+	assertLongGlobalAttributeEffectiveBounds(t, repeated.facts, version, expected, root, fixtures)
+}
+
+func zeroLongGlobalAttributeBound(t *testing.T, bounds IntegerBoundFacets, name string, kind BoundKind) {
+	t.Helper()
+	var value StrictInteger
+	var present bool
+	switch kind {
+	case BoundMinInclusive:
+		value, present = bounds.MinInclusive()
+	case BoundMinExclusive:
+		value, present = bounds.MinExclusive()
+	case BoundMaxInclusive:
+		value, present = bounds.MaxInclusive()
+	case BoundMaxExclusive:
+		value, present = bounds.MaxExclusive()
+	default:
+		t.Fatalf("%s has unknown expected bound %s", name, kind)
+	}
+	if !present {
+		t.Fatalf("%s lost %s bound", name, kind)
+	}
+	_ = value.value.SetInt64(0)
 }
 
 //nolint:gocognit // Keep the cross-policy value-constraint boundary together.
