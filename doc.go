@@ -45,8 +45,9 @@
 // identities; repeated and cyclic identities are closed without decoding.
 //
 // The schema model exposes one direct ordered sequence and direct choices of local
-// built-in xs:boolean, named boolean-restriction, integer, decimal, and explicitly
-// typed built-in or supported named xs:token/xs:NMTOKEN particles for named global
+// built-in xs:boolean, named boolean-restriction, integer, decimal, built-in xs:long,
+// supported named effective-long, and explicitly typed built-in or supported named
+// xs:token/xs:NMTOKEN particles for named global
 // complex types. It also exposes local inline anonymous atomic Boolean, integer, and
 // decimal restrictions in direct choices/sequences and bounded attribute-free
 // extensions under Compatibility, Strict10, and Strict11. Their immutable
@@ -61,12 +62,13 @@
 // 0/0 for either mapped form. This Strict10-before-omission rule is specific
 // to `precisionDecimal`; ordinary local declared, named, inline, or anonymous
 // `nonNegativeInteger` 0/0 forms are admitted then absent under every policy.
-// Local declared, named, inline, and anonymous integer-derived restrictions are
-// admitted at the mapped non-0/0 boundary only when their effective atomic kind
-// is integer or negativeInteger through named, forward, imported, included, and
-// chameleon chains. Effective int, long, unsignedLong, nonNegativeInteger, and
-// nonPositiveInteger are valid datatypes but unsupported at this local schema
-// boundary: ParseSchema rejects the mapped form with a located
+// Local declared and named integer-derived restrictions are admitted at the mapped
+// non-0/0 boundary when their effective atomic kind is integer or negativeInteger,
+// or when a built-in xs:long or supported named restriction remains effective-long,
+// through named, forward, imported, included, and chameleon chains. Inline long and
+// effective int, unsignedLong, nonNegativeInteger, and nonPositiveInteger are valid
+// datatypes but unsupported at this local schema boundary: ParseSchema rejects the
+// mapped form with a located
 // FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
 // location and no schema. Ordinary local nonNegativeInteger effective 0/0
 // remains absent after policy admission under every policy. The written base
@@ -107,11 +109,12 @@
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
 // Effective 0/0 sequence, choice, child, and wildcard ranges map
-// to absence. Non-0/0 integer/decimal choice and
+// to absence. Non-0/0 integer/decimal/long choice and
 // alternative ranges are queryable, but direct-choice repetition is not
 // implemented. Direct choices made entirely of local Boolean elements use
 // built-in xs:boolean or named Boolean restrictions; mixed Boolean/numeric
-// choices remain unsupported.
+// choices remain unsupported. Modeled local xs:long particles are queryable, but
+// validation and generation reject them explicitly.
 // Local precisionDecimal forms are distinct. Under Compatibility/Strict11, a
 // local element declared with built-in `type="xs:precisionDecimal"` or a named
 // type whose effective facets are precisionDecimal is admitted only in
@@ -206,7 +209,8 @@
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or, in
 // non-extension direct choices, default-occurrence references to global Boolean,
-// integer, or decimal elements. Local scalar consumers accept
+// integer, or decimal elements. Local xs:long particles remain query-only and are
+// rejected by both consumers. Local scalar consumers accept
 // built-in or named references only: direct choice/sequence checks reject modeled
 // anonymous local inline atomic references with located
 // FailureUnsupported/ErrUnsupported diagnostics that may include the anonymous

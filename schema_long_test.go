@@ -496,14 +496,6 @@ func assertLongInvalidNoPartialSchema(t *testing.T, schema Schema, err error, ca
 	}
 }
 
-func TestSchemaLongExcludedShapesRemainUnsupported(t *testing.T) {
-	for _, profile := range longPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "long", "0")
-		})
-	}
-}
-
 func TestSchemaLongConsumersRemainUnsupported(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
