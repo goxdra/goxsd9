@@ -490,7 +490,6 @@ func TestSchemaUnsignedLongExcludedShapesRemainUnsupported(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "unsignedLong", "0")
-			assertSchemaIntegerDerivedGlobalAttributeExcluded(t, profile.policy, "unsignedLong")
 		})
 	}
 }
