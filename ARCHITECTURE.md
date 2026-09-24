@@ -61,7 +61,7 @@ walks preserve discovery/lexical order and sort unordered sets. `Schema`, `Schem
 local particles are scoped, consumers are on demand.
 
 Primitive: `DeclaredType`; direct choices/sequences and bounded attribute-free extensions retain anonymous refs. These preserve `SimpleTypeID`/`NodeID`/`AnonymousID`, not `ComponentID`; model-less extensions retain base identity.
-Non-`0/0` local integer particles admit `integer`/`negativeInteger`, built-in `long`, or named effective-long; inline long/other integer kinds reject at `Loc` with `FailureUnsupported`/`ErrUnsupported`, no schema.
+Mapped non-`0/0` local integer particles admit `integer`/`negativeInteger`, built-in `long`/named effective-long; non-`0/0` inline long/other integer forms reject at `Loc` (`FailureUnsupported`/`ErrUnsupported`), no schema; effective `0/0` is absent.
 Global attributes are query-only: built-in or supported named atomic `xs:boolean`, `xs:integer`, `xs:decimal`, `xs:token`, `xs:negativeInteger`, `xs:language`, `xs:NCName`, `xs:anyURI`, and `xs:ID`, plus built-in or supported named `xs:long` and `xs:unsignedLong` restrictions. Built-in/named `xs:precisionDecimal` is query-only under Compatibility/Strict11; Strict10 rejects it at type `Loc` with `FeatureDatatypeFacets`/`FailureUnsupported`/`XSD3030`/`ErrUnsupported`. Excluded `xs:string`, `xs:NMTOKEN`, `xs:int`, `xs:nonNegativeInteger`, `xs:nonPositiveInteger`, narrower built-ins, and list/union refs report `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at type `Loc`; local/inline forms report at element/inline `simpleType` `Loc`. Earlier failures keep precedence; unsupported forms return no schema. Value constraints support only Boolean/integer/decimal/token/precisionDecimal. Each unsupported default/fixed value uses `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at value `Loc` and returns no `Schema`; invalid supported values use `FailureInvalid`/`XSD3036` at value `Loc` with cause; only declarations containing both default and fixed use `FailureInvalid`/`XSD3010`; fixed `Loc` primary, default related, and no `Schema`. Built-in `xs:long` and `xs:unsignedLong` have intrinsic bounds `[-9223372036854775808,9223372036854775807]` and `[0,18446744073709551615]`; named long/unsignedLong refs retain QName/type `Loc`, exact bounds/facets, locations, provenance, and target IDs; built-ins have no `ComponentID`. Precision constraints are optional; type-only return none. Consumers reject.
 Global/named-typed `nonNegativeInteger` elements and standalone named simple-type components
 `GenerateGo`-supported subject to gates; validation rejects roots; inline/anonymous
@@ -71,11 +71,9 @@ valid behavior unsupported. Diagnostics retain code/`Loc`/cause/`SpecRef`;
 `IsInheritable` accepts Compatibility/Strict11 and mismatches Strict10. Untyped/inline attrs,
 `defaultAttributesApply`/XPath, and non-0/0 anonymous enumeration are unsupported. Direct checks
 use `Locs`, extension/model-less gates first, and model-group refs use `RefLoc`; broader forms reject.
-`precisionDecimal` refs require default choices or bounded attribute-free extensions;
-inline/non-default forms and nonzero sequences remain unsupported. Local token/NMTOKEN
-sequences retain ranges under all policies; Strict10 rejects before `0/0`,
-Compatibility/Strict11 omits. Extensions query-only; consumers reject; refs queryable;
-local token/NMTOKEN and `<all>` forms remain unsupported.
+`precisionDecimal` refs require default-occurrence choices/bounded attr-free extensions; inline/anonymous and non-default non-`0/0` sequences unsupported. Strict10 rejects before
+`0/0`; Compatibility/Strict11 omits; extensions query-only, refs queryable, validation/`GenerateGo` reject.
+Homogeneous local built-in/supported named `token`/`NMTOKEN` sequences queryable under all policies with exact finite/unbounded/above-`uint64` occurrences; local token/NMTOKEN particles/sequences `GenerateGo`-unsupported; `<all>` schema-unsupported.
 
 Complexes expose non-inherited `IsAbstract`; `Final()` uses declaring-document `finalDefault` when
 local `final` is absent, explicit values override it, and `FinalLoc()` preserves provenance. Policies
@@ -95,7 +93,7 @@ distinctions, and broader values are unsupported.
 ## Validation and code generation
 
 `ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/decimal/precisionDecimal
-roots and complexes. Local effective-long particles are query-only; validation/`GenerateGo` reject them. Built-in/named `nonNegativeInteger` is GenerateGo-only; validation returns
+roots and complexes. Local effective-long particles are query-only; consumers reject. Built-in/named `nonNegativeInteger` is GenerateGo-only; validation returns
 located `FailureUnsupported`/`XSD4004`/`ErrUnsupported`. Local Boolean/integer/decimal
 sequences/default choices honor ranges; homogeneous token/NMTOKEN sequences honor exact
 occurrences/value space. Anonymous/mixed-family/extension consumers reject; nonzero `xs:any`
@@ -113,7 +111,7 @@ kind/version, fixed `fractionDigits=0`, `minInclusive=0`, and no `totalDigits`/o
 named bounds/facets remain, while final/variety/effective-facet gates reject
 (`FailureUnsupported`/`GOXSD9029`, no output) and malformed/stale facts fail internally
 (`FailureInternal`/`GOXSD9030`, nil). Local non-`0/0` `nonNegativeInteger` forms have no schema;
-local effective-long particles remain query-only; `0/0` is absent. `nonNegativeInteger` refs remain queryable; direct-choice/sequence
+`0/0` is absent. `nonNegativeInteger` refs remain queryable; direct-choice/sequence
 consumers reject, and inline/anonymous element/type forms remain query-only/rejected.
 Supported global Boolean/integer/decimal/string/token/NMTOKEN simple-type components and supported
 global element declarations generate; local token/NMTOKEN particles and
