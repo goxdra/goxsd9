@@ -47,8 +47,11 @@
 // The schema model exposes one direct ordered sequence and direct choices of local
 // built-in xs:boolean, named boolean-restriction, integer, decimal, built-in xs:long,
 // supported named effective-long, and explicitly typed built-in or supported named
-// xs:token/xs:NMTOKEN particles for named global
-// complex types. It also exposes local inline anonymous atomic Boolean, integer, and
+// xs:token/xs:NMTOKEN particles for named global complex types. Built-in and named
+// effective-long particles are also queryable in bounded attribute-free extensions;
+// inline types, nested particles, element references, and broader extension shapes
+// remain excluded from this support. It also exposes local inline anonymous atomic
+// Boolean, integer, and
 // decimal restrictions in direct choices/sequences and bounded attribute-free
 // extensions under Compatibility, Strict10, and Strict11. Their immutable
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
@@ -60,18 +63,22 @@
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms,
 // including zero-occurrence cases. Compatibility and Strict11 omit effective
 // 0/0 for either mapped form. This Strict10-before-omission rule is specific
-// to `precisionDecimal`; ordinary local declared, named, inline, or anonymous
-// `nonNegativeInteger` 0/0 forms are admitted then absent under every policy.
-// Local declared and named integer-derived restrictions are admitted at the mapped
-// non-0/0 boundary when their effective atomic kind is integer or negativeInteger,
-// or when a built-in xs:long or supported named restriction remains effective-long,
-// through named, forward, imported, included, and chameleon chains. Inline long and
-// effective int, unsignedLong, nonNegativeInteger, and nonPositiveInteger are valid
-// datatypes but unsupported at this local schema boundary: ParseSchema rejects the
-// mapped form with a located
+// to `precisionDecimal`. Ordinary local effective 0/0 is absent only after
+// successful syntax, occurrence, type, value-constraint, resolution, and policy
+// validation of an omittable mapped form. Valid declared, named, inline, or
+// anonymous `nonNegativeInteger` 0/0 forms are absent under every policy.
+// Malformed, unresolved, cyclic, wrong-kind, value-constrained, or policy-invalid
+// forms retain their invalid, resolution, or policy diagnostics, primary/related
+// locations, causes, and no-schema result. Local declared and named
+// integer-derived restrictions are admitted at the mapped non-0/0 boundary when
+// their effective atomic kind is integer or negativeInteger, or when a built-in
+// xs:long or supported named restriction remains effective-long, through named,
+// forward, imported, included, and chameleon chains. Valid mapped non-0/0 inline
+// `long` and excluded integer forms (`int`, `unsignedLong`, `nonNegativeInteger`,
+// and `nonPositiveInteger`) are unsupported at this local schema boundary:
+// ParseSchema rejects them with a located
 // FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
-// location and no schema. Ordinary local nonNegativeInteger effective 0/0
-// remains absent after policy admission under every policy. The written base
+// location and no schema. The written base
 // QName, use-site location, and resolved named ownership remain separate facts.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
@@ -108,8 +115,8 @@
 // exact anyAttribute, namespace, and processContents source locations are
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
-// Effective 0/0 sequence, choice, child, and wildcard ranges map
-// to absence. Non-0/0 integer/decimal/long choice and
+// After validation, effective 0/0 sequence, choice, child, and wildcard ranges
+// map to absence. Non-0/0 integer/decimal/long choice and
 // alternative ranges are queryable, but direct-choice repetition is not
 // implemented. Direct choices made entirely of local Boolean elements use
 // built-in xs:boolean or named Boolean restrictions; mixed Boolean/numeric
@@ -163,11 +170,12 @@
 // immutable facts without expanding target members. Direct model-group references
 // retain `TargetID`; nested, local, recursive, and broader group-reference shapes
 // remain unsupported.
-// Default-bounded sequences of supported built-in or named numeric or
-// all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
-// Boolean/integer/decimal particles remain queryable but validation and generation
-// reject them; repeated-field generation and direct-choice repetition remain
-// unsupported.
+// Default-bounded sequences of local built-in or supported named
+// Boolean/integer/decimal forms, and all-Boolean choices, are emitted as ordered
+// Go struct fields. Local xs:long particles remain query-only and
+// consumer-rejected. Local anonymous Boolean/integer/decimal particles remain
+// queryable but validation and generation reject them; repeated-field generation
+// and direct-choice repetition remain unsupported.
 // Bounded attribute-free complexContent/extension over named empty-content
 // complex bases, including the supported named `complexContent/restriction` over
 // `xs:anyType` representation, retains extension/base identities and locations
