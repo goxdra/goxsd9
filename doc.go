@@ -233,14 +233,18 @@
 // values, local string particles, NMTOKEN sequence particles, lists/unions,
 // broader particles, and other semantics remain explicit unsupported behavior.
 // Supported global attribute declarations are query-only. Global xs:long and
-// named-effective atomic-long attribute declarations are admitted under
-// Compatibility, Strict10, and Strict11 with expanded written QNames, exact
-// inclusive bounds, facet/variety locations, and named target identity; built-in
-// references have no synthetic ComponentID. Long default/fixed value constraints
-// remain unsupported at the value Loc. Global xs:int, xs:unsignedLong,
+// named-effective atomic-long declarations are admitted under Compatibility,
+// Strict10, and Strict11. Built-in xs:long has intrinsic inclusive bounds
+// [-9223372036854775808,9223372036854775807]; named references retain exact
+// effective integer facets/bounds, including narrowed or exclusive bounds,
+// facet/variety locations, provenance, and named target identity; built-in
+// references have no synthetic ComponentID. Global xs:int, xs:unsignedLong,
 // xs:nonNegativeInteger, xs:nonPositiveInteger, narrower built-ins, lists/unions,
 // and inline/anonymous attribute forms remain explicit unsupported behavior with
-// located diagnostics and no Schema. Attribute validation and generation, plus
+// located diagnostics and no Schema. An individual long default/fixed is
+// FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its value Loc;
+// default plus fixed is FailureInvalid/XSD3010 with fixed Loc primary and default
+// Loc related. Both return no Schema. Attribute validation and generation, plus
 // local attribute forms, remain unsupported.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named-typed nonNegativeInteger element declarations and
