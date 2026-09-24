@@ -221,6 +221,15 @@ func validationSequenceOccurrenceProfiles() []validationSequenceOccurrenceProfil
 				first: "\tfirst \r\n", first2: " first-two ", first3: "first-three", second: "\tsecond\r\n", second2: " second ",
 			},
 		},
+		{
+			name:       "NMTOKEN",
+			firstType:  "xs:NMTOKEN",
+			secondType: "r:NMTOKEN",
+			extra:      `<xs:simpleType name="NMTOKEN"><xs:restriction base="xs:NMTOKEN"><xs:enumeration value=" second "/></xs:restriction></xs:simpleType>`,
+			values: validationSequenceOccurrenceValues{
+				first: "\tfirst \r\n", first2: " first-two ", first3: "first-three", second: "\tsecond\r\n", second2: " second ",
+			},
+		},
 	}
 }
 
@@ -235,6 +244,18 @@ func validationSequenceOccurrenceCases() []validationSequenceOccurrenceCase {
 			name:       "optional child",
 			firstAttrs: ` minOccurs="0"`,
 			input:      `<root xmlns="` + validationSequenceNamespace + `"><second xmlns="">{{second}}</second></root>`,
+		},
+		{
+			name:        "all-optional body accepts empty",
+			firstAttrs:  ` minOccurs="0"`,
+			secondAttrs: ` minOccurs="0"`,
+			input:       `<root xmlns="` + validationSequenceNamespace + `"/>`,
+		},
+		{
+			name:        "zero-occurrence children contribute no particles",
+			firstAttrs:  ` minOccurs="0" maxOccurs="0"`,
+			secondAttrs: ` minOccurs="0" maxOccurs="0"`,
+			input:       `<root xmlns="` + validationSequenceNamespace + `"/>`,
 		},
 		{
 			name:       "finite repeated child",
@@ -545,6 +566,25 @@ func validationSequenceStructureProfiles() []validationSequenceStructureProfile 
 				return "xsd11-datatypes#cvc-enumeration-valid"
 			},
 		},
+		{
+			name:        "NMTOKEN",
+			firstName:   "first",
+			secondName:  "second",
+			firstType:   "r:SequenceNMTOKEN",
+			secondType:  "xs:NMTOKEN",
+			firstValue:  "\tfirst ",
+			secondValue: "free-nmtoken",
+			invalid:     "bad/value",
+			schemaExtra: `<xs:simpleType name="SequenceNMTOKEN"><xs:restriction base="xs:NMTOKEN"><xs:enumeration value=" first "/></xs:restriction></xs:simpleType>`,
+			lexicalCode: goxsd9.InvalidNMTOKENLexicalCode,
+			lexicalSpec: func(policy goxsd9.LanguagePolicy) string {
+				version := goxsd9.XSDVersion11
+				if policy == goxsd9.Strict10 {
+					version = goxsd9.XSDVersion10
+				}
+				return validationNMTOKENDatatypeSpecRef(version)
+			},
+		},
 	}
 }
 
@@ -710,8 +750,8 @@ func TestValidateInstanceKeepsDirectSequenceExclusionsExplicit(t *testing.T) {
 			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="value" type="xs:integer" nillable="true"/></xs:sequence></xs:complexType>`,
 		},
 		{
-			name: "NMTOKEN local",
-			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="value" type="xs:NMTOKEN"/></xs:sequence></xs:complexType>`,
+			name: "mixed NMTOKEN and integer",
+			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="nmtoken" type="xs:NMTOKEN"/><xs:element name="count" type="xs:integer"/></xs:sequence></xs:complexType>`,
 		},
 		{
 			name: "mixed token and integer",

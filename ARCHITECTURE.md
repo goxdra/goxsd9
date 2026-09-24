@@ -71,13 +71,15 @@ valid behavior unsupported. Diagnostics retain code/`Loc`/cause/`SpecRef`;
 `IsInheritable` accepts Compatibility/Strict11 and mismatches Strict10. Untyped/inline attrs,
 `defaultAttributesApply`/XPath, and non-0/0 anonymous enumeration are unsupported. Direct checks
 use `Locs`, extension/model-less gates first, and model-group refs use `RefLoc`; broader forms reject.
-Local built-in/named-effective refs require default choices or bounded
-attribute-free extension choices with default occurrences. Mapped non-`0/0`
-inline/anonymous forms and non-default/nonzero sequences are schema-unsupported.
-Strict10 rejects before `0/0` omission; Compatibility/Strict11 omits exact
-`0/0`. Admitted extensions retain query, policy, occurrence, and `0/0` facts;
-validation/`GenerateGo` reject their consumers/targets. Mapped non-`0/0` anonymous
-string/token/NMTOKEN and `<all>` are unsupported.
+`precisionDecimal` refs require default choices or bounded attribute-free extensions
+with default occurrences; non-`0/0` inline/anonymous and non-default/nonzero
+`precisionDecimal` sequences remain unsupported. Homogeneous local built-in/supported
+named `token`/`NMTOKEN` sequences admit exact finite/unbounded/above-`uint64`
+occurrences under all policies. Strict10 rejects before `0/0`;
+Compatibility/Strict11 omits it. Extensions query-only;
+validation/`GenerateGo` consumers reject; unsupported references queryable;
+local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported; `<all>`
+remains unsupported.
 
 Complexes expose non-inherited `IsAbstract`; `Final()` uses declaring-document `finalDefault` when
 local `final` is absent, explicit values override it, and `FinalLoc()` preserves provenance. Policies
@@ -99,9 +101,9 @@ distinctions, and broader values are unsupported.
 `ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/decimal/precisionDecimal
 roots and complexes. Built-in/named `nonNegativeInteger` is GenerateGo-only; validation returns
 located `FailureUnsupported`/`XSD4004`/`ErrUnsupported`. Local Boolean/integer/decimal
-sequences/default choices honor ranges; homogeneous token sequences honor exact occurrences/value
-space. Anonymous/mixed-family/extension consumers reject; NMTOKEN sequences and nonzero `xs:any`
-are unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
+sequences/default choices honor ranges; homogeneous token/NMTOKEN sequences honor exact
+occurrences/value space. Anonymous/mixed-family/extension consumers reject; nonzero `xs:any`
+is unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
 only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, other
 forms remain queryable but excluded. Global `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
@@ -118,7 +120,8 @@ named bounds/facets remain, while final/variety/effective-facet gates reject
 absent under every policy. `nonNegativeInteger` refs remain queryable; direct-choice/sequence
 consumers reject, and inline/anonymous element/type forms remain query-only/rejected.
 Supported global Boolean/integer/decimal/string/token/NMTOKEN simple-type components and supported
-global element declarations generate; local token particles/sequences remain `GenerateGo`-unsupported.
+global element declarations generate; local token/NMTOKEN particles and
+sequences remain `GenerateGo`-unsupported.
 Global inline-element generation is limited to string/token/NMTOKEN element declarations; inline
 Boolean/integer/decimal consumers are query-only/rejected. Global attributes remain query-only,
 inline-attribute consumers remain excluded, and `GenerateGo` rejects every

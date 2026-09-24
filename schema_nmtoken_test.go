@@ -463,7 +463,10 @@ func TestSchemaNMTOKENDiagnosticsAndConsumerBoundaries(t *testing.T) {
 			t.Run("local particle boundary", func(t *testing.T) {
 				root := nmtokenConsumerLocalRoot(profile.version)
 				schema := discoverLocalTokenParticleSchema(t, root, profile.policy)
-				assertLocalTokenParticleConsumersUnsupported(t, schema, `<box xmlns="urn:test"><item xmlns="">value</item></box>`, "NMTOKEN")
+				assertLocalTokenParticleGenerationUnsupported(t, schema, "NMTOKEN")
+				if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<box xmlns="urn:test"><item xmlns="">value</item></box>`))); err != nil {
+					t.Fatalf("NMTOKEN validation error = %v, want supported", err)
+				}
 			})
 		})
 	}
