@@ -60,17 +60,9 @@ walks preserve discovery/lexical order and sort unordered sets. `Schema`, `Schem
 `Component`, `ComponentID`, and expanded `QName` expose copied views; IDs use source/ordinal,
 local particles are scoped, consumers are on demand.
 
-Primitive: `DeclaredType`; direct choices/sequences and bounded attribute-free extensions over named empty-content bases retain anonymous Boolean/integer/decimal refs. Only default choices/extensions retain local built-in/named-effective `precisionDecimal` refs with QName/facets/locations/occurrences/bounds. Anonymous refs preserve `SimpleTypeID`/`NodeID`/`AnonymousID`, not global `ComponentID`; model-less extensions retain base identity. Strict10 rejects `precisionDecimal` before `0/0` omission; Compatibility/Strict11 omit it. Local `nonNegativeInteger` `0/0` is admitted then absent under all policies.
-Mapped non-`0/0` local declared/named/inline/anonymous integer particles allow only `integer`/`negativeInteger` through named/forward/imported/included/chameleon chains; excluded `int`/`long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` are unsupported at type/facet `Loc` with `FailureUnsupported`/`ErrUnsupported` and no schema.
-Global attribute allow-list remains. All three policies admit queryable global `xs:long`
-and named atomic-long attributes: built-in `xs:long` has intrinsic inclusive bounds
-`[-9223372036854775808,9223372036854775807]`; named references retain exact effective integer
-facets/bounds (including narrowed/exclusive), facet locations, provenance, target IDs;
-built-ins have no synthetic `ComponentID`. All three policies reject `xs:int`, `xs:unsignedLong`,
-`xs:nonNegativeInteger`, `xs:nonPositiveInteger`, narrower built-ins, lists/unions, and
-local/inline/anonymous forms at type/facet `Loc`, no schema. Lone long default/fixed:
-`FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at value `Loc`; default+fixed:
-`FailureInvalid`/`XSD3010`; fixed primary/default related; no schema. Validation/`GenerateGo` reject.
+Primitive: `DeclaredType`; direct choices/sequences and bounded attribute-free extensions over named empty-content bases retain anonymous Boolean/integer/decimal refs. Anonymous refs preserve `SimpleTypeID`/`NodeID`/`AnonymousID`, not `ComponentID`; model-less extensions retain base identity.
+Non-`0/0` local integer particles allow only `integer`/`negativeInteger` through named/forward/imported/included/chameleon chains; `int`/`long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` reject at type/facet `Loc` with `FailureUnsupported`/`ErrUnsupported`, no schema.
+Global attributes admit under all three policies exactly these atomic families, including supported named restrictions: `xs:boolean`, `xs:integer`, `xs:decimal`, `xs:token`, `xs:negativeInteger`, `xs:language`, `xs:NCName`, `xs:anyURI`, `xs:ID`, and `xs:long`. `xs:precisionDecimal` (and named restrictions) is admitted for type/value queries only under Compatibility/Strict11; Strict10 rejects it at type `Loc` with `FeatureDatatypeFacets`/`FailureUnsupported`/`XSD3030`/`ErrUnsupported`. Exclude `xs:string`, `xs:NMTOKEN`, `xs:int`, `xs:unsignedLong`, `xs:nonNegativeInteger`, `xs:nonPositiveInteger`, narrower built-ins, list/union, and local/inline/anonymous forms: type/facet `Loc` returns `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported`, no schema. Value support is separate: only Boolean/integer/decimal/token/precisionDecimal constraints. For admitted types, an unsupported individual default/fixed is `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at value `Loc`; an invalid supported value is `FailureInvalid`/`XSD3036` at value `Loc`, cause preserved; both default+fixed are `FailureInvalid`/`XSD3010` with fixed primary/default related, no schema. Built-in `xs:long` has intrinsic inclusive bounds `[-9223372036854775808,9223372036854775807]`; named refs retain written QName/type `Loc`, exact effective bounds/facets (narrowed/exclusive), facet/variety locations, provenance, and target IDs; built-in refs have no synthetic `ComponentID`. `precisionDecimal` constraints retain one default/fixed `AttributeValueConstraint`; `ValueConstraint()` copies kind, collapsed lexical/source `Loc`, exact defensive `StrictPrecisionDecimal` via `PrecisionDecimalValue()`. Attributes are query-only; validation/`GenerateGo` reject.
 Global/named-typed `nonNegativeInteger` elements and standalone named components
 `GenerateGo`-supported subject to gates; validation rejects roots; inline/anonymous remain
 query-only and consumer-rejected.
@@ -81,11 +73,6 @@ behavior unsupported. Diagnostics retain code/primary `Loc`/cause/`SpecRef`;
 unsupported at facet `Loc`, no schema. Direct checks use element/particle `Locs`;
 extension/model-less gates first. Model-group refs use group `RefLoc`/locations; nested/local/recursive/broader
 forms reject.
-Global `precisionDecimal` attributes admit one default/fixed `AttributeValueConstraint` under Compatibility/Strict11;
-`ValueConstraint()` copies
-kind/collapsed lexical/source `Loc` and exact defensive `StrictPrecisionDecimal` via
-`PrecisionDecimalValue()`. Strict10 rejects at type `Loc` before conversion; invalid values return
-`FailureInvalid`/`XSD3036` at value `Loc`, no schema. Roots validate; inline do not.
 Local built-in/named-effective refs require default choices or bounded
 attribute-free extension choices with default occurrences. Mapped non-`0/0`
 inline/anonymous forms and non-default/nonzero sequences are schema-unsupported.
