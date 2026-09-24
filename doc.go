@@ -71,9 +71,10 @@
 // typed/type locations before 0/0 omission, including zero-occurrence cases.
 // Compatibility and Strict11 omit effective 0/0 for either mapped form. This
 // Strict10-before-omission rule is specific to `precisionDecimal`.
-// after those checks, a mapped form classified unsupported may be omitted only
-// at exact 0/0. Ordinary local effective 0/0 is absent only for an omittable
-// mapped form. Valid mapped local `nonNegativeInteger` 0/0 forms are absent under
+// After those checks, any validated omittable mapped form, including a supported
+// query-only named effective-long form, is absent only at exact 0/0. This is not
+// a generic omission rule for every sequence, choice, child, or wildcard.
+// Valid mapped local `nonNegativeInteger` 0/0 forms are absent under
 // every policy. Invalid, resolution, cyclic, wrong-kind, value-constraint, and
 // policy failures retain located diagnostics, causes, and no-schema result. In
 // direct choices/sequences and bounded attribute-free
