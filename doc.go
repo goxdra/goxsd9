@@ -50,8 +50,11 @@
 // xs:token/xs:NMTOKEN particles for named global complex types. Built-in and named
 // effective-long particles are also queryable in bounded attribute-free extensions;
 // inline types, nested particles, element references, and broader extension shapes
-// remain excluded from this support. It also exposes local inline anonymous atomic
-// Boolean, integer, and
+// remain excluded from this support. Built-in `xs:long` retains its intrinsic
+// bounds and source locations without a synthetic `ComponentID`; named
+// effective-long retains its named `TypeID`/`ComponentID` and provenance.
+// `NodeID`/`AnonymousID` apply only to admitted anonymous forms. It also exposes
+// local inline anonymous atomic Boolean, integer, and
 // decimal restrictions in direct choices/sequences and bounded attribute-free
 // extensions under Compatibility, Strict10, and Strict11. Their immutable
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
@@ -63,13 +66,13 @@
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms,
 // including zero-occurrence cases. Compatibility and Strict11 omit effective
 // 0/0 for either mapped form. This Strict10-before-omission rule is specific
-// to `precisionDecimal`. Ordinary local effective 0/0 is absent only after
-// successful syntax, occurrence, type, value-constraint, resolution, and policy
-// validation of an omittable mapped form. Valid mapped local `nonNegativeInteger`
-// 0/0 forms are absent under every policy. Malformed, unresolved, cyclic,
-// wrong-kind, value-constrained, or policy-invalid forms retain their invalid,
-// resolution, or policy diagnostics, primary/related locations, causes, and
-// no-schema result. In direct choices/sequences and bounded attribute-free
+// to `precisionDecimal`. Syntax and occurrence/input validation happen first;
+// after those checks, a mapped form classified unsupported may be omitted only
+// at exact 0/0. Ordinary local effective 0/0 is absent only for an omittable
+// mapped form. Valid mapped local `nonNegativeInteger` 0/0 forms are absent under
+// every policy. Invalid, resolution, cyclic, wrong-kind, value-constraint, and
+// policy failures retain located diagnostics, causes, and no-schema result. In
+// direct choices/sequences and bounded attribute-free
 // extensions, the local scalar allowlist is exact: direct `xs:integer`; named or
 // inline effective `integer` or `negativeInteger` restrictions where admitted;
 // and built-in `xs:long` or supported named effective-long. Direct
@@ -141,12 +144,13 @@
 // direct choices are validation-eligible; extension choices are query-only and
 // their consumers reject them. An inline anonymous
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` restriction is
-// schema-unsupported when mapped. Mapped non-0/0 direct or extension sequences
-// and non-default direct precisionDecimal choice/alternative ranges are also
-// schema-unsupported. Strict10 returns a located
+// schema-unsupported when it remains published. Mapped non-0/0 direct or
+// extension sequences, non-default direct precisionDecimal choice/alternative
+// ranges that remain published, and other rejected mapped inline/anonymous
+// forms are also schema-unsupported. Strict10 returns a located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy-mismatch
 // diagnostic before 0/0 omission for either mapped form, including zero. Under
-// Compatibility/Strict11, a valid omittable 0/0 is absent only after
+// Compatibility/Strict11, a valid omittable mapped 0/0 is absent only after
 // validation. `GenerateGo` rejects every precisionDecimal target, and all
 // anonymous consumers remain excluded.
 // The supported local anonymous model is limited to atomic
