@@ -56,66 +56,94 @@ schema return. Unsupported features have stable report IDs.
 ## Schema model
 
 Raw syntax is internal; immutable components retain `Loc`; queries use names/identities;
-walks preserve discovery/lexical order and sort unordered sets. `Schema`,
-`SchemaDocument`, `Component`, `ComponentID`, and expanded `QName` expose copied
-views; IDs use source/ordinal, local particles are scoped, consumers are on demand.
+walks preserve discovery/lexical order and sort unordered sets. `Schema`, `SchemaDocument`,
+`Component`, `ComponentID`, and expanded `QName` expose copied views; IDs use source/ordinal,
+local particles are scoped, consumers are on demand.
 
-Primitive: `DeclaredType`; local/bounded attribute-free extension element/particle mappings over named empty bases retain anonymous Boolean/integer/decimal refs; default choices and bounded attribute-free extension choices retain local built-in/named-effective `precisionDecimal` refs (QName/facets/locations/occurrences/bounds). Anonymous refs preserve `SimpleTypeID`/`NodeID`/`AnonymousID`, not `ComponentID`/walk ownership. Model-less extensions retain base identity/locations. After admission, `0/0` absent: Compatibility/Strict11 omit; Strict10 rejects first, including zero.
-Mapped non-`0/0` anonymous integer particles allow only `integer`/`negativeInteger` through named/forward/imported/included/chameleon chains; excluded long-family kinds are valid but unsupported at type/facet `Loc` (`FailureUnsupported`/`ErrUnsupported`), no schema. Attrs retain default/fixed lexical/location facts.
-Global long-family refs remain queryable with bounds: `long`
-`[-9223372036854775808, 9223372036854775807]`, `unsignedLong`
-`[0, 18446744073709551615]`, `negativeInteger` upper `-1`, `nonNegativeInteger`
-lower `0`, `nonPositiveInteger` upper `0`; malformed refs invalid. These facts are
-separate from local admission.
-Named complexes accept omitted/`false`/`0`, reject `true`/`1`; malformed XSD 1.1 is
-invalid; other behavior unsupported. Diagnostics retain code, `Loc`, cause, `SpecRef`.
-`IsInheritable` accepts Compatibility/Strict11, mismatches Strict10; untyped/inline
-attrs unsupported. `defaultAttributesApply` (`true|false|1|0`) for named globals validates/discards under Compatibility/Strict11 without schema-level `defaultAttributes`; Strict10 mismatches. XPath unsupported/inert.
-Anonymous facets queryable; mapped non-`0/0` non-string enumeration reports
-`FailureUnsupported`/`ErrUnsupported` at facet `Loc`, no schema. Direct checks
-use element/particle `Loc`; extension/model-less gates run first (codegen extension
-primary; validation owner/sequence primary). Top-level model-group refs use group
-`RefLoc` with particle/group/component/reference/target locations; nested/
-local/recursive/broader refs unsupported; no output.
-`precisionDecimal` element/particle mapping queryable only under Compatibility/Strict11;
-built-in/named roots validate, inline does not; Strict10 rejects these forms. Local
-built-in/named-effective types need default direct or bounded attribute-free extension
-choices; owners/typed children/alternatives need defaults; nonprecision query. Inline
-anonymous restrictions unsupported. Compatibility/Strict11 omit `0/0`; Strict10 rejects
-mapped forms first, including zero. Non-default choices/nonzero direct sequences reject;
-only non-extension defaults validate; extension/inline/anonymous/`GenerateGo` reject.
-Mapped non-`0/0` anonymous string/token/NMTOKEN particles and `<all>` unsupported.
-Attribute bodies expose local/ref/inline `AttributeUse`; targets allow
-Boolean/integer/decimal plus policy `precisionDecimal` (Strict10 rejects).
-`AttributeReferenceUse` retains QName/RefLoc/TargetID/use. Other valid targets fail
-`FailureUnsupported`/`ErrUnsupported` schema syntax at `RefLoc`, related declaration,
-no schema; unresolved/wrong-kind/inaccessible remain invalid. `simpleContent` bases
-allow Boolean/string/integer/decimal plus policy `precisionDecimal`; uses/type refs
-retained. Optional/required effective; prohibited omitted; local
-value/default/fixed/inheritable and attribute/simpleContent consumers unsupported.
+Primitive: `DeclaredType`; direct choices/sequences and bounded attribute-free extensions retain anonymous refs. These preserve `SimpleTypeID`/`NodeID`/`AnonymousID`, not `ComponentID`; model-less extensions retain base identity.
+Non-`0/0` local integer particles admit only `integer`/`negativeInteger`; other integer-derived kinds reject at type/facet `Loc` with `FailureUnsupported`/`ErrUnsupported`, no schema.
+Global attributes are query-only: built-in or supported named atomic `xs:boolean`, `xs:integer`, `xs:decimal`, `xs:token`, `xs:negativeInteger`, `xs:language`, `xs:NCName`, `xs:anyURI`, and `xs:ID`, plus built-in or supported named `xs:long` and `xs:unsignedLong` restrictions. Built-in/named `xs:precisionDecimal` is query-only under Compatibility/Strict11; Strict10 rejects it at type `Loc` with `FeatureDatatypeFacets`/`FailureUnsupported`/`XSD3030`/`ErrUnsupported`. Excluded `xs:string`, `xs:NMTOKEN`, `xs:int`, `xs:nonNegativeInteger`, `xs:nonPositiveInteger`, narrower built-ins, and list/union refs report `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at type `Loc`; local/inline forms report at element/inline `simpleType` `Loc`. Earlier failures keep precedence; unsupported forms return no schema. Value constraints support only Boolean/integer/decimal/token/precisionDecimal. Each unsupported default/fixed value uses `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at value `Loc` and returns no `Schema`; invalid supported values use `FailureInvalid`/`XSD3036` at value `Loc` with cause; only declarations containing both default and fixed use `FailureInvalid`/`XSD3010`; fixed `Loc` primary, default related, and no `Schema`. Built-in `xs:long` and `xs:unsignedLong` have intrinsic bounds `[-9223372036854775808,9223372036854775807]` and `[0,18446744073709551615]`; named long/unsignedLong refs retain QName/type `Loc`, exact bounds/facets, locations, provenance, and target IDs; built-ins have no `ComponentID`. Precision constraints are optional; type-only return none. Consumers reject.
+Global/named-typed `nonNegativeInteger` elements and standalone named simple-type components
+`GenerateGo`-supported subject to gates; validation rejects roots; inline/anonymous
+element/type forms remain query-only and consumer-rejected.
+Named complexes accept omitted/`false`/`0`, reject `true`/`1`; malformed XSD 1.1 is invalid and
+valid behavior unsupported. Diagnostics retain code/`Loc`/cause/`SpecRef`;
+`IsInheritable` accepts Compatibility/Strict11 and mismatches Strict10. Untyped/inline attrs,
+`defaultAttributesApply`/XPath, and non-0/0 anonymous enumeration are unsupported. Direct checks
+use `Locs`, extension/model-less gates first, and model-group refs use `RefLoc`; broader forms reject.
+Local built-in/named-effective refs require default choices or bounded
+attribute-free extension choices with default occurrences. Mapped non-`0/0`
+inline/anonymous forms and non-default/nonzero sequences are schema-unsupported.
+Strict10 rejects before `0/0` omission; Compatibility/Strict11 omits exact
+`0/0`. Admitted extensions retain query, policy, occurrence, and `0/0` facts;
+validation/`GenerateGo` reject their consumers/targets. Mapped non-`0/0` anonymous
+string/token/NMTOKEN and `<all>` are unsupported.
 
-Complexes expose non-inherited `IsAbstract`; named `final`/simple-type `finalDefault`/local `final` retain immutable `FinalLoc`. Named complex `Final()` uses declaring document's `finalDefault` only when local `final` is absent; explicit empty/non-empty local values override it; default projects only `extension`/`restriction`. Policies agree; `schema/@version` inert. `FinalLoc()` preserves local/default provenance for non-empty controls; occurrence/validation/`GenerateGo` limits unchanged. Prohibited extension is `FailureInvalid` at use-site, related to local/default control; unsupported-base precedence remains. Groups/extensions retain IDs/locations, model-less bases, nil particles, inherited `##other`/lax. Named globals expose `anyAttribute` facts; wildcard consumers unsupported. Direct `xs:any` exposes sorted facts; non-`0/0` and broader placements are consumer-unsupported; `0/0` absent. `openContent=none` supports globals/extensions under Compatibility/Strict11; Strict10 mismatches. Named groups retain ordered refs/ranges; broader shapes unsupported.
+Particle-plus-use and attribute-only bodies expose ordered local, referenced,
+and anonymous-inline `AttributeUse` query facts. Local and referenced global
+targets admit Boolean/integer/decimal plus policy-admitted `precisionDecimal`;
+Strict10 rejects `precisionDecimal` by policy. `AttributeReferenceUse` retains
+QName, `RefLoc`, `TargetID`, and effective use. A valid other scalar target
+fails schema construction with located schema-syntax `FailureUnsupported`/
+`ErrUnsupported` at `RefLoc`, relates the target declaration, and returns no
+partial schema; unresolved, wrong-kind, and inaccessible references remain
+invalid. A bounded scalar `simpleContent` extension separately admits
+Boolean/string/integer/decimal bases plus policy-gated `precisionDecimal`,
+retaining base, type, and ordered-use locations without a particle.
+Optional/required uses are effective; prohibited uses are omitted. Local
+value/default/fixed/inheritable semantics and attribute/simpleContent
+validation and generation remain unsupported.
+
+Complexes expose non-inherited `IsAbstract`; `Final()` uses declaring-document `finalDefault` when
+local `final` is absent, explicit values override it, and `FinalLoc()` preserves provenance. Policies
+agree; `schema/@version` is inert. Prohibited extension is `FailureInvalid` at use-site; unsupported
+base precedence remains. Groups/extensions retain IDs/locations and wildcard facts; wildcard
+consumers reject. `xs:any` facts are sorted; non-`0/0`/broader forms reject and `0/0` is absent.
+`openContent=none` supports globals/extensions under Compatibility/Strict11 and mismatches Strict10;
+named groups retain ordered refs/ranges; broader shapes unsupported.
 
 ## Datatypes
 
-Lexical/value representations remain separate; QName values retain namespace
-context. Datatypes map string enumeration and arbitrary-precision scalar values;
-precisionDecimal retains exact values/facets under Compatibility/Strict11. Boolean
-whitespace collapse supported; Boolean facets, temporal distinctions, broader values
-unsupported.
+Lexical/value representations remain separate; QName values retain namespace context. Datatypes map
+string enumeration and arbitrary-precision scalar values; precisionDecimal retains exact values/facets
+under Compatibility/Strict11. Boolean whitespace collapse is supported; Boolean facets, temporal
+distinctions, and broader values are unsupported.
 
 ## Validation and code generation
 
-`ValidateInstance` supports global built-in/named scalar roots (`Boolean`/`token`/`NMTOKEN`/`integer`/`decimal`/`precisionDecimal`) and named complexes. Local built-in/named Boolean/integer/decimal sequences honor exact finite, unbounded, and above-`uint64` ranges; named Boolean validates only facet-free restrictions. Non-extension default choices use local built-in/named Boolean/token/NMTOKEN/integer/decimal or explicitly typed built-in/named-effective `precisionDecimal`; homogeneous Boolean/token/NMTOKEN and integer/decimal mixtures validate. Local anonymous forms query-only; mixed Boolean/numeric or token/NMTOKEN choices, repetition/non-default choices, extensions, and anonymous consumers unsupported.
-Token/NMTOKEN sequences unsupported. Element refs retain QName/`RefLoc`/`TargetID`/order/exact occurrences; only non-extension default-occurrence direct-choice refs to global built-in/named Boolean/integer/decimal targets are eligible, while sequence/repetition/nested/recursive/broader/anonymous-target/mixed refs are excluded but queryable. Model-group refs are a separate top-level direct query boundary; nested/local/recursive/broader forms remain unsupported. Other string/list/union forms and attribute consumers unsupported; token/NMTOKEN collapse XML whitespace, and `xs:any` is query-only (`0/0` absent, nonzero rejected).
+`ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/decimal/precisionDecimal
+roots and complexes. Built-in/named `nonNegativeInteger` is GenerateGo-only; validation returns
+located `FailureUnsupported`/`XSD4004`/`ErrUnsupported`. Local Boolean/integer/decimal
+sequences/default choices honor ranges; homogeneous token sequences honor exact occurrences/value
+space. Anonymous/mixed-family/extension consumers reject; NMTOKEN sequences and nonzero `xs:any`
+are unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
+only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, other
+forms remain queryable but excluded. Global `nonNegativeInteger` refs remain queryable;
+direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
+refs are top-level direct query only; broader forms reject.
 
-Generation: global built-in/named/inherited/included/imported Boolean/integer/decimal/string/token/NMTOKEN and inline string/token/NMTOKEN components generate. Only non-extension default-occurrence direct-choice refs to global built-in/named Boolean/integer/decimal targets are eligible; sequences, repetition/non-default, nested/recursive/broader, and anonymous refs reject.
-Global inline Boolean/integer/decimal/long-family/identity-only declarations retain query facts; local inline Boolean/integer/decimal facts are limited to admitted direct choice/sequence/bounded-extension shapes, while mapped local long-family/identity-only forms remain unsupported. Anonymous consumers reject. Local built-in/named Boolean/integer/decimal all-Boolean/numeric default choices and bounded sequences generate; anonymous/token/NMTOKEN and repeated/non-default consumers reject.
+Generation: global/named-typed `nonNegativeInteger` elements and standalone named simple-type
+components generate under all policies; only elements require `abstract=false,nillable=false`
+(either true: `FailureUnsupported`/`GOXSD9029`, nil). Built-in/standalone fields use
+`StrictInteger`; named-typed fields use generated types. Canonical built-in facts require integer
+kind/version, fixed `fractionDigits=0`, `minInclusive=0`, and no `totalDigits`/other bounds;
+named bounds/facets remain, while final/variety/effective-facet gates reject
+(`FailureUnsupported`/`GOXSD9029`, no output) and malformed/stale facts fail internally
+(`FailureInternal`/`GOXSD9030`, nil). Local non-`0/0` forms have no schema; `0/0` is admitted then
+absent under every policy. `nonNegativeInteger` refs remain queryable; direct-choice/sequence
+consumers reject, and inline/anonymous element/type forms remain query-only/rejected.
+Supported global Boolean/integer/decimal/string/token/NMTOKEN simple-type components and supported
+global element declarations generate; local token particles/sequences remain `GenerateGo`-unsupported.
+Global inline-element generation is limited to string/token/NMTOKEN element declarations; inline
+Boolean/integer/decimal consumers are query-only/rejected. Global attributes remain query-only,
+inline-attribute consumers remain excluded, and `GenerateGo` rejects every
+`ComponentKindAttributeDeclaration`. Local default numeric choices generate; anonymous/repeated/
+non-default consumers reject.
 
 ## Conformance
 
-W3C XSD artifacts and outcomes are pinned; the harness reports pass, conformance,
-unsupported, resolution, and internal failures without changing ranking.
+W3C XSD artifacts/outcomes are pinned; the harness reports pass, conformance, unsupported,
+resolution, and internal failures without changing ranking.
 
-XSD 1.0/1.1 artifacts are URL/digest pinned; tooling indexes them and verifies the
-XSD 1.0 envelope/DTD ordering without changing parser or resolver semantics.
+XSD 1.0/1.1 artifacts are URL/digest pinned; tooling indexes them and verifies the XSD 1.0
+envelope/DTD ordering without changing parser or resolver semantics.

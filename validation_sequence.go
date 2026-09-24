@@ -367,7 +367,7 @@ func instanceSequenceProgramFor(
 			loc,
 			version,
 			false,
-			false,
+			true,
 			false,
 			version,
 		)
@@ -383,15 +383,28 @@ func instanceSequenceProgramFor(
 	}
 	if len(particles) > 0 {
 		booleanCount := 0
+		tokenCount := 0
 		for _, particle := range particles {
-			if _, ok := particle.scalar.value.(instanceBooleanScalar); ok {
+			switch particle.scalar.value.(type) {
+			case instanceBooleanScalar:
 				booleanCount++
+			case instanceTokenScalar:
+				tokenCount++
 			}
 		}
 		if booleanCount > 0 && booleanCount != len(particles) {
 			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
 				loc,
 				"direct sequence mixes Boolean and non-Boolean local declarations",
+				related,
+				version,
+				errInstanceSequenceMixed,
+			)
+		}
+		if tokenCount > 0 && tokenCount != len(particles) {
+			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+				loc,
+				"direct sequence mixes token and non-token local declarations",
 				related,
 				version,
 				errInstanceSequenceMixed,
