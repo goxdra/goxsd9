@@ -65,21 +65,25 @@
 // 0/0 for either mapped form. This Strict10-before-omission rule is specific
 // to `precisionDecimal`. Ordinary local effective 0/0 is absent only after
 // successful syntax, occurrence, type, value-constraint, resolution, and policy
-// validation of an omittable mapped form. Valid declared, named, inline, or
-// anonymous `nonNegativeInteger` 0/0 forms are absent under every policy.
-// Malformed, unresolved, cyclic, wrong-kind, value-constrained, or policy-invalid
-// forms retain their invalid, resolution, or policy diagnostics, primary/related
-// locations, causes, and no-schema result. Local declared and named
-// integer-derived restrictions are admitted at the mapped non-0/0 boundary when
-// their effective atomic kind is integer or negativeInteger, or when a built-in
-// xs:long or supported named restriction remains effective-long, through named,
-// forward, imported, included, and chameleon chains. Valid mapped non-0/0 inline
-// `long` and excluded integer forms (`int`, `unsignedLong`, `nonNegativeInteger`,
-// and `nonPositiveInteger`) are unsupported at this local schema boundary:
-// ParseSchema rejects them with a located
-// FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
-// location and no schema. The written base
-// QName, use-site location, and resolved named ownership remain separate facts.
+// validation of an omittable mapped form. Valid mapped local `nonNegativeInteger`
+// 0/0 forms are absent under every policy. Malformed, unresolved, cyclic,
+// wrong-kind, value-constrained, or policy-invalid forms retain their invalid,
+// resolution, or policy diagnostics, primary/related locations, causes, and
+// no-schema result. In direct choices/sequences and bounded attribute-free
+// extensions, the local scalar allowlist is exact: direct `xs:integer`; named or
+// inline effective `integer` or `negativeInteger` restrictions where admitted;
+// and built-in `xs:long` or supported named effective-long. Direct
+// `xs:negativeInteger`, out-of-slice integer kinds (`int`, `unsignedLong`,
+// `nonNegativeInteger`, and `nonPositiveInteger`), list/union varieties, and
+// nested, recursive, or broader structural forms are excluded. Applicable
+// schema-boundary exclusions return located
+// FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported diagnostics at
+// the relevant type, facet, or use-site location and no schema. Admitted local
+// effective-`negativeInteger` and effective-long forms remain query-only:
+// `ValidateInstance` and `GenerateGo` reject them with located unsupported
+// diagnostics and no consumer output. Named, forward, imported, included, and
+// chameleon chains retain their written base QName, use-site location, and
+// resolved ownership as separate facts.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
@@ -133,17 +137,18 @@
 // default-occurrence direct choices and bounded attribute-free extension
 // choices. The choice owner and every mapped typed precisionDecimal
 // child/alternative require default occurrences; non-precision alternatives
-// may retain non-default query-only ranges. An inline anonymous
+// may retain non-default query-only ranges. Only non-extension default typed
+// direct choices are validation-eligible; extension choices are query-only and
+// their consumers reject them. An inline anonymous
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` restriction is
-// schema-unsupported when mapped; mapped nonzero anonymous restrictions remain
-// unsupported. Strict10 returns a located
+// schema-unsupported when mapped. Mapped non-0/0 direct or extension sequences
+// and non-default direct precisionDecimal choice/alternative ranges are also
+// schema-unsupported. Strict10 returns a located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy-mismatch
 // diagnostic before 0/0 omission for either mapped form, including zero. Under
-// Compatibility/Strict11, mapped non-default precisionDecimal choice/alternative
-// ranges or non-0/0 direct-sequence precisionDecimal ranges that map to particles
-// are schema-unsupported. Only non-extension default-occurrence typed direct
-// choices are validation-eligible; extension choices and all anonymous consumers
-// are rejected by validation and generation.
+// Compatibility/Strict11, a valid omittable 0/0 is absent only after
+// validation. `GenerateGo` rejects every precisionDecimal target, and all
+// anonymous consumers remain excluded.
 // The supported local anonymous model is limited to atomic
 // Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
 // attribute-free extension shapes above. Local anonymous Boolean/integer/decimal

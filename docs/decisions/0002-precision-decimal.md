@@ -12,11 +12,12 @@ datatype and work in progress; it is not a mandatory XSD 1.1 conformance
 requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/)
 §2.5.1 (primitive datatypes; `#dt-primitive`) and [§H.1](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#impl-def)
 permit, but do not require, primitive datatypes outside the standard set.
-[`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers:
+[`Decision 0007`](0007-particle-occurrence.md) is authoritative for
+placement/occurrence/consumers; this record preserves the original
+precisionDecimal choice and representation history:
 
-- Global attributes: Compatibility/Strict11 admits built-in/named `precisionDecimal` attributes with zero or one optional default/fixed `AttributeValueConstraint`; type-only have none. `ValueConstraint()` copies kind, collapsed lexical/source `Loc`, and exact defensive `StrictPrecisionDecimal` via `PrecisionDecimalValue()` only when present. Unsupported values are `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported`; invalid values are `FailureInvalid`/`XSD3036`; default+fixed is `FailureInvalid`/`XSD3010` with fixed primary/default related. Strict10 rejects at type `Loc` before conversion; conflict/type/policy/reference errors precede conversion. Inline/local and consumers remain unsupported; invalid values retain nested causes and no schema.
-- Elements: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; local named-effective forms require default choices or bounded attribute-free extensions. Exact `0/0` is omitted; mapped non-`0/0` inline and non-default/nonzero sequences reject. Strict10 rejects before validation/omission.
-- Consumers: Compatibility/Strict11 validates built-in/named roots and non-extension default choices; extensions remain queryable; validation/`GenerateGo` reject every `precisionDecimal` target.
+- Global attributes: Compatibility/Strict11 admits built-in/named `precisionDecimal` attributes with at most one optional default/fixed `AttributeValueConstraint`; type-only have none. `ValueConstraint()` copies kind, collapsed lexical/source `Loc`, and defensive `StrictPrecisionDecimal` via `PrecisionDecimalValue()` only when present. Unsupported values are `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported`; invalid values are `FailureInvalid`/`XSD3036`; default+fixed is `FailureInvalid`/`XSD3010` with fixed primary/default related. Strict10 rejects at type `Loc` before conversion; conflict/type/policy/reference errors precede conversion. Inline/local and consumers remain unsupported; invalid values retain nested causes and no schema.
+- Elements/consumers: [Decision 0007](0007-particle-occurrence.md) defines mapped `precisionDecimal`-only defaults, direct default-choice validation, query-only extension choices, and rejection of non-`0/0` direct/extension sequences; validated omittable `0/0` is omitted. `GenerateGo` rejects every target. Strict10 and invalid/resolution/policy diagnostics retain precedence, locations/causes, and no schema.
 
 ## Semantic contract
 
