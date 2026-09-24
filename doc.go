@@ -231,10 +231,13 @@
 // gates. Scalar elements contain only character data. Global token values and
 // supported local token/NMTOKEN choices and token/NMTOKEN sequences
 // collapse XML whitespace before effective enumeration comparison without
-// changing retained schema facts. Global NMTOKEN values and local NMTOKEN
-// sequence particles also collapse XML whitespace and enforce the repository
-// XML NameChar policy. Global string values, local string particles, lists/unions,
-// broader particles, and other semantics remain explicit unsupported behavior.
+// changing retained schema facts. Global NMTOKEN values and homogeneous local
+// sequences made entirely of built-in or supported named NMTOKEN particles
+// collapse XML whitespace and enforce the repository XML NameChar policy.
+// Those sequences validate with exact occurrences and NMTOKEN value-space rules;
+// their GenerateGo consumers remain unsupported. Global string values, local
+// string particles, lists/unions, broader particles, and other semantics remain
+// explicit unsupported behavior.
 // Supported global attribute declarations are query-only. Type admission under
 // Compatibility, Strict10, and Strict11 is limited to built-in or supported
 // named atomic xs:boolean, xs:integer, xs:decimal, xs:token, xs:negativeInteger,
