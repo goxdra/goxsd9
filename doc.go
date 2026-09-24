@@ -81,8 +81,9 @@
 // homogeneous direct choices made entirely of local token or NMTOKEN
 // alternatives validate. Homogeneous direct sequences made entirely of local
 // built-in or supported named token or NMTOKEN particles also validate with exact
-// occurrences. Anonymous token/NMTOKEN restrictions and generation remain
-// unsupported. Direct element references remain
+// occurrences. Anonymous token/NMTOKEN restrictions remain unsupported for
+// consumers; local token/NMTOKEN particles and sequences remain
+// GenerateGo-unsupported. Direct element references remain
 // queryable, but token/NMTOKEN reference consumers remain unsupported.
 // Global inline string/token/NMTOKEN elements are the separate generation-eligible
 // exception.

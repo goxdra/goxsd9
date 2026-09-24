@@ -72,11 +72,12 @@ valid behavior unsupported. Diagnostics retain code/`Loc`/cause/`SpecRef`;
 `defaultAttributesApply`/XPath, and non-0/0 anonymous enumeration are unsupported. Direct checks
 use `Locs`, extension/model-less gates first, and model-group refs use `RefLoc`; broader forms reject.
 `precisionDecimal` refs require default choices or bounded attribute-free extensions
-with default occurrences; non-`0/0` inline/anonymous forms and non-default/nonzero
-sequences for type-specific mappings remain unsupported. Homogeneous local built-in/supported
-named `token`/`NMTOKEN` sequences admit exact occurrences. Strict10 rejects before
-`0/0`; Compatibility/Strict11 omits it. Extensions remain query-only but
-validation/`GenerateGo` consumers reject; unsupported references remain queryable;
+with default occurrences; non-`0/0` inline/anonymous and non-default/nonzero
+`precisionDecimal` sequences remain unsupported. Homogeneous local built-in/supported
+named `token`/`NMTOKEN` sequences admit exact finite/unbounded/above-`uint64`
+occurrences under all policies. Strict10 rejects before `0/0`;
+Compatibility/Strict11 omits it. Extensions query-only;
+validation/`GenerateGo` consumers reject; unsupported references queryable;
 local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported; `<all>`
 remains unsupported.
 
@@ -119,7 +120,8 @@ named bounds/facets remain, while final/variety/effective-facet gates reject
 absent under every policy. `nonNegativeInteger` refs remain queryable; direct-choice/sequence
 consumers reject, and inline/anonymous element/type forms remain query-only/rejected.
 Supported global Boolean/integer/decimal/string/token/NMTOKEN simple-type components and supported
-global element declarations generate; local token particles/sequences remain `GenerateGo`-unsupported.
+global element declarations generate; local token/NMTOKEN particles and
+sequences remain `GenerateGo`-unsupported.
 Global inline-element generation is limited to string/token/NMTOKEN element declarations; inline
 Boolean/integer/decimal consumers are query-only/rejected. Global attributes remain query-only,
 inline-attribute consumers remain excluded, and `GenerateGo` rejects every
