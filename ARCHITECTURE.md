@@ -62,7 +62,12 @@ local particles are scoped, consumers are on demand.
 
 Primitive: `DeclaredType`; direct choices/sequences and bounded attribute-free extensions retain anonymous refs. These preserve `SimpleTypeID`/`NodeID`/`AnonymousID`, not `ComponentID`; model-less extensions retain base identity.
 Non-`0/0` local integer particles admit only `integer`/`negativeInteger`; other integer-derived kinds reject at type/facet `Loc` with `FailureUnsupported`/`ErrUnsupported`, no schema.
-Global attributes are query-only: built-in or supported named atomic `xs:boolean`, `xs:integer`, `xs:decimal`, `xs:token`, `xs:negativeInteger`, `xs:language`, `xs:NCName`, `xs:anyURI`, and `xs:ID`, plus built-in or supported named `xs:long` and `xs:unsignedLong` restrictions. Built-in/named `xs:precisionDecimal` is query-only under Compatibility/Strict11; Strict10 rejects it at type `Loc` with `FeatureDatatypeFacets`/`FailureUnsupported`/`XSD3030`/`ErrUnsupported`. Excluded `xs:string`, `xs:NMTOKEN`, `xs:int`, `xs:nonNegativeInteger`, `xs:nonPositiveInteger`, narrower built-ins, and list/union refs report `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at type `Loc`; local/inline forms report at element/inline `simpleType` `Loc`. Earlier failures keep precedence; unsupported forms return no schema. Value constraints support only Boolean/integer/decimal/token/precisionDecimal. Each unsupported default/fixed value uses `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at value `Loc` and returns no `Schema`; invalid supported values use `FailureInvalid`/`XSD3036` at value `Loc` with cause; only declarations containing both default and fixed use `FailureInvalid`/`XSD3010`; fixed `Loc` primary, default related, and no `Schema`. Built-in `xs:long` and `xs:unsignedLong` have intrinsic bounds `[-9223372036854775808,9223372036854775807]` and `[0,18446744073709551615]`; named long/unsignedLong refs retain QName/type `Loc`, exact bounds/facets, locations, provenance, and target IDs; built-ins have no `ComponentID`. Precision constraints are optional; type-only return none. Consumers reject.
+Global attributes are query-only. Built-in/named atomic Boolean, integer, decimal,
+token, negativeInteger, language, NCName, anyURI, ID, long, and unsignedLong
+types are admitted; long-family refs retain exact bounds. `precisionDecimal` is
+query-only under Compatibility/Strict11 and policy-rejected in Strict10.
+Unsupported or invalid types/values retain located causes and return no schema;
+consumers reject.
 Global/named-typed `nonNegativeInteger` elements and standalone named simple-type components
 `GenerateGo`-supported subject to gates; validation rejects roots; inline/anonymous
 element/type forms remain query-only and consumer-rejected.
@@ -79,20 +84,14 @@ Strict10 rejects before `0/0` omission; Compatibility/Strict11 omits exact
 validation/`GenerateGo` reject their consumers/targets. Mapped non-`0/0` anonymous
 string/token/NMTOKEN and `<all>` are unsupported.
 
-Particle-plus-use and attribute-only bodies expose ordered local, referenced,
-and anonymous-inline `AttributeUse` query facts. Local and referenced global
-targets admit Boolean/integer/decimal plus policy-admitted `precisionDecimal`;
-Strict10 rejects `precisionDecimal` by policy. `AttributeReferenceUse` retains
-QName, `RefLoc`, `TargetID`, and effective use. A valid other scalar target
-fails schema construction with located schema-syntax `FailureUnsupported`/
-`ErrUnsupported` at `RefLoc`, relates the target declaration, and returns no
-partial schema; unresolved, wrong-kind, and inaccessible references remain
-invalid. A bounded scalar `simpleContent` extension separately admits
-Boolean/string/integer/decimal bases plus policy-gated `precisionDecimal`,
-retaining base, type, and ordered-use locations without a particle.
-Optional/required uses are effective; prohibited uses are omitted. Local
-value/default/fixed/inheritable semantics and attribute/simpleContent
-validation and generation remain unsupported.
+Particle-plus-use and attribute-only bodies expose ordered `AttributeUse` facts.
+Local/ref targets admit Boolean/integer/decimal plus policy-gated
+`precisionDecimal`; other valid targets fail at `RefLoc`
+(`FailureUnsupported`/`ErrUnsupported`) with a related declaration and no
+schema. `AttributeReferenceUse` keeps QName/RefLoc/TargetID/use. Scalar
+`simpleContent` keeps base/type/use facts, admits Boolean/string/integer/decimal
+plus policy-gated `precisionDecimal`, omits prohibited uses, and remains
+consumer-unsupported.
 
 Complexes expose non-inherited `IsAbstract`; `Final()` uses declaring-document `finalDefault` when
 local `final` is absent, explicit values override it, and `FinalLoc()` preserves provenance. Policies
