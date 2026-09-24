@@ -137,19 +137,24 @@
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
 // and every anonymous precisionDecimal target is excluded from validation and
 // generation.
-// Particle-plus-use and attribute-only bodies expose ordered local, referenced,
-// and anonymous-inline AttributeUse query facts. Local and referenced global
-// targets admit Boolean/integer/decimal plus policy-admitted precisionDecimal;
-// Strict10 rejects precisionDecimal by policy. AttributeReferenceUse retains
-// QName, RefLoc, TargetID, and effective use. A valid other scalar target fails
-// schema construction with located schema-syntax FailureUnsupported/ErrUnsupported
-// at RefLoc, relates the target declaration, and returns no partial schema;
-// unresolved, wrong-kind, and inaccessible references remain invalid. A bounded
-// scalar simpleContent extension separately admits Boolean/string/integer/decimal
-// bases plus policy-gated precisionDecimal, retaining base, type, and ordered-use
-// locations without a particle. Optional/required uses are effective; prohibited
-// uses are omitted. Local value/default/fixed/inheritable semantics and
-// attribute/simpleContent validation and generation remain unsupported.
+// Particle-plus-use bodies (including direct model-group references), attribute-only
+// bodies, and extension-only scalar simpleContent bodies expose ordered defensive
+// local, referenced, and anonymous-inline AttributeUse facts. Local and referenced
+// global targets admit only Boolean/integer/decimal plus policy-gated precisionDecimal;
+// explicit xs:int and other scalar kinds are unsupported, and Strict10 rejects
+// precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
+// and effective use. Explicit form or attributeFormDefault selects qualified or
+// unqualified local names; chameleon includes adopt the including target namespace.
+// Anonymous local types retain AnonymousID/NodeID ownership, and returned views are
+// copied. Optional/required uses are effective; prohibited uses are omitted. A valid
+// other scalar target fails schema construction with located schema-syntax
+// FailureUnsupported/ErrUnsupported at RefLoc, relates the target declaration, and
+// returns no partial schema; unresolved, wrong-kind, and inaccessible references
+// remain invalid. A bounded scalar simpleContent extension separately admits
+// Boolean/string/integer/decimal bases plus policy-gated precisionDecimal, retaining
+// base, type, and ordered-use locations without a particle. Local
+// value/default/fixed/inheritable semantics and attribute/simpleContent validation
+// and generation remain unsupported.
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.
@@ -247,7 +252,8 @@
 // whitespace and enforce the repository XML NameChar policy. Global string
 // values, local string particles, NMTOKEN sequence particles, lists/unions,
 // broader particles, and other semantics remain explicit unsupported behavior.
-// Supported global attribute declarations are query-only. Type admission under
+// Supported global attribute declarations are a separate query-only capability.
+// Type admission under
 // Compatibility, Strict10, and Strict11 is limited to built-in or supported
 // named atomic xs:boolean, xs:integer, xs:decimal, xs:token, xs:negativeInteger,
 // xs:language, xs:NCName, xs:anyURI, xs:ID, xs:long, and xs:unsignedLong. Built-in or supported
@@ -256,11 +262,12 @@
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
 // diagnostic. Declared xs:string, xs:NMTOKEN, xs:int, xs:nonNegativeInteger,
 // xs:nonPositiveInteger, narrower built-ins, list/union
-// forms remain explicit unsupported behavior. A valid local attribute declaration
-// reports FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at the
-// local attribute element Loc; a global inline attribute reports the same at its
-// inline simpleType Loc; and a referenced excluded declared type reports it at
-// the use-site type Loc. Invalid syntax, edition/policy mismatches, and
+// forms remain explicit unsupported behavior. A local named use reports
+// FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its type
+// attribute Loc; a local declaration without type reports at the local element
+// Loc; an inline type reports at its simpleType Loc; and a referenced excluded
+// global use reports at RefLoc with the target declaration related. Invalid syntax,
+// edition/policy mismatches, and
 // resolution/reference failures retain their existing diagnostic, specification
 // reference, cause, and precedence. Unsupported forms return no Schema.
 // Type admission is separate from value-constraint support: only Boolean,
