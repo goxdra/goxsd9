@@ -1704,7 +1704,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 		return nil, err
 	}
 	if model.name.local == "group" {
-		input, inputErr := schemaModelGroupReferenceComplexTypeInput(model, occurrences, facts, block, anyAttribute)
+		input, inputErr := schemaModelGroupReferenceComplexTypeInput(model, occurrences, attributeUses, facts, block, anyAttribute)
 		if inputErr != nil {
 			return nil, inputErr
 		}
@@ -2254,6 +2254,7 @@ func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOc
 func schemaModelGroupReferenceComplexTypeInput(
 	model *syntaxElement,
 	occurrences particleOccurrenceRange,
+	attributeUses []schemaAttributeUseInput,
 	facts schemaDocumentFacts,
 	block schemaBlockPolicy,
 	anyAttribute *schemaAnyAttributeInput,
@@ -2264,8 +2265,9 @@ func schemaModelGroupReferenceComplexTypeInput(
 	}
 	return &schemaComplexTypeInput{
 		body: &schemaComplexTypeDirectBodyInput{
-			particle:     particle,
-			anyAttribute: anyAttribute,
+			particle:      particle,
+			attributeUses: attributeUses,
+			anyAttribute:  anyAttribute,
 		},
 		prohibitedSubstitutions: block,
 	}, nil

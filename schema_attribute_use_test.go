@@ -27,6 +27,65 @@ func TestSchemaBridgeExposesOrderedLocalAndReferencedAttributeUses(t *testing.T)
 	assertOrderedAttributeUses(t, schema)
 }
 
+func TestSchemaBridgePreservesAttributeUsesOnModelGroupReferenceBodies(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" attributeFormDefault="qualified" version="1.1">
+  <xs:complexType name="Record"><xs:group ref="r:Fields"/><xs:attribute name="flag" type="xs:boolean" use="required"/></xs:complexType>
+  <xs:group name="Fields"><xs:choice><xs:element ref="r:value"/></xs:choice></xs:group>
+  <xs:element name="value" type="xs:integer"/>
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	definition := modelGroupReferenceTestComplexTypeNamed(t, schema, "urn:root", "Record")
+	if _, ok := definition.Particle().(ModelGroupReferenceParticle); !ok {
+		t.Fatalf("record particle = %T, want ModelGroupReferenceParticle", definition.Particle())
+	}
+	uses := definition.AttributeUses()
+	if len(uses) != 1 {
+		t.Fatalf("record attribute use count = %d, want 1", len(uses))
+	}
+	use, ok := uses[0].(LocalAttributeUse)
+	if !ok {
+		t.Fatalf("record attribute use = %T, want LocalAttributeUse", uses[0])
+	}
+	if use.Name() != mustTestQName(t, "urn:root", "flag") || use.Use() != AttributeUseRequired {
+		t.Fatalf("record attribute use = %q/%q, want {urn:root}flag/required", use.Name(), use.Use())
+	}
+}
+
+func TestSchemaBridgeRejectsUnsupportedAttributeUseOnModelGroupReferenceBodies(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1">
+	  <xs:complexType name="Record"><xs:group ref="r:Fields"/><xs:attribute ref="r:language"/></xs:complexType>
+	  <xs:group name="Fields"><xs:choice><xs:element ref="r:value"/></xs:choice></xs:group>
+	  <xs:attribute name="language" type="xs:language"/>
+	  <xs:element name="value" type="xs:integer"/>
+	</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err == nil {
+		t.Fatal("discoverSchema accepted unsupported group-body attribute use")
+	}
+	assertZeroSchema(t, schema)
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+		t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Feature())
+	}
+	wantReferenceLoc := elementReferenceTestAttributeLoc(t, root, `ref="r:language"`)
+	if diagnostic.Loc() != wantReferenceLoc {
+		t.Fatalf("diagnostic location = %s, want attribute reference location %s", diagnostic.Loc(), wantReferenceLoc)
+	}
+	wantRelated := []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="language"`)}
+	if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+		t.Fatalf("diagnostic related = %v, want target declaration %v", diagnostic.Related(), wantRelated)
+	}
+	if diagnostic.SpecRef() != schemaAttributeUseXSD11SpecRef {
+		t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), schemaAttributeUseXSD11SpecRef)
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaAttributeReferenceUnsupported) {
+		t.Fatalf("diagnostic lost unsupported attribute-use cause: %v", err)
+	}
+}
+
 func assertOrderedAttributeUses(t *testing.T, schema Schema) {
 	t.Helper()
 	components := schema.Components()

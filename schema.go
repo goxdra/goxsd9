@@ -1323,8 +1323,9 @@ func (use AttributeReferenceUse) TargetID() ComponentID {
 	return use.facts.targetID
 }
 
-// SimpleContentExtension is the immutable scalar base and direct attribute
-// uses of a supported simpleContent extension.
+// SimpleContentExtension contains immutable scalar-base facts for a supported
+// simpleContent extension. Direct attribute uses are exposed by
+// ComplexTypeDefinition.AttributeUses().
 type SimpleContentExtension struct {
 	facts *schemaSimpleContentExtension
 }
