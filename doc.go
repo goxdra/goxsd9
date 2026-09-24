@@ -21,7 +21,10 @@
 // The unqualified schema/@version is an inert optional xs:token label: absent,
 // empty, arbitrary, "1.0", and "1.1" values never select or mismatch a policy.
 // Chameleon includes adopt the including target namespace and repair
-// unqualified direct element-reference QNames in supported particles.
+// unqualified direct element-reference QNames in supported particles. In XSD
+// 1.1, a local attribute targetNamespace selects its explicit namespace only
+// when a containing targetNamespace exists and matches; missing or mismatched
+// values are invalid, while Strict10 reports an edition mismatch.
 // Redefine/override/defaultOpenContent, assertions, and Boolean facets and
 // datatype facets outside the supported string enumeration/whiteSpace, integer/decimal,
 // and optional precisionDecimal boundaries return explicit unsupported diagnostics.
@@ -36,8 +39,9 @@
 // ValueConstraint() exposes its kind, collapsed lexical spelling, source Loc,
 // and exact defensive StrictPrecisionDecimal through PrecisionDecimalValue
 // only when a default or fixed value is present. Strict10 rejects at the
-// resolved type Loc before conversion; inline/local attributes and attribute
-// validation/GenerateGo remain unsupported. Under admitting policies,
+// resolved type Loc before conversion; global inline-attribute declarations and
+// attribute validation/GenerateGo remain unsupported. Supported local anonymous
+// atomic AttributeUse facts are separate. Under admitting policies,
 // built-in/named roots validate, while inline anonymous targets remain excluded
 // from validation and generation.
 // Paths and URLs are never opened by this package. Parsing closes
@@ -139,20 +143,25 @@
 // generation.
 // Particle-plus-use bodies (including direct model-group references), attribute-only
 // bodies, and extension-only scalar simpleContent bodies expose ordered defensive
-// local, referenced, and anonymous-inline AttributeUse facts. Local and referenced
+// local, referenced, and anonymous-inline AttributeUse facts. Supported local
+// anonymous atomic uses retain AnonymousID/NodeID. Local and referenced
 // global targets admit only Boolean/integer/decimal plus policy-gated precisionDecimal;
 // explicit xs:int and other scalar kinds are unsupported, and Strict10 rejects
 // precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
 // and effective use. Explicit form or attributeFormDefault selects qualified or
-// unqualified local names; chameleon includes adopt the including target namespace.
+// unqualified local names; XSD 1.1 local targetNamespace selects a namespace only
+// when it matches the containing targetNamespace; missing/mismatched values are
+// invalid, and Strict10 reports an edition mismatch. Chameleon includes adopt
+// the including target namespace.
 // Anonymous local types retain AnonymousID/NodeID ownership, and returned views are
 // copied. Optional/required uses are effective; prohibited uses are omitted. A valid
 // other scalar target fails schema construction with located schema-syntax
 // FailureUnsupported/ErrUnsupported at RefLoc, relates the target declaration, and
-// returns no partial schema; unresolved, wrong-kind, and inaccessible references
-// remain invalid. A bounded scalar simpleContent extension separately admits
-// Boolean/string/integer/decimal bases plus policy-gated precisionDecimal, retaining
-// base, type, and ordered-use locations without a particle. Local
+// returns no partial schema; unresolved, wrong-kind, ambiguous, and inaccessible
+// references remain invalid, preserving primary ref/type/base Locs and related
+// candidate/target locations. A bounded scalar simpleContent extension separately
+// admits Boolean/string/integer/decimal bases plus policy-gated precisionDecimal,
+// retaining base, type, and ordered-use locations with a nil particle. Local
 // value/default/fixed/inheritable semantics and attribute/simpleContent validation
 // and generation remain unsupported.
 // Element-reference matrix: element-reference particles in local content and
@@ -288,7 +297,8 @@
 // ValueConstraint() copies kind, collapsed lexical spelling, source Loc, and
 // exact defensive StrictPrecisionDecimal through PrecisionDecimalValue only
 // when present. Attribute validation and generation remain unsupported
-// consumers, as do local attribute forms.
+// consumers; global inline-attribute declarations are separate, while supported
+// local anonymous atomic AttributeUse facts remain queryable.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named-typed nonNegativeInteger element declarations and
 // standalone named atomic nonNegativeInteger simple-type components in the
