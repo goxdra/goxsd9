@@ -232,11 +232,16 @@
 // whitespace and enforce the repository XML NameChar policy. Global string
 // values, local string particles, NMTOKEN sequence particles, lists/unions,
 // broader particles, and other semantics remain explicit unsupported behavior.
-// Only admitted supported global attribute declarations and value constraints are
-// query-only. Global xs:int/long-family attribute declarations and value constraints
-// remain unsupported, returning located FailureUnsupported/ErrUnsupported diagnostics
-// and no Schema. Attribute validation and generation, plus local/inline attribute
-// forms, remain explicit unsupported behavior.
+// Supported global attribute declarations are query-only. Global xs:long and
+// named-effective atomic-long attribute declarations are admitted under
+// Compatibility, Strict10, and Strict11 with expanded written QNames, exact
+// inclusive bounds, facet/variety locations, and named target identity; built-in
+// references have no synthetic ComponentID. Long default/fixed value constraints
+// remain unsupported at the value Loc. Global xs:int, xs:unsignedLong,
+// xs:nonNegativeInteger, xs:nonPositiveInteger, narrower built-ins, lists/unions,
+// and inline/anonymous attribute forms remain explicit unsupported behavior with
+// located diagnostics and no Schema. Attribute validation and generation, plus
+// local attribute forms, remain unsupported.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named-typed nonNegativeInteger element declarations and
 // standalone named atomic nonNegativeInteger simple-type components in the
@@ -273,9 +278,11 @@
 // `nonNegativeInteger` declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
 // Global inline/anonymous Boolean/integer/decimal and global int/long/unsignedLong/
-// negativeInteger/nonPositiveInteger and
-// language/NCName/anyURI/ID declarations retain schema/query facts but their
-// validation and generation consumers are rejected.
+// negativeInteger/nonPositiveInteger and language/NCName/anyURI/ID declarations
+// retain schema/query facts but their validation and generation consumers are
+// rejected. This consumer boundary does not widen the global attribute model:
+// admitted global xs:long and named-effective atomic-long attributes remain
+// query-only, and their value constraints remain unsupported.
 // Global built-in, named, and inline precisionDecimal schema/query facts are
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
