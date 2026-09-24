@@ -355,7 +355,7 @@ func instanceSequenceProgramFor(
 			version,
 			false,
 			true,
-			false,
+			true,
 			version,
 		)
 		if err != nil {
@@ -371,12 +371,15 @@ func instanceSequenceProgramFor(
 	if len(particles) > 0 {
 		booleanCount := 0
 		tokenCount := 0
+		nmtokenCount := 0
 		for _, particle := range particles {
 			switch particle.scalar.value.(type) {
 			case instanceBooleanScalar:
 				booleanCount++
 			case instanceTokenScalar:
 				tokenCount++
+			case instanceNMTOKENScalar:
+				nmtokenCount++
 			}
 		}
 		if booleanCount > 0 && booleanCount != len(particles) {
@@ -392,6 +395,15 @@ func instanceSequenceProgramFor(
 			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
 				loc,
 				"direct sequence mixes token and non-token local declarations",
+				related,
+				version,
+				errInstanceSequenceMixed,
+			)
+		}
+		if nmtokenCount > 0 && nmtokenCount != len(particles) {
+			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+				loc,
+				"direct sequence mixes NMTOKEN and non-NMTOKEN local declarations",
 				related,
 				version,
 				errInstanceSequenceMixed,

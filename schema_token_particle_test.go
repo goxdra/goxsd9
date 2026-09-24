@@ -402,7 +402,7 @@ func TestSchemaBridgeLocalTokenParticlesPreserveConsumerBoundaries(t *testing.T)
 					schema := discoverLocalTokenParticleSchema(t, root, profile.policy)
 					body := `<root xmlns="urn:root"><` + test.local + ` xmlns="">value</` + test.local + `></root>`
 					assertLocalTokenParticleGenerationUnsupported(t, schema, test.name)
-					if test.local == "token" {
+					if test.local == "token" || test.local == "nmtoken" {
 						if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(body))); err != nil {
 							t.Fatalf("%s validation error = %v, want supported", test.name, err)
 						}
@@ -438,19 +438,6 @@ func discoverLocalTokenParticleSchema(t *testing.T, root string, policy Language
 		t.Fatalf("discoverSchema: %v", err)
 	}
 	return schema
-}
-
-func assertLocalTokenParticleConsumersUnsupported(t *testing.T, schema Schema, body string, family string) {
-	t.Helper()
-	assertLocalTokenParticleGenerationUnsupported(t, schema, family)
-	validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(body)))
-	if validationErr == nil || !errors.Is(validationErr, ErrUnsupported) {
-		t.Fatalf("%s validation error = %v, want explicit unsupported", family, validationErr)
-	}
-	validationDiagnostic := requireDiagnostic(t, validationErr)
-	if validationDiagnostic.Class() != FailureUnsupported {
-		t.Fatalf("%s validation diagnostic = %s, want unsupported", family, validationDiagnostic)
-	}
 }
 
 func assertLocalTokenParticleGenerationUnsupported(t *testing.T, schema Schema, family string) {

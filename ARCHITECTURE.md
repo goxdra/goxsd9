@@ -99,9 +99,9 @@ distinctions, and broader values are unsupported.
 `ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/decimal/precisionDecimal
 roots and complexes. Built-in/named `nonNegativeInteger` is GenerateGo-only; validation returns
 located `FailureUnsupported`/`XSD4004`/`ErrUnsupported`. Local Boolean/integer/decimal
-sequences/default choices honor ranges; homogeneous token sequences honor exact occurrences/value
-space. Anonymous/mixed-family/extension consumers reject; NMTOKEN sequences and nonzero `xs:any`
-are unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
+sequences/default choices honor ranges; homogeneous token/NMTOKEN sequences honor exact
+occurrences/value space. Anonymous/mixed-family/extension consumers reject; nonzero `xs:any`
+is unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
 only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, other
 forms remain queryable but excluded. Global `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
