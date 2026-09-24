@@ -115,8 +115,13 @@
 // exact anyAttribute, namespace, and processContents source locations are
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
-// After validation, effective 0/0 sequence, choice, child, and wildcard ranges
-// map to absence. Non-0/0 integer/decimal/long choice and
+// After successful construction-time validation, effective 0/0 becomes absence
+// only for an omittable mapped form. This is not a generic omission rule for
+// every sequence, choice, child, or wildcard: unsupported nested, recursive,
+// broader, and other structural forms remain located unsupported diagnostics.
+// Invalid, unresolved, cyclic, wrong-kind, value-constraint, and policy
+// failures retain their diagnostic class, code, cause, and primary/related
+// locations, and no Schema is returned. Non-0/0 integer/decimal/long choice and
 // alternative ranges are queryable, but direct-choice repetition is not
 // implemented. Direct choices made entirely of local Boolean elements use
 // built-in xs:boolean or named Boolean restrictions; mixed Boolean/numeric
@@ -231,12 +236,16 @@
 // model-group-reference checks use the group reference RefLoc as validation and
 // generation primary; validation retains the group particle location in related
 // facts, and generation retains group/component/reference/target related locations.
-// Direct local sequences match expanded
-// names in lexical declaration order and honor exact finite, unbounded, and
-// above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
-// and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
-// remain explicit unsupported behavior. Reference consumers exclude precisionDecimal
-// and anonymous targets.
+// Direct local sequences in consumer-supported Boolean, integer/decimal, and
+// homogeneous token/NMTOKEN families match expanded names in lexical declaration
+// order and honor exact finite, unbounded, and above-`uint64` outer and child
+// occurrence ranges under Compatibility, Strict10, and Strict11. Local built-in
+// or named-effective xs:long sequences are query-only: their exact occurrence,
+// type, and lexical-order facts remain available, but validation and generation
+// reject them. PrecisionDecimal sequences, mixed scalar-family sequences,
+// direct-choice repetition, and excluded particle/target shapes remain explicit
+// unsupported behavior. Reference consumers exclude precisionDecimal and
+// anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
 // wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
