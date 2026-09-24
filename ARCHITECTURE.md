@@ -66,8 +66,9 @@ reject with located unsupported diagnostics. Excluded: out-of-slice `int`,
 forms. After syntax, occurrence, input validation, unsupported mapped forms may be
 omitted only at exact `0/0`; published non-`0/0` cases return located
 `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at `Loc`, no
-`Schema`. Built-in `xs:long` retains intrinsic bounds/locations without synthetic
-`ComponentID`; named effective-long retains `TypeID`/`ComponentID`/provenance;
+`Schema`. Built-in `xs:long`: use-site type/variety locations, intrinsic bounds,
+zero bound-facet locations, no synthetic `ComponentID`; named effective-long:
+named `TypeID`/`ComponentID`, declaration/restriction-facet provenance;
 `NodeID`/`AnonymousID` only for admitted anonymous forms. Retain QName, bounds/facets,
 occurrences, nillable/block, locations/order, graph provenance. Only validated
 omittable mapped `0/0` disappears; invalid/unresolved/cyclic/wrong-kind/
@@ -81,18 +82,16 @@ mismatches Strict10. Malformed XSD 1.1 is invalid; untyped/inline attrs,
 `defaultAttributesApply`/XPath, non-0/0 anonymous enumeration, and broader forms unsupported.
 Diagnostics retain code/`Loc`/cause/`SpecRef`; extension/model-less gates precede; group refs use
 `RefLoc`.
-`precisionDecimal` is policy-first: Strict10 rejects at typed `Loc` with
-`FeatureDatatypeFacets`/`FailureUnsupported`/`XSD3030`/`ErrUnsupported` before
-occurrence/`0/0` handling. Compatibility/Strict11 require defaults only for
-mapped owners and typed precisionDecimal children/alternatives; non-precision
-alternatives may remain query-only. Non-extension default direct choices
-validate; extension choices query-only/consumer-rejected. Mapped
-non-`0/0` direct or extension sequences, non-default direct precisionDecimal
-choices/alternatives, and other rejected mapped inline/anonymous forms reject at
-schema construction when published. Under Compatibility/Strict11, valid omittable
-mapped `0/0` disappears only after validation, including extension sequences;
-invalid/unresolved/policy errors retain diagnostics/no `Schema`. `GenerateGo` rejects
-all precisionDecimal targets.
+`precisionDecimal`: syntax/occurrence/input validation first; malformed occurrence
+is `FailureInvalid` at its own `Loc`. Strict10 then rejects at typed `Loc`
+(`FeatureDatatypeFacets`/`FailureUnsupported`/`XSD3030`/`ErrUnsupported`) before
+`0/0` omission; global policy still precedes consumer validation. Compatibility/Strict11
+require default occurrences for mapped owners and typed `precisionDecimal`
+children/alternatives; non-precision alternatives may retain non-default query-only
+ranges. Default direct choices validate; extensions are query-only. Reject mapped
+non-`0/0` direct/extension sequences, non-default mapped owners or typed
+`precisionDecimal` alternatives, and inline/anonymous forms; valid mapped `0/0`
+omits after validation. `GenerateGo` rejects all.
 Homogeneous local token/NMTOKEN sequences are queryable with exact occurrences;
 `GenerateGo` and `<all>` consumers are unsupported.
 

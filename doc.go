@@ -27,7 +27,7 @@
 // and optional precisionDecimal boundaries return explicit unsupported diagnostics.
 // Global built-in, named, and inline precisionDecimal element/type facts are
 // available only under Compatibility or Strict11; Strict10 rejects each before
-// validation with a located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported
+// consumer validation with a located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported
 // policy diagnostic at the typed reference or type location. Global attributes
 // whose resolved type is built-in xs:precisionDecimal or a named type with
 // effective precisionDecimal facets retain zero or one optional default/fixed
@@ -50,23 +50,27 @@
 // xs:token/xs:NMTOKEN particles for named global complex types. Built-in and named
 // effective-long particles are also queryable in bounded attribute-free extensions;
 // inline types, nested particles, element references, and broader extension shapes
-// remain excluded from this support. Built-in `xs:long` retains its intrinsic
-// bounds and source locations without a synthetic `ComponentID`; named
-// effective-long retains its named `TypeID`/`ComponentID` and provenance.
-// `NodeID`/`AnonymousID` apply only to admitted anonymous forms. It also exposes
+// remain excluded from this support. Built-in `xs:long` retains its use-site
+// type/variety locations and intrinsic bounds; its intrinsic bound facet
+// locations are zero and it has no synthetic `ComponentID`. Named effective-long
+// retains its named `TypeID`/`ComponentID` plus declaration/restriction-facet
+// provenance. `NodeID`/`AnonymousID` apply only to admitted anonymous forms. It
+// also exposes
 // local inline anonymous atomic Boolean, integer, and
 // decimal restrictions in direct choices/sequences and bounded attribute-free
 // extensions under Compatibility, Strict10, and Strict11. Their immutable
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
-// not global components or Walk entries. Strict10 policy admission precedes 0/0
-// omission for both explicitly typed local built-in or named-effective
+// not global components or Walk entries. For local mapped forms, syntax and
+// occurrence/input validation happen first; malformed occurrence input remains
+// FailureInvalid at its occurrence location. Strict10 policy admission then
+// rejects both explicitly typed local built-in or named-effective
 // `precisionDecimal` forms and inline anonymous
-// `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms,
-// including zero-occurrence cases. Compatibility and Strict11 omit effective
-// 0/0 for either mapped form. This Strict10-before-omission rule is specific
-// to `precisionDecimal`. Syntax and occurrence/input validation happen first;
+// `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms at their
+// typed/type locations before 0/0 omission, including zero-occurrence cases.
+// Compatibility and Strict11 omit effective 0/0 for either mapped form. This
+// Strict10-before-omission rule is specific to `precisionDecimal`.
 // after those checks, a mapped form classified unsupported may be omitted only
 // at exact 0/0. Ordinary local effective 0/0 is absent only for an omittable
 // mapped form. Valid mapped local `nonNegativeInteger` 0/0 forms are absent under
