@@ -61,26 +61,30 @@
 // omission for both explicitly typed local built-in or named-effective
 // `precisionDecimal` forms and inline anonymous
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms,
-// including zero-occurrence cases. Compatibility and Strict11 omit effective
-// 0/0 only after the mapped type/reference and occurrence validate as omittable.
-// Invalid references/targets, malformed occurrences, and policy mismatches retain
-// their diagnostics and return no schema. This Strict10-before-omission rule is
-// specific to `precisionDecimal`; ordinary local declared, named, inline, or
-// anonymous `nonNegativeInteger` 0/0 forms are likewise absent only after
-// validation under every policy.
+// including zero-occurrence cases. Under admitting policies, effective local
+// 0/0 omits before local declared, named, or inline type mapping. Schema syntax,
+// including non-reference name/block/nillable and explicit type/inline
+// syntax-policy checks, occurrence parsing, applicable element-reference
+// resolution, and explicit Strict10 precision/policy gates precede that
+// short-circuit; their diagnostics
+// retain their causes and return no schema. Omission does not promise universal
+// type or facet validation. Ordinary local declared, named, inline, or anonymous
+// `nonNegativeInteger` 0/0 forms likewise short-circuit before type mapping under
+// every policy.
 // Local declared, named, inline, and anonymous integer-derived restrictions are
 // admitted at the mapped non-0/0 boundary only when their effective atomic kind
 // is integer or negativeInteger through named, forward, imported, included, and
-// chameleon chains. A direct local `type="xs:negativeInteger"` is schema-rejected;
-// named and inline effective negativeInteger forms are admitted as query facts,
-// but ValidateInstance and GenerateGo reject those consumers. Effective int, long,
+// chameleon chains. A direct local `type="xs:negativeInteger"` is schema-rejected
+// only when mapped non-0/0; exact 0/0 short-circuits before type mapping. Named and
+// inline effective negativeInteger forms are admitted as query facts, but
+// ValidateInstance and GenerateGo reject those consumers. Effective int, long,
 // unsignedLong, nonNegativeInteger, and
 // nonPositiveInteger are valid datatypes but unsupported at this local schema
 // boundary: ParseSchema rejects the mapped form with a located
 // FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
-// location and no schema. Ordinary local nonNegativeInteger effective 0/0
-// remains absent after occurrence/type validation and policy admission under every policy. The written base
-// QName, use-site location, and resolved named ownership remain separate facts.
+// location and no schema. Ordinary local nonNegativeInteger effective 0/0 remains
+// absent after the same short-circuit and policy admission under every policy. The
+// written base QName, use-site location, and resolved named ownership remain separate facts.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
