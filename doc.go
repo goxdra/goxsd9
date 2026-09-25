@@ -170,7 +170,8 @@
 // FailureUnsupported/ErrUnsupported at RefLoc, relates the target declaration, and
 // returns no partial schema; unresolved, wrong-kind, ambiguous, and inaccessible
 // references remain invalid, preserving primary ref/type/base Locs and related
-// candidate/target locations. A bounded scalar simpleContent extension separately
+// candidate/target locations. SimpleContent restrictions remain unsupported; a
+// bounded scalar simpleContent extension separately
 // admits Boolean/string/integer/decimal bases plus policy-gated precisionDecimal,
 // retaining base, type, and ordered-use locations with a nil particle. Local
 // value/default/fixed/inheritable semantics and attribute/simpleContent validation

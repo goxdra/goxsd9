@@ -50,9 +50,8 @@ const (
 	diagnosticSchemaModelGroupReferenceAmbiguousCode  = "XSD3049"
 	diagnosticSchemaModelGroupReferenceNamespaceCode  = "XSD3050"
 	diagnosticSchemaBridgeInvariantCode               = "GOXSD9025"
-	// Attribute-reference and simple-content diagnostics retain the #317
-	// stable family. Some values intentionally share codes with model-group
-	// diagnostics introduced later; their causes and locations distinguish them.
+	// Attribute-reference and simple-content diagnostics share the model-group
+	// code family; their causes and locations preserve the distinctions.
 	diagnosticSchemaAttributeReferenceUnresolvedCode = diagnosticSchemaBlockCode
 	diagnosticSchemaAttributeReferenceWrongKindCode  = diagnosticSchemaElementReferenceBlockCode
 	diagnosticSchemaAttributeReferenceAmbiguousCode  = diagnosticSchemaModelGroupReferenceUnresolvedCode
