@@ -283,10 +283,10 @@
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
 // diagnostic. Declared xs:string, xs:NMTOKEN, xs:int, xs:nonNegativeInteger,
 // xs:nonPositiveInteger, narrower built-ins, list/union
-// forms remain explicit unsupported behavior. A local named use reports
+// forms remain explicit unsupported behavior. A local named attribute use reports
 // FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its type
-// attribute Loc; a local declaration without type reports at the local element
-// Loc; an inline type reports at its simpleType Loc; and a referenced excluded
+// attribute Loc; a local attribute declaration without type reports at its
+// declaration Loc; an inline type reports at its simpleType Loc; and a referenced excluded
 // global use reports at RefLoc with the target declaration related. Invalid syntax,
 // edition/policy mismatches, and
 // resolution/reference failures retain their existing diagnostic, specification
