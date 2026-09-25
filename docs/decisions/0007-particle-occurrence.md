@@ -66,10 +66,12 @@ boundary:
    constructs a tagged finite or max-only unbounded bound. The range
    constructor owns copies and rejects an unbounded minimum or finite
    `min > max`.
-3. After named-type, facet, syntax, reference, occurrence, and policy gates,
-   mapping applies exact `0/0` absence to sequence, choice, and child
-   occurrences; `mapsToParticle` derives from the bounds without a separate
-   `absent` flag. This omits the local public particle, not all validation.
+3. After applicable syntax, occurrence, reference, and policy gates, mapping
+   applies exact `0/0` absence to sequence, choice, and child occurrences;
+   `mapsToParticle` derives from bounds, not an `absent` flag.
+   Graph-wide declaration/facet failures and policy errors prevent construction;
+   non-reference named/inline type mapping is not universal before local
+   public-particle omission. Local public particle alone is omitted.
 4. The completed schema phase copies the range into an immutable public
    occurrence view. Its minimum is an owned `StrictInteger`; its maximum is a
    tagged finite or unbounded value. Queries clone exact finite values at the

@@ -64,16 +64,18 @@
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
-// not global components or Walk entries. Named-type, facet, syntax, effective
-// occurrence, element-reference, and policy gates run before local public-particle
-// mapping; located gate errors preserve their causes/Locs and return no Schema.
+// not global components or Walk entries. Applicable syntax, occurrence,
+// element-reference, and policy gates run before local public-particle mapping;
+// graph-wide declaration/facet failures still surface, and located gate errors
+// preserve their causes/Locs and return no Schema. Ordinary local named/inline
+// type mapping is not universal for non-reference 0/0 terms.
 // Direct sequence owners omit before child resolution; direct choices resolve
 // child refs without duplicate checks before child omission; named groups
 // resolve/check duplicate refs before owner/child omission; child refs resolve
 // before child omission. Mapped non-0/0 unsupported scalar forms return located
-// schema-syntax diagnostics. Ordinary 0/0 forms are admitted only after those
-// gates, then the local public particle is absent; 0/0 is not a universal
-// validation bypass. Strict10 policy admission precedes omission for explicitly typed local
+// schema-syntax diagnostics. Ordinary 0/0 forms are admitted only after the
+// applicable gates, then the local public particle is absent; this is not a
+// universal named-type/facet or validation bypass. Strict10 policy admission precedes omission for explicitly typed local
 // built-in or named-effective and inline anonymous `precisionDecimal` forms,
 // including zero-occurrence cases. Ordinary `unsignedLong` and long-family 0/0
 // forms use the admission-then-absence rule under every policy.

@@ -756,6 +756,134 @@ func assertUnsignedLongExcludedOwnerZero(t *testing.T, schema Schema, model stri
 	}
 }
 
+func TestSchemaUnsignedLongZeroOccurrenceSkipsLocalTypeResolutionAcrossOwners(t *testing.T) {
+	for _, profile := range unsignedLongPolicyProfiles() {
+		for _, owner := range []struct {
+			name      string
+			model     string
+			extension bool
+		}{
+			{name: "direct choice", model: "choice"},
+			{name: "direct sequence", model: "sequence"},
+			{name: "extension choice", model: "choice", extension: true},
+			{name: "extension sequence", model: "sequence", extension: true},
+		} {
+			for _, test := range []struct {
+				name string
+				body string
+				defs string
+			}{
+				{
+					name: "unresolved",
+					body: `<xs:element name="value" type="r:Missing" minOccurs="0" maxOccurs="0"/>`,
+				},
+				{
+					name: "wrong kind",
+					body: `<xs:element name="value" type="r:NotType" minOccurs="0" maxOccurs="0"/>`,
+					defs: `<xs:element name="NotType" type="xs:unsignedLong"/>`,
+				},
+			} {
+				t.Run(profile.name+"/"+owner.name+"/"+test.name, func(t *testing.T) {
+					root := schemaUnsignedLongExcludedOwnerRoot(owner.model, owner.extension, test.body, test.defs)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err != nil {
+						t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+					}
+					assertUnsignedLongExcludedOwnerZero(t, schema, owner.model)
+				})
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Keep graph-wide facet and policy precedence beside zero omission.
+func TestSchemaUnsignedLongZeroOccurrenceRetainsFacetAndPolicyFailures(t *testing.T) {
+	for _, profile := range unsignedLongPolicyProfiles() {
+		for _, owner := range []struct {
+			name      string
+			model     string
+			extension bool
+		}{
+			{name: "direct choice", model: "choice"},
+			{name: "direct sequence", model: "sequence"},
+			{name: "extension choice", model: "choice", extension: true},
+			{name: "extension sequence", model: "sequence", extension: true},
+		} {
+			t.Run(profile.name+"/"+owner.name+"/invalid-global-facet", func(t *testing.T) {
+				root := schemaUnsignedLongExcludedOwnerRoot(
+					owner.model,
+					owner.extension,
+					`<xs:element name="value" type="r:Bad" minOccurs="0" maxOccurs="0"/>`,
+					`<xs:simpleType name="Bad"><xs:restriction base="xs:unsignedLong"><xs:maxInclusive value="18446744073709551616"/></xs:restriction></xs:simpleType>`,
+				)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				if err == nil {
+					t.Fatal("discoverTestSchemaWithPolicy accepted an invalid global unsignedLong facet")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != InvalidBoundRestrictionCode {
+					t.Fatalf("diagnostic = %s/%q, want invalid/%s", diagnostic, diagnostic.Class(), InvalidBoundRestrictionCode)
+				}
+				wantSpecRef := boundSpecRef(profile.version, BoundMaxInclusive, boundRestrictionRule)
+				if diagnostic.SpecRef() != wantSpecRef {
+					t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), wantSpecRef)
+				}
+				wantLoc := elementReferenceTestAttributeLoc(t, root, `value="18446744073709551616"`)
+				if diagnostic.Loc() != wantLoc {
+					t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+				}
+				if diagnostic.Related() != nil {
+					t.Fatalf("diagnostic related = %v, want none for built-in bound", diagnostic.Related())
+				}
+				if !errors.Is(err, errInvalidBoundRestriction) {
+					t.Fatalf("diagnostic lost invalid bound restriction cause: %v", err)
+				}
+			})
+
+			t.Run(profile.name+"/"+owner.name+"/precisionDecimal", func(t *testing.T) {
+				root := schemaUnsignedLongExcludedOwnerRoot(
+					owner.model,
+					owner.extension,
+					`<xs:element name="value" type="xs:precisionDecimal" minOccurs="0" maxOccurs="0"/>`,
+					"",
+				)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if profile.policy != Strict10 {
+					if err != nil {
+						t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+					}
+					assertUnsignedLongExcludedOwnerZero(t, schema, owner.model)
+					return
+				}
+				assertZeroSchema(t, schema)
+				if err == nil {
+					t.Fatal("Strict10 accepted an explicitly typed zero precisionDecimal term")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != diagnosticSchemaPrecisionDecimalVersionCode {
+					t.Fatalf("diagnostic = %s/%q/%q, want precisionDecimal policy mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
+				}
+				if diagnostic.SpecRef() != "xsd11-datatypes#dt-primitive" {
+					t.Fatalf("diagnostic spec reference = %q, want xsd11-datatypes#dt-primitive", diagnostic.SpecRef())
+				}
+				wantLoc := elementReferenceTestAttributeLoc(t, root, `type="xs:precisionDecimal"`)
+				if diagnostic.Loc() != wantLoc {
+					t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+				}
+				if diagnostic.Related() != nil {
+					t.Fatalf("diagnostic related = %v, want none", diagnostic.Related())
+				}
+				for _, cause := range []error{ErrUnsupported, errSchemaPrecisionDecimalVersion, errLanguagePolicyMismatch} {
+					if !errors.Is(err, cause) {
+						t.Fatalf("diagnostic lost precisionDecimal policy cause %v: %v", cause, err)
+					}
+				}
+			})
+		}
+	}
+}
+
 //nolint:gocognit,funlen // Keep extension shape, provenance, occurrence, and consumer gates together.
 func TestSchemaUnsignedLongExtensionParticlesAcrossPolicies(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {

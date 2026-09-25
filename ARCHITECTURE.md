@@ -65,34 +65,37 @@ empty-content bases or named complexContent restrictions over built-in `xs:anyTy
 anonymous refs, base identity/locations, inherited `##other`/`lax` wildcards. Scalar
 simpleContent extensions retain base/type/use `Loc`s and nil particle; restrictions are
 unsupported; bases are Boolean/string/integer/decimal plus policy-gated `precisionDecimal`.
-Admission: direct/permitted extension choices/sequences admit `integer`, effective named/
-anonymous-inline `negativeInteger`, and built-in/supported named `unsignedLong`; direct built-in
-`negativeInteger` rejects mapped nonzero. Scalar exclusions return `FailureUnsupported`
-at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`; syntax,
-occurrence, reference, policy gates precede mapping. Sequences omit before
-child resolution; choices resolve refs without duplicate checks before omission; named
-groups resolve/check refs before owner/child omission; child refs resolve before omission.
-Element/top-level model-group references are distinct query boundaries retaining
-QName/RefLoc/TargetID/order without expansion; nested/local/recursive/broader forms remain
-unsupported or consumer-excluded. Inline or anonymous `unsignedLong` is a separate
-schema-unsupported scalar boundary at `type`/`simpleType` `Loc`; admitted local
-built-in/named-effective `unsignedLong` is query-only and consumer-rejected. Named/anonymous-inline
+Admission: supported direct/extension choices/sequences admit `integer`, named/anonymous-inline
+`negativeInteger`, and built-in/supported named `unsignedLong`; direct built-in
+`negativeInteger` rejects nonzero mapping. Scalar exclusions return `FailureUnsupported`
+at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`. Applicable
+syntax/occurrence/reference/policy gates precede local mapping; graph-wide declaration/facet
+failures and Strict10 `precisionDecimal` still apply; non-reference named/inline
+mapping is not universal for `0/0`. Sequences omit before children; choices resolve refs
+without duplicate checks before omission; named groups resolve/check before owner/child
+omission; child refs resolve first.
+Element/model-group references retain QName/RefLoc/TargetID/order without expansion;
+nested/local/recursive/broader forms remain unsupported or consumer-excluded. Mapped non-`0/0`
+local inline/anonymous `unsignedLong` forms are schema-unsupported at `type`/`simpleType`
+`Loc`; applicable `0/0` forms are absent. Admitted local built-in/named-effective
+`unsignedLong` is query-only and consumer-rejected; global facts, AttributeUse,
+simpleContent retain separate `unsignedLong` exclusions. Named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
-AttributeUse facts are ordered and copied in particle-plus-use, direct model-group, attribute-only,
-and scalar simpleContent-extension bodies. Local uses retain name/type/use locations and named
-type or anonymous `AnonymousID`/`NodeID` ownership; references retain QName/RefLoc/TargetID/use.
-Forms select names; XSD 1.1 local `targetNamespace` must match the container; chameleon includes
-adopt it; prohibited uses are omitted. Value/default/fixed/inheritable semantics,
-attributeGroup/attribute-bearing extensions, and consumers remain unsupported; excluded references
-preserve use-site/target locations and return no schema.
-Global attributes are query-only: supported named atomic Boolean, integer, decimal, token,
-negativeInteger, language, NCName, anyURI, ID, long, unsignedLong, and policy-gated
-precisionDecimal. Built-in long/unsignedLong bounds are intrinsic; named restrictions retain
-exact facets and locations/provenance/ownership. Excluded/local/inline forms report
-`FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at their type/declaration/
-use-site location; unsupported values report at value `Loc`, invalid values preserve causes,
-and default+fixed uses fixed primary/default related. Type-only declarations have no constraint;
-attribute consumers and `GenerateGo` reject them.
+AttributeUse facts preserve order, locations, ownership, effective use, and QName/RefLoc/TargetID
+in particle-plus-use, model-group, attribute-only, and simpleContent. Local uses retain
+name/type/use locations and named/anonymous `AnonymousID`/`NodeID`; references retain
+QName/RefLoc/TargetID/use. Forms select names; XSD 1.1 `targetNamespace` must match the container;
+chameleon adopts; prohibited uses are omitted. Value/default/fixed/inheritable semantics,
+attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported;
+excluded references retain locations and return no schema.
+Global attributes are query-only: built-in or supported named atomic Boolean/integer/decimal/token,
+negativeInteger/language/NCName/anyURI/ID, long/unsignedLong, policy-gated `precisionDecimal`.
+Built-in long/unsignedLong bounds are intrinsic; named restrictions retain facets, locations,
+provenance, and ownership. Excluded/local/inline forms report
+`FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at type/declaration/use-site
+`Loc`; unsupported values report at value `Loc`; invalid values preserve causes; default+fixed uses
+fixed primary/default related. Type-only declarations have no constraint; attribute consumers/
+`GenerateGo` reject them.
 
 Complexes retain non-inherited `IsAbstract`, declaring-document `finalDefault` provenance,
 ordered groups/extensions, and exact wildcard facts. Non-`0/0` `xs:any` facts remain queryable

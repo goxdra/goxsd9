@@ -224,20 +224,39 @@ func TestSchemaBridgeRejectsUnsignedLongAttributeUsesAcrossPolicies(t *testing.T
 			root    string
 			primary string
 			related string
-			cause   error
+			causes  []error
 		}{
 			{
-				name:    "local",
+				name:    "local built-in",
 				root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:complexType name="Record"><xs:attribute name="value" type="xs:unsignedLong"/></xs:complexType></xs:schema>`,
 				primary: `type="xs:unsignedLong"`,
-				cause:   errSchemaAttributeUseUnsupported,
+				causes:  []error{ErrUnsupported, errSchemaAttributeTypeUnsupported, errSchemaAttributeUseUnsupported},
 			},
 			{
-				name:    "referenced",
+				name:    "local anonymous-inline",
+				root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:complexType name="Record"><xs:attribute name="value"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:attribute></xs:complexType></xs:schema>`,
+				primary: `<xs:simpleType>`,
+				causes:  []error{ErrUnsupported, errSchemaAttributeTypeUnsupported, errSchemaAttributeUseUnsupported},
+			},
+			{
+				name:    "local named-effective",
+				root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:complexType name="Record"><xs:attribute name="value" type="r:UnsignedLong"/></xs:complexType><xs:simpleType name="UnsignedLong"><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:schema>`,
+				primary: `type="r:UnsignedLong"`,
+				causes:  []error{ErrUnsupported, errSchemaAttributeTypeUnsupported, errSchemaAttributeUseUnsupported},
+			},
+			{
+				name:    "referenced built-in",
 				root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="global" type="xs:unsignedLong"/><xs:complexType name="Record"><xs:attribute ref="r:global"/></xs:complexType></xs:schema>`,
 				primary: `ref="r:global"`,
 				related: `<xs:attribute name="global"`,
-				cause:   errSchemaAttributeReferenceUnsupported,
+				causes:  []error{ErrUnsupported, errSchemaAttributeReferenceUnsupported},
+			},
+			{
+				name:    "referenced named-effective",
+				root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="global" type="r:UnsignedLong"/><xs:complexType name="Record"><xs:attribute ref="r:global"/></xs:complexType><xs:simpleType name="UnsignedLong"><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:schema>`,
+				primary: `ref="r:global"`,
+				related: `<xs:attribute name="global"`,
+				causes:  []error{ErrUnsupported, errSchemaAttributeReferenceUnsupported},
 			},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
@@ -251,7 +270,7 @@ func TestSchemaBridgeRejectsUnsignedLongAttributeUsesAcrossPolicies(t *testing.T
 					t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Feature())
 				}
 				wantSpecRef := schemaAttributeUseSpecRef(profile.version)
-				if test.name == "local" {
+				if strings.HasPrefix(test.name, "local") {
 					wantSpecRef = schemaAttributeTypeSpecRef(profile.version)
 				}
 				if diagnostic.SpecRef() != wantSpecRef {
@@ -267,8 +286,10 @@ func TestSchemaBridgeRejectsUnsignedLongAttributeUsesAcrossPolicies(t *testing.T
 				if got := diagnostic.Related(); !reflect.DeepEqual(got, wantRelated) {
 					t.Fatalf("diagnostic related = %v, want %v", got, wantRelated)
 				}
-				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, test.cause) {
-					t.Fatalf("diagnostic lost unsupported AttributeUse cause: %v", err)
+				for _, cause := range test.causes {
+					if !errors.Is(err, cause) {
+						t.Fatalf("diagnostic lost unsupported AttributeUse cause %v: %v", cause, err)
+					}
 				}
 			})
 		}
@@ -278,31 +299,50 @@ func TestSchemaBridgeRejectsUnsignedLongAttributeUsesAcrossPolicies(t *testing.T
 //nolint:gocognit // Keep the cross-policy simpleContent diagnostic matrix together.
 func TestSchemaBridgeRejectsUnsignedLongSimpleContentBasesAcrossPolicies(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:complexType name="Value"><xs:simpleContent><xs:extension base="xs:unsignedLong"/></xs:simpleContent></xs:complexType></xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			assertZeroSchema(t, schema)
-			if err == nil {
-				t.Fatal("discoverSchema accepted unsignedLong simpleContent base")
-			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
-				t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Feature())
-			}
-			if diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) {
-				t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), schemaSimpleContentSpecRef(profile.version))
-			}
-			wantLoc := elementReferenceTestAttributeLoc(t, root, `base="xs:unsignedLong"`)
-			if diagnostic.Loc() != wantLoc {
-				t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
-			}
-			if diagnostic.Related() != nil {
-				t.Fatalf("diagnostic related = %v, want none", diagnostic.Related())
-			}
-			if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) {
-				t.Fatalf("diagnostic lost unsupported simpleContent cause: %v", err)
-			}
-		})
+		for _, test := range []struct {
+			name string
+			root string
+			base string
+		}{
+			{
+				name: "built-in",
+				root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:complexType name="Value"><xs:simpleContent><xs:extension base="xs:unsignedLong"/></xs:simpleContent></xs:complexType></xs:schema>`,
+				base: `base="xs:unsignedLong"`,
+			},
+			{
+				name: "named-effective",
+				root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:complexType name="Value"><xs:simpleContent><xs:extension base="r:UnsignedLong"/></xs:simpleContent></xs:complexType><xs:simpleType name="UnsignedLong"><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:schema>`,
+				base: `base="r:UnsignedLong"`,
+			},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := test.root
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				if err == nil {
+					t.Fatal("discoverSchema accepted unsignedLong simpleContent base")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+					t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Feature())
+				}
+				if diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) {
+					t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), schemaSimpleContentSpecRef(profile.version))
+				}
+				wantLoc := elementReferenceTestAttributeLoc(t, root, test.base)
+				if diagnostic.Loc() != wantLoc {
+					t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+				}
+				if diagnostic.Related() != nil {
+					t.Fatalf("diagnostic related = %v, want none", diagnostic.Related())
+				}
+				for _, cause := range []error{ErrUnsupported, errSchemaSimpleContentBaseUnsupported} {
+					if !errors.Is(err, cause) {
+						t.Fatalf("diagnostic lost unsupported simpleContent cause %v: %v", cause, err)
+					}
+				}
+			})
+		}
 	}
 }
 
