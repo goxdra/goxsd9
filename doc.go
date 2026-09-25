@@ -63,14 +63,15 @@
 // named-effective and inline anonymous `precisionDecimal` forms, including
 // zero-occurrence cases. Ordinary `unsignedLong` and long-family 0/0 forms
 // use the admission-then-absence rule under every policy.
-// Local declared, named, inline, and anonymous integer-derived restrictions are
-// admitted at the mapped non-0/0 boundary only when their effective atomic kind
-// is integer or negativeInteger. A direct local xs:negativeInteger is rejected
+// Local declared, named, inline, and anonymous restrictions in the
+// integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
+// only when their effective atomic kind is integer or negativeInteger. A direct
+// local xs:negativeInteger is rejected
 // as mapped non-0/0 schema syntax at its type/facet Loc; effective named or
 // inline negativeInteger is admitted query-only, while ValidateInstance and
-// GenerateGo return consumer-only FailureUnsupported. Under all three policies,
-// explicitly typed local built-in or supported named-effective unsignedLong is
-// admitted only in direct choices/sequences and permitted bounded attribute-free
+// GenerateGo return consumer-only FailureUnsupported. Separately, under all
+// three policies, explicitly typed local built-in or supported named-effective
+// unsignedLong is admitted only in direct choices/sequences and permitted bounded attribute-free
 // extension choices/sequences over named empty-content bases or named complexContent
 // restrictions over xs:anyType (including representable inherited ##other/lax
 // wildcard facts). Effective int, long, nonNegativeInteger, and nonPositiveInteger,
