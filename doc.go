@@ -71,18 +71,20 @@
 // GenerateGo return consumer-only FailureUnsupported. Under all three policies,
 // explicitly typed local built-in or supported named-effective unsignedLong is
 // admitted only in direct choices/sequences and permitted bounded attribute-free
-// extension choices over named empty-content bases or named complexContent
+// extension choices/sequences over named empty-content bases or named complexContent
 // restrictions over xs:anyType (including representable inherited ##other/lax
 // wildcard facts). Effective int, long, nonNegativeInteger, and nonPositiveInteger,
 // plus inline/anonymous unsignedLong, are excluded: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Permitted ordinary
 // 0/0 remains absent after the preceding gates.
-// The written base QName, use-site location, named ownership, and resolved facts
-// remain separate. Admitted local unsignedLong particles retain exact inclusive
-// bounds [0,18446744073709551615], facets, source locations, identities, graph
-// provenance, and exact occurrences; only validation and GenerateGo return
-// consumer-only FailureUnsupported diagnostics.
+// The written base QName/base Loc, use-site/type/facet Locs, named ID versus
+// built-in zero identity, ownership, and resolved facts remain separate. Built-in
+// unsignedLong retains intrinsic inclusive bounds [0,18446744073709551615];
+// named-effective particles retain exact narrowed/exclusive bounds/facets
+// (including Tight max 7), source locations, identities, graph provenance, and
+// exact occurrences; only validation and GenerateGo return consumer-only
+// FailureUnsupported diagnostics.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
@@ -139,8 +141,9 @@
 // Compatibility/Strict11, mapped non-default precisionDecimal choice/alternative
 // ranges or non-0/0 direct-sequence precisionDecimal ranges that map to particles
 // are schema-unsupported. Only non-extension default-occurrence typed direct
-// choices are validation-eligible; extension choices and all anonymous consumers
-// are rejected by validation and generation.
+// choices are validation-eligible; precisionDecimal extension choices remain
+// query-only/consumer-rejected, and all anonymous consumers are rejected by
+// validation and generation.
 // The supported local anonymous model is limited to atomic
 // Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
 // attribute-free extension shapes above. Local anonymous Boolean/integer/decimal
@@ -168,10 +171,11 @@
 // `ModelGroupReferenceParticle` form. Named global model groups expose direct
 // element-reference choices or sequences without expansion.
 // Top-level direct model-group references on named complex types and bounded
-// attribute-free extensions over named empty-content bases are queryable as exact
-// immutable facts without expanding target members. Direct model-group references
-// retain `TargetID`; nested, local, recursive, and broader group-reference shapes
-// remain unsupported.
+// attribute-free extensions over named empty-content bases or named complexContent
+// restrictions over xs:anyType are queryable as exact immutable facts without
+// expanding target members. Direct model-group references retain `RefLoc`/`TargetID`;
+// their consumer gates use the group RefLoc and reject them. Nested, local,
+// recursive, and broader group-reference shapes remain unsupported.
 // Default-bounded sequences of supported built-in or named numeric or
 // all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
 // Boolean/integer/decimal particles remain queryable but validation and generation
