@@ -2289,9 +2289,6 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 			}
 			return schemaElementParticleInput{}, simpleTypeErr
 		}
-		if !occurrences.mapsToParticle() {
-			return input, nil
-		}
 		input.typeInput = &schemaElementInput{
 			typeLoc:          inline.loc,
 			inlineSimpleType: simpleType,
@@ -3205,16 +3202,10 @@ func resolveSchemaSimpleTypeInputsInComplexParticle(
 		if particle == nil {
 			return newSchemaBridgeInvariant(Loc{}, "choice simple type resolution has a nil particle input")
 		}
-		if !particle.occurrences.mapsToParticle() {
-			return nil
-		}
 		return resolveSchemaSimpleTypeInputsInParticleTerms(particle.alternatives, source, resolver, version)
 	case *schemaSequenceParticleInput:
 		if particle == nil {
 			return newSchemaBridgeInvariant(Loc{}, "sequence simple type resolution has a nil particle input")
-		}
-		if !particle.occurrences.mapsToParticle() {
-			return nil
 		}
 		return resolveSchemaSimpleTypeInputsInParticleTerms(particle.particles, source, resolver, version)
 	case *schemaModelGroupReferenceParticleInput:
@@ -3234,12 +3225,8 @@ func resolveSchemaSimpleTypeInputsInParticleTerms(
 	version XSDVersion,
 ) error {
 	for _, term := range terms {
-		termOccurrences, err := schemaParticleTermInputOccurrences(term)
-		if err != nil {
+		if _, err := schemaParticleTermInputOccurrences(term); err != nil {
 			return err
-		}
-		if !termOccurrences.mapsToParticle() {
-			continue
 		}
 		input, ok := schemaElementParticleInputValue(term)
 		if !ok || input.typeInput == nil || input.typeInput.inlineSimpleType == nil {
