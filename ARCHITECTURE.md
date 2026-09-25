@@ -66,7 +66,8 @@ with located unsupported diagnostics/no output.
 Excluded: out-of-slice `int`,
 `unsignedLong`, `nonNegativeInteger`, `nonPositiveInteger`, list/union, structural
 forms. After syntax/occurrence/input validation, any validated omittable mapped
-form may be absent only at exact `0/0`; published non-`0/0` unsupported forms
+form—even if schema-unsupported at publication—may be absent
+only at exact `0/0`. Excluded mapped forms that remain published at non-`0/0`
 return located `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported`
 at `Loc`, no `Schema`. Built-in `xs:long`: use-site type/variety locations, intrinsic bounds,
 zero bound-facet locations, no synthetic `ComponentID`; named effective-long:
@@ -83,16 +84,15 @@ Named complexes preserve final/default provenance; `IsInheritable` accepts Compa
 mismatches Strict10. Malformed XSD 1.1 is invalid; untyped/inline attrs,
 `defaultAttributesApply`/XPath, non-0/0 anonymous enumeration, and broader forms unsupported.
 Extension/model-less gates precede; group refs use `RefLoc`.
-`precisionDecimal`: Global built-in/named/inline/anonymous facts remain query-only
-under Compatibility/Strict11; Strict10 policy rejects at typed/type `Loc`
-(`FeatureDatatypeFacets`/`FailureUnsupported`/`XSD3030`/`ErrUnsupported`) before
-consumer validation/`0/0`. Syntax/occurrence/input validation first; malformed
-occurrence is `FailureInvalid` at `Loc`. Compatibility/Strict11 require default
-mapped owners and typed `precisionDecimal` children/alternatives; default choices
-validate. Extension choices are query-only; mapped non-`0/0` extension sequences
-are schema-unsupported. Reject mapped non-`0/0` direct sequences, non-default owners
-or typed `precisionDecimal` alternatives, and local mapped inline/anonymous particles;
-valid mapped `0/0` omits after validation. `GenerateGo` rejects all targets.
+`precisionDecimal`: Compatibility/Strict11 admit global built-in/named/inline/anonymous
+element/type facts to queries; built-in/named roots validate, inline/anonymous targets
+are consumer-excluded, and `GenerateGo` rejects all. Strict10 rejects at typed/type
+`Loc` before consumers/`0/0`. Compatibility/Strict11 require default mapped
+owners/typed `precisionDecimal` children/alternatives; default choices validate.
+Extension choices are query-only; mapped non-`0/0` extension sequences are
+schema-unsupported. Reject mapped non-`0/0` direct sequences, non-default
+owners/typed alternatives, and published local mapped inline/anonymous non-`0/0`
+forms; valid mapped `0/0` omits after validation.
 Local token/NMTOKEN sequences queryable; `GenerateGo`/`<all>` consumers reject.
 
 Complexes expose non-inherited `IsAbstract`; `Final()` uses declaring-document `finalDefault`

@@ -71,9 +71,10 @@
 // typed/type locations before 0/0 omission, including zero-occurrence cases.
 // Compatibility and Strict11 omit effective 0/0 for either mapped form. This
 // Strict10-before-omission rule is specific to `precisionDecimal`.
-// After those checks, any validated omittable mapped form, including a supported
-// query-only named effective-long form, is absent only at exact 0/0. This is not
-// a generic omission rule for every sequence, choice, child, or wildcard.
+// After those checks, any validated omittable mapped form may be absent only at
+// exact 0/0, including a supported query-only named effective-long form and a
+// form classified schema-unsupported at publication. This is not a generic
+// omission rule for every sequence, choice, child, or wildcard.
 // Valid mapped local `nonNegativeInteger` 0/0 forms are absent under
 // every policy. Invalid, resolution, cyclic, wrong-kind, value-constraint, and
 // policy failures retain located diagnostics, causes, and no-schema result. In
@@ -84,10 +85,11 @@
 // `xs:negativeInteger`, out-of-slice integer kinds (`int`, `unsignedLong`,
 // `nonNegativeInteger`, and `nonPositiveInteger`), list/union varieties, and
 // nested, recursive, or broader structural forms are excluded. Applicable
-// schema-boundary exclusions return located
+// Published non-0/0 mapped exclusions return located
 // FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported diagnostics at
 // the relevant type, facet, or use-site location and no schema. Admitted local
-// effective-`negativeInteger` and effective-long forms remain query-only:
+// effective-`negativeInteger` and effective-long forms remain query-only rather
+// than schema-unsupported:
 // `ValidateInstance` and `GenerateGo` reject them with located unsupported
 // diagnostics and no consumer output. Named, forward, imported, included, and
 // chameleon chains retain their written base QName, use-site location, and
@@ -128,9 +130,11 @@
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
 // After successful construction-time validation, effective 0/0 becomes absence
-// only for an omittable mapped form. This is not a generic omission rule for
-// every sequence, choice, child, or wildcard: unsupported nested, recursive,
-// broader, and other structural forms remain located unsupported diagnostics.
+// only for an omittable mapped form, including a form classified
+// schema-unsupported at publication. This is not a generic omission rule for
+// every sequence, choice, child, or wildcard. Published non-0/0 mapped
+// exclusions and unsupported nested, recursive, broader, or other structural
+// forms retain located unsupported diagnostics and no Schema.
 // Invalid, unresolved, cyclic, wrong-kind, value-constraint, and policy
 // failures retain their diagnostic class, code, cause, and primary/related
 // locations, and no Schema is returned. Non-0/0 integer/decimal/long choice and
