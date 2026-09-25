@@ -558,7 +558,6 @@ func TestSchemaBuildKeepsDirectChoiceUnsupportedShapes(t *testing.T) {
 	}{
 		{name: "nested sequence", model: `<xs:choice><xs:sequence/></xs:choice>`},
 		{name: "excluded wildcard process contents", model: `<xs:choice><xs:any namespace="##other" processContents="skip"/></xs:choice>`},
-		{name: "complex attributes", model: `<xs:choice><xs:element name="value" type="xs:integer"/></xs:choice><xs:attribute name="label" type="xs:integer"/>`},
 	}
 	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
 		t.Run(string(policy), func(t *testing.T) {

@@ -424,3 +424,232 @@ func TestSchemaUnsignedLongLocalParticleExcludedShapesRemainUnsupported(t *testi
 		}
 	}
 }
+
+//nolint:gocognit,funlen // Keep extension shape, provenance, occurrence, and consumer gates together.
+func TestSchemaUnsignedLongExtensionParticlesAcrossPolicies(t *testing.T) {
+	for _, profile := range unsignedLongPolicyProfiles() {
+		t.Run(profile.name, func(t *testing.T) {
+			root, fixtures := schemaUnsignedLongExtensionParticleGraph()
+			first, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			second, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("repeated discoverTestSchemaWithPolicy: %v", err)
+			}
+			before := first.Components()
+			if !reflect.DeepEqual(before, second.Components()) {
+				t.Fatal("repeated extension builds changed unsignedLong particle facts or order")
+			}
+
+			choice := requireUnsignedLongParticleComplexType(t, first, "ExtensionChoice")
+			assertUnsignedLongExtensionBase(t, choice, root, 10)
+			choiceParticle, ok := choice.Particle().(ChoiceParticle)
+			if !ok {
+				t.Fatalf("ExtensionChoice particle = %T, want ChoiceParticle", choice.Particle())
+			}
+			if got, want := choiceParticle.Loc(), mustSchemaTokenLoc(t, "root.xsd", root, 11, `<xs:choice`); got != want {
+				t.Fatalf("ExtensionChoice particle location = %s, want %s", got, want)
+			}
+			if got, want := choiceParticle.Occurrences().String(), "0/18446744073709551617"; got != want {
+				t.Fatalf("ExtensionChoice occurrences = %q, want %q", got, want)
+			}
+			choiceAlternatives := choiceParticle.Alternatives()
+			if got, want := len(choiceAlternatives), 5; got != want {
+				t.Fatalf("ExtensionChoice alternatives = %d, want %d after child 0/0 omission", got, want)
+			}
+			choiceCases := unsignedLongExtensionParticleCases(t, root, "choice", 12, "2", "18446744073709551616")
+			for index, test := range choiceCases {
+				element := requireUnsignedLongElementParticle(t, choiceAlternatives[index])
+				assertUnsignedLongExtensionElement(t, element, test, profile.version, root, 12+index)
+			}
+
+			sequence := requireUnsignedLongParticleComplexType(t, first, "ExtensionSequence")
+			assertUnsignedLongExtensionBase(t, sequence, root, 24)
+			sequenceParticle, ok := sequence.Particle().(SequenceParticle)
+			if !ok {
+				t.Fatalf("ExtensionSequence particle = %T, want SequenceParticle", sequence.Particle())
+			}
+			if got, want := sequenceParticle.Loc(), mustSchemaTokenLoc(t, "root.xsd", root, 25, `<xs:sequence`); got != want {
+				t.Fatalf("ExtensionSequence particle location = %s, want %s", got, want)
+			}
+			if got, want := sequenceParticle.Occurrences().String(), "0/unbounded"; got != want {
+				t.Fatalf("ExtensionSequence occurrences = %q, want %q", got, want)
+			}
+			sequenceElements := sequenceParticle.Elements()
+			if got, want := len(sequenceElements), 5; got != want {
+				t.Fatalf("ExtensionSequence elements = %d, want %d after child 0/0 omission", got, want)
+			}
+			sequenceCases := unsignedLongExtensionParticleCases(t, root, "sequence", 26, "18446744073709551616", "18446744073709551617")
+			for index, test := range sequenceCases {
+				assertUnsignedLongExtensionElement(t, sequenceElements[index], test, profile.version, root, 26+index)
+			}
+
+			for _, local := range []string{"ExtensionChoiceZero", "ExtensionSequenceZero"} {
+				definition := requireUnsignedLongParticleComplexType(t, first, local)
+				if definition.Particle() != nil {
+					t.Fatalf("%s published an extension particle for owner 0/0", local)
+				}
+			}
+
+			generated, generationErr := GenerateGo(first, "generated")
+			if generated != nil || generationErr == nil {
+				t.Fatalf("GenerateGo extension result = (%q, %v), want unsupported with no output", generated, generationErr)
+			}
+			generationDiagnostic := requireDiagnostic(t, generationErr)
+			if generationDiagnostic.Class() != FailureUnsupported || generationDiagnostic.Feature() != FeatureCodegen || !errors.Is(generationErr, ErrUnsupported) || generationDiagnostic.Loc().IsZero() {
+				t.Fatalf("GenerateGo extension diagnostic = %s, want located unsupported with preserved cause", generationDiagnostic)
+			}
+
+			for _, rootName := range []string{"choiceRoot", "sequenceRoot"} {
+				instance := `<` + rootName + ` xmlns="urn:root"/>`
+				validationErr := ValidateInstance(first, "instance.xml", io.NopCloser(strings.NewReader(instance)))
+				if validationErr == nil {
+					t.Fatalf("ValidateInstance accepted extension consumer %q", rootName)
+				}
+				validationDiagnostic := requireDiagnostic(t, validationErr)
+				if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Feature() != FeatureInstanceValidation || !errors.Is(validationErr, ErrUnsupported) || validationDiagnostic.Loc().IsZero() {
+					t.Fatalf("ValidateInstance %s diagnostic = %s, want located unsupported with preserved cause", rootName, validationDiagnostic)
+				}
+			}
+
+			choiceAlternatives[0] = ElementParticle{}
+			sequenceElements[0] = ElementParticle{}
+			if !reflect.DeepEqual(before, first.Components()) {
+				t.Fatal("mutating copied extension particle views changed the completed schema")
+			}
+		})
+	}
+}
+
+type unsignedLongExtensionParticleCase struct {
+	local        string
+	typeName     QName
+	source       SourceID
+	minimum      string
+	maximum      string
+	boundMinimum string
+	boundMaximum string
+	typeLoc      Loc
+}
+
+func unsignedLongExtensionParticleCases(t *testing.T, root, prefix string, startLine int, builtinMinimum, builtinMaximum string) []unsignedLongExtensionParticleCase {
+	t.Helper()
+	return []unsignedLongExtensionParticleCase{
+		{local: prefix + "Builtin", typeName: mustTestQName(t, testXSDNamespace, "unsignedLong"), minimum: builtinMinimum, maximum: builtinMaximum, typeLoc: mustSchemaTokenLoc(t, "root.xsd", root, startLine, `type="xs:unsignedLong"`)},
+		{local: prefix + "Forward", typeName: mustTestQName(t, "urn:root", "Forward"), source: "root.xsd", minimum: "1", maximum: "1", boundMinimum: unsignedLongMinimum, boundMaximum: unsignedLongMaximum, typeLoc: mustSchemaTokenLoc(t, "root.xsd", root, startLine+1, `type="r:Forward"`)},
+		{local: prefix + "Included", typeName: mustTestQName(t, "urn:root", "Included"), source: "ordinary.xsd", minimum: "0", maximum: "10", boundMinimum: "1", boundMaximum: "10", typeLoc: mustSchemaTokenLoc(t, "root.xsd", root, startLine+2, `type="r:Included"`)},
+		{local: prefix + "Chameleon", typeName: mustTestQName(t, "urn:root", "Chameleon"), source: "chameleon.xsd", minimum: "1", maximum: "unbounded", boundMinimum: "2", boundMaximum: "20", typeLoc: mustSchemaTokenLoc(t, "root.xsd", root, startLine+3, `type="r:Chameleon"`)},
+		{local: prefix + "Imported", typeName: mustTestQName(t, "urn:other", "Imported"), source: "other.xsd", minimum: "3", maximum: "30", boundMinimum: "3", boundMaximum: "30", typeLoc: mustSchemaTokenLoc(t, "root.xsd", root, startLine+4, `type="o:Imported"`)},
+	}
+}
+
+func assertUnsignedLongExtensionBase(t *testing.T, definition ComplexTypeDefinition, root string, line int) {
+	t.Helper()
+	if definition.Derivation() != ComplexTypeDerivationExtension || definition.Base() != mustTestQName(t, "urn:root", "Base") {
+		t.Fatalf("%s derivation/base = %q/%q, want extension/r:Base", definition.Name(), definition.Derivation(), definition.Base())
+	}
+	base, ok := definition.BaseReference()
+	if !ok || base.Name() != mustTestQName(t, "urn:root", "Base") || base.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, line, `base="r:Base"`) {
+		t.Fatalf("%s base reference = %#v/%t, want located r:Base", definition.Name(), base, ok)
+	}
+	if definition.DerivationLoc() != mustSchemaTokenLoc(t, "root.xsd", root, line, `<xs:extension`) {
+		t.Fatalf("%s derivation location = %s, want extension location", definition.Name(), definition.DerivationLoc())
+	}
+	if id, ok := base.ComponentID(); !ok || id.Source() != "root.xsd" {
+		t.Fatalf("%s base ID = %v/%t, want root.xsd ownership", definition.Name(), id, ok)
+	}
+}
+
+func assertUnsignedLongExtensionElement(t *testing.T, element ElementParticle, test unsignedLongExtensionParticleCase, version XSDVersion, root string, line int) {
+	t.Helper()
+	if element.Name() != mustTestQName(t, "", test.local) || element.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, line, `<xs:element name="`+test.local+`"`) {
+		t.Fatalf("%s element facts = %q/%s, want retained name/location", test.local, element.Name(), element.Loc())
+	}
+	if got, want := element.Occurrences().String(), test.minimum+"/"+test.maximum; got != want {
+		t.Fatalf("%s occurrences = %q, want %q", test.local, got, want)
+	}
+	reference, ok := element.TypeReference()
+	if !ok || reference.Name() != test.typeName || reference.Loc() != test.typeLoc {
+		t.Fatalf("%s type reference = %#v/%t, want %q at %s", test.local, reference, ok, test.typeName, test.typeLoc)
+	}
+	if test.source == "" {
+		assertUnsignedLongBuiltinReference(t, reference, test.typeLoc, version)
+		if id, hasID := element.TypeID(); hasID || !id.IsZero() {
+			t.Fatalf("%s built-in type ID = %v/%t, want zero/false", test.local, id, hasID)
+		}
+		return
+	}
+	if !reference.IsNamed() {
+		t.Fatalf("%s type reference = %#v, want named reference", test.local, reference)
+	}
+	assertIntegerReferenceFacts(t, reference.facts, version, schemaSimpleTypeAtomicUnsignedLong, "unsignedLong", test.boundMinimum, test.boundMaximum)
+	id, ok := reference.ComponentID()
+	particleID, particleOK := element.TypeID()
+	if !ok || id.Source() != test.source || !particleOK || particleID != id {
+		t.Fatalf("%s ownership = %v/%t and %v/%t, want matching %q IDs", test.local, id, ok, particleID, particleOK, test.source)
+	}
+}
+
+func schemaUnsignedLongExtensionParticleGraph() (string, map[string]discoveryFixture) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root" version="2.0">
+  <xs:include schemaLocation="ordinary.xsd"/>
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:element name="choiceRoot" type="r:ExtensionChoice"/>
+  <xs:element name="sequenceRoot" type="r:ExtensionSequence"/>
+  <xs:complexType name="Base"/>
+  <xs:complexType name="ExtensionChoice">
+    <xs:complexContent>
+      <xs:extension base="r:Base">
+        <xs:choice minOccurs="0" maxOccurs="18446744073709551617">
+          <xs:element name="choiceBuiltin" type="xs:unsignedLong" minOccurs="2" maxOccurs="18446744073709551616"/>
+          <xs:element name="choiceForward" type="r:Forward"/>
+          <xs:element name="choiceIncluded" type="r:Included" minOccurs="0" maxOccurs="10"/>
+          <xs:element name="choiceChameleon" type="r:Chameleon" maxOccurs="unbounded"/>
+          <xs:element name="choiceImported" type="o:Imported" minOccurs="3" maxOccurs="30"/>
+          <xs:element name="choiceZero" type="r:Included" minOccurs="0" maxOccurs="0"/>
+        </xs:choice>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="ExtensionSequence">
+    <xs:complexContent>
+      <xs:extension base="r:Base">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+          <xs:element name="sequenceBuiltin" type="xs:unsignedLong" minOccurs="18446744073709551616" maxOccurs="18446744073709551617"/>
+          <xs:element name="sequenceForward" type="r:Forward"/>
+          <xs:element name="sequenceIncluded" type="r:Included" minOccurs="0" maxOccurs="10"/>
+          <xs:element name="sequenceChameleon" type="r:Chameleon" maxOccurs="unbounded"/>
+          <xs:element name="sequenceImported" type="o:Imported" minOccurs="3" maxOccurs="30"/>
+          <xs:element name="sequenceZero" type="r:Included" minOccurs="0" maxOccurs="0"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="ExtensionChoiceZero">
+    <xs:complexContent><xs:extension base="r:Base"><xs:choice minOccurs="0" maxOccurs="0"><xs:element name="zeroChoice" type="r:Included"/></xs:choice></xs:extension></xs:complexContent>
+  </xs:complexType>
+  <xs:complexType name="ExtensionSequenceZero">
+    <xs:complexContent><xs:extension base="r:Base"><xs:sequence minOccurs="0" maxOccurs="0"><xs:element name="zeroSequence" type="r:Included"/></xs:sequence></xs:extension></xs:complexContent>
+  </xs:complexType>
+  <xs:simpleType name="Forward"><xs:restriction base="r:Later"/></xs:simpleType>
+  <xs:simpleType name="Later"><xs:restriction base="xs:unsignedLong"/></xs:simpleType>
+</xs:schema>`
+	fixtures := map[string]discoveryFixture{
+		"ordinary.xsd": {
+			id:       "ordinary.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:simpleType name="Included"><xs:restriction base="xs:unsignedLong"><xs:minInclusive value="1"/><xs:maxInclusive value="10"/></xs:restriction></xs:simpleType></xs:schema>`,
+		},
+		"chameleon.xsd": {
+			id:       "chameleon.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Chameleon"><xs:restriction base="xs:unsignedLong"><xs:minInclusive value="2"/><xs:maxInclusive value="20"/></xs:restriction></xs:simpleType></xs:schema>`,
+		},
+		"other.xsd": {
+			id:       "other.xsd",
+			contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:simpleType name="Imported"><xs:restriction base="xs:unsignedLong"><xs:minInclusive value="3"/><xs:maxInclusive value="30"/></xs:restriction></xs:simpleType></xs:schema>`,
+		},
+	}
+	return root, fixtures
+}
