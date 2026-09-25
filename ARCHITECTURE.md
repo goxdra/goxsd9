@@ -85,16 +85,17 @@ Named complexes preserve final/default provenance; `IsInheritable` accepts Compa
 mismatches Strict10. Malformed XSD 1.1 is invalid; untyped/inline attrs,
 `defaultAttributesApply`/XPath, non-0/0 anonymous enumeration, and broader forms unsupported.
 Extension/model-less gates precede; group refs use `RefLoc`.
-`precisionDecimal`: Compatibility/Strict11 admit global built-in/named/inline/anonymous
-element/type facts to queries; built-in/named roots validate, inline/anonymous targets
-are consumer-excluded, and `GenerateGo` rejects all. Strict10 rejects at typed/type
+`precisionDecimal`: Compatibility/Strict11 expose global built-in/named/inline/anonymous
+element/type facts; built-in/named roots validate; inline/anonymous consumer-excluded;
+`GenerateGo` rejects all. Strict10 rejects typed/type
 `Loc` before consumers or `0/0`. Compatibility/Strict11 require default owners/typed
 `precisionDecimal` children/alternatives; defaults validate.
-Extension choices are query-only; mapped non-`0/0` extension sequences are
+Extension choices query-only; mapped non-`0/0` extension sequences
 schema-unsupported. Reject mapped non-`0/0` direct sequences, non-default
-owners/typed alternatives, and published local mapped inline/anonymous non-`0/0`
+owners/typed alternatives, published local mapped inline/anonymous non-`0/0`
 forms; zero owners/terms resolve syntax, exact occurrences, inline base/variety/
-facets/policy before mapping `0/0`; validated publication-unsupported forms alone
+facets/policy before mapping `0/0`; resolved query-admitted forms map to no public
+particle; only validated publication-unsupported `FailureUnsupported` diagnostics
 may be omitted.
 Local token/NMTOKEN sequences queryable; `GenerateGo`/`<all>` consumers reject.
 
