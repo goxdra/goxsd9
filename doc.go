@@ -160,11 +160,11 @@
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
 // and every anonymous precisionDecimal target is excluded from validation and
 // generation.
-// Particle-plus-use bodies (including direct model-group references), attribute-only
-// bodies, attribute-bearing extensions, and extension-only scalar simpleContent
-// bodies expose ordered defensive
+// Particle-plus-use bodies, direct model-group references, attribute-only bodies,
+// and extension-only scalar simpleContent bodies expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
-// anonymous atomic uses retain AnonymousID/NodeID. Local and referenced
+// anonymous atomic uses retain AnonymousID/NodeID. Attribute-bearing
+// complexContent extensions remain unsupported. Local and referenced
 // global targets admit only Boolean/integer/decimal plus policy-gated precisionDecimal;
 // explicit xs:int and other scalar kinds are unsupported, and Strict10 rejects
 // precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
