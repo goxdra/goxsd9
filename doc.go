@@ -48,7 +48,8 @@
 // built-in xs:boolean, named boolean-restriction, integer, decimal, explicitly typed
 // built-in or supported named xs:unsignedLong, and explicitly typed built-in or
 // supported named xs:token/xs:NMTOKEN particles for named global complex types. It
-// also exposes local inline anonymous atomic Boolean, integer, and decimal restrictions
+// also exposes local inline anonymous atomic Boolean, integer, decimal, and
+// negativeInteger restrictions
 // in direct choices/sequences and bounded attribute-free extensions under Compatibility,
 // Strict10, and Strict11. Their immutable
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
@@ -75,10 +76,11 @@
 // extension choices/sequences over named empty-content bases or named complexContent
 // restrictions over xs:anyType (including representable inherited ##other/lax
 // wildcard facts). Effective int, long, nonNegativeInteger, and nonPositiveInteger,
-// plus inline/anonymous unsignedLong, are excluded: ParseSchema returns a located
+// plus inline/anonymous unsignedLong, are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
-// diagnostic at the type, facet, or element Loc and no Schema. Permitted ordinary
-// 0/0 remains absent after the preceding gates.
+// diagnostic at the type, facet, or element Loc and no Schema. Ordinary 0/0,
+// including these excluded long-family/unsignedLong forms, is admitted after
+// applicable gates and remains absent.
 // The written base QName/base Loc, use-site/type/facet Locs, named ID versus
 // built-in zero identity, ownership, and resolved facts remain separate. Built-in
 // unsignedLong retains intrinsic inclusive bounds [0,18446744073709551615];
@@ -146,9 +148,10 @@
 // query-only/consumer-rejected, and all anonymous consumers are rejected by
 // validation and generation.
 // The supported local anonymous model is limited to atomic
-// Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
-// attribute-free extension shapes above. Local anonymous Boolean/integer/decimal
-// restrictions remain queryable but direct validation and generation reject them;
+// Boolean/integer/decimal/negativeInteger restrictions in the direct choice/sequence
+// and bounded attribute-free extension shapes above. Local anonymous
+// Boolean/integer/decimal/negativeInteger restrictions remain queryable but direct
+// validation and generation reject them;
 // mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions remain
 // schema-unsupported when nonzero. Global inline-element precisionDecimal remains a query
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
@@ -179,7 +182,7 @@
 // recursive, and broader group-reference shapes remain unsupported.
 // Default-bounded sequences of supported built-in or named numeric or
 // all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
-// Boolean/integer/decimal particles remain queryable but validation and generation
+// Boolean/integer/decimal/negativeInteger particles remain queryable but validation and generation
 // reject them; repeated-field generation and direct-choice repetition remain
 // unsupported.
 // Bounded attribute-free complexContent/extension over named empty-content
