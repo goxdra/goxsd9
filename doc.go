@@ -49,35 +49,35 @@
 // supported named effective-long, and explicitly typed built-in or supported named
 // xs:token/xs:NMTOKEN particles for named global complex types. Built-in and named
 // effective-long particles are also queryable in bounded attribute-free extensions;
-// inline types, nested particles, element references, and broader extension shapes
-// remain excluded from this support. Built-in `xs:long` retains its use-site
+// Explicitly typed long/token/NMTOKEN paths exclude inline types, nested particles,
+// element references, and broader extension shapes. A separate local admission
+// below covers inline anonymous Boolean/integer/decimal restrictions. Built-in
+// `xs:long` retains its use-site
 // type/variety locations and intrinsic bounds; its intrinsic bound facet
 // locations are zero and it has no synthetic `ComponentID`. Named effective-long
 // retains its named `TypeID`/`ComponentID` plus declaration/restriction-facet
-// provenance. `NodeID`/`AnonymousID` apply only to admitted anonymous forms. It
-// also exposes
-// local inline anonymous atomic Boolean, integer, and
-// decimal restrictions in direct choices/sequences and bounded attribute-free
-// extensions under Compatibility, Strict10, and Strict11. Their immutable
+// provenance. `NodeID`/`AnonymousID` apply only to admitted anonymous forms.
+// It also exposes those local inline anonymous atomic Boolean, integer, and decimal
+// restrictions in direct choices/sequences and bounded attribute-free extensions
+// under Compatibility, Strict10, and Strict11. Their immutable
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
-// not global components or Walk entries. For local mapped forms, syntax and
-// occurrence/input validation happen first; malformed occurrence input remains
-// FailureInvalid at its occurrence location. Strict10 policy admission then
+// not global components or Walk entries. For every affected local mapped owner or
+// term, syntax and exact-occurrence validation precede semantic resolution of an
+// inline simple type's base, variety, facets, and selected policy, including a
+// zero-occurrence owner or term. Malformed occurrence input remains FailureInvalid
+// at its occurrence location. Strict10 policy admission then
 // rejects both explicitly typed local built-in or named-effective
 // `precisionDecimal` forms and inline anonymous
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms at their
 // typed/type locations before 0/0 omission, including zero-occurrence cases.
-// Compatibility and Strict11 omit effective 0/0 for either mapped form. This
-// Strict10-before-omission rule is specific to `precisionDecimal`.
-// After those checks, any validated omittable mapped form may be absent only at
-// exact 0/0, including a supported query-only named effective-long form and a
-// form classified schema-unsupported at publication. This is not a generic
-// omission rule for every sequence, choice, child, or wildcard.
-// Valid mapped local `nonNegativeInteger` 0/0 forms are absent under
-// every policy. Invalid, resolution, cyclic, wrong-kind, value-constraint, and
-// policy failures retain located diagnostics, causes, and no-schema result. In
+// After those checks, successfully resolved query-admitted forms may map to no
+// particle at exact 0/0; only validated publication-unsupported FailureUnsupported
+// forms may have that diagnostic omitted there. This is not a generic omission
+// rule for every sequence, choice, child, or wildcard. Invalid, unresolved,
+// cyclic, wrong-kind, value-constraint, and policy failures retain located
+// diagnostics, causes, and no-schema result. In
 // direct choices/sequences and bounded attribute-free
 // extensions, the local scalar allowlist is exact: direct `xs:integer`; named or
 // inline effective `integer` or `negativeInteger` restrictions where admitted;
@@ -129,12 +129,10 @@
 // exact anyAttribute, namespace, and processContents source locations are
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
-// After successful construction-time validation, effective 0/0 becomes absence
-// only for an omittable mapped form, including a form classified
-// schema-unsupported at publication. This is not a generic omission rule for
-// every sequence, choice, child, or wildcard. Published non-0/0 mapped
-// exclusions and unsupported nested, recursive, broader, or other structural
-// forms retain located unsupported diagnostics and no Schema.
+// The later consumer and wildcard boundaries do not change the shared
+// construction-time 0/0 rule above. Published non-0/0 mapped exclusions and
+// unsupported nested, recursive, broader, or other structural forms retain
+// located unsupported diagnostics and no Schema.
 // Invalid, unresolved, cyclic, wrong-kind, value-constraint, and policy
 // failures retain their diagnostic class, code, cause, and primary/related
 // locations, and no Schema is returned. Non-0/0 integer/decimal/long choice and
@@ -158,9 +156,9 @@
 // ranges that remain published, and other rejected mapped inline/anonymous
 // forms are also schema-unsupported. Strict10 returns a located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy-mismatch
-// diagnostic before 0/0 omission for either mapped form, including zero. Under
-// Compatibility/Strict11, a valid omittable mapped 0/0 is absent only after
-// validation. `GenerateGo` rejects every precisionDecimal target, and all
+// diagnostic before the shared 0/0 rule for either mapped form, including zero.
+// Compatibility/Strict11 use that shared rule. `GenerateGo` rejects every
+// precisionDecimal target, and all
 // anonymous consumers remain excluded.
 // The supported local anonymous model is limited to atomic
 // Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
