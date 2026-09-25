@@ -6,18 +6,18 @@ goxsd9 parses/validates/generates Go; unsupported is explicit.
 
 `ParseSchema`: immutable components; caller `ResolvedSource`/`Resolver`; sequential opaque locations; Compatibility default.
 
-XSD 1.0/1.1; `openContent=none` works under Compatibility/Strict11, mismatches Strict10. Extensions need named empty-content bases; model-less preserves identity/locations. `xs:any`/`anyAttribute` keep facts; admitted `0/0` absent.
-Refs retain QName/RefLoc/target/order; model-group refs query; broader unsupported. Long refs retain bounds; malformed invalid. Global `nonNegativeInteger` refs query; consumers reject. `precisionDecimal` element/type facts query under Compatibility/Strict11; Strict10 rejects before validation; roots validate, inline-element targets query-only.
-`precisionDecimal` attributes query-only in Compatibility/Strict11 (built-in/supported named); Strict10 rejects at type `Loc`.
-`xs:long`/`xs:unsignedLong` attributes (including named types) admitted under all policies; bounds `[-9223372036854775808,9223372036854775807]` and `[0,18446744073709551615]`; bounds/facets/locations queryable; consumers reject. Each unsupported default/fixed uses `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at value `Loc`; no `Schema`; only default+fixed declarations use `FailureInvalid`/`XSD3010` (fixed primary, default related, no `Schema`).
-Local built-in/named `xs:unsignedLong` particles are queryable in choices, sequences, and extensions; exact facts remain; consumers reject.
-Local `nonNegativeInteger` non-0/0 forms reject; 0/0 absent. Global inline Boolean/integer/decimal elements query-only; string/token/NMTOKEN inline elements generate. Attributes query-only; inline-attribute consumers excluded; `GenerateGo` rejects every `ComponentKindAttributeDeclaration`.
-`precisionDecimal` locals under Compatibility/Strict11 admit default choices/bounded attribute-free extensions; `0/0` absent, Strict10 rejects first. Extensions query; consumers reject; targets GenerateGo-rejected.
-GenerateGo: global built-in/named-typed `nonNegativeInteger` elements and standalone named simple-type components generate across policies. Built-in/standalone fields use `StrictInteger`; named-typed use generated types. Elements require `abstract=false,nillable=false`; either yields `FailureUnsupported`/`GOXSD9029`, nil. Named final/variety/effective-facet gates reject (`FailureUnsupported`/`GOXSD9029`); malformed/stale facts are `FailureInternal`/`GOXSD9030`. Global inline/anonymous `nonNegativeInteger` element/type declarations query-only; consumers reject.
+`openContent=none` works under Compatibility/Strict11, mismatches Strict10. Bounded attribute-free extensions use named empty-content bases or named `complexContent` restrictions over `xs:anyType` with representable inherited `##other`/`lax` wildcard facts; model-less query-only with identity/locations; validation/`GenerateGo` reject consumers. `0/0` absent.
+Refs retain QName/RefLoc/target/order; model-group refs query. Long bounds remain; malformed invalid. `precisionDecimal` facts query under Compatibility/Strict11; Strict10 rejects first. `nonNegativeInteger` refs query; consumers reject.
+Global `xs:long`/`xs:unsignedLong` element/type declarations are query-only under all policies: retain exact bounds `[-9223372036854775808,9223372036854775807]` and `[0,18446744073709551615]`, facets, `Loc`s, and graph provenance; validation/`GenerateGo` reject them, separately from refs/attributes.
+`precisionDecimal` attributes query-only in Compatibility/Strict11; Strict10 type-Loc rejects.
+`xs:long`/`xs:unsignedLong` attributes are admitted under all policies; bounds/facets/locations queryable; consumers reject. Unsupported defaults/fixed use `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported`, no `Schema`; default+fixed uses `FailureInvalid`/`XSD3010` (fixed primary, default related).
+Local explicit built-in/supported named-effective `xs:unsignedLong` particles are queryable only in direct choices/sequences and permitted bounded attribute-free extensions under Compatibility/Strict10/Strict11: `0/0` is absent, finite/unbounded/above-`uint64` occurrences stay exact. Inline/anonymous, nested/group/ref, list/union, and narrower shapes are excluded; validation/`GenerateGo` reject admitted particles.
+Local `nonNegativeInteger` non-`0/0` rejects; `0/0` absent. Inline Boolean/integer/decimal query-only; inline string/token/NMTOKEN generate. Attributes query-only; `GenerateGo` rejects them.
+`precisionDecimal` locals admit default choices/bounded extensions under Compatibility/Strict11; `0/0` absent, Strict10 rejects first; extensions query-only, `GenerateGo` rejects targets.
+`GenerateGo`: global built-in/named `nonNegativeInteger` elements and standalone named simple types generate; fields use `StrictInteger` or generated types. Element/final/variety/facet gates are `FailureUnsupported`/`GOXSD9029`; malformed/stale facts are `FailureInternal`/`GOXSD9030`; inline/anonymous forms query-only/rejected.
 
-Named complex `abstract` non-inherited; `Final()` uses declaring-document `finalDefault` without
-local `final`; explicit empty/non-empty locals override; `FinalLoc()` preserves
-local/default provenance—[Architecture](ARCHITECTURE.md).
+Named complex `abstract` is non-inherited; `Final()` uses declaring `finalDefault`, locals override;
+`FinalLoc()` preserves provenance—[Architecture](ARCHITECTURE.md).
 [Examples](direct_choice_example_test.go), [quickstart](library_example_test.go).
 
 ## Product CLI

@@ -45,12 +45,12 @@
 // identities; repeated and cyclic identities are closed without decoding.
 //
 // The schema model exposes one direct ordered sequence and direct choices of local
-// built-in xs:boolean, named boolean-restriction, integer, decimal, built-in or
-// supported named xs:unsignedLong, and explicitly typed built-in or supported
-// named xs:token/xs:NMTOKEN particles for named global
-// complex types. It also exposes local inline anonymous atomic Boolean, integer, and
-// decimal restrictions in direct choices/sequences and bounded attribute-free
-// extensions under Compatibility, Strict10, and Strict11. Their immutable
+// built-in xs:boolean, named boolean-restriction, integer, decimal, explicitly typed
+// built-in or supported named xs:unsignedLong, and explicitly typed built-in or
+// supported named xs:token/xs:NMTOKEN particles for named global complex types. It
+// also exposes local inline anonymous atomic Boolean, integer, and decimal restrictions
+// in direct choices/sequences and bounded attribute-free extensions under Compatibility,
+// Strict10, and Strict11. Their immutable
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
@@ -64,19 +64,21 @@
 // `nonNegativeInteger` 0/0 forms are admitted then absent under every policy.
 // Local declared, named, inline, and anonymous integer-derived restrictions are
 // admitted at the mapped non-0/0 boundary only when their effective atomic kind
-// is integer or negativeInteger. Explicitly typed local built-in or supported
-// named unsignedLong restrictions are also admitted through named, forward,
-// imported, included, and chameleon chains. Effective int, long,
-// nonNegativeInteger, and nonPositiveInteger are valid datatypes but unsupported
-// at this local schema boundary: ParseSchema rejects the mapped form with a
-// located FailureUnsupported/ErrUnsupported diagnostic at the relevant type or
-// facet location and no schema. Inline/anonymous unsignedLong forms remain
-// excluded. Ordinary local nonNegativeInteger effective 0/0 remains absent after
-// policy admission under every policy. The written base QName, use-site location,
-// and resolved named ownership remain separate facts. Admitted local unsignedLong
-// particles retain exact inclusive bounds [0,18446744073709551615], locations,
-// identities, graph provenance, and occurrences; validation and generation
-// reject them.
+// is integer or negativeInteger. A direct local xs:negativeInteger is rejected;
+// effective named or inline negativeInteger is admitted. Under all three policies,
+// explicitly typed local built-in or supported named-effective unsignedLong is
+// admitted only in direct choices/sequences and permitted bounded attribute-free
+// extensions over the supported named empty-content or xs:anyType-restriction
+// owners (including representable inherited ##other/lax wildcard facts). Effective
+// int, long, nonNegativeInteger, and nonPositiveInteger, plus inline/anonymous
+// unsignedLong, are excluded: ParseSchema returns a located
+// FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
+// diagnostic at the type or facet Loc and no Schema. Effective 0/0 remains absent.
+// The written base QName, use-site location, named ownership, and resolved facts
+// remain separate. Admitted local unsignedLong particles retain exact inclusive
+// bounds [0,18446744073709551615], source locations, identities, graph provenance,
+// and exact occurrences; only validation and GenerateGo return consumer-only
+// FailureUnsupported diagnostics.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
