@@ -4,7 +4,7 @@ Status: accepted
 
 ## Decision
 
-`precisionDecimal` is an optional, opt-in XSD datatype. The pinned 9 June 2011
+`precisionDecimal` is an opt-in XSD datatype. The 9 June 2011
 artifact’s [§Abstract](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#abstract)
 and [§Status](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#status)
 identify it as a W3C Working Group Note describing an implementation-defined
@@ -14,9 +14,10 @@ requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120
 permit, but do not require, primitive datatypes outside the standard set.
 [`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers:
 
-- Global attributes: Compatibility/Strict11 admits built-in/named `precisionDecimal` attributes with zero or one optional default/fixed `AttributeValueConstraint`; type-only have none. `ValueConstraint()` copies kind, collapsed lexical/source `Loc`, and exact defensive `StrictPrecisionDecimal` via `PrecisionDecimalValue()` only when present. Unsupported values are `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported`; invalid values are `FailureInvalid`/`XSD3036`; default+fixed is `FailureInvalid`/`XSD3010` with fixed primary/default related. Strict10 rejects at type `Loc` before conversion; conflict/type/policy/reference errors precede conversion. Inline/local and consumers remain unsupported; invalid values retain nested causes and no schema.
-- Elements: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; local named-effective forms require default choices or bounded attribute-free extensions. Exact `0/0` is omitted; mapped non-`0/0` inline and non-default/nonzero sequences reject. Strict10 rejects before validation/omission.
-- Consumers: Compatibility/Strict11 validates built-in/named roots and non-extension default choices; extensions remain queryable; validation/`GenerateGo` reject every `precisionDecimal` target.
+- Global attributes: Compatibility/Strict11 admits built-in/named `precisionDecimal` with default/fixed; type-only has none. `ValueConstraint()` copies kind, collapsed lexical/source `Loc`, defensive `StrictPrecisionDecimal`; codes/causes stable. Strict10 rejects at type `Loc`. Global inline-attribute declarations/consumers unsupported; local anonymous atomic `AttributeUse` separate.
+- Attribute bodies: Particle-plus-use (including group refs) and attribute-only expose ordered defensive `AttributeUse`; extension-only scalar `simpleContent` retains base/type/use `Loc`s and nil particle. Local/ref uses allow only Boolean/integer/decimal plus policy-gated `precisionDecimal`; simpleContent bases allow Boolean/string/integer/decimal plus policy-gated `precisionDecimal`. Refs retain QName/RefLoc/TargetID/use; optional/required effective, prohibited omitted. `form`/`attributeFormDefault` select qualified/unqualified; XSD 1.1 local `targetNamespace` requires matching containing `targetNamespace`; missing/mismatch invalid, Strict10 edition mismatch; chameleon includes adopt namespace. `AnonymousID`/`NodeID` retained; views copied. Unsupported local named: type-attribute `Loc` (or type-less local element); inline: `simpleType` `Loc`; unsupported global ref: `RefLoc` + target. Unresolved/wrong-kind/ambiguous/inaccessible refs invalid, preserving primary ref/type/base `Loc`s and related candidate/target `Loc`s; no schema.
+- Elements: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; local named-effective forms require default choices or bounded attribute-free complexContent extensions over named empty-content bases. `0/0` omits; non-`0/0` inline and non-default/nonzero sequences reject. Strict10 rejects before validation/omission.
+- Consumers: Compatibility/Strict11 validates built-in/named `precisionDecimal` roots and non-extension defaults; extensions remain queryable; validation/`GenerateGo` reject `precisionDecimal` targets and attribute consumers.
 
 ## Semantic contract
 
@@ -53,14 +54,7 @@ The Note’s [§3.3 facet declaration](https://www.w3.org/TR/2011/NOTE-xsd-preci
 exclude `fractionDigits`, `length`, `minLength`, and `maxLength`. Fixed whitespace is pre-lexical; `pattern`
 examines normalized lexical form; other facets constrain a complete value, never a partial parse.
 
-The [canonical mapping](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#f-precDecCanmap) has no
-resolved zero branch in the pinned Note. The project chooses these non-normative, sign-preserving spellings:
-every positive zero, regardless of retained scale, projects to `0.0E0`; every negative zero, regardless of
-retained scale, projects to `-0.0E0`. Note-compatible examples are `3.00 -> 3.00`, `3.00e2 -> 300`,
-`3.0e2 -> 3.0E2`, `1e-6 -> 0.000001`, `1e-7 -> 1E-7`, `+INF -> INF`, `-INF -> -INF`, and `NaN -> NaN`;
-thus `+INF` canonicalizes to `INF`. Canonical text is an on-demand output projection only: never value identity,
-facet input, or round-trip serialization of retained zero scale. XSD 1.1’s [`canonical mapping`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#dt-canonical-mapping)
-is not required for schema processing, and this policy does not make the optional datatype mandatory.
+Note leaves zero canonical mapping unresolved. The project chooses sign-preserving spellings: positive zero -> `0.0E0`, negative zero -> `-0.0E0`; scale-preserving examples are `3.00 -> 3.00` and `3.0e2 -> 3.0E2`; special values: `+INF -> INF`, `-INF -> -INF`, `NaN -> NaN`. Canonical text is on-demand output, never value identity/facet input/round-trip serialization. XSD 1.1 canonical mapping is not required; this policy does not make the optional datatype mandatory.
 
 ## Representation and phases
 
@@ -118,9 +112,4 @@ The boundary covers values/facets, partial comparison, bounded canonical output,
 and schema facts; assertions/remaining facets stay separate,
 while bound parsing, effective facts, and scalar validation integrate.
 
-Pinned [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary groups
-[`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)
-and [`ibmMeta/precisionDecimal.testSet`](../../testdata/w3c/xsdtests/ibmMeta/precisionDecimal.testSet).
-[#210](https://github.com/goxdra/goxsd9/issues/210) owns resolved auxiliary outcomes; [#196](https://github.com/goxdra/goxsd9/issues/196)
-and [#211](https://github.com/goxdra/goxsd9/issues/211) own the source ledger and executable effective-expectation policy; the pinned
-catalog remains provenance, and auxiliary results stay outside headline conformance.
+Pinned [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary PDecimal groups; the catalog remains provenance, and auxiliary results stay outside headline conformance.

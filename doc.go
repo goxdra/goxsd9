@@ -21,7 +21,10 @@
 // The unqualified schema/@version is an inert optional xs:token label: absent,
 // empty, arbitrary, "1.0", and "1.1" values never select or mismatch a policy.
 // Chameleon includes adopt the including target namespace and repair
-// unqualified direct element-reference QNames in supported particles.
+// unqualified direct element-reference QNames in supported particles. In XSD
+// 1.1, a local attribute targetNamespace selects its explicit namespace only
+// when a containing targetNamespace exists and matches; missing or mismatched
+// values are invalid, while Strict10 reports an edition mismatch.
 // Redefine/override/defaultOpenContent, assertions, and Boolean facets and
 // datatype facets outside the supported string enumeration/whiteSpace, integer/decimal,
 // and optional precisionDecimal boundaries return explicit unsupported diagnostics.
@@ -36,8 +39,9 @@
 // ValueConstraint() exposes its kind, collapsed lexical spelling, source Loc,
 // and exact defensive StrictPrecisionDecimal through PrecisionDecimalValue
 // only when a default or fixed value is present. Strict10 rejects at the
-// resolved type Loc before conversion; inline/local attributes and attribute
-// validation/GenerateGo remain unsupported. Under admitting policies,
+// resolved type Loc before conversion; global inline-attribute declarations and
+// attribute validation/GenerateGo remain unsupported. Supported local anonymous
+// atomic AttributeUse facts are separate. Under admitting policies,
 // built-in/named roots validate, while inline anonymous targets remain excluded
 // from validation and generation.
 // Paths and URLs are never opened by this package. Parsing closes
@@ -138,6 +142,29 @@
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
 // and every anonymous precisionDecimal target is excluded from validation and
 // generation.
+// Particle-plus-use bodies (including direct model-group references), attribute-only
+// bodies, and extension-only scalar simpleContent bodies expose ordered defensive
+// local, referenced, and anonymous-inline AttributeUse facts. Supported local
+// anonymous atomic uses retain AnonymousID/NodeID. Local and referenced
+// global targets admit only Boolean/integer/decimal plus policy-gated precisionDecimal;
+// explicit xs:int and other scalar kinds are unsupported, and Strict10 rejects
+// precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
+// and effective use. Explicit form or attributeFormDefault selects qualified or
+// unqualified local names; XSD 1.1 local targetNamespace selects a namespace only
+// when it matches the containing targetNamespace; missing/mismatched values are
+// invalid, and Strict10 reports an edition mismatch. Chameleon includes adopt
+// the including target namespace.
+// Anonymous local types retain AnonymousID/NodeID ownership, and returned views are
+// copied. Optional/required uses are effective; prohibited uses are omitted. A valid
+// other scalar target fails schema construction with located schema-syntax
+// FailureUnsupported/ErrUnsupported at RefLoc, relates the target declaration, and
+// returns no partial schema; unresolved, wrong-kind, ambiguous, and inaccessible
+// references remain invalid, preserving primary ref/type/base Locs and related
+// candidate/target locations. A bounded scalar simpleContent extension separately
+// admits Boolean/string/integer/decimal bases plus policy-gated precisionDecimal,
+// retaining base, type, and ordered-use locations with a nil particle. Local
+// value/default/fixed/inheritable semantics and attribute/simpleContent validation
+// and generation remain unsupported.
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.
@@ -184,11 +211,15 @@
 // primary with related complex-content/extension/base/particle facts (and
 // anyAttribute when present); validation retains declaration/definition owner
 // locations, uses the extension boundary for choices and the instance root for
-// sequences, and never adds an anonymous type location. Direct and extension
-// model-group-reference checks use the group RefLoc as validation and generation
-// primary; validation relates the group particle, while generation relates
-// group/component/reference/target locations. These gates return located
-// FailureUnsupported/ErrUnsupported diagnostics; GenerateGo returns no output.
+// sequences, and never adds an anonymous type location. Direct model-group-
+// reference bodies with AttributeUse facts hit the AttributeUse consumer gates
+// first: the first use's Loc is primary, with declaration/definition and
+// AttributeUse locations related. Attribute-free direct and extension
+// model-group-reference checks use the group RefLoc as validation and
+// generation primary; validation relates the group particle and supplied
+// extension context, while generation relates group/component/reference/target
+// locations. These gates return located FailureUnsupported/ErrUnsupported
+// diagnostics; GenerateGo returns no output.
 //
 // Global built-in and named xs:nonNegativeInteger roots remain unsupported by
 // ValidateInstance under Compatibility, Strict10, and Strict11: the call
@@ -215,10 +246,14 @@
 // (and anyAttribute when present) related locations, and do not include the
 // anonymous type location; validation also retains declaration/definition owner
 // locations and keeps the instance-root primary for sequences, while GenerateGo
-// rejects them with the same classification and no output. Direct and extension
+// rejects them with the same classification and no output. Direct model-group-
+// reference bodies with AttributeUse facts hit the AttributeUse consumer gates
+// first: the first use's Loc is primary, with declaration/definition and
+// AttributeUse locations related. Attribute-free direct and extension
 // model-group-reference checks use the group reference RefLoc as validation and
-// generation primary; validation retains the group particle location in related
-// facts, and generation retains group/component/reference/target related locations.
+// generation primary; validation retains the group particle and supplied
+// extension context in related facts, and generation retains
+// group/component/reference/target related locations.
 // Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
@@ -238,7 +273,8 @@
 // their GenerateGo consumers remain unsupported. Global string values, local
 // string particles, lists/unions, broader particles, and other semantics remain
 // explicit unsupported behavior.
-// Supported global attribute declarations are query-only. Type admission under
+// Supported global attribute declarations are a separate query-only capability.
+// Type admission under
 // Compatibility, Strict10, and Strict11 is limited to built-in or supported
 // named atomic xs:boolean, xs:integer, xs:decimal, xs:token, xs:negativeInteger,
 // xs:language, xs:NCName, xs:anyURI, xs:ID, xs:long, and xs:unsignedLong. Built-in or supported
@@ -247,11 +283,12 @@
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
 // diagnostic. Declared xs:string, xs:NMTOKEN, xs:int, xs:nonNegativeInteger,
 // xs:nonPositiveInteger, narrower built-ins, list/union
-// forms remain explicit unsupported behavior. A valid local attribute declaration
-// reports FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at the
-// local attribute element Loc; a global inline attribute reports the same at its
-// inline simpleType Loc; and a referenced excluded declared type reports it at
-// the use-site type Loc. Invalid syntax, edition/policy mismatches, and
+// forms remain explicit unsupported behavior. A local named use reports
+// FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its type
+// attribute Loc; a local declaration without type reports at the local element
+// Loc; an inline type reports at its simpleType Loc; and a referenced excluded
+// global use reports at RefLoc with the target declaration related. Invalid syntax,
+// edition/policy mismatches, and
 // resolution/reference failures retain their existing diagnostic, specification
 // reference, cause, and precedence. Unsupported forms return no Schema.
 // Type admission is separate from value-constraint support: only Boolean,
@@ -272,7 +309,8 @@
 // ValueConstraint() copies kind, collapsed lexical spelling, source Loc, and
 // exact defensive StrictPrecisionDecimal through PrecisionDecimalValue only
 // when present. Attribute validation and generation remain unsupported
-// consumers, as do local attribute forms.
+// consumers; global inline-attribute declarations are separate, while supported
+// local anonymous atomic AttributeUse facts remain queryable.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named-typed nonNegativeInteger element declarations and
 // standalone named atomic nonNegativeInteger simple-type components in the

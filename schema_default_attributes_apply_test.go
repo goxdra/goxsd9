@@ -516,7 +516,7 @@ func TestSchemaDefaultAttributesApplyPreservesUnsupportedBoundaries(t *testing.T
 		}
 	})
 
-	t.Run("unsupported named body", func(t *testing.T) {
+	t.Run("supported simple-content body", func(t *testing.T) {
 		root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">` + "\n" +
 			`  <xs:complexType name="Item" defaultAttributesApply="false">` + "\n" +
 			`    <xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent>` + "\n" +
@@ -525,19 +525,18 @@ func TestSchemaDefaultAttributesApplyPreservesUnsupportedBoundaries(t *testing.T
 		for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 			t.Run(string(policy), func(t *testing.T) {
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-				if err == nil {
-					t.Fatal("unsupported complex type body unexpectedly succeeded")
+				if err != nil {
+					t.Fatalf("discoverTestSchema: %v", err)
 				}
-				assertZeroSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
-					t.Fatalf("diagnostic = %s/%q/%q, want body unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code())
+				if len(schema.Components()) != 1 {
+					t.Fatalf("component count = %d, want one", len(schema.Components()))
 				}
-				if diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 3, "<xs:extension") {
-					t.Fatalf("diagnostic location = %s, want extension element", diagnostic.Loc())
+				definition, ok := schema.Components()[0].ComplexTypeDefinition()
+				if !ok {
+					t.Fatal("Item complex type view is missing")
 				}
-				if !errors.Is(err, ErrUnsupported) || errors.Is(err, errLanguagePolicyMismatch) {
-					t.Fatalf("unsupported body diagnostic provenance = %v", err)
+				if _, ok := definition.SimpleContentExtension(); !ok {
+					t.Fatal("simple-content extension view is missing")
 				}
 			})
 		}
