@@ -1,28 +1,26 @@
 # goxsd9
 
-goxsd9 parses/validates/generates Go; unsupported is explicit.
+goxsd9 parses/validates/generates Go; unsupported behavior is explicit.
 
 ## [Schema parsing](ARCHITECTURE.md#schema-model)
 
-`ParseSchema`: immutable components; caller `ResolvedSource`/`Resolver`; sequential opaque locations; Compatibility default.
+`ParseSchema`: immutable components; `ResolvedSource`/`Resolver`; sequential opaque locations; Compatibility default.
 
-XSD 1.0/1.1; `openContent=none` works under Compatibility/Strict11 and mismatches Strict10. Extensions need named empty-content bases; model-less preserves identity/locations. `xs:any`/`anyAttribute` keep facts; admitted `0/0` is absent.
-Refs retain QName/RefLoc/target/order; model-group refs query; broader unsupported. Long refs retain bounds; malformed invalid. Global `nonNegativeInteger` refs query; consumers reject. `precisionDecimal` element/type facts query under Compatibility/Strict11; Strict10 rejects before validation; roots validate, inline-element targets query-only.
-`precisionDecimal` attributes query-only in Compatibility/Strict11 (built-in/supported named); Strict10 rejects at type `Loc`.
-`xs:long`/`xs:unsignedLong` attributes, including named types, are admitted under all policies; bounds `[-9223372036854775808,9223372036854775807]` and `[0,18446744073709551615]`; bounds/facets/locations queryable; consumers reject. Each unsupported default/fixed uses `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at value `Loc`; no `Schema`; only default+fixed declarations use `FailureInvalid`/`XSD3010` (fixed primary, default related, no `Schema`).
-Local `nonNegativeInteger` non-0/0 forms reject; 0/0 absent. Global inline Boolean/integer/decimal elements are query-only; string/token/NMTOKEN inline elements generate. Attributes are query-only; inline-attribute consumers excluded; `GenerateGo` rejects every `ComponentKindAttributeDeclaration`.
-`precisionDecimal` locals under Compatibility/Strict11 admit default choices or bounded attribute-free extensions; `0/0` absent, Strict10 rejects first. Extensions query; consumers reject; targets GenerateGo-rejected.
-GenerateGo: global built-in/named-typed `nonNegativeInteger` elements and standalone named simple-type components generate across policies. Built-in/standalone fields use `StrictInteger`; named-typed fields use generated types. Elements require `abstract=false,nillable=false`; either yields `FailureUnsupported`/`GOXSD9029`, nil. Named final/variety/effective-facet gates reject (`FailureUnsupported`/`GOXSD9029`); malformed/stale facts are `FailureInternal`/`GOXSD9030`. Global inline/anonymous `nonNegativeInteger` element/type declarations are query-only and consumer-rejected.
+XSD 1.0/1.1; `openContent=none` works Compatibility/Strict11, not Strict10; named empty-content extension bases. Direct non-`0/0` `xs:any` terms queryable, consumers reject; only validated omittable `0/0` disappears. `anyAttribute` retains facts/no particle occurrence; broader wildcards retain diagnostics.
+Refs retain QName/RefLoc/target/order; groups query, broader reject. `long` refs bounded. `nonNegativeInteger` refs query-only. Global `precisionDecimal` queryable in Compatibility/Strict11; built-in/named roots validate; inline/anonymous consumer-excluded; `GenerateGo` rejects all; Strict10 rejects typed/type `Loc` before `0/0`.
+`precisionDecimal` attributes query-only under Compatibility/Strict11; Strict10 rejects at type `Loc`.
+`xs:long`/`xs:unsignedLong` attrs queryable; consumers reject. Unsupported default/fixed: located `FailureUnsupported`; default+fixed `FailureInvalid`/`XSD3010` (fixed primary/default related).
+Local `xs:long`/effective-`negativeInteger`/effective-long: query-only in direct choices/sequences and bounded attr-free extensions under Compatibility/Strict10/Strict11; consumers reject. Direct `xs:integer`; named/inline effective `integer`/`negativeInteger`; direct `xs:negativeInteger` excluded. Mapped non-`0/0` exclusions return located `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported`; each owner/term validates syntax/exact-occurrence, resolving inline-simple-type base/variety/facet/selected-policy at exact `0/0`. Resolved query-admitted forms map to no public particle; only validated publication-unsupported `FailureUnsupported` diagnostic may be omitted; invalid/unresolved/cyclic/wrong-kind/value-constraint/policy failures retain diagnostics/causes/no `Schema`. Non-`0/0` built-in/named effective-long queryable; inline Boolean/integer/decimal query-only; global string/token/NMTOKEN generate; attrs query-only/reject local/inline; `GenerateGo` rejects.
+`precisionDecimal`: Strict10 rejects at typed `Loc` before the shared `0/0`. Compatibility/Strict11 require default owners/typed-child/alternative occurrences; other alternatives retain non-default ranges; defaults validate. Extension choices query-only; non-`0/0` extension sequences unsupported. Reject non-`0/0` direct sequences, non-default owners/typed alternatives, and published local inline/anonymous non-`0/0` forms. `GenerateGo` rejects all.
+`GenerateGo` supports global/named `nonNegativeInteger` elements/types; fields `StrictInteger`/generated. Abstract/nillable/final/variety/facet gates reject (`GOXSD9029`); malformed facts reject (`GOXSD9030`); inline/anonymous query-only.
 
-Named complex `abstract` is non-inherited; `Final()` uses declaring-document `finalDefault` without
-local `final`; explicit empty/non-empty locals override it; `FinalLoc()` preserves
-local/default provenance—see [Architecture](ARCHITECTURE.md).
+Named complex `abstract`/finality preserve provenance; see [Architecture](ARCHITECTURE.md).
 [Examples](direct_choice_example_test.go), [quickstart](library_example_test.go).
 
 ## Product CLI
 
-See [Decision 0006](docs/decisions/0006-vertical-slice-cli.md). `parse`,
-`validate`, and `generate` available; parse prints, validate silent;
+See [Decision 0006](docs/decisions/0006-vertical-slice-cli.md). `parse`/`validate`/`generate`
+available; parse prints, validate silent;
 invalid exits 1, usage exits 2.
 
 ## Design goals
