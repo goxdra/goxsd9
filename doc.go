@@ -166,8 +166,8 @@
 // the including target namespace.
 // Anonymous local types retain AnonymousID/NodeID ownership, and returned views are
 // copied. Optional/required uses are effective; prohibited uses are omitted. A valid
-// other scalar target fails schema construction with located schema-syntax
-// FailureUnsupported/ErrUnsupported at RefLoc, relates the target declaration, and
+// referenced excluded global scalar target fails schema construction with located
+// schema-syntax FailureUnsupported/ErrUnsupported at RefLoc, relates its target declaration, and
 // returns no partial schema; unresolved, wrong-kind, ambiguous, and inaccessible
 // references remain invalid, preserving primary ref/type/base Locs and related
 // candidate/target locations. SimpleContent restrictions remain unsupported; a
@@ -194,7 +194,9 @@
 // `ModelGroupReferenceParticle` form. Named global model groups expose direct
 // element-reference choices or sequences without expansion.
 // Top-level direct model-group references on named complex types and bounded
-// attribute-free extensions over named empty-content bases are queryable as exact
+// attribute-free extensions over named empty-content or named
+// complexContent/restriction over built-in xs:anyType with representable
+// ##other/lax wildcards are queryable as exact
 // immutable facts without expanding target members. Direct model-group references
 // retain `TargetID`; nested, local, recursive, and broader group-reference shapes
 // remain unsupported.
