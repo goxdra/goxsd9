@@ -52,7 +52,10 @@
 // built-in xs:boolean, named boolean-restriction, integer, decimal, explicitly typed
 // built-in or supported named xs:unsignedLong, and explicitly typed built-in or
 // supported named xs:token/xs:NMTOKEN particles for named global complex types. It
-// also exposes local inline anonymous atomic Boolean, integer, decimal, and
+// also admits built-in and supported named-effective xs:unsignedLong particles in
+// bounded attribute-free extension choices and sequences under every policy; they
+// remain query-only and consumer-rejected. It exposes local inline anonymous atomic
+// Boolean, integer, decimal, and
 // negativeInteger restrictions
 // in direct choices/sequences and bounded attribute-free extensions under Compatibility,
 // Strict10, and Strict11. Their immutable
@@ -87,9 +90,9 @@
 // absent. The written base QName/base Loc, use-site/type/facet Locs, named ID versus
 // built-in zero identity, ownership, and resolved facts remain separate. Built-in
 // unsignedLong retains intrinsic inclusive bounds [0,18446744073709551615];
-// named-effective particles retain exact narrowed/exclusive bounds/facets
-// (including Tight max 7), source locations, identities, graph provenance, and
-// exact occurrences; only validation and GenerateGo return consumer-only
+// named-effective particles retain exact narrowed/exclusive bounds/facets and
+// their source locations, identities, graph provenance, and exact occurrences;
+// only validation and GenerateGo return consumer-only
 // FailureUnsupported diagnostics.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string

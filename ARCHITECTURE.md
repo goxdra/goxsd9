@@ -74,8 +74,9 @@ child resolution; choices resolve refs without duplicate checks before child omi
 groups resolve/check refs before owner/child omission; child refs resolve before omission.
 Element-reference and top-level model-group references are distinct queryable boundaries retaining
 QName/RefLoc/TargetID/order without target expansion; nested/local/recursive/broader forms are
-unsupported or consumer-excluded. Effective named/anonymous-inline `negativeInteger` and
-`unsignedLong` are query-only; consumers return located `FailureUnsupported`.
+inline/anonymous `unsignedLong` schema-unsupported: `type`/`simpleType` `Loc`; admitted
+local built-in/named-effective `unsignedLong` and named/anonymous-inline `negativeInteger`
+are query-only; consumers return `FailureUnsupported`.
 AttributeUse facts are ordered and copied in particle-plus-use, direct model-group, attribute-only,
 and scalar simpleContent-extension bodies. Local uses retain name/type/use locations and named
 type or anonymous `AnonymousID`/`NodeID` ownership; references retain QName/RefLoc/TargetID/use.
