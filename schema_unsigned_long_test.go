@@ -486,14 +486,6 @@ func versionedSpecPrefix(version XSDVersion) string {
 	return "xsd11-"
 }
 
-func TestSchemaUnsignedLongExcludedShapesRemainUnsupported(t *testing.T) {
-	for _, profile := range unsignedLongPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "unsignedLong", "0")
-		})
-	}
-}
-
 func TestSchemaUnsignedLongConsumersRemainUnsupported(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {

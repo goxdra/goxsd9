@@ -45,8 +45,9 @@
 // identities; repeated and cyclic identities are closed without decoding.
 //
 // The schema model exposes one direct ordered sequence and direct choices of local
-// built-in xs:boolean, named boolean-restriction, integer, decimal, and explicitly
-// typed built-in or supported named xs:token/xs:NMTOKEN particles for named global
+// built-in xs:boolean, named boolean-restriction, integer, decimal, built-in or
+// supported named xs:unsignedLong, and explicitly typed built-in or supported
+// named xs:token/xs:NMTOKEN particles for named global
 // complex types. It also exposes local inline anonymous atomic Boolean, integer, and
 // decimal restrictions in direct choices/sequences and bounded attribute-free
 // extensions under Compatibility, Strict10, and Strict11. Their immutable
@@ -63,14 +64,19 @@
 // `nonNegativeInteger` 0/0 forms are admitted then absent under every policy.
 // Local declared, named, inline, and anonymous integer-derived restrictions are
 // admitted at the mapped non-0/0 boundary only when their effective atomic kind
-// is integer or negativeInteger through named, forward, imported, included, and
-// chameleon chains. Effective int, long, unsignedLong, nonNegativeInteger, and
-// nonPositiveInteger are valid datatypes but unsupported at this local schema
-// boundary: ParseSchema rejects the mapped form with a located
-// FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
-// location and no schema. Ordinary local nonNegativeInteger effective 0/0
-// remains absent after policy admission under every policy. The written base
-// QName, use-site location, and resolved named ownership remain separate facts.
+// is integer or negativeInteger. Explicitly typed local built-in or supported
+// named unsignedLong restrictions are also admitted through named, forward,
+// imported, included, and chameleon chains. Effective int, long,
+// nonNegativeInteger, and nonPositiveInteger are valid datatypes but unsupported
+// at this local schema boundary: ParseSchema rejects the mapped form with a
+// located FailureUnsupported/ErrUnsupported diagnostic at the relevant type or
+// facet location and no schema. Inline/anonymous unsignedLong forms remain
+// excluded. Ordinary local nonNegativeInteger effective 0/0 remains absent after
+// policy admission under every policy. The written base QName, use-site location,
+// and resolved named ownership remain separate facts. Admitted local unsignedLong
+// particles retain exact inclusive bounds [0,18446744073709551615], locations,
+// identities, graph provenance, and occurrences; validation and generation
+// reject them.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
@@ -223,8 +229,9 @@
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
 // and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
-// remain explicit unsupported behavior. Reference consumers exclude precisionDecimal
-// and anonymous targets.
+// remain explicit unsupported behavior. Local unsignedLong particles are
+// query-only and remain explicit unsupported behavior in both consumers.
+// Reference consumers exclude precisionDecimal and anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
 // wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
@@ -327,7 +334,7 @@
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
 // all-Boolean/numeric direct choices and default-bounded direct sequences. Local
-// anonymous and token/NMTOKEN consumers, repeated/non-default particles, and
-// anonymous targets remain unsupported; numeric integer/decimal mixtures remain
-// supported.
+// unsignedLong, anonymous, and token/NMTOKEN consumers, repeated/non-default
+// particles, and anonymous targets remain unsupported; numeric integer/decimal
+// mixtures remain supported.
 package goxsd9
