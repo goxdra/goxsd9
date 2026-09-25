@@ -216,6 +216,96 @@ func TestSchemaBridgeBuildsAttributeOnlyAndSimpleContentBodies(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the cross-policy local/reference diagnostic matrix together.
+func TestSchemaBridgeRejectsUnsignedLongAttributeUsesAcrossPolicies(t *testing.T) {
+	for _, profile := range unsignedLongPolicyProfiles() {
+		for _, test := range []struct {
+			name    string
+			root    string
+			primary string
+			related string
+			cause   error
+		}{
+			{
+				name:    "local",
+				root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:complexType name="Record"><xs:attribute name="value" type="xs:unsignedLong"/></xs:complexType></xs:schema>`,
+				primary: `type="xs:unsignedLong"`,
+				cause:   errSchemaAttributeUseUnsupported,
+			},
+			{
+				name:    "referenced",
+				root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="global" type="xs:unsignedLong"/><xs:complexType name="Record"><xs:attribute ref="r:global"/></xs:complexType></xs:schema>`,
+				primary: `ref="r:global"`,
+				related: `<xs:attribute name="global"`,
+				cause:   errSchemaAttributeReferenceUnsupported,
+			},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				if err == nil {
+					t.Fatal("discoverSchema accepted unsignedLong AttributeUse")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+					t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Feature())
+				}
+				wantSpecRef := schemaAttributeUseSpecRef(profile.version)
+				if test.name == "local" {
+					wantSpecRef = schemaAttributeTypeSpecRef(profile.version)
+				}
+				if diagnostic.SpecRef() != wantSpecRef {
+					t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), wantSpecRef)
+				}
+				if diagnostic.Loc() != elementReferenceTestAttributeLoc(t, test.root, test.primary) {
+					t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), elementReferenceTestAttributeLoc(t, test.root, test.primary))
+				}
+				var wantRelated []Loc
+				if test.related != "" {
+					wantRelated = []Loc{elementReferenceTestAttributeLoc(t, test.root, test.related)}
+				}
+				if got := diagnostic.Related(); !reflect.DeepEqual(got, wantRelated) {
+					t.Fatalf("diagnostic related = %v, want %v", got, wantRelated)
+				}
+				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, test.cause) {
+					t.Fatalf("diagnostic lost unsupported AttributeUse cause: %v", err)
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Keep the cross-policy simpleContent diagnostic matrix together.
+func TestSchemaBridgeRejectsUnsignedLongSimpleContentBasesAcrossPolicies(t *testing.T) {
+	for _, profile := range unsignedLongPolicyProfiles() {
+		t.Run(profile.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:complexType name="Value"><xs:simpleContent><xs:extension base="xs:unsignedLong"/></xs:simpleContent></xs:complexType></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			assertZeroSchema(t, schema)
+			if err == nil {
+				t.Fatal("discoverSchema accepted unsignedLong simpleContent base")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+				t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Feature())
+			}
+			if diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) {
+				t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), schemaSimpleContentSpecRef(profile.version))
+			}
+			wantLoc := elementReferenceTestAttributeLoc(t, root, `base="xs:unsignedLong"`)
+			if diagnostic.Loc() != wantLoc {
+				t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+			}
+			if diagnostic.Related() != nil {
+				t.Fatalf("diagnostic related = %v, want none", diagnostic.Related())
+			}
+			if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) {
+				t.Fatalf("diagnostic lost unsupported simpleContent cause: %v", err)
+			}
+		})
+	}
+}
+
 func TestSchemaBridgeResolvesImportedAttributeUseByVisibility(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root">
   <xs:import namespace="urn:other" schemaLocation="other.xsd"/>

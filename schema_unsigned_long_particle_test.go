@@ -35,7 +35,7 @@ func TestSchemaUnsignedLongLocalParticlesAcrossPolicies(t *testing.T) {
 				t.Fatalf("Choice occurrences = %q, want %q", got, want)
 			}
 			choiceAlternatives := choiceParticle.Alternatives()
-			if got, want := len(choiceAlternatives), 2; got != want {
+			if got, want := len(choiceAlternatives), 3; got != want {
 				t.Fatalf("Choice alternative count = %d, want %d after 0/0 omission", got, want)
 			}
 
@@ -90,6 +90,22 @@ func TestSchemaUnsignedLongLocalParticlesAcrossPolicies(t *testing.T) {
 				t.Fatalf("Tight facet locations = %s/%s/%t, want inherited and local value locations", minFacet.Loc(), maxFacet.Loc(), boundsOK)
 			}
 
+			faceted := requireUnsignedLongElementParticle(t, choiceAlternatives[2])
+			if faceted.Name() != mustTestQName(t, "", "faceted") || faceted.DeclaredType() != mustTestQName(t, "urn:root", "Faceted") {
+				t.Fatalf("faceted particle name/type = %q/%q, want faceted/r:Faceted", faceted.Name(), faceted.DeclaredType())
+			}
+			facetedReference, ok := faceted.TypeReference()
+			if !ok || !facetedReference.IsNamed() || facetedReference.Name() != mustTestQName(t, "urn:root", "Faceted") {
+				t.Fatalf("faceted type reference = %#v/%t, want named Faceted", facetedReference, ok)
+			}
+			facetedDefinition := requireUnsignedLongParticleSimpleType(t, first, "Faceted")
+			facetedID, hasFacetedID := facetedReference.ComponentID()
+			facetedParticleID, hasFacetedParticleID := faceted.TypeID()
+			if !hasFacetedID || facetedID != facetedDefinition.ID() || !hasFacetedParticleID || facetedParticleID != facetedDefinition.ID() {
+				t.Fatalf("faceted type ownership = %v/%t and %v/%t, want matching Faceted IDs", facetedID, hasFacetedID, facetedParticleID, hasFacetedParticleID)
+			}
+			assertUnsignedLongFacetedType(t, facetedDefinition, facetedReference, root, profile.version)
+
 			sequence := requireUnsignedLongParticleComplexType(t, first, "Sequence")
 			sequenceParticle, ok := sequence.Particle().(SequenceParticle)
 			if !ok {
@@ -111,7 +127,7 @@ func TestSchemaUnsignedLongLocalParticlesAcrossPolicies(t *testing.T) {
 			if sequenceElements[0].Name() != mustTestQName(t, "", "sequenceBuiltin") || sequenceElements[1].Name() != mustTestQName(t, "", "sequenceNamed") {
 				t.Fatalf("sequence lexical names = %q/%q, want sequenceBuiltin/sequenceNamed", sequenceElements[0].Name(), sequenceElements[1].Name())
 			}
-			assertUnsignedLongBuiltinReference(t, mustUnsignedLongParticleTypeReference(t, sequenceElements[0]), mustSchemaTokenLoc(t, "root.xsd", root, 8, `type="xs:unsignedLong"`), profile.version)
+			assertUnsignedLongBuiltinReference(t, mustUnsignedLongParticleTypeReference(t, sequenceElements[0]), mustSchemaTokenLoc(t, "root.xsd", root, 9, `type="xs:unsignedLong"`), profile.version)
 
 			for _, name := range []string{"ExtendedChoice", "ExtendedSequence"} {
 				definition := requireUnsignedLongParticleComplexType(t, first, name)
@@ -156,6 +172,7 @@ func schemaUnsignedLongLocalParticleRoot() string {
   <xs:complexType name="Choice"><xs:choice minOccurs="0" maxOccurs="18446744073709551617">
     <xs:element name="qualified" type="xs:unsignedLong" form="qualified" nillable="true" block="substitution" minOccurs="2" maxOccurs="18446744073709551616"/>
     <xs:element name="named" type="r:Tight"/>
+    <xs:element name="faceted" type="r:Faceted"/>
     <xs:element name="omitted" type="r:Tight" minOccurs="0" maxOccurs="0"/>
   </xs:choice></xs:complexType>
   <xs:complexType name="Sequence"><xs:sequence minOccurs="0" maxOccurs="unbounded">
@@ -170,6 +187,7 @@ func schemaUnsignedLongLocalParticleRoot() string {
   <xs:complexType name="ZeroSequence"><xs:sequence minOccurs="0" maxOccurs="0"><xs:element name="value" type="r:Tight"/></xs:sequence></xs:complexType>
   <xs:simpleType name="Tight"><xs:restriction base="r:BaseUnsignedLong"><xs:maxInclusive value="7"/></xs:restriction></xs:simpleType>
   <xs:simpleType name="BaseUnsignedLong"><xs:restriction base="xs:unsignedLong"><xs:minInclusive value="0"/><xs:maxInclusive value="18446744073709551615"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="Faceted"><xs:restriction base="r:BaseUnsignedLong"><xs:minExclusive value="8"/><xs:maxExclusive value="20"/><xs:totalDigits value="3"/><xs:fractionDigits value="0"/><xs:enumeration value="9"/><xs:enumeration value="10"/></xs:restriction></xs:simpleType>
 </xs:schema>`
 }
 
@@ -215,6 +233,159 @@ func mustUnsignedLongParticleTypeReference(t *testing.T, element ElementParticle
 		t.Fatalf("element %q has no type reference", element.Name())
 	}
 	return reference
+}
+
+//nolint:gocognit // Keep facet ownership, provenance, and resolved-fact checks together.
+func assertUnsignedLongFacetedType(t *testing.T, definition SimpleTypeDefinition, reference SimpleTypeReference, root string, version XSDVersion) {
+	t.Helper()
+	if definition.Variety() != SimpleTypeVarietyAtomicRestriction || definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicUnsignedLong {
+		t.Fatalf("Faceted variety/kind = %q/%v, want atomic unsignedLong restriction", definition.Variety(), definition.facts)
+	}
+	if !reference.IsNamed() || reference.Name() != mustTestQName(t, "urn:root", "Faceted") || reference.Loc() != elementReferenceTestAttributeLoc(t, root, `type="r:Faceted"`) {
+		t.Fatalf("Faceted reference = %#v, want named use-site reference", reference)
+	}
+	base, ok := definition.BaseReference()
+	baseName := definition.Base()
+	if !ok || base.Name() != baseName {
+		t.Fatalf("Faceted base reference = %#v/%t, want %q", base, ok, baseName)
+	}
+	baseLexical := `base="r:BaseUnsignedLong"`
+	if baseName.Namespace() == testXSDNamespace {
+		if !base.IsBuiltin() {
+			t.Fatalf("Faceted builtin base reference = %#v, want builtin", base)
+		}
+		if baseID, hasBaseID := base.ComponentID(); hasBaseID || !baseID.IsZero() {
+			t.Fatalf("Faceted builtin base ownership = %v/%t, want zero/false", baseID, hasBaseID)
+		}
+		baseLexical = `base="xs:unsignedLong"`
+	}
+	if baseName.Namespace() != testXSDNamespace {
+		baseID, hasBaseID := base.ComponentID()
+		if !hasBaseID || baseID.IsZero() || baseID.Source() != "root.xsd" {
+			t.Fatalf("Faceted named base ownership = %v/%t, want root.xsd named identity", baseID, hasBaseID)
+		}
+	}
+	wantBaseLoc := unsignedLongParticleTokenLocAfter(t, root, `<xs:simpleType name="Faceted">`, baseLexical)
+	if base.Loc() != wantBaseLoc || base.VarietyLoc().IsZero() || base.VarietyLoc().Source() != "root.xsd" {
+		t.Fatalf("Faceted base locations = %s/%s, want base %s and root.xsd provenance", base.Loc(), base.VarietyLoc(), wantBaseLoc)
+	}
+	bounds, boundsOK := definition.IntegerBounds()
+	if !boundsOK {
+		t.Fatal("Faceted definition has no integer bounds")
+	}
+	assertUnsignedLongFacetedFacts(t, bounds, definition.DigitFacets(), definition.IntegerEnumerationFacets(), root, version)
+
+	facts := reference.facts
+	if facts == nil {
+		t.Fatal("Faceted reference has no resolved facts")
+	}
+	integerFacets, ok := facts.facets.(schemaIntegerFacetVariant)
+	if !ok {
+		t.Fatalf("Faceted reference facets = %T, want schemaIntegerFacetVariant", facts.facets)
+	}
+	assertUnsignedLongFacetedFacts(t, integerFacets.bounds, integerFacets.digits, integerFacets.enumeration, root, version)
+}
+
+//nolint:gocognit // Keep exact bound, digit, enumeration, and location checks together.
+func assertUnsignedLongFacetedFacts(t *testing.T, bounds IntegerBoundFacets, digits DigitFacets, enumeration IntegerEnumerationFacets, root string, version XSDVersion) {
+	t.Helper()
+	minValue, minOK := bounds.MinExclusive()
+	if !minOK || minValue.Canonical() != "8" {
+		t.Fatalf("Faceted minExclusive = %q/%t, want 8/true", minValue.Canonical(), minOK)
+	}
+	minFacet, minFacetOK := bounds.MinExclusiveFacet()
+	wantMinLoc := unsignedLongParticleFacetValueLoc(t, root, "minExclusive", "8")
+	if !minFacetOK || minFacet.Kind() != BoundMinExclusive || minFacet.Value().Canonical() != "8" || minFacet.Loc() != wantMinLoc || minFacet.Version() != version {
+		t.Fatalf("Faceted minExclusive facts = %q/%s/%q/%q, want 8/%s/%q/%q", minFacet.Value().Canonical(), minFacet.Loc(), minFacet.Kind(), minFacet.Version(), wantMinLoc, BoundMinExclusive, version)
+	}
+	if _, minInclusiveOK := bounds.MinInclusive(); minInclusiveOK {
+		t.Fatal("Faceted unexpectedly exposed an inclusive lower bound")
+	}
+	maxValue, maxOK := bounds.MaxExclusive()
+	if !maxOK || maxValue.Canonical() != "20" {
+		t.Fatalf("Faceted maxExclusive = %q/%t, want 20/true", maxValue.Canonical(), maxOK)
+	}
+	maxFacet, maxFacetOK := bounds.MaxExclusiveFacet()
+	wantMaxLoc := unsignedLongParticleFacetValueLoc(t, root, "maxExclusive", "20")
+	if !maxFacetOK || maxFacet.Kind() != BoundMaxExclusive || maxFacet.Value().Canonical() != "20" || maxFacet.Loc() != wantMaxLoc || maxFacet.Version() != version {
+		t.Fatalf("Faceted maxExclusive facts = %q/%s/%q/%q, want 20/%s/%q/%q", maxFacet.Value().Canonical(), maxFacet.Loc(), maxFacet.Kind(), maxFacet.Version(), wantMaxLoc, BoundMaxExclusive, version)
+	}
+	if _, maxInclusiveOK := bounds.MaxInclusive(); maxInclusiveOK {
+		t.Fatal("Faceted unexpectedly exposed an inclusive upper bound")
+	}
+	ordered := bounds.Bounds()
+	if len(ordered) != 2 || ordered[0].Kind() != BoundMinExclusive || ordered[1].Kind() != BoundMaxExclusive {
+		t.Fatalf("Faceted ordered bounds = %#v, want minExclusive then maxExclusive", ordered)
+	}
+
+	if digits.Kind() != DigitDatatypeInteger || digits.Version() != version {
+		t.Fatalf("Faceted digit facts = %q/%q, want integer/%q", digits.Kind(), digits.Version(), version)
+	}
+	total, ok := digits.TotalDigits()
+	wantTotalLoc := unsignedLongParticleFacetValueLoc(t, root, "totalDigits", "3")
+	if !ok || total.Canonical() != "3" {
+		t.Fatalf("Faceted totalDigits = %q/%t, want 3/true", total.Canonical(), ok)
+	}
+	if loc, present := digits.TotalDigitsLoc(); !present || loc != wantTotalLoc {
+		t.Fatalf("Faceted totalDigits location = %s/%t, want %s/true", loc, present, wantTotalLoc)
+	}
+	fraction, ok := digits.FractionDigits()
+	wantFractionLoc := unsignedLongParticleFacetValueLoc(t, root, "fractionDigits", "0")
+	if !ok || fraction.Canonical() != "0" {
+		t.Fatalf("Faceted fractionDigits = %q/%t, want 0/true", fraction.Canonical(), ok)
+	}
+	if loc, present := digits.FractionDigitsLoc(); !present || loc != wantFractionLoc {
+		t.Fatalf("Faceted fractionDigits location = %s/%t, want %s/true", loc, present, wantFractionLoc)
+	}
+
+	if !enumeration.HasEnumeration() || enumeration.Version() != version || enumeration.Len() != 2 {
+		t.Fatalf("Faceted enumeration facts = %t/%d/%q, want true/2/%q", enumeration.HasEnumeration(), enumeration.Len(), enumeration.Version(), version)
+	}
+	values := enumeration.Values()
+	if len(values) != 2 || values[0].Canonical() != "9" || values[1].Canonical() != "10" {
+		t.Fatalf("Faceted enumeration values = %#v, want [9 10]", values)
+	}
+	wantEnumerationLocs := []Loc{
+		unsignedLongParticleFacetElementLoc(t, root, "enumeration", "9"),
+		unsignedLongParticleFacetElementLoc(t, root, "enumeration", "10"),
+	}
+	if got := enumeration.Locations(); !reflect.DeepEqual(got, wantEnumerationLocs) {
+		t.Fatalf("Faceted enumeration locations = %v, want %v", got, wantEnumerationLocs)
+	}
+}
+
+func unsignedLongParticleFacetValueLoc(t *testing.T, root, facet, value string) Loc {
+	t.Helper()
+	marker := `<xs:` + facet + ` value="` + value + `"/>`
+	index := strings.Index(root, marker)
+	if index < 0 {
+		t.Fatalf("fixture does not contain facet marker %q", marker)
+	}
+	valueOffset := strings.Index(marker, `value=`)
+	return namedGroupLocAt(t, root, index+valueOffset)
+}
+
+func unsignedLongParticleFacetElementLoc(t *testing.T, root, facet, value string) Loc {
+	t.Helper()
+	marker := `<xs:` + facet + ` value="` + value + `"/>`
+	index := strings.Index(root, marker)
+	if index < 0 {
+		t.Fatalf("fixture does not contain facet marker %q", marker)
+	}
+	return namedGroupLocAt(t, root, index)
+}
+
+func unsignedLongParticleTokenLocAfter(t *testing.T, root, anchor, token string) Loc {
+	t.Helper()
+	anchorIndex := strings.Index(root, anchor)
+	if anchorIndex < 0 {
+		t.Fatalf("fixture does not contain anchor %q", anchor)
+	}
+	tokenOffset := strings.Index(root[anchorIndex:], token)
+	if tokenOffset < 0 {
+		t.Fatalf("fixture does not contain token %q after anchor %q", token, anchor)
+	}
+	return namedGroupLocAt(t, root, anchorIndex+tokenOffset)
 }
 
 //nolint:gocognit // Keep graph visibility and named identity checks together.
@@ -327,6 +498,7 @@ func TestSchemaUnsignedLongLocalParticleFailuresRemainLocated(t *testing.T) {
 			{name: "malformed type QName", body: `<xs:element name="value" type="r:bad:q"/>`},
 			{name: "invalid unsignedLong bound", body: `<xs:element name="value" type="r:Bad"/>`, defs: `<xs:simpleType name="Bad"><xs:restriction base="xs:unsignedLong"><xs:maxInclusive value="18446744073709551616"/></xs:restriction></xs:simpleType>`, cause: errInvalidBoundRestriction, wantSpecRef: true},
 			{name: "malformed unsignedLong bound", body: `<xs:element name="value" type="r:Bad"/>`, defs: `<xs:simpleType name="Bad"><xs:restriction base="xs:unsignedLong"><xs:maxInclusive value="not-an-integer"/></xs:restriction></xs:simpleType>`, cause: errInvalidBoundValue, wantSpecRef: true},
+			{name: "invalid unsignedLong bound before zero omission", body: `<xs:element name="value" type="r:Bad" minOccurs="0" maxOccurs="0"/>`, defs: `<xs:simpleType name="Bad"><xs:restriction base="xs:unsignedLong"><xs:maxInclusive value="18446744073709551616"/></xs:restriction></xs:simpleType>`, cause: errInvalidBoundRestriction, wantSpecRef: true},
 			{name: "invalid occurrence lexical", body: `<xs:element name="value" type="xs:unsignedLong" minOccurs="not-a-number"/>`, wantSpecRef: true},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
@@ -394,21 +566,24 @@ func TestSchemaUnsignedLongLocalParticleConsumersRemainUnsupported(t *testing.T)
 	}
 }
 
+//nolint:gocognit // Keep the existing policy and excluded-shape diagnostic matrix together.
 func TestSchemaUnsignedLongLocalParticleExcludedShapesRemainUnsupported(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {
 		for _, test := range []struct {
-			name string
-			body string
-			defs string
+			name      string
+			body      string
+			defs      string
+			locMarker string
+			specRef   string
 		}{
-			{name: "inline unsignedLong", body: `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:element>`},
-			{name: "named long", body: `<xs:element name="value" type="r:Long"/>`, defs: `<xs:simpleType name="Long"><xs:restriction base="xs:long"/></xs:simpleType>`},
-			{name: "named int", body: `<xs:element name="value" type="r:Int"/>`, defs: `<xs:simpleType name="Int"><xs:restriction base="xs:int"/></xs:simpleType>`},
-			{name: "named non-negative integer", body: `<xs:element name="value" type="r:NonNegative"/>`, defs: `<xs:simpleType name="NonNegative"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`},
-			{name: "named non-positive integer", body: `<xs:element name="value" type="r:NonPositive"/>`, defs: `<xs:simpleType name="NonPositive"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType>`},
-			{name: "named list", body: `<xs:element name="value" type="r:List"/>`, defs: `<xs:simpleType name="List"><xs:list itemType="xs:unsignedLong"/></xs:simpleType>`},
-			{name: "named union", body: `<xs:element name="value" type="r:Union"/>`, defs: `<xs:simpleType name="Union"><xs:union memberTypes="xs:unsignedLong"/></xs:simpleType>`},
-			{name: "nested sequence", body: `<xs:sequence><xs:element name="value" type="xs:unsignedLong"/></xs:sequence>`},
+			{name: "inline unsignedLong", body: `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:element>`, locMarker: `<xs:simpleType>`},
+			{name: "named long", body: `<xs:element name="value" type="r:Long"/>`, defs: `<xs:simpleType name="Long"><xs:restriction base="xs:long"/></xs:simpleType>`, locMarker: `type="r:Long"`},
+			{name: "named int", body: `<xs:element name="value" type="r:Int"/>`, defs: `<xs:simpleType name="Int"><xs:restriction base="xs:int"/></xs:simpleType>`, locMarker: `type="r:Int"`},
+			{name: "named non-negative integer", body: `<xs:element name="value" type="r:NonNegative"/>`, defs: `<xs:simpleType name="NonNegative"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`, locMarker: `type="r:NonNegative"`},
+			{name: "named non-positive integer", body: `<xs:element name="value" type="r:NonPositive"/>`, defs: `<xs:simpleType name="NonPositive"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType>`, locMarker: `type="r:NonPositive"`},
+			{name: "named list", body: `<xs:element name="value" type="r:List"/>`, defs: `<xs:simpleType name="List"><xs:list itemType="xs:unsignedLong"/></xs:simpleType>`, locMarker: `type="r:List"`},
+			{name: "named union", body: `<xs:element name="value" type="r:Union"/>`, defs: `<xs:simpleType name="Union"><xs:union memberTypes="xs:unsignedLong"/></xs:simpleType>`, locMarker: `type="r:Union"`},
+			{name: "nested sequence", body: `<xs:sequence><xs:element name="value" type="xs:unsignedLong"/></xs:sequence>`, locMarker: `<xs:sequence>`, specRef: schemaSyntaxSpecRefForVersion(XSDVersion10)},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="2.0"><xs:complexType name="Record"><xs:choice>` + test.body + `</xs:choice></xs:complexType>` + test.defs + `</xs:schema>`
@@ -420,8 +595,164 @@ func TestSchemaUnsignedLongLocalParticleExcludedShapesRemainUnsupported(t *testi
 				if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || !errors.Is(err, ErrUnsupported) {
 					t.Fatalf("diagnostic = %s, want schema unsupported with preserved cause", diagnostic)
 				}
+				wantSpecRef := test.specRef
+				if wantSpecRef == "" {
+					wantSpecRef = schemaSyntaxSpecRefForVersion(profile.version)
+				}
+				if diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.SpecRef() != wantSpecRef {
+					t.Fatalf("diagnostic code/spec = %q/%q, want %q/%q", diagnostic.Code(), diagnostic.SpecRef(), UnsupportedSchemaSyntaxCode, wantSpecRef)
+				}
+				if diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, test.locMarker) {
+					t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), elementReferenceTestAttributeLoc(t, root, test.locMarker))
+				}
+				if diagnostic.Related() != nil {
+					t.Fatalf("diagnostic related = %v, want none", diagnostic.Related())
+				}
 			})
 		}
+	}
+}
+
+//nolint:gocognit // Keep the direct/extension owner and zero-occurrence matrix together.
+func TestSchemaUnsignedLongExcludedParticleShapesAcrossOwners(t *testing.T) {
+	for _, profile := range unsignedLongPolicyProfiles() {
+		for _, owner := range []struct {
+			name      string
+			model     string
+			extension bool
+		}{
+			{name: "direct choice", model: "choice"},
+			{name: "direct sequence", model: "sequence"},
+			{name: "extension choice", model: "choice", extension: true},
+			{name: "extension sequence", model: "sequence", extension: true},
+		} {
+			for _, test := range unsignedLongExcludedOwnerCases() {
+				t.Run(profile.name+"/"+owner.name+"/"+test.name, func(t *testing.T) {
+					body := strings.ReplaceAll(test.body, "OCCURRENCES", "")
+					root := schemaUnsignedLongExcludedOwnerRoot(owner.model, owner.extension, body, test.defs)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					assertZeroSchema(t, schema)
+					if err == nil {
+						t.Fatal("discoverSchema accepted an excluded nonzero unsignedLong particle shape")
+					}
+					assertUnsignedLongExcludedParticleDiagnostic(t, root, err, test.locMarker, profile.version)
+
+					zeroBody := strings.ReplaceAll(test.body, "OCCURRENCES", ` minOccurs="0" maxOccurs="0"`)
+					zeroRoot := schemaUnsignedLongExcludedOwnerRoot(owner.model, owner.extension, zeroBody, test.defs)
+					zeroSchema, zeroErr := discoverTestSchemaWithPolicy(t, zeroRoot, nil, profile.policy)
+					if zeroErr != nil {
+						t.Fatalf("discoverTestSchemaWithPolicy zero occurrence: %v", zeroErr)
+					}
+					assertUnsignedLongExcludedOwnerZero(t, zeroSchema, owner.model)
+				})
+			}
+		}
+	}
+}
+
+type unsignedLongExcludedOwnerCase struct {
+	name      string
+	body      string
+	defs      string
+	locMarker string
+}
+
+func unsignedLongExcludedOwnerCases() []unsignedLongExcludedOwnerCase {
+	return []unsignedLongExcludedOwnerCase{
+		{
+			name:      "inline unsignedLong",
+			body:      `<xs:element name="value"OCCURRENCES><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:element>`,
+			locMarker: `<xs:simpleType>`,
+		},
+		{
+			name:      "named long",
+			body:      `<xs:element name="value" type="r:Long"OCCURRENCES/>`,
+			defs:      `<xs:simpleType name="Long"><xs:restriction base="xs:long"/></xs:simpleType>`,
+			locMarker: `type="r:Long"`,
+		},
+		{
+			name:      "named int",
+			body:      `<xs:element name="value" type="r:Int"OCCURRENCES/>`,
+			defs:      `<xs:simpleType name="Int"><xs:restriction base="xs:int"/></xs:simpleType>`,
+			locMarker: `type="r:Int"`,
+		},
+		{
+			name:      "named non-negative integer",
+			body:      `<xs:element name="value" type="r:NonNegative"OCCURRENCES/>`,
+			defs:      `<xs:simpleType name="NonNegative"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`,
+			locMarker: `type="r:NonNegative"`,
+		},
+		{
+			name:      "named non-positive integer",
+			body:      `<xs:element name="value" type="r:NonPositive"OCCURRENCES/>`,
+			defs:      `<xs:simpleType name="NonPositive"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType>`,
+			locMarker: `type="r:NonPositive"`,
+		},
+		{
+			name:      "named list",
+			body:      `<xs:element name="value" type="r:List"OCCURRENCES/>`,
+			defs:      `<xs:simpleType name="List"><xs:list itemType="xs:unsignedLong"/></xs:simpleType>`,
+			locMarker: `type="r:List"`,
+		},
+		{
+			name:      "named union",
+			body:      `<xs:element name="value" type="r:Union"OCCURRENCES/>`,
+			defs:      `<xs:simpleType name="Union"><xs:union memberTypes="xs:unsignedLong"/></xs:simpleType>`,
+			locMarker: `type="r:Union"`,
+		},
+	}
+}
+
+func schemaUnsignedLongExcludedOwnerRoot(model string, extension bool, body, defs string) string {
+	if extension {
+		return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="2.0"><xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:` + model + `>` + body + `</xs:` + model + `></xs:extension></xs:complexContent></xs:complexType>` + defs + `</xs:schema>`
+	}
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="2.0"><xs:complexType name="Record"><xs:` + model + `>` + body + `</xs:` + model + `></xs:complexType>` + defs + `</xs:schema>`
+}
+
+func assertUnsignedLongExcludedParticleDiagnostic(t *testing.T, root string, err error, locMarker string, version XSDVersion) {
+	t.Helper()
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+		t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Feature())
+	}
+	if diagnostic.SpecRef() != schemaSyntaxSpecRefForVersion(version) {
+		t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), schemaSyntaxSpecRefForVersion(version))
+	}
+	wantLoc := elementReferenceTestAttributeLoc(t, root, locMarker)
+	if diagnostic.Loc() != wantLoc {
+		t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+	}
+	if diagnostic.Related() != nil {
+		t.Fatalf("diagnostic related = %v, want none", diagnostic.Related())
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("diagnostic lost unsupported cause: %v", err)
+	}
+}
+
+func assertUnsignedLongExcludedOwnerZero(t *testing.T, schema Schema, model string) {
+	t.Helper()
+	definition := requireUnsignedLongParticleComplexType(t, schema, "Record")
+	switch model {
+	case "choice":
+		choice, ok := definition.Particle().(ChoiceParticle)
+		if !ok {
+			t.Fatalf("zero Record particle = %T, want ChoiceParticle", definition.Particle())
+		}
+		if len(choice.Alternatives()) != 0 {
+			t.Fatalf("zero choice alternatives = %d, want 0", len(choice.Alternatives()))
+		}
+	case "sequence":
+		sequence, ok := definition.Particle().(SequenceParticle)
+		if !ok {
+			t.Fatalf("zero Record particle = %T, want SequenceParticle", definition.Particle())
+		}
+		if len(sequence.Elements()) != 0 {
+			t.Fatalf("zero sequence elements = %d, want 0", len(sequence.Elements()))
+		}
+	default:
+		t.Fatalf("unknown excluded owner model %q", model)
 	}
 }
 
@@ -456,7 +787,7 @@ func TestSchemaUnsignedLongExtensionParticlesAcrossPolicies(t *testing.T) {
 				t.Fatalf("ExtensionChoice occurrences = %q, want %q", got, want)
 			}
 			choiceAlternatives := choiceParticle.Alternatives()
-			if got, want := len(choiceAlternatives), 5; got != want {
+			if got, want := len(choiceAlternatives), 6; got != want {
 				t.Fatalf("ExtensionChoice alternatives = %d, want %d after child 0/0 omission", got, want)
 			}
 			choiceCases := unsignedLongExtensionParticleCases(t, root, "choice", 12, "2", "18446744073709551616")
@@ -464,26 +795,32 @@ func TestSchemaUnsignedLongExtensionParticlesAcrossPolicies(t *testing.T) {
 				element := requireUnsignedLongElementParticle(t, choiceAlternatives[index])
 				assertUnsignedLongExtensionElement(t, element, test, profile.version, root, 12+index)
 			}
+			facetedDefinition := requireUnsignedLongParticleSimpleType(t, first, "Faceted")
+			facetedReference, ok := requireUnsignedLongElementParticle(t, choiceAlternatives[5]).TypeReference()
+			if !ok {
+				t.Fatal("extension faceted element has no type reference")
+			}
+			assertUnsignedLongFacetedType(t, facetedDefinition, facetedReference, root, profile.version)
 
 			sequence := requireUnsignedLongParticleComplexType(t, first, "ExtensionSequence")
-			assertUnsignedLongExtensionBase(t, sequence, root, 24)
+			assertUnsignedLongExtensionBase(t, sequence, root, 25)
 			sequenceParticle, ok := sequence.Particle().(SequenceParticle)
 			if !ok {
 				t.Fatalf("ExtensionSequence particle = %T, want SequenceParticle", sequence.Particle())
 			}
-			if got, want := sequenceParticle.Loc(), mustSchemaTokenLoc(t, "root.xsd", root, 25, `<xs:sequence`); got != want {
+			if got, want := sequenceParticle.Loc(), mustSchemaTokenLoc(t, "root.xsd", root, 26, `<xs:sequence`); got != want {
 				t.Fatalf("ExtensionSequence particle location = %s, want %s", got, want)
 			}
 			if got, want := sequenceParticle.Occurrences().String(), "0/unbounded"; got != want {
 				t.Fatalf("ExtensionSequence occurrences = %q, want %q", got, want)
 			}
 			sequenceElements := sequenceParticle.Elements()
-			if got, want := len(sequenceElements), 5; got != want {
+			if got, want := len(sequenceElements), 6; got != want {
 				t.Fatalf("ExtensionSequence elements = %d, want %d after child 0/0 omission", got, want)
 			}
-			sequenceCases := unsignedLongExtensionParticleCases(t, root, "sequence", 26, "18446744073709551616", "18446744073709551617")
+			sequenceCases := unsignedLongExtensionParticleCases(t, root, "sequence", 27, "18446744073709551616", "18446744073709551617")
 			for index, test := range sequenceCases {
-				assertUnsignedLongExtensionElement(t, sequenceElements[index], test, profile.version, root, 26+index)
+				assertUnsignedLongExtensionElement(t, sequenceElements[index], test, profile.version, root, 27+index)
 			}
 
 			for _, local := range []string{"ExtensionChoiceZero", "ExtensionSequenceZero"} {
@@ -531,6 +868,7 @@ type unsignedLongExtensionParticleCase struct {
 	maximum      string
 	boundMinimum string
 	boundMaximum string
+	faceted      bool
 	typeLoc      Loc
 }
 
@@ -542,6 +880,7 @@ func unsignedLongExtensionParticleCases(t *testing.T, root, prefix string, start
 		{local: prefix + "Included", typeName: mustTestQName(t, "urn:root", "Included"), source: "ordinary.xsd", minimum: "0", maximum: "10", boundMinimum: "1", boundMaximum: "10", typeLoc: mustSchemaTokenLoc(t, "root.xsd", root, startLine+2, `type="r:Included"`)},
 		{local: prefix + "Chameleon", typeName: mustTestQName(t, "urn:root", "Chameleon"), source: "chameleon.xsd", minimum: "1", maximum: "unbounded", boundMinimum: "2", boundMaximum: "20", typeLoc: mustSchemaTokenLoc(t, "root.xsd", root, startLine+3, `type="r:Chameleon"`)},
 		{local: prefix + "Imported", typeName: mustTestQName(t, "urn:other", "Imported"), source: "other.xsd", minimum: "3", maximum: "30", boundMinimum: "3", boundMaximum: "30", typeLoc: mustSchemaTokenLoc(t, "root.xsd", root, startLine+4, `type="o:Imported"`)},
+		{local: prefix + "Faceted", typeName: mustTestQName(t, "urn:root", "Faceted"), source: "root.xsd", minimum: "1", maximum: "1", faceted: true, typeLoc: mustSchemaTokenLoc(t, "root.xsd", root, startLine+5, `type="r:Faceted"`)},
 	}
 }
 
@@ -562,6 +901,7 @@ func assertUnsignedLongExtensionBase(t *testing.T, definition ComplexTypeDefinit
 	}
 }
 
+//nolint:gocognit // Keep extension shape, provenance, occurrence, and facet checks together.
 func assertUnsignedLongExtensionElement(t *testing.T, element ElementParticle, test unsignedLongExtensionParticleCase, version XSDVersion, root string, line int) {
 	t.Helper()
 	if element.Name() != mustTestQName(t, "", test.local) || element.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, line, `<xs:element name="`+test.local+`"`) {
@@ -584,7 +924,16 @@ func assertUnsignedLongExtensionElement(t *testing.T, element ElementParticle, t
 	if !reference.IsNamed() {
 		t.Fatalf("%s type reference = %#v, want named reference", test.local, reference)
 	}
-	assertIntegerReferenceFacts(t, reference.facts, version, schemaSimpleTypeAtomicUnsignedLong, "unsignedLong", test.boundMinimum, test.boundMaximum)
+	if test.faceted {
+		facetVariant, facetOK := reference.facts.facets.(schemaIntegerFacetVariant)
+		if !facetOK {
+			t.Fatalf("%s reference facets = %T, want schemaIntegerFacetVariant", test.local, reference.facts.facets)
+		}
+		assertUnsignedLongFacetedFacts(t, facetVariant.bounds, facetVariant.digits, facetVariant.enumeration, root, version)
+	}
+	if !test.faceted {
+		assertIntegerReferenceFacts(t, reference.facts, version, schemaSimpleTypeAtomicUnsignedLong, "unsignedLong", test.boundMinimum, test.boundMaximum)
+	}
 	id, ok := reference.ComponentID()
 	particleID, particleOK := element.TypeID()
 	if !ok || id.Source() != test.source || !particleOK || particleID != id {
@@ -609,6 +958,7 @@ func schemaUnsignedLongExtensionParticleGraph() (string, map[string]discoveryFix
           <xs:element name="choiceIncluded" type="r:Included" minOccurs="0" maxOccurs="10"/>
           <xs:element name="choiceChameleon" type="r:Chameleon" maxOccurs="unbounded"/>
           <xs:element name="choiceImported" type="o:Imported" minOccurs="3" maxOccurs="30"/>
+          <xs:element name="choiceFaceted" type="r:Faceted"/>
           <xs:element name="choiceZero" type="r:Included" minOccurs="0" maxOccurs="0"/>
         </xs:choice>
       </xs:extension>
@@ -623,6 +973,7 @@ func schemaUnsignedLongExtensionParticleGraph() (string, map[string]discoveryFix
           <xs:element name="sequenceIncluded" type="r:Included" minOccurs="0" maxOccurs="10"/>
           <xs:element name="sequenceChameleon" type="r:Chameleon" maxOccurs="unbounded"/>
           <xs:element name="sequenceImported" type="o:Imported" minOccurs="3" maxOccurs="30"/>
+          <xs:element name="sequenceFaceted" type="r:Faceted"/>
           <xs:element name="sequenceZero" type="r:Included" minOccurs="0" maxOccurs="0"/>
         </xs:sequence>
       </xs:extension>
@@ -636,6 +987,7 @@ func schemaUnsignedLongExtensionParticleGraph() (string, map[string]discoveryFix
   </xs:complexType>
   <xs:simpleType name="Forward"><xs:restriction base="r:Later"/></xs:simpleType>
   <xs:simpleType name="Later"><xs:restriction base="xs:unsignedLong"/></xs:simpleType>
+  <xs:simpleType name="Faceted"><xs:restriction base="xs:unsignedLong"><xs:minExclusive value="8"/><xs:maxExclusive value="20"/><xs:totalDigits value="3"/><xs:fractionDigits value="0"/><xs:enumeration value="9"/><xs:enumeration value="10"/></xs:restriction></xs:simpleType>
 </xs:schema>`
 	fixtures := map[string]discoveryFixture{
 		"ordinary.xsd": {

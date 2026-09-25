@@ -62,26 +62,27 @@ local particles are scoped, consumers are on demand.
 
 Primitive: `DeclaredType`; bounded attribute-free complexContent extensions over named
 empty-content bases or named complexContent restrictions over built-in `xs:anyType` retain
-anonymous refs, base identity/locations, and inherited `##other`/`lax` wildcards. Scalar
-simpleContent extensions retain base/type/use `Loc`s and a nil particle; restrictions are
+anonymous refs, base identity/locations, inherited `##other`/`lax` wildcards. Scalar
+simpleContent extensions retain base/type/use `Loc`s and nil particle; restrictions are
 unsupported; bases are Boolean/string/integer/decimal plus policy-gated `precisionDecimal`.
-Admission: direct/permitted extension choices/sequences admit `integer`, effective named or
+Admission: direct/permitted extension choices/sequences admit `integer`, effective named/
 anonymous-inline `negativeInteger`, and built-in/supported named `unsignedLong`; direct built-in
-`negativeInteger` rejects mapped nonzero. Mapped scalar exclusions return `FailureUnsupported`
-at type/facet/element `Loc`; nested exclusions use the nested-particle `Loc`; syntax,
-occurrence, reference, and policy gates precede mapping. Direct sequence owners omit before
-child resolution; choices resolve refs without duplicate checks before child omission; named
+`negativeInteger` rejects mapped nonzero. Scalar exclusions return `FailureUnsupported`
+at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`; syntax,
+occurrence, reference, policy gates precede mapping. Sequences omit before
+child resolution; choices resolve refs without duplicate checks before omission; named
 groups resolve/check refs before owner/child omission; child refs resolve before omission.
-Element-reference and top-level model-group references are distinct queryable boundaries retaining
-QName/RefLoc/TargetID/order without target expansion; nested/local/recursive/broader forms are
-inline/anonymous `unsignedLong` schema-unsupported: `type`/`simpleType` `Loc`; admitted
-local built-in/named-effective `unsignedLong` and named/anonymous-inline `negativeInteger`
-are query-only; consumers return `FailureUnsupported`.
+Element/top-level model-group references are distinct query boundaries retaining
+QName/RefLoc/TargetID/order without expansion; nested/local/recursive/broader forms remain
+unsupported or consumer-excluded. Inline or anonymous `unsignedLong` is a separate
+schema-unsupported scalar boundary at `type`/`simpleType` `Loc`; admitted local
+built-in/named-effective `unsignedLong` is query-only and consumer-rejected. Named/anonymous-inline
+`negativeInteger` is query-only; consumers return `FailureUnsupported`.
 AttributeUse facts are ordered and copied in particle-plus-use, direct model-group, attribute-only,
 and scalar simpleContent-extension bodies. Local uses retain name/type/use locations and named
 type or anonymous `AnonymousID`/`NodeID` ownership; references retain QName/RefLoc/TargetID/use.
-Forms select names; XSD 1.1 local `targetNamespace` must match the containing target, chameleon
-includes adopt it, and prohibited uses are omitted. Value/default/fixed/inheritable semantics,
+Forms select names; XSD 1.1 local `targetNamespace` must match the container; chameleon includes
+adopt it; prohibited uses are omitted. Value/default/fixed/inheritable semantics,
 attributeGroup/attribute-bearing extensions, and consumers remain unsupported; excluded references
 preserve use-site/target locations and return no schema.
 Global attributes are query-only: supported named atomic Boolean, integer, decimal, token,

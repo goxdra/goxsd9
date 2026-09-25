@@ -53,8 +53,10 @@
 // built-in or supported named xs:unsignedLong, and explicitly typed built-in or
 // supported named xs:token/xs:NMTOKEN particles for named global complex types. It
 // also admits built-in and supported named-effective xs:unsignedLong particles in
-// bounded attribute-free extension choices and sequences under every policy; they
-// remain query-only and consumer-rejected. It exposes local inline anonymous atomic
+// supported attribute-free extension choices and sequences under every policy; they
+// remain query-only and consumer-rejected. Direct and supported extension
+// choices/sequences retain exact finite, unbounded, and above-uint64 occurrences;
+// bounded describes the supported derivation/base shape, not occurrence limits. It exposes local inline anonymous atomic
 // Boolean, integer, decimal, and
 // negativeInteger restrictions
 // in direct choices/sequences and bounded attribute-free extensions under Compatibility,
@@ -62,15 +64,16 @@
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
-// not global components or Walk entries. Syntax, effective occurrence,
-// element-reference, and policy gates run before mapping; located gate errors
-// preserve their causes/Locs and return no Schema. Direct sequence owners omit
-// before child resolution; direct choices resolve child refs without duplicate
-// checks before child omission; named groups resolve/check duplicate refs before
-// owner/child omission; child refs resolve before child omission. Mapped non-0/0
-// unsupported scalar forms return located schema-syntax diagnostics. Ordinary
-// 0/0 forms are admitted only after those gates, then absent with no public
-// particle. Strict10 policy admission precedes omission for explicitly typed local
+// not global components or Walk entries. Named-type, facet, syntax, effective
+// occurrence, element-reference, and policy gates run before local public-particle
+// mapping; located gate errors preserve their causes/Locs and return no Schema.
+// Direct sequence owners omit before child resolution; direct choices resolve
+// child refs without duplicate checks before child omission; named groups
+// resolve/check duplicate refs before owner/child omission; child refs resolve
+// before child omission. Mapped non-0/0 unsupported scalar forms return located
+// schema-syntax diagnostics. Ordinary 0/0 forms are admitted only after those
+// gates, then the local public particle is absent; 0/0 is not a universal
+// validation bypass. Strict10 policy admission precedes omission for explicitly typed local
 // built-in or named-effective and inline anonymous `precisionDecimal` forms,
 // including zero-occurrence cases. Ordinary `unsignedLong` and long-family 0/0
 // forms use the admission-then-absence rule under every policy.
@@ -87,12 +90,14 @@
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
 // exclusions use the nested-particle Loc. Ordinary 0/0, including excluded
 // long-family/unsignedLong forms, is admitted after applicable gates and remains
-// absent. The written base QName/base Loc, use-site/type/facet Locs, named ID versus
-// built-in zero identity, ownership, and resolved facts remain separate. Built-in
-// unsignedLong retains intrinsic inclusive bounds [0,18446744073709551615];
-// named-effective particles retain exact narrowed/exclusive bounds/facets and
-// their source locations, identities, graph provenance, and exact occurrences;
-// only validation and GenerateGo return consumer-only
+// absent. Inline/anonymous unsignedLong is a separate mapped schema exclusion at
+// its type/simpleType Loc; built-in and named-effective unsignedLong are admitted
+// query-only forms. The written base QName/base Loc, use-site/type/facet Locs,
+// named ID versus built-in zero identity, ownership, and resolved facts remain
+// separate. Built-in unsignedLong retains intrinsic inclusive bounds
+// [0,18446744073709551615]; named-effective particles retain exact narrowed,
+// inclusive/exclusive bounds, integer enumeration/digit facets, source locations,
+// identities, graph provenance, and exact occurrences; only validation and GenerateGo return consumer-only
 // FailureUnsupported diagnostics.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
