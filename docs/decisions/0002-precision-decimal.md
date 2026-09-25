@@ -4,19 +4,19 @@ Status: accepted
 
 ## Decision
 
-`precisionDecimal` is an optional, opt-in XSD datatype. The pinned 9 June 2011
+`precisionDecimal` is an optional XSD datatype. The pinned 9 June 2011
 artifact’s [§Abstract](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#abstract)
 and [§Status](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#status)
 identify it as a W3C Working Group Note describing an implementation-defined
 datatype and work in progress; it is not a mandatory XSD 1.1 conformance
 requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/)
 §2.5.1 (primitive datatypes; `#dt-primitive`) and [§H.1](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#impl-def)
-permit, but do not require, primitive datatypes outside the standard set.
+permit primitive datatypes outside the standard set.
 [`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers:
 
 - Global attributes: Compatibility/Strict11 admits built-in/named `precisionDecimal` attributes with zero or one optional default/fixed `AttributeValueConstraint`; type-only have none. `ValueConstraint()` copies kind, collapsed lexical/source `Loc`, and exact defensive `StrictPrecisionDecimal` via `PrecisionDecimalValue()` only when present. Unsupported values are `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported`; invalid values are `FailureInvalid`/`XSD3036`; default+fixed is `FailureInvalid`/`XSD3010` with fixed primary/default related. Strict10 rejects at type `Loc` before conversion; conflict/type/policy/reference errors precede conversion. Inline/local and consumers remain unsupported; invalid values retain nested causes and no schema.
-- Elements: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; local named-effective forms require default choices or bounded attribute-free extensions. Exact `0/0` is omitted; mapped non-`0/0` inline and non-default/nonzero sequences reject. Strict10 rejects before validation/omission.
-- Consumers: Compatibility/Strict11 validates built-in/named roots and non-extension default choices; extensions remain queryable; validation/`GenerateGo` reject every `precisionDecimal` target.
+- Elements: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal` facts. Local built-in/named-effective targets admit only default direct choices or bounded attribute-free extension choices; sequences, inline/anonymous, non-default/nonzero forms reject. Exact `0/0` omits after gates; Strict10 rejects before omission.
+- Consumers: Compatibility/Strict11 validates built-in/named roots and non-extension default choices; inline/anonymous and extension choices are query-only/validation-rejected. `GenerateGo` rejects every target.
 
 ## Semantic contract
 

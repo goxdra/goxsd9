@@ -54,31 +54,35 @@
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
-// not global components or Walk entries. Strict10 policy admission precedes 0/0
-// omission for both explicitly typed local built-in or named-effective
-// `precisionDecimal` forms and inline anonymous
-// `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms,
-// including zero-occurrence cases. Compatibility and Strict11 omit effective
-// 0/0 for either mapped form. This Strict10-before-omission rule is specific
-// to `precisionDecimal`; ordinary local declared, named, inline, or anonymous
-// `nonNegativeInteger` 0/0 forms are admitted then absent under every policy.
+// not global components or Walk entries. Syntax, effective occurrence,
+// element-reference, and policy gates run before mapping; located gate errors
+// preserve their causes/Locs and return no Schema. Mapped non-0/0 unsupported
+// scalar forms return located schema-syntax diagnostics; permitted ordinary
+// 0/0 forms are admitted then absent with no public particle. Strict10 policy
+// admission precedes omission for explicitly typed local built-in or
+// named-effective and inline anonymous `precisionDecimal` forms, including
+// zero-occurrence cases. Ordinary `unsignedLong` and long-family 0/0 forms
+// use the admission-then-absence rule under every policy.
 // Local declared, named, inline, and anonymous integer-derived restrictions are
 // admitted at the mapped non-0/0 boundary only when their effective atomic kind
-// is integer or negativeInteger. A direct local xs:negativeInteger is rejected;
-// effective named or inline negativeInteger is admitted. Under all three policies,
+// is integer or negativeInteger. A direct local xs:negativeInteger is rejected
+// as mapped non-0/0 schema syntax at its type/facet Loc; effective named or
+// inline negativeInteger is admitted query-only, while ValidateInstance and
+// GenerateGo return consumer-only FailureUnsupported. Under all three policies,
 // explicitly typed local built-in or supported named-effective unsignedLong is
 // admitted only in direct choices/sequences and permitted bounded attribute-free
-// extensions over the supported named empty-content or xs:anyType-restriction
-// owners (including representable inherited ##other/lax wildcard facts). Effective
-// int, long, nonNegativeInteger, and nonPositiveInteger, plus inline/anonymous
-// unsignedLong, are excluded: ParseSchema returns a located
+// extension choices over named empty-content bases or named complexContent
+// restrictions over xs:anyType (including representable inherited ##other/lax
+// wildcard facts). Effective int, long, nonNegativeInteger, and nonPositiveInteger,
+// plus inline/anonymous unsignedLong, are excluded: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
-// diagnostic at the type or facet Loc and no Schema. Effective 0/0 remains absent.
+// diagnostic at the type, facet, or element Loc and no Schema. Permitted ordinary
+// 0/0 remains absent after the preceding gates.
 // The written base QName, use-site location, named ownership, and resolved facts
 // remain separate. Admitted local unsignedLong particles retain exact inclusive
-// bounds [0,18446744073709551615], source locations, identities, graph provenance,
-// and exact occurrences; only validation and GenerateGo return consumer-only
-// FailureUnsupported diagnostics.
+// bounds [0,18446744073709551615], facets, source locations, identities, graph
+// provenance, and exact occurrences; only validation and GenerateGo return
+// consumer-only FailureUnsupported diagnostics.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
@@ -114,8 +118,8 @@
 // exact anyAttribute, namespace, and processContents source locations are
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
-// Effective 0/0 sequence, choice, child, and wildcard ranges map
-// to absence. Non-0/0 integer/decimal choice and
+// After those gates, effective 0/0 sequence, choice, child, and wildcard ranges
+// map to absence. Non-0/0 integer/decimal choice and
 // alternative ranges are queryable, but direct-choice repetition is not
 // implemented. Direct choices made entirely of local Boolean elements use
 // built-in xs:boolean or named Boolean restrictions; mixed Boolean/numeric
