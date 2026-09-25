@@ -4,35 +4,30 @@ goxsd9 parses/validates/generates Go; unsupported is explicit.
 
 ## [Schema parsing](ARCHITECTURE.md#schema-model)
 
-`ParseSchema`: immutable components; caller `ResolvedSource`/`Resolver`; sequential opaque locations; Compatibility default.
+`ParseSchema`: immutable components; `ResolvedSource`/`Resolver`; sequential opaque locations; Compatibility default.
 
-XSD 1.0/1.1; `openContent=none` works under Compatibility/Strict11 and mismatches Strict10. Extensions need named empty-content bases; model-less preserves identity/locations. `xs:any`/`anyAttribute` keep facts; admitted `0/0` is absent.
-Refs retain QName/RefLoc/target/order; model-group refs query; broader unsupported. Long refs retain bounds; malformed invalid. Global `nonNegativeInteger` refs query; consumers reject. `precisionDecimal` element/type facts query under Compatibility/Strict11; Strict10 rejects before validation; roots validate, inline-element targets query-only.
-`precisionDecimal` attributes query-only in Compatibility/Strict11 (built-in/supported named); Strict10 rejects at type `Loc`.
-`xs:long`/`xs:unsignedLong` attributes, including named types, are admitted under all policies; bounds `[-9223372036854775808,9223372036854775807]` and `[0,18446744073709551615]`; bounds/facets/locations queryable; consumers reject. Each unsupported default/fixed uses `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at value `Loc`; no `Schema`; only default+fixed declarations use `FailureInvalid`/`XSD3010` (fixed primary, default related, no `Schema`).
-Local `nonNegativeInteger` non-0/0 forms reject; 0/0 absent. Global inline Boolean/integer/decimal elements are query-only; string/token/NMTOKEN inline elements generate. Attributes are query-only; inline-attribute consumers excluded; `GenerateGo` rejects every `ComponentKindAttributeDeclaration`.
-`precisionDecimal` locals under Compatibility/Strict11 admit default choices or bounded attribute-free extensions; `0/0` absent, Strict10 rejects first. Extensions query; consumers reject; targets GenerateGo-rejected.
-GenerateGo: global built-in/named-typed `nonNegativeInteger` elements and standalone named simple-type components generate across policies. Built-in/standalone fields use `StrictInteger`; named-typed fields use generated types. Elements require `abstract=false,nillable=false`; either yields `FailureUnsupported`/`GOXSD9029`, nil. Named final/variety/effective-facet gates reject (`FailureUnsupported`/`GOXSD9029`); malformed/stale facts are `FailureInternal`/`GOXSD9030`. Global inline/anonymous `nonNegativeInteger` element/type declarations are query-only and consumer-rejected.
+`openContent=none` works Compatibility/Strict11, mismatches Strict10. Scalar simpleContent extensions only: base/type/use `Loc`s, nil particle; restrictions unsupported; bases Boolean/string/integer/decimal plus policy-gated `precisionDecimal`. `xs:any` particles queryable; nonzero consumers reject; validated local `0/0` omits before local type mapping after syntax/reference/occurrence and Strict10 precision gates; `anyAttribute` separate.
+`Particle-plus-use`/direct model-group refs and attribute-only bodies expose ordered `AttributeUse`; anonymous identity/use; prohibited omitted. Local/ref Boolean/integer/decimal plus policy-gated `precisionDecimal`; `xs:int` unsupported. Direct local built-in `negativeInteger` rejects only mapped non-`0/0`; exact `0/0` omits before mapping. Effective `negativeInteger` query-only; its consumers reject; Boolean/integer/decimal remain supported. Forms select names; XSD11 `targetNamespace` must match target; Strict10 mismatch; chameleon adopts. Bounded attr-free complexContent extensions supported; attribute-bearing/attributeGroup unsupported.
+Refs retain QName/RefLoc/target/order; unresolved/wrong-kind/ambiguous/inaccessible invalid with type/base, candidate/target locations. `precisionDecimal` schema/query: built-in/named roots and direct-default local choices validate Compatibility/Strict11; extension choices/global inline/anonymous consumer-rejected; Strict10 rejects. Homogeneous local NMTOKEN sequences validate exact finite/unbounded/above-uint64 occurrences, but GenerateGo rejects; global inline string/token/NMTOKEN elements generate; attributes query-only.
+Global attrs query-only admit `xs:long`/`xs:unsignedLong` all policies; built-in refs expose intrinsic inclusive bounds `[-9223372036854775808,9223372036854775807]`/`[0,18446744073709551615]`, named refs exact narrowed/exclusive facets/provenance/ownership. Global long/unsignedLong element/type facts query-only: built-ins retain intrinsic bounds, named/inline restrictions retain exact effective narrowed/exclusive facets/provenance/ownership; validation/GenerateGo reject.
+Local `precisionDecimal` admits Compatibility/Strict11 default choices or bounded attr-free extension choices; mapped non-default/nonzero sequences schema-unsupported, non-precision alternatives query-only, admitted extension choices consumer-only. Inline/anonymous follows mapping; Strict10 precedes `0/0`; roots/direct-default local choices validate, GenerateGo rejects targets. Local `nonNegativeInteger` non-`0/0` rejects; validated `0/0` absent. GenerateGo supports global/named `nonNegativeInteger`; inline/anonymous query-only.
 
-Named complex `abstract` is non-inherited; `Final()` uses declaring-document `finalDefault` without
-local `final`; explicit empty/non-empty locals override it; `FinalLoc()` preserves
-local/default provenance—see [Architecture](ARCHITECTURE.md).
-[Examples](direct_choice_example_test.go), [quickstart](library_example_test.go).
+Named complex `abstract` is non-inherited; `Final()` applies declaring `finalDefault`, locals override;
+`FinalLoc()` preserves provenance—see [Architecture](ARCHITECTURE.md).
+[Examples](direct_choice_example_test.go).
 
-## Product CLI
+## CLI
 
-See [Decision 0006](docs/decisions/0006-vertical-slice-cli.md). `parse`,
-`validate`, and `generate` available; parse prints, validate silent;
-invalid exits 1, usage exits 2.
+See [Decision 0006](docs/decisions/0006-vertical-slice-cli.md): CLI `parse`,
+`validate`, `generate`; parse prints, validate silent; invalid 1, usage 2.
 
-## Design goals
+## Goals
 
-Exact values/facets, streaming, deterministic queries, located diagnostics;
-no goroutines/locks/map-order output, conformance.
+Exact values/facets, streaming, deterministic queries; no goroutines/locks/map-order output.
 
-## Repository checks
+## Checks
 
-Fresh checkout; bounded conformance needs exact version, `-set`, `-case`; never run instances:
+Fresh checkout; conformance needs exact version/`-set`/`-case`; never run instances:
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
@@ -40,7 +35,7 @@ go tool workflowctl check
 go tool conformance schema -version 1.0 -set SET -case CASE
 ```
 
-## Pinned specification corpus
+## Corpus
 
 ```sh
 go tool specs build -id xsd11-structures
@@ -53,6 +48,6 @@ Use `-root`/`-output`/`-index`; bootstrap previews only.
 
 See [Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), [AGENTS.md](AGENTS.md).
 
-## Test data licensing
+## Licensing
 
 W3C submodule keeps `00COPYRIGHT`; Apache-2.0 ([LICENSE](LICENSE)).

@@ -193,9 +193,12 @@ type instanceChoiceProgram struct {
 // particle (and anyAttribute, when present) related locations without an
 // anonymous type location. The choice path uses the extension boundary as
 // primary; the streaming sequence path keeps the instance root as primary.
-// Direct and extension model-group-reference particles are classified first by
-// the group reference: its RefLoc is primary and its particle location is kept
-// in related facts.
+// Direct model-group-reference bodies with AttributeUse facts hit the
+// AttributeUse consumer gate first: the first use's Loc is primary, with the
+// declaration/definition and AttributeUse locations related. When no earlier
+// AttributeUse gate applies, direct and extension model-group-reference
+// particles use the group RefLoc as primary and retain the group particle and
+// any supplied extension context in related facts.
 // Mixed Boolean/numeric choices or sequences, mixed token/non-token or
 // NMTOKEN/non-NMTOKEN choices or sequences remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
@@ -446,6 +449,19 @@ func instanceChoiceProgramFor(
 			related,
 			version,
 			errInstanceOpenAttrsType,
+		)
+	}
+	attributeUses := definition.AttributeUses()
+	if len(attributeUses) > 0 {
+		for _, use := range attributeUses {
+			related = appendInstanceRelated(related, use.Loc())
+		}
+		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+			attributeUses[0].Loc(),
+			fmt.Sprintf("named complex type %q attribute uses are outside direct choice validation", definition.Name()),
+			related,
+			version,
+			errInstanceAttributes,
 		)
 	}
 	choice, related, err := instanceChoiceParticleFor(definition, loc, related, version)
