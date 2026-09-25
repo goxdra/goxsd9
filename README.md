@@ -4,26 +4,22 @@ goxsd9 parses/validates/generates Go; unsupported is explicit.
 
 ## [Schema parsing](ARCHITECTURE.md#schema-model)
 
-`ParseSchema`: immutable components; `ResolvedSource`/`Resolver`; sequential opaque locations; Compatibility default.
+`ParseSchema` returns immutable components from `ResolvedSource`/`Resolver`; Compatibility is default; locations are opaque.
 
-`openContent=none` works Compatibility/Strict11, mismatches Strict10. Scalar simpleContent extensions only: base/type/use `Loc`s, nil particle; restrictions unsupported; bases Boolean/string/integer/decimal plus policy-gated `precisionDecimal`. `xs:any` particles queryable; nonzero consumers reject; validated local `0/0` omits before local type mapping after syntax/reference/occurrence and Strict10 precision gates; `anyAttribute` separate.
-`Particle-plus-use`/direct model-group refs and attribute-only bodies expose ordered `AttributeUse`; anonymous identity/use; prohibited omitted. Local/ref Boolean/integer/decimal plus policy-gated `precisionDecimal`; `xs:int` unsupported. Direct local built-in `negativeInteger` rejects only mapped non-`0/0`; exact `0/0` omits before mapping. Effective `negativeInteger` query-only; its consumers reject; Boolean/integer/decimal remain supported. Forms select names; XSD11 `targetNamespace` must match target; Strict10 mismatch; chameleon adopts. Bounded attr-free complexContent extensions supported; attribute-bearing/attributeGroup unsupported.
-Refs retain QName/RefLoc/target/order; unresolved/wrong-kind/ambiguous/inaccessible invalid with type/base, candidate/target locations. `precisionDecimal` schema/query: built-in/named roots and direct-default local choices validate Compatibility/Strict11; extension choices/global inline/anonymous consumer-rejected; Strict10 rejects. Homogeneous local NMTOKEN sequences validate exact finite/unbounded/above-uint64 occurrences, but GenerateGo rejects; global inline string/token/NMTOKEN elements generate; attributes query-only.
-Global attrs query-only admit `xs:long`/`xs:unsignedLong` all policies; built-in refs expose intrinsic inclusive bounds `[-9223372036854775808,9223372036854775807]`/`[0,18446744073709551615]`, named refs exact narrowed/exclusive facets/provenance/ownership. Global long/unsignedLong element/type facts query-only: built-ins retain intrinsic bounds, named/inline restrictions retain exact effective narrowed/exclusive facets/provenance/ownership; validation/GenerateGo reject.
-Local `precisionDecimal` admits Compatibility/Strict11 default choices or bounded attr-free extension choices; mapped non-default/nonzero sequences schema-unsupported, non-precision alternatives query-only, admitted extension choices consumer-only. Inline/anonymous follows mapping; Strict10 precedes `0/0`; roots/direct-default local choices validate, GenerateGo rejects targets. Local `nonNegativeInteger` non-`0/0` rejects; validated `0/0` absent. GenerateGo supports global/named `nonNegativeInteger`; inline/anonymous query-only.
-
-Named complex `abstract` is non-inherited; `Final()` applies declaring `finalDefault`, locals override;
-`FinalLoc()` preserves provenance—see [Architecture](ARCHITECTURE.md).
-[Examples](direct_choice_example_test.go).
+`openContent=none` works in Compatibility/Strict11, not Strict10. Bounded attribute-free extensions use named empty-content bases or `xs:anyType` restrictions, retaining `##other`/`lax` and model-less identity. Scalar simpleContent extensions retain base/type/use `Loc`s and nil particles; restrictions, attribute-bearing complexContent/attributeGroup extensions are unsupported. Scalar simpleContent is query-only; consumers reject.
+`AttributeUse` facts in particle-plus-use/model-group/attribute-only/simpleContent bodies preserve order, locations, ownership, QName/RefLoc/TargetID, and effective use. AttributeUse allows only Boolean/integer/decimal and policy-gated precisionDecimal; simpleContent allows only string/Boolean/integer/decimal and policy-gated precisionDecimal; unsignedLong unsupported in both. Forms select names; matching XSD 1.1 `targetNamespace`/chameleon adoption apply; prohibited uses omitted. Attribute/simpleContent consumers reject; value/default/fixed/inheritable unsupported; excluded refs preserve locations and return no schema.
+Applicable syntax, occurrence, reference, and policy gates precede mapping. Direct/supported extension choices/sequences omit effective `0/0` local public particles only after them; named/inline non-reference mapping is not universal for `0/0`. Graph-wide declaration/facet failures surface; sequence owners skip children; choices resolve refs first; groups resolve/check before owner/child omission; child refs resolve first. Strict10 `precisionDecimal` and direct reference checks precede omission; long-family/unsignedLong `0/0` absent.
+Element/model-group refs retain QName/RefLoc/TargetID/order; eligible direct-choice refs consumable; model-group/excluded refs consumer-rejected. Nonzero `xs:any` queryable; wildcard consumers reject; broader unsupported; `0/0` absent. Global long/unsignedLong retain bounds/facets/locations/ownership; consumers reject.
+All policies admit local built-in/named-effective `xs:unsignedLong` in direct choices/sequences and supported attribute-free extension choices/sequences: exact-finite/`unbounded`/above-`uint64` occurrences; bounds/facets/IDs/ownership/provenance/locations retained; query-only/consumer-rejected; excluded mapped nonzero forms: located `FailureUnsupported`, no schema.
+Direct `xs:negativeInteger` rejects mapped nonzero; named/anonymous-inline query-only. `precisionDecimal`: Compatibility/Strict11 admit default direct/bounded attribute-free extension choices; extension choices are consumer-only. Mapped non-default choices, nonzero sequences, and mapped nonzero inline/anonymous forms are schema-unsupported; Strict10 precedes `0/0` omission.
 
 ## CLI
 
-See [Decision 0006](docs/decisions/0006-vertical-slice-cli.md): CLI `parse`,
-`validate`, `generate`; parse prints, validate silent; invalid 1, usage 2.
+CLI `parse`, `validate`, `generate`; parse prints, validate silent; invalid 1, usage 2.
 
 ## Goals
 
-Exact values/facets, streaming, deterministic queries; no goroutines/locks/map-order output.
+Exact values/facets and deterministic queries; no goroutines/locks/map-order output.
 
 ## Checks
 
@@ -46,7 +42,7 @@ Use `-root`/`-output`/`-index`; bootstrap previews only.
 
 ## Project workflow
 
-See [Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), [AGENTS.md](AGENTS.md).
+[Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), [AGENTS.md](AGENTS.md).
 
 ## Licensing
 
