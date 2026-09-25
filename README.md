@@ -6,31 +6,28 @@ goxsd9 parses/validates/generates Go; unsupported is explicit.
 
 `ParseSchema`: immutable components; caller `ResolvedSource`/`Resolver`; sequential opaque locations; Compatibility default.
 
-XSD 1.0/1.1; `openContent=none` works under Compatibility/Strict11 and mismatches Strict10. ComplexContent extensions need named empty-content bases; model-less keeps identity. Scalar simpleContent extensions separately retain base/type/use locations and nil particle; bases allow Boolean/string/integer/decimal plus policy-gated `precisionDecimal`. `xs:any`/`anyAttribute` keep facts; admitted `0/0` is absent.
-Particle-plus-use (including direct model-group references) and attribute-only bodies expose ordered defensive `AttributeUse` views; local anonymous atomics retain identity, optional/required effective, and prohibited omitted. Local/ref uses allow only Boolean/integer/decimal plus policy-gated `precisionDecimal`; `xs:int`/others unsupported. `form`/`attributeFormDefault` select qualified/unqualified names; XSD 1.1 local `targetNamespace` selects a namespace but must match a containing target namespace; missing/mismatch is invalid, Strict10 edition-mismatches. Chameleon includes adopt including namespace. Validation/GenerateGo reject these consumers; `attributeGroup` and complexContent-extension attribute uses remain unsupported.
-Refs retain QName/RefLoc/target/order; unresolved/wrong-kind/ambiguous/inaccessible refs are invalid, preserving type/base and related candidate/target locations; broader unsupported. `precisionDecimal` facts query only under Compatibility/Strict11; Strict10 gives a policy diagnostic/no schema; under those policies built-in/named roots validate and inline targets are query-only. Global inline string/token/NMTOKEN element declarations generate; attributes remain query-only and GenerateGo-rejected.
-`xs:long`/`xs:unsignedLong` global attributes are admitted under all policies with bounds `[-9223372036854775808,9223372036854775807]` and `[0,18446744073709551615]`; consumers reject. `precisionDecimal` attributes are query-only in Compatibility/Strict11; Strict10 rejects at type `Loc`.
-Local `nonNegativeInteger` non-0/0 rejects; `0/0` absent. GenerateGo supports global/named `nonNegativeInteger` elements and named types; inline/anonymous forms remain query-only.
+XSD 1.0/1.1; `openContent=none` works Compatibility/Strict11, mismatches Strict10. ComplexContent extensions need named empty-content bases; model-less keeps identity. Scalar simpleContent retains base/type/use `Loc`s, nil particle; bases allow Boolean/string/integer/decimal plus policy-gated `precisionDecimal`. `xs:any` particles queryable; nonzero consumers reject; validated `0/0` alone is absent. `anyAttribute` facts/consumers separate.
+`Particle-plus-use` (including direct model-group references) and attribute-only bodies expose ordered `AttributeUse`; anonymous local atomics retain identity/use, prohibited omitted. Local/ref types allow Boolean/integer/decimal plus policy-gated `precisionDecimal`; `xs:int`/others unsupported. Direct local built-in `negativeInteger` is schema-rejected; named/inline effective forms are query-only; consumers reject. `form`/`attributeFormDefault` select names; XSD 1.1 `targetNamespace` must match containing target, else invalid; Strict10 mismatches; chameleon adopts namespace. Validation/GenerateGo reject consumers; `attributeGroup`/complexContent-extension uses unsupported.
+Refs retain QName/RefLoc/target/order; unresolved/wrong-kind/ambiguous/inaccessible are invalid with type/base and candidate/target locations; broader unsupported. `precisionDecimal` facts query only Compatibility/Strict11; Strict10 gives policy diagnostic/no schema. Homogeneous local NMTOKEN sequences validate exact finite/unbounded/above-uint64 occurrences, but GenerateGo rejects; global inline string/token/NMTOKEN elements generate; attributes query-only.
+Global attributes admit `xs:long`/`xs:unsignedLong` under all policies with exact bounds `[-9223372036854775808,9223372036854775807]`/`[0,18446744073709551615]`; attribute consumers reject. Global long/unsignedLong built-in/named/inline element/type facts are query-only under all policies with those bounds; validation/GenerateGo reject. `precisionDecimal` attributes query only Compatibility/Strict11; Strict10 rejects at type `Loc`.
+Local `precisionDecimal` facts admit Compatibility/Strict11 only default choices or bounded attr-free extension choices; sequences/non-default reject; Strict10 precedes `0/0`; roots/default choices validate, validation rejects extension/inline/anonymous, and GenerateGo rejects all. Local `nonNegativeInteger` non-0/0 rejects; validated `0/0` is absent. GenerateGo supports global/named `nonNegativeInteger` elements/types; inline/anonymous query-only.
 
-Named complex `abstract` is non-inherited; `Final()` uses declaring-document `finalDefault` without
-local `final`; explicit empty/non-empty locals override it; `FinalLoc()` preserves
-local/default provenance—see [Architecture](ARCHITECTURE.md).
-[Examples](direct_choice_example_test.go), [quickstart](library_example_test.go).
+Named complex `abstract` is non-inherited; `Final()` applies declaring `finalDefault`, locals override;
+`FinalLoc()` preserves provenance—see [Architecture](ARCHITECTURE.md).
+[Examples](direct_choice_example_test.go).
 
-## Product CLI
+## CLI
 
-See [Decision 0006](docs/decisions/0006-vertical-slice-cli.md). `parse`,
-`validate`, and `generate` available; parse prints, validate silent;
-invalid exits 1, usage exits 2.
+See [Decision 0006](docs/decisions/0006-vertical-slice-cli.md): CLI `parse`,
+`validate`, `generate`; parse prints, validate silent; invalid 1, usage 2.
 
-## Design goals
+## Goals
 
-Exact values/facets, streaming, deterministic queries, located diagnostics;
-no goroutines/locks/map-order output, conformance.
+Exact values/facets, streaming, deterministic queries; no goroutines/locks/map-order output.
 
-## Repository checks
+## Checks
 
-Fresh checkout; bounded conformance needs exact version, `-set`, `-case`; never run instances:
+Fresh checkout; conformance needs exact version/`-set`/`-case`; never run instances:
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
@@ -38,7 +35,7 @@ go tool workflowctl check
 go tool conformance schema -version 1.0 -set SET -case CASE
 ```
 
-## Pinned specification corpus
+## Corpus
 
 ```sh
 go tool specs build -id xsd11-structures
@@ -51,6 +48,6 @@ Use `-root`/`-output`/`-index`; bootstrap previews only.
 
 See [Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), [AGENTS.md](AGENTS.md).
 
-## Test data licensing
+## Licensing
 
 W3C submodule keeps `00COPYRIGHT`; Apache-2.0 ([LICENSE](LICENSE)).

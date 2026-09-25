@@ -62,18 +62,24 @@
 // `precisionDecimal` forms and inline anonymous
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms,
 // including zero-occurrence cases. Compatibility and Strict11 omit effective
-// 0/0 for either mapped form. This Strict10-before-omission rule is specific
-// to `precisionDecimal`; ordinary local declared, named, inline, or anonymous
-// `nonNegativeInteger` 0/0 forms are admitted then absent under every policy.
+// 0/0 only after the mapped type/reference and occurrence validate as omittable.
+// Invalid references/targets, malformed occurrences, and policy mismatches retain
+// their diagnostics and return no schema. This Strict10-before-omission rule is
+// specific to `precisionDecimal`; ordinary local declared, named, inline, or
+// anonymous `nonNegativeInteger` 0/0 forms are likewise absent only after
+// validation under every policy.
 // Local declared, named, inline, and anonymous integer-derived restrictions are
 // admitted at the mapped non-0/0 boundary only when their effective atomic kind
 // is integer or negativeInteger through named, forward, imported, included, and
-// chameleon chains. Effective int, long, unsignedLong, nonNegativeInteger, and
+// chameleon chains. A direct local `type="xs:negativeInteger"` is schema-rejected;
+// named and inline effective negativeInteger forms are admitted as query facts,
+// but ValidateInstance and GenerateGo reject those consumers. Effective int, long,
+// unsignedLong, nonNegativeInteger, and
 // nonPositiveInteger are valid datatypes but unsupported at this local schema
 // boundary: ParseSchema rejects the mapped form with a located
 // FailureUnsupported/ErrUnsupported diagnostic at the relevant type or facet
 // location and no schema. Ordinary local nonNegativeInteger effective 0/0
-// remains absent after policy admission under every policy. The written base
+// remains absent after occurrence/type validation and policy admission under every policy. The written base
 // QName, use-site location, and resolved named ownership remain separate facts.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string

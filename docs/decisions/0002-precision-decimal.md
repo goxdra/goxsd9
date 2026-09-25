@@ -15,9 +15,9 @@ permit, but do not require, primitive datatypes outside the standard set.
 [`Decision 0007`](0007-particle-occurrence.md) governs placement/consumers:
 
 - Global attributes: Compatibility/Strict11 admits built-in/named `precisionDecimal` with default/fixed; type-only has none. `ValueConstraint()` copies kind, collapsed lexical/source `Loc`, defensive `StrictPrecisionDecimal`; codes/causes stable. Strict10 rejects at type `Loc`. Global inline-attribute declarations/consumers unsupported; local anonymous atomic `AttributeUse` separate.
-- Attribute bodies: Particle-plus-use (direct model-group references) and attribute-only expose ordered defensive `AttributeUse`; scalar `simpleContent` retains base/type/use `Loc`s and nil particle; bases allow Boolean/string/integer/decimal plus policy-gated `precisionDecimal`. Local/ref allow only Boolean/integer/decimal plus policy-gated `precisionDecimal`; Refs retain QName/RefLoc/TargetID/use; optional/required effective, prohibited omitted. `form`/`attributeFormDefault` select qualified/unqualified; XSD 1.1 local `targetNamespace` requires matching containing `targetNamespace`; missing/mismatch invalid, Strict10 edition mismatch; chameleon includes adopt namespace. `AnonymousID`/`NodeID` retained; views copied. Unsupported local named: type-attribute `Loc` or type-less local attribute declaration; inline: `simpleType` `Loc`; unsupported global ref: `RefLoc` + target. Unresolved/wrong-kind/ambiguous/inaccessible refs invalid, preserving ref/type/base `Loc`s and candidate/target `Loc`s; no schema. `attributeGroup`/complexContent-extension attribute uses unsupported.
-- Elements: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; local named-effective forms require default choices or bounded attribute-free complexContent extensions over named empty-content bases. `0/0` omits; non-`0/0` inline and non-default/nonzero sequences reject. Strict10 rejects before validation/omission.
-- Consumers: Compatibility/Strict11 validates built-in/named `precisionDecimal` roots and non-extension defaults; extensions remain queryable; validation/`GenerateGo` reject `precisionDecimal` targets and attribute consumers.
+- Attribute bodies: Particle-plus-use (direct model-group references) and attribute-only expose ordered defensive `AttributeUse`; simpleContent retains base/type/use `Loc`s and nil particle; bases allow Boolean/string/integer/decimal plus policy-gated `precisionDecimal`. Local/ref allow Boolean/integer/decimal plus policy-gated `precisionDecimal`; refs retain QName/RefLoc/TargetID/use, effective optional/required, prohibited omitted. `form`/`attributeFormDefault` select names; XSD 1.1 local `targetNamespace` must match containing target; absent/mismatch invalid, Strict10 mismatch; chameleon adopts namespace. `AnonymousID`/`NodeID` retained; views copied. Unsupported local named types use type-attribute/type-less declaration `Loc`; inline uses `simpleType` `Loc`; global refs use `RefLoc` + target. Unresolved/wrong-kind/ambiguous/inaccessible refs invalid with primary/related locations; no schema. `attributeGroup`/complexContent-extension attribute uses unsupported.
+- Elements: Compatibility/Strict11 admits global built-in/named/inline `precisionDecimal`; local named-effective forms model only default-occurrence choices or bounded attribute-free extension choices over named empty-content bases. The choice owner and each typed child/alternative require default occurrences; mapped extension sequences, non-default choices, and nonzero sequences reject. `0/0` omits only after type/reference/occurrence validation; Strict10 rejects before omission.
+- Consumers: Compatibility/Strict11 validates built-in/named roots and non-extension default-occurrence choices. Extension, inline/anonymous, sequence, and non-default forms are validation-rejected; `GenerateGo` rejects every precisionDecimal target, and attribute consumers remain unsupported.
 
 ## Semantic contract
 
@@ -54,16 +54,14 @@ The Note’s [§3.3 facet declaration](https://www.w3.org/TR/2011/NOTE-xsd-preci
 exclude `fractionDigits`, `length`, `minLength`, and `maxLength`. Fixed whitespace is pre-lexical; `pattern`
 examines normalized lexical form; other facets constrain a complete value, never a partial parse.
 
-Note leaves zero canonical mapping unresolved. The project chooses sign-preserving spellings: positive zero -> `0.0E0`, negative zero -> `-0.0E0`; scale-preserving examples are `3.00 -> 3.00` and `3.0e2 -> 3.0E2`; special values: `+INF -> INF`, `-INF -> -INF`, `NaN -> NaN`. Canonical text is on-demand output, never value identity/facet input/round-trip serialization. XSD 1.1 canonical mapping is not required; this policy does not make the optional datatype mandatory.
+Note leaves zero canonical mapping unresolved. Project chooses sign-preserving spellings: positive zero `0.0E0`, negative `-0.0E0`; scale-preserving `3.00 -> 3.00`, `3.0e2 -> 3.0E2`; specials `+INF -> INF`, `-INF -> -INF`, `NaN -> NaN`. Canonical text is on-demand, never identity/facet input/round-trip serialization. XSD 1.1 canonical mapping is optional; policy does not make the datatype mandatory.
 
 ## Representation and phases
 
-The value representation has one private source of truth: a tagged finite, `+INF`, `-INF`, or `NaN` value. A
-finite value contains an arbitrary-precision, non-negative coefficient, explicit sign (including signed zero),
+Representation has one private source: a tagged finite, `+INF`, `-INF`, or `NaN`. A finite value contains an arbitrary-precision, non-negative coefficient, explicit sign (including signed zero),
 and arbitrary signed scale; scale cannot be `int` because the lexical exponent is unbounded. `StrictDecimal` differs:
 it has an `int` scale, elides trailing zeroes, and lacks special values; only its copy techniques may be reused.
-The representation exposes no binary floating point, mutable numeric internals,
-raw lexemes, cached canonical strings, or partial public values; private `big.Int`
+Representation exposes no binary floating point, mutable numeric internals, raw lexemes, cached canonical strings, or partial public values; private `big.Int`
 values are owned or copied before mutation, and coefficient, scale, and cache state
 remain private.
 
