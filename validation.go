@@ -187,16 +187,16 @@ type instanceChoiceProgram struct {
 // remain schema-queryable only: ordinary direct choice/sequence target checks
 // return a located FailureUnsupported/ErrUnsupported diagnostic with
 // element/particle locations and may include the anonymous type location in
-// related facts. Non-model-group-reference complex-content/model-less extension
-// checks run first, before target inspection, at the extension boundary; they
+// related facts. Extension checks without an effective AttributeUse or present
+// group-reference particle run before target inspection at the extension boundary; they
 // retain declaration/definition owners and complex-content/extension/base/
 // particle (and anyAttribute, when present) related locations without an
 // anonymous type location. The choice path uses the extension boundary as
 // primary; the streaming sequence path keeps the instance root as primary.
-// Direct model-group-reference bodies with AttributeUse facts hit the
+// Direct and grouped model-group-reference bodies with AttributeUse facts hit the
 // AttributeUse consumer gate first: the first use's Loc is primary, with the
 // declaration/definition and AttributeUse locations related. When no earlier
-// AttributeUse gate applies, direct and extension model-group-reference
+// AttributeUse gate applies, present direct and extension model-group-reference
 // particles use the group RefLoc as primary and retain the group particle and
 // any supplied extension context in related facts.
 // Mixed Boolean/numeric choices or sequences, mixed token/non-token or
@@ -417,6 +417,19 @@ func instanceChoiceProgramFor(
 ) (instanceChoiceProgram, error) {
 	version := instanceSchemaValidationVersion(schema)
 	related := []Loc{declaration.Loc(), definition.Loc()}
+	attributeUses := definition.AttributeUses()
+	if len(attributeUses) > 0 {
+		for _, use := range attributeUses {
+			related = appendInstanceRelated(related, use.Loc())
+		}
+		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+			attributeUses[0].Loc(),
+			fmt.Sprintf("named complex type %q attribute uses are outside direct choice validation", definition.Name()),
+			related,
+			version,
+			errInstanceAttributes,
+		)
+	}
 	if body := definition.extensionBody(); body != nil {
 		related = appendInstanceRelated(related, body.complexContentLoc)
 		related = appendInstanceRelated(related, body.extensionLoc)
@@ -449,19 +462,6 @@ func instanceChoiceProgramFor(
 			related,
 			version,
 			errInstanceOpenAttrsType,
-		)
-	}
-	attributeUses := definition.AttributeUses()
-	if len(attributeUses) > 0 {
-		for _, use := range attributeUses {
-			related = appendInstanceRelated(related, use.Loc())
-		}
-		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
-			attributeUses[0].Loc(),
-			fmt.Sprintf("named complex type %q attribute uses are outside direct choice validation", definition.Name()),
-			related,
-			version,
-			errInstanceAttributes,
 		)
 	}
 	choice, related, err := instanceChoiceParticleFor(definition, loc, related, version)

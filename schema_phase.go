@@ -2886,6 +2886,9 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 		return false
 	}
 	modelCount := 0
+	groupModel := false
+	attributeCount := 0
+	openContentSeen := false
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
 		if !ok {
@@ -2898,14 +2901,17 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 		case "annotation":
 			continue
 		case "openContent":
-			continue
+			openContentSeen = true
 		case "choice", "sequence", "group":
 			modelCount++
+			groupModel = child.name.local == "group"
+		case "attribute":
+			attributeCount++
 		default:
 			return false
 		}
 	}
-	return modelCount <= 1
+	return modelCount <= 1 && (attributeCount == 0 || modelCount == 1 && groupModel && !openContentSeen)
 }
 
 func schemaBooleanAttributeTrue(element *syntaxElement) bool {
@@ -2957,8 +2963,17 @@ func validateComplexTypeContentAttributes(element *syntaxElement, candidate *sch
 //nolint:gocognit,funlen // Keep derivation ordering and recursive preflight explicit.
 func validateComplexDerivation(element *syntaxElement, version XSDVersion, complexContent, simpleRestriction bool) error {
 	var candidate schemaChildUnsupportedCandidate
+	extensionSpecRef := ""
+	if complexContent && element.name.local == "extension" {
+		extensionSpecRef = schemaComplexContentExtensionSpecRef(version)
+	}
+	compositionDiagnostic := func(loc Loc, message string) Diagnostic {
+		diagnostic := newSchemaCompositionDiagnostic(loc, message)
+		diagnostic.specRef = extensionSpecRef
+		return diagnostic
+	}
 	if err := validateUniqueSchemaAttributes(element, "base", "id"); err != nil {
-		return err
+		return schemaCompositionWithSpecRef(err, extensionSpecRef)
 	}
 	baseAttributes := syntaxAttributesByLocal(element, "base")
 	if len(baseAttributes) == 0 {
@@ -2980,7 +2995,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				errSchemaComplexTypeBaseRequired,
 			)
 		}
-		return newSchemaCompositionDiagnostic(element.loc, element.name.local+" requires a base attribute")
+		return compositionDiagnostic(element.loc, element.name.local+" requires a base attribute")
 	}
 	if err := validateConditionalQNameForSchema(element, baseAttributes[0]); err != nil {
 		return err
@@ -3000,15 +3015,15 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 		case "base":
 		case "id":
 			if !validNCName(collapseXMLWhitespace(attribute.value)) {
-				return newSchemaCompositionDiagnostic(attribute.loc, element.name.local+" id must be a valid NCName")
+				return compositionDiagnostic(attribute.loc, element.name.local+" id must be a valid NCName")
 			}
 		default:
-			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("%s has forbidden attribute %q", element.name.local, attribute.name.local))
+			return compositionDiagnostic(attribute.loc, fmt.Sprintf("%s has forbidden attribute %q", element.name.local, attribute.name.local))
 		}
 	}
 	children, err := collectSimpleTypeChildren(element, element.name.local, &candidate)
 	if err != nil {
-		return err
+		return schemaCompositionWithSpecRef(err, extensionSpecRef)
 	}
 	annotationSeen := false
 	contentSeen := false
@@ -3020,13 +3035,27 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	assertSeen := false
 	simpleInlineSeen := false
 	var particleUnsupported error
+	groupExtension := false
+	groupedAttributes := false
+	if complexContent && element.name.local == "extension" {
+		model := schemaComplexTypeModel(element)
+		groupExtension = model != nil && model.name.local == "group"
+		if groupExtension {
+			for _, child := range children {
+				if child.name.local == "attribute" {
+					groupedAttributes = true
+					break
+				}
+			}
+		}
+	}
 	totalSeen := false
 	fractionSeen := false
 	facetSeen := make(map[string]bool)
 	for _, child := range children {
 		if child.name.local == "annotation" {
 			if annotationSeen || contentSeen {
-				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" annotation must be first and unique")
+				return compositionDiagnostic(child.loc, element.name.local+" annotation must be first and unique")
 			}
 			annotationSeen = true
 			continue
@@ -3035,7 +3064,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 		switch child.name.local {
 		case "simpleType":
 			if !simpleRestriction || attributesSeen || anyAttributeSeen || assertSeen || simpleInlineSeen || len(facetSeen) > 0 || totalSeen || fractionSeen {
-				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" simpleType child is not permitted here")
+				return compositionDiagnostic(child.loc, element.name.local+" simpleType child is not permitted here")
 			}
 			simpleInlineSeen = true
 			if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
@@ -3043,17 +3072,17 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 		case "totalDigits", "fractionDigits", "assertion", "enumeration", "explicitTimezone", "length", "maxExclusive", "maxInclusive", "maxLength", "maxScale", "minExclusive", "minInclusive", "minLength", "minScale", "pattern", "precision", "whiteSpace":
 			if !simpleRestriction || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" facet is not permitted here")
+				return compositionDiagnostic(child.loc, element.name.local+" facet is not permitted here")
 			}
 			if err := validateSimpleTypeRestrictionFacet(child, &totalSeen, &fractionSeen, facetSeen, version, false, false, enforceNonNegativeScale); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "openContent":
 			if !complexContent {
-				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" does not permit openContent")
+				return compositionDiagnostic(child.loc, element.name.local+" does not permit openContent")
 			}
 			if openContentSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" openContent must precede model and attributes")
+				return compositionDiagnostic(child.loc, element.name.local+" openContent must precede model and attributes")
 			}
 			openContentSeen = true
 			openContentLoc = child.loc
@@ -3061,17 +3090,20 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if err := validateOpenContent(child, version, allowModeNone); err != nil && !candidate.considerError(err) {
 				return err
 			}
+			if groupedAttributes {
+				candidate.considerAtVersion(child.loc, "grouped extension openContent is not implemented", version)
+			}
 		case "group", "all", "sequence":
 			if !complexContent {
-				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" does not permit a model particle")
+				return compositionDiagnostic(child.loc, element.name.local+" does not permit a model particle")
 			}
 			if modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
+				return compositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
 			}
 			modelSeen = true
 			particleErr := versionNamedModelGroupUnsupported(validateUnsupportedModelParticle(child, version), version)
-			if complexContent && element.name.local == "extension" && child.name.local == "group" && boundedComplexContentExtensionCandidate(element) {
-				particleErr = validateSupportedGroupParticle(child, version)
+			if complexContent && element.name.local == "extension" && child.name.local == "group" {
+				particleErr = schemaCompositionWithSpecRef(validateSupportedGroupParticle(child, version), schemaGroupParticleSpecRef(version))
 			}
 			if complexContent && element.name.local == "extension" && child.name.local == "sequence" {
 				particleErr = validateSupportedSequenceParticle(child, version)
@@ -3084,10 +3116,10 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 		case "choice":
 			if !complexContent {
-				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" does not permit a model particle")
+				return compositionDiagnostic(child.loc, element.name.local+" does not permit a model particle")
 			}
 			if modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
+				return compositionDiagnostic(child.loc, element.name.local+" model child must be unique and precede attributes")
 			}
 			modelSeen = true
 			particleErr := versionNamedModelGroupUnsupported(validateChoiceParticleWithNamespacePolicy(child, version, false), version)
@@ -3102,14 +3134,17 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 		case "attribute", "attributeGroup":
 			if anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" attributes must precede anyAttribute and assert")
+				return compositionDiagnostic(child.loc, element.name.local+" attributes must precede anyAttribute and assert")
 			}
 			attributesSeen = true
 			childErr := validateLocalAttribute(child, version)
 			if child.name.local == "attributeGroup" {
 				childErr = validateAttributeGroupReference(child)
 			}
-			if child.name.local == "attribute" && complexContent && childErr == nil {
+			if child.name.local == "attribute" && groupExtension {
+				childErr = schemaCompositionWithSpecRef(childErr, schemaAttributeUseSpecRef(version))
+			}
+			if child.name.local == "attribute" && complexContent && childErr == nil && !groupExtension {
 				childErr = newSchemaSyntaxUnsupported(child.loc, "local attribute declarations are not implemented")
 			}
 			if childErr != nil && !candidate.considerError(childErr) {
@@ -3117,7 +3152,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 		case "anyAttribute":
 			if anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" anyAttribute must be unique and last")
+				return compositionDiagnostic(child.loc, element.name.local+" anyAttribute must be unique and last")
 			}
 			anyAttributeSeen = true
 			boundedRestriction := complexContent && element.name.local == "restriction" && boundedComplexContentRestrictionCandidate(element, true)
@@ -3138,14 +3173,14 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 		default:
 			if isKnownSchemaElement(child.name.local) {
-				return newSchemaCompositionDiagnostic(child.loc, fmt.Sprintf("%s contains forbidden child <%s>", element.name.local, child.name.local))
+				return compositionDiagnostic(child.loc, fmt.Sprintf("%s contains forbidden child <%s>", element.name.local, child.name.local))
 			}
 			candidate.considerAt(child.loc, fmt.Sprintf("%s child <%s> is not implemented", element.name.local, child.name.local))
 			continue
 		}
 	}
 	if complexContent && element.name.local == "restriction" && openContentSeen && !modelSeen {
-		return newSchemaCompositionDiagnostic(openContentLoc, "complexContent restriction openContent requires a model particle")
+		return compositionDiagnostic(openContentLoc, "complexContent restriction openContent requires a model particle")
 	}
 	derivationErr := candidate.err()
 	if derivationErr == nil && boundedComplexContentRestrictionCandidate(element, complexContent) {

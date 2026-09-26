@@ -99,7 +99,7 @@
 // separate. Built-in unsignedLong retains intrinsic inclusive bounds
 // [0,18446744073709551615]; named-effective particles retain exact narrowed,
 // inclusive/exclusive bounds, integer enumeration/digit facets, source locations,
-// identities, graph provenance, and exact occurrences; only validation and GenerateGo return consumer-only
+// identities, graph provenance, and exact occurrences; validation and GenerateGo return
 // FailureUnsupported diagnostics.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
@@ -160,7 +160,7 @@
 // choices are validation-eligible; precisionDecimal extension choices remain
 // query-only/consumer-rejected, and all anonymous consumers are rejected by
 // validation and generation.
-// The supported local anonymous model is limited to atomic
+// The supported local element anonymous model is limited to atomic
 // Boolean/integer/decimal/negativeInteger restrictions in the direct choice/sequence
 // and bounded attribute-free extension shapes above. Local anonymous
 // Boolean/integer/decimal/negativeInteger restrictions remain queryable but direct
@@ -170,11 +170,13 @@
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
 // and every anonymous precisionDecimal target is excluded from validation and
 // generation.
-// Particle-plus-use bodies, direct model-group references, attribute-only bodies,
-// and extension-only scalar simpleContent bodies expose ordered defensive
+// Particle-plus-use bodies, direct model-group references, grouped extensions,
+// attribute-only bodies, and scalar simpleContent extensions expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
-// anonymous atomic uses retain AnonymousID/NodeID. Attribute-bearing
-// complexContent extensions remain unsupported. Local and referenced
+// anonymous atomic uses retain AnonymousID/NodeID. One named complexContent
+// extension composes a direct opaque named-group reference, ordered local uses,
+// and the supported named empty base; broader attribute-bearing extensions
+// remain unsupported. Local and referenced
 // global targets admit only Boolean/integer/decimal plus policy-gated precisionDecimal;
 // explicit xs:int and other scalar kinds are unsupported, and Strict10 rejects
 // precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
@@ -209,25 +211,25 @@
 // resolved facts. Model-group references are a separate top-level direct query
 // boundary with ordered facts and TargetID; nested, local, recursive, and broader
 // model-group references remain unsupported.
-// Model-group reference particles are limited to the supported top-level direct
-// `ModelGroupReferenceParticle` form. Named global model groups expose direct
-// element-reference choices or sequences without expansion.
-// Top-level direct model-group references on named complex types and bounded
-// attribute-free extensions over named empty-content bases or named
-// complexContent/restriction over built-in xs:anyType with representable
-// ##other/lax wildcards are queryable as exact immutable facts without expanding
-// target members. Direct model-group references retain `RefLoc`/`TargetID`; their
-// consumer gates use the group RefLoc and reject them. Nested, local, recursive,
-// and broader group-reference shapes remain unsupported.
+// Model-group reference particles are top-level direct opaque facts. Named global
+// groups expose ordered element-reference choices or sequences without expansion.
+// Named complex types, bounded attribute-free extensions, and the grouped
+// extension with ordered local uses retain written QName, RefLoc, TargetID,
+// use-site Loc, and exact occurrences. The grouped extension resolves the target
+// before omitting an effective 0/0 particle; base and use facts remain. Effective
+// grouped uses reject at the first use Loc; otherwise present group refs reject
+// at RefLoc. Nested, local,
+// recursive, and broader group-reference shapes remain unsupported.
 // Default-bounded sequences of supported built-in or named numeric or
 // all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
 // Boolean/integer/decimal/negativeInteger particles remain queryable but validation and generation
 // reject them; repeated-field generation and direct-choice repetition remain
 // unsupported.
-// Bounded attribute-free complexContent/extension over named empty-content
-// complex bases, including the supported named `complexContent/restriction` over
-// `xs:anyType` representation, retains extension/base identities and locations
-// and only inherited bounded, representable wildcard facts (`##other`/`lax`).
+// Bounded complexContent/extension over named empty-content complex bases,
+// including the supported named `complexContent/restriction` over `xs:anyType`,
+// retains extension/base identities, locations, and inherited representable
+// `##other`/`lax` wildcard facts. The grouped form also retains ordered
+// AttributeUse facts and never expands the referenced group's members.
 // Named complex `Final()`/`FinalLoc()` use the declaring document's
 // `finalDefault` when local `final` is absent; explicit local values, including
 // an empty value, override it, and effective non-empty controls retain their
@@ -235,19 +237,19 @@
 // `GenerateGo` consumer support or change occurrence limits.
 // An extension with a present direct choice or sequence particle retains its exact
 // occurrence. A model-less extension retains its named base identity and locations
-// with a nil optional particle, no occurrence, and no synthetic content. For
+// with a nil optional particle, no occurrence, and no synthetic content.
 // Ordinary direct-choice/direct-sequence target checks use element/particle
 // locations and may include the anonymous type location in related facts.
-// Non-model-group-reference complex-content/model-less extension checks run first
-// at the extension boundary: code generation uses the extension location as
+// Extension checks without an effective AttributeUse or group-reference particle
+// use the extension boundary: code generation uses the extension location as
 // primary with related complex-content/extension/base/particle facts (and
 // anyAttribute when present); validation retains declaration/definition owner
 // locations, uses the extension boundary for choices and the instance root for
-// sequences, and never adds an anonymous type location. Direct model-group-
-// reference bodies with AttributeUse facts hit the AttributeUse consumer gates
+// sequences, and never adds an anonymous type location. Direct and grouped
+// model-group-reference bodies with AttributeUse facts hit the consumer gates
 // first: the first use's Loc is primary, with declaration/definition and
-// AttributeUse locations related. Attribute-free direct and extension
-// model-group-reference checks use the group RefLoc as validation and
+// AttributeUse locations related. Direct and extension model-group-reference
+// checks with no effective use and a present group use RefLoc as validation and
 // generation primary; validation relates the group particle and supplied
 // extension context, while generation relates group/component/reference/target
 // locations. These gates return located FailureUnsupported/ErrUnsupported
@@ -273,19 +275,7 @@
 // built-in or named references only: direct choice/sequence checks reject modeled
 // anonymous local inline atomic references with located
 // FailureUnsupported/ErrUnsupported diagnostics that may include the anonymous
-// type location in related facts. Non-model-group-reference extension checks run
-// first at the extension boundary, retain complex-content/extension/base/particle
-// (and anyAttribute when present) related locations, and do not include the
-// anonymous type location; validation also retains declaration/definition owner
-// locations and keeps the instance-root primary for sequences, while GenerateGo
-// rejects them with the same classification and no output. Direct model-group-
-// reference bodies with AttributeUse facts hit the AttributeUse consumer gates
-// first: the first use's Loc is primary, with declaration/definition and
-// AttributeUse locations related. Attribute-free direct and extension
-// model-group-reference checks use the group reference RefLoc as validation and
-// generation primary; validation retains the group particle and supplied
-// extension context in related facts, and generation retains
-// group/component/reference/target related locations.
+// type location in related facts.
 // Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
