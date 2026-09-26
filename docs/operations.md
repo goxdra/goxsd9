@@ -3,9 +3,9 @@
 Paseo schedules jobs from clean coordination checkout in America/New_York.
 | Job | Schedule | Agent | Prompt |
 | --- | --- | --- | --- |
-| Develop | 00:00, then every 3 hours | Luna, maximum effort | `Run $develop for this repository.` |
-| Backlog | 10:30 daily | Sol, maximum effort | `Run $backlog for this repository.` |
-| Retro | 13:30 Sunday | Sol, maximum effort | `Run $retro for this repository.` |
+| Develop | 00:00, then every 3 hours | GPT-6 Sol/high | `Run $develop for this repository.` |
+| Backlog | 10:30 daily | GPT-6 Sol/medium | `Run $backlog for this repository.` |
+| Retro | 13:30 Sunday | GPT-6 Sol/medium | `Run $retro for this repository.` |
 Jobs are non-interactive. Develop requires clean canonical `main` matching fetched
 `origin/main` and recursive pins; `doctor` enforces this; stale jobs run
 `base-sync` before relaunch. It claims one Ready issue/worktree, opens a draft PR,
