@@ -409,7 +409,7 @@ func TestParseSchemaRejectsSequenceOccurrenceErrorsWithLocatedCauses(t *testing.
 	}
 }
 
-func TestParseSchemaRejectsPrecisionDecimalSequenceElements(t *testing.T) {
+func TestParseSchemaExposesPrecisionDecimalSequenceElements(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" targetNamespace="urn:sequence">
   <xs:complexType name="Record">
     <xs:sequence>
@@ -420,37 +420,21 @@ func TestParseSchemaRejectsPrecisionDecimalSequenceElements(t *testing.T) {
 	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict11, goxsd9.Compatibility} {
 		t.Run(string(policy), func(t *testing.T) {
 			schema, err := parseSequenceSchemaResult(t, policy, root, nil)
-			assertPrecisionDecimalSequenceUnsupported(t, schema, err)
+			if err != nil {
+				t.Fatalf("parse precisionDecimal sequence: %v", err)
+			}
+			if len(schema.Components()) != 1 {
+				t.Fatalf("components = %d, want one complex type", len(schema.Components()))
+			}
+			definition, ok := schema.Components()[0].ComplexType()
+			if !ok {
+				t.Fatal("complex type is absent")
+			}
+			sequence, ok := definition.Particle().(goxsd9.SequenceParticle)
+			if !ok || len(sequence.Particles()) != 1 {
+				t.Fatalf("particle = %T, want one-element sequence", definition.Particle())
+			}
 		})
-	}
-}
-
-func assertPrecisionDecimalSequenceUnsupported(t *testing.T, schema goxsd9.Schema, err error) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("ParseSchemaWithPolicy accepted precisionDecimal in a direct sequence")
-	}
-	if components := schema.Components(); len(components) != 0 {
-		t.Fatalf("error returned partial schema with %d components", len(components))
-	}
-	var diagnostic goxsd9.Diagnostic
-	if !errors.As(err, &diagnostic) {
-		t.Fatalf("error = %v, want located diagnostic", err)
-	}
-	if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Feature() != goxsd9.FeatureSchemaSyntax || diagnostic.Code() != goxsd9.UnsupportedSchemaSyntaxCode {
-		t.Fatalf("diagnostic = (%q,%q,%q), want registered schema-syntax unsupported", diagnostic.Class(), diagnostic.Feature(), diagnostic.Code())
-	}
-	if diagnostic.SpecRef() != "xsd11-structures#cSchemaDocument" {
-		t.Fatalf("diagnostic spec ref = %q, want xsd11 schema document", diagnostic.SpecRef())
-	}
-	if diagnostic.Loc().Source() != "root.xsd" || diagnostic.Loc().Line() != 4 || diagnostic.Loc().Column() != 32 {
-		t.Fatalf("diagnostic location = %s, want root.xsd:4:32", diagnostic.Loc())
-	}
-	if !strings.Contains(diagnostic.Message(), "precisionDecimal") {
-		t.Fatalf("diagnostic message = %q, want precisionDecimal", diagnostic.Message())
-	}
-	if !errors.Is(err, goxsd9.ErrUnsupported) {
-		t.Fatalf("diagnostic error = %v, want ErrUnsupported", err)
 	}
 }
 

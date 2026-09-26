@@ -98,15 +98,14 @@ provenance, and ownership. Excluded/local/inline forms report
 fixed primary/default related. Type-only declarations have no constraint; attribute consumers/
 `GenerateGo` reject them.
 
-Complexes retain non-inherited `IsAbstract`, declaring-document `finalDefault` provenance,
-ordered groups/extensions, and exact wildcard facts. Non-`0/0` `xs:any` facts remain queryable
-immutable facts; wildcard consumers reject them, broader forms are unsupported, and `0/0` is
-absent. `openContent=none` works Compatibility/Strict11 and mismatches Strict10; named groups
-retain ordered refs/ranges. `precisionDecimal` refs require default-occurrence direct or
-bounded extension choices; nonzero sequences, inline/anonymous targets, and non-default
-choices remain unsupported. Homogeneous local built-in/supported named token/NMTOKEN sequences
-retain exact finite/unbounded/above-`uint64` occurrences under all policies; their consumers
-remain limited as documented.
+Complexes retain `IsAbstract`, `finalDefault` provenance, and ordered groups/extensions/wildcards.
+Non-`0/0` `xs:any` is queryable; wildcard consumers reject it, and `0/0` is absent.
+`openContent=none` works Compatibility/Strict11; Strict10 rejects it. Named groups retain refs/ranges.
+Global inline complexes have preallocated anonymous IDs and ordered
+sequence, ref, and use facts outside global walks. Compatibility/Strict11 admit direct
+precisionDecimal sequences, bounded simpleContent links, and precisionDecimal list/union links.
+Non-default choices and local inline precisionDecimal remain unsupported; extension choices are query-only.
+Token/NMTOKEN sequences retain exact occurrences; their consumers remain limited.
 
 ## Datatypes
 

@@ -144,9 +144,9 @@
 // choices remain unsupported.
 // Local precisionDecimal forms are distinct. Under Compatibility/Strict11, a
 // local element declared with built-in `type="xs:precisionDecimal"` or a named
-// type whose effective facets are precisionDecimal is admitted only in
-// default-occurrence direct choices and bounded attribute-free extension
-// choices. The choice owner and every mapped typed precisionDecimal
+// type whose effective facets are precisionDecimal is admitted in direct
+// sequences with exact occurrences, default-occurrence direct choices, and
+// bounded attribute-free extension choices. The choice owner and every mapped typed precisionDecimal
 // child/alternative require default occurrences; non-precision alternatives
 // may retain non-default query-only ranges. An inline anonymous
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` restriction is
@@ -155,8 +155,8 @@
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy-mismatch
 // diagnostic before 0/0 omission for either mapped form, including zero. Under
 // Compatibility/Strict11, mapped non-default precisionDecimal choice/alternative
-// ranges or non-0/0 direct-sequence precisionDecimal ranges that map to particles
-// are schema-unsupported. Only non-extension default-occurrence typed direct
+// ranges are schema-unsupported. Direct sequences remain query-only when their
+// consumers cannot model them. Only non-extension default-occurrence typed direct
 // choices are validation-eligible; precisionDecimal extension choices remain
 // query-only/consumer-rejected, and all anonymous consumers are rejected by
 // validation and generation.
@@ -170,6 +170,10 @@
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
 // and every anonymous precisionDecimal target is excluded from validation and
 // generation.
+// Global inline complex types expose stable anonymous ComplexTypeID nodes,
+// exact ordered sequence/reference particles, and attribute uses without
+// entering the global component walk. Supported precisionDecimal list/union
+// links and anonymous global restrictions are query-only.
 // Particle-plus-use bodies, direct model-group references, attribute-only bodies,
 // and extension-only scalar simpleContent bodies expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
