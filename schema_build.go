@@ -122,6 +122,8 @@ const (
 	schemaSimpleContentXSD11SpecRef             = "xsd11-structures#element-simpleContent..extension"
 	schemaComplexContentExtensionXSD10SpecRef   = "xsd10-structures#element-complexContent..extension"
 	schemaComplexContentExtensionXSD11SpecRef   = "xsd11-structures#element-complexContent..extension"
+	schemaGroupParticleXSD10SpecRef             = "xsd10-structures#element-group"
+	schemaGroupParticleXSD11SpecRef             = "xsd11-structures#element-group"
 	schemaComplexTypeExtensionXSD10SpecRef      = "xsd10-structures#cos-ct-extends"
 	schemaComplexTypeExtensionXSD11SpecRef      = "xsd11-structures#cos-ct-extends"
 	schemaComplexParticleExtensionXSD10SpecRef  = "xsd10-structures#cos-particle-extend"
@@ -7251,6 +7253,13 @@ func schemaComplexContentExtensionSpecRef(version XSDVersion) string {
 	return schemaComplexContentExtensionXSD11SpecRef
 }
 
+func schemaGroupParticleSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaGroupParticleXSD10SpecRef
+	}
+	return schemaGroupParticleXSD11SpecRef
+}
+
 func schemaComplexTypeExtensionSpecRef(version XSDVersion) string {
 	if version == XSDVersion10 {
 		return schemaComplexTypeExtensionXSD10SpecRef
@@ -10166,6 +10175,18 @@ func schemaSimpleTypeRestrictionSpecRef(version XSDVersion) string {
 
 func newSchemaCompositionDiagnostic(loc Loc, message string) Diagnostic {
 	return newDiagnostic(FailureInvalid, invalidSchemaCompositionCode, loc, message, nil)
+}
+
+func schemaCompositionWithSpecRef(err error, specRef string) error {
+	if err == nil || specRef == "" {
+		return err
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.SpecRef() != "" {
+		return err
+	}
+	diagnostic.specRef = specRef
+	return diagnostic
 }
 
 func newSchemaBridgeInvariant(loc Loc, message string) Diagnostic {

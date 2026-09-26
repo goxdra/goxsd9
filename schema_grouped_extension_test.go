@@ -174,6 +174,66 @@ func TestGroupedExtensionValidatesGroupBeforeZeroOmissionAndAttributes(t *testin
 	}
 }
 
+//nolint:gocognit // Keep paired policy and structural grammar assertions together.
+func TestGroupedExtensionStructuralGrammarSpecRefs(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+		specRef string
+	}{
+		{"compatibility10", Compatibility, "1.0", "xsd11-structures#element-complexContent..extension"},
+		{"compatibility11", Compatibility, "1.1", "xsd11-structures#element-complexContent..extension"},
+		{"strict10-label10", Strict10, "1.0", "xsd10-structures#element-complexContent..extension"},
+		{"strict10-label11", Strict10, "1.1", "xsd10-structures#element-complexContent..extension"},
+		{"strict11-label10", Strict11, "1.0", "xsd11-structures#element-complexContent..extension"},
+		{"strict11-label11", Strict11, "1.1", "xsd11-structures#element-complexContent..extension"},
+	}
+	attribute := `<xs:attribute name="flag" type="xs:boolean"/>`
+	group := `<xs:group ref="t:Fields"/>`
+	for _, profile := range profiles {
+		for _, malformed := range []struct {
+			name    string
+			model   string
+			marker  string
+			grammar string
+		}{
+			{"attribute before group", attribute + group, group, "extension"},
+			{"duplicate model child", group + `<xs:group ref="t:Other"/>` + attribute, `<xs:group ref="t:Other"/>`, "extension"},
+			{"group missing ref", `<xs:group/>` + attribute, `<xs:group/>`, "group"},
+			{"local attribute name and ref", group + `<xs:attribute name="flag" ref="t:global"/>`, `ref="t:global"`, "attribute"},
+		} {
+			t.Run(profile.name+"/"+malformed.name, func(t *testing.T) {
+				root := groupedExtensionSchema(profile.version, "", attribute)
+				root = strings.Replace(root, group+attribute, malformed.model, 1)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("malformed grouped extension was accepted")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				wantLoc := complexContentTestLoc(t, root, malformed.marker)
+				wantSpecRef := profile.specRef
+				if malformed.grammar == "group" {
+					wantSpecRef = "xsd11-structures#element-group"
+					if profile.policy == Strict10 {
+						wantSpecRef = "xsd10-structures#element-group"
+					}
+				}
+				if malformed.grammar == "attribute" {
+					wantSpecRef = "xsd11-structures#AU_details"
+					if profile.policy == Strict10 {
+						wantSpecRef = "xsd10-structures#AU_details"
+					}
+				}
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != wantSpecRef || diagnostic.Unwrap() != nil {
+					t.Fatalf("diagnostic = %v, want XSD3010 at %s with %s and no cause", err, wantLoc, wantSpecRef)
+				}
+			})
+		}
+	}
+}
+
 func TestGroupedExtensionResolvesChameleonAndImportedGraph(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" xmlns:a="urn:attributes" targetNamespace="urn:root">
   <xs:include schemaLocation="shared.xsd"/><xs:include schemaLocation="again.xsd"/><xs:import namespace="urn:attributes" schemaLocation="attributes.xsd"/>
