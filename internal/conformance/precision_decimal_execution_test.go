@@ -187,8 +187,8 @@ func assertPinnedPrecisionDecimalSchemaResults(t *testing.T, report PlanReport) 
 	if ibmCases != 33 || ibmValid != 13 || ibmInvalid != 20 {
 		t.Fatalf("IBM catalog facts = %d cases, %d valid, %d invalid; want 33, 13, 20", ibmCases, ibmValid, ibmInvalid)
 	}
-	if passCount != 1 || unsupportedCount != 53 {
-		t.Fatalf("pinned execution outcomes = %d pass, %d unsupported; want 1, 53", passCount, unsupportedCount)
+	if passCount != 51 || unsupportedCount != 3 {
+		t.Fatalf("pinned execution outcomes = %d pass, %d unsupported; want 51, 3", passCount, unsupportedCount)
 	}
 }
 

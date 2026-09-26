@@ -1663,9 +1663,6 @@ func validateElementGlobalChildren(parent *syntaxElement, children []*syntaxElem
 			if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
 				return err
 			}
-			if child.name.local == "complexType" && !candidate.present {
-				candidate.consider(child, parent.name.local)
-			}
 		case "alternative":
 			if phase == elementGlobalConstraintPhase {
 				return newSchemaCompositionDiagnostic(child.loc, "element alternative must precede identity constraints")
@@ -2685,12 +2682,9 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			sequenceErr := validateComplexTypeSequenceParticle(parent, child, version)
+			sequenceErr := validateSupportedSequenceParticle(child, version)
 			if sequenceErr != nil && !candidate.considerError(sequenceErr) {
 				return sequenceErr
-			}
-			if len(syntaxAttributesByLocal(parent, "name")) != 1 && !candidate.present {
-				candidate.consider(child, parent.name.local)
 			}
 		case "choice":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
@@ -4598,13 +4592,6 @@ func validateSupportedSequenceParticle(element *syntaxElement, version XSDVersio
 	}
 	candidate.merge(childrenCandidate)
 	return candidate.err()
-}
-
-func validateComplexTypeSequenceParticle(parent, sequence *syntaxElement, version XSDVersion) error {
-	if len(syntaxAttributesByLocal(parent, "name")) != 1 {
-		return validateUnsupportedParticle(sequence, version)
-	}
-	return validateSupportedSequenceParticle(sequence, version)
 }
 
 //nolint:gocognit // Keep group particle grammar and support classification together.

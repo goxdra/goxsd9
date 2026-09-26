@@ -101,6 +101,22 @@ type SimpleTypeID struct {
 	ordinal uint64
 }
 
+// ComplexTypeID identifies a complex-type model node. Anonymous nodes are
+// distinct from global schema components.
+type ComplexTypeID struct {
+	source  SourceID
+	ordinal uint64
+}
+
+// Source returns the source containing the model node.
+func (id ComplexTypeID) Source() SourceID { return id.source }
+
+// Ordinal returns the one-based model-node ordinal.
+func (id ComplexTypeID) Ordinal() uint64 { return id.ordinal }
+
+// IsZero reports whether the ID is empty.
+func (id ComplexTypeID) IsZero() bool { return id == ComplexTypeID{} }
+
 // Source returns the identity of the document containing the model node.
 func (id SimpleTypeID) Source() SourceID {
 	return id.source
@@ -592,6 +608,15 @@ func (declaration ElementDeclaration) InlineSimpleType() (SimpleTypeDefinition, 
 	return reference.AnonymousType()
 }
 
+// InlineComplexType returns the anonymous complex type declared by the element.
+func (declaration ElementDeclaration) InlineComplexType() (ComplexTypeDefinition, bool) {
+	if declaration.facts == nil || declaration.facts.inlineComplexType == nil {
+		return ComplexTypeDefinition{}, false
+	}
+	facts := declaration.facts.inlineComplexType
+	return ComplexTypeDefinition{facts: facts}, true
+}
+
 // Notation returns the immutable notation-declaration view for a global
 // notation declaration.
 func (component Component) Notation() (NotationDeclaration, bool) {
@@ -1069,21 +1094,28 @@ const (
 	ComplexTypeDerivationExtension ComplexTypeDerivation = "extension"
 )
 
-// ComplexTypeDefinition is the immutable type-specific view of a supported
-// named complex type definition.
+// ComplexTypeDefinition is the immutable view of a supported complex type.
 type ComplexTypeDefinition struct {
 	component Component
 	facts     *schemaComplexTypeComponent
 }
 
-// Component returns the generic component represented by the view.
+// Component returns the global component, or zero for an anonymous type.
 func (definition ComplexTypeDefinition) Component() Component {
 	return definition.component
 }
 
-// ID returns the stable identity of the complex type definition.
+// ID returns the global component identity, or zero for an anonymous type.
 func (definition ComplexTypeDefinition) ID() ComponentID {
 	return definition.component.ID()
+}
+
+// NodeID returns the stable model-node identity of the complex type.
+func (definition ComplexTypeDefinition) NodeID() (ComplexTypeID, bool) {
+	if definition.facts == nil || !definition.facts.hasNodeID {
+		return ComplexTypeID{}, false
+	}
+	return definition.facts.nodeID, true
 }
 
 // Name returns the expanded name of the complex type definition.
@@ -1093,6 +1125,9 @@ func (definition ComplexTypeDefinition) Name() QName {
 
 // Loc returns the declaration location of the complex type definition.
 func (definition ComplexTypeDefinition) Loc() Loc {
+	if definition.facts != nil && definition.facts.anonymous {
+		return definition.facts.loc
+	}
 	return definition.component.Loc()
 }
 
@@ -2410,6 +2445,7 @@ type schemaElementInput struct {
 	declaredType      QName
 	typeLoc           Loc
 	inlineSimpleType  *schemaSimpleTypeInput
+	inlineComplexType *schemaComplexTypeInput
 	abstract          bool
 	nillable          bool
 	block             schemaBlockPolicy
@@ -2608,6 +2644,8 @@ type schemaAtomicFacetVariant struct{}
 func (schemaAtomicFacetVariant) schemaSimpleTypeFacetVariant() {}
 
 type schemaComplexTypeInput struct {
+	nodeID                  ComplexTypeID
+	hasNodeID               bool
 	abstract                bool
 	hasExplicitFinal        bool
 	final                   schemaComplexTypeFinalPolicy
@@ -2774,6 +2812,7 @@ type schemaElementComponent struct {
 	hasTypeID               bool
 	typeReference           schemaSimpleTypeReferenceComponent
 	hasTypeReference        bool
+	inlineComplexType       *schemaComplexTypeComponent
 	abstract                bool
 	nillable                bool
 	disallowedSubstitutions schemaBlockPolicy
@@ -2850,6 +2889,10 @@ type schemaNotationComponent struct {
 }
 
 type schemaComplexTypeComponent struct {
+	loc                     Loc
+	nodeID                  ComplexTypeID
+	hasNodeID               bool
+	anonymous               bool
 	abstract                bool
 	final                   schemaComplexTypeFinalPolicy
 	body                    schemaComplexTypeBodyComponent
@@ -3085,7 +3128,31 @@ func prepareSchemaRecordsForResolution(records []schemaComponentRecord, version 
 	if err := allocateSchemaSimpleTypeNodeIDs(records); err != nil {
 		return err
 	}
+	if err := allocateSchemaComplexTypeNodeIDs(records); err != nil {
+		return err
+	}
 	return rejectDuplicateSchemaDeclarations(records, version)
+}
+
+func allocateSchemaComplexTypeNodeIDs(records []schemaComponentRecord) error {
+	nextBySource := make(map[SourceID]uint64)
+	for _, record := range records {
+		input := record.complexType
+		if record.element != nil && record.element.inlineComplexType != nil {
+			input = record.element.inlineComplexType
+		}
+		if input == nil {
+			continue
+		}
+		next := nextBySource[record.id.Source()] + 1
+		if next == 0 {
+			return newSchemaBridgeInvariant(record.loc, "complex type node ordinal overflows uint64")
+		}
+		input.nodeID = ComplexTypeID{source: record.id.Source(), ordinal: next}
+		input.hasNodeID = true
+		nextBySource[record.id.Source()] = next
+	}
+	return nil
 }
 
 type schemaBuildResolution struct {
@@ -3353,12 +3420,17 @@ func completeSchemaComponent(
 		loc:  record.loc,
 	}
 	if element.present {
+		inlineComplexType, err := completeSchemaInlineComplexType(record.element, complexType)
+		if err != nil {
+			return Component{}, err
+		}
 		component.element = &schemaElementComponent{
 			declaredType:            element.declaredType,
 			typeID:                  element.typeID,
 			hasTypeID:               element.hasTypeID,
 			typeReference:           element.typeReference,
 			hasTypeReference:        element.hasTypeReference,
+			inlineComplexType:       inlineComplexType,
 			abstract:                element.abstract,
 			nillable:                element.nillable,
 			disallowedSubstitutions: element.block,
@@ -3404,12 +3476,15 @@ func completeSchemaComponent(
 			final:            simpleType.final,
 		}
 	}
-	if complexType.present {
+	if complexType.present && record.complexType != nil {
 		body, err := completeSchemaComplexTypeBody(complexType.body, record.loc)
 		if err != nil {
 			return Component{}, err
 		}
 		component.complexType = &schemaComplexTypeComponent{
+			loc:                     record.loc,
+			nodeID:                  record.complexType.nodeID,
+			hasNodeID:               record.complexType.hasNodeID,
 			abstract:                complexType.abstract,
 			final:                   complexType.final,
 			body:                    body,
@@ -3420,6 +3495,29 @@ func completeSchemaComponent(
 		component.modelGroup = &schemaModelGroupComponent{particle: modelGroup.particle}
 	}
 	return component, nil
+}
+
+func completeSchemaInlineComplexType(input *schemaElementInput, result schemaComplexTypeResult) (*schemaComplexTypeComponent, error) {
+	if input == nil || input.inlineComplexType == nil {
+		return nil, nil
+	}
+	if !result.present || !input.inlineComplexType.hasNodeID {
+		return nil, newSchemaBridgeInvariant(input.typeLoc, "inline complex type has no resolved model identity")
+	}
+	body, err := completeSchemaComplexTypeBody(result.body, input.typeLoc)
+	if err != nil {
+		return nil, err
+	}
+	return &schemaComplexTypeComponent{
+		loc:                     input.typeLoc,
+		nodeID:                  input.inlineComplexType.nodeID,
+		hasNodeID:               true,
+		anonymous:               true,
+		abstract:                result.abstract,
+		final:                   result.final,
+		body:                    body,
+		prohibitedSubstitutions: result.prohibitedSubstitutions,
+	}, nil
 }
 
 //nolint:gocognit // Keep phase-specific complex-type body completion together.
@@ -3516,6 +3614,8 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 		return nil
 	}
 	clone := &schemaComplexTypeInput{
+		nodeID:                  input.nodeID,
+		hasNodeID:               input.hasNodeID,
 		abstract:                input.abstract,
 		hasExplicitFinal:        input.hasExplicitFinal,
 		final:                   input.final,
@@ -3717,6 +3817,7 @@ func cloneSchemaElementInput(input *schemaElementInput) *schemaElementInput {
 		declaredType:      input.declaredType,
 		typeLoc:           input.typeLoc,
 		inlineSimpleType:  cloneSchemaSimpleTypeInput(input.inlineSimpleType),
+		inlineComplexType: cloneSchemaComplexTypeInput(input.inlineComplexType),
 		abstract:          input.abstract,
 		nillable:          input.nillable,
 		block:             input.block,
@@ -3819,6 +3920,7 @@ func allocateSchemaSimpleTypeNodeIDs(records []schemaComponentRecord) error {
 	return nil
 }
 
+//nolint:gocognit // Keep lexical model-node allocation for each record together.
 func allocateSchemaSimpleTypeNodeIDsForRecord(
 	record schemaComponentRecord,
 	nextBySource map[SourceID]uint64,
@@ -3831,6 +3933,11 @@ func allocateSchemaSimpleTypeNodeIDsForRecord(
 	}
 	if record.element != nil && record.element.inlineSimpleType != nil {
 		if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
+			return err
+		}
+	}
+	if record.element != nil && record.element.inlineComplexType != nil {
+		if err := allocateSchemaSimpleTypeNodeIDsInComplexType(record.element.inlineComplexType, record.id.Source(), nextBySource, seen); err != nil {
 			return err
 		}
 	}
