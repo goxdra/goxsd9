@@ -101,11 +101,13 @@ fixed primary/default related. Type-only declarations have no constraint; attrib
 Complexes retain `IsAbstract`, `finalDefault` provenance, and ordered groups/extensions/wildcards.
 `xs:any` is queryable except at `0/0`; consumers reject. `openContent=none` works
 Compatibility/Strict11, not Strict10; named groups retain refs/ranges.
-Global inline complexes retain preallocated IDs, ordered sequences, refs, and uses outside
-global walks. Compatibility/Strict11 admit direct precisionDecimal sequences,
-bounded simpleContent links, and direct non-extension precisionDecimal list/union sequence links.
-Mapped non-default precisionDecimal choices and mapped nonzero local inline precisionDecimal remain unsupported; extension choices are query-only.
-Token/NMTOKEN sequences retain exact occurrences; consumers remain limited.
+Global inline complexes expose IDs, ordered sequence/ref/use outside walks.
+SimpleContent admits string/Boolean/integer/decimal under every policy;
+precisionDecimal simpleContent, direct sequences, and non-extension list/union
+sequence links require Compatibility/Strict11. Bounded concerns derivation/base,
+not occurrence limits.
+Mapped non-default precisionDecimal choices and mapped nonzero local inline precisionDecimal are unsupported; extension choices are query-only.
+Token/NMTOKEN sequences retain exact occurrences; consumers limited.
 
 ## Datatypes
 

@@ -4,15 +4,14 @@ Status: accepted
 
 ## Decision
 
-The next schema-model boundary is one named global `complexType` whose
+This decision covers one named global `complexType` whose
 `complexContent/extension` uses the already-supported named-base boundary from
 [#414](https://github.com/goxdra/goxsd9/issues/414), one direct named
 `<group ref="...">` particle, and one or more ordered direct local
 `<attribute>` uses from [#317](https://github.com/goxdra/goxsd9/issues/317).
 The extension body may contain its optional annotation. The model child is
-the group reference; local attributes follow it in lexical order. This is a
-future implementation contract, not a claim about current parser behavior,
-validation, generation, or conformance.
+the group reference; local attributes follow it in lexical order. The scope is
+the query contract; validation and generation reject this composition.
 
 The group remains one opaque particle. Preserve its expanded written QName,
 `ref` and use-site locations, exact occurrence range, and target
@@ -71,7 +70,7 @@ are distinct concerns and none is claimed here.
 
 ## Exact supported shape and non-goals
 
-The supported future input is:
+The contract covers:
 
 - a named global complex type;
 - `complexContent/extension` with a named base accepted by #414;
@@ -189,7 +188,7 @@ Global inline complex and attribute declarations and local element-inline
 complex content remain outside this grouped-extension contract. The base is
 limited to the existing empty/particle-free seam.
 
-## Risks and next actions
+## Risks and boundaries
 
 The main risks are flattening an opaque group into #404 members, losing source
 causes or locations while composing #317 uses, exposing a semantic `0/0` as a
@@ -198,7 +197,7 @@ varieties into value support. Visibility and base-cycle handling can also
 regress if composition bypasses the existing seams. Ordered slices and tagged
 variants are the safeguards against map-order and impossible-state bugs.
 
-Implementation remains scoped to #437 and depends on #317's local-attribute
-foundation. Validation, generation, and broad auxiliary consumption remain
-separate packets. This record defines future behavior only; it reports neither
-implementation, validation, nor conformance.
+The grouped-extension query contract composes an opaque direct group reference
+with ordered local attribute uses over the bounded base seam. Validation and
+generation reject this composed shape; broader derivation and group expansion
+remain outside this decision.

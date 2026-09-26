@@ -51,8 +51,10 @@
 // The schema model exposes one direct ordered sequence and direct choices of local
 // built-in xs:boolean, named boolean-restriction, integer, decimal, explicitly typed
 // built-in or supported named xs:unsignedLong, and explicitly typed built-in or
-// supported named xs:token/xs:NMTOKEN particles for named global complex types. It
-// also admits built-in and supported named-effective xs:unsignedLong particles in
+// supported named xs:token/xs:NMTOKEN particles for named global and global
+// inline complex types. Inline complexes retain anonymous IDs and query facts
+// outside the global walk; their consumers reject. The model also admits built-in
+// and supported named-effective xs:unsignedLong particles in
 // supported attribute-free extension choices and sequences under every policy; they
 // remain query-only and consumer-rejected. Direct and supported extension
 // choices/sequences retain exact finite, unbounded, and above-uint64 occurrences;
@@ -103,8 +105,8 @@
 // FailureUnsupported diagnostics.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
-// anonymous enumeration remains explicit unsupported at its facet location with
-// no schema.
+// anonymous enumeration outside policy-admitted global inline precisionDecimal
+// remains unsupported at its facet location with no schema.
 // Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
 // named local particles in direct choices, sequences, and bounded attribute-free
 // extensions are modeled and queryable; only non-extension default-occurrence
@@ -172,8 +174,9 @@
 // generation.
 // Global inline complex types expose stable anonymous ComplexTypeID nodes,
 // exact ordered sequence/reference particles, and attribute uses without
-// entering the global component walk. Supported precisionDecimal list/union
-// links and anonymous global restrictions are query-only.
+// entering the global component walk. Direct non-extension precisionDecimal
+// list/union sequence links and anonymous global precisionDecimal restrictions
+// are query-only.
 // Particle-plus-use bodies, direct model-group references, attribute-only bodies,
 // and extension-only scalar simpleContent bodies expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
