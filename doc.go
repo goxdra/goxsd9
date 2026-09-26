@@ -310,11 +310,11 @@
 // Type admission under
 // Compatibility, Strict10, and Strict11 is limited to built-in or supported
 // named atomic xs:boolean, xs:integer, xs:decimal, xs:token, xs:negativeInteger,
-// xs:language, xs:NCName, xs:anyURI, xs:ID, xs:long, and xs:unsignedLong. Built-in or supported
+// xs:language, xs:NCName, xs:anyURI, xs:ID, xs:long, xs:int, and xs:unsignedLong. Built-in or supported
 // named xs:precisionDecimal is admitted for type/value queries only under
 // Compatibility or Strict11; Strict10 rejects it at the type Loc with the
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
-// diagnostic. Declared xs:string, xs:NMTOKEN, xs:int, xs:nonNegativeInteger,
+// diagnostic. Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger,
 // xs:nonPositiveInteger, narrower built-ins, list/union
 // forms remain explicit unsupported behavior. A local named attribute use reports
 // FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its type
@@ -331,11 +331,11 @@
 // Loc; an invalid supported value is FailureInvalid/XSD3036 at its value Loc
 // with its lexical/facet cause. Default plus fixed is FailureInvalid/XSD3010
 // with fixed Loc primary and default Loc related, and no Schema. Built-in
-// xs:long and xs:unsignedLong have intrinsic inclusive bounds
-// [-9223372036854775808,9223372036854775807] and [0,18446744073709551615];
-// named xs:long/xs:unsignedLong references retain the written QName/type Loc,
+// xs:long, xs:int, and xs:unsignedLong have intrinsic inclusive bounds
+// [-9223372036854775808,9223372036854775807], [-2147483648,2147483647],
+// and [0,18446744073709551615]; named references retain the written QName/type Loc,
 // exact effective integer facets/bounds (including narrowed or exclusive bounds),
-// facet/variety locations, provenance, and named target identity; built-in
+// facet/variety locations, provenance, ownership, and named target identity; built-in
 // references have no synthetic ComponentID. Admitted
 // global precisionDecimal constraints retain zero or one optional default/fixed
 // AttributeValueConstraint; type-only declarations return no value constraint.

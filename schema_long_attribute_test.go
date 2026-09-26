@@ -637,7 +637,6 @@ func TestSchemaLongGlobalAttributeExcludedFamiliesRemainUnsupported(t *testing.T
 			root string
 			loc  string
 		}{
-			{name: "int", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:int"/></xs:schema>`, loc: "type="},
 			{name: "nonNegativeInteger", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:nonNegativeInteger"/></xs:schema>`, loc: "type="},
 			{name: "nonPositiveInteger", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:nonPositiveInteger"/></xs:schema>`, loc: "type="},
 			{name: "short", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:short"/></xs:schema>`, loc: "type="},

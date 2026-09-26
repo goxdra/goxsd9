@@ -410,7 +410,6 @@ func TestSchemaIntExcludedShapesRemainUnsupported(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "int", "0")
-			assertSchemaIntegerDerivedGlobalAttributeExcluded(t, profile.policy, "int")
 		})
 	}
 }
