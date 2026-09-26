@@ -77,7 +77,7 @@
 // applicable gates, then the local public particle is absent; this is not a
 // universal named-type/facet or validation bypass. Strict10 policy admission precedes omission for explicitly typed local
 // built-in or named-effective and inline anonymous `precisionDecimal` forms,
-// including zero-occurrence cases. Ordinary `int`/`unsignedLong` and other long-family 0/0
+// including zero-occurrence cases. Ordinary `int`/`short`/`unsignedLong` and other long-family 0/0
 // forms use the admission-then-absence rule under every policy.
 // Local declared, named, inline, and anonymous restrictions in the
 // integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
@@ -86,7 +86,7 @@
 // `type="xs:negativeInteger"` is schema-rejected only when mapped non-0/0;
 // named-effective and anonymous-inline negativeInteger forms are admitted as query
 // facts, but ValidateInstance and GenerateGo reject those consumers. Effective
-// long, nonNegativeInteger, and nonPositiveInteger, plus inline/anonymous
+// long, short, nonNegativeInteger, and nonPositiveInteger, plus inline/anonymous
 // int/unsignedLong, are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
@@ -103,9 +103,6 @@
 // inclusive/exclusive bounds, integer enumeration/digit facets, source locations,
 // identities, graph provenance, and exact occurrences; only validation and GenerateGo return consumer-only
 // FailureUnsupported diagnostics.
-// Global xs:short element and attribute references admit exact signed 16-bit bounds
-// and named restrictions through composed graphs; local particles, local attributes,
-// simpleContent uses, value constraints, validation, and generation exclude short.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
