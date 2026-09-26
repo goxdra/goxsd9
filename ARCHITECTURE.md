@@ -143,7 +143,7 @@ reject (`FailureUnsupported`/`GOXSD9029`, no output) and malformed/stale facts f
 supported local Boolean/integer/decimal/token/NMTOKEN particles may have schema; consumer
 exclusions apply; `0/0` admitted then absent all policies. `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject, and inline/anonymous element/type forms remain
-query-only/rejected. Global `long`/`unsignedLong` element/type facts query-only; validation/
+query-only/rejected. Global `int`/`long`/`unsignedLong` element/type facts query-only; validation/
 `GenerateGo` reject. Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to
