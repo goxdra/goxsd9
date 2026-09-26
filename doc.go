@@ -149,9 +149,9 @@
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
 // After those gates, effective 0/0 sequence, choice, child, and wildcard ranges
-// map to absence. Non-0/0 integer/decimal choice and
-// alternative ranges are queryable, but direct-choice repetition is not
-// implemented. Direct choices made entirely of local Boolean elements use
+// map to absence. Non-0/0 integer/decimal choice and alternative ranges are
+// queryable; direct-choice repetition validation remains unsupported. Direct
+// choices made entirely of local Boolean elements use
 // built-in xs:boolean or named Boolean restrictions; mixed Boolean/numeric
 // choices remain unsupported.
 // Local precisionDecimal forms are distinct. Under Compatibility/Strict11, a
@@ -239,8 +239,7 @@
 // Default-bounded sequences of supported built-in or named numeric or
 // all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
 // Boolean/integer/decimal/negativeInteger particles remain queryable but validation and generation
-// reject them; repeated-field generation and direct-choice repetition remain
-// unsupported.
+// reject them; repeated-field generation remains unsupported.
 // Bounded attribute-free complexContent/extension over named empty-content
 // complex bases, including the supported named `complexContent/restriction` over
 // `xs:anyType` representation, retains extension/base identities and locations
