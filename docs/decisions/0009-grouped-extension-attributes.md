@@ -12,8 +12,9 @@ global `complexType` whose
 `<attribute>` uses from [#317](https://github.com/goxdra/goxsd9/issues/317).
 The extension body may contain its optional annotation. The model child is
 the group reference; local attributes follow it in lexical order. The current
-parser rejects local attributes inside every `complexContent` body with
-`XSD3003` at the attribute and returns no schema. Its extension input has no
+parser rejects structurally admitted local `complexContent` attributes with
+`XSD3003` at the attribute and returns no schema; malformed attributes retain
+their invalid-input diagnostics. Its extension input has no
 group-plus-use variant. Existing standalone group references and local
 `AttributeUse` facts therefore do not admit this combination yet.
 
