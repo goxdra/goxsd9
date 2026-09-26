@@ -58,7 +58,15 @@
 // supported attribute-free extension choices and sequences under every policy; they
 // remain query-only and consumer-rejected. Direct and supported extension
 // choices/sequences retain exact finite, unbounded, and above-uint64 occurrences;
-// bounded describes the supported derivation/base shape, not occurrence limits. It exposes local inline anonymous atomic
+// bounded describes the supported derivation/base shape, not occurrence limits.
+// Supported local choice/sequence elements may retain a TypeID for a named
+// scalar simpleContent complex type, with exact occurrences and no particle on
+// the target type.
+// That target keeps its ordered attribute uses; string/Boolean/integer/decimal
+// bases work under every policy, while precisionDecimal requires Compatibility
+// or Strict11. Unsupported bases or attribute forms fail schema construction;
+// validation and generation reject these local particle targets. The model
+// exposes local inline anonymous atomic
 // Boolean, integer, decimal, and
 // negativeInteger restrictions
 // in direct choices/sequences and bounded attribute-free extensions under Compatibility,
@@ -104,9 +112,11 @@
 // identities, graph provenance, and exact occurrences; only validation and GenerateGo return consumer-only
 // FailureUnsupported diagnostics.
 // The supported anonymous Boolean/integer/
-// decimal restriction facet subset remains queryable; mapped non-0/0 non-string
-// anonymous enumeration outside policy-admitted global inline precisionDecimal
-// remains unsupported at its facet location with no schema.
+// decimal restriction facet subset remains queryable. Anonymous non-string
+// enumeration other than precisionDecimal is unsupported at its facet location.
+// PrecisionDecimal enumeration passes that facet gate under Compatibility/Strict11:
+// global inline restrictions remain queryable, while mapped nonzero local
+// anonymous restrictions fail at the local type location with no schema.
 // Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
 // named local particles in direct choices, sequences, and bounded attribute-free
 // extensions are modeled and queryable; only non-extension default-occurrence

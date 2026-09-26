@@ -174,7 +174,7 @@ classification, primary location, related locations, and specification
 reference needed to explain the first failure. A policy error is not turned
 into a source error merely to obtain a location.
 
-## Current gap and non-goals
+## Scope and non-goals
 
 The XSD `schema/@version` token is an inert user label: the specifications
 assign it no language-edition semantics. Language selection therefore belongs
@@ -186,7 +186,7 @@ and `"1.1"` labels do not select or mismatch a policy. Conditional capability
 and supported grammar, component, and digit-facet behavior are derived from
 that policy. Recognized strict-profile feature mismatches and exact catalog or
 manifest edition selection are implemented at their respective boundaries;
-broader conformance execution and feature support remain future work.
+broader conformance execution and feature support are outside this policy decision.
 
 The implementation boundary is limited to constructing and validating the
 policy, propagating it through the schema graph, deriving version-sensitive
@@ -196,19 +196,6 @@ a conformance run, but no schema label becomes an edition selector. This
 decision does not broaden the supported XSD feature set or make a conformance
 claim for current behavior. Detailed implementation and test evidence belongs
 in the corresponding issue and pull request records.
-
-## Implementation decomposition
-
-Exactly three bounded implementation packets follow this decision and are
-delivered in dependency order. They share one immutable policy source of
-truth: no packet may introduce another edition selector, and manifest or
-catalog metadata may only construct a strict policy for a conformance run.
-
-| Packet | Size and dependency | Durable responsibility boundary |
-| --- | --- | --- |
-| XS: policy value and preflight | XS; follows this decision | Define and validate the immutable policy values and establish policy preflight while preserving the existing behavior boundary. |
-| S: graph propagation and capability | S; depends on XS | Propagate one selected policy across the schema graph and derive conditional-inclusion capability from it while keeping source and resolver metadata opaque. |
-| M: strict rules and conformance integration | M; depends on S | Apply the profile-specific compatibility and strict rules and integrate strict-policy selection from manifest or catalog edition metadata. |
 
 ## Consequences
 
