@@ -79,11 +79,11 @@ nested/local/recursive/broader forms remain unsupported or consumer-excluded. Ma
 local inline/anonymous `unsignedLong` forms are schema-unsupported at `type`/`simpleType`
 `Loc`; applicable `0/0` forms are absent. Admitted local built-in/named-effective
 `unsignedLong`: query-only/consumer-rejected; global `unsignedLong` element/type/attribute
-facts remain query-only/consumer-rejected; `AttributeUse`/simpleContent retain separate
+facts remain query-only/consumer-rejected; `AttributeUse`/simpleContent retain
 schema-admission exclusions. Named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
 AttributeUse facts retain order, ownership, locations, effective use, and
-QName/RefLoc/TargetID across direct, model-group, attribute-only, and simpleContent bodies.
+QName/RefLoc/TargetID across direct, model-group, grouped-extension, attribute-only, and simpleContent bodies.
 Local uses retain type/form and anonymous identities; chameleon adopts, and prohibited
 uses disappear. Value constraints, attribute groups, broader extensions, and consumers
 remain unsupported. Grouped extensions resolve opaque group, ordered uses, then

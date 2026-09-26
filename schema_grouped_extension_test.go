@@ -105,6 +105,48 @@ func TestGroupedExtensionZeroGroupRetainsBaseAndRejectsConsumers(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the paired validation and generation precedence matrix together.
+func TestGroupedExtensionConsumerDiagnosticPrecedence(t *testing.T) {
+	tests := []struct {
+		name            string
+		group           string
+		attributes      string
+		primary         string
+		validationCause error
+	}{
+		{"group with uses", "", `<xs:attribute name="first" type="xs:boolean"/><xs:attribute name="second" type="xs:integer"/>`, `<xs:attribute name="first"`, errInstanceAttributes},
+		{"zero group with uses", ` minOccurs="0" maxOccurs="0"`, `<xs:attribute name="first" type="xs:boolean"/><xs:attribute name="second" type="xs:integer"/>`, `<xs:attribute name="first"`, errInstanceAttributes},
+		{"group with prohibited use", "", `<xs:attribute name="excluded" type="xs:integer" use="prohibited"/>`, `ref="t:Fields"`, errInstanceModelGroupReference},
+		{"zero group with prohibited use", ` minOccurs="0" maxOccurs="0"`, `<xs:attribute name="excluded" type="xs:integer" use="prohibited"/>`, `<xs:extension`, errInstanceComplexContentExtension},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := groupedExtensionSchema("1.1", test.group, test.attributes)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+			if err != nil {
+				t.Fatalf("discover grouped extension: %v", err)
+			}
+			want := complexContentTestLoc(t, root, test.primary)
+			validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:root"/>`)))
+			if validationErr == nil {
+				t.Fatal("validation accepted grouped extension")
+			}
+			validationDiagnostic := requireDiagnostic(t, validationErr)
+			if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Loc() != want || !errors.Is(validationErr, test.validationCause) || !errors.Is(validationErr, ErrUnsupported) {
+				t.Fatalf("validation diagnostic = %v, want %s and cause %v", validationErr, want, test.validationCause)
+			}
+			generated, generationErr := GenerateGo(schema, "generated")
+			if generationErr == nil || generated != nil {
+				t.Fatalf("generation = %q/%v, want nil/unsupported", generated, generationErr)
+			}
+			generationDiagnostic := requireDiagnostic(t, generationErr)
+			if generationDiagnostic.Class() != FailureUnsupported || generationDiagnostic.Loc() != want || !errors.Is(generationErr, ErrUnsupported) {
+				t.Fatalf("generation diagnostic = %v, want unsupported at %s", generationErr, want)
+			}
+		})
+	}
+}
+
 func TestGroupedExtensionRetainsBoundedInheritedWildcard(t *testing.T) {
 	root := groupedExtensionSchema("1.1", "", `<xs:attribute name="flag" type="xs:boolean"/>`)
 	root = strings.Replace(root, `<xs:complexType name="Base"/>`, `<xs:complexType name="Base"><xs:complexContent><xs:restriction base="xs:anyType"><xs:anyAttribute namespace="##other" processContents="lax"/></xs:restriction></xs:complexContent></xs:complexType>`, 1)
