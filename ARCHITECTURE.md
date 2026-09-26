@@ -90,8 +90,8 @@ chameleon adopts; prohibited uses are omitted. Value/default/fixed/inheritable s
 attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported;
 excluded references retain locations and return no schema.
 Global attributes are query-only: built-in or supported named atomic Boolean/integer/decimal/token,
-negativeInteger/language/NCName/anyURI/ID, long/unsignedLong, policy-gated `precisionDecimal`.
-Built-in long/unsignedLong bounds are intrinsic; named restrictions retain facets, locations,
+negativeInteger/language/NCName/anyURI/ID, long/int/unsignedLong, policy-gated `precisionDecimal`.
+Built-in long/int/unsignedLong bounds are intrinsic; named restrictions retain facets, locations,
 provenance, and ownership. Excluded/local/inline forms report
 `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at type/declaration/use-site
 `Loc`; unsupported values report at value `Loc`; invalid values preserve causes; default+fixed uses
