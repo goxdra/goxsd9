@@ -13,11 +13,12 @@ global `complexType` whose
 The extension body may contain its optional annotation. The model child is
 the group reference; local attributes follow it in lexical order. A bounded
 group-only extension currently parses. A structurally admitted attribute-only
-extension fails `XSD3003` at its local attribute; adding a valid group reference
-before that attribute fails earlier at the group `ref` with `XSD3003`.
-Malformed attributes retain invalid-input diagnostics when reached. Neither
-failure returns a schema; the current extension input carries particles but no
-local attribute uses. Standalone group and `AttributeUse` models remain separate.
+extension fails `XSD3003` at its local attribute. With otherwise valid bounded
+input, the combined shape fails before that attribute at the first
+unsupported group attribute in XML order: `ref` when it precedes occurrence
+attributes, or `minOccurs` when written first, including `0/2` and `0/0`.
+Malformed attributes retain invalid diagnostics when reached. No failing parse
+returns a schema; the extension input carries particles but no local uses.
 
 The future group particle must remain opaque and preserve its expanded written
 QName, `ref` and use-site locations, exact occurrence range, and target
@@ -28,9 +29,11 @@ lexical order. Attribute uses are a semantic set, so duplicate effective names
 must be invalid; their ordered model view is part of the proposed contract.
 
 The future builder must validate an effective `0/0` group against its target
-before omitting it from the public particle view. It would then publish #317's
-attribute-only shape, never a zero-valued particle. After schema admission,
-validation and Go generation must reject the composed shape explicitly.
+before omitting its public particle. The completed body must remain tagged as
+an extension with its base, derivation locations, and ordered #317 uses intact;
+its particle is nil, never zero-valued. The existing `AttributeUses()` API
+must expose those uses. After admission, validation and Go generation must
+reject the composed shape explicitly.
 
 ## Normative and pinned-artifact evidence
 
@@ -56,15 +59,15 @@ the grouped composition. Other modes and assertions remain outside it.
 Attribute uses are set-like semantically; the future model must retain lexical
 and provenance order.
 
-The edition-specific schema-for-schema and datatype artifacts are pinned in
-[`specs/manifest.json`](../../specs/manifest.json); exact parser observations
-live in [`bootstrap_probe_test.go`](../../internal/specs/bootstrap_probe_test.go).
-Those observations retain the current `XSD3003` boundary: attribute-only
-`complexContent` stops at the local attribute; the datatype-schema group
-probes stop at the group reference. A bounded group-only extension remains
-queryable, while the combined group-plus-use shape stops at its group `ref`.
-No failing parse returns a partial schema. These separate observations do not
-establish support for the proposed composition.
+The edition-specific artifacts are pinned in
+[`specs/manifest.json`](../../specs/manifest.json); exact observations live in
+[`bootstrap_probe_test.go`](../../internal/specs/bootstrap_probe_test.go).
+The schema-for-schema probes contain a sequence followed by an attribute; they
+stop at that attribute with `XSD3003` and `#cos-ct-extends`. The separate
+datatype-schema group probes stop at the group reference with `XSD3003` and
+`#cos-particle-extend`. Neither is an attribute-only or group-plus-use probe.
+No failing parse returns a partial schema.
+
 `xs:ID` identity, lexical space, value space, and instance uniqueness remain
 distinct from this decision.
 
@@ -81,9 +84,10 @@ The future query contract would admit:
 - local uses accepted by #317's scalar/type and namespace allowlists,
   including its supported anonymous local simple-type identities.
 
-The future tagged composition must resolve the group as an opaque #392 particle,
-then local uses through #317, then the named base through #414. It introduces
-no validation or generation content model.
+After existing graph-wide type and global-attribute resolution, the future
+complex-body phase must resolve the group as an opaque #392 particle, then
+local uses through #317, then the named base through #414. This local order
+does not override earlier phase diagnostics or add a consumer content model.
 
 The proposed group may be `0/0`, subject to target validation and the
 normalization above. The builder must not infer a syntactically absent group.
@@ -106,26 +110,29 @@ and do not share the global-declaration name path.
 
 ## Phase representation and invariants
 
-The future builder must use a tagged, phase-specific extension-body variant
-for `group + attribute uses`. Generic nullable particle/attribute fields could
-discard a child or publish an impossible combination. Its syntax input would
-own extension, group, base, and ordered-use locations; its resolved result
-would own the opaque group particle, an immutable ordered use slice, and #414
-base facts. A `0/0` result must select the attribute-only variant without
-retaining a zero particle or creating a second attribute API.
+The future syntax input must tag `group + attribute uses` and require both
+parts. Generic nullable syntax fields could discard a child or publish an
+impossible combination. The completed body must remain extension-tagged,
+owning the #414 base and derivation facts, an immutable ordered use slice, and
+the opaque group particle when effective. At `0/0`, only the public particle
+becomes nil; base, derivation, and uses remain. Reuse the sole `AttributeUse`
+representation and extend `AttributeUses()` over this extension body.
 
-The required construction order is deterministic:
+The required phase and local construction order is deterministic:
 
 1. Allocate all named component identities and anonymous local simple-type
    identities in discovery/declaration order.
-2. Convert and validate the direct group reference and its exact occurrence;
-   resolve its visible named model-group target first.
-3. Resolve local attribute uses in lexical order through #317, including
+2. Resolve graph-wide simple types, including anonymous local use types, and
+   global attributes through existing prerequisite phases.
+3. Within complex-body resolution, convert and validate the group reference
+   and exact occurrence; resolve its visible named target before local uses.
+4. Resolve local attribute uses in lexical order through #317, including
    effective names, form/chameleon namespace policy, global targets, and
    supported type identities.
-4. Resolve the extension base through #414's existing seam, including final,
+5. Resolve the extension base through #414's existing seam, including final,
    visibility, completed-content, wildcard, and cycle checks.
-5. Publish one immutable completed fact only after every step succeeds.
+6. Publish one immutable extension fact only after every step succeeds;
+   `0/0` yields a nil public particle without erasing the extension.
 
 The future composition must preserve sequential resolver calls and allocate
 identities before resolution. It must not backpatch completed components;
@@ -151,24 +158,27 @@ or attribute-group recursion because target members remain opaque.
 
 ## Classification and sibling-axis matrix
 
-Today the bounded group-only shape parses. Structurally admitted attribute-only
-extensions return `FeatureSchemaSyntax`/`FailureUnsupported`/`XSD3003` at the
-attribute `Loc`; the bounded combined shape with a valid group ref returns
-the same class/code earlier at group `RefLoc`. Both preserve `ErrUnsupported`
-and return no schema. Their
-edition-specific structures `SpecRef`s end in
-`#element-complexContent..extension` and `#cos-particle-extend`, respectively.
-The matrix specifies future combined admission; malformed attributes retain
-invalid diagnostics when reached. Existing resolver, group-reference, and
-`AttributeUse` diagnostics remain separate until that admission exists.
+Synthetic bounded group-only extensions parse at default, `0/2`, and `0/0`
+occurrences. A structurally admitted attribute-only extension returns
+`FeatureSchemaSyntax`/`FailureUnsupported`/`XSD3003` at the attribute, with an
+edition-specific structures `SpecRef` ending in
+`#element-complexContent..extension`. Combined group-plus-use input returns
+the same class/code before reaching the attribute, at the first unsupported
+group attribute in XML order: `ref` in the default/ref-first probes, `minOccurs` in the
+min-first `0/2` and `0/0` probes. Its `SpecRef` ends in
+`#cos-particle-extend`; `0/0` does not bypass this gate. Both failures retain
+`ErrUnsupported` and return no schema. Separately, the pinned sequence-plus-
+attribute bootstrap probe stops at its attribute with `#cos-ct-extends`.
+Malformed syntax and prerequisite graph errors retain their existing
+precedence. The matrix specifies future combined admission.
 
 | Axis | Proposed admitted shape | Invalid after admission | Resolution failure | Explicit unsupported | N/A |
 | --- | --- | --- | --- | --- | --- |
 | Edition/policy | One graph policy must cover the XSD 1.0/1.1 shape under Compatibility, Strict10, or Strict11. | Malformed edition-specific syntax must retain its invalid diagnostic. | N/A; policy selection does not acquire sources. | This composition adds no open-content support; elsewhere only `openContent=none` is admitted under Compatibility/Strict11. Other modes, assertions, and broader shapes stay unsupported. | `schema/@version` must never select an edition. |
-| Named/anonymous/inline/ref | One named global owner, named #414 base, direct named group ref, and ordered #317 local declaration/ref uses must be admitted. | Duplicate model children, malformed QName/NCName, invalid name/ref/use/form/occurrences, duplicate effective name, and unresolved/wrong-kind/ambiguous/inaccessible targets must fail with existing invalid causes. | Only source acquisition through the caller's resolver is a resolution failure. | Current structurally admitted attribute-only input fails `XSD3003` at the attribute, while bounded group-plus-use with a valid ref fails earlier at group `RefLoc`; a syntactically absent group is valid but outside the proposed slice. Future anonymous/local owners, multiple/nested groups, attribute groups, and unsupported scalar varieties stay excluded. | Global inline attributes and local element-inline content are outside this contract. |
+| Named/anonymous/inline/ref | One named global owner, named #414 base, direct named group ref, and ordered #317 local declaration/ref uses must be admitted. | Duplicate model children, malformed QName/NCName, invalid name/ref/use/form/occurrences, duplicate effective name, and unresolved/wrong-kind/ambiguous/inaccessible targets must fail with existing invalid causes. | Only source acquisition through the caller's resolver is a resolution failure. | Current structurally admitted attribute-only input fails `XSD3003` at the attribute; otherwise valid bounded combined input fails at the first unsupported group attribute in XML order before use resolution, even at `0/0`. A syntactically absent group is valid but outside the proposed slice. Future anonymous/local owners, multiple/nested groups, attribute groups, and unsupported scalar varieties stay excluded. | Global inline attributes and local element-inline content are outside this contract. |
 | Graph visibility/cycles | The builder must reuse forward/include/import/chameleon/repeat identities and visibility; target members stay opaque. | Target visibility, ambiguity, wrong-kind, and base/simple-type cycles must retain located invalid diagnostics. | Referenced-source acquisition must retain its resolver cause. | Recursive group expansion and broader graph composition remain outside the contract. | Group-member traversal is unnecessary because no expansion occurs. |
 | Failure class | On success the future builder must publish one immutable fact; on error no schema. | Structural and target failures must retain stable code, primary/related `Loc`s, cause, and edition `SpecRef`. | Acquisition alone uses `FailureResolution` at the discovery boundary. | Valid unavailable behavior needs a registered feature, stable code, `Loc`, `SpecRef`, and `ErrUnsupported`; validation/generation of the admitted shape must reject explicitly. | No conformance outcome follows from this query contract. |
-| Location/order/provenance | Preserve group QName/ref/use `Loc`s, exact range, target ID, ordered local uses, effective names, type/form `Loc`s, and declaration order; validate before `0/0` omission. | Reference-use primary and target/duplicate/bound related locations must survive. | Preserve acquisition location and underlying cause. | For those well-formed shapes, attribute-only primary is attribute `Loc`; combined primary is group `RefLoc`. Preserve versioned `SpecRef`. | Map iteration cannot define observable order; ordered slices do. |
+| Location/order/provenance | Preserve group QName/ref/use `Loc`s, exact range, target ID, ordered local uses, effective names, type/form `Loc`s, and declaration order; validate before `0/0` omission. | Reference-use primary and target/duplicate/bound related locations must survive. | Preserve acquisition location and underlying cause. | For the otherwise valid bounded probes, attribute-only primary is attribute `Loc`; combined primary is the first unsupported group-attribute `Loc` (`ref` or `minOccurs`). Preserve versioned `SpecRef`. | Map iteration cannot define observable order; ordered slices do. |
 
 ## Design dependencies
 
