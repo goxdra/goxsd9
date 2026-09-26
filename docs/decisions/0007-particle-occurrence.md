@@ -147,13 +147,12 @@ behavior. An error-level diagnostic returns no schema.
 
 ## Non-goals, risks, and follow-up
 
-Global attributes are outside particle-occurrence materialization; local attributes/attribute
-groups and validation/`GenerateGo` consumers remain separate boundaries. Omitted direct
+Attribute semantics and consumers remain separate from occurrence mapping. Omitted direct
 `anyAttribute` is `##any`/`strict`; `##any`/`##other` are supported; positive namespace
 lists require strict. `##local` and target-namespace markers without a target are absent;
 effective values are sorted, unique copies with normalized lexical/source locations.
-Local/inline complex/list/union, Boolean facets, nested/broader particles/groups, `all`
-mapping, and broader wildcard/attribute forms remain unsupported.
+Nested local complex types, non-precisionDecimal list/union element links, Boolean facets,
+broader particles/groups, `all` mapping, and broader wildcard/attribute forms remain unsupported.
 Exact occurrences have no fixed resource limit; later phases must bound
 input/materialization.
 

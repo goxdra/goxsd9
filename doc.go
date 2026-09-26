@@ -146,8 +146,8 @@
 // local element declared with built-in `type="xs:precisionDecimal"` or a named
 // type whose effective facets are precisionDecimal is admitted in direct
 // sequences with exact occurrences, default-occurrence direct choices, and
-// bounded attribute-free extension choices. The choice owner and every mapped typed precisionDecimal
-// child/alternative require default occurrences; non-precision alternatives
+// bounded attribute-free extension choices. In choices, the owner and mapped
+// precisionDecimal alternatives require default occurrences; non-precision alternatives
 // may retain non-default query-only ranges. An inline anonymous
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` restriction is
 // schema-unsupported when mapped; mapped nonzero anonymous restrictions remain

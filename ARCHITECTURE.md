@@ -104,8 +104,8 @@ Non-`0/0` `xs:any` is queryable; wildcard consumers reject it, and `0/0` is abse
 Global inline complexes have preallocated anonymous IDs and ordered
 sequence, ref, and use facts outside global walks. Compatibility/Strict11 admit direct
 precisionDecimal sequences, bounded simpleContent links, and precisionDecimal list/union links.
-Non-default choices and local inline precisionDecimal remain unsupported; extension choices are query-only.
-Token/NMTOKEN sequences retain exact occurrences; their consumers remain limited.
+Non-default precisionDecimal choices and local inline precisionDecimal remain unsupported; extension choices are query-only.
+Token/NMTOKEN sequences retain exact occurrences; consumers remain limited.
 
 ## Datatypes
 
