@@ -174,6 +174,58 @@ func intGlobalAttributeGraphFixtures(version XSDVersion) (string, map[string]dis
 	return root, fixtures
 }
 
+//nolint:gocognit // Keep built-in and named deep-copy checks together across policies.
+func TestSchemaIntAttributeReferenceBoundsAreDefensiveCopies(t *testing.T) {
+	for _, profile := range longPolicyProfiles() {
+		t.Run(profile.name, func(t *testing.T) {
+			root, fixtures := intGlobalAttributeGraphFixtures(profile.version)
+			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+			}
+			for _, test := range []struct {
+				local   string
+				minimum string
+				maximum string
+			}{
+				{local: "direct", minimum: "-2147483648", maximum: "2147483647"},
+				{local: "narrowed", minimum: "-3", maximum: "2"},
+			} {
+				components := schema.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:root", test.local))
+				if len(components) != 1 {
+					t.Fatalf("attribute %s matches = %d, want 1", test.local, len(components))
+				}
+				declaration, ok := components[0].AttributeDeclaration()
+				if !ok {
+					t.Fatalf("attribute %s has no declaration view", test.local)
+				}
+				reference, ok := declaration.TypeReference()
+				if !ok {
+					t.Fatalf("attribute %s has no type reference", test.local)
+				}
+				bounds, present := reference.IntegerBounds()
+				if !present || bounds.lower == nil || bounds.upper == nil {
+					t.Fatalf("attribute %s bounds = %#v/%t, want two endpoints", test.local, bounds, present)
+				}
+				bounds.lower.value.value.SetInt64(0)
+				bounds.upper.value.value.SetInt64(0)
+				facets := bounds.Bounds()
+				for _, facet := range facets {
+					facet.value.value.SetInt64(0)
+				}
+				repeated, present := reference.IntegerBounds()
+				if !present {
+					t.Fatalf("attribute %s repeated bounds are missing", test.local)
+				}
+				ordered := repeated.Bounds()
+				if len(ordered) != 2 || ordered[0].Value().Canonical() != test.minimum || ordered[1].Value().Canonical() != test.maximum {
+					t.Fatalf("attribute %s repeated bounds = %#v, want %s..%s", test.local, ordered, test.minimum, test.maximum)
+				}
+			}
+		})
+	}
+}
+
 //nolint:gocognit // Keep exact bound, digit, enumeration, and source-location checks together.
 func assertNarrowedIntAttributeFacts(t *testing.T, reference SimpleTypeReference, version XSDVersion, root string, fixtures map[string]discoveryFixture) {
 	t.Helper()

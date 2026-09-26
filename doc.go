@@ -336,7 +336,8 @@
 // and [0,18446744073709551615]; named references retain the written QName/type Loc,
 // exact effective integer facets/bounds (including narrowed or exclusive bounds),
 // facet/variety locations, provenance, ownership, and named target identity; built-in
-// references have no synthetic ComponentID. Admitted
+// references have no synthetic ComponentID. TypeReference().IntegerBounds()
+// returns copied effective bounds for both kinds of integer reference. Admitted
 // global precisionDecimal constraints retain zero or one optional default/fixed
 // AttributeValueConstraint; type-only declarations return no value constraint.
 // ValueConstraint() copies kind, collapsed lexical spelling, source Loc, and

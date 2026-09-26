@@ -91,8 +91,8 @@ attributeGroup/attribute-bearing complexContent extensions, and consumers are un
 excluded references retain locations and return no schema.
 Global attributes are query-only: built-in or supported named atomic Boolean/integer/decimal/token,
 negativeInteger/language/NCName/anyURI/ID, long/int/unsignedLong, policy-gated `precisionDecimal`.
-Built-in long/int/unsignedLong bounds are intrinsic; named restrictions retain facets, locations,
-provenance, and ownership. Excluded/local/inline forms report
+`SimpleTypeReference.IntegerBounds()` copies intrinsic built-in/named long/int/unsignedLong
+bounds; named restrictions retain facets, locations, provenance, ownership. Excluded/local/inline forms report
 `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at type/declaration/use-site
 `Loc`; unsupported values report at value `Loc`; invalid values preserve causes; default+fixed uses
 fixed primary/default related. Type-only declarations have no constraint; attribute consumers/

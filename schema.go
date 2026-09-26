@@ -201,6 +201,31 @@ func (reference SimpleTypeReference) VarietyLoc() Loc {
 	return reference.facts.varietyLoc
 }
 
+// IntegerBounds returns copied effective ordered integer bounds for an atomic
+// integer reference, including a built-in reference with no component identity.
+func (reference SimpleTypeReference) IntegerBounds() (IntegerBoundFacets, bool) {
+	if reference.facts == nil || reference.facts.variety != SimpleTypeVarietyAtomicRestriction {
+		return IntegerBoundFacets{}, false
+	}
+	var bounds IntegerBoundFacets
+	switch facets := reference.facts.facets.(type) {
+	case schemaDigitFacetVariant:
+		if facets.value.Kind() != DigitDatatypeInteger {
+			return IntegerBoundFacets{}, false
+		}
+		bounds = facets.integerBounds
+	case schemaIntegerFacetVariant:
+		bounds = facets.bounds
+	default:
+		return IntegerBoundFacets{}, false
+	}
+	return IntegerBoundFacets{
+		version: bounds.version,
+		lower:   cloneIntegerBoundEndpoint(bounds.lower),
+		upper:   cloneIntegerBoundEndpoint(bounds.upper),
+	}, true
+}
+
 // ComponentID returns the schema component identity of a named reference.
 // Built-ins and anonymous references do not have component identities.
 func (reference SimpleTypeReference) ComponentID() (ComponentID, bool) {
