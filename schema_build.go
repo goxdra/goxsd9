@@ -3544,6 +3544,9 @@ func resolveSchemaElementSimpleTypes(resolver *schemaSimpleTypeResolver, records
 
 func resolveSchemaAttributeSimpleTypes(resolver *schemaSimpleTypeResolver, records []schemaComponentRecord, version XSDVersion) error {
 	for _, record := range records {
+		if _, grouped := record.complexTypeBody().(*schemaComplexTypeGroupedExtensionBodyInput); grouped {
+			continue
+		}
 		for _, attributeUse := range schemaComplexTypeAttributeUseInputs(record.complexTypeBody()) {
 			if attributeUse.inlineSimple == nil {
 				continue
@@ -3566,16 +3569,20 @@ func resolveSchemaSimpleTypesForBuild(
 	if err == nil {
 		return simpleTypes, nil
 	}
+	return schemaSimpleTypeResolution{}, reframeSchemaSimpleTypeBuildError(records, byName, err, version)
+}
+
+func reframeSchemaSimpleTypeBuildError(records []schemaComponentRecord, byName map[QName][]int, err error, version XSDVersion) error {
 	if precisionErr := reframeSchemaLocalPrecisionDecimal(records, byName, err, version); precisionErr != nil {
-		return schemaSimpleTypeResolution{}, precisionErr
+		return precisionErr
 	}
 	if cycleErr := reframeSchemaAttributeTypeCycle(records, byName, err, version); cycleErr != nil {
-		return schemaSimpleTypeResolution{}, cycleErr
+		return cycleErr
 	}
 	if cycleErr := reframeSchemaSimpleContentBaseCycle(records, byName, err, version); cycleErr != nil {
-		return schemaSimpleTypeResolution{}, cycleErr
+		return cycleErr
 	}
-	return schemaSimpleTypeResolution{}, err
+	return err
 }
 
 func resolveSchemaSimpleTypeInputsInComplexType(
@@ -5977,7 +5984,7 @@ func (resolver *schemaComplexTypeResolver) resolveGroupedExtensionBody(
 	}
 	attributeUses, err := resolveSchemaAttributeUses(body.attributeUses, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.attributes, resolver.version)
 	if err != nil {
-		return nil, err
+		return nil, reframeSchemaSimpleTypeBuildError(resolver.records, resolver.byName, err, resolver.version)
 	}
 	base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex)
 	if err != nil {

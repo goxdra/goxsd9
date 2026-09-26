@@ -102,8 +102,8 @@ The construction order is deterministic:
 2. Convert and validate the direct group reference and its exact occurrence;
    resolve its visible named model-group target first.
 3. Resolve local attribute uses in lexical order, including
-   effective names, form/chameleon namespace policy, global targets, and
-   supported type identities.
+   effective names, form/chameleon namespace policy, global targets, inline
+   simple-type dependencies, and supported type identities.
 4. Resolve the extension base through its bounded seam, including final,
    visibility, completed-content, wildcard, and cycle checks.
 5. Publish one immutable completed fact only after every step succeeds.

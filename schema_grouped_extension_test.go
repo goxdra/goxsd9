@@ -276,6 +276,31 @@ func TestGroupedExtensionResolvesAttributesBeforeBase(t *testing.T) {
 	}
 }
 
+func TestGroupedExtensionResolvesInlineTypesInAttributeOrder(t *testing.T) {
+	attributes := `<xs:attribute ref="t:missingAttribute"/><xs:attribute name="later"><xs:simpleType><xs:restriction base="t:missingType"/></xs:simpleType></xs:attribute>`
+	for _, group := range []struct {
+		name       string
+		occurrence string
+	}{
+		{"present group", ""},
+		{"zero group", ` minOccurs="0" maxOccurs="0"`},
+	} {
+		t.Run(group.name, func(t *testing.T) {
+			root := groupedExtensionSchema("1.1", group.occurrence, attributes)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+			if err == nil {
+				t.Fatal("unresolved attribute and later inline type were accepted")
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			want := complexContentTestLoc(t, root, `ref="t:missingAttribute"`)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaAttributeReferenceUnresolvedCode || diagnostic.Loc() != want || !errors.Is(err, errSchemaAttributeReferenceUnresolved) {
+				t.Fatalf("diagnostic = %v, want earlier attribute reference failure at %s", err, want)
+			}
+		})
+	}
+}
+
 func TestGroupedExtensionTargetAndUnsupportedBoundaries(t *testing.T) {
 	base := groupedExtensionSchema("1.1", "", `<xs:attribute name="flag" type="xs:boolean"/>`)
 	cases := []struct {
