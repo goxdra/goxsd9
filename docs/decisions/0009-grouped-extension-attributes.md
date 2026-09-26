@@ -48,31 +48,21 @@ and [`cos-particle-extend`](https://www.w3.org/TR/2012/REC-xmlschema11-1-2012040
 Those rules permit an optional annotation, at most one model child, then
 attribute uses/attribute groups and an optional wildcard. A group reference is
 one particle with its own occurrences, not an instruction to flatten a named
-group. XSD 1.1 additionally has open-content and assertion constructs; they
-are outside this slice. Attribute uses are set-like semantically, while this
-future model must retain lexical and provenance order.
+group. Existing `openContent=none` support applies only to eligible shapes
+under Compatibility/Strict11; this decision adds no open-content behavior to
+the grouped composition. Other modes and assertions remain outside it.
+Attribute uses are set-like semantically; the future model must retain lexical
+and provenance order.
 
-The authoritative pinned raw inputs are the four files below. The manifest
-selects the edition-specific artifacts and `bootstrap_probe_test.go` records
-the stable first parser observation, including class, feature, location, and
-specification reference:
-
-| Artifact and exact raw location | Current bounded observation |
-| --- | --- |
-| [`xsd10-schema-for-schemas.raw:128:8`](../../internal/specs/testdata/bootstrap/xsd10-schema-for-schemas.raw#L128), `xs:attribute name="id" type="xs:ID"` | Strict10 stops at XSD3003 (`xsd.schema.syntax` / `FeatureSchemaSyntax`), with `xsd10-structures#cos-ct-extends`. |
-| [`xsd11-schema-for-schemas.raw:121:9`](../../internal/specs/testdata/bootstrap/xsd11-schema-for-schemas.raw#L121), `xs:attribute name="id" type="xs:ID"` | Strict11 stops at XSD3003 (`xsd.schema.syntax` / `FeatureSchemaSyntax`), with `xsd11-structures#cos-ct-extends`. |
-| [`xsd10-datatypes-schema.raw:827:19`](../../internal/specs/testdata/bootstrap/xsd10-datatypes-schema.raw#L827), `xs:group ref="xs:simpleDerivation"` | Strict10 stops at XSD3003 (`xsd.schema.syntax` / `FeatureSchemaSyntax`), with `xsd10-structures#cos-particle-extend`. |
-| [`xsd11-datatypes-schema.raw:99:19`](../../internal/specs/testdata/bootstrap/xsd11-datatypes-schema.raw#L99), `xs:group ref="xs:simpleDerivation"` | Strict11 stops at XSD3003 (`xsd.schema.syntax` / `FeatureSchemaSyntax`), with `xsd11-structures#cos-particle-extend`. |
-
-The artifact IDs, edition, representation, and dependency order are pinned in
-[`specs/manifest.json`](../../specs/manifest.json#L166); the probe rows and
-no-partial-schema assertion are in
-[`internal/specs/bootstrap_probe_test.go`](../../internal/specs/bootstrap_probe_test.go#L58).
-These blockers show current parser limits; the pinned group probes stop at
-`XSD3003` at the group reference, separately from the local-attribute rejection
-above. `xs:ID` identity,
-lexical space, value space, and instance uniqueness are distinct concerns
-and none is claimed here.
+The edition-specific schema-for-schema and datatype artifacts are pinned in
+[`specs/manifest.json`](../../specs/manifest.json); exact parser observations
+live in [`bootstrap_probe_test.go`](../../internal/specs/bootstrap_probe_test.go).
+Those observations retain the current `XSD3003` boundary: attribute-bearing
+`complexContent` stops at the local attribute; the separate datatype-schema
+group probes stop at the group reference. Both return no partial schema.
+Neither observation establishes support for their proposed composition.
+`xs:ID` identity, lexical space, value space, and instance uniqueness remain
+distinct from this decision.
 
 ## Proposed shape and non-goals
 
@@ -96,7 +86,7 @@ normalization above. The builder must not infer a syntactically absent group.
 The base must be a named completed empty-content base with only the inherited
 wildcard facts that #414 can represent. This decision does not add or expand
 `attributeGroup`, multiple/nested/local/anonymous groups, `all`, extension
-`anyAttribute`, open content, assertions, mixed or simple content, nonempty or
+`anyAttribute`, open content in this composition, assertions, mixed or simple content, nonempty or
 broader bases, `xs:anyType` direct extension, another derivation kind, value
 constraints, or consumer behavior.
 
@@ -166,8 +156,8 @@ the future combined admission. Existing resolver, group-reference, and
 
 | Axis | Proposed admitted shape | Invalid after admission | Resolution failure | Explicit unsupported | N/A |
 | --- | --- | --- | --- | --- | --- |
-| Edition/policy | One graph policy must cover the XSD 1.0/1.1 shape under Compatibility, Strict10, or Strict11. | Malformed edition-specific syntax must retain its invalid diagnostic. | N/A; policy selection does not acquire sources. | Open content, assertions, and valid shapes beyond this contract remain unsupported. | `schema/@version` must never select an edition. |
-| Named/anonymous/inline/ref | One named global owner, named #414 base, direct named group ref, and ordered #317 local declaration/ref uses must be admitted. | Missing/duplicate model child, malformed QName/NCName, invalid name/ref/use/form/occurrences, duplicate effective name, and unresolved/wrong-kind/ambiguous/inaccessible targets must fail with existing invalid causes. | Only source acquisition through the caller's resolver is a resolution failure. | Current group-plus-use input fails `XSD3003` at the local attribute; future anonymous/local owners, multiple/nested groups, attribute groups, and unsupported scalar varieties stay excluded. | Global inline attributes and local element-inline content are outside this contract. |
+| Edition/policy | One graph policy must cover the XSD 1.0/1.1 shape under Compatibility, Strict10, or Strict11. | Malformed edition-specific syntax must retain its invalid diagnostic. | N/A; policy selection does not acquire sources. | This composition adds no open-content support; elsewhere only `openContent=none` is admitted under Compatibility/Strict11. Other modes, assertions, and broader shapes stay unsupported. | `schema/@version` must never select an edition. |
+| Named/anonymous/inline/ref | One named global owner, named #414 base, direct named group ref, and ordered #317 local declaration/ref uses must be admitted. | Duplicate model children, malformed QName/NCName, invalid name/ref/use/form/occurrences, duplicate effective name, and unresolved/wrong-kind/ambiguous/inaccessible targets must fail with existing invalid causes. | Only source acquisition through the caller's resolver is a resolution failure. | Current group-plus-use input fails `XSD3003` at the local attribute; a syntactically absent group is valid but outside the proposed slice. Future anonymous/local owners, multiple/nested groups, attribute groups, and unsupported scalar varieties stay excluded. | Global inline attributes and local element-inline content are outside this contract. |
 | Graph visibility/cycles | The builder must reuse forward/include/import/chameleon/repeat identities and visibility; target members stay opaque. | Target visibility, ambiguity, wrong-kind, and base/simple-type cycles must retain located invalid diagnostics. | Referenced-source acquisition must retain its resolver cause. | Recursive group expansion and broader graph composition remain outside the contract. | Group-member traversal is unnecessary because no expansion occurs. |
 | Failure class | On success the future builder must publish one immutable fact; on error no schema. | Structural and target failures must retain stable code, primary/related `Loc`s, cause, and edition `SpecRef`. | Acquisition alone uses `FailureResolution` at the discovery boundary. | Valid unavailable behavior needs a registered feature, stable code, `Loc`, `SpecRef`, and `ErrUnsupported`; validation/generation of the admitted shape must reject explicitly. | No conformance outcome follows from this query contract. |
 | Location/order/provenance | Preserve group QName/ref/use `Loc`s, exact range, target ID, ordered local uses, effective names, type/form `Loc`s, and declaration order; validate before `0/0` omission. | Reference-use primary and target/duplicate/bound related locations must survive. | Preserve acquisition location and underlying cause. | Preserve the unsupported construct's source `Loc` and versioned `SpecRef`. | Map iteration cannot define observable order; ordered slices do. |
