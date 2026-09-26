@@ -237,7 +237,7 @@
 // `GenerateGo` consumer support or change occurrence limits.
 // An extension with a present direct choice or sequence particle retains its exact
 // occurrence. A model-less extension retains its named base identity and locations
-// with a nil optional particle, no occurrence, and no synthetic content. For
+// with a nil optional particle, no occurrence, and no synthetic content.
 // Ordinary direct-choice/direct-sequence target checks use element/particle
 // locations and may include the anonymous type location in related facts.
 // Extension checks without an effective AttributeUse or group-reference particle
