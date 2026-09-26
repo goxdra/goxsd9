@@ -312,12 +312,12 @@
 // Type admission under
 // Compatibility, Strict10, and Strict11 is limited to built-in or supported
 // named atomic xs:boolean, xs:integer, xs:decimal, xs:token, xs:negativeInteger,
-// xs:language, xs:NCName, xs:anyURI, xs:ID, xs:long, xs:int, xs:short, and xs:unsignedLong. Built-in or supported
+// xs:language, xs:NCName, xs:anyURI, xs:ID, xs:long, xs:int, and xs:unsignedLong. Built-in or supported
 // named xs:precisionDecimal is admitted for type/value queries only under
 // Compatibility or Strict11; Strict10 rejects it at the type Loc with the
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
 // diagnostic. Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger,
-// xs:nonPositiveInteger, xs:byte and narrower built-ins, list/union
+// xs:nonPositiveInteger, xs:short, xs:byte and narrower built-ins, list/union
 // forms remain explicit unsupported behavior. A local named attribute use reports
 // FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its type
 // attribute Loc; a local attribute declaration without type reports at its
@@ -333,9 +333,9 @@
 // Loc; an invalid supported value is FailureInvalid/XSD3036 at its value Loc
 // with its lexical/facet cause. Default plus fixed is FailureInvalid/XSD3010
 // with fixed Loc primary and default Loc related, and no Schema. Built-in
-// xs:long, xs:int, xs:short, and xs:unsignedLong have intrinsic inclusive bounds
+// xs:long, xs:int, and xs:unsignedLong have intrinsic inclusive bounds
 // [-9223372036854775808,9223372036854775807], [-2147483648,2147483647],
-// [-32768,32767], and [0,18446744073709551615]; named references retain the written QName/type Loc,
+// and [0,18446744073709551615]; named references retain the written QName/type Loc,
 // exact effective integer facets/bounds (including narrowed or exclusive bounds),
 // facet/variety locations, provenance, ownership, and named target identity; built-in
 // references have no synthetic ComponentID. TypeReference().IntegerBounds()
@@ -391,6 +391,8 @@
 // retain schema/query facts but their validation and generation consumers are
 // rejected. This consumer boundary does not widen the global attribute type or
 // value-constraint model described above.
+// Built-in xs:short has inclusive [-32768,32767] bounds without a component ID
+// or bound Loc; named restrictions retain exact effective bounds.
 // Global built-in, named, and inline precisionDecimal element/type schema/query facts are
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic

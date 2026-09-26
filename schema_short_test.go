@@ -2,7 +2,9 @@ package goxsd9
 
 import (
 	"errors"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -335,22 +337,6 @@ func assertShortInvalidNoPartialSchema(t *testing.T, schema Schema, err error, c
 	}
 }
 
-func TestSchemaShortExcludedShapesRemainUnsupported(t *testing.T) {
-	for _, profile := range longPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:short" default="0"/></xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			if err == nil || schema.storage != nil {
-				t.Fatalf("attribute value constraint schema/error = %#v/%v, want unsupported without schema", schema, err)
-			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Loc().IsZero() || !errors.Is(err, ErrUnsupported) {
-				t.Fatalf("diagnostic = %s, want located unsupported with preserved cause", diagnostic)
-			}
-		})
-	}
-}
-
 func TestSchemaShortConsumersRemainUnsupported(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
@@ -364,62 +350,31 @@ func TestSchemaShortConsumersRemainUnsupported(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Keep direct and forward attribute identity, location, and facet checks together.
-func TestSchemaShortGlobalAttributeReferences(t *testing.T) {
+//nolint:gocognit // Keep the direct, forward-named, and value-precedence diagnostic contract together.
+func TestSchemaShortGlobalAttributesRemainUnsupported(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">
-  <xs:attribute name="direct" type="xs:short"/>
-  <xs:attribute name="forward" type="t:Narrow"/>
-  <xs:simpleType name="Narrow"><xs:restriction base="xs:short"><xs:minExclusive value="-32768"/><xs:maxExclusive value="32767"/></xs:restriction></xs:simpleType>
-</xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			if err != nil {
-				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
-			}
-			for _, test := range []struct {
-				name, typeNeedle, min, max string
-				builtin                    bool
-			}{
-				{name: "direct", typeNeedle: `type="xs:short"`, min: "-32768", max: "32767", builtin: true},
-				{name: "forward", typeNeedle: `type="t:Narrow"`, min: "-32768", max: "32767"},
-			} {
-				components := schema.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:test", test.name))
-				if len(components) != 1 {
-					t.Fatalf("attribute %s components = %d, want 1", test.name, len(components))
+		for _, test := range []struct {
+			name, declaration, needle string
+		}{
+			{name: "direct", declaration: `<xs:attribute name="a" type="xs:short"/>`, needle: `type="xs:short"`},
+			{name: "named forward", declaration: `<xs:attribute name="a" type="t:Alias"/><xs:simpleType name="Alias"><xs:restriction base="xs:short"/></xs:simpleType>`, needle: `type="t:Alias"`},
+			{name: "value constraint precedence", declaration: `<xs:attribute name="a" type="xs:short" default="0"/>`, needle: `type="xs:short"`},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + test.declaration + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
+					t.Fatalf("global short attribute schema/error = %#v/%v, want no schema", schema, err)
 				}
-				attribute, ok := components[0].AttributeDeclaration()
-				if !ok {
-					t.Fatalf("attribute %s has no declaration", test.name)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, test.needle) || diagnostic.SpecRef() == "" {
+					t.Fatalf("diagnostic = %s, want located schema-syntax unsupported", diagnostic)
 				}
-				reference, ok := attribute.TypeReference()
-				if !ok || reference.Loc() != elementReferenceTestAttributeLoc(t, root, test.typeNeedle) {
-					t.Fatalf("attribute %s reference = %#v/%t, want located reference", test.name, reference, ok)
+				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaAttributeTypeUnsupported) {
+					t.Fatalf("global short attribute lost unsupported type causes: %v", err)
 				}
-				if test.builtin {
-					assertShortBuiltinReference(t, reference, reference.Loc(), profile.version)
-					continue
-				}
-				if !reference.IsNamed() || reference.Name() != mustTestQName(t, "urn:test", "Narrow") {
-					t.Fatalf("attribute %s reference = %#v, want named Narrow", test.name, reference)
-				}
-				if reference.facts == nil || reference.facts.atomicKind != schemaSimpleTypeAtomicShort {
-					t.Fatalf("named attribute type facts = %#v, want short", reference.facts)
-				}
-				bounds, present := reference.IntegerBounds()
-				if !present || bounds.Version() != profile.version {
-					t.Fatalf("named attribute bounds = %#v/%t, want version %s", bounds, present, profile.version)
-				}
-				minimum, hasMinimum := bounds.MinExclusive()
-				maximum, hasMaximum := bounds.MaxExclusive()
-				if !hasMinimum || !hasMaximum || minimum.Canonical() != test.min || maximum.Canonical() != test.max {
-					t.Fatalf("named attribute exclusive bounds = %s/%t, %s/%t, want %s/%s", minimum.Canonical(), hasMinimum, maximum.Canonical(), hasMaximum, test.min, test.max)
-				}
-				if id, present := reference.ComponentID(); !present || id.IsZero() {
-					t.Fatalf("named attribute type ID = %v/%t, want nonzero", id, present)
-				}
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -468,28 +423,60 @@ func TestSchemaShortExclusiveBoundaryRestriction(t *testing.T) {
 	}
 }
 
-// This bounded fragment follows the short declaration in the pinned W3C datatypes graph.
+// The byte declaration is extracted from the pinned W3C datatype schema corpus.
+//
+//nolint:gocognit // Keep corpus provenance, repeated builds, reference facts, and the byte boundary together.
 func TestSchemaShortPinnedCorpusFragment(t *testing.T) {
+	const corpusPath = "testdata/w3c/xsdtests/msData/additional/test73722_dt.xsd"
+	data, err := os.ReadFile(corpusPath)
+	if err != nil {
+		t.Fatalf("read pinned datatype schema: %v", err)
+	}
+	const startMarker = `<xs:simpleType name="byte" id="byte">`
+	const endMarker = `</xs:simpleType>`
+	start := strings.Index(string(data), startMarker)
+	if start < 0 {
+		t.Fatal("pinned byte declaration missing")
+	}
+	suffix := string(data[start:])
+	end := strings.Index(suffix, endMarker)
+	if end < 0 {
+		t.Fatal("pinned byte declaration is incomplete")
+	}
+	fragment := suffix[:end+len(endMarker)]
+	if !strings.Contains(fragment, `<xs:restriction base="xs:short">`) {
+		t.Fatal("pinned byte declaration no longer references built-in xs:short")
+	}
 	for _, profile := range longPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">
-  <xs:simpleType name="short"><xs:restriction base="xs:int"><xs:minInclusive value="-32768"/><xs:maxInclusive value="32767"/></xs:restriction></xs:simpleType>
-  <xs:simpleType name="byte"><xs:restriction base="t:short"><xs:minInclusive value="-128"/><xs:maxInclusive value="127"/></xs:restriction></xs:simpleType>
-</xs:schema>`
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `">` + fragment + `</xs:schema>`
 			first, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 			if err != nil {
-				t.Fatalf("pinned short fragment: %v", err)
+				t.Fatalf("parse bounded pinned byte declaration: %v", err)
 			}
 			second, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 			if err != nil {
-				t.Fatalf("repeated pinned short fragment: %v", err)
+				t.Fatalf("repeat bounded pinned byte declaration: %v", err)
 			}
 			if !reflect.DeepEqual(first.Components(), second.Components()) {
-				t.Fatal("pinned short fragment changed component facts or order")
+				t.Fatal("pinned byte declaration changed component facts or order")
 			}
-			for _, test := range []struct{ name, min, max string }{{"short", "-32768", "32767"}, {"byte", "-128", "127"}} {
-				definition := requireShortDefinition(t, first, test.name)
-				assertIntegerReferenceFacts(t, &schemaSimpleTypeReferenceComponent{atomicKind: definition.facts.atomicKind, facets: definition.facts.facets}, profile.version, schemaSimpleTypeAtomicInt, "int", test.min, test.max)
+			definition := requireShortDefinition(t, first, "byte")
+			assertShortDefinition(t, definition, profile.version, "-128", "127")
+			base, ok := definition.BaseReference()
+			if !ok {
+				t.Fatal("pinned byte restriction has no base reference")
+			}
+			assertShortBuiltinReference(t, base, elementReferenceTestAttributeLoc(t, root, `base="xs:short"`), profile.version)
+
+			unsupported := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="xs:byte"/></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, unsupported, nil, profile.policy)
+			if err == nil || schema.storage != nil {
+				t.Fatalf("built-in xs:byte schema/error = %#v/%v, want unsupported without schema", schema, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, unsupported, `type="xs:byte"`) || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("built-in xs:byte diagnostic = %s, want located unsupported", diagnostic)
 			}
 		})
 	}
