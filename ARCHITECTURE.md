@@ -78,8 +78,8 @@ Element/model-group references retain QName/RefLoc/TargetID/order without expans
 nested/local/recursive/broader forms remain unsupported or consumer-excluded. Mapped non-`0/0`
 local inline/anonymous `int`/`unsignedLong` forms are schema-unsupported at `type`/`simpleType`
 `Loc`; applicable `0/0` forms are absent. Admitted local built-in/named-effective
-`int`/`unsignedLong`: query-only/consumer-rejected; global `unsignedLong` remains so.
-`AttributeUse`/simpleContent retain exclusions. Named/anonymous-inline
+`int`/`unsignedLong`: query-only/consumer-rejected; local `AttributeUse` and simpleContent
+exclude both at admission. Named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
 AttributeUse facts preserve order, locations, ownership, effective use, and QName/RefLoc/TargetID
 in particle-plus-use, model-group, attribute-only, and simpleContent. Local uses retain

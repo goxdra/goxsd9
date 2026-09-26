@@ -90,10 +90,10 @@
 // int/unsignedLong, are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
-// exclusions use the nested-particle Loc. Ordinary 0/0, including excluded
-// long-family/unsignedLong forms, is admitted after applicable gates and remains
-// absent. Inline/anonymous unsignedLong is a separate mapped schema exclusion at
-// its type/simpleType Loc; built-in and named-effective int/unsignedLong are admitted
+// exclusions use the nested-particle Loc. Ordinary 0/0 is admitted after
+// applicable gates and remains absent.
+// Inline/anonymous int/unsignedLong are mapped schema exclusions at their
+// type/simpleType Loc; built-in and named-effective int/unsignedLong are admitted
 // query-only forms. The written base QName/base Loc, use-site/type/facet Locs,
 // named ID versus built-in zero identity, ownership, and resolved facts remain
 // separate. Built-in int retains intrinsic inclusive bounds
@@ -292,7 +292,7 @@
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
 // and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
-// remain explicit unsupported behavior. Local unsignedLong particles are
+// remain explicit unsupported behavior. Local int/unsignedLong particles are
 // query-only and remain explicit unsupported behavior in both consumers.
 // Reference consumers exclude precisionDecimal and anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
@@ -401,7 +401,7 @@
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
 // all-Boolean/numeric direct choices and default-bounded direct sequences. Local
-// unsignedLong, anonymous, and token/NMTOKEN consumers, repeated/non-default
+// int/unsignedLong, anonymous, and token/NMTOKEN consumers, repeated/non-default
 // particles, and anonymous targets remain unsupported; numeric integer/decimal
 // mixtures remain supported.
 package goxsd9
