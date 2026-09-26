@@ -409,7 +409,15 @@ func assertIntInvalidNoPartialSchema(t *testing.T, schema Schema, err error, cau
 func TestSchemaIntExcludedShapesRemainUnsupported(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
-			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "int", "0")
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:int" default="0"/></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err == nil || schema.storage != nil {
+				t.Fatalf("attribute value constraint schema/error = %#v/%v, want unsupported without schema", schema, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Loc().IsZero() || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("diagnostic = %s, want located unsupported with preserved cause", diagnostic)
+			}
 		})
 	}
 }

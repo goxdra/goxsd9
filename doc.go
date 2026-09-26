@@ -50,9 +50,9 @@
 //
 // The schema model exposes one direct ordered sequence and direct choices of local
 // built-in xs:boolean, named boolean-restriction, integer, decimal, explicitly typed
-// built-in or supported named xs:unsignedLong, and explicitly typed built-in or
+// built-in or supported named xs:int/xs:unsignedLong, and explicitly typed built-in or
 // supported named xs:token/xs:NMTOKEN particles for named global complex types. It
-// also admits built-in and supported named-effective xs:unsignedLong particles in
+// also admits built-in and supported named-effective xs:int/xs:unsignedLong particles in
 // supported attribute-free extension choices and sequences under every policy; they
 // remain query-only and consumer-rejected. Direct and supported extension
 // choices/sequences retain exact finite, unbounded, and above-uint64 occurrences;
@@ -77,7 +77,7 @@
 // applicable gates, then the local public particle is absent; this is not a
 // universal named-type/facet or validation bypass. Strict10 policy admission precedes omission for explicitly typed local
 // built-in or named-effective and inline anonymous `precisionDecimal` forms,
-// including zero-occurrence cases. Ordinary `unsignedLong` and long-family 0/0
+// including zero-occurrence cases. Ordinary `int`/`unsignedLong` and other long-family 0/0
 // forms use the admission-then-absence rule under every policy.
 // Local declared, named, inline, and anonymous restrictions in the
 // integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
@@ -85,18 +85,20 @@
 // forward, imported, included, and chameleon chains. A direct local
 // `type="xs:negativeInteger"` is schema-rejected only when mapped non-0/0;
 // named-effective and anonymous-inline negativeInteger forms are admitted as query
-// facts, but ValidateInstance and GenerateGo reject those consumers. Effective int,
+// facts, but ValidateInstance and GenerateGo reject those consumers. Effective
 // long, nonNegativeInteger, and nonPositiveInteger, plus inline/anonymous
-// unsignedLong, are excluded when mapped non-0/0: ParseSchema returns a located
+// int/unsignedLong, are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
 // exclusions use the nested-particle Loc. Ordinary 0/0, including excluded
 // long-family/unsignedLong forms, is admitted after applicable gates and remains
 // absent. Inline/anonymous unsignedLong is a separate mapped schema exclusion at
-// its type/simpleType Loc; built-in and named-effective unsignedLong are admitted
+// its type/simpleType Loc; built-in and named-effective int/unsignedLong are admitted
 // query-only forms. The written base QName/base Loc, use-site/type/facet Locs,
 // named ID versus built-in zero identity, ownership, and resolved facts remain
-// separate. Built-in unsignedLong retains intrinsic inclusive bounds
+// separate. Built-in int retains intrinsic inclusive bounds
+// [-2147483648,2147483647] without synthetic bound locations or component IDs;
+// built-in unsignedLong retains intrinsic inclusive bounds
 // [0,18446744073709551615]; named-effective particles retain exact narrowed,
 // inclusive/exclusive bounds, integer enumeration/digit facets, source locations,
 // identities, graph provenance, and exact occurrences; only validation and GenerateGo return consumer-only

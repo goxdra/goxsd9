@@ -66,7 +66,7 @@ anonymous refs, base identity/locations, inherited `##other`/`lax` wildcards. Sc
 simpleContent extensions retain base/type/use `Loc`s and nil particle; restrictions are
 unsupported; bases are Boolean/string/integer/decimal plus policy-gated `precisionDecimal`.
 Admission: supported direct/extension choices/sequences admit `integer`, named/anonymous-inline
-`negativeInteger`, and built-in/supported named `unsignedLong`; direct built-in
+`negativeInteger`, and built-in/supported named `int` and `unsignedLong`; direct built-in
 `negativeInteger` rejects nonzero mapping. Scalar exclusions return `FailureUnsupported`
 at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`. Applicable
 syntax/occurrence/reference/policy gates precede local mapping; graph-wide declaration/facet
@@ -76,11 +76,10 @@ without duplicate checks before omission; named groups resolve/check before owne
 omission; child refs resolve first.
 Element/model-group references retain QName/RefLoc/TargetID/order without expansion;
 nested/local/recursive/broader forms remain unsupported or consumer-excluded. Mapped non-`0/0`
-local inline/anonymous `unsignedLong` forms are schema-unsupported at `type`/`simpleType`
+local inline/anonymous `int`/`unsignedLong` forms are schema-unsupported at `type`/`simpleType`
 `Loc`; applicable `0/0` forms are absent. Admitted local built-in/named-effective
-`unsignedLong`: query-only/consumer-rejected; global `unsignedLong` element/type/attribute
-facts remain query-only/consumer-rejected; `AttributeUse`/simpleContent retain separate
-schema-admission exclusions. Named/anonymous-inline
+`int`/`unsignedLong`: query-only/consumer-rejected; global `unsignedLong` remains so.
+`AttributeUse`/simpleContent retain exclusions. Named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
 AttributeUse facts preserve order, locations, ownership, effective use, and QName/RefLoc/TargetID
 in particle-plus-use, model-group, attribute-only, and simpleContent. Local uses retain
@@ -147,7 +146,7 @@ query-only/rejected. Global `int`/`long`/`unsignedLong` element/type facts query
 `GenerateGo` reject. Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to
-default-occurrence Boolean/integer/decimal choices/sequences; `unsignedLong`, `precisionDecimal`,
+default-occurrence Boolean/integer/decimal choices/sequences; `int`, `unsignedLong`, `precisionDecimal`,
 token/NMTOKEN, anonymous, repeated, non-default forms excluded.
 
 ## Conformance
