@@ -127,8 +127,8 @@ unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without
 only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, other
 forms remain queryable but excluded. Global `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
-refs are top-level direct query only; broader forms reject. AttributeUse and simpleContent facts are
-query-only; validation and `GenerateGo` reject those consumers with their retained locations.
+refs query in direct complex-type bodies and supported grouped extensions; nested/broader forms reject.
+AttributeUse and simpleContent facts are query-only; validation and `GenerateGo` reject consumers.
 
 Generation: named Boolean/integer/decimal/string/token/NMTOKEN components; global elements using
 those built-in/named types; inline global string/token/NMTOKEN elements; global/named-typed
