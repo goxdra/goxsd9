@@ -1793,7 +1793,7 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowToken, instanceTokenScalar{}, instanceBuiltInValidationVersion)
 	case "NMTOKEN":
 		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowNMTOKEN, instanceNMTOKENScalar{}, booleanVersion)
-	case "int", "language", "NCName", "anyURI", "ID":
+	case "int", "short", "language", "NCName", "anyURI", "ID":
 		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
 	default:
 		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)

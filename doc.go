@@ -77,7 +77,7 @@
 // applicable gates, then the local public particle is absent; this is not a
 // universal named-type/facet or validation bypass. Strict10 policy admission precedes omission for explicitly typed local
 // built-in or named-effective and inline anonymous `precisionDecimal` forms,
-// including zero-occurrence cases. Ordinary `int`/`unsignedLong` and other long-family 0/0
+// including zero-occurrence cases. Ordinary `int`/`short`/`unsignedLong` and other long-family 0/0
 // forms use the admission-then-absence rule under every policy.
 // Local declared, named, inline, and anonymous restrictions in the
 // integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
@@ -86,7 +86,7 @@
 // `type="xs:negativeInteger"` is schema-rejected only when mapped non-0/0;
 // named-effective and anonymous-inline negativeInteger forms are admitted as query
 // facts, but ValidateInstance and GenerateGo reject those consumers. Effective
-// long, nonNegativeInteger, and nonPositiveInteger, plus inline/anonymous
+// long, short, nonNegativeInteger, and nonPositiveInteger, plus inline/anonymous
 // int/unsignedLong, are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
@@ -317,7 +317,7 @@
 // Compatibility or Strict11; Strict10 rejects it at the type Loc with the
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
 // diagnostic. Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger,
-// xs:nonPositiveInteger, narrower built-ins, list/union
+// xs:nonPositiveInteger, xs:short, xs:byte and narrower built-ins, list/union
 // forms remain explicit unsupported behavior. A local named attribute use reports
 // FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its type
 // attribute Loc; a local attribute declaration without type reports at its
@@ -386,11 +386,13 @@
 // `nonNegativeInteger` element/type declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
 // Global inline-element Boolean/integer/decimal declarations and global
-// element/type int/long/unsignedLong/negativeInteger/nonPositiveInteger and
+// element/type int/long/short/unsignedLong/negativeInteger/nonPositiveInteger and
 // language/NCName/anyURI/ID declarations
 // retain schema/query facts but their validation and generation consumers are
 // rejected. This consumer boundary does not widen the global attribute type or
 // value-constraint model described above.
+// Built-in xs:short has inclusive [-32768,32767] bounds without a component ID
+// or bound Loc; named restrictions retain exact effective bounds.
 // Global built-in, named, and inline precisionDecimal element/type schema/query facts are
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic

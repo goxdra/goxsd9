@@ -88,10 +88,9 @@ QName/RefLoc/TargetID/use. Forms select names; XSD 1.1 `targetNamespace` must ma
 chameleon adopts; prohibited uses are omitted. Value/default/fixed/inheritable semantics,
 attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported;
 excluded references retain locations and return no schema.
-Global attributes are query-only: built-in or supported named atomic Boolean/integer/decimal/token,
-negativeInteger/language/NCName/anyURI/ID, long/int/unsignedLong, policy-gated `precisionDecimal`.
-`SimpleTypeReference.IntegerBounds()` copies intrinsic built-in/named long/int/unsignedLong
-bounds; named restrictions retain facets, locations, provenance, ownership. Excluded/local/inline forms report
+Global query-only attributes: built-in/named Boolean/integer/decimal/token,
+negativeInteger/language/NCName/anyURI/ID, long/int/unsignedLong, policy-gated `precisionDecimal`;
+short excluded. Excluded/local/inline forms report
 `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at type/declaration/use-site
 `Loc`; unsupported values report at value `Loc`; invalid values preserve causes; default+fixed uses
 fixed primary/default related. Type-only declarations have no constraint; attribute consumers/
@@ -142,8 +141,10 @@ reject (`FailureUnsupported`/`GOXSD9029`, no output) and malformed/stale facts f
 supported local Boolean/integer/decimal/token/NMTOKEN particles may have schema; consumer
 exclusions apply; `0/0` admitted then absent all policies. `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject, and inline/anonymous element/type forms remain
-query-only/rejected. Global `int`/`long`/`unsignedLong` element/type facts query-only; validation/
-`GenerateGo` reject. Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
+query-only/rejected. Global `int`/`long`/`short`/`unsignedLong` element/type facts query-only; validation/
+`GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies intrinsic built-in and effective named
+long/int/short/unsignedLong bounds; named restrictions retain facets, locations, provenance, ownership.
+Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to
 default-occurrence Boolean/integer/decimal choices/sequences; `int`, `unsignedLong`, `precisionDecimal`,
