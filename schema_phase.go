@@ -2886,6 +2886,9 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 		return false
 	}
 	modelCount := 0
+	groupModel := false
+	attributeCount := 0
+	openContentSeen := false
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
 		if !ok {
@@ -2898,14 +2901,17 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 		case "annotation":
 			continue
 		case "openContent":
-			continue
+			openContentSeen = true
 		case "choice", "sequence", "group":
 			modelCount++
+			groupModel = child.name.local == "group"
+		case "attribute":
+			attributeCount++
 		default:
 			return false
 		}
 	}
-	return modelCount <= 1
+	return modelCount <= 1 && (attributeCount == 0 || modelCount == 1 && groupModel && !openContentSeen)
 }
 
 func schemaBooleanAttributeTrue(element *syntaxElement) bool {
@@ -3020,6 +3026,20 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	assertSeen := false
 	simpleInlineSeen := false
 	var particleUnsupported error
+	groupExtension := false
+	groupedAttributes := false
+	if complexContent && element.name.local == "extension" {
+		model := schemaComplexTypeModel(element)
+		groupExtension = model != nil && model.name.local == "group"
+		if groupExtension {
+			for _, child := range children {
+				if child.name.local == "attribute" {
+					groupedAttributes = true
+					break
+				}
+			}
+		}
+	}
 	totalSeen := false
 	fractionSeen := false
 	facetSeen := make(map[string]bool)
@@ -3061,6 +3081,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if err := validateOpenContent(child, version, allowModeNone); err != nil && !candidate.considerError(err) {
 				return err
 			}
+			if groupedAttributes {
+				candidate.considerAtVersion(child.loc, "grouped extension openContent is not implemented", version)
+			}
 		case "group", "all", "sequence":
 			if !complexContent {
 				return newSchemaCompositionDiagnostic(child.loc, element.name.local+" does not permit a model particle")
@@ -3070,7 +3093,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 			modelSeen = true
 			particleErr := versionNamedModelGroupUnsupported(validateUnsupportedModelParticle(child, version), version)
-			if complexContent && element.name.local == "extension" && child.name.local == "group" && boundedComplexContentExtensionCandidate(element) {
+			if complexContent && element.name.local == "extension" && child.name.local == "group" {
 				particleErr = validateSupportedGroupParticle(child, version)
 			}
 			if complexContent && element.name.local == "extension" && child.name.local == "sequence" {
@@ -3109,7 +3132,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if child.name.local == "attributeGroup" {
 				childErr = validateAttributeGroupReference(child)
 			}
-			if child.name.local == "attribute" && complexContent && childErr == nil {
+			if child.name.local == "attribute" && complexContent && childErr == nil && !groupExtension {
 				childErr = newSchemaSyntaxUnsupported(child.loc, "local attribute declarations are not implemented")
 			}
 			if childErr != nil && !candidate.considerError(childErr) {

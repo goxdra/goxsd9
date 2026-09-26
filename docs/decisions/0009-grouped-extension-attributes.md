@@ -4,15 +4,14 @@ Status: accepted
 
 ## Decision
 
-The next schema-model boundary is one named global `complexType` whose
+This schema-model boundary is one named global `complexType` whose
 `complexContent/extension` uses the already-supported named-base boundary from
 [#414](https://github.com/goxdra/goxsd9/issues/414), one direct named
 `<group ref="...">` particle, and one or more ordered direct local
 `<attribute>` uses from [#317](https://github.com/goxdra/goxsd9/issues/317).
 The extension body may contain its optional annotation. The model child is
-the group reference; local attributes follow it in lexical order. This is a
-future implementation contract, not a claim about current parser behavior,
-validation, generation, or conformance.
+the group reference; local attributes follow it in lexical order. The parser
+implements this bounded queryable fact; validation and generation reject it.
 
 The group remains one opaque particle. Preserve its expanded written QName,
 `ref` and use-site locations, exact occurrence range, and target
@@ -58,8 +57,8 @@ specification reference:
 | --- | --- |
 | [`xsd10-schema-for-schemas.raw:128:8`](../../internal/specs/testdata/bootstrap/xsd10-schema-for-schemas.raw#L128), `xs:attribute name="id" type="xs:ID"` | Strict10 stops at XSD3003 (`xsd.schema.syntax` / `FeatureSchemaSyntax`), with `xsd10-structures#cos-ct-extends`. |
 | [`xsd11-schema-for-schemas.raw:121:9`](../../internal/specs/testdata/bootstrap/xsd11-schema-for-schemas.raw#L121), `xs:attribute name="id" type="xs:ID"` | Strict11 stops at XSD3003 (`xsd.schema.syntax` / `FeatureSchemaSyntax`), with `xsd11-structures#cos-ct-extends`. |
-| [`xsd10-datatypes-schema.raw:827:19`](../../internal/specs/testdata/bootstrap/xsd10-datatypes-schema.raw#L827), `xs:group ref="xs:simpleDerivation"` | Strict10 stops at XSD3003 (`xsd.schema.syntax` / `FeatureSchemaSyntax`), with `xsd10-structures#cos-particle-extend`. |
-| [`xsd11-datatypes-schema.raw:99:19`](../../internal/specs/testdata/bootstrap/xsd11-datatypes-schema.raw#L99), `xs:group ref="xs:simpleDerivation"` | Strict11 stops at XSD3003 (`xsd.schema.syntax` / `FeatureSchemaSyntax`), with `xsd11-structures#cos-particle-extend`. |
+| [`xsd10-datatypes-schema.raw:843:43`](../../internal/specs/testdata/bootstrap/xsd10-datatypes-schema.raw#L843), `xs:element ref="xs:annotation" minOccurs="0"` inside `complexContent/restriction` | Strict10 stops at XSD3003 (`xsd.schema.syntax` / `FeatureSchemaSyntax`), with `xsd10-structures#schema-document`. |
+| [`xsd11-datatypes-schema.raw:115:43`](../../internal/specs/testdata/bootstrap/xsd11-datatypes-schema.raw#L115), `xs:element ref="xs:annotation" minOccurs="0"` inside `complexContent/restriction` | Strict11 stops at XSD3003 (`xsd.schema.syntax` / `FeatureSchemaSyntax`), with `xsd11-structures#cSchemaDocument`. |
 
 The artifact IDs, edition, representation, and dependency order are pinned in
 [`specs/manifest.json`](../../specs/manifest.json#L166); the probe rows and
@@ -71,7 +70,7 @@ are distinct concerns and none is claimed here.
 
 ## Exact supported shape and non-goals
 
-The supported future input is:
+The supported input is:
 
 - a named global complex type;
 - `complexContent/extension` with a named base accepted by #414;
@@ -201,7 +200,6 @@ varieties into value support. Visibility and base-cycle handling can also
 regress if composition bypasses the existing seams. Ordered slices and tagged
 variants are the safeguards against map-order and impossible-state bugs.
 
-Implementation remains scoped to #437 and depends on #317's local-attribute
+The bounded parser fact is implemented by #437 using #317's local-attribute
 foundation. Validation, generation, and broad auxiliary consumption remain
-separate packets. This record defines future behavior only; it reports neither
-implementation, validation, nor conformance.
+separate packets. This record makes no conformance claim.

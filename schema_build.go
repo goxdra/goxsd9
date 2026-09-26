@@ -1862,6 +1862,9 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 			return nil, newSchemaBridgeInvariant(model.loc, "supported complexContent extension has an unknown particle")
 		}
 	}
+	if model != nil && model.name.local == "group" {
+		return schemaGroupedComplexTypeExtensionInput(complexContent, extension, model, particle, facts, version, block, base, baseAttributes[0].loc)
+	}
 	return &schemaComplexTypeInput{
 		body: &schemaComplexTypeExtensionBodyInput{
 			complexContentLoc: complexContent.loc,
@@ -1872,6 +1875,46 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 				loc:  baseAttributes[0].loc,
 			},
 			particle: particle,
+		},
+		prohibitedSubstitutions: block,
+	}, nil
+}
+
+func schemaGroupedComplexTypeExtensionInput(
+	complexContent, extension, model *syntaxElement,
+	particle schemaComplexTypeParticleInput,
+	facts schemaDocumentFacts,
+	version XSDVersion,
+	block schemaBlockPolicy,
+	base QName,
+	baseLoc Loc,
+) (*schemaComplexTypeInput, error) {
+	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version)
+	if err != nil {
+		return nil, err
+	}
+	if len(attributeUses) == 0 {
+		return &schemaComplexTypeInput{
+			body: &schemaComplexTypeExtensionBodyInput{
+				complexContentLoc: complexContent.loc,
+				extensionLoc:      extension.loc,
+				base:              schemaComplexTypeReferenceInput{kind: schemaComplexTypeQNameReferenceInput, name: base, loc: baseLoc},
+				particle:          particle,
+			},
+			prohibitedSubstitutions: block,
+		}, nil
+	}
+	group, ok := particle.(*schemaModelGroupReferenceParticleInput)
+	if !ok {
+		return nil, newSchemaBridgeInvariant(model.loc, "grouped extension has no group reference input")
+	}
+	return &schemaComplexTypeInput{
+		body: &schemaComplexTypeGroupedExtensionBodyInput{
+			complexContentLoc: complexContent.loc,
+			extensionLoc:      extension.loc,
+			base:              schemaComplexTypeReferenceInput{kind: schemaComplexTypeQNameReferenceInput, name: base, loc: baseLoc},
+			group:             group,
+			attributeUses:     attributeUses,
 		},
 		prohibitedSubstitutions: block,
 	}, nil
@@ -3555,6 +3598,11 @@ func resolveSchemaSimpleTypeInputsInComplexType(
 			return nil
 		}
 		return resolveSchemaSimpleTypeInputsInComplexParticle(body.particle, source, resolver, version)
+	case *schemaComplexTypeGroupedExtensionBodyInput:
+		if body == nil || body.group == nil {
+			return newSchemaBridgeInvariant(Loc{}, "grouped extension simple type resolution has no group input")
+		}
+		return nil
 	case *schemaComplexTypeEmptyBodyInput, *schemaComplexTypeAttributeOnlyBodyInput,
 		*schemaComplexTypeSimpleContentBodyInput, *schemaComplexTypeRestrictionBodyInput:
 		return nil
@@ -5701,6 +5749,16 @@ type schemaComplexTypeExtensionBodyResult struct {
 
 func (*schemaComplexTypeExtensionBodyResult) schemaComplexTypeBodyResult() {}
 
+type schemaComplexTypeGroupedExtensionBodyResult struct {
+	complexContentLoc Loc
+	extensionLoc      Loc
+	base              schemaComplexTypeReferenceComponent
+	content           schemaComplexTypeBodyResult
+	anyAttribute      schemaAnyAttributeResult
+}
+
+func (*schemaComplexTypeGroupedExtensionBodyResult) schemaComplexTypeBodyResult() {}
+
 type schemaAnyAttributeResult struct {
 	present             bool
 	loc                 Loc
@@ -5714,6 +5772,33 @@ type schemaModelGroupResult struct {
 	particle Particle
 }
 
+func resolveSchemaGroupedExtensionReferences(
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	version XSDVersion,
+) ([]schemaModelGroupResult, error) {
+	results := make([]schemaModelGroupResult, len(records))
+	for index, record := range records {
+		if record.complexType == nil {
+			continue
+		}
+		body, ok := record.complexType.body.(*schemaComplexTypeGroupedExtensionBodyInput)
+		if !ok {
+			continue
+		}
+		if body == nil || body.group == nil {
+			return nil, newSchemaBridgeInvariant(record.loc, "grouped extension has no group reference input")
+		}
+		particle, err := resolveSchemaModelGroupReferenceParticle(body.group, record, records, byName, visibleSources, version)
+		if err != nil {
+			return nil, err
+		}
+		results[index] = schemaModelGroupResult{present: true, particle: particle}
+	}
+	return results, nil
+}
+
 func resolveSchemaComplexTypes(
 	records []schemaComponentRecord,
 	byName map[QName][]int,
@@ -5721,22 +5806,24 @@ func resolveSchemaComplexTypes(
 	simpleTypes schemaSimpleTypeResolution,
 	finalDefaults map[SourceID]schemaSimpleTypeFinalPolicy,
 	attributes []schemaAttributeTypeResult,
+	groupedExtensions []schemaModelGroupResult,
 	version XSDVersion,
 ) ([]schemaComplexTypeResult, error) {
-	if len(simpleTypes.results) != len(records) || simpleTypes.byInput == nil || len(attributes) != len(records) {
+	if len(simpleTypes.results) != len(records) || simpleTypes.byInput == nil || len(attributes) != len(records) || len(groupedExtensions) != len(records) {
 		return nil, newSchemaBridgeInvariant(Loc{}, "complex type resolution has incomplete simple type results")
 	}
 	resolver := schemaComplexTypeResolver{
-		records:        records,
-		byName:         byName,
-		visibleSources: visibleSources,
-		simpleTypes:    simpleTypes,
-		finalDefaults:  finalDefaults,
-		attributes:     attributes,
-		version:        version,
-		results:        make([]schemaComplexTypeResult, len(records)),
-		state:          make([]uint8, len(records)),
-		stack:          make([]int, 0),
+		records:           records,
+		byName:            byName,
+		visibleSources:    visibleSources,
+		simpleTypes:       simpleTypes,
+		finalDefaults:     finalDefaults,
+		attributes:        attributes,
+		groupedExtensions: groupedExtensions,
+		version:           version,
+		results:           make([]schemaComplexTypeResult, len(records)),
+		state:             make([]uint8, len(records)),
+		stack:             make([]int, 0),
 	}
 	for index, record := range records {
 		if record.complexType == nil {
@@ -5750,16 +5837,17 @@ func resolveSchemaComplexTypes(
 }
 
 type schemaComplexTypeResolver struct {
-	records        []schemaComponentRecord
-	byName         map[QName][]int
-	visibleSources map[SourceID][]SourceID
-	simpleTypes    schemaSimpleTypeResolution
-	finalDefaults  map[SourceID]schemaSimpleTypeFinalPolicy
-	attributes     []schemaAttributeTypeResult
-	version        XSDVersion
-	results        []schemaComplexTypeResult
-	state          []uint8
-	stack          []int
+	records           []schemaComponentRecord
+	byName            map[QName][]int
+	visibleSources    map[SourceID][]SourceID
+	simpleTypes       schemaSimpleTypeResolution
+	finalDefaults     map[SourceID]schemaSimpleTypeFinalPolicy
+	attributes        []schemaAttributeTypeResult
+	groupedExtensions []schemaModelGroupResult
+	version           XSDVersion
+	results           []schemaComplexTypeResult
+	state             []uint8
+	stack             []int
 }
 
 func (resolver *schemaComplexTypeResolver) resolve(index int) error {
@@ -5868,9 +5956,44 @@ func (resolver *schemaComplexTypeResolver) resolveBody(
 			particle:          particle,
 			anyAttribute:      anyAttribute,
 		}, nil
+	case *schemaComplexTypeGroupedExtensionBodyInput:
+		return resolver.resolveGroupedExtensionBody(body, owner, ownerIndex)
 	default:
 		return nil, newSchemaBridgeInvariant(owner.loc, "complex type body has an unknown input variant")
 	}
+}
+
+func (resolver *schemaComplexTypeResolver) resolveGroupedExtensionBody(
+	body *schemaComplexTypeGroupedExtensionBodyInput,
+	owner schemaComponentRecord,
+	ownerIndex int,
+) (schemaComplexTypeBodyResult, error) {
+	if body == nil || body.group == nil || len(body.attributeUses) == 0 {
+		return nil, newSchemaBridgeInvariant(owner.loc, "grouped extension has incomplete input")
+	}
+	grouped := resolver.groupedExtensions[ownerIndex]
+	if !grouped.present {
+		return nil, newSchemaBridgeInvariant(body.group.loc, "grouped extension reference was not resolved")
+	}
+	attributeUses, err := resolveSchemaAttributeUses(body.attributeUses, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.attributes, resolver.version)
+	if err != nil {
+		return nil, err
+	}
+	base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex)
+	if err != nil {
+		return nil, err
+	}
+	var content schemaComplexTypeBodyResult = &schemaComplexTypeAttributeOnlyBodyResult{attributeUses: attributeUses}
+	if grouped.particle != nil {
+		content = &schemaComplexTypeDirectBodyResult{particle: grouped.particle, attributeUses: attributeUses}
+	}
+	return &schemaComplexTypeGroupedExtensionBodyResult{
+		complexContentLoc: body.complexContentLoc,
+		extensionLoc:      body.extensionLoc,
+		base:              base,
+		content:           content,
+		anyAttribute:      anyAttribute,
+	}, nil
 }
 
 func resolveSchemaComplexTypeDirectBody(
@@ -6723,9 +6846,30 @@ func (resolver *schemaComplexTypeResolver) extensionBaseFacts(
 			related,
 			fmt.Errorf("%w: extension composition", errSchemaComplexTypeBaseUnsupported),
 		)
+	case *schemaComplexTypeGroupedExtensionBodyResult:
+		return resolver.unsupportedGroupedExtensionBase(typed, baseLoc, baseReferenceLoc)
 	default:
 		return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "extension base has an unknown completed body")
 	}
+}
+
+func (resolver *schemaComplexTypeResolver) unsupportedGroupedExtensionBase(
+	body *schemaComplexTypeGroupedExtensionBodyResult,
+	baseLoc, baseReferenceLoc Loc,
+) (schemaAnyAttributeResult, error) {
+	if body == nil {
+		return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "grouped extension base result is nil")
+	}
+	related := []Loc{baseLoc, body.extensionLoc}
+	if direct, ok := body.content.(*schemaComplexTypeDirectBodyResult); ok && direct.particle != nil {
+		related = append(related, direct.particle.Loc())
+	}
+	return schemaAnyAttributeResult{}, resolver.unsupportedExtensionBase(
+		baseReferenceLoc,
+		"named complex type extension base has unsupported grouped extension composition",
+		related,
+		fmt.Errorf("%w: grouped extension composition", errSchemaComplexTypeBaseUnsupported),
+	)
 }
 
 func (resolver *schemaComplexTypeResolver) representableInheritedWildcard(
@@ -6768,11 +6912,21 @@ func (resolver *schemaComplexTypeResolver) cycleDiagnostic(target int, edgeLoc L
 	}
 	related := make([]Loc, 0, len(resolver.stack)-start+1)
 	for _, node := range resolver.stack[start:] {
-		body, ok := resolver.records[node].complexType.body.(*schemaComplexTypeExtensionBodyInput)
-		if !ok || body == nil || body.base.loc.IsZero() || body.base.loc == edgeLoc {
+		var baseLoc Loc
+		switch body := resolver.records[node].complexType.body.(type) {
+		case *schemaComplexTypeExtensionBodyInput:
+			if body != nil {
+				baseLoc = body.base.loc
+			}
+		case *schemaComplexTypeGroupedExtensionBodyInput:
+			if body != nil {
+				baseLoc = body.base.loc
+			}
+		}
+		if baseLoc.IsZero() || baseLoc == edgeLoc {
 			continue
 		}
-		related = append(related, body.base.loc)
+		related = append(related, baseLoc)
 	}
 	return newSchemaComplexTypeExtensionBaseDiagnostic(
 		edgeLoc,

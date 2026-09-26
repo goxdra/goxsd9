@@ -40,7 +40,7 @@ type Resolver interface {
 ```
 
 Sources carry opaque identity, reader-closer, child context; resolvers may store
-private base-location state. FIFO discovery preserves context. Parser leaves opaque
+base-location state. FIFO discovery preserves context. Parser leaves opaque
 identities/locations uninterpreted, opens no paths, makes no network requests.
 Resolver calls sequential.
 
@@ -82,13 +82,12 @@ local inline/anonymous `unsignedLong` forms are schema-unsupported at `type`/`si
 facts remain query-only/consumer-rejected; `AttributeUse`/simpleContent retain separate
 schema-admission exclusions. Named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
-AttributeUse facts preserve order, locations, ownership, effective use, and QName/RefLoc/TargetID
-in particle-plus-use, model-group, attribute-only, and simpleContent. Local uses retain
-name/type/use locations and named/anonymous `AnonymousID`/`NodeID`; references retain
-QName/RefLoc/TargetID/use. Forms select names; XSD 1.1 `targetNamespace` must match the container;
-chameleon adopts; prohibited uses are omitted. Value/default/fixed/inheritable semantics,
-attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported;
-excluded references retain locations and return no schema.
+AttributeUse facts retain order, ownership, locations, effective use, and
+QName/RefLoc/TargetID across direct, model-group, attribute-only, and simpleContent bodies.
+Local uses retain type/form and anonymous identities; chameleon adopts, and prohibited
+uses disappear. Value constraints, attribute groups, broader extensions, and consumers
+remain unsupported. Grouped extensions resolve opaque group, ordered uses, then
+named empty base; validated `0/0` omits the group while retaining base and uses.
 Global attributes are query-only: built-in or supported named atomic Boolean/integer/decimal/token,
 negativeInteger/language/NCName/anyURI/ID, long/unsignedLong, policy-gated `precisionDecimal`.
 Built-in long/unsignedLong bounds are intrinsic; named restrictions retain facets, locations,

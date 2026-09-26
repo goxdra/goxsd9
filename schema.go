@@ -1149,6 +1149,14 @@ func (definition ComplexTypeDefinition) Particle() Particle {
 			return nil
 		}
 		return body.particle
+	case *schemaComplexTypeGroupedExtensionBodyComponent:
+		if body == nil {
+			return nil
+		}
+		if direct, ok := body.content.(*schemaComplexTypeDirectBodyComponent); ok {
+			return direct.particle
+		}
+		return nil
 	default:
 		return nil
 	}
@@ -1387,6 +1395,17 @@ func (definition ComplexTypeDefinition) AttributeUses() []AttributeUse {
 			return nil
 		}
 		return append([]AttributeUse(nil), body.attributeUses...)
+	case *schemaComplexTypeGroupedExtensionBodyComponent:
+		if body == nil {
+			return nil
+		}
+		switch content := body.content.(type) {
+		case *schemaComplexTypeDirectBodyComponent:
+			return append([]AttributeUse(nil), content.attributeUses...)
+		case *schemaComplexTypeAttributeOnlyBodyComponent:
+			return append([]AttributeUse(nil), content.attributeUses...)
+		}
+		return nil
 	case *schemaComplexTypeRestrictionBodyComponent:
 		return nil
 	default:
@@ -1489,6 +1508,11 @@ func (definition ComplexTypeDefinition) anyAttributeFacts() *schemaAnyAttributeC
 			return nil
 		}
 		return body.anyAttribute
+	case *schemaComplexTypeGroupedExtensionBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return body.anyAttribute
 	default:
 		return nil
 	}
@@ -1510,10 +1534,24 @@ func (definition ComplexTypeDefinition) extensionBody() *schemaComplexTypeExtens
 		return nil
 	}
 	body, ok := definition.facts.body.(*schemaComplexTypeExtensionBodyComponent)
-	if !ok || body == nil {
+	if ok && body != nil {
+		return body
+	}
+	grouped, ok := definition.facts.body.(*schemaComplexTypeGroupedExtensionBodyComponent)
+	if !ok || grouped == nil {
 		return nil
 	}
-	return body
+	var particle Particle
+	if direct, ok := grouped.content.(*schemaComplexTypeDirectBodyComponent); ok {
+		particle = direct.particle
+	}
+	return &schemaComplexTypeExtensionBodyComponent{
+		complexContentLoc: grouped.complexContentLoc,
+		extensionLoc:      grouped.extensionLoc,
+		base:              grouped.base,
+		particle:          particle,
+		anyAttribute:      grouped.anyAttribute,
+	}
 }
 
 func (definition ComplexTypeDefinition) baseReferenceFacts() (*schemaComplexTypeReferenceComponent, bool) {
@@ -2669,6 +2707,16 @@ type schemaComplexTypeExtensionBodyInput struct {
 
 func (*schemaComplexTypeExtensionBodyInput) schemaComplexTypeBodyInput() {}
 
+type schemaComplexTypeGroupedExtensionBodyInput struct {
+	complexContentLoc Loc
+	extensionLoc      Loc
+	base              schemaComplexTypeReferenceInput
+	group             *schemaModelGroupReferenceParticleInput
+	attributeUses     []schemaAttributeUseInput
+}
+
+func (*schemaComplexTypeGroupedExtensionBodyInput) schemaComplexTypeBodyInput() {}
+
 type schemaComplexTypeReferenceInputKind uint8
 
 const schemaComplexTypeQNameReferenceInput schemaComplexTypeReferenceInputKind = 1
@@ -2907,6 +2955,18 @@ type schemaComplexTypeExtensionBodyComponent struct {
 
 func (*schemaComplexTypeExtensionBodyComponent) schemaComplexTypeBodyComponent() {}
 
+// The content variant is direct when the group is present and attribute-only
+// when the validated group has effective range 0/0.
+type schemaComplexTypeGroupedExtensionBodyComponent struct {
+	complexContentLoc Loc
+	extensionLoc      Loc
+	base              schemaComplexTypeReferenceComponent
+	content           schemaComplexTypeBodyComponent
+	anyAttribute      *schemaAnyAttributeComponent
+}
+
+func (*schemaComplexTypeGroupedExtensionBodyComponent) schemaComplexTypeBodyComponent() {}
+
 type schemaComplexTypeReferenceComponent struct {
 	kind  ComplexTypeReferenceKind
 	name  QName
@@ -3105,6 +3165,10 @@ func resolveSchemaBuildResults(
 	finalDefaults map[SourceID]schemaSimpleTypeFinalPolicy,
 	version XSDVersion,
 ) (schemaBuildResolution, error) {
+	groupedExtensions, err := resolveSchemaGroupedExtensionReferences(records, byName, visibleSources, version)
+	if err != nil {
+		return schemaBuildResolution{}, err
+	}
 	simpleTypes, err := resolveSchemaSimpleTypesForBuild(records, byName, visibleSources, version)
 	if err != nil {
 		return schemaBuildResolution{}, err
@@ -3113,7 +3177,7 @@ func resolveSchemaBuildResults(
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
-	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, finalDefaults, attributes, version)
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, finalDefaults, attributes, groupedExtensions, version)
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
@@ -3481,6 +3545,26 @@ func completeSchemaComplexTypeBody(result schemaComplexTypeBodyResult, loc Loc) 
 			particle:          body.particle,
 			anyAttribute:      completeSchemaAnyAttribute(body.anyAttribute),
 		}, nil
+	case *schemaComplexTypeGroupedExtensionBodyResult:
+		if body == nil || body.base.kind == "" || body.base.name.IsZero() || body.base.loc.IsZero() {
+			return nil, newSchemaBridgeInvariant(loc, "grouped extension has incomplete base reference")
+		}
+		content, err := completeSchemaComplexTypeBody(body.content, loc)
+		if err != nil {
+			return nil, err
+		}
+		switch content.(type) {
+		case *schemaComplexTypeDirectBodyComponent, *schemaComplexTypeAttributeOnlyBodyComponent:
+		default:
+			return nil, newSchemaBridgeInvariant(loc, "grouped extension has invalid content variant")
+		}
+		return &schemaComplexTypeGroupedExtensionBodyComponent{
+			complexContentLoc: body.complexContentLoc,
+			extensionLoc:      body.extensionLoc,
+			base:              body.base,
+			content:           content,
+			anyAttribute:      completeSchemaAnyAttribute(body.anyAttribute),
+		}, nil
 	default:
 		return nil, newSchemaBridgeInvariant(loc, "complex type body has an unknown completed variant")
 	}
@@ -3579,6 +3663,17 @@ func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaCom
 			base:              body.base,
 			particle:          cloneSchemaComplexTypeParticleInput(body.particle),
 		}
+	case *schemaComplexTypeGroupedExtensionBodyInput:
+		if body == nil {
+			return (*schemaComplexTypeGroupedExtensionBodyInput)(nil)
+		}
+		return &schemaComplexTypeGroupedExtensionBodyInput{
+			complexContentLoc: body.complexContentLoc,
+			extensionLoc:      body.extensionLoc,
+			base:              body.base,
+			group:             cloneSchemaModelGroupReferenceParticleInput(body.group),
+			attributeUses:     cloneSchemaAttributeUseInputs(body.attributeUses),
+		}
 	default:
 		return nil
 	}
@@ -3629,21 +3724,25 @@ func cloneSchemaComplexTypeParticleInput(input schemaComplexTypeParticleInput) s
 			particles:   cloneSchemaParticleTermInputs(particle.particles),
 		}
 	case *schemaModelGroupReferenceParticleInput:
-		if particle == nil {
-			return (*schemaModelGroupReferenceParticleInput)(nil)
-		}
-		clone := &schemaModelGroupReferenceParticleInput{
-			loc:         particle.loc,
-			occurrences: particle.occurrences.clone(),
-		}
-		if particle.reference != nil {
-			reference := *particle.reference
-			clone.reference = &reference
-		}
-		return clone
+		return cloneSchemaModelGroupReferenceParticleInput(particle)
 	default:
 		return nil
 	}
+}
+
+func cloneSchemaModelGroupReferenceParticleInput(input *schemaModelGroupReferenceParticleInput) *schemaModelGroupReferenceParticleInput {
+	if input == nil {
+		return nil
+	}
+	clone := &schemaModelGroupReferenceParticleInput{
+		loc:         input.loc,
+		occurrences: input.occurrences.clone(),
+	}
+	if input.reference != nil {
+		reference := *input.reference
+		clone.reference = &reference
+	}
+	return clone
 }
 
 func cloneSchemaAnyAttributeInput(input *schemaAnyAttributeInput) *schemaAnyAttributeInput {
@@ -3870,6 +3969,11 @@ func allocateSchemaSimpleTypeNodeIDsInComplexType(
 			return nil
 		}
 		return allocateSchemaSimpleTypeNodeIDsInComplexParticle(body.particle, source, nextBySource, seen)
+	case *schemaComplexTypeGroupedExtensionBodyInput:
+		if body == nil || body.group == nil {
+			return newSchemaBridgeInvariant(Loc{}, "grouped extension simple type allocation has no group input")
+		}
+		return nil
 	case *schemaComplexTypeEmptyBodyInput, *schemaComplexTypeAttributeOnlyBodyInput,
 		*schemaComplexTypeSimpleContentBodyInput, *schemaComplexTypeRestrictionBodyInput:
 		return nil
@@ -3936,6 +4040,11 @@ func schemaComplexTypeAttributeUseInputs(body schemaComplexTypeBodyInput) []sche
 		}
 		return typed.attributeUses
 	case *schemaComplexTypeSimpleContentBodyInput:
+		if typed == nil {
+			return nil
+		}
+		return typed.attributeUses
+	case *schemaComplexTypeGroupedExtensionBodyInput:
 		if typed == nil {
 			return nil
 		}
