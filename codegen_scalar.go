@@ -1064,6 +1064,7 @@ func codegenSourceScalarKindFromAtomicKind(kind schemaSimpleTypeAtomicKind) (cod
 		schemaSimpleTypeAtomicInteger,
 		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicInt,
+		schemaSimpleTypeAtomicShort,
 		schemaSimpleTypeAtomicUnsignedLong,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
@@ -2118,7 +2119,7 @@ func codegenBuiltinElementFieldType(
 		target.scalarKind = codegenSourceScalarNonNegativeInteger
 	case "decimal":
 		target.scalarKind = codegenSourceScalarDecimal
-	case "int", "language", "NCName", "anyURI", "ID":
+	case "int", "short", "language", "NCName", "anyURI", "ID":
 		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element type %q is outside scalar Go generation", declaration.DeclaredType()),

@@ -517,9 +517,9 @@ func TestSchemaLongConsumersRemainUnsupported(t *testing.T) {
 	}
 }
 
-func TestSchemaLongDoesNotAdmitNarrowerBuiltins(t *testing.T) {
+func TestSchemaLongDoesNotAdmitByte(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
-		for _, local := range []string{"short", "byte"} {
+		for _, local := range []string{"byte"} {
 			t.Run(profile.name+"/"+local, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="xs:` + local + `"/></xs:schema>`
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)

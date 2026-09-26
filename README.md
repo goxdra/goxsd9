@@ -9,8 +9,9 @@ goxsd9 parses/validates/generates Go; unsupported is explicit.
 `openContent=none` works in Compatibility/Strict11, not Strict10. Bounded attribute-free extensions use named empty-content bases or `xs:anyType` restrictions, retaining `##other`/`lax` and model-less identity. Scalar simpleContent extensions retain base/type/use `Loc`s and nil particles; restrictions and attribute-bearing complexContent/attributeGroup extensions are unsupported. Consumers reject scalar simpleContent.
 `AttributeUse` in particle/model-group/attribute-only/simpleContent bodies retains order, locations, ownership, QName/RefLoc/TargetID, and use. It admits Boolean/integer/decimal plus policy-gated precisionDecimal; simpleContent also admits string. Local `int`/`unsignedLong` are schema-unsupported in both. Forms and matching XSD 1.1 `targetNamespace` select names; chameleon adoption applies; prohibited uses vanish. Consumers reject attributes/simpleContent; values/default/fixed/inheritable remain unsupported; excluded refs return no schema with locations.
 Syntax, occurrence, reference, and policy gates precede mapping and effective `0/0` omission. Named/inline mapping is not universally skipped at `0/0`; graph-wide declaration/facet failures surface. Sequence owners skip children; choices resolve refs first; groups resolve/check before omission; child refs resolve first. Strict10 `precisionDecimal` checks precede omission.
-Element/model-group refs retain QName/RefLoc/TargetID/order; eligible direct-choice refs consumable; model-group/excluded refs consumer-rejected. Nonzero `xs:any` queryable; wildcard consumers reject; broader forms unsupported; `0/0` absent. Global long/int/unsignedLong retain bounds/facets/locations; consumers reject.
-Direct and supported bounded attribute-free extension choices/sequences admit local built-in/named-effective `xs:int` and `xs:unsignedLong` under all policies. Exact occurrences, bounds, facets, IDs, locations, ownership, and graph provenance survive; consumers reject. Built-in `int` has zero component ID and intrinsic bounds without source `Loc`; inline forms remain unsupported.
+Element/model-group refs retain QName/RefLoc/TargetID/order; eligible direct-choice refs consumable; model-group/excluded refs consumer-rejected. Nonzero `xs:any` queryable; wildcard consumers reject; broader forms unsupported; `0/0` absent. Global long/int/short/unsignedLong retain bounds/facets/locations; consumers reject.
+Direct and bounded attribute-free extension choices/sequences admit local built-in/named `xs:int` and `xs:unsignedLong` under all policies; occurrences, bounds, facets, IDs, locations, and provenance survive. Consumers reject; inline unsupported.
+Built-in `short` has no component ID or bound `Loc`; local particles/attributes, value constraints, and consumers reject.
 Direct `xs:negativeInteger` rejects mapped nonzero; named/anonymous-inline query-only. `precisionDecimal`: Compatibility/Strict11 admit default direct/bounded attribute-free extension choices; extension choices are query-only/consumer-rejected. Mapped non-default choices, nonzero sequences, and mapped nonzero inline/anonymous forms are schema-unsupported; Strict10 precedes `0/0` omission.
 
 ## CLI
@@ -19,7 +20,7 @@ CLI `parse`, `validate`, `generate`; parse prints, validate silent; invalid 1, u
 
 ## Goals
 
-Exact values/facets and deterministic queries; no goroutines/locks/map-order output.
+Exact values/facets and deterministic queries; no concurrency or map-order output.
 
 ## Checks
 
