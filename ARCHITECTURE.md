@@ -99,12 +99,12 @@ fixed primary/default related. Type-only declarations have no constraint; attrib
 `GenerateGo` reject them.
 
 Complexes retain `IsAbstract`, `finalDefault` provenance, and ordered groups/extensions/wildcards.
-Non-`0/0` `xs:any` is queryable; wildcard consumers reject it, and `0/0` is absent.
-`openContent=none` works Compatibility/Strict11; Strict10 rejects it. Named groups retain refs/ranges.
-Global inline complexes have preallocated anonymous IDs and ordered
-sequence, ref, and use facts outside global walks. Compatibility/Strict11 admit direct
-precisionDecimal sequences, bounded simpleContent links, and precisionDecimal list/union links.
-Non-default precisionDecimal choices and local inline precisionDecimal remain unsupported; extension choices are query-only.
+`xs:any` is queryable except at `0/0`; consumers reject. `openContent=none` works
+Compatibility/Strict11, not Strict10; named groups retain refs/ranges.
+Global inline complexes retain preallocated IDs, ordered sequences, refs, and uses outside
+global walks. Compatibility/Strict11 admit direct precisionDecimal sequences,
+bounded simpleContent links, and direct non-extension precisionDecimal list/union sequence links.
+Mapped non-default precisionDecimal choices and mapped nonzero local inline precisionDecimal remain unsupported; extension choices are query-only.
 Token/NMTOKEN sequences retain exact occurrences; consumers remain limited.
 
 ## Datatypes

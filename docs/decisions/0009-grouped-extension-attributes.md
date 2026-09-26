@@ -185,11 +185,9 @@ error-level result returns a partial schema.
 | [#414](https://github.com/goxdra/goxsd9/issues/414) | Empty/particle-free extension packet and named empty-base, inherited bounded wildcard seam. | No nonempty/broader base, new wildcard, or derivation widening. |
 | [#437](https://github.com/goxdra/goxsd9/issues/437) | The independently executable implementation packet for exactly this decision, after #317. | Query-only composition first; explicit validation/generation rejection. |
 
-The auxiliary direct-sequence and global inline-complex composition in
-[#215](https://github.com/goxdra/goxsd9/issues/215) does not widen this grouped-extension
-contract. Global inline attributes ([#333](https://github.com/goxdra/goxsd9/issues/333))
-and local element-inline complex content remain outside it. This record uses
-only the empty/particle-free base seam from [#414](https://github.com/goxdra/goxsd9/issues/414).
+Global inline complex and attribute declarations and local element-inline
+complex content remain outside this grouped-extension contract. The base is
+limited to the existing empty/particle-free seam.
 
 ## Risks and next actions
 
