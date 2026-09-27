@@ -261,7 +261,8 @@
 // and facets receive no runtime facet validation.
 //
 // ValidateInstance supports one complete instance rooted at a global element
-// declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal
+// declared as direct xs:string, a named/anonymous atomic string restriction,
+// or built-in/named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
 // or Strict11, or as a named global complex type with one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
@@ -305,9 +306,11 @@
 // sequences made entirely of built-in or supported named NMTOKEN particles
 // collapse XML whitespace and enforce the repository XML NameChar policy.
 // Those sequences validate with exact occurrences and NMTOKEN value-space rules;
-// their GenerateGo consumers remain unsupported. Global string values, local
-// string particles, lists/unions, broader particles, and other semantics remain
-// explicit unsupported behavior.
+// their GenerateGo consumers remain unsupported. Global string roots normalize
+// instance text with effective whiteSpace, then compare enumeration values
+// interpreted by each declaration's base type; violations retain text and
+// related schema locations. Local string particles, lists/unions,
+// broader particles, and other semantics remain explicit unsupported behavior.
 // Supported global attribute declarations are a separate query-only capability.
 // Type admission under
 // Compatibility, Strict10, and Strict11 is limited to built-in or supported

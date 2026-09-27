@@ -369,6 +369,7 @@ func instanceSequenceProgramFor(
 			false,
 			true,
 			true,
+			false,
 			version,
 		)
 		if err != nil {
