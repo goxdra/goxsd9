@@ -5001,7 +5001,11 @@ func isPositiveWildcardNamespace(namespace string) bool {
 func isSupportedDirectAnyParticle(element *syntaxElement) bool {
 	namespace := "##any"
 	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
+	notNamespaceAttributes := syntaxAttributesByLocal(element, "notNamespace")
 	if len(namespaceAttributes) > 1 {
+		return false
+	}
+	if len(notNamespaceAttributes) > 1 || len(notNamespaceAttributes) == 1 && len(namespaceAttributes) != 0 {
 		return false
 	}
 	if len(namespaceAttributes) == 1 {
@@ -5014,6 +5018,9 @@ func isSupportedDirectAnyParticle(element *syntaxElement) bool {
 	}
 	if len(processContentsAttributes) == 1 {
 		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
+	}
+	if len(notNamespaceAttributes) == 1 {
+		return processContents == "strict"
 	}
 	return isSupportedDirectAnyParticleFacts(namespace, processContents)
 }
@@ -5085,6 +5092,9 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 			}
 			if version != XSDVersion10 {
 				if allowDefault {
+					if supportedDirectFacts {
+						continue
+					}
 					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard notNamespace constraints are not implemented", version))
 					continue
 				}

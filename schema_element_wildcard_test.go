@@ -553,7 +553,6 @@ func TestSchemaBridgeRejectsNonDefaultDirectAnyParticleConstraints(t *testing.T)
 		mismatch10 bool
 	}{
 		{name: "empty_namespace", attributes: ` namespace="&#x9;"`, marker: `namespace="&#x9;"`},
-		{name: "not_namespace", attributes: ` notNamespace="##local"`, marker: `notNamespace="##local"`, mismatch10: true},
 		{name: "not_qname", attributes: ` notQName="xs:integer"`, marker: `notQName="xs:integer"`, mismatch10: true},
 	}
 	for _, version := range []string{"1.0", "1.1"} {
@@ -1342,6 +1341,7 @@ func TestSchemaBridgeKeepsOtherWildcardPlacementsUnsupported(t *testing.T) {
 		name       string
 		attributes string
 	}{
+		{name: "negative_strict", attributes: ` notNamespace="##local"`},
 		{name: "other_lax", attributes: ` namespace="##other" processContents="lax"`},
 		{name: "other_skip", attributes: ` namespace="##other" processContents="skip"`},
 		{name: "omitted_namespace_skip", attributes: ` processContents="skip"`},
