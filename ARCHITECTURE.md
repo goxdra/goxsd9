@@ -122,7 +122,7 @@ Built-in/named
 `nonNegativeInteger` is GenerateGo-only; validation returns located
 `FailureUnsupported`/`XSD4004`/`ErrUnsupported`. Local Boolean/integer/decimal sequences/default
 choices honor ranges; homogeneous token/NMTOKEN sequences honor exact occurrences/value space.
-Anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
+Local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
 unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
 only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, other
 forms remain queryable but excluded. Global `nonNegativeInteger` refs remain queryable;
