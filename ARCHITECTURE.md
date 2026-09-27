@@ -96,10 +96,10 @@ Unsupported types/local/inline: located `FailureUnsupported`; unsupported values
 invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixed/default; type-only
 unconstrained; attribute consumers reject.
 
-Complexes retain `IsAbstract`, `finalDefault`, groups/extensions, and
-wildcard facts. Direct non-`0/0` `xs:any` includes immutable positive sets and XSD 1.1
+Complexes retain non-inherited `IsAbstract`, declaring-document `finalDefault` provenance,
+ordered groups/extensions, and exact wildcard facts. `xs:any` includes positive sets and XSD 1.1
 strict `notNamespace` exclusions; markers expand after chameleon adoption. Consumers
-reject wildcards; broader forms are unsupported; `0/0` is absent. `openContent=none`
+reject wildcards; broader forms unsupported; `0/0` absent. `openContent=none`
 works Compatibility/Strict11 and mismatches Strict10; named groups
 retain ordered refs/ranges. `precisionDecimal` refs require default-occurrence direct or
 bounded extension choices; nonzero sequences, inline/anonymous targets, and non-default

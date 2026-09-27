@@ -125,11 +125,13 @@
 // omitted namespace with processContents="lax"), ##any/skip with explicit
 // processContents="skip", and ##other/strict, ##other/lax, and ##other/skip forms,
 // plus positive namespace constraints (##local, ##targetNamespace, and URI lists) with strict,
-// lax, or explicit skip processing, are exposed as immutable WildcardParticle values. Positive constraints retain
-// immutable effective namespace values in sorted order, their lexical form, and
-// source location; explicit constraint-attribute locations are retained in
-// lexical order with element and reference terms. Remaining wildcard constraints
-// and broader wildcard placements remain unsupported. Nonzero wildcard-bearing
+// lax, or explicit skip processing, are exposed as immutable WildcardParticle values.
+// Compatibility and Strict11 also expose direct notNamespace lists with omitted or explicit
+// strict processing; Strict10 reports a located edition mismatch. Positive sets contain
+// included namespaces; negative sets contain excluded namespaces. Both retain sorted,
+// unique owner-relative values, normalized lexical forms, and exact attribute locations
+// in lexical order with element and reference terms. Lax/skip notNamespace, notQName,
+// wildcard algebra, and broader placements remain unsupported. Nonzero wildcard-bearing
 // particles remain unsupported to validation and generation consumers.
 // Named global direct sequence and choice complex types also expose immutable
 // anyAttribute facts for effective ##any and ##other constraints, plus positive
