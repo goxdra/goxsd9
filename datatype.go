@@ -593,15 +593,6 @@ func collapseXMLWhitespace(input string) string {
 	return output.String()
 }
 
-func replaceXMLWhitespace(value string) string {
-	return strings.Map(func(character rune) rune {
-		if character == '\t' || character == '\n' || character == '\r' {
-			return ' '
-		}
-		return character
-	}, value)
-}
-
 func isXMLWhitespace(value byte) bool {
 	return value == ' ' || value == '\t' || value == '\n' || value == '\r'
 }

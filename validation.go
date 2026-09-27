@@ -1481,6 +1481,15 @@ func validateStringScalarValue(lexical string, valueLoc Loc, scalar instanceScal
 	return instanceDecorateDiagnostic(enumerationErr, scalar.related, "", valueLoc)
 }
 
+func replaceXMLWhitespace(value string) string {
+	return strings.Map(func(character rune) rune {
+		if character == '\t' || character == '\n' || character == '\r' {
+			return ' '
+		}
+		return character
+	}, value)
+}
+
 func validateTokenEnumerationValue(facets StringEnumerationFacets, lexical string, valueLoc Loc) error {
 	if err := facets.validate(); err != nil {
 		return err
