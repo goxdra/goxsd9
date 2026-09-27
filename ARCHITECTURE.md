@@ -88,13 +88,13 @@ QName/RefLoc/TargetID/use. Forms select names; XSD 1.1 `targetNamespace` must ma
 chameleon adopts; prohibited uses are omitted. Value/default/fixed/inheritable semantics,
 attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported;
 excluded references retain locations and return no schema.
-Global query-only attributes: built-in/named Boolean/integer/decimal/token,
-negativeInteger/language/NCName/anyURI/ID, long/int/unsignedLong, policy-gated `precisionDecimal`;
-short excluded. Excluded/local/inline forms report
-`FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported` at type/declaration/use-site
-`Loc`; unsupported values report at value `Loc`; invalid values preserve causes; default+fixed uses
-fixed primary/default related. Type-only declarations have no constraint; attribute consumers/
-`GenerateGo` reject them.
+Global attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
+NCName/anyURI/ID/long/int/unsignedLong; short excluded; `precisionDecimal` policy-gated.
+Default/fixed: Boolean/integer/decimal/token/negativeInteger (built-in/named, all policies),
+policy-gated `precisionDecimal`; negativeInteger: exact `IntegerValue`/effective facets.
+Unsupported types/local/inline: located `FailureUnsupported`; unsupported values: constraint `Loc`;
+invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixed/default; type-only
+unconstrained; attribute consumers reject.
 
 Complexes retain non-inherited `IsAbstract`, declaring-document `finalDefault` provenance,
 ordered groups/extensions, and exact wildcard facts. Non-`0/0` `xs:any` facts remain queryable
