@@ -3958,14 +3958,13 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 		schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID, schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicPrecisionDecimal, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt,
-		schemaSimpleTypeAtomicUnsignedLong:
+		schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicUnsignedLong:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
-		schemaSimpleTypeAtomicNonPositiveInteger,
-		schemaSimpleTypeAtomicShort:
+		schemaSimpleTypeAtomicNonPositiveInteger:
 		return false
 	default:
 		return false

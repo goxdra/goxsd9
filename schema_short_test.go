@@ -350,15 +350,14 @@ func TestSchemaShortConsumersRemainUnsupported(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Keep the direct, forward-named, and value-precedence diagnostic contract together.
-func TestSchemaShortGlobalAttributesRemainUnsupported(t *testing.T) {
+//nolint:gocognit // Keep built-in and forward-named value diagnostics together.
+func TestSchemaShortGlobalAttributeValuesRemainUnsupported(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		for _, test := range []struct {
 			name, declaration, needle string
 		}{
-			{name: "direct", declaration: `<xs:attribute name="a" type="xs:short"/>`, needle: `type="xs:short"`},
-			{name: "named forward", declaration: `<xs:attribute name="a" type="t:Alias"/><xs:simpleType name="Alias"><xs:restriction base="xs:short"/></xs:simpleType>`, needle: `type="t:Alias"`},
-			{name: "value constraint precedence", declaration: `<xs:attribute name="a" type="xs:short" default="0"/>`, needle: `type="xs:short"`},
+			{name: "direct default", declaration: `<xs:attribute name="a" type="xs:short" default="0"/>`, needle: `default="0"`},
+			{name: "named forward fixed", declaration: `<xs:attribute name="a" type="t:Alias" fixed="0"/><xs:simpleType name="Alias"><xs:restriction base="xs:short"/></xs:simpleType>`, needle: `fixed="0"`},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + test.declaration + `</xs:schema>`
@@ -370,8 +369,8 @@ func TestSchemaShortGlobalAttributesRemainUnsupported(t *testing.T) {
 				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, test.needle) || diagnostic.SpecRef() == "" {
 					t.Fatalf("diagnostic = %s, want located schema-syntax unsupported", diagnostic)
 				}
-				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaAttributeTypeUnsupported) {
-					t.Fatalf("global short attribute lost unsupported type causes: %v", err)
+				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaAttributeValueConstraintUnsupported) || errors.Is(err, errSchemaAttributeTypeUnsupported) {
+					t.Fatalf("global short attribute value lost unsupported constraint cause: %v", err)
 				}
 			})
 		}
