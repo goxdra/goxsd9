@@ -12,13 +12,14 @@ datatype and work in progress; it is not a mandatory XSD 1.1 conformance
 requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/)
 §2.5.1 (primitive datatypes; `#dt-primitive`) and [§H.1](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#impl-def)
 permit primitive datatypes outside the standard set.
-Placement/consumers: [architecture](../../ARCHITECTURE.md#schema-model)
-and [package contract](../../doc.go). Occurrences: [decision 0007](0007-particle-occurrence.md).
-
-- Global attributes: Compatibility/Strict11 admits built-in/named `precisionDecimal` with zero/one default/fixed `AttributeValueConstraint`; type-only none. `ValueConstraint()` copies kind, collapsed lexical/source `Loc`, and exact defensive `StrictPrecisionDecimal` when present. Unsupported values use `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported`; invalid values use `FailureInvalid`/`XSD3036`; default+fixed uses `FailureInvalid`/`XSD3010`; fixed primary/default related.
-- Attribute bodies: Particle-plus-use, direct model-group, and attribute-only bodies expose ordered local, referenced, and anonymous-inline uses. Scalar simpleContent extensions retain base/type/use `Loc`s and nil particle; restrictions, attribute-bearing/`attributeGroup` extensions, value/default/fixed/inheritable semantics, and attribute consumers are unsupported. Bases are Boolean/string/integer/decimal plus policy-gated `precisionDecimal`; bounded extensions use named empty-content bases or named complexContent restrictions over `xs:anyType` with `##other`/`lax`. Diagnostics retain local declaration or referenced `RefLoc`/target locations. Compatibility/Strict11 query-admits local built-in, named-effective, and anonymous `precisionDecimal` `AttributeUse` forms plus referenced global `precisionDecimal` targets; Strict10 rejects them at type `Loc`. Global inline-attribute declarations and attribute consumers unsupported, preserving causes; no schema.
-- Elements: Compatibility/Strict11 admits built-in/named roots and non-extension direct default local choices. Bounded extension choices and global inline/anonymous forms are query-only/consumer-rejected. Mapped precision non-default choices/sequences and mapped nonzero inline/anonymous forms fail `FailureUnsupported`/`XSD3003`/no schema; non-precision alternatives may remain query-only. Exact `0/0` omits after syntax/occurrence/reference/policy gates; Strict10 `XSD3030` first.
-- Consumers: Compatibility/Strict11 validates built-in/named roots and admitted non-extension default choices. Extension choices and global inline/anonymous forms are consumer-only; `GenerateGo` rejects precisionDecimal targets and attribute consumers.
+The precisionDecimal policy gate precedes local `0/0` particle omission: Strict10
+rejects a typed use with a located policy diagnostic even when that particle
+would otherwise be absent. Admitted query facts do not imply validation or
+generation support. [Decision 0007](0007-particle-occurrence.md) governs
+occurrence order and omission. The [architecture](../../ARCHITECTURE.md#schema-model)
+and [package contract](../../doc.go) describe current admission and query limits;
+the [consumer boundaries](../../ARCHITECTURE.md#validation-and-code-generation)
+describe validation and generation separately.
 
 ## Semantic contract
 
