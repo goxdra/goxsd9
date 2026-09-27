@@ -34,7 +34,7 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
 4. Give Scribe specification and Mason architecture questions, context, handoff contract.
 5. Decompose packet; give Smith issue contract, files, affected phase axes, and
    expected evidence. Mark unaffected axes N/A with rationale; never widen.
-   Smith implements/tests/fixes and reports paths/tests. Follow `AGENTS.md`;
+   Smith implements/tests/fixes; reports paths/tests. Follow `AGENTS.md`;
    mechanize. Unfinished boundaries need unsupported feature ID, `Loc`, and
    versioned SpecRef; issue actionable discoveries, not TODOs.
 6. Renew before pushes and required durable boundaries with `go tool
@@ -57,8 +57,9 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    unmeasured. W3C claim needs executed edition/set/case; otherwise `not-measured`.
    A fragment alone is a Go regression.
    `no-relevant-target` is valid; fuzz is health, not conformance.
-   Evidence status: `pending`/`evidence-ready`. Before remote mutation workflowctl
-   checks exact REST base/head, commits, v2 signals/policy. Managed changes OR
+   Evidence status: `pending`/`evidence-ready`. Before evidence update,
+   challenge, or finish, workflowctl matches exact REST base/head to local
+   commits and recomputes v2 signals/policy. Managed changes OR
    triggers require read-only Curator with exact head/runID/pass/no-findings
    before evidence update/challenge/finish/challenge-history convergence. Canonical PR block
    carries sole Examiner-required audit/Curator JSON; give by value or point to
@@ -66,10 +67,10 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    or duplicate review state. Reject omitted/stale/forged/unsorted/duplicate/mismatched
    triggers before evidence update, challenge, finish, and challenge-history
    convergence. Classify exact changed paths, never prose: product source triggers;
-   managed docs require review; `_test.go`, `testdata/`, `evals/`,
+   `_test.go`, `testdata/`, `evals/`,
    `internal/workflowctl/`, and `cmd/workflowctl/` alone have no trigger and
-   retain exact audited `not-required` Curator. Legacy omitted triggers are
-   valid only on exact fresh no-trigger diff. Repeat after remediation.
+   retain exact audited `not-required` Curator. Legacy omissions allowed only
+   for exact fresh no-trigger diff. Repeat after remediation.
 10. Before every challenge, reconcile full PR body with head/evidence/implementation, including
     historical claims; preserve Examiner identity. After edits rerun exact-base
     evidence/audit and fresh Curator when applicable. Same-head retries retain
