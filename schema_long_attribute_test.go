@@ -639,7 +639,6 @@ func TestSchemaLongGlobalAttributeExcludedFamiliesRemainUnsupported(t *testing.T
 		}{
 			{name: "nonNegativeInteger", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:nonNegativeInteger"/></xs:schema>`, loc: "type="},
 			{name: "nonPositiveInteger", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:nonPositiveInteger"/></xs:schema>`, loc: "type="},
-			{name: "short", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:short"/></xs:schema>`, loc: "type="},
 			{name: "byte", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:byte"/></xs:schema>`, loc: "type="},
 			{name: "list", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="value" type="r:LongList"/><xs:simpleType name="LongList"><xs:list itemType="xs:long"/></xs:simpleType></xs:schema>`, loc: `type="r:LongList"`},
 			{name: "union", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="value" type="r:LongUnion"/><xs:simpleType name="LongUnion"><xs:union memberTypes="xs:long"/></xs:simpleType></xs:schema>`, loc: `type="r:LongUnion"`},

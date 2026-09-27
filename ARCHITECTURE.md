@@ -89,7 +89,7 @@ chameleon adopts; prohibited uses are omitted. Value/default/fixed/inheritable s
 attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported;
 excluded references retain locations and return no schema.
 Global attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
-NCName/anyURI/ID/long/int/unsignedLong; short excluded; `precisionDecimal` policy-gated.
+NCName/anyURI/ID/long/int/short/unsignedLong; `precisionDecimal` policy-gated.
 Default/fixed: Boolean/integer/decimal/token/negativeInteger (built-in/named, all policies),
 policy-gated `precisionDecimal`; negativeInteger: exact `IntegerValue`/effective facets.
 Unsupported types/local/inline: located `FailureUnsupported`; unsupported values: constraint `Loc`;
