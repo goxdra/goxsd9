@@ -26,7 +26,13 @@ do not add a prose diary to the repository.
    churn reported by `workflowctl history`, and ready-buffer health.
 4. For each repeated mistake, add or strengthen an agent regression scenario
    and mechanize the fragile step. Prefer changing tooling or skill constraints
-   over adding reminders.
+   over adding reminders. For recurring canonical evidence dirt, Develop runs
+   `RUN_EVIDENCE_DIR="$(mktemp -d /var/tmp/goxsd9-develop-evidence.XXXXXXXX)"`
+   only after clean doctor, routing body/JSON/coverage/attestation/summary and
+   handoff paths there. On dirty doctor stop before claiming; preserve ambiguous
+   v14 and resolve ownership. Regression covers clean allocation, dirty refusal,
+   and canonical embedded PR evidence when a local path is unavailable. Closed
+   historical issues remain evidence, not claim targets.
 5. Revisit blocked and `needs-human` work. Reorder dependencies, split scope, or
    create missing research issues when evidence supports it.
 6. Create documentation cleanup work only when churn reveals an independently
