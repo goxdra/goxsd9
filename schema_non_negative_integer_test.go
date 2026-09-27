@@ -32,7 +32,7 @@ func TestSchemaNonNegativeIntegerReferencesAcrossPolicies(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Keep the local form, model, and all-policy occurrence matrix together.
+//nolint:gocognit,funlen // Keep the local form, model, and all-policy occurrence matrix together.
 func TestSchemaNonNegativeIntegerLocalBoundaryAcrossPolicies(t *testing.T) {
 	forms := []struct {
 		name string
@@ -48,8 +48,37 @@ func TestSchemaNonNegativeIntegerLocalBoundaryAcrossPolicies(t *testing.T) {
 				t.Run(profile.name+"/"+model+"/"+form.name+"/mapped", func(t *testing.T) {
 					root := schemaNonNegativeIntegerLocalBoundaryRoot(profile.version, model, form.kind, "")
 					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if form.kind != "inline" {
+						if err != nil {
+							t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+						}
+						definition := requireNonNegativeIntegerBoundaryComplexType(t, schema)
+						var element ElementParticle
+						if model == "choice" {
+							choice, ok := definition.Particle().(ChoiceParticle)
+							if !ok || len(choice.Alternatives()) != 1 {
+								t.Fatalf("choice particle = %T, want one alternative", definition.Particle())
+							}
+							element = requireUnsignedLongElementParticle(t, choice.Alternatives()[0])
+						}
+						if model == "sequence" {
+							sequence, ok := definition.Particle().(SequenceParticle)
+							if !ok || len(sequence.Elements()) != 1 {
+								t.Fatalf("sequence particle = %T, want one element", definition.Particle())
+							}
+							element = sequence.Elements()[0]
+						}
+						if element.Occurrences().String() != "1/1" || element.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 2, `<xs:element name="value"`) {
+							t.Fatalf("element = %s/%s, want located 1/1", element.Loc(), element.Occurrences())
+						}
+						reference, ok := element.TypeReference()
+						if !ok || reference.facts == nil || reference.facts.atomicKind != schemaSimpleTypeAtomicNonNegativeInteger {
+							t.Fatalf("type reference = %#v/%t, want nonNegativeInteger", reference, ok)
+						}
+						return
+					}
 					if err == nil {
-						t.Fatal("discoverTestSchemaWithPolicy accepted a mapped local nonNegativeInteger form")
+						t.Fatal("discoverTestSchemaWithPolicy accepted a mapped inline local nonNegativeInteger form")
 					}
 					assertZeroSchema(t, schema)
 					diagnostic := requireDiagnostic(t, err)
@@ -637,10 +666,9 @@ func TestSchemaNonNegativeIntegerRejectsNegativeRestrictions(t *testing.T) {
 	}
 }
 
-func TestSchemaNonNegativeIntegerExcludedShapesRemainUnsupported(t *testing.T) {
+func TestSchemaNonNegativeIntegerGlobalAttributeRemainsUnsupported(t *testing.T) {
 	for _, profile := range nonNegativeIntegerPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
-			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "nonNegativeInteger", "-0")
 			assertSchemaIntegerDerivedGlobalAttributeExcluded(t, profile.policy, "nonNegativeInteger")
 		})
 	}

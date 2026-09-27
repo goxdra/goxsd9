@@ -578,7 +578,6 @@ func TestSchemaUnsignedLongLocalParticleExcludedShapesRemainUnsupported(t *testi
 		}{
 			{name: "inline unsignedLong", body: `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:element>`, locMarker: `<xs:simpleType>`},
 			{name: "named long", body: `<xs:element name="value" type="r:Long"/>`, defs: `<xs:simpleType name="Long"><xs:restriction base="xs:long"/></xs:simpleType>`, locMarker: `type="r:Long"`},
-			{name: "named non-negative integer", body: `<xs:element name="value" type="r:NonNegative"/>`, defs: `<xs:simpleType name="NonNegative"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`, locMarker: `type="r:NonNegative"`},
 			{name: "named non-positive integer", body: `<xs:element name="value" type="r:NonPositive"/>`, defs: `<xs:simpleType name="NonPositive"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType>`, locMarker: `type="r:NonPositive"`},
 			{name: "named list", body: `<xs:element name="value" type="r:List"/>`, defs: `<xs:simpleType name="List"><xs:list itemType="xs:unsignedLong"/></xs:simpleType>`, locMarker: `type="r:List"`},
 			{name: "named union", body: `<xs:element name="value" type="r:Union"/>`, defs: `<xs:simpleType name="Union"><xs:union memberTypes="xs:unsignedLong"/></xs:simpleType>`, locMarker: `type="r:Union"`},
@@ -668,12 +667,6 @@ func unsignedLongExcludedOwnerCases() []unsignedLongExcludedOwnerCase {
 			body:      `<xs:element name="value" type="r:Long"OCCURRENCES/>`,
 			defs:      `<xs:simpleType name="Long"><xs:restriction base="xs:long"/></xs:simpleType>`,
 			locMarker: `type="r:Long"`,
-		},
-		{
-			name:      "named non-negative integer",
-			body:      `<xs:element name="value" type="r:NonNegative"OCCURRENCES/>`,
-			defs:      `<xs:simpleType name="NonNegative"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`,
-			locMarker: `type="r:NonNegative"`,
 		},
 		{
 			name:      "named non-positive integer",
