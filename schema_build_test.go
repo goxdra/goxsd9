@@ -1090,12 +1090,6 @@ func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:    "excluded wildcard process contents is unsupported",
-			root:    fmt.Sprintf(base, `<xs:choice><xs:any namespace="##other" processContents="skip"/></xs:choice>`),
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:  "unresolved element reference is invalid",
 			root:  fmt.Sprintf(base, `<xs:choice><xs:element ref="value"/></xs:choice>`),
 			class: FailureInvalid,
