@@ -327,7 +327,9 @@
 // resolution/reference failures retain their existing diagnostic, specification
 // reference, cause, and precedence. Unsupported forms return no Schema.
 // Type admission is separate from value-constraint support: only Boolean,
-// integer, decimal, token, and precisionDecimal constraints are supported. For
+// integer, negativeInteger, decimal, token, and precisionDecimal constraints are
+// supported. Built-in and supported named negativeInteger default/fixed values
+// use exact IntegerValue and effective integer facets under all three policies. For
 // an admitted type, an individual unsupported default or fixed is
 // FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its value
 // Loc; an invalid supported value is FailureInvalid/XSD3036 at its value Loc

@@ -3730,7 +3730,7 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		return true
 	}
 	switch reference.atomicKind {
-	case schemaSimpleTypeAtomicInteger:
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger:
 		switch facets := reference.facets.(type) {
 		case schemaDigitFacetVariant:
 			return facets.value.Kind() == DigitDatatypeInteger
@@ -3757,7 +3757,6 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicNMTOKEN,
-		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicLong,
@@ -3798,7 +3797,7 @@ func resolveSchemaAttributeValueConstraint(
 		return constraint, nil
 	}
 	switch reference.atomicKind {
-	case schemaSimpleTypeAtomicInteger:
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger:
 		value, err := ParseStrictInteger(input.lexical, input.loc)
 		if err != nil {
 			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
@@ -3827,7 +3826,6 @@ func resolveSchemaAttributeValueConstraint(
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicNMTOKEN,
-		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicLong,
