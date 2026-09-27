@@ -2294,8 +2294,17 @@ func schemaWildcardNamespaceConstraintFromLexical(lexical string, loc Loc) schem
 	return constraint
 }
 
+func schemaWildcardNotNamespaceConstraintFromLexical(lexical string, loc Loc) schemaWildcardNamespaceConstraint {
+	return schemaWildcardNamespaceConstraint{
+		variety: WildcardNamespaceConstraintNot,
+		terms:   strings.Split(lexical, " "),
+		lexical: lexical,
+		loc:     loc,
+	}
+}
+
 func resolveSchemaWildcardNamespaceConstraint(constraint schemaWildcardNamespaceConstraint, ownerNamespace string) schemaWildcardNamespaceConstraint {
-	if constraint.variety != WildcardNamespaceConstraintEnumeration {
+	if constraint.variety != WildcardNamespaceConstraintEnumeration && constraint.variety != WildcardNamespaceConstraintNot {
 		return constraint
 	}
 	seen := make(map[string]struct{}, len(constraint.terms))
@@ -2454,12 +2463,20 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 		processContents = collapseXMLWhitespace(attributes[0].value)
 		processContentsLoc = attributes[0].loc
 	}
-	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 ||
-		len(syntaxAttributesByLocal(element, "notQName")) != 0 ||
-		!isSupportedDirectAnyParticleFacts(namespace, processContents) {
+	notNamespaceAttributes := syntaxAttributesByLocal(element, "notNamespace")
+	if len(notNamespaceAttributes) > 1 || len(syntaxAttributesByLocal(element, "notQName")) != 0 {
+		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
+	}
+	if len(notNamespaceAttributes) == 0 && !isSupportedDirectAnyParticleFacts(namespace, processContents) {
 		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
 	}
 	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc)
+	if len(notNamespaceAttributes) == 1 {
+		if processContents != "strict" || !namespaceLoc.IsZero() {
+			return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported negative wildcard constraints reached component construction")
+		}
+		constraint = schemaWildcardNotNamespaceConstraintFromLexical(collapseXMLWhitespace(notNamespaceAttributes[0].value), notNamespaceAttributes[0].loc)
+	}
 	return schemaWildcardParticleInput{
 		loc:                 element.loc,
 		occurrences:         occurrences,
@@ -7521,7 +7538,8 @@ func resolveSchemaParticleTerm(
 }
 
 func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner schemaComponentRecord) (Particle, error) {
-	if !isSupportedDirectAnyParticleFacts(input.namespaceConstraint.lexical, input.processContents) {
+	if input.namespaceConstraint.variety == WildcardNamespaceConstraintNot && input.processContents != "strict" ||
+		input.namespaceConstraint.variety != WildcardNamespaceConstraintNot && !isSupportedDirectAnyParticleFacts(input.namespaceConstraint.lexical, input.processContents) {
 		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
 	}
 	if !input.occurrences.mapsToParticle() {

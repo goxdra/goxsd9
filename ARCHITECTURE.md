@@ -97,9 +97,10 @@ invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixe
 unconstrained; attribute consumers reject.
 
 Complexes retain non-inherited `IsAbstract`, declaring-document `finalDefault` provenance,
-ordered groups/extensions, and exact wildcard facts. Non-`0/0` `xs:any` facts remain queryable
-immutable facts; wildcard consumers reject them, broader forms are unsupported, and `0/0` is
-absent. `openContent=none` works Compatibility/Strict11 and mismatches Strict10; named groups
+ordered groups/extensions, and exact wildcard facts. `xs:any` includes positive sets and XSD 1.1
+strict `notNamespace` exclusions; markers expand after chameleon adoption. Consumers
+reject wildcards; broader forms unsupported; `0/0` absent. `openContent=none`
+works Compatibility/Strict11 and mismatches Strict10; named groups
 retain ordered refs/ranges. `precisionDecimal` refs require default-occurrence direct or
 bounded extension choices; nonzero sequences, inline/anonymous targets, and non-default
 choices remain unsupported. Homogeneous local built-in/supported named token/NMTOKEN sequences
