@@ -4978,12 +4978,9 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 }
 
 func isSupportedDirectAnyParticleFacts(namespace, processContents string) bool {
-	return namespace == "##any" && processContents == "strict" ||
-		namespace == "##any" && processContents == "lax" ||
-		namespace == "##any" && processContents == "skip" ||
-		namespace == "##other" && processContents == "lax" ||
-		namespace == "##other" && processContents == "strict" ||
-		isPositiveWildcardNamespace(namespace) && (processContents == "strict" || processContents == "lax" || processContents == "skip")
+	supportedNamespace := namespace == "##any" || namespace == "##other" || isPositiveWildcardNamespace(namespace)
+	supportedProcess := processContents == "strict" || processContents == "lax" || processContents == "skip"
+	return supportedNamespace && supportedProcess
 }
 
 func isPositiveWildcardNamespace(namespace string) bool {
