@@ -81,8 +81,9 @@
 // forms use the admission-then-absence rule under every policy.
 // Local declared, named, inline, and anonymous restrictions in the
 // integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
-// only when their effective atomic kind is integer or negativeInteger through named,
-// forward, imported, included, and chameleon chains. A direct local
+// when their effective atomic kind is integer or negativeInteger through named,
+// forward, imported, included, and chameleon chains. Explicit built-in and
+// supported named nonNegativeInteger particles are also admitted. A direct local
 // `type="xs:negativeInteger"` is schema-rejected only when mapped non-0/0;
 // named-effective and anonymous-inline negativeInteger forms are admitted as query
 // facts, but ValidateInstance and GenerateGo reject those consumers. Effective
@@ -377,8 +378,8 @@
 // global built-in/named Boolean, integer, or decimal targets are also
 // generation-eligible. Global attribute declarations remain query-only,
 // inline-attribute consumers remain excluded, and GenerateGo rejects every
-// ComponentKindAttributeDeclaration. Mapped non-0/0 local declared,
-// inline and anonymous `nonNegativeInteger` forms are rejected during
+// ComponentKindAttributeDeclaration. Mapped non-0/0 local inline and
+// anonymous `nonNegativeInteger` forms are rejected during
 // schema construction with no schema. Explicit built-in and supported named local
 // particles are queryable and rejected by both consumers. Exact local declared, named, inline, and
 // anonymous `0/0` forms are admitted then absent
