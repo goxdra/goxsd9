@@ -121,12 +121,12 @@
 // exception.
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
 // omitted namespace with processContents="lax"), ##any/skip with explicit
-// processContents="skip", ##other/lax, and ##other/strict forms, plus positive
-// namespace constraints (##local, ##targetNamespace, and URI lists) with strict,
+// processContents="skip", and ##other/strict, ##other/lax, and ##other/skip forms,
+// plus positive namespace constraints (##local, ##targetNamespace, and URI lists) with strict,
 // lax, or explicit skip processing, are exposed as immutable WildcardParticle values. Positive constraints retain
 // immutable effective namespace values in sorted order, their lexical form, and
 // source location; explicit constraint-attribute locations are retained in
-// lexical order with element and reference terms. Other wildcard constraints
+// lexical order with element and reference terms. Remaining wildcard constraints
 // and broader wildcard placements remain unsupported. Nonzero wildcard-bearing
 // particles remain unsupported to validation and generation consumers.
 // Named global direct sequence and choice complex types also expose immutable
