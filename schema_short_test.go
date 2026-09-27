@@ -382,8 +382,6 @@ func TestSchemaShortExcludedShapes(t *testing.T) {
 		for _, test := range []struct {
 			name, body, needle string
 		}{
-			{name: "local direct", body: `<xs:complexType name="T"><xs:sequence><xs:element name="v" type="xs:short"/></xs:sequence></xs:complexType>`, needle: `type="xs:short"`},
-			{name: "local named", body: `<xs:complexType name="T"><xs:choice><xs:element name="v" type="t:ShortType"/></xs:choice></xs:complexType><xs:simpleType name="ShortType"><xs:restriction base="xs:short"/></xs:simpleType>`, needle: `type="t:ShortType"`},
 			{name: "local inline", body: `<xs:complexType name="T"><xs:choice><xs:element name="v"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:element></xs:choice></xs:complexType>`, needle: `<xs:simpleType>`},
 			{name: "local attribute", body: `<xs:complexType name="T"><xs:attribute name="v" type="xs:short"/></xs:complexType>`, needle: `type="xs:short"`},
 			{name: "simple content", body: `<xs:complexType name="T"><xs:simpleContent><xs:extension base="xs:short"/></xs:simpleContent></xs:complexType>`, needle: `base="xs:short"`},

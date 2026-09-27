@@ -66,7 +66,7 @@ anonymous refs, base identity/locations, inherited `##other`/`lax` wildcards. Sc
 simpleContent extensions retain base/type/use `Loc`s and nil particle; restrictions are
 unsupported; bases are Boolean/string/integer/decimal plus policy-gated `precisionDecimal`.
 Admission: supported direct/extension choices/sequences admit `integer`, named/anonymous-inline
-`negativeInteger`, and built-in/supported named `int`, `unsignedLong`, and `nonNegativeInteger`; direct built-in
+`negativeInteger`, and built-in/supported named `int`, `short`, `unsignedLong`, and `nonNegativeInteger`; direct built-in
 `negativeInteger` rejects nonzero mapping. Scalar exclusions return `FailureUnsupported`
 at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`. Applicable
 syntax/occurrence/reference/policy gates precede local mapping; graph-wide declaration/facet
@@ -76,9 +76,9 @@ without duplicate checks before omission; named groups resolve/check before owne
 omission; child refs resolve first.
 Element/model-group references retain QName/RefLoc/TargetID/order without expansion;
 nested/local/recursive/broader forms remain unsupported or consumer-excluded. Mapped non-`0/0`
-local inline/anonymous `int`/`unsignedLong`/`nonNegativeInteger` forms are schema-unsupported at `type`/`simpleType`
+local inline/anonymous `int`/`short`/`unsignedLong`/`nonNegativeInteger` forms are schema-unsupported at `type`/`simpleType`
 `Loc`; applicable `0/0` forms are absent. Admitted local built-in/named-effective
-`int`/`unsignedLong`/`nonNegativeInteger`: query-only/consumer-rejected; local `AttributeUse` and simpleContent
+`int`/`short`/`unsignedLong`/`nonNegativeInteger`: query-only/consumer-rejected; local `AttributeUse` and simpleContent
 exclude these at admission. Named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
 AttributeUse facts preserve order, locations, ownership, effective use, and QName/RefLoc/TargetID
