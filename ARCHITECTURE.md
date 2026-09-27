@@ -148,7 +148,7 @@ long/int/short/unsignedLong/nonNegativeInteger bounds; named restrictions retain
 Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to
-default-occurrence Boolean/integer/decimal choices/sequences; `int`, `unsignedLong`, `nonNegativeInteger`, `precisionDecimal`,
+default-occurrence Boolean/integer/decimal choices/sequences; `int`, `short`, `unsignedLong`, `nonNegativeInteger`, `precisionDecimal`,
 token/NMTOKEN, anonymous, repeated, non-default forms excluded.
 
 ## Conformance
