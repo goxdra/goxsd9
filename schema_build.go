@@ -9215,10 +9215,19 @@ func restrictSchemaStringFacets(base schemaStringFacetVariant, atomicKind schema
 }
 
 func restrictSchemaStringEnumeration(base schemaStringFacetVariant, local StringEnumerationFacetDeclarations) (StringEnumerationFacets, error) {
-	if base.whiteSpace != nil && base.whiteSpace.Value() == "collapse" {
-		return restrictStringEnumerationFacetsInValueSpace(base.enumeration, local)
+	if base.whiteSpace == nil {
+		return StringEnumerationFacets{}, newSchemaBridgeInvariant(Loc{}, "string enumeration base has no whiteSpace facet")
 	}
-	return RestrictStringEnumerationFacets(base.enumeration, local)
+	switch base.whiteSpace.Value() {
+	case "preserve":
+		return RestrictStringEnumerationFacets(base.enumeration, local)
+	case "replace":
+		return restrictStringEnumerationFacetsInValueSpace(base.enumeration, local, replaceXMLWhitespace)
+	case "collapse":
+		return restrictStringEnumerationFacetsInValueSpace(base.enumeration, local, collapseXMLWhitespace)
+	default:
+		return StringEnumerationFacets{}, newSchemaBridgeInvariant(base.whiteSpace.Loc(), "string enumeration base has invalid whiteSpace facet")
+	}
 }
 
 func restrictSchemaIntegerFacets(

@@ -1463,7 +1463,7 @@ func validateStringScalarValue(lexical string, valueLoc Loc, scalar instanceScal
 	var normalize func(string) string
 	switch typed.whiteSpace.Value() {
 	case "preserve":
-		normalize = func(value string) string { return value }
+		normalize = nil
 	case "replace":
 		normalize = replaceXMLWhitespace
 	case "collapse":
@@ -1471,20 +1471,14 @@ func validateStringScalarValue(lexical string, valueLoc Loc, scalar instanceScal
 	default:
 		return newInstanceValidationInternal(valueLoc, "string scalar has invalid whiteSpace facts", scalar.related, errInstanceValidationInvariant)
 	}
-	if stringEnumerationContainsInValueSpace(typed.enumeration.values, lexical, normalize) {
+	if normalize != nil {
+		lexical = normalize(lexical)
+	}
+	if stringEnumerationContainsInterpreted(typed.enumeration.values, lexical) {
 		return nil
 	}
 	enumerationErr := enumerationValueViolationDiagnostic(valueLoc, typed.enumeration.Locations(), typed.enumeration.Version(), "string")
 	return instanceDecorateDiagnostic(enumerationErr, scalar.related, "", valueLoc)
-}
-
-func replaceXMLWhitespace(value string) string {
-	return strings.Map(func(character rune) rune {
-		if character == '\t' || character == '\n' || character == '\r' {
-			return ' '
-		}
-		return character
-	}, value)
 }
 
 func validateTokenEnumerationValue(facets StringEnumerationFacets, lexical string, valueLoc Loc) error {

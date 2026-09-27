@@ -228,3 +228,63 @@ func TestValidateInstanceUsesEffectiveStringFacetEditionInMixedGraph(t *testing.
 		t.Fatalf("mixed graph diagnostic = %v, spec=%q, want XSD 1.1 enumeration violation", diagnostic, diagnostic.SpecRef())
 	}
 }
+
+//nolint:gocognit // Keep policy, inherited values, local declarations, and diagnostics in one matrix.
+func TestValidateInstancePreservesInheritedStringEnumerationValues(t *testing.T) {
+	for _, policy := range validationTokenPolicies() {
+		t.Run(policy.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationStringNamespace + `" targetNamespace="` + validationStringNamespace + `" version="` + string(policy.version) + `">
+  <xs:element name="baseDouble" type="r:BaseDouble"/>
+  <xs:element name="collapsedInherited" type="r:CollapsedInherited"/>
+  <xs:element name="collapsedLocal" type="r:CollapsedLocal"/>
+  <xs:element name="baseTab" type="r:BaseTab"/>
+  <xs:element name="replacedInherited" type="r:ReplacedInherited"/>
+  <xs:element name="replaceBase" type="r:ReplaceBase"/>
+  <xs:element name="replaceLocal" type="r:ReplaceLocal"/>
+  <xs:simpleType name="BaseDouble"><xs:restriction base="xs:string"><xs:enumeration value="a  b"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="CollapsedInherited"><xs:restriction base="r:BaseDouble"><xs:whiteSpace value="collapse"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="CollapsedLocal"><xs:restriction base="r:BaseDouble"><xs:whiteSpace value="collapse"/><xs:enumeration value="a  b"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="BaseTab"><xs:restriction base="xs:string"><xs:enumeration value="a&#9;b"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="ReplacedInherited"><xs:restriction base="r:BaseTab"><xs:whiteSpace value="replace"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="ReplaceBase"><xs:restriction base="xs:string"><xs:whiteSpace value="replace"/><xs:enumeration value="a b"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="ReplaceLocal"><xs:restriction base="r:ReplaceBase"><xs:enumeration value="a&#9;b"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+			schema := validationTestSchemaWithPolicy(t, root, nil, policy.policy)
+			before := schema.Components()
+			for _, test := range []struct {
+				name, element, value string
+				valid                bool
+			}{
+				{name: "preserve base double", element: "baseDouble", value: "a  b", valid: true},
+				{name: "preserve base tab", element: "baseTab", value: "a\tb", valid: true},
+				{name: "collapse inherited must not rewrite double space", element: "collapsedInherited", value: "a b"},
+				{name: "collapse local must use base preserve", element: "collapsedLocal", value: "a  b"},
+				{name: "replace inherited must not rewrite tab", element: "replacedInherited", value: "a\tb"},
+				{name: "replace base normalizes its member", element: "replaceBase", value: "a\tb", valid: true},
+				{name: "replace local uses base replace", element: "replaceLocal", value: "a\tb", valid: true},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					input := validationStringInstance(test.element, test.value, false)
+					err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+					if test.valid {
+						if err != nil {
+							t.Fatalf("ValidateInstance(%q): %v", input, err)
+						}
+						return
+					}
+					diagnostic := validationTestDiagnostic(t, err)
+					if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != goxsd9.EnumerationValueViolationCode || diagnostic.Loc() != validationTestTextLoc(t, input) || diagnostic.SpecRef() != validationTokenEnumerationSpecRef(policy.version) || diagnostic.Unwrap() == nil {
+						t.Fatalf("ValidateInstance(%q) = %v, want located enumeration violation", input, err)
+					}
+				})
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("string validation mutated the schema")
+			}
+			definition, ok := validationTokenSimpleType(t, schema, validationStringNamespace, "ReplaceLocal").SimpleTypeDefinition()
+			if !ok || !reflect.DeepEqual(definition.StringEnumerationFacets().Values(), []string{"a\tb"}) {
+				t.Fatalf("ReplaceLocal lexical enumeration changed: %#v", definition.StringEnumerationFacets().Values())
+			}
+		})
+	}
+}

@@ -306,9 +306,10 @@
 // sequences made entirely of built-in or supported named NMTOKEN particles
 // collapse XML whitespace and enforce the repository XML NameChar policy.
 // Those sequences validate with exact occurrences and NMTOKEN value-space rules;
-// their GenerateGo consumers remain unsupported. Global string roots apply
-// effective whiteSpace before effective enumeration; violations retain the
-// text and related schema locations. Local string particles, lists/unions,
+// their GenerateGo consumers remain unsupported. Global string roots normalize
+// instance text with effective whiteSpace, then compare enumeration values
+// interpreted by each declaration's base type; violations retain text and
+// related schema locations. Local string particles, lists/unions,
 // broader particles, and other semantics remain explicit unsupported behavior.
 // Supported global attribute declarations are a separate query-only capability.
 // Type admission under
