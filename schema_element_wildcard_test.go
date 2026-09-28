@@ -1374,6 +1374,7 @@ func TestSchemaBridgePreservesExtensionConsumerGatePrecedence(t *testing.T) {
 	}{
 		{name: "positive_strict", attributes: ` processContents="strict" namespace="##any"`},
 		{name: "negative_lax", attributes: ` notNamespace="##local" processContents="lax"`},
+		{name: "negative_skip", attributes: ` notNamespace="##local" processContents="skip"`},
 	} {
 		t.Run(form.name, func(t *testing.T) {
 			root := directWildcardSchema("1.1", "sequence", true, form.attributes)
@@ -1385,7 +1386,7 @@ func TestSchemaBridgePreservesExtensionConsumerGatePrecedence(t *testing.T) {
 			if validationErr == nil || !errors.Is(validationErr, errInstanceComplexContentExtension) || errors.Is(validationErr, errInstanceSequenceWildcard) {
 				t.Fatalf("validation error = %v, want extension gate before wildcard gate", validationErr)
 			}
-			if form.name == "negative_lax" {
+			if form.name == "negative_lax" || form.name == "negative_skip" {
 				diagnostic := requireDiagnostic(t, validationErr)
 				if diagnostic.Code() != UnsupportedInstanceValidationCode || diagnostic.Loc() != (Loc{source: "instance.xml", line: 1, column: 1}) ||
 					diagnostic.SpecRef() != instanceValidationSpecRef(XSDVersion11) ||
@@ -1397,7 +1398,7 @@ func TestSchemaBridgePreservesExtensionConsumerGatePrecedence(t *testing.T) {
 			if generationErr == nil || generated != nil || !errors.Is(generationErr, errCodegenUnsupported) || errors.Is(generationErr, errCodegenDirectSequenceWildcard) {
 				t.Fatalf("generation result = (%q, %v), want extension gate before wildcard gate", generated, generationErr)
 			}
-			if form.name == "negative_lax" {
+			if form.name == "negative_lax" || form.name == "negative_skip" {
 				diagnostic := requireDiagnostic(t, generationErr)
 				if diagnostic.Code() != diagnosticCodegenUnsupported || diagnostic.Loc() != wildcardParticleTestLoc(t, root, `<xs:extension`) ||
 					diagnostic.SpecRef() != codegenDirectSequenceXSD11ParticlesSpecRef {
