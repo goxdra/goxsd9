@@ -51,10 +51,10 @@
 // The schema model exposes one direct ordered sequence and direct choices of local
 // built-in xs:boolean, named boolean-restriction, integer, decimal, built-in/named/inline
 // xs:negativeInteger, explicitly typed
-// built-in or supported named xs:int/xs:short/xs:unsignedLong/xs:nonNegativeInteger, and explicitly typed built-in or
+// built-in or supported named xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger, and explicitly typed built-in or
 // supported named xs:token/xs:NMTOKEN particles for named global complex types. It
 // also admits built-in/named/inline xs:negativeInteger and built-in or supported
-// named-effective xs:int/xs:short/xs:unsignedLong/xs:nonNegativeInteger particles in
+// named-effective xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger particles in
 // supported attribute-free extension choices and sequences under every policy; they
 // remain query-only and consumer-rejected. Direct and supported extension
 // choices/sequences retain exact finite, unbounded, and above-uint64 occurrences;
@@ -301,7 +301,7 @@
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
 // and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
-// remain explicit unsupported behavior. Local int/short/unsignedLong/nonNegativeInteger/negativeInteger particles are
+// remain explicit unsupported behavior. Local int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger particles are
 // query-only and remain explicit unsupported behavior in both consumers.
 // Reference consumers exclude precisionDecimal and anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
