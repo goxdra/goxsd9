@@ -64,9 +64,8 @@ empty-content bases or named complexContent restrictions over built-in `xs:anyTy
 anonymous refs, base identity/locations, inherited `##other`/`lax` wildcards. Scalar
 simpleContent extensions retain base/type/use `Loc`s and nil particle; restrictions are
 unsupported; bases are Boolean/string/integer/decimal plus policy-gated `precisionDecimal`.
-Admission: direct/extension choices/sequences admit `integer`, named/anonymous-inline
-`negativeInteger`, and built-in/named `int`, `short`, `unsignedLong`, and `nonNegativeInteger`; direct built-in
-`negativeInteger` rejects nonzero mapping. Exclusions return `FailureUnsupported`
+Admission: direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline
+`negativeInteger`, and built-in/named `int`, `short`, `unsignedLong`, and `nonNegativeInteger`. Exclusions return `FailureUnsupported`
 at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`.
 Syntax/occurrence/reference/policy gates precede local mapping; graph declaration/facet
 failures and Strict10 `precisionDecimal` apply; named/inline `0/0` mapping conditional.

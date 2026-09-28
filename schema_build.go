@@ -5542,12 +5542,12 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 		if !builtinStringSchemaScalarTypeAllowedInScope(input.declaredType.Local(), scope) {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
-	case "integer", "decimal", "int", "short", "unsignedLong", "nonNegativeInteger":
+	case "integer", "decimal", "int", "short", "unsignedLong", "nonNegativeInteger", "negativeInteger":
 	case "byte":
 		if scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
-	case "long", "negativeInteger", "nonPositiveInteger":
+	case "long", "nonPositiveInteger":
 		if scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}

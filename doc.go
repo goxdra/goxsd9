@@ -83,9 +83,8 @@
 // integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
 // when their effective atomic kind is integer or negativeInteger through named,
 // forward, imported, included, and chameleon chains. Explicit built-in and
-// supported named nonNegativeInteger particles are also admitted. A direct local
-// `type="xs:negativeInteger"` is schema-rejected only when mapped non-0/0;
-// named-effective and anonymous-inline negativeInteger forms are admitted as query
+// supported named nonNegativeInteger particles are also admitted. Direct built-in,
+// named-effective, and anonymous-inline negativeInteger forms are admitted as query
 // facts, but ValidateInstance and GenerateGo reject those consumers. Effective
 // long, byte, and nonPositiveInteger, plus inline/anonymous
 // int/short/unsignedLong/nonNegativeInteger, are excluded when mapped non-0/0: ParseSchema returns a located
