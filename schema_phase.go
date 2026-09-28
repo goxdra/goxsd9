@@ -5020,7 +5020,7 @@ func isSupportedDirectAnyParticle(element *syntaxElement) bool {
 		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
 	}
 	if len(notNamespaceAttributes) == 1 {
-		return processContents == "strict"
+		return processContents == "strict" || processContents == "lax"
 	}
 	return isSupportedDirectAnyParticleFacts(namespace, processContents)
 }

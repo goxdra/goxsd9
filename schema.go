@@ -2090,7 +2090,7 @@ func (constraint WildcardNamespaceConstraint) Loc() Loc { return constraint.loc 
 
 // WildcardParticle is a direct element wildcard particle. Its supported
 // effective facts include ##any, ##other, positive namespace enumerations,
-// and strict negative namespace sets.
+// and strict or lax negative namespace sets.
 type WildcardParticle struct {
 	facts *schemaWildcardParticle
 }

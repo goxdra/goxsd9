@@ -98,7 +98,7 @@ unconstrained; attribute consumers reject.
 
 Complexes retain non-inherited `IsAbstract`, declaring-document `finalDefault` provenance,
 ordered groups/extensions, and exact wildcard facts. `xs:any` includes positive sets and XSD 1.1
-strict `notNamespace` exclusions; markers expand after chameleon adoption. Consumers
+strict/lax `notNamespace` exclusions; markers expand after chameleon adoption. Consumers
 reject wildcards; broader forms unsupported; `0/0` absent. `openContent=none`
 works Compatibility/Strict11 and mismatches Strict10; named groups
 retain ordered refs/ranges. `precisionDecimal` refs require default-occurrence direct or
