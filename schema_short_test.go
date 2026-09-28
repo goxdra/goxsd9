@@ -303,33 +303,6 @@ func TestSchemaShortConsumersRemainUnsupported(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Keep built-in and forward-named value diagnostics together.
-func TestSchemaShortGlobalAttributeValuesRemainUnsupported(t *testing.T) {
-	for _, profile := range longPolicyProfiles() {
-		for _, test := range []struct {
-			name, declaration, needle string
-		}{
-			{name: "direct default", declaration: `<xs:attribute name="a" type="xs:short" default="0"/>`, needle: `default="0"`},
-			{name: "named forward fixed", declaration: `<xs:attribute name="a" type="t:Alias" fixed="0"/><xs:simpleType name="Alias"><xs:restriction base="xs:short"/></xs:simpleType>`, needle: `fixed="0"`},
-		} {
-			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
-				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + test.declaration + `</xs:schema>`
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
-					t.Fatalf("global short attribute schema/error = %#v/%v, want no schema", schema, err)
-				}
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, test.needle) || diagnostic.SpecRef() == "" {
-					t.Fatalf("diagnostic = %s, want located schema-syntax unsupported", diagnostic)
-				}
-				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaAttributeValueConstraintUnsupported) || errors.Is(err, errSchemaAttributeTypeUnsupported) {
-					t.Fatalf("global short attribute value lost unsupported constraint cause: %v", err)
-				}
-			})
-		}
-	}
-}
-
 func TestSchemaShortExcludedShapes(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		for _, test := range []struct {

@@ -324,7 +324,7 @@
 // Compatibility, Strict10, and Strict11 is limited to built-in or supported
 // named atomic xs:boolean, xs:integer, xs:decimal, xs:token, xs:negativeInteger,
 // xs:language, xs:NCName, xs:anyURI, xs:ID, xs:long, xs:int, xs:short, and
-// xs:unsignedLong. xs:short is type-only, with copied exact bounds. Built-in or
+// xs:unsignedLong. xs:short retains copied exact bounds. Built-in or
 // supported named xs:precisionDecimal is admitted for type/value queries only under
 // Compatibility or Strict11; Strict10 rejects it at the type Loc with the
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
@@ -339,8 +339,8 @@
 // resolution/reference failures retain their existing diagnostic, specification
 // reference, cause, and precedence. Unsupported forms return no Schema.
 // Type admission is separate from value-constraint support: only Boolean,
-// integer, negativeInteger, decimal, token, and precisionDecimal constraints are
-// supported. Built-in and supported named negativeInteger default/fixed values
+// integer, negativeInteger, short, decimal, token, and precisionDecimal constraints are
+// supported. Built-in and supported named negativeInteger and short default/fixed values
 // use exact IntegerValue and effective integer facets under all three policies. For
 // an admitted type, an individual unsupported default or fixed is
 // FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its value
