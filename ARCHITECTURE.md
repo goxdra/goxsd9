@@ -88,8 +88,8 @@ chameleon adopts; prohibited uses omit. Value/default/fixed/inheritable semantic
 attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported; excluded refs retain locations; no schema.
 Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
-Default/fixed: Boolean/integer/decimal/token/negativeInteger/short (built-in/named, all policies),
-policy-gated `precisionDecimal`; negativeInteger/short: `IntegerValue`/effective facets.
+Default/fixed: Boolean/integer/decimal/token/negativeInteger/long/short (built-in/named, all policies),
+policy-gated `precisionDecimal`; negativeInteger/long/short: `IntegerValue`/effective facets.
 Unsupported types/local/inline: located `FailureUnsupported`; unsupported values: constraint `Loc`;
 invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixed/default; type-only
 unconstrained; attribute consumers reject.
