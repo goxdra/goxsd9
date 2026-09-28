@@ -79,7 +79,7 @@ local inline/anonymous `int`/`short`/`unsignedLong`/`nonNegativeInteger` forms a
 refs queryable across policies; nonzero local built-in/named/inline byte elements are
 schema-unsupported at type/simpleType `Loc`; `0/0` omits after gates. Byte attributes/value constraints excluded. Local built-in/named-effective
 `int`/`short`/`unsignedLong`/`nonNegativeInteger`: query-only/consumer-rejected; local `AttributeUse` and simpleContent
-exclude these at admission. Named/anonymous-inline
+exclude these at admission. Built-in/named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
 AttributeUse facts preserve order, locations, ownership, effective use, and QName/RefLoc/TargetID
 in particle-plus-use, model-group, attribute-only, and simpleContent. Local uses retain
@@ -143,11 +143,11 @@ explicit built-in/named local particles are queryable and consumer-rejected; `0/
 direct-choice/sequence consumers reject, and inline/anonymous element/type forms remain
 query-only/rejected. Global `int`/`long`/`short`/`byte`/`unsignedLong` element/type facts query-only; validation/
 `GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies built-in and named
-long/int/short/byte/unsignedLong/nonNegativeInteger bounds; restrictions retain facets, locations, provenance.
+long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger bounds (negativeInteger maxInclusive=-1 at type `Loc`); restrictions retain facets, locations, provenance.
 Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to
-default-occurrence Boolean/integer/decimal choices/sequences; `int`, `short`, `unsignedLong`, `nonNegativeInteger`, `precisionDecimal`,
+default-occurrence Boolean/integer/decimal choices/sequences; `int`, `short`, `unsignedLong`, `nonNegativeInteger`, `negativeInteger`, `precisionDecimal`,
 token/NMTOKEN, anonymous, repeated, non-default forms excluded.
 
 ## Conformance

@@ -49,10 +49,12 @@
 // identities; repeated and cyclic identities are closed without decoding.
 //
 // The schema model exposes one direct ordered sequence and direct choices of local
-// built-in xs:boolean, named boolean-restriction, integer, decimal, explicitly typed
+// built-in xs:boolean, named boolean-restriction, integer, decimal, built-in/named/inline
+// xs:negativeInteger, explicitly typed
 // built-in or supported named xs:int/xs:short/xs:unsignedLong/xs:nonNegativeInteger, and explicitly typed built-in or
 // supported named xs:token/xs:NMTOKEN particles for named global complex types. It
-// also admits built-in and supported named-effective xs:int/xs:short/xs:unsignedLong/xs:nonNegativeInteger particles in
+// also admits built-in/named/inline xs:negativeInteger and built-in or supported
+// named-effective xs:int/xs:short/xs:unsignedLong/xs:nonNegativeInteger particles in
 // supported attribute-free extension choices and sequences under every policy; they
 // remain query-only and consumer-rejected. Direct and supported extension
 // choices/sequences retain exact finite, unbounded, and above-uint64 occurrences;
@@ -102,7 +104,8 @@
 // built-in byte retains [-128,127] with no source bound Loc or component ID;
 // built-in unsignedLong retains intrinsic inclusive bounds
 // [0,18446744073709551615]; built-in nonNegativeInteger retains intrinsic
-// minInclusive=0 without a source Loc; named-effective particles retain exact narrowed,
+// minInclusive=0 without a source Loc; built-in negativeInteger retains
+// maxInclusive=-1 at its type Loc with no component ID; named-effective particles retain exact narrowed,
 // inclusive/exclusive bounds, integer enumeration/digit facets, source locations,
 // identities, graph provenance, and exact occurrences; only validation and GenerateGo return consumer-only
 // FailureUnsupported diagnostics.
@@ -226,7 +229,7 @@
 // target members. Direct model-group references retain `RefLoc`/`TargetID`; their
 // consumer gates use the group RefLoc and reject them. Nested, local, recursive,
 // and broader group-reference shapes remain unsupported.
-// Default-bounded sequences of supported built-in or named numeric or
+// Default-bounded sequences of supported built-in/named integer/decimal or
 // all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
 // Boolean/integer/decimal/negativeInteger particles remain queryable but validation and generation
 // reject them; repeated-field generation and direct-choice repetition remain
@@ -298,7 +301,7 @@
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
 // and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
-// remain explicit unsupported behavior. Local int/short/unsignedLong/nonNegativeInteger particles are
+// remain explicit unsupported behavior. Local int/short/unsignedLong/nonNegativeInteger/negativeInteger particles are
 // query-only and remain explicit unsupported behavior in both consumers.
 // Reference consumers exclude precisionDecimal and anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
