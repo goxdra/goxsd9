@@ -142,8 +142,8 @@ reject (`FailureUnsupported`/`GOXSD9029`, no output) and malformed/stale facts f
 explicit built-in/named local particles are queryable and consumer-rejected; `0/0` is absent. `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject, and inline/anonymous element/type forms remain
 query-only/rejected. Global `int`/`long`/`short`/`byte`/`unsignedLong` element/type facts query-only; validation/
-`GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies built-in and named
-long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger bounds (negativeInteger maxInclusive=-1 at type `Loc`); restrictions retain facets, locations, provenance.
+`GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies built-in/named
+long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger bounds; built-in negativeInteger maxInclusive=-1 at type `Loc`; named restrictions retain effective facet locations/provenance.
 Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to
