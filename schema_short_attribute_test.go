@@ -172,8 +172,6 @@ func TestSchemaShortGlobalAttributeExclusionsAcrossPolicies(t *testing.T) {
 			{"malformed bound", `<xs:attribute name="a" type="r:T"/><xs:simpleType name="T"><xs:restriction base="xs:short"><xs:minInclusive value="oops"/></xs:restriction></xs:simpleType>`, `value="oops"`, FailureInvalid, errInvalidBoundValue},
 			{"local", `<xs:complexType name="T"><xs:attribute name="a" type="xs:short"/></xs:complexType>`, `type="xs:short"`, FailureUnsupported, errSchemaAttributeTypeUnsupported},
 			{"inline", `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:attribute>`, `<xs:simpleType>`, FailureUnsupported, ErrUnsupported},
-			{"default", `<xs:attribute name="a" type="xs:short" default="0"/>`, `default="0"`, FailureUnsupported, errSchemaAttributeValueConstraintUnsupported},
-			{"fixed named", `<xs:attribute name="a" type="r:T" fixed="0"/><xs:simpleType name="T"><xs:restriction base="xs:short"/></xs:simpleType>`, `fixed="0"`, FailureUnsupported, errSchemaAttributeValueConstraintUnsupported},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:r" targetNamespace="urn:r" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
@@ -197,7 +195,7 @@ func TestSchemaShortGlobalAttributeExclusionsAcrossPolicies(t *testing.T) {
 func TestSchemaShortGlobalAttributeReferenceAndConsumerRemainUnsupported(t *testing.T) {
 	for _, profile := range shortAttributePolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:r" targetNamespace="urn:r"><xs:attribute name="global" type="xs:short"/><xs:complexType name="T"><xs:attribute ref="r:global"/></xs:complexType></xs:schema>`
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:r" targetNamespace="urn:r"><xs:attribute name="global" type="xs:short" default="1"/><xs:complexType name="T"><xs:attribute ref="r:global"/></xs:complexType></xs:schema>`
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 			if err == nil || schema.storage != nil {
 				t.Fatal("local short attribute reference returned a schema")
@@ -209,7 +207,7 @@ func TestSchemaShortGlobalAttributeReferenceAndConsumerRemainUnsupported(t *test
 			if !reflect.DeepEqual(diagnostic.Related(), []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="global"`)}) {
 				t.Fatalf("related locations = %v, want global declaration", diagnostic.Related())
 			}
-			root = `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:r"><xs:attribute name="global" type="xs:short"/></xs:schema>`
+			root = `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:r"><xs:attribute name="global" type="xs:short" fixed="1"/></xs:schema>`
 			schema, err = discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 			if err != nil {
 				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
@@ -220,7 +218,7 @@ func TestSchemaShortGlobalAttributeReferenceAndConsumerRemainUnsupported(t *test
 			}
 			diagnostic = requireDiagnostic(t, err)
 			attribute := schema.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:r", "global"))
-			if len(attribute) != 1 || diagnostic.Class() != FailureUnsupported || diagnostic.Loc() != attribute[0].Loc() || !errors.Is(err, errCodegenUnsupported) {
+			if len(attribute) != 1 || diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported || diagnostic.Loc() != attribute[0].Loc() || !errors.Is(err, errCodegenUnsupported) {
 				t.Fatalf("GenerateGo diagnostic = %s, want located unsupported attribute", diagnostic)
 			}
 		})
