@@ -330,14 +330,13 @@
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
 // diagnostic. Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger,
 // xs:nonPositiveInteger, xs:byte and narrower built-ins, list/union
-// forms remain explicit unsupported behavior. An unsupported local attribute type
-// without a value constraint reports FailureUnsupported/UnsupportedSchemaSyntaxCode/
-// ErrUnsupported at its type Loc; local default/fixed reports at its value-constraint
-// Loc before type mapping. A local declaration without type or value constraint reports at its declaration
-// Loc; an inline type without a local value constraint reports at its simpleType Loc;
-// a referenced excluded global use reports at RefLoc with the target declaration
-// related. Invalid syntax,
-// edition/policy mismatches, and
+// forms remain explicit unsupported behavior. Unsupported local attribute types
+// without default/fixed report FailureUnsupported/UnsupportedSchemaSyntaxCode/
+// ErrUnsupported at type Loc. Local default/fixed reports at value Loc before
+// type mapping. A typeless local declaration reports at declaration Loc unless
+// default/fixed is present; an inline type without a local value constraint reports
+// at simpleType Loc. A referenced excluded global use reports at RefLoc with the
+// target declaration related. Invalid syntax, edition/policy mismatches, and
 // resolution/reference failures retain their existing diagnostic, specification
 // reference, cause, and precedence. Unsupported forms return no Schema.
 // Type admission is separate from value-constraint support: only Boolean,
