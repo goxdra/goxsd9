@@ -88,14 +88,14 @@
 // supported named nonNegativeInteger particles are also admitted. Direct built-in,
 // named-effective, and anonymous-inline negativeInteger forms are admitted as query
 // facts, but ValidateInstance and GenerateGo reject those consumers. Effective
-// long, byte, and nonPositiveInteger, plus inline/anonymous
-// int/short/unsignedLong/nonNegativeInteger, are excluded when mapped non-0/0: ParseSchema returns a located
+// long and nonPositiveInteger, plus inline/anonymous
+// int/short/byte/unsignedLong/nonNegativeInteger, are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
 // exclusions use the nested-particle Loc. Ordinary 0/0 is admitted after
 // applicable gates and remains absent.
-// Inline/anonymous int/short/unsignedLong/nonNegativeInteger are mapped schema exclusions at their
-// type/simpleType Loc; built-in and named-effective int/short/unsignedLong/nonNegativeInteger are admitted
+// Inline/anonymous int/short/byte/unsignedLong/nonNegativeInteger are mapped schema exclusions at their
+// type/simpleType Loc; built-in and named-effective int/short/byte/unsignedLong/nonNegativeInteger are admitted
 // query-only forms. The written base QName/base Loc, use-site/type/facet Locs,
 // named ID versus built-in zero identity, ownership, and resolved facts remain
 // separate. Built-in int retains intrinsic inclusive bounds
@@ -421,7 +421,7 @@
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
 // all-Boolean/numeric direct choices and default-bounded direct sequences. Local
-// int/short/unsignedLong/nonNegativeInteger/negativeInteger, anonymous, and token/NMTOKEN consumers, repeated/non-default
+// int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, anonymous, and token/NMTOKEN consumers, repeated/non-default
 // particles, and anonymous targets remain unsupported; numeric integer/decimal
 // mixtures remain supported.
 package goxsd9

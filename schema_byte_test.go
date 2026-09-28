@@ -397,8 +397,6 @@ func TestSchemaByteBoundaryDiagnostics(t *testing.T) {
 func TestSchemaByteExcludedAdmissionShapes(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		for _, test := range []struct{ name, body, needle string }{
-			{"local direct", `<xs:complexType name="T"><xs:sequence><xs:element name="v" type="xs:byte"/></xs:sequence></xs:complexType>`, `type="xs:byte"`},
-			{"local named", `<xs:complexType name="T"><xs:choice><xs:element name="v" type="t:Alias"/></xs:choice></xs:complexType><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `type="t:Alias"`},
 			{"local inline", `<xs:complexType name="T"><xs:sequence><xs:element name="v"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element></xs:sequence></xs:complexType>`, `<xs:simpleType>`},
 			{"global attribute inline", `<xs:attribute name="v"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:attribute>`, `<xs:simpleType>`},
 			{"local attribute direct", `<xs:complexType name="T"><xs:attribute name="v" type="xs:byte"/></xs:complexType>`, `type="xs:byte"`},

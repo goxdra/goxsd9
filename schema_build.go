@@ -5539,11 +5539,7 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 		if !builtinStringSchemaScalarTypeAllowedInScope(input.declaredType.Local(), scope) {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
-	case "integer", "decimal", "int", "short", "unsignedLong", "nonNegativeInteger", "negativeInteger":
-	case "byte":
-		if scope != schemaScalarTypeGlobalElement {
-			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
-		}
+	case "integer", "decimal", "int", "short", "byte", "unsignedLong", "nonNegativeInteger", "negativeInteger":
 	case "long", "nonPositiveInteger":
 		if scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
@@ -5627,14 +5623,12 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 		schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		break
-	case schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicUnsignedLong, schemaSimpleTypeAtomicNonNegativeInteger:
+	case schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong, schemaSimpleTypeAtomicNonNegativeInteger:
 		if input.inlineSimpleType == nil {
 			break
 		}
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	case schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicNonPositiveInteger:
-		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
-	case schemaSimpleTypeAtomicByte:
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	}
 	if allowPrecisionDecimal {
