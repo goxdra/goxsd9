@@ -420,7 +420,7 @@
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
 // all-Boolean/numeric direct choices and default-bounded direct sequences. Local
-// int/short/unsignedLong/nonNegativeInteger, anonymous, and token/NMTOKEN consumers, repeated/non-default
+// int/short/unsignedLong/nonNegativeInteger/negativeInteger, anonymous, and token/NMTOKEN consumers, repeated/non-default
 // particles, and anonymous targets remain unsupported; numeric integer/decimal
 // mixtures remain supported.
 package goxsd9
