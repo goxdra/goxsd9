@@ -55,29 +55,30 @@ schema return. Unsupported features have stable report IDs.
 
 ## Schema model
 
-Raw syntax is internal; immutable components retain `Loc`; queries use names/identities;
-walks preserve discovery/lexical order and sort unordered sets. `Schema`, `SchemaDocument`,
-`Component`, `ComponentID`, and expanded `QName` expose copied views; IDs use source/ordinal,
-local particles are scoped, consumers are on demand.
+Internal syntax; immutable `Loc` components; name/identity queries; discovery/lexical-order walks sort sets.
+`Schema`, `SchemaDocument`, `Component`, `ComponentID`, and expanded `QName` expose copied
+views; IDs use source/ordinal, local particles are scoped, consumers on demand.
 
 Primitive: `DeclaredType`; bounded attribute-free complexContent extensions over named
 empty-content bases or named complexContent restrictions over built-in `xs:anyType` retain
 anonymous refs, base identity/locations, inherited `##other`/`lax` wildcards. Scalar
 simpleContent extensions retain base/type/use `Loc`s and nil particle; restrictions are
 unsupported; bases are Boolean/string/integer/decimal plus policy-gated `precisionDecimal`.
-Admission: supported direct/extension choices/sequences admit `integer`, named/anonymous-inline
-`negativeInteger`, and built-in/supported named `int`, `short`, `unsignedLong`, and `nonNegativeInteger`; direct built-in
-`negativeInteger` rejects nonzero mapping. Scalar exclusions return `FailureUnsupported`
-at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`. Applicable
-syntax/occurrence/reference/policy gates precede local mapping; graph-wide declaration/facet
-failures and Strict10 `precisionDecimal` still apply; non-reference named/inline
-mapping is not universal for `0/0`. Sequences omit before children; choices resolve refs
+Admission: direct/extension choices/sequences admit `integer`, named/anonymous-inline
+`negativeInteger`, and built-in/named `int`, `short`, `unsignedLong`, and `nonNegativeInteger`; direct built-in
+`negativeInteger` rejects nonzero mapping. Exclusions return `FailureUnsupported`
+at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`.
+Syntax/occurrence/reference/policy gates precede local mapping; graph declaration/facet
+failures and Strict10 `precisionDecimal` apply; named/inline `0/0` mapping conditional.
+Sequences omit before children; choices resolve refs
 without duplicate checks before omission; named groups resolve/check before owner/child
 omission; child refs resolve first.
 Element/model-group references retain QName/RefLoc/TargetID/order without expansion;
 nested/local/recursive/broader forms remain unsupported or consumer-excluded. Mapped non-`0/0`
 local inline/anonymous `int`/`short`/`unsignedLong`/`nonNegativeInteger` forms are schema-unsupported at `type`/`simpleType`
-`Loc`; applicable `0/0` forms are absent. Admitted local built-in/named-effective
+`Loc`; applicable `0/0` forms are absent. Global direct/named/inline `byte` element/type
+refs queryable across policies; nonzero local built-in/named/inline byte elements are
+schema-unsupported at type/simpleType `Loc`; `0/0` omits after gates. Byte attributes/value constraints excluded. Local built-in/named-effective
 `int`/`short`/`unsignedLong`/`nonNegativeInteger`: query-only/consumer-rejected; local `AttributeUse` and simpleContent
 exclude these at admission. Named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
@@ -85,9 +86,8 @@ AttributeUse facts preserve order, locations, ownership, effective use, and QNam
 in particle-plus-use, model-group, attribute-only, and simpleContent. Local uses retain
 name/type/use locations and named/anonymous `AnonymousID`/`NodeID`; references retain
 QName/RefLoc/TargetID/use. Forms select names; XSD 1.1 `targetNamespace` must match the container;
-chameleon adopts; prohibited uses are omitted. Value/default/fixed/inheritable semantics,
-attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported;
-excluded references retain locations and return no schema.
+chameleon adopts; prohibited uses omit. Value/default/fixed/inheritable semantics,
+attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported; excluded refs retain locations; no schema.
 Global attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
 NCName/anyURI/ID/long/int/short/unsignedLong; `precisionDecimal` policy-gated.
 Default/fixed: Boolean/integer/decimal/token/negativeInteger (built-in/named, all policies),
@@ -142,9 +142,9 @@ reject (`FailureUnsupported`/`GOXSD9029`, no output) and malformed/stale facts f
 (`FailureInternal`/`GOXSD9030`, nil). Mapped nonzero local inline `nonNegativeInteger` forms: no schema;
 explicit built-in/named local particles are queryable and consumer-rejected; `0/0` is absent. `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject, and inline/anonymous element/type forms remain
-query-only/rejected. Global `int`/`long`/`short`/`unsignedLong` element/type facts query-only; validation/
-`GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies intrinsic built-in and effective named
-long/int/short/unsignedLong/nonNegativeInteger bounds; named restrictions retain facets, locations, provenance, ownership.
+query-only/rejected. Global `int`/`long`/`short`/`byte`/`unsignedLong` element/type facts query-only; validation/
+`GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies built-in and named
+long/int/short/byte/unsignedLong/nonNegativeInteger bounds; restrictions retain facets, locations, provenance.
 Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to

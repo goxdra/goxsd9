@@ -185,28 +185,11 @@ func assertShortDefinition(t *testing.T, definition SimpleTypeDefinition, versio
 	assertIntegerReferenceFacts(t, &schemaSimpleTypeReferenceComponent{atomicKind: definition.facts.atomicKind, facets: definition.facts.facets}, version, schemaSimpleTypeAtomicShort, "short", wantMinimum, wantMaximum)
 }
 
-//nolint:gocognit // Keep repeated graph discovery and ordered reference checks together.
 func TestSchemaShortComposesGraphs(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			root, fixtures := shortGraphFixtures(profile.version)
-			first, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
-			if err != nil {
-				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
-			}
-			second, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
-			if err != nil {
-				t.Fatalf("repeated discoverTestSchemaWithPolicy: %v", err)
-			}
-			if !reflect.DeepEqual(first.Components(), second.Components()) {
-				t.Fatal("repeated graph builds changed component facts or order")
-			}
-			if got := len(first.Documents()); got != 4 {
-				t.Fatalf("document count = %d, want 4 after repeated/cyclic graph discovery", got)
-			}
-			for _, test := range shortGraphElementCases() {
-				assertShortGraphElement(t, first, root, fixtures, test, profile.version)
-			}
+			assertIntegerDerivedComposedGraph(t, root, fixtures, profile, shortGraphElementCases(), schemaSimpleTypeAtomicShort, "short", "-32768", "32767")
 		})
 	}
 }
@@ -267,36 +250,6 @@ func shortGraphElementCases() []struct {
 		{local: "includedNamed", namespace: "urn:root", source: "ordinary.xsd", needle: `type="r:IncludedAlias"`, named: true},
 		{local: "importedNamed", namespace: "urn:other", source: "other.xsd", needle: `type="o:ImportedAlias"`, named: true},
 	}
-}
-
-func assertShortGraphElement(t *testing.T, schema Schema, root string, fixtures map[string]discoveryFixture, test struct {
-	local     string
-	namespace string
-	source    SourceID
-	needle    string
-	named     bool
-}, version XSDVersion) {
-	t.Helper()
-	declaration := requireShortElement(t, schema, test.local, test.namespace)
-	reference, ok := declaration.TypeReference()
-	if !ok {
-		t.Fatalf("%s type reference is missing", test.local)
-	}
-	if test.named {
-		if !reference.IsNamed() {
-			t.Fatalf("%s type reference = %#v, want named", test.local, reference)
-		}
-		if reference.Loc() != schemaBuiltinReferenceAttributeLoc(t, test.source, test.needle, root, fixtures) {
-			t.Fatalf("%s type Loc = %s, want use-site Loc", test.local, reference.Loc())
-		}
-		id, hasID := reference.ComponentID()
-		if !hasID || id.Source() != test.source {
-			t.Fatalf("%s target ID = %v/%t, want source %s", test.local, id, hasID, test.source)
-		}
-		assertIntegerReferenceFacts(t, reference.facts, version, schemaSimpleTypeAtomicShort, "short", "-32768", "32767")
-		return
-	}
-	assertShortBuiltinReference(t, reference, schemaBuiltinReferenceAttributeLoc(t, test.source, test.needle, root, fixtures), version)
 }
 
 func TestSchemaShortRejectsInvalidReferencesAndRestrictions(t *testing.T) {
@@ -385,7 +338,6 @@ func TestSchemaShortExcludedShapes(t *testing.T) {
 			{name: "local inline", body: `<xs:complexType name="T"><xs:choice><xs:element name="v"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:element></xs:choice></xs:complexType>`, needle: `<xs:simpleType>`},
 			{name: "local attribute", body: `<xs:complexType name="T"><xs:attribute name="v" type="xs:short"/></xs:complexType>`, needle: `type="xs:short"`},
 			{name: "simple content", body: `<xs:complexType name="T"><xs:simpleContent><xs:extension base="xs:short"/></xs:simpleContent></xs:complexType>`, needle: `base="xs:short"`},
-			{name: "byte", body: `<xs:element name="v" type="xs:byte"/>`, needle: `type="xs:byte"`},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
@@ -446,7 +398,7 @@ func TestSchemaShortPinnedCorpusFragment(t *testing.T) {
 	}
 	for _, profile := range longPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `">` + fragment + `</xs:schema>`
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `">` + fragment + `<xs:element name="value" type="xs:byte"/></xs:schema>`
 			first, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 			if err != nil {
 				t.Fatalf("parse bounded pinned byte declaration: %v", err)
@@ -465,16 +417,12 @@ func TestSchemaShortPinnedCorpusFragment(t *testing.T) {
 				t.Fatal("pinned byte restriction has no base reference")
 			}
 			assertShortBuiltinReference(t, base, elementReferenceTestAttributeLoc(t, root, `base="xs:short"`), profile.version)
-
-			unsupported := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="xs:byte"/></xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, unsupported, nil, profile.policy)
-			if err == nil || schema.storage != nil {
-				t.Fatalf("built-in xs:byte schema/error = %#v/%v, want unsupported without schema", schema, err)
+			declaration := requireShortElement(t, first, "value", "urn:test")
+			reference, present := declaration.TypeReference()
+			if !present {
+				t.Fatal("pinned replay element has no type reference")
 			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, unsupported, `type="xs:byte"`) || !errors.Is(err, ErrUnsupported) {
-				t.Fatalf("built-in xs:byte diagnostic = %s, want located unsupported", diagnostic)
-			}
+			assertByteBuiltinReference(t, reference, elementReferenceTestAttributeLoc(t, root, `type="xs:byte"`), profile.version)
 		})
 	}
 }

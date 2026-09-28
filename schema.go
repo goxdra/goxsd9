@@ -219,11 +219,15 @@ func (reference SimpleTypeReference) IntegerBounds() (IntegerBoundFacets, bool) 
 	default:
 		return IntegerBoundFacets{}, false
 	}
+	return copyIntegerBoundFacets(bounds), true
+}
+
+func copyIntegerBoundFacets(bounds IntegerBoundFacets) IntegerBoundFacets {
 	return IntegerBoundFacets{
 		version: bounds.version,
 		lower:   cloneIntegerBoundEndpoint(bounds.lower),
 		upper:   cloneIntegerBoundEndpoint(bounds.upper),
-	}, true
+	}
 }
 
 // ComponentID returns the schema component identity of a named reference.
@@ -950,7 +954,7 @@ func (definition SimpleTypeDefinition) StringWhiteSpaceFacet() (StringWhiteSpace
 	return *cloneStringWhiteSpaceFacet(facets.whiteSpace), true
 }
 
-// IntegerBounds returns the effective ordered integer bounds and their
+// IntegerBounds returns copied effective ordered integer bounds and their
 // presence for an integer restriction.
 func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool) {
 	if definition.facts == nil {
@@ -961,9 +965,9 @@ func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool
 		if facets.value.Kind() != DigitDatatypeInteger {
 			return IntegerBoundFacets{}, false
 		}
-		return facets.integerBounds, true
+		return copyIntegerBoundFacets(facets.integerBounds), true
 	case schemaIntegerFacetVariant:
-		return facets.bounds, true
+		return copyIntegerBoundFacets(facets.bounds), true
 	default:
 		return IntegerBoundFacets{}, false
 	}
