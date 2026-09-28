@@ -77,7 +77,7 @@ nested/local/recursive/broader forms remain unsupported or consumer-excluded. Ma
 local inline/anonymous `int`/`short`/`unsignedLong`/`nonNegativeInteger` forms are schema-unsupported at `type`/`simpleType`
 `Loc`; applicable `0/0` forms are absent. Global direct/named/inline `byte` element/type
 refs queryable across policies; nonzero local built-in/named/inline byte elements are
-schema-unsupported at type/simpleType `Loc`; `0/0` omits after gates. Byte attributes/value constraints excluded. Local built-in/named-effective
+schema-unsupported at type/simpleType `Loc`; `0/0` omits after gates. Byte attributes: built-in/named refs; values excluded. Local built-in/named-effective
 `int`/`short`/`unsignedLong`/`nonNegativeInteger`: query-only/consumer-rejected; local `AttributeUse` and simpleContent
 exclude these at admission. Built-in/named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
@@ -87,8 +87,8 @@ name/type/use locations and named/anonymous `AnonymousID`/`NodeID`; references r
 QName/RefLoc/TargetID/use. Forms select names; XSD 1.1 `targetNamespace` must match the container;
 chameleon adopts; prohibited uses omit. Value/default/fixed/inheritable semantics,
 attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported; excluded refs retain locations; no schema.
-Global attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
-NCName/anyURI/ID/long/int/short/unsignedLong; `precisionDecimal` policy-gated.
+Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
+NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
 Default/fixed: Boolean/integer/decimal/token/negativeInteger/short (built-in/named, all policies),
 policy-gated `precisionDecimal`; negativeInteger/short: `IntegerValue`/effective facets.
 Unsupported types/local/inline: located `FailureUnsupported`; unsupported values: constraint `Loc`;

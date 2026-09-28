@@ -400,20 +400,18 @@ func TestSchemaByteExcludedAdmissionShapes(t *testing.T) {
 			{"local direct", `<xs:complexType name="T"><xs:sequence><xs:element name="v" type="xs:byte"/></xs:sequence></xs:complexType>`, `type="xs:byte"`},
 			{"local named", `<xs:complexType name="T"><xs:choice><xs:element name="v" type="t:Alias"/></xs:choice></xs:complexType><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `type="t:Alias"`},
 			{"local inline", `<xs:complexType name="T"><xs:sequence><xs:element name="v"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element></xs:sequence></xs:complexType>`, `<xs:simpleType>`},
-			{"global attribute direct", `<xs:attribute name="v" type="xs:byte"/>`, `type="xs:byte"`},
-			{"global attribute named", `<xs:attribute name="v" type="t:Alias"/><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `type="t:Alias"`},
 			{"global attribute inline", `<xs:attribute name="v"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:attribute>`, `<xs:simpleType>`},
 			{"local attribute direct", `<xs:complexType name="T"><xs:attribute name="v" type="xs:byte"/></xs:complexType>`, `type="xs:byte"`},
 			{"local attribute named", `<xs:complexType name="T"><xs:attribute name="v" type="t:Alias"/></xs:complexType><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `type="t:Alias"`},
 			{"local attribute inline", `<xs:complexType name="T"><xs:attribute name="v"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:attribute></xs:complexType>`, `<xs:simpleType>`},
-			{"local attribute ref target", `<xs:attribute name="v" type="xs:byte"/><xs:complexType name="T"><xs:attribute ref="t:v"/></xs:complexType>`, `type="xs:byte"`},
+			{"local attribute ref target", `<xs:attribute name="v" type="xs:byte"/><xs:complexType name="T"><xs:attribute ref="t:v"/></xs:complexType>`, `ref="t:v"`},
 			{"simple content direct", `<xs:complexType name="T"><xs:simpleContent><xs:extension base="xs:byte"/></xs:simpleContent></xs:complexType>`, `base="xs:byte"`},
 			{"simple content named", `<xs:complexType name="T"><xs:simpleContent><xs:extension base="t:Alias"/></xs:simpleContent></xs:complexType><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `base="t:Alias"`},
 			{"global element default", `<xs:element name="v" type="xs:byte" default="0"/>`, `default="0"`},
 			{"global element fixed named", `<xs:element name="v" type="t:Alias" fixed="0"/><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `fixed="0"`},
 			{"global element fixed inline", `<xs:element name="v" fixed="0"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element>`, `fixed="0"`},
-			{"global attribute default", `<xs:attribute name="v" type="xs:byte" default="0"/>`, `type="xs:byte"`},
-			{"global attribute fixed named", `<xs:attribute name="v" type="t:Alias" fixed="0"/><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `type="t:Alias"`},
+			{"global attribute default", `<xs:attribute name="v" type="xs:byte" default="0"/>`, `default="0"`},
+			{"global attribute fixed named", `<xs:attribute name="v" type="t:Alias" fixed="0"/><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `fixed="0"`},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`

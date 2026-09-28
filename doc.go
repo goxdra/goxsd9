@@ -323,13 +323,13 @@
 // Type admission under
 // Compatibility, Strict10, and Strict11 is limited to built-in or supported
 // named atomic xs:boolean, xs:integer, xs:decimal, xs:token, xs:negativeInteger,
-// xs:language, xs:NCName, xs:anyURI, xs:ID, xs:long, xs:int, xs:short, and
-// xs:unsignedLong. xs:short retains copied exact bounds. Built-in or
+// xs:language, xs:NCName, xs:anyURI, xs:ID, xs:long, xs:int, xs:short, xs:byte,
+// and xs:unsignedLong. xs:short and xs:byte retain copied exact bounds. Built-in or
 // supported named xs:precisionDecimal is admitted for type/value queries only under
 // Compatibility or Strict11; Strict10 rejects it at the type Loc with the
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
 // diagnostic. Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger,
-// xs:nonPositiveInteger, xs:byte and narrower built-ins, list/union
+// xs:nonPositiveInteger, other excluded built-ins, list/union
 // forms remain explicit unsupported behavior. Unsupported local attribute types
 // without default/fixed report FailureUnsupported/UnsupportedSchemaSyntaxCode/
 // ErrUnsupported at type Loc. Local default/fixed reports at value Loc before
