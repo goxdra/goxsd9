@@ -66,7 +66,7 @@ anonymous refs, base identity/locations, inherited `##other`/`lax` wildcards. Sc
 simpleContent extensions retain base/type/use `Loc`s and nil particle; restrictions are
 unsupported; bases are Boolean/string/integer/decimal plus policy-gated `precisionDecimal`.
 Admission: supported direct/extension choices/sequences admit `integer`, named/anonymous-inline
-`negativeInteger`, and built-in/supported named `int`, `short`, `unsignedLong`, and `nonNegativeInteger`; direct built-in
+`negativeInteger`, and built-in/named `int`, `short`, `unsignedLong`, and `nonNegativeInteger`; `byte` admits global direct/named/inline; direct built-in
 `negativeInteger` rejects nonzero mapping. Scalar exclusions return `FailureUnsupported`
 at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`. Applicable
 syntax/occurrence/reference/policy gates precede local mapping; graph-wide declaration/facet
@@ -142,9 +142,9 @@ reject (`FailureUnsupported`/`GOXSD9029`, no output) and malformed/stale facts f
 (`FailureInternal`/`GOXSD9030`, nil). Mapped nonzero local inline `nonNegativeInteger` forms: no schema;
 explicit built-in/named local particles are queryable and consumer-rejected; `0/0` is absent. `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject, and inline/anonymous element/type forms remain
-query-only/rejected. Global `int`/`long`/`short`/`unsignedLong` element/type facts query-only; validation/
-`GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies intrinsic built-in and effective named
-long/int/short/unsignedLong/nonNegativeInteger bounds; named restrictions retain facets, locations, provenance, ownership.
+query-only/rejected. Global `int`/`long`/`short`/`byte`/`unsignedLong` element/type facts query-only; validation/
+`GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies built-in and named
+long/int/short/byte/unsignedLong/nonNegativeInteger bounds; restrictions retain facets, locations, provenance.
 Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to

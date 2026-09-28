@@ -87,7 +87,7 @@
 // `type="xs:negativeInteger"` is schema-rejected only when mapped non-0/0;
 // named-effective and anonymous-inline negativeInteger forms are admitted as query
 // facts, but ValidateInstance and GenerateGo reject those consumers. Effective
-// long and nonPositiveInteger, plus inline/anonymous
+// long, byte, and nonPositiveInteger, plus inline/anonymous
 // int/short/unsignedLong/nonNegativeInteger, are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
@@ -100,6 +100,7 @@
 // separate. Built-in int retains intrinsic inclusive bounds
 // [-2147483648,2147483647] without synthetic bound locations or component IDs;
 // built-in short retains [-32768,32767] with no source bound Loc or component ID;
+// built-in byte retains [-128,127] with no source bound Loc or component ID;
 // built-in unsignedLong retains intrinsic inclusive bounds
 // [0,18446744073709551615]; built-in nonNegativeInteger retains intrinsic
 // minInclusive=0 without a source Loc; named-effective particles retain exact narrowed,
@@ -398,12 +399,14 @@
 // `nonNegativeInteger` element/type declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
 // Global inline-element Boolean/integer/decimal declarations and global
-// element/type int/long/short/unsignedLong/negativeInteger/nonPositiveInteger and
+// element/type int/long/short/byte/unsignedLong/negativeInteger/nonPositiveInteger and
 // language/NCName/anyURI/ID declarations
 // retain schema/query facts but their validation and generation consumers are
 // rejected. This consumer boundary does not widen the global attribute type or
 // value-constraint model described above.
 // Built-in xs:short has inclusive [-32768,32767] bounds without a component ID
+// or bound Loc; named restrictions retain exact effective bounds.
+// Built-in xs:byte has inclusive [-128,127] bounds without a component ID
 // or bound Loc; named restrictions retain exact effective bounds.
 // Global built-in, named, and inline precisionDecimal element/type schema/query facts are
 // available only under Compatibility/Strict11; Strict10 returns the located

@@ -516,21 +516,3 @@ func TestSchemaLongConsumersRemainUnsupported(t *testing.T) {
 		})
 	}
 }
-
-func TestSchemaLongDoesNotAdmitByte(t *testing.T) {
-	for _, profile := range longPolicyProfiles() {
-		for _, local := range []string{"byte"} {
-			t.Run(profile.name+"/"+local, func(t *testing.T) {
-				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="xs:` + local + `"/></xs:schema>`
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
-					t.Fatalf("discoverTestSchemaWithPolicy admitted unrelated narrower built-in %q", local)
-				}
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Loc().IsZero() || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("diagnostic = %s, want located unsupported diagnostic", diagnostic)
-				}
-			})
-		}
-	}
-}
