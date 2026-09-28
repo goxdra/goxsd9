@@ -19,9 +19,8 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Phases consume results; immutable components never backpatch. Identities intern
-before discovery; repeats/cycles close, acyclic dependencies use stable topological
-order, and ordered slices define walks/output.
+Phases consume results without backpatching. Identities intern before discovery;
+repeats/cycles close, acyclic dependencies use stable topological order, and ordered slices define walks/output.
 
 ## Input and resolution
 
@@ -42,10 +41,9 @@ type Resolver interface {
 Sources carry opaque identity, reader-closer, child context; resolvers may store
 private base-location state. FIFO discovery preserves context. Parser leaves opaque
 identities/locations uninterpreted, opens no paths, makes no network requests.
-Resolver calls sequential.
+Resolution is sequential.
 
-Decode captures one-based line and Unicode-code-point columns; components retain
-`Loc`, not source bytes.
+Decode retains one-based line and Unicode-code-point columns in `Loc`.
 
 ## Diagnostics
 
@@ -55,9 +53,9 @@ schema return. Unsupported features have stable report IDs.
 
 ## Schema model
 
-Internal syntax; immutable `Loc` components; name/identity queries; discovery/lexical-order walks sort sets.
+Internal syntax; immutable located components; deterministic queries and walks.
 `Schema`, `SchemaDocument`, `Component`, `ComponentID`, and expanded `QName` expose copied
-views; IDs use source/ordinal, local particles are scoped, consumers on demand.
+views; IDs use source/ordinal and local particles are scoped.
 
 Primitive: `DeclaredType`; bounded attribute-free complexContent extensions over named
 empty-content bases or named complexContent restrictions over built-in `xs:anyType` retain
@@ -65,7 +63,7 @@ anonymous refs, base identity/locations, inherited `##other`/`lax` wildcards. Sc
 simpleContent extensions retain base/type/use `Loc`s and nil particle; restrictions are
 unsupported; bases are Boolean/string/integer/decimal plus policy-gated `precisionDecimal`.
 Admission: direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline
-`negativeInteger`, and built-in/named `int`, `short`, `unsignedLong`, and `nonNegativeInteger`. Exclusions return `FailureUnsupported`
+`negativeInteger`, and built-in/named `int`, `short`, `byte`, `unsignedLong`, and `nonNegativeInteger`. Exclusions return `FailureUnsupported`
 at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`.
 Syntax/occurrence/reference/policy gates precede local mapping; graph declaration/facet
 failures and Strict10 `precisionDecimal` apply; named/inline `0/0` mapping conditional.
@@ -74,11 +72,12 @@ without duplicate checks before omission; named groups resolve/check before owne
 omission; child refs resolve first.
 Element/model-group references retain QName/RefLoc/TargetID/order without expansion;
 nested/local/recursive/broader forms remain unsupported or consumer-excluded. Mapped non-`0/0`
-local inline/anonymous `int`/`short`/`unsignedLong`/`nonNegativeInteger` forms are schema-unsupported at `type`/`simpleType`
+local inline/anonymous `int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger` forms are schema-unsupported at `type`/`simpleType`
 `Loc`; applicable `0/0` forms are absent. Global direct/named/inline `byte` element/type
-refs queryable across policies; nonzero local built-in/named/inline byte elements are
-schema-unsupported at type/simpleType `Loc`; `0/0` omits after gates. Byte attributes: built-in/named refs; values excluded. Local built-in/named-effective
-`int`/`short`/`unsignedLong`/`nonNegativeInteger`: query-only/consumer-rejected; local `AttributeUse` and simpleContent
+refs queryable across policies; nonzero local built-in/named byte elements are
+queryable and consumer-rejected; inline/anonymous byte forms are schema-unsupported
+at type/simpleType `Loc`; `0/0` omits after gates. Byte attributes: built-in/named refs; values excluded. Local built-in/named-effective
+`int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger`: query-only/consumer-rejected; local `AttributeUse` and simpleContent
 exclude these at admission. Built-in/named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
 AttributeUse facts preserve order, locations, ownership, effective use, and QName/RefLoc/TargetID
@@ -147,7 +146,7 @@ long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger bounds; buil
 Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to
-default-occurrence Boolean/integer/decimal choices/sequences; `int`, `short`, `unsignedLong`, `nonNegativeInteger`, `negativeInteger`, `precisionDecimal`,
+default-occurrence Boolean/integer/decimal choices/sequences; `int`, `short`, `byte`, `unsignedLong`, `nonNegativeInteger`, `negativeInteger`, `precisionDecimal`,
 token/NMTOKEN, anonymous, repeated, non-default forms excluded.
 
 ## Conformance

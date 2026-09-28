@@ -51,10 +51,10 @@
 // The schema model exposes one direct ordered sequence and direct choices of local
 // built-in xs:boolean, named boolean-restriction, integer, decimal, built-in/named/inline
 // xs:negativeInteger, explicitly typed
-// built-in or supported named xs:int/xs:short/xs:unsignedLong/xs:nonNegativeInteger, and explicitly typed built-in or
+// built-in or supported named xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger, and explicitly typed built-in or
 // supported named xs:token/xs:NMTOKEN particles for named global complex types. It
 // also admits built-in/named/inline xs:negativeInteger and built-in or supported
-// named-effective xs:int/xs:short/xs:unsignedLong/xs:nonNegativeInteger particles in
+// named-effective xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger particles in
 // supported attribute-free extension choices and sequences under every policy; they
 // remain query-only and consumer-rejected. Direct and supported extension
 // choices/sequences retain exact finite, unbounded, and above-uint64 occurrences;
@@ -88,14 +88,14 @@
 // supported named nonNegativeInteger particles are also admitted. Direct built-in,
 // named-effective, and anonymous-inline negativeInteger forms are admitted as query
 // facts, but ValidateInstance and GenerateGo reject those consumers. Effective
-// long, byte, and nonPositiveInteger, plus inline/anonymous
-// int/short/unsignedLong/nonNegativeInteger, are excluded when mapped non-0/0: ParseSchema returns a located
+// long and nonPositiveInteger, plus inline/anonymous
+// int/short/byte/unsignedLong/nonNegativeInteger, are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
 // exclusions use the nested-particle Loc. Ordinary 0/0 is admitted after
 // applicable gates and remains absent.
-// Inline/anonymous int/short/unsignedLong/nonNegativeInteger are mapped schema exclusions at their
-// type/simpleType Loc; built-in and named-effective int/short/unsignedLong/nonNegativeInteger are admitted
+// Inline/anonymous int/short/byte/unsignedLong/nonNegativeInteger are mapped schema exclusions at their
+// type/simpleType Loc; built-in and named-effective int/short/byte/unsignedLong/nonNegativeInteger are admitted
 // query-only forms. The written base QName/base Loc, use-site/type/facet Locs,
 // named ID versus built-in zero identity, ownership, and resolved facts remain
 // separate. Built-in int retains intrinsic inclusive bounds
@@ -301,7 +301,7 @@
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
 // and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
-// remain explicit unsupported behavior. Local int/short/unsignedLong/nonNegativeInteger/negativeInteger particles are
+// remain explicit unsupported behavior. Local int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger particles are
 // query-only and remain explicit unsupported behavior in both consumers.
 // Reference consumers exclude precisionDecimal and anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
@@ -421,7 +421,7 @@
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
 // all-Boolean/numeric direct choices and default-bounded direct sequences. Local
-// int/short/unsignedLong/nonNegativeInteger/negativeInteger, anonymous, and token/NMTOKEN consumers, repeated/non-default
+// int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, anonymous, and token/NMTOKEN consumers, repeated/non-default
 // particles, and anonymous targets remain unsupported; numeric integer/decimal
 // mixtures remain supported.
 package goxsd9
