@@ -43,9 +43,7 @@ edition-specific `all` restrictions follow.
 | `unbounded` in `minOccurs` or another attribute | Invalid lexical/value for that attribute; only a maximum may use the keyword. | Same as XSD 1.0. |
 
 Finite comparison enforces `min <= max`; unbounded maxima bypass numeric
-sentinels. At `0/0`, defer unsupported inline syntax until its base and supported
-facets resolve. Invalid, unresolved, and policy causes prevent a schema;
-resolved unsupported forms may omit.
+sentinels.
 
 ### Edition-specific `all` restrictions
 

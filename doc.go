@@ -391,15 +391,8 @@
 // global built-in/named Boolean, integer, or decimal targets are also
 // generation-eligible. Global attribute declarations remain query-only,
 // inline-attribute consumers remain excluded, and GenerateGo rejects every
-// ComponentKindAttributeDeclaration. Mapped non-0/0 local inline and
-// anonymous `nonNegativeInteger` forms are rejected during
-// schema construction with no schema. Explicit built-in and supported named local
-// particles are queryable and rejected by both consumers. Exact local declared,
-// named, inline, and anonymous `0/0` forms are admitted then absent only when
-// applicable syntax, reference, inline-semantic, and selected-policy gates pass;
-// resolved FailureUnsupported diagnostics may be omitted at
-// `0/0`; invalid, resolution, value-constraint, and policy failures prevent a
-// Schema. Retained `nonNegativeInteger` particles remain consumer-excluded.
+// ComponentKindAttributeDeclaration. GenerateGo also rejects retained local
+// `nonNegativeInteger` particles.
 // References to global `nonNegativeInteger` remain queryable
 // without target gating; direct-choice and sequence consumers reject them with
 // located unsupported diagnostics and nil GenerateGo output. Consumer-only
