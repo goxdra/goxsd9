@@ -53,7 +53,9 @@
 // xs:negativeInteger, explicitly typed built-in or supported named
 // xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger, and explicitly typed
 // built-in or supported named xs:token/xs:NMTOKEN particles for named global and
-// global inline complex types. Inline complexes retain anonymous IDs and query facts
+// global inline complex types, and atomic xs:string particles for named global
+// complex types, global element inline complex types, and supported bounded
+// attribute-free extensions. Inline complexes retain anonymous IDs and query facts
 // outside the global walk; their consumers reject. The model also admits
 // built-in/named/inline xs:negativeInteger and built-in or supported named-effective
 // xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger particles in
@@ -328,7 +330,10 @@
 // their GenerateGo consumers remain unsupported. Global string roots normalize
 // instance text with effective whiteSpace, then compare enumeration values
 // interpreted by each declaration's base type; violations retain text and
-// related schema locations. Local string particles, lists/unions,
+// related schema locations. Local atomic string particles retain their written
+// QName, resolved named identity, immutable type/facet facts, locations, and exact
+// occurrences in direct choices, sequences, and supported bounded extensions, but
+// remain unsupported to consumers. Lists/unions,
 // broader particles, and other semantics remain explicit unsupported behavior.
 // Supported global attribute declarations are a separate query-only capability.
 // Type admission under
@@ -434,7 +439,7 @@
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
 // all-Boolean/numeric direct choices and default-bounded direct sequences. Local
-// int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, anonymous, and token/NMTOKEN consumers, repeated/non-default
+// int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, string, anonymous, and token/NMTOKEN consumers, repeated/non-default
 // particles, and anonymous targets remain unsupported; numeric integer/decimal
 // mixtures remain supported.
 package goxsd9

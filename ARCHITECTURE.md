@@ -98,12 +98,13 @@ works Compatibility/Strict11 and mismatches Strict10; named groups retain ordere
 Global inline complexes expose anonymous IDs and ordered sequence/ref/use outside walks;
 consumers reject them. Scalar simpleContent admits string/Boolean/integer/decimal, plus
 policy-gated `precisionDecimal`; targets retain nil particles.
-Compatibility/Strict11 query-admit nonzero direct `precisionDecimal` sequences and
-non-extension list/union sequence links; consumers reject them. `precisionDecimal`
-element refs retain resolved targets and exact occurrences, including repeated
-sequence refs to global inline restrictions; consumers reject them. Nonzero local
-inline `precisionDecimal` remains unsupported.
-Homogeneous token/NMTOKEN sequences retain exact occurrences. Bounded describes derivation/base.
+Compatibility/Strict11 query-admit nonzero direct `precisionDecimal` sequences,
+non-extension list/union links; repeated refs to inline restrictions retain resolved
+targets/exact occurrences; consumers reject. Nonzero local inline
+`precisionDecimal` remains unsupported.
+Token/NMTOKEN sequences retain exact occurrences; local `xs:string` particles
+and named restrictions retain type/facet facts, locations, exact
+direct-choice/sequence/bounded-extension occurrences; consumers reject. Bounded describes derivation/base.
 
 ## Datatypes
 
@@ -142,11 +143,11 @@ direct-choice/sequence consumers reject, and inline/anonymous element/type forms
 query-only/rejected. Global `int`/`long`/`short`/`byte`/`unsignedLong` element/type facts query-only; validation/
 `GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies built-in/named
 long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger bounds; built-in negativeInteger maxInclusive=-1 at type `Loc`; named restrictions retain effective facet locations/provenance.
-Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
+Local string/token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to
 default-occurrence Boolean/integer/decimal choices/sequences; `int`, `short`, `byte`, `unsignedLong`, `nonNegativeInteger`, `negativeInteger`, `precisionDecimal`,
-token/NMTOKEN, anonymous, repeated, non-default forms excluded.
+string/token/NMTOKEN, anonymous, repeated, non-default forms excluded.
 
 ## Conformance
 
