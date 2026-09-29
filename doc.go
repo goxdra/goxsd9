@@ -232,8 +232,9 @@
 // consumer gates use the group RefLoc and reject them. Grouped extensions add
 // one opaque direct group reference and ordered local AttributeUse facts over a
 // supported named empty base. They resolve the group before the uses and base;
-// effective 0/0 omits the group but retains the base and uses. Consumers reject
-// at the first effective use Loc, or the present group RefLoc when uses are absent.
+// effective 0/0 omits the group, and prohibited uses may leave no effective uses.
+// Consumers reject at the first effective use Loc, then a present group RefLoc,
+// or the extension Loc when both are absent.
 // Nested, local, recursive, and broader group-reference shapes remain unsupported.
 // Default-bounded sequences of supported built-in/named integer/decimal or
 // all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
