@@ -296,23 +296,7 @@
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or, in
 // non-extension direct choices, default-occurrence references to global Boolean,
-// integer, or decimal elements. Local scalar consumers accept
-// built-in or named references only: direct choice/sequence checks reject modeled
-// anonymous local inline atomic references with located
-// FailureUnsupported/ErrUnsupported diagnostics that may include the anonymous
-// type location in related facts. Non-model-group-reference extension checks run
-// first at the extension boundary, retain complex-content/extension/base/particle
-// (and anyAttribute when present) related locations, and do not include the
-// anonymous type location; validation also retains declaration/definition owner
-// locations and keeps the instance-root primary for sequences, while GenerateGo
-// rejects them with the same classification and no output. Direct model-group-
-// reference bodies with AttributeUse facts hit the AttributeUse consumer gates
-// first: the first use's Loc is primary, with declaration/definition and
-// AttributeUse locations related. Attribute-free direct and extension
-// model-group-reference checks use the group reference RefLoc as validation and
-// generation primary; validation retains the group particle and supplied
-// extension context in related facts, and generation retains
-// group/component/reference/target related locations.
+// integer, or decimal elements.
 // Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,

@@ -97,11 +97,13 @@ works Compatibility/Strict11 and mismatches Strict10; named groups retain ordere
 Global inline complexes expose anonymous IDs and ordered sequence/ref/use outside walks;
 consumers reject them. Scalar simpleContent admits string/Boolean/integer/decimal, plus
 policy-gated `precisionDecimal`; targets retain nil particles.
-Direct `precisionDecimal` sequences and non-extension list/union sequence links are query-only.
-`precisionDecimal` refs require default-occurrence direct or bounded extension choices; nonzero
-sequences, inline targets, and non-default choices remain unsupported. Mapped nonzero local
-inline `precisionDecimal` remains unsupported. Homogeneous token/NMTOKEN sequences retain
-exact occurrences under all policies; consumers remain limited. Bounded describes derivation/base.
+Compatibility/Strict11 query-admit nonzero direct `precisionDecimal` sequences and
+non-extension list/union sequence links; consumers reject them. `precisionDecimal`
+element refs require default-occurrence direct or bounded
+extension choices; nonzero reference sequences, inline targets, and non-default choices
+are unsupported. Nonzero local inline `precisionDecimal` remains unsupported.
+Homogeneous token/NMTOKEN sequences retain
+exact occurrences; consumers remain limited. Bounded describes derivation/base.
 
 ## Datatypes
 

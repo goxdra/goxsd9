@@ -11,14 +11,9 @@ global `complexType` whose
 `<group ref="...">` particle, and one or more ordered direct local
 `<attribute>` uses from [#317](https://github.com/goxdra/goxsd9/issues/317).
 The extension body may contain its optional annotation. The model child is
-the group reference; local attributes follow it in lexical order. A bounded
-group-only extension currently parses. A structurally admitted attribute-only
-extension fails `XSD3003` at its local attribute. With otherwise valid bounded
-input, the combined shape fails before that attribute at the first
-unsupported group attribute in XML order: `ref` when it precedes occurrence
-attributes, or `minOccurs` when written first, including `0/2` and `0/0`.
-Malformed attributes retain invalid diagnostics when reached. No failing parse
-returns a schema; the extension input carries particles but no local uses.
+the group reference; local attributes follow it in lexical order. Currently,
+bounded group-only extensions parse; attribute-only and combined group-plus-use
+extensions return located `XSD3003`/`ErrUnsupported` and no schema.
 
 The future group particle must remain opaque and preserve its expanded written
 QName, `ref` and use-site locations, exact occurrence range, and target
@@ -158,19 +153,7 @@ or attribute-group recursion because target members remain opaque.
 
 ## Classification and sibling-axis matrix
 
-Synthetic bounded group-only extensions parse at default, `0/2`, and `0/0`
-occurrences. A structurally admitted attribute-only extension returns
-`FeatureSchemaSyntax`/`FailureUnsupported`/`XSD3003` at the attribute, with an
-edition-specific structures `SpecRef` ending in
-`#element-complexContent..extension`. Combined group-plus-use input returns
-the same class/code before reaching the attribute, at the first unsupported
-group attribute in XML order: `ref` in the default/ref-first probes, `minOccurs` in the
-min-first `0/2` and `0/0` probes. Its `SpecRef` ends in
-`#cos-particle-extend`; `0/0` does not bypass this gate. Both failures retain
-`ErrUnsupported` and return no schema. Separately, the pinned sequence-plus-
-attribute bootstrap probe stops at its attribute with `#cos-ct-extends`.
-Malformed syntax and prerequisite graph errors retain their existing
-precedence. The matrix specifies future combined admission.
+The matrix defines future admission and diagnostics.
 
 | Axis | Proposed admitted shape | Invalid after admission | Resolution failure | Explicit unsupported | N/A |
 | --- | --- | --- | --- | --- | --- |

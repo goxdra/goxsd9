@@ -139,9 +139,9 @@ input and materialization. Current admission and consumer limits are recorded in
 the [architecture](../../ARCHITECTURE.md#schema-model) and
 [package contract](../../doc.go).
 
-Risks: lexical memory use, accessor breakage, and publishing `0/0`
-as a zero component. Range/ownership/mapping tests guard the latter two;
-resource policy guards memory use.
+Risks: unbounded lexical memory use during parsing, accessor breakage, and
+publishing `0/0` as a zero component. Range/ownership/mapping tests guard the
+latter two; a resource policy for lexical input remains future work.
 
 Exact occurrence accessors and temporary `uint64` methods belong to the schema
 API. Mapping, including `0/0` absence, belongs to construction; bounded
