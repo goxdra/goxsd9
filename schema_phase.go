@@ -2973,7 +2973,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 		return diagnostic
 	}
 	if err := validateUniqueSchemaAttributes(element, "base", "id"); err != nil {
-		return schemaCompositionWithSpecRef(err, extensionSpecRef)
+		return schemaInvalidWithSpecRef(err, extensionSpecRef)
 	}
 	baseAttributes := syntaxAttributesByLocal(element, "base")
 	if len(baseAttributes) == 0 {
@@ -2998,7 +2998,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 		return compositionDiagnostic(element.loc, element.name.local+" requires a base attribute")
 	}
 	if err := validateConditionalQNameForSchema(element, baseAttributes[0]); err != nil {
-		return err
+		return schemaInvalidWithSpecRef(err, extensionSpecRef)
 	}
 	enforceNonNegativeScale := directOrdinaryBuiltinScaleBase(element)
 	for _, attribute := range element.attrs {
@@ -3023,7 +3023,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	}
 	children, err := collectSimpleTypeChildren(element, element.name.local, &candidate)
 	if err != nil {
-		return schemaCompositionWithSpecRef(err, extensionSpecRef)
+		return schemaInvalidWithSpecRef(err, extensionSpecRef)
 	}
 	annotationSeen := false
 	contentSeen := false
@@ -3103,7 +3103,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			modelSeen = true
 			particleErr := versionNamedModelGroupUnsupported(validateUnsupportedModelParticle(child, version), version)
 			if complexContent && element.name.local == "extension" && child.name.local == "group" {
-				particleErr = schemaCompositionWithSpecRef(validateSupportedGroupParticle(child, version), schemaGroupParticleSpecRef(version))
+				particleErr = schemaInvalidWithSpecRef(validateSupportedGroupParticle(child, version), schemaGroupParticleSpecRef(version))
 			}
 			if complexContent && element.name.local == "extension" && child.name.local == "sequence" {
 				particleErr = validateSupportedSequenceParticle(child, version)
@@ -3142,7 +3142,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				childErr = validateAttributeGroupReference(child)
 			}
 			if child.name.local == "attribute" && groupExtension {
-				childErr = schemaCompositionWithSpecRef(childErr, schemaAttributeUseSpecRef(version))
+				childErr = schemaInvalidWithSpecRef(childErr, schemaAttributeUseSpecRef(version))
 			}
 			if child.name.local == "attribute" && complexContent && childErr == nil && !groupExtension {
 				childErr = newSchemaSyntaxUnsupported(child.loc, "local attribute declarations are not implemented")

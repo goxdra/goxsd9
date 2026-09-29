@@ -234,6 +234,71 @@ func TestGroupedExtensionStructuralGrammarSpecRefs(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep paired policy and QName diagnostics in one matrix.
+func TestGroupedExtensionQNameSpecRefs(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+		edition string
+	}{
+		{"compatibility10", Compatibility, "1.0", "xsd11-structures"},
+		{"compatibility11", Compatibility, "1.1", "xsd11-structures"},
+		{"strict10-label10", Strict10, "1.0", "xsd10-structures"},
+		{"strict10-label11", Strict10, "1.1", "xsd10-structures"},
+		{"strict11-label10", Strict11, "1.0", "xsd11-structures"},
+		{"strict11-label11", Strict11, "1.1", "xsd11-structures"},
+	}
+	declaration := `<xs:attribute name="flag" type="xs:boolean"/>`
+	targets := []struct {
+		name      string
+		attribute string
+		key       string
+		original  string
+		spec      string
+	}{
+		{"base", declaration, "base", "t:Base", "#element-complexContent..extension"},
+		{"group ref", declaration, "ref", "t:Fields", "#element-group"},
+		{"local attribute ref", `<xs:attribute ref="t:global"/>`, "ref", "t:global", "#AU_details"},
+		{"local attribute type", declaration, "type", "xs:boolean", "#AU_details"},
+	}
+	values := []struct {
+		name  string
+		value string
+		code  string
+	}{
+		{"malformed", "t:bad:name", invalidSchemaConditionalCode},
+		{"unbound", "bad:Name", invalidSchemaConditionalCode},
+		{"empty", "", invalidSchemaCompositionCode},
+	}
+	for _, profile := range profiles {
+		for _, target := range targets {
+			for _, value := range values {
+				t.Run(profile.name+"/"+target.name+"/"+value.name, func(t *testing.T) {
+					root := groupedExtensionSchema(profile.version, "", target.attribute)
+					original := target.key + `="` + target.original + `"`
+					marker := target.key + `="` + value.value + `"`
+					if strings.Count(root, original) != 1 {
+						t.Fatalf("expected one %q in fixture", original)
+					}
+					root = strings.Replace(root, original, marker, 1)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err == nil {
+						t.Fatal("invalid grouped extension QName was accepted")
+					}
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					wantLoc := complexContentTestLoc(t, root, marker)
+					wantSpecRef := profile.edition + target.spec
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != value.code || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != wantSpecRef || len(diagnostic.Related()) != 0 || diagnostic.Unwrap() != nil {
+						t.Fatalf("diagnostic = %v, want %s at %s with %s, no related locations, and no cause", err, value.code, wantLoc, wantSpecRef)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestGroupedExtensionResolvesChameleonAndImportedGraph(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" xmlns:a="urn:attributes" targetNamespace="urn:root">
   <xs:include schemaLocation="shared.xsd"/><xs:include schemaLocation="again.xsd"/><xs:import namespace="urn:attributes" schemaLocation="attributes.xsd"/>

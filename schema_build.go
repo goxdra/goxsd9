@@ -10248,12 +10248,15 @@ func newSchemaCompositionDiagnostic(loc Loc, message string) Diagnostic {
 	return newDiagnostic(FailureInvalid, invalidSchemaCompositionCode, loc, message, nil)
 }
 
-func schemaCompositionWithSpecRef(err error, specRef string) error {
+func schemaInvalidWithSpecRef(err error, specRef string) error {
 	if err == nil || specRef == "" {
 		return err
 	}
 	var diagnostic Diagnostic
-	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.SpecRef() != "" {
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureInvalid || diagnostic.SpecRef() != "" {
+		return err
+	}
+	if diagnostic.Code() != invalidSchemaCompositionCode && diagnostic.Code() != invalidSchemaConditionalCode {
 		return err
 	}
 	diagnostic.specRef = specRef
