@@ -398,9 +398,12 @@
 // ComponentKindAttributeDeclaration. Mapped non-0/0 local inline and
 // anonymous `nonNegativeInteger` forms are rejected during
 // schema construction with no schema. Explicit built-in and supported named local
-// particles are queryable and rejected by both consumers. Exact local declared, named, inline, and
-// anonymous `0/0` forms are admitted then absent
-// under every policy. References to global `nonNegativeInteger` remain queryable
+// particles are queryable and rejected by both consumers. Exact local declared,
+// named, inline, and anonymous `0/0` forms are admitted then absent only when
+// applicable syntax, reference, inline-semantic, and selected-policy gates pass;
+// schema exclusions still fail, and retained `nonNegativeInteger` particles
+// remain consumer-excluded.
+// References to global `nonNegativeInteger` remain queryable
 // without target gating; direct-choice and sequence consumers reject them with
 // located unsupported diagnostics and nil GenerateGo output. Consumer-only
 // exclusions for admitted global `nonNegativeInteger` references include
