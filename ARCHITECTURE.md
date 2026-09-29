@@ -71,13 +71,21 @@ Sequences resolve children before owner omission; choices resolve refs
 without duplicate checks before omission; named groups resolve/check before owner/child
 omission; child refs resolve first.
 Element/model-group references retain QName/RefLoc/TargetID/order without expansion;
-nested/local/recursive/broader forms are unsupported or consumer-excluded. Mapped non-`0/0` local inline/anonymous `long`/`int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger` forms are schema-unsupported at `type`/`simpleType` `Loc`; applicable `0/0` forms omit after gates. Global direct/named/inline `byte` element/type refs are queryable. Byte attributes admit built-in/named refs, excluding values. Built-in/named-effective integer-derived particles are query-only; `AttributeUse` and simpleContent exclude them. `negativeInteger` consumers return `FailureUnsupported`. Built-in `long` retains intrinsic bounds/no synthetic ID; named effective-long retains type identity, facet provenance, QName, occurrences, and lexical order.
-AttributeUse preserves order, locations, ownership, use, and QName/RefLoc/TargetID
-across particle, group, attribute-only, and simpleContent owners. Local uses retain
-name/type/use locations and `AnonymousID`/`NodeID`; references retain
-QName/RefLoc/TargetID/use. Forms select names; XSD 1.1 `targetNamespace` must match the container;
-chameleon adopts; prohibited uses omit. Value/default/fixed/inheritable semantics,
-attributeGroup and attribute-bearing extensions, and consumers are unsupported; excluded refs retain locations.
+nested/local/recursive/broader forms remain unsupported or consumer-excluded. Mapped non-`0/0`
+local inline/anonymous `long`/`int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger`
+forms fail at type/simpleType `Loc`; applicable `0/0` forms omit after gates.
+Built-in/named-effective integer-derived particles are query-only; local `AttributeUse`
+and simpleContent exclude them. `negativeInteger` consumers return `FailureUnsupported`.
+Built-in `long` retains intrinsic bounds/no synthetic ID; named effective-long retains
+type identity, facet provenance, QName, occurrences, and lexical order.
+AttributeUse facts preserve order, locations, ownership, effective use, and QName/RefLoc/TargetID
+in particle-plus-use, model-group, grouped-extension, attribute-only, and simpleContent.
+Grouped extensions resolve group, uses, then named empty base; `0/0` omits group.
+Local uses retain name/type/use locations and named/anonymous `AnonymousID`/`NodeID`;
+references retain QName/RefLoc/TargetID/use. Forms select names; XSD 1.1
+`targetNamespace` must match the container; chameleon adopts; prohibited uses omit.
+Value/default/fixed/inheritable semantics, attributeGroup/broader attribute-bearing
+extensions, and consumers are unsupported; excluded refs retain locations; no schema.
 Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
 Default/fixed: Boolean/integer/decimal/token/negativeInteger/long/short (built-in/named, all policies),
@@ -116,8 +124,8 @@ unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without
 only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, other
 forms remain queryable but excluded. Global `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
-refs are top-level direct query only; broader forms reject. AttributeUse and simpleContent facts are
-query-only; validation and `GenerateGo` reject those consumers with their retained locations.
+refs query in direct complex-type bodies and supported grouped extensions; nested/broader forms reject.
+AttributeUse and simpleContent facts are query-only; validation and `GenerateGo` reject consumers.
 
 Generation: named Boolean/integer/decimal/string/token/NMTOKEN components; global elements using
 those built-in/named types; inline global string/token/NMTOKEN elements; global/named-typed
