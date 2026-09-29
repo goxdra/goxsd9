@@ -217,6 +217,35 @@ func (reference SimpleTypeReference) VarietyLoc() Loc {
 	return reference.facts.varietyLoc
 }
 
+// IntegerBounds returns copied effective ordered integer bounds for an atomic
+// integer reference, including a built-in reference with no component identity.
+func (reference SimpleTypeReference) IntegerBounds() (IntegerBoundFacets, bool) {
+	if reference.facts == nil || reference.facts.variety != SimpleTypeVarietyAtomicRestriction {
+		return IntegerBoundFacets{}, false
+	}
+	var bounds IntegerBoundFacets
+	switch facets := reference.facts.facets.(type) {
+	case schemaDigitFacetVariant:
+		if facets.value.Kind() != DigitDatatypeInteger {
+			return IntegerBoundFacets{}, false
+		}
+		bounds = facets.integerBounds
+	case schemaIntegerFacetVariant:
+		bounds = facets.bounds
+	default:
+		return IntegerBoundFacets{}, false
+	}
+	return copyIntegerBoundFacets(bounds), true
+}
+
+func copyIntegerBoundFacets(bounds IntegerBoundFacets) IntegerBoundFacets {
+	return IntegerBoundFacets{
+		version: bounds.version,
+		lower:   cloneIntegerBoundEndpoint(bounds.lower),
+		upper:   cloneIntegerBoundEndpoint(bounds.upper),
+	}
+}
+
 // ComponentID returns the schema component identity of a named reference.
 // Built-ins and anonymous references do not have component identities.
 func (reference SimpleTypeReference) ComponentID() (ComponentID, bool) {
@@ -950,7 +979,7 @@ func (definition SimpleTypeDefinition) StringWhiteSpaceFacet() (StringWhiteSpace
 	return *cloneStringWhiteSpaceFacet(facets.whiteSpace), true
 }
 
-// IntegerBounds returns the effective ordered integer bounds and their
+// IntegerBounds returns copied effective ordered integer bounds and their
 // presence for an integer restriction.
 func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool) {
 	if definition.facts == nil {
@@ -961,9 +990,9 @@ func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool
 		if facets.value.Kind() != DigitDatatypeInteger {
 			return IntegerBoundFacets{}, false
 		}
-		return facets.integerBounds, true
+		return copyIntegerBoundFacets(facets.integerBounds), true
 	case schemaIntegerFacetVariant:
-		return facets.bounds, true
+		return copyIntegerBoundFacets(facets.bounds), true
 	default:
 		return IntegerBoundFacets{}, false
 	}
@@ -2063,10 +2092,13 @@ const (
 	WildcardNamespaceConstraintAny WildcardNamespaceConstraintVariety = "any"
 	// WildcardNamespaceConstraintEnumeration identifies a positive namespace set.
 	WildcardNamespaceConstraintEnumeration WildcardNamespaceConstraintVariety = "enumeration"
+	// WildcardNamespaceConstraintNot identifies a negative namespace set.
+	WildcardNamespaceConstraintNot WildcardNamespaceConstraintVariety = "not"
 )
 
 // WildcardNamespaceConstraint is an immutable effective namespace constraint.
-// Namespaces contains absent as the empty string.
+// Namespaces contains the included names for enumeration or the excluded names
+// for not. An absent namespace is represented by the empty string.
 type WildcardNamespaceConstraint struct {
 	variety    WildcardNamespaceConstraintVariety
 	namespaces []string
@@ -2079,21 +2111,21 @@ func (constraint WildcardNamespaceConstraint) Variety() WildcardNamespaceConstra
 	return constraint.variety
 }
 
-// Namespaces returns the sorted, unique effective namespace names. The empty
-// string represents an absent namespace.
+// Namespaces returns sorted, unique effective namespace names. The names are
+// exclusions for the not variety. The empty string represents absence.
 func (constraint WildcardNamespaceConstraint) Namespaces() []string {
 	return append([]string(nil), constraint.namespaces...)
 }
 
-// LexicalForm returns the normalized namespace attribute value.
+// LexicalForm returns the normalized namespace or notNamespace attribute value.
 func (constraint WildcardNamespaceConstraint) LexicalForm() string { return constraint.lexical }
 
-// Loc returns the namespace attribute location.
+// Loc returns the namespace or notNamespace attribute location.
 func (constraint WildcardNamespaceConstraint) Loc() Loc { return constraint.loc }
 
 // WildcardParticle is a direct element wildcard particle. Its supported
-// effective facts include ##any and ##other namespace constraints, as well as
-// positive namespace enumerations with strict, lax, or explicit skip processContents.
+// effective facts include ##any, ##other, positive namespace enumerations,
+// and strict, lax, or skip negative namespace sets.
 type WildcardParticle struct {
 	facts *schemaWildcardParticle
 }
@@ -2138,7 +2170,7 @@ func (particle WildcardParticle) MaxOccurs() uint64 {
 	return 1
 }
 
-// Namespace returns the effective wildcard namespace constraint.
+// Namespace returns the normalized namespace or notNamespace lexical form.
 func (particle WildcardParticle) Namespace() string {
 	if particle.facts == nil {
 		return ""
@@ -2159,8 +2191,8 @@ func (particle WildcardParticle) NamespaceConstraint() WildcardNamespaceConstrai
 	}
 }
 
-// NamespaceLoc returns the location of an explicit namespace attribute. It is
-// zero when the namespace attribute is omitted.
+// NamespaceLoc returns the location of an explicit namespace or notNamespace
+// attribute. It is zero when both are omitted.
 func (particle WildcardParticle) NamespaceLoc() Loc {
 	if particle.facts == nil {
 		return Loc{}

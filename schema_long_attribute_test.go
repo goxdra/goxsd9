@@ -511,56 +511,6 @@ func zeroLongGlobalAttributeBound(t *testing.T, bounds IntegerBoundFacets, name 
 	_ = value.value.SetInt64(0)
 }
 
-//nolint:gocognit // Keep the cross-policy value-constraint boundary together.
-func TestSchemaLongGlobalAttributeValueConstraintsRemainUnsupported(t *testing.T) {
-	for _, profile := range longPolicyProfiles() {
-		for _, typeCase := range []struct {
-			name       string
-			prefix     string
-			declared   string
-			definition string
-		}{
-			{
-				name:     "built-in",
-				prefix:   `<xs:schema xmlns:xs="` + testXSDNamespace + `"`,
-				declared: "xs:long",
-			},
-			{
-				name:       "named",
-				prefix:     `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"`,
-				declared:   "r:NamedLong",
-				definition: `<xs:simpleType name="NamedLong"><xs:restriction base="xs:long"/></xs:simpleType>`,
-			},
-		} {
-			for _, kind := range []string{"default", "fixed"} {
-				t.Run(profile.name+"/"+typeCase.name+"/"+kind, func(t *testing.T) {
-					root := typeCase.prefix + ` version="` + string(profile.version) + `"><xs:attribute name="value" type="` + typeCase.declared + `" ` + kind + `="1"/>` + typeCase.definition + `</xs:schema>`
-					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-					if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
-						t.Fatal("long attribute value constraint was accepted or returned a partial schema")
-					}
-					diagnostic := requireDiagnostic(t, err)
-					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
-						t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Code(), diagnostic.Feature())
-					}
-					if diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, kind+"=") {
-						t.Fatalf("diagnostic location = %s, want %s value location", diagnostic.Loc(), kind)
-					}
-					if diagnostic.SpecRef() != schemaAttributeValueConstraintSpecRef(profile.version) {
-						t.Fatalf("diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), schemaAttributeValueConstraintSpecRef(profile.version))
-					}
-					if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaAttributeValueConstraintUnsupported) {
-						t.Fatalf("diagnostic lost value-constraint unsupported cause: %v", err)
-					}
-					if errors.Is(err, errSchemaAttributeTypeUnsupported) {
-						t.Fatalf("long type was rejected before the value-constraint boundary: %v", err)
-					}
-				})
-			}
-		}
-	}
-}
-
 //nolint:gocognit // Keep the generation and validation consumer boundaries together.
 func TestSchemaLongGlobalAttributeConsumersRemainUnsupported(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
@@ -637,11 +587,8 @@ func TestSchemaLongGlobalAttributeExcludedFamiliesRemainUnsupported(t *testing.T
 			root string
 			loc  string
 		}{
-			{name: "int", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:int"/></xs:schema>`, loc: "type="},
 			{name: "nonNegativeInteger", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:nonNegativeInteger"/></xs:schema>`, loc: "type="},
 			{name: "nonPositiveInteger", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:nonPositiveInteger"/></xs:schema>`, loc: "type="},
-			{name: "short", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:short"/></xs:schema>`, loc: "type="},
-			{name: "byte", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:byte"/></xs:schema>`, loc: "type="},
 			{name: "list", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="value" type="r:LongList"/><xs:simpleType name="LongList"><xs:list itemType="xs:long"/></xs:simpleType></xs:schema>`, loc: `type="r:LongList"`},
 			{name: "union", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="value" type="r:LongUnion"/><xs:simpleType name="LongUnion"><xs:union memberTypes="xs:long"/></xs:simpleType></xs:schema>`, loc: `type="r:LongUnion"`},
 			{name: "inline", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:attribute></xs:schema>`, loc: "<xs:simpleType>"},

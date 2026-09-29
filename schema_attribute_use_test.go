@@ -671,6 +671,45 @@ func TestSchemaBridgeReframesInlineLocalAttributePrecisionDecimal(t *testing.T) 
 	}
 }
 
+func TestSchemaBridgeReframesInlineLocalAttributePrecisionDecimalInGlobalAnonymousComplex(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root">
+  <xs:element name="record"><xs:complexType><xs:attribute name="value">
+    <xs:simpleType><xs:restriction base="xs:precisionDecimal"/></xs:simpleType>
+  </xs:attribute></xs:complexType></xs:element>
+</xs:schema>`
+	inlineLoc := elementReferenceTestAttributeLoc(t, root, "<xs:simpleType>")
+	baseLoc := elementReferenceTestAttributeLoc(t, root, `base="xs:precisionDecimal"`)
+
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+	if err == nil {
+		t.Fatal("Strict10 accepted an inline precisionDecimal attribute in a global anonymous complex type")
+	}
+	assertZeroSchema(t, schema)
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticSchemaPrecisionDecimalVersionCode || diagnostic.Feature() != FeatureDatatypeFacets {
+		t.Fatalf("diagnostic = %s/%q/%q, want precisionDecimal policy diagnostic", diagnostic, diagnostic.Code(), diagnostic.Feature())
+	}
+	if diagnostic.Loc() != inlineLoc || !reflect.DeepEqual(diagnostic.Related(), []Loc{baseLoc}) {
+		t.Fatalf("diagnostic location/related = %s/%v, want %s/[%s]", diagnostic.Loc(), diagnostic.Related(), inlineLoc, baseLoc)
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaPrecisionDecimalVersion) || !errors.Is(err, errLanguagePolicyMismatch) {
+		t.Fatalf("diagnostic lost precisionDecimal policy causes: %v", err)
+	}
+
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+			definition, ok := auxiliaryElement(t, schema, "record").InlineComplexType()
+			if !ok || len(definition.AttributeUses()) != 1 {
+				t.Fatalf("anonymous complex type/attribute uses = %v/%v", ok, definition.AttributeUses())
+			}
+		})
+	}
+}
+
 func TestSchemaBridgeReframesInlineLocalAttributeTypeCycle(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">
   <xs:simpleType name="First"><xs:restriction base="r:Second"/></xs:simpleType>

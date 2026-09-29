@@ -523,9 +523,9 @@ func assertNonPositiveIntegerNoPartialSchema(t *testing.T, schema Schema, err er
 	}
 }
 
-func assertSchemaIntegerDerivedExcludedShapes(t *testing.T, policy LanguagePolicy, atomicName, defaultValue string) {
+func assertSchemaIntegerDerivedExcludedShapes(t *testing.T, policy LanguagePolicy, atomicName, defaultValue string, excludeAttributeConstraint bool) {
 	t.Helper()
-	for _, test := range []struct {
+	tests := []struct {
 		name string
 		root string
 	}{
@@ -537,11 +537,17 @@ func assertSchemaIntegerDerivedExcludedShapes(t *testing.T, policy LanguagePolic
 			name: "local named particle",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:simpleType name="Alias"><xs:restriction base="xs:` + atomicName + `"/></xs:simpleType><xs:complexType name="Root"><xs:sequence><xs:element name="item" type="t:Alias"/></xs:sequence></xs:complexType></xs:schema>`,
 		},
-		{
+	}
+	if excludeAttributeConstraint {
+		tests = append(tests, struct {
+			name string
+			root string
+		}{
 			name: "attribute value constraint",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:` + atomicName + `" default="` + defaultValue + `"/></xs:schema>`,
-		},
-	} {
+		})
+	}
+	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, policy)
 			if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
@@ -571,7 +577,7 @@ func assertSchemaIntegerDerivedGlobalAttributeExcluded(t *testing.T, policy Lang
 func TestSchemaNonPositiveIntegerExcludedShapesRemainUnsupported(t *testing.T) {
 	for _, profile := range nonPositiveIntegerPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
-			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "nonPositiveInteger", "0")
+			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "nonPositiveInteger", "0", true)
 			assertSchemaIntegerDerivedGlobalAttributeExcluded(t, profile.policy, "nonPositiveInteger")
 		})
 	}

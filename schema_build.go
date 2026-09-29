@@ -2339,8 +2339,17 @@ func schemaWildcardNamespaceConstraintFromLexical(lexical string, loc Loc) schem
 	return constraint
 }
 
+func schemaWildcardNotNamespaceConstraintFromLexical(lexical string, loc Loc) schemaWildcardNamespaceConstraint {
+	return schemaWildcardNamespaceConstraint{
+		variety: WildcardNamespaceConstraintNot,
+		terms:   strings.Split(lexical, " "),
+		lexical: lexical,
+		loc:     loc,
+	}
+}
+
 func resolveSchemaWildcardNamespaceConstraint(constraint schemaWildcardNamespaceConstraint, ownerNamespace string) schemaWildcardNamespaceConstraint {
-	if constraint.variety != WildcardNamespaceConstraintEnumeration {
+	if constraint.variety != WildcardNamespaceConstraintEnumeration && constraint.variety != WildcardNamespaceConstraintNot {
 		return constraint
 	}
 	seen := make(map[string]struct{}, len(constraint.terms))
@@ -2499,12 +2508,20 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 		processContents = collapseXMLWhitespace(attributes[0].value)
 		processContentsLoc = attributes[0].loc
 	}
-	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 ||
-		len(syntaxAttributesByLocal(element, "notQName")) != 0 ||
-		!isSupportedDirectAnyParticleFacts(namespace, processContents) {
+	notNamespaceAttributes := syntaxAttributesByLocal(element, "notNamespace")
+	if len(notNamespaceAttributes) > 1 || len(syntaxAttributesByLocal(element, "notQName")) != 0 {
+		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
+	}
+	if len(notNamespaceAttributes) == 0 && !isSupportedDirectAnyParticleFacts(namespace, processContents) {
 		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
 	}
 	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc)
+	if len(notNamespaceAttributes) == 1 {
+		if processContents != "strict" && processContents != "lax" && processContents != "skip" || !namespaceLoc.IsZero() {
+			return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported negative wildcard constraints reached component construction")
+		}
+		constraint = schemaWildcardNotNamespaceConstraintFromLexical(collapseXMLWhitespace(notNamespaceAttributes[0].value), notNamespaceAttributes[0].loc)
+	}
 	return schemaWildcardParticleInput{
 		loc:                 element.loc,
 		occurrences:         occurrences,
@@ -3417,6 +3434,8 @@ const (
 	schemaSimpleTypeAtomicInteger
 	schemaSimpleTypeAtomicLong
 	schemaSimpleTypeAtomicInt
+	schemaSimpleTypeAtomicShort
+	schemaSimpleTypeAtomicByte
 	schemaSimpleTypeAtomicUnsignedLong
 	schemaSimpleTypeAtomicNegativeInteger
 	schemaSimpleTypeAtomicNonNegativeInteger
@@ -3443,6 +3462,8 @@ func schemaSimpleTypeAtomicKindIsUnsupported(kind schemaSimpleTypeAtomicKind) bo
 		schemaSimpleTypeAtomicInteger,
 		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicInt,
+		schemaSimpleTypeAtomicShort,
+		schemaSimpleTypeAtomicByte,
 		schemaSimpleTypeAtomicUnsignedLong,
 		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
@@ -3779,7 +3800,7 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		return true
 	}
 	switch reference.atomicKind {
-	case schemaSimpleTypeAtomicInteger:
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicShort:
 		switch facets := reference.facets.(type) {
 		case schemaDigitFacetVariant:
 			return facets.value.Kind() == DigitDatatypeInteger
@@ -3806,11 +3827,10 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicNMTOKEN,
-		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
-		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicInt,
+		schemaSimpleTypeAtomicByte,
 		schemaSimpleTypeAtomicUnsignedLong,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
@@ -3846,7 +3866,7 @@ func resolveSchemaAttributeValueConstraint(
 		return constraint, nil
 	}
 	switch reference.atomicKind {
-	case schemaSimpleTypeAtomicInteger:
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicShort:
 		value, err := ParseStrictInteger(input.lexical, input.loc)
 		if err != nil {
 			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
@@ -3875,11 +3895,10 @@ func resolveSchemaAttributeValueConstraint(
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicNMTOKEN,
-		schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
-		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicInt,
+		schemaSimpleTypeAtomicByte,
 		schemaSimpleTypeAtomicUnsignedLong,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
@@ -3989,14 +4008,14 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID, schemaSimpleTypeAtomicNegativeInteger,
-		schemaSimpleTypeAtomicPrecisionDecimal, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicUnsignedLong:
+		schemaSimpleTypeAtomicPrecisionDecimal, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt,
+		schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
-		schemaSimpleTypeAtomicNonPositiveInteger,
-		schemaSimpleTypeAtomicInt:
+		schemaSimpleTypeAtomicNonPositiveInteger:
 		return false
 	default:
 		return false
@@ -4226,20 +4245,18 @@ func reframeSchemaLocalPrecisionDecimal(records []schemaComponentRecord, byName 
 
 func schemaLocalPrecisionDecimalUse(records []schemaComponentRecord, byName map[QName][]int, precisionLoc Loc) (QName, Loc, []Loc, bool) {
 	for _, record := range records {
-		if record.complexType == nil {
-			continue
-		}
-		for _, input := range schemaComplexTypeAttributeUseInputs(record.complexType.body) {
+		body := record.complexTypeBody()
+		for _, input := range schemaComplexTypeAttributeUseInputs(body) {
 			name, typeLoc, graphLocations, matches := schemaPrecisionDecimalUseMatches(input.declaredType, input.typeLoc, input.reference, input.inlineSimple, records, byName, precisionLoc)
 			if matches {
 				return name, typeLoc, graphLocations, true
 			}
 		}
-		body, ok := record.complexType.body.(*schemaComplexTypeSimpleContentBodyInput)
-		if !ok || body == nil {
+		simpleContent, ok := body.(*schemaComplexTypeSimpleContentBodyInput)
+		if !ok || simpleContent == nil {
 			continue
 		}
-		name, typeLoc, graphLocations, matches := schemaPrecisionDecimalUseMatches(body.base.name, body.base.loc, nil, nil, records, byName, precisionLoc)
+		name, typeLoc, graphLocations, matches := schemaPrecisionDecimalUseMatches(simpleContent.base.name, simpleContent.base.loc, nil, nil, records, byName, precisionLoc)
 		if matches {
 			return name, typeLoc, graphLocations, true
 		}
@@ -5601,8 +5618,8 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 		if !builtinStringSchemaScalarTypeAllowedInScope(input.declaredType.Local(), scope) {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
-	case "integer", "decimal", "unsignedLong":
-	case "int", "long", "negativeInteger", "nonNegativeInteger", "nonPositiveInteger":
+	case "integer", "decimal", "int", "short", "byte", "unsignedLong", "nonNegativeInteger", "negativeInteger":
+	case "long", "nonPositiveInteger":
 		if scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
@@ -5685,12 +5702,12 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 		schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		break
-	case schemaSimpleTypeAtomicUnsignedLong:
+	case schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong, schemaSimpleTypeAtomicNonNegativeInteger:
 		if input.inlineSimpleType == nil {
 			break
 		}
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
-	case schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicNonNegativeInteger, schemaSimpleTypeAtomicNonPositiveInteger:
+	case schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicNonPositiveInteger:
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	}
 	if allowPrecisionDecimal {
@@ -6262,6 +6279,8 @@ func schemaLocalAttributeSimpleTypeSupported(reference schemaSimpleTypeReference
 		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInt,
+		schemaSimpleTypeAtomicShort,
+		schemaSimpleTypeAtomicByte,
 		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicUnsignedLong,
 		schemaSimpleTypeAtomicNegativeInteger,
@@ -6331,6 +6350,8 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInt,
+		schemaSimpleTypeAtomicShort,
+		schemaSimpleTypeAtomicByte,
 		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicUnsignedLong,
 		schemaSimpleTypeAtomicNegativeInteger,
@@ -7603,7 +7624,8 @@ func resolveSchemaParticleTerm(
 }
 
 func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner schemaComponentRecord) (Particle, error) {
-	if !isSupportedDirectAnyParticleFacts(input.namespaceConstraint.lexical, input.processContents) {
+	if input.namespaceConstraint.variety == WildcardNamespaceConstraintNot && input.processContents != "strict" && input.processContents != "lax" && input.processContents != "skip" ||
+		input.namespaceConstraint.variety != WildcardNamespaceConstraintNot && !isSupportedDirectAnyParticleFacts(input.namespaceConstraint.lexical, input.processContents) {
 		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
 	}
 	if !input.occurrences.mapsToParticle() {
@@ -8918,6 +8940,44 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		}
 		result.atomicKind = schemaSimpleTypeAtomicInt
 		result.facets = schemaDigitFacetVariant{value: facets, integerBounds: bounds}
+	case "short":
+		facets, err := NewIntegerDigitFacets(nil, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		minInclusive, err := ParseIntegerMinInclusiveFacet("-32768", Loc{}, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		maxInclusive, err := ParseIntegerMaxInclusiveFacet("32767", Loc{}, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		bounds, err := NewIntegerBoundFacets([]IntegerBoundFacet{minInclusive, maxInclusive}, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		result.atomicKind = schemaSimpleTypeAtomicShort
+		result.facets = schemaDigitFacetVariant{value: facets, integerBounds: bounds}
+	case "byte":
+		facets, err := NewIntegerDigitFacets(nil, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		minInclusive, err := ParseIntegerMinInclusiveFacet("-128", Loc{}, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		maxInclusive, err := ParseIntegerMaxInclusiveFacet("127", Loc{}, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		bounds, err := NewIntegerBoundFacets([]IntegerBoundFacet{minInclusive, maxInclusive}, version)
+		if err != nil {
+			return schemaSimpleTypeReferenceComponent{}, err
+		}
+		result.atomicKind = schemaSimpleTypeAtomicByte
+		result.facets = schemaDigitFacetVariant{value: facets, integerBounds: bounds}
 	case "unsignedLong":
 		facets, err := NewIntegerDigitFacets(nil, version)
 		if err != nil {
@@ -9288,10 +9348,19 @@ func restrictSchemaStringFacets(base schemaStringFacetVariant, atomicKind schema
 }
 
 func restrictSchemaStringEnumeration(base schemaStringFacetVariant, local StringEnumerationFacetDeclarations) (StringEnumerationFacets, error) {
-	if base.whiteSpace != nil && base.whiteSpace.Value() == "collapse" {
-		return restrictStringEnumerationFacetsInValueSpace(base.enumeration, local)
+	if base.whiteSpace == nil {
+		return StringEnumerationFacets{}, newSchemaBridgeInvariant(Loc{}, "string enumeration base has no whiteSpace facet")
 	}
-	return RestrictStringEnumerationFacets(base.enumeration, local)
+	switch base.whiteSpace.Value() {
+	case "preserve":
+		return RestrictStringEnumerationFacets(base.enumeration, local)
+	case "replace":
+		return restrictStringEnumerationFacetsInValueSpace(base.enumeration, local, replaceXMLWhitespace)
+	case "collapse":
+		return restrictStringEnumerationFacetsInValueSpace(base.enumeration, local, collapseXMLWhitespace)
+	default:
+		return StringEnumerationFacets{}, newSchemaBridgeInvariant(base.whiteSpace.Loc(), "string enumeration base has invalid whiteSpace facet")
+	}
 }
 
 func restrictSchemaIntegerFacets(
