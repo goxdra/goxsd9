@@ -1894,7 +1894,7 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 				if !ok || child.name.local == "annotation" {
 					continue
 				}
-				alternative, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version)
+				alternative, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version, !occurrences.mapsToParticle())
 				if particleErr != nil {
 					return nil, particleErr
 				}
@@ -1912,7 +1912,7 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 				if !ok || child.name.local == "annotation" {
 					continue
 				}
-				input, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version)
+				input, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version, !occurrences.mapsToParticle())
 				if particleErr != nil {
 					return nil, particleErr
 				}
@@ -2243,7 +2243,7 @@ func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts sch
 				version,
 			)
 		}
-		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, false)
+		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, false, false)
 		if err != nil {
 			return nil, err
 		}
@@ -2281,7 +2281,7 @@ func schemaModelGroupSequenceInputFromElementWithFacts(element *syntaxElement, f
 				version,
 			)
 		}
-		particle, particleErr := schemaElementParticleInputFromElementWithFacts(child, facts, version, false)
+		particle, particleErr := schemaElementParticleInputFromElementWithFacts(child, facts, version, false, false)
 		if particleErr != nil {
 			return nil, particleErr
 		}
@@ -2308,7 +2308,7 @@ func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccu
 		if !ok || child.name.local == "annotation" {
 			continue
 		}
-		alternative, err := schemaParticleTermInputFromElementWithFacts(child, facts, version)
+		alternative, err := schemaParticleTermInputFromElementWithFacts(child, facts, version, !occurrences.mapsToParticle())
 		if err != nil {
 			return nil, err
 		}
@@ -2338,7 +2338,7 @@ func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOc
 		if child.name.local == "annotation" {
 			continue
 		}
-		alternative, err := schemaParticleTermInputFromElementWithFacts(child, facts, version)
+		alternative, err := schemaParticleTermInputFromElementWithFacts(child, facts, version, !occurrences.mapsToParticle())
 		if err != nil {
 			return nil, err
 		}
@@ -2513,13 +2513,13 @@ func schemaExplicitAnyAttributeInputFromElement(wildcard *syntaxElement) (*schem
 	}, nil
 }
 
-func schemaParticleTermInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (schemaParticleTermInput, error) {
+func schemaParticleTermInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, ownerOmitted bool) (schemaParticleTermInput, error) {
 	if element == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "construct particle term input from a nil element")
 	}
 	switch element.name.local {
 	case "element":
-		return schemaElementParticleInputFromElementWithFacts(element, facts, version, true)
+		return schemaElementParticleInputFromElementWithFacts(element, facts, version, true, ownerOmitted)
 	case "any":
 		return schemaWildcardParticleInputFromElement(element, version)
 	default:
@@ -2591,7 +2591,7 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 }
 
 //nolint:gocognit // Keep policy admission, occurrence short-circuiting, and QName bridging together.
-func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, allowNamespacePolicy bool) (schemaElementParticleInput, error) {
+func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, allowNamespacePolicy, ownerOmitted bool) (schemaElementParticleInput, error) {
 	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
 		return schemaElementParticleInput{}, err
@@ -2646,15 +2646,14 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 		return schemaElementParticleInput{}, policyErr
 	}
 	var declaredType QName
-	if !occurrences.mapsToParticle() {
-		return input, nil
-	}
 	if len(typeAttributes) == 0 && inline == nil {
 		return input, nil
 	}
 	if len(typeAttributes) == 0 {
 		if inlineErr := validateInlineSchemaType(inline, version); inlineErr != nil {
-			return schemaElementParticleInput{}, inlineErr
+			if occurrences.mapsToParticle() && !ownerOmitted || !schemaZeroOccurrenceMayOmitUnsupported(inlineErr) {
+				return schemaElementParticleInput{}, inlineErr
+			}
 		}
 		simpleType, simpleTypeErr := schemaSimpleTypeInputFromElement(inline, version)
 		if simpleTypeErr != nil {
@@ -2681,6 +2680,14 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 		typeLoc:      typeAttributes[0].loc,
 	}
 	return input, nil
+}
+
+func schemaZeroOccurrenceMayOmitUnsupported(err error) bool {
+	if errors.Is(err, errLanguagePolicyMismatch) {
+		return false
+	}
+	var diagnostic Diagnostic
+	return errors.As(err, &diagnostic) && diagnostic.Class() == FailureUnsupported
 }
 
 func rejectExplicitXSD10PrecisionDecimalType(element *syntaxElement, typeAttributes []syntaxAttribute, inline *syntaxElement, version XSDVersion) error {
@@ -3549,6 +3556,7 @@ type schemaSimpleTypeResolver struct {
 	visibleSources   map[SourceID][]SourceID
 	states           map[*schemaSimpleTypeInput]schemaSimpleTypeState
 	inputResults     map[*schemaSimpleTypeInput]schemaSimpleTypeResult
+	zeroOmitted      map[*schemaSimpleTypeInput]error
 	results          []schemaSimpleTypeResult
 	stack            []*schemaSimpleTypeInput
 	stackFallbackLoc []Loc
@@ -3572,6 +3580,7 @@ func resolveSchemaSimpleTypes(
 		visibleSources:   visibleSources,
 		states:           make(map[*schemaSimpleTypeInput]schemaSimpleTypeState),
 		inputResults:     make(map[*schemaSimpleTypeInput]schemaSimpleTypeResult),
+		zeroOmitted:      make(map[*schemaSimpleTypeInput]error),
 		results:          make([]schemaSimpleTypeResult, len(records)),
 		stack:            make([]*schemaSimpleTypeInput, 0),
 		stackFallbackLoc: make([]Loc, 0),
@@ -3717,18 +3726,12 @@ func resolveSchemaSimpleTypeInputsInComplexParticle(
 		if particle == nil {
 			return newSchemaBridgeInvariant(Loc{}, "choice simple type resolution has a nil particle input")
 		}
-		if !particle.occurrences.mapsToParticle() {
-			return nil
-		}
-		return resolveSchemaSimpleTypeInputsInParticleTerms(particle.alternatives, source, resolver, version)
+		return resolveSchemaSimpleTypeInputsInParticleTerms(particle.alternatives, !particle.occurrences.mapsToParticle(), source, resolver, version)
 	case *schemaSequenceParticleInput:
 		if particle == nil {
 			return newSchemaBridgeInvariant(Loc{}, "sequence simple type resolution has a nil particle input")
 		}
-		if !particle.occurrences.mapsToParticle() {
-			return nil
-		}
-		return resolveSchemaSimpleTypeInputsInParticleTerms(particle.particles, source, resolver, version)
+		return resolveSchemaSimpleTypeInputsInParticleTerms(particle.particles, !particle.occurrences.mapsToParticle(), source, resolver, version)
 	case *schemaModelGroupReferenceParticleInput:
 		if particle == nil {
 			return newSchemaBridgeInvariant(Loc{}, "model-group reference simple type resolution has a nil particle input")
@@ -3741,17 +3744,15 @@ func resolveSchemaSimpleTypeInputsInComplexParticle(
 
 func resolveSchemaSimpleTypeInputsInParticleTerms(
 	terms []schemaParticleTermInput,
+	ownerOmitted bool,
 	source SourceID,
 	resolver *schemaSimpleTypeResolver,
 	version XSDVersion,
 ) error {
 	for _, term := range terms {
-		termOccurrences, err := schemaParticleTermInputOccurrences(term)
+		occurrences, err := schemaParticleTermInputOccurrences(term)
 		if err != nil {
 			return err
-		}
-		if !termOccurrences.mapsToParticle() {
-			continue
 		}
 		input, ok := schemaElementParticleInputValue(term)
 		if !ok || input.typeInput == nil || input.typeInput.inlineSimpleType == nil {
@@ -3762,6 +3763,10 @@ func resolveSchemaSimpleTypeInputsInParticleTerms(
 			fallbackLoc = input.typeInput.inlineSimpleType.loc
 		}
 		if _, err := resolver.resolveInput(input.typeInput.inlineSimpleType, fallbackLoc, true, source, version); err != nil {
+			if (ownerOmitted || !occurrences.mapsToParticle()) && schemaZeroOccurrenceMayOmitUnsupported(err) {
+				resolver.zeroOmitted[input.typeInput.inlineSimpleType] = err
+				continue
+			}
 			return err
 		}
 	}
@@ -5570,10 +5575,7 @@ func resolveSchemaScalarType(
 	if input.inlineSimpleType != nil {
 		result, ok := simpleTypes.byInput[input.inlineSimpleType]
 		if !ok || !result.present {
-			return schemaElementTypeResult{}, newSchemaBridgeInvariant(
-				input.typeLoc,
-				"inline local element simple type has no resolved result",
-			)
+			return schemaElementTypeResult{}, schemaMissingInlineLocalTypeResult(simpleTypes, input)
 		}
 		if err := rejectUnsupportedSchemaSimpleTypeVariety(input, result, version, complexTargetSuffix); err != nil {
 			return schemaElementTypeResult{}, err
@@ -5689,11 +5691,13 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 		if !builtinStringSchemaScalarTypeAllowedInScope(input.declaredType.Local(), scope) {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
-	case "integer", "decimal", "int", "short", "byte", "unsignedLong", "nonNegativeInteger", "negativeInteger":
-	case "long", "nonPositiveInteger":
+	case "integer", "decimal":
+	case "int", "short", "byte", "unsignedLong", "negativeInteger", "nonNegativeInteger":
+	case "nonPositiveInteger":
 		if scope != schemaScalarTypeGlobalElement {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
+	case "long":
 	case "boolean":
 		if !scope.allowsBoolean() {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
@@ -5774,12 +5778,12 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 		schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		break
-	case schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong, schemaSimpleTypeAtomicNonNegativeInteger:
+	case schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong, schemaSimpleTypeAtomicNonNegativeInteger:
 		if input.inlineSimpleType == nil {
 			break
 		}
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
-	case schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicNonPositiveInteger:
+	case schemaSimpleTypeAtomicNonPositiveInteger:
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	}
 	if allowPrecisionDecimal {
@@ -7648,11 +7652,8 @@ func resolveSchemaChoiceParticleWithOptions(
 		if err != nil {
 			return nil, err
 		}
-		if !mapsToParticle && !hasReference {
-			continue
-		}
 		elementInput, isElement := schemaElementParticleInputValue(termInput)
-		if !input.occurrences.isDefault() && termOccurrences.mapsToParticle() && isElement && elementInput.typeInput != nil {
+		if mapsToParticle && !input.occurrences.isDefault() && termOccurrences.mapsToParticle() && isElement && elementInput.typeInput != nil {
 			isPrecisionDecimal, precisionErr := schemaScalarTypeIsPrecisionDecimal(
 				elementInput.typeInput,
 				records,
@@ -7666,7 +7667,7 @@ func resolveSchemaChoiceParticleWithOptions(
 			if precisionErr != nil {
 				return nil, precisionErr
 			}
-			if isPrecisionDecimal {
+			if isPrecisionDecimal && mapsToParticle {
 				return nil, unsupportedChoicePrecisionDecimalParticle(input, version)
 			}
 		}
@@ -7681,6 +7682,9 @@ func resolveSchemaChoiceParticleWithOptions(
 			"choice",
 		)
 		if err != nil {
+			if !mapsToParticle && schemaZeroOccurrenceMayOmitUnsupported(err) {
+				continue
+			}
 			return nil, err
 		}
 		if rejectDuplicateReferences && hasReference {
@@ -7719,9 +7723,6 @@ func resolveSchemaSequenceParticle(
 	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 ) (Particle, error) {
-	if !input.occurrences.mapsToParticle() {
-		return nil, nil
-	}
 	particles := make([]Particle, 0, len(input.particles))
 	for _, termInput := range input.particles {
 		particle, err := resolveSchemaParticleTerm(
@@ -7735,12 +7736,18 @@ func resolveSchemaSequenceParticle(
 			"sequence",
 		)
 		if err != nil {
+			if !input.occurrences.mapsToParticle() && schemaZeroOccurrenceMayOmitUnsupported(err) {
+				continue
+			}
 			return nil, err
 		}
 		if particle == nil {
 			continue
 		}
 		particles = append(particles, particle)
+	}
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
 	}
 	sequence := &schemaSequenceParticle{
 		loc:         input.loc,
@@ -7875,10 +7882,7 @@ func resolveSchemaElementParticle(
 		}
 		return element, nil
 	}
-	if !input.occurrences.mapsToParticle() {
-		return nil, nil
-	}
-	if model == "choice" && !input.occurrences.isDefault() && input.typeInput != nil {
+	if model == "choice" && input.occurrences.mapsToParticle() && !input.occurrences.isDefault() && input.typeInput != nil {
 		isPrecisionDecimal, err := schemaScalarTypeIsPrecisionDecimal(
 			input.typeInput,
 			records,
@@ -7897,10 +7901,14 @@ func resolveSchemaElementParticle(
 		}
 	}
 	if input.typeInput == nil {
-		return nil, newSchemaSyntaxUnsupported(
+		err := newSchemaSyntaxUnsupported(
 			input.loc,
 			fmt.Sprintf("local %s elements without declared types are not implemented", model),
 		)
+		if !input.occurrences.mapsToParticle() && schemaZeroOccurrenceMayOmitUnsupported(err) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	resolved, err := resolveSchemaScalarType(
 		input.typeInput,
@@ -7916,7 +7924,13 @@ func resolveSchemaElementParticle(
 		model == "sequence" && !schemaComplexTypeIsExtension(owner),
 	)
 	if err != nil {
+		if !input.occurrences.mapsToParticle() && schemaZeroOccurrenceMayOmitUnsupported(err) {
+			return nil, nil
+		}
 		return nil, err
+	}
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
 	}
 	facts := &schemaElementParticle{
 		loc:                     input.loc,
@@ -8198,10 +8212,7 @@ func schemaScalarTypeIsPrecisionDecimal(
 	if input.inlineSimpleType != nil {
 		result, ok := simpleTypes.byInput[input.inlineSimpleType]
 		if !ok || !result.present {
-			return false, newSchemaBridgeInvariant(
-				input.typeLoc,
-				"inline local element simple type has no resolved result",
-			)
+			return false, schemaMissingInlineLocalTypeResult(simpleTypes, input)
 		}
 		_, ok = result.facets.(schemaPrecisionDecimalFacetVariant)
 		return ok, nil
@@ -8241,6 +8252,15 @@ func schemaScalarTypeIsPrecisionDecimal(
 	}
 	_, ok := simpleTypes.results[typeCandidate].facets.(schemaPrecisionDecimalFacetVariant)
 	return ok, nil
+}
+
+func schemaMissingInlineLocalTypeResult(simpleTypes schemaSimpleTypeResolution, input *schemaElementInput) error {
+	if simpleTypes.resolver != nil {
+		if omittedErr := simpleTypes.resolver.zeroOmitted[input.inlineSimpleType]; omittedErr != nil {
+			return omittedErr
+		}
+	}
+	return newSchemaBridgeInvariant(input.typeLoc, "inline local element simple type has no resolved result")
 }
 
 func unsupportedChoicePrecisionDecimalParticle(input *schemaChoiceParticleInput, version XSDVersion) Diagnostic {
@@ -8760,12 +8780,12 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 	if finalErr := resolver.rejectNamedSimpleTypeFinal(base, schemaSimpleTypeFinalRestriction, "restriction base", model.base.loc, version); finalErr != nil {
 		return schemaSimpleTypeResult{}, finalErr
 	}
-	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
-		return schemaSimpleTypeResult{}, enumerationErr
-	}
 	facets, err := restrictSchemaSimpleTypeFacets(base.facets, base.atomicKind, model.facets, version)
 	if err != nil {
 		return schemaSimpleTypeResult{}, err
+	}
+	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
+		return schemaSimpleTypeResult{}, enumerationErr
 	}
 	result := schemaSimpleTypeResult{
 		loc:              input.loc,

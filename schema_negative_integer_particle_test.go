@@ -401,7 +401,6 @@ func TestSchemaNegativeIntegerParticleBoundaryDiagnostics(t *testing.T) {
 					{name: "nested named", body: `<xs:sequence><xs:element name="value" type="r:Named"/></xs:sequence>`, definitions: `<xs:simpleType name="Named"><xs:restriction base="xs:negativeInteger"/></xs:simpleType>`, marker: `<xs:sequence>`, code: UnsupportedSchemaSyntaxCode, class: FailureUnsupported, cause: ErrUnsupported},
 					{name: "nested inline", body: `<xs:sequence><xs:element name="value"><xs:simpleType><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:element></xs:sequence>`, marker: `<xs:sequence>`, code: UnsupportedSchemaSyntaxCode, class: FailureUnsupported, cause: ErrUnsupported},
 					{name: "nested ref", body: `<xs:sequence><xs:element ref="r:target"/></xs:sequence>`, definitions: `<xs:element name="target" type="xs:negativeInteger"/>`, marker: `<xs:sequence>`, code: UnsupportedSchemaSyntaxCode, class: FailureUnsupported, cause: ErrUnsupported},
-					{name: "excluded long", body: `<xs:element name="value" type="xs:long"/>`, marker: `type="xs:long"`, code: UnsupportedSchemaSyntaxCode, class: FailureUnsupported, cause: ErrUnsupported},
 				} {
 					subtest := profile.name + "/" + model + "/" + test.name
 					if extension {
