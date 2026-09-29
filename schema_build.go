@@ -6838,22 +6838,30 @@ func (resolver *schemaComplexTypeResolver) extensionBaseFacts(
 			fmt.Errorf("%w: %w", errSchemaComplexTypeBaseUnsupported, errSchemaComplexTypeBaseNonEmpty),
 		)
 	case *schemaComplexTypeExtensionBodyResult:
-		if typed == nil {
-			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "extension extension base result is nil")
-		}
-		related := []Loc{baseLoc, typed.extensionLoc}
-		if !typed.particleIsNil() {
-			related = append(related, typed.particleLoc())
-		}
-		return schemaAnyAttributeResult{}, resolver.unsupportedExtensionBase(
-			baseReferenceLoc,
-			"named complex type extension base has unsupported extension composition",
-			related,
-			fmt.Errorf("%w: extension composition", errSchemaComplexTypeBaseUnsupported),
-		)
+		return schemaAnyAttributeResult{}, resolver.unsupportedExtensionCompositionBase(typed, baseLoc, baseReferenceLoc)
 	default:
 		return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "extension base has an unknown completed body")
 	}
+}
+
+func (resolver *schemaComplexTypeResolver) unsupportedExtensionCompositionBase(
+	body *schemaComplexTypeExtensionBodyResult,
+	baseLoc Loc,
+	baseReferenceLoc Loc,
+) error {
+	if body == nil {
+		return newSchemaBridgeInvariant(baseLoc, "extension extension base result is nil")
+	}
+	related := []Loc{baseLoc, body.extensionLoc}
+	if !body.particleIsNil() {
+		related = append(related, body.particleLoc())
+	}
+	return resolver.unsupportedExtensionBase(
+		baseReferenceLoc,
+		"named complex type extension base has unsupported extension composition",
+		related,
+		fmt.Errorf("%w: extension composition", errSchemaComplexTypeBaseUnsupported),
+	)
 }
 
 func (resolver *schemaComplexTypeResolver) representableInheritedWildcard(

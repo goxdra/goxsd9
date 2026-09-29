@@ -726,28 +726,33 @@ func TestSchemaBridgeRejectsAnonymousExtensionOverCompletedUnsupportedBases(t *t
   <xs:complexType name="Base">` + base.body + `</xs:complexType>
   <xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base"/></xs:complexContent></xs:complexType></xs:element>
 </xs:schema>`
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err == nil {
-					t.Fatal("anonymous extension accepted an unsupported completed base")
-				}
-				assertZeroSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
-					t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Code(), diagnostic.Feature())
-				}
-				baseReferenceLoc := complexContentTestLoc(t, root, `base="t:Base"`)
-				baseDeclarationLoc := complexContentTestLoc(t, root, `<xs:complexType name="Base"`)
-				if diagnostic.Loc() != baseReferenceLoc || !reflect.DeepEqual(diagnostic.Related(), []Loc{baseDeclarationLoc}) {
-					t.Fatalf("diagnostic location/related = %s/%v, want %s/[%s]", diagnostic.Loc(), diagnostic.Related(), baseReferenceLoc, baseDeclarationLoc)
-				}
-				if diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(profile.version) {
-					t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), schemaComplexTypeExtensionSpecRef(profile.version))
-				}
-				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
-					t.Fatalf("diagnostic lost unsupported extension-base causes: %v", err)
-				}
+				assertAnonymousExtensionBaseUnsupported(t, root, profile.policy, profile.version)
 			})
 		}
+	}
+}
+
+func assertAnonymousExtensionBaseUnsupported(t *testing.T, root string, policy LanguagePolicy, version XSDVersion) {
+	t.Helper()
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+	if err == nil {
+		t.Fatal("anonymous extension accepted an unsupported completed base")
+	}
+	assertZeroSchema(t, schema)
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Code(), diagnostic.Feature())
+	}
+	baseReferenceLoc := complexContentTestLoc(t, root, `base="t:Base"`)
+	baseDeclarationLoc := complexContentTestLoc(t, root, `<xs:complexType name="Base"`)
+	if diagnostic.Loc() != baseReferenceLoc || !reflect.DeepEqual(diagnostic.Related(), []Loc{baseDeclarationLoc}) {
+		t.Fatalf("diagnostic location/related = %s/%v, want %s/[%s]", diagnostic.Loc(), diagnostic.Related(), baseReferenceLoc, baseDeclarationLoc)
+	}
+	if diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(version) {
+		t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), schemaComplexTypeExtensionSpecRef(version))
+	}
+	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
+		t.Fatalf("diagnostic lost unsupported extension-base causes: %v", err)
 	}
 }
 
