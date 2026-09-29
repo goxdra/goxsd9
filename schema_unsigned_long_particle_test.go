@@ -577,7 +577,6 @@ func TestSchemaUnsignedLongLocalParticleExcludedShapesRemainUnsupported(t *testi
 			specRef   string
 		}{
 			{name: "inline unsignedLong", body: `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:element>`, locMarker: `<xs:simpleType>`},
-			{name: "named long", body: `<xs:element name="value" type="r:Long"/>`, defs: `<xs:simpleType name="Long"><xs:restriction base="xs:long"/></xs:simpleType>`, locMarker: `type="r:Long"`},
 			{name: "named non-positive integer", body: `<xs:element name="value" type="r:NonPositive"/>`, defs: `<xs:simpleType name="NonPositive"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType>`, locMarker: `type="r:NonPositive"`},
 			{name: "named list", body: `<xs:element name="value" type="r:List"/>`, defs: `<xs:simpleType name="List"><xs:list itemType="xs:unsignedLong"/></xs:simpleType>`, locMarker: `type="r:List"`},
 			{name: "named union", body: `<xs:element name="value" type="r:Union"/>`, defs: `<xs:simpleType name="Union"><xs:union memberTypes="xs:unsignedLong"/></xs:simpleType>`, locMarker: `type="r:Union"`},
@@ -663,12 +662,6 @@ func unsignedLongExcludedOwnerCases() []unsignedLongExcludedOwnerCase {
 			locMarker: `<xs:simpleType>`,
 		},
 		{
-			name:      "named long",
-			body:      `<xs:element name="value" type="r:Long"OCCURRENCES/>`,
-			defs:      `<xs:simpleType name="Long"><xs:restriction base="xs:long"/></xs:simpleType>`,
-			locMarker: `type="r:Long"`,
-		},
-		{
 			name:      "named non-positive integer",
 			body:      `<xs:element name="value" type="r:NonPositive"OCCURRENCES/>`,
 			defs:      `<xs:simpleType name="NonPositive"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType>`,
@@ -742,7 +735,10 @@ func assertUnsignedLongExcludedOwnerZero(t *testing.T, schema Schema, model stri
 	}
 }
 
-func TestSchemaUnsignedLongZeroOccurrenceSkipsLocalTypeResolutionAcrossOwners(t *testing.T) {
+// Zero occurrence omits a mapped particle only after type resolution has preserved invalid input.
+//
+//nolint:gocognit // Keep owner, policy, and diagnostic provenance in one regression matrix.
+func TestSchemaUnsignedLongZeroOccurrenceRetainsLocalTypeErrorsAcrossOwners(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {
 		for _, owner := range []struct {
 			name      string
@@ -755,27 +751,56 @@ func TestSchemaUnsignedLongZeroOccurrenceSkipsLocalTypeResolutionAcrossOwners(t 
 			{name: "extension sequence", model: "sequence", extension: true},
 		} {
 			for _, test := range []struct {
-				name string
-				body string
-				defs string
+				name    string
+				body    string
+				defs    string
+				code    string
+				cause   error
+				related string
 			}{
 				{
-					name: "unresolved",
-					body: `<xs:element name="value" type="r:Missing" minOccurs="0" maxOccurs="0"/>`,
+					name:  "unresolved",
+					body:  `<xs:element name="value" type="r:Missing" minOccurs="0" maxOccurs="0"/>`,
+					code:  diagnosticSchemaElementTypeUnresolvedCode,
+					cause: errSchemaElementTypeUnresolved,
 				},
 				{
-					name: "wrong kind",
-					body: `<xs:element name="value" type="r:NotType" minOccurs="0" maxOccurs="0"/>`,
-					defs: `<xs:element name="NotType" type="xs:unsignedLong"/>`,
+					name:    "wrong kind",
+					body:    `<xs:element name="value" type="r:NotType" minOccurs="0" maxOccurs="0"/>`,
+					defs:    `<xs:element name="NotType" type="xs:unsignedLong"/>`,
+					code:    diagnosticSchemaElementTypeWrongKindCode,
+					cause:   errSchemaElementTypeWrongKind,
+					related: `<xs:element name="NotType"`,
 				},
 			} {
 				t.Run(profile.name+"/"+owner.name+"/"+test.name, func(t *testing.T) {
 					root := schemaUnsignedLongExcludedOwnerRoot(owner.model, owner.extension, test.body, test.defs)
 					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-					if err != nil {
-						t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+					assertZeroSchema(t, schema)
+					if err == nil || !errors.Is(err, test.cause) {
+						t.Fatalf("error = %v, want preserved cause %v", err, test.cause)
 					}
-					assertUnsignedLongExcludedOwnerZero(t, schema, owner.model)
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code || diagnostic.SpecRef() != schemaElementTypeSpecRef(profile.version) {
+						t.Fatalf("diagnostic = %s, want invalid %s at %s", diagnostic, test.code, schemaElementTypeSpecRef(profile.version))
+					}
+					marker := `type="r:Missing"`
+					if test.name == "wrong kind" {
+						marker = `type="r:NotType"`
+					}
+					if want := elementReferenceTestAttributeLoc(t, root, marker); diagnostic.Loc() != want {
+						t.Fatalf("diagnostic location = %s, want %s", diagnostic.Loc(), want)
+					}
+					if test.related == "" {
+						if diagnostic.Related() != nil {
+							t.Fatalf("diagnostic related = %v, want none", diagnostic.Related())
+						}
+						return
+					}
+					wantRelated := []Loc{elementReferenceTestAttributeLoc(t, root, test.related)}
+					if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+						t.Fatalf("diagnostic related = %v, want %v", diagnostic.Related(), wantRelated)
+					}
 				})
 			}
 		}

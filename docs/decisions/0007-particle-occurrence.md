@@ -43,7 +43,7 @@ edition-specific `all` restrictions follow.
 | `unbounded` in `minOccurs` or another attribute | Invalid lexical/value for that attribute; only a maximum may use the keyword. | Same as XSD 1.0. |
 
 Finite comparison enforces `min <= max`; unbounded maxima bypass numeric
-sentinels. Apply `0/0` after effective defaults and before public allocation.
+sentinels.
 
 ### Edition-specific `all` restrictions
 
@@ -64,12 +64,12 @@ The private kernel in `particle_occurrence.go` defines the phase boundary:
    constructs a tagged finite or max-only unbounded bound. The range
    constructor owns copies and rejects an unbounded minimum or finite
    `min > max`.
-3. After applicable syntax, occurrence, reference, and policy gates, mapping
-   applies exact `0/0` absence to sequence, choice, and child occurrences;
-   `mapsToParticle` derives from bounds, not an `absent` flag.
-   Graph-wide declaration/facet failures and policy errors prevent construction;
-   non-reference named/inline type mapping is not universal before local
-   public-particle omission. Local public particle alone is omitted.
+3. After syntax, occurrence, reference, and policy gates, mapping resolves inline
+   bases and supported facets for each affected owner/term before exact `0/0`
+   absence. Unsupported inline syntax waits for this resolution; only resolved
+   unsupported forms may omit. Invalid/unresolved/cyclic/wrong-kind/
+   value-constraint/policy failures retain causes and locations.
+   `mapsToParticle` derives from bounds.
 4. The completed schema phase copies the range into an immutable public
    occurrence view. Its minimum is an owned `StrictInteger`; its maximum is a
    tagged finite or unbounded value. Queries clone exact finite values at the
