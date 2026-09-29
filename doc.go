@@ -7,7 +7,8 @@
 // supported schema-level components, including simple-type atomic restrictions,
 // lists, and unions. Anonymous simple types and resolved built-in, named, and
 // anonymous simple-type references are modeled, along with global xs:boolean,
-// xs:nonNegativeInteger, and atomic xs:string/xs:token/xs:NMTOKEN declarations
+// xs:nonNegativeInteger, xs:positiveInteger, and atomic
+// xs:string/xs:token/xs:NMTOKEN declarations
 // and their named or anonymous restrictions.
 // Queries and walks are deterministic. SimpleTypeDefinition.IsBoolean,
 // StringEnumerationFacets, and StringWhiteSpaceFacet report immutable kind
@@ -108,7 +109,7 @@
 // named-effective, and anonymous-inline negativeInteger forms are admitted as query
 // facts, but ValidateInstance and GenerateGo reject those consumers. Built-in
 // and named effective-long particles remain query-only and consumer-rejected.
-// Local nonPositiveInteger and inline/anonymous
+// Local nonPositiveInteger/positiveInteger and inline/anonymous
 // long/int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
@@ -124,7 +125,8 @@
 // built-in byte retains [-128,127] with no source bound Loc or component ID;
 // built-in unsignedLong retains intrinsic inclusive bounds
 // [0,18446744073709551615]; built-in nonNegativeInteger retains intrinsic
-// minInclusive=0 without a source Loc; built-in negativeInteger retains
+// minInclusive=0 without a source Loc; built-in positiveInteger retains
+// minInclusive=1 without a source Loc or component ID; built-in negativeInteger retains
 // maxInclusive=-1 at its type Loc with no component ID; named-effective particles retain exact narrowed,
 // inclusive/exclusive bounds, integer enumeration/digit facets, source locations,
 // identities, graph provenance, and exact occurrences; validation and GenerateGo return
@@ -353,7 +355,7 @@
 // Compatibility or Strict11; Strict10 rejects it at the type Loc with the
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
 // diagnostic. Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger,
-// xs:nonPositiveInteger, other excluded built-ins, list/union
+// xs:nonPositiveInteger, xs:positiveInteger, other excluded built-ins, list/union
 // forms remain explicit unsupported behavior. Unsupported local attribute types
 // without default/fixed report FailureUnsupported/UnsupportedSchemaSyntaxCode/
 // ErrUnsupported at type Loc. Local default/fixed reports at value Loc before
@@ -425,7 +427,7 @@
 // `nonNegativeInteger` element/type declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
 // Global inline-element Boolean/integer/decimal declarations and global
-// element/type int/long/short/byte/unsignedLong/negativeInteger/nonPositiveInteger and
+// element/type int/long/short/byte/unsignedLong/negativeInteger/nonPositiveInteger/positiveInteger and
 // language/NCName/anyURI/ID declarations
 // retain schema/query facts but their validation and generation consumers are
 // rejected. This consumer boundary does not widen the global attribute type or
