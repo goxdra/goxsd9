@@ -4,33 +4,28 @@ Status: accepted
 
 ## Decision
 
-This accepted decision specifies a future query representation for one named
-global `complexType` whose
-`complexContent/extension` uses the already-supported named-base boundary from
-[#414](https://github.com/goxdra/goxsd9/issues/414), one direct named
-`<group ref="...">` particle, and one or more ordered direct local
-`<attribute>` uses from [#317](https://github.com/goxdra/goxsd9/issues/317).
+This schema-model boundary is one named global `complexType` whose
+`complexContent/extension` uses a supported named empty-content base, one
+direct named `<group ref="...">` particle, and one or more ordered direct
+local `<attribute>` uses.
 The extension body may contain its optional annotation. The model child is
-the group reference; local attributes follow it in lexical order. Currently,
-bounded group-only extensions parse; attribute-only and combined group-plus-use
-extensions return located `XSD3003`/`ErrUnsupported` and no schema.
+the group reference; local attributes follow it in lexical order. The parser
+implements this bounded queryable fact; validation and generation reject it.
 
-The future group particle must remain opaque and preserve its expanded written
-QName, `ref` and use-site locations, exact occurrence range, and target
-`ComponentID`; it must never copy or expand the target's members. It must reuse #317's sole
+The group remains one opaque particle. Preserve its expanded written QName,
+`ref` and use-site locations, exact occurrence range, and target
+`ComponentID`; never copy or expand the target's members. Reuse the sole
 immutable `AttributeUse` representation for declaration/reference forms,
 effective names, `use`, form/chameleon policy, type identity, locations, and
 lexical order. Attribute uses are a semantic set, so duplicate effective names
-must be invalid; their ordered model view is part of the proposed contract.
+are invalid, but their ordered model view is part of the observable contract.
 
-The future builder must validate an effective `0/0` group against its target
-before omitting its public particle. The completed body must remain tagged as
-an extension with its base, derivation locations, and ordered #317 uses intact;
-its particle is nil, never zero-valued. The existing `AttributeUses()` API
-must expose those uses. After admission, validation and Go generation must
-reject the composed shape explicitly.
+An effective group range of `0/0` is validated against its target first, then
+omitted from the public particle view. The completed body consequently uses
+the attribute-only shape; `0/0` is not a published zero-valued particle.
+Validation and Go generation remain explicit unsupported consumer boundaries.
 
-## Normative and pinned-artifact evidence
+## Normative basis
 
 The paired XSD 1.0 and XSD 1.1 normative anchors for
 [`complexContent/extension`](https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/#element-complexContent..extension),
@@ -48,56 +43,44 @@ and [`cos-particle-extend`](https://www.w3.org/TR/2012/REC-xmlschema11-1-2012040
 Those rules permit an optional annotation, at most one model child, then
 attribute uses/attribute groups and an optional wildcard. A group reference is
 one particle with its own occurrences, not an instruction to flatten a named
-group. Existing `openContent=none` support applies only to eligible shapes
-under Compatibility/Strict11; this decision adds no open-content behavior to
-the grouped composition. Other modes and assertions remain outside it.
-Attribute uses are set-like semantically; the future model must retain lexical
-and provenance order.
+group. XSD 1.1 additionally has open-content and assertion constructs; they
+are outside this slice. Attribute uses are set-like semantically, while this
+model retains lexical and provenance order.
 
-The edition-specific artifacts are pinned in
-[`specs/manifest.json`](../../specs/manifest.json); exact observations live in
+The pinned XSD schema-for-schemas and datatypes artifacts in
+[`specs/manifest.json`](../../specs/manifest.json) contain the motivating
+grammar. Executable outcomes remain in
 [`bootstrap_probe_test.go`](../../internal/specs/bootstrap_probe_test.go).
-The schema-for-schema probes contain a sequence followed by an attribute; they
-stop at that attribute with `XSD3003` and `#cos-ct-extends`. The separate
-datatype-schema group probes stop at the group reference with `XSD3003` and
-`#cos-particle-extend`. Neither is an attribute-only or group-plus-use probe.
-No failing parse returns a partial schema.
+This boundary makes no `xs:ID` lexical, value, or uniqueness claim.
 
-`xs:ID` identity, lexical space, value space, and instance uniqueness remain
-distinct from this decision.
+## Exact supported shape and non-goals
 
-## Proposed shape and non-goals
-
-The future query contract would admit:
+The supported input is:
 
 - a named global complex type;
-- `complexContent/extension` with a named base accepted by #414;
+- `complexContent/extension` with a supported named empty-content base;
 - an optional annotation, exactly one direct `<group ref="...">` model
   child, and one or more direct local `<attribute>` uses after that child;
-- a group target resolved as a named model group using #392's direct-reference
-  facts; and
-- local uses accepted by #317's scalar/type and namespace allowlists,
+- a group target resolved as an opaque named model group; and
+- local uses accepted by the scalar/type and namespace allowlists,
   including its supported anonymous local simple-type identities.
 
-After existing graph-wide type and global-attribute resolution, the future
-complex-body phase must resolve the group as an opaque #392 particle, then
-local uses through #317, then the named base through #414. This local order
-does not override earlier phase diagnostics or add a consumer content model.
+Construction resolves the opaque group particle, ordered local uses, then the
+named base. No consumer model is introduced by the composition.
 
-The proposed group may be `0/0`, subject to target validation and the
-normalization above. The builder must not infer a syntactically absent group.
-The base must be a named completed empty-content base with only the inherited
-wildcard facts that #414 can represent. This decision does not add or expand
-`attributeGroup`, multiple/nested/local/anonymous groups, `all`, extension
-`anyAttribute`, open content in this composition, assertions, mixed or simple content, nonempty or
+The group may be `0/0`, subject to target validation and the normalization
+above. A syntactically absent group is not silently inferred for this boundary.
+The base remains a named completed empty-content base with only representable
+inherited wildcard facts. Duplicate direct model children are invalid. This
+boundary does not add or expand `attributeGroup`, nested/local/anonymous groups,
+attribute-bearing extensions without a direct group, `all`, extension
+`anyAttribute`, open content, assertions, mixed or simple content, nonempty or
 broader bases, `xs:anyType` direct extension, another derivation kind, value
 constraints, or consumer behavior.
 
-The simple-type variety and reference identities from
-[#213](https://github.com/goxdra/goxsd9/issues/213) remain distinct from
-list/union value semantics. Named simple-type `final` facts and their controls remain in effect.
-This decision excludes union value semantics. The identity-only built-ins from
-[#312](https://github.com/goxdra/goxsd9/issues/312)—`xs:language`,
+Simple-type variety and reference identities remain distinct from list/union
+value semantics; named simple-type `final` controls remain enforced. The
+identity-only built-ins—`xs:language`,
 `xs:NCName`, `xs:anyURI`, and `xs:ID`—are not widened into local attribute
 lexical or value support. For a local use, `name` is an
 unqualified NCName and `ref` is an expanded QName; they are mutually exclusive
@@ -105,89 +88,66 @@ and do not share the global-declaration name path.
 
 ## Phase representation and invariants
 
-The future syntax input must tag `group + attribute uses` and require both
-parts. Generic nullable syntax fields could discard a child or publish an
-impossible combination. The completed body must remain extension-tagged,
-owning the #414 base and derivation facts, an immutable ordered use slice, and
-the opaque group particle when effective. At `0/0`, only the public particle
-becomes nil; base, derivation, and uses remain. Reuse the sole `AttributeUse`
-representation and extend `AttributeUses()` over this extension body.
+Use a tagged, phase-specific extension-body variant for `group + attribute
+uses`. Do not add generic nullable particle/attribute fields that can discard a
+child or publish an impossible combination. The syntax input owns the
+extension, group, base, and ordered-use locations; the resolved result owns a
+resolved group particle, an ordered immutable use slice, and the bounded
+base facts. The `0/0` result selects the existing attribute-only variant rather
+than retaining a zero particle or a second attribute API.
 
-The required phase and local construction order is deterministic:
+The construction order is deterministic:
 
 1. Allocate all named component identities and anonymous local simple-type
    identities in discovery/declaration order.
-2. Resolve graph-wide simple types, including anonymous local use types, and
-   global attributes through existing prerequisite phases.
-3. Within complex-body resolution, convert and validate the group reference
-   and exact occurrence; resolve its visible named target before local uses.
-4. Resolve local attribute uses in lexical order through #317, including
-   effective names, form/chameleon namespace policy, global targets, and
-   supported type identities.
-5. Resolve the extension base through #414's existing seam, including final,
+2. Convert and validate the direct group reference and its exact occurrence;
+   resolve its visible named model-group target first.
+3. Resolve local attribute uses in lexical order, including
+   effective names, form/chameleon namespace policy, global targets, inline
+   simple-type dependencies, and supported type identities.
+4. Resolve the extension base through its bounded seam, including final,
    visibility, completed-content, wildcard, and cycle checks.
-6. Publish one immutable extension fact only after every step succeeds;
-   `0/0` yields a nil public particle without erasing the extension.
+5. Publish one immutable completed fact only after every step succeeds.
 
-The future composition must preserve sequential resolver calls and allocate
-identities before resolution. It must not backpatch completed components;
-returned slices, QNames, IDs, locations, and occurrences must be owned or
-copied at the phase boundary. Maps remain lookup-only; ordered slices define
-attribute order, diagnostics, walks, and output. Consumer content models stay
-on demand and out of the schema.
+All resolver calls are sequential. Completed components are never backpatched;
+returned slices, QNames, IDs, locations, and occurrence values are owned or
+copied at the phase boundary. Maps are lookup-only; ordered slices define
+attribute order, diagnostics, walks, and output. Consumer content models are
+calculated on demand and are not cached in the schema.
 
 ## Edition, policy, and graph behavior
 
-The existing immutable graph-wide policy from [Decision 0004](0004-xsd-language-policy.md)
-admits supported mixed XSD 1.0/1.1 graphs in Compatibility; Strict10 and
-Strict11 select one profile, and `schema/@version` remains inert. The future
-grouped contract must use that policy in either edition. It adds no
-open-content or assertion behavior.
+The one immutable graph-wide policy from [Decision 0004](0004-xsd-language-policy.md)
+applies: Compatibility admits the supported mixed XSD 1.0/1.1 graph, while
+Strict10 and Strict11 select one profile. `schema/@version` remains an inert
+label. The grouped shape is specified for XSD 1.0, XSD 1.1, Compatibility,
+Strict10, and Strict11; edition-specific open-content/assertion behavior stays
+explicitly outside it.
 
-Existing discovery supports forward, included, imported, chameleon, repeated,
-and cyclic source identities with visibility and sequential resolver rules.
-The future composition must reuse those rules: inaccessible or ambiguous
-targets stay excluded, discovery cycles stay interned, and complex-base and
-simple-type cycles retain located failures. It must not traverse group-member
-or attribute-group recursion because target members remain opaque.
+Forward, included, imported, chameleon, repeated, and cyclic discovery graphs
+use existing opaque source identity, visibility, and sequential resolver rules.
+An inaccessible or ambiguous target does not become visible because a map
+happens to expose it. Discovery identity cycles remain interned; complex-base
+and simple-type cycles fail at their existing located diagnostics. Group and
+attribute-group recursion is not followed because group members are never
+expanded here.
 
-## Classification and sibling-axis matrix
+## Classification and axes
 
-The matrix defines future admission and diagnostics.
+Structural violations and referenced-component target failures are invalid
+input. Unresolved, inaccessible, ambiguous, or wrong-kind component targets
+retain their existing `FailureInvalid` XSD codes, causes, primary reference-use
+`Loc`, related target locations, and edition-specific `SpecRef`;
+`FailureResolution` is reserved for acquisition of a referenced source through
+the caller's resolver. A well-formed, specification-valid unimplemented form outside the
+exact slice is explicit unsupported behavior with a registered feature ID,
+stable diagnostic code, primary `Loc`, and edition-specific `SpecRef`. No
+error-level result returns a partial schema.
 
-| Axis | Proposed admitted shape | Invalid after admission | Resolution failure | Explicit unsupported | N/A |
+| Affected axis | Supported | Invalid | Resolution failure | Explicit unsupported | N/A |
 | --- | --- | --- | --- | --- | --- |
-| Edition/policy | One graph policy must cover the XSD 1.0/1.1 shape under Compatibility, Strict10, or Strict11. | Malformed edition-specific syntax must retain its invalid diagnostic. | N/A; policy selection does not acquire sources. | This composition adds no open-content support; elsewhere only `openContent=none` is admitted under Compatibility/Strict11. Other modes, assertions, and broader shapes stay unsupported. | `schema/@version` must never select an edition. |
-| Named/anonymous/inline/ref | One named global owner, named #414 base, direct named group ref, and ordered #317 local declaration/ref uses must be admitted. | Duplicate model children, malformed QName/NCName, invalid name/ref/use/form/occurrences, duplicate effective name, and unresolved/wrong-kind/ambiguous/inaccessible targets must fail with existing invalid causes. | Only source acquisition through the caller's resolver is a resolution failure. | Current structurally admitted attribute-only input fails `XSD3003` at the attribute; otherwise valid bounded combined input fails at the first unsupported group attribute in XML order before use resolution, even at `0/0`. A syntactically absent group is valid but outside the proposed slice. Future anonymous/local owners, multiple/nested groups, attribute groups, and unsupported scalar varieties stay excluded. | Global inline attributes and local element-inline content are outside this contract. |
-| Graph visibility/cycles | The builder must reuse forward/include/import/chameleon/repeat identities and visibility; target members stay opaque. | Target visibility, ambiguity, wrong-kind, and base/simple-type cycles must retain located invalid diagnostics. | Referenced-source acquisition must retain its resolver cause. | Recursive group expansion and broader graph composition remain outside the contract. | Group-member traversal is unnecessary because no expansion occurs. |
-| Failure class | On success the future builder must publish one immutable fact; on error no schema. | Structural and target failures must retain stable code, primary/related `Loc`s, cause, and edition `SpecRef`. | Acquisition alone uses `FailureResolution` at the discovery boundary. | Valid unavailable behavior needs a registered feature, stable code, `Loc`, `SpecRef`, and `ErrUnsupported`; validation/generation of the admitted shape must reject explicitly. | No conformance outcome follows from this query contract. |
-| Location/order/provenance | Preserve group QName/ref/use `Loc`s, exact range, target ID, ordered local uses, effective names, type/form `Loc`s, and declaration order; validate before `0/0` omission. | Reference-use primary and target/duplicate/bound related locations must survive. | Preserve acquisition location and underlying cause. | For the otherwise valid bounded probes, attribute-only primary is attribute `Loc`; combined primary is the first unsupported group-attribute `Loc` (`ref` or `minOccurs`). Preserve versioned `SpecRef`. | Map iteration cannot define observable order; ordered slices do. |
-
-## Design dependencies
-
-The future grouped body must reuse [#317](https://github.com/goxdra/goxsd9/issues/317)'s
-single immutable ordered `AttributeUse` view,
-[#392](https://github.com/goxdra/goxsd9/issues/392)'s opaque direct group
-reference, and [#414](https://github.com/goxdra/goxsd9/issues/414)'s named
-empty-base and inherited wildcard seam. The target must retain its own
-[#404](https://github.com/goxdra/goxsd9/issues/404) members; they are never
-flattened into the extension. [#213](https://github.com/goxdra/goxsd9/issues/213)
-variety and [#312](https://github.com/goxdra/goxsd9/issues/312) XML built-in
-identities add no list/union or attribute value semantics.
-
-Global inline complex and attribute declarations and local element-inline
-complex content stay outside the proposed grouped-extension contract. Its base
-must remain within the existing empty/particle-free seam.
-
-## Risks and boundaries
-
-Implementing the contract could flatten an opaque group into #404 members,
-lose causes or locations while composing #317 uses, publish a semantic `0/0`
-as a zero particle, or turn #312/#213 identities into value support. Reusing
-existing visibility and base-cycle checks, ordered slices, and tagged variants
-would guard those boundaries.
-
-The combined group-plus-use shape is currently schema-unsupported with no
-completed component. This decision requires a future immutable query fact
-over the bounded base seam, followed by explicit validation and generation
-rejection. Broader derivation and group expansion remain outside its scope.
+| Edition/policy | XSD 1.0/1.1 under Compatibility, Strict10, or Strict11; one policy for the whole graph. | Malformed edition-specific attributes or grammar. | N/A. | Valid unimplemented XSD 1.1 open-content/assertion behavior gets a feature/`Loc`/`SpecRef`; a label never selects policy. | Edition selection from `schema/@version` is N/A. |
+| Named/anonymous/inline/ref shape | Named global owner and supported named empty base; one direct named group ref; local declaration/ref uses and supported anonymous scalar types. | Duplicate direct model child (`XSD3010`); malformed QName/NCName; both or neither `name`/`ref`; invalid use/form/occurrences; duplicate effective name; unresolved, inaccessible, ambiguous, or wrong-kind component targets remain `FailureInvalid`. | Referenced-source acquisition failures only, through the caller's resolver. | Attribute-bearing extensions without a direct group; anonymous/local complex owners, nested/anonymous groups, attribute groups, unsupported list/union varieties and identity-only value semantics. | Global inline attributes are outside this boundary. The local element-inline scope is outside this grouped-extension decision. |
+| Graph visibility/cycles | Forward, included, imported, chameleon, repeated, and interned discovery identities with existing visibility. | Inaccessible/ambiguous/unresolved/wrong-kind component targets; base/simple-type cycles at existing diagnostics. | Referenced-source acquisition failures only at the resolver/discovery boundary. | Group or attribute-group recursive expansion and broader graph composition are not followed. | Group-member traversal is N/A because the particle is opaque. |
+| Supported/invalid/explicit unsupported | Exact slice publishes facts; malformed structure is invalid; valid unavailable behavior is explicit unsupported. | Stable structural/component-target `FailureInvalid` code, primary source `Loc`, related locations where useful, cause, and edition `SpecRef`; direct-group XSD3047–XSD3050 and attribute-use XSD3030/XSD3045–XSD3052 families retain these details. | Only referenced-source acquisition failures are `FailureResolution` at the resolver/discovery boundary. | Registered feature ID, stable code, `Loc`, `SpecRef`, `ErrUnsupported`, and no schema; validation/generation reject explicitly. | W3C instance conformance scores are outside this decision. |
+| Location/order/provenance | Preserve group QName/ref/use locations, exact range, target ID, ordered attribute uses, effective names, type/form locations, and declaration order; validate before `0/0` omission. | Primary reference-use `Loc`, related target declaration/duplicate/bounds locations, and existing cause remain attached. | Resolver/discovery acquisition location and underlying cause remain attached. | The unsupported construct's source `Loc` and versioned `SpecRef` remain attached. | Unordered map iteration is N/A to observable order; ordered slices are authoritative. |

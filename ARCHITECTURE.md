@@ -76,11 +76,12 @@ byte attribute values are excluded. Local built-in/named-effective
 exclude these at admission. Built-in/named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
 AttributeUse facts preserve order, locations, ownership, effective use, and QName/RefLoc/TargetID
-in particle-plus-use, model-group, attribute-only, and simpleContent. Local uses retain
+in particle-plus-use, model-group, grouped-extension, attribute-only, and simpleContent.
+Local uses retain
 name/type/use locations and named/anonymous `AnonymousID`/`NodeID`; references retain
 QName/RefLoc/TargetID/use. Forms select names; XSD 1.1 `targetNamespace` must match the container;
 chameleon adopts; prohibited uses omit. Value/default/fixed/inheritable semantics,
-attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported; excluded refs retain locations; no schema.
+attributeGroup/broader attribute-bearing complexContent extensions, and consumers are unsupported; excluded refs retain locations; no schema.
 Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
 Default/fixed: Boolean/integer/decimal/token/negativeInteger/long/short (built-in/named, all policies),
@@ -124,8 +125,8 @@ unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without
 only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, other
 forms remain queryable but excluded. Global `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
-refs are top-level direct query only; broader forms reject. AttributeUse and simpleContent facts are
-query-only; validation and `GenerateGo` reject those consumers with their retained locations.
+refs query in direct complex-type bodies and supported grouped extensions; nested/broader forms reject.
+AttributeUse and simpleContent facts are query-only; validation and `GenerateGo` reject consumers.
 
 Generation: named Boolean/integer/decimal/string/token/NMTOKEN components; global elements using
 those built-in/named types; inline global string/token/NMTOKEN elements; global/named-typed
