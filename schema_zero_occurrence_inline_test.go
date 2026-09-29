@@ -130,47 +130,124 @@ func TestSchemaBridgePreservesZeroOccurrenceInlinePrecisionDecimalPolicy(t *test
 		{name: "strict11", policy: Strict11, version: "1.1"},
 	}
 	for _, profile := range profiles {
-		for _, placement := range zeroOccurrenceInlineParticlePlacements() {
-			t.Run(profile.name+"/"+placement.name, func(t *testing.T) {
-				root := zeroOccurrenceInlineSchemaRoot(profile.version, placement, "", "xs:precisionDecimal", "")
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if !profile.policyFailure {
-					if err != nil {
-						t.Fatalf("discoverSchema: %v", err)
+		for _, facets := range []struct {
+			name string
+			xml  string
+		}{
+			{name: "plain"},
+			{name: "unsupported pattern", xml: `<xs:pattern value=".*"/>`},
+		} {
+			for _, placement := range zeroOccurrenceInlineParticlePlacements() {
+				t.Run(profile.name+"/"+facets.name+"/"+placement.name, func(t *testing.T) {
+					root := zeroOccurrenceInlineSchemaRoot(profile.version, placement, "", "xs:precisionDecimal", facets.xml)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if !profile.policyFailure {
+						if err != nil {
+							t.Fatalf("discoverSchema: %v", err)
+						}
+						assertZeroOccurrenceInlineParticleOmitted(t, schema, placement)
+						return
 					}
-					assertZeroOccurrenceInlineParticleOmitted(t, schema, placement)
-					return
-				}
-				if err == nil {
-					t.Fatal("Strict10 accepted zero-occurrence inline precisionDecimal")
-				}
-				assertZeroSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != diagnosticSchemaPrecisionDecimalVersionCode {
-					t.Fatalf("diagnostic = %s/%q/%q, want unsupported datatype policy mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
-				}
-				wantLoc := zeroOccurrenceInlineSchemaTokenLoc(t, root, `<xs:restriction`)
-				if diagnostic.Loc() != wantLoc {
-					t.Fatalf("diagnostic location = %s, want restriction location %s", diagnostic.Loc(), wantLoc)
-				}
-				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, errSchemaPrecisionDecimalVersion) {
-					t.Fatalf("diagnostic lost policy causes: %v", err)
-				}
-			})
+					if err == nil {
+						t.Fatal("Strict10 accepted zero-occurrence inline precisionDecimal")
+					}
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureDatatypeFacets || diagnostic.Code() != diagnosticSchemaPrecisionDecimalVersionCode {
+						t.Fatalf("diagnostic = %s/%q/%q, want unsupported datatype policy mismatch", diagnostic, diagnostic.Feature(), diagnostic.Code())
+					}
+					wantLoc := zeroOccurrenceInlineSchemaTokenLoc(t, root, `<xs:restriction`)
+					if diagnostic.Loc() != wantLoc {
+						t.Fatalf("diagnostic location = %s, want restriction location %s", diagnostic.Loc(), wantLoc)
+					}
+					if diagnostic.SpecRef() != "xsd11-datatypes#dt-primitive" || diagnostic.Related() != nil {
+						t.Fatalf("policy spec/related = %q/%v, want XSD 1.1 primitive and none", diagnostic.SpecRef(), diagnostic.Related())
+					}
+					if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errLanguagePolicyMismatch) || !errors.Is(err, errSchemaPrecisionDecimalVersion) {
+						t.Fatalf("diagnostic lost policy causes: %v", err)
+					}
+				})
+			}
 		}
 	}
 }
 
 func TestSchemaBridgeKeepsZeroOccurrenceInlineUnsupportedOmission(t *testing.T) {
-	for _, placement := range zeroOccurrenceInlineParticlePlacements() {
-		t.Run(placement.name, func(t *testing.T) {
-			root := zeroOccurrenceInlineSchemaRoot("1.1", placement, "", "xs:string", "")
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Compatibility)
-			if err != nil {
-				t.Fatalf("discoverSchema: %v", err)
+	for _, profile := range []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	} {
+		for _, placement := range zeroOccurrenceInlineParticlePlacements() {
+			t.Run(profile.name+"/"+placement.name, func(t *testing.T) {
+				root := zeroOccurrenceInlineSchemaRoot(profile.version, placement, "", "xs:long", `<xs:pattern value=".*"/>`)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatalf("discoverSchema: %v", err)
+				}
+				assertZeroOccurrenceInlineParticleOmitted(t, schema, placement)
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Keep each semantic escape from unsupported syntax at one phase boundary.
+func TestSchemaBridgeZeroOccurrenceUnsupportedFacetPreservesSemanticFailures(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "strict10", policy: Strict10, version: XSDVersion10},
+		{name: "strict11", policy: Strict11, version: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		for _, failure := range []struct {
+			name         string
+			base         string
+			facets       string
+			declarations string
+			code         string
+			cause        error
+			primary      string
+			related      []string
+			specRef      string
+		}{
+			{name: "unresolved base", base: "r:Missing", facets: `<xs:pattern value=".*"/>`, code: diagnosticSchemaSimpleTypeUnresolvedCode, cause: errSchemaSimpleTypeBaseUnresolved, primary: `base="r:Missing"`, specRef: schemaSimpleTypeSpecRef(profile.version)},
+			{name: "wrong-kind base", base: "r:Target", facets: `<xs:pattern value=".*"/>`, declarations: `<xs:element name="Target" type="xs:long"/>`, code: diagnosticSchemaSimpleTypeWrongKindCode, cause: errSchemaSimpleTypeBaseWrongKind, primary: `base="r:Target"`, related: []string{`<xs:element name="Target"`}, specRef: schemaSimpleTypeSpecRef(profile.version)},
+			{name: "out-of-range bound", base: "xs:long", facets: `<xs:pattern value=".*"/><xs:maxInclusive value="9223372036854775808"/>`, code: InvalidBoundRestrictionCode, cause: errInvalidBoundRestriction, primary: `value="9223372036854775808"`, specRef: boundSpecRef(profile.version, BoundMaxInclusive, boundRestrictionRule)},
+			{name: "malformed bound", base: "xs:long", facets: `<xs:pattern value=".*"/><xs:maxInclusive value="not-an-integer"/>`, code: InvalidBoundCode, cause: errInvalidBoundValue, primary: `value="not-an-integer"`, specRef: boundSpecRef(profile.version, BoundMaxInclusive, boundDefinitionRule)},
+		} {
+			for _, placement := range zeroOccurrenceInlineParticlePlacements() {
+				t.Run(profile.name+"/"+failure.name+"/"+placement.name, func(t *testing.T) {
+					root := zeroOccurrenceInlineSchemaRoot(string(profile.version), placement, failure.declarations, failure.base, failure.facets)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					assertZeroSchema(t, schema)
+					if err == nil || !errors.Is(err, failure.cause) {
+						t.Fatalf("error = %v, want cause %v", err, failure.cause)
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != failure.code || diagnostic.SpecRef() != failure.specRef {
+						t.Fatalf("diagnostic = %s, want invalid %s with spec %s", diagnostic, failure.code, failure.specRef)
+					}
+					if want := zeroOccurrenceInlineSchemaTokenLoc(t, root, failure.primary); diagnostic.Loc() != want {
+						t.Fatalf("primary location = %s, want %s", diagnostic.Loc(), want)
+					}
+					var related []Loc
+					for _, token := range failure.related {
+						related = append(related, zeroOccurrenceInlineSchemaTokenLoc(t, root, token))
+					}
+					if got := diagnostic.Related(); !reflect.DeepEqual(got, related) {
+						t.Fatalf("related locations = %v, want %v", got, related)
+					}
+				})
 			}
-			assertZeroOccurrenceInlineParticleOmitted(t, schema, placement)
-		})
+		}
 	}
 }
 

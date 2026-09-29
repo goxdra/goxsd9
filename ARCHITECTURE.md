@@ -64,9 +64,7 @@ base/type/use `Loc`s and nil particle; restrictions are unsupported. Bases are
 Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline `negativeInteger`, and built-in/named `long`, `int`, `short`, `byte`, `unsignedLong`, `nonNegativeInteger`.
 Local `long`: query-only; `ValidateInstance`/`GenerateGo` reject. Exclusions return `FailureUnsupported` at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`.
-Syntax/occurrence/reference/policy gates precede local mapping; graph declaration/facet
-failures and Strict10 `precisionDecimal` apply. Resolve inline base/variety/facets and selected policy for every affected owner/term, including `0/0`, before omission; only validated publication-unsupported `FailureUnsupported` may omit there.
-Invalid, unresolved, cyclic, wrong-kind, value-constraint, and policy failures retain causes/locations, return no `Schema`, and leave named/inline `0/0` mapping conditional.
+Syntax/occurrence/reference/policy gates precede mapping; graph declaration/facet failures apply. At `0/0`, unsupported inline syntax defers until its base and supported facets resolve. Invalid, unresolved, cyclic, wrong-kind, value-constraint, and policy failures retain causes/locations and return no `Schema`; resolved unsupported forms may omit.
 Sequences resolve children before owner omission; choices resolve refs
 without duplicate checks before omission; named groups resolve/check before owner/child
 omission; child refs resolve first.

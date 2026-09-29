@@ -3911,6 +3911,11 @@ func validateModelParticleChildren(element *syntaxElement, model string, version
 //nolint:gocognit,funlen // Keep the supported direct-sequence grammar in the shared traversal.
 func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences, allowNamespacePolicy bool) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
+	if err != nil {
+		return candidate, err
+	}
+	ownerOmitted := !occurrences.mapsToParticle()
 	annotationSeen := false
 	contentSeen := false
 	for _, node := range element.children {
@@ -3941,7 +3946,7 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 		contentSeen = true
 		switch child.name.local {
 		case "element":
-			localCandidate, err := validateLocalElementParticle(child, version, allowElementOccurrences, model, allowNamespacePolicy)
+			localCandidate, err := validateLocalElementParticle(child, version, allowElementOccurrences, model, allowNamespacePolicy, ownerOmitted)
 			if err != nil {
 				return candidate, err
 			}
@@ -4365,7 +4370,7 @@ func localInlineSimpleTypeAtomicRestriction(element *syntaxElement) bool {
 }
 
 //nolint:gocognit,funlen // Keep local element grammar, lexical checks, and support boundaries together.
-func validateLocalElementParticle(element *syntaxElement, version XSDVersion, allowOccurrences bool, model string, allowNamespacePolicy bool) (schemaChildUnsupportedCandidate, error) {
+func validateLocalElementParticle(element *syntaxElement, version XSDVersion, allowOccurrences bool, model string, allowNamespacePolicy, ownerOmitted bool) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
 	nameAttributes := syntaxAttributesByLocal(element, "name")
 	refAttributes := syntaxAttributesByLocal(element, "ref")
@@ -4537,14 +4542,14 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			}
 			if inlineErr := validateInlineSchemaType(child, version); inlineErr != nil {
 				var diagnostic Diagnostic
-				if mapsToParticle || !errors.As(inlineErr, &diagnostic) || diagnostic.Class() != FailureUnsupported || errors.Is(inlineErr, errLanguagePolicyMismatch) {
+				if mapsToParticle && !ownerOmitted || !errors.As(inlineErr, &diagnostic) || diagnostic.Class() != FailureUnsupported || errors.Is(inlineErr, errLanguagePolicyMismatch) {
 					if !candidate.considerError(inlineErr) {
 						return candidate, inlineErr
 					}
 				}
 			}
 			typeChildSeen = true
-			if mapsToParticle && !candidate.present && (child.name.local != "simpleType" || !localInlineSimpleTypeAtomicRestriction(child)) {
+			if mapsToParticle && !ownerOmitted && !candidate.present && (child.name.local != "simpleType" || !localInlineSimpleTypeAtomicRestriction(child)) {
 				candidate.considerAt(child.loc, fmt.Sprintf("local element child <%s> is not implemented", child.name.local))
 			}
 		case "alternative":
@@ -4571,7 +4576,7 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			candidate.considerAt(child.loc, fmt.Sprintf("local element child <%s> is not implemented", child.name.local))
 		}
 	}
-	if !mapsToParticle {
+	if !mapsToParticle || ownerOmitted {
 		return candidate, nil
 	}
 	if refSeen || typeSeen || typeChildSeen {
@@ -4789,7 +4794,7 @@ func validateAllParticleChild(node syntaxNode, version XSDVersion, annotationSee
 func validateAllParticleContentChild(child *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate) error {
 	switch child.name.local {
 	case "element":
-		localCandidate, err := validateLocalElementParticle(child, version, false, "all", false)
+		localCandidate, err := validateLocalElementParticle(child, version, false, "all", false, false)
 		if err != nil {
 			if !localCandidate.considerError(err) {
 				return err
@@ -5334,7 +5339,7 @@ func validateNamedModelGroupChild(child *syntaxElement, version XSDVersion, mode
 }
 
 func validateNamedModelGroupElementChild(child *syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
-	childCandidate, err := validateLocalElementParticle(child, version, true, "model-group "+model, false)
+	childCandidate, err := validateLocalElementParticle(child, version, true, "model-group "+model, false, false)
 	if err != nil {
 		return err
 	}

@@ -72,11 +72,11 @@
 // graph-wide declaration/facet failures still surface, and located gate errors
 // preserve their causes/Locs and return no Schema. Ordinary local named/inline
 // type mapping is not universal for non-reference 0/0 terms. For every affected
-// local owner or term, syntax and exact occurrences precede semantic resolution
-// of inline base, variety, facets, and selected policy, including zero occurrences;
-// only validated publication-unsupported FailureUnsupported diagnostics may be
-// omitted at 0/0. Invalid, unresolved, cyclic, wrong-kind, value-constraint,
-// and policy failures retain their diagnostics and prevent a Schema.
+// local owner or term, syntax and exact occurrences precede inline semantic
+// resolution. At 0/0, unsupported inline syntax waits for its base and supported
+// facets to resolve; invalid, unresolved, cyclic, wrong-kind, value-constraint,
+// and policy failures retain their diagnostics and prevent a Schema. Resolved
+// unsupported forms may omit.
 // Direct sequences resolve children before owner omission; direct choices resolve
 // child refs without duplicate checks before child omission; named groups
 // resolve/check duplicate refs before owner/child omission; child refs resolve
@@ -397,7 +397,7 @@
 // particles are queryable and rejected by both consumers. Exact local declared,
 // named, inline, and anonymous `0/0` forms are admitted then absent only when
 // applicable syntax, reference, inline-semantic, and selected-policy gates pass;
-// validated publication-only FailureUnsupported diagnostics may be omitted at
+// resolved FailureUnsupported diagnostics may be omitted at
 // `0/0`; invalid, resolution, value-constraint, and policy failures prevent a
 // Schema. Retained `nonNegativeInteger` particles remain consumer-excluded.
 // References to global `nonNegativeInteger` remain queryable
