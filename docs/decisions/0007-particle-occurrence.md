@@ -5,10 +5,9 @@ Status: accepted
 ## Decision
 
 Particle bounds are exact non-negative arbitrary-precision `StrictInteger` values
-or distinct `unbounded`, allowed only for a maximum. The value model has no
-sentinel, fixed-width conversion, floating point, duplicate flag, or nullable
-completed state. A completed range has a finite minimum and finite/unbounded
-maximum; a finite maximum requires minimum <= maximum.
+or max-only `unbounded`. The model has no sentinel, fixed-width conversion,
+floating point, duplicate flag, or nullable state. A completed range has finite
+minimum and finite/unbounded maximum; finite maximum requires minimum <= maximum.
 
 The XSD 1.0 definitions are [`xsd10-structures#Particle_details`](https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/#Particle_details),
 [`xsd10-structures#p-min_occurs`](https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/#p-min_occurs),
@@ -26,25 +25,25 @@ and [`xsd11-datatypes#nonNegativeInteger`](https://www.w3.org/TR/2012/REC-xmlsch
 
 ## Normative occurrence table
 
-The table describes value and mapping for both editions. Entries mapping to no
-component are not public particles. Edition-specific `all` restrictions follow.
+Both editions share table; no-component entries are not zeroed public particles;
+edition-specific `all` restrictions follow.
 
 | Input or condition | XSD 1.0 | XSD 1.1 |
 | --- | --- | --- |
-| Both attributes omitted | Effective `1/1`; construct finite `1/1`. | Effective `1/1`; construct finite `1/1`. |
-| `minOccurs="0"`, maximum omitted | Effective `0/1`; preserve exact zero and optionality. | Effective `0/1`; preserve exact zero and optionality. |
-| Explicit finite `1` | Construct finite `1`; leading `+` and zero padding canonicalize to `1`. | Construct finite `1`; leading `+` and zero padding canonicalize to `1`. |
+| Both attributes omitted | Effective `1/1`; construct finite `1/1`. | Same as XSD 1.0. |
+| `minOccurs="0"`, maximum omitted | Effective `0/1`; preserve exact zero and optionality. | Same as XSD 1.0. |
+| Explicit finite `1` | Construct finite `1`; leading `+` and zero padding canonicalize to `1`. | Same as XSD 1.0. |
 | Effective `0/0` | Where the representation permits both values, map to no particle; do not publish a zeroed particle. XSD 1.0 `<all>` itself has fixed maximum `1`. | Map to no particle; XSD 1.1 `<all>` permits the `0/0` representation. |
-| Arbitrary finite non-negative value, including above `uint64` | Preserve the exact `StrictInteger`; compare numerically without narrowing. | Preserve the exact `StrictInteger`; compare numerically without narrowing. |
-| `maxOccurs="unbounded"` | Store the max-only unbounded variant; compare no numeric maximum. | Store the max-only unbounded variant; compare no numeric maximum. |
+| Arbitrary finite non-negative value, including above `uint64` | Preserve the exact `StrictInteger`; compare numerically without narrowing. | Same as XSD 1.0. |
+| `maxOccurs="unbounded"` | Store the max-only unbounded variant; compare no numeric maximum. | Same as XSD 1.0. |
 | Omitted minimum with finite maximum `0` | Effective `1/0`; invalid because minimum exceeds maximum and a completed finite particle cannot have maximum zero. | Effective `1/0`; invalid because minimum exceeds maximum; an actual particle maximum is positive. |
-| Finite minimum greater than finite maximum | Invalid `Particle Correct`; retain both located bound inputs in the diagnostic. | Invalid `Particle Correct`; retain both located bound inputs in the diagnostic. |
-| Malformed lexical value such as `maybe`, `1.0`, or empty | Invalid `nonNegativeInteger`/`allNNI`; report at the attribute location and preserve the lexical cause. | Invalid `nonNegativeInteger`/`allNNI`; report at the attribute location and preserve the lexical cause. |
-| Negative value such as `-1` | Invalid non-negative value; negative zero denotes exact zero and is accepted by the datatype mapping. | Invalid non-negative value; negative zero denotes exact zero and is accepted by the datatype mapping. |
-| `unbounded` in `minOccurs` or another attribute | Invalid lexical/value for that attribute; only a maximum may use the keyword. | Invalid lexical/value for that attribute; only a maximum may use the keyword. |
+| Finite minimum greater than finite maximum | Invalid `Particle Correct`; retain both located bound inputs in the diagnostic. | Same as XSD 1.0. |
+| Malformed lexical value such as `maybe`, `1.0`, or empty | Invalid `nonNegativeInteger`/`allNNI`; report at the attribute location and preserve the lexical cause. | Same as XSD 1.0. |
+| Negative value such as `-1` | Invalid non-negative value; negative zero denotes exact zero and is accepted by the datatype mapping. | Same as XSD 1.0. |
+| `unbounded` in `minOccurs` or another attribute | Invalid lexical/value for that attribute; only a maximum may use the keyword. | Same as XSD 1.0. |
 
-Finite comparison enforces `min <= max`; unbounded maxima bypass sentinels.
-Apply `0/0` after defaults and before public allocation.
+Finite comparison enforces `min <= max`; unbounded maxima bypass numeric
+sentinels. Apply `0/0` after effective defaults and before public allocation.
 
 ### Edition-specific `all` restrictions
 
@@ -53,44 +52,43 @@ Apply `0/0` after defaults and before public allocation.
 | XSD 1.0 | XSD 1.0 all members are element particles with minOccurs 0 or 1 and fixed maxOccurs 1; the current parser validates these restrictions and leaves explicit occurrence syntax unsupported. |
 | XSD 1.1 | An `all` model group has `minOccurs` and `maxOccurs` each in `0/1`. It has the permitted model-group-definition/content-type placements, and an `all` term may also occur as a `1/1` particle inside an `all` group. Its member terms that are model groups must themselves be `all`; a group-reference member is fixed at `1/1`. Element and wildcard members use the exact general occurrence model. The XML representation permits element, wildcard, and group children. |
 
-`all` mapping unsupported; admitted exact sequence/choice/child occurrences;
-direct-sequence consumes finite/unbounded/above-`uint64` ranges; direct-choice
-repetition-validation/repeated-field-generation unsupported.
+These are constraints on future component construction, not a claim that the
+current parser supports all particles or their repetition semantics.
 
 ## Representation and phase boundaries
 
-The private kernel in `particle_occurrence.go` is the phase boundary:
+The private kernel in `particle_occurrence.go` is the first durable phase
+boundary:
 
-1. Syntax collection keeps lexical presence and source locations long enough to
-   apply the omitted-value default and detect duplicate attributes.
+1. Syntax collection keeps lexical presence and source locations only long
+   enough to apply the omitted-value default and detect duplicate attributes.
 2. Lexical conversion uses `ParseStrictInteger`, rejects negative values, and
    constructs a tagged finite or max-only unbounded bound. The range
    constructor owns copies and rejects an unbounded minimum or finite
    `min > max`.
-3. The particle mapping phase applies the shared exact `0/0` absence rule to
-   sequence, choice, and child occurrences. It derives `mapsToParticle` from
-   exact `0/0`; it does not store an `absent` flag.
-4. The completed schema phase copies the range into an immutable view. Its
-   minimum is an owned `StrictInteger`; its maximum is a
+3. After applicable syntax, occurrence, reference, and policy gates, mapping
+   applies exact `0/0` absence to sequence, choice, and child occurrences;
+   `mapsToParticle` derives from bounds, not an `absent` flag.
+   Graph-wide declaration/facet failures and policy errors prevent construction;
+   non-reference named/inline type mapping is not universal before local
+   public-particle omission. Local public particle alone is omitted.
+4. The completed schema phase copies the range into an immutable public
+   occurrence view. Its minimum is an owned `StrictInteger`; its maximum is a
    tagged finite or unbounded value. Queries clone exact finite values at the
    ownership boundary.
 5. Validator and code-generator plans consume exact bounds on demand; they do
    not cache derived repetition programs in the schema.
 
-### Current-state matrix
+### Support boundaries
 
-The matrix is authoritative for current schema, validation, generation, and
-reference behavior. It complements the normative tables above without
-broadening edition limits.
-
-| Surface | Current behavior |
-| --- | --- |
-| Query model | Named global complexes expose direct sequence/choice local built-in/named Boolean/integer/decimal/token/NMTOKEN and anonymous Boolean/integer/decimal elements. Bounded attribute-free extensions over named empty-content bases retain these facts, base identities/locations, particles, and inherited `##other`/lax; model-less retain base identity/locations only. A local declared type of built-in `xs:precisionDecimal` or a named type with effective `precisionDecimal` facets is queryable only in admitted default-occurrence direct choices and bounded attribute-free extension choices under Compatibility/Strict11; the choice owner and every mapped typed child/alternative require default occurrences, while nonprecision alternatives may remain query-only. Inline anonymous `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` restrictions are unsupported when mapped. Compatibility/Strict11 omit effective `0/0` for either local form; Strict10 rejects both before omission, including zero. Nonzero precisionDecimal direct or extension sequences are schema-unsupported. Anonymous facts retain `SimpleTypeID`/`NodeID`/`AnonymousID`, QName ownership, facets, locations, exact occurrences; no `ComponentID`/global-walk ownership. Mapped non-0/0 local anonymous string/token/NMTOKEN/`precisionDecimal` restrictions are schema-unsupported. Local anonymous integer kinds accept only `integer`/`negativeInteger` through named/forward/imported/included/chameleon chains; excluded `long`/`unsignedLong`/`nonNegativeInteger`/`nonPositiveInteger` remain valid but unsupported with located `FailureUnsupported`/`ErrUnsupported` at type/facet `Loc` and no schema. Supported anonymous Boolean/integer/decimal facets are queryable; mapped non-0/0 non-string anonymous enumeration is unsupported at its facet location with no schema. Global long-family refs retain exact bounds: `long` `[-9223372036854775808, 9223372036854775807]`, `unsignedLong` `[0, 18446744073709551615]`, `negativeInteger` upper `-1`, `nonNegativeInteger` lower `0`, and `nonPositiveInteger` upper `0`; malformed refs are `FailureInvalid`. Global built-in/named `nonNegativeInteger` roots are validation-supported; other long-family roots and global inline long-family declarations remain query-only. Global inline string/token/NMTOKEN, Boolean/integer/decimal, and language/NCName/anyURI/ID declarations retain query facts; inline `precisionDecimal` does so under Compatibility/Strict11 only. |
-| Validation | `ValidateInstance` consumes named global complexes with local built-in/named Boolean-only and integer/decimal sequences in lexical order, honoring exact finite/unbounded/above-`uint64` outer/child ranges under Compatibility/Strict10/Strict11; named Boolean validation is facet-free. Global built-in/named `nonNegativeInteger` roots validate under all policies through the exact integer scalar plan; global built-in/named `precisionDecimal` roots are valid scalar inputs under Compatibility/Strict11. Only non-extension default-occurrence choices with all-Boolean, all-token, or all-NMTOKEN alternatives validate; integer/decimal mixtures remain supported. A local declared type of built-in or named-effective `precisionDecimal` is eligible only there; extensions and anonymous consumers remain unsupported with located `FailureUnsupported`/`ErrUnsupported`. Token/NMTOKEN sequences and mixed/Boolean-numeric choices, direct-choice repetition, and local anonymous consumers remain unsupported. Non-extension default-occurrence direct-choice refs to global built-in/named Boolean/integer/decimal targets other than `nonNegativeInteger` are supported; sequence, repetition/non-default, nested/recursive/broader, mixed, and anonymous refs are not. |
-| `precisionDecimal` | Global built-in/named/inline schema/query admission and built-in/named-root validation are Compatibility/Strict11-only; Strict10 rejects those forms before validation with a located policy diagnostic. Global inline is queryable under Compatibility/Strict11, but its anonymous target is rejected by validation/generation. Local forms differ: a declared type of built-in `xs:precisionDecimal` or a named type with effective `precisionDecimal` facets is admitted only in default-occurrence direct choices and bounded attribute-free extension choices; the choice owner and every mapped typed child/alternative require default occurrences, while nonprecision alternatives may remain query-only. Inline anonymous `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` restrictions are unsupported when mapped. Policy precedes `0/0`: Strict10 rejects both local forms before omission, including zero; Compatibility/Strict11 omit it for either form. Mapped non-default choices/alternatives or nonzero direct sequences are schema-unsupported. Only non-extension default typed choices validate; extensions and anonymous consumers remain unsupported; `GenerateGo` rejects every global, explicitly typed local (including named-effective), inline, and anonymous `precisionDecimal` target, including schema-admitted extensions. |
-| Generation | Default-bounded sequences over local built-in/named Boolean, integer, or decimal particles emit fields; mixed Boolean/numeric or repeated fields are unsupported, while integer/decimal mixtures remain supported. Non-default direct-sequence occurrences are not emitted as repeated fields. `GenerateGo` supports global built-in/named/inherited/included/imported Boolean/integer (excluding `nonNegativeInteger`)/decimal and string/token/NMTOKEN scalar components, plus global inline string/token/NMTOKEN scalar components. It supports only non-extension default-occurrence direct-choice references to global built-in/named Boolean/integer/decimal targets other than `nonNegativeInteger`; sequences, repetition/non-default occurrences, nested/recursive/broader references, and anonymous targets are rejected. Global and local `precisionDecimal` facts are queryable under Compatibility/Strict11 but every global, explicitly typed local (including named-effective), inline, anonymous, and extension target is rejected by `GenerateGo`; Strict10 rejects global inline `precisionDecimal` with the located policy diagnostic. Global inline Boolean/integer/decimal, long/unsignedLong/negativeInteger/nonNegativeInteger/nonPositiveInteger, and language/NCName/anyURI/ID declarations retain query facts but their anonymous validation and generation consumers are rejected. Local built-in/named Boolean/integer/decimal particles generate only in default-occurrence direct choices whose alternatives are all Boolean or all numeric and in default-bounded direct sequences; local anonymous and token/NMTOKEN consumers and repeated/non-default particles remain rejected. |
-| References | Element-reference particles in local content and named groups are queryable immutable facts. Resolution retains the expanded QName, `RefLoc`, `TargetID`, lexical order, and exact occurrences without target-type gating. Only non-extension default-occurrence direct-choice refs to built-in/named global Boolean/integer/decimal targets other than `nonNegativeInteger` are consumer-eligible. Sequence, anonymous-target, repetition, nested, recursive, broader, and mixed element-reference forms are consumer exclusions; query model references retain their resolved facts. Model-group references are a separate top-level direct query boundary: supported named-complex and bounded attribute-free-extension references retain ordered facts and `TargetID` without expansion, while nested/local/recursive/broader model-group references remain unsupported. |
-| Diagnostics and extensions | Ordinary direct checks use element/particle locations and may relate anonymous locations. Complex-content/model-less extension gates run first; codegen uses extension-primary facts, validation uses owner or sequence-instance primary, and no validation diagnostic adds an anonymous location. Direct and extension model-group references use group `RefLoc` primary, relate the group particle for validation, and retain group/component/reference/target locations for generation. Supported `xs:any` and `anyAttribute` forms retain ordered namespace/process query facts; effective `0/0` is a particle-occurrence rule, while broader forms and wildcard consumers remain unsupported; unsupported gates return no `GenerateGo` output. |
+Occurrence construction decides whether a supported mapped term exists; it does
+not decide whether validation or Go generation can consume that term. Admission
+and query behavior, including current shape exclusions, are described in the
+[architecture's schema model](../../ARCHITECTURE.md#schema-model) and the
+[package contract](../../doc.go). The architecture documents the separate
+[validation and generation](../../ARCHITECTURE.md#validation-and-code-generation)
+consumer boundaries. These current support limits are not part of the
+occurrence representation decision.
 
 ## Public API migration
 
@@ -138,12 +136,12 @@ explicit bound locations, and carries the corresponding
 Duplicate XML attributes remain syntax errors with the existing `XSD3001`
 behavior. An error-level diagnostic returns no schema.
 
-## Non-goals, risks, and follow-up
+## Limits and risks
 
-Inventory: Global typed attributes admit Boolean/integer/decimal/token/language/NCName/anyURI/ID/negativeInteger under Compatibility/Strict10/Strict11; `precisionDecimal` only under Compatibility/Strict11. Default/fixed support Boolean/effective integer/decimal/token; unsupported type declarations are `FailureUnsupported` at `type` `Loc`; unsupported constraints are `FailureUnsupported` at `default`/`fixed` `Loc`, preserving causes/related locations; no schema. `default`+`fixed` is `FailureInvalid` at `fixed`, related `default`. Local/inline attributes remain unsupported; validation/`GenerateGo` exclude attributes. Local inline complex/list/union, unsupported Boolean facets,
-nested/broader particles/groups, `all` mapping, broader wildcard/attribute forms
-remain unsupported. Exact occurrences have no fixed resource limit; later phases
-must bound input/materialization.
+Exact occurrences have no fixed representation limit; later phases must bound
+input and materialization. Current admission and consumer limits are recorded in
+the [architecture](../../ARCHITECTURE.md#schema-model) and
+[package contract](../../doc.go).
 
 Risks are hostile-lexical memory use, delayed exact-accessor API breakage, and
 leaking semantic `0/0` as a public zero component. Range-constructor, ownership,

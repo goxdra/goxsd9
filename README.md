@@ -1,56 +1,59 @@
 # goxsd9
 
-goxsd9 parses/validates/generates Go; unsupported remains explicit.
+goxsd9 parses XML Schema documents into an immutable component model. You can
+query the model, validate supported XML instances, or generate Go for supported
+schema components. Unsupported features return located diagnostics rather than
+partial schemas or output.
 
-## [Schema parsing](ARCHITECTURE.md#schema-model)
+## Library
 
-`ParseSchema`: immutable components; `ResolvedSource`/`Resolver`; sequential, opaque locations; Compatibility default.
+Create a root with `NewResolvedSource`, then call `ParseSchema` with a caller
+supplied `Resolver` for includes and imports. The resolver receives namespace
+URNs and lexical schema locations; the library does not open paths or URLs.
+`ParseSchema` uses the Compatibility policy for mixed XSD 1.0/1.1 graphs;
+`ParseSchemaWithPolicy` selects a graph-wide language policy. Schema queries
+and walks return immutable, deterministic views.
 
-XSD 1.0/1.1; `openContent=none` works under Compatibility/Strict11; mismatches Strict10. Attribute-free extensions only over named empty-content bases; model-less keeps base identity/locations and representable inherited `##other`/lax. `xs:any`/`anyAttribute` keep facts; `0/0` absent; broader placements unsupported.
-Element refs retain QName/`RefLoc`/target/order/occurrences; only top-level direct named model-group refs query; nested/local/recursive/broader refs unsupported. Long-family refs retain bounds; built-in/effective-named `nonNegativeInteger` roots validate under all policies; other long-family roots remain query-only; malformed refs invalid; direct-choice `nonNegativeInteger` refs are consumer-rejected; `GenerateGo` rejects `nonNegativeInteger` roots with no output. Built-in/named/inline `precisionDecimal` query under Compatibility/Strict11; Strict10 rejects all before validation. Built-in/named roots validate; inline query-only; consumers reject.
-Local anonymous Boolean/integer/decimal query-only in direct choices/sequences/bounded extensions; validation/`GenerateGo` reject. Mapped nonzero anonymous string/token/NMTOKEN/`precisionDecimal` and non-string enums unsupported at type/facet `Loc`; no schema.
-`precisionDecimal`: Compatibility/Strict11 admits built-in/named-effective local types only in default direct/bounded attribute-free extension choices; owners and mapped typed children/alternatives require defaults; nonprecision alternatives may query. Inline anonymous forms unsupported. Compatibility/Strict11 omit `0/0`; Strict10 rejects before omission, including zero. Non-default choices/nonzero direct/extension sequences unsupported; default non-extension choices validate; extension/anonymous consumers reject.
-`GenerateGo` supports global built-in/named/inherited/included/imported Boolean/integer/decimal/string/token/NMTOKEN and inline string/token/NMTOKEN; only non-extension default direct-choice refs to global Boolean/integer/decimal, excluding built-in/named `nonNegativeInteger`. Inline long-family/identity-only facts query-only; mapped local long-family/identity-only forms unsupported. Compatibility/Strict11 `precisionDecimal` queryable; `GenerateGo` rejects global, typed local, inline, anonymous, extension targets; no output.
+`ValidateInstance(schema, sourceID, reader)` checks one XML instance;
+`GenerateGo(schema, packageName)` returns Go source. A component can be
+queryable even when one or both consumers reject it.
+See the [package contract](doc.go) for public behavior and current limits, the
+[architecture](ARCHITECTURE.md#schema-model) for admission and consumer
+boundaries, and [decision 0007](docs/decisions/0007-particle-occurrence.md)
+for exact particle occurrences and `0/0` omission.
 
-Named complex `abstract` is non-inherited; `Final()` uses declaring-document `finalDefault` if
-no local `final`; explicit empty/non-empty locals override it; `FinalLoc()` preserves
-local/default provenance—see [Architecture](ARCHITECTURE.md).
-[Examples](direct_choice_example_test.go), [quickstart](library_example_test.go).
+## CLI
 
-## Product CLI
+The `goxsd9` command provides `parse`, `validate`, and `generate`:
 
-See [Decision 0006](docs/decisions/0006-vertical-slice-cli.md). `parse`,
-`validate`, and `generate` available; parse prints, validate silent;
-invalid exits 1, usage 2.
+```sh
+go run ./cmd/goxsd9 parse schema.xsd
+go run ./cmd/goxsd9 validate schema.xsd instance.xml
+go run ./cmd/goxsd9 generate --package generated schema.xsd
+```
 
-## Design goals
+`parse` prints a schema summary, successful `validate` is silent, and
+`generate` writes Go to standard output unless `--output` names a file. Use
+`--schema-root DIR` to set the local resolution boundary; it is required when
+reading a schema from standard input. `--diagnostics json` selects
+machine-readable errors; input/processing failures exit 1 and usage failures
+exit 2.
 
-Exact values/facets, streaming input, deterministic queries, located diagnostics;
-no goroutines/locks/map-order output, conformance.
+## Development
 
-## Repository checks
+Run the repository checks from a fresh checkout:
 
-Fresh checkout; bounded conformance needs exact version, `-set`, `-case`; never run instances:
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
 go tool workflowctl check
-go tool conformance schema -version 1.0 -set SET -case CASE
 ```
 
-## Pinned specification corpus
+The [plan](PLAN.md) gives project phases. [Issues](https://github.com/goxdra/goxsd9/issues),
+the [roadmap](https://github.com/orgs/goxdra/projects/1), and
+[operations](docs/operations.md) cover ongoing work. See [AGENTS.md](AGENTS.md)
+for repository rules.
 
-```sh
-go tool specs build -id xsd11-structures
-go tool specs search -id xsd11-structures -query QUERY
-go tool specs bootstrap -version VERSION
-```
-Use `-root`/`-output`/`-index`; bootstrap preview-only.
+## License
 
-## Project workflow
-
-See [Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), [AGENTS.md](AGENTS.md).
-
-## Test data licensing
-
-W3C submodule keeps `00COPYRIGHT`; Apache-2.0 ([LICENSE](LICENSE)).
+Apache-2.0 ([LICENSE](LICENSE)); the W3C submodule retains `00COPYRIGHT`.

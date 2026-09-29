@@ -201,6 +201,35 @@ func (reference SimpleTypeReference) VarietyLoc() Loc {
 	return reference.facts.varietyLoc
 }
 
+// IntegerBounds returns copied effective ordered integer bounds for an atomic
+// integer reference, including a built-in reference with no component identity.
+func (reference SimpleTypeReference) IntegerBounds() (IntegerBoundFacets, bool) {
+	if reference.facts == nil || reference.facts.variety != SimpleTypeVarietyAtomicRestriction {
+		return IntegerBoundFacets{}, false
+	}
+	var bounds IntegerBoundFacets
+	switch facets := reference.facts.facets.(type) {
+	case schemaDigitFacetVariant:
+		if facets.value.Kind() != DigitDatatypeInteger {
+			return IntegerBoundFacets{}, false
+		}
+		bounds = facets.integerBounds
+	case schemaIntegerFacetVariant:
+		bounds = facets.bounds
+	default:
+		return IntegerBoundFacets{}, false
+	}
+	return copyIntegerBoundFacets(bounds), true
+}
+
+func copyIntegerBoundFacets(bounds IntegerBoundFacets) IntegerBoundFacets {
+	return IntegerBoundFacets{
+		version: bounds.version,
+		lower:   cloneIntegerBoundEndpoint(bounds.lower),
+		upper:   cloneIntegerBoundEndpoint(bounds.upper),
+	}
+}
+
 // ComponentID returns the schema component identity of a named reference.
 // Built-ins and anonymous references do not have component identities.
 func (reference SimpleTypeReference) ComponentID() (ComponentID, bool) {
@@ -925,7 +954,7 @@ func (definition SimpleTypeDefinition) StringWhiteSpaceFacet() (StringWhiteSpace
 	return *cloneStringWhiteSpaceFacet(facets.whiteSpace), true
 }
 
-// IntegerBounds returns the effective ordered integer bounds and their
+// IntegerBounds returns copied effective ordered integer bounds and their
 // presence for an integer restriction.
 func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool) {
 	if definition.facts == nil {
@@ -936,9 +965,9 @@ func (definition SimpleTypeDefinition) IntegerBounds() (IntegerBoundFacets, bool
 		if facets.value.Kind() != DigitDatatypeInteger {
 			return IntegerBoundFacets{}, false
 		}
-		return facets.integerBounds, true
+		return copyIntegerBoundFacets(facets.integerBounds), true
 	case schemaIntegerFacetVariant:
-		return facets.bounds, true
+		return copyIntegerBoundFacets(facets.bounds), true
 	default:
 		return IntegerBoundFacets{}, false
 	}
@@ -1154,6 +1183,259 @@ func (definition ComplexTypeDefinition) Particle() Particle {
 	}
 }
 
+// AttributeUseKind identifies the effective use of a direct attribute use.
+type AttributeUseKind string
+
+const (
+	// AttributeUseOptional identifies an optional use, including the default.
+	AttributeUseOptional AttributeUseKind = "optional"
+	// AttributeUseRequired identifies a required use.
+	AttributeUseRequired AttributeUseKind = "required"
+	// AttributeUseProhibited identifies a prohibited source declaration. It is
+	// not materialized in the completed effective-use slice.
+	AttributeUseProhibited AttributeUseKind = "prohibited"
+)
+
+// AttributeUse is a sealed immutable direct attribute-use fact. The concrete
+// values are LocalAttributeUse and AttributeReferenceUse.
+type AttributeUse interface {
+	Loc() Loc
+	Name() QName
+	Use() AttributeUseKind
+	attributeUse()
+}
+
+// LocalAttributeUse is a scoped local attribute declaration and its effective
+// use. It does not have a schema component identity.
+type LocalAttributeUse struct {
+	facts *schemaLocalAttributeUse
+}
+
+func (LocalAttributeUse) attributeUse() {}
+
+// Loc returns the location of the local attribute declaration.
+func (use LocalAttributeUse) Loc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.loc
+}
+
+// Name returns the expanded local attribute name.
+func (use LocalAttributeUse) Name() QName {
+	if use.facts == nil {
+		return QName{}
+	}
+	return use.facts.name
+}
+
+// NameLoc returns the location of the local name attribute.
+func (use LocalAttributeUse) NameLoc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.nameLoc
+}
+
+// Use returns the effective local attribute use.
+func (use LocalAttributeUse) Use() AttributeUseKind {
+	if use.facts == nil {
+		return ""
+	}
+	return use.facts.use
+}
+
+// UseLoc returns the location of the explicit use attribute, or zero when the
+// optional default was used.
+func (use LocalAttributeUse) UseLoc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.useLoc
+}
+
+// DeclaredType returns the expanded QName written in the local type
+// attribute. Inline anonymous types have the zero QName.
+func (use LocalAttributeUse) DeclaredType() QName {
+	if use.facts == nil {
+		return QName{}
+	}
+	return use.facts.declaredType
+}
+
+// TypeLoc returns the location of the local type attribute or inline type.
+func (use LocalAttributeUse) TypeLoc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.typeLoc
+}
+
+// TypeID returns the identity of a named local declared type. Built-in and
+// anonymous types do not have component identities.
+func (use LocalAttributeUse) TypeID() (ComponentID, bool) {
+	if use.facts == nil || !use.facts.hasTypeID {
+		return ComponentID{}, false
+	}
+	return use.facts.typeID, true
+}
+
+// TypeReference returns the resolved built-in, named, or anonymous type
+// reference used by the local declaration.
+func (use LocalAttributeUse) TypeReference() (SimpleTypeReference, bool) {
+	if use.facts == nil || !use.facts.hasTypeReference {
+		return SimpleTypeReference{}, false
+	}
+	return SimpleTypeReference{facts: &use.facts.typeReference}, true
+}
+
+// AttributeReferenceUse is a direct use of an existing global attribute
+// declaration. It retains only reference identity and use facts.
+type AttributeReferenceUse struct {
+	facts *schemaAttributeReferenceUse
+}
+
+func (AttributeReferenceUse) attributeUse() {}
+
+// Loc returns the location of the local attribute reference.
+func (use AttributeReferenceUse) Loc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.loc
+}
+
+// Name returns the expanded QName in the ref attribute.
+func (use AttributeReferenceUse) Name() QName {
+	if use.facts == nil {
+		return QName{}
+	}
+	return use.facts.name
+}
+
+// Ref returns the expanded QName in the ref attribute.
+func (use AttributeReferenceUse) Ref() QName {
+	return use.Name()
+}
+
+// RefLoc returns the location of the ref attribute.
+func (use AttributeReferenceUse) RefLoc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.refLoc
+}
+
+// Use returns the effective referenced attribute use.
+func (use AttributeReferenceUse) Use() AttributeUseKind {
+	if use.facts == nil {
+		return ""
+	}
+	return use.facts.use
+}
+
+// UseLoc returns the location of the explicit use attribute, or zero when the
+// optional default was used.
+func (use AttributeReferenceUse) UseLoc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.useLoc
+}
+
+// TargetID returns the identity of the referenced global attribute
+// declaration.
+func (use AttributeReferenceUse) TargetID() ComponentID {
+	if use.facts == nil {
+		return ComponentID{}
+	}
+	return use.facts.targetID
+}
+
+// SimpleContentExtension contains immutable scalar-base facts for a supported
+// simpleContent extension. Direct attribute uses are exposed by
+// ComplexTypeDefinition.AttributeUses().
+type SimpleContentExtension struct {
+	facts *schemaSimpleContentExtension
+}
+
+// Base returns the expanded QName written in the extension's base attribute.
+func (extension SimpleContentExtension) Base() QName {
+	if extension.facts == nil {
+		return QName{}
+	}
+	return extension.facts.base
+}
+
+// BaseLoc returns the location of the extension's base attribute.
+func (extension SimpleContentExtension) BaseLoc() Loc {
+	if extension.facts == nil {
+		return Loc{}
+	}
+	return extension.facts.baseLoc
+}
+
+// TypeReference returns the resolved scalar type used by the extension.
+func (extension SimpleContentExtension) TypeReference() (SimpleTypeReference, bool) {
+	if extension.facts == nil || !extension.facts.hasTypeReference {
+		return SimpleTypeReference{}, false
+	}
+	return SimpleTypeReference{facts: &extension.facts.typeReference}, true
+}
+
+// TypeID returns the identity of a named scalar base type. Built-in bases do
+// not have component identities.
+func (extension SimpleContentExtension) TypeID() (ComponentID, bool) {
+	if extension.facts == nil || !extension.facts.hasTypeID {
+		return ComponentID{}, false
+	}
+	return extension.facts.typeID, true
+}
+
+// AttributeUses returns effective direct attribute uses in lexical
+// declaration order. Prohibited source declarations are not returned.
+func (definition ComplexTypeDefinition) AttributeUses() []AttributeUse {
+	if definition.facts == nil {
+		return nil
+	}
+	switch body := definition.facts.body.(type) {
+	case *schemaComplexTypeDirectBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return append([]AttributeUse(nil), body.attributeUses...)
+	case *schemaComplexTypeEmptyBodyComponent:
+		return nil
+	case *schemaComplexTypeAttributeOnlyBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return append([]AttributeUse(nil), body.attributeUses...)
+	case *schemaComplexTypeSimpleContentBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return append([]AttributeUse(nil), body.attributeUses...)
+	case *schemaComplexTypeRestrictionBodyComponent:
+		return nil
+	default:
+		return nil
+	}
+}
+
+// SimpleContentExtension returns the supported simpleContent extension, when
+// the complex type uses one.
+func (definition ComplexTypeDefinition) SimpleContentExtension() (SimpleContentExtension, bool) {
+	if definition.facts == nil || definition.facts.body == nil {
+		return SimpleContentExtension{}, false
+	}
+	body, ok := definition.facts.body.(*schemaComplexTypeSimpleContentBodyComponent)
+	if !ok || body == nil {
+		return SimpleContentExtension{}, false
+	}
+	return SimpleContentExtension{facts: &body.extension}, true
+}
+
 // Base returns the expanded QName written in the derivation's base attribute.
 // It returns the zero QName for a direct-content type.
 func (definition ComplexTypeDefinition) Base() QName {
@@ -1217,6 +1499,11 @@ func (definition ComplexTypeDefinition) anyAttributeFacts() *schemaAnyAttributeC
 		}
 		return body.anyAttribute
 	case *schemaComplexTypeEmptyBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return body.anyAttribute
+	case *schemaComplexTypeAttributeOnlyBodyComponent:
 		if body == nil {
 			return nil
 		}
@@ -1770,10 +2057,13 @@ const (
 	WildcardNamespaceConstraintAny WildcardNamespaceConstraintVariety = "any"
 	// WildcardNamespaceConstraintEnumeration identifies a positive namespace set.
 	WildcardNamespaceConstraintEnumeration WildcardNamespaceConstraintVariety = "enumeration"
+	// WildcardNamespaceConstraintNot identifies a negative namespace set.
+	WildcardNamespaceConstraintNot WildcardNamespaceConstraintVariety = "not"
 )
 
 // WildcardNamespaceConstraint is an immutable effective namespace constraint.
-// Namespaces contains absent as the empty string.
+// Namespaces contains the included names for enumeration or the excluded names
+// for not. An absent namespace is represented by the empty string.
 type WildcardNamespaceConstraint struct {
 	variety    WildcardNamespaceConstraintVariety
 	namespaces []string
@@ -1786,21 +2076,21 @@ func (constraint WildcardNamespaceConstraint) Variety() WildcardNamespaceConstra
 	return constraint.variety
 }
 
-// Namespaces returns the sorted, unique effective namespace names. The empty
-// string represents an absent namespace.
+// Namespaces returns sorted, unique effective namespace names. The names are
+// exclusions for the not variety. The empty string represents absence.
 func (constraint WildcardNamespaceConstraint) Namespaces() []string {
 	return append([]string(nil), constraint.namespaces...)
 }
 
-// LexicalForm returns the normalized namespace attribute value.
+// LexicalForm returns the normalized namespace or notNamespace attribute value.
 func (constraint WildcardNamespaceConstraint) LexicalForm() string { return constraint.lexical }
 
-// Loc returns the namespace attribute location.
+// Loc returns the namespace or notNamespace attribute location.
 func (constraint WildcardNamespaceConstraint) Loc() Loc { return constraint.loc }
 
 // WildcardParticle is a direct element wildcard particle. Its supported
-// effective facts include ##any and ##other namespace constraints, as well as
-// positive namespace enumerations with strict, lax, or explicit skip processContents.
+// effective facts include ##any, ##other, positive namespace enumerations,
+// and strict, lax, or skip negative namespace sets.
 type WildcardParticle struct {
 	facts *schemaWildcardParticle
 }
@@ -1845,7 +2135,7 @@ func (particle WildcardParticle) MaxOccurs() uint64 {
 	return 1
 }
 
-// Namespace returns the effective wildcard namespace constraint.
+// Namespace returns the normalized namespace or notNamespace lexical form.
 func (particle WildcardParticle) Namespace() string {
 	if particle.facts == nil {
 		return ""
@@ -1866,8 +2156,8 @@ func (particle WildcardParticle) NamespaceConstraint() WildcardNamespaceConstrai
 	}
 }
 
-// NamespaceLoc returns the location of an explicit namespace attribute. It is
-// zero when the namespace attribute is omitted.
+// NamespaceLoc returns the location of an explicit namespace or notNamespace
+// attribute. It is zero when both are omitted.
 func (particle WildcardParticle) NamespaceLoc() Loc {
 	if particle.facts == nil {
 		return Loc{}
@@ -2361,12 +2651,33 @@ type schemaComplexTypeBodyInput interface {
 	schemaComplexTypeBodyInput()
 }
 
+// schemaComplexTypeDirectBodyInput is the particle-plus-uses phase variant.
 type schemaComplexTypeDirectBodyInput struct {
-	particle     schemaComplexTypeParticleInput
-	anyAttribute *schemaAnyAttributeInput
+	particle      schemaComplexTypeParticleInput
+	attributeUses []schemaAttributeUseInput
+	anyAttribute  *schemaAnyAttributeInput
 }
 
 func (*schemaComplexTypeDirectBodyInput) schemaComplexTypeBodyInput() {}
+
+// schemaComplexTypeAttributeOnlyBodyInput represents uses without a particle.
+type schemaComplexTypeAttributeOnlyBodyInput struct {
+	attributeUses []schemaAttributeUseInput
+	anyAttribute  *schemaAnyAttributeInput
+}
+
+func (*schemaComplexTypeAttributeOnlyBodyInput) schemaComplexTypeBodyInput() {}
+
+// schemaComplexTypeSimpleContentBodyInput is the bounded simple-content
+// extension phase variant.
+type schemaComplexTypeSimpleContentBodyInput struct {
+	simpleContentLoc Loc
+	extensionLoc     Loc
+	base             schemaSimpleTypeReferenceInput
+	attributeUses    []schemaAttributeUseInput
+}
+
+func (*schemaComplexTypeSimpleContentBodyInput) schemaComplexTypeBodyInput() {}
 
 type schemaComplexTypeEmptyBodyInput struct{}
 
@@ -2513,6 +2824,55 @@ type schemaAttributeComponent struct {
 	valueConstraint  *AttributeValueConstraint
 }
 
+type schemaAttributeUseInput struct {
+	loc          Loc
+	name         QName
+	nameLoc      Loc
+	reference    *schemaAttributeReferenceInput
+	declaredType QName
+	typeLoc      Loc
+	inlineSimple *schemaSimpleTypeInput
+	use          AttributeUseKind
+	useLoc       Loc
+}
+
+type schemaAttributeReferenceInput struct {
+	name QName
+	loc  Loc
+}
+
+type schemaLocalAttributeUse struct {
+	loc              Loc
+	name             QName
+	nameLoc          Loc
+	declaredType     QName
+	typeLoc          Loc
+	typeID           ComponentID
+	hasTypeID        bool
+	typeReference    schemaSimpleTypeReferenceComponent
+	hasTypeReference bool
+	use              AttributeUseKind
+	useLoc           Loc
+}
+
+type schemaAttributeReferenceUse struct {
+	loc      Loc
+	name     QName
+	refLoc   Loc
+	use      AttributeUseKind
+	useLoc   Loc
+	targetID ComponentID
+}
+
+type schemaSimpleContentExtension struct {
+	base             QName
+	baseLoc          Loc
+	typeID           ComponentID
+	hasTypeID        bool
+	typeReference    schemaSimpleTypeReferenceComponent
+	hasTypeReference bool
+}
+
 type schemaNotationComponent struct {
 	public    string
 	publicLoc Loc
@@ -2533,8 +2893,9 @@ type schemaComplexTypeBodyComponent interface {
 }
 
 type schemaComplexTypeDirectBodyComponent struct {
-	particle     Particle
-	anyAttribute *schemaAnyAttributeComponent
+	particle      Particle
+	attributeUses []AttributeUse
+	anyAttribute  *schemaAnyAttributeComponent
 }
 
 func (*schemaComplexTypeDirectBodyComponent) schemaComplexTypeBodyComponent() {}
@@ -2544,6 +2905,20 @@ type schemaComplexTypeEmptyBodyComponent struct {
 }
 
 func (*schemaComplexTypeEmptyBodyComponent) schemaComplexTypeBodyComponent() {}
+
+type schemaComplexTypeAttributeOnlyBodyComponent struct {
+	attributeUses []AttributeUse
+	anyAttribute  *schemaAnyAttributeComponent
+}
+
+func (*schemaComplexTypeAttributeOnlyBodyComponent) schemaComplexTypeBodyComponent() {}
+
+type schemaComplexTypeSimpleContentBodyComponent struct {
+	extension     schemaSimpleContentExtension
+	attributeUses []AttributeUse
+}
+
+func (*schemaComplexTypeSimpleContentBodyComponent) schemaComplexTypeBodyComponent() {}
 
 type schemaComplexTypeRestrictionBodyComponent struct {
 	complexContentLoc Loc
@@ -2704,53 +3079,21 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 		return Schema{}, err
 	}
 	finalDefaults := schemaDocumentFinalDefaults(inputs)
-	if allocationErr := allocateSchemaSimpleTypeNodeIDs(records); allocationErr != nil {
-		return Schema{}, allocationErr
+	if prepareErr := prepareSchemaRecordsForResolution(records, version); prepareErr != nil {
+		return Schema{}, prepareErr
 	}
-	if duplicateErr := rejectDuplicateSchemaDeclarations(records, version); duplicateErr != nil {
-		return Schema{}, duplicateErr
-	}
-	simpleTypes, err := resolveSchemaSimpleTypes(records, byName, visibleSources, version)
-	if err != nil {
-		if cycleErr := reframeSchemaAttributeTypeCycle(records, byName, err, version); cycleErr != nil {
-			return Schema{}, cycleErr
-		}
-		return Schema{}, err
-	}
-	attributes, err := resolveSchemaAttributeTypes(records, simpleTypes, version)
+	resolution, err := resolveSchemaBuildResults(inputs, edges, records, byName, visibleSources, finalDefaults, version)
 	if err != nil {
 		return Schema{}, err
 	}
-	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, finalDefaults, version)
-	if err != nil {
-		return Schema{}, err
-	}
-	modelGroups, err := resolveSchemaModelGroups(records, byName, visibleSources, simpleTypes, version)
-	if err != nil {
-		return Schema{}, err
-	}
-	elements, err := resolveSchemaElementTypes(records, byName, visibleSources, simpleTypes, complexTypes, version)
-	if err != nil {
-		return Schema{}, err
-	}
-	sourceNamespaces := make(map[SourceID]string, len(inputs))
-	for _, input := range inputs {
-		sourceNamespaces[input.source] = input.targetNamespace
-	}
-	elements, err = resolveSchemaElementSubstitutionGroups(
+	components, byID, err := completeSchemaComponents(
 		records,
-		byName,
-		visibleSources,
-		simpleTypes,
-		elements,
-		edges,
-		sourceNamespaces,
-		version,
+		resolution.simpleTypes.results,
+		resolution.attributes,
+		resolution.elements,
+		resolution.complexTypes,
+		resolution.modelGroups,
 	)
-	if err != nil {
-		return Schema{}, err
-	}
-	components, byID, err := completeSchemaComponents(records, simpleTypes.results, attributes, elements, complexTypes, modelGroups)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -2768,6 +3111,80 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 		storage:   storage,
 		policy:    policy,
 	}, nil
+}
+
+func prepareSchemaRecordsForResolution(records []schemaComponentRecord, version XSDVersion) error {
+	if err := allocateSchemaSimpleTypeNodeIDs(records); err != nil {
+		return err
+	}
+	return rejectDuplicateSchemaDeclarations(records, version)
+}
+
+type schemaBuildResolution struct {
+	simpleTypes  schemaSimpleTypeResolution
+	attributes   []schemaAttributeTypeResult
+	complexTypes []schemaComplexTypeResult
+	modelGroups  []schemaModelGroupResult
+	elements     []schemaElementTypeResult
+}
+
+func resolveSchemaBuildResults(
+	inputs []schemaDocumentInput,
+	edges []syntaxDocumentEdge,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	finalDefaults map[SourceID]schemaSimpleTypeFinalPolicy,
+	version XSDVersion,
+) (schemaBuildResolution, error) {
+	simpleTypes, err := resolveSchemaSimpleTypesForBuild(records, byName, visibleSources, version)
+	if err != nil {
+		return schemaBuildResolution{}, err
+	}
+	attributes, err := resolveSchemaAttributeTypes(records, simpleTypes, version)
+	if err != nil {
+		return schemaBuildResolution{}, err
+	}
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, finalDefaults, attributes, version)
+	if err != nil {
+		return schemaBuildResolution{}, err
+	}
+	modelGroups, err := resolveSchemaModelGroups(records, byName, visibleSources, simpleTypes, version)
+	if err != nil {
+		return schemaBuildResolution{}, err
+	}
+	elements, err := resolveSchemaElementTypes(records, byName, visibleSources, simpleTypes, complexTypes, version)
+	if err != nil {
+		return schemaBuildResolution{}, err
+	}
+	elements, err = resolveSchemaElementSubstitutionGroups(
+		records,
+		byName,
+		visibleSources,
+		simpleTypes,
+		elements,
+		edges,
+		schemaSourceNamespaces(inputs),
+		version,
+	)
+	if err != nil {
+		return schemaBuildResolution{}, err
+	}
+	return schemaBuildResolution{
+		simpleTypes:  simpleTypes,
+		attributes:   attributes,
+		complexTypes: complexTypes,
+		modelGroups:  modelGroups,
+		elements:     elements,
+	}, nil
+}
+
+func schemaSourceNamespaces(inputs []schemaDocumentInput) map[SourceID]string {
+	sourceNamespaces := make(map[SourceID]string, len(inputs))
+	for _, input := range inputs {
+		sourceNamespaces[input.source] = input.targetNamespace
+	}
+	return sourceNamespaces
 }
 
 func rejectDuplicateSchemaDeclarations(records []schemaComponentRecord, version XSDVersion) error {
@@ -3037,6 +3454,7 @@ func completeSchemaComponent(
 	return component, nil
 }
 
+//nolint:gocognit // Keep phase-specific complex-type body completion together.
 func completeSchemaComplexTypeBody(result schemaComplexTypeBodyResult, loc Loc) (schemaComplexTypeBodyComponent, error) {
 	if result == nil {
 		return nil, newSchemaBridgeInvariant(loc, "completed complex type has no body")
@@ -3047,8 +3465,9 @@ func completeSchemaComplexTypeBody(result schemaComplexTypeBodyResult, loc Loc) 
 			return nil, newSchemaBridgeInvariant(loc, "direct complex type body has no particle")
 		}
 		return &schemaComplexTypeDirectBodyComponent{
-			particle:     body.particle,
-			anyAttribute: completeSchemaAnyAttribute(body.anyAttribute),
+			particle:      body.particle,
+			attributeUses: cloneSchemaAttributeUses(body.attributeUses),
+			anyAttribute:  completeSchemaAnyAttribute(body.anyAttribute),
 		}, nil
 	case *schemaComplexTypeEmptyBodyResult:
 		if body == nil {
@@ -3056,6 +3475,22 @@ func completeSchemaComplexTypeBody(result schemaComplexTypeBodyResult, loc Loc) 
 		}
 		return &schemaComplexTypeEmptyBodyComponent{
 			anyAttribute: completeSchemaAnyAttribute(body.anyAttribute),
+		}, nil
+	case *schemaComplexTypeAttributeOnlyBodyResult:
+		if body == nil {
+			return nil, newSchemaBridgeInvariant(loc, "attribute-only complex type body is nil")
+		}
+		return &schemaComplexTypeAttributeOnlyBodyComponent{
+			attributeUses: cloneSchemaAttributeUses(body.attributeUses),
+			anyAttribute:  completeSchemaAnyAttribute(body.anyAttribute),
+		}, nil
+	case *schemaComplexTypeSimpleContentBodyResult:
+		if body == nil || !body.extension.hasTypeReference || body.extension.base.IsZero() || body.extension.baseLoc.IsZero() {
+			return nil, newSchemaBridgeInvariant(loc, "simple-content complex type body has incomplete extension")
+		}
+		return &schemaComplexTypeSimpleContentBodyComponent{
+			extension:     body.extension,
+			attributeUses: cloneSchemaAttributeUses(body.attributeUses),
 		}, nil
 	case *schemaComplexTypeRestrictionBodyResult:
 		if body == nil || body.base.kind == "" || body.base.name.IsZero() || body.base.loc.IsZero() {
@@ -3129,8 +3564,27 @@ func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaCom
 			return (*schemaComplexTypeDirectBodyInput)(nil)
 		}
 		return &schemaComplexTypeDirectBodyInput{
-			particle:     cloneSchemaComplexTypeParticleInput(body.particle),
-			anyAttribute: cloneSchemaAnyAttributeInput(body.anyAttribute),
+			particle:      cloneSchemaComplexTypeParticleInput(body.particle),
+			attributeUses: cloneSchemaAttributeUseInputs(body.attributeUses),
+			anyAttribute:  cloneSchemaAnyAttributeInput(body.anyAttribute),
+		}
+	case *schemaComplexTypeAttributeOnlyBodyInput:
+		if body == nil {
+			return (*schemaComplexTypeAttributeOnlyBodyInput)(nil)
+		}
+		return &schemaComplexTypeAttributeOnlyBodyInput{
+			attributeUses: cloneSchemaAttributeUseInputs(body.attributeUses),
+			anyAttribute:  cloneSchemaAnyAttributeInput(body.anyAttribute),
+		}
+	case *schemaComplexTypeSimpleContentBodyInput:
+		if body == nil {
+			return (*schemaComplexTypeSimpleContentBodyInput)(nil)
+		}
+		return &schemaComplexTypeSimpleContentBodyInput{
+			simpleContentLoc: body.simpleContentLoc,
+			extensionLoc:     body.extensionLoc,
+			base:             body.base,
+			attributeUses:    cloneSchemaAttributeUseInputs(body.attributeUses),
 		}
 	case *schemaComplexTypeEmptyBodyInput:
 		if body == nil {
@@ -3160,6 +3614,30 @@ func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaCom
 	default:
 		return nil
 	}
+}
+
+func cloneSchemaAttributeUseInputs(inputs []schemaAttributeUseInput) []schemaAttributeUseInput {
+	if len(inputs) == 0 {
+		return nil
+	}
+	clones := make([]schemaAttributeUseInput, len(inputs))
+	for index, input := range inputs {
+		clone := input
+		if input.reference != nil {
+			reference := *input.reference
+			clone.reference = &reference
+		}
+		clone.inlineSimple = cloneSchemaSimpleTypeInput(input.inlineSimple)
+		clones[index] = clone
+	}
+	return clones
+}
+
+func cloneSchemaAttributeUses(uses []AttributeUse) []AttributeUse {
+	if len(uses) == 0 {
+		return nil
+	}
+	return append([]AttributeUse(nil), uses...)
 }
 
 func cloneSchemaComplexTypeParticleInput(input schemaComplexTypeParticleInput) schemaComplexTypeParticleInput {
@@ -3362,25 +3840,43 @@ func cloneSchemaSimpleTypeReferenceComponents(inputs []schemaSimpleTypeReference
 	return clones
 }
 
-//nolint:gocognit // Keep deterministic source-order allocation and recursive model traversal together.
 func allocateSchemaSimpleTypeNodeIDs(records []schemaComponentRecord) error {
 	nextBySource := make(map[SourceID]uint64)
 	seen := make(map[*schemaSimpleTypeInput]SimpleTypeID)
 	for _, record := range records {
-		if record.simpleType != nil {
-			if err := allocateSchemaSimpleTypeNodeID(record.simpleType, record.id.Source(), nextBySource, seen); err != nil {
-				return err
-			}
+		if err := allocateSchemaSimpleTypeNodeIDsForRecord(record, nextBySource, seen); err != nil {
+			return err
 		}
-		if record.element != nil && record.element.inlineSimpleType != nil {
-			if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
-				return err
-			}
+	}
+	return nil
+}
+
+func allocateSchemaSimpleTypeNodeIDsForRecord(
+	record schemaComponentRecord,
+	nextBySource map[SourceID]uint64,
+	seen map[*schemaSimpleTypeInput]SimpleTypeID,
+) error {
+	if record.simpleType != nil {
+		if err := allocateSchemaSimpleTypeNodeID(record.simpleType, record.id.Source(), nextBySource, seen); err != nil {
+			return err
 		}
-		if record.complexType != nil {
-			if err := allocateSchemaSimpleTypeNodeIDsInComplexType(record.complexType, record.id.Source(), nextBySource, seen); err != nil {
-				return err
-			}
+	}
+	if record.element != nil && record.element.inlineSimpleType != nil {
+		if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
+			return err
+		}
+	}
+	if record.complexType != nil {
+		if err := allocateSchemaSimpleTypeNodeIDsInComplexType(record.complexType, record.id.Source(), nextBySource, seen); err != nil {
+			return err
+		}
+	}
+	for _, attributeUse := range schemaComplexTypeAttributeUseInputs(record.complexTypeBody()) {
+		if attributeUse.inlineSimple == nil {
+			continue
+		}
+		if err := allocateSchemaSimpleTypeNodeID(attributeUse.inlineSimple, record.id.Source(), nextBySource, seen); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -3406,7 +3902,8 @@ func allocateSchemaSimpleTypeNodeIDsInComplexType(
 			return nil
 		}
 		return allocateSchemaSimpleTypeNodeIDsInComplexParticle(body.particle, source, nextBySource, seen)
-	case *schemaComplexTypeEmptyBodyInput, *schemaComplexTypeRestrictionBodyInput:
+	case *schemaComplexTypeEmptyBodyInput, *schemaComplexTypeAttributeOnlyBodyInput,
+		*schemaComplexTypeSimpleContentBodyInput, *schemaComplexTypeRestrictionBodyInput:
 		return nil
 	default:
 		return newSchemaBridgeInvariant(Loc{}, "complex type simple type allocation has an unknown body input")
@@ -3456,6 +3953,30 @@ func allocateSchemaSimpleTypeNodeIDsInParticleTerms(
 		}
 	}
 	return nil
+}
+
+func schemaComplexTypeAttributeUseInputs(body schemaComplexTypeBodyInput) []schemaAttributeUseInput {
+	switch typed := body.(type) {
+	case *schemaComplexTypeDirectBodyInput:
+		if typed == nil {
+			return nil
+		}
+		return typed.attributeUses
+	case *schemaComplexTypeAttributeOnlyBodyInput:
+		if typed == nil {
+			return nil
+		}
+		return typed.attributeUses
+	case *schemaComplexTypeSimpleContentBodyInput:
+		if typed == nil {
+			return nil
+		}
+		return typed.attributeUses
+	case *schemaComplexTypeRestrictionBodyInput:
+		return nil
+	default:
+		return nil
+	}
 }
 
 //nolint:gocognit // Keep deterministic recursive model-node allocation explicit.
