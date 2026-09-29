@@ -1,6 +1,7 @@
 package goxsd9
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -51,7 +52,59 @@ func localStringParticleTestSchema(version string) string {
     <xs:element name="extension-named" type="r:Text"/>
   </xs:sequence></xs:extension></xs:complexContent></xs:complexType>
   <xs:simpleType name="Text"><xs:restriction base="xs:string"><xs:whiteSpace value="collapse"/><xs:enumeration value=" first "/><xs:enumeration value=""/></xs:restriction></xs:simpleType>
-  <xs:simpleType name="Inherited"><xs:restriction base="r:Text"><xs:enumeration value="first"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="Inherited"><xs:restriction base="r:Text"/></xs:simpleType>
+</xs:schema>`
+}
+
+//nolint:gocognit // Keep the policy and whitespace normalization matrix together.
+func TestSchemaBridgeRejectsInheritedStringEnumerationNormalizationAcrossPolicies(t *testing.T) {
+	policies := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+		wantXSD XSDVersion
+	}{
+		{name: "Compatibility", policy: Compatibility, version: "1.0", wantXSD: XSDVersion11},
+		{name: "Strict10", policy: Strict10, version: "1.0", wantXSD: XSDVersion10},
+		{name: "Strict11", policy: Strict11, version: "1.1", wantXSD: XSDVersion11},
+	}
+	for _, policy := range policies {
+		for _, test := range []struct {
+			name       string
+			whiteSpace string
+			baseValue  string
+			childValue string
+		}{
+			{name: "collapse", whiteSpace: "collapse", baseValue: " a ", childValue: "a"},
+			{name: "replace", whiteSpace: "replace", baseValue: "a&#xA;b", childValue: "a b"},
+		} {
+			t.Run(policy.name+"/"+test.name, func(t *testing.T) {
+				root := inheritedStringEnumerationNormalizationSchema(policy.version, test.whiteSpace, test.baseValue, test.childValue)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
+				if err == nil {
+					t.Fatal("discoverSchema accepted an enumeration outside the inherited string value space")
+				}
+				if schema.storage != nil || len(schema.Components()) != 0 {
+					t.Fatal("discoverSchema returned a partial schema")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				childLoc := mustSchemaTokenLoc(t, "root.xsd", root, 3, `value="`+test.childValue+`"`)
+				expectedSpec := versionedEnumerationSpecRef(policy.wantXSD, "enumeration-valid-restriction")
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != InvalidEnumerationRestrictionCode || diagnostic.Loc() != childLoc || diagnostic.SpecRef() != expectedSpec {
+					t.Fatalf("diagnostic = %s, want invalid %s at %s with %s", diagnostic, InvalidEnumerationRestrictionCode, childLoc, expectedSpec)
+				}
+				if !errors.Is(err, errInvalidEnumerationRestriction) {
+					t.Fatalf("diagnostic lost enumeration restriction cause: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func inheritedStringEnumerationNormalizationSchema(version, whiteSpace, baseValue, childValue string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:string-normalization" targetNamespace="urn:string-normalization" version="` + version + `">
+  <xs:simpleType name="Base"><xs:restriction base="xs:string"><xs:whiteSpace value="` + whiteSpace + `"/><xs:enumeration value="` + baseValue + `"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="Derived"><xs:restriction base="r:Base"><xs:enumeration value="` + childValue + `"/></xs:restriction></xs:simpleType>
 </xs:schema>`
 }
 
@@ -169,8 +222,8 @@ func assertLocalStringSequenceFacts(t *testing.T, schema Schema, wantXSD XSDVers
 	if !ok || !lastReference.IsNamed() || lastReference.Name() != mustTestQName(t, "urn:string-particles", "Inherited") {
 		t.Fatalf("last sequence type reference = %#v/%t, want Inherited", lastReference, ok)
 	}
-	if lastReference.StringEnumerationFacets().Version() != wantXSD || !reflect.DeepEqual(lastReference.StringEnumerationFacets().Values(), []string{"first"}) {
-		t.Fatalf("inherited sequence enumeration = %v/%s, want [first]/%s", lastReference.StringEnumerationFacets().Values(), lastReference.StringEnumerationFacets().Version(), wantXSD)
+	if lastReference.StringEnumerationFacets().Version() != wantXSD || !reflect.DeepEqual(lastReference.StringEnumerationFacets().Values(), []string{" first ", ""}) {
+		t.Fatalf("inherited sequence enumeration = %v/%s, want [spaced-first empty]/%s", lastReference.StringEnumerationFacets().Values(), lastReference.StringEnumerationFacets().Version(), wantXSD)
 	}
 	particles[0] = nil
 	if sequence.Particles()[0] == nil {

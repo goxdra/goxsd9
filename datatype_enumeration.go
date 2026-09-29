@@ -809,7 +809,7 @@ func completeStringEnumerationFacetsWithNormalizer(base StringEnumerationFacets,
 	}
 	if derived && base.values != nil {
 		for index := range localValues {
-			if stringEnumerationContainsInValueSpace(base.values, localValues[index].value, normalize) {
+			if stringEnumerationContainsInterpreted(base.values, localValues[index].interpretedValue) {
 				continue
 			}
 			return StringEnumerationFacets{}, enumerationRestrictionDiagnostic(
