@@ -6793,6 +6793,26 @@ func (resolver *schemaComplexTypeResolver) extensionBaseFacts(
 			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "empty extension base result is nil")
 		}
 		return resolver.representableInheritedWildcard(typed.anyAttribute, baseLoc, baseReferenceLoc)
+	case *schemaComplexTypeAttributeOnlyBodyResult:
+		if typed == nil {
+			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "attribute-only extension base result is nil")
+		}
+		return schemaAnyAttributeResult{}, resolver.unsupportedExtensionBase(
+			baseReferenceLoc,
+			"named complex type extension base has attribute uses",
+			[]Loc{baseLoc},
+			fmt.Errorf("%w: attribute-use composition", errSchemaComplexTypeBaseUnsupported),
+		)
+	case *schemaComplexTypeSimpleContentBodyResult:
+		if typed == nil {
+			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "simple-content extension base result is nil")
+		}
+		return schemaAnyAttributeResult{}, resolver.unsupportedExtensionBase(
+			baseReferenceLoc,
+			"named complex type extension base has simple content",
+			[]Loc{baseLoc},
+			fmt.Errorf("%w: simple-content composition", errSchemaComplexTypeBaseUnsupported),
+		)
 	case *schemaComplexTypeRestrictionBodyResult:
 		if typed == nil {
 			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "restriction extension base result is nil")

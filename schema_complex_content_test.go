@@ -702,6 +702,55 @@ func TestSchemaBridgeRejectsUnmodeledEmptyComplexContentExtensionAdditions(t *te
 	}
 }
 
+func TestSchemaBridgeRejectsAnonymousExtensionOverCompletedUnsupportedBases(t *testing.T) {
+	bases := []struct {
+		name string
+		body string
+	}{
+		{name: "attribute-only", body: `<xs:attribute name="a" type="xs:integer"/>`},
+		{name: "simple-content", body: `<xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent>`},
+	}
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "strict10", policy: Strict10, version: XSDVersion10},
+		{name: "strict11", policy: Strict11, version: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		for _, base := range bases {
+			t.Run(profile.name+"/"+base.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `">
+  <xs:complexType name="Base">` + base.body + `</xs:complexType>
+  <xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base"/></xs:complexContent></xs:complexType></xs:element>
+</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("anonymous extension accepted an unsupported completed base")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+					t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Code(), diagnostic.Feature())
+				}
+				baseReferenceLoc := complexContentTestLoc(t, root, `base="t:Base"`)
+				baseDeclarationLoc := complexContentTestLoc(t, root, `<xs:complexType name="Base"`)
+				if diagnostic.Loc() != baseReferenceLoc || !reflect.DeepEqual(diagnostic.Related(), []Loc{baseDeclarationLoc}) {
+					t.Fatalf("diagnostic location/related = %s/%v, want %s/[%s]", diagnostic.Loc(), diagnostic.Related(), baseReferenceLoc, baseDeclarationLoc)
+				}
+				if diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(profile.version) {
+					t.Fatalf("diagnostic spec reference = %q, want %q", diagnostic.SpecRef(), schemaComplexTypeExtensionSpecRef(profile.version))
+				}
+				if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
+					t.Fatalf("diagnostic lost unsupported extension-base causes: %v", err)
+				}
+			})
+		}
+	}
+}
+
 //nolint:gocognit,funlen // Keep the empty-extension base classification matrix together.
 func TestSchemaBridgeRejectsEmptyComplexContentExtensionBaseFailures(t *testing.T) {
 	cases := []struct {
