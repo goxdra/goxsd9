@@ -66,6 +66,7 @@ type codegenDirectChoiceScalarFamily uint8
 const (
 	codegenDirectChoiceScalarInvalid codegenDirectChoiceScalarFamily = iota
 	codegenDirectChoiceScalarBoolean
+	codegenDirectChoiceScalarToken
 	codegenDirectChoiceScalarInteger
 	codegenDirectChoiceScalarDecimal
 )
@@ -83,10 +84,12 @@ func codegenDirectChoiceScalarFamilyFromDigit(kind DigitDatatype) (codegenDirect
 
 func codegenDirectChoiceScalarFamilyFromSourceKind(kind codegenSourceScalarKind) (codegenDirectChoiceScalarFamily, bool) {
 	switch kind {
-	case codegenSourceScalarInvalid, codegenSourceScalarString, codegenSourceScalarToken, codegenSourceScalarNMTOKEN, codegenSourceScalarNonNegativeInteger:
+	case codegenSourceScalarInvalid, codegenSourceScalarString, codegenSourceScalarNMTOKEN, codegenSourceScalarNonNegativeInteger:
 		return codegenDirectChoiceScalarInvalid, false
 	case codegenSourceScalarBoolean:
 		return codegenDirectChoiceScalarBoolean, true
+	case codegenSourceScalarToken:
+		return codegenDirectChoiceScalarToken, true
 	case codegenSourceScalarInteger:
 		return codegenDirectChoiceScalarInteger, true
 	case codegenSourceScalarDecimal:
@@ -108,6 +111,11 @@ func codegenDirectChoiceSourceScalarKind(
 			return codegenSourceScalarInvalid, false
 		}
 		return codegenSourceScalarBoolean, true
+	case codegenDirectChoiceScalarToken:
+		if kind != "" {
+			return codegenSourceScalarInvalid, false
+		}
+		return codegenSourceScalarToken, true
 	case codegenDirectChoiceScalarInteger:
 		if kind != DigitDatatypeInteger {
 			return codegenSourceScalarInvalid, false
@@ -125,7 +133,7 @@ func codegenDirectChoiceSourceScalarKind(
 
 func codegenDirectChoiceDigitKind(family codegenDirectChoiceScalarFamily) DigitDatatype {
 	switch family {
-	case codegenDirectChoiceScalarInvalid, codegenDirectChoiceScalarBoolean:
+	case codegenDirectChoiceScalarInvalid, codegenDirectChoiceScalarBoolean, codegenDirectChoiceScalarToken:
 		return ""
 	case codegenDirectChoiceScalarInteger:
 		return DigitDatatypeInteger
@@ -538,7 +546,9 @@ func validateCodegenDirectChoiceScalarFamilies(
 				errCodegenDirectChoiceTarget,
 			)
 		}
-		if family == firstFamily || firstFamily != codegenDirectChoiceScalarBoolean && family != codegenDirectChoiceScalarBoolean {
+		if family == firstFamily ||
+			firstFamily != codegenDirectChoiceScalarBoolean && family != codegenDirectChoiceScalarBoolean &&
+				firstFamily != codegenDirectChoiceScalarToken && family != codegenDirectChoiceScalarToken {
 			continue
 		}
 		related := make([]Loc, 0, len(owner.alternatives)+1)
@@ -548,7 +558,7 @@ func validateCodegenDirectChoiceScalarFamilies(
 		}
 		return newCodegenDirectChoiceUnsupported(
 			alternative.loc,
-			"direct choice mixes Boolean and non-Boolean scalar alternatives outside Go code generation",
+			"direct choice mixes incompatible scalar alternatives outside Go code generation",
 			related,
 			fmt.Errorf("%w: mixed direct-choice scalar families at alternative %d", errCodegenUnsupported, index+1),
 			version,
@@ -1329,6 +1339,11 @@ func validateCodegenDirectChoiceTarget(
 			return codegenDirectChoiceBuiltinTarget{
 				declaredType: declaredType,
 				family:       codegenDirectChoiceScalarBoolean,
+			}, nil
+		case "token":
+			return codegenDirectChoiceBuiltinTarget{
+				declaredType: declaredType,
+				family:       codegenDirectChoiceScalarToken,
 			}, nil
 		case "integer":
 			return codegenDirectChoiceBuiltinTarget{
@@ -2470,6 +2485,10 @@ func validateCodegenDirectChoicePlanTarget(schema Schema, names codegenNaming, t
 		case "boolean":
 			if concrete.family != codegenDirectChoiceScalarBoolean {
 				return newCodegenInternal(loc, "direct-choice plan built-in Boolean target family is inconsistent", nil, errCodegenDirectChoicePlan)
+			}
+		case "token":
+			if concrete.family != codegenDirectChoiceScalarToken || concrete.kind != "" {
+				return newCodegenInternal(loc, "direct-choice plan built-in token target family is inconsistent", nil, errCodegenDirectChoicePlan)
 			}
 		case "integer":
 			if concrete.family != codegenDirectChoiceScalarInteger || concrete.kind != DigitDatatypeInteger {

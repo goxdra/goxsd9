@@ -144,8 +144,9 @@
 // alternatives validate. Homogeneous direct sequences made entirely of local
 // built-in or supported named token or NMTOKEN particles also validate with exact
 // occurrences. Anonymous token/NMTOKEN restrictions remain unsupported for
-// consumers; local token/NMTOKEN particles and sequences remain
-// GenerateGo-unsupported. Direct element references remain
+// consumers; local token/NMTOKEN sequences and NMTOKEN choices remain
+// GenerateGo-unsupported. Default-occurrence all-token direct choices generate.
+// Direct element references remain
 // queryable, but token/NMTOKEN reference consumers remain unsupported.
 // Global inline string/token/NMTOKEN elements are the separate generation-eligible
 // exception.
@@ -445,9 +446,11 @@
 // explicitly typed local (including named effective), inline, anonymous, and
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
-// all-Boolean/numeric direct choices and default-bounded direct sequences. Local
+// all-Boolean/numeric direct choices and default-bounded direct sequences.
+// All-token direct choices also generate: built-in alternatives use string and
+// supported named restrictions use their generated type. Local
 // long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, string,
-// anonymous, and token/NMTOKEN consumers, repeated/non-default
+// anonymous, NMTOKEN and mixed-token consumers, repeated/non-default
 // particles, and anonymous targets remain unsupported; numeric integer/decimal
 // mixtures remain supported.
 package goxsd9
