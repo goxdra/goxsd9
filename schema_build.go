@@ -196,6 +196,7 @@ var (
 	errSchemaComplexTypeBaseRequired             = errors.New("complex type base is required")
 	errSchemaComplexTypeBaseCycle                = errors.New("complex type bases form a cycle")
 	errSchemaComplexTypeBaseNonEmpty             = errors.New("complex type base has nonempty content")
+	errSchemaGroupedExtensionAnonymousOwner      = errors.New("grouped extension on an anonymous complex type is not implemented")
 	errLanguagePolicyMismatch                    = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
@@ -1506,6 +1507,19 @@ func schemaElementTypeInputForInlineComplex(
 	complexType, err := schemaComplexTypeInputFromElementWithFacts(inline, facts, version)
 	if err != nil {
 		return nil, err
+	}
+	if grouped, ok := complexType.body.(*schemaComplexTypeGroupedExtensionBodyInput); ok {
+		if grouped == nil {
+			return nil, newSchemaBridgeInvariant(inline.loc, "anonymous grouped extension input is nil")
+		}
+		return nil, newSchemaComplexTypeUnsupportedWithSpec(
+			grouped.extensionLoc,
+			"grouped extensions on anonymous complex types are not implemented",
+			[]Loc{inline.loc},
+			version,
+			errSchemaGroupedExtensionAnonymousOwner,
+			schemaComplexContentExtensionSpecRef(version),
+		)
 	}
 	return &schemaElementInput{
 		typeLoc:           inline.loc,

@@ -19,6 +19,67 @@ func groupedExtensionSchema(version, group, attributes string) string {
 </xs:schema>`
 }
 
+func anonymousGroupedExtensionSchema(version, group, attributes string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="` + version + `">
+  <xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields"` + group + `/>` + attributes + `</xs:extension></xs:complexContent></xs:complexType></xs:element>
+  <xs:group name="Fields"><xs:sequence/></xs:group>
+  <xs:attribute name="global" type="xs:boolean"/>
+  <xs:complexType name="Base"/>
+</xs:schema>`
+}
+
+func TestGroupedExtensionRejectsAnonymousGlobalOwner(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{"compatibility", Compatibility, "1.0"},
+		{"strict10", Strict10, "1.1"},
+		{"strict11", Strict11, "1.0"},
+	}
+	uses := []struct {
+		name       string
+		attribute  string
+		occurrence string
+	}{
+		{"local declaration", `<xs:attribute name="flag" type="xs:boolean"/>`, ""},
+		{"global reference", `<xs:attribute ref="t:global"/>`, ""},
+		{"inline local type", `<xs:attribute name="flag"><xs:simpleType><xs:restriction base="xs:boolean"/></xs:simpleType></xs:attribute>`, ""},
+		{"zero group", `<xs:attribute name="flag" type="xs:boolean"/>`, ` minOccurs="0" maxOccurs="0"`},
+	}
+	for _, profile := range profiles {
+		for _, use := range uses {
+			t.Run(profile.name+"/"+use.name, func(t *testing.T) {
+				root := anonymousGroupedExtensionSchema(profile.version, use.occurrence, use.attribute)
+				assertAnonymousGroupedExtensionUnsupported(t, root, profile.policy)
+			})
+		}
+	}
+}
+
+func assertAnonymousGroupedExtensionUnsupported(t *testing.T, root string, policy LanguagePolicy) {
+	t.Helper()
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+	if err == nil {
+		t.Fatal("anonymous grouped extension was accepted")
+	}
+	assertZeroSchema(t, schema)
+	diagnostic := requireDiagnostic(t, err)
+	wantPrimary := complexContentTestLoc(t, root, `<xs:extension`)
+	wantRelated := []Loc{complexContentTestLoc(t, root, `<xs:complexType>`)}
+	wantVersion := XSDVersion11
+	if policy == Strict10 {
+		wantVersion = XSDVersion10
+	}
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Loc() != wantPrimary || diagnostic.SpecRef() != schemaComplexContentExtensionSpecRef(wantVersion) {
+		t.Fatalf("diagnostic = %v, want unsupported syntax at %s under %s", err, wantPrimary, wantVersion)
+	}
+	if !reflect.DeepEqual(diagnostic.Related(), wantRelated) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaGroupedExtensionAnonymousOwner) {
+		t.Fatalf("diagnostic related/cause = %v/%v, want %v and grouped-extension unsupported", diagnostic.Related(), err, wantRelated)
+	}
+}
+
 //nolint:gocognit // Keep the paired policy and immutable fact assertions together.
 func TestGroupedExtensionFactsAcrossPolicies(t *testing.T) {
 	profiles := []struct {
