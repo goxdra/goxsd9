@@ -980,12 +980,6 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:    "recognized root attribute is unsupported",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" attributeFormDefault="qualified"/>`,
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:    "default open content is unsupported",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:defaultOpenContent mode="interleave"><xs:any/></xs:defaultOpenContent></xs:schema>`,
 			class:   FailureUnsupported,
@@ -1092,12 +1086,6 @@ func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
 		{
 			name:    "nested sequence is unsupported",
 			root:    fmt.Sprintf(base, `<xs:choice><xs:sequence/></xs:choice>`),
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
-			name:    "excluded wildcard process contents is unsupported",
-			root:    fmt.Sprintf(base, `<xs:choice><xs:any namespace="##other" processContents="skip"/></xs:choice>`),
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
 		},

@@ -4,19 +4,24 @@ Status: accepted
 
 ## Decision
 
-`precisionDecimal` is an optional, opt-in XSD datatype. The pinned 9 June 2011
+`precisionDecimal` is an optional XSD datatype. The pinned 9 June 2011
 artifact’s [§Abstract](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#abstract)
 and [§Status](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#status)
 identify it as a W3C Working Group Note describing an implementation-defined
 datatype and work in progress; it is not a mandatory XSD 1.1 conformance
 requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/)
 §2.5.1 (primitive datatypes; `#dt-primitive`) and [§H.1](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#impl-def)
-permit, but do not require, primitive datatypes outside the standard set.
-[`Decision 0007`](0007-particle-occurrence.md) governs placement/occurrence/consumers;
-current `precisionDecimal` representation/semantic contract:
-
-+ Global attributes: Compatibility/Strict11 admit built-in/named `precisionDecimal` with ≤1 default/fixed `AttributeValueConstraint`; type-only none. `ValueConstraint()` copies kind, collapsed lexical/source `Loc`, and defensive `StrictPrecisionDecimal`. Unsupported: `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported`; invalid: `FailureInvalid`/`XSD3036`; default+fixed: `FailureInvalid`/`XSD3010` (fixed primary/default related). Strict10 rejects type `Loc` before conversion; conflict/type/policy/reference failures precede. Inline/local/consumers unsupported; invalid values retain causes/no schema.
-- Elements: Compatibility/Strict11 query built-in/named/inline/anonymous `precisionDecimal`; built-in/named validate; inline/anonymous/`GenerateGo` reject. Mapped owners/typed children/alternatives require defaults. Each owner/term, including inline zero-occurrences, validates syntax/exact-occurrences; resolves base/variety/facets/selected-policy; resolved query-admitted forms map to no public particle; only validated publication-unsupported `FailureUnsupported` diagnostics are omittable at `0/0`. Extension choices query-only; non-`0/0` extensions schema-unsupported. Reject non-`0/0` direct sequences, non-default owners/typed alternatives, published local mapped inline/anonymous non-`0/0`. Strict10 rejects typed/type `Loc` pre-omission, including zero; invalid/unresolved/cyclic/wrong-kind/value-constraint/policy failures retain precedence/locations/causes/no schema.
+permit primitive datatypes outside the standard set.
+The precisionDecimal policy gate precedes local `0/0` particle omission: Strict10
+rejects a typed use with a located policy diagnostic even when that particle
+would otherwise be absent. Admitted query facts do not imply validation or
+generation support. [Decision 0007](0007-particle-occurrence.md) governs
+occurrence order and omission. The [architecture](../../ARCHITECTURE.md#schema-model)
+and [package contract](../../doc.go) describe current admission and query limits;
+the [consumer boundaries](../../ARCHITECTURE.md#validation-and-code-generation)
+describe validation and generation separately. Affected mapped local terms and
+owners resolve inline base, variety, facets, and policy before `0/0` omission;
+invalid or unresolved causes retain their locations and prevent a schema.
 
 ## Semantic contract
 
@@ -53,23 +58,14 @@ The Note’s [§3.3 facet declaration](https://www.w3.org/TR/2011/NOTE-xsd-preci
 exclude `fractionDigits`, `length`, `minLength`, and `maxLength`. Fixed whitespace is pre-lexical; `pattern`
 examines normalized lexical form; other facets constrain a complete value, never a partial parse.
 
-The [canonical mapping](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#f-precDecCanmap) has no
-resolved zero branch in the pinned Note. The project chooses these non-normative, sign-preserving spellings:
-every positive zero, regardless of retained scale, projects to `0.0E0`; every negative zero, regardless of
-retained scale, projects to `-0.0E0`. Note-compatible examples are `3.00 -> 3.00`, `3.00e2 -> 300`,
-`3.0e2 -> 3.0E2`, `1e-6 -> 0.000001`, `1e-7 -> 1E-7`, `+INF -> INF`, `-INF -> -INF`, and `NaN -> NaN`;
-thus `+INF` canonicalizes to `INF`. Canonical text is an on-demand output projection only: never value identity,
-facet input, or round-trip serialization of retained zero scale. XSD 1.1’s [`canonical mapping`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#dt-canonical-mapping)
-is not required for schema processing, and this policy does not make the optional datatype mandatory.
+Note leaves zero canonical mapping unresolved. Project chooses sign-preserving spellings: positive zero `0.0E0`, negative `-0.0E0`; scale-preserving `3.00 -> 3.00`, `3.0e2 -> 3.0E2`; specials `+INF -> INF`, `-INF -> -INF`, `NaN -> NaN`. Canonical text is on-demand, never identity/facet input/round-trip serialization. XSD 1.1 canonical mapping is optional; policy does not make the datatype mandatory.
 
 ## Representation and phases
 
-The value representation has one private source of truth: a tagged finite, `+INF`, `-INF`, or `NaN` value. A
-finite value contains an arbitrary-precision, non-negative coefficient, explicit sign (including signed zero),
+Representation has one private source: a tagged finite, `+INF`, `-INF`, or `NaN`. A finite value contains an arbitrary-precision, non-negative coefficient, explicit sign (including signed zero),
 and arbitrary signed scale; scale cannot be `int` because the lexical exponent is unbounded. `StrictDecimal` differs:
 it has an `int` scale, elides trailing zeroes, and lacks special values; only its copy techniques may be reused.
-The representation exposes no binary floating point, mutable numeric internals,
-raw lexemes, cached canonical strings, or partial public values; private `big.Int`
+Representation exposes no binary floating point, mutable numeric internals, raw lexemes, cached canonical strings, or partial public values; private `big.Int`
 values are owned or copied before mutation, and coefficient, scale, and cache state
 remain private.
 
@@ -118,9 +114,4 @@ The boundary covers values/facets, partial comparison, bounded canonical output,
 and schema facts; assertions/remaining facets stay separate,
 while bound parsing, effective facts, and scalar validation integrate.
 
-Pinned [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary groups
-[`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)
-and [`ibmMeta/precisionDecimal.testSet`](../../testdata/w3c/xsdtests/ibmMeta/precisionDecimal.testSet).
-[#210](https://github.com/goxdra/goxsd9/issues/210) owns resolved auxiliary outcomes; [#196](https://github.com/goxdra/goxsd9/issues/196)
-and [#211](https://github.com/goxdra/goxsd9/issues/211) own the source ledger and executable effective-expectation policy; the pinned
-catalog remains provenance, and auxiliary results stay outside headline conformance.
+Pinned [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary PDecimal groups; the catalog remains provenance, and auxiliary results stay outside headline conformance.

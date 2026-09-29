@@ -173,6 +173,20 @@ func collectCodegenDirectParticles(
 				version,
 			)
 		}
+		attributeUses := definition.AttributeUses()
+		if len(attributeUses) > 0 {
+			related := appendCodegenRelated(nil, definition.Loc())
+			for _, use := range attributeUses {
+				related = appendCodegenRelated(related, use.Loc())
+			}
+			return nil, newCodegenDirectParticleUnsupported(
+				attributeUses[0].Loc(),
+				fmt.Sprintf("complex type %q attribute uses are outside direct particle generation", component.Name()),
+				related,
+				fmt.Errorf("%w: complex type attribute uses", errCodegenUnsupported),
+				version,
+			)
+		}
 		if body := definition.extensionBody(); body != nil {
 			if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(body.particle); groupReferenceOK {
 				return nil, newCodegenDirectModelGroupReferenceUnsupported(schema, component, groupReference, version)

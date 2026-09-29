@@ -21,13 +21,16 @@
 // The unqualified schema/@version is an inert optional xs:token label: absent,
 // empty, arbitrary, "1.0", and "1.1" values never select or mismatch a policy.
 // Chameleon includes adopt the including target namespace and repair
-// unqualified direct element-reference QNames in supported particles.
+// unqualified direct element-reference QNames in supported particles. In XSD
+// 1.1, a local attribute targetNamespace selects its explicit namespace only
+// when a containing targetNamespace exists and matches; missing or mismatched
+// values are invalid, while Strict10 reports an edition mismatch.
 // Redefine/override/defaultOpenContent, assertions, and Boolean facets and
 // datatype facets outside the supported string enumeration/whiteSpace, integer/decimal,
 // and optional precisionDecimal boundaries return explicit unsupported diagnostics.
 // Global built-in, named, and inline precisionDecimal element/type facts are
 // available only under Compatibility or Strict11; Strict10 rejects each before
-// consumer validation with a located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported
+// validation with a located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported
 // policy diagnostic at the typed reference or type location. Global attributes
 // whose resolved type is built-in xs:precisionDecimal or a named type with
 // effective precisionDecimal facets retain zero or one optional default/fixed
@@ -36,8 +39,9 @@
 // ValueConstraint() exposes its kind, collapsed lexical spelling, source Loc,
 // and exact defensive StrictPrecisionDecimal through PrecisionDecimalValue
 // only when a default or fixed value is present. Strict10 rejects at the
-// resolved type Loc before conversion; inline/local attributes and attribute
-// validation/GenerateGo remain unsupported. Under admitting policies,
+// resolved type Loc before conversion; global inline-attribute declarations and
+// attribute validation/GenerateGo remain unsupported. Supported local anonymous
+// atomic AttributeUse facts are separate. Under admitting policies,
 // built-in/named roots validate, while inline anonymous targets remain excluded
 // from validation and generation.
 // Paths and URLs are never opened by this package. Parsing closes
@@ -45,55 +49,72 @@
 // identities; repeated and cyclic identities are closed without decoding.
 //
 // The schema model exposes one direct ordered sequence and direct choices of local
-// built-in xs:boolean, named boolean-restriction, integer, decimal, built-in xs:long,
-// supported named effective-long, and explicitly typed built-in or supported named
-// xs:token/xs:NMTOKEN particles for named global complex types. Built-in and named
-// effective-long particles are also queryable in bounded attribute-free extensions;
-// Explicitly typed long/token/NMTOKEN paths exclude inline types, nested particles,
-// element references, and broader extension shapes. A separate local admission
-// below covers inline anonymous Boolean/integer/decimal restrictions. Built-in
-// `xs:long` retains its use-site
-// type/variety locations and intrinsic bounds; its intrinsic bound facet
-// locations are zero and it has no synthetic `ComponentID`. Named effective-long
-// retains its named `TypeID`/`ComponentID` plus declaration/restriction-facet
-// provenance. `NodeID`/`AnonymousID` apply only to admitted anonymous forms.
-// It also exposes those local inline anonymous atomic Boolean, integer, and decimal
-// restrictions in direct choices/sequences and bounded attribute-free extensions
-// under Compatibility, Strict10, and Strict11. Their immutable
+// built-in xs:boolean, named boolean-restriction, integer, decimal, built-in/named/inline
+// xs:negativeInteger, explicitly typed
+// built-in xs:long, supported named effective-long, or supported named
+// xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger, and explicitly typed built-in or
+// supported named xs:token/xs:NMTOKEN particles for named global complex types. It
+// also admits built-in/named/inline xs:negativeInteger and built-in or supported
+// named-effective xs:long/xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger particles in
+// supported attribute-free extension choices and sequences under every policy; they
+// remain query-only and consumer-rejected. Direct and supported extension
+// choices/sequences retain exact finite, unbounded, and above-uint64 occurrences;
+// bounded describes the supported derivation/base shape, not occurrence limits. It exposes local inline anonymous atomic
+// Boolean, integer, decimal, and
+// negativeInteger restrictions
+// in direct choices/sequences and bounded attribute-free extensions under Compatibility,
+// Strict10, and Strict11. Their immutable
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
 // exact particle occurrences; anonymous definitions have zero ComponentID and are
-// not global components or Walk entries. For every affected local mapped owner or
-// term, syntax and exact-occurrence validation precede semantic resolution of an
-// inline simple type's base, variety, facets, and selected policy, including a
-// zero-occurrence owner or term. Malformed occurrence input remains FailureInvalid
-// at its occurrence location. Strict10 policy admission then
-// rejects both explicitly typed local built-in or named-effective
-// `precisionDecimal` forms and inline anonymous
-// `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` forms at their
-// typed/type locations before 0/0 omission, including zero-occurrence cases.
-// After those checks, successfully resolved query-admitted forms may map to no
-// particle at exact 0/0; only validated publication-unsupported FailureUnsupported
-// forms may have that diagnostic omitted there. This is not a generic omission
-// rule for every sequence, choice, child, or wildcard. Invalid, unresolved,
-// cyclic, wrong-kind, value-constraint, and policy failures retain located
-// diagnostics, causes, and no-schema result. In
-// direct choices/sequences and bounded attribute-free
-// extensions, the local scalar allowlist is exact: direct `xs:integer`; named or
-// inline effective `integer` or `negativeInteger` restrictions where admitted;
-// and built-in `xs:long` or supported named effective-long. Direct
-// `xs:negativeInteger`, out-of-slice integer kinds (`int`, `unsignedLong`,
-// `nonNegativeInteger`, and `nonPositiveInteger`), list/union varieties, and
-// nested, recursive, or broader structural forms are excluded. Applicable
-// Published non-0/0 mapped exclusions return located
-// FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported diagnostics at
-// the relevant type, facet, or use-site location and no schema. Admitted local
-// effective-`negativeInteger` and effective-long forms remain query-only rather
-// than schema-unsupported:
-// `ValidateInstance` and `GenerateGo` reject them with located unsupported
-// diagnostics and no consumer output. Named, forward, imported, included, and
-// chameleon chains retain their written base QName, use-site location, and
-// resolved ownership as separate facts.
+// not global components or Walk entries. Applicable syntax, occurrence,
+// element-reference, and policy gates run before local public-particle mapping;
+// graph-wide declaration/facet failures still surface, and located gate errors
+// preserve their causes/Locs and return no Schema. Ordinary local named/inline
+// type mapping is not universal for non-reference 0/0 terms. For every affected
+// local owner or term, syntax and exact occurrences precede semantic resolution
+// of inline base, variety, facets, and selected policy, including zero occurrences;
+// only validated publication-unsupported FailureUnsupported diagnostics may be
+// omitted at 0/0. Invalid, unresolved, cyclic, wrong-kind, value-constraint,
+// and policy failures retain their diagnostics and prevent a Schema.
+// Direct sequence owners omit before child resolution; direct choices resolve
+// child refs without duplicate checks before child omission; named groups
+// resolve/check duplicate refs before owner/child omission; child refs resolve
+// before child omission. Mapped non-0/0 unsupported scalar forms return located
+// schema-syntax diagnostics. Ordinary 0/0 forms are admitted only after the
+// applicable gates, then the local public particle is absent; this is not a
+// universal named-type/facet or validation bypass. Strict10 policy admission precedes omission for explicitly typed local
+// built-in or named-effective and inline anonymous `precisionDecimal` forms,
+// including zero-occurrence cases. Ordinary `int`/`short`/`unsignedLong` and other long-family 0/0
+// forms use the admission-then-absence rule under every policy.
+// Local declared, named, inline, and anonymous restrictions in the
+// integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
+// when their effective atomic kind is integer or negativeInteger through named,
+// forward, imported, included, and chameleon chains. Explicit built-in and
+// supported named nonNegativeInteger particles are also admitted. Direct built-in,
+// named-effective, and anonymous-inline negativeInteger forms are admitted as query
+// facts, but ValidateInstance and GenerateGo reject those consumers. Effective
+// Built-in and named effective-long remain query-only and consumer-rejected. NonPositiveInteger, plus
+// inline/anonymous int/short/byte/unsignedLong/nonNegativeInteger, are excluded when mapped non-0/0: ParseSchema returns a located
+// FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
+// diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
+// exclusions use the nested-particle Loc. Ordinary 0/0 is admitted after
+// applicable gates and remains absent.
+// Inline/anonymous int/short/byte/unsignedLong/nonNegativeInteger are mapped schema exclusions at their
+// type/simpleType Loc; built-in and named-effective int/short/byte/unsignedLong/nonNegativeInteger are admitted
+// query-only forms. The written base QName/base Loc, use-site/type/facet Locs,
+// named ID versus built-in zero identity, ownership, and resolved facts remain
+// separate. Built-in int retains intrinsic inclusive bounds
+// [-2147483648,2147483647] without synthetic bound locations or component IDs;
+// built-in short retains [-32768,32767] with no source bound Loc or component ID;
+// built-in byte retains [-128,127] with no source bound Loc or component ID;
+// built-in unsignedLong retains intrinsic inclusive bounds
+// [0,18446744073709551615]; built-in nonNegativeInteger retains intrinsic
+// minInclusive=0 without a source Loc; built-in negativeInteger retains
+// maxInclusive=-1 at its type Loc with no component ID; named-effective particles retain exact narrowed,
+// inclusive/exclusive bounds, integer enumeration/digit facets, source locations,
+// identities, graph provenance, and exact occurrences; only validation and GenerateGo return consumer-only
+// FailureUnsupported diagnostics.
 // The supported anonymous Boolean/integer/
 // decimal restriction facet subset remains queryable; mapped non-0/0 non-string
 // anonymous enumeration remains explicit unsupported at its facet location with
@@ -112,13 +133,15 @@
 // exception.
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
 // omitted namespace with processContents="lax"), ##any/skip with explicit
-// processContents="skip", ##other/lax, and ##other/strict forms, plus positive
-// namespace constraints (##local, ##targetNamespace, and URI lists) with strict,
-// lax, or explicit skip processing, are exposed as immutable WildcardParticle values. Positive constraints retain
-// immutable effective namespace values in sorted order, their lexical form, and
-// source location; explicit constraint-attribute locations are retained in
-// lexical order with element and reference terms. Other wildcard constraints
-// and broader wildcard placements remain unsupported. Nonzero wildcard-bearing
+// processContents="skip", and ##other/strict, ##other/lax, and ##other/skip forms,
+// plus positive namespace constraints (##local, ##targetNamespace, and URI lists) with strict,
+// lax, or explicit skip processing, are exposed as immutable WildcardParticle values.
+// Compatibility and Strict11 also expose direct notNamespace lists with omitted or explicit
+// strict, lax, or skip processing; Strict10 reports a located edition mismatch. Positive sets contain
+// included namespaces; negative sets contain excluded namespaces. Both retain sorted,
+// unique owner-relative values, normalized lexical forms, and exact attribute locations
+// in lexical order with element and reference terms. notQName,
+// wildcard algebra, and broader placements remain unsupported. Nonzero wildcard-bearing
 // particles remain unsupported to validation and generation consumers.
 // Named global direct sequence and choice complex types also expose immutable
 // anyAttribute facts for effective ##any and ##other constraints, plus positive
@@ -129,46 +152,65 @@
 // exact anyAttribute, namespace, and processContents source locations are
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
-// The later consumer and wildcard boundaries do not change the shared
-// construction-time 0/0 rule above. Published non-0/0 mapped exclusions and
-// unsupported nested, recursive, broader, or other structural forms retain
-// located unsupported diagnostics and no Schema.
-// Invalid, unresolved, cyclic, wrong-kind, value-constraint, and policy
-// failures retain their diagnostic class, code, cause, and primary/related
-// locations, and no Schema is returned. Non-0/0 integer/decimal/long choice and
+// After those gates, effective 0/0 sequence, choice, child, and wildcard ranges
+// map to absence. Non-0/0 integer/decimal choice and
 // alternative ranges are queryable, but direct-choice repetition is not
 // implemented. Direct choices made entirely of local Boolean elements use
 // built-in xs:boolean or named Boolean restrictions; mixed Boolean/numeric
-// choices remain unsupported. Modeled local xs:long particles are queryable, but
-// validation and generation reject them explicitly.
+// choices remain unsupported.
 // Local precisionDecimal forms are distinct. Under Compatibility/Strict11, a
 // local element declared with built-in `type="xs:precisionDecimal"` or a named
 // type whose effective facets are precisionDecimal is admitted only in
 // default-occurrence direct choices and bounded attribute-free extension
 // choices. The choice owner and every mapped typed precisionDecimal
 // child/alternative require default occurrences; non-precision alternatives
-// may retain non-default query-only ranges. Only non-extension default typed
-// direct choices are validation-eligible; extension choices are query-only and
-// their consumers reject them. An inline anonymous
+// may retain non-default query-only ranges. An inline anonymous
 // `<xs:simpleType><xs:restriction base="xs:precisionDecimal">` restriction is
-// schema-unsupported when it remains published. Mapped non-0/0 direct or
-// extension sequences, non-default direct precisionDecimal choice/alternative
-// ranges that remain published, and other rejected mapped inline/anonymous
-// forms are also schema-unsupported. Strict10 returns a located
+// schema-unsupported when mapped; mapped nonzero anonymous restrictions remain
+// unsupported. Strict10 returns a located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy-mismatch
-// diagnostic before the shared 0/0 rule for either mapped form, including zero.
-// Compatibility/Strict11 use that shared rule. `GenerateGo` rejects every
-// precisionDecimal target, and all
-// anonymous consumers remain excluded.
+// diagnostic before 0/0 omission for either mapped form, including zero. Under
+// Compatibility/Strict11, mapped non-default precisionDecimal choice/alternative
+// ranges or non-0/0 direct-sequence precisionDecimal ranges that map to particles
+// are schema-unsupported. Only non-extension default-occurrence typed direct
+// choices are validation-eligible; precisionDecimal extension choices remain
+// query-only/consumer-rejected, and all anonymous consumers are rejected by
+// validation and generation.
 // The supported local anonymous model is limited to atomic
-// Boolean/integer/decimal restrictions in the direct choice/sequence and bounded
-// attribute-free extension shapes above. Local anonymous Boolean/integer/decimal
-// restrictions remain queryable but direct validation and generation reject them;
+// Boolean/integer/decimal/negativeInteger restrictions in the direct choice/sequence
+// and bounded attribute-free extension shapes above. Local anonymous
+// Boolean/integer/decimal/negativeInteger restrictions remain queryable but direct
+// validation and generation reject them;
 // mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions remain
 // schema-unsupported when nonzero. Global inline-element precisionDecimal remains a query
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
 // and every anonymous precisionDecimal target is excluded from validation and
 // generation.
+// Particle-plus-use bodies, direct model-group references, attribute-only bodies,
+// and extension-only scalar simpleContent bodies expose ordered defensive
+// local, referenced, and anonymous-inline AttributeUse facts. Supported local
+// anonymous atomic uses retain AnonymousID/NodeID. Attribute-bearing
+// complexContent extensions remain unsupported. Local and referenced
+// global targets admit only Boolean/integer/decimal plus policy-gated precisionDecimal;
+// explicit xs:int and other scalar kinds are unsupported, and Strict10 rejects
+// precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
+// and effective use. Explicit form or attributeFormDefault selects qualified or
+// unqualified local names; XSD 1.1 local targetNamespace selects a namespace only
+// when it matches the containing targetNamespace; missing/mismatched values are
+// invalid, and Strict10 reports an edition mismatch. Chameleon includes adopt
+// the including target namespace.
+// Anonymous local types retain AnonymousID/NodeID ownership, and returned views are
+// copied. Optional/required uses are effective; prohibited uses are omitted. A valid
+// referenced excluded global scalar target fails schema construction with located
+// schema-syntax FailureUnsupported/ErrUnsupported at RefLoc, relates its target declaration, and
+// returns no partial schema; unresolved, wrong-kind, ambiguous, and inaccessible
+// references remain invalid, preserving primary ref/type/base Locs and related
+// candidate/target locations. SimpleContent restrictions remain unsupported; a
+// bounded scalar simpleContent extension separately
+// admits Boolean/string/integer/decimal bases plus policy-gated precisionDecimal,
+// retaining base, type, and ordered-use locations with a nil particle. Local
+// value/default/fixed/inheritable semantics, attributeGroup expansion, and
+// attribute/simpleContent validation and generation remain unsupported.
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.
@@ -187,16 +229,17 @@
 // `ModelGroupReferenceParticle` form. Named global model groups expose direct
 // element-reference choices or sequences without expansion.
 // Top-level direct model-group references on named complex types and bounded
-// attribute-free extensions over named empty-content bases are queryable as exact
-// immutable facts without expanding target members. Direct model-group references
-// retain `TargetID`; nested, local, recursive, and broader group-reference shapes
-// remain unsupported.
-// Default-bounded sequences of local built-in or supported named
-// Boolean/integer/decimal forms, and all-Boolean choices, are emitted as ordered
-// Go struct fields. Local xs:long particles remain query-only and
-// consumer-rejected. Local anonymous Boolean/integer/decimal particles remain
-// queryable but validation and generation reject them; repeated-field generation
-// and direct-choice repetition remain unsupported.
+// attribute-free extensions over named empty-content bases or named
+// complexContent/restriction over built-in xs:anyType with representable
+// ##other/lax wildcards are queryable as exact immutable facts without expanding
+// target members. Direct model-group references retain `RefLoc`/`TargetID`; their
+// consumer gates use the group RefLoc and reject them. Nested, local, recursive,
+// and broader group-reference shapes remain unsupported.
+// Default-bounded sequences of supported built-in/named integer/decimal or
+// all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
+// Boolean/integer/decimal/negativeInteger particles remain queryable but validation and generation
+// reject them; repeated-field generation and direct-choice repetition remain
+// unsupported.
 // Bounded attribute-free complexContent/extension over named empty-content
 // complex bases, including the supported named `complexContent/restriction` over
 // `xs:anyType` representation, retains extension/base identities and locations
@@ -216,11 +259,15 @@
 // primary with related complex-content/extension/base/particle facts (and
 // anyAttribute when present); validation retains declaration/definition owner
 // locations, uses the extension boundary for choices and the instance root for
-// sequences, and never adds an anonymous type location. Direct and extension
-// model-group-reference checks use the group RefLoc as validation and generation
-// primary; validation relates the group particle, while generation relates
-// group/component/reference/target locations. These gates return located
-// FailureUnsupported/ErrUnsupported diagnostics; GenerateGo returns no output.
+// sequences, and never adds an anonymous type location. Direct model-group-
+// reference bodies with AttributeUse facts hit the AttributeUse consumer gates
+// first: the first use's Loc is primary, with declaration/definition and
+// AttributeUse locations related. Attribute-free direct and extension
+// model-group-reference checks use the group RefLoc as validation and
+// generation primary; validation relates the group particle and supplied
+// extension context, while generation relates group/component/reference/target
+// locations. These gates return located FailureUnsupported/ErrUnsupported
+// diagnostics; GenerateGo returns no output.
 //
 // Global built-in and named xs:nonNegativeInteger roots remain unsupported by
 // ValidateInstance under Compatibility, Strict10, and Strict11: the call
@@ -228,7 +275,8 @@
 // and facets receive no runtime facet validation.
 //
 // ValidateInstance supports one complete instance rooted at a global element
-// declared as built-in or named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal
+// declared as direct xs:string, a named/anonymous atomic string restriction,
+// or built-in/named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
 // or Strict11, or as a named global complex type with one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
@@ -238,8 +286,7 @@
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or, in
 // non-extension direct choices, default-occurrence references to global Boolean,
-// integer, or decimal elements. Local xs:long particles remain query-only and are
-// rejected by both consumers. Local scalar consumers accept
+// integer, or decimal elements. Local scalar consumers accept
 // built-in or named references only: direct choice/sequence checks reject modeled
 // anonymous local inline atomic references with located
 // FailureUnsupported/ErrUnsupported diagnostics that may include the anonymous
@@ -248,20 +295,21 @@
 // (and anyAttribute when present) related locations, and do not include the
 // anonymous type location; validation also retains declaration/definition owner
 // locations and keeps the instance-root primary for sequences, while GenerateGo
-// rejects them with the same classification and no output. Direct and extension
+// rejects them with the same classification and no output. Direct model-group-
+// reference bodies with AttributeUse facts hit the AttributeUse consumer gates
+// first: the first use's Loc is primary, with declaration/definition and
+// AttributeUse locations related. Attribute-free direct and extension
 // model-group-reference checks use the group reference RefLoc as validation and
-// generation primary; validation retains the group particle location in related
-// facts, and generation retains group/component/reference/target related locations.
-// Direct local sequences in consumer-supported Boolean, integer/decimal, and
-// homogeneous token/NMTOKEN families match expanded names in lexical declaration
-// order and honor exact finite, unbounded, and above-`uint64` outer and child
-// occurrence ranges under Compatibility, Strict10, and Strict11. Local built-in
-// or named-effective xs:long sequences are query-only: their exact occurrence,
-// type, and lexical-order facts remain available, but validation and generation
-// reject them. PrecisionDecimal sequences, mixed scalar-family sequences,
-// direct-choice repetition, and excluded particle/target shapes remain explicit
-// unsupported behavior. Reference consumers exclude precisionDecimal and
-// anonymous targets.
+// generation primary; validation retains the group particle and supplied
+// extension context in related facts, and generation retains
+// group/component/reference/target related locations.
+// Direct local sequences match expanded
+// names in lexical declaration order and honor exact finite, unbounded, and
+// above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
+// and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
+// remain explicit unsupported behavior. Local int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger particles are
+// query-only and remain explicit unsupported behavior in both consumers.
+// Reference consumers exclude precisionDecimal and anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
 // wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
@@ -272,44 +320,54 @@
 // sequences made entirely of built-in or supported named NMTOKEN particles
 // collapse XML whitespace and enforce the repository XML NameChar policy.
 // Those sequences validate with exact occurrences and NMTOKEN value-space rules;
-// their GenerateGo consumers remain unsupported. Global string values, local
-// string particles, lists/unions, broader particles, and other semantics remain
-// explicit unsupported behavior.
-// Supported global attribute declarations are query-only. Type admission under
+// their GenerateGo consumers remain unsupported. Global string roots normalize
+// instance text with effective whiteSpace, then compare enumeration values
+// interpreted by each declaration's base type; violations retain text and
+// related schema locations. Local string particles, lists/unions,
+// broader particles, and other semantics remain explicit unsupported behavior.
+// Supported global attribute declarations are a separate query-only capability.
+// Type admission under
 // Compatibility, Strict10, and Strict11 is limited to built-in or supported
 // named atomic xs:boolean, xs:integer, xs:decimal, xs:token, xs:negativeInteger,
-// xs:language, xs:NCName, xs:anyURI, xs:ID, xs:long, and xs:unsignedLong. Built-in or supported
-// named xs:precisionDecimal is admitted for type/value queries only under
+// xs:language, xs:NCName, xs:anyURI, xs:ID, xs:long, xs:int, xs:short, xs:byte,
+// and xs:unsignedLong. xs:short and xs:byte retain copied exact bounds. Built-in or
+// supported named xs:precisionDecimal is admitted for type/value queries only under
 // Compatibility or Strict11; Strict10 rejects it at the type Loc with the
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
-// diagnostic. Declared xs:string, xs:NMTOKEN, xs:int, xs:nonNegativeInteger,
-// xs:nonPositiveInteger, narrower built-ins, list/union
-// forms remain explicit unsupported behavior. A valid local attribute declaration
-// reports FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at the
-// local attribute element Loc; a global inline attribute reports the same at its
-// inline simpleType Loc; and a referenced excluded declared type reports it at
-// the use-site type Loc. Invalid syntax, edition/policy mismatches, and
+// diagnostic. Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger,
+// xs:nonPositiveInteger, other excluded built-ins, list/union
+// forms remain explicit unsupported behavior. Unsupported local attribute types
+// without default/fixed report FailureUnsupported/UnsupportedSchemaSyntaxCode/
+// ErrUnsupported at type Loc. Local default/fixed reports at value Loc before
+// type mapping. A typeless local declaration reports at declaration Loc unless
+// default/fixed is present; an inline type without a local value constraint reports
+// at simpleType Loc. A referenced excluded global use reports at RefLoc with the
+// target declaration related. Invalid syntax, edition/policy mismatches, and
 // resolution/reference failures retain their existing diagnostic, specification
 // reference, cause, and precedence. Unsupported forms return no Schema.
 // Type admission is separate from value-constraint support: only Boolean,
-// integer, decimal, token, and precisionDecimal constraints are supported. For
+// integer, negativeInteger, long, short, decimal, token, and precisionDecimal constraints are
+// supported. Built-in and supported named negativeInteger, long, and short default/fixed values
+// use exact IntegerValue and effective integer facets under all three policies. For
 // an admitted type, an individual unsupported default or fixed is
 // FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its value
 // Loc; an invalid supported value is FailureInvalid/XSD3036 at its value Loc
 // with its lexical/facet cause. Default plus fixed is FailureInvalid/XSD3010
 // with fixed Loc primary and default Loc related, and no Schema. Built-in
-// xs:long and xs:unsignedLong have intrinsic inclusive bounds
-// [-9223372036854775808,9223372036854775807] and [0,18446744073709551615];
-// named xs:long/xs:unsignedLong references retain the written QName/type Loc,
+// xs:long, xs:int, and xs:unsignedLong have intrinsic inclusive bounds
+// [-9223372036854775808,9223372036854775807], [-2147483648,2147483647],
+// and [0,18446744073709551615]; named references retain the written QName/type Loc,
 // exact effective integer facets/bounds (including narrowed or exclusive bounds),
-// facet/variety locations, provenance, and named target identity; built-in
-// references have no synthetic ComponentID. Admitted
+// facet/variety locations, provenance, ownership, and named target identity; built-in
+// references have no synthetic ComponentID. TypeReference().IntegerBounds()
+// returns copied effective bounds for both kinds of integer reference. Admitted
 // global precisionDecimal constraints retain zero or one optional default/fixed
 // AttributeValueConstraint; type-only declarations return no value constraint.
 // ValueConstraint() copies kind, collapsed lexical spelling, source Loc, and
 // exact defensive StrictPrecisionDecimal through PrecisionDecimalValue only
 // when present. Attribute validation and generation remain unsupported
-// consumers, as do local attribute forms.
+// consumers; global inline-attribute declarations are separate, while supported
+// local anonymous atomic AttributeUse facts remain queryable.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named-typed nonNegativeInteger element declarations and
 // standalone named atomic nonNegativeInteger simple-type components in the
@@ -334,9 +392,10 @@
 // global built-in/named Boolean, integer, or decimal targets are also
 // generation-eligible. Global attribute declarations remain query-only,
 // inline-attribute consumers remain excluded, and GenerateGo rejects every
-// ComponentKindAttributeDeclaration. Mapped non-0/0 local declared,
-// named, inline, and anonymous `nonNegativeInteger` forms are rejected during
-// schema construction with no schema. Exact local declared, named, inline, and
+// ComponentKindAttributeDeclaration. Mapped non-0/0 local inline and
+// anonymous `nonNegativeInteger` forms are rejected during
+// schema construction with no schema. Explicit built-in and supported named local
+// particles are queryable and rejected by both consumers. Exact local declared, named, inline, and
 // anonymous `0/0` forms are admitted then absent
 // under every policy. References to global `nonNegativeInteger` remain queryable
 // without target gating; direct-choice and sequence consumers reject them with
@@ -349,11 +408,15 @@
 // `nonNegativeInteger` element/type declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
 // Global inline-element Boolean/integer/decimal declarations and global
-// element/type int/long/unsignedLong/negativeInteger/nonPositiveInteger and
+// element/type int/long/short/byte/unsignedLong/negativeInteger/nonPositiveInteger and
 // language/NCName/anyURI/ID declarations
 // retain schema/query facts but their validation and generation consumers are
 // rejected. This consumer boundary does not widen the global attribute type or
 // value-constraint model described above.
+// Built-in xs:short has inclusive [-32768,32767] bounds without a component ID
+// or bound Loc; named restrictions retain exact effective bounds.
+// Built-in xs:byte has inclusive [-128,127] bounds without a component ID
+// or bound Loc; named restrictions retain exact effective bounds.
 // Global built-in, named, and inline precisionDecimal element/type schema/query facts are
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
@@ -364,7 +427,7 @@
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
 // all-Boolean/numeric direct choices and default-bounded direct sequences. Local
-// anonymous and token/NMTOKEN consumers, repeated/non-default particles, and
-// anonymous targets remain unsupported; numeric integer/decimal mixtures remain
-// supported.
+// int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, anonymous, and token/NMTOKEN consumers, repeated/non-default
+// particles, and anonymous targets remain unsupported; numeric integer/decimal
+// mixtures remain supported.
 package goxsd9

@@ -337,9 +337,6 @@ func TestSchemaLongLocalParticleExcludedShapesRemainUnsupported(t *testing.T) {
 			defs string
 		}{
 			{name: "inline long", body: `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:element>`},
-			{name: "named int", body: `<xs:element name="value" type="r:Int"/>`, defs: `<xs:simpleType name="Int"><xs:restriction base="xs:int"/></xs:simpleType>`},
-			{name: "named unsigned long", body: `<xs:element name="value" type="r:Unsigned"/>`, defs: `<xs:simpleType name="Unsigned"><xs:restriction base="xs:unsignedLong"/></xs:simpleType>`},
-			{name: "named non-negative integer", body: `<xs:element name="value" type="r:NonNegative"/>`, defs: `<xs:simpleType name="NonNegative"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`},
 			{name: "named non-positive integer", body: `<xs:element name="value" type="r:NonPositive"/>`, defs: `<xs:simpleType name="NonPositive"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType>`},
 			{name: "named list", body: `<xs:element name="value" type="r:List"/>`, defs: `<xs:simpleType name="List"><xs:list itemType="xs:long"/></xs:simpleType>`},
 			{name: "named union", body: `<xs:element name="value" type="r:Union"/>`, defs: `<xs:simpleType name="Union"><xs:union memberTypes="xs:long"/></xs:simpleType>`},

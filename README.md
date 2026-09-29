@@ -1,56 +1,62 @@
 # goxsd9
 
-goxsd9 parses/validates/generates Go; unsupported behavior is explicit.
+goxsd9 parses XML Schema documents into an immutable component model. You can
+query the model, validate supported XML instances, or generate Go for supported
+schema components. Unsupported features return located diagnostics rather than
+partial schemas or output.
 
-## [Schema parsing](ARCHITECTURE.md#schema-model)
+## Library
 
-`ParseSchema`: immutable components; `ResolvedSource`/`Resolver`; sequential opaque locations; Compatibility default.
+Create a root with `NewResolvedSource`, then call `ParseSchema` with a caller
+supplied `Resolver` for includes and imports. The resolver receives namespace
+URNs and lexical schema locations; the library does not open paths or URLs.
+`ParseSchema` uses the Compatibility policy for mixed XSD 1.0/1.1 graphs;
+`ParseSchemaWithPolicy` selects a graph-wide language policy. Schema queries
+and walks return immutable, deterministic views.
 
-XSD 1.0/1.1; `openContent=none` works Compatibility/Strict11, not Strict10; named empty-content extension bases. Direct non-`0/0` `xs:any` terms queryable, consumers reject; only validated omittable `0/0` disappears. `anyAttribute` retains facts/no particle occurrence; broader wildcards retain diagnostics.
-Refs retain QName/RefLoc/target/order; groups query, broader reject. `long` refs bounded. `nonNegativeInteger` refs query-only. Global `precisionDecimal` queryable in Compatibility/Strict11; built-in/named roots validate; inline/anonymous consumer-excluded; `GenerateGo` rejects all; Strict10 rejects typed/type `Loc` before `0/0`.
-`precisionDecimal` attributes query-only under Compatibility/Strict11; Strict10 rejects at type `Loc`.
-`xs:long`/`xs:unsignedLong` attrs queryable; consumers reject. Unsupported default/fixed: located `FailureUnsupported`; default+fixed `FailureInvalid`/`XSD3010` (fixed primary/default related).
-Local `xs:long`/effective-`negativeInteger`/effective-long: query-only in direct choices/sequences and bounded attr-free extensions under Compatibility/Strict10/Strict11; consumers reject. Direct `xs:integer`; named/inline effective `integer`/`negativeInteger`; direct `xs:negativeInteger` excluded. Mapped non-`0/0` exclusions return located `FailureUnsupported`/`UnsupportedSchemaSyntaxCode`/`ErrUnsupported`; each owner/term validates syntax/exact-occurrence, resolving inline-simple-type base/variety/facet/selected-policy at exact `0/0`. Resolved query-admitted forms map to no public particle; only validated publication-unsupported `FailureUnsupported` diagnostic may be omitted; invalid/unresolved/cyclic/wrong-kind/value-constraint/policy failures retain diagnostics/causes/no `Schema`. Non-`0/0` built-in/named effective-long queryable; inline Boolean/integer/decimal query-only; global string/token/NMTOKEN generate; attrs query-only/reject local/inline; `GenerateGo` rejects.
-`precisionDecimal`: Strict10 rejects at typed `Loc` before the shared `0/0`. Compatibility/Strict11 require default owners/typed-child/alternative occurrences; other alternatives retain non-default ranges; defaults validate. Extension choices query-only; non-`0/0` extension sequences unsupported. Reject non-`0/0` direct sequences, non-default owners/typed alternatives, and published local inline/anonymous non-`0/0` forms. `GenerateGo` rejects all.
-`GenerateGo` supports global/named `nonNegativeInteger` elements/types; fields `StrictInteger`/generated. Abstract/nillable/final/variety/facet gates reject (`GOXSD9029`); malformed facts reject (`GOXSD9030`); inline/anonymous query-only.
+`ValidateInstance(schema, sourceID, reader)` checks one XML instance;
+`GenerateGo(schema, packageName)` returns Go source. A component can be
+queryable even when one or both consumers reject it.
+See the [package contract](doc.go) for public behavior and current limits, the
+[architecture](ARCHITECTURE.md#schema-model) for admission and consumer
+boundaries, and [decision 0007](docs/decisions/0007-particle-occurrence.md)
+for exact particle occurrences and `0/0` omission.
 
-Named complex `abstract`/finality preserve provenance; see [Architecture](ARCHITECTURE.md).
-[Examples](direct_choice_example_test.go), [quickstart](library_example_test.go).
+Direct choices, sequences, and bounded attribute-free extensions retain local built-in
+`xs:long` and supported named effective-long particles as query-only immutable facts.
 
-## Product CLI
+## CLI
 
-See [Decision 0006](docs/decisions/0006-vertical-slice-cli.md). `parse`/`validate`/`generate`
-available; parse prints, validate silent;
-invalid exits 1, usage exits 2.
+The `goxsd9` command provides `parse`, `validate`, and `generate`:
 
-## Design goals
+```sh
+go run ./cmd/goxsd9 parse schema.xsd
+go run ./cmd/goxsd9 validate schema.xsd instance.xml
+go run ./cmd/goxsd9 generate --package generated schema.xsd
+```
 
-Exact values/facets, streaming, deterministic queries, located diagnostics;
-no goroutines/locks/map-order output, conformance.
+`parse` prints a schema summary, successful `validate` is silent, and
+`generate` writes Go to standard output unless `--output` names a file. Use
+`--schema-root DIR` to set the local resolution boundary; it is required when
+reading a schema from standard input. `--diagnostics json` selects
+machine-readable errors; input/processing failures exit 1 and usage failures
+exit 2.
 
-## Repository checks
+## Development
 
-Fresh checkout; bounded conformance needs exact version, `-set`, `-case`; never run instances:
+Run the repository checks from a fresh checkout:
+
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
 go tool workflowctl check
-go tool conformance schema -version 1.0 -set SET -case CASE
 ```
 
-## Pinned specification corpus
+The [plan](PLAN.md) gives project phases. [Issues](https://github.com/goxdra/goxsd9/issues),
+the [roadmap](https://github.com/orgs/goxdra/projects/1), and
+[operations](docs/operations.md) cover ongoing work. See [AGENTS.md](AGENTS.md)
+for repository rules.
 
-```sh
-go tool specs build -id xsd11-structures
-go tool specs search -id xsd11-structures -query QUERY
-go tool specs bootstrap -version VERSION
-```
-Use `-root`/`-output`/`-index`; bootstrap previews only.
+## License
 
-## Project workflow
-
-See [Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), [AGENTS.md](AGENTS.md).
-
-## Test data licensing
-
-W3C submodule keeps `00COPYRIGHT`; Apache-2.0 ([LICENSE](LICENSE)).
+Apache-2.0 ([LICENSE](LICENSE)); the W3C submodule retains `00COPYRIGHT`.

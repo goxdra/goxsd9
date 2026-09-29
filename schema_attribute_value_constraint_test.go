@@ -92,6 +92,170 @@ func TestSchemaBridgeRetainsGlobalAttributeValueConstraints(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Exercise one ordered graph across every language policy.
+func TestSchemaBridgeRetainsGlobalNegativeIntegerAttributeValueConstraints(t *testing.T) {
+	const large = "-12345678901234567890123456789012345678901234567890"
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root">
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:attribute name="builtinDefault" type="xs:negativeInteger" default="  ` + large + `  "/>
+  <xs:attribute name="builtinFixed" type="xs:negativeInteger" fixed="-1"/>
+  <xs:attribute name="namedDirect" type="r:Direct" fixed="-2"/>
+  <xs:attribute name="forwardInherited" type="r:Forward" default="-42"/>
+  <xs:attribute name="included" type="r:Included" fixed="-3"/>
+  <xs:attribute name="imported" type="o:Imported" default="-4"/>
+  <xs:attribute name="narrowed" type="r:Narrowed" fixed="-11"/>
+  <xs:attribute name="digit" type="r:Digit" default="-12"/>
+  <xs:attribute name="enumerated" type="r:Enumerated" fixed="-0007"/>
+  <xs:simpleType name="Direct"><xs:restriction base="xs:negativeInteger"/></xs:simpleType>
+  <xs:simpleType name="Forward"><xs:restriction base="r:Later"/></xs:simpleType>
+  <xs:simpleType name="Later"><xs:restriction base="xs:negativeInteger"><xs:enumeration value="-42"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="Narrowed"><xs:restriction base="r:Direct"><xs:maxInclusive value="-10"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="Digit"><xs:restriction base="xs:negativeInteger"><xs:totalDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="Enumerated"><xs:restriction base="xs:negativeInteger"><xs:enumeration value="-7"/></xs:restriction></xs:simpleType>
+</xs:schema>`
+	fixtures := map[string]discoveryFixture{
+		"chameleon.xsd": {id: "chameleon.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Included"><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:schema>`},
+		"other.xsd":     {id: "other.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:simpleType name="Imported"><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:schema>`},
+	}
+	want := []struct {
+		name      string
+		kind      AttributeValueConstraintKind
+		lexical   string
+		canonical string
+	}{
+		{name: "builtinDefault", kind: AttributeValueConstraintDefault, lexical: large, canonical: large},
+		{name: "builtinFixed", kind: AttributeValueConstraintFixed, lexical: "-1", canonical: "-1"},
+		{name: "namedDirect", kind: AttributeValueConstraintFixed, lexical: "-2", canonical: "-2"},
+		{name: "forwardInherited", kind: AttributeValueConstraintDefault, lexical: "-42", canonical: "-42"},
+		{name: "included", kind: AttributeValueConstraintFixed, lexical: "-3", canonical: "-3"},
+		{name: "imported", kind: AttributeValueConstraintDefault, lexical: "-4", canonical: "-4"},
+		{name: "narrowed", kind: AttributeValueConstraintFixed, lexical: "-11", canonical: "-11"},
+		{name: "digit", kind: AttributeValueConstraintDefault, lexical: "-12", canonical: "-12"},
+		{name: "enumerated", kind: AttributeValueConstraintFixed, lexical: "-0007", canonical: "-7"},
+	}
+	for _, profile := range schemaAttributeValueConstraintPolicyProfiles() {
+		t.Run(profile.name, func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+			for _, expected := range want {
+				matches := schema.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:root", expected.name))
+				if len(matches) != 1 {
+					t.Fatalf("attribute %s matches = %d, want one", expected.name, len(matches))
+				}
+				constraint := requireAttributeValueConstraint(t, matches[0])
+				if constraint.Kind() != expected.kind || constraint.IsDefault() != (expected.kind == AttributeValueConstraintDefault) || constraint.IsFixed() != (expected.kind == AttributeValueConstraintFixed) || constraint.Lexical() != expected.lexical {
+					t.Fatalf("attribute %s constraint = %q/%q, want %q/%q", expected.name, constraint.Kind(), constraint.Lexical(), expected.kind, expected.lexical)
+				}
+				marker := "default=\""
+				if expected.kind == AttributeValueConstraintFixed {
+					marker = "fixed=\""
+				}
+				if expected.name == "builtinDefault" {
+					marker += "  "
+				}
+				suffix := `"`
+				if expected.name == "builtinDefault" {
+					suffix = `  "`
+				}
+				if constraint.Loc() != elementReferenceTestAttributeLoc(t, root, marker+expected.lexical+suffix) {
+					t.Fatalf("attribute %s constraint Loc = %s, want value attribute", expected.name, constraint.Loc())
+				}
+				integer, ok := constraint.IntegerValue()
+				if !ok || integer.Canonical() != expected.canonical {
+					t.Fatalf("attribute %s integer = %q/%t, want %s/true", expected.name, integer.Canonical(), ok, expected.canonical)
+				}
+				if _, hasDecimal := constraint.DecimalValue(); hasDecimal {
+					t.Fatalf("attribute %s unexpectedly has decimal value", expected.name)
+				}
+				integer.value.SetInt64(8)
+				again := requireAttributeValueConstraint(t, schema.FindKind(ComponentKindAttributeDeclaration, mustTestQName(t, "urn:root", expected.name))[0])
+				stored, ok := again.IntegerValue()
+				if !ok || stored.Canonical() != expected.canonical {
+					t.Fatalf("attribute %s stored integer = %q/%t, want %s/true", expected.name, stored.Canonical(), ok, expected.canonical)
+				}
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep value and facet causes with their policy metadata.
+func TestSchemaBridgeGlobalNegativeIntegerAttributeConstraintDiagnostics(t *testing.T) {
+	tests := []struct {
+		name      string
+		typeName  string
+		typeDecl  string
+		kind      AttributeValueConstraintKind
+		lexical   string
+		innerCode string
+		cause     error
+		related   string
+	}{
+		{name: "zero", typeName: "xs:negativeInteger", kind: AttributeValueConstraintDefault, lexical: "0", innerCode: BoundValueViolationCode, cause: errBoundValueViolation, related: `type="xs:negativeInteger"`},
+		{name: "negative zero", typeName: "xs:negativeInteger", kind: AttributeValueConstraintFixed, lexical: "-0", innerCode: BoundValueViolationCode, cause: errBoundValueViolation, related: `type="xs:negativeInteger"`},
+		{name: "positive", typeName: "xs:negativeInteger", kind: AttributeValueConstraintDefault, lexical: "+1", innerCode: BoundValueViolationCode, cause: errBoundValueViolation, related: `type="xs:negativeInteger"`},
+		{name: "malformed", typeName: "xs:negativeInteger", kind: AttributeValueConstraintFixed, lexical: "--2", innerCode: InvalidIntegerLexicalCode},
+		{name: "narrowed inherited bound", typeName: "r:Narrowed", typeDecl: `<xs:simpleType name="Base"><xs:restriction base="xs:negativeInteger"><xs:maxInclusive value="-10"/></xs:restriction></xs:simpleType><xs:simpleType name="Narrowed"><xs:restriction base="r:Base"/></xs:simpleType>`, kind: AttributeValueConstraintFixed, lexical: "-9", innerCode: BoundValueViolationCode, cause: errBoundValueViolation, related: `value="-10"`},
+		{name: "total digits", typeName: "r:Digit", typeDecl: `<xs:simpleType name="Digit"><xs:restriction base="xs:negativeInteger"><xs:totalDigits value="2"/></xs:restriction></xs:simpleType>`, kind: AttributeValueConstraintDefault, lexical: "-123", innerCode: DigitFacetValueViolationCode, cause: errDigitFacetValueViolation, related: `value="2"`},
+		{name: "enumeration", typeName: "r:Enumerated", typeDecl: `<xs:simpleType name="Enumerated"><xs:restriction base="xs:negativeInteger"><xs:enumeration value="-7"/></xs:restriction></xs:simpleType>`, kind: AttributeValueConstraintFixed, lexical: "-8", innerCode: EnumerationValueViolationCode, cause: errEnumerationValueViolation, related: `<xs:enumeration value="-7"`},
+	}
+	for _, profile := range schemaAttributeValueConstraintPolicyProfiles() {
+		for _, test := range tests {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				kind := string(test.kind)
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="value" type="` + test.typeName + `" ` + kind + `="` + test.lexical + `"/>` + test.typeDecl + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil || schema.storage != nil {
+					t.Fatal("invalid negativeInteger constraint returned a schema")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				valueLoc := elementReferenceTestAttributeLoc(t, root, kind+`="`+test.lexical+`"`)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaAttributeValueConstraintCode || diagnostic.Loc() != valueLoc || diagnostic.SpecRef() != schemaAttributeValueSpecRef(profile.version) {
+					t.Fatalf("diagnostic = %s/%q/%s/%q, want invalid constraint at %s with %q", diagnostic, diagnostic.Code(), diagnostic.Loc(), diagnostic.SpecRef(), valueLoc, schemaAttributeValueSpecRef(profile.version))
+				}
+				if !errors.Is(err, errSchemaAttributeValueConstraintInvalid) || test.cause != nil && !errors.Is(err, test.cause) {
+					t.Fatalf("diagnostic lost constraint or facet cause: %v", err)
+				}
+				inner := requireNestedDiagnostic(t, diagnostic)
+				if inner.Code() != test.innerCode || inner.Loc() != valueLoc {
+					t.Fatalf("nested diagnostic = %s/%s, want %s at %s", inner, inner.Loc(), test.innerCode, valueLoc)
+				}
+				if test.related == "" {
+					return
+				}
+				facetLoc := elementReferenceTestAttributeLoc(t, root, test.related)
+				if !schemaLocationListContains(diagnostic.Related(), facetLoc) {
+					t.Fatalf("related locations = %v, want facet at %s", diagnostic.Related(), facetLoc)
+				}
+			})
+		}
+	}
+}
+
+func TestSchemaBridgeNegativeIntegerAttributeConstraintKeepsUnsupportedFacets(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		facet string
+	}{
+		{name: "pattern", facet: `<xs:pattern value="-[0-9]+"/>`},
+		{name: "assertion", facet: `<xs:assertion test="true()"/>`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="1.1"><xs:attribute name="value" type="r:Constrained" default="-2"/><xs:simpleType name="Constrained"><xs:restriction base="xs:negativeInteger">` + test.facet + `</xs:restriction></xs:simpleType></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+			if err == nil || schema.storage != nil {
+				t.Fatal("unsupported negativeInteger facet returned a schema")
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedDatatypeFacetCode || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, "<xs:"+test.name) || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("unsupported facet diagnostic = %s/%q/%s, want located unsupported", diagnostic, diagnostic.Code(), diagnostic.Loc())
+			}
+		})
+	}
+}
+
 //nolint:gocognit // Keep token value-space, graph, policy, and immutability facts together.
 func TestSchemaBridgeRetainsGlobalTokenAttributeValueConstraints(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root">
@@ -784,26 +948,6 @@ func TestSchemaBridgeGlobalAttributeValueConstraintDiagnostics(t *testing.T) {
 			primary:   "fixed=",
 			cause:     errSchemaAttributeValueConstraintInvalid,
 			innerCode: InvalidBooleanLexicalCode,
-		},
-		{
-			name:    "unsupported negativeInteger default",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:negativeInteger" default="-1"/></xs:schema>`,
-			policy:  Strict11,
-			class:   FailureUnsupported,
-			code:    UnsupportedSchemaSyntaxCode,
-			specRef: schemaAttributeValueConstraintXSD11SpecRef,
-			primary: "default=",
-			cause:   errSchemaAttributeValueConstraintUnsupported,
-		},
-		{
-			name:    "unsupported negativeInteger fixed",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:negativeInteger" fixed="-1"/></xs:schema>`,
-			policy:  Strict11,
-			class:   FailureUnsupported,
-			code:    UnsupportedSchemaSyntaxCode,
-			specRef: schemaAttributeValueConstraintXSD11SpecRef,
-			primary: "fixed=",
-			cause:   errSchemaAttributeValueConstraintUnsupported,
 		},
 		{
 			name:    "missing type",
