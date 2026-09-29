@@ -8779,12 +8779,12 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 	if finalErr := resolver.rejectNamedSimpleTypeFinal(base, schemaSimpleTypeFinalRestriction, "restriction base", model.base.loc, version); finalErr != nil {
 		return schemaSimpleTypeResult{}, finalErr
 	}
-	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
-		return schemaSimpleTypeResult{}, enumerationErr
-	}
 	facets, err := restrictSchemaSimpleTypeFacets(base.facets, base.atomicKind, model.facets, version)
 	if err != nil {
 		return schemaSimpleTypeResult{}, err
+	}
+	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
+		return schemaSimpleTypeResult{}, enumerationErr
 	}
 	result := schemaSimpleTypeResult{
 		loc:              input.loc,

@@ -63,9 +63,10 @@ base/type/use `Loc`s and nil particle; restrictions are unsupported. Bases are
 Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline
 `negativeInteger`, and built-in/named `long`, `int`, `short`, `byte`, `unsignedLong`,
-`nonNegativeInteger`. These particles are query-only; consumers reject. Built-in
-`long` retains intrinsic bounds; named effective-long retains identity, facets,
-QName, occurrences, and order. Local uses and simpleContent exclude them.
+`nonNegativeInteger`. Direct built-in/named-effective `integer` supports consumers;
+listed derivatives/extensions are query-only. Built-in `long` retains bounds;
+named effective-long retains identity, facets, QName, occurrences, and order.
+Local uses/simpleContent exclude derived forms.
 Exclusions return `FailureUnsupported` at type/facet/element `Loc`; nested exclusions
 use nested-particle `Loc`.
 Syntax/occurrence/reference/policy gates precede mapping; graph declaration/facet failures

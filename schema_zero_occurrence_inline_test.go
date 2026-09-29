@@ -182,15 +182,23 @@ func TestSchemaBridgeKeepsZeroOccurrenceInlineUnsupportedOmission(t *testing.T) 
 		{name: "strict10", policy: Strict10, version: "1.0"},
 		{name: "strict11", policy: Strict11, version: "1.1"},
 	} {
-		for _, placement := range zeroOccurrenceInlineParticlePlacements() {
-			t.Run(profile.name+"/"+placement.name, func(t *testing.T) {
-				root := zeroOccurrenceInlineSchemaRoot(profile.version, placement, "", "xs:long", `<xs:pattern value=".*"/>`)
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err != nil {
-					t.Fatalf("discoverSchema: %v", err)
-				}
-				assertZeroOccurrenceInlineParticleOmitted(t, schema, placement)
-			})
+		for _, facets := range []struct {
+			name string
+			xml  string
+		}{
+			{name: "pattern", xml: `<xs:pattern value=".*"/>`},
+			{name: "enumeration with valid bound", xml: `<xs:enumeration value="0"/><xs:maxInclusive value="100"/>`},
+		} {
+			for _, placement := range zeroOccurrenceInlineParticlePlacements() {
+				t.Run(profile.name+"/"+facets.name+"/"+placement.name, func(t *testing.T) {
+					root := zeroOccurrenceInlineSchemaRoot(profile.version, placement, "", "xs:long", facets.xml)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err != nil {
+						t.Fatalf("discoverSchema: %v", err)
+					}
+					assertZeroOccurrenceInlineParticleOmitted(t, schema, placement)
+				})
+			}
 		}
 	}
 }
@@ -222,6 +230,10 @@ func TestSchemaBridgeZeroOccurrenceUnsupportedFacetPreservesSemanticFailures(t *
 			{name: "wrong-kind base", base: "r:Target", facets: `<xs:pattern value=".*"/>`, declarations: `<xs:element name="Target" type="xs:long"/>`, code: diagnosticSchemaSimpleTypeWrongKindCode, cause: errSchemaSimpleTypeBaseWrongKind, primary: `base="r:Target"`, related: []string{`<xs:element name="Target"`}, specRef: schemaSimpleTypeSpecRef(profile.version)},
 			{name: "out-of-range bound", base: "xs:long", facets: `<xs:pattern value=".*"/><xs:maxInclusive value="9223372036854775808"/>`, code: InvalidBoundRestrictionCode, cause: errInvalidBoundRestriction, primary: `value="9223372036854775808"`, specRef: boundSpecRef(profile.version, BoundMaxInclusive, boundRestrictionRule)},
 			{name: "malformed bound", base: "xs:long", facets: `<xs:pattern value=".*"/><xs:maxInclusive value="not-an-integer"/>`, code: InvalidBoundCode, cause: errInvalidBoundValue, primary: `value="not-an-integer"`, specRef: boundSpecRef(profile.version, BoundMaxInclusive, boundDefinitionRule)},
+			{name: "enumeration then out-of-range bound", base: "xs:long", facets: `<xs:enumeration value="0"/><xs:maxInclusive value="9223372036854775808"/>`, code: InvalidBoundRestrictionCode, cause: errInvalidBoundRestriction, primary: `value="9223372036854775808"`, specRef: boundSpecRef(profile.version, BoundMaxInclusive, boundRestrictionRule)},
+			{name: "out-of-range bound then enumeration", base: "xs:long", facets: `<xs:maxInclusive value="9223372036854775808"/><xs:enumeration value="0"/>`, code: InvalidBoundRestrictionCode, cause: errInvalidBoundRestriction, primary: `value="9223372036854775808"`, specRef: boundSpecRef(profile.version, BoundMaxInclusive, boundRestrictionRule)},
+			{name: "enumeration then malformed bound", base: "xs:long", facets: `<xs:enumeration value="0"/><xs:maxInclusive value="not-an-integer"/>`, code: InvalidBoundCode, cause: errInvalidBoundValue, primary: `value="not-an-integer"`, specRef: boundSpecRef(profile.version, BoundMaxInclusive, boundDefinitionRule)},
+			{name: "malformed bound then enumeration", base: "xs:long", facets: `<xs:maxInclusive value="not-an-integer"/><xs:enumeration value="0"/>`, code: InvalidBoundCode, cause: errInvalidBoundValue, primary: `value="not-an-integer"`, specRef: boundSpecRef(profile.version, BoundMaxInclusive, boundDefinitionRule)},
 		} {
 			for _, placement := range zeroOccurrenceInlineParticlePlacements() {
 				t.Run(profile.name+"/"+failure.name+"/"+placement.name, func(t *testing.T) {
@@ -263,6 +275,8 @@ func zeroOccurrenceInlineParticlePlacements() []zeroOccurrenceInlineParticlePlac
 	return []zeroOccurrenceInlineParticlePlacement{
 		{name: "choice term", model: "choice", termZero: true},
 		{name: "sequence term", model: "sequence", termZero: true},
+		{name: "bounded extension choice term", model: "choice", extension: true, termZero: true},
+		{name: "bounded extension sequence term", model: "sequence", extension: true, termZero: true},
 		{name: "choice owner", model: "choice", ownerZero: true},
 		{name: "sequence owner", model: "sequence", ownerZero: true},
 		{name: "bounded extension choice owner", model: "choice", extension: true, ownerZero: true},
