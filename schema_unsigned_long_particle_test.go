@@ -736,6 +736,8 @@ func assertUnsignedLongExcludedOwnerZero(t *testing.T, schema Schema, model stri
 }
 
 // Zero occurrence omits a mapped particle only after type resolution has preserved invalid input.
+//
+//nolint:gocognit // Keep owner, policy, and diagnostic provenance in one regression matrix.
 func TestSchemaUnsignedLongZeroOccurrenceRetainsLocalTypeErrorsAcrossOwners(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {
 		for _, owner := range []struct {
