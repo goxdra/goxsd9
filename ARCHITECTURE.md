@@ -102,8 +102,7 @@ non-extension list/union sequence links; consumers reject them. `precisionDecima
 element refs require default-occurrence direct or bounded
 extension choices; nonzero reference sequences, inline targets, and non-default choices
 are unsupported. Nonzero local inline `precisionDecimal` remains unsupported.
-Homogeneous token/NMTOKEN sequences retain
-exact occurrences; consumers remain limited. Bounded describes derivation/base.
+Homogeneous token/NMTOKEN sequences retain exact occurrences. Bounded describes derivation/base.
 
 ## Datatypes
 
@@ -114,12 +113,12 @@ unsupported.
 
 ## Validation and code generation
 
-`ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/decimal,
+`ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal,
 direct/named/anonymous string roots (effective whiteSpace/enumeration), and
 Compatibility/Strict11 precisionDecimal roots; Strict10 rejects precisionDecimal.
-Built-in/named `nonNegativeInteger` is GenerateGo-only; validation returns located
-`FailureUnsupported`/`XSD4004`/`ErrUnsupported`. Local Boolean/integer/decimal sequences/default
-choices honor ranges; homogeneous token/NMTOKEN sequences honor exact occurrences/value space.
+Global built-in/named `nonNegativeInteger` roots use exact integer validation
+under every policy. Local Boolean/integer/decimal sequences/default choices honor
+ranges; homogeneous token/NMTOKEN sequences honor exact occurrences/value space.
 Local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
 unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
 only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, other
