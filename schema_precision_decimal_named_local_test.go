@@ -64,7 +64,7 @@ func namedPrecisionDecimalPlacements() []namedPrecisionDecimalPlacement {
 		{name: "choice zero owner", model: "choice", parentOccurrences: ` minOccurs="0" maxOccurs="0"`, wantSchema: true},
 		{name: "choice non-default child", model: "choice", childOccurrences: ` minOccurs="0" maxOccurs="1"`},
 		{name: "choice non-default owner", model: "choice", parentOccurrences: ` minOccurs="0" maxOccurs="1"`},
-		{name: "sequence default", model: "sequence"},
+		{name: "sequence default", model: "sequence", wantSchema: true, wantElement: true},
 		{name: "sequence zero child", model: "sequence", childOccurrences: ` minOccurs="0" maxOccurs="0"`, wantSchema: true},
 		{name: "sequence zero owner", model: "sequence", parentOccurrences: ` minOccurs="0" maxOccurs="0"`, wantSchema: true},
 		{name: "extension choice default", model: "choice", extension: true, wantSchema: true, wantElement: true},

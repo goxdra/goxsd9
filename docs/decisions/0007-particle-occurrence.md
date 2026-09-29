@@ -52,13 +52,11 @@ sentinels.
 | XSD 1.0 | XSD 1.0 all members are element particles with minOccurs 0 or 1 and fixed maxOccurs 1; the current parser validates these restrictions and leaves explicit occurrence syntax unsupported. |
 | XSD 1.1 | An `all` model group has `minOccurs` and `maxOccurs` each in `0/1`. It has the permitted model-group-definition/content-type placements, and an `all` term may also occur as a `1/1` particle inside an `all` group. Its member terms that are model groups must themselves be `all`; a group-reference member is fixed at `1/1`. Element and wildcard members use the exact general occurrence model. The XML representation permits element, wildcard, and group children. |
 
-These are constraints on future component construction, not a claim that the
-current parser supports all particles or their repetition semantics.
+These constrain construction; broader particles, direct-choice repetition validation, and repeated-field generation remain unsupported.
 
 ## Representation and phase boundaries
 
-The private kernel in `particle_occurrence.go` is the first durable phase
-boundary:
+The private kernel in `particle_occurrence.go` defines the phase boundary:
 
 1. Syntax collection keeps lexical presence and source locations only long
    enough to apply the omitted-value default and detect duplicate attributes.
@@ -113,15 +111,13 @@ view. The migration boundary is:
 
 ## Consumer policy and diagnostics
 
-Consumers that materialize a native bound do so only after exact comparison
-with an explicit configured limit. For those consumers, an above-limit finite
-value, an unbounded value, or a multiplication that exceeds a resource budget
-produces an explicit located unsupported or resource diagnostic with its feature
-and specification reference. The direct scalar sequence validator consumes exact
-outer and child ranges on demand, including unbounded and above-`uint64` values,
+Materializing consumers compare exact bounds with configured limits first.
+Above-limit finite, unbounded, or product-over-budget values produce located
+unsupported or resource diagnostics with feature and specification reference.
+The direct scalar sequence validator consumes exact outer and child ranges on demand, including unbounded and above-`uint64` values,
 without narrowing. No consumer truncates, saturates, uses a sentinel, or converts
 through floating point. Direct-choice repetition validation and non-default
-repeated-field emission remain disabled until their consumers have such a policy.
+repeated-field emission remain unsupported.
 
 Malformed and negative lexicals are invalid input at their source attribute;
 the stable schema-composition diagnostic preserves the underlying lexical or
@@ -143,9 +139,9 @@ input and materialization. Current admission and consumer limits are recorded in
 the [architecture](../../ARCHITECTURE.md#schema-model) and
 [package contract](../../doc.go).
 
-Risks are hostile-lexical memory use, delayed exact-accessor API breakage, and
-leaking semantic `0/0` as a public zero component. Range-constructor, ownership,
-and mapping tests guard the latter two; future resource policy must guard the first.
+Risks: unbounded lexical memory use during parsing, accessor breakage, and
+publishing `0/0` as a zero component. Range/ownership/mapping tests guard the
+latter two; a resource policy for lexical input remains future work.
 
 Exact occurrence accessors and temporary `uint64` methods belong to the schema
 API. Mapping, including `0/0` absence, belongs to construction; bounded
