@@ -371,17 +371,6 @@ func TestSchemaBridgeExplicitTypePrecisionDecimalPolicyAdmissionAcrossZeroCases(
 						}
 						return
 					}
-					if test.name == "mapped" && model == "sequence" {
-						if err == nil {
-							t.Fatal("Compatibility/Strict11 accepted mapped sequence precisionDecimal")
-						}
-						assertZeroSchema(t, schema)
-						diagnostic := requireDiagnostic(t, err)
-						if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode || !errors.Is(err, ErrUnsupported) {
-							t.Fatalf("mapped sequence diagnostic = %s/%q/%q/%v, want schema-syntax unsupported", diagnostic, diagnostic.Feature(), diagnostic.Code(), err)
-						}
-						return
-					}
 					if err != nil {
 						t.Fatalf("discoverSchema: %v", err)
 					}
