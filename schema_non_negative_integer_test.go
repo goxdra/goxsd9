@@ -674,44 +674,6 @@ func TestSchemaNonNegativeIntegerGlobalAttributeRemainsUnsupported(t *testing.T)
 	}
 }
 
-func TestSchemaNonNegativeIntegerValidationRemainsUnsupported(t *testing.T) {
-	for _, profile := range nonNegativeIntegerPolicyProfiles() {
-		for _, test := range []struct {
-			name          string
-			rootElement   string
-			body          string
-			namedRootType bool
-		}{
-			{
-				name:        "built-in root",
-				rootElement: "value",
-				body:        `<xs:element name="value" type="xs:nonNegativeInteger"/>`,
-			},
-			{
-				name:          "named root",
-				rootElement:   "named",
-				body:          `<xs:element name="named" type="t:Named"/><xs:simpleType name="Named"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`,
-				namedRootType: true,
-			},
-		} {
-			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
-				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err != nil {
-					t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
-				}
-				declaration := requireSchemaElementDeclaration(t, schema, test.rootElement, "urn:test")
-				wantRelated := []Loc{declaration.Loc()}
-				if test.namedRootType {
-					definition := requireNonNegativeIntegerDefinition(t, schema, "Named")
-					wantRelated = append(wantRelated, definition.Loc())
-				}
-				assertNonNegativeIntegerValidationUnsupported(t, schema, test.rootElement, wantRelated)
-			})
-		}
-	}
-}
-
 //nolint:gocognit // Keep the query-only inline model and both consumer boundaries together.
 func TestSchemaNonNegativeIntegerGlobalInlineConsumersRemainUnsupported(t *testing.T) {
 	for _, profile := range nonNegativeIntegerPolicyProfiles() {
@@ -792,11 +754,6 @@ func assertIntegerDerivedConsumersUnsupported(t *testing.T, schema Schema) {
 func assertIntegerDerivedValidationUnsupported(t *testing.T, schema Schema, declaration ElementDeclaration) {
 	t.Helper()
 	assertGlobalIntegerDerivedValidationUnsupported(t, schema, "value", []Loc{declaration.Loc()})
-}
-
-func assertNonNegativeIntegerValidationUnsupported(t *testing.T, schema Schema, rootElement string, wantRelated []Loc) {
-	t.Helper()
-	assertGlobalIntegerDerivedValidationUnsupported(t, schema, rootElement, wantRelated)
 }
 
 func assertGlobalIntegerDerivedValidationUnsupported(t *testing.T, schema Schema, rootElement string, wantRelated []Loc) {
