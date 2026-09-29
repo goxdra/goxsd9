@@ -99,9 +99,9 @@ consumers reject them. Scalar simpleContent admits string/Boolean/integer/decima
 policy-gated `precisionDecimal`; targets retain nil particles.
 Compatibility/Strict11 query-admit nonzero direct `precisionDecimal` sequences and
 non-extension list/union sequence links; consumers reject them. `precisionDecimal`
-element refs require default-occurrence direct or bounded
-extension choices; nonzero reference sequences, inline targets, and non-default choices
-are unsupported. Nonzero local inline `precisionDecimal` remains unsupported.
+element refs retain resolved targets and exact occurrences, including repeated
+sequence refs to global inline restrictions; consumers reject them. Nonzero local
+inline `precisionDecimal` remains unsupported.
 Homogeneous token/NMTOKEN sequences retain exact occurrences. Bounded describes derivation/base.
 
 ## Datatypes
