@@ -19,9 +19,7 @@ generation support. [Decision 0007](0007-particle-occurrence.md) governs
 occurrence order and omission. The [architecture](../../ARCHITECTURE.md#schema-model)
 and [package contract](../../doc.go) describe current admission and query limits;
 the [consumer boundaries](../../ARCHITECTURE.md#validation-and-code-generation)
-describe validation and generation separately. Affected mapped local terms and
-owners resolve inline base, variety, facets, and policy before `0/0` omission;
-invalid or unresolved causes retain their locations and prevent a schema.
+describe validation and generation separately.
 
 ## Semantic contract
 

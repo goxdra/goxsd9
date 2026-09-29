@@ -51,7 +51,7 @@
 // The schema model exposes one direct ordered sequence and direct choices of local
 // built-in xs:boolean, named boolean-restriction, integer, decimal, built-in/named/inline
 // xs:negativeInteger, explicitly typed
-// built-in xs:long, supported named effective-long, or supported named
+// built-in xs:long, supported named effective-long, or built-in and supported named
 // xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger, and explicitly typed built-in or
 // supported named xs:token/xs:NMTOKEN particles for named global complex types. It
 // also admits built-in/named/inline xs:negativeInteger and built-in or supported
@@ -96,13 +96,13 @@
 // facts, but ValidateInstance and GenerateGo reject those consumers. Built-in
 // and named effective-long particles remain query-only and consumer-rejected.
 // Local nonPositiveInteger and inline/anonymous
-// int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located
+// long/int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
 // exclusions use the nested-particle Loc. Ordinary 0/0 is admitted after
 // applicable gates and remains absent.
-// Inline/anonymous int/short/byte/unsignedLong/nonNegativeInteger are mapped schema exclusions at their
-// type/simpleType Loc; built-in and named-effective int/short/byte/unsignedLong/nonNegativeInteger are admitted
+// Inline/anonymous long/int/short/byte/unsignedLong/nonNegativeInteger are mapped schema exclusions at their
+// type/simpleType Loc; built-in and named-effective long/int/short/byte/unsignedLong/nonNegativeInteger are admitted
 // query-only forms. The written base QName/base Loc, use-site/type/facet Locs,
 // named ID versus built-in zero identity, ownership, and resolved facts remain
 // separate. Built-in int retains intrinsic inclusive bounds
@@ -401,8 +401,9 @@
 // particles are queryable and rejected by both consumers. Exact local declared,
 // named, inline, and anonymous `0/0` forms are admitted then absent only when
 // applicable syntax, reference, inline-semantic, and selected-policy gates pass;
-// schema exclusions still fail, and retained `nonNegativeInteger` particles
-// remain consumer-excluded.
+// validated publication-only FailureUnsupported diagnostics may be omitted at
+// `0/0`; invalid, resolution, value-constraint, and policy failures prevent a
+// Schema. Retained `nonNegativeInteger` particles remain consumer-excluded.
 // References to global `nonNegativeInteger` remain queryable
 // without target gating; direct-choice and sequence consumers reject them with
 // located unsupported diagnostics and nil GenerateGo output. Consumer-only
