@@ -269,14 +269,16 @@
 // locations. These gates return located FailureUnsupported/ErrUnsupported
 // diagnostics; GenerateGo returns no output.
 //
-// Global built-in and named xs:nonNegativeInteger roots remain unsupported by
-// ValidateInstance under Compatibility, Strict10, and Strict11: the call
-// returns FailureUnsupported/XSD4004/ErrUnsupported, and schema-owned bounds
-// and facets receive no runtime facet validation.
+// Global built-in and named xs:nonNegativeInteger roots validate under
+// Compatibility, Strict10, and Strict11 through the exact integer scalar plan.
+// Runtime parsing accepts signed-zero lexical forms and compares them as zero.
+// It preserves arbitrary precision, schema-owned bounds, enumeration, and their
+// located diagnostic causes.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as direct xs:string, a named/anonymous atomic string restriction,
-// or built-in/named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/xs:decimal
+// or built-in/named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/
+// xs:nonNegativeInteger/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
 // or Strict11, or as a named global complex type with one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
@@ -402,9 +404,11 @@
 // located unsupported diagnostics and nil GenerateGo output. Consumer-only
 // exclusions for admitted global `nonNegativeInteger` references include
 // repetition/non-default occurrences, nested/recursive/broader references,
-// anonymous targets, lists/unions, attributes/value constraints, and other
-// integer-derived consumers; they are explicit unsupported behavior with located
-// diagnostics and no GenerateGo output. Global inline/anonymous
+// and anonymous targets; they are explicit unsupported behavior with located
+// diagnostics and no GenerateGo output. Admitted lists/unions and other
+// integer-derived declarations retain query facts while their consumers remain
+// unsupported. `nonNegativeInteger` attributes/value constraints are
+// schema-admission exclusions with located diagnostics and no schema. Global inline/anonymous
 // `nonNegativeInteger` element/type declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
 // Global inline-element Boolean/integer/decimal declarations and global
