@@ -148,11 +148,11 @@ facts are query-only; validation/`GenerateGo` reject. `SimpleTypeReference.Integ
 copies built-in/named long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger/
 positiveInteger bounds. Built-in negativeInteger has maxInclusive=-1 at type `Loc`;
 positiveInteger has minInclusive=1 at zero `Loc`; named restrictions retain facet provenance.
-Local string/token/NMTOKEN/long particles/sequences remain `GenerateGo`-unsupported;
-inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
-`GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation supports
-default-occurrence Boolean/integer/decimal choices/sequences; `long`, `int`, `short`, `byte`, `unsignedLong`, `nonNegativeInteger`, `negativeInteger`, `precisionDecimal`,
-string/token/NMTOKEN, anonymous, repeated, non-default forms excluded.
+Local generation supports default-occurrence Boolean/integer/decimal choices/sequences
+and all-token direct choices (`string` or generated named type). Local string,
+NMTOKEN, long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger,
+precisionDecimal, mixed-token, anonymous, repeated, and non-default forms remain
+excluded. Inline Boolean/integer/decimal elements and attributes are query-only; `GenerateGo` rejects attributes.
 
 ## Conformance
 
