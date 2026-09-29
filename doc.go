@@ -265,8 +265,9 @@
 //
 // Global built-in and named xs:nonNegativeInteger roots validate under
 // Compatibility, Strict10, and Strict11 through the exact integer scalar plan.
-// Runtime parsing and facet checks preserve arbitrary precision, signed zero,
-// schema-owned bounds, enumeration, and their located diagnostic causes.
+// Runtime parsing accepts signed-zero lexical forms and compares them as zero.
+// It preserves arbitrary precision, schema-owned bounds, enumeration, and their
+// located diagnostic causes.
 //
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as direct xs:string, a named/anonymous atomic string restriction,
@@ -397,9 +398,10 @@
 // located unsupported diagnostics and nil GenerateGo output. Consumer-only
 // exclusions for admitted global `nonNegativeInteger` references include
 // repetition/non-default occurrences, nested/recursive/broader references,
-// anonymous targets, lists/unions, attributes/value constraints, and other
-// integer-derived consumers; they are explicit unsupported behavior with located
-// diagnostics and no GenerateGo output. Global inline/anonymous
+// and anonymous targets; they are explicit unsupported behavior with located
+// diagnostics and no GenerateGo output. Lists/unions, attributes/value
+// constraints, and other integer-derived declarations are schema-admission
+// exclusions with located diagnostics and no schema. Global inline/anonymous
 // `nonNegativeInteger` element/type declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
 // Global inline-element Boolean/integer/decimal declarations and global
