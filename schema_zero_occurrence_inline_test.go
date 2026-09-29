@@ -203,6 +203,29 @@ func TestSchemaBridgeKeepsZeroOccurrenceInlineUnsupportedOmission(t *testing.T) 
 	}
 }
 
+func TestSchemaBridgeOmitsZeroOccurrenceUntypedLocalElements(t *testing.T) {
+	for _, profile := range []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "compatibility", policy: Compatibility, version: "1.1"},
+		{name: "strict10", policy: Strict10, version: "1.0"},
+		{name: "strict11", policy: Strict11, version: "1.1"},
+	} {
+		for _, placement := range zeroOccurrenceInlineParticlePlacements() {
+			t.Run(profile.name+"/"+placement.name, func(t *testing.T) {
+				root := zeroOccurrenceLocalSchemaRoot(profile.version, placement, "", "")
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatalf("discoverSchema: %v", err)
+				}
+				assertZeroOccurrenceInlineParticleOmitted(t, schema, placement)
+			})
+		}
+	}
+}
+
 //nolint:gocognit // Keep each semantic escape from unsupported syntax at one phase boundary.
 func TestSchemaBridgeZeroOccurrenceUnsupportedFacetPreservesSemanticFailures(t *testing.T) {
 	profiles := []struct {
@@ -285,6 +308,11 @@ func zeroOccurrenceInlineParticlePlacements() []zeroOccurrenceInlineParticlePlac
 }
 
 func zeroOccurrenceInlineSchemaRoot(version string, placement zeroOccurrenceInlineParticlePlacement, declarations, base, facets string) string {
+	inline := `<xs:simpleType><xs:restriction base="` + base + `">` + facets + `</xs:restriction></xs:simpleType>`
+	return zeroOccurrenceLocalSchemaRoot(version, placement, declarations, inline)
+}
+
+func zeroOccurrenceLocalSchemaRoot(version string, placement zeroOccurrenceInlineParticlePlacement, declarations, content string) string {
 	zero := ` minOccurs="0" maxOccurs="0"`
 	parentOccurrences := ""
 	if placement.ownerZero {
@@ -294,7 +322,7 @@ func zeroOccurrenceInlineSchemaRoot(version string, placement zeroOccurrenceInli
 	if placement.termZero {
 		childOccurrences = zero
 	}
-	particle := `<xs:` + placement.model + parentOccurrences + `><xs:element name="value"` + childOccurrences + `><xs:simpleType><xs:restriction base="` + base + `">` + facets + `</xs:restriction></xs:simpleType></xs:element></xs:` + placement.model + `>`
+	particle := `<xs:` + placement.model + parentOccurrences + `><xs:element name="value"` + childOccurrences + `>` + content + `</xs:element></xs:` + placement.model + `>`
 	if placement.extension {
 		particle = `<xs:complexContent><xs:extension base="r:Container">` + particle + `</xs:extension></xs:complexContent>`
 	}
