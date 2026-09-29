@@ -980,12 +980,6 @@ func TestSchemaBridgeCoversDirectGrammarAndAttributeBoundaries(t *testing.T) {
 			code:  invalidSchemaCompositionCode,
 		},
 		{
-			name:    "recognized root attribute is unsupported",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" attributeFormDefault="qualified"/>`,
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:    "default open content is unsupported",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:defaultOpenContent mode="interleave"><xs:any/></xs:defaultOpenContent></xs:schema>`,
 			class:   FailureUnsupported,
@@ -1096,20 +1090,14 @@ func TestSchemaBridgeClassifiesChoiceParticleBoundaries(t *testing.T) {
 			feature: FeatureSchemaSyntax,
 		},
 		{
-			name:    "excluded wildcard process contents is unsupported",
-			root:    fmt.Sprintf(base, `<xs:choice><xs:any namespace="##other" processContents="skip"/></xs:choice>`),
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:  "unresolved element reference is invalid",
 			root:  fmt.Sprintf(base, `<xs:choice><xs:element ref="value"/></xs:choice>`),
 			class: FailureInvalid,
 			code:  diagnosticSchemaElementReferenceUnresolvedCode,
 		},
 		{
-			name:    "inline type is unsupported",
-			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element></xs:choice>`),
+			name:    "inline string type is unsupported",
+			root:    fmt.Sprintf(base, `<xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType></xs:element></xs:choice>`),
 			class:   FailureUnsupported,
 			feature: FeatureSchemaSyntax,
 		},

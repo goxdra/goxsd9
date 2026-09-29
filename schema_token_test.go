@@ -479,7 +479,10 @@ func TestSchemaTokenConsumerBoundariesPreserveScope(t *testing.T) {
 			t.Run("local particle", func(t *testing.T) {
 				root := tokenConsumerLocalRoot(profile.version)
 				schema := discoverLocalTokenParticleSchema(t, root, profile.policy)
-				assertLocalTokenParticleConsumersUnsupported(t, schema, `<box xmlns="urn:test"><item xmlns="">value</item></box>`, "token")
+				assertLocalTokenParticleGenerationUnsupported(t, schema, "token")
+				if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<box xmlns="urn:test"><item xmlns="">value</item></box>`))); err != nil {
+					t.Fatalf("token local-particle validation = %v, want supported", err)
+				}
 			})
 		})
 	}

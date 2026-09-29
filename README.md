@@ -1,69 +1,62 @@
 # goxsd9
 
-goxsd9 parses/validates/generates Go; unsupported remains explicit.
+goxsd9 parses XML Schema documents into an immutable component model. You can
+query the model, validate supported XML instances, or generate Go for supported
+schema components. Unsupported features return located diagnostics rather than
+partial schemas or output.
 
-## [Schema parsing](ARCHITECTURE.md#schema-model)
+## Library
 
-`ParseSchema`: immutable components; caller-provided `ResolvedSource`/`Resolver`; sequential calls, opaque locations; Compatibility default.
+Create a root with `NewResolvedSource`, then call `ParseSchema` with a caller
+supplied `Resolver` for includes and imports. The resolver receives namespace
+URNs and lexical schema locations; the library does not open paths or URLs.
+`ParseSchema` uses the Compatibility policy for mixed XSD 1.0/1.1 graphs;
+`ParseSchemaWithPolicy` selects a graph-wide language policy. Schema queries
+and walks return immutable, deterministic views.
 
-XSD 1.0/1.1; limited facets/`openAttrs`/extensions. Complexes: element-only/model-group refs/bounded attribute-free extensions; model-less extensions over completed named empty-content bases: nil/no-synthetic-particle; bounded/representable inherited `##other`/lax wildcards. `defaultAttributesApply`: named globals, XSD 1.1/Compatibility.
-`openContent=none`: globals/bounded extensions in Compatibility/Strict11; Strict10 mismatch; other unsupported; malformed invalid.
-`xs:any` supports `##any`/strict|lax|skip, `##other`/lax|strict, and positive namespaces (`##local`, `##targetNamespace`, URI lists) with strict/lax/explicit-skip processing; broader placements unsupported; consumers reject nonzero wildcards. Named-global sequence/choice owners: `anyAttribute`, `##any`/strict; `##any`/lax|skip (optional/explicit namespace; skip), `##other`/lax|strict, `##other`/skip, positive namespaces (`##local`, `##targetNamespace`, URI lists) strict; locations retained; validation/generation unsupported.
-Only top-level direct model-group refs and named-global groups direct choice/sequence refs queryable; nested/other groups unsupported. Typed built-in/supported named
-`xs:token`/`xs:NMTOKEN` particles modeled; default-occurrence all-token/NMTOKEN choices validate; local token/NMTOKEN sequences unsupported; globals/generation unchanged.
+`ValidateInstance(schema, sourceID, reader)` checks one XML instance;
+`GenerateGo(schema, packageName)` returns Go source. A component can be
+queryable even when one or both consumers reject it.
+Grouped complex-content extensions resolve one opaque group reference and
+ordered local attribute uses over a supported named empty base. Validated
+`0/0` omits the particle, and prohibited uses may leave no effective uses.
+See the [package contract](doc.go) for public behavior and current limits, the
+[architecture](ARCHITECTURE.md#schema-model) for admission and consumer
+boundaries, and [decision 0007](docs/decisions/0007-particle-occurrence.md)
+for exact particle occurrences and `0/0` omission.
 
-`abstract` applies to named complexes; non-inherited; consumers reject use with located unsupported diagnostics. [ARCHITECTURE.md](ARCHITECTURE.md).
-[Direct-choice example](direct_choice_example_test.go); run `go test ./... -run '^Example_directChoice$'`. [Scalar quickstart](library_example_test.go).
+## CLI
 
-## Product CLI
+The `goxsd9` command provides `parse`, `validate`, and `generate`:
 
-`parse`, `validate`, and `generate` use APIs; [Decision 0006](docs/decisions/0006-vertical-slice-cli.md) defines CLI contract.
-[`examples/root.xsd`](examples/root.xsd), [`examples/valid.xml`](examples/valid.xml), [`examples/invalid.xml`](examples/invalid.xml)
-
-```console
-$ go run ./cmd/goxsd9 parse examples/root.xsd
-documents=1 components=2
-$ go run ./cmd/goxsd9 validate examples/root.xsd examples/valid.xml
-$ go run ./cmd/goxsd9 validate examples/root.xsd examples/invalid.xml
-validate stage=validate class=invalid kind=processing source_id=instance/examples/invalid.xml location=1:8 code=XSD2001 related=schema/root.xsd:2:3 spec_ref=xsd11-datatypes#integer invalid xs:integer lexical representation
-exit status 1
-$ go run ./cmd/goxsd9 generate --package sample examples/root.xsd > generated.go
+```sh
+go run ./cmd/goxsd9 parse schema.xsd
+go run ./cmd/goxsd9 validate schema.xsd instance.xml
+go run ./cmd/goxsd9 generate --package generated schema.xsd
 ```
 
-Parse stdout; validation silent on success. Invalid exits 1 with located diagnostic; usage 2.
+`parse` prints a schema summary, successful `validate` is silent, and
+`generate` writes Go to standard output unless `--output` names a file. Use
+`--schema-root DIR` to set the local resolution boundary; it is required when
+reading a schema from standard input. `--diagnostics json` selects
+machine-readable errors; input/processing failures exit 1 and usage failures
+exit 2.
 
-## Design goals
+## Development
 
-Exact value spaces/facets, streaming resolver input, immutable deterministic queries/walks,
-located diagnostics, no goroutines/locks/map-order output, measured conformance.
+Run the repository checks from a fresh checkout:
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) and [PLAN.md](PLAN.md).
-
-## Repository checks
-
-Fresh checkout; inventory metadata-only. Bounded schema requires exact `-version 1.0` or `-version 1.1` plus `-set` or `-case`; instances never run:
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
 go tool workflowctl check
-go tool conformance inventory
-go tool conformance schema -version 1.0 -set SET -case CASE
 ```
 
-## Pinned specification corpus
+The [plan](PLAN.md) gives project phases. [Issues](https://github.com/goxdra/goxsd9/issues),
+the [roadmap](https://github.com/orgs/goxdra/projects/1), and
+[operations](docs/operations.md) cover ongoing work. See [AGENTS.md](AGENTS.md)
+for repository rules.
 
-Corpus commands:
-```sh
-go tool specs build -id xsd11-structures
-go tool specs search -id xsd11-structures -query "content model"
-go tool specs bootstrap -version 1.1
-```
-Use `-root`/`-output`/`-index`; `bootstrap` previews without fetching.
+## License
 
-## Project workflow
-
-See [GitHub Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), and [AGENTS.md](AGENTS.md) for workflow rules.
-
-## Test data licensing
-
-W3C submodule keeps `00COPYRIGHT`, not Apache-2.0; repository is Apache-2.0 ([LICENSE](LICENSE)).
+Apache-2.0 ([LICENSE](LICENSE)); the W3C submodule retains `00COPYRIGHT`.

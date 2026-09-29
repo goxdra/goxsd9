@@ -88,11 +88,13 @@ func (facet DecimalEnumerationFacet) Version() XSDVersion {
 	return facet.version
 }
 
-// StringEnumerationFacet is one immutable string enumeration declaration.
+// StringEnumerationFacet retains lexical text and its value under the
+// declaring restriction's base type.
 type StringEnumerationFacet struct {
-	value   string
-	loc     Loc
-	version XSDVersion
+	value            string
+	interpretedValue string
+	loc              Loc
+	version          XSDVersion
 }
 
 // StringEnumerationValue is an alternate name for a string enumeration
@@ -501,11 +503,11 @@ func RestrictStringEnumerationFacets(base StringEnumerationFacets, local StringE
 	return completeStringEnumerationFacets(base, NewStringEnumerationFacetDeclarations(local.Values), true)
 }
 
-func restrictStringEnumerationFacetsInValueSpace(base StringEnumerationFacets, local StringEnumerationFacetDeclarations) (StringEnumerationFacets, error) {
+func restrictStringEnumerationFacetsInValueSpace(base StringEnumerationFacets, local StringEnumerationFacetDeclarations, normalize func(string) string) (StringEnumerationFacets, error) {
 	if err := base.validate(); err != nil {
 		return StringEnumerationFacets{}, err
 	}
-	return completeStringEnumerationFacetsWithNormalizer(base, NewStringEnumerationFacetDeclarations(local.Values), true, collapseXMLWhitespace)
+	return completeStringEnumerationFacetsWithNormalizer(base, NewStringEnumerationFacetDeclarations(local.Values), true, normalize)
 }
 
 // ConstructStringEnumerationFacets is the phase-oriented name for
@@ -597,7 +599,7 @@ func newDecimalEnumerationFacet(value StrictDecimal, loc Loc, version XSDVersion
 }
 
 func newStringEnumerationFacet(value string, loc Loc, version XSDVersion) StringEnumerationFacet {
-	return StringEnumerationFacet{value: value, loc: loc, version: version}
+	return StringEnumerationFacet{value: value, interpretedValue: value, loc: loc, version: version}
 }
 
 func cloneIntegerEnumerationFacet(facet IntegerEnumerationFacet) IntegerEnumerationFacet {
@@ -799,20 +801,26 @@ func completeStringEnumerationFacetsWithNormalizer(base StringEnumerationFacets,
 	if local.Values == nil {
 		return effective, nil
 	}
+	localValues := cloneStringEnumerationFacets(local.Values)
+	if normalize != nil {
+		for index := range localValues {
+			localValues[index].interpretedValue = normalize(localValues[index].value)
+		}
+	}
 	if derived && base.values != nil {
-		for index := range local.Values {
-			if stringEnumerationContainsInValueSpace(base.values, local.Values[index].value, normalize) {
+		for index := range localValues {
+			if stringEnumerationContainsInValueSpace(base.values, localValues[index].value, normalize) {
 				continue
 			}
 			return StringEnumerationFacets{}, enumerationRestrictionDiagnostic(
-				local.Values[index].Loc(),
+				localValues[index].Loc(),
 				stringEnumerationLocations(base.values),
 				base.version,
 				"string",
 			)
 		}
 	}
-	effective.values = cloneStringEnumerationFacets(local.Values)
+	effective.values = localValues
 	return effective, nil
 }
 
@@ -1041,6 +1049,15 @@ func stringEnumerationContainsInValueSpace(values []StringEnumerationFacet, cand
 		value := values[index].value
 		value = normalize(value)
 		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
+
+func stringEnumerationContainsInterpreted(values []StringEnumerationFacet, candidate string) bool {
+	for index := range values {
+		if values[index].interpretedValue == candidate {
 			return true
 		}
 	}

@@ -18,6 +18,10 @@ func TestConsumersRejectModelledBuiltinStringParticles(t *testing.T) {
 			if policy == goxsd9.Strict10 {
 				version = "1.0"
 			}
+			wantSpec := "xsd11-structures#cvc-elt"
+			if policy == goxsd9.Strict10 {
+				wantSpec = "xsd10-structures#cvc-elt"
+			}
 			for _, model := range []string{"choice", "sequence"} {
 				t.Run(model, func(t *testing.T) {
 					root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="urn:string-consumer" targetNamespace="urn:string-consumer" version="` + version + `">
@@ -31,8 +35,8 @@ func TestConsumersRejectModelledBuiltinStringParticles(t *testing.T) {
 					if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedInstanceValidationCode || diagnostic.Feature() != goxsd9.FeatureInstanceValidation {
 						t.Fatalf("diagnostic = %s/%q/%q, want unsupported instance validation", diagnostic, diagnostic.Code(), diagnostic.Feature())
 					}
-					if diagnostic.SpecRef() != "xsd11-structures#cvc-elt" || diagnostic.Loc().IsZero() || !errors.Is(diagnostic, goxsd9.ErrUnsupported) {
-						t.Fatalf("diagnostic evidence = %s/%q/%v, want located xsd11-structures#cvc-elt unsupported", diagnostic.Loc(), diagnostic.SpecRef(), diagnostic.Unwrap())
+					if diagnostic.SpecRef() != wantSpec || diagnostic.Loc().IsZero() || !errors.Is(diagnostic, goxsd9.ErrUnsupported) {
+						t.Fatalf("diagnostic evidence = %s/%q/%v, want located %s unsupported", diagnostic.Loc(), diagnostic.SpecRef(), diagnostic.Unwrap(), wantSpec)
 					}
 					if !reflect.DeepEqual(before, schema.Components()) {
 						t.Fatal("validation mutated the completed schema")
