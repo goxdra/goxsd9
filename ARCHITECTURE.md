@@ -53,8 +53,8 @@ schema return. Unsupported features have stable report IDs.
 
 ## Schema model
 
-Syntax is internal; components are immutable. Walks are deterministic; IDs use
-source/ordinal and local particles are scoped.
+Syntax internal; components immutable; walks deterministic; IDs use
+source/ordinal; local particles scoped.
 
 `DeclaredType` is primitive. Bounded attribute-free complexContent extensions over named
 empty bases and restrictions over `xs:anyType` retain refs, base identity/locations,
@@ -96,7 +96,7 @@ invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixe
 unconstrained; attribute consumers reject.
 
 Complexes retain non-inherited `IsAbstract`, `finalDefault` provenance,
-ordered groups/extensions, and wildcard facts. `xs:any` includes positive sets and XSD 1.1
+ordered groups/extensions, and wildcards. `xs:any` includes positive sets and XSD 1.1
 strict/lax/skip `notNamespace`; markers expand after chameleon adoption. Consumers
 reject wildcards; broader forms unsupported; `0/0` absent. `openContent=none`
 works Compatibility/Strict11 but mismatches Strict10; named groups retain ordered refs/ranges.
@@ -108,21 +108,23 @@ consumers reject. Its element refs retain targets and exact occurrences, includi
 repeated sequence refs to global inline restrictions; nonzero local inline forms remain
 unsupported. Homogeneous token/NMTOKEN sequences retain exact
 finite/unbounded/above-`uint64` occurrences; consumers remain limited.
+Built-in/named `string` direct/bounded-extension choices/sequences retain
+types/facets/locations/exact occurrences; consumers reject.
 
 ## Datatypes
 
-Lexical/value representations remain separate; QName values retain namespace context. Datatypes map
-string enumeration and arbitrary-precision values; precisionDecimal retains exact values/facets under
-Compatibility/Strict11. Boolean whitespace collapse is supported; broader facets/temporal values are
-unsupported.
+Lexical/value representations stay separate; QNames retain namespace context. Datatypes map
+string enumeration and arbitrary precision; precisionDecimal retains exact values/facets
+under Compatibility/Strict11. Boolean whitespace collapses; broader facets/temporal values
+are unsupported.
 
 ## Validation and code generation
 
 `ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal,
 direct/named/anonymous string roots (effective whiteSpace/enumeration), and
 Compatibility/Strict11 precisionDecimal roots; Strict10 rejects precisionDecimal.
-Global built-in/named `nonNegativeInteger` roots use exact integer validation
-under every policy. Local Boolean/integer/decimal sequences/default choices honor
+Built-in/named `nonNegativeInteger` roots validate exactly under every policy.
+Local Boolean/integer/decimal sequences/default choices honor
 ranges; homogeneous token/NMTOKEN sequences honor exact occurrences/value space.
 Local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
 unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
@@ -144,11 +146,11 @@ reject (`FailureUnsupported`/`GOXSD9029`, no output) and malformed/stale facts f
 explicit built-in/named local particles are queryable and consumer-rejected; `0/0` is absent. Direct-choice/sequence `nonNegativeInteger` refs and inline/anonymous element/type forms remain query-only/rejected. Global `int`/`long`/`short`/`byte`/`unsignedLong` element/type facts query-only; validation/
 `GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies built-in/named
 long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger bounds; built-in negativeInteger maxInclusive=-1 at type `Loc`; named restrictions retain effective facet locations/provenance.
-Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
+Local string/token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation supports
 default-occurrence Boolean/integer/decimal choices/sequences; `long`, `int`, `short`, `byte`, `unsignedLong`, `nonNegativeInteger`, `negativeInteger`, `precisionDecimal`,
-token/NMTOKEN, anonymous, repeated, non-default forms excluded.
+string/token/NMTOKEN, anonymous, repeated, non-default forms excluded.
 
 ## Conformance
 
