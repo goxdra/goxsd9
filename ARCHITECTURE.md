@@ -61,9 +61,10 @@ empty-content bases or named complexContent restrictions over built-in `xs:anyTy
 anonymous refs, base identity/locations, inherited `##other`/`lax` wildcards. Scalar
 simpleContent extensions retain base/type/use `Loc`s and nil particle; restrictions are
 unsupported; bases are Boolean/string/integer/decimal plus policy-gated `precisionDecimal`.
-Admission: direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline
-`negativeInteger`, and built-in/named `int`, `short`, `byte`, `unsignedLong`, and `nonNegativeInteger`. Exclusions return `FailureUnsupported`
-at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`.
+Direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline
+`negativeInteger`, built-in/named `int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger`.
+Direct global elements admit built-in `positiveInteger`. Exclusions return located
+`FailureUnsupported`; nested exclusions use nested-particle `Loc`.
 Syntax/occurrence/reference/policy gates precede mapping; graph failures and Strict10
 `precisionDecimal` apply. Sequences omit before children; choices resolve refs before
 omission; named groups check before omission; child refs resolve first.
@@ -139,9 +140,9 @@ reject (`FailureUnsupported`/`GOXSD9029`, no output) and malformed/stale facts f
 (`FailureInternal`/`GOXSD9030`, nil). Mapped nonzero local inline `nonNegativeInteger` forms: no schema;
 explicit built-in/named local particles are queryable and consumer-rejected; `0/0` is absent. `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject, and inline/anonymous element/type forms remain
-query-only/rejected. Global `int`/`long`/`short`/`byte`/`unsignedLong` element/type facts query-only; validation/
-`GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies built-in/named
-long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger bounds; built-in negativeInteger maxInclusive=-1 at type `Loc`; named restrictions retain effective facet locations/provenance.
+query-only/rejected. Global `int`/`long`/`short`/`byte`/`unsignedLong`/`positiveInteger` facts: query-only; validation/`GenerateGo` reject.
+`SimpleTypeReference.IntegerBounds()` copies built-in/named
+long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger/positiveInteger bounds. Built-in negativeInteger: maxInclusive=-1 at type `Loc`; positiveInteger: minInclusive=1 at zero `Loc`; named restrictions retain facet provenance.
 Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to
