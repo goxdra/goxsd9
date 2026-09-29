@@ -54,7 +54,8 @@
 // xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger, and explicitly typed
 // built-in or supported named xs:token/xs:NMTOKEN particles for named global and
 // global inline complex types, and atomic xs:string particles for named global
-// complex types and supported bounded attribute-free extensions. Inline complexes retain anonymous IDs and query facts
+// complex types, global element inline complex types, and supported bounded
+// attribute-free extensions. Inline complexes retain anonymous IDs and query facts
 // outside the global walk; their consumers reject. The model also admits
 // built-in/named/inline xs:negativeInteger and built-in or supported named-effective
 // xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger particles in
