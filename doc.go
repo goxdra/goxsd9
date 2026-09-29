@@ -399,9 +399,10 @@
 // exclusions for admitted global `nonNegativeInteger` references include
 // repetition/non-default occurrences, nested/recursive/broader references,
 // and anonymous targets; they are explicit unsupported behavior with located
-// diagnostics and no GenerateGo output. Lists/unions, attributes/value
-// constraints, and other integer-derived declarations are schema-admission
-// exclusions with located diagnostics and no schema. Global inline/anonymous
+// diagnostics and no GenerateGo output. Admitted lists/unions and other
+// integer-derived declarations retain query facts while their consumers remain
+// unsupported. `nonNegativeInteger` attributes/value constraints are
+// schema-admission exclusions with located diagnostics and no schema. Global inline/anonymous
 // `nonNegativeInteger` element/type declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
 // Global inline-element Boolean/integer/decimal declarations and global
