@@ -76,6 +76,9 @@ func TestGenerateGoDirectTokenChoiceGraph(t *testing.T) {
 				t.Fatalf("generated source is not formatted: %v\n%s", err, first)
 			}
 			source := string(first)
+			if source != codegenTokenChoiceGolden {
+				t.Fatalf("token choice golden mismatch:\nwant:\n%s\ngot:\n%s", codegenTokenChoiceGolden, source)
+			}
 			if strings.Contains(source, "import ") {
 				t.Fatalf("token-only output imported runtime:\n%s", first)
 			}
@@ -113,6 +116,7 @@ func useTokenChoice(value Choice) {
 		var _ ImportedToken = value.Imported
 	}
 }
+
 var _ Choice = LineItem{}
 var _ ChoiceRoot = ChoiceRoot{Value: LineItem{}}
 `)
@@ -120,6 +124,71 @@ var _ ChoiceRoot = ChoiceRoot{Value: LineItem{}}
 		})
 	}
 }
+
+const codegenTokenChoiceGolden = `package generated
+
+type ChoiceRoot struct {
+	Value Choice
+}
+
+type Choice interface {
+	isChoice()
+}
+
+type LineItem struct {
+	LineItem string
+}
+
+func (LineItem) isChoice() {}
+
+type LineItem2 struct {
+	LineItem2 DerivedToken
+}
+
+func (LineItem2) isChoice() {}
+
+type Forward struct {
+	Forward ForwardToken
+}
+
+func (Forward) isChoice() {}
+
+type Included struct {
+	Included IncludedToken
+}
+
+func (Included) isChoice() {}
+
+type Imported struct {
+	Imported ImportedToken
+}
+
+func (Imported) isChoice() {}
+
+type DerivedToken struct {
+	Value string
+}
+
+type BaseToken struct {
+	Value string
+}
+
+type ForwardToken struct {
+	Value string
+}
+
+type ForwardBase struct {
+	Value string
+}
+
+type IncludedToken struct {
+	Value string
+}
+
+type ImportedToken struct {
+	Value string
+}
+`
 
 func TestGenerateGoDirectTokenChoiceRejectsMixedFamilies(t *testing.T) {
 	for _, other := range []string{"boolean", "integer", "decimal", "NMTOKEN"} {
