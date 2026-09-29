@@ -1,50 +1,61 @@
 # goxsd9
 
-goxsd9 parses/validates/generates Go; unsupported is explicit.
+goxsd9 parses XML Schema documents into an immutable component model. You can
+query the model, validate supported XML instances, or generate Go for supported
+schema components. Unsupported features return located diagnostics rather than
+partial schemas or output.
 
-## [Schema parsing](ARCHITECTURE.md#schema-model)
+## Library
 
-`ParseSchema` returns immutable components from `ResolvedSource`/`Resolver`; Compatibility is default; locations are opaque.
+Create a root with `NewResolvedSource`, then call `ParseSchema` with a caller
+supplied `Resolver` for includes and imports. The resolver receives namespace
+URNs and lexical schema locations; the library does not open paths or URLs.
+`ParseSchema` uses the Compatibility policy for mixed XSD 1.0/1.1 graphs;
+`ParseSchemaWithPolicy` selects a graph-wide language policy. Schema queries
+and walks return immutable, deterministic views.
 
-`openContent=none` works in Compatibility/Strict11, not Strict10. Bounded attribute-free extensions use named empty-content bases or `xs:anyType` restrictions, retaining `##other`/`lax` and model-less identity. Scalar simpleContent extensions retain base/type/use `Loc`s and nil particles; restrictions and broader attribute-bearing complexContent/attributeGroup extensions are unsupported. Scalar simpleContent is query-only; consumers reject.
-`AttributeUse` facts retain order, locations, names, references, ownership, and effective use. Local uses support Boolean/integer/decimal and policy-gated precisionDecimal; simpleContent also supports string. Forms and chameleon namespaces apply; prohibited uses disappear. Consumers reject attribute/simpleContent facts; value constraints and unsignedLong remain unsupported.
-Grouped named complexContent extensions compose one opaque group reference, ordered local uses, and a supported named empty base. Resolution follows group, uses, base. Validated `0/0` removes the particle; consumers reject.
-Syntax, occurrence, reference, and policy checks precede `0/0` omission. Choices resolve refs first, groups validate targets first, and sequences skip children. Graph-wide declaration/facet failures surface; named/inline non-reference mapping is not universal at `0/0`. Strict10 `precisionDecimal` rejects before omission.
-Element/model-group refs retain QName/RefLoc/TargetID/order; eligible direct-choice refs consumable; model-group/excluded refs consumer-rejected. Nonzero `xs:any` queryable; wildcard consumers reject; broader unsupported; `0/0` absent. Global long/unsignedLong retain bounds/facets/locations/ownership; consumers reject.
-All policies admit local built-in/named-effective `xs:unsignedLong` in direct choices/sequences and supported attribute-free extension choices/sequences: exact-finite/`unbounded`/above-`uint64` occurrences; bounds/facets/IDs/ownership/provenance/locations retained; query-only/consumer-rejected; excluded mapped nonzero forms: located `FailureUnsupported`, no schema.
-Direct `xs:negativeInteger` rejects mapped nonzero; named/anonymous-inline query-only. `precisionDecimal`: Compatibility/Strict11 admit default direct/bounded attribute-free extension choices; extension choices are query-only/consumer-rejected. Mapped non-default choices, nonzero sequences, and mapped nonzero inline/anonymous forms are schema-unsupported; Strict10 precedes `0/0` omission.
+`ValidateInstance(schema, sourceID, reader)` checks one XML instance;
+`GenerateGo(schema, packageName)` returns Go source. A component can be
+queryable even when one or both consumers reject it.
+Grouped complex-content extensions retain one opaque group reference and
+ordered local attribute uses over a supported named empty base.
+See the [package contract](doc.go) for public behavior and current limits, the
+[architecture](ARCHITECTURE.md#schema-model) for admission and consumer
+boundaries, and [decision 0007](docs/decisions/0007-particle-occurrence.md)
+for exact particle occurrences and `0/0` omission.
 
 ## CLI
 
-CLI `parse`, `validate`, `generate`; parse prints, validate silent; invalid 1, usage 2.
+The `goxsd9` command provides `parse`, `validate`, and `generate`:
 
-## Goals
+```sh
+go run ./cmd/goxsd9 parse schema.xsd
+go run ./cmd/goxsd9 validate schema.xsd instance.xml
+go run ./cmd/goxsd9 generate --package generated schema.xsd
+```
 
-Exact values/facets and deterministic queries; no goroutines/locks/map-order output.
+`parse` prints a schema summary, successful `validate` is silent, and
+`generate` writes Go to standard output unless `--output` names a file. Use
+`--schema-root DIR` to set the local resolution boundary; it is required when
+reading a schema from standard input. `--diagnostics json` selects
+machine-readable errors; input/processing failures exit 1 and usage failures
+exit 2.
 
-## Checks
+## Development
 
-Fresh checkout; conformance needs exact version/`-set`/`-case`; never run instances:
+Run the repository checks from a fresh checkout:
+
 ```sh
 git submodule update --init --recursive
 go tool workflowctl doctor
 go tool workflowctl check
-go tool conformance schema -version 1.0 -set SET -case CASE
 ```
 
-## Corpus
+The [plan](PLAN.md) gives project phases. [Issues](https://github.com/goxdra/goxsd9/issues),
+the [roadmap](https://github.com/orgs/goxdra/projects/1), and
+[operations](docs/operations.md) cover ongoing work. See [AGENTS.md](AGENTS.md)
+for repository rules.
 
-```sh
-go tool specs build -id xsd11-structures
-go tool specs search -id xsd11-structures -query QUERY
-go tool specs bootstrap -version VERSION
-```
-Use `-root`/`-output`/`-index`; bootstrap previews only.
+## License
 
-## Project workflow
-
-[Issues](https://github.com/goxdra/goxsd9/issues), [Roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), [AGENTS.md](AGENTS.md).
-
-## Licensing
-
-W3C submodule keeps `00COPYRIGHT`; Apache-2.0 ([LICENSE](LICENSE)).
+Apache-2.0 ([LICENSE](LICENSE)); the W3C submodule retains `00COPYRIGHT`.
