@@ -77,7 +77,7 @@
 // only validated publication-unsupported FailureUnsupported diagnostics may be
 // omitted at 0/0. Invalid, unresolved, cyclic, wrong-kind, value-constraint,
 // and policy failures retain their diagnostics and prevent a Schema.
-// Direct sequence owners omit before child resolution; direct choices resolve
+// Direct sequences resolve children before owner omission; direct choices resolve
 // child refs without duplicate checks before child omission; named groups
 // resolve/check duplicate refs before owner/child omission; child refs resolve
 // before child omission. Mapped non-0/0 unsupported scalar forms return located
@@ -93,9 +93,10 @@
 // forward, imported, included, and chameleon chains. Explicit built-in and
 // supported named nonNegativeInteger particles are also admitted. Direct built-in,
 // named-effective, and anonymous-inline negativeInteger forms are admitted as query
-// facts, but ValidateInstance and GenerateGo reject those consumers. Effective
-// Built-in and named effective-long remain query-only and consumer-rejected. NonPositiveInteger, plus
-// inline/anonymous int/short/byte/unsignedLong/nonNegativeInteger, are excluded when mapped non-0/0: ParseSchema returns a located
+// facts, but ValidateInstance and GenerateGo reject those consumers. Built-in
+// and named effective-long particles remain query-only and consumer-rejected.
+// Local nonPositiveInteger and inline/anonymous
+// int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
 // exclusions use the nested-particle Loc. Ordinary 0/0 is admitted after
@@ -309,7 +310,7 @@
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
 // and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
-// remain explicit unsupported behavior. Local int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger particles are
+// remain explicit unsupported behavior. Local long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger particles are
 // query-only and remain explicit unsupported behavior in both consumers.
 // Reference consumers exclude precisionDecimal and anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
@@ -431,7 +432,7 @@
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
 // all-Boolean/numeric direct choices and default-bounded direct sequences. Local
-// int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, anonymous, and token/NMTOKEN consumers, repeated/non-default
+// long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, anonymous, and token/NMTOKEN consumers, repeated/non-default
 // particles, and anonymous targets remain unsupported; numeric integer/decimal
 // mixtures remain supported.
 package goxsd9

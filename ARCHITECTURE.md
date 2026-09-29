@@ -63,15 +63,15 @@ and inherited `##other`/`lax` wildcards. Scalar simpleContent extensions retain
 base/type/use `Loc`s and nil particle; restrictions are unsupported. Bases are
 Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline `negativeInteger`, and built-in/named `long`, `int`, `short`, `byte`, `unsignedLong`, `nonNegativeInteger`.
-Effective-long locals are query-only. Exclusions return `FailureUnsupported` at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`.
+Local `long`: query-only; `ValidateInstance`/`GenerateGo` reject. Exclusions return `FailureUnsupported` at type/facet/element `Loc`; nested exclusions use nested-particle `Loc`.
 Syntax/occurrence/reference/policy gates precede local mapping; graph declaration/facet
 failures and Strict10 `precisionDecimal` apply. Resolve inline base/variety/facets and selected policy for every affected owner/term, including `0/0`, before omission; only validated publication-unsupported `FailureUnsupported` may omit there.
 Invalid, unresolved, cyclic, wrong-kind, value-constraint, and policy failures retain causes/locations, return no `Schema`, and leave named/inline `0/0` mapping conditional.
-Sequences omit before children; choices resolve refs
+Sequences resolve children before owner omission; choices resolve refs
 without duplicate checks before omission; named groups resolve/check before owner/child
 omission; child refs resolve first.
 Element/model-group references retain QName/RefLoc/TargetID/order without expansion;
-nested/local/recursive/broader forms remain unsupported or consumer-excluded. Mapped non-`0/0` local inline/anonymous `int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger` forms are schema-unsupported at `type`/`simpleType` `Loc`; applicable `0/0` forms omit after gates. Global direct/named/inline `byte` element/type refs remain queryable. Byte attributes admit built-in/named refs, excluding values. Local built-in/named-effective integer-derived particles are query-only; local `AttributeUse` and simpleContent exclude them. `negativeInteger` consumers return `FailureUnsupported`. Built-in `long` retains intrinsic bounds/no synthetic ID; named effective-long retains type identity, facet provenance, QName, occurrences, and lexical order.
+nested/local/recursive/broader forms are unsupported or consumer-excluded. Mapped non-`0/0` local inline/anonymous `int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger` forms are schema-unsupported at `type`/`simpleType` `Loc`; applicable `0/0` forms omit after gates. Global direct/named/inline `byte` element/type refs are queryable. Byte attributes admit built-in/named refs, excluding values. Built-in/named-effective integer-derived particles are query-only; `AttributeUse` and simpleContent exclude them. `negativeInteger` consumers return `FailureUnsupported`. Built-in `long` retains intrinsic bounds/no synthetic ID; named effective-long retains type identity, facet provenance, QName, occurrences, and lexical order.
 AttributeUse preserves order, locations, ownership, use, and QName/RefLoc/TargetID
 across particle, group, attribute-only, and simpleContent owners. Local uses retain
 name/type/use locations and `AnonymousID`/`NodeID`; references retain
@@ -133,8 +133,8 @@ explicit built-in/named local particles are queryable and consumer-rejected; `0/
 long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger bounds; built-in negativeInteger maxInclusive=-1 at type `Loc`; named restrictions retain effective facet locations/provenance.
 Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
-`GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to
-default-occurrence Boolean/integer/decimal choices/sequences; `int`, `short`, `byte`, `unsignedLong`, `nonNegativeInteger`, `negativeInteger`, `precisionDecimal`,
+`GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation supports
+default-occurrence Boolean/integer/decimal choices/sequences; `long`, `int`, `short`, `byte`, `unsignedLong`, `nonNegativeInteger`, `negativeInteger`, `precisionDecimal`,
 token/NMTOKEN, anonymous, repeated, non-default forms excluded.
 
 ## Conformance
