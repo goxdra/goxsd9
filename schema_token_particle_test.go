@@ -372,7 +372,8 @@ func assertLocalTokenParticleEnumeration(t *testing.T, element ElementParticle, 
 	}
 }
 
-func TestSchemaBridgeLocalTokenParticlesRemainConsumerUnsupported(t *testing.T) {
+//nolint:gocognit // Keep token sequence validation and generation boundaries together.
+func TestSchemaBridgeLocalTokenParticlesPreserveConsumerBoundaries(t *testing.T) {
 	profiles := []struct {
 		name    string
 		policy  LanguagePolicy
@@ -400,7 +401,21 @@ func TestSchemaBridgeLocalTokenParticlesRemainConsumerUnsupported(t *testing.T) 
 </xs:schema>`, testXSDNamespace, profile.version, test.local, test.localType)
 					schema := discoverLocalTokenParticleSchema(t, root, profile.policy)
 					body := `<root xmlns="urn:root"><` + test.local + ` xmlns="">value</` + test.local + `></root>`
-					assertLocalTokenParticleConsumersUnsupported(t, schema, body, test.name)
+					assertLocalTokenParticleGenerationUnsupported(t, schema, test.name)
+					if test.local == "token" || test.local == "nmtoken" {
+						if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(body))); err != nil {
+							t.Fatalf("%s validation error = %v, want supported", test.name, err)
+						}
+						return
+					}
+					validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(body)))
+					if validationErr == nil || !errors.Is(validationErr, ErrUnsupported) {
+						t.Fatalf("%s validation error = %v, want explicit unsupported", test.name, validationErr)
+					}
+					validationDiagnostic := requireDiagnostic(t, validationErr)
+					if validationDiagnostic.Class() != FailureUnsupported {
+						t.Fatalf("%s validation diagnostic = %s, want unsupported", test.name, validationDiagnostic)
+					}
 				})
 			}
 		})
@@ -425,7 +440,7 @@ func discoverLocalTokenParticleSchema(t *testing.T, root string, policy Language
 	return schema
 }
 
-func assertLocalTokenParticleConsumersUnsupported(t *testing.T, schema Schema, body string, family string) {
+func assertLocalTokenParticleGenerationUnsupported(t *testing.T, schema Schema, family string) {
 	t.Helper()
 	generated, generationErr := GenerateGo(schema, "generated")
 	if generationErr == nil || generated != nil {
@@ -434,13 +449,5 @@ func assertLocalTokenParticleConsumersUnsupported(t *testing.T, schema Schema, b
 	generationDiagnostic := requireDiagnostic(t, generationErr)
 	if generationDiagnostic.Class() != FailureUnsupported || !errors.Is(generationErr, ErrUnsupported) {
 		t.Fatalf("%s generation diagnostic = %s, want unsupported: %v", family, generationDiagnostic, generationErr)
-	}
-	validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(body)))
-	if validationErr == nil || !errors.Is(validationErr, ErrUnsupported) {
-		t.Fatalf("%s validation error = %v, want explicit unsupported", family, validationErr)
-	}
-	validationDiagnostic := requireDiagnostic(t, validationErr)
-	if validationDiagnostic.Class() != FailureUnsupported {
-		t.Fatalf("%s validation diagnostic = %s, want unsupported", family, validationDiagnostic)
 	}
 }

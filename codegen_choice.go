@@ -83,7 +83,7 @@ func codegenDirectChoiceScalarFamilyFromDigit(kind DigitDatatype) (codegenDirect
 
 func codegenDirectChoiceScalarFamilyFromSourceKind(kind codegenSourceScalarKind) (codegenDirectChoiceScalarFamily, bool) {
 	switch kind {
-	case codegenSourceScalarInvalid, codegenSourceScalarString, codegenSourceScalarToken, codegenSourceScalarNMTOKEN:
+	case codegenSourceScalarInvalid, codegenSourceScalarString, codegenSourceScalarToken, codegenSourceScalarNMTOKEN, codegenSourceScalarNonNegativeInteger:
 		return codegenDirectChoiceScalarInvalid, false
 	case codegenSourceScalarBoolean:
 		return codegenDirectChoiceScalarBoolean, true
@@ -218,7 +218,7 @@ func planCodegenDirectChoices(schema Schema, packageName string) (codegenDirectC
 	return plan, nil
 }
 
-//nolint:gocognit // Keep direct-choice collection and shape dispatch together.
+//nolint:gocognit,funlen // Keep direct-choice collection and shape dispatch together.
 func collectCodegenDirectChoices(
 	schema Schema,
 	components []Component,
@@ -236,6 +236,21 @@ func collectCodegenDirectChoices(
 				fmt.Sprintf("complex type %q has no completed complex-type facts", component.Name()),
 				nil,
 				errCodegenDirectChoiceParticle,
+			)
+		}
+		attributeUses := definition.AttributeUses()
+		if len(attributeUses) > 0 {
+			related := appendCodegenRelated(nil, definition.Loc())
+			for _, use := range attributeUses {
+				related = appendCodegenRelated(related, use.Loc())
+			}
+			return nil, newCodegenDirectChoiceUnsupported(
+				attributeUses[0].Loc(),
+				fmt.Sprintf("complex type %q attribute uses are outside direct choice generation", component.Name()),
+				related,
+				fmt.Errorf("%w: complex type attribute uses", errCodegenUnsupported),
+				version,
+				codegenDirectChoiceParticlesReference,
 			)
 		}
 		if body := definition.extensionBody(); body != nil {
@@ -1268,6 +1283,7 @@ func validateCodegenDirectChoiceTarget(
 ) (codegenDirectChoiceTarget, error) {
 	declaredType := element.DeclaredType()
 	typeID, hasTypeID := element.TypeID()
+	typeReference, hasTypeReference := element.TypeReference()
 	if declaredType.IsZero() {
 		if hasTypeID || !typeID.IsZero() {
 			return nil, newCodegenInternal(
@@ -1275,6 +1291,16 @@ func validateCodegenDirectChoiceTarget(
 				"anonymous direct-choice type has a synthetic component identity",
 				nil,
 				errCodegenDirectChoiceTarget,
+			)
+		}
+		if hasTypeReference && typeReference.Kind() == SimpleTypeReferenceAnonymous {
+			return nil, newCodegenDirectChoiceUnsupported(
+				element.Loc(),
+				"anonymous direct-choice element types are outside direct choice generation",
+				appendCodegenRelated(nil, typeReference.Loc()),
+				fmt.Errorf("%w: anonymous element type", errCodegenUnsupported),
+				version,
+				codegenDirectChoiceElementChoiceReference,
 			)
 		}
 		return nil, newCodegenDirectChoiceUnsupported(
