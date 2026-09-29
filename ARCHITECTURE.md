@@ -73,19 +73,20 @@ omission; child refs resolve first.
 Element/model-group references retain QName/RefLoc/TargetID/order without expansion;
 nested/local/recursive/broader forms remain unsupported or consumer-excluded. Mapped non-`0/0`
 local inline/anonymous `int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger` forms are schema-unsupported at `type`/`simpleType`
-`Loc`; applicable `0/0` forms are absent. Global direct/named/inline `byte` element/type
-refs queryable across policies; nonzero local built-in/named byte elements are
-queryable and consumer-rejected; inline/anonymous byte forms are schema-unsupported
-at type/simpleType `Loc`; `0/0` omits after gates. Byte attributes: built-in/named refs; values excluded. Local built-in/named-effective
+`Loc`; applicable `0/0` forms are absent. Global direct/named/inline `byte` refs
+query; local built-in/named `byte` particles reject consumers; inline/anonymous
+forms reject at type/simpleType `Loc`. Byte attribute values are excluded. Local built-in/named-effective
 `int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger`: query-only/consumer-rejected; local `AttributeUse` and simpleContent
 exclude these at admission. Built-in/named/anonymous-inline
 `negativeInteger` is query-only; consumers return `FailureUnsupported`.
 AttributeUse facts preserve order, locations, ownership, effective use, and QName/RefLoc/TargetID
-in particle-plus-use, model-group, attribute-only, and simpleContent. Local uses retain
+in particle-plus-use, model-group, grouped-extension, attribute-only, and simpleContent.
+Grouped extensions resolve group, uses, then named empty base;
+`0/0` omits group. Local uses retain
 name/type/use locations and named/anonymous `AnonymousID`/`NodeID`; references retain
 QName/RefLoc/TargetID/use. Forms select names; XSD 1.1 `targetNamespace` must match the container;
 chameleon adopts; prohibited uses omit. Value/default/fixed/inheritable semantics,
-attributeGroup/attribute-bearing complexContent extensions, and consumers are unsupported; excluded refs retain locations; no schema.
+attributeGroup/broader attribute-bearing complexContent extensions, and consumers are unsupported; excluded refs retain locations; no schema.
 Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
 Default/fixed: Boolean/integer/decimal/token/negativeInteger/long/short (built-in/named, all policies),
@@ -125,8 +126,8 @@ unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without
 only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, other
 forms remain queryable but excluded. Global `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
-refs are top-level direct query only; broader forms reject. AttributeUse and simpleContent facts are
-query-only; validation and `GenerateGo` reject those consumers with their retained locations.
+refs query in direct complex-type bodies and supported grouped extensions; nested/broader forms reject.
+AttributeUse and simpleContent facts are query-only; validation and `GenerateGo` reject consumers.
 
 Generation: named Boolean/integer/decimal/string/token/NMTOKEN components; global elements using
 those built-in/named types; inline global string/token/NMTOKEN elements; global/named-typed
