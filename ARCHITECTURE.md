@@ -100,10 +100,11 @@ ordered groups/extensions, and exact wildcard facts. `xs:any` includes positive 
 strict/lax/skip `notNamespace` exclusions; markers expand after chameleon adoption. Consumers
 reject wildcards; broader forms unsupported; `0/0` absent. `openContent=none`
 works Compatibility/Strict11 and mismatches Strict10; named groups
-retain ordered refs/ranges; precisionDecimal non-default choices/sequences and inline/anonymous
-targets unsupported. Atomic `xs:string` particles and named restrictions retain immutable
-type/facet facts, locations, exact occurrences in direct choices, sequences, bounded extensions;
-token/NMTOKEN sequences retain ranges; string consumers reject; token/NMTOKEN remain limited.
+retain ordered refs/ranges; precisionDecimal refs: default-occurrence direct/bounded-extension
+choices only; nonzero sequences, non-default choices, inline/anonymous targets unsupported. Atomic
+`xs:string` particles and named restrictions retain immutable type/facet facts, locations, exact
+direct-choice/sequence/bounded-extension occurrences; token/NMTOKEN
+sequences retain ranges; string consumers reject; token/NMTOKEN remain limited.
 
 ## Datatypes
 
@@ -142,7 +143,7 @@ direct-choice/sequence consumers reject, and inline/anonymous element/type forms
 query-only/rejected. Global `int`/`long`/`short`/`byte`/`unsignedLong` element/type facts query-only; validation/
 `GenerateGo` reject. `SimpleTypeReference.IntegerBounds()` copies built-in/named
 long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger bounds; built-in negativeInteger maxInclusive=-1 at type `Loc`; named restrictions retain effective facet locations/provenance.
-Local token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
+Local string/token/NMTOKEN particles/sequences remain `GenerateGo`-unsupported;
 inline Boolean/integer/decimal elements query-only/rejected. Attributes remain query-only;
 `GenerateGo` rejects every `ComponentKindAttributeDeclaration`. Local generation is limited to
 default-occurrence Boolean/integer/decimal choices/sequences; `int`, `short`, `byte`, `unsignedLong`, `nonNegativeInteger`, `negativeInteger`, `precisionDecimal`,

@@ -88,10 +88,7 @@ and query behavior, including current shape exclusions, are described in the
 [package contract](../../doc.go). The architecture documents the separate
 [validation and generation](../../ARCHITECTURE.md#validation-and-code-generation)
 consumer boundaries. These current support limits are not part of the
-occurrence representation decision. Local atomic `xs:string` particles and named
-restrictions retain their resolved type/facet facts, locations, and exact
-occurrences in the supported direct choice, sequence, and bounded-extension query
-shapes; validation and generation remain unsupported consumers.
+occurrence representation decision.
 
 ## Public API migration
 

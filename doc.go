@@ -52,7 +52,8 @@
 // built-in xs:boolean, named boolean-restriction, integer, decimal, built-in/named/inline
 // xs:negativeInteger, explicitly typed
 // built-in or supported named xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger, and explicitly typed built-in or
-// supported named xs:token/xs:NMTOKEN and atomic xs:string particles for named global complex types. It
+// supported named xs:token/xs:NMTOKEN and atomic xs:string particles for named global complex types and
+// supported bounded attribute-free extensions. It
 // also admits built-in/named/inline xs:negativeInteger and built-in or supported
 // named-effective xs:int/xs:short/xs:byte/xs:unsignedLong/xs:nonNegativeInteger particles in
 // supported attribute-free extension choices and sequences under every policy; they
@@ -423,7 +424,7 @@
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
 // all-Boolean/numeric direct choices and default-bounded direct sequences. Local
-// int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, anonymous, and token/NMTOKEN consumers, repeated/non-default
+// int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, string, anonymous, and token/NMTOKEN consumers, repeated/non-default
 // particles, and anonymous targets remain unsupported; numeric integer/decimal
 // mixtures remain supported.
 package goxsd9
