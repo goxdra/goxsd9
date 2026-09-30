@@ -70,6 +70,10 @@ func newDirtyClaimResumeFixture(t *testing.T, issue int, runID string, tracked [
 	t.Helper()
 	base := newBaseRepositoryFixture(t, false)
 	for _, name := range tracked {
+		parent := filepath.Dir(filepath.Join(base.primary, name))
+		if err := os.MkdirAll(parent, 0o700); err != nil {
+			t.Fatalf("create tracked fixture parent %s: %v", parent, err)
+		}
 		writeFixtureFile(t, base.primary, name, "original "+name+"\n")
 		runGitTest(t, base.primary, "add", name)
 	}
@@ -433,5 +437,88 @@ func TestClaimResumeDirtyRejectsMovedRefAndDuplicateWorktree(t *testing.T) {
 				t.Fatalf("local head moved to %s", got)
 			}
 		})
+	}
+}
+
+//nolint:gocognit // Each flag must preserve ref, Project, index, and source state.
+func TestClaimResumeDirtyRejectsHiddenIndexFlagsBeforeMutation(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		flag string
+		want string
+	}{
+		{name: "assume unchanged", flag: "--assume-unchanged", want: "h "},
+		{name: "skip worktree", flag: "--skip-worktree", want: "S "},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newDirtyClaimResumeFixture(t, 309, "run-309-dirty", []string{"source.go"})
+			writeFixtureFile(t, fixture.worktree, "new.go", "untracked bytes\n")
+			runGitTest(t, fixture.worktree, "update-index", test.flag, "source.go")
+			fixture.handoffBody = dirtyClaimResumeHandoffBody(fixture, strings.Repeat("0", 64))
+			backend := newClaimResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			localBefore := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+			remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue))
+			err := application.run(claimResumeArgs(fixture, false))
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal ||
+				!strings.Contains(err.Error(), "skip-worktree or assume-unchanged") {
+				t.Fatalf("hidden index flag error = %v, disposition %d", err, operationDispositionOf(err))
+			}
+			if backend.mutations != 0 || !backend.needsHuman || backend.projectStatus != "Backlog" {
+				t.Fatalf("hidden index flag changed claim state: mutations %d, needs-human %t, Project %s",
+					backend.mutations, backend.needsHuman, backend.projectStatus)
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != localBefore {
+				t.Fatalf("local claim head moved from %s to %s", localBefore, got)
+			}
+			if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue)); got != remoteBefore {
+				t.Fatalf("remote claim ref moved from %q to %q", remoteBefore, got)
+			}
+			assertDirtyClaimResumeFile(t, fixture.worktree, "new.go", "untracked bytes\n")
+			if flags := runGitTest(t, fixture.worktree, "ls-files", "-v", "source.go"); !strings.HasPrefix(flags, test.want) {
+				t.Fatalf("hidden index flag was cleared: %q", flags)
+			}
+		})
+	}
+}
+
+func TestClaimResumeDirtyRejectsTrackedSymlinkParentBeforeMutation(t *testing.T) {
+	fixture := newDirtyClaimResumeFixture(t, 417, "run-417-dirty", []string{"pkg/source.go"})
+	writeFixtureFile(t, fixture.worktree, "new.go", "untracked bytes\n")
+	parent := filepath.Join(fixture.worktree, "pkg")
+	if err := os.Remove(filepath.Join(parent, "source.go")); err != nil {
+		t.Fatalf("remove tracked source before symlink: %v", err)
+	}
+	if err := os.Remove(parent); err != nil {
+		t.Fatalf("remove tracked parent before symlink: %v", err)
+	}
+	external := t.TempDir()
+	writeFixtureFile(t, external, "source.go", "external bytes\n")
+	if err := os.Symlink(external, parent); err != nil {
+		t.Fatalf("replace tracked parent with symlink: %v", err)
+	}
+	fixture.handoffBody = dirtyClaimResumeHandoffBody(fixture, strings.Repeat("0", 64))
+	backend := newClaimResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	localBefore := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	remoteBefore := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue))
+	err := application.run(claimResumeArgs(fixture, false))
+	if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), "not a plain directory") {
+		t.Fatalf("symlink parent error = %v, disposition %d", err, operationDispositionOf(err))
+	}
+	if backend.mutations != 0 || !backend.needsHuman || backend.projectStatus != "Backlog" {
+		t.Fatalf("symlink parent changed claim state: mutations %d, needs-human %t, Project %s",
+			backend.mutations, backend.needsHuman, backend.projectStatus)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != localBefore {
+		t.Fatalf("local claim head moved from %s to %s", localBefore, got)
+	}
+	if got := runGitTest(t, fixture.primary, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue)); got != remoteBefore {
+		t.Fatalf("remote claim ref moved from %q to %q", remoteBefore, got)
+	}
+	assertDirtyClaimResumeFile(t, fixture.worktree, "new.go", "untracked bytes\n")
+	assertDirtyClaimResumeFile(t, external, "source.go", "external bytes\n")
+	if target, linkErr := os.Readlink(parent); linkErr != nil || target != external {
+		t.Fatalf("symlink parent changed: target %q, error %v", target, linkErr)
 	}
 }
