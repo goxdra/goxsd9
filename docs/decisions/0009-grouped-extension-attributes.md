@@ -81,7 +81,7 @@ constraints, or consumer behavior.
 Simple-type variety and reference identities remain distinct from list/union
 value semantics; named simple-type `final` controls remain enforced. The
 identity-only built-ins—`xs:language`,
-`xs:NCName`, `xs:anyURI`, and `xs:ID`—are not widened into local attribute
+`xs:NCName`, `xs:anyURI`, `xs:ID`, and `xs:QName`—are not widened into local attribute
 lexical or value support. For a local use, `name` is an
 unqualified NCName and `ref` is an expanded QName; they are mutually exclusive
 and do not share the global-declaration name path.
