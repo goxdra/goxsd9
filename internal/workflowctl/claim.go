@@ -365,27 +365,48 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 }
 
 func (a app) proveClaimLeaseAndLocalMarkers(root, branch string, number int, local, remote string) (time.Time, string, error) {
-	if local == remote {
-		lease, runID, err := a.readClaimMetadata(root)
-		if err != nil {
-			return time.Time{}, "", err
-		}
-		if err := validateClaimLocalBranch(branch, number, runID); err != nil {
-			return time.Time{}, "", err
-		}
-		return lease, runID, nil
-	}
-	lease, runID, err := a.readClaimMetadataAt(root, remote)
+	marker, err := a.readAuthoritativeClaimMarker(root, remote, number)
 	if err != nil {
 		return time.Time{}, "", fmt.Errorf("read authoritative claim metadata at %s: %w", remote, err)
 	}
-	if err := validateClaimLocalBranch(branch, number, runID); err != nil {
+	if err := validateClaimLocalBranch(branch, number, marker.runID); err != nil {
 		return time.Time{}, "", err
 	}
-	if err := a.verifyUnpublishedClaimMarkers(root, branch, number, runID, local, remote); err != nil {
+	if local == remote {
+		return marker.lease, marker.runID, nil
+	}
+	if err := a.verifyUnpublishedClaimMarkers(root, branch, number, marker.runID, local, remote); err != nil {
 		return time.Time{}, "", err
 	}
-	return lease, runID, nil
+	return marker.lease, marker.runID, nil
+}
+
+func (a app) readAuthoritativeClaimMarker(root, head string, number int) (canonicalClaimCommit, error) {
+	history, err := a.command(root, "git", "log", "--first-parent", "--format=%H%x00%B%x00", head)
+	if err != nil {
+		return canonicalClaimCommit{}, retryableOperation("read claim metadata", fmt.Errorf("read first-parent claim history: %w", err))
+	}
+	records, err := splitRunLocalHistory(history, claimBranch(number))
+	if err != nil {
+		return canonicalClaimCommit{}, err
+	}
+	for _, record := range records {
+		if !isCanonicalClaimMarkerShape(record.message) {
+			continue
+		}
+		marker, err := a.readCanonicalClaimIdentity(root, record.commit, "")
+		if err != nil {
+			return canonicalClaimCommit{}, fmt.Errorf("verify authoritative claim marker %s: %w", record.commit, err)
+		}
+		if marker.message != record.message {
+			return canonicalClaimCommit{}, stateError("claim marker %s history disagrees with its Git object; preserve claim artifacts", record.commit)
+		}
+		if marker.issue != number {
+			return canonicalClaimCommit{}, stateError("claim marker %s binds issue #%d, not claim issue #%d; preserve claim artifacts", record.commit, marker.issue, number)
+		}
+		return marker, nil
+	}
+	return canonicalClaimCommit{}, stateError("claim head %s has no canonical first-parent marker for issue #%d; preserve claim artifacts", head, number)
 }
 
 func (a app) verifyUnpublishedClaimMarkers(root, branch string, number int, runID, local, remote string) error {
@@ -414,31 +435,6 @@ func (a app) verifyUnpublishedClaimMarkers(root, branch string, number int, runI
 		}
 	}
 	return nil
-}
-
-func (a app) readClaimMetadata(root string) (time.Time, string, error) {
-	text, err := a.command(root, "git", "log", "-100", "--format=%B")
-	return parseClaimMetadata(text, err)
-}
-
-func (a app) readClaimMetadataAt(root, head string) (time.Time, string, error) {
-	text, err := a.command(root, "git", "log", "-100", "--format=%B", head)
-	return parseClaimMetadata(text, err)
-}
-
-func parseClaimMetadata(text string, err error) (time.Time, string, error) {
-	if err != nil {
-		return time.Time{}, "", retryableOperation("read claim metadata", fmt.Errorf("read claim metadata: %w", err))
-	}
-	lease, err := trailerTime(text)
-	if err != nil {
-		return time.Time{}, "", terminalOperation("read claim metadata", err)
-	}
-	runID, err := trailerValue(text, "Agent-Run-ID")
-	if err != nil {
-		return time.Time{}, "", terminalOperation("read claim metadata", err)
-	}
-	return lease, runID, nil
 }
 
 func validateClaimDeadline(number int, deadline, now time.Time) error {

@@ -801,6 +801,88 @@ func TestLocalAheadClaimIgnoresForeignMarkerOnMergedSideParent(t *testing.T) {
 	}
 }
 
+func TestPublishedClaimMergeIgnoresForeignMarkerOnSideParent(t *testing.T) {
+	fixture := newActiveResumeClaimFixture(t)
+	active := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	foreign := createResumeTestCommit(t, fixture.worktree, active,
+		claimMessage(15, "run-other", time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+	runGitTest(t, fixture.worktree, "branch", "upstream-marker", foreign)
+	runGitTest(t, fixture.worktree, "merge", "--no-ff", "--no-edit", "upstream-marker")
+	merge := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	runGitTest(t, fixture.primary, "push", "origin", merge+":refs/heads/agent/issue-14")
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.verifyClaim(); err != nil {
+		t.Fatalf("verify published merge with upstream marker: %v", err)
+	}
+	if err := application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14); err != nil {
+		t.Fatalf("verify published merge push: %v", err)
+	}
+	if err := application.renewClaim(); err != nil {
+		t.Fatalf("renew published merge with upstream marker: %v", err)
+	}
+	renewed := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if got := runGitTest(t, fixture.worktree, "rev-parse", renewed+"^1"); got != merge {
+		t.Fatalf("renewal parent = %s, want published merge %s", got, merge)
+	}
+	if got := resumeRemoteHead(t, fixture); got != renewed {
+		t.Fatalf("remote renewal = %s, want %s", got, renewed)
+	}
+}
+
+func TestPublishedClaimRejectsWrongIssueMarkerBeforeOlderValidMarker(t *testing.T) {
+	fixture := newActiveResumeClaimFixture(t)
+	active := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	wrong := createResumeTestCommit(t, fixture.worktree, active,
+		claimMessage(15, fixture.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+	runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, wrong, active)
+	runGitTest(t, fixture.primary, "push", "origin", wrong+":refs/heads/agent/issue-14")
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	for _, gate := range []struct {
+		name string
+		run  func() error
+	}{
+		{name: "verify", run: application.verifyClaim},
+		{name: "push guard", run: func() error {
+			return application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14)
+		}},
+		{name: "renew", run: application.renewClaim},
+	} {
+		if err := gate.run(); err == nil || !strings.Contains(err.Error(), "binds issue #15, not claim issue #14") {
+			t.Fatalf("%s accepted wrong-issue remote marker: %v", gate.name, err)
+		}
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != wrong {
+		t.Fatalf("rejected renewal moved local head to %s", got)
+	}
+	if got := resumeRemoteHead(t, fixture); got != wrong {
+		t.Fatalf("rejected renewal moved remote head to %s", got)
+	}
+}
+
+func TestPublishedClaimFindsMarkerBeyondOneHundredSourceCommits(t *testing.T) {
+	fixture := newActiveResumeClaimFixture(t)
+	active := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	head := active
+	for range 101 {
+		head = createResumeTestCommit(t, fixture.worktree, head, "test: ordinary source commit\n")
+	}
+	runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, head, active)
+	runGitTest(t, fixture.primary, "push", "origin", head+":refs/heads/agent/issue-14")
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.verifyClaim(); err != nil {
+		t.Fatalf("verify claim beyond 100 ordinary commits: %v", err)
+	}
+	if err := application.renewClaim(); err != nil {
+		t.Fatalf("renew claim beyond 100 ordinary commits: %v", err)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^1"); got != head {
+		t.Fatalf("renewal parent = %s, want %s", got, head)
+	}
+}
+
 func TestLocalAheadClaimMarkerCannotOverrideExpiredRemoteLease(t *testing.T) {
 	fixture := newResumeFixture(t)
 	local := createResumeTestCommit(t, fixture.worktree, fixture.expected,
