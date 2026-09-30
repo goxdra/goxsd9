@@ -37,10 +37,11 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    Smith implements/tests/fixes; reports paths/tests. Follow `AGENTS.md`;
    mechanize. Unfinished boundaries need unsupported feature ID, `Loc`, and
    versioned SpecRef; issue actionable discoveries, not TODOs.
-6. Renew at boundaries/pushes with `claim renew`; never poll.
+6. Renew at boundaries/pushes with `claim renew`; no polling.
    Expired PR: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human`
-   renews remote only. Finish work; use `--integrate` to attach marker,
-   restore Picked before push.
+   renews remotely. Finish Git operations; commit/clean local work.
+   Rerun `--integrate` with original `--expected-head SHA`;
+   restore Picked; push.
 7. Run `go tool workflowctl check`; fix failures and update docs.
 8. Commit/push under `AGENTS.md`; open draft PR with `go tool workflowctl pr
    open ISSUE --title TITLE --body-file FILE` and outcome, consultation,
@@ -86,12 +87,11 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
     evaluation record PR --attestation-file FILE`. Never choose verdict. On fail,
     Smith fixes/checks/pushes; repeat Curator/challenge/Examiner. Three
     authenticated fails mean needs-human; transport failures remain retryable.
-11. On pass, write squash summary covering problem/outcome/rationale/invariants;
-    omit metadata/PR Markdown. `go tool
-    workflowctl pr finish PR --summary-file FILE` verifies, SHA-bound REST
-    merges, and cleans proven refs/worktrees. On cleanup failure, preserve
+11. Write run-directory squash summary: problem/outcome/rationale/invariants; omit metadata.
+    `go tool workflowctl pr finish PR --summary-file FILE` verifies SHA-bound
+    REST merge and cleans proven refs/worktrees. On cleanup failure, preserve
     artifacts; run `go tool workflowctl pr recover PR`. `claim prune ISSUE`
-    requires merged proof. Draft replacement needs fresh challenge/Examiner
+    requires merged proof. Draft replacement requires fresh challenge/Examiner
     on identical-head ready REST PR.
 ## Waiting and pilot
 

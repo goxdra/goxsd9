@@ -14,10 +14,11 @@ Preserve no-PR handoffs; archive only expired claims without open PR.
 Claim resume:
 `go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]`.
 PR resume: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]`.
-It CAS-pushes an empty same-run marker from exact REST head; local work stays
-intact. Keep needs-human/Backlog while pending. Finish local work, then use
-`--integrate` to attach the marker and reconcile status;
-renewal and pushes reject pending work.
+Use original expired REST PR SHA. CAS-push empty same-run marker; preserve
+local work and needs-human/Backlog. Complete Git operations; commit/clean
+local work. Rerun with `--integrate` and original
+`--expected-head SHA` to attach marker, restore Picked. Renewal/push reject
+pending work.
 Transient agent, checkout, transport, and challenge failures remain retryable.
 Exactly three authenticated Examiner `fail` receipts add `needs-human` and return
 Backlog. Write blocker/evidence Markdown; run

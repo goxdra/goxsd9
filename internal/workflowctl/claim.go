@@ -261,10 +261,13 @@ func (a app) renewClaim() error {
 	if err != nil {
 		return retryableOperationIfRecoverable("read claim heads", fmt.Errorf("read claim heads: %w", err))
 	}
-	if local != remote {
-		return stateError("claim renewal requires local HEAD %s to match remote claim head %s; integrate a pending PR renewal before renewing", local, remote)
+	if proofErr := a.validateRenewClaimHeads(root, local, remote); proofErr != nil {
+		return proofErr
 	}
 	lease, runID, err := a.readClaimMetadata(root)
+	if local != remote {
+		lease, runID, err = a.readClaimMetadataAt(root, remote)
+	}
 	if err != nil {
 		return err
 	}
@@ -291,6 +294,22 @@ func (a app) renewClaim() error {
 		return stateError("renew claim: remote branch changed: %v", err)
 	}
 	return writeLine(a.stdout, "claim #%d renewed until %s", number, lease.Format(time.RFC3339))
+}
+
+func (a app) validateRenewClaimHeads(root, local, remote string) error {
+	if local == remote {
+		return nil
+	}
+	if _, err := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); err != nil {
+		if isGitNonAncestor(err) {
+			return stateError("claim branch diverged; local=%s remote=%s; integrate a pending PR renewal before renewing", local, remote)
+		}
+		return fmt.Errorf("verify claim ancestry before renewal: %w", err)
+	}
+	if err := a.validateResumeOperationState(root); err != nil {
+		return fmt.Errorf("verify claim worktree before renewal: %w", err)
+	}
+	return nil
 }
 
 func (a app) verifyClaim() error {

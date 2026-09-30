@@ -628,6 +628,44 @@ func TestPRResumePushGuardRejectsUnfinishedMergeAfterIntegration(t *testing.T) {
 	}
 }
 
+func TestClaimRenewPreservesOrdinaryLocalAheadWork(t *testing.T) {
+	fixture := newResumeFixture(t)
+	active := createResumeTestCommit(t, fixture.worktree, fixture.expected,
+		claimMessage(14, fixture.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+	runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, active, fixture.expected)
+	runGitTest(t, fixture.primary, "push", "origin", active+":refs/heads/agent/issue-14")
+	writeFixtureFile(t, fixture.worktree, "source", "ordinary unpublished source\n")
+	runGitTest(t, fixture.worktree, "add", "source")
+	runGitTest(t, fixture.worktree, "commit", "--no-gpg-sign", "-m", "test: ordinary local source")
+	source := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	writeFixtureFile(t, fixture.worktree, "staged", "preserved staged work\n")
+	runGitTest(t, fixture.worktree, "add", "staged")
+	writeFixtureFile(t, fixture.worktree, "untracked", "preserved untracked work\n")
+	paths := resumePreservedPaths(t, fixture.worktree)
+	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.renewClaim(); err != nil {
+		t.Fatalf("renew ordinary local-ahead claim: %v", err)
+	}
+	marker := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if got := resumeRemoteHead(t, fixture); got != marker {
+		t.Fatalf("renewed fixed branch = %s, want local marker %s", got, marker)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", marker+"^"); got != source {
+		t.Fatalf("renewal parent = %s, want unpublished source %s", got, source)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", marker+"^{tree}"); got != runGitTest(t, fixture.worktree, "rev-parse", source+"^{tree}") {
+		t.Fatalf("renewal changed source tree to %s", got)
+	}
+	after := snapshotResumeLocal(t, fixture.worktree, paths)
+	for index, path := range paths {
+		if !bytes.Equal(after.files[index], before.files[index]) {
+			t.Fatalf("ordinary renewal changed local artifact %s", path)
+		}
+	}
+}
+
 //nolint:gocognit,funlen // Table cases keep all initial read operation boundaries together.
 func TestPRResumeInitialReadOperationBoundaries(t *testing.T) {
 	tests := []struct {
