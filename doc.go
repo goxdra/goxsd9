@@ -17,6 +17,11 @@
 // A successful ParseSchema returns an immutable Schema; Documents, Components,
 // Lookup, Find, FindKind, and Walk expose deterministic query views, while
 // AttributeDeclaration exposes resolved type and value-constraint facts.
+// Supported global elements expose ordered immutable unique, key, and keyref
+// facts with lexical XPath and namespace context. Keyrefs resolve to nested
+// identity IDs before publication. Identity-constrained elements are query-only;
+// ValidateInstance and GenerateGo return located unsupported diagnostics;
+// XPath evaluation, local constraints, and XSD 1.1 ref reuse remain unsupported.
 // ValidateInstance and GenerateGo are separate consumers of their supported
 // schema projections and do not expand the query model.
 // The unqualified schema/@version is an inert optional xs:token label: absent,
@@ -242,7 +247,10 @@
 // TargetID, lexical order, and exact occurrences without target-type gating.
 // ValidateInstance and GenerateGo consume only supported non-extension
 // default-occurrence direct-choice references to built-in or named global
-// Boolean, integer, or decimal targets; only those targets are consumer-eligible.
+// Boolean, integer, or decimal targets without identity constraints; constrained
+// targets remain queryable but validation rejects at the instance use Loc with
+// the first constraint Loc related. GenerateGo rejects at that constraint Loc
+// with no output.
 // References to global `nonNegativeInteger` remain queryable without target-type
 // gating; direct-choice and sequence consumers reject them with located
 // unsupported diagnostics and nil GenerateGo output.
@@ -320,7 +328,9 @@
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or, in
 // non-extension direct choices, default-occurrence references to global Boolean,
-// integer, or decimal elements.
+// integer, or decimal elements without identity constraints. Constrained roots
+// and referenced targets reject validation at the instance use Loc, relating
+// the first constraint Loc.
 // Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
@@ -392,10 +402,12 @@
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named-typed nonNegativeInteger element declarations and
 // standalone named atomic nonNegativeInteger simple-type components in the
-// resolved graph generate.
+// resolved graph generate only when element declarations have no identity
+// constraints; standalone simple-type components have no element facts.
 // Element declarations cover direct, named, forward, included, imported, and
-// chameleon forms and must be ordinary: abstract=false and nillable=false. The
-// abstract/nillable gate applies only to global element declarations; either
+// chameleon forms and must be ordinary: abstract=false, nillable=false, and no
+// identity constraints. The abstract/nillable gate applies only to global
+// element declarations; either
 // flag true is unsupported by GenerateGo with FailureUnsupported/GOXSD9029 and
 // nil output. Built-in nonNegativeInteger element fields and standalone named
 // nonNegativeInteger declarations use StrictInteger; named-typed element fields
@@ -411,7 +423,10 @@
 // declarations generate, as do global inline-element string/token/NMTOKEN
 // declarations. Non-extension default-occurrence direct-choice references to
 // global built-in/named Boolean, integer, or decimal targets are also
-// generation-eligible. Global attribute declarations remain query-only,
+// generation-eligible only when targets have no identity constraints. Any
+// identity-constrained global element, including a reference target, makes
+// GenerateGo return FailureUnsupported/GOXSD9029 at its first constraint Loc
+// with no output. Global attribute declarations remain query-only,
 // inline-attribute consumers remain excluded, and GenerateGo rejects every
 // ComponentKindAttributeDeclaration. GenerateGo also rejects retained local
 // `nonNegativeInteger` particles.

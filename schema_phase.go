@@ -1676,7 +1676,7 @@ func validateElementGlobalChildren(parent *syntaxElement, children []*syntaxElem
 			}
 		case "unique", "key", "keyref":
 			phase = elementGlobalConstraintPhase
-			candidate.consider(child, parent.name.local)
+			// Identity children are checked while constructing their ordered inputs.
 		default:
 			if err := forbiddenGlobalSchemaChild(parent.name.local, child); err != nil {
 				return err

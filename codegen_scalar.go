@@ -439,6 +439,16 @@ func rejectCodegenElementFacts(components []Component, version XSDVersion) error
 		if !ok {
 			continue
 		}
+		if constraints := declaration.IdentityConstraints(); len(constraints) > 0 {
+			return newCodegenUnsupportedForReference(
+				constraints[0].Loc(),
+				fmt.Sprintf("global element %q has identity constraints outside Go generation", declaration.Name()),
+				[]Loc{declaration.Loc()},
+				fmt.Errorf("%w: identity constraints", errCodegenUnsupported),
+				version,
+				schemaIdentitySpecRef(version, "Identity-constraint_Definition_details"),
+			)
+		}
 		if declaration.IsAbstract() {
 			return newCodegenElementUnsupported(
 				declaration.Loc(),
