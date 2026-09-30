@@ -258,7 +258,6 @@ func TestIdentityConstraintUnsupportedAndPolicyBoundaries(t *testing.T) {
 		cause                   error
 	}{
 		{"XSD 1.1 ref reuse", identityRoot(`<xs:element name="item" type="xs:integer"><xs:key ref="t:k"/></xs:element>`), "ref=", diagnosticSchemaIdentityUnsupportedCode, Strict11, errSchemaIdentityUnsupported},
-		{"XSD 1.1 ref reuse with name", identityRoot(`<xs:element name="item" type="xs:integer"><xs:key name="alias" ref="t:k"/></xs:element>`), "ref=", diagnosticSchemaIdentityUnsupportedCode, Strict11, errSchemaIdentityUnsupported},
 		{"named owner ref reuse", identityRoot(`<xs:simpleType name="T"><xs:restriction base="xs:integer"/></xs:simpleType><xs:element name="item" type="t:T"><xs:key ref="t:k"/></xs:element>`), "ref=", diagnosticSchemaIdentityUnsupportedCode, Strict11, errSchemaIdentityUnsupported},
 		{"inline owner ref reuse", identityRoot(`<xs:element name="item"><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType><xs:key ref="t:k"/></xs:element>`), "ref=", diagnosticSchemaIdentityUnsupportedCode, Strict11, errSchemaIdentityUnsupported},
 		{"Strict10 ref mismatch", identityRoot(`<xs:element name="item" type="xs:integer"><xs:key ref="t:k"/></xs:element>`), "ref=", UnsupportedSchemaSyntaxCode, Strict10, errLanguagePolicyMismatch},
@@ -324,6 +323,81 @@ func TestIdentityConstraintChameleonIncludeAndUniqueTarget(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Check both reference forms and target identities under each policy.
+func TestIdentityConstraintChameleonLocalReferAdoptsEffectiveNamespace(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:include schemaLocation="child.xsd"/></xs:schema>`
+	child := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test"><xs:element name="item" type="xs:integer"><xs:keyref name="r" refer="k"><xs:selector xpath="."/><xs:field xpath="@id"/></xs:keyref><xs:key name="k"><xs:selector xpath="."/><xs:field xpath="@id"/></xs:key><xs:keyref name="s" refer="t:k"><xs:selector xpath="."/><xs:field xpath="@id"/></xs:keyref></xs:element></xs:schema>`
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{"child.xsd": {id: "child.xsd", contents: child}}, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			components := schema.Components()
+			if len(components) != 1 {
+				t.Fatalf("component count %d", len(components))
+			}
+			owner, ok := components[0].ElementDeclaration()
+			if !ok {
+				t.Fatal("chameleon element missing")
+			}
+			constraints := owner.IdentityConstraints()
+			if len(constraints) != 3 || constraints[1].Name() != mustTestQName(t, "urn:test", "k") {
+				t.Fatalf("identity facts %v", constraints)
+			}
+			for _, tc := range []struct {
+				index int
+				text  string
+			}{{0, `refer="k"`}, {2, `refer="t:k"`}} {
+				refer, loc, ok := constraints[tc.index].Refer()
+				if !ok || refer != mustTestQName(t, "urn:test", "k") || loc != mustTestLoc(t, "child.xsd", 1, strings.Index(child, tc.text)+1) {
+					t.Fatalf("refer[%d] = %v %v %t", tc.index, refer, loc, ok)
+				}
+				target, ok := constraints[tc.index].TargetID()
+				if !ok || target != constraints[1].ID() {
+					t.Fatalf("target[%d] = %v %t", tc.index, target, ok)
+				}
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Check the imported target and preserved reference under each policy.
+func TestIdentityConstraintChameleonQualifiedReferKeepsNamespace(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:include schemaLocation="child.xsd"/></xs:schema>`
+	child := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:o="urn:other"><xs:import namespace="urn:other" schemaLocation="other.xsd"/><xs:element name="item" type="xs:integer"><xs:keyref name="r" refer="o:k"><xs:selector xpath="."/><xs:field xpath="@id"/></xs:keyref></xs:element></xs:schema>`
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:element name="item" type="xs:integer"><xs:key name="k"><xs:selector xpath="."/><xs:field xpath="@id"/></xs:key></xs:element></xs:schema>`
+	fixtures := map[string]discoveryFixture{"child.xsd": {id: "child.xsd", contents: child}, "other.xsd": {id: "other.xsd", contents: other}}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			components := schema.Components()
+			if len(components) != 2 {
+				t.Fatalf("component count %d", len(components))
+			}
+			owner, ok := components[0].ElementDeclaration()
+			if !ok {
+				t.Fatal("chameleon element missing")
+			}
+			targetOwner, ok := components[1].ElementDeclaration()
+			if !ok {
+				t.Fatal("imported element missing")
+			}
+			refer, loc, ok := owner.IdentityConstraints()[0].Refer()
+			if !ok || refer != mustTestQName(t, "urn:other", "k") || loc != mustTestLoc(t, "child.xsd", 1, strings.Index(child, `refer="o:k"`)+1) {
+				t.Fatalf("qualified refer = %v %v %t", refer, loc, ok)
+			}
+			target, ok := owner.IdentityConstraints()[0].TargetID()
+			if !ok || target != targetOwner.IdentityConstraints()[0].ID() {
+				t.Fatalf("qualified target = %v %t", target, ok)
+			}
+		})
+	}
+}
+
 func TestIdentityConstraintAdditionalMalformedExits(t *testing.T) {
 	tests := []struct {
 		name, inner, token string
@@ -336,6 +410,13 @@ func TestIdentityConstraintAdditionalMalformedExits(t *testing.T) {
 		{"key with refer", `<xs:key name="k" refer="t:other"><xs:selector xpath="."/><xs:field xpath="@id"/></xs:key>`, `refer=`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
 		{"forbidden child", `<xs:key name="k"><xs:selector xpath="."/><xs:field xpath="@id"/><xs:assert test="true()"/></xs:key>`, `<xs:assert`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
 		{"invalid refer QName", `<xs:keyref name="r" refer="bad::q"><xs:selector xpath="."/><xs:field xpath="@id"/></xs:keyref>`, `refer=`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
+		{"ref with name", `<xs:key name="alias" ref="t:k"/>`, `ref=`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
+		{"ref with name compatibility", `<xs:key name="alias" ref="t:k"/>`, `ref=`, Compatibility, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
+		{"invalid ref QName", `<xs:key ref="bad::q"/>`, `ref=`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
+		{"invalid ref QName compatibility", `<xs:key ref="bad::q"/>`, `ref=`, Compatibility, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
+		{"ref with selector", `<xs:key ref="t:k"><xs:selector xpath="."/></xs:key>`, `<xs:selector`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
+		{"ref with field", `<xs:key ref="t:k"><xs:field xpath="@id"/></xs:key>`, `<xs:field`, Compatibility, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
+		{"keyref ref with refer", `<xs:keyref ref="t:k" refer="t:k"/>`, `ref=`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
 		{"invalid XPath namespace", `<xs:key name="k"><xs:selector xpathDefaultNamespace="%ZZ" xpath="."/><xs:field xpath="@id"/></xs:key>`, `xpathDefaultNamespace=`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
 		{"identity text", `<xs:key name="k">invalid<xs:selector xpath="."/><xs:field xpath="@id"/></xs:key>`, `invalid<xs:selector`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
 		{"XPath text", `<xs:key name="k"><xs:selector xpath=".">invalid</xs:selector><xs:field xpath="@id"/></xs:key>`, `invalid</xs:selector`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},

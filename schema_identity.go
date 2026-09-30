@@ -411,7 +411,7 @@ func schemaIdentityConstraintInputFromElement(element *syntaxElement, facts sche
 		return input, err
 	}
 	input.name = name
-	if err := schemaIdentityConstraintRefer(element, &input, version); err != nil {
+	if err := schemaIdentityConstraintRefer(element, &input, facts, version); err != nil {
 		return input, err
 	}
 	if err := schemaIdentityConstraintChildren(element, &input, facts, version); err != nil {
@@ -424,6 +424,8 @@ func validateSchemaIdentityConstraintAttributes(element *syntaxElement, version 
 	if err := schemaIdentityUniqueAttributes(element, version, "name", "refer", "ref", "id"); err != nil {
 		return err
 	}
+	var reuse syntaxAttribute
+	hasReuse := false
 	for _, attribute := range element.attrs {
 		if attribute.name.namespace == xsdNamespaceURI {
 			return newSchemaIdentityInvalid(attribute.loc, "identity constraint has a forbidden XSD-qualified attribute", version)
@@ -434,13 +436,56 @@ func validateSchemaIdentityConstraintAttributes(element *syntaxElement, version 
 		switch attribute.name.local {
 		case "name", "refer", "id":
 		case "ref":
-			if version == XSDVersion10 {
-				return newXSD11FeatureMismatchAtReference(FeatureSchemaSyntax, UnsupportedSchemaSyntaxCode, attribute.loc, "identity constraint ref reuse is an XSD 1.1-only construct", schemaIdentitySpecRef(XSDVersion11, "src-identity-constraint"), nil)
-			}
-			return newSchemaIdentityUnsupported(attribute.loc, "XSD 1.1 identity constraint ref reuse is not implemented", version)
+			reuse = attribute
+			hasReuse = true
 		default:
 			return newSchemaIdentityInvalid(attribute.loc, "identity constraint has a forbidden attribute", version)
 		}
+	}
+	if hasReuse {
+		return validateSchemaIdentityRefReuse(element, reuse, version)
+	}
+	return nil
+}
+
+func validateSchemaIdentityRefReuse(element *syntaxElement, ref syntaxAttribute, version XSDVersion) error {
+	for _, attribute := range element.attrs {
+		if attribute.name.namespace == "" && (attribute.name.local == "name" || attribute.name.local == "refer") {
+			return newSchemaIdentityInvalid(ref.loc, "identity constraint ref cannot be combined with name or refer", version)
+		}
+	}
+	if _, err := expandSchemaQName(element, ref); err != nil {
+		return newSchemaIdentityDiagnostic(FailureInvalid, diagnosticSchemaIdentitySyntaxCode, ref.loc, "identity constraint ref is not a valid QName", nil, version, "src-identity-constraint", errors.Join(errSchemaIdentitySyntax, err))
+	}
+	if err := validateSchemaIdentityRefReuseChildren(element, version); err != nil {
+		return err
+	}
+	if version == XSDVersion10 {
+		return newXSD11FeatureMismatchAtReference(FeatureSchemaSyntax, UnsupportedSchemaSyntaxCode, ref.loc, "identity constraint ref reuse is an XSD 1.1-only construct", schemaIdentitySpecRef(XSDVersion11, "src-identity-constraint"), nil)
+	}
+	return newSchemaIdentityUnsupported(ref.loc, "XSD 1.1 identity constraint ref reuse is not implemented", version)
+}
+
+func validateSchemaIdentityRefReuseChildren(element *syntaxElement, version XSDVersion) error {
+	annotationSeen := false
+	for _, node := range element.children {
+		if text, ok := node.(syntaxText); ok {
+			if !xmlWhitespace([]byte(text.data)) {
+				return newSchemaIdentityInvalid(text.loc, "identity ref cannot contain character data", version)
+			}
+			continue
+		}
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			return newSchemaBridgeInvariant(element.loc, "identity ref has an unknown syntax node")
+		}
+		if child.name.namespace != xsdNamespaceURI || child.name.local != "annotation" || annotationSeen {
+			return newSchemaIdentityInvalid(child.loc, "identity ref has a forbidden child", version)
+		}
+		if err := validateSchemaAnnotationElement(child); err != nil {
+			return err
+		}
+		annotationSeen = true
 	}
 	return nil
 }
@@ -461,7 +506,7 @@ func schemaIdentityConstraintName(element *syntaxElement, targetNamespace string
 	return expanded, nil
 }
 
-func schemaIdentityConstraintRefer(element *syntaxElement, input *schemaIdentityConstraintInput, version XSDVersion) error {
+func schemaIdentityConstraintRefer(element *syntaxElement, input *schemaIdentityConstraintInput, facts schemaDocumentFacts, version XSDVersion) error {
 	references := syntaxAttributesByLocal(element, "refer")
 	if input.kind != IdentityConstraintKeyref {
 		if len(references) > 0 {
@@ -475,6 +520,12 @@ func schemaIdentityConstraintRefer(element *syntaxElement, input *schemaIdentity
 	refer, err := expandSchemaQName(element, references[0])
 	if err != nil {
 		return newSchemaIdentityDiagnostic(FailureInvalid, diagnosticSchemaIdentitySyntaxCode, references[0].loc, "keyref refer is not a valid QName", nil, version, "src-identity-constraint", errors.Join(errSchemaIdentitySyntax, err))
+	}
+	if facts.chameleon && facts.targetNamespace.present && refer.Namespace() == "" {
+		refer, err = NewQName(facts.targetNamespace.value, refer.Local())
+		if err != nil {
+			return newSchemaBridgeInvariant(references[0].loc, "construct chameleon identity reference QName")
+		}
 	}
 	input.refer = refer
 	input.referLoc = references[0].loc
