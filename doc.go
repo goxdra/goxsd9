@@ -212,11 +212,10 @@
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy-mismatch
 // diagnostic before 0/0 omission for either mapped form, including zero. Under
 // Compatibility/Strict11, mapped non-default precisionDecimal choice/alternative
-// ranges are schema-unsupported. Direct sequences remain query-only when their
-// consumers cannot model them. Only non-extension default-occurrence typed direct
-// choices are validation-eligible; precisionDecimal extension choices remain
-// query-only/consumer-rejected, and all anonymous consumers are rejected by
-// validation and generation.
+// ranges are schema-unsupported. PrecisionDecimal-only direct sequences with
+// typed local elements validate with exact occurrences. Non-extension
+// default-occurrence typed direct choices also validate; precisionDecimal
+// extension choices and local anonymous consumers remain query-only or rejected.
 // The supported local element anonymous model is limited to atomic
 // Boolean/integer/decimal/negativeInteger restrictions in the direct choice/sequence
 // and bounded attribute-free extension shapes above. Local anonymous
@@ -225,8 +224,9 @@
 // mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions remain
 // schema-unsupported when nonzero. Global inline-element precisionDecimal remains a query
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
-// and every anonymous precisionDecimal target is excluded from validation and
-// generation.
+// standalone inline precisionDecimal roots remain validation-unsupported.
+// Direct precisionDecimal-only sequences can validate references to these
+// anonymous global targets; generation still rejects them.
 // Global inline complex types expose stable anonymous ComplexTypeID nodes,
 // exact ordered sequence/reference particles, and attribute uses without
 // entering the global component walk. Direct non-extension precisionDecimal
@@ -341,7 +341,10 @@
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
 // restriction elements, one direct integer/decimal sequence of local built-in or
 // named elements, one homogeneous token/NMTOKEN sequence of local built-in or
-// supported named token/NMTOKEN elements, or one direct choice
+// supported named token/NMTOKEN elements, one direct precisionDecimal-only
+// sequence of local built-in/named elements or global element references under
+// Compatibility/Strict11 (including inline complex roots and anonymous
+// precisionDecimal restriction targets), or one direct choice
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or, in
 // non-extension direct choices, default-occurrence references to global Boolean,
@@ -351,10 +354,14 @@
 // Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
-// and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
+// and Strict11. PrecisionDecimal-only sequences accept expanded-name
+// xsi:schemaLocation as a non-resolving hint; their order, unexpected-child,
+// and occurrence diagnostics are distinct from scalar lexical/facet failures.
+// Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
 // remain explicit unsupported behavior. Local long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger particles are
 // query-only and remain explicit unsupported behavior in both consumers.
-// Reference consumers exclude precisionDecimal and anonymous targets.
+// Direct-choice reference consumers exclude precisionDecimal and anonymous targets;
+// direct precisionDecimal-only sequences admit those targets when atomic.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
 // wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
@@ -478,8 +485,9 @@
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
 // before validation at the typed reference or type location. Global built-in/named
-// roots validate under those policies, while inline precisionDecimal is an
-// anonymous target rejected by validation. GenerateGo rejects every global,
+// roots validate under those policies; direct precisionDecimal-only sequences
+// also validate references to global inline anonymous restrictions. Standalone
+// inline precisionDecimal roots remain unsupported. GenerateGo rejects every global,
 // explicitly typed local (including named effective), inline, anonymous, and
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence

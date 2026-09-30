@@ -34,6 +34,15 @@ const (
 	// InvalidInstanceSequenceCode identifies invalid direct-sequence content in
 	// an XML instance.
 	InvalidInstanceSequenceCode = "XSD4006"
+	// InvalidInstanceSequenceOrderCode identifies an out-of-order element in a
+	// precisionDecimal direct sequence.
+	InvalidInstanceSequenceOrderCode = "XSD4007"
+	// InvalidInstanceSequenceOccurrenceCode identifies a violated occurrence
+	// bound in a precisionDecimal direct sequence.
+	InvalidInstanceSequenceOccurrenceCode = "XSD4008"
+	// InvalidInstanceSequenceUnexpectedCode identifies an undeclared child of a
+	// precisionDecimal direct sequence.
+	InvalidInstanceSequenceUnexpectedCode = "XSD4009"
 )
 
 const (

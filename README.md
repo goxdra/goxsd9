@@ -19,8 +19,8 @@ targets. Instance validation and Go generation reject these declarations until
 identity semantics are implemented.
 
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance;
-`GenerateGo(schema, packageName)` returns Go source. A component can be
-queryable even when one or both consumers reject it.
+`GenerateGo(schema, packageName)` returns Go source. Queryable components may be consumer-unsupported.
+Compatibility/Strict11 validate ordered precisionDecimal sequences; `xsi:schemaLocation` does not resolve.
 Grouped complex-content extensions resolve one opaque group reference and
 ordered local attribute uses over a supported named empty base. Validated
 `0/0` omits the particle, and prohibited uses may leave no effective uses.

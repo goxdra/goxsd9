@@ -51,6 +51,7 @@ type instanceSequenceValidator struct {
 	depth    int
 	frontier []instanceSequenceCandidate
 	open     *instanceSequenceOpenChild
+	previous QName
 }
 
 type instanceValidationObserver struct {
@@ -119,6 +120,10 @@ func (observer *instanceValidationObserver) characterData(data []byte, loc Loc) 
 }
 
 func instanceSequenceDefinitionFor(schema Schema, declaration ElementDeclaration, loc Loc) (ComplexTypeDefinition, SequenceParticle, bool, error) {
+	if inline, ok := declaration.InlineComplexType(); ok {
+		sequence, hasSequence := inline.Particle().(SequenceParticle)
+		return inline, sequence, hasSequence, nil
+	}
 	if declaration.DeclaredType().Namespace() == xsdNamespaceURI {
 		return ComplexTypeDefinition{}, SequenceParticle{}, false, nil
 	}
@@ -290,15 +295,6 @@ func instanceSequenceProgramFor(
 			errInstanceSequenceMixed,
 		)
 	}
-	if hasReference {
-		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
-			loc,
-			"direct sequence element references are outside direct sequence validation",
-			related,
-			version,
-			errInstanceSequenceTarget,
-		)
-	}
 	if hasOther {
 		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
 			loc,
@@ -310,6 +306,14 @@ func instanceSequenceProgramFor(
 	}
 	particles := make([]instanceSequenceParticle, 0, len(rawParticles))
 	for _, rawParticle := range rawParticles {
+		if reference, ok := elementReferenceParticleValue(rawParticle); ok {
+			particle, err := instancePrecisionDecimalSequenceReferenceFor(schema, declaration, definition, sequence, reference, loc, version)
+			if err != nil {
+				return instanceSequenceProgram{}, err
+			}
+			particles = append(particles, particle)
+			continue
+		}
 		element, ok := elementParticleValue(rawParticle)
 		if !ok {
 			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
@@ -366,7 +370,7 @@ func instanceSequenceProgramFor(
 			childRelated,
 			loc,
 			version,
-			false,
+			true,
 			true,
 			true,
 			false,
@@ -383,10 +387,28 @@ func instanceSequenceProgramFor(
 			scalar:      scalar,
 		})
 	}
+	if _, inline := declaration.InlineComplexType(); inline {
+		if len(particles) == 0 {
+			return instanceSequenceProgram{}, newInstanceValidationUnsupported(loc, "inline empty sequence is outside precisionDecimal validation", related, version, errInstanceSequenceTarget)
+		}
+		for _, particle := range particles {
+			if _, ok := particle.scalar.value.(instancePrecisionDecimalScalar); ok {
+				continue
+			}
+			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+				loc,
+				"inline sequence contains a non-precisionDecimal scalar outside instance validation",
+				related,
+				version,
+				errInstanceSequenceMixed,
+			)
+		}
+	}
 	if len(particles) > 0 {
 		booleanCount := 0
 		tokenCount := 0
 		nmtokenCount := 0
+		precisionDecimalCount := 0
 		for _, particle := range particles {
 			switch particle.scalar.value.(type) {
 			case instanceBooleanScalar:
@@ -395,6 +417,8 @@ func instanceSequenceProgramFor(
 				tokenCount++
 			case instanceNMTOKENScalar:
 				nmtokenCount++
+			case instancePrecisionDecimalScalar:
+				precisionDecimalCount++
 			}
 		}
 		if booleanCount > 0 && booleanCount != len(particles) {
@@ -424,6 +448,15 @@ func instanceSequenceProgramFor(
 				errInstanceSequenceMixed,
 			)
 		}
+		if precisionDecimalCount > 0 && precisionDecimalCount != len(particles) {
+			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+				loc,
+				"direct sequence mixes precisionDecimal and non-precisionDecimal declarations",
+				related,
+				version,
+				errInstanceSequenceMixed,
+			)
+		}
 	}
 	if definition.IsAbstract() {
 		return instanceSequenceProgram{}, newInstanceAbstractComplexTypeUnsupported(definition, loc, related, version)
@@ -436,22 +469,84 @@ func instanceSequenceProgramFor(
 	}, nil
 }
 
+func instancePrecisionDecimalSequenceReferenceFor(schema Schema, declaration ElementDeclaration, definition ComplexTypeDefinition, sequence SequenceParticle, reference ElementReferenceParticle, loc Loc, version XSDVersion) (instanceSequenceParticle, error) {
+	related := []Loc{declaration.Loc(), definition.Loc(), sequence.Loc(), reference.Loc(), reference.RefLoc()}
+	target, targetRelated, err := instanceChoiceReferenceTargetFor(schema, reference, related, loc, version)
+	if err != nil {
+		return instanceSequenceParticle{}, err
+	}
+	precision, err := instanceSequenceTargetHasPrecisionDecimal(schema, target, targetRelated, loc)
+	if err != nil {
+		return instanceSequenceParticle{}, err
+	}
+	if !precision {
+		return instanceSequenceParticle{}, newInstanceValidationUnsupported(loc, "direct sequence reference target is outside precisionDecimal validation", related, version, errInstanceSequenceTarget)
+	}
+	if factsErr := rejectUnsupportedInstanceElementFactsWithRelated(target, loc, targetRelated, version); factsErr != nil {
+		return instanceSequenceParticle{}, factsErr
+	}
+	if len(target.SubstitutionGroupAffiliations()) != 0 {
+		return instanceSequenceParticle{}, newInstanceValidationUnsupported(loc, "sequence reference target has substitution-group affiliations outside instance validation", targetRelated, version, errInstanceElementSubstitution)
+	}
+	members, err := instanceChoiceReferenceSubstitutionMembersFor(schema, target, targetRelated, loc)
+	if err != nil {
+		return instanceSequenceParticle{}, err
+	}
+	if len(members) != 0 {
+		return instanceSequenceParticle{}, newInstanceValidationUnsupported(loc, "sequence reference target has substitution-group members outside instance validation", targetRelated, version, errInstanceElementSubstitution)
+	}
+	var scalar instanceScalarType
+	if inline, ok := target.InlineSimpleType(); ok && inline.HasPrecisionDecimalFacets() {
+		scalar = instanceScalarType{
+			value:   instancePrecisionDecimalScalar{facets: inline.PrecisionDecimalFacets()},
+			version: version,
+			related: appendInstanceRelated(targetRelated, inline.Loc()),
+		}
+	}
+	if scalar.value == nil {
+		typeID, hasTypeID := target.TypeID()
+		scalar, err = instanceScalarTypeForTarget(schema, target.DeclaredType(), typeID, hasTypeID, targetRelated, loc, version, true, false, false, false, false, version)
+		if err != nil {
+			return instanceSequenceParticle{}, err
+		}
+	}
+	if _, ok := scalar.value.(instancePrecisionDecimalScalar); !ok {
+		return instanceSequenceParticle{}, newInstanceValidationUnsupported(loc, "sequence reference target is outside precisionDecimal validation", targetRelated, version, errInstanceSequenceTarget)
+	}
+	return instanceSequenceParticle{
+		name: reference.Name(), loc: reference.Loc(), occurrences: reference.facts.occurrences.clone(), scalar: scalar,
+	}, nil
+}
+
+func instanceSequenceTargetHasPrecisionDecimal(schema Schema, target ElementDeclaration, related []Loc, loc Loc) (bool, error) {
+	if inline, ok := target.InlineSimpleType(); ok {
+		return inline.HasPrecisionDecimalFacets(), nil
+	}
+	if target.DeclaredType().Namespace() == xsdNamespaceURI {
+		return target.DeclaredType().Local() == "precisionDecimal", nil
+	}
+	typeID, ok := target.TypeID()
+	if !ok || typeID.IsZero() {
+		return false, nil
+	}
+	component, ok := schema.Lookup(typeID)
+	if !ok {
+		return false, newInstanceValidationInternal(loc, "sequence reference target type is absent from the completed schema", related, errInstanceValidationInvariant)
+	}
+	definition, ok := component.SimpleTypeDefinition()
+	if !ok {
+		return false, nil
+	}
+	return definition.HasPrecisionDecimalFacets(), nil
+}
+
 //nolint:gocognit // Keep root, direct-child, and nested-content event handling together.
 func (validator *instanceSequenceValidator) startElement(name syntaxName, loc Loc, attrs []instanceAttribute) error {
 	if validator.depth == 0 {
 		validator.rootLoc = loc
 		validator.depth = 1
 		validator.frontier = sequenceClosure(validator.program, []instanceSequenceCandidate{newInstanceSequenceCandidate(0, 0, big.NewInt(0), true, false)})
-		if len(attrs) == 0 {
-			return nil
-		}
-		return newInstanceValidationUnsupported(
-			attrs[0].loc,
-			fmt.Sprintf("attribute %q is not supported for direct sequence validation", renderSyntaxName(attrs[0].name)),
-			validator.program.related,
-			validator.program.version,
-			errInstanceAttributes,
-		)
+		return validateInstanceSequenceAttributes(attrs, validator.program.related, validator.program.version, instanceSequencePrecisionOnly(validator.program))
 	}
 	if validator.depth == 1 {
 		child := &instanceSequenceOpenChild{name: name, loc: loc}
@@ -484,24 +579,16 @@ func (validator *instanceSequenceValidator) startElement(name syntaxName, loc Lo
 		validator.open = child
 		if len(child.paths) == 0 {
 			validator.frontier = nil
-			return newInstanceSequenceInvalid(
+			return newInstanceSequenceStructuralInvalid(
+				validator.program,
 				loc,
 				fmt.Sprintf("direct sequence child %q is unexpected at this position", renderSyntaxName(name)),
 				validator.program.related,
-				validator.program.version,
+				validator.sequenceChildFailureCode(childName),
 				errInstanceSequenceUnexpected,
 			)
 		}
-		if len(attrs) == 0 {
-			return nil
-		}
-		return newInstanceValidationUnsupported(
-			attrs[0].loc,
-			fmt.Sprintf("attribute %q is not supported for direct sequence scalar validation", renderSyntaxName(attrs[0].name)),
-			instanceSequenceOpenRelated(validator.program, child),
-			validator.program.version,
-			errInstanceAttributes,
-		)
+		return validateInstanceSequenceAttributes(attrs, instanceSequenceOpenRelated(validator.program, child), validator.program.version, instanceSequencePrecisionOnly(validator.program))
 	}
 	if validator.open != nil && validator.depth == 2 {
 		validator.open.nested = true
@@ -517,6 +604,60 @@ func (validator *instanceSequenceValidator) startElement(name syntaxName, loc Lo
 	}
 	validator.depth++
 	return nil
+}
+
+func validateInstanceSequenceAttributes(attrs []instanceAttribute, related []Loc, version XSDVersion, precisionOnly bool) error {
+	for _, attribute := range attrs {
+		if precisionOnly && attribute.name.namespace == schemaInstanceNamespaceURI && attribute.name.local == "schemaLocation" {
+			continue
+		}
+		return newInstanceValidationUnsupported(
+			attribute.loc,
+			fmt.Sprintf("attribute %q is not supported for direct sequence validation", renderSyntaxName(attribute.name)),
+			related,
+			version,
+			errInstanceAttributes,
+		)
+	}
+	return nil
+}
+
+func instanceSequencePrecisionOnly(program instanceSequenceProgram) bool {
+	if len(program.particles) == 0 {
+		return false
+	}
+	for _, particle := range program.particles {
+		if _, ok := particle.scalar.value.(instancePrecisionDecimalScalar); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func (validator *instanceSequenceValidator) sequenceChildFailureCode(name QName) string {
+	if !instanceSequencePrecisionOnly(validator.program) {
+		return InvalidInstanceSequenceCode
+	}
+	if name == validator.previous {
+		return InvalidInstanceSequenceOccurrenceCode
+	}
+	for _, particle := range validator.program.particles {
+		if particle.name == name {
+			return InvalidInstanceSequenceOrderCode
+		}
+	}
+	return InvalidInstanceSequenceUnexpectedCode
+}
+
+func newInstanceSequenceStructuralInvalid(program instanceSequenceProgram, loc Loc, message string, related []Loc, code string, cause error) Diagnostic {
+	if !instanceSequencePrecisionOnly(program) {
+		return newInstanceSequenceInvalid(loc, message, related, program.version, cause)
+	}
+	specRef := "xsd11-structures#sec-cvc-accept"
+	if program.version == XSDVersion10 {
+		specRef = "xsd10-structures#cvc-particle"
+	}
+	return newInstanceValidationInvalid(code, loc, message, related, specRef, cause)
 }
 
 //nolint:gocognit // Keep child scalar completion and outer occurrence acceptance ordered.
@@ -576,6 +717,7 @@ func (validator *instanceSequenceValidator) endElement(_ syntaxName, loc Loc) er
 				errInstanceValidationInvariant,
 			)
 		}
+		validator.previous = validator.program.particles[valid[0].index].name
 		validator.frontier = sequenceClosure(validator.program, valid)
 		return nil
 	}
@@ -584,11 +726,12 @@ func (validator *instanceSequenceValidator) endElement(_ syntaxName, loc Loc) er
 		if sequenceAccepts(validator.program, validator.frontier) {
 			return nil
 		}
-		return newInstanceSequenceInvalid(
+		return newInstanceSequenceStructuralInvalid(
+			validator.program,
 			validator.rootLoc,
 			"direct sequence content does not satisfy its occurrence ranges",
 			validator.program.related,
-			validator.program.version,
+			InvalidInstanceSequenceOccurrenceCode,
 			errInstanceSequenceMissing,
 		)
 	}
