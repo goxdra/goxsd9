@@ -21,7 +21,7 @@ func TestClaimResumeStateCommandReportsDigestWithoutMutation(t *testing.T) {
 	backend := newClaimResumeBackend(t, fixture)
 	var output bytes.Buffer
 	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: &output}
-	if err := application.resumeClaimStateCommand(nil); err != nil {
+	if err := application.run([]string{"claim", "resume-state"}); err != nil {
 		t.Fatalf("read resume state: %v", err)
 	}
 	if !strings.Contains(output.String(), "issue #309") || !strings.Contains(output.String(), "local state dirty SHA-256 "+state.digest) {
@@ -30,8 +30,15 @@ func TestClaimResumeStateCommandReportsDigestWithoutMutation(t *testing.T) {
 	if backend.mutations != 0 || dirtyClaimResumeSnapshot(t, fixture.worktree) != state {
 		t.Fatal("read-only state command mutated claim artifacts")
 	}
-	if err := application.resumeClaimStateCommand([]string{"unexpected"}); err == nil {
+	if err := application.run([]string{"claim", "resume-state", "unexpected"}); err == nil {
 		t.Fatal("state command accepted extra arguments")
+	}
+	output.Reset()
+	if err := application.run([]string{"help"}); err != nil {
+		t.Fatalf("read CLI help: %v", err)
+	}
+	if !strings.Contains(output.String(), "go tool workflowctl claim resume-state") {
+		t.Fatalf("CLI help omits resume-state: %q", output.String())
 	}
 }
 

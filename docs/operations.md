@@ -23,18 +23,18 @@ Backlog. Write blocker/evidence Markdown; run
 `go tool workflowctl handoff ISSUE --body-file FILE --needs-human`; it proves
 OPEN/Project identity, applies `needs-human`/Backlog, then posts last.
 Reread incomplete/ambiguous phases before retry.
-Claim resume binds exact handoff/comment/run/head, expired claim, no PR, Project
-identity/status, and a unique clean/unlocked same-run worktree. Three complete
-generic no-PR forms each cover every PR/pull-request/workflow-path mention.
-Compatibility exceptions are exact, issue-scoped complete forms. Generic handoffs may
-omit head/SHA/commit labels; present labels require one full 40-hex expected SHA;
-malformed/ambiguous labels are terminal before mutation.
-Claim/renewal markers are exact-message single-parent empty commits;
-source-bearing/merge commits and malformed ref namespaces are terminal. Require
-`refs/heads/` for remote and `origin/` for tracking refs. Keep `needs-human` until renewal
-verification, then converge to Project `Picked`. Initial resume requires
-OPEN+needs-human+Backlog before mutation; only a verified renewal child permits
-idempotent Backlog/Picked convergence after label removal.
+Claim resume binds expired claim, handoff/comment/run/head, no PR,
+Project, unique unlocked worktree. Clean forms require no-source/
+no-PR evidence covering PR mentions; exceptions stay issue-scoped.
+Optional head labels require one 40-hex SHA. Dirty:
+`# Dirty no-PR claim handoff: issue #N`, blank; `Run:`,
+`Original claim head:`, `Current claim head:`, `Fixed branch:`, `Local branch:`,
+`Worktree:`, `Preserved state SHA-256:` with backticked values; end `No source commit or PR was published.` and LF.
+`go tool workflowctl claim resume-state` gives digest; recheck staged/unstaged/untracked bytes.
+Claim/renewal markers: exact-message empty single-parent commits; source-bearing,
+merge, malformed refs fail. Remote `refs/heads/`, tracking `origin/` required.
+Keep needs-human until verified renewal; then Project Picked. Initial:
+OPEN+needs-human+Backlog; verified child permits idempotent convergence.
 `workflowctl sync` updates Project status/claim refs, not `main`/submodules;
 run-local refs are inventory-only. `base-sync` fast-forwards `main`/pins; never
 resets/rebases/stashes/discards.
