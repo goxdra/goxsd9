@@ -279,8 +279,6 @@ func TestSchemaIntGlobalAttributeInvalidAndUnsupportedBoundaries(t *testing.T) {
 			{name: "malformed bound", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:r" targetNamespace="urn:r"><xs:attribute name="a" type="r:T"/><xs:simpleType name="T"><xs:restriction base="xs:int"><xs:minInclusive value="oops"/></xs:restriction></xs:simpleType></xs:schema>`, needle: `value="oops"`, class: FailureInvalid, cause: errInvalidBoundValue},
 			{name: "unresolved", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:r" targetNamespace="urn:r"><xs:attribute name="a" type="r:Missing"/></xs:schema>`, needle: `type="r:Missing"`, class: FailureInvalid, cause: errSchemaAttributeTypeUnresolved, code: diagnosticSchemaAttributeTypeUnresolvedCode},
 			{name: "wrong kind", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="T" type="xs:int"/><xs:attribute name="a" type="T"/></xs:schema>`, needle: `type="T"`, class: FailureInvalid, cause: errSchemaAttributeTypeWrongKind, code: diagnosticSchemaAttributeTypeWrongKindCode},
-			{name: "default", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="a" type="xs:int" default="1"/></xs:schema>`, needle: `default="1"`, class: FailureUnsupported, cause: errSchemaAttributeValueConstraintUnsupported},
-			{name: "fixed named", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:r" targetNamespace="urn:r"><xs:attribute name="a" type="r:T" fixed="1"/><xs:simpleType name="T"><xs:restriction base="xs:int"/></xs:simpleType></xs:schema>`, needle: `fixed="1"`, class: FailureUnsupported, cause: errSchemaAttributeValueConstraintUnsupported},
 			{name: "inline", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:int"/></xs:simpleType></xs:attribute></xs:schema>`, needle: `<xs:simpleType>`, class: FailureUnsupported, cause: ErrUnsupported},
 			{name: "local", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="T"><xs:attribute name="a" type="xs:int"/></xs:complexType></xs:schema>`, needle: `type="xs:int"`, class: FailureUnsupported, cause: errSchemaAttributeTypeUnsupported},
 			{name: "list", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:r" targetNamespace="urn:r"><xs:attribute name="a" type="r:T"/><xs:simpleType name="T"><xs:list itemType="xs:int"/></xs:simpleType></xs:schema>`, needle: `type="r:T"`, class: FailureUnsupported, cause: errSchemaAttributeTypeUnsupported},
@@ -303,9 +301,6 @@ func TestSchemaIntGlobalAttributeInvalidAndUnsupportedBoundaries(t *testing.T) {
 				}
 				if test.class == FailureUnsupported && (diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax || !errors.Is(err, ErrUnsupported)) {
 					t.Fatalf("diagnostic = %s, want schema-syntax unsupported with cause", diagnostic)
-				}
-				if errors.Is(test.cause, errSchemaAttributeValueConstraintUnsupported) && errors.Is(err, errSchemaAttributeTypeUnsupported) {
-					t.Fatalf("value constraint rejected as unsupported type: %v", err)
 				}
 			})
 		}
