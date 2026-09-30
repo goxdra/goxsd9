@@ -113,7 +113,7 @@ generation reject.
 
 ## Datatypes
 
-Lexical/value representations stay separate; QNames retain namespace context. Datatypes map
+QName type refs differ from context-bound values. Datatypes map
 string enumeration and arbitrary precision; precisionDecimal retains exact values/facets
 under Compatibility/Strict11. Boolean whitespace collapses; broader facets/temporal values
 are unsupported.

@@ -3526,6 +3526,7 @@ const (
 	schemaSimpleTypeAtomicNCName
 	schemaSimpleTypeAtomicAnyURI
 	schemaSimpleTypeAtomicID
+	schemaSimpleTypeAtomicQName
 )
 
 func schemaSimpleTypeAtomicKindIsUnsupported(kind schemaSimpleTypeAtomicKind) bool {
@@ -3533,7 +3534,8 @@ func schemaSimpleTypeAtomicKindIsUnsupported(kind schemaSimpleTypeAtomicKind) bo
 	case schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
-		schemaSimpleTypeAtomicID:
+		schemaSimpleTypeAtomicID,
+		schemaSimpleTypeAtomicQName:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
@@ -3927,7 +3929,8 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
-		schemaSimpleTypeAtomicID:
+		schemaSimpleTypeAtomicID,
+		schemaSimpleTypeAtomicQName:
 		return false
 	default:
 		return false
@@ -4005,7 +4008,8 @@ func resolveSchemaAttributeValueConstraint(
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
-		schemaSimpleTypeAtomicID:
+		schemaSimpleTypeAtomicID,
+		schemaSimpleTypeAtomicQName:
 		return nil, newSchemaBridgeInvariant(input.loc, "convert an unsupported attribute value constraint type")
 	default:
 		return nil, newSchemaBridgeInvariant(input.loc, "convert an unsupported attribute value constraint type")
@@ -4130,7 +4134,8 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
-		schemaSimpleTypeAtomicNonPositiveInteger, schemaSimpleTypeAtomicPositiveInteger:
+		schemaSimpleTypeAtomicNonPositiveInteger, schemaSimpleTypeAtomicPositiveInteger,
+		schemaSimpleTypeAtomicQName:
 		return false
 	default:
 		return false
@@ -5726,7 +5731,7 @@ func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleT
 
 func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
-	case "string", "normalizedString", "token", "NMTOKEN", "language", "NCName", "anyURI", "ID":
+	case "string", "normalizedString", "token", "NMTOKEN", "language", "NCName", "anyURI", "ID", "QName":
 		if !builtinStringSchemaScalarTypeAllowedInScope(input.declaredType.Local(), scope) {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
@@ -5808,7 +5813,8 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
-		schemaSimpleTypeAtomicID:
+		schemaSimpleTypeAtomicID,
+		schemaSimpleTypeAtomicQName:
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicToken,
@@ -6482,7 +6488,8 @@ func schemaLocalAttributeSimpleTypeSupported(reference schemaSimpleTypeReference
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
-		schemaSimpleTypeAtomicID:
+		schemaSimpleTypeAtomicID,
+		schemaSimpleTypeAtomicQName:
 		return false
 	default:
 		return false
@@ -6555,7 +6562,8 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
-		schemaSimpleTypeAtomicID:
+		schemaSimpleTypeAtomicID,
+		schemaSimpleTypeAtomicQName:
 		return false
 	default:
 		return false
@@ -9325,6 +9333,9 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		result.facets = schemaAtomicFacetVariant{}
 	case "ID":
 		result.atomicKind = schemaSimpleTypeAtomicID
+		result.facets = schemaAtomicFacetVariant{}
+	case "QName":
+		result.atomicKind = schemaSimpleTypeAtomicQName
 		result.facets = schemaAtomicFacetVariant{}
 	default:
 		return schemaSimpleTypeReferenceComponent{}, newSchemaSyntaxUnsupported(

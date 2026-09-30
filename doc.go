@@ -21,6 +21,9 @@
 // and global attributes reject at schema admission; applicable 0/0 local forms
 // omit after reference, facet, and policy gates. Element-ref particles to
 // admitted global elements query; ValidateInstance and GenerateGo reject them.
+// xs:QName has a distinct context-sensitive atomic reference for restrictions,
+// lists, unions, and supported global elements; QName-typed values and their
+// context-dependent facets remain unsupported.
 // A successful ParseSchema returns an immutable Schema; Documents, Components,
 // Lookup, Find, FindKind, and Walk expose deterministic query views, while
 // AttributeDeclaration exposes resolved type and value-constraint facts.
