@@ -578,13 +578,14 @@ func (validator *instanceSequenceValidator) startElement(name syntaxName, loc Lo
 		validator.depth = 2
 		validator.open = child
 		if len(child.paths) == 0 {
+			failureCode := validator.sequenceChildFailureCode(childName)
 			validator.frontier = nil
 			return newInstanceSequenceStructuralInvalid(
 				validator.program,
 				loc,
 				fmt.Sprintf("direct sequence child %q is unexpected at this position", renderSyntaxName(name)),
 				validator.program.related,
-				validator.sequenceChildFailureCode(childName),
+				failureCode,
 				errInstanceSequenceUnexpected,
 			)
 		}
@@ -638,6 +639,9 @@ func (validator *instanceSequenceValidator) sequenceChildFailureCode(name QName)
 	if !instanceSequencePrecisionOnly(validator.program) {
 		return InvalidInstanceSequenceCode
 	}
+	if validator.sequenceOuterMaximumReached() && sequenceCanBeginWith(validator.program, name) {
+		return InvalidInstanceSequenceOccurrenceCode
+	}
 	if name == validator.previous {
 		return InvalidInstanceSequenceOccurrenceCode
 	}
@@ -647,6 +651,37 @@ func (validator *instanceSequenceValidator) sequenceChildFailureCode(name QName)
 		}
 	}
 	return InvalidInstanceSequenceUnexpectedCode
+}
+
+func (validator *instanceSequenceValidator) sequenceOuterMaximumReached() bool {
+	maximum := validator.program.occurrences.maximum
+	if maximum.isUnbounded() {
+		return false
+	}
+	limit := maximum.finite.integerCopy()
+	for _, candidate := range validator.frontier {
+		if candidate.index != len(validator.program.particles) {
+			continue
+		}
+		if candidate.outer.Cmp(limit) <= 0 && candidate.outerMaximum.Cmp(limit) >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func sequenceCanBeginWith(program instanceSequenceProgram, name QName) bool {
+	initial := newInstanceSequenceCandidate(0, 0, big.NewInt(0), true, false)
+	for _, candidate := range sequenceClosure(program, []instanceSequenceCandidate{initial}) {
+		if candidate.index >= len(program.particles) {
+			continue
+		}
+		particle := program.particles[candidate.index]
+		if particle.name == name && len(sequenceCandidateConsume(candidate, particle.occurrences)) != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func newInstanceSequenceStructuralInvalid(program instanceSequenceProgram, loc Loc, message string, related []Loc, code string, cause error) Diagnostic {
