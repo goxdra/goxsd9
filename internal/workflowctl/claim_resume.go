@@ -77,11 +77,6 @@ type claimResumeRenewalResult struct {
 	head string
 }
 
-type claimResumeCommitMetadata struct {
-	lease time.Time
-	runID string
-}
-
 // canonicalClaimCommit is the immutable shape emitted by commit-tree for a
 // claim marker.  A marker is deliberately an empty, single-parent commit;
 // source changes and merge history are never part of claim ownership state.
@@ -215,18 +210,14 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 	if !validExactCommitSHA(remoteHead) {
 		return claimResumeProof{}, stateError("remote fixed claim branch %s has malformed head %q; preserve claim artifacts", fixedBranch, remoteHead)
 	}
-	metadata, err := a.readExactClaimResumeMetadata(root, expectedHead, issue, runID)
-	if err != nil {
-		return claimResumeProof{}, err
-	}
 	evidence, err := a.readClaimResumeEvidence(root, issue, handoffCommentID, claimLocalBranch(issue, runID), runID)
 	if err != nil {
 		return claimResumeProof{}, err
 	}
-	if evidence.claimLease != metadata.lease || evidence.claimCommentID < 1 {
-		return claimResumeProof{}, stateError("handoff comment %d is not bound to the exact expired claim lease; preserve evidence", handoffCommentID)
+	if chainErr := a.readClaimResumeMarkerChain(root, expectedHead, issue, runID, evidence.claimLease); chainErr != nil {
+		return claimResumeProof{}, chainErr
 	}
-	if bindingErr := validateClaimResumeHandoffBindings(evidence.handoffBody, issue, expectedHead, fixedBranch, localBranch, root, runID, metadata.lease); bindingErr != nil {
+	if bindingErr := validateClaimResumeHandoffBindings(evidence.handoffBody, issue, expectedHead, fixedBranch, localBranch, root, runID, evidence.claimLease); bindingErr != nil {
 		return claimResumeProof{}, stateError("handoff comment %d is not bound to the exact claim artifacts; preserve evidence: %w", handoffCommentID, bindingErr)
 	}
 	if prErr := a.validateNoOpenClaimResumePR(root, fixedBranch, issue); prErr != nil {
@@ -282,7 +273,7 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 			expectedHead: expectedHead, localHead: localHead, remoteHead: remoteHead,
 			runID: runID, issue: issue, handoffCommentID: handoffCommentID,
 			claimCommentID: evidence.claimCommentID, handoffBody: evidence.handoffBody,
-			claimLease: metadata.lease, projectItemID: item.ID, projectStatus: item.Status,
+			claimLease: evidence.claimLease, projectItemID: item.ID, projectStatus: item.Status,
 			needsHuman: needsHuman,
 		},
 		renewal: renewal,
@@ -308,15 +299,103 @@ func claimResumeFixedHead(inventory agentRefInventory, issue int, fixedBranch st
 	return head, nil
 }
 
-func (a app) readExactClaimResumeMetadata(root, head string, issue int, runID string) (claimResumeCommitMetadata, error) {
+// readClaimResumeMarkerChain authenticates the current head and every earlier
+// claim marker on its first-parent path through the original acquisition.
+// Source-changing work commits between renewals are allowed. An empty commit
+// there is ambiguous claim evidence and must have the generated marker shape.
+//
+//nolint:gocognit,funlen // Marker ancestry and acquisition binding form one ordered proof.
+func (a app) readClaimResumeMarkerChain(root, head string, issue int, runID string, acquisitionLease time.Time) error {
 	commit, err := a.readCanonicalClaimCommit(root, head, issue, runID, "")
 	if err != nil {
-		return claimResumeCommitMetadata{}, err
+		return err
 	}
 	if commit.lease.After(time.Now().UTC()) {
-		return claimResumeCommitMetadata{}, stateError("claim #%d is active until %s; use claim renew", issue, commit.lease.Format(time.RFC3339))
+		return stateError("claim #%d is active until %s; use claim renew", issue, commit.lease.Format(time.RFC3339))
 	}
-	return claimResumeCommitMetadata{lease: commit.lease, runID: commit.runID}, nil
+	acquisitionFound := commit.lease.Equal(acquisitionLease)
+	if acquisitionFound {
+		older, olderErr := a.hasPriorSameRunMarker(root, commit.parent, issue, runID)
+		if olderErr != nil {
+			return olderErr
+		}
+		if !older {
+			return nil
+		}
+	}
+	for parent := commit.parent; parent != ""; {
+		object, readErr := a.gitRaw(root, "cat-file", "commit", parent)
+		if readErr != nil {
+			return fmt.Errorf("read claim ancestry commit %s: %w", parent, readErr)
+		}
+		parsed, parseErr := parseCommitObject(object)
+		if parseErr != nil {
+			return stateError("claim ancestry commit %s is malformed; preserve claim artifacts: %w", parent, parseErr)
+		}
+		if !claimResumeLooksLikeMarker(parsed.message) {
+			if len(parsed.parents) == 0 {
+				break
+			}
+			parentTreeOutput, treeErr := a.gitRaw(root, "rev-parse", parsed.parents[0]+"^{tree}")
+			if treeErr != nil {
+				return fmt.Errorf("read claim ancestry parent tree at %s: %w", parsed.parents[0], treeErr)
+			}
+			parentTree, parseErr := parseCanonicalSHA(parentTreeOutput, "claim ancestry parent tree")
+			if parseErr != nil {
+				return stateError("claim ancestry parent %s has malformed tree identity: %w", parsed.parents[0], parseErr)
+			}
+			if parsed.tree == parentTree {
+				return stateError("claim ancestry commit %s is an empty non-canonical marker; preserve claim artifacts", parent)
+			}
+			parent = parsed.parents[0]
+			continue
+		}
+		if acquisitionFound {
+			olderIssue, olderRun, _, parseErr := parseCanonicalClaimMessage(parsed.message)
+			if parseErr == nil && (olderIssue != issue || olderRun != runID) {
+				return nil
+			}
+		}
+		previous, markerErr := a.readCanonicalClaimCommit(root, parent, issue, runID, "")
+		if markerErr != nil {
+			return markerErr
+		}
+		if previous.lease.Equal(acquisitionLease) {
+			acquisitionFound = true
+			older, olderErr := a.hasPriorSameRunMarker(root, previous.parent, issue, runID)
+			if olderErr != nil {
+				return olderErr
+			}
+			if !older {
+				return nil
+			}
+		}
+		if acquisitionFound && !previous.lease.Equal(acquisitionLease) {
+			return stateError("claim head %s has a same-run marker before the generated acquisition lease; preserve conflicting claim artifacts", head)
+		}
+		parent = previous.parent
+	}
+	if acquisitionFound {
+		return nil
+	}
+	return stateError("claim head %s has no original marker bound to the generated acquisition lease %s; preserve claim artifacts", head, acquisitionLease.Format(time.RFC3339))
+}
+
+func (a app) hasPriorSameRunMarker(root, parent string, issue int, runID string) (bool, error) {
+	output, err := a.command(root, "git", "log", "--first-parent", "--format=%B", parent)
+	if err != nil {
+		return false, fmt.Errorf("inspect claim ancestry before acquisition marker: %w", err)
+	}
+	return strings.Contains(output, "Agent-Run-ID: "+runID) ||
+		strings.Contains(output, fmt.Sprintf("chore(workflow): claim issue #%d", issue)), nil
+}
+
+func claimResumeLooksLikeMarker(message string) bool {
+	return strings.Contains(message, "chore(workflow): claim issue #") ||
+		strings.Contains(message, "Agent-Persona:") ||
+		strings.Contains(message, "Agent-Run-ID:") ||
+		strings.Contains(message, "Agent-Lease-Until:") ||
+		strings.Contains(message, "Agent-Issue:")
 }
 
 // readCanonicalClaimCommit proves the exact bytes and graph shape of a claim
@@ -938,6 +1017,9 @@ func parseHandoffHeadQuotedValue(remainder string) (string, handoffHeadBindingKi
 	rawTail := remainder[closeIndex+1:]
 	tail := strings.TrimSpace(rawTail)
 	if tail == "" {
+		return value, handoffHeadValid
+	}
+	if tail == ". Local and remote fixed heads match. The head is the generated empty claim renewal child of the generated acquisition commit." {
 		return value, handoffHeadValid
 	}
 	tailStart := strings.TrimLeftFunc(rawTail, unicode.IsSpace)
@@ -2265,7 +2347,7 @@ func (a app) reconcileClaimResumeIssue(proof claimResumeProof, renewal claimResu
 				readErr = stateError("issue #%d still has needs-human; Project status will not be changed", proof.preflight.issue)
 			}
 			if readErr == nil {
-				readErr = stateError("issue #%d Project Picked response was not verified; preserve renewed artifacts", proof.preflight.issue)
+				return claimResumeRetry(proof, "Project Picked", fmt.Errorf("%w; Project remains %s", err, latest.item.Status))
 			}
 		}
 		return claimResumeMutationFailure(proof, "Project Picked", err, readErr)

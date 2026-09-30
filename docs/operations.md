@@ -29,12 +29,13 @@ generic no-PR forms each cover every PR/pull-request/workflow-path mention.
 Compatibility exceptions are exact, issue-scoped complete forms. Generic handoffs may
 omit head/SHA/commit labels; present labels require one full 40-hex expected SHA;
 malformed/ambiguous labels are terminal before mutation.
-Claim/renewal markers are exact-message single-parent empty commits;
-source-bearing/merge commits and malformed ref namespaces are terminal. Require
-`refs/heads/` for remote and `origin/` for tracking refs. Keep `needs-human` until renewal
-verification, then converge to Project `Picked`. Initial resume requires
-OPEN+needs-human+Backlog before mutation; only a verified renewal child permits
-idempotent Backlog/Picked convergence after label removal.
+Markers: exact message, empty tree, one parent. Reject source-bearing/merge
+markers and malformed refs. For expired `--expected-head`, verify same-run
+ancestry; bind oldest marker lease to acquisition comment/handoff. Source-changing
+work may intervene; renewal leases may differ. Remote refs need `refs/heads/`, tracking
+refs `origin/`. Keep `needs-human` through verification, then Project `Picked`.
+Initially require OPEN+needs-human+Backlog; verified child converges
+idempotently.
 `workflowctl sync` updates Project status/claim refs, not `main`/submodules;
 run-local refs are inventory-only. `base-sync` fast-forwards `main`/pins; never
 resets/rebases/stashes/discards.
