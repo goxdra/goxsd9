@@ -2,8 +2,7 @@
 
 ## Boundaries
 
-goxsd9 parses schema, exposes immutable queries/walks, validates XML, and generates
-Go; validation/generation are schema-model leaves.
+goxsd9 parses schemas into immutable query models; validation/generation are leaves.
 
 ## Deterministic phase pipeline
 
@@ -19,14 +18,13 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Phases consume results without backpatching. Identities intern before discovery;
-repeats/cycles close, acyclic dependencies use stable topological order, and ordered slices define walks/output.
+Phases do not backpatch. Identities intern before discovery; repeats/cycles close,
+dependencies topologically sort, and ordered slices define walks/output.
 
 ## Input and resolution
 
-Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Resolvers supply
-references/policy; streams close; identities decode once; repeats/cycles close
-without decoding.
+Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Resolvers provide
+references/policy; streams close; identities decode once; repeats/cycles close.
 
 ```go
 type Resolver interface {
@@ -38,18 +36,17 @@ type Resolver interface {
 }
 ```
 
-Sources carry opaque identity, reader-closer, child context; resolvers may store
-private base-location state. FIFO discovery preserves context. Parser leaves opaque
-identities/locations uninterpreted, opens no paths, makes no network requests.
-Resolution is sequential.
+Sources carry opaque identity, reader-closer, child context; resolvers own base-location
+state. FIFO discovery preserves context. Parser leaves identities/locations uninterpreted,
+opens no paths/network resources, and resolves sequentially.
 
-Decode retains one-based line and Unicode-code-point columns in `Loc`.
+`Loc` uses one-based lines and Unicode-code-point columns.
 
 ## Diagnostics
 
-Diagnostics classify invalid, unsupported, resolution, and internal failures; retain
-stable codes, primary `Loc`, related/specification references, and causes; errors prevent
-schema return. Unsupported features have stable report IDs.
+Diagnostics classify invalid/unsupported/resolution/internal failures; retain codes,
+primary `Loc`, related/specification references, and causes; errors prevent schema
+return. Unsupported features have stable report IDs.
 
 ## Schema model
 
@@ -106,17 +103,17 @@ direct `precisionDecimal` sequences and non-extension list/union links; consumer
 Element refs retain targets/occurrences, including repeats to global inline
 restrictions; nonzero local inline forms reject.
 Built-in/named `string` particles are query-only.
-`normalizedString`: replace/lexical facets; restriction/list-item/union-member refs.
-Atomic direct/named/inline global elements/refs query; mapped nonzero locals
-reject, `0/0` omits after gates. Global attributes/consumers and standalone named
-generation reject.
+`normalizedString`: replace whitespace and lexical facets; restriction/list/union refs.
+Atomic direct/named/inline globals and refs query; nonzero locals reject, `0/0`
+omits after gates. Global attributes/consumers and standalone named generation reject.
+Facet-free `QName` restriction/list/union and direct/named/inline global refs
+retain datatype QName, use `Loc`, named ID. Local particles, attributes, facets, default/fixed reject.
 
 ## Datatypes
 
-QName type refs differ from context-bound values. Datatypes map
-string enumeration and arbitrary precision; precisionDecimal retains exact values/facets
-under Compatibility/Strict11. Boolean whitespace collapses; broader facets/temporal values
-are unsupported.
+Lexical/value forms stay separate; QName values require namespace context.
+Datatypes map string enumeration, arbitrary precision, exact Compatibility/Strict11
+precisionDecimal facets, and Boolean whitespace; broader facets/temporal values reject.
 
 ## Validation and code generation
 
@@ -133,7 +130,7 @@ Constrained targets reject at instance use `Loc` with related constraint `Loc`; 
 Global `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
 refs query in direct complex-type bodies and supported grouped extensions; nested/broader forms reject.
-AttributeUse and simpleContent facts are query-only; validation and `GenerateGo` reject consumers.
+AttributeUse/simpleContent are query-only. QName globals/refs reject validation and generation with located diagnostics and nil output.
 
 Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
 types, global built-in/named elements of those types, inline global
