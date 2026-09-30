@@ -81,13 +81,24 @@ func TestQNameReferencesAcrossPolicies(t *testing.T) {
 			if alias.IsString() || alias.Variety() != SimpleTypeVarietyAtomicRestriction {
 				t.Fatal("QName alias was treated as string or non-atomic")
 			}
+			namedElement := tokenElementDefinition(t, schema, "named")
+			namedElementRef, hasNamedElementRef := namedElement.TypeReference()
+			aliasName := mustTestQName(t, "urn:test", "Alias")
+			if !hasNamedElementRef || !namedElementRef.IsNamed() || namedElementRef.Name() != aliasName || namedElementRef.Variety() != SimpleTypeVarietyAtomicRestriction || namedElementRef.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 3, `type="t:Alias"`) {
+				t.Fatalf("named global reference = %#v/%t", namedElementRef, hasNamedElementRef)
+			}
+			if id, hasID := namedElementRef.ComponentID(); !hasID || id != componentIDForName(t, schema, aliasName) {
+				t.Fatalf("named global reference ID = %v/%t", id, hasID)
+			}
+			if id, hasID := namedElement.TypeID(); !hasID || id != componentIDForName(t, schema, aliasName) {
+				t.Fatalf("named global TypeID = %v/%t", id, hasID)
+			}
 			base, ok := alias.BaseReference()
 			if !ok {
 				t.Fatal("QName base missing")
 			}
 			assertQNameBuiltin(t, base, mustSchemaTokenLoc(t, "root.xsd", root, 5, `base="xs:QName"`))
 			childBase, ok := qnameDefinition(t, schema, "Child").BaseReference()
-			aliasName := mustTestQName(t, "urn:test", "Alias")
 			if !ok || !childBase.IsNamed() || childBase.Name() != aliasName || childBase.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 6, `base="t:Alias"`) {
 				t.Fatalf("Child base = %#v/%t", childBase, ok)
 			}
