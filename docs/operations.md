@@ -24,13 +24,15 @@ Backlog. Write blocker/evidence Markdown; run
 `go tool workflowctl handoff ISSUE --body-file FILE --needs-human`; it proves
 OPEN/Project identity, applies `needs-human`/Backlog, then posts last.
 Reread incomplete/ambiguous phases before retry.
-Claim resume binds handoff/comment/run/head, expired claim, no PR, Project state,
-and unique clean/unlocked worktree. Generic no-PR handoffs cover every PR/path
-mention; issue-scoped exceptions are exact. Optional head labels require one
-full SHA; ambiguity fails. Claim/renewal markers are exact single-parent empty
-commits with valid ref namespaces. Keep `needs-human` until renewal verification;
-then set Project `Picked`. Initial resume requires OPEN+needs-human+Backlog;
-verified renewal permits idempotent convergence.
+Claim resume binds handoff/comment/run/head, expired lease, no PR, Project state,
+and clean/unlocked same-run worktree. Generic no-PR handoffs cover PR/path
+mention; issue-scoped exceptions are exact. Optional head labels need one SHA.
+Markers require exact messages, unchanged trees, one parent, and valid refs.
+Prove same-run markers back from expired `--expected-head` to the oldest
+acquisition lease; reject source-bearing markers, merges, malformed refs.
+Source-changing work may intervene; renewal leases may differ. Keep `needs-human`
+through verification, then Project `Picked`; initially require
+OPEN+needs-human+Backlog. Verified child converges idempotently.
 `workflowctl sync` updates Project status/claim refs, not `main`/submodules;
 run-local refs are inventory-only. `base-sync` fast-forwards `main`/pins; never
 resets/rebases/stashes/discards.
