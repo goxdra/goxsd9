@@ -714,7 +714,7 @@ func (a app) verifyClaimResumeLocalState(proof claimResumeProof) error {
 //
 //nolint:gocognit,funlen // A single snapshot checks every Git and filesystem observation before return.
 func (a app) claimResumeLocalState(root string) (claimResumeLocalSnapshot, error) {
-	status, err := a.gitRaw(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
+	status, err := a.claimResumeReadOnlyStatus(root)
 	if err != nil {
 		return claimResumeLocalSnapshot{}, fmt.Errorf("read claim worktree status: %w", err)
 	}
@@ -770,7 +770,7 @@ func (a app) claimResumeLocalState(root string) (claimResumeLocalSnapshot, error
 			return claimResumeLocalSnapshot{}, pathErr
 		}
 	}
-	statusAfter, err := a.gitRaw(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
+	statusAfter, err := a.claimResumeReadOnlyStatus(root)
 	if err != nil {
 		return claimResumeLocalSnapshot{}, fmt.Errorf("reread claim worktree status: %w", err)
 	}
@@ -790,6 +790,10 @@ func (a app) claimResumeLocalState(root string) (claimResumeLocalSnapshot, error
 		return claimResumeLocalSnapshot{}, stateError("claim local state changed while sealing its snapshot; preserve local changes")
 	}
 	return claimResumeLocalSnapshot{digest: hex.EncodeToString(h.Sum(nil)), dirty: status != ""}, nil
+}
+
+func (a app) claimResumeReadOnlyStatus(root string) (string, error) {
+	return a.gitRaw(root, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
 }
 
 func claimResumePathSeparator(paths []string) string {
@@ -887,6 +891,9 @@ func hashClaimResumeLocalPath(h hash.Hash, root, path string) error {
 		}
 		root = filepath.Join(root, part)
 		info, err := os.Lstat(root)
+		if errors.Is(err, os.ErrNotExist) {
+			return writeClaimResumeSnapshotRecord(h, []byte("missing"))
+		}
 		if err != nil {
 			return fmt.Errorf("inspect claim path parent %s: %w", root, err)
 		}

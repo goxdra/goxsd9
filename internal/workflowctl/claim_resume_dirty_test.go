@@ -42,6 +42,142 @@ func TestClaimResumeStateCommandReportsDigestWithoutMutation(t *testing.T) {
 	}
 }
 
+func claimResumeRawIndexBytes(t *testing.T, root string) []byte {
+	t.Helper()
+	path := runGitTest(t, root, "rev-parse", "--git-path", "index")
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	// #nosec G304 -- Git resolves the fixture worktree's own index path.
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read raw claim index %s: %v", path, err)
+	}
+	return contents
+}
+
+func touchClaimResumeTrackedFile(t *testing.T, root, name string) {
+	t.Helper()
+	path := filepath.Join(root, name)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat tracked file %s: %v", name, err)
+	}
+	changed := info.ModTime().Add(2 * time.Second)
+	if timeErr := os.Chtimes(path, changed, changed); timeErr != nil {
+		t.Fatalf("stale tracked file stat %s: %v", name, timeErr)
+	}
+}
+
+//nolint:gocognit // Each read-only CLI boundary checks the same raw index bytes.
+func TestClaimResumeReadOnlyStatusPreservesRawIndex(t *testing.T) {
+	fixture := newDirtyClaimResumeFixture(t, 309, "run-309-dirty", []string{"source.go", "unchanged.go"})
+	writeFixtureFile(t, fixture.worktree, "source.go", "dirty source\n")
+	state := dirtyClaimResumeSnapshot(t, fixture.worktree)
+	fixture.handoffBody = dirtyClaimResumeHandoffBody(fixture, state.digest)
+	backend := newClaimResumeBackend(t, fixture)
+	var output bytes.Buffer
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: &output}
+
+	touchClaimResumeTrackedFile(t, fixture.worktree, "unchanged.go")
+	before := claimResumeRawIndexBytes(t, fixture.worktree)
+	if err := application.run([]string{"claim", "resume-state"}); err != nil {
+		t.Fatalf("read resume state with stale stat: %v", err)
+	}
+	if after := claimResumeRawIndexBytes(t, fixture.worktree); !bytes.Equal(after, before) {
+		t.Fatal("resume-state rewrote raw index bytes")
+	}
+	if !strings.Contains(output.String(), state.digest) {
+		t.Fatalf("resume-state digest = %q, want %s", output.String(), state.digest)
+	}
+
+	touchClaimResumeTrackedFile(t, fixture.worktree, "unchanged.go")
+	before = claimResumeRawIndexBytes(t, fixture.worktree)
+	if err := application.run(claimResumeArgs(fixture, true)); err != nil {
+		t.Fatalf("dry-run with stale stat: %v", err)
+	}
+	if after := claimResumeRawIndexBytes(t, fixture.worktree); !bytes.Equal(after, before) {
+		t.Fatal("successful dry-run rewrote raw index bytes")
+	}
+
+	writeFixtureFile(t, fixture.worktree, "source.go", "stale source\n")
+	touchClaimResumeTrackedFile(t, fixture.worktree, "unchanged.go")
+	before = claimResumeRawIndexBytes(t, fixture.worktree)
+	err := application.run(claimResumeArgs(fixture, false))
+	if err == nil || !strings.Contains(err.Error(), "local state does not match") {
+		t.Fatalf("stale digest preflight error = %v", err)
+	}
+	if after := claimResumeRawIndexBytes(t, fixture.worktree); !bytes.Equal(after, before) {
+		t.Fatal("rejected stale-digest preflight rewrote raw index bytes")
+	}
+	if backend.mutations != 0 || runGitTest(t, fixture.worktree, "rev-parse", "HEAD") != fixture.expected {
+		t.Fatal("read-only or rejected command mutated claim refs")
+	}
+	statusReads := 0
+	for _, call := range backend.calls {
+		if strings.HasPrefix(call, "git status ") {
+			t.Fatalf("status read may write index: %q", call)
+		}
+		if strings.HasPrefix(call, "git --no-optional-locks status ") {
+			statusReads++
+			if !strings.Contains(call, "--ignore-submodules=none") || !strings.Contains(call, " -z ") {
+				t.Fatalf("status read omitted submodule or raw output policy: %q", call)
+			}
+		}
+	}
+	if statusReads < 6 {
+		t.Fatalf("status observations = %d, want both reads for each CLI boundary", statusReads)
+	}
+}
+
+func TestClaimResumeNestedTrackedDeletionPreservedThroughRetry(t *testing.T) {
+	fixture := newDirtyClaimResumeFixture(t, 417, "run-417-dirty", []string{"pkg/source.go"})
+	file := filepath.Join(fixture.worktree, "pkg", "source.go")
+	if err := os.Remove(file); err != nil {
+		t.Fatalf("delete tracked source: %v", err)
+	}
+	parent := filepath.Dir(file)
+	if err := os.Remove(parent); err != nil {
+		t.Fatalf("delete empty tracked directory: %v", err)
+	}
+	indexBefore := claimResumeRawIndexBytes(t, fixture.worktree)
+	state := dirtyClaimResumeSnapshot(t, fixture.worktree)
+	if !state.dirty {
+		t.Fatal("nested tracked deletion was not dirty")
+	}
+	fixture.handoffBody = dirtyClaimResumeHandoffBody(fixture, state.digest)
+	backend := newClaimResumeBackend(t, fixture)
+	var output bytes.Buffer
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: &output}
+	if err := application.run([]string{"claim", "resume-state"}); err != nil {
+		t.Fatalf("read nested deletion digest: %v", err)
+	}
+	if !strings.Contains(output.String(), state.digest) {
+		t.Fatalf("nested deletion digest output = %q", output.String())
+	}
+	if err := application.run(claimResumeArgs(fixture, false)); err != nil {
+		t.Fatalf("recover nested deletion: %v", err)
+	}
+	assertClaimResumeRenewed(t, fixture, backend)
+	if after := dirtyClaimResumeSnapshot(t, fixture.worktree); after != state {
+		t.Fatalf("nested deletion changed after recovery: before %+v, after %+v", state, after)
+	}
+	if after := claimResumeRawIndexBytes(t, fixture.worktree); !bytes.Equal(after, indexBefore) {
+		t.Fatal("nested deletion recovery changed raw index bytes")
+	}
+	if _, err := os.Lstat(parent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deleted tracked directory reappeared: %v", err)
+	}
+	mutations := backend.mutations
+	if err := application.run(claimResumeArgs(fixture, false)); err != nil {
+		t.Fatalf("retry nested deletion recovery: %v", err)
+	}
+	if backend.mutations != mutations || dirtyClaimResumeSnapshot(t, fixture.worktree) != state ||
+		!bytes.Equal(claimResumeRawIndexBytes(t, fixture.worktree), indexBefore) {
+		t.Fatal("retry changed nested deletion, index, or claim state")
+	}
+}
+
 func TestClaimResumeLocalStateDistinguishesIndexBytesModeTypeAndDeletion(t *testing.T) {
 	fixture := newDirtyClaimResumeFixture(t, 309, "run-309-dirty", []string{"source.go"})
 	baseline := dirtyClaimResumeSnapshot(t, fixture.worktree).digest
@@ -282,7 +418,7 @@ func TestClaimResumeDirtyDigestIncludesGitCachedCleanTrackedBytes(t *testing.T) 
 		t.Fatalf("tracked source unexpectedly dirty in baseline status %q", cachedStatus)
 	}
 	masked := func(dir string, input io.Reader, name string, args ...string) (string, error) {
-		if name == "git" && len(args) > 0 && args[0] == "status" {
+		if name == "git" && len(args) > 0 && (args[0] == "status" || args[0] == "--no-optional-locks") {
 			return cachedStatus, nil
 		}
 		return backend.execute(dir, input, name, args...)
