@@ -98,9 +98,7 @@ and wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip
 `notNamespace`; chameleon markers expand after adoption. Consumers reject
 wildcards; broader forms reject; `0/0` omits. `openContent=none` works except
 under Strict10; named groups retain ordered refs/ranges.
-Inline complexes expose IDs, ordered sequence/ref/use outside walks; consumers reject. SimpleContent admits string/Boolean/integer/decimal, policy-gated
-`precisionDecimal` with nil particles. Compatibility/Strict11 admit nonzero
-direct `precisionDecimal` sequences and named precisionDecimal-bearing list/union locals in direct non-extension sequences without QName; consumers reject.
+Inline complexes expose ordered IDs/particles outside walks; precisionDecimal-only sequences validate. SimpleContent admits scalar bases without particles. List/union locals remain query-only.
 Element refs retain targets/occurrences, including repeated global inline
 restrictions; nonzero local inline forms reject.
 Built-in/named `string` particles are query-only.
@@ -126,12 +124,14 @@ Compatibility/Strict11 precisionDecimal roots; Strict10 rejects precisionDecimal
 Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
 Local Boolean/integer/decimal sequences/default choices honor
 ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
+Compatibility/Strict11 validate exact, ordered precisionDecimal sequences: locals only or global refs only (including anonymous targets); inline roots qualify.
+Structure/scalar diagnostics differ; `xsi:schemaLocation` does not resolve.
 Local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
 unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
-only default direct-choice refs to unconstrained global built-in/named Boolean/integer/decimal validate.
-Constrained targets reject at instance use `Loc` with related constraint `Loc`; other forms remain queryable.
-Global `nonNegativeInteger` refs remain queryable;
-direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
+Choice refs validate only unconstrained Boolean/integer/decimal targets at default occurrences.
+Constrained targets reject at use `Loc`, relating constraint `Loc`.
+Global `nonNegativeInteger` refs query;
+choice/sequence consumers reject with located diagnostics/nil output. Model-group
 refs query in direct complex-type bodies and supported grouped extensions; nested/broader forms reject.
 AttributeUse/simpleContent are query-only. QName globals/refs reject validation and generation with located diagnostics and nil output.
 

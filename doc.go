@@ -1,6 +1,6 @@
-// Package goxsd9 provides a supported vertical slice for parsing XML Schema
-// documents into immutable schema components and validating scalar XML
-// instances.
+// Package goxsd9 parses supported XML Schema documents into immutable schema
+// components and validates supported XML instances, including scalar roots
+// and ordered child sequences.
 //
 // ParseSchema accepts a caller-created ResolvedSource and a Resolver. The
 // current subset discovers mixed XSD 1.0 and XSD 1.1 schema graphs and builds
@@ -65,8 +65,9 @@
 // resolved type Loc before conversion; global inline-attribute declarations and
 // attribute validation/GenerateGo remain unsupported. Supported local anonymous
 // atomic AttributeUse facts are separate. Under admitting policies,
-// built-in/named roots validate, while inline anonymous targets remain excluded
-// from validation and generation.
+// built-in/named roots validate. Standalone inline anonymous roots reject
+// validation; precisionDecimal-only sequence references validate these targets.
+// Generation rejects precisionDecimal targets.
 // Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
@@ -80,7 +81,8 @@
 // inline complex types, and atomic xs:string particles for named global
 // complex types, global element inline complex types, and supported bounded
 // attribute-free extensions. Inline complexes retain anonymous IDs and query facts
-// outside the global walk; their consumers reject. The model also admits
+// outside the global walk; precisionDecimal-only direct sequences validate, while
+// generation rejects them. The model also admits
 // built-in/named/inline xs:negativeInteger and built-in or supported
 // named-effective xs:long/xs:int/xs:short/xs:byte/xs:unsignedLong/
 // xs:nonNegativeInteger particles in
@@ -212,11 +214,10 @@
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy-mismatch
 // diagnostic before 0/0 omission for either mapped form, including zero. Under
 // Compatibility/Strict11, mapped non-default precisionDecimal choice/alternative
-// ranges are schema-unsupported. Direct sequences remain query-only when their
-// consumers cannot model them. Only non-extension default-occurrence typed direct
-// choices are validation-eligible; precisionDecimal extension choices remain
-// query-only/consumer-rejected, and all anonymous consumers are rejected by
-// validation and generation.
+// ranges are schema-unsupported. PrecisionDecimal-only direct sequences with
+// typed local elements validate with exact occurrences. Non-extension
+// default-occurrence typed direct choices also validate; precisionDecimal
+// extension choices and local anonymous consumers remain query-only or rejected.
 // The supported local element anonymous model is limited to atomic
 // Boolean/integer/decimal/negativeInteger restrictions in the direct choice/sequence
 // and bounded attribute-free extension shapes above. Local anonymous
@@ -225,13 +226,13 @@
 // mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions remain
 // schema-unsupported when nonzero. Global inline-element precisionDecimal remains a query
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
-// and every anonymous precisionDecimal target is excluded from validation and
-// generation.
+// standalone inline precisionDecimal roots remain validation-unsupported.
+// Direct precisionDecimal-only sequences can validate references to these
+// anonymous global targets; generation still rejects them.
 // Global inline complex types expose stable anonymous ComplexTypeID nodes,
 // exact ordered sequence/reference particles, and attribute uses without
 // entering the global component walk. Direct non-extension precisionDecimal
-// list/union sequence links without QName and anonymous global precisionDecimal
-// restrictions are query-only.
+// list/union sequence links without QName remain query-only.
 // Particle-plus-use bodies, direct model-group references, grouped extensions,
 // attribute-only bodies, and scalar simpleContent extensions expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
@@ -262,17 +263,18 @@
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.
-// ValidateInstance and GenerateGo consume only supported non-extension
-// default-occurrence direct-choice references to built-in or named global
-// Boolean, integer, or decimal targets without identity constraints; constrained
-// targets remain queryable but validation rejects at the instance use Loc with
-// the first constraint Loc related. GenerateGo rejects at that constraint Loc
-// with no output.
+// Both consumers admit only supported non-extension default-occurrence
+// direct-choice references to unconstrained built-in or named global Boolean,
+// integer, or decimal targets. Validation also admits exact-occurrence direct
+// precisionDecimal-only sequence references to global built-in, named, or inline
+// anonymous precisionDecimal targets; generation rejects sequence references.
+// Constrained targets remain queryable but validation rejects at instance use Loc,
+// relating the first constraint Loc; GenerateGo rejects with no output.
 // References to global `nonNegativeInteger` remain queryable without target-type
 // gating; direct-choice and sequence consumers reject them with located
 // unsupported diagnostics and nil GenerateGo output.
-// Sequence, anonymous-target, repetition, nested, recursive, and broader
-// element-reference forms are consumer exclusions; query references retain their
+// Other sequence, anonymous-target, repetition, nested, recursive, and broader
+// element-reference forms remain consumer exclusions; query references retain
 // resolved facts. Model-group references are a separate top-level direct query
 // boundary with ordered facts and TargetID; nested, local, recursive, and broader
 // model-group references remain unsupported.
@@ -337,11 +339,15 @@
 // xs:string atomic kind, or built-in/named xs:boolean/xs:token/xs:NMTOKEN/
 // xs:integer/xs:nonNegativeInteger/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
-// or Strict11, or as a named global complex type with one direct
+// or Strict11, or through a named global complex type with one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
 // restriction elements, one direct integer/decimal sequence of local built-in or
 // named elements, one homogeneous token/NMTOKEN sequence of local built-in or
-// supported named token/NMTOKEN elements, or one direct choice
+// supported named token/NMTOKEN elements, one direct precisionDecimal-only
+// sequence of exclusively local built-in/named elements or exclusively global
+// element references under
+// Compatibility/Strict11 (also on inline complex roots, including references
+// to anonymous precisionDecimal restrictions), or one direct choice
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or, in
 // non-extension direct choices, default-occurrence references to global Boolean,
@@ -351,10 +357,14 @@
 // Direct local sequences match expanded
 // names in lexical declaration order and honor exact finite, unbounded, and
 // above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
-// and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
+// and Strict11. PrecisionDecimal-only sequences accept expanded-name
+// xsi:schemaLocation as a non-resolving hint; their order, unexpected-child,
+// and occurrence diagnostics are distinct from scalar lexical/facet failures.
+// Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
 // remain explicit unsupported behavior. Local long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger particles are
 // query-only and remain explicit unsupported behavior in both consumers.
-// Reference consumers exclude precisionDecimal and anonymous targets.
+// Direct-choice reference consumers exclude precisionDecimal and anonymous targets;
+// direct precisionDecimal-only sequences admit those targets when atomic.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
 // wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
@@ -478,8 +488,9 @@
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
 // before validation at the typed reference or type location. Global built-in/named
-// roots validate under those policies, while inline precisionDecimal is an
-// anonymous target rejected by validation. GenerateGo rejects every global,
+// roots validate under those policies; direct precisionDecimal-only sequences
+// also validate references to global inline anonymous restrictions. Standalone
+// inline precisionDecimal roots remain unsupported. GenerateGo rejects every global,
 // explicitly typed local (including named effective), inline, anonymous, and
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence

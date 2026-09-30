@@ -106,10 +106,9 @@ give a 16-totalDigits, maxScale 369, minScale -398 minimum envelope and recommen
 maxScale 6111, minScale -6176 envelope. These non-mandatory numbers are implementation guidance, not a
 conformance claim or a substitute for the per-call resource contract.
 
-## Bounded follow-up and corpus evidence
+## Integration and corpus evidence
 
-The boundary covers values/facets, partial comparison, bounded canonical output,
-and schema facts; assertions/remaining facets stay separate,
-while bound parsing, effective facts, and scalar validation integrate.
+The exact value/facet model supplies schema facts and atomic instance validation;
+assertions remain separate.
 
 Pinned [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary PDecimal groups; the catalog remains provenance, and auxiliary results stay outside headline conformance.

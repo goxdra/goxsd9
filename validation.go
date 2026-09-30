@@ -34,6 +34,15 @@ const (
 	// InvalidInstanceSequenceCode identifies invalid direct-sequence content in
 	// an XML instance.
 	InvalidInstanceSequenceCode = "XSD4006"
+	// InvalidInstanceSequenceOrderCode identifies an out-of-order element in a
+	// precisionDecimal direct sequence.
+	InvalidInstanceSequenceOrderCode = "XSD4007"
+	// InvalidInstanceSequenceOccurrenceCode identifies a violated occurrence
+	// bound in a precisionDecimal direct sequence.
+	InvalidInstanceSequenceOccurrenceCode = "XSD4008"
+	// InvalidInstanceSequenceUnexpectedCode identifies an undeclared child of a
+	// precisionDecimal direct sequence.
+	InvalidInstanceSequenceUnexpectedCode = "XSD4009"
 )
 
 const (
@@ -188,15 +197,15 @@ type instanceChoiceProgram struct {
 // a single global root of built-in xs:string, a named/anonymous restriction
 // with effective xs:string atomic kind, built-in/named Boolean, token, NMTOKEN,
 // integer, nonNegativeInteger, decimal, or precisionDecimal, or a named complex
-// type with one direct choice or sequence. Direct choices accept
+// type with one direct choice or sequence. Inline complex roots admit direct
+// precisionDecimal-only sequences. Direct choices accept
 // default-occurrence local Boolean, token, NMTOKEN, integer, decimal, or
 // precisionDecimal elements whose type references are built-in or named, and
 // default-occurrence references to global Boolean, integer, and decimal
 // elements other than nonNegativeInteger.
-// Direct sequences contain only
-// local built-in or named Boolean elements, only local built-in or named
-// integer/decimal elements, only local built-in or named token elements, or
-// only local built-in or named NMTOKEN elements.
+// Direct sequences contain only local built-in/named Boolean, integer/decimal,
+// token, or NMTOKEN elements, or only built-in/named precisionDecimal locals, or
+// only global precisionDecimal references, each with exact occurrences.
 // Modeled anonymous local inline atomic references
 // remain schema-queryable only: ordinary direct choice/sequence target checks
 // return a located FailureUnsupported/ErrUnsupported diagnostic with
