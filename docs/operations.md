@@ -29,8 +29,8 @@ generic no-PR forms each cover every PR/pull-request/workflow-path mention.
 Compatibility exceptions are exact, issue-scoped complete forms. Generic handoffs may
 omit head/SHA/commit labels; present labels require one full 40-hex expected SHA;
 malformed/ambiguous labels are terminal before mutation.
-Markers: exact message, unchanged tree, one parent. Reject source-bearing/merge
-markers and malformed refs. For expired `--expected-head`, verify same-run
+Markers: exact message, unchanged tree, one parent. Reject source-bearing
+markers, merges, malformed refs. For expired `--expected-head`, verify same-run
 ancestry; bind oldest marker lease to acquisition comment/handoff. Source-changing
 work may intervene; renewal leases may differ. Remote refs need `refs/heads/`, tracking
 refs `origin/`. Keep `needs-human` through verification, then Project `Picked`.

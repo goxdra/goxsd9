@@ -299,103 +299,148 @@ func claimResumeFixedHead(inventory agentRefInventory, issue int, fixedBranch st
 	return head, nil
 }
 
-// readClaimResumeMarkerChain authenticates the current head and every earlier
-// claim marker on its first-parent path through the original acquisition.
-// Source-changing work commits between renewals are allowed. An empty commit
-// there is ambiguous claim evidence and must have the generated marker shape.
+type claimResumeHistoryCommit struct {
+	head   string
+	object commitObject
+}
+
+// readClaimResumeMarkerChain binds the oldest same-run marker to the acquired
+// lease, then proves every commit between that marker and the current head.
 //
-//nolint:gocognit,funlen // Marker ancestry and acquisition binding form one ordered proof.
+//nolint:gocognit // The proof keeps the ordered marker and merge gates together.
 func (a app) readClaimResumeMarkerChain(root, head string, issue int, runID string, acquisitionLease time.Time) error {
-	commit, err := a.readCanonicalClaimCommit(root, head, issue, runID, "")
+	history, err := a.readClaimResumeFirstParentHistory(root, head)
 	if err != nil {
 		return err
 	}
-	if commit.lease.After(time.Now().UTC()) {
-		return stateError("claim #%d is active until %s; use claim renew", issue, commit.lease.Format(time.RFC3339))
+	if hiddenErr := a.validateNoHiddenClaimResumeMarker(root, head, history, runID); hiddenErr != nil {
+		return hiddenErr
 	}
-	acquisitionFound := commit.lease.Equal(acquisitionLease)
-	if acquisitionFound {
-		older, olderErr := a.hasPriorSameRunMarker(root, commit.parent, issue, runID)
-		if olderErr != nil {
-			return olderErr
-		}
-		if !older {
-			return nil
-		}
+	anchor := claimResumeAcquisitionIndex(history, runID)
+	if anchor < 0 {
+		return stateError("claim head %s has no original marker for issue #%d run %s; preserve claim artifacts", head, issue, runID)
 	}
-	for parent := commit.parent; parent != ""; {
-		object, readErr := a.gitRaw(root, "cat-file", "commit", parent)
-		if readErr != nil {
-			return fmt.Errorf("read claim ancestry commit %s: %w", parent, readErr)
+	for index := 0; index <= anchor; index++ {
+		current := history[index]
+		if len(current.object.parents) != 1 {
+			return stateError("claim ancestry commit %s has %d parents; merge ancestry is ambiguous and artifacts are preserved", current.head, len(current.object.parents))
 		}
-		parsed, parseErr := parseCommitObject(object)
-		if parseErr != nil {
-			return stateError("claim ancestry commit %s is malformed; preserve claim artifacts: %w", parent, parseErr)
-		}
-		if !claimResumeLooksLikeMarker(parsed.message) {
-			if len(parsed.parents) == 0 {
-				break
-			}
-			parentTreeOutput, treeErr := a.gitRaw(root, "rev-parse", parsed.parents[0]+"^{tree}")
-			if treeErr != nil {
-				return fmt.Errorf("read claim ancestry parent tree at %s: %w", parsed.parents[0], treeErr)
-			}
-			parentTree, parseErr := parseCanonicalSHA(parentTreeOutput, "claim ancestry parent tree")
-			if parseErr != nil {
-				return stateError("claim ancestry parent %s has malformed tree identity: %w", parsed.parents[0], parseErr)
-			}
-			if parsed.tree == parentTree {
-				return stateError("claim ancestry commit %s is an empty non-canonical marker; preserve claim artifacts", parent)
-			}
-			parent = parsed.parents[0]
+		if index != 0 && !claimResumeMarkerCandidate(history, index) {
 			continue
 		}
-		if acquisitionFound {
-			olderIssue, olderRun, _, parseErr := parseCanonicalClaimMessage(parsed.message)
-			if parseErr == nil && (olderIssue != issue || olderRun != runID) {
-				return nil
-			}
-		}
-		previous, markerErr := a.readCanonicalClaimCommit(root, parent, issue, runID, "")
+		marker, markerErr := a.readCanonicalClaimCommit(root, current.head, issue, runID, "")
 		if markerErr != nil {
 			return markerErr
 		}
-		if previous.lease.Equal(acquisitionLease) {
-			acquisitionFound = true
-			older, olderErr := a.hasPriorSameRunMarker(root, previous.parent, issue, runID)
-			if olderErr != nil {
-				return olderErr
-			}
-			if !older {
-				return nil
-			}
+		if index == 0 && marker.lease.After(time.Now().UTC()) {
+			return stateError("claim #%d is active until %s; use claim renew", issue, marker.lease.Format(time.RFC3339))
 		}
-		if acquisitionFound && !previous.lease.Equal(acquisitionLease) {
-			return stateError("claim head %s has a same-run marker before the generated acquisition lease; preserve conflicting claim artifacts", head)
+		if index == anchor && !marker.lease.Equal(acquisitionLease) {
+			return stateError("original claim marker %s lease %s does not match generated acquisition lease %s; preserve evidence", current.head, marker.lease.Format(time.RFC3339), acquisitionLease.Format(time.RFC3339))
 		}
-		parent = previous.parent
 	}
-	if acquisitionFound {
-		return nil
-	}
-	return stateError("claim head %s has no original marker bound to the generated acquisition lease %s; preserve claim artifacts", head, acquisitionLease.Format(time.RFC3339))
+	return nil
 }
 
-func (a app) hasPriorSameRunMarker(root, parent string, issue int, runID string) (bool, error) {
-	output, err := a.command(root, "git", "log", "--first-parent", "--format=%B", parent)
-	if err != nil {
-		return false, fmt.Errorf("inspect claim ancestry before acquisition marker: %w", err)
+func (a app) readClaimResumeFirstParentHistory(root, head string) ([]claimResumeHistoryCommit, error) {
+	history := make([]claimResumeHistoryCommit, 0, 4)
+	for current := head; current != ""; {
+		object, err := a.gitRaw(root, "cat-file", "commit", current)
+		if err != nil {
+			return nil, fmt.Errorf("read claim ancestry commit %s: %w", current, err)
+		}
+		parsed, err := parseCommitObject(object)
+		if err != nil {
+			return nil, stateError("claim ancestry commit %s is malformed; preserve claim artifacts: %w", current, err)
+		}
+		history = append(history, claimResumeHistoryCommit{head: current, object: parsed})
+		if len(parsed.parents) == 0 {
+			break
+		}
+		current = parsed.parents[0]
 	}
-	return strings.Contains(output, "Agent-Run-ID: "+runID) ||
-		strings.Contains(output, fmt.Sprintf("chore(workflow): claim issue #%d", issue)), nil
+	return history, nil
+}
+
+func (a app) validateNoHiddenClaimResumeMarker(root, head string, history []claimResumeHistoryCommit, runID string) error {
+	firstParents := make(map[string]bool, len(history))
+	for _, commit := range history {
+		firstParents[commit.head] = true
+	}
+	output, err := a.command(root, "git", "rev-list", head)
+	if err != nil {
+		return fmt.Errorf("inspect claim ancestry graph at %s: %w", head, err)
+	}
+	for _, candidate := range strings.Split(output, "\n") {
+		if candidate == "" || firstParents[candidate] {
+			continue
+		}
+		if !validExactCommitSHA(candidate) {
+			return stateError("claim ancestry graph has malformed head %q; preserve artifacts", candidate)
+		}
+		object, readErr := a.gitRaw(root, "cat-file", "commit", candidate)
+		if readErr != nil {
+			return fmt.Errorf("read claim ancestry side commit %s: %w", candidate, readErr)
+		}
+		parsed, parseErr := parseCommitObject(object)
+		if parseErr != nil {
+			return stateError("claim ancestry side commit %s is malformed; preserve artifacts: %w", candidate, parseErr)
+		}
+		if claimResumeMarkerRun(parsed.message) == runID {
+			return stateError("claim head %s has same-run marker %s outside first-parent ancestry; merge ancestry is ambiguous", head, candidate)
+		}
+	}
+	return nil
+}
+
+func claimResumeAcquisitionIndex(history []claimResumeHistoryCommit, runID string) int {
+	anchor := -1
+	for index := range history {
+		if !claimResumeMarkerCandidate(history, index) {
+			continue
+		}
+		if claimResumeMarkerRun(history[index].object.message) != runID {
+			continue
+		}
+		anchor = index
+	}
+	return anchor
+}
+
+func claimResumeMarkerCandidate(history []claimResumeHistoryCommit, index int) bool {
+	if claimResumeLooksLikeMarker(history[index].object.message) {
+		return true
+	}
+	if index+1 >= len(history) {
+		return false
+	}
+	return history[index].object.tree == history[index+1].object.tree
+}
+
+func claimResumeMarkerRun(message string) string {
+	for _, line := range strings.Split(message, "\n") {
+		if strings.HasPrefix(line, "Agent-Run-ID: ") {
+			return strings.TrimPrefix(line, "Agent-Run-ID: ")
+		}
+	}
+	return ""
 }
 
 func claimResumeLooksLikeMarker(message string) bool {
-	return strings.Contains(message, "chore(workflow): claim issue #") ||
-		strings.Contains(message, "Agent-Persona:") ||
-		strings.Contains(message, "Agent-Run-ID:") ||
-		strings.Contains(message, "Agent-Lease-Until:") ||
-		strings.Contains(message, "Agent-Issue:")
+	lines := strings.Split(message, "\n")
+	if len(lines) == 0 {
+		return false
+	}
+	if strings.HasPrefix(lines[0], "chore(workflow): claim issue #") {
+		return true
+	}
+	for _, line := range lines[1:] {
+		if strings.HasPrefix(line, "Agent-Persona: ") || strings.HasPrefix(line, "Agent-Run-ID: ") ||
+			strings.HasPrefix(line, "Agent-Lease-Until: ") || strings.HasPrefix(line, "Agent-Issue: ") {
+			return true
+		}
+	}
+	return false
 }
 
 // readCanonicalClaimCommit proves the exact bytes and graph shape of a claim
