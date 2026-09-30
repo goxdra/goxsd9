@@ -8,12 +8,19 @@
 // lists, and unions. Anonymous simple types and resolved built-in, named, and
 // anonymous simple-type references are modeled, along with global xs:boolean,
 // xs:nonNegativeInteger, xs:positiveInteger, and atomic
-// xs:string/xs:token/xs:NMTOKEN declarations
+// xs:string/xs:normalizedString/xs:token/xs:NMTOKEN declarations
 // and their named or anonymous restrictions.
 // Queries and walks are deterministic. SimpleTypeDefinition.IsBoolean,
 // StringEnumerationFacets, and StringWhiteSpaceFacet report immutable kind
 // and implemented scalar facts. ParseSchema uses graph-wide Compatibility;
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
+// xs:normalizedString has distinct built-in identity and replace whiteSpace.
+// Restrictions, list items, and union members may reference it. Direct,
+// named-typed, and inline atomic-restriction global elements are queryable;
+// list/union-typed global elements reject. Mapped nonzero local typed particles
+// and global attributes reject at schema admission; applicable 0/0 local forms
+// omit after reference, facet, and policy gates. Element-ref particles to
+// admitted global elements query; ValidateInstance and GenerateGo reject them.
 // A successful ParseSchema returns an immutable Schema; Documents, Components,
 // Lookup, Find, FindKind, and Walk expose deterministic query views, while
 // AttributeDeclaration exposes resolved type and value-constraint facts.
@@ -316,9 +323,9 @@
 // located diagnostic causes.
 //
 // ValidateInstance supports one complete instance rooted at a global element
-// declared as direct xs:string, a named/anonymous atomic string restriction,
-// or built-in/named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/
-// xs:nonNegativeInteger/xs:decimal
+// declared as direct xs:string or a named/anonymous restriction with effective
+// xs:string atomic kind, or built-in/named xs:boolean/xs:token/xs:NMTOKEN/
+// xs:integer/xs:nonNegativeInteger/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
 // or Strict11, or as a named global complex type with one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
@@ -348,10 +355,11 @@
 // sequences made entirely of built-in or supported named NMTOKEN particles
 // collapse XML whitespace and enforce the repository XML NameChar policy.
 // Those sequences validate with exact occurrences and NMTOKEN value-space rules;
-// their GenerateGo consumers remain unsupported. Global string roots normalize
-// instance text with effective whiteSpace, then compare enumeration values
-// interpreted by each declaration's base type; violations retain text and
-// related schema locations. Local atomic string particles retain their written
+// their GenerateGo consumers remain unsupported. Global roots with effective
+// xs:string atomic kind normalize instance text with effective whiteSpace,
+// then compare enumeration values interpreted by each declaration's base type;
+// violations retain text and related schema locations. Local atomic string
+// particles retain their written
 // QName, resolved named identity, immutable type/facet facts, locations, and exact
 // occurrences in direct choices, sequences, and supported bounded extensions, but
 // remain unsupported to consumers. Lists/unions,
@@ -421,10 +429,11 @@
 // malformed/stale built-in or named facts fail closed as FailureInternal/GOXSD9030
 // with nil output. Named final, atomic-restriction-variety, and effective-facet
 // gates reject unsupported forms with FailureUnsupported/GOXSD9029 and no output.
-// Supported global built-in/named Boolean/integer/decimal and
-// string/token/NMTOKEN simple-type components and supported global element
+// Supported global built-in/named Boolean/integer/decimal and effective
+// xs:string-atomic/token/NMTOKEN simple-type components and global element
 // declarations generate, as do global inline-element string/token/NMTOKEN
-// declarations. Non-extension default-occurrence direct-choice references to
+// declarations. Standalone named normalizedString restrictions reject.
+// Non-extension default-occurrence direct-choice references to
 // global built-in/named Boolean, integer, or decimal targets are also
 // generation-eligible only when targets have no identity constraints. Any
 // identity-constrained global element, including a reference target, makes
