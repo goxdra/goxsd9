@@ -1895,6 +1895,13 @@ func (a app) validateClaimResumeRefs(root string, remoteInventory agentRefInvent
 			continue
 		}
 		if ref.branch != localBranch || ref.sha != localHead {
+			archived, err := a.archivedRunLocalRef(root, remoteInventory, ref)
+			if err != nil {
+				return fmt.Errorf("prove archived local ref %s: %w", ref.branch, err)
+			}
+			if archived {
+				continue
+			}
 			return stateError("issue #%d has a moved or conflicting local run-local ref %s; preserve it before recovery", issue, ref.branch)
 		}
 		localRuns++
