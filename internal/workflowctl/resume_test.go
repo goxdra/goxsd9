@@ -131,7 +131,7 @@ func TestPRResumeMissingRemoteObjectPreservesTrackingRefsOnRejection(t *testing.
 	backend := newResumeBackend(t, fixture)
 	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
 	err := application.run(resumeArgs(fixture.expected))
-	if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), "differs from local head") {
+	if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), "canonical renewal proof") {
 		t.Fatalf("missing remote object rejection = %v, disposition %d, want terminal moved-head refusal", err, operationDispositionOf(err))
 	}
 	trackingAfter := runGitTest(t, fixture.primary, "for-each-ref", "--format=%(refname) %(objectname)", "refs/remotes/origin/agent/*")
@@ -191,14 +191,14 @@ func TestPRResumeInjectedIntegration(t *testing.T) {
 		if err := application.run(resumeArgs(fixture.expected)); err != nil {
 			t.Fatalf("apply resume: %v", err)
 		}
-		head := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
-		if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^"); got != fixture.expected {
+		head := resumeRemoteHead(t, fixture)
+		if got := runGitTest(t, fixture.worktree, "rev-parse", head+"^"); got != fixture.expected {
 			t.Fatalf("renewal parent = %s, want %s", got, fixture.expected)
 		}
-		if got, want := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^{tree}"), runGitTest(t, fixture.worktree, "rev-parse", "HEAD^^{tree}"); got != want {
+		if got, want := runGitTest(t, fixture.worktree, "rev-parse", head+"^{tree}"), runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^{tree}"); got != want {
 			t.Fatalf("renewal tree = %s, want parent tree %s", got, want)
 		}
-		message := runGitTest(t, fixture.worktree, "log", "-1", "--format=%B")
+		message := runGitTest(t, fixture.worktree, "log", "-1", "--format=%B", head)
 		if !strings.Contains(message, "Agent-Run-ID: "+fixture.runID) {
 			t.Fatalf("renewal message = %q", message)
 		}
@@ -211,6 +211,12 @@ func TestPRResumeInjectedIntegration(t *testing.T) {
 				t.Fatalf("preserved file %s: %v", path, err)
 			}
 		}
+		if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != fixture.expected {
+			t.Fatalf("remote renewal changed local HEAD to %s", got)
+		}
+		if !backend.needsHuman || backend.projectStatus != "Backlog" {
+			t.Fatalf("pending renewal changed issue state: needs-human=%v Project=%s", backend.needsHuman, backend.projectStatus)
+		}
 	})
 
 	t.Run("ambiguous push retries already-pushed child", func(t *testing.T) {
@@ -220,17 +226,15 @@ func TestPRResumeInjectedIntegration(t *testing.T) {
 		sentinel := errors.New("ambiguous push sentinel")
 		backend.ambiguousPushCause = sentinel
 		application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
-		err := application.run(resumeArgs(fixture.expected))
-		if err == nil || operationDispositionOf(err) != operationDispositionRetryable || !errors.Is(err, sentinel) ||
-			!strings.Contains(err.Error(), strings.Join(resumeArgs(fixture.expected)[:6], " ")) {
-			t.Fatalf("ambiguous push error = %v, disposition %d", err, operationDispositionOf(err))
+		if err := application.run(resumeArgs(fixture.expected)); err != nil {
+			t.Fatalf("ambiguous push reconciles exact marker: %v", err)
 		}
-		head := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+		head := resumeRemoteHead(t, fixture)
 		if head == fixture.expected {
 			t.Fatalf("ambiguous push did not create a renewal child")
 		}
-		if got := resumeRemoteHead(t, fixture); got != head {
-			t.Fatalf("ambiguous push heads diverged: local=%s remote=%s", head, got)
+		if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != fixture.expected {
+			t.Fatalf("ambiguous push moved local head to %s", got)
 		}
 		commits := countResumeCalls(backend.calls, "git commit-tree ")
 		updates := countResumeCalls(backend.calls, "git update-ref ")
@@ -239,8 +243,8 @@ func TestPRResumeInjectedIntegration(t *testing.T) {
 		if err := application.run(resumeArgs(fixture.expected)); err != nil {
 			t.Fatalf("retry resume: %v", err)
 		}
-		if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != head {
-			t.Fatalf("retry created duplicate renewal: before=%s after=%s", head, got)
+		if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != fixture.expected {
+			t.Fatalf("retry moved local head: %s", got)
 		}
 		if got := resumeRemoteHead(t, fixture); got != head {
 			t.Fatalf("retry changed converged renewal: before=%s after=%s", head, got)
@@ -269,6 +273,9 @@ func TestPRResumeInjectedIntegration(t *testing.T) {
 		if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != child {
 			t.Fatalf("local-only retry head = %s, want existing child %s", got, child)
 		}
+		if got := resumeRemoteHead(t, fixture); got == child {
+			t.Fatal("remote-only renewal published preexisting local child")
+		}
 	})
 
 	t.Run("current and older run-local artifacts are preserved independently", func(t *testing.T) {
@@ -290,6 +297,335 @@ func TestPRResumeInjectedIntegration(t *testing.T) {
 			t.Fatalf("stale worktree was removed:\n%s", output)
 		}
 	})
+}
+
+//nolint:gocognit // The fixture checks the same local artifacts across both recovery phases.
+func TestPRResumePreservesLocalIntegrationBytes(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		stage          func(*testing.T, resumeFixture)
+		integrateError string
+	}{
+		{name: "resolved staged merge at remote head", stage: stageResumeMerge, integrateError: "MERGE_HEAD"},
+		{name: "unpublished merge with staged and untracked work", stage: stageResumeUnpublishedMerge, integrateError: "staged, unstaged, or untracked"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newResumeFixture(t)
+			test.stage(t, fixture)
+			paths := resumePreservedPaths(t, fixture.worktree)
+			before := snapshotResumeLocal(t, fixture.worktree, paths)
+			backend := newResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: func(dir string, input io.Reader, name string, args ...string) (string, error) {
+				if test.integrateError == "MERGE_HEAD" && name == "git" && len(args) == 3 &&
+					args[0] == "rev-parse" && args[1] == "--git-path" && args[2] == "MERGE_HEAD" {
+					absolute := runGitTest(t, fixture.worktree, "rev-parse", "--git-path", "MERGE_HEAD")
+					if !filepath.IsAbs(absolute) {
+						absolute = filepath.Join(fixture.worktree, absolute)
+					}
+					return filepath.Rel(fixture.worktree, absolute)
+				}
+				return backend.execute(dir, input, name, args...)
+			}, stdout: io.Discard}
+			if err := application.run(resumeArgs(fixture.expected)); err != nil {
+				t.Fatalf("remote-only renewal: %v", err)
+			}
+			assertResumeSnapshot(t, fixture.worktree, paths, before)
+			remote := resumeRemoteHead(t, fixture)
+			if remote == before.head || runGitTest(t, fixture.worktree, "rev-parse", remote+"^") != fixture.expected {
+				t.Fatalf("remote marker %s is not a new child of %s", remote, fixture.expected)
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", remote+"^{tree}"); got != runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^{tree}") {
+				t.Fatalf("remote marker tree %s differs from expected tree", got)
+			}
+			if !backend.needsHuman || backend.projectStatus != "Backlog" {
+				t.Fatalf("pending state changed issue: label=%v Project=%s", backend.needsHuman, backend.projectStatus)
+			}
+			if err := application.run(append(resumeArgs(fixture.expected), "--integrate")); err == nil || !strings.Contains(err.Error(), test.integrateError) {
+				t.Fatalf("dirty local integration error = %v, want %q", err, test.integrateError)
+			}
+			assertResumeSnapshot(t, fixture.worktree, paths, before)
+			if err := application.renewClaim(); err == nil || !strings.Contains(err.Error(), "integrate a pending PR renewal") {
+				t.Fatalf("claim renew during pending = %v", err)
+			}
+			if err := application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14); err == nil || !strings.Contains(err.Error(), "integrate pending PR renewal") {
+				t.Fatalf("claim push during pending = %v", err)
+			}
+			assertResumeSnapshot(t, fixture.worktree, paths, before)
+		})
+	}
+}
+
+func stageResumeMerge(t *testing.T, fixture resumeFixture) {
+	t.Helper()
+	runGitTest(t, fixture.worktree, "switch", "-c", "resume-side")
+	writeFixtureFile(t, fixture.worktree, "side", "merged side\n")
+	runGitTest(t, fixture.worktree, "add", "side")
+	runGitTest(t, fixture.worktree, "commit", "--no-gpg-sign", "-m", "test: side")
+	runGitTest(t, fixture.worktree, "switch", "agent/issue-14-"+fixture.runID)
+	runGitTest(t, fixture.worktree, "merge", "--no-commit", "--no-ff", "resume-side")
+	writeFixtureFile(t, fixture.worktree, "README", "base\nunstaged\n")
+	writeFixtureFile(t, fixture.worktree, "untracked", "keep me\n")
+}
+
+func stageResumeUnpublishedMerge(t *testing.T, fixture resumeFixture) {
+	t.Helper()
+	stageResumeMerge(t, fixture)
+	runGitTest(t, fixture.worktree, "commit", "--no-gpg-sign", "-m", "test: local merge")
+	writeFixtureFile(t, fixture.worktree, "staged", "keep staged\n")
+	runGitTest(t, fixture.worktree, "add", "staged")
+}
+
+type resumeLocalSnapshot struct {
+	head  string
+	files [][]byte
+}
+
+func resumePreservedPaths(t *testing.T, root string) []string {
+	t.Helper()
+	paths := make([]string, 0, 6)
+	paths = append(paths, "README", "side", "staged", "untracked")
+	for _, name := range []string{"index", "MERGE_HEAD"} {
+		path := runGitTest(t, root, "rev-parse", "--git-path", name)
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, path)
+		}
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+func snapshotResumeLocal(t *testing.T, root string, paths []string) resumeLocalSnapshot {
+	t.Helper()
+	result := resumeLocalSnapshot{head: runGitTest(t, root, "rev-parse", "HEAD")}
+	for _, path := range paths {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, path)
+		}
+		// #nosec G304 -- paths are fixed artifacts in this test's temporary Git worktree.
+		data, err := os.ReadFile(path)
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatalf("snapshot %s: %v", path, err)
+		}
+		result.files = append(result.files, data)
+	}
+	return result
+}
+
+func assertResumeSnapshot(t *testing.T, root string, paths []string, before resumeLocalSnapshot) {
+	t.Helper()
+	after := snapshotResumeLocal(t, root, paths)
+	if after.head != before.head {
+		t.Fatalf("local HEAD changed from %s to %s", before.head, after.head)
+	}
+	for index, path := range paths {
+		if !bytes.Equal(after.files[index], before.files[index]) {
+			t.Fatalf("local artifact %s changed during remote renewal", path)
+		}
+	}
+}
+
+func TestPRResumeFailedPreflightPreservesStagedMergeBytes(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		edit func(*testing.T, resumeFixture, *resumeBackend)
+	}{
+		{name: "moved PR head", edit: func(_ *testing.T, _ resumeFixture, backend *resumeBackend) {
+			backend.prHead = strings.Repeat("a", 40)
+		}},
+		{name: "moved remote head", edit: func(t *testing.T, fixture resumeFixture, _ *resumeBackend) {
+			moved := createResumeTestCommit(t, fixture.worktree, fixture.expected, "test: moved remote\n")
+			runGitTest(t, fixture.worktree, "push", "--force", "origin", moved+":refs/heads/agent/issue-14")
+		}},
+		{name: "missing needs-human", edit: func(_ *testing.T, _ resumeFixture, backend *resumeBackend) {
+			backend.needsHuman = false
+		}},
+		{name: "Project already Picked", edit: func(_ *testing.T, _ resumeFixture, backend *resumeBackend) {
+			backend.projectStatus = "Picked"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newResumeFixture(t)
+			stageResumeMerge(t, fixture)
+			backend := newResumeBackend(t, fixture)
+			test.edit(t, fixture, backend)
+			paths := resumePreservedPaths(t, fixture.worktree)
+			before := snapshotResumeLocal(t, fixture.worktree, paths)
+			remoteBefore := resumeRemoteHead(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			if err := application.run(resumeArgs(fixture.expected)); err == nil {
+				t.Fatal("preflight unexpectedly accepted inconsistent proof")
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("failed preflight issued %d mutations", backend.mutations)
+			}
+			assertResumeSnapshot(t, fixture.worktree, paths, before)
+			if got := resumeRemoteHead(t, fixture); got != remoteBefore {
+				t.Fatalf("failed preflight moved remote head from %s to %s", remoteBefore, got)
+			}
+		})
+	}
+}
+
+func TestPRResumeRejectsConflictingUnpublishedRunBeforeMutation(t *testing.T) {
+	fixture := newResumeFixture(t)
+	other := createResumeTestCommit(t, fixture.worktree, fixture.expected,
+		claimMessage(14, "run-other", time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+	runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, other, fixture.expected)
+	backend := newResumeBackend(t, fixture)
+	paths := resumePreservedPaths(t, fixture.worktree)
+	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.run(resumeArgs(fixture.expected)); err == nil || !strings.Contains(err.Error(), "conflicting canonical claim markers") {
+		t.Fatalf("conflicting unpublished run error = %v", err)
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("conflicting run preflight mutations = %d", backend.mutations)
+	}
+	assertResumeSnapshot(t, fixture.worktree, paths, before)
+	if got := resumeRemoteHead(t, fixture); got != fixture.expected {
+		t.Fatalf("conflicting run moved remote head to %s", got)
+	}
+}
+
+func TestPRResumeCASRacePreservesLocalIntegration(t *testing.T) {
+	fixture := newResumeFixture(t)
+	stageResumeUnpublishedMerge(t, fixture)
+	backend := newResumeBackend(t, fixture)
+	paths := resumePreservedPaths(t, fixture.worktree)
+	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	rogue := createResumeTestCommit(t, fixture.worktree, fixture.expected, "test: moved PR head\n")
+	interposed := false
+	application := app{ctx: context.Background(), executeCommand: func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		if name == "git" && len(args) > 0 && args[0] == "push" && !interposed {
+			interposed = true
+			runGitTest(t, fixture.worktree, "push", "--force", "origin", rogue+":refs/heads/agent/issue-14")
+		}
+		return backend.execute(dir, input, name, args...)
+	}, stdout: io.Discard}
+	err := application.run(resumeArgs(fixture.expected))
+	if err == nil || !strings.Contains(err.Error(), "reconciliation") {
+		t.Fatalf("CAS race error = %v", err)
+	}
+	if !interposed {
+		t.Fatal("CAS push was not attempted")
+	}
+	assertResumeSnapshot(t, fixture.worktree, paths, before)
+	if got := resumeRemoteHead(t, fixture); got != rogue {
+		t.Fatalf("CAS push displaced competing remote head: %s", got)
+	}
+}
+
+func TestPRResumeIntegratesMarkerAfterLocalWorkResolves(t *testing.T) {
+	fixture := newResumeFixture(t)
+	stageResumeUnpublishedMerge(t, fixture)
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.run(resumeArgs(fixture.expected)); err != nil {
+		t.Fatalf("remote renewal: %v", err)
+	}
+	remote := resumeRemoteHead(t, fixture)
+	before := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if err := application.run(append(resumeArgs(fixture.expected), "--integrate")); err == nil || !strings.Contains(err.Error(), "staged, unstaged, or untracked") {
+		t.Fatalf("dirty integration error = %v", err)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != before {
+		t.Fatalf("failed integration moved local head to %s", got)
+	}
+	runGitTest(t, fixture.worktree, "add", "-A")
+	runGitTest(t, fixture.worktree, "commit", "--no-gpg-sign", "-m", "test: finish local work")
+	local := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	localTree := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^{tree}")
+	if err := application.run(append(resumeArgs(fixture.expected), "--integrate")); err != nil {
+		t.Fatalf("integrate remote marker: %v", err)
+	}
+	integrated := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if got := runGitTest(t, fixture.worktree, "rev-parse", integrated+"^1"); got != local {
+		t.Fatalf("integration first parent = %s, want local %s", got, local)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", integrated+"^2"); got != remote {
+		t.Fatalf("integration second parent = %s, want remote marker %s", got, remote)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^{tree}"); got != localTree {
+		t.Fatalf("integration changed local tree from %s to %s", localTree, got)
+	}
+	if backend.needsHuman || backend.projectStatus != "Picked" {
+		t.Fatalf("integration did not complete issue state: label=%v Project=%s", backend.needsHuman, backend.projectStatus)
+	}
+	if err := application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14); err != nil {
+		t.Fatalf("integrated claim cannot pass push guard: %v", err)
+	}
+	if got := resumeRemoteHead(t, fixture); got != remote {
+		t.Fatalf("integration published local source: remote=%s want=%s", got, remote)
+	}
+}
+
+func TestPRResumeProjectFailureReconcilesWithoutSecondMarker(t *testing.T) {
+	fixture := newResumeFixture(t)
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.run(resumeArgs(fixture.expected)); err != nil {
+		t.Fatalf("remote renewal: %v", err)
+	}
+	marker := resumeRemoteHead(t, fixture)
+	sentinel := errors.New("Project mutation failed")
+	backend.projectFailure = sentinel
+	err := application.run(append(resumeArgs(fixture.expected), "--integrate"))
+	if err == nil || !errors.Is(err, sentinel) {
+		t.Fatalf("Project failure = %v, want preserved cause", err)
+	}
+	integrated := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if backend.needsHuman || backend.projectStatus != "Backlog" {
+		t.Fatalf("partial reconciliation state: label=%v Project=%s", backend.needsHuman, backend.projectStatus)
+	}
+	commits := countResumeCalls(backend.calls, "git commit-tree ")
+	pushes := countResumeCalls(backend.calls, "git push ")
+	if err := application.run(append(resumeArgs(fixture.expected), "--integrate")); err != nil {
+		t.Fatalf("Project reconciliation retry: %v", err)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != integrated {
+		t.Fatalf("retry created another integration commit: %s", got)
+	}
+	if got := resumeRemoteHead(t, fixture); got != marker {
+		t.Fatalf("retry created another remote marker: %s", got)
+	}
+	if got := countResumeCalls(backend.calls, "git commit-tree "); got != commits {
+		t.Fatalf("retry created another commit: %d versus %d", got, commits)
+	}
+	if got := countResumeCalls(backend.calls, "git push "); got != pushes {
+		t.Fatalf("retry pushed again: %d versus %d", got, pushes)
+	}
+	if backend.needsHuman || backend.projectStatus != "Picked" {
+		t.Fatalf("retry did not finish reconciliation: label=%v Project=%s", backend.needsHuman, backend.projectStatus)
+	}
+}
+
+func TestPRResumePushGuardRejectsUnfinishedMergeAfterIntegration(t *testing.T) {
+	fixture := newResumeFixture(t)
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.run(resumeArgs(fixture.expected)); err != nil {
+		t.Fatalf("remote renewal: %v", err)
+	}
+	if err := application.run(append(resumeArgs(fixture.expected), "--integrate")); err != nil {
+		t.Fatalf("integrate renewal: %v", err)
+	}
+	marker := resumeRemoteHead(t, fixture)
+	runGitTest(t, fixture.worktree, "switch", "-c", "push-side")
+	writeFixtureFile(t, fixture.worktree, "push-side", "side work\n")
+	runGitTest(t, fixture.worktree, "add", "push-side")
+	runGitTest(t, fixture.worktree, "commit", "--no-gpg-sign", "-m", "test: side work")
+	runGitTest(t, fixture.worktree, "switch", "agent/issue-14-"+fixture.runID)
+	runGitTest(t, fixture.worktree, "merge", "--no-commit", "--no-ff", "push-side")
+	paths := resumePreservedPaths(t, fixture.worktree)
+	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	err := application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14)
+	if err == nil || !strings.Contains(err.Error(), "MERGE_HEAD") {
+		t.Fatalf("push guard during unfinished merge = %v", err)
+	}
+	assertResumeSnapshot(t, fixture.worktree, paths, before)
+	if got := resumeRemoteHead(t, fixture); got != marker {
+		t.Fatalf("push guard changed remote marker to %s", got)
+	}
 }
 
 //nolint:gocognit,funlen // Table cases keep all initial read operation boundaries together.
@@ -385,17 +721,6 @@ func TestPRResumeInitialReadOperationBoundaries(t *testing.T) {
 			want:      operationDispositionRetryable,
 			wantCause: true,
 		},
-		{
-			name: "staged-check transport",
-			intercept: func(command string, _ *resumeBackend, sentinel error) (string, bool, error) {
-				if command == "git diff --cached --quiet" {
-					return "", true, sentinel
-				}
-				return "", false, nil
-			},
-			want:      operationDispositionRetryable,
-			wantCause: true,
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -426,63 +751,7 @@ func TestPRResumeInitialReadOperationBoundaries(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // The table exercises each staged-check status at one proof boundary.
-func TestPRResumeStagedCheckExitBoundariesPreserveCauseAndMutation(t *testing.T) {
-	tests := []struct {
-		name       string
-		status     int
-		captureErr error
-		want       operationDisposition
-		wantCause  bool
-		wantOutput string
-	}{
-		{name: "clean", want: operationDispositionUnknown},
-		{name: "staged changes", status: 1, want: operationDispositionTerminal, wantOutput: "staged changes"},
-		{name: "git uncertainty", status: 128, want: operationDispositionRetryable},
-		{name: "transport", captureErr: errors.New("staged-check transport sentinel"), want: operationDispositionRetryable, wantCause: true},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newResumeFixture(t)
-			backend := newResumeBackend(t, fixture)
-			application := app{
-				ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard,
-				executeCommandCapture: func(_ string, _ []string, name string, args ...string) (commandCaptureResult, error) {
-					if name != "git" || strings.Join(args, " ") != "diff --cached --quiet" {
-						return commandCaptureResult{}, fmt.Errorf("unexpected captured command: %s %s", name, strings.Join(args, " "))
-					}
-					if test.captureErr != nil {
-						return commandCaptureResult{}, test.captureErr
-					}
-					return commandCaptureResult{status: test.status}, nil
-				},
-			}
-			args := append(resumeArgs(fixture.expected), "--dry-run")
-			err := application.run(args)
-			if test.want == operationDispositionUnknown {
-				if err != nil {
-					t.Fatalf("clean staged check: %v", err)
-				}
-			}
-			if test.want != operationDispositionUnknown {
-				if err == nil || operationDispositionOf(err) != test.want {
-					t.Fatalf("staged check error = %v, disposition %d, want %d", err, operationDispositionOf(err), test.want)
-				}
-				if test.wantCause && !errors.Is(err, test.captureErr) {
-					t.Fatalf("staged check error = %v, want cause %v", err, test.captureErr)
-				}
-				if test.wantOutput != "" && !strings.Contains(err.Error(), test.wantOutput) {
-					t.Fatalf("staged check error = %v, want %q", err, test.wantOutput)
-				}
-			}
-			if backend.mutations != 0 {
-				t.Fatalf("staged check mutations = %d, want zero; args=%v calls=%v", backend.mutations, args, backend.calls)
-			}
-		})
-	}
-}
-
-//nolint:gocognit,funlen // Table cases keep mutation counts and state assertions aligned.
+//nolint:gocognit // Table cases keep mutation counts and state assertions aligned.
 func TestPRResumeMutationBoundariesPreserveOperation(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -508,7 +777,7 @@ func TestPRResumeMutationBoundariesPreserveOperation(t *testing.T) {
 		},
 		{
 			name:          "push verification",
-			wantMutations: 3,
+			wantMutations: 2,
 			setup: func(backend *resumeBackend, sentinel error) {
 				backend.prReadFailureAfterMutation = sentinel
 			},
@@ -529,38 +798,6 @@ func TestPRResumeMutationBoundariesPreserveOperation(t *testing.T) {
 				}
 				if got := resumeRemoteHead(t, fixture); got != fixture.expected {
 					t.Fatalf("status-read failure moved remote head from %s to %s", fixture.expected, got)
-				}
-			},
-		},
-		{
-			name:          "label mutation",
-			wantMutations: 4,
-			setup: func(backend *resumeBackend, sentinel error) {
-				backend.labelFailure = sentinel
-			},
-			assertState: func(t *testing.T, fixture resumeFixture, backend *resumeBackend) {
-				assertResumeRenewalHeads(t, fixture)
-				if !backend.needsHuman {
-					t.Fatal("label failure cleared needs-human")
-				}
-				if backend.projectStatus != "Backlog" {
-					t.Fatalf("label failure changed Project status to %q", backend.projectStatus)
-				}
-			},
-		},
-		{
-			name:          "Project mutation",
-			wantMutations: 5,
-			setup: func(backend *resumeBackend, sentinel error) {
-				backend.projectFailure = sentinel
-			},
-			assertState: func(t *testing.T, fixture resumeFixture, backend *resumeBackend) {
-				assertResumeRenewalHeads(t, fixture)
-				if backend.needsHuman {
-					t.Fatal("Project failure left needs-human label")
-				}
-				if backend.projectStatus != "Backlog" {
-					t.Fatalf("Project failure changed status to %q", backend.projectStatus)
 				}
 			},
 		},
@@ -599,8 +836,8 @@ func TestPRResumeTerminalOperationBoundaryPreserved(t *testing.T) {
 	if !strings.Contains(err.Error(), "claim push needs reconciliation") {
 		t.Fatalf("terminal PR verification error = %v, want outer resume wrapper", err)
 	}
-	if backend.mutations != 3 {
-		t.Fatalf("terminal PR verification mutations = %d, want commit/update/push only", backend.mutations)
+	if backend.mutations != 2 {
+		t.Fatalf("terminal PR verification mutations = %d, want commit/push only", backend.mutations)
 	}
 	assertResumeRenewalHeads(t, fixture)
 }
@@ -688,22 +925,21 @@ func TestPRResumeAcceptsCurrentRunLocalAncestorSourceDivergence(t *testing.T) {
 	}
 }
 
-func TestPRResumeFastForwardsCleanLocalAncestorWithRemoteAncestor(t *testing.T) {
+func TestPRResumeRejectsCleanLocalAncestorWithRemoteAncestor(t *testing.T) {
 	fixture := newResumeFixture(t)
 	ancestor := runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^")
 	runGitTest(t, fixture.worktree, "reset", "--hard", ancestor)
 	runGitTest(t, fixture.worktree, "push", "origin", ancestor+":refs/heads/agent/issue-14-run-resume-test")
 	backend := newResumeBackend(t, fixture)
 	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
-	if err := application.run(resumeArgs(fixture.expected)); err != nil {
-		t.Fatalf("resume with clean local and remote ancestors: %v", err)
+	if err := application.run(resumeArgs(fixture.expected)); err == nil || !strings.Contains(err.Error(), "predates expected PR head") {
+		t.Fatalf("resume with local ancestor error = %v", err)
 	}
-	head := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
-	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^"); got != fixture.expected {
-		t.Fatalf("renewal parent = %s, want expected head %s", got, fixture.expected)
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != ancestor {
+		t.Fatalf("local head changed to %s", got)
 	}
-	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != head {
-		t.Fatalf("renewal head changed during inspection: got %s, want %s", got, head)
+	if backend.mutations != 0 {
+		t.Fatalf("ancestor rejection mutations = %d", backend.mutations)
 	}
 	if output := runGitTest(t, fixture.worktree, "ls-remote", "--heads", "origin", "refs/heads/agent/issue-14-run-resume-test"); !strings.Contains(output, ancestor) {
 		t.Fatalf("remote run-local ancestor = %q, want preserved %s", output, ancestor)
@@ -729,7 +965,7 @@ func TestPRResumeRejectsDirtyLocalAncestor(t *testing.T) {
 			backend := newResumeBackend(t, fixture)
 			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
 			err := application.run(resumeArgs(fixture.expected))
-			if err == nil || !strings.Contains(err.Error(), "not clean before fast-forward") {
+			if err == nil || !strings.Contains(err.Error(), "predates expected PR head") {
 				t.Fatalf("dirty local ancestor error = %v, want clean-worktree refusal", err)
 			}
 			if backend.mutations != 0 {
@@ -789,7 +1025,6 @@ func TestResumeRunLocalAncestorSourceIsRecheckedAtSeal(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // The rejection table keeps each proof failure and its zero-mutation assertion together.
 func TestPRResumeInjectedRejectionsPrecedeMutation(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -801,7 +1036,7 @@ func TestPRResumeInjectedRejectionsPrecedeMutation(t *testing.T) {
 		{name: "moved remote head", edit: func(f *resumeFixture, _ *resumeBackend) {
 			moved := createResumeTestCommit(t, f.worktree, f.expected, "test: remote movement\n")
 			runGitTest(t, f.worktree, "push", "--force", "origin", moved+":refs/heads/agent/issue-14")
-		}, want: "differs from local head"},
+		}, want: "canonical renewal proof"},
 		{name: "wrong base", edit: func(_ *resumeFixture, b *resumeBackend) { b.base = "develop" }, want: "not main"},
 		{name: "wrong PR branch", edit: func(_ *resumeFixture, b *resumeBackend) { b.prBranch = "topic" }, want: "fixed claim branch"},
 		{name: "wrong closing issue", edit: func(_ *resumeFixture, b *resumeBackend) { b.closing = 99 }, want: "primary issue"},
@@ -816,15 +1051,6 @@ func TestPRResumeInjectedRejectionsPrecedeMutation(t *testing.T) {
 		{name: "needs-human race immediately before mutation", edit: func(_ *resumeFixture, b *resumeBackend) {
 			b.dropNeedsHumanBeforeMutation = true
 		}, want: "must remain open and labeled needs-human immediately before", wantRetry: true},
-		{name: "staged changes", edit: func(f *resumeFixture, _ *resumeBackend) {
-			if err := os.WriteFile(filepath.Join(f.worktree, "staged"), []byte("x"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			runGitTest(t, f.worktree, "add", "staged")
-		}, want: "staged changes"},
-		{name: "local movement", edit: func(f *resumeFixture, _ *resumeBackend) {
-			runGitTest(t, f.worktree, "commit", "--allow-empty", "-m", "test: move local")
-		}, want: "not a retryable renewal"},
 		{name: "wrong run branch", edit: func(f *resumeFixture, _ *resumeBackend) {
 			runGitTest(t, f.worktree, "branch", "-m", "agent/issue-14-run-wrong")
 		}, want: "does not match Agent-Run-ID"},
@@ -1060,14 +1286,15 @@ func resumeRemoteHead(t *testing.T, fixture resumeFixture) string {
 func assertResumeRenewalHeads(t *testing.T, fixture resumeFixture) {
 	t.Helper()
 	local := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
-	if local == fixture.expected {
-		t.Fatalf("resume did not create a renewal child")
+	if local != fixture.expected {
+		t.Fatalf("remote renewal moved local HEAD from %s to %s", fixture.expected, local)
 	}
-	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^"); got != fixture.expected {
+	remote := resumeRemoteHead(t, fixture)
+	if remote == fixture.expected {
+		t.Fatal("resume did not create a remote renewal child")
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", remote+"^"); got != fixture.expected {
 		t.Fatalf("renewal parent = %s, want expected head %s", got, fixture.expected)
-	}
-	if got := resumeRemoteHead(t, fixture); got != local {
-		t.Fatalf("local and remote renewal heads diverged: local=%s remote=%s", local, got)
 	}
 }
 

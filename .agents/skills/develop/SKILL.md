@@ -37,12 +37,14 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    Smith implements/tests/fixes; reports paths/tests. Follow `AGENTS.md`;
    mechanize. Unfinished boundaries need unsupported feature ID, `Loc`, and
    versioned SpecRef; issue actionable discoveries, not TODOs.
-6. Renew before pushes and required durable boundaries with `go tool
-   workflowctl claim renew`; never wake or poll solely to renew.
+6. Renew at boundaries/pushes with `claim renew`; never poll.
+   Expired PR: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human`
+   renews remote only. Finish work; use `--integrate` to attach marker,
+   restore Picked before push.
 7. Run `go tool workflowctl check`; fix failures and update docs.
-8. Commit/push using `AGENTS.md`; open the initial draft PR from that head with
-   `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`, including
-   outcome, consultation, verification, conformance, and packet issues.
+8. Commit/push under `AGENTS.md`; open draft PR with `go tool workflowctl pr
+   open ISSUE --title TITLE --body-file FILE` and outcome, consultation,
+   verification, conformance, packet issues.
 9. After PR pushes establish `PR_NUMBER`:
    `PR_NUMBER="$(gh pr view --json number --jq '.number')"`; set exact REST
    `BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`.
@@ -84,13 +86,13 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
     evaluation record PR --attestation-file FILE`. Never choose verdict. On fail,
     Smith fixes/checks/pushes; repeat Curator/challenge/Examiner. Three
     authenticated fails mean needs-human; transport failures remain retryable.
-11. On matching-head pass, write run-directory squash summary:
-    problem, outcome, rationale, decisions/invariants; omit metadata/PR Markdown.
-    `go tool workflowctl pr finish PR --summary-file FILE` verifies, SHA-bound
-    REST merges/converges, and cleans proven refs/worktrees. On cleanup failure
-    preserve artifacts; run idempotent `go tool workflowctl
-    pr recover PR`. Use `claim prune ISSUE` only with merged proof. Draft
-    replacement needs fresh challenge/Examiner on identical-head ready REST PR.
+11. On pass, write squash summary covering problem/outcome/rationale/invariants;
+    omit metadata/PR Markdown. `go tool
+    workflowctl pr finish PR --summary-file FILE` verifies, SHA-bound REST
+    merges, and cleans proven refs/worktrees. On cleanup failure, preserve
+    artifacts; run `go tool workflowctl pr recover PR`. `claim prune ISSUE`
+    requires merged proof. Draft replacement needs fresh challenge/Examiner
+    on identical-head ready REST PR.
 ## Waiting and pilot
 
 `running` without error stays healthy across timeouts/compactions. Keep one

@@ -6,17 +6,18 @@ Paseo schedules jobs from clean coordination checkout in America/New_York.
 | Develop | 00:00, then every 3 hours | GPT-6 Sol/medium | `Run $develop for this repository.` |
 | Backlog | 10:30 daily | GPT-6 Sol/medium | `Run $backlog for this repository.` |
 | Retro | 13:30 Sunday | GPT-6 Astra/xhigh | `Run $retro for this repository.` |
-Jobs are non-interactive. Develop requires clean canonical `main` matching fetched
-`origin/main` and recursive pins; `doctor` enforces this; stale jobs run
-`base-sync` before relaunch. It claims one Ready issue/worktree, opens a draft PR,
-then squash-merges its evaluated head. Managed-document/source-trigger heads
-require exact audit and fresh read-only passing Curator review; preserve evidence
-and repeat after every remediation push. Renew four-hour claims at durable
-boundaries/pushes, never solely. No-PR handoffs preserve worktrees; archive only
-expired claims without open PR; preserve/escalate open-PR expirations.
+`doctor` requires clean canonical `main`, fetched `origin/main`, and recursive
+pins; stale jobs run `base-sync`. Develop claims one Ready issue, drafts a PR,
+merges evaluated head. Managed/triggered heads require exact audit and
+passing Curator after each push. Renew at durable boundaries/pushes.
+Preserve no-PR handoffs; archive only expired claims without open PR.
 Claim resume:
 `go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]`.
 PR resume: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]`.
+It CAS-pushes an empty same-run marker from exact REST head; local work stays
+intact. Keep needs-human/Backlog while pending. Finish local work, then use
+`--integrate` to attach the marker and reconcile status;
+renewal and pushes reject pending work.
 Transient agent, checkout, transport, and challenge failures remain retryable.
 Exactly three authenticated Examiner `fail` receipts add `needs-human` and return
 Backlog. Write blocker/evidence Markdown; run
@@ -39,14 +40,13 @@ idempotent Backlog/Picked convergence after label removal.
 run-local refs are inventory-only. `base-sync` fast-forwards `main`/pins; never
 resets/rebases/stashes/discards.
 After draft, set `PR_NUMBER="$(gh pr view --json number --jq '.number')"` and
-`BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`; use
-exact REST SHA for signals/audit/evidence, never `origin/main` or merge-base.
+`BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`;
+use it for signals/audit/evidence, never `origin/main` or merge-base.
 `no-relevant-target`/`not-measured` are valid; policy fuzz is health, not conformance.
-Before evidence/challenge/finish, resolve/match REST base/head, recompute signals,
-compare canonical JSON, preserve non-owned PR bytes, and use exact `pending`/
-`evidence-ready` records. Challenge/finish bind exact REST base/head, audit,
-Curator, current-state triggers, and body/evidence digests.
-Challenges, comments, and records remain immutable.
+Before evidence/challenge/finish, match REST base/head, recompute signals,
+compare canonical JSON, preserve non-owned PR bytes, and use `pending`/`evidence-ready`
+records. Challenge/finish bind REST base/head, audit, Curator, triggers, and
+body/evidence digests. Challenges, comments, and records remain immutable.
 `go tool workflowctl evaluation resolve PR --challenge ID --reason-file FILE`
 records no-verdict after expiry, or earlier when REST proves
 changed head and no receipt; it binds both heads and grants no merge authority.

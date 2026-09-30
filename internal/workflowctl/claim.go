@@ -262,9 +262,7 @@ func (a app) renewClaim() error {
 		return retryableOperationIfRecoverable("read claim heads", fmt.Errorf("read claim heads: %w", err))
 	}
 	if local != remote {
-		if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); ancestorErr != nil {
-			return stateError("claim branch diverged; local=%s remote=%s", local, remote)
-		}
+		return stateError("claim renewal requires local HEAD %s to match remote claim head %s; integrate a pending PR renewal before renewing", local, remote)
 	}
 	lease, runID, err := a.readClaimMetadata(root)
 	if err != nil {
@@ -309,9 +307,17 @@ func (a app) verifyClaim() error {
 		return retryableOperationIfRecoverable("read claim heads", fmt.Errorf("read claim heads: %w", err))
 	}
 	if local != remote {
-		return stateError("claim branch moved remotely; local=%s remote=%s", local, remote)
+		if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); ancestorErr != nil {
+			if isGitNonAncestor(ancestorErr) {
+				return stateError("claim branch moved remotely; local=%s remote=%s", local, remote)
+			}
+			return fmt.Errorf("verify remote claim ancestry: %w", ancestorErr)
+		}
 	}
 	lease, runID, err := a.readClaimMetadata(root)
+	if local != remote {
+		lease, runID, err = a.readClaimMetadataAt(root, remote)
+	}
 	if err != nil {
 		return err
 	}
@@ -335,12 +341,21 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 	}
 	if local != remote {
 		if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); ancestorErr != nil {
-			return stateError("claim branch diverged; local=%s remote=%s", local, remote)
+			if isGitNonAncestor(ancestorErr) {
+				return stateError("claim branch diverged; local=%s remote=%s; integrate pending PR renewal before pushing", local, remote)
+			}
+			return fmt.Errorf("verify claim ancestry for push: %w", ancestorErr)
+		}
+		if operationErr := a.validateResumeOperationState(root); operationErr != nil {
+			return fmt.Errorf("verify claim worktree for push: %w", operationErr)
 		}
 	}
 	lease, runID, err := a.readClaimMetadata(root)
+	if local != remote {
+		lease, runID, err = a.readClaimMetadataAt(root, remote)
+	}
 	if err != nil {
-		return stateError("claim #%d has no valid lease: %v", number, err)
+		return fmt.Errorf("claim #%d has no valid lease: %w", number, err)
 	}
 	if identityErr := validateClaimLocalBranch(branch, number, runID); identityErr != nil {
 		return identityErr
@@ -350,6 +365,15 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 
 func (a app) readClaimMetadata(root string) (time.Time, string, error) {
 	text, err := a.command(root, "git", "log", "-100", "--format=%B")
+	return parseClaimMetadata(text, err)
+}
+
+func (a app) readClaimMetadataAt(root, head string) (time.Time, string, error) {
+	text, err := a.command(root, "git", "log", "-100", "--format=%B", head)
+	return parseClaimMetadata(text, err)
+}
+
+func parseClaimMetadata(text string, err error) (time.Time, string, error) {
 	if err != nil {
 		return time.Time{}, "", retryableOperation("read claim metadata", fmt.Errorf("read claim metadata: %w", err))
 	}
