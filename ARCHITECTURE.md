@@ -108,7 +108,7 @@ Built-in/named `string` particles are query-only.
 Atomic direct/named/inline globals and refs query; nonzero locals reject, `0/0`
 omits after gates. Global attributes/consumers and standalone named generation reject.
 Facet-free `QName` restriction/list/union and direct/named/inline global refs
-retain datatype QName, use `Loc`, named ID. Mapped nonzero local particles, attributes,
+retain datatype QName, use `Loc`, named ID. Nonzero QName-bearing typed locals, attributes,
 facets, default/fixed reject; validated `0/0` locals omit after gates.
 
 ## Datatypes

@@ -23,7 +23,8 @@
 // admitted global elements query; ValidateInstance and GenerateGo reject them.
 // xs:QName references are distinct context-sensitive atomics in facet-free
 // restrictions, lists, unions, and direct/named/inline global elements.
-// Mapped nonzero QName local particles reject; applicable 0/0 forms omit after
+// Mapped nonzero QName-bearing typed local particles reject, including mixed
+// precisionDecimal unions; applicable 0/0 forms omit after
 // reference, facet, and policy gates. All QName facets reject at schema admission.
 // Individual default/fixed values on QName-typed global declarations are
 // unsupported; simultaneous values or either on an element ref are invalid at

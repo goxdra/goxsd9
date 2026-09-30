@@ -258,9 +258,9 @@ func TestQNameExcludedSchemaShapes(t *testing.T) {
 			{"global attribute named", `<xs:attribute name="a" type="t:Alias"/><xs:simpleType name="Alias"><xs:restriction base="xs:QName"/></xs:simpleType>`, `type="t:Alias"`, UnsupportedSchemaSyntaxCode, schemaAttributeTypeSpecRef(profile.version)},
 			{"global attribute inline", `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:QName"/></xs:simpleType></xs:attribute>`, `<xs:simpleType`, UnsupportedSchemaSyntaxCode, "xsd10-structures#schema-document"},
 			{"global attribute ref", `<xs:complexType name="Box"><xs:attribute ref="t:a"/></xs:complexType><xs:attribute name="a" type="xs:QName"/>`, `type="xs:QName"`, UnsupportedSchemaSyntaxCode, schemaAttributeTypeSpecRef(profile.version)},
-			{"enumeration facet", `<xs:simpleType name="Alias"><xs:restriction base="xs:QName"><xs:enumeration value="t:a"/></xs:restriction></xs:simpleType>`, `<xs:enumeration`, UnsupportedDatatypeFacetCode, tokenDiagnosticSpecRef(profile.version, "decimal")},
-			{"pattern facet", `<xs:simpleType name="Alias"><xs:restriction base="xs:QName"><xs:pattern value=".*"/></xs:restriction></xs:simpleType>`, `<xs:pattern`, UnsupportedDatatypeFacetCode, tokenDiagnosticSpecRef(profile.version, "decimal")},
-			{"whitespace facet", `<xs:simpleType name="Alias"><xs:restriction base="xs:QName"><xs:whiteSpace value="collapse"/></xs:restriction></xs:simpleType>`, `<xs:whiteSpace`, UnsupportedDatatypeFacetCode, tokenDiagnosticSpecRef(profile.version, "decimal")},
+			{"enumeration facet", `<xs:simpleType name="Alias"><xs:restriction base="xs:QName"><xs:enumeration value="t:a"/></xs:restriction></xs:simpleType>`, `<xs:enumeration`, UnsupportedDatatypeFacetCode, qnameFacetSpecRef(profile.version)},
+			{"pattern facet", `<xs:simpleType name="Alias"><xs:restriction base="xs:QName"><xs:pattern value=".*"/></xs:restriction></xs:simpleType>`, `<xs:pattern`, UnsupportedDatatypeFacetCode, qnameFacetSpecRef(profile.version)},
+			{"whitespace facet", `<xs:simpleType name="Alias"><xs:restriction base="xs:QName"><xs:whiteSpace value="collapse"/></xs:restriction></xs:simpleType>`, `<xs:whiteSpace`, UnsupportedDatatypeFacetCode, qnameFacetSpecRef(profile.version)},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				root := qnameSchema("\n  " + test.body + "\n")
@@ -272,6 +272,132 @@ func TestQNameExcludedSchemaShapes(t *testing.T) {
 				want := mustSchemaTokenLoc(t, "root.xsd", root, 2, test.mark)
 				if d.Class() != FailureUnsupported || d.Code() != test.code || d.Loc() != want || d.SpecRef() != test.spec || !errors.Is(err, ErrUnsupported) {
 					t.Fatalf("diagnostic = %v; want %s at %s spec %s", d, test.code, want, test.spec)
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Each composite route to the local precisionDecimal exception is observable.
+func TestQNameBearingPrecisionUnionsRejectNonzeroLocals(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		if profile.policy == Strict10 {
+			continue
+		}
+		for _, test := range []struct{ name, definitions, local, mark string }{
+			{"direct member", `<xs:simpleType name="U"><xs:union memberTypes="xs:precisionDecimal xs:QName"/></xs:simpleType>`, `<xs:element name="a" type="t:U"/>`, `type="t:U"`},
+			{"named member", `<xs:simpleType name="Q"><xs:restriction base="xs:QName"/></xs:simpleType><xs:simpleType name="U"><xs:union memberTypes="xs:precisionDecimal t:Q"/></xs:simpleType>`, `<xs:element name="a" type="t:U"/>`, `type="t:U"`},
+			{"named list member", `<xs:simpleType name="QList"><xs:list itemType="xs:QName"/></xs:simpleType><xs:simpleType name="U"><xs:union memberTypes="xs:precisionDecimal t:QList"/></xs:simpleType>`, `<xs:element name="a" type="t:U"/>`, `type="t:U"`},
+			{"inline list member", `<xs:simpleType name="U"><xs:union memberTypes="xs:precisionDecimal"><xs:simpleType><xs:list itemType="xs:QName"/></xs:simpleType></xs:union></xs:simpleType>`, `<xs:element name="a" type="t:U"/>`, `type="t:U"`},
+			{"direct list", `<xs:simpleType name="QList"><xs:list itemType="xs:QName"/></xs:simpleType>`, `<xs:element name="a" type="t:QList"/>`, `type="t:QList"`},
+			{"inline union", `<xs:simpleType name="U"><xs:union memberTypes="xs:precisionDecimal xs:QName"/></xs:simpleType>`, `<xs:element name="a"><xs:simpleType><xs:union memberTypes="xs:precisionDecimal xs:QName"/></xs:simpleType></xs:element>`, `<xs:simpleType`},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := qnameSchema("\n  " + test.definitions + `<xs:complexType name="Box"><xs:sequence>` + test.local + `</xs:sequence></xs:complexType>` + "\n")
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil || schema.storage != nil {
+					t.Fatalf("QName-bearing local returned schema/no error: %v", err)
+				}
+				d := requireDiagnostic(t, err)
+				want := mustSchemaTokenLoc(t, "root.xsd", root, 2, test.mark)
+				wantSpec := schemaSyntaxSpecRefForVersion(profile.version)
+				if test.name == "inline union" {
+					want = mustTestLoc(t, "root.xsd", 2, strings.LastIndex(strings.Split(root, "\n")[1], `<xs:simpleType`)+1)
+					wantSpec = "xsd10-structures#schema-document"
+				}
+				if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != want || d.SpecRef() != wantSpec || len(d.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("diagnostic = %v related=%v spec=%s; want unsupported at %s spec=%s", d, d.Related(), d.SpecRef(), want, wantSpec)
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Standalone identity, omission, and reference targets are separate admission shapes.
+func TestQNameBearingPrecisionUnionIdentityAndOmission(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		if profile.policy == Strict10 {
+			continue
+		}
+		root := qnameSchema(`
+  <xs:simpleType name="Q"><xs:restriction base="xs:QName"/></xs:simpleType>
+  <xs:simpleType name="U"><xs:union memberTypes="xs:precisionDecimal t:Q"/></xs:simpleType>
+  <xs:simpleType name="QList"><xs:list itemType="t:Q"/></xs:simpleType>
+  <xs:element name="item" type="xs:QName"/>
+  <xs:complexType name="Box"><xs:sequence><xs:element name="omitted" type="t:U" minOccurs="0" maxOccurs="0"/></xs:sequence></xs:complexType>
+  <xs:complexType name="Refs"><xs:choice><xs:element ref="t:item"/></xs:choice></xs:complexType>
+`)
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+		if err != nil {
+			t.Fatalf("standalone QName-bearing identities: %v", err)
+		}
+		members := qnameDefinition(t, schema, "U").MemberTypes()
+		if len(members) != 2 || !members[0].IsBuiltin() || members[0].Name().Local() != "precisionDecimal" || !members[1].IsNamed() || members[1].Name() != mustTestQName(t, "urn:test", "Q") || members[1].Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 3, `memberTypes="`) {
+			t.Fatalf("union members = %#v", members)
+		}
+		if id, hasID := members[1].ComponentID(); !hasID || id != componentIDForName(t, schema, members[1].Name()) {
+			t.Fatalf("QName union member ID = %v/%t", id, hasID)
+		}
+		item, ok := qnameDefinition(t, schema, "QList").ItemType()
+		if !ok || !item.IsNamed() || item.Name() != mustTestQName(t, "urn:test", "Q") {
+			t.Fatalf("QName list item = %#v/%t", item, ok)
+		}
+		if id, hasID := item.ComponentID(); !hasID || id != componentIDForName(t, schema, item.Name()) {
+			t.Fatalf("QName list item ID = %v/%t", id, hasID)
+		}
+		if len(schema.Components()) != 6 || schema.Components()[5].Name() != mustTestQName(t, "urn:test", "Refs") {
+			t.Fatalf("component order/count = %#v", schema.Components())
+		}
+		box, ok := schema.Components()[4].ComplexTypeDefinition()
+		if !ok {
+			t.Fatal("zero-omission owner has no complex type view")
+		}
+		sequence, ok := box.Particle().(SequenceParticle)
+		if !ok || len(sequence.Particles()) != 0 {
+			t.Fatalf("validated 0/0 QName-bearing local was retained: %T", box.Particle())
+		}
+		refs, ok := schema.Components()[5].ComplexTypeDefinition()
+		if !ok {
+			t.Fatal("element-ref owner has no complex type view")
+		}
+		choice, ok := refs.Particle().(ChoiceParticle)
+		if !ok || len(choice.Alternatives()) != 1 {
+			t.Fatalf("ref choice = %T", refs.Particle())
+		}
+		ref, ok := choice.Alternatives()[0].(ElementReferenceParticle)
+		if !ok || ref.Ref() != mustTestQName(t, "urn:test", "item") || ref.RefLoc() != mustSchemaTokenLoc(t, "root.xsd", root, 7, `ref="t:item"`) || ref.TargetID() != schema.Components()[3].ID() {
+			t.Fatalf("QName global element ref = %#v/%t", ref, ok)
+		}
+	}
+}
+
+//nolint:gocognit // Version, policy, and lexical exits share the QName facet boundary.
+func TestQNameFacetAlternateDiagnostics(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, test := range []struct {
+			name, facet, mark, code, spec string
+			class                         FailureClass
+			cause                         error
+		}{
+			{"invalid whiteSpace", `<xs:whiteSpace value="unknown"/>`, `value="unknown"`, InvalidStringWhiteSpaceCode, stringWhiteSpaceSpecRef(profile.version), FailureInvalid, errInvalidStringWhiteSpaceValue},
+			{"QName minScale", `<xs:minScale value="1"/>`, `<xs:minScale`, UnsupportedDatatypeFacetCode, qnameFacetSpecRef(profile.version), FailureUnsupported, ErrUnsupported},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := qnameSchema("\n  " + `<xs:simpleType name="Q"><xs:restriction base="xs:QName">` + test.facet + `</xs:restriction></xs:simpleType>` + "\n")
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil || schema.storage != nil {
+					t.Fatalf("QName facet returned schema/no error: %v", err)
+				}
+				d := requireDiagnostic(t, err)
+				wantSpec := test.spec
+				if profile.version == XSDVersion10 && test.name == "QName minScale" {
+					wantSpec = tokenDiagnosticSpecRef(XSDVersion11, "decimal")
+				}
+				if d.Class() != test.class || d.Code() != test.code || d.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 2, test.mark) || d.SpecRef() != wantSpec || len(d.Related()) != 0 || !errors.Is(err, test.cause) {
+					t.Fatalf("diagnostic = %v related=%v spec=%s", d, d.Related(), d.SpecRef())
+				}
+				if profile.version == XSDVersion10 && test.name == "QName minScale" && !errors.Is(err, errLanguagePolicyMismatch) {
+					t.Fatalf("XSD 1.1-only facet lost policy cause: %v", err)
 				}
 			})
 		}

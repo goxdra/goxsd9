@@ -5688,8 +5688,20 @@ func resolveSchemaScalarType(
 			"element type resolution has an incomplete simple type result",
 		)
 	}
-	if err := rejectUnsupportedSchemaSimpleTypeVariety(input, simpleTypes.results[candidate], version, complexTargetSuffix); err != nil && (!allowPrecisionVariety || !schemaPrecisionDecimalListOrUnion(simpleTypes.results[candidate])) {
-		return schemaElementTypeResult{}, err
+	varietyErr := rejectUnsupportedSchemaSimpleTypeVariety(input, simpleTypes.results[candidate], version, complexTargetSuffix)
+	if varietyErr != nil {
+		if !allowPrecisionVariety || !schemaPrecisionDecimalListOrUnion(simpleTypes.results[candidate]) {
+			return schemaElementTypeResult{}, varietyErr
+		}
+		if scope == schemaScalarTypeLocalParticle {
+			containsQName, err := schemaSimpleTypeResultContainsQName(simpleTypes.results[candidate], simpleTypes)
+			if err != nil {
+				return schemaElementTypeResult{}, err
+			}
+			if containsQName {
+				return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
+			}
+		}
 	}
 	if err := rejectUnsupportedLocalScalarType(input, simpleTypes.results[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
 		return schemaElementTypeResult{}, err
@@ -5712,6 +5724,53 @@ func schemaPrecisionDecimalListOrUnion(result schemaSimpleTypeResult) bool {
 		}
 	}
 	return false
+}
+
+func schemaSimpleTypeResultContainsQName(result schemaSimpleTypeResult, resolution schemaSimpleTypeResolution) (bool, error) {
+	if result.atomicKind == schemaSimpleTypeAtomicQName {
+		return true, nil
+	}
+	return schemaSimpleTypeLinksContainQName(result.itemType, result.hasItemType, result.memberTypes, resolution)
+}
+
+func schemaSimpleTypeLinksContainQName(item schemaSimpleTypeReferenceComponent, hasItem bool, members []schemaSimpleTypeReferenceComponent, resolution schemaSimpleTypeResolution) (bool, error) {
+	if hasItem {
+		return schemaSimpleTypeReferenceContainsQName(item, resolution)
+	}
+	for _, member := range members {
+		containsQName, err := schemaSimpleTypeReferenceContainsQName(member, resolution)
+		if err != nil || containsQName {
+			return containsQName, err
+		}
+	}
+	return false, nil
+}
+
+func schemaSimpleTypeReferenceContainsQName(reference schemaSimpleTypeReferenceComponent, resolution schemaSimpleTypeResolution) (bool, error) {
+	if reference.atomicKind == schemaSimpleTypeAtomicQName {
+		return true, nil
+	}
+	if reference.variety == SimpleTypeVarietyAtomicRestriction {
+		return false, nil
+	}
+	if reference.kind == SimpleTypeReferenceAnonymous {
+		if reference.anonymous == nil {
+			return false, newSchemaBridgeInvariant(reference.loc, "anonymous composite simple type reference has no model")
+		}
+		return schemaSimpleTypeLinksContainQName(reference.anonymous.itemType, reference.anonymous.hasItemType, reference.anonymous.memberTypes, resolution)
+	}
+	if reference.kind != SimpleTypeReferenceNamed || !reference.hasID {
+		return false, newSchemaBridgeInvariant(reference.loc, "composite simple type reference has no named identity")
+	}
+	if resolution.resolver == nil || len(resolution.results) != len(resolution.resolver.records) {
+		return false, newSchemaBridgeInvariant(reference.loc, "simple type reference results are incomplete")
+	}
+	for index, record := range resolution.resolver.records {
+		if record.id == reference.id {
+			return schemaSimpleTypeResultContainsQName(resolution.results[index], resolution)
+		}
+	}
+	return false, newSchemaBridgeInvariant(reference.loc, "named composite simple type reference target is missing")
 }
 
 func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, context string) error {
@@ -9619,16 +9678,23 @@ func restrictSchemaSimpleTypeFacets(
 	case schemaBooleanFacetVariant:
 		return restrictSchemaBooleanFacets(typed, inputs, version)
 	case schemaAtomicFacetVariant:
-		if len(inputs) == 0 {
-			return typed, nil
-		}
-		if err := validateStringWhiteSpaceFacetInputs(inputs, version); err != nil {
-			return nil, err
-		}
-		return nil, unsupportedSchemaDatatypeFacet(inputs[0], version)
+		return restrictSchemaAtomicFacets(typed, atomicKind, inputs, version)
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "simple type facet resolution has an unknown datatype variant")
 	}
+}
+
+func restrictSchemaAtomicFacets(base schemaAtomicFacetVariant, atomicKind schemaSimpleTypeAtomicKind, inputs []schemaFacetInput, version XSDVersion) (schemaSimpleTypeFacetVariant, error) {
+	if len(inputs) == 0 {
+		return base, nil
+	}
+	if err := validateStringWhiteSpaceFacetInputs(inputs, version); err != nil {
+		return nil, err
+	}
+	if atomicKind == schemaSimpleTypeAtomicQName {
+		return nil, unsupportedQNameSchemaDatatypeFacet(inputs[0], version)
+	}
+	return nil, unsupportedSchemaDatatypeFacet(inputs[0], version)
 }
 
 func restrictSchemaStringFacets(base schemaStringFacetVariant, atomicKind schemaSimpleTypeAtomicKind, inputs []schemaFacetInput, version XSDVersion) (schemaSimpleTypeFacetVariant, error) {
@@ -10329,6 +10395,26 @@ func unsupportedSchemaDatatypeFacet(input schemaFacetInput, version XSDVersion) 
 		fmt.Sprintf("simple type restriction facet <%s> is not implemented for this datatype", schemaFacetName(input.kind)),
 		version,
 	)
+}
+
+func unsupportedQNameSchemaDatatypeFacet(input schemaFacetInput, version XSDVersion) error {
+	err := unsupportedSchemaDatatypeFacet(input, version)
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+		return err
+	}
+	if errors.Is(err, errLanguagePolicyMismatch) {
+		version = XSDVersion11
+	}
+	diagnostic.specRef = qnameFacetSpecRef(version)
+	return diagnostic
+}
+
+func qnameFacetSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return "xsd10-datatypes#QName-facets"
+	}
+	return "xsd11-datatypes#QName-facets"
 }
 
 func validateOrdinarySchemaFacetInput(input schemaFacetInput) error {
