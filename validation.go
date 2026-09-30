@@ -94,6 +94,7 @@ var (
 	errInstanceComplexContentExtension = errors.New("complex-content extension is outside instance validation")
 	errInstanceAbstractComplexType     = errors.New("abstract complex type is outside instance validation")
 	errInstanceElementFacts            = errors.New("global element abstract and nillable facts are outside instance validation")
+	errInstanceIdentityConstraints     = errors.New("identity constraints are outside instance validation")
 	errInstanceLocalElementFacts       = errors.New("local element nillable facts are outside instance validation")
 	errInstanceElementSubstitution     = errors.New("referenced global element substitution is outside instance validation")
 	errInstanceValidationInvariant     = errors.New("scalar validation invariant is broken")
@@ -360,6 +361,21 @@ func rejectUnsupportedInstanceElementFacts(schema Schema, declaration ElementDec
 }
 
 func rejectUnsupportedInstanceElementFactsWithRelated(declaration ElementDeclaration, loc Loc, related []Loc, version XSDVersion) error {
+	if constraints := declaration.IdentityConstraints(); len(constraints) > 0 {
+		failure := newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("global element %q has identity constraints outside instance validation", declaration.Name()),
+			appendInstanceRelated(relCopy(related), constraints[0].Loc()),
+			version,
+			errInstanceIdentityConstraints,
+		)
+		var diagnostic Diagnostic
+		if errors.As(failure, &diagnostic) && diagnostic.Class() == FailureUnsupported {
+			diagnostic.specRef = schemaIdentitySpecRef(version, "Identity-constraint_Definition_details")
+			return diagnostic
+		}
+		return failure
+	}
 	if declaration.IsAbstract() {
 		return newInstanceValidationUnsupported(
 			loc,

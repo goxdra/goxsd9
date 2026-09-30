@@ -209,6 +209,7 @@ type schemaTargetNamespace struct {
 }
 
 type schemaDocumentFacts struct {
+	xpathDefaultNamespace         string
 	targetNamespace               schemaTargetNamespace
 	elementFormDefaultQualified   bool
 	attributeFormDefaultQualified bool
@@ -765,6 +766,7 @@ func schemaDocumentInputAt(
 		return schemaDocumentInput{}, err
 	}
 	facts := schemaDocumentFacts{
+		xpathDefaultNamespace:         schemaRootXPathDefaultNamespace(document.root),
 		targetNamespace:               namespaces[index],
 		elementFormDefaultQualified:   elementFormDefaultQualified,
 		attributeFormDefaultQualified: attributeFormDefaultQualified,
@@ -1294,6 +1296,16 @@ func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, 
 		elementType, elementErr := schemaElementTypeInput(element, facts, version)
 		if elementErr != nil {
 			return schemaComponentInput{}, elementErr
+		}
+		constraints, constraintErr := schemaIdentityConstraintInputs(element, facts, version)
+		if constraintErr != nil {
+			return schemaComponentInput{}, constraintErr
+		}
+		if len(constraints) > 0 && elementType == nil {
+			return schemaComponentInput{}, newSchemaIdentityUnsupported(constraints[0].loc, "identity constraints on a global element without a supported declared type are not implemented", version)
+		}
+		if elementType != nil {
+			elementType.identityConstraints = constraints
 		}
 		declaration.element = elementType
 	}

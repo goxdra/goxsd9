@@ -13,6 +13,10 @@ URNs and lexical schema locations; the library does not open paths or URLs.
 `ParseSchema` uses the Compatibility policy for mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects a graph-wide language policy. Schema queries
 and walks return immutable, deterministic views.
+Supported global elements retain ordered `xs:unique`, `xs:key`, and `xs:keyref`
+facts, including raw XPath expressions, namespace context, and resolved keyref
+targets. Instance validation and Go generation reject these declarations until
+identity semantics are implemented.
 
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance;
 `GenerateGo(schema, packageName)` returns Go source. A component can be

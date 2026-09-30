@@ -17,6 +17,11 @@
 // A successful ParseSchema returns an immutable Schema; Documents, Components,
 // Lookup, Find, FindKind, and Walk expose deterministic query views, while
 // AttributeDeclaration exposes resolved type and value-constraint facts.
+// Supported global elements expose ordered immutable unique, key, and keyref
+// facts with lexical XPath and namespace context. Keyrefs resolve to nested
+// identity IDs before publication. Identity-constrained elements are query-only;
+// ValidateInstance and GenerateGo return located unsupported diagnostics;
+// XPath evaluation, local constraints, and XSD 1.1 ref reuse remain unsupported.
 // ValidateInstance and GenerateGo are separate consumers of their supported
 // schema projections and do not expand the query model.
 // The unqualified schema/@version is an inert optional xs:token label: absent,

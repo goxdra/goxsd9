@@ -2540,14 +2540,15 @@ type schemaComponentInput struct {
 }
 
 type schemaElementInput struct {
-	declaredType      QName
-	typeLoc           Loc
-	inlineSimpleType  *schemaSimpleTypeInput
-	inlineComplexType *schemaComplexTypeInput
-	abstract          bool
-	nillable          bool
-	block             schemaBlockPolicy
-	substitutionGroup []schemaElementSubstitutionGroupInput
+	declaredType        QName
+	typeLoc             Loc
+	inlineSimpleType    *schemaSimpleTypeInput
+	inlineComplexType   *schemaComplexTypeInput
+	abstract            bool
+	nillable            bool
+	block               schemaBlockPolicy
+	substitutionGroup   []schemaElementSubstitutionGroupInput
+	identityConstraints []schemaIdentityConstraintInput
 }
 
 type schemaElementSubstitutionGroupInput struct {
@@ -2925,6 +2926,7 @@ type schemaElementComponent struct {
 	nillable                bool
 	disallowedSubstitutions schemaBlockPolicy
 	substitutionGroup       []schemaElementSubstitutionGroup
+	identityConstraints     []schemaIdentityConstraintComponent
 }
 
 type schemaElementSubstitutionGroup struct {
@@ -3213,6 +3215,10 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 	if prepareErr := prepareSchemaRecordsForResolution(records, version); prepareErr != nil {
 		return Schema{}, prepareErr
 	}
+	identityConstraints, err := resolveSchemaIdentityConstraints(records, visibleSources, version)
+	if err != nil {
+		return Schema{}, err
+	}
 	resolution, err := resolveSchemaBuildResults(inputs, edges, records, byName, visibleSources, finalDefaults, version)
 	if err != nil {
 		return Schema{}, err
@@ -3224,6 +3230,7 @@ func newSchemaWithPolicyAndEdges(inputs []schemaDocumentInput, edges []syntaxDoc
 		resolution.elements,
 		resolution.complexTypes,
 		resolution.modelGroups,
+		identityConstraints,
 	)
 	if err != nil {
 		return Schema{}, err
@@ -3515,11 +3522,15 @@ func completeSchemaComponents(
 	elements []schemaElementTypeResult,
 	complexTypes []schemaComplexTypeResult,
 	modelGroups []schemaModelGroupResult,
+	identityConstraints [][]schemaIdentityConstraintComponent,
 ) ([]Component, map[ComponentID]int, error) {
+	if len(identityConstraints) != len(records) {
+		return nil, nil, newSchemaBridgeInvariant(Loc{}, "identity constraint results have the wrong length")
+	}
 	components := make([]Component, 0, len(records))
 	byID := make(map[ComponentID]int, len(records))
 	for index, record := range records {
-		component, err := completeSchemaComponent(record, simpleTypes[index], attributes[index], elements[index], complexTypes[index], modelGroups[index])
+		component, err := completeSchemaComponent(record, simpleTypes[index], attributes[index], elements[index], complexTypes[index], modelGroups[index], identityConstraints[index])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -3529,6 +3540,7 @@ func completeSchemaComponents(
 	return components, byID, nil
 }
 
+//nolint:funlen // Complete all component variants at one immutable publication boundary.
 func completeSchemaComponent(
 	record schemaComponentRecord,
 	simpleType schemaSimpleTypeResult,
@@ -3536,6 +3548,7 @@ func completeSchemaComponent(
 	element schemaElementTypeResult,
 	complexType schemaComplexTypeResult,
 	modelGroup schemaModelGroupResult,
+	identityConstraints []schemaIdentityConstraintComponent,
 ) (Component, error) {
 	component := Component{
 		id:   record.id,
@@ -3559,6 +3572,7 @@ func completeSchemaComponent(
 			nillable:                element.nillable,
 			disallowedSubstitutions: element.block,
 			substitutionGroup:       cloneSchemaElementSubstitutionGroups(element.substitutionGroup),
+			identityConstraints:     cloneSchemaIdentityConstraintComponents(identityConstraints),
 		}
 	}
 	if attribute.present {
@@ -3973,14 +3987,15 @@ func cloneSchemaElementInput(input *schemaElementInput) *schemaElementInput {
 		return nil
 	}
 	return &schemaElementInput{
-		declaredType:      input.declaredType,
-		typeLoc:           input.typeLoc,
-		inlineSimpleType:  cloneSchemaSimpleTypeInput(input.inlineSimpleType),
-		inlineComplexType: cloneSchemaComplexTypeInput(input.inlineComplexType),
-		abstract:          input.abstract,
-		nillable:          input.nillable,
-		block:             input.block,
-		substitutionGroup: cloneSchemaElementSubstitutionGroupInputs(input.substitutionGroup),
+		declaredType:        input.declaredType,
+		typeLoc:             input.typeLoc,
+		inlineSimpleType:    cloneSchemaSimpleTypeInput(input.inlineSimpleType),
+		inlineComplexType:   cloneSchemaComplexTypeInput(input.inlineComplexType),
+		abstract:            input.abstract,
+		nillable:            input.nillable,
+		block:               input.block,
+		substitutionGroup:   cloneSchemaElementSubstitutionGroupInputs(input.substitutionGroup),
+		identityConstraints: cloneSchemaIdentityConstraintInputs(input.identityConstraints),
 	}
 }
 

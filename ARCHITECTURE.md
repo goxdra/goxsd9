@@ -53,7 +53,7 @@ schema return. Unsupported features have stable report IDs.
 
 ## Schema model
 
-Internal syntax; immutable located components; deterministic walks; source/ordinal IDs; scoped particles.
+Internal syntax; immutable components; deterministic walks; scoped particles; source/ordinal identity/keyref IDs.
 
 `DeclaredType` is primitive. Bounded attribute-free complexContent extensions over named
 empty bases and restrictions over `xs:anyType` retain refs, base identity/locations,
