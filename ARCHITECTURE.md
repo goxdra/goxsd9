@@ -105,10 +105,11 @@ Inline complexes expose IDs and ordered sequence/ref/use outside walks; consumer
 direct `precisionDecimal` sequences and non-extension list/union links; consumers reject.
 Element refs retain targets/occurrences, including repeats to global inline
 restrictions; nonzero local inline forms reject.
-Built-in/named `string` choice/sequence/extension particles retain types/facets/locations/occurrences; consumers reject.
-`normalizedString`: distinct identity, unlocated nonfixed `whiteSpace=replace`, lexical enumerations;
-restriction/list/union/global-element refs resolve. Local typed particles/attributes
-reject; element-ref particles query, validation/generation reject.
+Built-in/named `string` particles are query-only.
+`normalizedString`: replace/lexical facets; restriction/list-item/union-member refs.
+Atomic direct/named/inline global elements/refs query; mapped nonzero locals
+reject, `0/0` omits after gates. Global attributes/consumers and standalone named
+generation reject.
 
 ## Datatypes
 
@@ -134,12 +135,12 @@ direct-choice/sequence consumers reject with located unsupported diagnostics/nil
 refs query in direct complex-type bodies and supported grouped extensions; nested/broader forms reject.
 AttributeUse and simpleContent facts are query-only; validation and `GenerateGo` reject consumers.
 
-Generation admits named Boolean/integer/decimal/string/token/NMTOKEN,
-global built-in/named elements of those types, inline global string/token/
-NMTOKEN, global/named-typed `nonNegativeInteger`, and standalone named
-`nonNegativeInteger`. Global elements require
+Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
+types, global built-in/named elements of those types, inline global
+string/token/NMTOKEN, and named/global `nonNegativeInteger`. Standalone named
+`normalizedString` rejects. Global elements require
 `abstract=false,nillable=false`; violations yield `GOXSD9029` and nil output.
-Identity-constrained elements, including reference targets, yield `FailureUnsupported`/`GOXSD9029` at the first constraint `Loc` and no output.
+Identity-constrained elements/targets yield `FailureUnsupported`/`GOXSD9029` at the first constraint `Loc` and no output.
 Built-in/standalone `nonNegativeInteger` uses `StrictInteger`; named fields use
 generated types. Canonical built-in facts require integer kind, fixed
 `fractionDigits=0` and `minInclusive=0`; named bounds/facets survive.

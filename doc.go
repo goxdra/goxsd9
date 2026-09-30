@@ -15,10 +15,12 @@
 // and implemented scalar facts. ParseSchema uses graph-wide Compatibility;
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
 // xs:normalizedString has distinct built-in identity and replace whiteSpace.
-// Its restrictions/list/union references and direct, named, or inline global
-// elements are queryable. Local typed particles and global attributes reject
-// at schema admission. Element-ref particles to those global elements remain
-// queryable; ValidateInstance and GenerateGo reject the elements and refs.
+// Restrictions, list items, and union members may reference it. Direct,
+// named-typed, and inline atomic-restriction global elements are queryable;
+// list/union-typed global elements reject. Mapped nonzero local typed particles
+// and global attributes reject at schema admission; applicable 0/0 local forms
+// omit after reference, facet, and policy gates. Element-ref particles to
+// admitted global elements query; ValidateInstance and GenerateGo reject them.
 // A successful ParseSchema returns an immutable Schema; Documents, Components,
 // Lookup, Find, FindKind, and Walk expose deterministic query views, while
 // AttributeDeclaration exposes resolved type and value-constraint facts.
@@ -427,10 +429,11 @@
 // malformed/stale built-in or named facts fail closed as FailureInternal/GOXSD9030
 // with nil output. Named final, atomic-restriction-variety, and effective-facet
 // gates reject unsupported forms with FailureUnsupported/GOXSD9029 and no output.
-// Supported global built-in/named Boolean/integer/decimal and
-// string/token/NMTOKEN simple-type components and supported global element
+// Supported global built-in/named Boolean/integer/decimal and effective
+// xs:string-atomic/token/NMTOKEN simple-type components and global element
 // declarations generate, as do global inline-element string/token/NMTOKEN
-// declarations. Non-extension default-occurrence direct-choice references to
+// declarations. Standalone named normalizedString restrictions reject.
+// Non-extension default-occurrence direct-choice references to
 // global built-in/named Boolean, integer, or decimal targets are also
 // generation-eligible only when targets have no identity constraints. Any
 // identity-constrained global element, including a reference target, makes
