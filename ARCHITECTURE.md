@@ -106,9 +106,9 @@ direct `precisionDecimal` sequences and non-extension list/union links; consumer
 Element refs retain targets/occurrences, including repeats to global inline
 restrictions; nonzero local inline forms reject.
 Built-in/named `string` choice/sequence/extension particles retain types/facets/locations/occurrences; consumers reject.
-`normalizedString` has distinct identity, unlocated nonfixed replace whitespace,
-and lexical facets. Restriction/list/union/global-element refs resolve; local
-particles/attributes and consumers reject.
+`normalizedString`: distinct identity, unlocated nonfixed `whiteSpace=replace`, lexical enumerations;
+restriction/list/union/global-element refs resolve. Local typed particles/attributes
+reject; element-ref particles query, validation/generation reject.
 
 ## Datatypes
 
@@ -120,7 +120,7 @@ are unsupported.
 ## Validation and code generation
 
 `ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal,
-direct/named/anonymous string roots (effective whiteSpace/enumeration), and
+direct/named/anonymous `xs:string`-atomic roots (whiteSpace/enumeration), and
 Compatibility/Strict11 precisionDecimal roots; Strict10 rejects precisionDecimal.
 Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
 Local Boolean/integer/decimal sequences/default choices honor

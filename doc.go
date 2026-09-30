@@ -15,8 +15,9 @@
 // and implemented scalar facts. ParseSchema uses graph-wide Compatibility;
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
 // xs:normalizedString has distinct built-in identity, replace whiteSpace,
-// and queryable restrictions/list/union references; local particles, global
-// attributes, validation, and generation remain unsupported for it.
+// and queryable restrictions/list/union/global-element references. Local typed
+// particles and global attributes reject; element-ref particles to admitted
+// global targets remain queryable. Validation and generation reject both.
 // A successful ParseSchema returns an immutable Schema; Documents, Components,
 // Lookup, Find, FindKind, and Walk expose deterministic query views, while
 // AttributeDeclaration exposes resolved type and value-constraint facts.
@@ -319,9 +320,9 @@
 // located diagnostic causes.
 //
 // ValidateInstance supports one complete instance rooted at a global element
-// declared as direct xs:string, a named/anonymous atomic string restriction,
-// or built-in/named xs:boolean/xs:token/xs:NMTOKEN/xs:integer/
-// xs:nonNegativeInteger/xs:decimal
+// declared as direct xs:string or a named/anonymous restriction with effective
+// xs:string atomic kind, or built-in/named xs:boolean/xs:token/xs:NMTOKEN/
+// xs:integer/xs:nonNegativeInteger/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
 // or Strict11, or as a named global complex type with one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
