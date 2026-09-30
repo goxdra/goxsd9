@@ -16,6 +16,7 @@ boundaries/pushes, never solely. No-PR handoffs preserve worktrees; archive only
 expired claims without open PR; preserve/escalate open-PR expirations.
 Claim resume:
 `go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]`.
+Archived no-PR sibling: from the current claim run `go tool workflowctl claim release-archived ISSUE --run-id RUN --expected-head SHA [--dry-run]`; exact clean/unlocked archive proof, including submodules, preserves refs/comments.
 PR resume: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]`.
 Transient agent, checkout, transport, and challenge failures remain retryable.
 Exactly three authenticated Examiner `fail` receipts add `needs-human` and return
@@ -23,18 +24,13 @@ Backlog. Write blocker/evidence Markdown; run
 `go tool workflowctl handoff ISSUE --body-file FILE --needs-human`; it proves
 OPEN/Project identity, applies `needs-human`/Backlog, then posts last.
 Reread incomplete/ambiguous phases before retry.
-Claim resume binds exact handoff/comment/run/head, expired claim, no PR, Project
-identity/status, and a unique clean/unlocked same-run worktree. Three complete
-generic no-PR forms each cover every PR/pull-request/workflow-path mention.
-Compatibility exceptions are exact, issue-scoped complete forms. Generic handoffs may
-omit head/SHA/commit labels; present labels require one full 40-hex expected SHA;
-malformed/ambiguous labels are terminal before mutation.
-Claim/renewal markers are exact-message single-parent empty commits;
-source-bearing/merge commits and malformed ref namespaces are terminal. Require
-`refs/heads/` for remote and `origin/` for tracking refs. Keep `needs-human` until renewal
-verification, then converge to Project `Picked`. Initial resume requires
-OPEN+needs-human+Backlog before mutation; only a verified renewal child permits
-idempotent Backlog/Picked convergence after label removal.
+Claim resume binds handoff/comment/run/head, expired claim, no PR, Project state,
+and unique clean/unlocked worktree. Generic no-PR handoffs cover every PR/path
+mention; issue-scoped exceptions are exact. Optional head labels require one
+full SHA; ambiguity fails. Claim/renewal markers are exact single-parent empty
+commits with valid ref namespaces. Keep `needs-human` until renewal verification;
+then set Project `Picked`. Initial resume requires OPEN+needs-human+Backlog;
+verified renewal permits idempotent convergence.
 `workflowctl sync` updates Project status/claim refs, not `main`/submodules;
 run-local refs are inventory-only. `base-sync` fast-forwards `main`/pins; never
 resets/rebases/stashes/discards.
