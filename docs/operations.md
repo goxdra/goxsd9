@@ -6,31 +6,32 @@ Paseo schedules jobs from clean coordination checkout in America/New_York.
 | Develop | 00:00, then every 3 hours | GPT-6 Sol/medium | `Run $develop for this repository.` |
 | Backlog | 10:30 daily | GPT-6 Sol/medium | `Run $backlog for this repository.` |
 | Retro | 13:30 Sunday | GPT-6 Astra/xhigh | `Run $retro for this repository.` |
-Develop starts from clean canonical `main`/`origin/main` and recursive pins;
-`doctor` enforces this; stale jobs run `base-sync`. It claims one Ready issue,
-opens a draft PR, then squash-merges its evaluated head. Managed-document/
-source-trigger heads require exact audit and fresh read-only passing Curator;
-repeat after remediation pushes. Renew four-hour claims at durable boundaries/
-pushes, never solely. No-PR handoffs preserve worktrees; archive only expired
-claims without open PR; escalate open-PR expirations.
+Jobs are non-interactive. Develop needs clean canonical `main`/`origin/main`
+and recursive pins; `doctor` enforces; stale jobs run `base-sync`. It claims
+one Ready issue, opens draft PR, then squash-merges evaluated head. Managed-
+document/source-trigger heads require exact audit and fresh read-only Curator
+pass; repeat after remediation. Renew four-hour claims at durable boundaries/
+pushes, never solely. No-PR handoffs preserve worktrees; archive expired
+PR-free claims; escalate open-PR expirations.
 Claim resume:
 `go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]`.
 Archived no-PR sibling: from the current claim run `go tool workflowctl claim release-archived ISSUE --run-id RUN --expected-head SHA [--dry-run]`; exact clean/unlocked archive proof, including submodules, preserves refs/comments.
 PR resume: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]`.
-Agent, checkout, transport, and challenge failures remain retryable. Three
+Agent/checkout/transport/challenge failures remain retryable. Three
 authenticated Examiner `fail` receipts add `needs-human`/Backlog. Write
 blocker/evidence Markdown; run
 `go tool workflowctl handoff ISSUE --body-file FILE --needs-human`; it proves
 OPEN/Project identity, applies `needs-human`/Backlog, then posts last.
-Reread ambiguous phases before retry.
-Claim resume binds expired claim, handoff/comment/run/head, no PR,
-Project, unique unlocked worktree. Clean forms require no-source/
-no-PR evidence covering PR mentions; exceptions stay issue-scoped.
-Head labels require one full SHA. Dirty:
+Reread ambiguity before retry.
+Claim resume binds expired claim, handoff/comment/run/head, no PR, Project, unique unlocked worktree. Clean forms require no-source/
+no-PR evidence covering every PR, pull-request, and workflow-path mention;
+exceptions stay issue-scoped.
+Head labels require full SHA. Dirty:
 `# Dirty no-PR claim handoff: issue #N`, blank; `Run:`,
 `Original claim head:`, `Current claim head:`, `Fixed branch:`, `Local branch:`,
 `Worktree:`, `Preserved state SHA-256:` with backticked values; end `No source commit or PR was published.` and LF.
-`go tool workflowctl claim resume-state` gives digest; recheck staged/unstaged/untracked bytes.
+From the preserved run-local claim worktree, `go tool workflowctl claim resume-state`
+gives digest; recheck staged/unstaged/nonignored untracked bytes.
 Claim/renewal markers: exact-message empty single-parent commits; source-bearing,
 merge, malformed refs fail. Remote `refs/heads/`, tracking `origin/` required.
 Keep needs-human until verified renewal; then Project Picked. Initial:
