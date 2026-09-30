@@ -53,30 +53,32 @@ schema return. Unsupported features have stable report IDs.
 
 ## Schema model
 
-Internal syntax; immutable components; deterministic walks; scoped particles; source/ordinal identity/keyref IDs.
+Internal syntax; immutable components; walks; scoped particles.
+Supported global elements own ordered unique/key/keyref facts: kind, name, source/ordinal ID, `Loc`, XML-decoded selector/field XPath and `Loc`s, copied
+namespace scopes/defaults, and resolved keyref QName/target ID. IDs and duplicate checks precede visible refer resolution; publication is atomic.
 
-`DeclaredType` is primitive. Bounded attribute-free complexContent extensions over named
-empty bases and restrictions over `xs:anyType` retain refs, base identity/locations,
-and inherited `##other`/`lax` wildcards. Scalar simpleContent retains base/type/use
-`Loc`s and nil particle; restrictions are unsupported. Bases: Boolean/string/integer/
-decimal or policy-gated `precisionDecimal`.
+`DeclaredType` is primitive. Bounded attribute-free complexContent extensions
+over named empty bases and restrictions over `xs:anyType` retain refs, base
+identities/locations, and inherited `##other`/`lax` wildcards. Scalar
+simpleContent retains base/type/use `Loc`s and nil particle; restrictions are
+unsupported. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline
 `negativeInteger`, and built-in/named `long`, `int`, `short`, `byte`, `unsignedLong`,
 `nonNegativeInteger`. Direct global elements admit built-in `positiveInteger`.
-Direct built-in/named-effective `integer` supports consumers; listed derivatives/extensions are query-only. Built-in `long` retains bounds;
-named effective-long retains identity, facets, QName, occurrences, and order.
-Local uses/simpleContent exclude derived forms.
-Exclusions return `FailureUnsupported` at type/facet/element `Loc`; nested exclusions
-use nested-particle `Loc`.
-Syntax/occurrence/reference/policy gates precede mapping. At `0/0`, inline syntax waits
-for base and supported facets. Graph declaration/facet, invalid, unresolved, cyclic,
-wrong-kind, value-constraint, and policy failures retain causes/locations and prevent
-`Schema`; unsupported forms may omit. Sequences resolve children before omission;
-choices resolve refs once; named groups resolve/check before omission; child refs first.
-Element/model-group references retain QName/RefLoc/TargetID/order without expansion;
-nested/local/recursive/broader forms remain unsupported or consumer-excluded. Mapped non-`0/0`
-local inline/anonymous `long`/`int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger`
-forms fail at type/simpleType `Loc`; applicable `0/0` forms omit after gates.
+Direct built-in/named-effective `integer` supports consumers; listed
+derivatives/extensions are query-only. Built-in `long` retains bounds; named
+effective-long retains identity, facets, QName, occurrences, and order. Local
+uses/simpleContent exclude derived forms. Exclusions are located at type/facet/
+element `Loc`; nested particles use nested `Loc`.
+Syntax/occurrence/reference/policy gates precede mapping. At `0/0`, inline
+syntax waits for base/facets. Graph invalid, unresolved, cyclic, wrong-kind,
+value-constraint, and policy errors retain causes/locations and prevent `Schema`.
+Sequences resolve children before omission; choices resolve refs once; named
+groups resolve/check before omission; child refs first.
+Element/model-group refs retain QName/RefLoc/TargetID/order without expansion;
+nested/local/recursive/broader forms are unsupported or consumer-excluded. Non-`0/0` local inline/anonymous
+`long`/`int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger` fail at type/
+simpleType `Loc`; applicable `0/0` forms omit after gates.
 AttributeUse facts preserve order, locations, ownership, use, and QName/RefLoc/TargetID
 across particles, groups, extensions, attribute-only, and simpleContent.
 Grouped extensions resolve group, uses, then base; `0/0` omits group.
@@ -121,38 +123,36 @@ are unsupported.
 `ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal,
 direct/named/anonymous string roots (effective whiteSpace/enumeration), and
 Compatibility/Strict11 precisionDecimal roots; Strict10 rejects precisionDecimal.
-Built-in/named `nonNegativeInteger` roots validate exactly under every policy.
+Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
 Local Boolean/integer/decimal sequences/default choices honor
 ranges; homogeneous token/NMTOKEN sequences honor exact occurrences/value space.
 Local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
 unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
-only default direct-choice refs to global built-in/named Boolean/integer/decimal are eligible, other
-forms remain queryable but excluded. Global `nonNegativeInteger` refs remain queryable;
+only default direct-choice refs to unconstrained global built-in/named Boolean/integer/decimal validate.
+Constrained targets reject at instance use `Loc` with related constraint `Loc`; other forms remain queryable.
+Global `nonNegativeInteger` refs remain queryable;
 direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
 refs query in direct complex-type bodies and supported grouped extensions; nested/broader forms reject.
 AttributeUse and simpleContent facts are query-only; validation and `GenerateGo` reject consumers.
 
-Generation: named Boolean/integer/decimal/string/token/NMTOKEN components; global elements using
-those built-in/named types; inline global string/token/NMTOKEN elements; global/named-typed
-`nonNegativeInteger` elements; standalone named `nonNegativeInteger` components—all policies. Only
-elements require `abstract=false,nillable=false` (either true: `FailureUnsupported`/`GOXSD9029`, nil).
-Built-in/standalone fields use `StrictInteger`; named-typed fields use generated types. Canonical
-built-in facts require integer kind/version, fixed `fractionDigits=0`, `minInclusive=0`, and no
-`totalDigits`/other bounds; named bounds/facets remain, while final/variety/effective-facet gates
-reject (`FailureUnsupported`/`GOXSD9029`, no output) and malformed/stale facts fail internally
-(`FailureInternal`/`GOXSD9030`, nil). Mapped nonzero local inline `nonNegativeInteger` forms: no schema;
-explicit built-in/named local particles are queryable and consumer-rejected; `0/0` is absent.
-Direct-choice/sequence `nonNegativeInteger` refs and inline/anonymous element/type forms
-remain query-only/rejected. Global `int`/`long`/`short`/`byte`/`unsignedLong`/`positiveInteger`
-facts are query-only; validation/`GenerateGo` reject. `SimpleTypeReference.IntegerBounds()`
-copies built-in/named long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger/
-positiveInteger bounds. Built-in negativeInteger has maxInclusive=-1 at type `Loc`;
-positiveInteger has minInclusive=1 at zero `Loc`; named restrictions retain facet provenance.
-Local generation supports default-occurrence Boolean/integer/decimal choices/sequences
-and all-token direct choices (`string` or generated named type). Local string,
-NMTOKEN, long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger,
-precisionDecimal, mixed-token, anonymous, repeated, and non-default forms remain
-excluded. Inline Boolean/integer/decimal elements and attributes are query-only; `GenerateGo` rejects attributes.
+Generation admits named Boolean/integer/decimal/string/token/NMTOKEN,
+global built-in/named elements of those types, inline global string/token/
+NMTOKEN, global/named-typed `nonNegativeInteger`, and standalone named
+`nonNegativeInteger`. Global elements require
+`abstract=false,nillable=false`; violations yield `GOXSD9029` and nil output.
+Identity-constrained elements, including reference targets, yield `FailureUnsupported`/`GOXSD9029` at the first constraint `Loc` and no output.
+Built-in/standalone `nonNegativeInteger` uses `StrictInteger`; named fields use
+their generated type. Canonical built-in facts require integer kind, fixed
+`fractionDigits=0` and `minInclusive=0`; named bounds/facets survive.
+Unsupported final/variety/effective-facet states yield `GOXSD9029`; malformed
+facts yield `GOXSD9030`, all with nil output. Nonzero local inline
+`nonNegativeInteger` has no schema; built-in/named locals are query-only, `0/0`
+absent. Global `int`/`long`/`short`/`byte`/`unsignedLong`/`positiveInteger`
+and direct `nonNegativeInteger` refs are query-only. `IntegerBounds()` copies
+built-in/named bounds; negativeInteger max=-1, positiveInteger min=1, named
+restrictions retain provenance. Local generation admits default
+Boolean/integer/decimal choices/sequences and all-token choices; other local
+shapes and global attributes reject.
 
 ## Conformance
 
