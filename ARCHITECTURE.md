@@ -98,10 +98,10 @@ and wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip
 `notNamespace`; chameleon markers expand after adoption. Consumers reject
 wildcards; broader forms reject; `0/0` omits. `openContent=none` works except
 under Strict10; named groups retain ordered refs/ranges.
-Inline complexes expose IDs and ordered sequence/ref/use outside walks; consumers reject. SimpleContent admits string/Boolean/integer/decimal and policy-gated
+Inline complexes expose IDs, ordered sequence/ref/use outside walks; consumers reject. SimpleContent admits string/Boolean/integer/decimal, policy-gated
 `precisionDecimal` with nil particles. Compatibility/Strict11 admit nonzero
-direct `precisionDecimal` sequences and direct non-extension list/union sequence locals without QName; consumers reject.
-Element refs retain targets/occurrences, including repeats to global inline
+direct `precisionDecimal` sequences and named precisionDecimal-bearing list/union locals in direct non-extension sequences without QName; consumers reject.
+Element refs retain targets/occurrences, including repeated global inline
 restrictions; nonzero local inline forms reject.
 Built-in/named `string` particles are query-only.
 `normalizedString`: replace whitespace and lexical facets; restriction/list/union refs.
