@@ -63,11 +63,11 @@ base/type/use `Loc`s and nil particle; restrictions reject. Bases:
 Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline
 `negativeInteger`, and built-in/named `long`, `int`, `short`, `byte`, `unsignedLong`,
-`nonNegativeInteger`. Direct globals admit built-in `positiveInteger`.
+`nonNegativeInteger`. Built-in `positiveInteger`: direct globals only.
 Direct built-in/named-effective `integer` supports consumers;
 derivatives/extensions are query-only. Built-in `long` retains bounds; named
-effective-long retains identity, facets, QName, occurrences, order. Listed
-derivatives admit locals; simpleContent excludes them. Failures locate type/facet/element,
+effective-long retains identity, facets, QName, occurrences, order.
+SimpleContent excludes these local derivatives. Failures locate type/facet/element,
 particles at nested `Loc`.
 Syntax/occurrence/reference/policy gates precede mapping, including `0/0` inline
 bases/facets. Graph/reference/policy errors retain cause/`Loc`; no `Schema`.
