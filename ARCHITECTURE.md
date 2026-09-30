@@ -100,7 +100,7 @@ wildcards; broader forms reject; `0/0` omits. `openContent=none` works except
 under Strict10; named groups retain ordered refs/ranges.
 Inline complexes expose IDs and ordered sequence/ref/use outside walks; consumers reject. SimpleContent admits string/Boolean/integer/decimal and policy-gated
 `precisionDecimal` with nil particles. Compatibility/Strict11 admit nonzero
-direct `precisionDecimal` sequences and non-extension list/union locals without QName; consumers reject.
+direct `precisionDecimal` sequences and direct non-extension list/union sequence locals without QName; consumers reject.
 Element refs retain targets/occurrences, including repeats to global inline
 restrictions; nonzero local inline forms reject.
 Built-in/named `string` particles are query-only.
