@@ -165,9 +165,7 @@ The implementation preserves these invariants:
    and its pinned `SpecRef`. Valid behavior unavailable under a selected
    strict profile is `FailureUnsupported`; a malformed schema representation
    is `FailureInvalid`. Policy and feature mismatches are never
-   `FailureResolution`; that class covers resolver failures and schema-reference
-   resolution, including unresolved, invisible, or ambiguous keyref targets at
-   their `refer` location.
+   `FailureResolution`.
 5. Resolver calls remain sequential. The parser passes contexts, namespace
    URNs, and lexical schema locations through unchanged and does not interpret
    paths, open resources, or use source identity as an edition signal.

@@ -53,9 +53,9 @@ schema return. Unsupported features have stable report IDs.
 
 ## Schema model
 
-Internal syntax; immutable components; walks; scoped particles.
+Immutable components; ordered walks; scoped particles.
 Supported global elements own ordered unique/key/keyref facts: kind, name, source/ordinal ID, `Loc`, XML-decoded selector/field XPath and `Loc`s, copied
-namespace scopes/defaults, and resolved keyref QName/target ID. IDs and duplicate checks precede visible refer resolution; publication is atomic.
+namespace scopes/defaults, and resolved keyref QName/target ID. IDs/duplicate checks precede visible refer resolution: unresolved/invisible/ambiguous targets are `FailureResolution` at `refer`; wrong-kind/field-count targets are `FailureInvalid`. Publication is atomic.
 
 `DeclaredType` is primitive. Bounded attribute-free complexContent extensions
 over named empty bases and restrictions over `xs:anyType` retain refs, base
@@ -68,11 +68,11 @@ Direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inl
 Direct built-in/named-effective `integer` supports consumers; listed
 derivatives/extensions are query-only. Built-in `long` retains bounds; named
 effective-long retains identity, facets, QName, occurrences, and order. Local
-uses/simpleContent exclude derived forms. Exclusions are located at type/facet/
+uses/simpleContent exclude derivatives. Exclusions are located at type/facet/
 element `Loc`; nested particles use nested `Loc`.
 Syntax/occurrence/reference/policy gates precede mapping. At `0/0`, inline
-syntax waits for base/facets. Graph invalid, unresolved, cyclic, wrong-kind,
-value-constraint, and policy errors retain causes/locations and prevent `Schema`.
+syntax waits for base/facets. Graph/reference/policy errors retain
+causes/locations; no `Schema`.
 Sequences resolve children before omission; choices resolve refs once; named
 groups resolve/check before omission; child refs first.
 Element/model-group refs retain QName/RefLoc/TargetID/order without expansion;
@@ -142,7 +142,7 @@ NMTOKEN, global/named-typed `nonNegativeInteger`, and standalone named
 `abstract=false,nillable=false`; violations yield `GOXSD9029` and nil output.
 Identity-constrained elements, including reference targets, yield `FailureUnsupported`/`GOXSD9029` at the first constraint `Loc` and no output.
 Built-in/standalone `nonNegativeInteger` uses `StrictInteger`; named fields use
-their generated type. Canonical built-in facts require integer kind, fixed
+generated types. Canonical built-in facts require integer kind, fixed
 `fractionDigits=0` and `minInclusive=0`; named bounds/facets survive.
 Unsupported final/variety/effective-facet states yield `GOXSD9029`; malformed
 facts yield `GOXSD9030`, all with nil output. Nonzero local inline
