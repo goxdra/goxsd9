@@ -124,11 +124,11 @@ Compatibility/Strict11 precisionDecimal roots; Strict10 rejects precisionDecimal
 Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
 Local Boolean/integer/decimal sequences/default choices honor
 ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
-Compatibility/Strict11 validate ordered precisionDecimal-only local elements and global references, including anonymous restrictions and inline roots, with exact occurrences.
+Compatibility/Strict11 validate exact, ordered precisionDecimal sequences: locals only or global refs only (including anonymous targets); inline roots qualify.
 Structure/scalar diagnostics differ; `xsi:schemaLocation` does not resolve.
 Local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
 unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
-only default direct-choice refs to unconstrained global built-in/named Boolean/integer/decimal validate.
+Choice refs validate only unconstrained Boolean/integer/decimal targets at default occurrences.
 Constrained targets reject at use `Loc`, relating constraint `Loc`.
 Global `nonNegativeInteger` refs query;
 choice/sequence consumers reject with located diagnostics/nil output. Model-group

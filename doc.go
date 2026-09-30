@@ -65,8 +65,9 @@
 // resolved type Loc before conversion; global inline-attribute declarations and
 // attribute validation/GenerateGo remain unsupported. Supported local anonymous
 // atomic AttributeUse facts are separate. Under admitting policies,
-// built-in/named roots validate, while inline anonymous targets remain excluded
-// from validation and generation.
+// built-in/named roots validate. Standalone inline anonymous roots reject
+// validation; precisionDecimal-only sequence references validate these targets.
+// Generation rejects precisionDecimal targets.
 // Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
@@ -80,7 +81,8 @@
 // inline complex types, and atomic xs:string particles for named global
 // complex types, global element inline complex types, and supported bounded
 // attribute-free extensions. Inline complexes retain anonymous IDs and query facts
-// outside the global walk; their consumers reject. The model also admits
+// outside the global walk; precisionDecimal-only direct sequences validate, while
+// generation rejects them. The model also admits
 // built-in/named/inline xs:negativeInteger and built-in or supported
 // named-effective xs:long/xs:int/xs:short/xs:byte/xs:unsignedLong/
 // xs:nonNegativeInteger particles in
@@ -262,17 +264,18 @@
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.
-// ValidateInstance and GenerateGo consume only supported non-extension
-// default-occurrence direct-choice references to built-in or named global
-// Boolean, integer, or decimal targets without identity constraints; constrained
-// targets remain queryable but validation rejects at the instance use Loc with
-// the first constraint Loc related. GenerateGo rejects at that constraint Loc
-// with no output.
+// Both consumers admit only supported non-extension default-occurrence
+// direct-choice references to unconstrained built-in or named global Boolean,
+// integer, or decimal targets. Validation also admits exact-occurrence direct
+// precisionDecimal-only sequence references to global built-in, named, or inline
+// anonymous precisionDecimal targets; generation rejects sequence references.
+// Constrained targets remain queryable but validation rejects at instance use Loc,
+// relating the first constraint Loc; GenerateGo rejects with no output.
 // References to global `nonNegativeInteger` remain queryable without target-type
 // gating; direct-choice and sequence consumers reject them with located
 // unsupported diagnostics and nil GenerateGo output.
-// Sequence, anonymous-target, repetition, nested, recursive, and broader
-// element-reference forms are consumer exclusions; query references retain their
+// Other sequence, anonymous-target, repetition, nested, recursive, and broader
+// element-reference forms remain consumer exclusions; query references retain
 // resolved facts. Model-group references are a separate top-level direct query
 // boundary with ordered facts and TargetID; nested, local, recursive, and broader
 // model-group references remain unsupported.
@@ -337,14 +340,15 @@
 // xs:string atomic kind, or built-in/named xs:boolean/xs:token/xs:NMTOKEN/
 // xs:integer/xs:nonNegativeInteger/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
-// or Strict11, or as a named global complex type with one direct
+// or Strict11, or through a named global complex type with one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
 // restriction elements, one direct integer/decimal sequence of local built-in or
 // named elements, one homogeneous token/NMTOKEN sequence of local built-in or
 // supported named token/NMTOKEN elements, one direct precisionDecimal-only
-// sequence of local built-in/named elements or global element references under
-// Compatibility/Strict11 (including inline complex roots and anonymous
-// precisionDecimal restriction targets), or one direct choice
+// sequence of exclusively local built-in/named elements or exclusively global
+// element references under
+// Compatibility/Strict11 (also on inline complex roots, including references
+// to anonymous precisionDecimal restrictions), or one direct choice
 // whose scalar alternatives use default occurrences and contain local built-in or named
 // Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements, or, in
 // non-extension direct choices, default-occurrence references to global Boolean,
