@@ -99,17 +99,17 @@ and wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip
 wildcards; broader forms reject; `0/0` omits. `openContent=none` works except
 under Strict10; named groups retain ordered refs/ranges.
 Inline complexes expose IDs and ordered sequence/ref/use outside walks; consumers reject. SimpleContent admits string/Boolean/integer/decimal and policy-gated
-`precisionDecimal` with nil particles. Compatibility/Strict11 query-admit nonzero
-direct `precisionDecimal` sequences and non-extension list/union links; consumers reject.
+`precisionDecimal` with nil particles. Compatibility/Strict11 admit nonzero
+direct `precisionDecimal` sequences and non-extension list/union locals without QName; consumers reject.
 Element refs retain targets/occurrences, including repeats to global inline
 restrictions; nonzero local inline forms reject.
 Built-in/named `string` particles are query-only.
 `normalizedString`: replace whitespace and lexical facets; restriction/list/union refs.
 Atomic direct/named/inline globals and refs query; nonzero locals reject, `0/0`
-omits after gates. Global attributes/consumers and standalone named generation reject.
+omits after gates. Global attributes/consumers, standalone named generation reject.
 Facet-free `QName` restriction/list/union and direct/named/inline global refs
-retain datatype QName, use `Loc`, named ID. Nonzero QName-bearing typed locals, attributes,
-facets, default/fixed reject; validated `0/0` locals omit after gates.
+retain datatype QName, use `Loc`, named ID. Nonzero QName-bearing local declarations, attributes,
+facets, default/fixed reject; validated `0/0` omit after gates.
 
 ## Datatypes
 

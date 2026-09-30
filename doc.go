@@ -230,8 +230,8 @@
 // Global inline complex types expose stable anonymous ComplexTypeID nodes,
 // exact ordered sequence/reference particles, and attribute uses without
 // entering the global component walk. Direct non-extension precisionDecimal
-// list/union sequence links and anonymous global precisionDecimal restrictions
-// are query-only.
+// list/union sequence links without QName and anonymous global precisionDecimal
+// restrictions are query-only.
 // Particle-plus-use bodies, direct model-group references, grouped extensions,
 // attribute-only bodies, and scalar simpleContent extensions expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
