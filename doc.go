@@ -14,10 +14,11 @@
 // StringEnumerationFacets, and StringWhiteSpaceFacet report immutable kind
 // and implemented scalar facts. ParseSchema uses graph-wide Compatibility;
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
-// xs:normalizedString has distinct built-in identity, replace whiteSpace,
-// and queryable restrictions/list/union/global-element references. Local typed
-// particles and global attributes reject; element-ref particles to admitted
-// global targets remain queryable. Validation and generation reject both.
+// xs:normalizedString has distinct built-in identity and replace whiteSpace.
+// Its restrictions/list/union references and direct, named, or inline global
+// elements are queryable. Local typed particles and global attributes reject
+// at schema admission. Element-ref particles to those global elements remain
+// queryable; ValidateInstance and GenerateGo reject the elements and refs.
 // A successful ParseSchema returns an immutable Schema; Documents, Components,
 // Lookup, Find, FindKind, and Walk expose deterministic query views, while
 // AttributeDeclaration exposes resolved type and value-constraint facts.
@@ -352,10 +353,11 @@
 // sequences made entirely of built-in or supported named NMTOKEN particles
 // collapse XML whitespace and enforce the repository XML NameChar policy.
 // Those sequences validate with exact occurrences and NMTOKEN value-space rules;
-// their GenerateGo consumers remain unsupported. Global string roots normalize
-// instance text with effective whiteSpace, then compare enumeration values
-// interpreted by each declaration's base type; violations retain text and
-// related schema locations. Local atomic string particles retain their written
+// their GenerateGo consumers remain unsupported. Global roots with effective
+// xs:string atomic kind normalize instance text with effective whiteSpace,
+// then compare enumeration values interpreted by each declaration's base type;
+// violations retain text and related schema locations. Local atomic string
+// particles retain their written
 // QName, resolved named identity, immutable type/facet facts, locations, and exact
 // occurrences in direct choices, sequences, and supported bounded extensions, but
 // remain unsupported to consumers. Lists/unions,
