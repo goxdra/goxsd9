@@ -445,26 +445,11 @@ func stringsHasVersionedSpecPrefix(specRef string, version XSDVersion) bool {
 func TestSchemaUnsignedLongGlobalAttributeUnsupportedBoundaries(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {
 		for _, test := range []struct {
-			name          string
-			root          string
-			locNeedle     string
-			cause         error
-			valueBoundary bool
+			name      string
+			root      string
+			locNeedle string
+			cause     error
 		}{
-			{
-				name:          "default built-in",
-				root:          `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:unsignedLong" default="0"/></xs:schema>`,
-				locNeedle:     `default="0"`,
-				cause:         errSchemaAttributeValueConstraintUnsupported,
-				valueBoundary: true,
-			},
-			{
-				name:          "fixed named",
-				root:          `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="value" type="r:Value" fixed="0"/><xs:simpleType name="Value"><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:schema>`,
-				locNeedle:     `fixed="0"`,
-				cause:         errSchemaAttributeValueConstraintUnsupported,
-				valueBoundary: true,
-			},
 			{
 				name:      "local inline",
 				root:      `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:attribute></xs:schema>`,
@@ -505,14 +490,6 @@ func TestSchemaUnsignedLongGlobalAttributeUnsupportedBoundaries(t *testing.T) {
 				}
 				if test.cause != nil && !errors.Is(err, test.cause) {
 					t.Fatalf("diagnostic lost unsupported cause %v: %v", test.cause, err)
-				}
-				if test.valueBoundary {
-					if diagnostic.SpecRef() != schemaAttributeValueConstraintSpecRef(profile.version) {
-						t.Fatalf("value-constraint diagnostic SpecRef() = %q, want %q", diagnostic.SpecRef(), schemaAttributeValueConstraintSpecRef(profile.version))
-					}
-					if errors.Is(err, errSchemaAttributeTypeUnsupported) {
-						t.Fatalf("unsignedLong type was rejected before value-constraint boundary: %v", err)
-					}
 				}
 			})
 		}

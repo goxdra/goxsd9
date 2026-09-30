@@ -377,8 +377,8 @@
 // resolution/reference failures retain their existing diagnostic, specification
 // reference, cause, and precedence. Unsupported forms return no Schema.
 // Type admission is separate from value-constraint support: only Boolean,
-// integer, negativeInteger, long, int, short, decimal, token, and precisionDecimal constraints are
-// supported. Built-in and supported named negativeInteger, long, int, and short default/fixed values
+// integer, negativeInteger, long, int, short, unsignedLong, decimal, token, and precisionDecimal constraints are
+// supported. Built-in and supported named negativeInteger, long, int, short, and unsignedLong default/fixed values
 // use exact IntegerValue and effective integer facets under all three policies. For
 // an admitted type, an individual unsupported default or fixed is
 // FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its value
@@ -391,8 +391,11 @@
 // exact effective integer facets/bounds (including narrowed or exclusive bounds),
 // facet/variety locations, provenance, ownership, and named target identity; built-in
 // references have no synthetic ComponentID. TypeReference().IntegerBounds()
-// returns copied effective bounds for both kinds of integer reference. Admitted
-// global precisionDecimal constraints retain zero or one optional default/fixed
+// returns copied effective bounds for both kinds of integer reference.
+// Admitted unsignedLong values require digits-only spelling under Strict10; Compatibility
+// and Strict11 permit an optional sign, including negative zero. Constraints
+// retain the collapsed lexical spelling and exact value without narrowing.
+// Admitted global precisionDecimal constraints retain zero or one optional default/fixed
 // AttributeValueConstraint; type-only declarations return no value constraint.
 // ValueConstraint() copies kind, collapsed lexical spelling, source Loc, and
 // exact defensive StrictPrecisionDecimal through PrecisionDecimalValue only

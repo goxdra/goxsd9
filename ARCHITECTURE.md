@@ -85,12 +85,12 @@ Grouped extensions resolve group, uses, then base; `0/0` omits group.
 Local uses retain name/type/use locations and named/anonymous `AnonymousID`/`NodeID`;
 references retain QName/RefLoc/TargetID/use. Forms select names; XSD 1.1
 `targetNamespace` must match the container; chameleon adopts; prohibited uses omit.
-Value/default/fixed/inheritable semantics, attributeGroup/broader attribute-bearing
-extensions, and consumers are unsupported; excluded refs retain locations; no schema.
+Local values/inheritable, attributeGroup/broader extensions, and consumers are
+unsupported; refs located; no schema.
 Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
-Default/fixed: Boolean/integer/decimal/token/negativeInteger/long/int/short (built-in/named, all policies),
-policy-gated `precisionDecimal`; negativeInteger/long/int/short: `IntegerValue`/effective facets.
+Default/fixed: built-in/named Boolean/integer/decimal/token/negativeInteger/long/int/short/unsignedLong; policy-gated `precisionDecimal`.
+Integer values/facets exact; unsignedLong lexical: digits-only XSD 1.0, signed/-0 XSD 1.1.
 Unsupported types/local/inline: located `FailureUnsupported`; unsupported values: constraint `Loc`;
 invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixed/default; type-only
 unconstrained; attribute consumers reject.

@@ -3890,7 +3890,7 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		return true
 	}
 	switch reference.atomicKind {
-	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort:
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicUnsignedLong:
 		switch facets := reference.facets.(type) {
 		case schemaDigitFacetVariant:
 			return facets.value.Kind() == DigitDatatypeInteger
@@ -3921,7 +3921,6 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicPositiveInteger,
 		schemaSimpleTypeAtomicByte,
-		schemaSimpleTypeAtomicUnsignedLong,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
@@ -3932,6 +3931,7 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 	}
 }
 
+//nolint:gocognit // Keep exact conversion and its ordered facet checks at one boundary.
 func resolveSchemaAttributeValueConstraint(
 	input *schemaAttributeValueConstraintInput,
 	reference schemaSimpleTypeReferenceComponent,
@@ -3956,7 +3956,16 @@ func resolveSchemaAttributeValueConstraint(
 		return constraint, nil
 	}
 	switch reference.atomicKind {
-	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort:
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicUnsignedLong:
+		if reference.atomicKind == schemaSimpleTypeAtomicUnsignedLong && version == XSDVersion10 && !schemaUnsignedLong10Lexical(lexical) {
+			return nil, invalidSchemaAttributeValueConstraint(input, version, newDiagnostic(
+				FailureInvalid,
+				InvalidIntegerLexicalCode,
+				input.loc,
+				"invalid XSD 1.0 xs:unsignedLong lexical representation",
+				nil,
+			))
+		}
 		value, err := ParseStrictInteger(input.lexical, input.loc)
 		if err != nil {
 			return nil, invalidSchemaAttributeValueConstraint(input, version, err)
@@ -3989,7 +3998,6 @@ func resolveSchemaAttributeValueConstraint(
 		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicPositiveInteger,
 		schemaSimpleTypeAtomicByte,
-		schemaSimpleTypeAtomicUnsignedLong,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
@@ -3998,6 +4006,18 @@ func resolveSchemaAttributeValueConstraint(
 	default:
 		return nil, newSchemaBridgeInvariant(input.loc, "convert an unsupported attribute value constraint type")
 	}
+}
+
+func schemaUnsignedLong10Lexical(lexical string) bool {
+	if lexical == "" {
+		return false
+	}
+	for _, digit := range lexical {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func resolveSchemaAttributePrecisionDecimalValueConstraint(
