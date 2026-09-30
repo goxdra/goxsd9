@@ -21,6 +21,16 @@
 // and global attributes reject at schema admission; applicable 0/0 local forms
 // omit after reference, facet, and policy gates. Element-ref particles to
 // admitted global elements query; ValidateInstance and GenerateGo reject them.
+// xs:QName references are distinct context-sensitive atomics in facet-free
+// restrictions, lists, unions, and direct/named/inline global elements.
+// Mapped nonzero QName-bearing typed local particles reject, including mixed
+// precisionDecimal unions; applicable 0/0 forms omit after
+// reference, facet, and policy gates. All QName facets reject at schema admission.
+// Individual default/fixed values on QName-typed global declarations are
+// unsupported; simultaneous values or either on an element ref are invalid at
+// the conflicting or forbidden attribute.
+// ValidateInstance rejects admitted global elements and refs with located
+// diagnostics; GenerateGo rejects them with located diagnostics and nil output.
 // A successful ParseSchema returns an immutable Schema; Documents, Components,
 // Lookup, Find, FindKind, and Walk expose deterministic query views, while
 // AttributeDeclaration exposes resolved type and value-constraint facts.
@@ -220,8 +230,8 @@
 // Global inline complex types expose stable anonymous ComplexTypeID nodes,
 // exact ordered sequence/reference particles, and attribute uses without
 // entering the global component walk. Direct non-extension precisionDecimal
-// list/union sequence links and anonymous global precisionDecimal restrictions
-// are query-only.
+// list/union sequence links without QName and anonymous global precisionDecimal
+// restrictions are query-only.
 // Particle-plus-use bodies, direct model-group references, grouped extensions,
 // attribute-only bodies, and scalar simpleContent extensions expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local

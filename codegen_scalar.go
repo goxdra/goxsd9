@@ -1087,7 +1087,8 @@ func codegenSourceScalarKindFromAtomicKind(kind schemaSimpleTypeAtomicKind) (cod
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
-		schemaSimpleTypeAtomicID:
+		schemaSimpleTypeAtomicID,
+		schemaSimpleTypeAtomicQName:
 		return codegenSourceScalarInvalid, false
 	}
 	return codegenSourceScalarInvalid, false
