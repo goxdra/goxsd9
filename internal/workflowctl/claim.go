@@ -264,15 +264,9 @@ func (a app) renewClaim() error {
 	if proofErr := a.validateRenewClaimHeads(root, local, remote); proofErr != nil {
 		return proofErr
 	}
-	lease, runID, err := a.readClaimMetadata(root)
-	if local != remote {
-		lease, runID, err = a.readClaimMetadataAt(root, remote)
-	}
+	lease, runID, err := a.proveClaimLeaseAndLocalMarkers(root, localBranch, number, local, remote)
 	if err != nil {
 		return err
-	}
-	if identityErr := validateClaimLocalBranch(localBranch, number, runID); identityErr != nil {
-		return identityErr
 	}
 	now := time.Now().UTC()
 	if freshnessErr := validateClaimDeadline(number, lease, now); freshnessErr != nil {
@@ -333,15 +327,9 @@ func (a app) verifyClaim() error {
 			return fmt.Errorf("verify remote claim ancestry: %w", ancestorErr)
 		}
 	}
-	lease, runID, err := a.readClaimMetadata(root)
-	if local != remote {
-		lease, runID, err = a.readClaimMetadataAt(root, remote)
-	}
+	lease, _, err := a.proveClaimLeaseAndLocalMarkers(root, localBranch, number, local, remote)
 	if err != nil {
 		return err
-	}
-	if identityErr := validateClaimLocalBranch(localBranch, number, runID); identityErr != nil {
-		return identityErr
 	}
 	if err := validateClaimDeadline(number, lease, time.Now().UTC()); err != nil {
 		return err
@@ -369,17 +357,63 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 			return fmt.Errorf("verify claim worktree for push: %w", operationErr)
 		}
 	}
-	lease, runID, err := a.readClaimMetadata(root)
-	if local != remote {
-		lease, runID, err = a.readClaimMetadataAt(root, remote)
-	}
+	lease, _, err := a.proveClaimLeaseAndLocalMarkers(root, branch, number, local, remote)
 	if err != nil {
-		return fmt.Errorf("claim #%d has no valid lease: %w", number, err)
-	}
-	if identityErr := validateClaimLocalBranch(branch, number, runID); identityErr != nil {
-		return identityErr
+		return fmt.Errorf("verify claim #%d for push: %w", number, err)
 	}
 	return validateClaimDeadline(number, lease, time.Now().UTC())
+}
+
+func (a app) proveClaimLeaseAndLocalMarkers(root, branch string, number int, local, remote string) (time.Time, string, error) {
+	if local == remote {
+		lease, runID, err := a.readClaimMetadata(root)
+		if err != nil {
+			return time.Time{}, "", err
+		}
+		if err := validateClaimLocalBranch(branch, number, runID); err != nil {
+			return time.Time{}, "", err
+		}
+		return lease, runID, nil
+	}
+	lease, runID, err := a.readClaimMetadataAt(root, remote)
+	if err != nil {
+		return time.Time{}, "", fmt.Errorf("read authoritative claim metadata at %s: %w", remote, err)
+	}
+	if err := validateClaimLocalBranch(branch, number, runID); err != nil {
+		return time.Time{}, "", err
+	}
+	if err := a.verifyUnpublishedClaimMarkers(root, branch, number, runID, local, remote); err != nil {
+		return time.Time{}, "", err
+	}
+	return lease, runID, nil
+}
+
+func (a app) verifyUnpublishedClaimMarkers(root, branch string, number int, runID, local, remote string) error {
+	history, err := a.command(root, "git", "log", "--first-parent", "--format=%H%x00%B%x00", remote+".."+local)
+	if err != nil {
+		return fmt.Errorf("read unpublished claim history: %w", err)
+	}
+	records, err := splitRunLocalHistory(history, branch)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		if !isCanonicalClaimMarkerShape(record.message) {
+			continue
+		}
+		marker, err := a.readCanonicalClaimIdentity(root, record.commit, "")
+		if err != nil {
+			return fmt.Errorf("verify unpublished claim marker %s: %w", record.commit, err)
+		}
+		if marker.message != record.message {
+			return stateError("unpublished claim marker %s history disagrees with its Git object; preserve claim artifacts", record.commit)
+		}
+		if marker.issue != number || marker.runID != runID {
+			return stateError("unpublished claim marker %s binds issue #%d run %s, not remote claim issue #%d run %s; preserve claim artifacts",
+				record.commit, marker.issue, marker.runID, number, runID)
+		}
+	}
+	return nil
 }
 
 func (a app) readClaimMetadata(root string) (time.Time, string, error) {
