@@ -8,12 +8,15 @@
 // lists, and unions. Anonymous simple types and resolved built-in, named, and
 // anonymous simple-type references are modeled, along with global xs:boolean,
 // xs:nonNegativeInteger, xs:positiveInteger, and atomic
-// xs:string/xs:token/xs:NMTOKEN declarations
+// xs:string/xs:normalizedString/xs:token/xs:NMTOKEN declarations
 // and their named or anonymous restrictions.
 // Queries and walks are deterministic. SimpleTypeDefinition.IsBoolean,
 // StringEnumerationFacets, and StringWhiteSpaceFacet report immutable kind
 // and implemented scalar facts. ParseSchema uses graph-wide Compatibility;
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
+// xs:normalizedString has distinct built-in identity, replace whiteSpace,
+// and queryable restrictions/list/union references; local particles, global
+// attributes, validation, and generation remain unsupported for it.
 // A successful ParseSchema returns an immutable Schema; Documents, Components,
 // Lookup, Find, FindKind, and Walk expose deterministic query views, while
 // AttributeDeclaration exposes resolved type and value-constraint facts.

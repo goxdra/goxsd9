@@ -1071,6 +1071,7 @@ func codegenSourceScalarKindFromAtomicKind(kind schemaSimpleTypeAtomicKind) (cod
 	case schemaSimpleTypeAtomicNMTOKEN:
 		return codegenSourceScalarNMTOKEN, true
 	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicInteger,
 		schemaSimpleTypeAtomicLong,
 		schemaSimpleTypeAtomicInt,
@@ -1191,6 +1192,15 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
 			appendCodegenRelated(nil, definition.BaseLoc()),
 			fmt.Errorf("%w: atomic datatype is outside scalar Go generation", errCodegenUnsupported),
+			version,
+		)
+	}
+	if definition.facts.atomicKind == schemaSimpleTypeAtomicNormalizedString {
+		return codegenSourceTarget{}, newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
+			appendCodegenRelated(nil, definition.BaseLoc()),
+			fmt.Errorf("%w: normalizedString is outside scalar Go generation", errCodegenUnsupported),
 			version,
 		)
 	}

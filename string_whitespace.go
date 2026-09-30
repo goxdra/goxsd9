@@ -133,6 +133,10 @@ func defaultStringWhiteSpaceFacet() *StringWhiteSpaceFacet {
 	return &StringWhiteSpaceFacet{value: "preserve"}
 }
 
+func defaultNormalizedStringWhiteSpaceFacet() *StringWhiteSpaceFacet {
+	return &StringWhiteSpaceFacet{value: "replace"}
+}
+
 func defaultTokenWhiteSpaceFacet() *StringWhiteSpaceFacet {
 	return &StringWhiteSpaceFacet{value: "collapse", fixed: true}
 }

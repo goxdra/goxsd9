@@ -3507,6 +3507,7 @@ type schemaSimpleTypeAtomicKind uint8
 const (
 	schemaSimpleTypeAtomicUnknown schemaSimpleTypeAtomicKind = iota
 	schemaSimpleTypeAtomicString
+	schemaSimpleTypeAtomicNormalizedString
 	schemaSimpleTypeAtomicToken
 	schemaSimpleTypeAtomicNMTOKEN
 	schemaSimpleTypeAtomicInteger
@@ -3536,6 +3537,7 @@ func schemaSimpleTypeAtomicKindIsUnsupported(kind schemaSimpleTypeAtomicKind) bo
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInteger,
@@ -3916,6 +3918,7 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		return ok
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
@@ -3993,6 +3996,7 @@ func resolveSchemaAttributeValueConstraint(
 		return resolveSchemaAttributeTokenValueConstraint(input, reference, version, constraint, lexical)
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
@@ -4123,6 +4127,7 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger, schemaSimpleTypeAtomicPositiveInteger:
@@ -5721,7 +5726,7 @@ func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleT
 
 func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
-	case "string", "token", "NMTOKEN", "language", "NCName", "anyURI", "ID":
+	case "string", "normalizedString", "token", "NMTOKEN", "language", "NCName", "anyURI", "ID":
 		if !builtinStringSchemaScalarTypeAllowedInScope(input.declaredType.Local(), scope) {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
@@ -5800,6 +5805,7 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 	case schemaSimpleTypeAtomicString:
 		return nil
 	case schemaSimpleTypeAtomicLanguage,
+		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
 		schemaSimpleTypeAtomicID:
@@ -6461,6 +6467,7 @@ func schemaLocalAttributeSimpleTypeSupported(reference schemaSimpleTypeReference
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInt,
@@ -6533,6 +6540,7 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInt,
@@ -9111,6 +9119,8 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 	switch input.name.Local() {
 	case "string":
 		return resolveBuiltinStringSchemaSimpleTypeReference(input, version)
+	case "normalizedString":
+		return resolveBuiltinNormalizedStringSchemaSimpleTypeReference(input, version)
 	case "token":
 		return resolveBuiltinTokenSchemaSimpleTypeReference(input, version)
 	case "NMTOKEN":
@@ -9335,6 +9345,10 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 
 func resolveBuiltinStringSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
 	return resolveBuiltinStringLikeSchemaSimpleTypeReference(input, version, schemaSimpleTypeAtomicString, defaultStringWhiteSpaceFacet())
+}
+
+func resolveBuiltinNormalizedStringSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+	return resolveBuiltinStringLikeSchemaSimpleTypeReference(input, version, schemaSimpleTypeAtomicNormalizedString, defaultNormalizedStringWhiteSpaceFacet())
 }
 
 func resolveBuiltinTokenSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {

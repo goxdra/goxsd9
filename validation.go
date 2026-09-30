@@ -1929,6 +1929,8 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowNMTOKEN, instanceNMTOKENScalar{}, booleanVersion)
 	case "string":
 		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowString, instanceStringScalar{whiteSpace: *defaultStringWhiteSpaceFacet()}, booleanVersion)
+	case "normalizedString":
+		return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
 	case "positiveInteger":
 		return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
 	case "int", "short", "language", "NCName", "anyURI", "ID":

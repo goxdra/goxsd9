@@ -95,21 +95,20 @@ Unsupported types/local/inline: located `FailureUnsupported`; unsupported values
 invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixed/default; type-only
 unconstrained; attribute consumers reject.
 
-Complexes retain non-inherited `IsAbstract`, `finalDefault` provenance,
-ordered groups/extensions, and wildcards. `xs:any` includes positive sets and XSD 1.1
-strict/lax/skip `notNamespace`; markers expand after chameleon adoption. Consumers
-reject wildcards; broader forms unsupported; `0/0` absent. `openContent=none`
-works Compatibility/Strict11 but mismatches Strict10; named groups retain ordered refs/ranges.
-Inline complexes expose IDs and ordered sequence/ref/use outside walks;
-consumers reject. SimpleContent admits string/Boolean/integer/decimal and policy-gated
-`precisionDecimal`, retaining nil particles. Compatibility/Strict11 query-admit nonzero
-direct `precisionDecimal` sequences and non-extension list/union sequence links;
-consumers reject. Its element refs retain targets and exact occurrences, including
-repeated sequence refs to global inline restrictions; nonzero local inline forms remain
-unsupported. Homogeneous token/NMTOKEN sequences retain exact
-finite/unbounded/above-`uint64` occurrences; consumers remain limited.
-Built-in/named `string` direct/bounded-extension choices/sequences retain
-types/facets/locations/exact occurrences; consumers reject.
+Complexes retain non-inherited `IsAbstract`, `finalDefault` provenance, ordered groups/extensions,
+and wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip
+`notNamespace`; chameleon markers expand after adoption. Consumers reject
+wildcards; broader forms reject; `0/0` omits. `openContent=none` works except
+under Strict10; named groups retain ordered refs/ranges.
+Inline complexes expose IDs and ordered sequence/ref/use outside walks; consumers reject. SimpleContent admits string/Boolean/integer/decimal and policy-gated
+`precisionDecimal` with nil particles. Compatibility/Strict11 query-admit nonzero
+direct `precisionDecimal` sequences and non-extension list/union links; consumers reject.
+Element refs retain targets/occurrences, including repeats to global inline
+restrictions; nonzero local inline forms reject.
+Built-in/named `string` choice/sequence/extension particles retain types/facets/locations/occurrences; consumers reject.
+`normalizedString` has distinct identity, unlocated nonfixed replace whitespace,
+and lexical facets. Restriction/list/union/global-element refs resolve; local
+particles/attributes and consumers reject.
 
 ## Datatypes
 
@@ -125,7 +124,7 @@ direct/named/anonymous string roots (effective whiteSpace/enumeration), and
 Compatibility/Strict11 precisionDecimal roots; Strict10 rejects precisionDecimal.
 Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
 Local Boolean/integer/decimal sequences/default choices honor
-ranges; homogeneous token/NMTOKEN sequences honor exact occurrences/value space.
+ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
 Local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
 unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
 only default direct-choice refs to unconstrained global built-in/named Boolean/integer/decimal validate.

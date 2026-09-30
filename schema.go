@@ -934,6 +934,7 @@ func (definition SimpleTypeDefinition) IsString() bool {
 		return false
 	}
 	return definition.facts.atomicKind == schemaSimpleTypeAtomicString ||
+		definition.facts.atomicKind == schemaSimpleTypeAtomicNormalizedString ||
 		definition.facts.atomicKind == schemaSimpleTypeAtomicToken ||
 		definition.facts.atomicKind == schemaSimpleTypeAtomicNMTOKEN
 }
