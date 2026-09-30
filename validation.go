@@ -185,13 +185,14 @@ type instanceChoiceProgram struct {
 
 // ValidateInstance consumes, drains, and closes reader exactly once, then
 // validates one XML instance against schema. The supported semantic slice is
-// a single root global whose type is built-in or named XSD string, boolean, token,
-// NMTOKEN, integer, nonNegativeInteger, decimal, or precisionDecimal, or an
-// anonymous atomic string restriction, or a named complex type with one
-// direct choice or sequence. Direct choices accept default-occurrence local
-// Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements whose
-// type references are built-in or named, and default-occurrence references to
-// global Boolean, integer, and decimal elements other than nonNegativeInteger.
+// a single global root of built-in xs:string, a named/anonymous restriction
+// with effective xs:string atomic kind, built-in/named Boolean, token, NMTOKEN,
+// integer, nonNegativeInteger, decimal, or precisionDecimal, or a named complex
+// type with one direct choice or sequence. Direct choices accept
+// default-occurrence local Boolean, token, NMTOKEN, integer, decimal, or
+// precisionDecimal elements whose type references are built-in or named, and
+// default-occurrence references to global Boolean, integer, and decimal
+// elements other than nonNegativeInteger.
 // Direct sequences contain only
 // local built-in or named Boolean elements, only local built-in or named
 // integer/decimal elements, only local built-in or named token elements, or
