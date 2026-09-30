@@ -23,7 +23,11 @@
 // admitted global elements query; ValidateInstance and GenerateGo reject them.
 // xs:QName references are distinct context-sensitive atomics in facet-free
 // restrictions, lists, unions, and direct/named/inline global elements.
-// All QName facets and QName-typed defaults/fixed values are schema-unsupported.
+// Mapped nonzero QName local particles reject; applicable 0/0 forms omit after
+// reference, facet, and policy gates. All QName facets reject at schema admission.
+// Individual default/fixed values on QName-typed global declarations are
+// unsupported; simultaneous values or either on an element ref are invalid at
+// the conflicting or forbidden attribute.
 // ValidateInstance rejects admitted global elements and refs with located
 // diagnostics; GenerateGo rejects them with located diagnostics and nil output.
 // A successful ParseSchema returns an immutable Schema; Documents, Components,

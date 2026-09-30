@@ -18,13 +18,14 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Phases do not backpatch. Identities intern before discovery; repeats/cycles close,
-dependencies topologically sort, and ordered slices define walks/output.
+Phases do not backpatch. Identities intern before discovery; repeats/cycles close.
+Acyclic dependencies use stable topological order; slices order walks/output.
 
 ## Input and resolution
 
-Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Resolvers provide
-references/policy; streams close; identities decode once; repeats/cycles close.
+Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. The caller selects
+graph language policy; resolvers acquire sources under their resolution policy.
+Streams close; identities decode once; repeats/cycles close.
 
 ```go
 type Resolver interface {
@@ -36,8 +37,8 @@ type Resolver interface {
 }
 ```
 
-Sources carry opaque identity, reader-closer, child context; resolvers own base-location
-state. FIFO discovery preserves context. Parser leaves identities/locations uninterpreted,
+Sources carry opaque identity, reader-closer, child context; resolvers may keep private
+base-location state. FIFO discovery preserves context. Parser leaves identities/locations uninterpreted,
 opens no paths/network resources, and resolves sequentially.
 
 `Loc` uses one-based lines and Unicode-code-point columns.
@@ -51,34 +52,34 @@ return. Unsupported features have stable report IDs.
 ## Schema model
 
 Immutable components; ordered walks; scoped particles.
-Supported global elements own ordered unique/key/keyref facts: kind, name, source/ordinal ID, `Loc`, XML-decoded selector/field XPath and `Loc`s, copied
-namespace scopes/defaults, and resolved keyref QName/target ID. IDs/duplicate checks precede visible refer resolution: unresolved/invisible/ambiguous targets are `FailureResolution` at `refer`; wrong-kind/field-count targets are `FailureInvalid`. Publication is atomic.
+Global elements retain ordered unique/key/keyref kind, name, source/ordinal ID, `Loc`, XML-decoded selector/field XPath/`Loc`s, copied namespace scopes/defaults,
+and resolved keyref QName/target ID. IDs/duplicates precede visible refer resolution: unresolved/invisible/ambiguous targets yield `FailureResolution` at `refer`;
+wrong-kind/field-count yield `FailureInvalid`. Publication is atomic.
 
 `DeclaredType` is primitive. Bounded attribute-free complexContent extensions
 over named empty bases and restrictions over `xs:anyType` retain refs, base
-identities/locations, and inherited `##other`/`lax` wildcards. Scalar
-simpleContent retains base/type/use `Loc`s and nil particle; restrictions are
-unsupported. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
+IDs/`Loc`s, inherited `##other`/`lax` wildcards. Scalar simpleContent retains
+base/type/use `Loc`s and nil particle; restrictions reject. Bases:
+Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline
 `negativeInteger`, and built-in/named `long`, `int`, `short`, `byte`, `unsignedLong`,
 `nonNegativeInteger`. Direct global elements admit built-in `positiveInteger`.
 Direct built-in/named-effective `integer` supports consumers; listed
 derivatives/extensions are query-only. Built-in `long` retains bounds; named
-effective-long retains identity, facets, QName, occurrences, and order. Local
-uses/simpleContent exclude derivatives. Exclusions are located at type/facet/
-element `Loc`; nested particles use nested `Loc`.
-Syntax/occurrence/reference/policy gates precede mapping. At `0/0`, inline
-syntax waits for base/facets. Graph/reference/policy errors retain
-causes/locations; no `Schema`.
+effective-long retains identity, facets, QName, occurrences, order. Locals/
+simpleContent exclude derivatives; failures locate type/facet/element, nested
+particles at nested `Loc`.
+Syntax/occurrence/reference/policy gates precede mapping, including `0/0` inline
+bases/facets. Graph/reference/policy errors retain cause/`Loc`; no `Schema`.
 Sequences resolve children before omission; choices resolve refs once; named
 groups resolve/check before omission; child refs first.
 Element/model-group refs retain QName/RefLoc/TargetID/order without expansion;
-nested/local/recursive/broader forms are unsupported or consumer-excluded. Non-`0/0` local inline/anonymous
+nested/local/recursive/broader forms reject or exclude consumers. Non-`0/0` local inline/anonymous
 `long`/`int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger` fail at type/
 simpleType `Loc`; applicable `0/0` forms omit after gates.
-AttributeUse facts preserve order, locations, ownership, use, and QName/RefLoc/TargetID
-across particles, groups, extensions, attribute-only, and simpleContent.
-Grouped extensions resolve group, uses, then base; `0/0` omits group.
+AttributeUse preserves order, locations, ownership, use, QName/RefLoc/TargetID
+across particles/groups/extensions/attribute-only/simpleContent.
+Grouped extensions resolve group/uses/base in order; `0/0` omits group.
 Local uses retain name/type/use locations and named/anonymous `AnonymousID`/`NodeID`;
 references retain QName/RefLoc/TargetID/use. Forms select names; XSD 1.1
 `targetNamespace` must match the container; chameleon adopts; prohibited uses omit.
@@ -107,11 +108,13 @@ Built-in/named `string` particles are query-only.
 Atomic direct/named/inline globals and refs query; nonzero locals reject, `0/0`
 omits after gates. Global attributes/consumers and standalone named generation reject.
 Facet-free `QName` restriction/list/union and direct/named/inline global refs
-retain datatype QName, use `Loc`, named ID. Local particles, attributes, facets, default/fixed reject.
+retain datatype QName, use `Loc`, named ID. Mapped nonzero local particles, attributes,
+facets, default/fixed reject; validated `0/0` locals omit after gates.
 
 ## Datatypes
 
-Lexical/value forms stay separate; QName values require namespace context.
+Lexical/value forms differ; QName lexical-to-value conversion remains unsupported
+and requires namespace context.
 Datatypes map string enumeration, arbitrary precision, exact Compatibility/Strict11
 precisionDecimal facets, and Boolean whitespace; broader facets/temporal values reject.
 
