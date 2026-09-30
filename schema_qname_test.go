@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -307,6 +308,75 @@ func TestQNameBearingPrecisionUnionsRejectNonzeroLocals(t *testing.T) {
 				}
 				if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != want || d.SpecRef() != wantSpec || len(d.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
 					t.Fatalf("diagnostic = %v related=%v spec=%s; want unsupported at %s spec=%s", d, d.Related(), d.SpecRef(), want, wantSpec)
+				}
+			})
+		}
+	}
+}
+
+func qnameSharedUnionSchema(baseMember, topMember string) string {
+	definitions := []string{`<xs:simpleType name="U0"><xs:union memberTypes="xs:string ` + baseMember + `"/></xs:simpleType>`}
+	for index := 1; index <= 28; index++ {
+		previous := "t:U" + strconv.Itoa(index-1)
+		definitions = append(definitions, `<xs:simpleType name="U`+strconv.Itoa(index)+`"><xs:union memberTypes="`+previous+` `+previous+`"/></xs:simpleType>`)
+	}
+	definitions = append(definitions, `<xs:simpleType name="Top"><xs:union memberTypes="xs:precisionDecimal t:U28`+topMember+`"/></xs:simpleType>`)
+	return qnameSchema("\n  " + strings.Join(definitions, "") + `<xs:complexType name="Box"><xs:sequence><xs:element name="a" type="t:Top"/></xs:sequence></xs:complexType>` + "\n")
+}
+
+//nolint:gocognit // The shared graph must preserve both local admission and rejection observables.
+func TestQNameSharedUnionGraphLocalAdmission(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		if profile.policy == Strict10 {
+			continue
+		}
+		for _, test := range []struct {
+			name, baseMember, topMember string
+			containsQName               bool
+		}{
+			{"QName-free shared graph", "xs:boolean", "", false},
+			{"QName after shared graph", "xs:boolean", " xs:QName", true},
+			{"QName in shared leaf", "xs:QName", "", true},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := qnameSharedUnionSchema(test.baseMember, test.topMember)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				localLoc := mustSchemaTokenLoc(t, "root.xsd", root, 2, `type="t:Top"`)
+				if test.containsQName {
+					if err == nil || schema.storage != nil {
+						t.Fatalf("QName-bearing shared graph returned schema/no error: %v", err)
+					}
+					d := requireDiagnostic(t, err)
+					if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != localLoc || d.SpecRef() != schemaSyntaxSpecRefForVersion(profile.version) || len(d.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
+						t.Fatalf("shared graph diagnostic = %v related=%v spec=%s", d, d.Related(), d.SpecRef())
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("QName-free shared graph: %v", err)
+				}
+				components := schema.Components()
+				if len(components) != 31 || components[30].Name() != mustTestQName(t, "urn:test", "Box") {
+					t.Fatalf("shared graph component order/count = %#v", components)
+				}
+				box, ok := components[30].ComplexTypeDefinition()
+				if !ok {
+					t.Fatal("shared graph Box has no complex type view")
+				}
+				sequence, ok := box.Particle().(SequenceParticle)
+				if !ok || len(sequence.Particles()) != 1 {
+					t.Fatalf("shared graph Box particle = %T", box.Particle())
+				}
+				local, ok := sequence.Particles()[0].(ElementParticle)
+				if !ok || local.Loc() == (Loc{}) || local.DeclaredType() != mustTestQName(t, "urn:test", "Top") {
+					t.Fatalf("shared graph local particle = %#v/%t", sequence.Particles()[0], ok)
+				}
+				reference, ok := local.TypeReference()
+				if !ok || !reference.IsNamed() || reference.Variety() != SimpleTypeVarietyUnion || reference.Loc() != localLoc {
+					t.Fatalf("shared graph local type reference = %#v/%t", reference, ok)
+				}
+				if id, hasID := reference.ComponentID(); !hasID || id != componentIDForName(t, schema, reference.Name()) {
+					t.Fatalf("shared graph local type ID = %v/%t", id, hasID)
 				}
 			})
 		}

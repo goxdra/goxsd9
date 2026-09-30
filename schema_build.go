@@ -5730,47 +5730,124 @@ func schemaSimpleTypeResultContainsQName(result schemaSimpleTypeResult, resoluti
 	if result.atomicKind == schemaSimpleTypeAtomicQName {
 		return true, nil
 	}
-	return schemaSimpleTypeLinksContainQName(result.itemType, result.hasItemType, result.memberTypes, resolution)
-}
-
-func schemaSimpleTypeLinksContainQName(item schemaSimpleTypeReferenceComponent, hasItem bool, members []schemaSimpleTypeReferenceComponent, resolution schemaSimpleTypeResolution) (bool, error) {
-	if hasItem {
-		return schemaSimpleTypeReferenceContainsQName(item, resolution)
+	walk := schemaQNameContainmentWalk{
+		resolution:     resolution,
+		namedState:     make(map[ComponentID]schemaSimpleTypeState),
+		anonymousState: make(map[*schemaSimpleTypeComponent]schemaSimpleTypeState),
 	}
-	for _, member := range members {
-		containsQName, err := schemaSimpleTypeReferenceContainsQName(member, resolution)
-		if err != nil || containsQName {
-			return containsQName, err
+	pending := appendSchemaQNameWalkLinks(nil, result.itemType, result.hasItemType, result.memberTypes)
+	for len(pending) != 0 {
+		last := len(pending) - 1
+		frame := pending[last]
+		pending = pending[:last]
+		if frame.finish {
+			walk.finish(frame.reference)
+			continue
+		}
+		reference := frame.reference
+		if reference.atomicKind == schemaSimpleTypeAtomicQName {
+			return true, nil
+		}
+		if reference.variety == SimpleTypeVarietyAtomicRestriction {
+			continue
+		}
+		var err error
+		pending, err = walk.appendComposite(pending, reference)
+		if err != nil {
+			return false, err
 		}
 	}
 	return false, nil
 }
 
-func schemaSimpleTypeReferenceContainsQName(reference schemaSimpleTypeReferenceComponent, resolution schemaSimpleTypeResolution) (bool, error) {
-	if reference.atomicKind == schemaSimpleTypeAtomicQName {
-		return true, nil
+type schemaQNameWalkFrame struct {
+	reference schemaSimpleTypeReferenceComponent
+	finish    bool
+}
+
+func appendSchemaQNameWalkLinks(pending []schemaQNameWalkFrame, item schemaSimpleTypeReferenceComponent, hasItem bool, members []schemaSimpleTypeReferenceComponent) []schemaQNameWalkFrame {
+	if hasItem {
+		return append(pending, schemaQNameWalkFrame{reference: item})
 	}
-	if reference.variety == SimpleTypeVarietyAtomicRestriction {
-		return false, nil
+	for index := len(members) - 1; index >= 0; index-- {
+		pending = append(pending, schemaQNameWalkFrame{reference: members[index]})
 	}
+	return pending
+}
+
+type schemaQNameContainmentWalk struct {
+	resolution     schemaSimpleTypeResolution
+	namedIndex     map[ComponentID]int
+	namedState     map[ComponentID]schemaSimpleTypeState
+	anonymousState map[*schemaSimpleTypeComponent]schemaSimpleTypeState
+}
+
+func (walk *schemaQNameContainmentWalk) appendComposite(pending []schemaQNameWalkFrame, reference schemaSimpleTypeReferenceComponent) ([]schemaQNameWalkFrame, error) {
 	if reference.kind == SimpleTypeReferenceAnonymous {
-		if reference.anonymous == nil {
-			return false, newSchemaBridgeInvariant(reference.loc, "anonymous composite simple type reference has no model")
-		}
-		return schemaSimpleTypeLinksContainQName(reference.anonymous.itemType, reference.anonymous.hasItemType, reference.anonymous.memberTypes, resolution)
+		return walk.appendAnonymous(pending, reference)
 	}
 	if reference.kind != SimpleTypeReferenceNamed || !reference.hasID {
-		return false, newSchemaBridgeInvariant(reference.loc, "composite simple type reference has no named identity")
+		return nil, newSchemaBridgeInvariant(reference.loc, "composite simple type reference has no named identity")
 	}
-	if resolution.resolver == nil || len(resolution.results) != len(resolution.resolver.records) {
-		return false, newSchemaBridgeInvariant(reference.loc, "simple type reference results are incomplete")
+	return walk.appendNamed(pending, reference)
+}
+
+func (walk *schemaQNameContainmentWalk) appendAnonymous(pending []schemaQNameWalkFrame, reference schemaSimpleTypeReferenceComponent) ([]schemaQNameWalkFrame, error) {
+	if reference.anonymous == nil {
+		return nil, newSchemaBridgeInvariant(reference.loc, "anonymous composite simple type reference has no model")
 	}
-	for index, record := range resolution.resolver.records {
-		if record.id == reference.id {
-			return schemaSimpleTypeResultContainsQName(resolution.results[index], resolution)
+	switch walk.anonymousState[reference.anonymous] {
+	case schemaSimpleTypeResolved:
+		return pending, nil
+	case schemaSimpleTypeVisiting:
+		return nil, newSchemaBridgeInvariant(reference.loc, "anonymous composite simple type reference cycle escaped resolution")
+	case schemaSimpleTypeUnvisited:
+	default:
+		return nil, newSchemaBridgeInvariant(reference.loc, "anonymous composite simple type reference has unknown traversal state")
+	}
+	walk.anonymousState[reference.anonymous] = schemaSimpleTypeVisiting
+	pending = append(pending, schemaQNameWalkFrame{reference: reference, finish: true})
+	return appendSchemaQNameWalkLinks(pending, reference.anonymous.itemType, reference.anonymous.hasItemType, reference.anonymous.memberTypes), nil
+}
+
+func (walk *schemaQNameContainmentWalk) appendNamed(pending []schemaQNameWalkFrame, reference schemaSimpleTypeReferenceComponent) ([]schemaQNameWalkFrame, error) {
+	if walk.resolution.resolver == nil || len(walk.resolution.results) != len(walk.resolution.resolver.records) {
+		return nil, newSchemaBridgeInvariant(reference.loc, "simple type reference results are incomplete")
+	}
+	if walk.namedIndex == nil {
+		walk.namedIndex = make(map[ComponentID]int, len(walk.resolution.resolver.records))
+		for index, record := range walk.resolution.resolver.records {
+			if _, duplicate := walk.namedIndex[record.id]; duplicate {
+				return nil, newSchemaBridgeInvariant(reference.loc, "simple type reference identities are duplicated")
+			}
+			walk.namedIndex[record.id] = index
 		}
 	}
-	return false, newSchemaBridgeInvariant(reference.loc, "named composite simple type reference target is missing")
+	index, found := walk.namedIndex[reference.id]
+	if !found || !walk.resolution.results[index].present {
+		return nil, newSchemaBridgeInvariant(reference.loc, "named composite simple type reference target is missing")
+	}
+	switch walk.namedState[reference.id] {
+	case schemaSimpleTypeResolved:
+		return pending, nil
+	case schemaSimpleTypeVisiting:
+		return nil, newSchemaBridgeInvariant(reference.loc, "named composite simple type reference cycle escaped resolution")
+	case schemaSimpleTypeUnvisited:
+	default:
+		return nil, newSchemaBridgeInvariant(reference.loc, "named composite simple type reference has unknown traversal state")
+	}
+	walk.namedState[reference.id] = schemaSimpleTypeVisiting
+	pending = append(pending, schemaQNameWalkFrame{reference: reference, finish: true})
+	result := walk.resolution.results[index]
+	return appendSchemaQNameWalkLinks(pending, result.itemType, result.hasItemType, result.memberTypes), nil
+}
+
+func (walk *schemaQNameContainmentWalk) finish(reference schemaSimpleTypeReferenceComponent) {
+	if reference.kind == SimpleTypeReferenceAnonymous {
+		walk.anonymousState[reference.anonymous] = schemaSimpleTypeResolved
+		return
+	}
+	walk.namedState[reference.id] = schemaSimpleTypeResolved
 }
 
 func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, context string) error {
