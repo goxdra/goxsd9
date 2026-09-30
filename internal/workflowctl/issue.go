@@ -118,7 +118,8 @@ func (a app) runIssue(args []string) error {
 }
 
 func (a app) createIssue(args []string) error {
-	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+	command, _ := splitFirstArg(args)
+	if len(args) == 1 && (command == "-h" || command == "--help") {
 		return writeLine(a.stdout, "%s", issueCreateHelpText())
 	}
 	flags := flag.NewFlagSet("issue create", flag.ContinueOnError)

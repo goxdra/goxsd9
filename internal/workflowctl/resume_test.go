@@ -34,6 +34,30 @@ func TestPRResumeRequiresAcknowledgementAndExpectedHead(t *testing.T) {
 	}
 }
 
+func TestPRResumeUsageExplainsIntegration(t *testing.T) {
+	var output bytes.Buffer
+	application := app{ctx: context.Background(), stdout: &output, stderr: &output}
+	if err := application.run([]string{"--help"}); err != nil {
+		t.Fatalf("global help: %v", err)
+	}
+	for _, want := range []string{"[--integrate]", "original expired SHA", "resolved, committed, and clean"} {
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("global help missing %q", want)
+		}
+	}
+	for _, args := range [][]string{{"pr", "resume"}, {"pr", "resume", "14", "--acknowledge-needs-human"}} {
+		err := application.run(args)
+		if err == nil {
+			t.Fatalf("run(%q) succeeded, want usage", args)
+		}
+		for _, want := range []string{"[--integrate]", "original expired PR head", "resolved and clean"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("run(%q) usage missing %q: %v", args, want, err)
+			}
+		}
+	}
+}
+
 func TestPRResumeAcceptsSourceBearingAndMergeExpectedHeads(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -559,29 +583,67 @@ func TestPRResumeIntegratesMarkerAfterLocalWorkResolves(t *testing.T) {
 	}
 }
 
-func TestPRResumeProjectFailureReconcilesWithoutSecondMarker(t *testing.T) {
+func TestPRResumeStatusFailureReconcilesWithoutSecondMarker(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		fail func(*resumeBackend, error)
+	}{
+		{name: "label mutation", fail: func(b *resumeBackend, err error) { b.labelFailure = err }},
+		{name: "Project mutation", fail: func(b *resumeBackend, err error) { b.projectFailure = err }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runResumeReconciliationRetryScenario(t, test.name, test.fail)
+		})
+	}
+}
+
+func runResumeReconciliationRetryScenario(t *testing.T, name string, fail func(*resumeBackend, error)) {
+	t.Helper()
 	fixture := newResumeFixture(t)
 	backend := newResumeBackend(t, fixture)
-	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
-	if err := application.run(resumeArgs(fixture.expected)); err != nil {
-		t.Fatalf("remote renewal: %v", err)
+	var output bytes.Buffer
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: &output}
+	if runErr := application.run(resumeArgs(fixture.expected)); runErr != nil {
+		t.Fatalf("remote renewal: %v", runErr)
 	}
 	marker := resumeRemoteHead(t, fixture)
-	sentinel := errors.New("Project mutation failed")
-	backend.projectFailure = sentinel
+	sentinel := errors.New(name + " failed")
+	fail(backend, sentinel)
 	err := application.run(append(resumeArgs(fixture.expected), "--integrate"))
 	if err == nil || !errors.Is(err, sentinel) {
-		t.Fatalf("Project failure = %v, want preserved cause", err)
+		t.Fatalf("%s failure = %v, want preserved cause", name, err)
 	}
 	integrated := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
-	if backend.needsHuman || backend.projectStatus != "Backlog" {
-		t.Fatalf("partial reconciliation state: label=%v Project=%s", backend.needsHuman, backend.projectStatus)
+	if backend.projectStatus != "Backlog" {
+		t.Fatalf("partial reconciliation Project=%s", backend.projectStatus)
 	}
 	commits := countResumeCalls(backend.calls, "git commit-tree ")
 	pushes := countResumeCalls(backend.calls, "git push ")
-	if err := application.run(append(resumeArgs(fixture.expected), "--integrate")); err != nil {
-		t.Fatalf("Project reconciliation retry: %v", err)
+	assertResumeIntegratedStatusMessage(t, &application, &output, fixture.expected)
+	retry := resumeRetryArgsFromError(t, err)
+	if got, want := strings.Join(retry, " "), strings.Join(append(resumeArgs(fixture.expected), "--integrate"), " "); got != want {
+		t.Fatalf("emitted retry = %q, want %q", got, want)
 	}
+	if runErr := application.run(retry); runErr != nil {
+		t.Fatalf("emitted reconciliation retry: %v", runErr)
+	}
+	assertResumeRetryDidNotRepeat(t, fixture, backend, integrated, marker, commits, pushes)
+}
+
+func assertResumeIntegratedStatusMessage(t *testing.T, application *app, output *bytes.Buffer, expected string) {
+	t.Helper()
+	output.Reset()
+	if err := application.run(resumeArgs(expected)); err != nil {
+		t.Fatalf("remote-only retry: %v", err)
+	}
+	got := output.String()
+	if !strings.Contains(got, "local renewal marker is integrated") || !strings.Contains(got, "status reconciliation pending") || strings.Contains(got, "local integration pending") {
+		t.Fatalf("remote-only retry reported wrong phase: %q", got)
+	}
+}
+
+func assertResumeRetryDidNotRepeat(t *testing.T, fixture resumeFixture, backend *resumeBackend, integrated, marker string, commits, pushes int) {
+	t.Helper()
 	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != integrated {
 		t.Fatalf("retry created another integration commit: %s", got)
 	}
@@ -597,6 +659,22 @@ func TestPRResumeProjectFailureReconcilesWithoutSecondMarker(t *testing.T) {
 	if backend.needsHuman || backend.projectStatus != "Picked" {
 		t.Fatalf("retry did not finish reconciliation: label=%v Project=%s", backend.needsHuman, backend.projectStatus)
 	}
+}
+
+func resumeRetryArgsFromError(t *testing.T, err error) []string {
+	t.Helper()
+	const prefix = "run `go tool workflowctl "
+	message := err.Error()
+	start := strings.Index(message, prefix)
+	if start < 0 {
+		t.Fatalf("no retry command in %q", message)
+	}
+	command := message[start+len(prefix):]
+	end := strings.IndexByte(command, '`')
+	if end < 0 {
+		t.Fatalf("unterminated retry command in %q", message)
+	}
+	return strings.Fields(command[:end])
 }
 
 func TestPRResumePushGuardRejectsUnfinishedMergeAfterIntegration(t *testing.T) {

@@ -12,6 +12,8 @@ import (
 )
 
 const resumeRecoveryTemplate = "Run `go tool workflowctl pr resume %d --expected-head %s --acknowledge-needs-human` again"
+const resumeIntegrationRecoveryTemplate = "Local renewal marker is integrated; run `go tool workflowctl pr resume %d --expected-head %s --acknowledge-needs-human --integrate` again to reconcile issue status"
+const resumeUsage = "usage: workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run] [--integrate] (reuse the original expired PR head after local work is resolved and clean)"
 
 type resumeProof struct {
 	root            string
@@ -45,7 +47,7 @@ type resumeRunLocalExpectation struct {
 
 func (a app) resumePullRequestCommand(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]")
+		return usageError("%s", resumeUsage)
 	}
 	pr, err := positiveNumber(args[0])
 	if err != nil {
@@ -61,7 +63,7 @@ func (a app) resumePullRequestCommand(args []string) error {
 		return usageError("pr resume: %v", parseErr)
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*expected) == "" {
-		return usageError("usage: workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]")
+		return usageError("%s", resumeUsage)
 	}
 	if !*acknowledged {
 		return stateError("PR #%d stale recovery requires --acknowledge-needs-human", pr)
@@ -656,6 +658,12 @@ func (a app) applyPullRequestResume(proof resumeProof) error {
 		return fmt.Errorf("PR #%d claim push needs reconciliation: %w. "+resumeRecoveryTemplate, proof.pr, err,
 			proof.pr, proof.expectedHead)
 	}
+	if !fresh.pending && !fresh.needsHuman && fresh.projectStatus == "Picked" {
+		return writeLine(a.stdout, "PR #%d is already integrated for issue #%d; claim and Project Picked", fresh.pr, fresh.issue)
+	}
+	if !fresh.pending {
+		return writeLine(a.stdout, "PR #%d local renewal marker is integrated for issue #%d; status reconciliation pending; rerun with --integrate and original expected head", fresh.pr, fresh.issue)
+	}
 	return writeLine(a.stdout, "PR #%d remote claim renewed for issue #%d; local integration pending; needs-human and Project status preserved", fresh.pr, fresh.issue)
 }
 
@@ -779,25 +787,24 @@ func (a app) finishPullRequestResume(proof resumeProof) error {
 	}
 	if deadlineErr := validateClaimDeadline(proof.issue, claim.lease, time.Now().UTC()); deadlineErr != nil {
 		deadlineErr = retryableOperationIfRecoverable("PR resume claim verification", deadlineErr)
-		return fmt.Errorf("PR #%d claim renewal needs reconciliation: %w. "+resumeRecoveryTemplate, proof.pr, deadlineErr,
-			proof.pr, proof.expectedHead)
+		return fmt.Errorf("PR #%d local renewal marker is integrated, but the claim lease expired before status reconciliation: %w", proof.pr, deadlineErr)
 	}
 	status, err := a.readIssueStatus(proof.root, proof.issue)
 	if err != nil {
 		err = retryableOperationIfRecoverable("PR resume label status", err)
-		return fmt.Errorf("PR #%d label reconciliation failed: %w. "+resumeRecoveryTemplate, proof.pr, err, proof.pr, proof.expectedHead)
+		return fmt.Errorf("PR #%d label reconciliation failed: %w. "+resumeIntegrationRecoveryTemplate, proof.pr, err, proof.pr, proof.expectedHead)
 	}
 	if issueNeedsHuman(status) {
 		if _, err := a.command(proof.root, "gh", "issue", "edit", strconv.Itoa(proof.issue), "--repo", repositoryKey,
 			"--remove-label", "needs-human"); err != nil {
 			err = retryableOperationIfRecoverable("PR resume label mutation", err)
-			return fmt.Errorf("PR #%d label reconciliation failed: %w. "+resumeRecoveryTemplate, proof.pr, err,
+			return fmt.Errorf("PR #%d label reconciliation failed: %w. "+resumeIntegrationRecoveryTemplate, proof.pr, err,
 				proof.pr, proof.expectedHead)
 		}
 	}
 	if err := a.setIssueProjectStatus(proof.root, proof.issue, "Picked"); err != nil {
 		err = retryableOperationIfRecoverable("PR resume Project reconciliation", err)
-		return fmt.Errorf("PR #%d Project reconciliation failed: %w. "+resumeRecoveryTemplate, proof.pr, err,
+		return fmt.Errorf("PR #%d Project reconciliation failed: %w. "+resumeIntegrationRecoveryTemplate, proof.pr, err,
 			proof.pr, proof.expectedHead)
 	}
 	return writeLine(a.stdout, "PR #%d resumed for issue #%d; claim verified, needs-human removed, Project Picked", proof.pr, proof.issue)
