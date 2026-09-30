@@ -13,10 +13,10 @@ passing Curator after each push. Renew at durable boundaries/pushes.
 Preserve no-PR handoffs; archive only expired claims without open PR.
 Claim resume:
 `go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]`.
-PR resume: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]`.
+PR resume: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run] [--integrate]`.
 Use original expired REST PR SHA. CAS-push empty same-run marker; preserve
 local work and needs-human/Backlog. Complete Git operations; commit/clean
-local work. Rerun with `--integrate` and original
+work. Rerun with `--integrate` and original
 `--expected-head SHA` to attach marker, restore Picked. Renewal/push reject
 pending work.
 Transient agent, checkout, transport, and challenge failures remain retryable.
