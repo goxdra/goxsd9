@@ -34,6 +34,8 @@ const (
 	// InvalidInstanceSequenceCode identifies invalid direct-sequence content in
 	// an XML instance.
 	InvalidInstanceSequenceCode = "XSD4006"
+	// InvalidInstanceAttributeCode identifies invalid local attribute structure.
+	InvalidInstanceAttributeCode = "XSD4007"
 )
 
 const (
@@ -188,7 +190,10 @@ type instanceChoiceProgram struct {
 // a single global root of built-in xs:string, a named/anonymous restriction
 // with effective xs:string atomic kind, built-in/named Boolean, token, NMTOKEN,
 // integer, nonNegativeInteger, decimal, or precisionDecimal, or a named complex
-// type with one direct choice or sequence. Direct choices accept
+// type with one direct choice or sequence. Local precisionDecimal uses also
+// validate on supported empty-content roots and direct sequences of
+// attribute-bearing children; simpleContent text accepts supported string or
+// precisionDecimal atomic bases. Direct choices accept
 // default-occurrence local Boolean, token, NMTOKEN, integer, decimal, or
 // precisionDecimal elements whose type references are built-in or named, and
 // default-occurrence references to global Boolean, integer, and decimal
@@ -304,6 +309,18 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 	}
 	if factsErr := rejectUnsupportedInstanceElementFacts(schema, declaration, root.loc); factsErr != nil {
 		return factsErr
+	}
+	if leaf, selected := instanceAttributeRootPlanFor(schema, declaration); selected {
+		if structureErr := validateAttributeLeafStructure(root, leaf, instanceSchemaValidationVersion(schema)); structureErr != nil {
+			return structureErr
+		}
+		return validateAttributeLeafValues(root, leaf, instanceSchemaValidationVersion(schema))
+	}
+	if program, selected, planErr := instanceAttributeSequenceProgramFor(schema, declaration); selected {
+		if planErr != nil {
+			return planErr
+		}
+		return validateAttributeSequenceInstance(root, program)
 	}
 	if !declaration.DeclaredType().IsZero() && declaration.DeclaredType().Namespace() != xsdNamespaceURI {
 		typeID, hasTypeID := declaration.TypeID()

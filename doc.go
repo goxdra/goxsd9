@@ -94,7 +94,8 @@
 // That target keeps its ordered attribute uses; string/Boolean/integer/decimal
 // bases work under every policy, while precisionDecimal requires Compatibility
 // or Strict11. Unsupported bases or attribute forms fail schema construction;
-// validation and generation reject these local particle targets. The model
+// bounded precisionDecimal attribute sequences validate these named targets,
+// while generation rejects them. The model
 // exposes local inline anonymous atomic
 // Boolean, integer, decimal, and
 // negativeInteger restrictions
@@ -257,8 +258,11 @@
 // bounded scalar simpleContent extension separately
 // admits Boolean/string/integer/decimal bases plus policy-gated precisionDecimal,
 // retaining base, type, and ordered-use locations with a nil particle. Local
-// value/default/fixed/inheritable semantics, attributeGroup expansion, and
-// attribute/simpleContent validation and generation remain unsupported.
+// value/default/fixed/inheritable semantics and attributeGroup expansion remain
+// unsupported. Validation supports local precisionDecimal uses on bounded
+// direct empty-content roots and sequences of global inline or named local
+// attribute-bearing targets. Supported simpleContent text has string or
+// precisionDecimal atomic bases. Generation of these forms remains unsupported.
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.
@@ -354,7 +358,9 @@
 // and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
 // remain explicit unsupported behavior. Local long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger particles are
 // query-only and remain explicit unsupported behavior in both consumers.
-// Reference consumers exclude precisionDecimal and anonymous targets.
+// Direct-choice reference consumers exclude precisionDecimal and anonymous
+// targets; bounded precisionDecimal attribute sequences validate global inline
+// empty-content reference targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
 // wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those

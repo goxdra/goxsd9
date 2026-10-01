@@ -122,18 +122,16 @@ precisionDecimal facets, and Boolean whitespace; broader facets/temporal values 
 
 `ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal,
 direct/named/anonymous `xs:string`-atomic roots (whiteSpace/enumeration), and
-Compatibility/Strict11 precisionDecimal roots; Strict10 rejects precisionDecimal.
-Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
-Local Boolean/integer/decimal sequences/default choices honor
-ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
+Compatibility/Strict11 precisionDecimal roots; Strict10 rejects it. Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
+Local Boolean/integer/decimal sequences/default choices honor ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
 Local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
 unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
 only default direct-choice refs to unconstrained global built-in/named Boolean/integer/decimal validate.
 Constrained targets reject at instance use `Loc` with related constraint `Loc`; other forms remain queryable.
-Global `nonNegativeInteger` refs remain queryable;
-direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
-refs query in direct complex-type bodies and supported grouped extensions; nested/broader forms reject.
-AttributeUse/simpleContent are query-only. QName globals/refs reject validation and generation with located diagnostics and nil output.
+PrecisionDecimal attributes validate on empty roots and bounded direct sequences.
+SimpleContent accepts string/precisionDecimal text; structure precedes facets and failures retain source/schema locations.
+Other uses and generation reject.
+QName globals/refs reject validation and generation with located diagnostics and nil output.
 
 Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
 types, global built-in/named elements of those types, inline global
