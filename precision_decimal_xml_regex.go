@@ -1158,9 +1158,8 @@ func precisionDecimalXMLRepeatBounds(minimumCount, maximumCount *big.Int, limit 
 	}
 	maximum := limit
 	if maximumCount != nil {
-		maximum, ok = precisionDecimalXMLQuantifierLimit(maximumCount, limit, nullable)
-		if !ok {
-			return 0, 0, false
+		if maximumCount.Cmp(big.NewInt(int64(limit))) <= 0 {
+			maximum = int(maximumCount.Int64())
 		}
 	}
 	if maximum < minimum {

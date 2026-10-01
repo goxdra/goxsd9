@@ -79,34 +79,33 @@ nested/local/recursive/broader forms reject or exclude consumers. Non-`0/0` loca
 simpleType `Loc`; applicable `0/0` forms omit after gates.
 AttributeUse preserves order, locations, ownership, use, QName/RefLoc/TargetID
 across particles/groups/extensions/attribute-only/simpleContent.
-Grouped extensions resolve group/uses/base in order; `0/0` omits group.
+Grouped extensions resolve group/uses/base; `0/0` omits group.
 Local uses retain name/type/use locations and named/anonymous `AnonymousID`/`NodeID`;
 references retain QName/RefLoc/TargetID/use. Forms select names; XSD 1.1
 `targetNamespace` must match the container; chameleon adopts; prohibited uses omit.
-Local values/inheritable, attributeGroup/broader extensions, and consumers are
-unsupported; refs located; no schema.
+Local values/inheritable and attributeGroup/broader extensions reject; refs locate failures.
 Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
 Default/fixed: built-in/named Boolean/integer/decimal/token/negativeInteger/long/int/short/unsignedLong; policy-gated `precisionDecimal`.
 Integer values/facets exact; unsignedLong lexical: digits-only XSD 1.0, signed/-0 XSD 1.1.
 Unsupported types/local/inline: located `FailureUnsupported`; unsupported values: constraint `Loc`;
 invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixed/default; type-only
-unconstrained; attribute consumers reject.
+unconstrained; global attribute consumers reject.
 
-Complexes retain non-inherited `IsAbstract`, `finalDefault` provenance, ordered groups/extensions,
+Complexes retain `IsAbstract`, `finalDefault` provenance, ordered groups/extensions,
 and wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip
 `notNamespace`; chameleon markers expand after adoption. Consumers reject
 wildcards; broader forms reject; `0/0` omits. `openContent=none` works except
 under Strict10; named groups retain ordered refs/ranges.
-Inline complexes expose IDs, ordered sequence/ref/use outside walks; consumers reject. SimpleContent admits string/Boolean/integer/decimal, policy-gated
-`precisionDecimal` with nil particles. Compatibility/Strict11 admit nonzero
-direct `precisionDecimal` sequences and named precisionDecimal-bearing list/union locals in direct non-extension sequences without QName; consumers reject.
+Inline complexes retain IDs/order outside walks; selected precisionDecimal attribute roots/targets validate.
+SimpleContent admits string/Boolean/integer/decimal and policy-gated precisionDecimal bases;
+other precisionDecimal sequence/list/union locals remain query-only.
 Element refs retain targets/occurrences, including repeated global inline
 restrictions; nonzero local inline forms reject.
 Built-in/named `string` particles are query-only.
 `normalizedString`: replace whitespace and lexical facets; restriction/list/union refs.
 Atomic direct/named/inline globals and refs query; nonzero locals reject, `0/0`
-omits after gates. Global attributes/consumers, standalone named generation reject.
+omits after gates. Global QName attribute consumers and standalone named generation reject.
 Facet-free `QName` restriction/list/union and direct/named/inline global refs
 retain datatype QName, use `Loc`, named ID. Nonzero QName-bearing local declarations, attributes,
 facets, default/fixed reject; validated `0/0` omit after gates.
@@ -122,18 +121,16 @@ precisionDecimal facets, and Boolean whitespace; broader facets/temporal values 
 
 `ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal,
 direct/named/anonymous `xs:string`-atomic roots (whiteSpace/enumeration), and
-Compatibility/Strict11 precisionDecimal roots; Strict10 rejects precisionDecimal.
-Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
-Local Boolean/integer/decimal sequences/default choices honor
-ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
-Local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
+Compatibility/Strict11 precisionDecimal roots; Strict10 rejects it. Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
+Local Boolean/integer/decimal sequences/default choices honor ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
+Other local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
 unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
-only default direct-choice refs to unconstrained global built-in/named Boolean/integer/decimal validate.
+default direct-choice refs to unconstrained global Boolean/integer/decimal validate.
 Constrained targets reject at instance use `Loc` with related constraint `Loc`; other forms remain queryable.
-Global `nonNegativeInteger` refs remain queryable;
-direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
-refs query in direct complex-type bodies and supported grouped extensions; nested/broader forms reject.
-AttributeUse/simpleContent are query-only. QName globals/refs reject validation and generation with located diagnostics and nil output.
+PrecisionDecimal attributes validate on empty roots and bounded direct sequences with global complex refs or named local targets.
+SimpleContent uses built-in string with selected precisionDecimal attributes, or built-in/named effective precisionDecimal; named effective string excludes.
+Structure precedes facets; failures retain source/schema locations. Other uses and generation reject.
+QName globals/refs reject validation and generation with located diagnostics and nil output.
 
 Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
 types, global built-in/named elements of those types, inline global string/token/NMTOKEN, and

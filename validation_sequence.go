@@ -85,6 +85,12 @@ func (observer *instanceValidationObserver) startElement(name syntaxName, loc Lo
 	if err != nil {
 		return true, err
 	}
+	if _, selected := instanceAttributeRootPlanFor(observer.schema, declaration); selected {
+		return true, nil
+	}
+	if _, selected, planErr := instanceAttributeSequenceProgramFor(observer.schema, declaration, loc); selected {
+		return true, planErr
+	}
 	definition, sequence, hasSequence, err := instanceSequenceDefinitionFor(observer.schema, declaration, loc)
 	if err != nil {
 		return false, err
