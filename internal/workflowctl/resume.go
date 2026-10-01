@@ -789,7 +789,7 @@ func (a app) validateResumeIntegrationWorktree(root string) error {
 		return fmt.Errorf("inspect local integration worktree: %w", err)
 	}
 	if strings.TrimSpace(status) != "" {
-		return stateError("local integration has staged, unstaged, or untracked work; commit or resolve it before integrating the remote renewal")
+		return stateError("local integration has staged, unstaged, or untracked work; commit or resolve it before continuing")
 	}
 	return nil
 }
@@ -805,7 +805,7 @@ func (a app) validateResumeOperationState(root string) error {
 		}
 		_, statErr := os.Stat(path)
 		if statErr == nil {
-			return stateError("local %s operation is unfinished; complete it before integrating the remote renewal", state)
+			return stateError("local %s operation is unfinished; complete it before continuing", state)
 		}
 		if !os.IsNotExist(statErr) {
 			return fmt.Errorf("inspect %s state: %w", state, statErr)
