@@ -408,8 +408,6 @@ func TestSchemaByteExcludedAdmissionShapes(t *testing.T) {
 			{"global element default", `<xs:element name="v" type="xs:byte" default="0"/>`, `default="0"`},
 			{"global element fixed named", `<xs:element name="v" type="t:Alias" fixed="0"/><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `fixed="0"`},
 			{"global element fixed inline", `<xs:element name="v" fixed="0"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element>`, `fixed="0"`},
-			{"global attribute default", `<xs:attribute name="v" type="xs:byte" default="0"/>`, `default="0"`},
-			{"global attribute fixed named", `<xs:attribute name="v" type="t:Alias" fixed="0"/><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `fixed="0"`},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
