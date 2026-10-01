@@ -16,6 +16,7 @@ var (
 	errInstanceAttributeUnexpected = errors.New("unexpected local attribute")
 	errInstanceAttributeContent    = errors.New("invalid attribute-bearing element content")
 	errInstanceAttributeSequence   = errors.New("invalid attribute-bearing sequence")
+	errInstanceTypeSubstitution    = errors.New("xsi:type substitution is outside instance validation")
 )
 
 type instanceAttributeUsePlan struct {
@@ -94,7 +95,8 @@ func instanceAttributeSequenceProgramFor(schema Schema, declaration ElementDecla
 		sequenceLoc: sequence.Loc(),
 	}
 	selected := false
-	for _, particle := range sequence.Particles() {
+	particles := sequence.Particles()
+	for _, particle := range particles {
 		leaf, childOK := instanceAttributeLeafForParticle(schema, particle)
 		if !childOK {
 			if selected {
@@ -113,7 +115,11 @@ func instanceAttributeSequenceProgramFor(schema Schema, declaration ElementDecla
 	if err := rejectUnsupportedAttributeSequenceRoot(definition, declaration, sequence, loc, program.version); err != nil {
 		return program, true, err
 	}
-	for _, child := range program.children {
+	for index, child := range program.children {
+		if element, local := elementParticleValue(particles[index]); local && element.IsNillable() {
+			related := []Loc{declaration.Loc(), definition.Loc(), sequence.Loc(), element.Loc()}
+			return program, true, newInstanceValidationUnsupported(loc, fmt.Sprintf("local sequence element %q has nillable=true outside instance validation", element.Name()), related, program.version, errInstanceLocalElementFacts)
+		}
 		if len(child.leaf.uses) == 0 && !instanceAttributeContentIsPrecision(child.leaf) {
 			return program, true, newInstanceValidationUnsupported(child.leaf.loc, "mixed attribute sequence is outside instance validation", []Loc{declaration.Loc(), definition.Loc()}, program.version, errInstanceSequenceParticle)
 		}
@@ -326,8 +332,13 @@ func instanceAttributeUseIsPrecisionDecimal(schema Schema, use LocalAttributeUse
 func validateAttributeSequenceInstance(root *instanceElement, program instanceAttributeSequenceProgram) error {
 	related := []Loc{program.rootLoc, program.sequenceLoc}
 	for _, attr := range root.attrs {
-		if attr.name.namespace == "http://www.w3.org/2001/XMLSchema-instance" && attr.name.local == "schemaLocation" {
-			continue
+		if attr.name.namespace == schemaInstanceNamespaceURI {
+			switch attr.name.local {
+			case "schemaLocation":
+				continue
+			case "type":
+				return newInstanceValidationUnsupported(attr.loc, "xsi:type substitution is outside attribute sequence validation", related, program.version, errInstanceTypeSubstitution)
+			}
 		}
 		return newInstanceAttributeInvalid(attr.loc, "unexpected root attribute", related, program.version, errInstanceAttributeUnexpected)
 	}
@@ -427,6 +438,9 @@ func validateAttributeLeafStructure(child *instanceElement, leaf instanceAttribu
 		}
 	}
 	for _, attr := range child.attrs {
+		if attr.name.namespace == schemaInstanceNamespaceURI && attr.name.local == "type" {
+			return newInstanceValidationUnsupported(attr.loc, "xsi:type substitution is outside attribute-bearing element validation", related, version, errInstanceTypeSubstitution)
+		}
 		found := false
 		for _, use := range leaf.uses {
 			if instanceNameMatches(attr.name, use.name) {

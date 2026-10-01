@@ -489,3 +489,87 @@ func TestPrecisionDecimalAttributeSequenceUsesXMLWhitespace(t *testing.T) {
 		})
 	}
 }
+
+//nolint:gocognit // Assert the local particle fact and both xsi:nil instance forms at the selected gate.
+func TestPrecisionDecimalAttributeSequenceRejectsNillableLocalTarget(t *testing.T) {
+	const source = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" version="1.1"><xs:complexType name="E"><xs:simpleContent><xs:extension base="xs:string"><xs:attribute name="v" type="xs:precisionDecimal" use="required"/></xs:extension></xs:simpleContent></xs:complexType><xs:complexType name="Root"><xs:sequence><xs:element name="e" type="E" nillable="true"/></xs:sequence></xs:complexType><xs:element name="r" type="Root"/></xs:schema>`
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema := validationTestSchemaWithPolicy(t, source, nil, policy)
+			root := precisionAttributeTestElement(t, schema, "r")
+			id, hasID := root.TypeID()
+			if !hasID {
+				t.Fatal("root type ID missing")
+			}
+			component, found := schema.Lookup(id)
+			if !found {
+				t.Fatal("root type missing")
+			}
+			definition, found := component.ComplexTypeDefinition()
+			if !found {
+				t.Fatal("root complex type missing")
+			}
+			sequence, found := definition.Particle().(goxsd9.SequenceParticle)
+			if !found || len(sequence.Particles()) != 1 {
+				t.Fatalf("root sequence = %T", definition.Particle())
+			}
+			element, found := sequence.Particles()[0].(goxsd9.ElementParticle)
+			if !found || !element.IsNillable() {
+				t.Fatalf("local target nillable fact = %T %t", sequence.Particles()[0], element.IsNillable())
+			}
+			for _, input := range []string{
+				`<r><e v="1"/></r>`,
+				`<r xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><e xsi:nil="true"/></r>`,
+				`<r xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><e xsi:nil="false" v="1"/></r>`,
+			} {
+				err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+				d := validationTestDiagnostic(t, err)
+				if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != precisionAttributeInstanceLoc(t, input, `<r`) || d.SpecRef() != "xsd11-structures#cvc-elt" || !validationTestHasRelated(d.Related(), root.Loc()) || !validationTestHasRelated(d.Related(), definition.Loc()) || !validationTestHasRelated(d.Related(), sequence.Loc()) || !validationTestHasRelated(d.Related(), element.Loc()) || d.Unwrap() == nil || !strings.Contains(d.Unwrap().Error(), "nillable facts") || !errors.Is(err, goxsd9.ErrUnsupported) {
+					t.Fatalf("nillable local target diagnostic = %s related=%v", d, d.Related())
+				}
+			}
+			output, err := goxsd9.GenerateGo(schema, "excluded")
+			generated := validationTestDiagnostic(t, err)
+			if output != nil || generated.Class() != goxsd9.FailureUnsupported || generated.Code() != "GOXSD9029" {
+				t.Fatalf("GenerateGo nillable local target = %d bytes, %s", len(output), generated)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Check xsi:type classification and structural precedence on every selected consumer shape.
+func TestPrecisionDecimalAttributeConsumersRejectXSITypeAsUnsupported(t *testing.T) {
+	const xsi = ` xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"`
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema := validationTestSchemaWithPolicy(t, attributePrecisionSchema, nil, policy)
+			for _, tc := range []struct {
+				name, input, relatedElement string
+				sequenceRoot                bool
+			}{
+				{"direct", `<direct` + xsi + ` xsi:type="Named" value="1e+"/>`, "direct", false},
+				{"named", `<named` + xsi + ` xsi:type="Named" value="1e+"/>`, "named", false},
+				{"inline", `<inline` + xsi + ` xsi:type="Named" value="1e+"/>`, "inline", false},
+				{"sequence root", `<refRoot` + xsi + ` xsi:type="Named"><leaf value="1e+"/></refRoot>`, "refRoot", true},
+				{"reference child", `<refRoot` + xsi + `><leaf xsi:type="Named" value="1e+"/></refRoot>`, "leaf", false},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(tc.input)))
+					d := validationTestDiagnostic(t, err)
+					declaration := precisionAttributeTestElement(t, schema, tc.relatedElement)
+					related := declaration.Loc()
+					if tc.sequenceRoot {
+						definition, ok := declaration.InlineComplexType()
+						if !ok {
+							t.Fatal("sequence root type missing")
+						}
+						related = definition.Loc()
+					}
+					if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != precisionAttributeInstanceLoc(t, tc.input, `xsi:type=`) || d.SpecRef() != "xsd11-structures#cvc-elt" || !validationTestHasRelated(d.Related(), related) || d.Unwrap() == nil || !strings.Contains(d.Unwrap().Error(), "xsi:type substitution") || !errors.Is(err, goxsd9.ErrUnsupported) {
+						t.Fatalf("xsi:type diagnostic = %s related=%v", d, d.Related())
+					}
+				})
+			}
+		})
+	}
+}
