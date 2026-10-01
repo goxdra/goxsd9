@@ -360,10 +360,12 @@
 // integer, or decimal elements without identity constraints. Constrained roots
 // and referenced targets reject validation at the instance use Loc, relating
 // the first constraint Loc.
-// Direct local sequences match expanded
-// names in lexical declaration order and honor exact finite, unbounded, and
-// above-`uint64` outer and child occurrence ranges under Compatibility, Strict10,
-// and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
+// Scalar direct local sequences match expanded names in lexical declaration
+// order and honor exact finite, unbounded, and above-`uint64` outer and child
+// occurrence ranges under Compatibility, Strict10, and Strict11. Selected local
+// precisionDecimal attribute sequences honor child ranges and require default
+// outer occurrences; other outer ranges return a located unsupported diagnostic.
+// Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
 // remain explicit unsupported behavior. Local long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger particles are
 // query-only and remain explicit unsupported behavior in both consumers.
 // Direct-choice reference consumers exclude precisionDecimal and anonymous targets.

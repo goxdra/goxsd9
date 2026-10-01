@@ -116,6 +116,9 @@ func instanceAttributeSequenceProgramFor(schema Schema, declaration ElementDecla
 			return program, true, newInstanceValidationUnsupported(child.leaf.loc, "mixed attribute sequence is outside instance validation", []Loc{declaration.Loc(), definition.Loc()}, program.version, errInstanceSequenceParticle)
 		}
 	}
+	if !sequence.Occurrences().IsDefault() {
+		return program, true, newInstanceValidationUnsupported(sequence.Loc(), "outer attribute sequence occurrences are outside instance validation", []Loc{declaration.Loc(), definition.Loc()}, program.version, errInstanceSequenceParticle)
+	}
 	return program, true, nil
 }
 

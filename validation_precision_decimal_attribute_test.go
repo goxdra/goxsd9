@@ -231,3 +231,57 @@ func TestPrecisionDecimalSequenceReferenceRejectsTargetElementFacts(t *testing.T
 		})
 	}
 }
+
+//nolint:gocognit // Check the public occurrence facts and located gate across root shapes and policies.
+func TestPrecisionDecimalAttributeSequenceRejectsNondefaultOuterOccurrences(t *testing.T) {
+	const source = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" version="1.1">
+  <xs:complexType name="Leaf"><xs:sequence/><xs:attribute name="value" type="xs:precisionDecimal" use="required"/></xs:complexType>
+  <xs:element name="optionalRef"><xs:complexType><xs:sequence minOccurs="0"><xs:element ref="globalLeaf"/></xs:sequence></xs:complexType></xs:element>
+  <xs:element name="repeatedRef"><xs:complexType><xs:sequence minOccurs="2" maxOccurs="2"><xs:element ref="globalLeaf"/></xs:sequence></xs:complexType></xs:element>
+  <xs:complexType name="Named"><xs:sequence minOccurs="0" maxOccurs="unbounded"><xs:element ref="globalLeaf"/></xs:sequence></xs:complexType>
+  <xs:element name="namedOuter" type="Named"/>
+  <xs:element name="globalLeaf" type="Leaf"/>
+</xs:schema>`
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema := validationTestSchemaWithPolicy(t, source, nil, policy)
+			before := schema.Components()
+			for _, tc := range []struct{ name, input, rangeString string }{
+				{"optionalRef", `<optionalRef/>`, "0/1"},
+				{"repeatedRef", `<repeatedRef><globalLeaf value="1"/><globalLeaf value="2"/></repeatedRef>`, "2/2"},
+				{"namedOuter", `<namedOuter/>`, "0/unbounded"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					root := precisionAttributeTestElement(t, schema, tc.name)
+					definition, inline := root.InlineComplexType()
+					if !inline {
+						id, hasID := root.TypeID()
+						if !hasID {
+							t.Fatal("named complex type ID missing")
+						}
+						component, ok := schema.Lookup(id)
+						if !ok {
+							t.Fatal("named complex type missing")
+						}
+						definition, ok = component.ComplexTypeDefinition()
+						if !ok {
+							t.Fatal("named complex type fact missing")
+						}
+					}
+					sequence, ok := definition.Particle().(goxsd9.SequenceParticle)
+					if !ok || sequence.Occurrences().String() != tc.rangeString {
+						t.Fatalf("outer occurrence facts = %T %s", definition.Particle(), sequence.Occurrences())
+					}
+					err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(tc.input)))
+					d := validationTestDiagnostic(t, err)
+					if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != sequence.Loc() || d.SpecRef() != "xsd11-structures#cvc-elt" || !validationTestHasRelated(d.Related(), root.Loc()) || !validationTestHasRelated(d.Related(), definition.Loc()) || d.Unwrap() == nil || !strings.Contains(d.Unwrap().Error(), "unsupported particle") || !errors.Is(err, goxsd9.ErrUnsupported) {
+						t.Fatalf("outer occurrence diagnostic = %s related=%v", d, d.Related())
+					}
+				})
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("unsupported validation mutated schema facts")
+			}
+		})
+	}
+}
