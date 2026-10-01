@@ -39,8 +39,8 @@ The chosen mapping is therefore intentionally stricter than XSD:
 - Every schema component represented by this kernel, regardless of component
   kind or namespace, reserves one package-level type identifier.
 - Concrete element and choice variants reserve that same package-level type
-  space. They are not scoped only by their owner because future emission puts
-  them at package level.
+  space. Emitted direct-choice variants are package-level declarations, not
+  owner-scoped names.
 - Local particle fields have one identifier allocator per owner component.
   Different owners may reuse a field identifier; fields in one owner may not.
 - Import aliases have one allocator for the naming table's generated file.

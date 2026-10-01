@@ -185,28 +185,6 @@ func TestValidateInstanceKeepsTokenOutsideRootScalarBoundaryUnsupported(t *testi
 	}
 }
 
-func TestValidateInstanceKeepsExcludedGlobalStringUnsupported(t *testing.T) {
-	for _, policy := range validationTokenPolicies() {
-		t.Run(policy.name, func(t *testing.T) {
-			for _, datatype := range []string{"string"} {
-				t.Run(datatype, func(t *testing.T) {
-					root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" targetNamespace="` + validationTokenNamespace + `" version="` + string(policy.version) + `">
-  <xs:element name="item" type="xs:` + datatype + `"/>
-</xs:schema>`
-					schema := validationTestSchemaWithPolicy(t, root, nil, policy.policy)
-					err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(
-						`<item xmlns="`+validationTokenNamespace+`">value</item>`,
-					)))
-					diagnostic := validationTestDiagnostic(t, err)
-					if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedInstanceValidationCode || diagnostic.Feature() != goxsd9.FeatureInstanceValidation || !errors.Is(err, goxsd9.ErrUnsupported) {
-						t.Fatalf("%s diagnostic = %s/%q/%q, want instance-validation unsupported", datatype, diagnostic, diagnostic.Class(), diagnostic.Code())
-					}
-				})
-			}
-		})
-	}
-}
-
 func validationTokenSchema(t *testing.T, version goxsd9.XSDVersion, policy goxsd9.LanguagePolicy) goxsd9.Schema {
 	t.Helper()
 	root := validationTokenSchemaRoot(version)

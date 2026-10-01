@@ -205,18 +205,23 @@ func requireLongDefinition(t *testing.T, schema Schema, local string) SimpleType
 	return definition
 }
 
-//nolint:gocognit // Keep exact bounds, source provenance, and copy checks together.
 func assertLongBuiltinReference(t *testing.T, reference SimpleTypeReference, wantLoc Loc, version XSDVersion) {
 	t.Helper()
-	wantName := mustTestQName(t, testXSDNamespace, "long")
+	assertIntegerBuiltinReference(t, reference, wantLoc, version, schemaSimpleTypeAtomicLong, "long", "-9223372036854775808", "9223372036854775807")
+}
+
+//nolint:gocognit // Keep exact built-in bounds, locations, identity, and copy checks together.
+func assertIntegerBuiltinReference(t *testing.T, reference SimpleTypeReference, wantLoc Loc, version XSDVersion, atomicKind schemaSimpleTypeAtomicKind, kindName, wantMinimum, wantMaximum string) {
+	t.Helper()
+	wantName := mustTestQName(t, testXSDNamespace, kindName)
 	if !reference.IsBuiltin() || reference.Name() != wantName || reference.QName() != wantName {
-		t.Fatalf("reference = %#v, want built-in xs:long", reference)
+		t.Fatalf("reference = %#v, want built-in xs:%s", reference, kindName)
 	}
 	if reference.Loc() != wantLoc || reference.VarietyLoc() != wantLoc {
 		t.Fatalf("reference locations = %s/%s, want %s", reference.Loc(), reference.VarietyLoc(), wantLoc)
 	}
-	if reference.Variety() != SimpleTypeVarietyAtomicRestriction || reference.facts == nil || reference.facts.atomicKind != schemaSimpleTypeAtomicLong {
-		t.Fatalf("reference variety/category = %q/%v, want atomic long", reference.Variety(), reference.facts)
+	if reference.Variety() != SimpleTypeVarietyAtomicRestriction || reference.facts == nil || reference.facts.atomicKind != atomicKind {
+		t.Fatalf("reference variety/category = %q/%v, want atomic %s", reference.Variety(), reference.facts, kindName)
 	}
 	if typeID, hasTypeID := reference.ComponentID(); hasTypeID || !typeID.IsZero() {
 		t.Fatalf("built-in reference component ID = %v/%t, want zero/false", typeID, hasTypeID)
@@ -237,12 +242,12 @@ func assertLongBuiltinReference(t *testing.T, reference SimpleTypeReference, wan
 		t.Fatalf("built-in fractionDigits fixed = %t/%t, want true/true", fractionFixed, present)
 	}
 	if _, hasTotalDigits := facets.value.TotalDigits(); hasTotalDigits {
-		t.Fatal("built-in long unexpectedly has totalDigits")
+		t.Fatalf("built-in %s unexpectedly has totalDigits", kindName)
 	}
-	assertIntegerBounds(t, facets.integerBounds, version, "-9223372036854775808", "9223372036854775807")
+	assertIntegerBounds(t, facets.integerBounds, version, wantMinimum, wantMaximum)
 	for _, bound := range facets.integerBounds.Bounds() {
 		if !bound.Loc().IsZero() {
-			t.Fatalf("built-in long bound %s has source location %s", bound.Kind(), bound.Loc())
+			t.Fatalf("built-in %s bound %s has source location %s", kindName, bound.Kind(), bound.Loc())
 		}
 	}
 
@@ -256,7 +261,7 @@ func assertLongBuiltinReference(t *testing.T, reference SimpleTypeReference, wan
 		t.Fatal("built-in reference has no effective maxInclusive")
 	}
 	_ = maximum.value.SetInt64(0)
-	assertIntegerBounds(t, facets.integerBounds, version, "-9223372036854775808", "9223372036854775807")
+	assertIntegerBounds(t, facets.integerBounds, version, wantMinimum, wantMaximum)
 }
 
 func assertLongReferenceFacts(t *testing.T, facts *schemaSimpleTypeReferenceComponent, version XSDVersion, wantMinimum, wantMaximum string) {
@@ -491,14 +496,6 @@ func assertLongInvalidNoPartialSchema(t *testing.T, schema Schema, err error, ca
 	}
 }
 
-func TestSchemaLongExcludedShapesRemainUnsupported(t *testing.T) {
-	for _, profile := range longPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "long", "0")
-		})
-	}
-}
-
 func TestSchemaLongConsumersRemainUnsupported(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
@@ -507,23 +504,7 @@ func TestSchemaLongConsumersRemainUnsupported(t *testing.T) {
 			if err != nil {
 				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
 			}
-			assertNonNegativeIntegerConsumersUnsupported(t, schema)
-		})
-	}
-}
-
-func TestSchemaLongDoesNotAdmitNarrowerBuiltins(t *testing.T) {
-	for _, profile := range longPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="xs:int"/></xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
-				t.Fatal("discoverTestSchemaWithPolicy admitted an unrelated narrower built-in")
-			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Loc().IsZero() || !errors.Is(err, ErrUnsupported) {
-				t.Fatalf("diagnostic = %s, want located unsupported diagnostic", diagnostic)
-			}
+			assertIntegerDerivedConsumersUnsupported(t, schema)
 		})
 	}
 }

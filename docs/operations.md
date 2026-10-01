@@ -3,9 +3,9 @@
 Paseo schedules jobs from clean coordination checkout in America/New_York.
 | Job | Schedule | Agent | Prompt |
 | --- | --- | --- | --- |
-| Develop | 00:00, then every 3 hours | Luna, maximum effort | `Run $develop for this repository.` |
-| Backlog | 10:30 daily | Sol, maximum effort | `Run $backlog for this repository.` |
-| Retro | 13:30 Sunday | Sol, maximum effort | `Run $retro for this repository.` |
+| Develop | 00:00, then every 3 hours | GPT-6 Sol/medium | `Run $develop for this repository.` |
+| Backlog | 10:30 daily | GPT-6 Sol/medium | `Run $backlog for this repository.` |
+| Retro | 13:30 Sunday | GPT-6 Astra/xhigh | `Run $retro for this repository.` |
 Jobs are non-interactive. Develop requires clean canonical `main` matching fetched
 `origin/main` and recursive pins; `doctor` enforces this; stale jobs run
 `base-sync` before relaunch. It claims one Ready issue/worktree, opens a draft PR,
@@ -16,6 +16,7 @@ boundaries/pushes, never solely. No-PR handoffs preserve worktrees; archive only
 expired claims without open PR; preserve/escalate open-PR expirations.
 Claim resume:
 `go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]`.
+Archived no-PR sibling: from the current claim run `go tool workflowctl claim release-archived ISSUE --run-id RUN --expected-head SHA [--dry-run]`; exact clean/unlocked archive proof, including submodules, preserves refs/comments.
 PR resume: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]`.
 Transient agent, checkout, transport, and challenge failures remain retryable.
 Exactly three authenticated Examiner `fail` receipts add `needs-human` and return
@@ -23,18 +24,15 @@ Backlog. Write blocker/evidence Markdown; run
 `go tool workflowctl handoff ISSUE --body-file FILE --needs-human`; it proves
 OPEN/Project identity, applies `needs-human`/Backlog, then posts last.
 Reread incomplete/ambiguous phases before retry.
-Claim resume binds exact handoff/comment/run/head, expired claim, no PR, Project
-identity/status, and a unique clean/unlocked same-run worktree. Three complete
-generic no-PR forms each cover every PR/pull-request/workflow-path mention.
-Compatibility exceptions are exact, issue-scoped complete forms. Generic handoffs may
-omit head/SHA/commit labels; present labels require one full 40-hex expected SHA;
-malformed/ambiguous labels are terminal before mutation.
-Claim/renewal markers are exact-message single-parent empty commits;
-source-bearing/merge commits and malformed ref namespaces are terminal. Require
-`refs/heads/` for remote and `origin/` for tracking refs. Keep `needs-human` until renewal
-verification, then converge to Project `Picked`. Initial resume requires
-OPEN+needs-human+Backlog before mutation; only a verified renewal child permits
-idempotent Backlog/Picked convergence after label removal.
+Claim resume binds handoff/comment/run/head, expired lease, no PR, Project state,
+and clean/unlocked same-run worktree. Generic no-PR handoffs cover PR/path
+mention; issue-scoped exceptions are exact. Optional head labels need one SHA.
+Markers require exact messages, unchanged trees, one parent, and valid refs.
+Prove same-run markers back from expired `--expected-head` to the oldest
+acquisition lease; reject source-bearing markers, merges, malformed refs.
+Source-changing work may intervene; renewal leases may differ. Keep `needs-human`
+through verification, then Project `Picked`; initially require
+OPEN+needs-human+Backlog. Verified child converges idempotently.
 `workflowctl sync` updates Project status/claim refs, not `main`/submodules;
 run-local refs are inventory-only. `base-sync` fast-forwards `main`/pins; never
 resets/rebases/stashes/discards.

@@ -4,21 +4,22 @@ Status: accepted
 
 ## Decision
 
-`precisionDecimal` is an optional, opt-in XSD datatype. The pinned 9 June 2011
+`precisionDecimal` is an optional XSD datatype. The pinned 9 June 2011
 artifact’s [§Abstract](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#abstract)
 and [§Status](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#status)
 identify it as a W3C Working Group Note describing an implementation-defined
 datatype and work in progress; it is not a mandatory XSD 1.1 conformance
 requirement. [XSD 1.1 Part 2](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/)
 §2.5.1 (primitive datatypes; `#dt-primitive`) and [§H.1](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#impl-def)
-permit, but do not require, primitive datatypes outside the standard set. The
-project implements this datatype as an explicit opt-in library/schema boundary.
-
-The source is pinned as `xsd-precisionDecimal` in [`specs/manifest.json`](../../specs/manifest.json),
-including its digest: [An XSD datatype for IEEE floating-point decimal](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/).
-The completed optional precisionDecimal library/schema boundary has no
-precisionDecimal unsupported gate; validator and code-generation support remain
-separate.
+permit primitive datatypes outside the standard set.
+The precisionDecimal policy gate precedes local `0/0` particle omission: Strict10
+rejects a typed use with a located policy diagnostic even when that particle
+would otherwise be absent. Admitted query facts do not imply validation or
+generation support. [Decision 0007](0007-particle-occurrence.md) governs
+occurrence order and omission. The [architecture](../../ARCHITECTURE.md#schema-model)
+and [package contract](../../doc.go) describe current admission and query limits;
+the [consumer boundaries](../../ARCHITECTURE.md#validation-and-code-generation)
+describe validation and generation separately.
 
 ## Semantic contract
 
@@ -27,21 +28,19 @@ has finite decimal values with [numerical value](https://www.w3.org/TR/2011/NOTE
 [sign](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#vp-pd-sign), significand, and
 [integer scale](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#vp-pd-precision), plus `+INF`/`INF`,
 `-INF`, and `NaN`. Signed zeros are distinct but numerically equal; `NaN` is incomparable, including with itself.
-+INF is above finite values and -INF; -INF is below finite values and +INF. This is a partial, not total, order.
++INF is above finite values and -INF; -INF is below finite values and +INF. This is a partial order.
 
 Final XSD 1.1 [`cvc-enumeration-valid`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#cvc-enumeration-valid)
-uses `equal or identical` membership; [`identity`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#identity) permits a `NaN`
-enumeration member to accept `NaN` by value identity. In general equality/partial comparison, `NaN` remains unordered
-and not equal to itself; signed zero and finite lexical variants use numeric equality. The datatype remains optional.
+uses `equal or identical`; [`identity`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#identity) lets a `NaN`
+enumeration member accept `NaN`. General comparison leaves `NaN` unordered and unequal to itself; signed zero and
+finite lexical variants use numeric equality.
 
 The [§3.2 lexical mapping](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#pD-lexical-mapping),
-its [`pDecimalRep`](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#nt-precDecRep) grammar, and
-the [lexical-map function](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#f-precDecLexmap) apply
-collapsed whitespace and admit decimal, decimal-point, scientific, and special forms (`INF`, `+INF`, `-INF`,
-`NaN`). The [special-value definition](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#dt-specialvalue)
-is part of the value model. Mapping is exact and does not round. Scale is fractional-digit count minus exponent:
-`3.00` retains scale 2, while `3.0e2` has numerical value 300 and scale -1. Retain trailing zeroes; very large
-signed exponents must not acquire a machine-sized bound.
+[`pDecimalRep`](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#nt-precDecRep), and
+[lexical-map function](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#f-precDecLexmap) apply
+collapsed whitespace to decimal, decimal-point, scientific, and special forms; the [special-value definition](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#dt-specialvalue)
+remains part of the value model. Mapping is exact; scale is fractional-digit count minus exponent (`3.00` scale 2,
+`3.0e2` value 300, scale -1). Retain trailing zeroes; signed exponents remain unbounded.
 
 Applicable facets are exactly:
 
@@ -57,24 +56,16 @@ The Note’s [§3.3 facet declaration](https://www.w3.org/TR/2011/NOTE-xsd-preci
 exclude `fractionDigits`, `length`, `minLength`, and `maxLength`. Fixed whitespace is pre-lexical; `pattern`
 examines normalized lexical form; other facets constrain a complete value, never a partial parse.
 
-The [canonical mapping](https://www.w3.org/TR/2011/NOTE-xsd-precisionDecimal-20110609/#f-precDecCanmap) has no
-resolved zero branch in the pinned Note. The project chooses these non-normative, sign-preserving spellings:
-every positive zero, regardless of retained scale, projects to `0.0E0`; every negative zero, regardless of
-retained scale, projects to `-0.0E0`. Note-compatible examples are `3.00 -> 3.00`, `3.00e2 -> 300`,
-`3.0e2 -> 3.0E2`, `1e-6 -> 0.000001`, `1e-7 -> 1E-7`, `+INF -> INF`, `-INF -> -INF`, and `NaN -> NaN`;
-thus `+INF` canonicalizes to `INF`. Canonical text is an on-demand output projection only: never value identity,
-facet input, or round-trip serialization of retained zero scale. XSD 1.1’s [`canonical mapping`](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/#dt-canonical-mapping)
-is not required for schema processing, and this policy does not make the optional datatype mandatory.
+Note leaves zero canonical mapping unresolved. Project chooses sign-preserving spellings: positive zero `0.0E0`, negative `-0.0E0`; scale-preserving `3.00 -> 3.00`, `3.0e2 -> 3.0E2`; specials `+INF -> INF`, `-INF -> -INF`, `NaN -> NaN`. Canonical text is on-demand, never identity/facet input/round-trip serialization. XSD 1.1 canonical mapping is optional; policy does not make the datatype mandatory.
 
 ## Representation and phases
 
-The value representation has one private source of truth: a tagged finite, `+INF`, `-INF`, or `NaN` value. A
-finite value contains an arbitrary-precision, non-negative coefficient, explicit sign (including signed zero),
+Representation has one private source: a tagged finite, `+INF`, `-INF`, or `NaN`. A finite value contains an arbitrary-precision, non-negative coefficient, explicit sign (including signed zero),
 and arbitrary signed scale; scale cannot be `int` because the lexical exponent is unbounded. `StrictDecimal` differs:
 it has an `int` scale, elides trailing zeroes, and lacks special values; only its copy techniques may be reused.
-The representation uses no binary floating point, mutable
-numeric internals, raw-lexeme or cached canonical strings, or partially constructed public value. Any private
-`big.Int` is owned or copied before mutation, and coefficient, scale, raw lexeme, and cache state are not exposed.
+Representation exposes no binary floating point, mutable numeric internals, raw lexemes, cached canonical strings, or partial public values; private `big.Int`
+values are owned or copied before mutation, and coefficient, scale, and cache state
+remain private.
 
 The private, on-demand `canonicalPrecisionDecimal` canonicalizer accepts a finite, non-negative ASCII-byte budget
 `B` for the exact final canonical lexical form; this grammar is ASCII, so characters and bytes coincide. Let `L` be the
@@ -85,11 +76,11 @@ arbitrary-precision representation before allocating or materializing output. No
 `10^huge` construction, padding expansion before the check, cached canonical string, partial output, truncation,
 or value mutation is permitted.
 
-For a valid value with `L > B`, the private `canonicalPrecisionDecimal` canonicalizer returns no string and leaves
-the value unchanged. It reports a located `FailureInvalid` diagnostic preserving the exported
-`ErrPrecisionDecimalCanonicalOutputLimit` sentinel as its cause and the caller's `Loc`. Public and schema APIs expose
-this completed boundary without exposing the private representation.
-It is a resource/invalid-request result, not lexical invalidity, unsupported behavior, or internal failure.
+For valid `L > B`, `canonicalPrecisionDecimal` returns no string, leaves the value
+unchanged, and reports located `FailureInvalid` with the exported
+`ErrPrecisionDecimalCanonicalOutputLimit` cause and caller `Loc`. Public/schema
+APIs expose this boundary. It is a resource/invalid-request result, not lexical
+invalidity, unsupported behavior, or internal failure.
 
 Canonicalization remains separate from comparison and the optional schema
 policy boundary. Boundary contract:
@@ -117,16 +108,8 @@ conformance claim or a substitute for the per-call resource contract.
 
 ## Bounded follow-up and corpus evidence
 
-The completed optional precisionDecimal boundary covers exact precisionDecimal
-library values and applicable facets, partial comparison, bounded canonical
-output, and immutable schema facts. Assertions and remaining
-precisionDecimal-specific facet work remain separate; integer/decimal
-ordered-bound parsing, effective schema facts, and scalar validation are
-integrated.
+The boundary covers values/facets, partial comparison, bounded canonical output,
+and schema facts; assertions/remaining facets stay separate,
+while bound parsing, effective facts, and scalar validation integrate.
 
-Pinned catalog’s [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary groups
-[`saxonMeta/PDecimal.testSet`](../../testdata/w3c/xsdtests/saxonMeta/PDecimal.testSet)
-and [`ibmMeta/precisionDecimal.testSet`](../../testdata/w3c/xsdtests/ibmMeta/precisionDecimal.testSet).
-[#210](https://github.com/goxdra/goxsd9/issues/210) owns resolved auxiliary outcomes; [#196](https://github.com/goxdra/goxsd9/issues/196)
-and [#211](https://github.com/goxdra/goxsd9/issues/211) own the source ledger and executable effective-expectation policy; the pinned
-catalog remains provenance, and auxiliary results stay outside headline conformance.
+Pinned [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary PDecimal groups; the catalog remains provenance, and auxiliary results stay outside headline conformance.

@@ -37,20 +37,22 @@ const (
 )
 
 const (
-	instanceValidationXSD10SpecRef    = "xsd10-structures#cvc-elt"
-	instanceValidationXSD11SpecRef    = "xsd11-structures#cvc-elt"
-	instanceComplexTypeXSD10SpecRef   = "xsd10-structures#cvc-complex-type"
-	instanceComplexTypeXSD11SpecRef   = "xsd11-structures#sec-cvc-type"
-	instanceIntegerXSD10SpecRef       = "xsd10-datatypes#integer"
-	instanceIntegerXSD11SpecRef       = "xsd11-datatypes#integer"
-	instanceDecimalXSD10SpecRef       = "xsd10-datatypes#decimal"
-	instanceDecimalXSD11SpecRef       = "xsd11-datatypes#decimal"
-	instanceTokenXSD10SpecRef         = "xsd10-datatypes#token"
-	instanceTokenXSD11SpecRef         = "xsd11-datatypes#token" //nolint:gosec // Specification references are not credentials.
-	instanceNMTOKENXSD10SpecRef       = "xsd10-datatypes#dt-NMTOKEN"
-	instanceNMTOKENXSD11SpecRef       = "xsd11-datatypes#dt-NMTOKEN" //nolint:gosec // Specification references are not credentials.
-	instanceNMTOKENFacetsXSD10SpecRef = "xsd10-datatypes#NMTOKEN-facets"
-	instanceNMTOKENFacetsXSD11SpecRef = "xsd11-datatypes#NMTOKEN-facets" //nolint:gosec // Specification references are not credentials.
+	instanceValidationXSD10SpecRef         = "xsd10-structures#cvc-elt"
+	instanceValidationXSD11SpecRef         = "xsd11-structures#cvc-elt"
+	instanceComplexTypeXSD10SpecRef        = "xsd10-structures#cvc-complex-type"
+	instanceComplexTypeXSD11SpecRef        = "xsd11-structures#sec-cvc-type"
+	instanceIntegerXSD10SpecRef            = "xsd10-datatypes#integer"
+	instanceIntegerXSD11SpecRef            = "xsd11-datatypes#integer"
+	instanceNonNegativeIntegerXSD10SpecRef = "xsd10-datatypes#nonNegativeInteger"
+	instanceNonNegativeIntegerXSD11SpecRef = "xsd11-datatypes#nonNegativeInteger"
+	instanceDecimalXSD10SpecRef            = "xsd10-datatypes#decimal"
+	instanceDecimalXSD11SpecRef            = "xsd11-datatypes#decimal"
+	instanceTokenXSD10SpecRef              = "xsd10-datatypes#token"
+	instanceTokenXSD11SpecRef              = "xsd11-datatypes#token" //nolint:gosec // Specification references are not credentials.
+	instanceNMTOKENXSD10SpecRef            = "xsd10-datatypes#dt-NMTOKEN"
+	instanceNMTOKENXSD11SpecRef            = "xsd11-datatypes#dt-NMTOKEN" //nolint:gosec // Specification references are not credentials.
+	instanceNMTOKENFacetsXSD10SpecRef      = "xsd10-datatypes#NMTOKEN-facets"
+	instanceNMTOKENFacetsXSD11SpecRef      = "xsd11-datatypes#NMTOKEN-facets" //nolint:gosec // Specification references are not credentials.
 	// Completed built-in element views do not retain their document version.
 	// Compatibility validation uses the repository's XSD 1.1-compatible default.
 	instanceBuiltInValidationVersion XSDVersion = XSDVersion11
@@ -92,6 +94,7 @@ var (
 	errInstanceComplexContentExtension = errors.New("complex-content extension is outside instance validation")
 	errInstanceAbstractComplexType     = errors.New("abstract complex type is outside instance validation")
 	errInstanceElementFacts            = errors.New("global element abstract and nillable facts are outside instance validation")
+	errInstanceIdentityConstraints     = errors.New("identity constraints are outside instance validation")
 	errInstanceLocalElementFacts       = errors.New("local element nillable facts are outside instance validation")
 	errInstanceElementSubstitution     = errors.New("referenced global element substitution is outside instance validation")
 	errInstanceValidationInvariant     = errors.New("scalar validation invariant is broken")
@@ -126,6 +129,7 @@ type instanceScalarValue interface {
 
 type instanceDigitScalar struct {
 	facets        DigitFacets
+	integerKind   schemaSimpleTypeAtomicKind
 	integerBounds IntegerBoundFacets
 	decimalBounds DecimalBoundFacets
 }
@@ -141,6 +145,13 @@ type instanceTokenScalar struct {
 }
 
 func (instanceTokenScalar) instanceScalarValue() {}
+
+type instanceStringScalar struct {
+	enumeration StringEnumerationFacets
+	whiteSpace  StringWhiteSpaceFacet
+}
+
+func (instanceStringScalar) instanceScalarValue() {}
 
 type instanceNMTOKENScalar struct {
 	enumeration StringEnumerationFacets
@@ -174,19 +185,43 @@ type instanceChoiceProgram struct {
 
 // ValidateInstance consumes, drains, and closes reader exactly once, then
 // validates one XML instance against schema. The supported semantic slice is
-// a single root global whose type is built-in or named XSD boolean, token,
-// NMTOKEN, integer, decimal, or precisionDecimal, or a named complex type with one
-// direct choice or sequence. Direct choices accept default-occurrence local
-// Boolean, token, NMTOKEN, integer, decimal, or precisionDecimal elements and
-// default-occurrence references to global Boolean, integer, and decimal elements.
-// Direct sequences contain only local Boolean elements or only local integer/decimal
-// elements. Mixed Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices,
-// and local NMTOKEN or token sequence particles remain unsupported.
+// a single global root of built-in xs:string, a named/anonymous restriction
+// with effective xs:string atomic kind, built-in/named Boolean, token, NMTOKEN,
+// integer, nonNegativeInteger, decimal, or precisionDecimal, or a named complex
+// type with one direct choice or sequence. Direct choices accept
+// default-occurrence local Boolean, token, NMTOKEN, integer, decimal, or
+// precisionDecimal elements whose type references are built-in or named, and
+// default-occurrence references to global Boolean, integer, and decimal
+// elements other than nonNegativeInteger.
+// Direct sequences contain only
+// local built-in or named Boolean elements, only local built-in or named
+// integer/decimal elements, only local built-in or named token elements, or
+// only local built-in or named NMTOKEN elements.
+// Modeled anonymous local inline atomic references
+// remain schema-queryable only: ordinary direct choice/sequence target checks
+// return a located FailureUnsupported/ErrUnsupported diagnostic with
+// element/particle locations and may include the anonymous type location in
+// related facts. Extension checks without an effective AttributeUse or present
+// group-reference particle run before target inspection at the extension boundary; they
+// retain declaration/definition owners and complex-content/extension/base/
+// particle (and anyAttribute, when present) related locations without an
+// anonymous type location. The choice path uses the extension boundary as
+// primary; the streaming sequence path keeps the instance root as primary.
+// Direct and grouped model-group-reference bodies with AttributeUse facts hit the
+// AttributeUse consumer gate first: the first use's Loc is primary, with the
+// declaration/definition and AttributeUse locations related. When no earlier
+// AttributeUse gate applies, present direct and extension model-group-reference
+// particles use the group RefLoc as primary and retain the group particle and
+// any supplied extension context in related facts.
+// Mixed Boolean/numeric choices or sequences, mixed token/non-token or
+// NMTOKEN/non-NMTOKEN choices or sequences remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
 //
 // Built-in element views do not retain a document version, so this entrypoint
 // uses the repository's compatibility/default XSD 1.1-compatible datatype
-// rules for built-in integer and decimal values. Boolean values use the
+// rules for built-in integer and decimal values. Built-in nonNegativeInteger
+// values use the selected graph-wide policy for their versioned datatype
+// diagnostics. Boolean values use the
 // selected graph-wide policy for their versioned datatype diagnostics. Built-in
 // NMTOKEN values also use that selected policy. Named numeric types use the
 // version retained by their completed effective facets; named boolean types use
@@ -270,7 +305,7 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 	if factsErr := rejectUnsupportedInstanceElementFacts(schema, declaration, root.loc); factsErr != nil {
 		return factsErr
 	}
-	if declaration.DeclaredType().Namespace() != xsdNamespaceURI {
+	if !declaration.DeclaredType().IsZero() && declaration.DeclaredType().Namespace() != xsdNamespaceURI {
 		typeID, hasTypeID := declaration.TypeID()
 		if !hasTypeID || typeID.IsZero() {
 			return newInstanceValidationUnsupported(
@@ -327,6 +362,21 @@ func rejectUnsupportedInstanceElementFacts(schema Schema, declaration ElementDec
 }
 
 func rejectUnsupportedInstanceElementFactsWithRelated(declaration ElementDeclaration, loc Loc, related []Loc, version XSDVersion) error {
+	if constraints := declaration.IdentityConstraints(); len(constraints) > 0 {
+		failure := newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("global element %q has identity constraints outside instance validation", declaration.Name()),
+			appendInstanceRelated(relCopy(related), constraints[0].Loc()),
+			version,
+			errInstanceIdentityConstraints,
+		)
+		var diagnostic Diagnostic
+		if errors.As(failure, &diagnostic) && diagnostic.Class() == FailureUnsupported {
+			diagnostic.specRef = schemaIdentitySpecRef(version, "Identity-constraint_Definition_details")
+			return diagnostic
+		}
+		return failure
+	}
 	if declaration.IsAbstract() {
 		return newInstanceValidationUnsupported(
 			loc,
@@ -398,6 +448,19 @@ func instanceChoiceProgramFor(
 ) (instanceChoiceProgram, error) {
 	version := instanceSchemaValidationVersion(schema)
 	related := []Loc{declaration.Loc(), definition.Loc()}
+	attributeUses := definition.AttributeUses()
+	if len(attributeUses) > 0 {
+		for _, use := range attributeUses {
+			related = appendInstanceRelated(related, use.Loc())
+		}
+		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
+			attributeUses[0].Loc(),
+			fmt.Sprintf("named complex type %q attribute uses are outside direct choice validation", definition.Name()),
+			related,
+			version,
+			errInstanceAttributes,
+		)
+	}
 	if body := definition.extensionBody(); body != nil {
 		related = appendInstanceRelated(related, body.complexContentLoc)
 		related = appendInstanceRelated(related, body.extensionLoc)
@@ -1034,6 +1097,8 @@ func instanceChoiceReferenceScalarFor(
 		false,
 		false,
 		false,
+		false,
+		false,
 		version,
 	)
 }
@@ -1047,6 +1112,17 @@ func instanceChoiceAlternativeFor(
 	version XSDVersion,
 ) (instanceChoiceAlternative, error) {
 	alternativeRelated := []Loc{declaration.Loc(), definition.Loc(), choice.Loc(), element.Loc()}
+	typeReference, hasTypeReference := element.TypeReference()
+	if hasTypeReference && typeReference.Kind() == SimpleTypeReferenceAnonymous {
+		anonymousRelated := appendInstanceRelated(relCopy(alternativeRelated), typeReference.Loc())
+		return instanceChoiceAlternative{}, newInstanceValidationUnsupported(
+			element.Loc(),
+			fmt.Sprintf("local choice element %q uses an anonymous simple type outside instance validation", element.Name()),
+			anonymousRelated,
+			version,
+			errInstanceChoiceTarget,
+		)
+	}
 	typeID, hasTypeID := element.TypeID()
 	scalar, err := instanceScalarTypeForTarget(
 		schema,
@@ -1059,6 +1135,8 @@ func instanceChoiceAlternativeFor(
 		true,
 		true,
 		true,
+		false,
+		false,
 		version,
 	)
 	if err != nil {
@@ -1280,6 +1358,8 @@ func validateScalarLexicalValue(name syntaxName, lexical string, valueLoc Loc, s
 		return validateBooleanScalarValue(lexical, valueLoc, scalar)
 	case instanceTokenScalar:
 		return validateTokenScalarValue(lexical, valueLoc, scalar, typed)
+	case instanceStringScalar:
+		return validateStringScalarValue(lexical, valueLoc, scalar, typed)
 	case instanceNMTOKENScalar:
 		return validateNMTOKENScalarValue(lexical, valueLoc, scalar, typed)
 	default:
@@ -1295,7 +1375,7 @@ func validateScalarLexicalValue(name syntaxName, lexical string, valueLoc Loc, s
 func validateDigitScalarValue(name syntaxName, lexical string, valueLoc Loc, scalar instanceScalarType, typed instanceDigitScalar) error {
 	switch typed.facets.Kind() {
 	case DigitDatatypeInteger:
-		return validateIntegerScalarValue(lexical, valueLoc, scalar, typed.facets, typed.integerBounds)
+		return validateIntegerScalarValue(lexical, valueLoc, scalar, typed)
 	case DigitDatatypeDecimal:
 		return validateDecimalScalarValue(lexical, valueLoc, scalar, typed.facets, typed.decimalBounds)
 	default:
@@ -1308,15 +1388,19 @@ func validateDigitScalarValue(name syntaxName, lexical string, valueLoc Loc, sca
 	}
 }
 
-func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, facets DigitFacets, bounds IntegerBoundFacets) error {
+func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, typed instanceDigitScalar) error {
+	specRef := instanceIntegerSpecRef(scalar.version)
+	if typed.integerKind == schemaSimpleTypeAtomicNonNegativeInteger {
+		specRef = instanceNonNegativeIntegerSpecRef(scalar.version)
+	}
 	value, parseErr := ParseStrictInteger(lexical, valueLoc)
 	if parseErr != nil {
-		return instanceDecorateDiagnostic(parseErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+		return instanceDecorateDiagnostic(parseErr, scalar.related, specRef, valueLoc)
 	}
-	if facetErr := facets.ValidateInteger(value, valueLoc); facetErr != nil {
+	if facetErr := typed.facets.ValidateInteger(value, valueLoc); facetErr != nil {
 		return instanceDecorateDiagnostic(facetErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
 	}
-	if boundErr := bounds.ValidateInteger(value, valueLoc); boundErr != nil {
+	if boundErr := typed.integerBounds.ValidateInteger(value, valueLoc); boundErr != nil {
 		return instanceDecorateDiagnostic(boundErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
 	}
 	if enumerationErr := validateIntegerEnumerationValue(value, valueLoc, scalar); enumerationErr != nil {
@@ -1401,6 +1485,40 @@ func validateTokenScalarValue(lexical string, valueLoc Loc, scalar instanceScala
 	return instanceDecorateDiagnostic(enumerationErr, scalar.related, instanceTokenSpecRef(scalar.version), valueLoc)
 }
 
+func validateStringScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, typed instanceStringScalar) error {
+	if !typed.enumeration.HasEnumeration() {
+		return nil
+	}
+	var normalize func(string) string
+	switch typed.whiteSpace.Value() {
+	case "preserve":
+		normalize = nil
+	case "replace":
+		normalize = replaceXMLWhitespace
+	case "collapse":
+		normalize = collapseXMLWhitespace
+	default:
+		return newInstanceValidationInternal(valueLoc, "string scalar has invalid whiteSpace facts", scalar.related, errInstanceValidationInvariant)
+	}
+	if normalize != nil {
+		lexical = normalize(lexical)
+	}
+	if stringEnumerationContainsInterpreted(typed.enumeration.values, lexical) {
+		return nil
+	}
+	enumerationErr := enumerationValueViolationDiagnostic(valueLoc, typed.enumeration.Locations(), typed.enumeration.Version(), "string")
+	return instanceDecorateDiagnostic(enumerationErr, scalar.related, "", valueLoc)
+}
+
+func replaceXMLWhitespace(value string) string {
+	return strings.Map(func(character rune) rune {
+		if character == '\t' || character == '\n' || character == '\r' {
+			return ' '
+		}
+		return character
+	}, value)
+}
+
 func validateTokenEnumerationValue(facets StringEnumerationFacets, lexical string, valueLoc Loc) error {
 	if err := facets.validate(); err != nil {
 		return err
@@ -1460,6 +1578,10 @@ func validateNMTOKENEnumerationValue(facets StringEnumerationFacets, normalized 
 }
 
 func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Loc) (instanceScalarType, error) {
+	version := instanceSchemaValidationVersion(schema)
+	if inline, ok := declaration.InlineSimpleType(); ok && inline.facts != nil && inline.facts.atomicKind == schemaSimpleTypeAtomicString {
+		return instanceStringScalarFor(inline, []Loc{declaration.Loc(), inline.Loc()}, loc, version)
+	}
 	typeID, hasTypeID := declaration.TypeID()
 	return instanceScalarTypeForTarget(
 		schema,
@@ -1468,11 +1590,13 @@ func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Lo
 		hasTypeID,
 		[]Loc{declaration.Loc()},
 		loc,
-		instanceBuiltInValidationVersion,
+		version,
 		true,
 		true,
 		true,
-		instanceSchemaValidationVersion(schema),
+		true,
+		true,
+		version,
 	)
 }
 
@@ -1488,6 +1612,8 @@ func instanceScalarTypeForTarget(
 	allowPrecisionDecimal bool,
 	allowToken bool,
 	allowNMTOKEN bool,
+	allowString bool,
+	allowNonNegativeInteger bool,
 	booleanVersion XSDVersion,
 ) (instanceScalarType, error) {
 	if declaredType.IsZero() {
@@ -1500,7 +1626,7 @@ func instanceScalarTypeForTarget(
 		)
 	}
 	if declaredType.Namespace() == xsdNamespaceURI {
-		return instanceBuiltInScalarType(declaredType, related, loc, fallbackVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, booleanVersion)
+		return instanceBuiltInScalarType(declaredType, related, loc, fallbackVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger, booleanVersion)
 	}
 	if !hasTypeID || typeID.IsZero() {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
@@ -1596,7 +1722,26 @@ func instanceScalarTypeForTarget(
 	if definition.facts != nil && definition.facts.atomicKind == schemaSimpleTypeAtomicNMTOKEN {
 		return instanceNamedStringScalarFor(definition, related, loc, fallbackVersion, "NMTOKEN", allowNMTOKEN, instanceNMTOKENScalarValue)
 	}
-	if definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal && definition.facts.atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
+	if definition.facts != nil && definition.facts.atomicKind == schemaSimpleTypeAtomicString {
+		if !allowString {
+			return instanceScalarType{}, newInstanceValidationUnsupported(loc, fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()), related, fallbackVersion, errInstanceUnsupportedType)
+		}
+		return instanceStringScalarFor(definition, related, loc, fallbackVersion)
+	}
+	atomicKind := schemaSimpleTypeAtomicUnknown
+	if definition.facts != nil {
+		atomicKind = definition.facts.atomicKind
+	}
+	if atomicKind == schemaSimpleTypeAtomicNonNegativeInteger && !allowNonNegativeInteger {
+		return instanceScalarType{}, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()),
+			related,
+			fallbackVersion,
+			errInstanceUnsupportedType,
+		)
+	}
+	if atomicKind != schemaSimpleTypeAtomicInteger && atomicKind != schemaSimpleTypeAtomicNonNegativeInteger && atomicKind != schemaSimpleTypeAtomicDecimal && atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", definition.Name()),
@@ -1635,7 +1780,7 @@ func instanceScalarTypeForTarget(
 				errInstanceValidationInvariant,
 			)
 		}
-		digitScalar = instanceDigitScalar{facets: facets, integerBounds: bounds}
+		digitScalar = instanceDigitScalar{facets: facets, integerKind: atomicKind, integerBounds: bounds}
 	case DigitDatatypeDecimal:
 		bounds, hasBounds := definition.DecimalBounds()
 		if !hasBounds || bounds.Version() != facets.Version() {
@@ -1728,6 +1873,34 @@ func instanceNamedStringScalarFor(definition SimpleTypeDefinition, related []Loc
 	return scalar, nil
 }
 
+func instanceStringScalarFor(definition SimpleTypeDefinition, related []Loc, loc Loc, version XSDVersion) (instanceScalarType, error) {
+	if definition.Variety() != SimpleTypeVarietyAtomicRestriction || definition.facts == nil || definition.facts.atomicKind != schemaSimpleTypeAtomicString {
+		return instanceScalarType{}, newInstanceValidationUnsupported(loc, "anonymous or named simple type is outside string scalar validation", related, version, errInstanceUnsupportedType)
+	}
+	if len(definition.Final()) != 0 {
+		return instanceScalarType{}, newInstanceValidationUnsupported(loc, "string simple type has unsupported final derivation controls", appendInstanceRelated(related, definition.FinalLoc()), version, errInstanceUnsupportedType)
+	}
+	stringFacets, ok := definition.facts.facets.(schemaStringFacetVariant)
+	if !ok || stringFacets.whiteSpace == nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "string simple type has incomplete facet facts", related, errInstanceValidationInvariant)
+	}
+	if err := validateStringWhiteSpaceFacetState(*stringFacets.whiteSpace, stringFacets.enumeration.Version()); err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "string simple type has invalid whiteSpace facts", appendInstanceRelated(related, stringFacets.whiteSpace.Loc()), err)
+	}
+	if err := stringFacets.enumeration.validate(); err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "string simple type has invalid enumeration facts", related, err)
+	}
+	scalar := instanceScalarType{
+		value:   instanceStringScalar{enumeration: stringFacets.enumeration, whiteSpace: *stringFacets.whiteSpace},
+		version: stringFacets.enumeration.Version(),
+		related: appendInstanceRelated(related, stringFacets.whiteSpace.Loc()),
+	}
+	for _, location := range stringFacets.enumeration.Locations() {
+		scalar.related = appendInstanceRelated(scalar.related, location)
+	}
+	return scalar, nil
+}
+
 func instanceTokenScalarValue(enumeration StringEnumerationFacets) instanceScalarValue {
 	return instanceTokenScalar{enumeration: enumeration}
 }
@@ -1736,10 +1909,15 @@ func instanceNMTOKENScalarValue(enumeration StringEnumerationFacets) instanceSca
 	return instanceNMTOKENScalar{enumeration: enumeration}
 }
 
-func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN bool, booleanVersion XSDVersion) (instanceScalarType, error) {
+func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger bool, booleanVersion XSDVersion) (instanceScalarType, error) {
 	switch declaredType.Local() {
 	case "integer":
 		return instanceBuiltInIntegerScalarType(related, loc)
+	case "nonNegativeInteger":
+		if !allowNonNegativeInteger {
+			return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
+		}
+		return instanceBuiltInNonNegativeIntegerScalarType(related, loc, booleanVersion)
 	case "decimal":
 		return instanceBuiltInDecimalScalarType(related, loc)
 	case "precisionDecimal":
@@ -1750,7 +1928,15 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowToken, instanceTokenScalar{}, instanceBuiltInValidationVersion)
 	case "NMTOKEN":
 		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowNMTOKEN, instanceNMTOKENScalar{}, booleanVersion)
-	case "language", "NCName", "anyURI", "ID":
+	case "string":
+		return instanceBuiltInStringScalarType(declaredType, related, loc, fallbackVersion, allowString, instanceStringScalar{whiteSpace: *defaultStringWhiteSpaceFacet()}, booleanVersion)
+	case "normalizedString":
+		return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
+	case "QName":
+		return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
+	case "positiveInteger":
+		return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
+	case "int", "short", "language", "NCName", "anyURI", "ID":
 		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
 	default:
 		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
@@ -1767,8 +1953,28 @@ func instanceBuiltInIntegerScalarType(related []Loc, loc Loc) (instanceScalarTyp
 		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in integer bounds", related, err)
 	}
 	return instanceScalarType{
-		value:   instanceDigitScalar{facets: facets, integerBounds: bounds},
+		value:   instanceDigitScalar{facets: facets, integerKind: schemaSimpleTypeAtomicInteger, integerBounds: bounds},
 		version: instanceBuiltInValidationVersion,
+		related: related,
+	}, nil
+}
+
+func instanceBuiltInNonNegativeIntegerScalarType(related []Loc, loc Loc, version XSDVersion) (instanceScalarType, error) {
+	facets, err := NewIntegerDigitFacets(nil, version)
+	if err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in nonNegativeInteger digit facets", related, err)
+	}
+	minInclusive, err := ParseIntegerMinInclusiveFacet("0", Loc{}, version)
+	if err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in nonNegativeInteger lower bound", related, err)
+	}
+	bounds, err := NewIntegerBoundFacets([]IntegerBoundFacet{minInclusive}, version)
+	if err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in nonNegativeInteger bounds", related, err)
+	}
+	return instanceScalarType{
+		value:   instanceDigitScalar{facets: facets, integerKind: schemaSimpleTypeAtomicNonNegativeInteger, integerBounds: bounds},
+		version: version,
 		related: related,
 	}, nil
 }
@@ -1836,11 +2042,15 @@ func instanceBuiltInStringScalarType(declaredType QName, related []Loc, loc Loc,
 }
 
 func instanceBuiltInUnsupportedScalarType(declaredType QName, related []Loc, loc Loc) (instanceScalarType, error) {
+	return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, instanceBuiltInValidationVersion)
+}
+
+func instanceBuiltInUnsupportedScalarTypeForVersion(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion) (instanceScalarType, error) {
 	return instanceScalarType{}, newInstanceValidationUnsupported(
 		loc,
 		fmt.Sprintf("global element type %q is outside scalar validation", declaredType),
 		related,
-		instanceBuiltInValidationVersion,
+		fallbackVersion,
 		errInstanceUnsupportedType,
 	)
 }
@@ -1881,6 +2091,13 @@ func instanceIntegerSpecRef(version XSDVersion) string {
 		return instanceIntegerXSD10SpecRef
 	}
 	return instanceIntegerXSD11SpecRef
+}
+
+func instanceNonNegativeIntegerSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceNonNegativeIntegerXSD10SpecRef
+	}
+	return instanceNonNegativeIntegerXSD11SpecRef
 }
 
 func instanceDecimalSpecRef(version XSDVersion) string {

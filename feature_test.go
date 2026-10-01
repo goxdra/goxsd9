@@ -31,30 +31,39 @@ func TestFeatureRegistryValidationAndLookup(t *testing.T) {
 	if !found || codegen.Title() != "Go code generation outside supported scalar declarations" {
 		t.Fatalf("codegen feature title = %q, want stable title", codegen.Title())
 	}
-	if references := codegen.References(); len(references) != 14 ||
-		references[0].Source() != "xsd10-structures#Simple_Type_Definitions" ||
-		references[1].Source() != "xsd10-structures#Element_Declaration_details" ||
-		references[2].Source() != "xsd10-structures#cParticles" ||
-		references[3].Source() != "xsd10-structures#element-sequence" ||
-		references[4].Source() != "xsd10-structures#element-choice" ||
-		references[5].Source() != "xsd10-structures#Particle_details" ||
-		references[6].Source() != "xsd10-structures#ct-abstract" ||
-		references[7].Source() != "xsd11-structures#Simple_Type_Definition" ||
-		references[8].Source() != "xsd11-structures#Element_Declaration_details" ||
-		references[9].Source() != "xsd11-structures#cParticles" ||
-		references[10].Source() != "xsd11-structures#element-sequence" ||
-		references[11].Source() != "xsd11-structures#element-choice" ||
-		references[12].Source() != "xsd11-structures#Particle_details" ||
-		references[13].Source() != "xsd11-structures#ctd-abstract" {
-		t.Fatalf("codegen feature references = %#v, want scalar, sequence, and direct-choice sections for XSD 1.0 and 1.1", references)
+	wantCodegenReferences := []string{
+		"xsd10-structures#Simple_Type_Definitions", "xsd10-structures#Element_Declaration_details",
+		"xsd10-structures#cParticles", "xsd10-structures#element-sequence",
+		"xsd10-structures#element-choice", "xsd10-structures#Particle_details",
+		"xsd10-structures#ct-abstract", "xsd10-structures#Identity-constraint_Definition_details",
+		"xsd11-structures#Simple_Type_Definition", "xsd11-structures#Element_Declaration_details",
+		"xsd11-structures#cParticles", "xsd11-structures#element-sequence",
+		"xsd11-structures#element-choice", "xsd11-structures#Particle_details",
+		"xsd11-structures#ctd-abstract", "xsd11-structures#Identity-constraint_Definition_details",
 	}
+	assertFeatureReferences(t, codegen, wantCodegenReferences)
 	validationFeature, found := LookupUnsupportedFeature(FeatureInstanceValidation)
 	if !found {
 		t.Fatal("LookupUnsupportedFeature did not find instance validation")
 	}
-	references := validationFeature.References()
-	if len(references) != 4 || references[0].Source() != "xsd10-structures#cvc-elt" || references[1].Source() != "xsd10-structures#cvc-complex-type" || references[2].Source() != "xsd11-structures#cvc-elt" || references[3].Source() != "xsd11-structures#sec-cvc-type" {
-		t.Fatalf("instance validation references = %#v, want versioned element and complex-type constraints", references)
+	assertFeatureReferences(t, validationFeature, []string{
+		"xsd10-structures#cvc-elt", "xsd10-structures#cvc-complex-type",
+		"xsd10-structures#Identity-constraint_Definition_details",
+		"xsd11-structures#cvc-elt", "xsd11-structures#sec-cvc-type",
+		"xsd11-structures#Identity-constraint_Definition_details",
+	})
+}
+
+func assertFeatureReferences(t *testing.T, feature UnsupportedFeature, want []string) {
+	t.Helper()
+	references := feature.References()
+	if len(references) != len(want) {
+		t.Fatalf("feature %q references = %#v, want %v", feature.ID(), references, want)
+	}
+	for index, source := range want {
+		if references[index].Source() != source {
+			t.Fatalf("feature %q reference %d = %q, want %q", feature.ID(), index, references[index].Source(), source)
+		}
 	}
 }
 
