@@ -262,20 +262,24 @@
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.
-// ValidateInstance and GenerateGo consume only supported non-extension
-// default-occurrence direct-choice references to built-in or named global
-// Boolean, integer, or decimal targets without identity constraints; constrained
-// targets remain queryable but validation rejects at the instance use Loc with
-// the first constraint Loc related. GenerateGo rejects at that constraint Loc
-// with no output.
+// ValidateInstance consumes only supported non-extension default-occurrence
+// direct-choice references to built-in or named global Boolean, integer, or
+// decimal targets without identity constraints. GenerateGo consumes those
+// direct-choice references and also default-occurrence direct-sequence references
+// to global built-in or named integer and decimal targets. It retains the
+// sequence's lexical order and omits standalone wrappers for referenced elements.
+// Constrained targets remain queryable but validation rejects at the instance use
+// Loc with the first constraint Loc related; GenerateGo rejects unsupported
+// targets at the reference Loc with no output.
 // References to global `nonNegativeInteger` remain queryable without target-type
 // gating; direct-choice and sequence consumers reject them with located
 // unsupported diagnostics and nil GenerateGo output.
-// Sequence, anonymous-target, repetition, nested, recursive, and broader
-// element-reference forms are consumer exclusions; query references retain their
-// resolved facts. Model-group references are a separate top-level direct query
-// boundary with ordered facts and TargetID; nested, local, recursive, and broader
-// model-group references remain unsupported.
+// Sequence references to non-numeric targets, anonymous targets, repetition or
+// other non-default occurrences, substitution expansion, nested references, and
+// recursive or broader forms are consumer exclusions; query references retain
+// their resolved facts. Model-group references are a separate top-level direct
+// query boundary with ordered facts and TargetID; nested, local, recursive, and
+// broader model-group references remain unsupported.
 // Model-group reference particles are limited to the supported top-level direct
 // `ModelGroupReferenceParticle` form. Named global model groups expose direct
 // element-reference choices or sequences without expansion.
@@ -444,8 +448,10 @@
 // declarations generate, as do global inline-element string/token/NMTOKEN
 // declarations. Standalone named normalizedString restrictions reject.
 // Non-extension default-occurrence direct-choice references to
-// global built-in/named Boolean, integer, or decimal targets are also
-// generation-eligible only when targets have no identity constraints. Any
+// global built-in/named Boolean, integer, or decimal targets are generation-
+// eligible only when targets have no identity constraints. Default-occurrence
+// direct-sequence references to global built-in/named integer or decimal targets
+// are also generation-eligible under the same target gates. Any
 // identity-constrained global element, including a reference target, makes
 // GenerateGo return FailureUnsupported/GOXSD9029 at its first constraint Loc
 // with no output. Global attribute declarations remain query-only,

@@ -159,6 +159,59 @@ func TestCodegenDirectParticleSourceRejectsBooleanChoiceTargetCorruption(t *test
 	}
 }
 
+func TestPlanCodegenDirectSequenceReferencesRetainTargetIdentity(t *testing.T) {
+	schema := codegenDirectSequenceReferenceTestSchema(
+		t,
+		`<xs:simpleType name="Amount"><xs:restriction base="xs:decimal"/></xs:simpleType><xs:element name="item" type="r:Amount"/>`,
+		`<xs:element ref="r:item"/>`,
+		Compatibility,
+	)
+	plan, err := planCodegenDirectParticles(schema, "generated")
+	if err != nil {
+		t.Fatalf("planCodegenDirectParticles: %v", err)
+	}
+	if len(plan.owners) != 1 || plan.owners[0].sequence == nil || len(plan.owners[0].sequence.fields) != 1 {
+		t.Fatalf("direct particle plan = %#v, want one sequence owner with one field", plan)
+	}
+	field := plan.owners[0].sequence.fields[0]
+	targets := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:reference-root", "item"))
+	if len(targets) != 1 {
+		t.Fatalf("target element count = %d, want one", len(targets))
+	}
+	if !field.hasElementID || field.elementID != targets[0].ID() {
+		t.Fatalf("sequence field target identity = %v/%t, want %v/true", field.elementID, field.hasElementID, targets[0].ID())
+	}
+	if field.target.form != codegenSourceTargetNamed || field.target.declaredType.Local() != "Amount" || field.target.scalarKind != codegenSourceScalarDecimal {
+		t.Fatalf("sequence field target = %#v, want named decimal target", field.target)
+	}
+}
+
+func TestPlanCodegenDirectSequenceReferencesFailClosed(t *testing.T) {
+	assertCodegenDirectReferenceFailClosed(
+		t,
+		codegenDirectSequenceReferenceTestSchema,
+		codegenDirectSequenceReferenceTestParticle,
+		errCodegenDirectSequenceTarget,
+	)
+}
+
+func TestCodegenDirectSequencePlanRejectsReferencedElementIdentityCorruption(t *testing.T) {
+	schema := codegenDirectSequenceReferenceTestSchema(
+		t,
+		`<xs:element name="item" type="xs:integer"/>`,
+		`<xs:element ref="r:item"/>`,
+		Compatibility,
+	)
+	plan, err := planCodegenDirectParticles(schema, "generated")
+	if err != nil {
+		t.Fatalf("planCodegenDirectParticles: %v", err)
+	}
+	field := &plan.owners[0].sequence.fields[0]
+	field.elementID = ComponentID{}
+	output, err := emitCodegenSourceWithDirectParticles(schema, plan)
+	assertCodegenDirectSequenceInternalFailure(t, output, err, errCodegenDirectParticlePlan)
+}
+
 func TestCodegenDirectSequenceSourceRejectsCorruptionAtRenderBoundary(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -307,6 +360,38 @@ func codegenDirectSequenceTestSchema(t *testing.T) Schema {
 		t.Fatalf("discoverTestSchema: %v", err)
 	}
 	return schema
+}
+
+func codegenDirectSequenceReferenceTestSchema(t *testing.T, target, child string, policy LanguagePolicy) Schema {
+	t.Helper()
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:reference-root" targetNamespace="urn:reference-root">
+  <xs:complexType name="Record"><xs:sequence>` + child + `</xs:sequence></xs:complexType>` + target + `
+</xs:schema>`
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+	if err != nil {
+		t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+	}
+	return schema
+}
+
+func codegenDirectSequenceReferenceTestParticle(t *testing.T, schema Schema) ElementReferenceParticle {
+	components := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:reference-root", "Record"))
+	if len(components) != 1 {
+		panic("reference sequence test schema did not build one Record component")
+	}
+	definition, ok := components[0].ComplexType()
+	if !ok {
+		panic("reference sequence test schema has no complex type definition")
+	}
+	sequence, ok := definition.Particle().(SequenceParticle)
+	if !ok || len(sequence.facts.particles) == 0 {
+		panic("reference sequence test schema did not build a sequence reference")
+	}
+	reference, ok := sequence.facts.particles[0].(ElementReferenceParticle)
+	if !ok {
+		panic("reference sequence test schema first particle is not an element reference")
+	}
+	return reference
 }
 
 func codegenDirectSequenceTestBody(schema Schema) *schemaComplexTypeDirectBodyComponent {

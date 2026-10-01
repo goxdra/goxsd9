@@ -121,8 +121,6 @@ type codegenSourceTarget struct {
 	declaredType    QName
 	typeID          ComponentID
 	hasTypeID       bool
-	elementID       ComponentID
-	hasElementID    bool
 	anonymousTypeID SimpleTypeID
 	hasAnonymousID  bool
 	scalarKind      codegenSourceScalarKind
@@ -430,7 +428,7 @@ func codegenDirectChoiceTargetElementOmitted(
 		}
 		if owner.kind == codegenDirectParticleSequence && owner.sequence != nil {
 			for _, field := range owner.sequence.fields {
-				if targetElementID, ok := codegenSourceTargetElementID(field.target); ok && targetElementID == id {
+				if field.hasElementID && field.elementID == id {
 					return true
 				}
 			}
@@ -438,11 +436,6 @@ func codegenDirectChoiceTargetElementOmitted(
 	}
 	return false
 }
-
-func codegenSourceTargetElementID(target codegenSourceTarget) (ComponentID, bool) {
-	return target.elementID, target.hasElementID
-}
-
 func rejectCodegenElementFacts(components []Component, version XSDVersion) error {
 	for _, component := range components {
 		if component.Kind() != ComponentKindElementDeclaration {
