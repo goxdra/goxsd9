@@ -17,6 +17,7 @@ var (
 	errInstanceAttributeContent    = errors.New("invalid attribute-bearing element content")
 	errInstanceAttributeSequence   = errors.New("invalid attribute-bearing sequence")
 	errInstanceTypeSubstitution    = errors.New("xsi:type substitution is outside instance validation")
+	errInstanceSchemaHint          = errors.New("instance schema-location hint is outside validation")
 )
 
 type instanceAttributeUsePlan struct {
@@ -336,6 +337,8 @@ func validateAttributeSequenceInstance(root *instanceElement, program instanceAt
 			switch attr.name.local {
 			case "schemaLocation":
 				continue
+			case "noNamespaceSchemaLocation":
+				return unsupportedInstanceSchemaHint(attr, related, program.version)
 			case "type":
 				return newInstanceValidationUnsupported(attr.loc, "xsi:type substitution is outside attribute sequence validation", related, program.version, errInstanceTypeSubstitution)
 			}
@@ -438,8 +441,13 @@ func validateAttributeLeafStructure(child *instanceElement, leaf instanceAttribu
 		}
 	}
 	for _, attr := range child.attrs {
-		if attr.name.namespace == schemaInstanceNamespaceURI && attr.name.local == "type" {
-			return newInstanceValidationUnsupported(attr.loc, "xsi:type substitution is outside attribute-bearing element validation", related, version, errInstanceTypeSubstitution)
+		if attr.name.namespace == schemaInstanceNamespaceURI {
+			switch attr.name.local {
+			case "schemaLocation", "noNamespaceSchemaLocation":
+				return unsupportedInstanceSchemaHint(attr, related, version)
+			case "type":
+				return newInstanceValidationUnsupported(attr.loc, "xsi:type substitution is outside attribute-bearing element validation", related, version, errInstanceTypeSubstitution)
+			}
 		}
 		found := false
 		for _, use := range leaf.uses {
@@ -468,6 +476,10 @@ func validateAttributeLeafStructure(child *instanceElement, leaf instanceAttribu
 		}
 	}
 	return nil
+}
+
+func unsupportedInstanceSchemaHint(attr instanceAttribute, related []Loc, version XSDVersion) error {
+	return newInstanceValidationUnsupported(attr.loc, fmt.Sprintf("xsi:%s hint is outside instance validation", attr.name.local), related, version, errInstanceSchemaHint)
 }
 
 func validateAttributeLeafValues(child *instanceElement, leaf instanceAttributeLeafPlan, version XSDVersion) error {

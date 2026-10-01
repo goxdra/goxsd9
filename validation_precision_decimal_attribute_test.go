@@ -573,3 +573,54 @@ func TestPrecisionDecimalAttributeConsumersRejectXSITypeAsUnsupported(t *testing
 		})
 	}
 }
+
+//nolint:gocognit // Cover hint handling at sequence roots and each selected leaf shape.
+func TestPrecisionDecimalAttributeConsumersKeepSchemaHintsUnsupported(t *testing.T) {
+	const xsi = ` xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"`
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema := validationTestSchemaWithPolicy(t, attributePrecisionSchema, nil, policy)
+			before := schema.Components()
+			if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<refRoot`+xsi+` xsi:schemaLocation="urn:test test.xsd"><leaf value="1"/></refRoot>`))); err != nil {
+				t.Fatalf("selected sequence root schemaLocation hint: %v", err)
+			}
+			for _, tc := range []struct {
+				name, input, marker, relatedElement string
+				sequenceRoot                        bool
+			}{
+				{"sequence root no namespace", `<refRoot` + xsi + ` xsi:noNamespaceSchemaLocation="test.xsd"><leaf value="1e+"/></refRoot>`, `xsi:noNamespaceSchemaLocation=`, "refRoot", true},
+				{"direct schema location", `<direct` + xsi + ` xsi:schemaLocation="urn:test test.xsd" value="1e+"/>`, `xsi:schemaLocation=`, "direct", false},
+				{"direct no namespace", `<direct` + xsi + ` xsi:noNamespaceSchemaLocation="test.xsd" value="1e+"/>`, `xsi:noNamespaceSchemaLocation=`, "direct", false},
+				{"named schema location", `<named` + xsi + ` xsi:schemaLocation="urn:test test.xsd" value="1e+"/>`, `xsi:schemaLocation=`, "named", false},
+				{"inline no namespace", `<inline` + xsi + ` xsi:noNamespaceSchemaLocation="test.xsd" value="1e+"/>`, `xsi:noNamespaceSchemaLocation=`, "inline", false},
+				{"reference child schema location", `<refRoot` + xsi + `><leaf xsi:schemaLocation="urn:test test.xsd" value="1e+"/></refRoot>`, `xsi:schemaLocation=`, "leaf", false},
+				{"reference child no namespace", `<refRoot` + xsi + `><leaf xsi:noNamespaceSchemaLocation="test.xsd" value="1e+"/></refRoot>`, `xsi:noNamespaceSchemaLocation=`, "leaf", false},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(tc.input)))
+					d := validationTestDiagnostic(t, err)
+					declaration := precisionAttributeTestElement(t, schema, tc.relatedElement)
+					related := declaration.Loc()
+					if tc.sequenceRoot {
+						definition, ok := declaration.InlineComplexType()
+						if !ok {
+							t.Fatal("sequence root type missing")
+						}
+						related = definition.Loc()
+					}
+					if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != precisionAttributeInstanceLoc(t, tc.input, tc.marker) || d.SpecRef() != "xsd11-structures#cvc-elt" || !validationTestHasRelated(d.Related(), related) || d.Unwrap() == nil || !strings.Contains(d.Unwrap().Error(), "schema-location hint") || !errors.Is(err, goxsd9.ErrUnsupported) {
+						t.Fatalf("schema hint diagnostic = %s related=%v", d, d.Related())
+					}
+				})
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("schema hint validation mutated schema facts")
+			}
+			output, err := goxsd9.GenerateGo(schema, "excluded")
+			generated := validationTestDiagnostic(t, err)
+			if output != nil || generated.Class() != goxsd9.FailureUnsupported || generated.Code() != "GOXSD9029" {
+				t.Fatalf("GenerateGo hint schema = %d bytes, %s", len(output), generated)
+			}
+		})
+	}
+}
