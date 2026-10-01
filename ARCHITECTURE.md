@@ -133,23 +133,22 @@ Structure precedes facets; failures retain source/schema locations. Other uses a
 QName globals/refs reject validation and generation with located diagnostics and nil output.
 
 Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
-types, global built-in/named elements of those types, inline global
-string/token/NMTOKEN, and named/global `nonNegativeInteger`. Standalone named
-`normalizedString` rejects. Global elements require
+types, global built-in/named elements of those types, inline global string/token/NMTOKEN, and
+named/global `nonNegativeInteger`. Standalone `normalizedString` rejects. Global elements require
 `abstract=false,nillable=false`; violations yield `GOXSD9029` and nil output.
-Identity-constrained elements/targets yield `FailureUnsupported`/`GOXSD9029` at the first constraint `Loc` and no output.
-Built-in/standalone `nonNegativeInteger` uses `StrictInteger`; named fields use
-generated types. Canonical built-in facts require integer kind, fixed
+Identity constraints yield `FailureUnsupported`/`GOXSD9029` at first constraint `Loc`; no output.
+Default integer/decimal sequence refs preserve TargetID/order; others unsupported.
+Built-in/standalone `nonNegativeInteger` uses `StrictInteger`; named fields use generated types. Canonical built-in facts require integer kind, fixed
 `fractionDigits=0` and `minInclusive=0`; named bounds/facets survive.
 Unsupported final/variety/effective-facet states yield `GOXSD9029`; malformed
-facts yield `GOXSD9030`, all with nil output. Nonzero local inline
-`nonNegativeInteger` has no schema; built-in/named locals are query-only, `0/0`
+facts yield `GOXSD9030`; nil output. Nonzero inline
+`nonNegativeInteger` has no schema; built-in/named locals query-only, `0/0`
 absent. Global `int`/`long`/`short`/`byte`/`unsignedLong`/`positiveInteger`
-and direct `nonNegativeInteger` refs are query-only. `IntegerBounds()` copies
+and `nonNegativeInteger` refs are query-only. `IntegerBounds()` copies
 built-in/named bounds; negativeInteger max=-1, positiveInteger min=1, named
 restrictions retain provenance. Local generation admits default
 Boolean/integer/decimal choices/sequences and all-token choices; other local
-shapes and global attributes reject.
+shapes and attributes reject.
 
 ## Conformance
 
