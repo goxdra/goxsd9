@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -42,7 +43,7 @@ var documentRules = []documentRule{
 }
 
 func (a app) runDocs(args []string) error {
-	if len(args) == 1 && args[0] == "check" {
+	if slices.Equal(args, []string{"check"}) {
 		root, err := a.root()
 		if err != nil {
 			return err

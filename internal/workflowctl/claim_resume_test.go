@@ -9,6 +9,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1561,6 +1562,8 @@ type claimResumeBackend struct {
 	raceNeedsHumanAfterProject bool
 	raceOpenPRAfterProject     bool
 	labelFailure               error
+	afterLocalRenewal          func()
+	afterPush                  func()
 	projectFailure             error
 	mutations                  int
 	calls                      []string
@@ -1584,6 +1587,7 @@ func newClaimResumeBackend(t *testing.T, fixture claimResumeFixture) *claimResum
 	return &claimResumeBackend{t: t, fixture: fixture, comments: []issueCommentAPI{claim, terminal}, needsHuman: true, projectStatus: "Backlog"}
 }
 
+//nolint:gocognit // The injected backend records Git and GitHub mutation boundaries.
 func (b *claimResumeBackend) execute(dir string, input io.Reader, name string, args ...string) (string, error) {
 	if dir == "" {
 		dir = b.fixture.worktree
@@ -1607,16 +1611,32 @@ func (b *claimResumeBackend) execute(dir string, input io.Reader, name string, a
 	if err != nil {
 		return "", fmt.Errorf("run %s: %w: %s", call, err, strings.TrimSpace(string(output)))
 	}
+	b.afterGitCommand(name, args)
 	if b.ambiguousPush && name == "git" && len(args) > 0 && args[0] == "push" {
 		b.ambiguousPush = false
 		return "", errors.New("simulated lost push response")
 	}
-	if name == "git" && len(args) > 0 && (args[0] == "cat-file" ||
+	if name == "git" && len(args) > 0 && (args[0] == "cat-file" || args[0] == "ls-files" ||
+		((args[0] == "status" || args[0] == "--no-optional-locks") && slices.Contains(args, "status") && slices.Contains(args, "-z")) ||
 		(args[0] == "rev-parse" && len(args) > 1 && strings.HasSuffix(args[1], "^{tree}")) ||
 		(args[0] == "log" && len(args) > 2 && args[1] == "-1" && args[2] == "--format=%B")) {
 		return string(output), nil
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+func (b *claimResumeBackend) afterGitCommand(name string, args []string) {
+	if name != "git" || len(args) == 0 {
+		return
+	}
+	if args[0] == "update-ref" && b.afterLocalRenewal != nil {
+		b.afterLocalRenewal()
+		b.afterLocalRenewal = nil
+	}
+	if args[0] == "push" && b.afterPush != nil {
+		b.afterPush()
+		b.afterPush = nil
+	}
 }
 
 //nolint:gocognit,funlen // The injected GitHub backend models each mutation boundary and response race.
