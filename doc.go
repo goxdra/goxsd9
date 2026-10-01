@@ -65,10 +65,7 @@
 // resolved type Loc before conversion. Global inline-attribute declarations and
 // global attribute-declaration validation remain unsupported. Selected local
 // precisionDecimal AttributeUse values validate under admitting policies;
-// GenerateGo rejects them and global attribute declarations. Global built-in/named
-// and bounded inline list/union precisionDecimal roots validate. Global inline
-// anonymous atomic precisionDecimal restrictions reject as standalone roots but
-// validate as referenced siblings of bounded list/union sequences.
+// GenerateGo rejects them and global attribute declarations.
 // Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
@@ -243,9 +240,8 @@
 // exact ordered sequence/reference particles, and attribute uses without
 // entering the global component walk. Named or inline global precisionDecimal
 // list/union elements and direct-sequence local/ref links retain immutable
-// variety and ordered item/member facts; bounded forms and supported atomic
-// siblings validate. Standalone anonymous global precisionDecimal atomic roots
-// remain query-only.
+// variety, ordered item/member facts, locations, and identities. Global inline
+// anonymous precisionDecimal atomic declarations retain query facts and identities.
 // Particle-plus-use bodies, direct model-group references, grouped extensions,
 // attribute-only bodies, and scalar simpleContent extensions expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
@@ -295,8 +291,9 @@
 // uses or precisionDecimal simpleContent without uses, including repeated refs
 // with supported child occurrence ranges. Direct-sequence references to
 // admitted global precisionDecimal list/union elements, built-in/named
-// negativeInteger, or anonymous integer/precisionDecimal targets validate under
-// the bounded variety gate; GenerateGo rejects these sequences.
+// negativeInteger, or anonymous string/integer/negativeInteger/precisionDecimal
+// targets validate under the bounded variety gate; GenerateGo rejects these
+// sequences.
 // Constrained targets remain queryable; validation rejects at the instance use
 // Loc with the first constraint Loc related. GenerateGo rejects target
 // classification at the reference Loc; identity-constrained global elements
@@ -304,8 +301,9 @@
 // References to global `nonNegativeInteger` remain queryable without target-type
 // gating; direct-choice and sequence consumers reject them with located
 // unsupported diagnostics and nil GenerateGo output.
-// Outside these selected forms, anonymous targets, substitution, nested,
-// recursive, and broader forms are consumer exclusions; query references
+// Outside bounded variety sequences and the selected forms above, anonymous
+// targets, substitution, nested, recursive, and broader forms are consumer
+// exclusions; query references
 // retain their resolved facts. Model-group references are a separate top-level
 // direct query boundary with ordered facts and TargetID; nested, local,
 // recursive, and broader model-group references remain unsupported.
@@ -393,8 +391,8 @@
 // occurrence ranges under Compatibility, Strict10, and Strict11. Direct
 // list/union sequences admit typed local string, integer, negativeInteger, or
 // precisionDecimal siblings; anonymous local integer/negativeInteger siblings;
-// and global element refs, including supported anonymous integer/precisionDecimal
-// targets.
+// and global element refs, including supported anonymous string/integer/
+// negativeInteger/precisionDecimal targets.
 // Outer occurrences must default; child ranges remain exact. Selected
 // local precisionDecimal atomic/variety attribute sequences likewise honor
 // child ranges and require default outer occurrences; other outer ranges

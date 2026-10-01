@@ -96,7 +96,9 @@ func TestPrecisionDecimalVarietySequenceAtomicSiblings(t *testing.T) {
 		{"local anonymous integer", "", `<xs:element name="s"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>`, "3"},
 		{"local anonymous negativeInteger", "", `<xs:element name="s"><xs:simpleType><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:element>`, "-2"},
 		{"global negativeInteger ref", `<xs:element name="s" type="xs:negativeInteger"/>`, `<xs:element ref="s"/>`, "-1"},
+		{"global anonymous string ref", `<xs:element name="s"><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType></xs:element>`, `<xs:element ref="s"/>`, "text"},
 		{"global anonymous integer ref", `<xs:element name="s"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>`, `<xs:element ref="s"/>`, "3"},
+		{"global anonymous negativeInteger ref", `<xs:element name="s"><xs:simpleType><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:element>`, `<xs:element ref="s"/>`, "-2"},
 		{"global anonymous precisionDecimal ref", `<xs:element name="s"><xs:simpleType><xs:restriction base="xs:precisionDecimal"/></xs:simpleType></xs:element>`, `<xs:element ref="s"/>`, "1.5"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -110,9 +112,105 @@ func TestPrecisionDecimalVarietySequenceAtomicSiblings(t *testing.T) {
 			input := `<root><list>1 2</list><s>` + tc.value + `</s><choice>-3</choice></root>`
 			for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
 				schema := validationTestSchemaWithPolicy(t, source, nil, policy)
+				if strings.HasPrefix(tc.name, "global anonymous ") {
+					assertVarietySequenceAnonymousReferenceFacts(t, schema, source, strings.TrimPrefix(strings.TrimSuffix(tc.name, " ref"), "global anonymous "))
+				}
 				if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
 					t.Fatalf("%s: %v", policy, err)
 				}
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Check the target type, intrinsic bound, and resolved particle together.
+func assertVarietySequenceAnonymousReferenceFacts(t *testing.T, schema goxsd9.Schema, source, base string) {
+	t.Helper()
+	targetName, err := goxsd9.NewQName("", "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := schema.FindKind(goxsd9.ComponentKindElementDeclaration, targetName)
+	if len(targets) != 1 {
+		t.Fatalf("anonymous %s target count = %d", base, len(targets))
+	}
+	target, ok := targets[0].ElementDeclaration()
+	if !ok {
+		t.Fatal("anonymous reference target has no element view")
+	}
+	reference, ok := target.TypeReference()
+	if !ok || !reference.IsAnonymous() {
+		t.Fatalf("anonymous %s type reference = %#v/%t", base, reference, ok)
+	}
+	definition, ok := reference.AnonymousType()
+	wantTypeLoc := validationTestLoc(t, "root.xsd", 1, strings.Index(source, `<xs:simpleType><xs:restriction base="xs:`+base+`"`)+1)
+	wantBaseLoc := validationTestLoc(t, "root.xsd", 1, strings.Index(source, `base="xs:`+base+`"`)+1)
+	if !ok || reference.Loc() != wantTypeLoc || definition.Base().Local() != base || definition.BaseLoc() != wantBaseLoc {
+		t.Fatalf("anonymous %s type facts = %#v/%t at %s", base, definition, ok, reference.Loc())
+	}
+	if base == "negativeInteger" {
+		bounds, hasBounds := reference.IntegerBounds()
+		maximum, hasMaximum := bounds.MaxInclusive()
+		if !hasBounds || !hasMaximum || maximum.Canonical() != "-1" {
+			t.Fatalf("anonymous negativeInteger bound = %q/%t", maximum.Canonical(), hasMaximum)
+		}
+	}
+	rootName, err := goxsd9.NewQName("", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := schema.FindKind(goxsd9.ComponentKindElementDeclaration, rootName)
+	if len(roots) != 1 {
+		t.Fatalf("root count = %d", len(roots))
+	}
+	root, ok := roots[0].ElementDeclaration()
+	if !ok {
+		t.Fatal("root has no element view")
+	}
+	complexType, ok := root.InlineComplexType()
+	if !ok {
+		t.Fatal("root has no inline complex type")
+	}
+	sequence, ok := complexType.Particle().(goxsd9.SequenceParticle)
+	if !ok || len(sequence.Particles()) != 3 {
+		t.Fatalf("root particle = %T, want three-term sequence", complexType.Particle())
+	}
+	particle, ok := sequence.Particles()[1].(goxsd9.ElementReferenceParticle)
+	wantRefLoc := validationTestLoc(t, "root.xsd", 1, strings.Index(source, `ref="s"`)+1)
+	if !ok || particle.TargetID() != targets[0].ID() || particle.RefLoc() != wantRefLoc {
+		t.Fatalf("anonymous %s reference facts = %#v/%t", base, particle, ok)
+	}
+}
+
+//nolint:gocognit // Check both policies, accepted and rejected hints, and located causes.
+func TestPrecisionDecimalVarietySequenceRootHints(t *testing.T) {
+	const xsi = ` xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"`
+	const children = `<one>-1234</one><namedList>2e1</namedList>`
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema := validationTestSchemaWithPolicy(t, precisionVarietySchema, nil, policy)
+			before := schema.Components()
+			input := `<sequence` + xsi + ` xsi:schemaLocation="urn:test test.xsd">` + children + `</sequence>`
+			if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+				t.Fatalf("root schemaLocation hint: %v", err)
+			}
+			for _, tc := range []struct{ name, attribute, cause string }{
+				{"noNamespaceSchemaLocation", `xsi:noNamespaceSchemaLocation="test.xsd"`, "schema-location hint"},
+				{"type", `xsi:type="Choice"`, "schema-location hint"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					input := `<sequence` + xsi + ` ` + tc.attribute + `>` + children + `</sequence>`
+					err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+					d := validationTestDiagnostic(t, err)
+					wantLoc := validationTestLoc(t, "instance.xml", 1, strings.Index(input, tc.attribute)+1)
+					rootLoc := validationTestLoc(t, "root.xsd", 9, 1)
+					if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != wantLoc || d.SpecRef() != "xsd11-structures#cvc-elt" || !validationTestHasRelated(d.Related(), rootLoc) || d.Unwrap() == nil || !strings.Contains(d.Unwrap().Error(), tc.cause) || !errors.Is(err, goxsd9.ErrUnsupported) {
+						t.Fatalf("root hint diagnostic = %s related=%v", d, d.Related())
+					}
+				})
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("root hints mutated schema facts")
 			}
 		})
 	}
