@@ -89,12 +89,12 @@ func TestPrecisionDecimalAttributePacketExcludesGlobalAttributeReferences(t *tes
 	}
 }
 
-// List, union, and assertion facts are rejected before an attribute consumer
-// can be constructed. No schema can be passed to validation or generation.
+// Non-packet union and assertion facts are rejected before an attribute
+// consumer can be constructed. No schema can be passed to either consumer.
 //
 //nolint:gocognit // Every excluded variety is checked across all admitted owner shapes.
 func TestPrecisionDecimalAttributePacketExcludesMemberValuesAndAssertionsAtAdmission(t *testing.T) {
-	for _, kind := range []string{"list", "union", "assertion"} {
+	for _, kind := range []string{"union", "assertion"} {
 		for _, shape := range []string{"direct", "named", "inline", "ref"} {
 			t.Run(kind+"/"+shape, func(t *testing.T) {
 				source := precisionAttributeExcludedSchema(kind, shape)
@@ -116,6 +116,49 @@ func TestPrecisionDecimalAttributePacketExcludesMemberValuesAndAssertionsAtAdmis
 				wantLoc := precisionAttributeSchemaLoc(t, source, primary)
 				if len(schema.Components()) != 0 || d.Class() != goxsd9.FailureUnsupported || d.Code() != code || d.Loc() != wantLoc || !errors.Is(err, goxsd9.ErrUnsupported) {
 					t.Fatalf("ParseSchema returned %d components, %s", len(schema.Components()), d)
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Each admitted variety uses the same four attribute owners.
+func TestPrecisionDecimalAttributeVarietiesAcrossOwnerShapes(t *testing.T) {
+	for _, variety := range []struct {
+		name, valid, invalid, code string
+	}{
+		{"list", "", "1e+", goxsd9.InvalidInstanceListCode},
+		{"union", "-1", "oops", goxsd9.InvalidInstanceUnionCode},
+	} {
+		for _, shape := range []string{"direct", "named", "inline", "ref"} {
+			t.Run(variety.name+"/"+shape, func(t *testing.T) {
+				source := precisionAttributeExcludedSchema(variety.name, shape)
+				if variety.name == "union" {
+					source = strings.Replace(source, `memberTypes="xs:precisionDecimal"`, `memberTypes="xs:precisionDecimal xs:negativeInteger"`, 1)
+				}
+				schema := validationTestSchemaWithPolicy(t, source, nil, goxsd9.Strict11)
+				instance := `<root value="` + variety.valid + `"/>`
+				if shape == "ref" {
+					instance = `<root><leaf value="` + variety.valid + `"/></root>`
+				}
+				if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(instance))); err != nil {
+					t.Fatalf("valid %s: %v", variety.name, err)
+				}
+				invalid := strings.Replace(instance, `value="`+variety.valid+`"`, `value="`+variety.invalid+`"`, 1)
+				err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(invalid)))
+				d := validationTestDiagnostic(t, err)
+				wantLoc := validationTestLoc(t, "instance.xml", 1, strings.Index(invalid, `value=`)+1)
+				wantSpec := "xsd11-datatypes#list"
+				if variety.name == "union" {
+					wantSpec = "xsd11-datatypes#union"
+				}
+				if d.Class() != goxsd9.FailureInvalid || d.Code() != variety.code || d.Loc() != wantLoc || d.SpecRef() != wantSpec || d.Unwrap() == nil {
+					t.Fatalf("%s failure = %s related=%v", variety.name, d, d.Related())
+				}
+				output, generateErr := goxsd9.GenerateGo(schema, "excluded")
+				generated := validationTestDiagnostic(t, generateErr)
+				if output != nil || generated.Class() != goxsd9.FailureUnsupported || generated.Code() != "GOXSD9029" || generated.Loc().IsZero() || !errors.Is(generateErr, goxsd9.ErrUnsupported) {
+					t.Fatalf("GenerateGo = %d bytes, %s", len(output), generated)
 				}
 			})
 		}

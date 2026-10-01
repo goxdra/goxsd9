@@ -45,6 +45,8 @@ const (
 	instanceComplexTypeXSD11SpecRef        = "xsd11-structures#sec-cvc-type"
 	instanceIntegerXSD10SpecRef            = "xsd10-datatypes#integer"
 	instanceIntegerXSD11SpecRef            = "xsd11-datatypes#integer"
+	instanceNegativeIntegerXSD10SpecRef    = "xsd10-datatypes#negativeInteger"
+	instanceNegativeIntegerXSD11SpecRef    = "xsd11-datatypes#negativeInteger"
 	instanceNonNegativeIntegerXSD10SpecRef = "xsd10-datatypes#nonNegativeInteger"
 	instanceNonNegativeIntegerXSD11SpecRef = "xsd11-datatypes#nonNegativeInteger"
 	instanceDecimalXSD10SpecRef            = "xsd10-datatypes#decimal"
@@ -190,7 +192,9 @@ type instanceChoiceProgram struct {
 // a single global root of built-in xs:string, a named/anonymous restriction
 // with effective xs:string atomic kind, built-in/named Boolean, token, NMTOKEN,
 // integer, nonNegativeInteger, decimal, or precisionDecimal, or a named complex
-// type with one direct choice or sequence. Local precisionDecimal uses also
+// type with one direct choice or sequence. Bounded precisionDecimal list/union
+// varieties validate on global simple roots, selected local attributes, and
+// ordered direct sequences with local or referenced simple children. Local precisionDecimal uses also
 // validate on supported empty-content roots and direct sequences of
 // attribute-bearing children; simpleContent text accepts supported string or
 // precisionDecimal atomic bases. Direct choices accept
@@ -286,7 +290,7 @@ func ValidateInstance(schema Schema, sourceID SourceID, reader io.ReadCloser) er
 	return validateScalarInstance(schema, document.root)
 }
 
-//nolint:gocognit // Keep root dispatch, target resolution, and scalar fallback together.
+//nolint:gocognit,funlen // Keep root dispatch, target resolution, and scalar fallback together.
 func validateScalarInstance(schema Schema, root *instanceElement) error {
 	if root == nil {
 		return newInstanceValidationInternal(
@@ -323,6 +327,24 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 			return planErr
 		}
 		return validateAttributeSequenceInstance(root, program)
+	}
+	if program, selected, planErr := instanceVarietySequenceProgramFor(schema, declaration, root.loc); selected {
+		if planErr != nil {
+			return planErr
+		}
+		return validateVarietySequenceInstance(root, program)
+	}
+	if reference, ok := declaration.TypeReference(); ok && (reference.Variety() == SimpleTypeVarietyList || reference.Variety() == SimpleTypeVarietyUnion) {
+		plan, planErr := instanceVarietyPlanFor(schema, reference, []Loc{declaration.Loc()}, root.loc, instanceSchemaValidationVersion(schema))
+		if planErr != nil {
+			return planErr
+		}
+		if structureErr := validateScalarStructure(root, instanceScalarType{related: plan.related, version: plan.version}); structureErr != nil {
+			return structureErr
+		}
+		lexical, valueLoc := instanceScalarText(root)
+		_, valueErr := validateInstanceVarietyValue(root.name, lexical, valueLoc, plan)
+		return valueErr
 	}
 	if !declaration.DeclaredType().IsZero() && declaration.DeclaredType().Namespace() != xsdNamespaceURI {
 		typeID, hasTypeID := declaration.TypeID()
@@ -1412,18 +1434,21 @@ func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceSca
 	if typed.integerKind == schemaSimpleTypeAtomicNonNegativeInteger {
 		specRef = instanceNonNegativeIntegerSpecRef(scalar.version)
 	}
+	if typed.integerKind == schemaSimpleTypeAtomicNegativeInteger {
+		specRef = instanceNegativeIntegerSpecRef(scalar.version)
+	}
 	value, parseErr := ParseStrictInteger(lexical, valueLoc)
 	if parseErr != nil {
 		return instanceDecorateDiagnostic(parseErr, scalar.related, specRef, valueLoc)
 	}
 	if facetErr := typed.facets.ValidateInteger(value, valueLoc); facetErr != nil {
-		return instanceDecorateDiagnostic(facetErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+		return instanceDecorateDiagnostic(facetErr, scalar.related, specRef, valueLoc)
 	}
 	if boundErr := typed.integerBounds.ValidateInteger(value, valueLoc); boundErr != nil {
-		return instanceDecorateDiagnostic(boundErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+		return instanceDecorateDiagnostic(boundErr, scalar.related, specRef, valueLoc)
 	}
 	if enumerationErr := validateIntegerEnumerationValue(value, valueLoc, scalar); enumerationErr != nil {
-		return instanceDecorateDiagnostic(enumerationErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+		return instanceDecorateDiagnostic(enumerationErr, scalar.related, specRef, valueLoc)
 	}
 	return nil
 }
@@ -2110,6 +2135,13 @@ func instanceIntegerSpecRef(version XSDVersion) string {
 		return instanceIntegerXSD10SpecRef
 	}
 	return instanceIntegerXSD11SpecRef
+}
+
+func instanceNegativeIntegerSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceNegativeIntegerXSD10SpecRef
+	}
+	return instanceNegativeIntegerXSD11SpecRef
 }
 
 func instanceNonNegativeIntegerSpecRef(version XSDVersion) string {

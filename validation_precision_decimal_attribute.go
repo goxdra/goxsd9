@@ -305,9 +305,26 @@ func instanceAttributeContentIsPrecision(leaf instanceAttributeLeafPlan) bool {
 	return ok
 }
 
+//nolint:gocognit // Keep atomic and bounded variety selection at one attribute gate.
 func instanceAttributeUseIsPrecisionDecimal(schema Schema, use LocalAttributeUse) bool {
 	reference, ok := use.TypeReference()
 	if !ok || reference.facts == nil {
+		return false
+	}
+	if reference.Variety() == SimpleTypeVarietyList || reference.Variety() == SimpleTypeVarietyUnion {
+		definition, err := instanceVarietyDefinition(schema, reference, use.TypeLoc(), []Loc{use.Loc()})
+		if err != nil || definition == nil {
+			return false
+		}
+		if reference.Variety() == SimpleTypeVarietyList {
+			_, precision := definition.itemType.facets.(schemaPrecisionDecimalFacetVariant)
+			return definition.hasItemType && precision
+		}
+		for _, member := range definition.memberTypes {
+			if _, precision := member.facets.(schemaPrecisionDecimalFacetVariant); precision {
+				return true
+			}
+		}
 		return false
 	}
 	if reference.IsBuiltin() {
@@ -482,11 +499,24 @@ func unsupportedInstanceSchemaHint(attr instanceAttribute, related []Loc, versio
 	return newInstanceValidationUnsupported(attr.loc, fmt.Sprintf("xsi:%s hint is outside instance validation", attr.name.local), related, version, errInstanceSchemaHint)
 }
 
+//nolint:gocognit // Validate ordered uses before optional simpleContent text.
 func validateAttributeLeafValues(child *instanceElement, leaf instanceAttributeLeafPlan, version XSDVersion) error {
 	for _, attr := range child.attrs {
 		for _, use := range leaf.uses {
 			if !instanceNameMatches(attr.name, use.name) {
 				continue
+			}
+			reference, hasReference := use.use.TypeReference()
+			if hasReference && (reference.Variety() == SimpleTypeVarietyList || reference.Variety() == SimpleTypeVarietyUnion) {
+				related := []Loc{leaf.loc, leaf.definition.Loc(), use.use.Loc(), use.use.TypeLoc()}
+				plan, err := instanceVarietyPlanFor(leaf.schema, reference, related, attr.loc, version)
+				if err != nil {
+					return err
+				}
+				if _, err := validateInstanceVarietyValue(attr.name, attr.value, attr.loc, plan); err != nil {
+					return err
+				}
+				break
 			}
 			scalar, err := instancePrecisionAttributeScalar(use.use, leaf, version, attr.loc)
 			if err != nil {

@@ -98,8 +98,7 @@ and wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip
 wildcards; broader forms reject; `0/0` omits. `openContent=none` works except
 under Strict10; named groups retain ordered refs/ranges.
 Inline complexes retain IDs/order outside walks; selected precisionDecimal attribute roots/targets validate.
-SimpleContent admits string/Boolean/integer/decimal and policy-gated precisionDecimal bases;
-other precisionDecimal sequence/list/union locals remain query-only.
+SimpleContent admits string/Boolean/integer/decimal and policy-gated precisionDecimal bases.
 Element refs retain targets/occurrences, including repeated global inline
 restrictions; nonzero local inline forms reject.
 Built-in/named `string` particles are query-only.
@@ -121,7 +120,7 @@ precisionDecimal facets, and Boolean whitespace; broader facets/temporal values 
 
 `ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal,
 direct/named/anonymous `xs:string`-atomic roots (whiteSpace/enumeration), and
-Compatibility/Strict11 precisionDecimal roots; Strict10 rejects it. Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
+Compatibility/Strict11 precisionDecimal roots and bounded list/union uses; Strict10 rejects precisionDecimal. Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
 Local Boolean/integer/decimal sequences/default choices honor ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
 Other local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
 unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;

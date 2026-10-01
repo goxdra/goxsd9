@@ -5587,7 +5587,7 @@ func resolveSchemaElementType(
 			"element type resolution has an incomplete simple type result",
 		)
 	}
-	if err := rejectUnsupportedSchemaSimpleTypeVariety(input, simpleTypes.results[candidate], version, "for global elements"); err != nil {
+	if err := rejectUnsupportedSchemaSimpleTypeVariety(input, simpleTypes.results[candidate], version, "for global elements"); err != nil && !schemaPrecisionDecimalListOrUnion(simpleTypes.results[candidate]) {
 		return schemaElementTypeResult{}, err
 	}
 	reference := schemaNamedSimpleTypeReferenceFromResult(input, records[candidate].id, simpleTypes.results[candidate])
@@ -6521,7 +6521,7 @@ func resolveSchemaAttributeUseType(
 	if err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if !schemaLocalAttributeSimpleTypeSupported(reference) {
+	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
 			name = reference.name
@@ -6630,6 +6630,39 @@ func schemaLocalAttributeSimpleTypeSupported(reference schemaSimpleTypeReference
 	default:
 		return false
 	}
+}
+
+func schemaLocalAttributeBoundedPrecisionVariety(reference schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver) bool {
+	var definition *schemaSimpleTypeComponent
+	if reference.kind == SimpleTypeReferenceAnonymous {
+		definition = reference.anonymous
+	}
+	if reference.kind == SimpleTypeReferenceNamed && resolver != nil {
+		for index, record := range resolver.records {
+			if record.id == reference.id && resolver.results[index].present {
+				definition = schemaSimpleTypeComponentFromResult(resolver.results[index], false)
+				break
+			}
+		}
+	}
+	if definition == nil {
+		return false
+	}
+	if reference.variety == SimpleTypeVarietyList {
+		item := definition.itemType
+		_, precision := item.facets.(schemaPrecisionDecimalFacetVariant)
+		return definition.hasItemType && item.variety == SimpleTypeVarietyAtomicRestriction && precision
+	}
+	if reference.variety != SimpleTypeVarietyUnion {
+		return false
+	}
+	members := definition.memberTypes
+	if len(members) != 2 {
+		return false
+	}
+	_, precision := members[0].facets.(schemaPrecisionDecimalFacetVariant)
+	return precision && members[0].variety == SimpleTypeVarietyAtomicRestriction &&
+		members[1].variety == SimpleTypeVarietyAtomicRestriction && members[1].atomicKind == schemaSimpleTypeAtomicNegativeInteger
 }
 
 func resolveSchemaContextScalarType(
