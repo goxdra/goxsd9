@@ -87,7 +87,9 @@ This is a product restriction, not a conformance claim. In an instance,
 Because the schema operand is explicit, the CLI never uses them to select or
 open another schema. It passes the instance unchanged to current
 `ValidateInstance`; current scalar validation reports these attributes as
-explicit unsupported behavior. The CLI does not filter them semantically.
+explicit unsupported behavior. Selected direct attribute-sequence roots ignore
+`xsi:schemaLocation`; `xsi:noNamespaceSchemaLocation` remains unsupported.
+The CLI does not filter either hint semantically or dereference it.
 
 ## Source identities and language policy
 

@@ -262,8 +262,9 @@
 // retaining base, type, and ordered-use locations with a nil particle. Local
 // value/default/fixed/inheritable semantics and attributeGroup expansion remain
 // unsupported. Validation supports local precisionDecimal uses on bounded
-// direct empty-content roots and sequences of global inline or named local
-// targets. SimpleContent text uses built-in string only
+// direct empty-content roots and direct sequences of global element references
+// to inline or named complex targets or named local complex targets.
+// SimpleContent text uses built-in string only
 // with selected local precisionDecimal uses, or built-in/named effective
 // precisionDecimal. Named effective string remains excluded. Generation rejects these forms.
 // Element-reference matrix: element-reference particles in local content and
