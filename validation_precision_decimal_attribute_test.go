@@ -158,3 +158,76 @@ func TestPrecisionDecimalLocalAttributeMalformedXML(t *testing.T) {
 		t.Fatalf("malformed attribute diagnostic = %s, cause %v", d, d.Unwrap())
 	}
 }
+
+//nolint:gocognit // Assert the published nil particle and both consumer gates together.
+func TestPrecisionDecimalGroupedExtensionZeroGroupRetainsConsumerGate(t *testing.T) {
+	const source = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:group" targetNamespace="urn:group" version="1.1">
+  <xs:element name="root" type="t:Derived"/>
+  <xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields" minOccurs="0" maxOccurs="0"/><xs:attribute name="value" type="xs:precisionDecimal" use="required"/></xs:extension></xs:complexContent></xs:complexType>
+  <xs:group name="Fields"><xs:sequence/></xs:group>
+  <xs:complexType name="Base"/>
+</xs:schema>`
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema := validationTestSchemaWithPolicy(t, source, nil, policy)
+			root := precisionAttributeTestElement(t, schema, "root")
+			id, hasID := root.TypeID()
+			if !hasID {
+				t.Fatal("derived type ID missing")
+			}
+			component, ok := schema.Lookup(id)
+			if !ok {
+				t.Fatal("derived type component missing")
+			}
+			definition, ok := component.ComplexTypeDefinition()
+			if !ok || definition.Particle() != nil || len(definition.AttributeUses()) != 1 {
+				t.Fatalf("grouped 0/0 facts = particle %T, uses %d", definition.Particle(), len(definition.AttributeUses()))
+			}
+			input := `<root xmlns="urn:group" value="1"/>`
+			err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+			d := validationTestDiagnostic(t, err)
+			if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != definition.AttributeUses()[0].Loc() || d.SpecRef() != "xsd11-structures#cvc-elt" || !validationTestHasRelated(d.Related(), definition.Loc()) || d.Unwrap() == nil || !errors.Is(err, goxsd9.ErrUnsupported) {
+				t.Fatalf("ValidateInstance grouped extension = %s related=%v", d, d.Related())
+			}
+			output, err := goxsd9.GenerateGo(schema, "excluded")
+			generated := validationTestDiagnostic(t, err)
+			if output != nil || generated.Class() != goxsd9.FailureUnsupported || generated.Code() != "GOXSD9029" || generated.Loc() != definition.AttributeUses()[0].Loc() || !errors.Is(err, goxsd9.ErrUnsupported) {
+				t.Fatalf("GenerateGo grouped extension = %d bytes, %s", len(output), generated)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Check all target-fact exits at the same reference boundary.
+func TestPrecisionDecimalSequenceReferenceRejectsTargetElementFacts(t *testing.T) {
+	cases := []struct{ name, attributes, constraint, spec, cause string }{
+		{"abstract", ` abstract="true"`, "", "xsd11-structures#cvc-elt", "global element abstract and nillable facts"},
+		{"nillable", ` nillable="true"`, "", "xsd11-structures#cvc-elt", "global element abstract and nillable facts"},
+		{"identity", "", `<xs:unique name="Unique"><xs:selector xpath="."/><xs:field xpath="@value"/></xs:unique>`, "xsd11-structures#Identity-constraint_Definition_details", "identity constraints"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			source := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" version="1.1"><xs:element name="doc"><xs:complexType><xs:sequence><xs:element ref="e" minOccurs="0" maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element><xs:complexType name="E"><xs:sequence/><xs:attribute name="value" type="xs:precisionDecimal" use="required"/></xs:complexType><xs:element name="e" type="E"` + tc.attributes + `>` + tc.constraint + `</xs:element></xs:schema>`
+			schema := validationTestSchemaWithPolicy(t, source, nil, goxsd9.Strict11)
+			target := precisionAttributeTestElement(t, schema, "e")
+			input := `<doc><e value="1"/></doc>`
+			err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+			d := validationTestDiagnostic(t, err)
+			wantLoc := precisionAttributeInstanceLoc(t, input, `<e `)
+			if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != wantLoc || d.SpecRef() != tc.spec || !validationTestHasRelated(d.Related(), target.Loc()) || d.Unwrap() == nil || !strings.Contains(d.Unwrap().Error(), tc.cause) || !errors.Is(err, goxsd9.ErrUnsupported) {
+				t.Fatalf("ValidateInstance target facts = %s related=%v", d, d.Related())
+			}
+			if tc.name == "identity" {
+				constraints := target.IdentityConstraints()
+				if len(constraints) != 1 || !validationTestHasRelated(d.Related(), constraints[0].Loc()) {
+					t.Fatalf("identity related = %v", d.Related())
+				}
+			}
+			output, err := goxsd9.GenerateGo(schema, "excluded")
+			generated := validationTestDiagnostic(t, err)
+			if output != nil || generated.Class() != goxsd9.FailureUnsupported || generated.Code() != "GOXSD9029" || generated.Loc().IsZero() {
+				t.Fatalf("GenerateGo target facts = %d bytes, %s", len(output), generated)
+			}
+		})
+	}
+}

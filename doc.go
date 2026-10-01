@@ -228,7 +228,7 @@
 // mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions remain
 // schema-unsupported when nonzero. Global inline-element precisionDecimal remains a query
 // target only under Compatibility/Strict11; Strict10 rejects it before validation,
-// and every anonymous precisionDecimal target is excluded from validation and
+// and every anonymous precisionDecimal element target is excluded from validation and
 // generation.
 // Global inline complex types expose stable anonymous ComplexTypeID nodes,
 // exact ordered sequence/reference particles, and attribute uses without

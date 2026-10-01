@@ -29,6 +29,8 @@ type instanceAttributeLeafPlan struct {
 	name       QName
 	loc        Loc
 	definition ComplexTypeDefinition
+	target     ElementDeclaration
+	refLoc     Loc
 	uses       []instanceAttributeUsePlan
 	content    *instanceScalarType
 }
@@ -121,10 +123,13 @@ func instanceAttributeSequenceProgramFor(schema Schema, declaration ElementDecla
 func instanceAttributeLeafForParticle(schema Schema, particle Particle) (instanceAttributeLeafPlan, bool) {
 	var name QName
 	var definition ComplexTypeDefinition
+	var targetDeclaration ElementDeclaration
+	var refLoc Loc
 	var ok bool
 	switch typed := particle.(type) {
 	case ElementReferenceParticle:
 		name = typed.Name()
+		refLoc = typed.RefLoc()
 		target, found := schema.Lookup(typed.TargetID())
 		if !found {
 			return instanceAttributeLeafPlan{}, false
@@ -133,6 +138,7 @@ func instanceAttributeLeafForParticle(schema Schema, particle Particle) (instanc
 		if !found {
 			return instanceAttributeLeafPlan{}, false
 		}
+		targetDeclaration = declaration
 		definition, ok = declaration.InlineComplexType()
 		if !ok {
 			id, hasID := declaration.TypeID()
@@ -162,10 +168,25 @@ func instanceAttributeLeafForParticle(schema Schema, particle Particle) (instanc
 	if !ok {
 		return instanceAttributeLeafPlan{}, false
 	}
-	return instanceAttributeLeafForDefinition(schema, name, particle.Loc(), definition)
+	leaf, selected := instanceAttributeLeafForDefinition(schema, name, particle.Loc(), definition)
+	if !selected {
+		return instanceAttributeLeafPlan{}, false
+	}
+	leaf.target = targetDeclaration
+	leaf.refLoc = refLoc
+	return leaf, true
 }
 
+//nolint:gocognit // Keep the bounded body gate, local uses, and simpleContent projection together.
 func instanceAttributeLeafForDefinition(schema Schema, name QName, loc Loc, definition ComplexTypeDefinition) (instanceAttributeLeafPlan, bool) {
+	if definition.facts == nil {
+		return instanceAttributeLeafPlan{}, false
+	}
+	switch definition.facts.body.(type) {
+	case *schemaComplexTypeDirectBodyComponent, *schemaComplexTypeAttributeOnlyBodyComponent, *schemaComplexTypeSimpleContentBodyComponent:
+	default:
+		return instanceAttributeLeafPlan{}, false
+	}
 	if definition.IsAbstract() {
 		return instanceAttributeLeafPlan{}, false
 	}
@@ -341,6 +362,19 @@ func instanceNameMatches(name syntaxName, expected QName) bool {
 //nolint:gocognit // Required, unexpected, and content checks share one structural boundary.
 func validateAttributeLeafStructure(child *instanceElement, leaf instanceAttributeLeafPlan, version XSDVersion) error {
 	related := []Loc{leaf.loc, leaf.definition.Loc()}
+	if leaf.target.facts != nil {
+		related = appendInstanceRelated(related, leaf.refLoc)
+		related = appendInstanceRelated(related, leaf.target.Loc())
+		if factsErr := rejectUnsupportedInstanceElementFactsWithRelated(leaf.target, child.loc, related, version); factsErr != nil {
+			return factsErr
+		}
+		if affiliations := leaf.target.SubstitutionGroupAffiliations(); len(affiliations) > 0 {
+			for _, affiliationLoc := range leaf.target.SubstitutionGroupAffiliationLocations() {
+				related = appendInstanceRelated(related, affiliationLoc)
+			}
+			return newInstanceValidationUnsupported(child.loc, "referenced attribute-bearing element has substitution affiliations outside validation", related, version, errInstanceElementSubstitution)
+		}
+	}
 	for _, node := range child.children {
 		if nested, isElement := node.(*instanceElement); isElement {
 			if nested == nil {
