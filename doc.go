@@ -287,11 +287,11 @@
 // References to global `nonNegativeInteger` remain queryable without target-type
 // gating; direct-choice and sequence consumers reject them with located
 // unsupported diagnostics and nil GenerateGo output.
-// Other sequence, anonymous-target, substitution, nested, recursive, and
-// broader forms are consumer exclusions; query references retain their resolved
-// facts. Model-group references are a separate top-level direct query boundary
-// with ordered facts and TargetID; nested, local, recursive, and broader
-// model-group references remain unsupported.
+// Outside these selected forms, anonymous targets, substitution, nested,
+// recursive, and broader forms are consumer exclusions; query references
+// retain their resolved facts. Model-group references are a separate top-level
+// direct query boundary with ordered facts and TargetID; nested, local,
+// recursive, and broader model-group references remain unsupported.
 // Model-group reference particles are limited to the supported top-level direct
 // `ModelGroupReferenceParticle` form. Named global model groups expose direct
 // element-reference choices or sequences without expansion.
