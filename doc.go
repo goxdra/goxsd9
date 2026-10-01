@@ -326,10 +326,9 @@
 // Nested, local, recursive, and broader group-reference shapes remain unsupported.
 // Default-bounded sequences of supported built-in/named integer/decimal or
 // all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
-// Boolean/integer/decimal/negativeInteger particles remain queryable; bounded
-// list/union sequences validate anonymous integer/negativeInteger siblings.
-// Other validation paths and generation reject them; repeated-field generation and direct-choice repetition remain
-// unsupported.
+// Boolean/integer/decimal/negativeInteger particles retain query facts;
+// generation rejects them. Repeated-field generation and direct-choice
+// repetition remain unsupported.
 // Bounded complexContent/extension over named empty-content complex bases,
 // including the supported named `complexContent/restriction` over `xs:anyType`,
 // retains extension/base identities, locations, and inherited representable
@@ -514,36 +513,27 @@
 // exclusions for admitted global `nonNegativeInteger` references include
 // repetition/non-default occurrences, nested/recursive/broader references,
 // and anonymous targets; they are explicit unsupported behavior with located
-// diagnostics and no GenerateGo output. Admitted precisionDecimal lists/unions
-// validate only on the bounded paths above; GenerateGo rejects every variety
-// with a located diagnostic and nil output. Other standalone integer-derived
-// declarations remain query-only; bounded list/union sequences validate
-// negativeInteger reference targets. `nonNegativeInteger` attributes/value constraints are
-// schema-admission exclusions with located diagnostics and no schema. Global inline/anonymous
-// `nonNegativeInteger` element/type declarations retain schema/query facts; GenerateGo and
-// ValidateInstance reject them with their existing diagnostics.
+// diagnostics and no GenerateGo output. `nonNegativeInteger` attributes/value
+// constraints are schema-admission exclusions with located diagnostics and no
+// schema. Global inline/anonymous `nonNegativeInteger` element/type declarations
+// retain schema/query facts; GenerateGo and ValidateInstance reject them with
+// their existing diagnostics.
 // Standalone global inline-element Boolean/integer/decimal declarations and global
 // element/type int/long/short/byte/unsignedLong/negativeInteger/nonPositiveInteger/positiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their root
-// validation and generation consumers reject. Bounded list/union sequences admit
-// global negativeInteger refs and anonymous integer/precisionDecimal targets.
+// validation and generation consumers reject.
 // This consumer boundary does not widen the global attribute type or
 // value-constraint model described above.
 // Built-in xs:short has inclusive [-32768,32767] bounds without a component ID
 // or bound Loc; named restrictions retain exact effective bounds.
 // Built-in xs:byte has inclusive [-128,127] bounds without a component ID
 // or bound Loc; named restrictions retain exact effective bounds.
-// Global built-in, named, and inline precisionDecimal element/type schema/query facts are
-// available only under Compatibility/Strict11; Strict10 returns the located
-// FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
-// before validation at the typed reference or type location. Global built-in/named
-// roots and bounded inline precisionDecimal list/union roots validate under those
-// policies. Inline atomic precisionDecimal restrictions reject as standalone roots,
-// but global refs to them validate beside bounded list/union. GenerateGo rejects every global,
-// explicitly typed local (including named effective), inline, anonymous, and
-// schema-admitted extension precisionDecimal target. Local built-in/named
-// Boolean/integer/decimal particles generate only in default-occurrence
-// all-Boolean/numeric direct choices and default-bounded direct sequences.
+// GenerateGo rejects precisionDecimal targets across global, explicitly typed
+// local (including named effective), inline, anonymous, and schema-admitted
+// extension forms.
+// Local built-in/named Boolean/integer/decimal particles generate only in
+// default-occurrence all-Boolean/numeric direct choices and default-bounded
+// direct sequences.
 // All-token direct choices also generate: built-in alternatives use string and
 // supported named restrictions use their generated type. Local
 // long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, string,
