@@ -62,11 +62,11 @@
 // ValueConstraint() exposes its kind, collapsed lexical spelling, source Loc,
 // and exact defensive StrictPrecisionDecimal through PrecisionDecimalValue
 // only when a default or fixed value is present. Strict10 rejects at the
-// resolved type Loc before conversion; global inline-attribute declarations and
-// attribute validation/GenerateGo remain unsupported. Supported local anonymous
-// atomic AttributeUse facts are separate. Under admitting policies,
-// built-in/named roots validate, while inline anonymous targets remain excluded
-// from validation and generation.
+// resolved type Loc before conversion. Global inline-attribute declarations and
+// global attribute-declaration validation remain unsupported. Selected local
+// precisionDecimal AttributeUse values validate under admitting policies;
+// GenerateGo rejects them and global attribute declarations. Global built-in/named
+// roots validate, while global inline anonymous element targets remain excluded.
 // Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
