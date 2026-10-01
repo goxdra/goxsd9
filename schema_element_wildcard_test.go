@@ -550,10 +550,8 @@ func TestSchemaBridgeRejectsNonDefaultDirectAnyParticleConstraints(t *testing.T)
 		name       string
 		attributes string
 		marker     string
-		mismatch10 bool
 	}{
 		{name: "empty_namespace", attributes: ` namespace="&#x9;"`, marker: `namespace="&#x9;"`},
-		{name: "not_qname", attributes: ` notQName="xs:integer"`, marker: `notQName="xs:integer"`, mismatch10: true},
 	}
 	for _, version := range []string{"1.0", "1.1"} {
 		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
@@ -577,21 +575,12 @@ func TestSchemaBridgeRejectsNonDefaultDirectAnyParticleConstraints(t *testing.T)
 						if diagnostic.Loc() != wildcardParticleTestLoc(t, root, form.marker) {
 							t.Fatalf("diagnostic location = %s, want explicit constraint location", diagnostic.Loc())
 						}
+						if !errors.Is(err, errSchemaAnyParticleUnsupported) {
+							t.Fatalf("explicit wildcard constraint lost stable cause: %v", err)
+						}
 						selectedVersion := XSDVersion11
 						if policy == Strict10 {
 							selectedVersion = XSDVersion10
-						}
-						if form.mismatch10 && selectedVersion == XSDVersion10 {
-							if !errors.Is(err, errLanguagePolicyMismatch) {
-								t.Fatalf("Strict10 wildcard mismatch lost policy cause: %v", err)
-							}
-							if errors.Is(err, errSchemaAnyParticleUnsupported) {
-								t.Fatal("Strict10 wildcard mismatch was replaced by generic unsupported cause")
-							}
-							return
-						}
-						if !errors.Is(err, errSchemaAnyParticleUnsupported) {
-							t.Fatalf("explicit wildcard constraint lost stable cause: %v", err)
 						}
 						if got, want := diagnostic.SpecRef(), schemaAnyParticleSpecRef(selectedVersion); got != want {
 							t.Fatalf("diagnostic spec ref = %q, want %q", got, want)
@@ -1497,4 +1486,301 @@ func wildcardParticleTestLoc(t *testing.T, root, marker string) Loc {
 		column++
 	}
 	return mustTestLoc(t, "root.xsd", line, column)
+}
+
+//nolint:gocognit // Keep lexical, expanded-name, binding, and defensive-copy assertions together.
+func TestSchemaBridgeModelsDirectStrictWildcardQNameConstraint(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" xmlns:p="urn:p" xmlns:q="urn:p" xmlns="urn:default" targetNamespace="urn:root" version="1.1">
+  <xs:complexType name="Record"><xs:choice><xs:any namespace="urn:p urn:default" notQName="&#xA;p:z&#x9;q:a  p:z &#xD;local"/></xs:choice></xs:complexType>
+</xs:schema>`
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+		if err != nil {
+			t.Fatalf("%s: discover schema: %v", policy, err)
+		}
+		wildcard := directWildcardFromParticle(t, directWildcardDefinition(t, schema).Particle())
+		constraint := wildcard.QNameConstraint()
+		if !constraint.Present() || constraint.LexicalForm() != "p:z q:a p:z local" || constraint.Loc() != wildcardParticleTestLoc(t, root, `notQName="&#xA;p:z&#x9;q:a  p:z &#xD;local"`) {
+			t.Fatalf("%s: qname constraint = %#v, want present lexical/location facts", policy, constraint)
+		}
+		if got, want := constraint.Tokens(), []string{"p:z", "q:a", "p:z", "local"}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s: tokens = %#v, want %#v", policy, got, want)
+		}
+		wantNames := []QName{
+			mustTestQName(t, "urn:default", "local"),
+			mustTestQName(t, "urn:p", "a"),
+			mustTestQName(t, "urn:p", "z"),
+		}
+		if got := constraint.Names(); !reflect.DeepEqual(got, wantNames) {
+			t.Fatalf("%s: names = %#v, want %#v", policy, got, wantNames)
+		}
+		bindings := constraint.NamespaceBindings()
+		lookup := func(prefix string) string {
+			for _, binding := range bindings {
+				if binding.Prefix == prefix {
+					return binding.Namespace
+				}
+			}
+			return ""
+		}
+		if lookup("") != "urn:default" || lookup("p") != "urn:p" || lookup("q") != "urn:p" {
+			t.Fatalf("%s: namespace bindings = %#v", policy, bindings)
+		}
+		tokens := constraint.Tokens()
+		tokens[0] = "changed"
+		names := constraint.Names()
+		names[0] = QName{}
+		bindings[0].Namespace = "changed"
+		again := wildcard.QNameConstraint()
+		if again.Tokens()[0] != "p:z" || again.Names()[0] != wantNames[0] || again.NamespaceBindings()[0].Namespace == "changed" {
+			t.Fatalf("%s: mutating returned qname facts changed schema", policy)
+		}
+		if wildcard.NamespaceConstraint().Variety() != WildcardNamespaceConstraintEnumeration {
+			t.Fatalf("%s: namespace constraint variety = %q, want enumeration", policy, wildcard.NamespaceConstraint().Variety())
+		}
+	}
+}
+
+//nolint:funlen // Keep the bounded wildcard diagnostic matrix explicit.
+func TestSchemaBridgeWildcardQNameConstraintDiagnostics(t *testing.T) {
+	tests := []struct {
+		name       string
+		policy     LanguagePolicy
+		version    string
+		attributes string
+		marker     string
+		class      FailureClass
+		code       string
+		cause      error
+		spec       string
+	}{
+		{
+			name:       "strict10 mismatch",
+			policy:     Strict10,
+			version:    "1.0",
+			attributes: ` notQName="xs:integer"`,
+			marker:     `notQName="xs:integer"`,
+			class:      FailureUnsupported,
+			code:       UnsupportedSchemaSyntaxCode,
+			cause:      errLanguagePolicyMismatch,
+			spec:       "xsd11-structures#cSchemaDocument",
+		},
+		{
+			name:       "malformed",
+			policy:     Strict11,
+			version:    "1.1",
+			attributes: ` notQName="bad:q:name"`,
+			marker:     `notQName="bad:q:name"`,
+			class:      FailureInvalid,
+			code:       invalidSchemaConditionalCode,
+			spec:       schemaWildcardQNameDatatypeXSD11SpecRef,
+		},
+		{
+			name:       "unbound",
+			policy:     Strict11,
+			version:    "1.1",
+			attributes: ` notQName="bad:item"`,
+			marker:     `notQName="bad:item"`,
+			class:      FailureInvalid,
+			code:       invalidSchemaConditionalCode,
+			spec:       schemaWildcardQNameDatatypeXSD11SpecRef,
+		},
+		{
+			name:       "defined",
+			policy:     Strict11,
+			version:    "1.1",
+			attributes: ` notQName="##defined"`,
+			marker:     `notQName="##defined"`,
+			class:      FailureUnsupported,
+			code:       UnsupportedSchemaSyntaxCode,
+			cause:      errSchemaAnyParticleUnsupported,
+			spec:       schemaAnyParticleSpecRef(XSDVersion11),
+		},
+		{
+			name:       "defined sibling",
+			policy:     Strict11,
+			version:    "1.1",
+			attributes: ` notQName="##definedSibling"`,
+			marker:     `notQName="##definedSibling"`,
+			class:      FailureUnsupported,
+			code:       UnsupportedSchemaSyntaxCode,
+			cause:      errSchemaAnyParticleUnsupported,
+			spec:       schemaAnyParticleSpecRef(XSDVersion11),
+		},
+		{
+			name:       "lax",
+			policy:     Strict11,
+			version:    "1.1",
+			attributes: ` processContents="lax" notQName="xs:integer"`,
+			marker:     `notQName="xs:integer"`,
+			class:      FailureUnsupported,
+			code:       UnsupportedSchemaSyntaxCode,
+			cause:      errSchemaAnyParticleUnsupported,
+			spec:       schemaAnyParticleSpecRef(XSDVersion11),
+		},
+		{
+			name:       "not namespace",
+			policy:     Strict11,
+			version:    "1.1",
+			attributes: ` notNamespace="##local" notQName="xs:integer"`,
+			marker:     `notQName="xs:integer"`,
+			class:      FailureUnsupported,
+			code:       UnsupportedSchemaSyntaxCode,
+			cause:      errSchemaAnyParticleUnsupported,
+			spec:       schemaAnyParticleSpecRef(XSDVersion11),
+		},
+		{
+			name:       "namespace mismatch",
+			policy:     Strict11,
+			version:    "1.1",
+			attributes: ` namespace="##targetNamespace" notQName="p:item"`,
+			marker:     `notQName="p:item"`,
+			class:      FailureInvalid,
+			code:       invalidSchemaCompositionCode,
+			cause:      errSchemaWildcardQNameNamespace,
+			spec:       schemaWildcardQNameNamespaceXSD11SpecRef,
+		},
+		{
+			name:       "namespace mismatch before zero occurrence",
+			policy:     Strict11,
+			version:    "1.1",
+			attributes: ` namespace="##targetNamespace" notQName="p:item" minOccurs="0" maxOccurs="0"`,
+			marker:     `notQName="p:item"`,
+			class:      FailureInvalid,
+			code:       invalidSchemaCompositionCode,
+			cause:      errSchemaWildcardQNameNamespace,
+			spec:       schemaWildcardQNameNamespaceXSD11SpecRef,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="urn:p" targetNamespace="urn:root" version="` + test.version + `"><xs:complexType name="Record"><xs:choice><xs:any` + test.attributes + `/></xs:choice></xs:complexType></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+			if err == nil {
+				t.Fatal("discover schema unexpectedly succeeded")
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class || diagnostic.Code() != test.code || diagnostic.Loc() != wildcardParticleTestLoc(t, root, test.marker) || diagnostic.SpecRef() != test.spec {
+				t.Fatalf("diagnostic = %s/%q, want %s/%q at %s", diagnostic, diagnostic.SpecRef(), test.class, test.spec, wildcardParticleTestLoc(t, root, test.marker))
+			}
+			if test.cause != nil && !errors.Is(err, test.cause) {
+				t.Fatalf("diagnostic lost cause %v: %v", test.cause, err)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeModelsEmptyWildcardQNameList(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="1.1"><xs:complexType name="Record"><xs:choice><xs:any notQName="&#x9;&#xA;"/></xs:choice></xs:complexType></xs:schema>`
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+		if err != nil {
+			t.Fatalf("%s: discover schema: %v", policy, err)
+		}
+		wildcard := directWildcardFromParticle(t, directWildcardDefinition(t, schema).Particle())
+		constraint := wildcard.QNameConstraint()
+		if !constraint.Present() || constraint.LexicalForm() != "" || len(constraint.Tokens()) != 0 || len(constraint.Names()) != 0 || constraint.Loc() != wildcardParticleTestLoc(t, root, `notQName="&#x9;&#xA;"`) {
+			t.Fatalf("%s: empty qname constraint = %#v, want present empty fact", policy, constraint)
+		}
+	}
+}
+
+//nolint:gocognit // Keep target/absent namespace acceptance and diagnostics together.
+func TestSchemaBridgeWildcardQNameOtherNamespaceConstraint(t *testing.T) {
+	cases := []struct {
+		name           string
+		target         string
+		qname          string
+		wantSuccess    bool
+		wantQNameLocal string
+	}{
+		{name: "target namespace allows other", target: ` targetNamespace="urn:root"`, qname: "p:item", wantSuccess: true, wantQNameLocal: "item"},
+		{name: "target namespace rejects absent", target: ` targetNamespace="urn:root"`, qname: "local"},
+		{name: "absent target allows other", qname: "p:item", wantSuccess: true, wantQNameLocal: "item"},
+		{name: "absent target rejects absent", qname: "local"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="urn:p"` + test.target + ` version="1.1"><xs:complexType name="Record"><xs:choice><xs:any namespace="##other" notQName="` + test.qname + `"/></xs:choice></xs:complexType></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+			if test.wantSuccess {
+				if err != nil {
+					t.Fatalf("discover schema: %v", err)
+				}
+				var definition ComplexTypeDefinition
+				if test.target == "" {
+					components := schema.Components()
+					if len(components) != 1 {
+						t.Fatalf("components = %d, want one absent-namespace component", len(components))
+					}
+					var ok bool
+					definition, ok = components[0].ComplexType()
+					if !ok {
+						t.Fatal("absent-namespace Record has no complex type")
+					}
+				}
+				if test.target != "" {
+					definition = directWildcardDefinition(t, schema)
+				}
+				wildcard := directWildcardFromParticle(t, definition.Particle())
+				if names := wildcard.QNameConstraint().Names(); len(names) != 1 || names[0].Namespace() != "urn:p" || names[0].Local() != test.wantQNameLocal {
+					t.Fatalf("qname exclusions = %#v, want urn:p/%s", names, test.wantQNameLocal)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("discover schema unexpectedly succeeded")
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.SpecRef() != schemaWildcardQNameNamespaceXSD11SpecRef || diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName="`+test.qname+`"`) || !errors.Is(err, errSchemaWildcardQNameNamespace) {
+				t.Fatalf("diagnostic = %s/%q, want located namespace-consistency invalid", diagnostic, diagnostic.SpecRef())
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeWildcardQNameChameleonAdoption(t *testing.T) {
+	cases := []struct {
+		name      string
+		namespace string
+		qname     string
+		wantNames []QName
+	}{
+		{
+			name:      "any",
+			namespace: "##any",
+			qname:     "local p:prefixed",
+			wantNames: []QName{mustTestQName(t, "urn:p", "prefixed"), mustTestQName(t, "urn:root", "local")},
+		},
+		{
+			name:      "target namespace",
+			namespace: "##targetNamespace",
+			qname:     "local",
+			wantNames: []QName{mustTestQName(t, "urn:root", "local")},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd"/></xs:schema>`
+			child := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="urn:p"><xs:complexType name="Record"><xs:choice><xs:any namespace="` + test.namespace + `" notQName="` + test.qname + `"/></xs:choice></xs:complexType></xs:schema>`
+			fixtures := map[string]discoveryFixture{
+				"root.xsd":  {id: "root.xsd", contents: root},
+				"child.xsd": {id: "child.xsd", contents: child},
+			}
+			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, Strict11)
+			if err != nil {
+				t.Fatalf("discover schema: %v", err)
+			}
+			wildcard := directWildcardFromParticle(t, directWildcardDefinition(t, schema).Particle())
+			constraint := wildcard.QNameConstraint()
+			if constraint.LexicalForm() != test.qname || !reflect.DeepEqual(constraint.Names(), test.wantNames) {
+				t.Fatalf("qname facts = %q/%#v, want %q/%#v", constraint.LexicalForm(), constraint.Names(), test.qname, test.wantNames)
+			}
+			if constraint.Loc().Source() != "child.xsd" || wildcard.Loc().Source() != "child.xsd" {
+				t.Fatalf("chameleon locations = %s/%s, want child.xsd", constraint.Loc(), wildcard.Loc())
+			}
+		})
+	}
 }

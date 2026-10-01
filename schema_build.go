@@ -112,6 +112,8 @@ const (
 	schemaAnyAttributeXSD11SpecRef              = "xsd11-structures#element-anyAttribute"
 	schemaAnyParticleXSD10SpecRef               = "xsd10-structures#element-any"
 	schemaAnyParticleXSD11SpecRef               = "xsd11-structures#element-any"
+	schemaWildcardQNameDatatypeXSD11SpecRef     = "xsd11-datatypes#QName"
+	schemaWildcardQNameNamespaceXSD11SpecRef    = "xsd11-structures#w-props-correct"
 	schemaComplexTypeDerivationXSD10SpecRef     = "xsd10-structures#derivation-ok-restriction"
 	schemaComplexTypeDerivationXSD11SpecRef     = "xsd11-structures#derivation-ok-restriction"
 	schemaAttributeUseXSD10SpecRef              = "xsd10-structures#AU_details"
@@ -189,6 +191,7 @@ var (
 	errSchemaBlock                               = errors.New("schema block value is invalid")
 	errSchemaAnyAttributeUnsupported             = errors.New("anyAttribute wildcard is not implemented")
 	errSchemaAnyParticleUnsupported              = errors.New("any wildcard particle is not implemented")
+	errSchemaWildcardQNameNamespace              = errors.New("wildcard notQName contains a QName outside the namespace constraint")
 	errSchemaComplexTypeBaseUnresolved           = errors.New("complex type base is unresolved")
 	errSchemaComplexTypeBaseWrongKind            = errors.New("complex type base has the wrong kind")
 	errSchemaComplexTypeBaseAmbiguous            = errors.New("complex type base is ambiguous")
@@ -2444,6 +2447,109 @@ func resolveSchemaWildcardNamespaceConstraint(constraint schemaWildcardNamespace
 	return constraint
 }
 
+//nolint:gocognit // Keep QName lexical, chameleon, and immutable-fact construction together.
+func schemaWildcardQNameConstraintFromElement(element *syntaxElement, facts schemaDocumentFacts) (schemaWildcardQNameConstraint, error) {
+	attributes := syntaxAttributesByLocal(element, "notQName")
+	if len(attributes) == 0 {
+		return schemaWildcardQNameConstraint{}, nil
+	}
+	if len(attributes) != 1 {
+		return schemaWildcardQNameConstraint{}, newSchemaBridgeInvariant(element.loc, "wildcard notQName attribute is not unique")
+	}
+	attribute := attributes[0]
+	lexical := collapseXMLWhitespace(attribute.value)
+	constraint := schemaWildcardQNameConstraint{
+		present:  true,
+		lexical:  lexical,
+		loc:      attribute.loc,
+		bindings: schemaIdentityBindings(element.scope),
+	}
+	if lexical == "" {
+		return constraint, nil
+	}
+	constraint.tokens = strings.Split(lexical, " ")
+	for _, token := range constraint.tokens {
+		if token == "##defined" || token == "##definedSibling" {
+			continue
+		}
+		name, err := expandSchemaQName(element, syntaxAttribute{
+			name:  attribute.name,
+			value: token,
+			loc:   attribute.loc,
+		})
+		if err != nil {
+			return schemaWildcardQNameConstraint{}, schemaInvalidWithSpecRef(err, schemaWildcardQNameDatatypeXSD11SpecRef)
+		}
+		if facts.chameleon && facts.targetNamespace.present && name.Namespace() == "" {
+			name, err = NewQName(facts.targetNamespace.value, name.Local())
+			if err != nil {
+				return schemaWildcardQNameConstraint{}, newSchemaBridgeInvariant(attribute.loc, "construct chameleon wildcard QName exclusion")
+			}
+		}
+		constraint.names = append(constraint.names, name)
+	}
+	sort.Slice(constraint.names, func(left, right int) bool {
+		if constraint.names[left].Namespace() != constraint.names[right].Namespace() {
+			return constraint.names[left].Namespace() < constraint.names[right].Namespace()
+		}
+		return constraint.names[left].Local() < constraint.names[right].Local()
+	})
+	if len(constraint.names) < 2 {
+		return constraint, nil
+	}
+	unique := constraint.names[:1]
+	for _, name := range constraint.names[1:] {
+		if name == unique[len(unique)-1] {
+			continue
+		}
+		unique = append(unique, name)
+	}
+	constraint.names = unique
+	return constraint, nil
+}
+
+func schemaWildcardNamespaceAllowsQName(constraint schemaWildcardNamespaceConstraint, name QName, ownerNamespace string) bool {
+	if constraint.lexical == "##any" || constraint.lexical == "" {
+		return true
+	}
+	if constraint.lexical == "##other" {
+		return name.Namespace() != "" && name.Namespace() != ownerNamespace
+	}
+	if constraint.variety == WildcardNamespaceConstraintNot {
+		for _, namespace := range constraint.namespaces {
+			if namespace == name.Namespace() {
+				return false
+			}
+		}
+		return true
+	}
+	if constraint.variety != WildcardNamespaceConstraintEnumeration {
+		return true
+	}
+	for _, namespace := range constraint.namespaces {
+		if namespace == name.Namespace() {
+			return true
+		}
+	}
+	return false
+}
+
+func newSchemaWildcardQNameNamespaceDiagnostic(input schemaWildcardParticleInput, name QName, ownerNamespace string) Diagnostic {
+	related := []Loc(nil)
+	if !input.namespaceConstraint.loc.IsZero() {
+		related = []Loc{input.namespaceConstraint.loc}
+	}
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    invalidSchemaCompositionCode,
+		loc:     input.qnameConstraint.loc,
+		message: fmt.Sprintf("wildcard notQName %q is outside the namespace constraint", name.String()),
+		related: related,
+		specRef: schemaWildcardQNameNamespaceXSD11SpecRef,
+		cause:   fmt.Errorf("%w: %s is not allowed by namespace constraint for %q", errSchemaWildcardQNameNamespace, name, ownerNamespace),
+	}
+}
+
 func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttributeInput, error) {
 	wildcard, err := schemaAnyAttributeElementFromElement(element)
 	if err != nil || wildcard == nil {
@@ -2533,7 +2639,7 @@ func schemaParticleTermInputFromElementWithFacts(element *syntaxElement, facts s
 	case "element":
 		return schemaElementParticleInputFromElementWithFacts(element, facts, version, true, ownerOmitted)
 	case "any":
-		return schemaWildcardParticleInputFromElement(element, version)
+		return schemaWildcardParticleInputFromElement(element, facts, version)
 	default:
 		return nil, newSchemaBridgeInvariant(element.loc, "supported particle term has an unknown child")
 	}
@@ -2562,7 +2668,7 @@ func schemaModelGroupReferenceParticleInputFromElementWithFacts(
 	}, nil
 }
 
-func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDVersion) (schemaWildcardParticleInput, error) {
+func schemaWildcardParticleInputFromElement(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (schemaWildcardParticleInput, error) {
 	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
 		return schemaWildcardParticleInput{}, err
@@ -2580,7 +2686,7 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 		processContentsLoc = attributes[0].loc
 	}
 	notNamespaceAttributes := syntaxAttributesByLocal(element, "notNamespace")
-	if len(notNamespaceAttributes) > 1 || len(syntaxAttributesByLocal(element, "notQName")) != 0 {
+	if len(notNamespaceAttributes) > 1 {
 		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
 	}
 	if len(notNamespaceAttributes) == 0 && !isSupportedDirectAnyParticleFacts(namespace, processContents) {
@@ -2593,10 +2699,15 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, version XSDV
 		}
 		constraint = schemaWildcardNotNamespaceConstraintFromLexical(collapseXMLWhitespace(notNamespaceAttributes[0].value), notNamespaceAttributes[0].loc)
 	}
+	qnameConstraint, err := schemaWildcardQNameConstraintFromElement(element, facts)
+	if err != nil {
+		return schemaWildcardParticleInput{}, err
+	}
 	return schemaWildcardParticleInput{
 		loc:                 element.loc,
 		occurrences:         occurrences,
 		namespaceConstraint: constraint,
+		qnameConstraint:     qnameConstraint,
 		processContents:     processContents,
 		processContentsLoc:  processContentsLoc,
 	}, nil
@@ -8036,14 +8147,23 @@ func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner sche
 		input.namespaceConstraint.variety != WildcardNamespaceConstraintNot && !isSupportedDirectAnyParticleFacts(input.namespaceConstraint.lexical, input.processContents) {
 		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
 	}
+	constraint := resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, owner.name.Namespace())
+	if input.qnameConstraint.present {
+		for _, name := range input.qnameConstraint.names {
+			if schemaWildcardNamespaceAllowsQName(constraint, name, owner.name.Namespace()) {
+				continue
+			}
+			return nil, newSchemaWildcardQNameNamespaceDiagnostic(input, name, owner.name.Namespace())
+		}
+	}
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
-	constraint := resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, owner.name.Namespace())
 	return WildcardParticle{facts: &schemaWildcardParticle{
 		loc:                 input.loc,
 		occurrences:         input.occurrences.clone(),
 		namespaceConstraint: constraint,
+		qnameConstraint:     cloneSchemaWildcardQNameConstraint(input.qnameConstraint),
 		processContents:     input.processContents,
 		processContentsLoc:  input.processContentsLoc,
 	}}, nil
