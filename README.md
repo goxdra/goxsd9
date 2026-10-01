@@ -13,24 +13,21 @@ URNs and lexical schema locations; the library does not open paths or URLs.
 `ParseSchema` uses the Compatibility policy for mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects a graph-wide language policy. Schema queries
 and walks return immutable, deterministic views.
-Supported global elements retain ordered `xs:unique`, `xs:key`, and `xs:keyref`
-facts, including raw XPath expressions, namespace context, and resolved keyref
-targets. Instance validation and Go generation reject these declarations until
-identity semantics are implemented.
+Supported global elements retain ordered `xs:unique`, `xs:key`, and `xs:keyref` facts
+with XPath, namespaces, and resolved keyref targets. Validation and generation reject
+them until identity semantics are implemented.
 
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance;
 `GenerateGo(schema, packageName)` returns Go source. A component can be
 queryable even when one or both consumers reject it.
-Grouped complex-content extensions resolve one opaque group reference and
-ordered local attribute uses over a supported named empty base. Validated
-`0/0` omits the particle, and prohibited uses may leave no effective uses.
-See the [package contract](doc.go) for public behavior and current limits, the
-[architecture](ARCHITECTURE.md#schema-model) for admission and consumer
-boundaries, and [decision 0007](docs/decisions/0007-particle-occurrence.md)
-for exact particle occurrences and `0/0` omission.
+Grouped complex-content extensions resolve an opaque group reference and ordered local
+attributes over a named empty base. Validated `0/0` omits particles; prohibited uses
+may leave no uses. See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
+and [decision 0007](docs/decisions/0007-particle-occurrence.md) for behavior and exact occurrences.
 
 Direct choices, sequences, and bounded attribute-free extensions retain local built-in
 `xs:long` and supported named effective-long particles as query-only immutable facts.
+GenerateGo supports default sequence refs to global built-in/named integer/decimal elements, preserving order and omitting wrappers; other targets/occurrences return located unsupported diagnostics.
 
 ## CLI
 

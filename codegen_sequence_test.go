@@ -497,26 +497,288 @@ func TestGenerateGoRejectsDirectChoiceAttributeWildcardAcrossEditions(t *testing
 	}
 }
 
-func TestGenerateGoRejectsDirectSequenceElementReference(t *testing.T) {
-	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Strict10, goxsd9.Strict11} {
-		t.Run(string(policy), func(t *testing.T) {
-			version := "1.0"
-			wantSpec := "xsd10-structures#element-sequence"
-			if policy == goxsd9.Strict11 {
-				version = "1.1"
-				wantSpec = "xsd11-structures#element-sequence"
-			}
-			root := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" xmlns:r="urn:sequence" targetNamespace="urn:sequence" version="` + version + `">
-  <xs:element name="global" type="xs:integer"/>
-  <xs:complexType name="Record"><xs:sequence><xs:element ref="r:global"/></xs:sequence></xs:complexType>
+//nolint:gocognit,funlen // Keep graph, policy, order, naming, and source checks together.
+func TestGenerateGoDirectSequenceReferencesAcrossGraphPolicies(t *testing.T) {
+	rootTemplate := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" xmlns:r="urn:sequence" xmlns:o="urn:other" targetNamespace="urn:sequence"%s>
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
+  <xs:element name="backward" type="xs:integer"/>
+  <xs:element name="line-item" type="xs:integer"/>
+  <xs:element name="LINE_ITEM" type="xs:decimal"/>
+  <xs:element name="forward" type="xs:decimal"/>
+  <xs:simpleType name="NamedAmount"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:element name="namedAmount" type="r:NamedAmount"/>
+  <xs:complexType name="Record"><xs:sequence>
+    <xs:element ref="r:backward"/>
+    <xs:element ref="r:forward"/>
+    <xs:element ref="r:includedInteger"/>
+    <xs:element ref="o:importedDecimal"/>
+    <xs:element ref="r:namedAmount"/>
+    <xs:element ref="r:line-item"/>
+    <xs:element ref="r:LINE_ITEM"/>
+  </xs:sequence></xs:complexType>
 </xs:schema>`
-			schema, err := parseSequenceSchemaResult(t, policy, root, nil)
+	chameleon := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `">
+  <xs:element name="includedInteger" type="xs:integer"/>
+</xs:schema>`
+	other := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" targetNamespace="urn:other">
+  <xs:element name="importedDecimal" type="xs:decimal"/>
+</xs:schema>`
+	profiles := []struct {
+		name    string
+		policy  goxsd9.LanguagePolicy
+		version string
+	}{
+		{name: "Compatibility", policy: goxsd9.Compatibility},
+		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0"},
+		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1"},
+	}
+
+	var baseline []byte
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			version := ""
+			if profile.version != "" {
+				version = ` version="` + profile.version + `"`
+			}
+			root := fmt.Sprintf(rootTemplate, version)
+			schema, err := parseSequenceSchemaResult(t, profile.policy, root, map[string]string{
+				"chameleon.xsd": chameleon,
+				"other.xsd":     other,
+			})
 			if err != nil {
 				t.Fatalf("ParseSchemaWithPolicy: %v", err)
 			}
-			assertPublicUnsupportedCodegen(t, schema, wantSpec)
+			first, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo: %v", err)
+			}
+			second, err := goxsd9.GenerateGo(schema, "generated")
+			if err != nil {
+				t.Fatalf("GenerateGo second: %v", err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatalf("repeated sequence-reference output differs:\nfirst:\n%s\nsecond:\n%s", first, second)
+			}
+			formatted, err := format.Source(first)
+			if err != nil {
+				t.Fatalf("format generated sequence-reference source: %v\n%s", err, first)
+			}
+			if !bytes.Equal(first, formatted) {
+				t.Fatalf("generated sequence-reference source is not formatted:\n%s", first)
+			}
+			if baseline != nil && !bytes.Equal(first, baseline) {
+				t.Fatalf("equivalent sequence-reference schemas differ across policies:\nwant:\n%s\ngot:\n%s", baseline, first)
+			}
+			if baseline == nil {
+				baseline = append([]byte(nil), first...)
+			}
+
+			source := string(first)
+			for _, fragment := range []string{
+				"type Record struct {",
+				"Backward        Runtime.StrictInteger",
+				"Forward         Runtime.StrictDecimal",
+				"IncludedInteger Runtime.StrictInteger",
+				"ImportedDecimal Runtime.StrictDecimal",
+				"NamedAmount     NamedAmount",
+				"LineItem        Runtime.StrictInteger",
+				"LineItem2       Runtime.StrictDecimal",
+				"type NamedAmount struct {",
+			} {
+				if !strings.Contains(source, fragment) {
+					t.Fatalf("generated sequence-reference source is missing %q:\n%s", fragment, first)
+				}
+			}
+			for _, target := range []string{"backward", "forward", "includedInteger", "importedDecimal", "line-item", "LINE_ITEM"} {
+				generatedName := strings.ToUpper(target[:1]) + target[1:]
+				if strings.Contains(source, "type "+generatedName+" struct {\n\tValue ") {
+					t.Fatalf("generated sequence-reference source emitted a global-element wrapper for %q:\n%s", target, first)
+				}
+			}
+			if strings.Count(source, "type Record struct {") != 1 {
+				t.Fatalf("generated sequence declaration count = %d, want once:\n%s", strings.Count(source, "type Record struct {"), first)
+			}
+			compilePublicGeneratedCode(t, first)
 		})
 	}
+}
+
+//nolint:gocognit,funlen // Keep the sequence-reference support boundary and evidence assertions together.
+func TestGenerateGoDirectSequenceReferencesRejectUnsupportedShapes(t *testing.T) {
+	tests := []struct {
+		name       string
+		child      string
+		target     string
+		policy     goxsd9.LanguagePolicy
+		version    string
+		wantSpec   string
+		wantCause  bool
+		wantSource string
+	}{
+		{
+			name:      "optional",
+			child:     `<xs:element ref="r:item" minOccurs="0" maxOccurs="1"/>`,
+			target:    `<xs:element name="item" type="xs:integer"/>`,
+			policy:    goxsd9.Strict11,
+			version:   "1.1",
+			wantSpec:  "xsd11-structures#Particle_details",
+			wantCause: true,
+		},
+		{
+			name:      "unbounded",
+			child:     `<xs:element ref="r:item" minOccurs="2" maxOccurs="unbounded"/>`,
+			target:    `<xs:element name="item" type="xs:integer"/>`,
+			policy:    goxsd9.Strict10,
+			version:   "1.0",
+			wantSpec:  "xsd10-structures#Particle_details",
+			wantCause: true,
+		},
+		{
+			name:      "boolean target",
+			child:     `<xs:element ref="r:item"/>`,
+			target:    `<xs:element name="item" type="xs:boolean"/>`,
+			policy:    goxsd9.Compatibility,
+			wantSpec:  "xsd11-structures#element-sequence",
+			wantCause: true,
+		},
+		{
+			name:      "string target",
+			child:     `<xs:element ref="r:item"/>`,
+			target:    `<xs:element name="item" type="xs:string"/>`,
+			policy:    goxsd9.Compatibility,
+			wantSpec:  "xsd11-structures#element-sequence",
+			wantCause: true,
+		},
+		{
+			name:      "named Boolean target",
+			child:     `<xs:element ref="r:item"/>`,
+			target:    `<xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType><xs:element name="item" type="r:Flag"/>`,
+			policy:    goxsd9.Compatibility,
+			wantSpec:  "xsd11-structures#element-sequence",
+			wantCause: true,
+		},
+		{
+			name:      "precisionDecimal target",
+			child:     `<xs:element ref="r:item"/>`,
+			target:    `<xs:element name="item" type="xs:precisionDecimal"/>`,
+			policy:    goxsd9.Strict11,
+			version:   "1.1",
+			wantSpec:  "xsd11-structures#element-sequence",
+			wantCause: true,
+		},
+		{
+			name:      "complex target",
+			child:     `<xs:element ref="r:item"/>`,
+			target:    `<xs:complexType name="Payload"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:complexType><xs:element name="item" type="r:Payload"/>`,
+			policy:    goxsd9.Compatibility,
+			wantSpec:  "xsd11-structures#element-sequence",
+			wantCause: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema := parseSequenceReferenceSchema(t, test.target, test.child, test.policy, test.version)
+			wantLoc := sequenceReferenceLocation(t, schema)
+			source, err := goxsd9.GenerateGo(schema, "generated")
+			if source != nil || err == nil {
+				t.Fatalf("GenerateGo result = (%q, %v), want nil source and unsupported diagnostic", source, err)
+			}
+			diagnostic := requirePublicCodegenDiagnostic(t, err)
+			if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode || diagnostic.Feature() != goxsd9.FeatureCodegen {
+				t.Fatalf("diagnostic = %s, want unsupported codegen diagnostic", diagnostic)
+			}
+			if diagnostic.Loc() != wantLoc {
+				t.Fatalf("diagnostic location = %s, want ref location %s", diagnostic.Loc(), wantLoc)
+			}
+			if diagnostic.SpecRef() != test.wantSpec {
+				t.Fatalf("diagnostic specification reference = %q, want %q", diagnostic.SpecRef(), test.wantSpec)
+			}
+			if test.wantCause && !errors.Is(err, goxsd9.ErrUnsupported) {
+				t.Fatalf("diagnostic lost unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
+func TestGenerateGoDirectSequenceReferencesRejectSubstitutionExpansion(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		child  string
+		target string
+	}{
+		{
+			name:   "member target",
+			child:  `<xs:element ref="r:member"/>`,
+			target: `<xs:element name="head" type="xs:integer"/><xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>`,
+		},
+		{
+			name:   "reachable member",
+			child:  `<xs:element ref="r:head"/>`,
+			target: `<xs:element name="head" type="xs:integer"/><xs:element name="member" type="xs:integer" substitutionGroup="r:head"/>`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			schema := parseSequenceReferenceSchema(t, test.target, test.child, goxsd9.Compatibility, "")
+			wantLoc := sequenceReferenceLocation(t, schema)
+			source, err := goxsd9.GenerateGo(schema, "generated")
+			if source != nil || err == nil {
+				t.Fatalf("GenerateGo result = (%q, %v), want nil source and unsupported diagnostic", source, err)
+			}
+			diagnostic := requirePublicCodegenDiagnostic(t, err)
+			if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.SpecRef() != "xsd11-structures#element-sequence" || diagnostic.Loc() != wantLoc {
+				t.Fatalf("diagnostic = %s/%q at %s, want XSD 1.1 sequence unsupported at %s", diagnostic, diagnostic.SpecRef(), diagnostic.Loc(), wantLoc)
+			}
+			if !errors.Is(err, goxsd9.ErrUnsupported) {
+				t.Fatalf("diagnostic lost unsupported cause: %v", err)
+			}
+		})
+	}
+}
+
+func parseSequenceReferenceSchema(t *testing.T, target, child string, policy goxsd9.LanguagePolicy, version string) goxsd9.Schema {
+	t.Helper()
+	versionAttribute := ""
+	if version != "" {
+		versionAttribute = ` version="` + version + `"`
+	}
+	root := `<xs:schema xmlns:xs="` + sequenceTestXSDNamespace + `" xmlns:r="urn:reference-root" targetNamespace="urn:reference-root"` + versionAttribute + `>
+  <xs:complexType name="Record"><xs:sequence>` + child + `</xs:sequence></xs:complexType>` + target + `
+</xs:schema>`
+	schema, err := parseSequenceSchemaResult(t, policy, root, nil)
+	if err != nil {
+		t.Fatalf("ParseSchemaWithPolicy: %v", err)
+	}
+	return schema
+}
+
+func sequenceReferenceLocation(t *testing.T, schema goxsd9.Schema) goxsd9.Loc {
+	t.Helper()
+	name, err := goxsd9.NewQName("urn:reference-root", "Record")
+	if err != nil {
+		t.Fatalf("NewQName: %v", err)
+	}
+	components := schema.FindKind(goxsd9.ComponentKindComplexTypeDefinition, name)
+	if len(components) != 1 {
+		t.Fatalf("Record component count = %d, want one", len(components))
+	}
+	definition, ok := components[0].ComplexType()
+	if !ok {
+		t.Fatal("Record has no complex type definition")
+	}
+	sequence, ok := definition.Particle().(goxsd9.SequenceParticle)
+	if !ok {
+		t.Fatalf("Record particle = %T, want SequenceParticle", definition.Particle())
+	}
+	particles := sequence.Particles()
+	if len(particles) == 0 {
+		t.Fatal("Record sequence has no particles")
+	}
+	reference, ok := particles[0].(goxsd9.ElementReferenceParticle)
+	if !ok {
+		t.Fatalf("Record first particle = %T, want ElementReferenceParticle", particles[0])
+	}
+	return reference.RefLoc()
 }
 
 func TestGenerateGoSupportsNamedBooleanDirectSequenceElement(t *testing.T) {

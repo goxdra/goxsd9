@@ -418,18 +418,24 @@ func codegenDirectChoiceTargetElementOmitted(
 		return false
 	}
 	for _, owner := range directPlan.owners {
-		if owner.kind != codegenDirectParticleChoice || owner.choice == nil {
+		if owner.kind == codegenDirectParticleChoice && owner.choice != nil {
+			for _, alternative := range owner.choice.alternatives {
+				if targetElementID, ok := codegenDirectChoiceTargetElementID(alternative.target); ok && targetElementID == id {
+					return true
+				}
+			}
 			continue
 		}
-		for _, alternative := range owner.choice.alternatives {
-			if targetElementID, ok := codegenDirectChoiceTargetElementID(alternative.target); ok && targetElementID == id {
-				return true
+		if owner.kind == codegenDirectParticleSequence && owner.sequence != nil {
+			for _, field := range owner.sequence.fields {
+				if field.hasElementID && field.elementID == id {
+					return true
+				}
 			}
 		}
 	}
 	return false
 }
-
 func rejectCodegenElementFacts(components []Component, version XSDVersion) error {
 	for _, component := range components {
 		if component.Kind() != ComponentKindElementDeclaration {
