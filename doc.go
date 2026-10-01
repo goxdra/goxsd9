@@ -268,9 +268,10 @@
 // direct-choice references and also default-occurrence direct-sequence references
 // to global built-in or named integer and decimal targets. It retains the
 // sequence's lexical order and omits standalone wrappers for referenced elements.
-// Constrained targets remain queryable but validation rejects at the instance use
-// Loc with the first constraint Loc related; GenerateGo rejects unsupported
-// targets at the reference Loc with no output.
+// Constrained targets remain queryable; validation rejects at the instance use
+// Loc with the first constraint Loc related. GenerateGo rejects target
+// classification at the reference Loc; identity-constrained global elements
+// reject at the first constraint Loc with no output.
 // References to global `nonNegativeInteger` remain queryable without target-type
 // gating; direct-choice and sequence consumers reject them with located
 // unsupported diagnostics and nil GenerateGo output.
