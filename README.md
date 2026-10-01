@@ -29,8 +29,9 @@ See the [package contract](doc.go) for public behavior and current limits, the
 boundaries, and [decision 0007](docs/decisions/0007-particle-occurrence.md)
 for exact particle occurrences and `0/0` omission.
 
-Direct choices, sequences, and bounded attribute-free extensions retain local built-in
-`xs:long` and supported named effective-long particles as query-only immutable facts.
+Direct choices/sequences/bounded attribute-free extensions expose local `xs:long`
+and supported named effective-long particles as query-only facts.
+Direct strict XSD 1.1 `xs:any` exposes explicit `notQName`.
 
 ## CLI
 

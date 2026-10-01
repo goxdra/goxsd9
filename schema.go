@@ -2190,6 +2190,45 @@ func (constraint WildcardNamespaceConstraint) LexicalForm() string { return cons
 // Loc returns the namespace or notNamespace attribute location.
 func (constraint WildcardNamespaceConstraint) Loc() Loc { return constraint.loc }
 
+// WildcardQNameConstraint is an immutable XSD 1.1 notQName exclusion fact.
+// Tokens retain normalized lexical order, while Names contains sorted,
+// duplicate-free expanded names. An absent constraint has Present()==false;
+// an explicitly empty qnameList has Present()==true and no tokens or names.
+type WildcardQNameConstraint struct {
+	present  bool
+	tokens   []string
+	names    []QName
+	lexical  string
+	loc      Loc
+	bindings []IdentityNamespaceBinding
+}
+
+// Present reports whether notQName was present on the wildcard.
+func (constraint WildcardQNameConstraint) Present() bool { return constraint.present }
+
+// Tokens returns normalized lexical QName tokens in source order, including
+// duplicates.
+func (constraint WildcardQNameConstraint) Tokens() []string {
+	return append([]string(nil), constraint.tokens...)
+}
+
+// Names returns sorted, duplicate-free expanded QName exclusions.
+func (constraint WildcardQNameConstraint) Names() []QName {
+	return append([]QName(nil), constraint.names...)
+}
+
+// LexicalForm returns the normalized notQName attribute value.
+func (constraint WildcardQNameConstraint) LexicalForm() string { return constraint.lexical }
+
+// Loc returns the notQName attribute location.
+func (constraint WildcardQNameConstraint) Loc() Loc { return constraint.loc }
+
+// NamespaceBindings returns independent in-scope namespace bindings captured
+// with the lexical QName values.
+func (constraint WildcardQNameConstraint) NamespaceBindings() []IdentityNamespaceBinding {
+	return append([]IdentityNamespaceBinding(nil), constraint.bindings...)
+}
+
 // WildcardParticle is a direct element wildcard particle. Its supported
 // effective facts include ##any, ##other, positive namespace enumerations,
 // and strict, lax, or skip negative namespace sets.
@@ -2265,6 +2304,14 @@ func (particle WildcardParticle) NamespaceLoc() Loc {
 		return Loc{}
 	}
 	return particle.facts.namespaceConstraint.loc
+}
+
+// QNameConstraint returns the immutable XSD 1.1 notQName exclusion fact.
+func (particle WildcardParticle) QNameConstraint() WildcardQNameConstraint {
+	if particle.facts == nil {
+		return WildcardQNameConstraint{}
+	}
+	return clonePublicWildcardQNameConstraint(particle.facts.qnameConstraint)
 }
 
 // ProcessContents returns the effective wildcard processing mode.
@@ -2892,6 +2939,7 @@ type schemaWildcardParticleInput struct {
 	loc                 Loc
 	occurrences         particleOccurrenceRange
 	namespaceConstraint schemaWildcardNamespaceConstraint
+	qnameConstraint     schemaWildcardQNameConstraint
 	processContents     string
 	processContentsLoc  Loc
 }
@@ -2902,6 +2950,15 @@ type schemaWildcardNamespaceConstraint struct {
 	namespaces []string
 	lexical    string
 	loc        Loc
+}
+
+type schemaWildcardQNameConstraint struct {
+	present  bool
+	tokens   []string
+	names    []QName
+	lexical  string
+	loc      Loc
+	bindings []IdentityNamespaceBinding
 }
 
 func (schemaWildcardParticleInput) schemaParticleTermInput() {}
@@ -3131,6 +3188,7 @@ type schemaWildcardParticle struct {
 	loc                 Loc
 	occurrences         particleOccurrenceRange
 	namespaceConstraint schemaWildcardNamespaceConstraint
+	qnameConstraint     schemaWildcardQNameConstraint
 	processContents     string
 	processContentsLoc  Loc
 }
@@ -3938,6 +3996,24 @@ func cloneSchemaWildcardNamespaceConstraint(input schemaWildcardNamespaceConstra
 	return input
 }
 
+func cloneSchemaWildcardQNameConstraint(input schemaWildcardQNameConstraint) schemaWildcardQNameConstraint {
+	input.tokens = append([]string(nil), input.tokens...)
+	input.names = append([]QName(nil), input.names...)
+	input.bindings = append([]IdentityNamespaceBinding(nil), input.bindings...)
+	return input
+}
+
+func clonePublicWildcardQNameConstraint(input schemaWildcardQNameConstraint) WildcardQNameConstraint {
+	return WildcardQNameConstraint{
+		present:  input.present,
+		tokens:   append([]string(nil), input.tokens...),
+		names:    append([]QName(nil), input.names...),
+		lexical:  input.lexical,
+		loc:      input.loc,
+		bindings: append([]IdentityNamespaceBinding(nil), input.bindings...),
+	}
+}
+
 func cloneSchemaModelGroupInput(input *schemaModelGroupInput) *schemaModelGroupInput {
 	if input == nil {
 		return nil
@@ -4318,12 +4394,14 @@ func cloneSchemaParticleTermInputs(inputs []schemaParticleTermInput) []schemaPar
 			clone := term
 			clone.occurrences = term.occurrences.clone()
 			clone.namespaceConstraint = cloneSchemaWildcardNamespaceConstraint(term.namespaceConstraint)
+			clone.qnameConstraint = cloneSchemaWildcardQNameConstraint(term.qnameConstraint)
 			clones[index] = clone
 		case *schemaWildcardParticleInput:
 			if term != nil {
 				clone := *term
 				clone.occurrences = term.occurrences.clone()
 				clone.namespaceConstraint = cloneSchemaWildcardNamespaceConstraint(term.namespaceConstraint)
+				clone.qnameConstraint = cloneSchemaWildcardQNameConstraint(term.qnameConstraint)
 				clones[index] = clone
 			}
 		default:

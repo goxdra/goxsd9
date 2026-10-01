@@ -93,11 +93,11 @@ Unsupported types/local/inline: located `FailureUnsupported`; unsupported values
 invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixed/default; type-only
 unconstrained; attribute consumers reject.
 
-Complexes retain non-inherited `IsAbstract`, `finalDefault` provenance, ordered groups/extensions,
-and wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip
-`notNamespace`; chameleon markers expand after adoption. Consumers reject
-wildcards; broader forms reject; `0/0` omits. `openContent=none` works except
-under Strict10; named groups retain ordered refs/ranges.
+Complexes: non-inherited `IsAbstract`, `finalDefault` provenance, ordered groups/extensions,
+wildcards. Direct strict `xs:any` admits XSD 1.1 QName exclusions: normalized
+tokens, bindings, sorted expanded names; mismatch invalid. Positive sets,
+strict/lax/skip `notNamespace`, chameleon adoption; consumers/broader forms reject;
+`0/0` omits. `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline complexes expose IDs, ordered sequence/ref/use outside walks; consumers reject. SimpleContent admits string/Boolean/integer/decimal, policy-gated
 `precisionDecimal` with nil particles. Compatibility/Strict11 admit nonzero
 direct `precisionDecimal` sequences and named precisionDecimal-bearing list/union locals in direct non-extension sequences without QName; consumers reject.
