@@ -42,6 +42,75 @@ func TestClaimResumeStateCommandReportsDigestWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestClaimResumeGitlinkStatusUsesExactPorcelainPaths(t *testing.T) {
+	const gitlink = "testdata/w3c/xsdtests"
+	index := "160000 " + strings.Repeat("a", 40) + " 0\t" + gitlink + "\x00"
+	for _, test := range []struct {
+		name   string
+		status string
+		want   bool
+	}{
+		{name: "untracked suffix", status: "?? scratch/" + gitlink + "\x00"},
+		{name: "exact modified", status: " M " + gitlink + "\x00", want: true},
+		{name: "rename destination", status: "R  " + gitlink + "\x00other\x00", want: true},
+		{name: "rename source", status: "R  other\x00" + gitlink + "\x00", want: true},
+		{name: "copy source", status: "C  other\x00" + gitlink + "\x00", want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := validateClaimResumeIndex(index, test.status)
+			if (err != nil) != test.want {
+				t.Fatalf("gitlink status %q error = %v, want rejection %t", test.status, err, test.want)
+			}
+			if test.want && !strings.Contains(err.Error(), "modified submodule") {
+				t.Fatalf("gitlink status %q error = %v, want modified submodule", test.status, err)
+			}
+		})
+	}
+}
+
+func TestClaimResumeDirtyUntrackedSuffixBesideCleanGitlink(t *testing.T) {
+	fixture := newDirtyClaimResumeFixtureWithSubmodule(t, 309, "run-309-gitlink", nil, true)
+	const scratch = "scratch/testdata/w3c/xsdtests"
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(fixture.worktree, scratch)), 0o700); err != nil {
+		t.Fatalf("create scratch path: %v", err)
+	}
+	writeFixtureFile(t, fixture.worktree, scratch, "untracked suffix bytes\n")
+	application := app{ctx: context.Background()}
+	status, err := application.claimResumeReadOnlyStatus(fixture.worktree)
+	if err != nil {
+		t.Fatalf("read porcelain status: %v", err)
+	}
+	if !strings.Contains(status, "?? "+scratch+"\x00") || strings.Contains(status, " M testdata/w3c/xsdtests\x00") {
+		t.Fatalf("unexpected clean-gitlink status %q", status)
+	}
+	state := dirtyClaimResumeSnapshot(t, fixture.worktree)
+	fixture.handoffBody = dirtyClaimResumeHandoffBody(fixture, state.digest)
+	backend := newClaimResumeBackend(t, fixture)
+	var output bytes.Buffer
+	application = app{ctx: context.Background(), executeCommand: backend.execute, stdout: &output}
+	indexBefore := claimResumeRawIndexBytes(t, fixture.worktree)
+	if err := application.run([]string{"claim", "resume-state"}); err != nil {
+		t.Fatalf("resume-state with clean gitlink and untracked suffix: %v", err)
+	}
+	if !strings.Contains(output.String(), state.digest) {
+		t.Fatalf("resume-state digest output = %q, want %s", output.String(), state.digest)
+	}
+	if err := application.run(claimResumeArgs(fixture, true)); err != nil {
+		t.Fatalf("dirty dry-run with clean gitlink: %v", err)
+	}
+	if err := application.run(claimResumeArgs(fixture, false)); err != nil {
+		t.Fatalf("dirty recovery with clean gitlink: %v", err)
+	}
+	assertClaimResumeRenewed(t, fixture, backend)
+	if after := dirtyClaimResumeSnapshot(t, fixture.worktree); after != state {
+		t.Fatalf("local state changed: before %+v, after %+v", state, after)
+	}
+	if after := claimResumeRawIndexBytes(t, fixture.worktree); !bytes.Equal(after, indexBefore) {
+		t.Fatal("recovery changed raw index bytes")
+	}
+	assertDirtyClaimResumeFile(t, fixture.worktree, scratch, "untracked suffix bytes\n")
+}
+
 func claimResumeRawIndexBytes(t *testing.T, root string) []byte {
 	t.Helper()
 	path := runGitTest(t, root, "rev-parse", "--git-path", "index")
@@ -299,8 +368,12 @@ func TestClaimResumeLocalStateDistinguishesIndexBytesModeTypeAndDeletion(t *test
 }
 
 func newDirtyClaimResumeFixture(t *testing.T, issue int, runID string, tracked []string) claimResumeFixture {
+	return newDirtyClaimResumeFixtureWithSubmodule(t, issue, runID, tracked, false)
+}
+
+func newDirtyClaimResumeFixtureWithSubmodule(t *testing.T, issue int, runID string, tracked []string, withSubmodule bool) claimResumeFixture {
 	t.Helper()
-	base := newBaseRepositoryFixture(t, false)
+	base := newBaseRepositoryFixture(t, withSubmodule)
 	for _, name := range tracked {
 		parent := filepath.Dir(filepath.Join(base.primary, name))
 		if err := os.MkdirAll(parent, 0o700); err != nil {

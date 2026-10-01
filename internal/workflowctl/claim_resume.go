@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -929,6 +930,10 @@ func claimResumePathSeparator(paths []string) string {
 
 //nolint:gocognit // Index mode, stage, and gitlink checks share one ordered parse.
 func validateClaimResumeIndex(index, status string) ([]string, error) {
+	statusPaths, err := parseClaimResumeStatusPaths(status)
+	if err != nil {
+		return nil, err
+	}
 	if index == "" {
 		return nil, nil
 	}
@@ -946,7 +951,7 @@ func validateClaimResumeIndex(index, status string) ([]string, error) {
 			return nil, stateError("claim index entry has invalid mode, blob, or stage; preserve local state")
 		}
 		if meta[0] == "160000" {
-			if strings.Contains(status, fields[1]+"\x00") {
+			if slices.Contains(statusPaths, fields[1]) {
 				return nil, stateError("claim has a modified submodule; preserve local state")
 			}
 			continue
@@ -955,6 +960,33 @@ func validateClaimResumeIndex(index, status string) ([]string, error) {
 			return nil, stateError("claim index entry has unsupported file mode %q; preserve local state", meta[0])
 		}
 		paths = append(paths, fields[1])
+	}
+	return paths, nil
+}
+
+func parseClaimResumeStatusPaths(status string) ([]string, error) {
+	if status == "" {
+		return nil, nil
+	}
+	if !strings.HasSuffix(status, "\x00") {
+		return nil, stateError("claim status listing is malformed; preserve local state")
+	}
+	records := strings.Split(strings.TrimSuffix(status, "\x00"), "\x00")
+	paths := make([]string, 0, len(records))
+	for index := 0; index < len(records); index++ {
+		record := records[index]
+		if len(record) < 4 || record[2] != ' ' || record[3:] == "" {
+			return nil, stateError("claim status entry is malformed; preserve local state")
+		}
+		paths = append(paths, record[3:])
+		if !strings.ContainsAny(record[:2], "RC") {
+			continue
+		}
+		index++
+		if index >= len(records) || records[index] == "" {
+			return nil, stateError("claim status rename/copy source is malformed; preserve local state")
+		}
+		paths = append(paths, records[index])
 	}
 	return paths, nil
 }
