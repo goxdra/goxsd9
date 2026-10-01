@@ -539,6 +539,7 @@ func TestPRResumeCASRacePreservesLocalIntegration(t *testing.T) {
 	}
 }
 
+//nolint:gocognit,funlen // The published integration regression asserts each durable claim boundary.
 func TestPRResumeIntegratesMarkerAfterLocalWorkResolves(t *testing.T) {
 	fixture := newResumeFixture(t)
 	stageResumeUnpublishedMerge(t, fixture)
@@ -580,6 +581,492 @@ func TestPRResumeIntegratesMarkerAfterLocalWorkResolves(t *testing.T) {
 	}
 	if got := resumeRemoteHead(t, fixture); got != remote {
 		t.Fatalf("integration published local source: remote=%s want=%s", got, remote)
+	}
+	runGitTest(t, fixture.worktree, "push", "origin", "HEAD:refs/heads/agent/issue-14")
+	if got := resumeRemoteHead(t, fixture); got != integrated {
+		t.Fatalf("published integration head = %s, want %s", got, integrated)
+	}
+	if err := application.verifyClaim(); err != nil {
+		t.Fatalf("published integration claim verification: %v", err)
+	}
+	if err := application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14); err != nil {
+		t.Fatalf("published integration push verification: %v", err)
+	}
+	writeFixtureFile(t, fixture.worktree, "after-integration", "later source work\n")
+	runGitTest(t, fixture.worktree, "add", "after-integration")
+	runGitTest(t, fixture.worktree, "commit", "--no-gpg-sign", "-m", "test: later source work")
+	later := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if err := application.verifyClaim(); err != nil {
+		t.Fatalf("later source claim verification: %v", err)
+	}
+	if err := application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14); err != nil {
+		t.Fatalf("later source push verification: %v", err)
+	}
+	if err := application.renewClaim(); err != nil {
+		t.Fatalf("published integration claim renewal: %v", err)
+	}
+	renewed := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if got := runGitTest(t, fixture.worktree, "rev-parse", renewed+"^1"); got != later {
+		t.Fatalf("post-integration renewal parent = %s, want %s", got, later)
+	}
+	if got := resumeRemoteHead(t, fixture); got != renewed {
+		t.Fatalf("post-integration renewal remote = %s, want %s", got, renewed)
+	}
+}
+
+func TestPRResumePublishedIntegrationWithExpectedHeadOnLocalSideParent(t *testing.T) {
+	fixture := newResumeFixture(t)
+	base := runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^")
+	source := createResumeTestCommit(t, fixture.worktree, base, "test: local source branch\n")
+	tree := runGitTest(t, fixture.worktree, "rev-parse", source+"^{tree}")
+	local := createResumeCommitTree(t, fixture.worktree, tree, []string{source, fixture.expected}, "Merge preserved local work\n")
+	runGitTest(t, fixture.worktree, "reset", "--hard", local)
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.run(resumeArgs(fixture.expected)); err != nil {
+		t.Fatalf("remote renewal with side-parent expected head: %v", err)
+	}
+	marker := resumeRemoteHead(t, fixture)
+	if err := application.run(append(resumeArgs(fixture.expected), "--integrate")); err != nil {
+		t.Fatalf("integrate renewal with side-parent expected head: %v", err)
+	}
+	integrated := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if got := runGitTest(t, fixture.worktree, "rev-parse", integrated+"^1"); got != local {
+		t.Fatalf("integration source parent = %s, want %s", got, local)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", integrated+"^2"); got != marker {
+		t.Fatalf("integration renewal parent = %s, want %s", got, marker)
+	}
+	if err := application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14); err != nil {
+		t.Fatalf("side-parent integration push guard: %v", err)
+	}
+	runGitTest(t, fixture.worktree, "push", "origin", "HEAD:refs/heads/agent/issue-14")
+	if err := application.verifyClaim(); err != nil {
+		t.Fatalf("published side-parent integration verification: %v", err)
+	}
+	if err := application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14); err != nil {
+		t.Fatalf("published side-parent integration push guard: %v", err)
+	}
+	if err := application.renewClaim(); err != nil {
+		t.Fatalf("published side-parent integration renewal: %v", err)
+	}
+	if got := resumeRemoteHead(t, fixture); got != runGitTest(t, fixture.worktree, "rev-parse", "HEAD") {
+		t.Fatalf("side-parent renewal remote = %s, want local HEAD", got)
+	}
+}
+
+func TestPublishedClaimIntegrationRejectsUntrustedAdoption(t *testing.T) {
+	tests := []struct {
+		name string
+		make func(*testing.T, resumeFixture, string, string, string) string
+		want string
+	}{
+		{name: "wrong issue", make: func(t *testing.T, f resumeFixture, source, _, tree string) string {
+			other := createResumeTestCommit(t, f.worktree, source, claimMessage(15, f.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			return createResumeCommitTree(t, f.worktree, tree, []string{source, other}, "chore(workflow): integrate claim renewal #14\n")
+		}, want: "renews issue #15"},
+		{name: "wrong run", make: func(t *testing.T, f resumeFixture, source, _, tree string) string {
+			other := createResumeTestCommit(t, f.worktree, source, claimMessage(14, "run-other", time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			return createResumeCommitTree(t, f.worktree, tree, []string{source, other}, "chore(workflow): integrate claim renewal #14\n")
+		}, want: "conflicts with original run"},
+		{name: "renewal parent outside source ancestry", make: func(t *testing.T, f resumeFixture, source, _, tree string) string {
+			base := runGitTest(t, f.worktree, "rev-parse", source+"^")
+			sibling := createResumeTestCommit(t, f.worktree, base, "test: sibling\n")
+			other := createResumeTestCommit(t, f.worktree, sibling, claimMessage(14, f.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			return createResumeCommitTree(t, f.worktree, tree, []string{source, other}, "chore(workflow): integrate claim renewal #14\n")
+		}, want: "outside local source ancestry"},
+		{name: "source-bearing renewal", make: func(t *testing.T, f resumeFixture, source, _, tree string) string {
+			otherTree := resumeChangedTree(t, f)
+			other := createResumeCommitTree(t, f.worktree, otherTree, []string{source},
+				claimMessage(14, f.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			return createResumeCommitTree(t, f.worktree, tree, []string{source, other}, "chore(workflow): integrate claim renewal #14\n")
+		}, want: "source-bearing"},
+		{name: "integration changes source tree", make: func(t *testing.T, f resumeFixture, source, renewal, _ string) string {
+			return createResumeCommitTree(t, f.worktree, resumeChangedTree(t, f), []string{source, renewal}, "chore(workflow): integrate claim renewal #14\n")
+		}, want: "changes its source parent's tree"},
+		{name: "extra integration parent", make: func(t *testing.T, f resumeFixture, source, renewal, tree string) string {
+			base := runGitTest(t, f.worktree, "rev-parse", source+"^")
+			return createResumeCommitTree(t, f.worktree, tree, []string{source, renewal, base}, "chore(workflow): integrate claim renewal #14\n")
+		}, want: "non-canonical commit shape"},
+		{name: "misleading integration message", make: func(t *testing.T, f resumeFixture, source, renewal, tree string) string {
+			return createResumeCommitTree(t, f.worktree, tree, []string{source, renewal}, "chore(workflow): integrate claim renewal #14\n\nextra\n")
+		}, want: "non-canonical message"},
+		{name: "conflicting source marker", make: func(t *testing.T, f resumeFixture, source, renewal, tree string) string {
+			conflict := createResumeTestCommit(t, f.worktree, source, claimMessage(14, "run-other", time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			return createResumeCommitTree(t, f.worktree, tree, []string{conflict, renewal}, "chore(workflow): integrate claim renewal #14\n")
+		}, want: "conflicting first-parent marker"},
+		{name: "source conflict also reachable from expected side", make: func(t *testing.T, f resumeFixture, source, _, tree string) string {
+			conflict := createResumeTestCommit(t, f.worktree, source, claimMessage(14, "run-other", time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			expected := createResumeCommitTree(t, f.worktree, tree, []string{source, conflict}, "Merge expected PR head\n")
+			local := createResumeCommitTree(t, f.worktree, tree, []string{conflict, expected}, "Merge local work\n")
+			renewed := createResumeTestCommit(t, f.worktree, expected,
+				claimMessage(14, f.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			return createResumeCommitTree(t, f.worktree, tree, []string{local, renewed}, "chore(workflow): integrate claim renewal #14\n")
+		}, want: "conflicting first-parent marker"},
+		{name: "malformed shared integration", make: func(t *testing.T, f resumeFixture, source, _, tree string) string {
+			bad := createResumeCommitTree(t, f.worktree, tree, []string{source}, "chore(workflow): integrate claim renewal #14\n")
+			expected := createResumeTestCommit(t, f.worktree, bad,
+				claimMessage(14, f.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			local := createResumeCommitTree(t, f.worktree, tree, []string{bad, expected}, "Merge local work\n")
+			renewed := createResumeTestCommit(t, f.worktree, expected,
+				claimMessage(14, f.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			return createResumeCommitTree(t, f.worktree, tree, []string{local, renewed}, "chore(workflow): integrate claim renewal #14\n")
+		}, want: "non-canonical commit shape"},
+		{name: "foreign-run shared integration", make: func(t *testing.T, f resumeFixture, source, _, tree string) string {
+			foreign := createResumeTestCommit(t, f.worktree, source,
+				claimMessage(14, "run-other", time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			bad := createResumeCommitTree(t, f.worktree, tree, []string{source, foreign}, "chore(workflow): integrate claim renewal #14\n")
+			expected := createResumeTestCommit(t, f.worktree, bad,
+				claimMessage(14, f.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			local := createResumeCommitTree(t, f.worktree, tree, []string{bad, expected}, "Merge local work\n")
+			renewed := createResumeTestCommit(t, f.worktree, expected,
+				claimMessage(14, f.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			return createResumeCommitTree(t, f.worktree, tree, []string{local, renewed}, "chore(workflow): integrate claim renewal #14\n")
+		}, want: "conflicts with original run"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newResumeFixture(t)
+			source := fixture.expected
+			tree := runGitTest(t, fixture.worktree, "rev-parse", source+"^{tree}")
+			renewal := createResumeTestCommit(t, fixture.worktree, source,
+				claimMessage(14, fixture.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			head := test.make(t, fixture, source, renewal, tree)
+			backend := newResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			if _, err := application.readAuthoritativeClaimMarker(fixture.worktree, head, 14); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("untrusted integration authority error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func resumeChangedTree(t *testing.T, fixture resumeFixture) string {
+	t.Helper()
+	writeFixtureFile(t, fixture.worktree, "changed-tree", "different tree\n")
+	runGitTest(t, fixture.worktree, "add", "changed-tree")
+	tree := runGitTest(t, fixture.worktree, "write-tree")
+	runGitTest(t, fixture.worktree, "reset", "--hard", fixture.expected)
+	return tree
+}
+
+//nolint:gocognit // Each gate must reject the same malformed unpublished integration.
+func TestUnpublishedClaimIntegrationRejectsUntrustedAdoptionBeforePush(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		message string
+		runID   string
+		want    string
+	}{
+		{name: "wrong run", message: "chore(workflow): integrate claim renewal #14\n", runID: "run-other", want: "conflicts with original run"},
+		{name: "misleading message", message: "chore(workflow): integrate claim renewal #14\n\nextra\n", runID: "run-resume-test", want: "non-canonical message"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newActiveResumeClaimFixture(t)
+			source := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+			tree := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^{tree}")
+			renewal := createResumeTestCommit(t, fixture.worktree, source,
+				claimMessage(14, test.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			integration := createResumeCommitTree(t, fixture.worktree, tree, []string{source, renewal}, test.message)
+			runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, integration, source)
+			backend := newResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			for _, gate := range []struct {
+				name string
+				run  func() error
+			}{
+				{name: "verify", run: application.verifyClaim},
+				{name: "push guard", run: func() error {
+					return application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14)
+				}},
+				{name: "renew", run: application.renewClaim},
+			} {
+				if err := gate.run(); err == nil || !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("%s accepted untrusted unpublished integration: %v, want %q", gate.name, err, test.want)
+				}
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != integration {
+				t.Fatalf("rejected integration moved local head to %s", got)
+			}
+			if got := resumeRemoteHead(t, fixture); got != source {
+				t.Fatalf("rejected integration moved remote head to %s", got)
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("rejected integration performed %d mutations", backend.mutations)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Each gate must reject older and mismatched unpublished markers.
+func TestUnpublishedClaimIntegrationCannotRegressPublishedLease(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		lease time.Duration
+		want  string
+	}{
+		{name: "older expired marker", lease: -time.Hour, want: "renewal lease regresses proven authority"},
+		{name: "different newer marker", lease: 2 * time.Hour, want: "not remote authoritative marker"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newActiveResumeClaimFixture(t)
+			remote := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+			original := fixture.expected
+			other := createResumeTestCommit(t, fixture.worktree, original,
+				claimMessage(14, fixture.runID, time.Now().UTC().Add(test.lease).Truncate(time.Second)))
+			tree := runGitTest(t, fixture.worktree, "rev-parse", remote+"^{tree}")
+			integration := createResumeCommitTree(t, fixture.worktree, tree, []string{remote, other}, "chore(workflow): integrate claim renewal #14\n")
+			runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, integration, remote)
+			backend := newResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			for _, gate := range []struct {
+				name string
+				run  func() error
+			}{
+				{name: "verify", run: application.verifyClaim},
+				{name: "push guard", run: func() error {
+					return application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14)
+				}},
+				{name: "renew", run: application.renewClaim},
+			} {
+				if err := gate.run(); err == nil || !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("%s accepted %s integration: %v, want %q", gate.name, test.name, err, test.want)
+				}
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != integration {
+				t.Fatalf("rejected integration moved local head to %s", got)
+			}
+			if got := resumeRemoteHead(t, fixture); got != remote {
+				t.Fatalf("rejected integration moved remote head to %s", got)
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("rejected integration performed %d mutations", backend.mutations)
+			}
+		})
+	}
+}
+
+func TestUnpublishedClaimMarkerCannotRegressPublishedLease(t *testing.T) {
+	fixture := newActiveResumeClaimFixture(t)
+	remote := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	local := createResumeTestCommit(t, fixture.worktree, remote,
+		claimMessage(14, fixture.runID, time.Now().UTC().Add(-time.Hour).Truncate(time.Second)))
+	runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, local, remote)
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	for _, gate := range []struct {
+		name string
+		run  func() error
+	}{
+		{name: "verify", run: application.verifyClaim},
+		{name: "push guard", run: func() error {
+			return application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14)
+		}},
+		{name: "renew", run: application.renewClaim},
+	} {
+		if err := gate.run(); err == nil || !strings.Contains(err.Error(), "regresses remote") {
+			t.Fatalf("%s accepted expired unpublished marker: %v", gate.name, err)
+		}
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != local {
+		t.Fatalf("rejected local marker moved head to %s", got)
+	}
+	if got := resumeRemoteHead(t, fixture); got != remote {
+		t.Fatalf("rejected local marker moved remote to %s", got)
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("rejected local marker performed %d mutations", backend.mutations)
+	}
+}
+
+func TestPublishedClaimIntegrationAuthorityHasBoundedRepeatedProof(t *testing.T) {
+	fixture := newActiveResumeClaimFixture(t)
+	head := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	for range 7 {
+		tree := runGitTest(t, fixture.worktree, "rev-parse", head+"^{tree}")
+		renewal := createResumeTestCommit(t, fixture.worktree, head,
+			claimMessage(14, fixture.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+		head = createResumeCommitTree(t, fixture.worktree, tree, []string{head, renewal},
+			"chore(workflow): integrate claim renewal #14\n")
+	}
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	marker, err := application.readAuthoritativeClaimMarker(fixture.worktree, head, 14)
+	if err != nil {
+		t.Fatalf("repeated integration authority: %v", err)
+	}
+	if marker.runID != fixture.runID {
+		t.Fatalf("repeated integration authority run = %s, want %s", marker.runID, fixture.runID)
+	}
+	if len(backend.calls) > 500 {
+		t.Fatalf("repeated integration proof used %d Git calls, want bounded growth", len(backend.calls))
+	}
+}
+
+//nolint:gocognit // Both public claim gates must reject the same published lease regression without mutation.
+func TestPublishedClaimIntegrationCannotRegressSourceLease(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		renewalAfter time.Duration
+		wantError    bool
+	}{
+		{name: "older renewal", renewalAfter: 2 * time.Hour, wantError: true},
+		{name: "later renewal", renewalAfter: 4 * time.Hour},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newResumeFixture(t)
+			original := fixture.expected
+			lease := time.Now().UTC().Add(3 * time.Hour).Truncate(time.Second)
+			source := createResumeTestCommit(t, fixture.worktree, original,
+				claimMessage(14, fixture.runID, lease))
+			renewal := createResumeTestCommit(t, fixture.worktree, original,
+				claimMessage(14, fixture.runID, time.Now().UTC().Add(test.renewalAfter).Truncate(time.Second)))
+			tree := runGitTest(t, fixture.worktree, "rev-parse", source+"^{tree}")
+			integration := createResumeCommitTree(t, fixture.worktree, tree, []string{source, renewal},
+				"chore(workflow): integrate claim renewal #14\n")
+			runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, integration, original)
+			runGitTest(t, fixture.primary, "push", "origin", integration+":refs/heads/agent/issue-14")
+			if got := resumeRemoteHead(t, fixture); got != integration {
+				t.Fatalf("published integration = %s, want %s", got, integration)
+			}
+			writeFixtureFile(t, fixture.worktree, "staged", "preserved staged work\n")
+			runGitTest(t, fixture.worktree, "add", "staged")
+			writeFixtureFile(t, fixture.worktree, "untracked", "preserved untracked work\n")
+			paths := resumePreservedPaths(t, fixture.worktree)
+			before := snapshotResumeLocal(t, fixture.worktree, paths)
+			backend := newResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			for _, gate := range []struct {
+				name string
+				run  func() error
+			}{
+				{name: "verify", run: application.verifyClaim},
+				{name: "push guard", run: func() error {
+					return application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14)
+				}},
+			} {
+				err := gate.run()
+				if test.wantError {
+					if err == nil || !strings.Contains(err.Error(), "renewal lease regresses proven authority") {
+						t.Fatalf("%s accepted published lease regression: %v", gate.name, err)
+					}
+					continue
+				}
+				if err != nil {
+					t.Fatalf("%s rejected later renewal: %v", gate.name, err)
+				}
+			}
+			assertResumeSnapshot(t, fixture.worktree, paths, before)
+			if got := resumeRemoteHead(t, fixture); got != integration {
+				t.Fatalf("claim gates moved remote head to %s, want %s", got, integration)
+			}
+			if backend.mutations != 0 {
+				t.Fatalf("claim gates performed %d mutations", backend.mutations)
+			}
+		})
+	}
+}
+
+func TestPublishedClaimIntegrationCannotRegressRenewalBaseLease(t *testing.T) {
+	fixture := newResumeFixture(t)
+	original := fixture.expected
+	base := createResumeTestCommit(t, fixture.worktree, original,
+		claimMessage(14, fixture.runID, time.Now().UTC().Add(3*time.Hour).Truncate(time.Second)))
+	tree := runGitTest(t, fixture.worktree, "rev-parse", original+"^{tree}")
+	source := createResumeCommitTree(t, fixture.worktree, tree, []string{original, base}, "Merge source work\n")
+	renewal := createResumeTestCommit(t, fixture.worktree, base,
+		claimMessage(14, fixture.runID, time.Now().UTC().Add(2*time.Hour).Truncate(time.Second)))
+	integration := createResumeCommitTree(t, fixture.worktree, tree, []string{source, renewal},
+		"chore(workflow): integrate claim renewal #14\n")
+	runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, integration, original)
+	runGitTest(t, fixture.primary, "push", "origin", integration+":refs/heads/agent/issue-14")
+	paths := resumePreservedPaths(t, fixture.worktree)
+	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	for _, gate := range []struct {
+		name string
+		run  func() error
+	}{
+		{name: "verify", run: application.verifyClaim},
+		{name: "push guard", run: func() error {
+			return application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14)
+		}},
+	} {
+		if err := gate.run(); err == nil || !strings.Contains(err.Error(), "renewal lease regresses proven authority") {
+			t.Fatalf("%s accepted renewal below its proven base lease: %v", gate.name, err)
+		}
+	}
+	assertResumeSnapshot(t, fixture.worktree, paths, before)
+	if got := resumeRemoteHead(t, fixture); got != integration {
+		t.Fatalf("claim gates moved remote head to %s, want %s", got, integration)
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("claim gates performed %d mutations", backend.mutations)
+	}
+}
+
+//nolint:gocognit // The same shared-boundary fault must fail before and after an adversarial push.
+func TestClaimIntegrationRejectsUnprovedSharedBoundaryBeforeAndAfterPush(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		foreign bool
+		want    string
+	}{
+		{name: "malformed integration", want: "non-canonical commit shape"},
+		{name: "foreign-run integration", foreign: true, want: "conflicts with original run"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newActiveResumeClaimFixture(t)
+			active := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+			tree := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^{tree}")
+			parents := []string{active}
+			if test.foreign {
+				foreign := createResumeTestCommit(t, fixture.worktree, active,
+					claimMessage(14, "run-other", time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+				parents = append(parents, foreign)
+			}
+			bad := createResumeCommitTree(t, fixture.worktree, tree, parents, "chore(workflow): integrate claim renewal #14\n")
+			expected := createResumeTestCommit(t, fixture.worktree, bad,
+				claimMessage(14, fixture.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			localSource := createResumeCommitTree(t, fixture.worktree, tree, []string{bad, expected}, "Merge local work\n")
+			renewal := createResumeTestCommit(t, fixture.worktree, expected,
+				claimMessage(14, fixture.runID, time.Now().UTC().Add(time.Hour).Truncate(time.Second)))
+			integration := createResumeCommitTree(t, fixture.worktree, tree, []string{localSource, renewal},
+				"chore(workflow): integrate claim renewal #14\n")
+			runGitTest(t, fixture.primary, "push", "origin", renewal+":refs/heads/agent/issue-14")
+			runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, integration, active)
+			backend := newResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			for _, phase := range []string{"before push", "after push"} {
+				for _, gate := range []struct {
+					name string
+					run  func() error
+				}{
+					{name: "verify", run: application.verifyClaim},
+					{name: "push guard", run: func() error {
+						return application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14)
+					}},
+					{name: "renew", run: application.renewClaim},
+				} {
+					if err := gate.run(); err == nil || !strings.Contains(err.Error(), test.want) {
+						t.Fatalf("%s %s accepted unproved boundary: %v, want %q", phase, gate.name, err, test.want)
+					}
+				}
+				if backend.mutations != 0 {
+					t.Fatalf("%s workflow gates performed %d mutations", phase, backend.mutations)
+				}
+				if phase == "before push" {
+					runGitTest(t, fixture.worktree, "push", "origin", integration+":refs/heads/agent/issue-14")
+				}
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != integration {
+				t.Fatalf("rejected integration moved local head to %s", got)
+			}
+			if got := resumeRemoteHead(t, fixture); got != integration {
+				t.Fatalf("adversarial publication head = %s, want %s", got, integration)
+			}
+		})
 	}
 }
 
