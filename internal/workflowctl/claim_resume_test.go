@@ -15,6 +15,28 @@ import (
 	"time"
 )
 
+const issue473TerminalHandoffBody = `## Blocker
+
+Issue #473 remains at the preserved claim worktree after the earlier Scribe and Mason consultations returned no handoff. The earlier terminal comment mentioned a different issue number, so claim resume rejected that comment's recovery proof.
+
+## Evidence
+
+- The claim worktree is ` + "`/home/paseouser/workspace/goxsd9-worktrees/issue-473-run-3cea79fff853d39e`" + `, local branch ` + "`agent/issue-473-run-3cea79fff853d39e`" + `, fixed branch ` + "`agent/issue-473`" + `, run ` + "`run-3cea79fff853d39e`" + `.
+- Expected head: ` + "`30645a7078eb4d6c23d7ace139afb0f18d41dc84`" + `. Local and remote fixed heads match. The head is the generated empty claim renewal child of the generated acquisition commit.
+- The generated claim comment records the lease until ` + "`2026-09-18T11:01:49Z`" + `. The current worktree remained clean; no source or test files were changed.
+- The earlier development attempt stopped before source work.
+- No implementation, tests, commit, push, PR, or evaluation record was made.
+
+## Decisions and risks
+
+- Preserve the existing direct strict element wildcard scope and the exact claim artifacts. The missing specification and architecture consultations must return before implementation is assigned.
+- The packet has no implementation or acceptance evidence. Claim authority must be revalidated by workflowctl before source work.
+
+## Next action
+
+Resume issue #473 only if workflowctl accepts this exact handoff, branch, run, and head. Obtain fresh Scribe and Mason findings, then assign the bounded source and test work to Smith and complete the normal checks and review gates.
+`
+
 const issue305TerminalHandoffBody = `# Handoff: issue #305
 
 ## Block
@@ -185,6 +207,269 @@ func TestClaimResumeExactIssue240DryRunHasZeroMutation(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "handoff-comment 5501405525") {
 		t.Fatalf("issue #240 dry-run output = %q", output.String())
+	}
+}
+
+func newClaimResumeIssue473Fixture(t *testing.T) (claimResumeFixture, string) {
+	t.Helper()
+	acquisitionLease := time.Date(2026, time.September, 18, 11, 1, 49, 0, time.UTC)
+	fixture := newClaimResumeIssueFixtureAtLease(t, 473, "run-3cea79fff853d39e", acquisitionLease)
+	acquisition := fixture.expected
+	renewalLease := time.Date(2026, time.September, 18, 11, 20, 51, 0, time.UTC)
+	renewal := createResumeTestCommit(t, fixture.primary, acquisition, claimMessage(fixture.issue, fixture.runID, renewalLease))
+	setClaimResumeFixtureHead(t, &fixture, renewal)
+	fixture.handoff = 5890419627
+	fixture.handoffBody = strings.ReplaceAll(issue473TerminalHandoffBody,
+		"/home/paseouser/workspace/goxsd9-worktrees/issue-473-run-3cea79fff853d39e", fixture.worktree)
+	fixture.handoffBody = strings.ReplaceAll(fixture.handoffBody,
+		"30645a7078eb4d6c23d7ace139afb0f18d41dc84", fixture.expected)
+	return fixture, acquisition
+}
+
+func setClaimResumeFixtureHead(t *testing.T, fixture *claimResumeFixture, head string) {
+	t.Helper()
+	runGitTest(t, fixture.worktree, "reset", "--hard", head)
+	runGitTest(t, fixture.primary, "push", "--force", "origin", head+":refs/heads/"+claimBranch(fixture.issue))
+	fixture.expected = head
+}
+
+func TestClaimResumeIssue473HistoricalChainDryRun(t *testing.T) {
+	fixture, acquisition := newClaimResumeIssue473Fixture(t)
+	backend := newClaimResumeBackend(t, fixture)
+	var output bytes.Buffer
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: &output}
+	if err := application.run(claimResumeArgs(fixture, true)); err != nil {
+		t.Fatalf("exact issue #473 renewal chain dry-run: %v", err)
+	}
+	if backend.mutations != 0 || backend.needsHuman != true || backend.projectStatus != "Backlog" {
+		t.Fatalf("dry-run mutation/state = %d/%t/%s, want zero/true/Backlog", backend.mutations, backend.needsHuman, backend.projectStatus)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD^"); got != acquisition {
+		t.Fatalf("historical renewal parent = %s, want acquisition %s", got, acquisition)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != fixture.expected {
+		t.Fatalf("dry-run moved head from %s to %s", fixture.expected, got)
+	}
+	if !strings.Contains(output.String(), "issue #473") || !strings.Contains(output.String(), "handoff-comment 5890419627") ||
+		!strings.Contains(output.String(), "expected "+fixture.expected) || !strings.Contains(output.String(), "no mutation performed") {
+		t.Fatalf("exact issue #473 dry-run output = %q", output.String())
+	}
+}
+
+func TestClaimResumeIssue473HistoricalChainRetriesProjectIdempotently(t *testing.T) {
+	fixture, _ := newClaimResumeIssue473Fixture(t)
+	backend := newClaimResumeBackend(t, fixture)
+	projectFailure := errors.New("simulated Project write failure")
+	backend.projectFailure = projectFailure
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	err := application.run(claimResumeArgs(fixture, false))
+	if err == nil || operationDispositionOf(err) != operationDispositionRetryable || !errors.Is(err, projectFailure) {
+		t.Fatalf("issue #473 Project failure = %v, disposition %d, want retryable preserved cause", err, operationDispositionOf(err))
+	}
+	if backend.needsHuman || backend.projectStatus != "Backlog" {
+		t.Fatalf("partial Project state = needs-human %t, status %s", backend.needsHuman, backend.projectStatus)
+	}
+	partialHead := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if partialHead == fixture.expected {
+		t.Fatal("partial Project failure lost verified renewal")
+	}
+	if err := application.run(claimResumeArgs(fixture, false)); err != nil {
+		t.Fatalf("issue #473 resume after Project failure: %v", err)
+	}
+	assertClaimResumeRenewed(t, fixture, backend)
+	head := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if head != partialHead {
+		t.Fatalf("Project retry created second renewal: %s, want %s", head, partialHead)
+	}
+	mutations := backend.mutations
+	if err := application.run(claimResumeArgs(fixture, false)); err != nil {
+		t.Fatalf("issue #473 idempotent resume: %v", err)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != head || backend.mutations != mutations {
+		t.Fatalf("idempotent retry head/mutations = %s/%d, want %s/%d", got, backend.mutations, head, mutations)
+	}
+}
+
+func TestClaimResumeAllowsWorkBetweenHistoricalMarkers(t *testing.T) {
+	fixture, acquisition := newClaimResumeIssue473Fixture(t)
+	workTree := runGitTest(t, fixture.primary, "mktree")
+	if workTree == runGitTest(t, fixture.primary, "rev-parse", acquisition+"^{tree}") {
+		t.Fatal("work fixture tree must differ from the acquisition tree")
+	}
+	work := createResumeCommitTree(t, fixture.primary, workTree, []string{acquisition}, "fix(workflow): preserve source work\n")
+	renewal := createResumeTestCommit(t, fixture.primary, work, claimMessage(473, fixture.runID, fixture.lease.Add(time.Hour)))
+	previousHead := fixture.expected
+	setClaimResumeFixtureHead(t, &fixture, renewal)
+	fixture.handoffBody = strings.ReplaceAll(fixture.handoffBody, previousHead, renewal)
+	backend := newClaimResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.run(claimResumeArgs(fixture, true)); err != nil {
+		t.Fatalf("work commit between historical markers: %v", err)
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("work-commit dry-run mutations = %d, want zero", backend.mutations)
+	}
+}
+
+func TestClaimResumeAllowsSourceWorkMentioningLeaseTrailer(t *testing.T) {
+	fixture, acquisition := newClaimResumeIssue473Fixture(t)
+	workTree := runGitTest(t, fixture.primary, "mktree")
+	if workTree == runGitTest(t, fixture.primary, "rev-parse", acquisition+"^{tree}") {
+		t.Fatal("prose work fixture tree must change")
+	}
+	message := "fix(workflow): verify renewal instructions\n\nValidate Agent-Lease-Until: before renewing a claim.\n"
+	work := createResumeCommitTree(t, fixture.primary, workTree, []string{acquisition}, message)
+	renewal := createResumeTestCommit(t, fixture.primary, work, claimMessage(473, fixture.runID, fixture.lease.Add(time.Hour)))
+	previousHead := fixture.expected
+	setClaimResumeFixtureHead(t, &fixture, renewal)
+	fixture.handoffBody = strings.ReplaceAll(fixture.handoffBody, previousHead, renewal)
+	backend := newClaimResumeBackend(t, fixture)
+	var output bytes.Buffer
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: &output}
+	if err := application.run(claimResumeArgs(fixture, true)); err != nil {
+		t.Fatalf("source work with lease-trailer prose dry-run: %v", err)
+	}
+	if backend.mutations != 0 || !strings.Contains(output.String(), "no mutation performed") {
+		t.Fatalf("prose work dry-run mutations/output = %d/%q", backend.mutations, output.String())
+	}
+}
+
+func TestClaimResumeRejectsSourceWorkAsExpectedHead(t *testing.T) {
+	fixture, _ := newClaimResumeIssue473Fixture(t)
+	tree := runGitTest(t, fixture.primary, "mktree")
+	if tree == runGitTest(t, fixture.primary, "rev-parse", fixture.expected+"^{tree}") {
+		t.Fatal("expected-head work fixture tree must change")
+	}
+	work := createResumeCommitTree(t, fixture.primary, tree, []string{fixture.expected}, "fix(workflow): source work\n")
+	previousHead := fixture.expected
+	setClaimResumeFixtureHead(t, &fixture, work)
+	fixture.handoffBody = strings.ReplaceAll(fixture.handoffBody, previousHead, work)
+	backend := newClaimResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	err := application.run(claimResumeArgs(fixture, false))
+	if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), "source-bearing") {
+		t.Fatalf("source-work expected head error = %v, disposition %d", err, operationDispositionOf(err))
+	}
+	if backend.mutations != 0 || backend.needsHuman != true || backend.projectStatus != "Backlog" {
+		t.Fatalf("source-work expected head mutation/state = %d/%t/%s", backend.mutations, backend.needsHuman, backend.projectStatus)
+	}
+}
+
+//nolint:gocognit // The table exercises each invalid historical marker at one proof boundary.
+func TestClaimResumeIssue473RejectsInvalidHistoricalMarkers(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		make func(*testing.T, claimResumeFixture, string) string
+		want string
+	}{
+		{name: "cross-run", make: func(t *testing.T, fixture claimResumeFixture, acquisition string) string {
+			return createResumeTestCommit(t, fixture.primary, acquisition, claimMessage(473, "run-other", fixture.lease.Add(time.Hour)))
+		}, want: "metadata binds"},
+		{name: "cross-run behind repeated acquisition lease", make: func(t *testing.T, fixture claimResumeFixture, acquisition string) string {
+			other := createResumeTestCommit(t, fixture.primary, acquisition, claimMessage(473, "run-other", fixture.lease.Add(time.Hour)))
+			return createResumeTestCommit(t, fixture.primary, other, claimMessage(473, fixture.runID, fixture.lease))
+		}, want: "metadata binds"},
+		{name: "source-bearing", make: func(t *testing.T, fixture claimResumeFixture, acquisition string) string {
+			tree := runGitTest(t, fixture.primary, "mktree")
+			if tree == runGitTest(t, fixture.primary, "rev-parse", acquisition+"^{tree}") {
+				t.Fatal("invalid marker fixture tree must differ from its parent tree")
+			}
+			return createResumeCommitTree(t, fixture.primary, tree, []string{acquisition}, claimMessage(473, fixture.runID, fixture.lease.Add(time.Hour)))
+		}, want: "source-bearing"},
+		{name: "merge", make: func(t *testing.T, fixture claimResumeFixture, acquisition string) string {
+			parent := runGitTest(t, fixture.primary, "rev-parse", acquisition+"^")
+			tree := runGitTest(t, fixture.primary, "rev-parse", acquisition+"^{tree}")
+			return createResumeCommitTree(t, fixture.primary, tree, []string{acquisition, parent}, claimMessage(473, fixture.runID, fixture.lease.Add(time.Hour)))
+		}, want: "merge ancestry is ambiguous"},
+		{name: "merge work with hidden marker", make: func(t *testing.T, fixture claimResumeFixture, acquisition string) string {
+			base := runGitTest(t, fixture.primary, "rev-parse", acquisition+"^")
+			other := createResumeTestCommit(t, fixture.primary, base, claimMessage(473, "run-other", fixture.lease.Add(time.Hour)))
+			tree := runGitTest(t, fixture.primary, "mktree")
+			if tree == runGitTest(t, fixture.primary, "rev-parse", acquisition+"^{tree}") {
+				t.Fatal("merge work fixture tree must change")
+			}
+			return createResumeCommitTree(t, fixture.primary, tree, []string{acquisition, other}, "fix(workflow): merge source work\n")
+		}, want: "merge ancestry is ambiguous"},
+		{name: "hidden acquisition through earlier merge", make: func(t *testing.T, fixture claimResumeFixture, acquisition string) string {
+			base := runGitTest(t, fixture.primary, "rev-parse", acquisition+"^")
+			tree := runGitTest(t, fixture.primary, "mktree")
+			if tree == runGitTest(t, fixture.primary, "rev-parse", base+"^{tree}") {
+				t.Fatal("hidden-acquisition merge tree must change")
+			}
+			merge := createResumeCommitTree(t, fixture.primary, tree, []string{base, acquisition}, "fix(workflow): merge old work\n")
+			return createResumeTestCommit(t, fixture.primary, merge, claimMessage(473, fixture.runID, fixture.lease))
+		}, want: "outside first-parent ancestry"},
+		{name: "malformed", make: func(t *testing.T, fixture claimResumeFixture, acquisition string) string {
+			return createResumeTestCommit(t, fixture.primary, acquisition, strings.TrimSuffix(claimMessage(473, fixture.runID, fixture.lease.Add(time.Hour)), "\n"))
+		}, want: "non-canonical"},
+		{name: "opaque empty marker", make: func(t *testing.T, fixture claimResumeFixture, acquisition string) string {
+			return createResumeTestCommit(t, fixture.primary, acquisition, "unrecognizable marker\n")
+		}, want: "non-canonical metadata"},
+		{name: "moved ancestry", make: func(t *testing.T, fixture claimResumeFixture, acquisition string) string {
+			parent := runGitTest(t, fixture.primary, "rev-parse", acquisition+"^")
+			return createResumeTestCommit(t, fixture.primary, parent, claimMessage(473, fixture.runID, fixture.lease.Add(time.Hour)))
+		}, want: "does not match generated acquisition lease"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture, acquisition := newClaimResumeIssue473Fixture(t)
+			bad := test.make(t, fixture, acquisition)
+			latest := createResumeTestCommit(t, fixture.primary, bad, claimMessage(473, fixture.runID, fixture.lease.Add(2*time.Hour)))
+			previousHead := fixture.expected
+			setClaimResumeFixtureHead(t, &fixture, latest)
+			fixture.handoffBody = strings.ReplaceAll(fixture.handoffBody, previousHead, latest)
+			backend := newClaimResumeBackend(t, fixture)
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			err := application.run(claimResumeArgs(fixture, false))
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid historical marker error = %v, disposition %d, want terminal %q", err, operationDispositionOf(err), test.want)
+			}
+			if backend.mutations != 0 || backend.needsHuman != true || backend.projectStatus != "Backlog" {
+				t.Fatalf("invalid marker mutation/state = %d/%t/%s", backend.mutations, backend.needsHuman, backend.projectStatus)
+			}
+			if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != latest {
+				t.Fatalf("invalid marker moved local head from %s to %s", latest, got)
+			}
+		})
+	}
+}
+
+func TestClaimResumeIssue473EqualRenewalLeaseStillAuthenticatesOldestMarker(t *testing.T) {
+	fixture, acquisition := newClaimResumeIssue473Fixture(t)
+	equalLeaseRenewal := createResumeTestCommit(t, fixture.primary, acquisition, claimMessage(473, fixture.runID, fixture.lease))
+	previousHead := fixture.expected
+	setClaimResumeFixtureHead(t, &fixture, equalLeaseRenewal)
+	fixture.handoffBody = strings.ReplaceAll(fixture.handoffBody, previousHead, equalLeaseRenewal)
+	backend := newClaimResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.run(claimResumeArgs(fixture, true)); err != nil {
+		t.Fatalf("equal-lease renewal chain: %v", err)
+	}
+	if backend.mutations != 0 {
+		t.Fatalf("equal-lease dry-run mutations = %d, want zero", backend.mutations)
+	}
+}
+
+func TestClaimResumeIssue473RejectsConflictingAcquisitionLease(t *testing.T) {
+	fixture, acquisition := newClaimResumeIssue473Fixture(t)
+	claimedLease := fixture.lease.Add(time.Hour)
+	conflicting := createResumeTestCommit(t, fixture.primary, acquisition, claimMessage(473, fixture.runID, claimedLease))
+	latest := createResumeTestCommit(t, fixture.primary, conflicting, claimMessage(473, fixture.runID, fixture.lease.Add(2*time.Hour)))
+	previousHead := fixture.expected
+	setClaimResumeFixtureHead(t, &fixture, latest)
+	fixture.handoffBody = strings.ReplaceAll(fixture.handoffBody, previousHead, latest)
+	fixture.handoffBody = strings.ReplaceAll(fixture.handoffBody, fixture.lease.Format(time.RFC3339), claimedLease.Format(time.RFC3339))
+	backend := newClaimResumeBackend(t, fixture)
+	backend.comments[0].Body = strings.ReplaceAll(backend.comments[0].Body, fixture.lease.Format(time.RFC3339), claimedLease.Format(time.RFC3339))
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	err := application.run(claimResumeArgs(fixture, false))
+	if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), "does not match generated acquisition lease") {
+		t.Fatalf("conflicting acquisition marker error = %v, disposition %d", err, operationDispositionOf(err))
+	}
+	if backend.mutations != 0 || backend.needsHuman != true || backend.projectStatus != "Backlog" {
+		t.Fatalf("conflicting marker mutation/state = %d/%t/%s", backend.mutations, backend.needsHuman, backend.projectStatus)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != latest {
+		t.Fatalf("conflicting marker moved local head from %s to %s", latest, got)
 	}
 }
 
@@ -1276,6 +1561,7 @@ type claimResumeBackend struct {
 	raceNeedsHumanAfterProject bool
 	raceOpenPRAfterProject     bool
 	labelFailure               error
+	projectFailure             error
 	mutations                  int
 	calls                      []string
 }
@@ -1387,6 +1673,11 @@ func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 		return `{"fields":[{"id":"status-field","name":"Status","options":[{"id":"backlog-id","name":"Backlog"},{"id":"picked-id","name":"Picked"}]}]}`, nil
 	case strings.Contains(joined, "project item-edit"):
 		b.mutations++
+		if b.projectFailure != nil {
+			err := b.projectFailure
+			b.projectFailure = nil
+			return "", err
+		}
 		b.projectStatus = "Picked"
 		if b.ambiguousProject {
 			b.ambiguousProject = false

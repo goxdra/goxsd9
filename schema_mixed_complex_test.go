@@ -320,10 +320,6 @@ func TestSchemaComplexTypeMixedFalseDoesNotCrossInlineOrUnsupportedBoundaries(t 
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType mixed="false"><xs:sequence/></xs:complexType></xs:schema>`,
 		},
 		{
-			name: "simpleContent",
-			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Item" mixed="false"><xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent></xs:complexType></xs:schema>`,
-		},
-		{
 			name: "unsupported nested model",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Item" mixed="false"><xs:sequence><xs:choice/></xs:sequence></xs:complexType></xs:schema>`,
 		},

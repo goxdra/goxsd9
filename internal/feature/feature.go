@@ -109,6 +109,7 @@ var registry = []definition{
 			{version: "1.0", source: "xsd10-structures#element-choice"},
 			{version: "1.0", source: "xsd10-structures#Particle_details"},
 			{version: "1.0", source: "xsd10-structures#ct-abstract"},
+			{version: "1.0", source: "xsd10-structures#Identity-constraint_Definition_details"},
 			{version: "1.1", source: "xsd11-structures#Simple_Type_Definition"},
 			{version: "1.1", source: "xsd11-structures#Element_Declaration_details"},
 			{version: "1.1", source: "xsd11-structures#cParticles"},
@@ -116,6 +117,7 @@ var registry = []definition{
 			{version: "1.1", source: "xsd11-structures#element-choice"},
 			{version: "1.1", source: "xsd11-structures#Particle_details"},
 			{version: "1.1", source: "xsd11-structures#ctd-abstract"},
+			{version: "1.1", source: "xsd11-structures#Identity-constraint_Definition_details"},
 		},
 	},
 	{
@@ -139,8 +141,10 @@ var registry = []definition{
 		references: []Reference{
 			{version: "1.0", source: "xsd10-structures#cvc-elt"},
 			{version: "1.0", source: "xsd10-structures#cvc-complex-type"},
+			{version: "1.0", source: "xsd10-structures#Identity-constraint_Definition_details"},
 			{version: "1.1", source: "xsd11-structures#cvc-elt"},
 			{version: "1.1", source: "xsd11-structures#sec-cvc-type"},
+			{version: "1.1", source: "xsd11-structures#Identity-constraint_Definition_details"},
 		},
 	},
 	{
@@ -148,7 +152,9 @@ var registry = []definition{
 		title: "XSD schema syntax outside the bootstrap kernel",
 		references: []Reference{
 			{version: "1.0", source: "xsd10-structures#schema-document"},
+			{version: "1.0", source: "xsd10-structures#src-identity-constraint"},
 			{version: "1.1", source: "xsd11-structures#cSchemaDocument"},
+			{version: "1.1", source: "xsd11-structures#src-identity-constraint"},
 		},
 	},
 	{

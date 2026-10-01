@@ -13,15 +13,20 @@ const (
 
 // AttributeValueConstraint is an immutable typed value constraint on a global
 // attribute declaration. Lexical returns the normalized lexical form; the
-// typed accessors retain the exact integer or decimal value.
+// typed accessors retain the exact boolean, integer, decimal, or
+// precisionDecimal value.
 type AttributeValueConstraint struct {
-	kind       AttributeValueConstraintKind
-	lexical    string
-	loc        Loc
-	integer    StrictInteger
-	hasInteger bool
-	decimal    StrictDecimal
-	hasDecimal bool
+	kind                AttributeValueConstraintKind
+	lexical             string
+	loc                 Loc
+	boolean             StrictBoolean
+	hasBoolean          bool
+	integer             StrictInteger
+	hasInteger          bool
+	decimal             StrictDecimal
+	hasDecimal          bool
+	precisionDecimal    StrictPrecisionDecimal
+	hasPrecisionDecimal bool
 }
 
 // Kind returns whether the constraint supplies a default or fixed value.
@@ -49,6 +54,15 @@ func (constraint AttributeValueConstraint) Loc() Loc {
 	return constraint.loc
 }
 
+// BooleanValue returns the exact boolean value when the constraint is typed as
+// a boolean.
+func (constraint AttributeValueConstraint) BooleanValue() (StrictBoolean, bool) {
+	if !constraint.hasBoolean {
+		return StrictBoolean{}, false
+	}
+	return constraint.boolean, true
+}
+
 // IntegerValue returns the exact integer value when the constraint is typed as
 // an integer.
 func (constraint AttributeValueConstraint) IntegerValue() (StrictInteger, bool) {
@@ -65,6 +79,15 @@ func (constraint AttributeValueConstraint) DecimalValue() (StrictDecimal, bool) 
 		return StrictDecimal{}, false
 	}
 	return cloneStrictDecimal(constraint.decimal), true
+}
+
+// PrecisionDecimalValue returns the exact precisionDecimal value when the
+// constraint is typed as precisionDecimal.
+func (constraint AttributeValueConstraint) PrecisionDecimalValue() (StrictPrecisionDecimal, bool) {
+	if !constraint.hasPrecisionDecimal {
+		return StrictPrecisionDecimal{}, false
+	}
+	return cloneStrictPrecisionDecimal(constraint.precisionDecimal), true
 }
 
 // Integer is a concise alias for IntegerValue.
@@ -88,7 +111,14 @@ func cloneAttributeValueConstraint(constraint *AttributeValueConstraint) *Attrib
 	if constraint.hasDecimal {
 		clone.decimal = cloneStrictDecimal(constraint.decimal)
 	}
+	if constraint.hasPrecisionDecimal {
+		clone.precisionDecimal = cloneStrictPrecisionDecimal(constraint.precisionDecimal)
+	}
 	return &clone
+}
+
+func cloneStrictPrecisionDecimal(value StrictPrecisionDecimal) StrictPrecisionDecimal {
+	return StrictPrecisionDecimal{value: clonePrecisionDecimalValue(value.value)}
 }
 
 type schemaAttributeValueConstraintInput struct {
