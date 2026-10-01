@@ -368,7 +368,11 @@ func TestPRResumePreservesLocalIntegrationBytes(t *testing.T) {
 				t.Fatalf("dirty local integration error = %v, want %q", err, test.integrateError)
 			}
 			assertResumeSnapshot(t, fixture.worktree, paths, before)
-			if err := application.renewClaim(); err == nil || !strings.Contains(err.Error(), "integrate a pending PR renewal") {
+			renewError := "integrate a pending PR renewal"
+			if test.integrateError == "MERGE_HEAD" {
+				renewError = "MERGE_HEAD"
+			}
+			if err := application.renewClaim(); err == nil || !strings.Contains(err.Error(), renewError) {
 				t.Fatalf("claim renew during pending = %v", err)
 			}
 			if err := application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14); err == nil || !strings.Contains(err.Error(), "integrate pending PR renewal") {
@@ -1229,6 +1233,32 @@ func TestClaimRenewRejectsLeaseRegressionBeforeRefMutation(t *testing.T) {
 	}
 	if countResumeCalls(backend.calls, "git update-ref ") != 0 || countResumeCalls(backend.calls, "git push ") != 0 {
 		t.Fatalf("future-lease renewal mutated a claim ref: %v", backend.calls)
+	}
+}
+
+func TestClaimRenewRejectsUnfinishedMergeWithEqualHeads(t *testing.T) {
+	fixture := newActiveResumeClaimFixture(t)
+	remote := resumeRemoteHead(t, fixture)
+	stageResumeMerge(t, fixture)
+	if local := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); local != remote {
+		t.Fatalf("unfinished merge local head = %s, want remote %s", local, remote)
+	}
+	paths := resumePreservedPaths(t, fixture.worktree)
+	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	mutations := backend.mutations
+	if err := application.renewClaim(); err == nil || !strings.Contains(err.Error(), "MERGE_HEAD") {
+		t.Fatalf("equal-head renewal during unfinished merge = %v", err)
+	}
+	assertResumeSnapshot(t, fixture.worktree, paths, before)
+	if got := resumeRemoteHead(t, fixture); got != remote {
+		t.Fatalf("unfinished merge renewal moved remote head to %s", got)
+	}
+	if backend.mutations != mutations || countResumeCalls(backend.calls, "git commit-tree ") != 0 ||
+		countResumeCalls(backend.calls, "git update-ref ") != 0 || countResumeCalls(backend.calls, "git push ") != 0 {
+		t.Fatalf("unfinished merge renewal mutated refs or Project: calls=%v mutations=%d, want %d",
+			backend.calls, backend.mutations, mutations)
 	}
 }
 

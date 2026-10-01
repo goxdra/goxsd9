@@ -317,6 +317,9 @@ func (a app) renewClaimLeaseFloor(root, local, remote string, number int, remote
 }
 
 func (a app) validateRenewClaimHeads(root, local, remote string) error {
+	if err := a.validateResumeOperationState(root); err != nil {
+		return fmt.Errorf("verify claim worktree before renewal: %w", err)
+	}
 	if local == remote {
 		return nil
 	}
@@ -325,9 +328,6 @@ func (a app) validateRenewClaimHeads(root, local, remote string) error {
 			return stateError("claim branch diverged; local=%s remote=%s; integrate a pending PR renewal before renewing", local, remote)
 		}
 		return fmt.Errorf("verify claim ancestry before renewal: %w", err)
-	}
-	if err := a.validateResumeOperationState(root); err != nil {
-		return fmt.Errorf("verify claim worktree before renewal: %w", err)
 	}
 	return nil
 }
