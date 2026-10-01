@@ -446,8 +446,8 @@
 // resolution/reference failures retain their existing diagnostic, specification
 // reference, cause, and precedence. Unsupported forms return no Schema.
 // Type admission is separate from value-constraint support: only Boolean,
-// integer, negativeInteger, long, int, short, unsignedLong, decimal, token, and precisionDecimal constraints are
-// supported. Built-in and supported named negativeInteger, long, int, short, and unsignedLong default/fixed values
+// integer, negativeInteger, long, int, short, byte, unsignedLong, decimal, token, and precisionDecimal constraints are
+// supported. Built-in and supported named negativeInteger, long, int, short, byte, and unsignedLong default/fixed values
 // use exact IntegerValue and effective integer facets under all three policies. For
 // an admitted type, an individual unsupported default or fixed is
 // FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported at its value
