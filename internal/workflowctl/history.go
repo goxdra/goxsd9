@@ -205,7 +205,7 @@ func historyTrustedComments(comments []pullRequestComment) []pullRequestComment 
 		if comment.Author.Login != historyLegacyTrustedActor {
 			continue
 		}
-		if hasMarker(comment.Body, evaluationResolutionMarker) || strings.Contains(comment.Body, evaluationResolutionHeading) {
+		if hasEvaluationResolutionMarker(comment.Body) || strings.Contains(comment.Body, evaluationResolutionHeading) {
 			continue
 		}
 		if hasMarker(comment.Body, evaluationChallengeClosureMarker) || strings.Contains(comment.Body, evaluationChallengeClosureHeading) {

@@ -95,6 +95,70 @@ func TestCodegenDirectParticleSourceRejectsNamedChoiceTargetIdentifierCorruption
 	}
 }
 
+func TestCodegenDirectParticleSourceRejectsBooleanChoiceTargetCorruption(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, *codegenDirectParticlePlan)
+	}{
+		{
+			name: "Boolean encoded as integer family",
+			mutate: func(t *testing.T, plan *codegenDirectParticlePlan) {
+				target, ok := plan.owners[0].choice.alternatives[0].target.(codegenDirectChoiceBuiltinTarget)
+				if !ok {
+					t.Fatalf("choice target = %T, want built-in target", plan.owners[0].choice.alternatives[0].target)
+				}
+				target.family = codegenDirectChoiceScalarInteger
+				target.kind = DigitDatatypeInteger
+				plan.owners[0].choice.alternatives[0].target = target
+			},
+		},
+		{
+			name: "Boolean carries a digit kind",
+			mutate: func(t *testing.T, plan *codegenDirectParticlePlan) {
+				target, ok := plan.owners[0].choice.alternatives[0].target.(codegenDirectChoiceBuiltinTarget)
+				if !ok {
+					t.Fatalf("choice target = %T, want built-in target", plan.owners[0].choice.alternatives[0].target)
+				}
+				target.kind = DigitDatatypeInteger
+				plan.owners[0].choice.alternatives[0].target = target
+			},
+		},
+		{
+			name: "named Boolean family changes",
+			mutate: func(t *testing.T, plan *codegenDirectParticlePlan) {
+				target, ok := plan.owners[0].choice.alternatives[1].target.(codegenDirectChoiceNamedTarget)
+				if !ok {
+					t.Fatalf("choice target = %T, want named target", plan.owners[0].choice.alternatives[1].target)
+				}
+				target.family = codegenDirectChoiceScalarDecimal
+				target.kind = DigitDatatypeDecimal
+				plan.owners[0].choice.alternatives[1].target = target
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, err := discoverTestSchema(t, `<xs:schema xmlns:xs="`+testXSDNamespace+`" xmlns:r="urn:boolean" targetNamespace="urn:boolean">
+  <xs:complexType name="Choice"><xs:choice>
+    <xs:element name="builtin" type="xs:boolean"/>
+    <xs:element name="named" type="r:Flag"/>
+  </xs:choice></xs:complexType>
+  <xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`, nil)
+			if err != nil {
+				t.Fatalf("discoverTestSchema: %v", err)
+			}
+			plan, err := planCodegenDirectParticles(schema, "generated")
+			if err != nil {
+				t.Fatalf("planCodegenDirectParticles: %v", err)
+			}
+			test.mutate(t, &plan)
+			output, err := emitCodegenSourceWithDirectParticles(schema, plan)
+			assertCodegenDirectSequenceInternalFailure(t, output, err, errCodegenDirectParticlePlan)
+		})
+	}
+}
+
 func TestCodegenDirectSequenceSourceRejectsCorruptionAtRenderBoundary(t *testing.T) {
 	tests := []struct {
 		name   string

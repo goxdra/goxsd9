@@ -2,6 +2,7 @@ package workflowctl
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -193,6 +194,100 @@ func issueCreateArgs(bodyFile string, blockers ...int) []string {
 		args = append(args, "--blocked-by", strconv.Itoa(blocker))
 	}
 	return args
+}
+
+func TestRunIssueCreateHelpAliases(t *testing.T) {
+	want := `Usage:
+  go tool workflowctl issue create [flags]
+
+Create a GitHub issue and configure its Project metadata.
+
+Required flags:
+  --title TITLE
+        issue title (required; must not be blank)
+  --body-file FILE
+        Markdown body file (required; regular file containing "## Acceptance")
+  --area AREA
+        area label suffix (required; one of: codegen, datatypes, docs, parser, resolver, schema, specs, validator, workflow, xpath)
+  --type TYPE
+        type label suffix (required; one of: bug, conformance, docs, feature, refactor, research, tooling)
+
+Project flags:
+  --priority PRIORITY
+        Project priority (default: P2; one of: P0, P1, P2, P3, P4)
+  --effort EFFORT
+        Project effort (default: S; one of: XS, S, M, L, XL)
+  --phase PHASE
+        Project phase (default: Bootstrap; one of: Bootstrap, Vertical Slice, Schema Model, Validation, Codegen, Conformance, XPath)
+  --status STATUS
+        Project status (default: Backlog; one of: Backlog, Ready; Ready requires XS, S, or M effort)
+
+Dependency flags:
+  --blocked-by ISSUE
+        blocking issue number (positive integer; repeatable; no duplicates; maximum 50 values)
+
+Help:
+  -h, --help
+        print this help; recognized only when it is the sole argument after "issue create"
+
+Validation:
+  --body-file must contain an "## Acceptance" section marker.
+  Unknown flags, missing values, invalid values, and positional operands are usage errors.
+`
+	for _, alias := range []string{"-h", "--help"} {
+		t.Run(alias, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			status := Run(context.Background(), []string{"issue", "create", alias}, &stdout, &stderr)
+			if status != 0 {
+				t.Fatalf("Run status = %d, want 0; stderr = %q", status, stderr.String())
+			}
+			if got := stdout.String(); got != want {
+				t.Fatalf("stdout = %q, want %q", got, want)
+			}
+			if got := stderr.String(); got != "" {
+				t.Fatalf("stderr = %q, want empty", got)
+			}
+		})
+	}
+}
+
+func TestIssueCreateHelpSkipsValidationAndCommands(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	commands := 0
+	application := app{
+		stdout: &stdout,
+		stderr: &stderr,
+		executeCommand: func(_ string, _ io.Reader, _ string, _ ...string) (string, error) {
+			commands++
+			return "", errors.New("help must not execute a command")
+		},
+	}
+	if err := application.run([]string{"issue", "create", "--help"}); err != nil {
+		t.Fatalf("application.run help: %v", err)
+	}
+	if commands != 0 {
+		t.Fatalf("help executed %d command(s)", commands)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("application stderr = %q, want empty", stderr.String())
+	}
+	if stdout.Len() == 0 {
+		t.Fatal("application help wrote no stdout")
+	}
+}
+
+func TestRunIssueCreateHelpWithExtraArgumentsIsUsageError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	status := Run(context.Background(), []string{"issue", "create", "--help", "--bogus"}, &stdout, &stderr)
+	if status != 2 {
+		t.Fatalf("Run status = %d, want usage status 2; stderr = %q", status, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if got, want := stderr.String(), "issue create: flag: help requested\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
 }
 
 func TestCreateIssueUsesNativeGraphQLDependenciesInFlagOrder(t *testing.T) {

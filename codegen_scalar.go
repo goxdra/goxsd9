@@ -109,8 +109,11 @@ const (
 	codegenSourceScalarInvalid codegenSourceScalarKind = iota
 	codegenSourceScalarBoolean
 	codegenSourceScalarString
+	codegenSourceScalarToken
+	codegenSourceScalarNMTOKEN
 	codegenSourceScalarInteger
 	codegenSourceScalarDecimal
+	codegenSourceScalarNonNegativeInteger
 )
 
 type codegenSourceTarget struct {
@@ -449,6 +452,16 @@ func rejectCodegenElementFacts(components []Component, version XSDVersion) error
 		if !ok {
 			continue
 		}
+		if constraints := declaration.IdentityConstraints(); len(constraints) > 0 {
+			return newCodegenUnsupportedForReference(
+				constraints[0].Loc(),
+				fmt.Sprintf("global element %q has identity constraints outside Go generation", declaration.Name()),
+				[]Loc{declaration.Loc()},
+				fmt.Errorf("%w: identity constraints", errCodegenUnsupported),
+				version,
+				schemaIdentitySpecRef(version, "Identity-constraint_Definition_details"),
+			)
+		}
 		if declaration.IsAbstract() {
 			return newCodegenElementUnsupported(
 				declaration.Loc(),
@@ -560,7 +573,7 @@ func planCodegenSourceChoiceTarget(
 ) (codegenSourceTarget, string, bool, error) {
 	switch concrete := target.(type) {
 	case codegenDirectChoiceBuiltinTarget:
-		scalarKind, ok := codegenSourceScalarKindFromDigit(concrete.kind)
+		scalarKind, ok := codegenDirectChoiceSourceScalarKind(concrete.family, concrete.kind)
 		if !ok {
 			return codegenSourceTarget{}, "", false, newCodegenInternal(
 				loc,
@@ -594,7 +607,7 @@ func planCodegenSourceChoiceTarget(
 				errCodegenDirectChoicePlan,
 			)
 		}
-		scalarKind, ok := codegenSourceScalarKindFromDigit(concrete.kind)
+		scalarKind, ok := codegenDirectChoiceSourceScalarKind(concrete.family, concrete.kind)
 		if !ok {
 			return codegenSourceTarget{}, "", false, newCodegenInternal(
 				loc,
@@ -858,6 +871,10 @@ func codegenRuntimeAlias(names codegenNaming) (string, bool) {
 }
 
 func codegenNamedScalarKind(component Component, version XSDVersion) (DigitDatatype, error) {
+	return codegenNamedScalarKindWithNonNegative(component, version, false)
+}
+
+func codegenNamedScalarKindWithNonNegative(component Component, version XSDVersion, allowNonNegative bool) (DigitDatatype, error) {
 	definition, ok := component.SimpleTypeDefinition()
 	if !ok {
 		return "", newCodegenUnsupported(
@@ -865,6 +882,15 @@ func codegenNamedScalarKind(component Component, version XSDVersion) (DigitDatat
 			fmt.Sprintf("named simple type %q has no supported simple-type view", component.Name()),
 			nil,
 			fmt.Errorf("%w: simple type view is missing", errCodegenUnsupported),
+			version,
+		)
+	}
+	if final := definition.Final(); len(final) != 0 {
+		return "", newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has unsupported final derivation controls", component.Name()),
+			appendCodegenRelated(nil, definition.FinalLoc()),
+			fmt.Errorf("%w: simple type final controls are not enforced", errCodegenUnsupported),
 			version,
 		)
 	}
@@ -877,9 +903,32 @@ func codegenNamedScalarKind(component Component, version XSDVersion) (DigitDatat
 			version,
 		)
 	}
-	if definition.facts == nil ||
-		schemaSimpleTypeAtomicKindIsUnsupported(definition.facts.atomicKind) ||
-		definition.facts.atomicKind != schemaSimpleTypeAtomicInteger && definition.facts.atomicKind != schemaSimpleTypeAtomicDecimal {
+	if definition.facts == nil {
+		return "", newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
+			appendCodegenRelated(nil, definition.BaseLoc()),
+			fmt.Errorf("%w: atomic datatype is outside scalar Go generation", errCodegenUnsupported),
+			version,
+		)
+	}
+	if err := validateCodegenNamedNonNegativeIntegerFactsBeforeUnsupported(component, definition, version, allowNonNegative); err != nil {
+		return "", err
+	}
+	if schemaSimpleTypeAtomicKindIsUnsupported(definition.facts.atomicKind) {
+		return "", newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
+			appendCodegenRelated(nil, definition.BaseLoc()),
+			fmt.Errorf("%w: atomic datatype is outside scalar Go generation", errCodegenUnsupported),
+			version,
+		)
+	}
+	atomicKindSupported := definition.facts.atomicKind == schemaSimpleTypeAtomicInteger || definition.facts.atomicKind == schemaSimpleTypeAtomicDecimal
+	if allowNonNegative && definition.facts.atomicKind == schemaSimpleTypeAtomicNonNegativeInteger {
+		atomicKindSupported = true
+	}
+	if !atomicKindSupported {
 		return "", newCodegenUnsupported(
 			component.Loc(),
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
@@ -903,10 +952,30 @@ func codegenNamedScalarKind(component Component, version XSDVersion) (DigitDatat
 			component.Loc(),
 			fmt.Sprintf("validate effective digit facets for named simple type %q", component.Name()),
 			codegenSimpleTypeRelatedLocations(definition, facets),
-			err,
+			codegenSchemaInvariantCause(err),
 		)
 	}
 	return facets.Kind(), nil
+}
+
+func validateCodegenNamedNonNegativeIntegerFactsBeforeUnsupported(
+	component Component,
+	definition SimpleTypeDefinition,
+	version XSDVersion,
+	allowNonNegative bool,
+) error {
+	if !allowNonNegative || definition.facts.atomicKind != schemaSimpleTypeAtomicNonNegativeInteger {
+		return nil
+	}
+	return validateCodegenNonNegativeIntegerFacts(
+		component.Loc(),
+		fmt.Sprintf("named simple type %q", component.Name()),
+		definition.facts.atomicKind,
+		definition.facts.facets,
+		version,
+		codegenSimpleTypeRelatedLocations(definition, definition.DigitFacets()),
+		false,
+	)
 }
 
 func validateCodegenStringFacts(
@@ -917,7 +986,27 @@ func validateCodegenStringFacts(
 	version XSDVersion,
 	related []Loc,
 ) error {
-	if atomicKind != schemaSimpleTypeAtomicString {
+	return validateCodegenStringFamilyFacts(
+		loc,
+		context,
+		schemaSimpleTypeAtomicString,
+		atomicKind,
+		facets,
+		version,
+		related,
+	)
+}
+
+func validateCodegenStringFamilyFacts(
+	loc Loc,
+	context string,
+	expectedAtomicKind schemaSimpleTypeAtomicKind,
+	atomicKind schemaSimpleTypeAtomicKind,
+	facets schemaSimpleTypeFacetVariant,
+	version XSDVersion,
+	related []Loc,
+) error {
+	if atomicKind != expectedAtomicKind {
 		return newCodegenInternalWithSpec(
 			loc,
 			context+" has an inconsistent atomic datatype",
@@ -972,7 +1061,96 @@ func validateCodegenStringFacts(
 			version,
 		)
 	}
+	if expectedAtomicKind == schemaSimpleTypeAtomicToken || expectedAtomicKind == schemaSimpleTypeAtomicNMTOKEN {
+		if stringFacets.whiteSpace.Value() != "collapse" || !stringFacets.whiteSpace.Fixed() {
+			return newCodegenInternalWithSpec(
+				loc,
+				context+" has non-fixed token-family whiteSpace facts",
+				related,
+				fmt.Errorf("%w: token-family whiteSpace must be fixed collapse", errCodegenSchemaInvariant),
+				version,
+			)
+		}
+	}
 	return nil
+}
+
+func codegenSourceScalarKindFromAtomicKind(kind schemaSimpleTypeAtomicKind) (codegenSourceScalarKind, bool) {
+	switch kind {
+	case schemaSimpleTypeAtomicString:
+		return codegenSourceScalarString, true
+	case schemaSimpleTypeAtomicToken:
+		return codegenSourceScalarToken, true
+	case schemaSimpleTypeAtomicNMTOKEN:
+		return codegenSourceScalarNMTOKEN, true
+	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicNormalizedString,
+		schemaSimpleTypeAtomicInteger,
+		schemaSimpleTypeAtomicLong,
+		schemaSimpleTypeAtomicInt,
+		schemaSimpleTypeAtomicShort,
+		schemaSimpleTypeAtomicByte,
+		schemaSimpleTypeAtomicUnsignedLong,
+		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicNonNegativeInteger,
+		schemaSimpleTypeAtomicNonPositiveInteger,
+		schemaSimpleTypeAtomicPositiveInteger,
+		schemaSimpleTypeAtomicDecimal,
+		schemaSimpleTypeAtomicPrecisionDecimal,
+		schemaSimpleTypeAtomicLanguage,
+		schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI,
+		schemaSimpleTypeAtomicID,
+		schemaSimpleTypeAtomicQName:
+		return codegenSourceScalarInvalid, false
+	}
+	return codegenSourceScalarInvalid, false
+}
+
+func codegenSourceScalarStringFamily(kind codegenSourceScalarKind) (schemaSimpleTypeAtomicKind, bool) {
+	switch kind {
+	case codegenSourceScalarString:
+		return schemaSimpleTypeAtomicString, true
+	case codegenSourceScalarToken:
+		return schemaSimpleTypeAtomicToken, true
+	case codegenSourceScalarNMTOKEN:
+		return schemaSimpleTypeAtomicNMTOKEN, true
+	case codegenSourceScalarInvalid,
+		codegenSourceScalarBoolean,
+		codegenSourceScalarInteger,
+		codegenSourceScalarDecimal,
+		codegenSourceScalarNonNegativeInteger:
+		return schemaSimpleTypeAtomicUnknown, false
+	}
+	return schemaSimpleTypeAtomicUnknown, false
+}
+
+func validateCodegenStringFamilyBaseFacts(
+	loc Loc,
+	context string,
+	base SimpleTypeReference,
+	expectedAtomicKind schemaSimpleTypeAtomicKind,
+	version XSDVersion,
+	related []Loc,
+) error {
+	if base.facts == nil || base.Variety() != SimpleTypeVarietyAtomicRestriction {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has incomplete string-family base facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	return validateCodegenStringFamilyFacts(
+		loc,
+		context,
+		expectedAtomicKind,
+		base.facts.atomicKind,
+		base.facts.facets,
+		version,
+		related,
+	)
 }
 
 //nolint:gocognit,funlen // Keep named scalar identity and exact string facts together.
@@ -996,6 +1174,15 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			version,
 		)
 	}
+	if final := definition.Final(); len(final) != 0 {
+		return codegenSourceTarget{}, newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has unsupported final derivation controls", component.Name()),
+			appendCodegenRelated(nil, definition.FinalLoc()),
+			fmt.Errorf("%w: simple type final controls are not enforced", errCodegenUnsupported),
+			version,
+		)
+	}
 	if definition.Variety() != SimpleTypeVarietyAtomicRestriction {
 		return codegenSourceTarget{}, newCodegenUnsupported(
 			component.Loc(),
@@ -1013,35 +1200,21 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			errCodegenSchemaInvariant,
 		)
 	}
-	if definition.facts.atomicKind == schemaSimpleTypeAtomicString ||
-		definition.facts.atomicKind == schemaSimpleTypeAtomicToken ||
-		definition.facts.atomicKind == schemaSimpleTypeAtomicNMTOKEN {
-		base, hasBase := definition.BaseReference()
-		if !hasBase || base.facts == nil || base.Variety() != SimpleTypeVarietyAtomicRestriction {
-			return codegenSourceTarget{}, newCodegenInternalWithSpec(
-				component.Loc(),
-				fmt.Sprintf("named simple type %q has incomplete string-family base facts", component.Name()),
-				appendCodegenRelated(nil, definition.BaseLoc()),
-				errCodegenSchemaInvariant,
-				version,
-			)
-		}
-		if definition.facts.atomicKind != base.facts.atomicKind {
-			return codegenSourceTarget{}, newCodegenInternalWithSpec(
-				component.Loc(),
-				fmt.Sprintf("named simple type %q has mismatched string-family base facts", component.Name()),
-				appendCodegenRelated(nil, definition.BaseLoc()),
-				errCodegenSchemaInvariant,
-				version,
-			)
-		}
-	}
 	if schemaSimpleTypeAtomicKindIsUnsupported(definition.facts.atomicKind) {
 		return codegenSourceTarget{}, newCodegenUnsupported(
 			component.Loc(),
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
 			appendCodegenRelated(nil, definition.BaseLoc()),
 			fmt.Errorf("%w: atomic datatype is outside scalar Go generation", errCodegenUnsupported),
+			version,
+		)
+	}
+	if definition.facts.atomicKind == schemaSimpleTypeAtomicNormalizedString {
+		return codegenSourceTarget{}, newCodegenUnsupported(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", component.Name()),
+			appendCodegenRelated(nil, definition.BaseLoc()),
+			fmt.Errorf("%w: normalizedString is outside scalar Go generation", errCodegenUnsupported),
 			version,
 		)
 	}
@@ -1055,10 +1228,10 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			)
 		}
 	}
-	if definition.facts.atomicKind == schemaSimpleTypeAtomicString {
+	if scalarKind, stringFamilyOK := codegenSourceScalarKindFromAtomicKind(definition.facts.atomicKind); stringFamilyOK {
 		related := appendCodegenRelated(nil, definition.BaseLoc())
 		base, hasBase := definition.BaseReference()
-		if !hasBase || base.facts == nil {
+		if !hasBase {
 			return codegenSourceTarget{}, newCodegenInternalWithSpec(
 				component.Loc(),
 				fmt.Sprintf("named simple type %q has no string-family base reference", component.Name()),
@@ -1067,9 +1240,10 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 				version,
 			)
 		}
-		if err := validateCodegenStringFacts(
+		if err := validateCodegenStringFamilyFacts(
 			component.Loc(),
 			fmt.Sprintf("named simple type %q", component.Name()),
+			definition.facts.atomicKind,
 			definition.facts.atomicKind,
 			definition.facts.facets,
 			version,
@@ -1077,11 +1251,11 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 		); err != nil {
 			return codegenSourceTarget{}, err
 		}
-		if err := validateCodegenStringFacts(
+		if err := validateCodegenStringFamilyBaseFacts(
 			component.Loc(),
 			fmt.Sprintf("named simple type %q base", component.Name()),
-			base.facts.atomicKind,
-			base.facts.facets,
+			base,
+			definition.facts.atomicKind,
 			version,
 			related,
 		); err != nil {
@@ -1092,7 +1266,7 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			declaredType: component.Name(),
 			typeID:       component.ID(),
 			hasTypeID:    true,
-			scalarKind:   codegenSourceScalarString,
+			scalarKind:   scalarKind,
 		}, nil
 	}
 	if definition.IsBoolean() {
@@ -1107,7 +1281,7 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			scalarKind:   codegenSourceScalarBoolean,
 		}, nil
 	}
-	kind, err := codegenNamedScalarKind(component, version)
+	kind, err := codegenNamedScalarKindWithNonNegative(component, version, true)
 	if err != nil {
 		return codegenSourceTarget{}, err
 	}
@@ -1119,6 +1293,20 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			codegenSimpleTypeRelatedLocations(definition, definition.DigitFacets()),
 			errCodegenSchemaInvariant,
 		)
+	}
+	if definition.facts.atomicKind == schemaSimpleTypeAtomicNonNegativeInteger {
+		if err := validateCodegenNonNegativeIntegerFacts(
+			component.Loc(),
+			fmt.Sprintf("named simple type %q", component.Name()),
+			definition.facts.atomicKind,
+			definition.facts.facets,
+			version,
+			codegenSimpleTypeRelatedLocations(definition, definition.DigitFacets()),
+			false,
+		); err != nil {
+			return codegenSourceTarget{}, err
+		}
+		scalarKind = codegenSourceScalarNonNegativeInteger
 	}
 	return codegenSourceTarget{
 		form:         codegenSourceTargetDefinition,
@@ -1138,6 +1326,291 @@ func codegenSourceScalarKindFromDigit(kind DigitDatatype) (codegenSourceScalarKi
 	default:
 		return codegenSourceScalarInvalid, false
 	}
+}
+
+func validateCodegenNonNegativeIntegerFacts(
+	loc Loc,
+	context string,
+	atomicKind schemaSimpleTypeAtomicKind,
+	facets schemaSimpleTypeFacetVariant,
+	version XSDVersion,
+	related []Loc,
+	requireZeroLowerBound bool,
+) error {
+	if atomicKind != schemaSimpleTypeAtomicNonNegativeInteger {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has an inconsistent atomic datatype",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	if requireZeroLowerBound {
+		return validateCodegenBuiltinNonNegativeIntegerFacts(loc, context, facets, version, related)
+	}
+	if err := validateCodegenNamedNonNegativeIntegerDigitFacts(loc, context, facets, version, related); err != nil {
+		return err
+	}
+	bounds, err := codegenNonNegativeIntegerBounds(loc, context, facets, version, related)
+	if err != nil {
+		return err
+	}
+	if err := bounds.validate(); err != nil {
+		return newCodegenInternalWithSpec(loc, context+" has invalid integer bound facts", related, codegenSchemaInvariantCause(err), version)
+	}
+	if err := validateCodegenNonNegativeIntegerEnumeration(loc, context, facets, version, related); err != nil {
+		return err
+	}
+	minimum, present := bounds.MinInclusive()
+	if !present {
+		minimum, present = bounds.MinExclusive()
+	}
+	if !present || minimum.Sign() < 0 {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has no effective non-negative lower bound",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	return nil
+}
+
+func validateCodegenNamedNonNegativeIntegerDigitFacts(
+	loc Loc,
+	context string,
+	facets schemaSimpleTypeFacetVariant,
+	version XSDVersion,
+	related []Loc,
+) error {
+	switch typed := facets.(type) {
+	case schemaDigitFacetVariant:
+		if typed.decimalBounds.version != "" || typed.decimalBounds.lower != nil || typed.decimalBounds.upper != nil {
+			return newCodegenInternalWithSpec(
+				loc,
+				context+" has inconsistent built-in integer bound facts",
+				related,
+				errCodegenSchemaInvariant,
+				version,
+			)
+		}
+		return validateCodegenCanonicalIntegerDigitFacts(loc, context, typed.value, version, related)
+	case schemaIntegerFacetVariant:
+		return validateCodegenCanonicalIntegerDigitFacts(loc, context, typed.digits, version, related)
+	default:
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has inconsistent integer facet facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+}
+
+func validateCodegenBuiltinNonNegativeIntegerFacts(
+	loc Loc,
+	context string,
+	facets schemaSimpleTypeFacetVariant,
+	version XSDVersion,
+	related []Loc,
+) error {
+	digitFacets, ok := facets.(schemaDigitFacetVariant)
+	if !ok {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has inconsistent built-in integer facet facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	if err := validateCodegenBuiltinNonNegativeIntegerDigitFacts(loc, context, digitFacets.value, version, related); err != nil {
+		return err
+	}
+	if digitFacets.decimalBounds.version != "" || digitFacets.decimalBounds.lower != nil || digitFacets.decimalBounds.upper != nil {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has inconsistent built-in integer bound facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	bounds, err := codegenNonNegativeIntegerBounds(loc, context, facets, version, related)
+	if err != nil {
+		return err
+	}
+	if err := bounds.validate(); err != nil {
+		return newCodegenInternalWithSpec(loc, context+" has invalid integer bound facts", related, codegenSchemaInvariantCause(err), version)
+	}
+	if !codegenCanonicalBuiltinNonNegativeIntegerBounds(bounds) {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has non-canonical built-in integer bounds",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	return nil
+}
+
+func codegenCanonicalBuiltinNonNegativeIntegerBounds(bounds IntegerBoundFacets) bool {
+	effectiveBounds := bounds.Bounds()
+	if len(effectiveBounds) != 1 {
+		return false
+	}
+	if !bounds.HasMinInclusive() || bounds.HasMinExclusive() || bounds.HasMaxInclusive() || bounds.HasMaxExclusive() {
+		return false
+	}
+	return effectiveBounds[0].Kind() == BoundMinInclusive && effectiveBounds[0].Value().Canonical() == "0"
+}
+
+func validateCodegenBuiltinNonNegativeIntegerDigitFacts(
+	loc Loc,
+	context string,
+	facets DigitFacets,
+	version XSDVersion,
+	related []Loc,
+) error {
+	if err := validateCodegenCanonicalIntegerDigitFacts(loc, context, facets, version, related); err != nil {
+		return err
+	}
+	if facets.HasTotalDigits() {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has non-canonical integer digit facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	return nil
+}
+
+func validateCodegenCanonicalIntegerDigitFacts(
+	loc Loc,
+	context string,
+	facets DigitFacets,
+	version XSDVersion,
+	related []Loc,
+) error {
+	if err := validateCodegenIntegerDigitFacts(loc, context, facets, version, related); err != nil {
+		return err
+	}
+	fractionDigits, fractionPresent := facets.FractionDigits()
+	fractionFixed, fixedPresent := facets.FractionDigitsFixed()
+	if !fractionPresent || fractionDigits.Canonical() != "0" || !fixedPresent || !fractionFixed {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has non-canonical integer digit facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	return nil
+}
+
+func codegenNonNegativeIntegerBounds(
+	loc Loc,
+	context string,
+	facets schemaSimpleTypeFacetVariant,
+	version XSDVersion,
+	related []Loc,
+) (IntegerBoundFacets, error) {
+	switch typed := facets.(type) {
+	case schemaDigitFacetVariant:
+		if err := validateCodegenIntegerDigitFacts(loc, context, typed.value, version, related); err != nil {
+			return IntegerBoundFacets{}, err
+		}
+		if typed.integerBounds.Version() != version {
+			return IntegerBoundFacets{}, newCodegenInternalWithSpec(
+				loc,
+				context+" has an incompatible integer bound version",
+				related,
+				errCodegenSchemaInvariant,
+				version,
+			)
+		}
+		return typed.integerBounds, nil
+	case schemaIntegerFacetVariant:
+		if err := validateCodegenIntegerDigitFacts(loc, context, typed.digits, version, related); err != nil {
+			return IntegerBoundFacets{}, err
+		}
+		if typed.enumeration.Version() != version || typed.bounds.Version() != version {
+			return IntegerBoundFacets{}, newCodegenInternalWithSpec(
+				loc,
+				context+" has an incompatible integer facet version",
+				related,
+				errCodegenSchemaInvariant,
+				version,
+			)
+		}
+		if err := typed.enumeration.validate(); err != nil {
+			return IntegerBoundFacets{}, newCodegenInternalWithSpec(loc, context+" has invalid integer enumeration facts", related, codegenSchemaInvariantCause(err), version)
+		}
+		return typed.bounds, nil
+	default:
+		return IntegerBoundFacets{}, newCodegenInternalWithSpec(
+			loc,
+			context+" has inconsistent integer facet facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+}
+
+func validateCodegenIntegerDigitFacts(
+	loc Loc,
+	context string,
+	facets DigitFacets,
+	version XSDVersion,
+	related []Loc,
+) error {
+	if facets.Kind() != DigitDatatypeInteger || facets.Version() != version {
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has inconsistent integer digit facts",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	if err := facets.validate(); err != nil {
+		return newCodegenInternalWithSpec(loc, context+" has invalid integer digit facts", related, codegenSchemaInvariantCause(err), version)
+	}
+	return nil
+}
+
+func validateCodegenNonNegativeIntegerEnumeration(
+	loc Loc,
+	context string,
+	facets schemaSimpleTypeFacetVariant,
+	version XSDVersion,
+	related []Loc,
+) error {
+	typed, ok := facets.(schemaIntegerFacetVariant)
+	if !ok || !typed.enumeration.HasEnumeration() {
+		return nil
+	}
+	for _, value := range typed.enumeration.Values() {
+		if value.Sign() >= 0 {
+			continue
+		}
+		return newCodegenInternalWithSpec(
+			loc,
+			context+" has a negative integer enumeration value",
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	return nil
 }
 
 //nolint:gocognit,funlen // Keep the resolved boolean restriction-chain checks together.
@@ -1344,9 +1817,12 @@ func codegenSourceTargetFieldType(
 		switch target.scalarKind {
 		case codegenSourceScalarBoolean:
 			return "bool", false, nil
-		case codegenSourceScalarString:
+		case codegenSourceScalarString, codegenSourceScalarToken, codegenSourceScalarNMTOKEN:
 			return "string", false, nil
 		case codegenSourceScalarInteger:
+			fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeInteger, loc)
+			return fieldType, true, err
+		case codegenSourceScalarNonNegativeInteger:
 			fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeInteger, loc)
 			return fieldType, true, err
 		case codegenSourceScalarDecimal:
@@ -1394,7 +1870,9 @@ func codegenSourceTargetFieldType(
 				errCodegenElementType,
 			)
 		}
-		if target.scalarKind != codegenSourceScalarString {
+		if target.scalarKind != codegenSourceScalarString &&
+			target.scalarKind != codegenSourceScalarToken &&
+			target.scalarKind != codegenSourceScalarNMTOKEN {
 			return "", false, newCodegenInternal(
 				loc,
 				"anonymous scalar source target has an unsupported primitive kind",
@@ -1571,7 +2049,8 @@ func codegenInlineElementFieldType(
 			version,
 		)
 	}
-	if reference.facts.atomicKind != schemaSimpleTypeAtomicString {
+	scalarKind, ok := codegenSourceScalarKindFromAtomicKind(reference.facts.atomicKind)
+	if !ok {
 		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("inline global element %q has an atomic datatype outside scalar string generation", component.Name()),
@@ -1582,9 +2061,10 @@ func codegenInlineElementFieldType(
 	}
 	related := appendCodegenRelated(nil, reference.Loc())
 	related = appendCodegenRelated(related, anonymous.Loc())
-	if err := validateCodegenStringFacts(
+	if err := validateCodegenStringFamilyFacts(
 		component.Loc(),
 		fmt.Sprintf("inline global element %q", component.Name()),
+		reference.facts.atomicKind,
 		reference.facts.atomicKind,
 		reference.facts.facets,
 		version,
@@ -1592,11 +2072,32 @@ func codegenInlineElementFieldType(
 	); err != nil {
 		return codegenSourceTarget{}, "", false, err
 	}
-	if err := validateCodegenStringFacts(
+	if err := validateCodegenStringFamilyFacts(
 		component.Loc(),
 		fmt.Sprintf("inline global element %q anonymous model", component.Name()),
+		reference.facts.atomicKind,
 		anonymous.facts.atomicKind,
 		anonymous.facts.facets,
+		version,
+		related,
+	); err != nil {
+		return codegenSourceTarget{}, "", false, err
+	}
+	if !anonymous.facts.hasBaseReference {
+		return codegenSourceTarget{}, "", false, newCodegenInternalWithSpec(
+			component.Loc(),
+			fmt.Sprintf("inline global element %q has no string-family base reference", component.Name()),
+			related,
+			errCodegenSchemaInvariant,
+			version,
+		)
+	}
+	base := SimpleTypeReference{facts: &anonymous.facts.baseReference}
+	if err := validateCodegenStringFamilyBaseFacts(
+		component.Loc(),
+		fmt.Sprintf("inline global element %q base", component.Name()),
+		base,
+		reference.facts.atomicKind,
 		version,
 		related,
 	); err != nil {
@@ -1606,7 +2107,7 @@ func codegenInlineElementFieldType(
 		form:            codegenSourceTargetAnonymous,
 		anonymousTypeID: anonymousID,
 		hasAnonymousID:  true,
-		scalarKind:      codegenSourceScalarString,
+		scalarKind:      scalarKind,
 	}
 	if err := validateCodegenElementTypeReference(declaration, target, component.Loc(), version); err != nil {
 		return codegenSourceTarget{}, "", false, err
@@ -1644,11 +2145,17 @@ func codegenBuiltinElementFieldType(
 		target.scalarKind = codegenSourceScalarBoolean
 	case "string":
 		target.scalarKind = codegenSourceScalarString
+	case "token":
+		target.scalarKind = codegenSourceScalarToken
+	case "NMTOKEN":
+		target.scalarKind = codegenSourceScalarNMTOKEN
 	case "integer":
 		target.scalarKind = codegenSourceScalarInteger
+	case "nonNegativeInteger":
+		target.scalarKind = codegenSourceScalarNonNegativeInteger
 	case "decimal":
 		target.scalarKind = codegenSourceScalarDecimal
-	case "language", "NCName", "anyURI", "ID":
+	case "int", "short", "byte", "language", "NCName", "anyURI", "ID":
 		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element type %q is outside scalar Go generation", declaration.DeclaredType()),
@@ -1992,29 +2499,75 @@ func validateCodegenElementTypeReference(
 				errCodegenSchemaInvariant,
 			)
 		}
-	case codegenSourceScalarString:
-		if reference.facts.atomicKind != schemaSimpleTypeAtomicString {
-			return newCodegenInternalWithSpec(
+	case codegenSourceScalarNonNegativeInteger:
+		if reference.facts.atomicKind != schemaSimpleTypeAtomicNonNegativeInteger {
+			return newCodegenInternal(
 				loc,
-				"global element string type reference has inconsistent primitive facts",
+				"global element nonNegativeInteger type reference has inconsistent primitive facts",
 				nil,
 				errCodegenSchemaInvariant,
-				version,
 			)
 		}
 		if target.form == codegenSourceTargetBuiltin &&
-			(reference.Name().Namespace() != xsdNamespaceURI || reference.Name().Local() != "string") {
+			(reference.Name().Namespace() != xsdNamespaceURI || reference.Name().Local() != "nonNegativeInteger") {
+			return newCodegenInternal(
+				loc,
+				"built-in global element nonNegativeInteger type reference does not identify xs:nonNegativeInteger",
+				nil,
+				errCodegenSchemaInvariant,
+			)
+		}
+		return validateCodegenNonNegativeIntegerFacts(
+			loc,
+			"global element nonNegativeInteger type reference",
+			reference.facts.atomicKind,
+			reference.facts.facets,
+			version,
+			nil,
+			target.form == codegenSourceTargetBuiltin,
+		)
+	case codegenSourceScalarString, codegenSourceScalarToken, codegenSourceScalarNMTOKEN:
+		expectedAtomicKind, ok := codegenSourceScalarStringFamily(target.scalarKind)
+		if !ok || reference.facts.atomicKind != expectedAtomicKind {
 			return newCodegenInternalWithSpec(
 				loc,
-				"built-in global element string type reference does not identify xs:string",
+				"global element string-family type reference has inconsistent primitive facts",
 				nil,
 				errCodegenSchemaInvariant,
 				version,
 			)
 		}
-		return validateCodegenStringFacts(
+		expectedLocal := "string"
+		if target.scalarKind == codegenSourceScalarToken {
+			expectedLocal = "token"
+		}
+		if target.scalarKind == codegenSourceScalarNMTOKEN {
+			expectedLocal = "NMTOKEN"
+		}
+		if target.form == codegenSourceTargetBuiltin &&
+			(reference.Name().Namespace() != xsdNamespaceURI || reference.Name().Local() != expectedLocal) {
+			return newCodegenInternalWithSpec(
+				loc,
+				"built-in global element string-family type reference has an inconsistent name",
+				nil,
+				errCodegenSchemaInvariant,
+				version,
+			)
+		}
+		if target.scalarKind == codegenSourceScalarString {
+			return validateCodegenStringFacts(
+				loc,
+				"global element string type reference",
+				reference.facts.atomicKind,
+				reference.facts.facets,
+				version,
+				nil,
+			)
+		}
+		return validateCodegenStringFamilyFacts(
 			loc,
-			"global element string type reference",
+			"global element string-family type reference",
+			expectedAtomicKind,
 			reference.facts.atomicKind,
 			reference.facts.facets,
 			version,
@@ -2648,6 +3201,13 @@ func renderCodegenSequenceDeclaration(source *strings.Builder, declaration codeg
 
 func validCodegenDirectChoiceMarker(marker string) bool {
 	return strings.HasPrefix(marker, "is") && isGoIdentifier(marker)
+}
+
+func codegenSchemaInvariantCause(err error) error {
+	if err == nil || errors.Is(err, errCodegenSchemaInvariant) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", errCodegenSchemaInvariant, err)
 }
 
 func newCodegenNamingInvariant(loc Loc, message string, cause error) Diagnostic {

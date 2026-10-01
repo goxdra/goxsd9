@@ -2,12 +2,7 @@
 
 ## Boundaries
 
-goxsd9 exposes schema parsing, immutable queries/walks, XML validation, and Go
-generation. The schema model is validation/generation's leaf dependency and has
-no validator/generator caches.
-
-Runtime implementation uses only standard-library facilities; development
-tooling remains outside the library dependency graph.
+goxsd9 parses schemas into immutable query models; validation/generation are leaves.
 
 ## Deterministic phase pipeline
 
@@ -23,20 +18,14 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Phases consume complete prior results. Local construction may use unexported
-slices/tables; completed components are immutable and never backpatched. Document
-identities are interned before discovery; repeated includes/imports reuse them,
-so cycles do not recurse. Acyclic dependencies use stable topological order.
-
-Maps support lookup; ordered slices define observable walks/output, with explicit
-stable fallback keys.
+Phases do not backpatch. Identities intern before discovery; repeats/cycles close.
+Acyclic dependencies use stable topological order; slices order walks/output.
 
 ## Input and resolution
 
-Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Callers create
-root sources with `NewResolvedSource`; resolvers create references and supply
-policy. Parsing closes all streams and decodes each identity once; repeats/cycles
-close without decoding.
+Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. The caller selects
+graph language policy; resolvers acquire sources under their resolution policy.
+Streams close; identities decode once; repeats/cycles close.
 
 ```go
 type Resolver interface {
@@ -48,109 +37,124 @@ type Resolver interface {
 }
 ```
 
-Each source carries opaque identity, reader-closer, and child context; resolvers
-may store typed private base-location state. Discovery passes parent context FIFO
-and preserves child context for nested references. Identities and lexical
-locations stay opaque: the parser does not interpret paths, open files, or make
-network requests. Resolver calls are sequential.
+Sources carry opaque identity, reader-closer, child context; resolvers may keep private
+base-location state. FIFO discovery preserves context. Parser leaves identities/locations uninterpreted,
+opens no paths/network resources, and resolves sequentially.
 
-Streaming decode captures one-based line and Unicode-code-point columns. Syntax
-and final components retain `Loc`, not source bytes or excerpts.
+`Loc` uses one-based lines and Unicode-code-point columns.
 
 ## Diagnostics
 
-Structured diagnostics are deterministic and classify failures as:
-
-- invalid schema or instance input;
-- unsupported specification behavior;
-- source resolution failure; or
-- internal invariant failure.
-
-Diagnostics have stable codes, primary `Loc`, optional related locations, and
-specification references; causes survive boundaries, and error-level diagnostics
-prevent schema return.
-
-Unsupported features have stable identifiers. Conformance reports aggregate
-them to show which implementation work unlocks the most tests.
+Diagnostics classify invalid/unsupported/resolution/internal failures; retain codes,
+primary `Loc`, related/specification references, and causes; errors prevent schema
+return. Unsupported features have stable report IDs.
 
 ## Schema model
 
-Raw XSD syntax is internal. Immutable model retains component `Loc`; queries use names/identities.
-Walks preserve document-discovery/lexical declaration order; unordered sets use stable sorting.
+Immutable components; ordered walks; scoped particles.
+Global elements retain ordered unique/key/keyref kind, name, source/ordinal ID, `Loc`, XML-decoded selector/field XPath/`Loc`s, copied namespace scopes/defaults,
+and resolved keyref QName/target ID. IDs/duplicates precede visible refer resolution: unresolved/invisible/ambiguous targets yield `FailureResolution` at `refer`;
+wrong-kind/field-count yield `FailureInvalid`. Publication is atomic.
 
-Schema skeleton exposes `Schema`, `SchemaDocument`, `Component`, `ComponentID`, and expanded `QName`.
-Documents follow identity-discovery order (root, queue); named declarations follow lexical order.
-`Components`, `Documents`, `Find`, and `Walk` return copies. IDs combine source identity/one-based
-declaration ordinals; lookup maps never define observable order. Local particles use scoped component
-facts/indexes; validator/generator state is on-demand.
+`DeclaredType` is primitive. Bounded attribute-free complexContent extensions
+over named empty bases and restrictions over `xs:anyType` retain refs, base
+IDs/`Loc`s, inherited `##other`/`lax` wildcards. Scalar simpleContent retains
+base/type/use `Loc`s and nil particle; restrictions reject. Bases:
+Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
+Direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline
+`negativeInteger`, and built-in/named `long`, `int`, `short`, `byte`, `unsignedLong`,
+`nonNegativeInteger`. Built-in `positiveInteger`: direct globals only.
+Direct built-in/named-effective `integer` supports consumers;
+derivatives/extensions are query-only. Built-in `long` retains bounds; named
+effective-long retains identity, facets, QName, occurrences, order.
+SimpleContent excludes these local derivatives. Failures locate type/facet/element,
+particles at nested `Loc`.
+Syntax/occurrence/reference/policy gates precede mapping, including `0/0` inline
+bases/facets. Graph/reference/policy errors retain cause/`Loc`; no `Schema`.
+Sequences resolve children before omission; choices resolve refs once; named
+groups resolve/check before omission; child refs first.
+Element/model-group refs retain QName/RefLoc/TargetID/order without expansion;
+nested/local/recursive/broader forms reject or exclude consumers. Non-`0/0` local inline/anonymous
+`long`/`int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger` fail at type/
+simpleType `Loc`; applicable `0/0` forms omit after gates.
+AttributeUse preserves order, locations, ownership, use, QName/RefLoc/TargetID
+across particles/groups/extensions/attribute-only/simpleContent.
+Grouped extensions resolve group/uses/base in order; `0/0` omits group.
+Local uses retain name/type/use locations and named/anonymous `AnonymousID`/`NodeID`;
+references retain QName/RefLoc/TargetID/use. Forms select names; XSD 1.1
+`targetNamespace` must match the container; chameleon adopts; prohibited uses omit.
+Local values/inheritable, attributeGroup/broader extensions, and consumers are
+unsupported; refs located; no schema.
+Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
+NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
+Default/fixed: built-in/named Boolean/integer/decimal/token/negativeInteger/long/int/short/unsignedLong; policy-gated `precisionDecimal`.
+Integer values/facets exact; unsignedLong lexical: digits-only XSD 1.0, signed/-0 XSD 1.1.
+Unsupported types/local/inline: located `FailureUnsupported`; unsupported values: constraint `Loc`;
+invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixed/default; type-only
+unconstrained; attribute consumers reject.
 
-Primitive status follows type-relations. Global `xs:boolean` and atomic `xs:string`/`xs:token`/`xs:NMTOKEN` retain `DeclaredType`;
-named/anonymous restrictions retain immutable boolean-kind/string-enumeration/string-`whiteSpace`; built-ins lack synthetic IDs.
-Built-in/named integer/decimal attrs retain immutable value-constraint-facts: kind=default/fixed, normalized-lexical-form,
-exact-typed-value, source-location. Named global complex types accept unqualified `mixed="false|0"`; omitted=element-only
-(unretained/unconsumed); `mixed="true|1"` unsupported. Malformed/contradictory XSD 1.1 forms; anonymous global complex/other shapes unsupported.
-Typed global attributes expose immutable `AttributeDeclaration.IsInheritable()`: `inheritable` omitted=false;
-Compatibility/Strict11 accept it, Strict10 reports a mismatch; untyped/inline forms unsupported.
-`defaultAttributesApply="true|false|1|0"` is restricted to named globals in XSD 1.1/Compatibility without schema-level
-`defaultAttributes`; validated/discarded, no public/validator/generator state. Strict10 reports mismatch.
-Schema-level `defaultAttributes`/default-group-application, local uses/inline-non-atomic-string forms, string/boolean/precisionDecimal attributes,
-other wildcard/attribute forms unsupported.
-
-Named complex types retain effective `abstract` bool via `ComplexTypeDefinition.IsAbstract()`; derivation does not inherit it.
-
-Named complex: particles; bounded openAttrs; attribute-free complexContent/extension over named empty-content bases; extensions retain base/extension IDs/locations,
-inherited wildcards, direct-choice/sequence occurrences; validation/generation reject. Direct global named: inert XSD 1.1 `openContent mode="none"`
-accepted under Compatibility/Strict11; Strict10 reports located XSD 1.1 mismatch. Non-none/wildcard-bearing `openContent`, `defaultOpenContent`,
-inline/derivation-local unsupported; malformed invalid. Local string/token/`xs:NMTOKEN` particles, Boolean facets, anonymous/nested/broader particles
-unsupported. References retain immutable target facts. Supported named direct complex-type sequence/choice owners: anyAttribute omitted/canonical=##any/strict; ##other/lax policy-wide. Wildcard locations retained; other wildcard/attribute forms/consumers unsupported.
+Complexes retain non-inherited `IsAbstract`, `finalDefault` provenance, ordered groups/extensions,
+and wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip
+`notNamespace`; chameleon markers expand after adoption. Consumers reject
+wildcards; broader forms reject; `0/0` omits. `openContent=none` works except
+under Strict10; named groups retain ordered refs/ranges.
+Inline complexes expose IDs, ordered sequence/ref/use outside walks; consumers reject. SimpleContent admits string/Boolean/integer/decimal, policy-gated
+`precisionDecimal` with nil particles. Compatibility/Strict11 admit nonzero
+direct `precisionDecimal` sequences and named precisionDecimal-bearing list/union locals in direct non-extension sequences without QName; consumers reject.
+Element refs retain targets/occurrences, including repeated global inline
+restrictions; nonzero local inline forms reject.
+Built-in/named `string` particles are query-only.
+`normalizedString`: replace whitespace and lexical facets; restriction/list/union refs.
+Atomic direct/named/inline globals and refs query; nonzero locals reject, `0/0`
+omits after gates. Global attributes/consumers, standalone named generation reject.
+Facet-free `QName` restriction/list/union and direct/named/inline global refs
+retain datatype QName, use `Loc`, named ID. Nonzero QName-bearing local declarations, attributes,
+facets, default/fixed reject; validated `0/0` omit after gates.
 
 ## Datatypes
 
-Lexical parsing and values are separate. Context-sensitive values such as QName
-retain namespace context.
-
-The datatype library implements XSD string enumeration plus lossless
-integer/decimal/boolean/precisionDecimal mappings with arbitrary-precision numeric
-forms. PrecisionDecimal exposes exact finite/special values and applicable facets; immutable
-schema components retain effective facets when named under Compatibility or
-Strict11. It remains optional and implementation-defined, not a mandatory XSD 1.1 claim.
-Boolean whitespace collapse is datatype behavior; boolean facets unsupported. Temporal
-distinctions and broader value spaces remain staged and report unsupported behavior.
+Lexical/value forms differ; QName lexical-to-value conversion remains unsupported
+and requires namespace context.
+Datatypes map string enumeration, arbitrary precision, exact Compatibility/Strict11
+precisionDecimal facets, and Boolean whitespace; broader facets/temporal values reject.
 
 ## Validation and code generation
 
-`ValidateInstance` supports built-in/named scalar `boolean`/`integer`/`decimal`/`precisionDecimal` globals and named global complex
-types with direct local integer/decimal sequences using expanded-name lexical order.
-Sequences honor exact finite, unbounded, and above-`uint64` outer/child ranges under
-`Compatibility`, `Strict10`, and `Strict11`. Direct choices allow default local scalars
-or default global integer/decimal references; mixed local/reference choices and non-default
-direct-choice/alternative occurrences unsupported/query-only. Non-default
-`precisionDecimal` choice/alternative ranges are schema-unsupported. References use
-immutable `TargetID`/`Lookup`; direct-choice repetition and excluded particle/target shapes—
-global string/token values, local boolean/string/token particles, lists/unions, attributes, and broader structures—remain
-unsupported. Concrete validator/generator paths reject abstract named types with located unsupported diagnostics;
-valid abstract declarations remain schema-queryable.
+`ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal,
+direct/named/anonymous `xs:string`-atomic roots (whiteSpace/enumeration), and
+Compatibility/Strict11 precisionDecimal roots; Strict10 rejects precisionDecimal.
+Identity-constrained roots reject at instance use `Loc`, relating the first constraint `Loc`.
+Local Boolean/integer/decimal sequences/default choices honor
+ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
+Local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is queryable but consumer-
+unsupported. Element refs retain QName/RefLoc/TargetID/order/occurrences without target gating;
+only default direct-choice refs to unconstrained global built-in/named Boolean/integer/decimal validate.
+Constrained targets reject at instance use `Loc` with related constraint `Loc`; other forms remain queryable.
+Global `nonNegativeInteger` refs remain queryable;
+direct-choice/sequence consumers reject with located unsupported diagnostics/nil output. Model-group
+refs query in direct complex-type bodies and supported grouped extensions; nested/broader forms reject.
+AttributeUse/simpleContent are query-only. QName globals/refs reject validation and generation with located diagnostics and nil output.
 
-Generation: named/inherited global boolean/integer/decimal/string scalars, inline anonymous global strings, direct/local
-numeric choice-switches, default-bounded sequences; only default-occurrence direct-choice references to global
-integer/decimal declarations generated; repeated/other references unsupported.
+Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
+types, global built-in/named elements of those types, inline global
+string/token/NMTOKEN, and named/global `nonNegativeInteger`. Standalone named
+`normalizedString` rejects. Global elements require
+`abstract=false,nillable=false`; violations yield `GOXSD9029` and nil output.
+Identity-constrained elements/targets yield `FailureUnsupported`/`GOXSD9029` at the first constraint `Loc` and no output.
+Built-in/standalone `nonNegativeInteger` uses `StrictInteger`; named fields use
+generated types. Canonical built-in facts require integer kind, fixed
+`fractionDigits=0` and `minInclusive=0`; named bounds/facets survive.
+Unsupported final/variety/effective-facet states yield `GOXSD9029`; malformed
+facts yield `GOXSD9030`, all with nil output. Nonzero local inline
+`nonNegativeInteger` has no schema; built-in/named locals are query-only, `0/0`
+absent. Global `int`/`long`/`short`/`byte`/`unsignedLong`/`positiveInteger`
+and direct `nonNegativeInteger` refs are query-only. `IntegerBounds()` copies
+built-in/named bounds; negativeInteger max=-1, positiveInteger min=1, named
+restrictions retain provenance. Local generation admits default
+Boolean/integer/decimal choices/sequences and all-token choices; other local
+shapes and global attributes reject.
 
 ## Conformance
 
-The W3C XSD test suite is pinned as a submodule. Catalog status is preserved
-independently from execution outcome: submitted, accepted, stable, queried,
-disputed-test, and disputed-spec are not collapsed. The harness separately
-reports pass, conformance failure, unsupported, resolution failure, and
-internal failure. Queried, disputed-test, and disputed-spec cases remain
-visible but affect neither the headline score nor backlog unlock ranking.
-
-Specifications pin XSD 1.0/1.1 schema-for-schemas artifacts by URL and
-raw-response digest in a manifest. Tooling converts, indexes, and navigates
-artifacts. `xml` is consumed unchanged; `html-cdata-pre` removes the exact
-`<pre><![CDATA[`/`]]></pre>` wrapper.
-`html-cdata-pre-xsd10-datatypes` removes that wrapper after digest verification,
-requires the pinned XSD 1.0 envelope, moves its one post-DTD declaration
-through `?>` before the unchanged DTD, and performs complete XML validation
-without opening external DTDs. Manifest aliases map schema locations such as
-HTTP `xml.xsd` to the pinned HTTPS artifact without
-changing parser or resolver semantics.
+URL/digest-pinned W3C artifacts drive pass, conformance, unsupported, resolution, and
+internal outcomes. Tooling verifies XSD 1.0 envelope/DTD order without changing parser or resolver semantics.

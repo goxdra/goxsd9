@@ -4,13 +4,10 @@ Status: accepted
 
 ## Decision
 
-Particle occurrence bounds are exact, finite, non-negative integer values, or
-the distinct `unbounded` variant allowed only for a maximum. The value model
-owns arbitrary-precision `StrictInteger` values. It has no sentinel, fixed-
-width conversion, floating-point value, duplicate unbounded flag, or nullable
-completed state. A completed range always has a finite minimum and a finite or
-unbounded maximum; a finite maximum is accepted only when minimum is less than
-or equal to maximum.
+Particle bounds are exact non-negative arbitrary-precision `StrictInteger` values
+or max-only `unbounded`. The model has no sentinel, fixed-width conversion,
+floating point, duplicate flag, or nullable state. A completed range has finite
+minimum and finite/unbounded maximum; finite maximum requires minimum <= maximum.
 
 The XSD 1.0 definitions are [`xsd10-structures#Particle_details`](https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/#Particle_details),
 [`xsd10-structures#p-min_occurs`](https://www.w3.org/TR/2004/REC-xmlschema-1-20041028/#p-min_occurs),
@@ -28,28 +25,25 @@ and [`xsd11-datatypes#nonNegativeInteger`](https://www.w3.org/TR/2012/REC-xmlsch
 
 ## Normative occurrence table
 
-The table describes the value and mapping boundary for both editions. An
-entry that maps to no component is not a public particle with zeroed fields.
-Edition-specific `all` restrictions follow the table.
+Both editions share table; no-component entries are not zeroed public particles;
+edition-specific `all` restrictions follow.
 
 | Input or condition | XSD 1.0 | XSD 1.1 |
 | --- | --- | --- |
-| Both attributes omitted | Effective `1/1`; construct finite `1/1`. | Effective `1/1`; construct finite `1/1`. |
-| `minOccurs="0"`, maximum omitted | Effective `0/1`; preserve exact zero and optionality. | Effective `0/1`; preserve exact zero and optionality. |
-| Explicit finite `1` | Construct finite `1`; leading `+` and zero padding canonicalize to `1`. | Construct finite `1`; leading `+` and zero padding canonicalize to `1`. |
+| Both attributes omitted | Effective `1/1`; construct finite `1/1`. | Same as XSD 1.0. |
+| `minOccurs="0"`, maximum omitted | Effective `0/1`; preserve exact zero and optionality. | Same as XSD 1.0. |
+| Explicit finite `1` | Construct finite `1`; leading `+` and zero padding canonicalize to `1`. | Same as XSD 1.0. |
 | Effective `0/0` | Where the representation permits both values, map to no particle; do not publish a zeroed particle. XSD 1.0 `<all>` itself has fixed maximum `1`. | Map to no particle; XSD 1.1 `<all>` permits the `0/0` representation. |
-| Arbitrary finite non-negative value, including above `uint64` | Preserve the exact `StrictInteger`; compare numerically without narrowing. | Preserve the exact `StrictInteger`; compare numerically without narrowing. |
-| `maxOccurs="unbounded"` | Store the max-only unbounded variant; compare no numeric maximum. | Store the max-only unbounded variant; compare no numeric maximum. |
+| Arbitrary finite non-negative value, including above `uint64` | Preserve the exact `StrictInteger`; compare numerically without narrowing. | Same as XSD 1.0. |
+| `maxOccurs="unbounded"` | Store the max-only unbounded variant; compare no numeric maximum. | Same as XSD 1.0. |
 | Omitted minimum with finite maximum `0` | Effective `1/0`; invalid because minimum exceeds maximum and a completed finite particle cannot have maximum zero. | Effective `1/0`; invalid because minimum exceeds maximum; an actual particle maximum is positive. |
-| Finite minimum greater than finite maximum | Invalid `Particle Correct`; retain both located bound inputs in the diagnostic. | Invalid `Particle Correct`; retain both located bound inputs in the diagnostic. |
-| Malformed lexical value such as `maybe`, `1.0`, or empty | Invalid `nonNegativeInteger`/`allNNI`; report at the attribute location and preserve the lexical cause. | Invalid `nonNegativeInteger`/`allNNI`; report at the attribute location and preserve the lexical cause. |
-| Negative value such as `-1` | Invalid non-negative value; negative zero denotes exact zero and is accepted by the datatype mapping. | Invalid non-negative value; negative zero denotes exact zero and is accepted by the datatype mapping. |
-| `unbounded` in `minOccurs` or another attribute | Invalid lexical/value for that attribute; only a maximum may use the keyword. | Invalid lexical/value for that attribute; only a maximum may use the keyword. |
+| Finite minimum greater than finite maximum | Invalid `Particle Correct`; retain both located bound inputs in the diagnostic. | Same as XSD 1.0. |
+| Malformed lexical value such as `maybe`, `1.0`, or empty | Invalid `nonNegativeInteger`/`allNNI`; report at the attribute location and preserve the lexical cause. | Same as XSD 1.0. |
+| Negative value such as `-1` | Invalid non-negative value; negative zero denotes exact zero and is accepted by the datatype mapping. | Same as XSD 1.0. |
+| `unbounded` in `minOccurs` or another attribute | Invalid lexical/value for that attribute; only a maximum may use the keyword. | Same as XSD 1.0. |
 
-Finite comparison is the only comparison used for the `min <= max` rule. An
-unbounded maximum satisfies the range boundary without comparing a numeric
-sentinel. The `0/0` mapping is applied after effective defaults and before a
-public component is allocated.
+Finite comparison enforces `min <= max`; unbounded maxima bypass numeric
+sentinels.
 
 ### Edition-specific `all` restrictions
 
@@ -58,13 +52,11 @@ public component is allocated.
 | XSD 1.0 | XSD 1.0 all members are element particles with minOccurs 0 or 1 and fixed maxOccurs 1; the current parser validates these restrictions and leaves explicit occurrence syntax unsupported. |
 | XSD 1.1 | An `all` model group has `minOccurs` and `maxOccurs` each in `0/1`. It has the permitted model-group-definition/content-type placements, and an `all` term may also occur as a `1/1` particle inside an `all` group. Its member terms that are model groups must themselves be `all`; a group-reference member is fixed at `1/1`. Element and wildcard members use the exact general occurrence model. The XML representation permits element, wildcard, and group children. |
 
-These are constraints on future component construction, not a claim that the
-current parser supports all particles or their repetition semantics.
+These constrain construction; broader particles, direct-choice repetition validation, and repeated-field generation remain unsupported.
 
 ## Representation and phase boundaries
 
-The private kernel in `particle_occurrence.go` is the first durable phase
-boundary:
+The private kernel in `particle_occurrence.go` defines the phase boundary:
 
 1. Syntax collection keeps lexical presence and source locations only long
    enough to apply the omitted-value default and detect duplicate attributes.
@@ -72,9 +64,12 @@ boundary:
    constructs a tagged finite or max-only unbounded bound. The range
    constructor owns copies and rejects an unbounded minimum or finite
    `min > max`.
-3. The particle mapping phase applies the shared exact `0/0` absence rule to
-   sequence, choice, and child occurrences. It derives `mapsToParticle` from
-   exact `0/0`; it does not store an `absent` flag alongside the two bounds.
+3. After syntax, occurrence, reference, and policy gates, mapping resolves inline
+   bases and supported facets for each affected owner/term before exact `0/0`
+   absence. Unsupported inline syntax waits for this resolution; only resolved
+   unsupported forms may omit. Invalid/unresolved/cyclic/wrong-kind/
+   value-constraint/policy failures retain causes and locations.
+   `mapsToParticle` derives from bounds.
 4. The completed schema phase copies the range into an immutable public
    occurrence view. Its minimum is an owned `StrictInteger`; its maximum is a
    tagged finite or unbounded value. Queries clone exact finite values at the
@@ -82,32 +77,16 @@ boundary:
 5. Validator and code-generator plans consume exact bounds on demand; they do
    not cache derived repetition programs in the schema.
 
-The current schema preflight uses this exact private range to validate lexical
-occurrence input. A named global complex type with one direct sequence of local
-built-in `xs:boolean`, named boolean-restriction, integer, or decimal scalar
-elements, or one direct choice of those scalar elements, maps the completed
-range and ordered children into the public schema. A supported global named
-model group with one direct choice of global element-reference particles also
-exposes its ordered children with exact ranges; an effective `0/0` group or
-child maps to absence. The shared effective `0/0` mapping for sequence, choice,
-and child particles precedes type-specific support gating and maps to absence.
-The same exact representation is retained for choice facts. `ValidateInstance`
-supports named global complex types with direct local integer/decimal sequences,
-matching expanded names in lexical declaration order and honoring exact finite,
-unbounded, and above-`uint64` outer and child ranges under `Compatibility`,
-`Strict10`, and `Strict11`. Direct-choice repetition remains unsupported. The
-same exact occurrence representation also covers bounded attribute-free `complexContent`/`extension`
-over named empty-content complex bases: the model retains extension/base
-identities and locations and inherited bounded wildcard facts, while validation
-and code generation reject extension types as unsupported.
-Default-bounded direct integer/decimal sequence children are emitted as ordered
-Go struct fields; repeated-field generation remains unsupported. XSD 1.1
-default-occurrence direct choices may use `precisionDecimal` only when the
-choice and each mapped `precisionDecimal` alternative use default occurrences;
-non-precision alternatives may retain non-default ranges for queries. Non-`0/0`
-`precisionDecimal` choice or alternative ranges that map to a particle are
-schema-unsupported, as are non-`0/0` direct-sequence `precisionDecimal` ranges
-that map to a particle.
+### Support boundaries
+
+Occurrence construction decides whether a supported mapped term exists; it does
+not decide whether validation or Go generation can consume that term. Admission
+and query behavior, including current shape exclusions, are described in the
+[architecture's schema model](../../ARCHITECTURE.md#schema-model) and the
+[package contract](../../doc.go). The architecture documents the separate
+[validation and generation](../../ARCHITECTURE.md#validation-and-code-generation)
+consumer boundaries. These current support limits are not part of the
+occurrence representation decision.
 
 ## Public API migration
 
@@ -123,8 +102,8 @@ view. The migration boundary is:
    and completed facts. Do not make an above-`uint64` or unbounded value look
    like a capped integer or a `uint64` wraparound.
 2. Expose non-default sequence particles only through the documented exact
-   view. The sequence child collection is an owned ordered copy of completed
-   `ElementParticle` facts.
+   view. `Particles()` returns the owned ordered copy of completed `Particle`
+   facts; `Elements()` remains a separate element-only collection.
 3. Keep the deprecated `uint64` methods during the compatibility window for
    existing default-only callers. There is no lossless compatibility adapter
    for arbitrary integers or `unbounded`; callers must migrate to the exact
@@ -132,15 +111,13 @@ view. The migration boundary is:
 
 ## Consumer policy and diagnostics
 
-Consumers that materialize a native bound do so only after exact comparison
-with an explicit configured limit. For those consumers, an above-limit finite
-value, an unbounded value, or a multiplication that exceeds a resource budget
-produces an explicit located unsupported or resource diagnostic with its feature
-and specification reference. The direct scalar sequence validator consumes exact
-outer and child ranges on demand, including unbounded and above-`uint64` values,
+Materializing consumers compare exact bounds with configured limits first.
+Above-limit finite, unbounded, or product-over-budget values produce located
+unsupported or resource diagnostics with feature and specification reference.
+The direct scalar sequence validator consumes exact outer and child ranges on demand, including unbounded and above-`uint64` values,
 without narrowing. No consumer truncates, saturates, uses a sentinel, or converts
 through floating point. Direct-choice repetition validation and non-default
-repeated-field emission remain disabled until their consumers have such a policy.
+repeated-field emission remain unsupported.
 
 Malformed and negative lexicals are invalid input at their source attribute;
 the stable schema-composition diagnostic preserves the underlying lexical or
@@ -155,66 +132,18 @@ explicit bound locations, and carries the corresponding
 Duplicate XML attributes remain syntax errors with the existing `XSD3001`
 behavior. An error-level diagnostic returns no schema.
 
-## Non-goals, risks, and follow-up
+## Limits and risks
 
-Currently, the supported occurrence boundary is one named global complex type
-with one direct sequence or direct choice of local built-in `xs:boolean`, named
-boolean-restriction, integer, or decimal scalar elements, or one global named
-model group with one direct choice of global element-reference particles, in
-XSD 1.0 and 1.1, plus bounded attribute-free `complexContent`/`extension` over
-named empty-content complex bases. These extension types retain extension/base
-identities and locations, inherited bounded wildcard facts, and exact direct
-choice/sequence occurrences; validation and code generation reject them as
-unsupported. All supported forms retain exact ranges, and effective `0/0` maps
-to absence.
-For instance validation, named global complex direct local integer/decimal sequences
-match expanded names in lexical declaration order and honor exact finite, unbounded, and above-`uint64`
-outer and child ranges under `Compatibility`, `Strict10`, and `Strict11`; direct-choice validation
-remains limited to default occurrences; excluded particle and target shapes remain unsupported.
-Direct choices may also include XSD 1.1 `precisionDecimal` elements only when
-the choice and each mapped `precisionDecimal` alternative use default
-occurrences. Non-precision alternatives may retain non-default ranges for
-queries. Non-`0/0` direct-sequence `precisionDecimal` ranges that map to a
-particle remain unsupported even under XSD 1.1 and Compatibility. An effective
-`0/0` sequence, choice, or child maps to absence before type-specific support
-gating. Supported direct-choice occurrence attributes and non-`0/0`
-alternative ranges are parsed and queryable, but direct-choice repetition is not
-implemented in validation, and effective total ranges are not calculated. Non-default
-direct sequence occurrences are not generated as repeated fields. Non-default
-`precisionDecimal` choice and alternative ranges that map to a particle are
-schema-unsupported. Boolean facets and
-anonymous, nested, or broader particles, including nested choices, `all`,
-groups, and broader wildcard/attribute forms, remain unsupported; anonymous
-simple-type models and resolved built-in, named, and anonymous simple-type
-references are modeled. Supported named direct sequence/choice types expose
-direct `anyAttribute` with effective `##any`/`strict` defaults when each
-attribute is omitted or explicitly spells its canonical value under XSD 1.0,
-XSD 1.1, and Compatibility; explicit `##other`/`lax` remains supported.
-The `anyAttribute` element location and explicitly present `namespace`/`processContents` attribute locations are retained; omitted default-attribute locations are zero. Wildcard-bearing validation and code-generation consumers remain
-unsupported. Direct
-element-reference particles are supported in the schema model for local choice
-and sequence children and for global named-group direct choices; nested group
-references remain unsupported. Validator consumption covers named global complex direct
-local integer/decimal sequences and direct choices with default-occurrence local scalar
-alternatives or references to global integer/decimal scalar elements; code generation also supports only default-occurrence direct-choice references to those global
-numeric elements, while all other validator and code-generator consumption of direct references remains unsupported. Global
-text-only boolean validation is supported under
-Compatibility, Strict10, and Strict11; global boolean scalar generation is
-supported, while local boolean-particle validation and generation remain
-unsupported;
-the parser does not support `all` mapping. The exact value has no fixed
-resource limit; later phases must set bounded input and materialization
-policies.
+Exact occurrences have no fixed representation limit; later phases must bound
+input and materialization. Current admission and consumer limits are recorded in
+the [architecture](../../ARCHITECTURE.md#schema-model) and
+[package contract](../../doc.go).
 
-The main risks are memory proportional to hostile finite lexicals, a breaking
-API migration if exact accessors are delayed, and accidentally treating the
-semantic `0/0` absence as a public zero-valued component. The range
-constructor, ownership tests, and mapping proof guard the latter two; future
-resource policy must guard the first.
+Risks: unbounded lexical memory use during parsing, accessor breakage, and
+publishing `0/0` as a zero component. Range/ownership/mapping tests guard the
+latter two; a resource policy for lexical input remains future work.
 
-The exact occurrence accessors and the temporary `uint64` compatibility methods
-belong to the schema API boundary. Schema mapping, including `0/0` absence,
-belongs to component construction; bounded materialization and repetition
-belong to validation; bounded direct-particle emission belongs to code generation.
-These responsibilities preserve the phase boundaries and edition-specific
-`all` rules recorded here.
+Exact occurrence accessors and temporary `uint64` methods belong to the schema
+API. Mapping, including `0/0` absence, belongs to construction; bounded
+materialization/repetition to validation; bounded emission to code generation.
+These responsibilities preserve the phase and edition-specific `all` rules.

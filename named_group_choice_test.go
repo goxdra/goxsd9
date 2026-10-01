@@ -134,25 +134,7 @@ func TestNamedGroupDirectChoiceBuildsImmutableDefinition(t *testing.T) { //nolin
 				mustTestQName(t, "urn:named-group", "huge"),
 			}
 			wantOccurrences := []string{"1/1", "0/unbounded", "2/5", "3/18446744073709551616"}
-			for index, wantName := range wantNames {
-				reference, ok := alternatives[index].(ElementReferenceParticle)
-				if !ok {
-					t.Fatalf("alternative %d = %T, want ElementReferenceParticle", index, alternatives[index])
-				}
-				if reference.Name() != wantName || reference.Ref() != wantName {
-					t.Fatalf("alternative %d name = %q/%q, want %q", index, reference.Name(), reference.Ref(), wantName)
-				}
-				if got := reference.Occurrences().String(); got != wantOccurrences[index] {
-					t.Fatalf("alternative %d occurrences = %q, want %q", index, got, wantOccurrences[index])
-				}
-				if reference.Loc().Source() != "root.xsd" || reference.RefLoc().Source() != "root.xsd" {
-					t.Fatalf("alternative %d locations = %s/%s, want root.xsd", index, reference.Loc(), reference.RefLoc())
-				}
-				targets := schema.FindKind(ComponentKindElementDeclaration, wantName)
-				if len(targets) != 1 || reference.TargetID() != targets[0].ID() {
-					t.Fatalf("alternative %d target ID = %v, want %v", index, reference.TargetID(), targets[0].ID())
-				}
-			}
+			assertNamedGroupElementReferenceParticles(t, schema, alternatives, wantNames, wantOccurrences, "alternative")
 			if got, want := schema.Find(groupName)[0].ID(), group.ID(); got != want {
 				t.Fatalf("Find returned ID %v, want %v", got, want)
 			}
@@ -392,7 +374,6 @@ func TestNamedGroupExcludesOtherParticleShapes(t *testing.T) {
 		marker string
 		last   bool
 	}{
-		{name: "sequence", model: "<xs:sequence/>", marker: "<xs:sequence"},
 		{name: "all", model: "<xs:all/>", marker: "<xs:all"},
 		{name: "group reference", model: `<xs:choice><xs:group ref="g:Other"/></xs:choice>`, marker: `ref="g:Other"`},
 		{name: "nested choice", model: "<xs:choice><xs:choice/></xs:choice>", marker: "<xs:choice", last: true},

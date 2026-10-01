@@ -38,6 +38,72 @@ func TestSyncMapsClosedIssueToDone(t *testing.T) {
 	}
 }
 
+func TestReadIssueStatusRejectsMalformedLabels(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		labels string
+	}{
+		{name: "null labels", labels: `null`},
+		{name: "null element", labels: `[null]`},
+		{name: "empty object", labels: `[{}]`},
+		{name: "null name", labels: `[{"name":null}]`},
+		{name: "empty name", labels: `[{"name":""}]`},
+		{name: "blank name", labels: `[{"name":" \t"}]`},
+		{name: "scalar element", labels: `[1]`},
+		{name: "non-string name", labels: `[{"name":1}]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+				if name != "gh" || strings.Join(args, " ") != "api repos/goxdra/goxsd9/issues/141" {
+					return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+				}
+				return `{"state":"oPeN","labels":` + test.labels + `}`, nil
+			}}
+			_, err := application.readIssueStatus("/repo", 141)
+			if err == nil || operationDispositionOf(err) != operationDispositionTerminal {
+				t.Fatalf("readIssueStatus error = %v, disposition %d; want terminal", err, operationDispositionOf(err))
+			}
+		})
+	}
+}
+
+//nolint:gocognit // The table checks both normalized state and exact label preservation.
+func TestReadIssueStatusAcceptsEmptyAndRicherLabels(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		labels string
+		want   string
+	}{
+		{name: "empty", labels: `[]`},
+		{name: "richer object", labels: `[{"name":"Needs-Human","color":"red","description":null}]`, want: "Needs-Human"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+				if name != "gh" || strings.Join(args, " ") != "api repos/goxdra/goxsd9/issues/141" {
+					return "", fmt.Errorf("unexpected command: %s %s", name, strings.Join(args, " "))
+				}
+				return `{"state":"oPeN","labels":` + test.labels + `}`, nil
+			}}
+			status, err := application.readIssueStatus("/repo", 141)
+			if err != nil {
+				t.Fatalf("readIssueStatus: %v", err)
+			}
+			if status.State != "OPEN" {
+				t.Fatalf("state = %q, want OPEN", status.State)
+			}
+			if len(status.Labels) == 0 {
+				if test.want != "" {
+					t.Fatalf("labels = %#v, want %q", status.Labels, test.want)
+				}
+				return
+			}
+			if len(status.Labels) != 1 || status.Labels[0].Name != test.want || issueNeedsHuman(status) {
+				t.Fatalf("labels = %#v, needs-human = %t; want exact name %q", status.Labels, issueNeedsHuman(status), test.want)
+			}
+		})
+	}
+}
+
 func TestSetIssueProjectStatusIsIdempotent(t *testing.T) {
 	commands := 0
 	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {

@@ -12,6 +12,8 @@ import (
 
 const validationSequenceNamespace = "urn:sequence"
 
+const validationSequenceTokenOtherNamespace = "urn:sequence-token-other"
+
 func TestValidateInstanceSupportsDirectScalarSequences(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationSequenceNamespace + `" targetNamespace="` + validationSequenceNamespace + `" version="1.1">
   <xs:element name="root" type="r:Root"/>
@@ -31,16 +33,208 @@ func TestValidateInstanceSupportsDirectScalarSequences(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Keep the complete occurrence and policy matrix together.
+func TestValidateInstanceSupportsDirectBooleanSequencesAcrossPolicies(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationSequenceNamespace + `" targetNamespace="` + validationSequenceNamespace + `" version="1.1">
+  <xs:element name="root" type="r:Root"/>
+  <xs:complexType name="Root"><xs:sequence>
+    <xs:element name="builtin" type="xs:boolean"/>
+    <xs:element name="named" type="r:Flag"/>
+  </xs:sequence></xs:complexType>
+  <xs:simpleType name="Flag"><xs:restriction base="r:Base"/></xs:simpleType>
+  <xs:simpleType name="Base"><xs:restriction base="xs:boolean"/></xs:simpleType>
+</xs:schema>`
+	inputs := []string{
+		`<root xmlns="` + validationSequenceNamespace + `"><builtin xmlns="">true</builtin><named xmlns="">false</named></root>`,
+		`<root xmlns="` + validationSequenceNamespace + `"><builtin xmlns="">1</builtin><named xmlns="">0</named></root>`,
+	}
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema := validationTestSchemaWithPolicy(t, root, nil, policy)
+			before := schema.Components()
+			for _, input := range inputs {
+				if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+					t.Fatalf("ValidateInstance(%q): %v", input, err)
+				}
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("Boolean sequence validation mutated the completed schema")
+			}
+		})
+	}
+}
+
+func TestValidateInstanceSupportsBooleanSequenceGraphVisibility(t *testing.T) {
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			version := "1.1"
+			if policy == goxsd9.Strict10 {
+				version = "1.0"
+			}
+			root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationSequenceNamespace + `" xmlns:o="urn:sequence-other" targetNamespace="` + validationSequenceNamespace + `" version="` + version + `"><xs:include schemaLocation="chameleon.xsd"/><xs:import namespace="urn:sequence-other" schemaLocation="other.xsd"/><xs:element name="root" type="r:Root"/><xs:complexType name="Root"><xs:sequence><xs:element name="forward" type="r:ForwardFlag"/><xs:element name="included" type="r:IncludedFlag"/><xs:element name="imported" type="o:ImportedFlag"/></xs:sequence></xs:complexType><xs:simpleType name="ForwardFlag"><xs:restriction base="r:BaseFlag"/></xs:simpleType><xs:simpleType name="BaseFlag"><xs:restriction base="xs:boolean"/></xs:simpleType></xs:schema>`
+			chameleon := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `"><xs:simpleType name="IncludedFlag"><xs:restriction base="xs:boolean"/></xs:simpleType></xs:schema>`
+			other := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" targetNamespace="urn:sequence-other" version="` + version + `"><xs:simpleType name="ImportedFlag"><xs:restriction base="xs:boolean"/></xs:simpleType></xs:schema>`
+			schema := validationTestSchemaWithPolicy(t, root, map[string]validationTestFixture{
+				"chameleon.xsd": {id: "chameleon.xsd", contents: chameleon},
+				"other.xsd":     {id: "other.xsd", contents: other},
+			}, policy)
+			input := `<root xmlns="` + validationSequenceNamespace + `"><forward xmlns="">1</forward><included xmlns="">false</included><imported xmlns="">0</imported></root>`
+			before := schema.Components()
+			if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+				t.Fatalf("ValidateInstance: %v", err)
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("graph-visible Boolean sequence validation mutated the completed schema")
+			}
+		})
+	}
+}
+
+func TestValidateInstanceSupportsTokenSequenceGraphVisibility(t *testing.T) {
+	for _, policy := range validationTokenPolicies() {
+		t.Run(policy.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationSequenceNamespace + `" xmlns:o="` + validationSequenceTokenOtherNamespace + `" targetNamespace="` + validationSequenceNamespace + `" version="` + string(policy.version) + `">
+  <xs:include schemaLocation="token-sequence-chameleon.xsd"/>
+  <xs:import namespace="` + validationSequenceTokenOtherNamespace + `" schemaLocation="token-sequence-other.xsd"/>
+  <xs:element name="root" type="r:Root"/>
+  <xs:complexType name="Root"><xs:sequence>
+    <xs:element name="direct" type="xs:token"/>
+    <xs:element name="forward" type="r:Forward"/>
+    <xs:element name="named" type="r:Named"/>
+    <xs:element name="included" type="r:Included"/>
+    <xs:element name="imported" type="o:Imported"/>
+  </xs:sequence></xs:complexType>
+  <xs:simpleType name="Forward"><xs:restriction base="r:Later"/></xs:simpleType>
+  <xs:simpleType name="Named"><xs:restriction base="xs:token"><xs:enumeration value=" named "/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="Later"><xs:restriction base="xs:token"><xs:enumeration value=" forward "/></xs:restriction></xs:simpleType>
+</xs:schema>`
+			fixtures := map[string]validationTestFixture{
+				"token-sequence-chameleon.xsd": {
+					id:       "token-sequence-chameleon.xsd",
+					contents: `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `"><xs:simpleType name="Included"><xs:restriction base="xs:token"><xs:enumeration value=" included "/></xs:restriction></xs:simpleType></xs:schema>`,
+				},
+				"token-sequence-other.xsd": {
+					id:       "token-sequence-other.xsd",
+					contents: `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" targetNamespace="` + validationSequenceTokenOtherNamespace + `" version="` + string(policy.version) + `"><xs:simpleType name="Imported"><xs:restriction base="xs:token"><xs:enumeration value=" imported "/></xs:restriction></xs:simpleType></xs:schema>`,
+				},
+			}
+			schema := validationTestSchemaWithPolicy(t, root, fixtures, policy.policy)
+			before := schema.Components()
+			input := `<root xmlns="` + validationSequenceNamespace + `"><direct xmlns=""> free token </direct><forward xmlns="">&#x9;forward&#xD;&#xA;</forward><named xmlns=""> named </named><included xmlns="">&#x9;included&#xA;</included><imported xmlns="">&#xD;imported&#x9;</imported></root>`
+			if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+				t.Fatalf("ValidateInstance: %v", err)
+			}
+			if !reflect.DeepEqual(before, schema.Components()) {
+				t.Fatal("graph-visible token sequence validation mutated the completed schema")
+			}
+		})
+	}
+}
+
 func TestValidateInstanceHonorsSequenceOccurrences(t *testing.T) {
-	cases := []struct {
-		name          string
-		sequenceAttrs string
-		firstAttrs    string
-		secondAttrs   string
-		input         string
-		wantError     bool
-	}{
+	for _, profile := range validationSequenceOccurrenceProfiles() {
+		t.Run(profile.name, func(t *testing.T) {
+			runValidationSequenceOccurrenceProfile(t, profile)
+		})
+	}
+}
+
+func runValidationSequenceOccurrenceProfile(t *testing.T, profile validationSequenceOccurrenceProfile) {
+	t.Helper()
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			runValidationSequenceOccurrencePolicy(t, profile, policy)
+		})
+	}
+}
+
+func runValidationSequenceOccurrencePolicy(t *testing.T, profile validationSequenceOccurrenceProfile, policy goxsd9.LanguagePolicy) {
+	t.Helper()
+	for _, test := range validationSequenceOccurrenceCases() {
+		t.Run(test.name, func(t *testing.T) {
+			schema := validationSequenceOccurrenceSchema(t, policy, profile, test.sequenceAttrs, test.firstAttrs, test.secondAttrs)
+			input := renderValidationSequenceInput(test.input, profile.values)
+			err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+			if test.wantError {
+				diagnostic := validationTestDiagnostic(t, err)
+				if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != goxsd9.InvalidInstanceSequenceCode {
+					t.Fatalf("diagnostic = %s/%q, want invalid sequence", diagnostic, diagnostic.Code())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ValidateInstance: %v", err)
+			}
+		})
+	}
+}
+
+type validationSequenceOccurrenceProfile struct {
+	name       string
+	firstType  string
+	secondType string
+	extra      string
+	values     validationSequenceOccurrenceValues
+}
+
+type validationSequenceOccurrenceValues struct {
+	first   string
+	first2  string
+	first3  string
+	second  string
+	second2 string
+}
+
+type validationSequenceOccurrenceCase struct {
+	name          string
+	sequenceAttrs string
+	firstAttrs    string
+	secondAttrs   string
+	input         string
+	wantError     bool
+}
+
+func validationSequenceOccurrenceProfiles() []validationSequenceOccurrenceProfile {
+	return []validationSequenceOccurrenceProfile{
+		{
+			name:       "numeric",
+			firstType:  "xs:integer",
+			secondType: "xs:decimal",
+			values: validationSequenceOccurrenceValues{
+				first: "1", first2: "2", first3: "3", second: "3.25", second2: "4.50",
+			},
+		},
+		{
+			name:       "Boolean",
+			firstType:  "xs:boolean",
+			secondType: "r:Flag",
+			extra:      `<xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>`,
+			values: validationSequenceOccurrenceValues{
+				first: "true", first2: "0", first3: "1", second: "false", second2: "0",
+			},
+		},
+		{
+			name:       "token",
+			firstType:  "xs:token",
+			secondType: "r:Token",
+			extra:      `<xs:simpleType name="Token"><xs:restriction base="xs:token"><xs:enumeration value=" second "/></xs:restriction></xs:simpleType>`,
+			values: validationSequenceOccurrenceValues{
+				first: "\tfirst \r\n", first2: " first-two ", first3: "first-three", second: "\tsecond\r\n", second2: " second ",
+			},
+		},
+		{
+			name:       "NMTOKEN",
+			firstType:  "xs:NMTOKEN",
+			secondType: "r:NMTOKEN",
+			extra:      `<xs:simpleType name="NMTOKEN"><xs:restriction base="xs:NMTOKEN"><xs:enumeration value=" second "/></xs:restriction></xs:simpleType>`,
+			values: validationSequenceOccurrenceValues{
+				first: "\tfirst \r\n", first2: " first-two ", first3: "first-three", second: "\tsecond\r\n", second2: " second ",
+			},
+		},
+	}
+}
+
+func validationSequenceOccurrenceCases() []validationSequenceOccurrenceCase {
+	return []validationSequenceOccurrenceCase{
 		{
 			name:          "optional outer sequence",
 			sequenceAttrs: ` minOccurs="0"`,
@@ -49,32 +243,44 @@ func TestValidateInstanceHonorsSequenceOccurrences(t *testing.T) {
 		{
 			name:       "optional child",
 			firstAttrs: ` minOccurs="0"`,
-			input:      `<root xmlns="` + validationSequenceNamespace + `"><decimal xmlns="">1.25</decimal></root>`,
+			input:      `<root xmlns="` + validationSequenceNamespace + `"><second xmlns="">{{second}}</second></root>`,
+		},
+		{
+			name:        "all-optional body accepts empty",
+			firstAttrs:  ` minOccurs="0"`,
+			secondAttrs: ` minOccurs="0"`,
+			input:       `<root xmlns="` + validationSequenceNamespace + `"/>`,
+		},
+		{
+			name:        "zero-occurrence children contribute no particles",
+			firstAttrs:  ` minOccurs="0" maxOccurs="0"`,
+			secondAttrs: ` minOccurs="0" maxOccurs="0"`,
+			input:       `<root xmlns="` + validationSequenceNamespace + `"/>`,
 		},
 		{
 			name:       "finite repeated child",
 			firstAttrs: ` maxOccurs="2"`,
-			input:      `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns="">1</integer><integer xmlns="">2</integer><decimal xmlns="">3.25</decimal></root>`,
+			input:      `<root xmlns="` + validationSequenceNamespace + `"><first xmlns="">{{first}}</first><first xmlns="">{{first2}}</first><second xmlns="">{{second}}</second></root>`,
 		},
 		{
 			name:       "unbounded child",
 			firstAttrs: ` maxOccurs="unbounded"`,
-			input:      `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns="">1</integer><integer xmlns="">2</integer><integer xmlns="">3</integer><decimal xmlns="">4.50</decimal></root>`,
+			input:      `<root xmlns="` + validationSequenceNamespace + `"><first xmlns="">{{first}}</first><first xmlns="">{{first2}}</first><first xmlns="">{{first3}}</first><second xmlns="">{{second}}</second></root>`,
 		},
 		{
 			name:          "repeated outer sequence",
 			sequenceAttrs: ` maxOccurs="2"`,
-			input:         `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns="">1</integer><decimal xmlns="">2.50</decimal><integer xmlns="">3</integer><decimal xmlns="">4.50</decimal></root>`,
+			input:         `<root xmlns="` + validationSequenceNamespace + `"><first xmlns="">{{first}}</first><second xmlns="">{{second}}</second><first xmlns="">{{first3}}</first><second xmlns="">{{second2}}</second></root>`,
 		},
 		{
 			name:          "unbounded outer sequence",
 			sequenceAttrs: ` maxOccurs="unbounded"`,
-			input:         `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns="">1</integer><decimal xmlns="">2.50</decimal><integer xmlns="">3</integer><decimal xmlns="">4.50</decimal></root>`,
+			input:         `<root xmlns="` + validationSequenceNamespace + `"><first xmlns="">{{first}}</first><second xmlns="">{{second}}</second><first xmlns="">{{first3}}</first><second xmlns="">{{second2}}</second></root>`,
 		},
 		{
 			name:       "child exact range above uint64",
 			firstAttrs: ` minOccurs="18446744073709551616" maxOccurs="18446744073709551616"`,
-			input:      `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns="">1</integer><decimal xmlns="">2.50</decimal></root>`,
+			input:      `<root xmlns="` + validationSequenceNamespace + `"><first xmlns="">{{first}}</first><second xmlns="">{{second}}</second></root>`,
 			wantError:  true,
 		},
 		{
@@ -89,34 +295,22 @@ func TestValidateInstanceHonorsSequenceOccurrences(t *testing.T) {
 			sequenceAttrs: ` minOccurs="18446744073709551616" maxOccurs="18446744073709551616"`,
 			firstAttrs:    ` minOccurs="0"`,
 			secondAttrs:   ` minOccurs="0"`,
-			input:         `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns="">1</integer></root>`,
+			input:         `<root xmlns="` + validationSequenceNamespace + `"><first xmlns="">{{first}}</first></root>`,
 		},
-	}
-	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
-		t.Run(string(policy), func(t *testing.T) {
-			for _, test := range cases {
-				t.Run(test.name, func(t *testing.T) {
-					schema := validationSequenceOccurrenceSchema(t, policy, test.sequenceAttrs, test.firstAttrs, test.secondAttrs)
-					err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(test.input)))
-					if test.wantError {
-						if err == nil {
-							t.Fatal("ValidateInstance succeeded for an under-counted exact range")
-						}
-						if diagnostic := validationTestDiagnostic(t, err); diagnostic.Code() != goxsd9.InvalidInstanceSequenceCode {
-							t.Fatalf("diagnostic Code() = %q, want %q", diagnostic.Code(), goxsd9.InvalidInstanceSequenceCode)
-						}
-						return
-					}
-					if err != nil {
-						t.Fatalf("ValidateInstance: %v", err)
-					}
-				})
-			}
-		})
 	}
 }
 
-func validationSequenceOccurrenceSchema(t *testing.T, policy goxsd9.LanguagePolicy, sequenceAttrs, firstAttrs, secondAttrs string) goxsd9.Schema {
+func renderValidationSequenceInput(input string, values validationSequenceOccurrenceValues) string {
+	return strings.NewReplacer(
+		"{{first}}", values.first,
+		"{{first2}}", values.first2,
+		"{{first3}}", values.first3,
+		"{{second}}", values.second,
+		"{{second2}}", values.second2,
+	).Replace(input)
+}
+
+func validationSequenceOccurrenceSchema(t *testing.T, policy goxsd9.LanguagePolicy, profile validationSequenceOccurrenceProfile, sequenceAttrs, firstAttrs, secondAttrs string) goxsd9.Schema {
 	t.Helper()
 	version := "1.1"
 	if policy == goxsd9.Strict10 {
@@ -125,9 +319,9 @@ func validationSequenceOccurrenceSchema(t *testing.T, policy goxsd9.LanguagePoli
 	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationSequenceNamespace + `" targetNamespace="` + validationSequenceNamespace + `" version="` + version + `">
   <xs:element name="root" type="r:Root"/>
   <xs:complexType name="Root"><xs:sequence` + sequenceAttrs + `>
-    <xs:element name="integer" type="xs:integer"` + firstAttrs + `/>
-    <xs:element name="decimal" type="xs:decimal"` + secondAttrs + `/>
-  </xs:sequence></xs:complexType>
+    <xs:element name="first" type="` + profile.firstType + `"` + firstAttrs + `/>
+    <xs:element name="second" type="` + profile.secondType + `"` + secondAttrs + `/>
+  </xs:sequence></xs:complexType>` + profile.extra + `
 </xs:schema>`
 	return validationTestSchemaWithPolicy(t, root, nil, policy)
 }
@@ -155,104 +349,337 @@ func TestValidateInstancePreservesCorrelatedAdjacentSequenceCandidates(t *testin
 	}
 }
 
-//nolint:gocognit,funlen // Keep structural diagnostics, locations, and policies together.
 func TestValidateInstanceReportsDirectSequenceStructure(t *testing.T) {
-	cases := []struct {
-		name       string
-		input      string
-		wantCode   string
-		wantClass  goxsd9.FailureClass
-		wantMarker string
-	}{
+	for _, profile := range validationSequenceStructureProfiles() {
+		t.Run(profile.name, func(t *testing.T) {
+			runValidationSequenceStructureProfile(t, profile)
+		})
+	}
+}
+
+func runValidationSequenceStructureProfile(t *testing.T, profile validationSequenceStructureProfile) {
+	t.Helper()
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			runValidationSequenceStructurePolicy(t, profile, policy)
+		})
+	}
+}
+
+func runValidationSequenceStructurePolicy(t *testing.T, profile validationSequenceStructureProfile, policy goxsd9.LanguagePolicy) {
+	t.Helper()
+	wantLexicalSpec := ""
+	if profile.lexicalSpec != nil {
+		wantLexicalSpec = profile.lexicalSpec(policy)
+	}
+	schema := validationSequenceStructureSchema(t, policy, profile)
+	before := schema.Components()
+	for _, test := range validationSequenceStructureCases() {
+		t.Run(test.name, func(t *testing.T) {
+			runValidationSequenceStructureCase(t, schema, profile, test, wantLexicalSpec)
+		})
+	}
+	if !reflect.DeepEqual(before, schema.Components()) {
+		t.Fatal("sequence validation mutated the completed schema")
+	}
+}
+
+func runValidationSequenceStructureCase(t *testing.T, schema goxsd9.Schema, profile validationSequenceStructureProfile, test validationSequenceStructureCase, wantLexicalSpec string) {
+	t.Helper()
+	input := renderValidationSequenceStructureText(test.input, profile)
+	wantCode := test.wantCode
+	if test.lexical {
+		wantCode = profile.lexicalCode
+	}
+	diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+	if diagnostic.Class() != test.wantClass || diagnostic.Code() != wantCode {
+		t.Fatalf("diagnostic = %s/%q, want %s/%q", diagnostic, diagnostic.Code(), test.wantClass, wantCode)
+	}
+	marker := renderValidationSequenceStructureText(test.wantMarker, profile)
+	if marker != "" && diagnostic.Loc() != validationSequenceMarkerLoc(t, input, marker) {
+		t.Fatalf("diagnostic Loc() = %s, want marker %q", diagnostic.Loc(), marker)
+	}
+	if diagnostic.SpecRef() == "" {
+		t.Fatalf("diagnostic SpecRef() is empty")
+	}
+	if test.lexical && wantLexicalSpec != "" && diagnostic.SpecRef() != wantLexicalSpec {
+		t.Fatalf("lexical diagnostic SpecRef() = %q, want %q", diagnostic.SpecRef(), wantLexicalSpec)
+	}
+	if !test.lexical && diagnostic.Unwrap() == nil {
+		t.Fatalf("diagnostic lost its structural cause")
+	}
+}
+
+//nolint:gocognit // Keep token sequence value-space and provenance assertions together.
+func TestValidateInstanceReportsLocalTokenSequenceEnumerationEvidence(t *testing.T) {
+	var tokenProfile validationSequenceStructureProfile
+	for _, profile := range validationSequenceStructureProfiles() {
+		if profile.name == "token" {
+			tokenProfile = profile
+			break
+		}
+	}
+	if tokenProfile.name == "" {
+		t.Fatal("token sequence profile is missing")
+	}
+	for _, policy := range validationTokenPolicies() {
+		t.Run(policy.name, func(t *testing.T) {
+			schema := validationSequenceStructureSchema(t, policy.policy, tokenProfile)
+			input := `<root xmlns="` + validationSequenceNamespace + `"><first xmlns="">not allowed</first><second xmlns="">free token</second></root>`
+			diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+			if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != goxsd9.EnumerationValueViolationCode {
+				t.Fatalf("diagnostic = %s/%q, want token enumeration violation", diagnostic, diagnostic.Code())
+			}
+			if diagnostic.Loc() != validationSequenceMarkerLoc(t, input, "not allowed") {
+				t.Fatalf("diagnostic Loc() = %s, want token text location", diagnostic.Loc())
+			}
+			if diagnostic.SpecRef() != validationTokenEnumerationSpecRef(policy.version) || diagnostic.Unwrap() == nil {
+				t.Fatalf("diagnostic evidence = %s/%q/%v, want located token enumeration cause", diagnostic.Loc(), diagnostic.SpecRef(), diagnostic.Unwrap())
+			}
+			wantRelated := validationSequenceTokenEnumerationRelated(t, schema)
+			if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+				t.Fatalf("Related() = %v, want %v", diagnostic.Related(), wantRelated)
+			}
+		})
+	}
+}
+
+func validationSequenceTokenEnumerationRelated(t *testing.T, schema goxsd9.Schema) []goxsd9.Loc {
+	t.Helper()
+	rootName, err := goxsd9.NewQName(validationSequenceNamespace, "root")
+	if err != nil {
+		t.Fatalf("NewQName root: %v", err)
+	}
+	rootComponents := schema.FindKind(goxsd9.ComponentKindElementDeclaration, rootName)
+	if len(rootComponents) != 1 {
+		t.Fatalf("root declarations = %d, want one", len(rootComponents))
+	}
+	typeName, err := goxsd9.NewQName(validationSequenceNamespace, "Root")
+	if err != nil {
+		t.Fatalf("NewQName Root: %v", err)
+	}
+	typeComponents := schema.FindKind(goxsd9.ComponentKindComplexTypeDefinition, typeName)
+	if len(typeComponents) != 1 {
+		t.Fatalf("Root definitions = %d, want one", len(typeComponents))
+	}
+	definition, ok := typeComponents[0].ComplexTypeDefinition()
+	if !ok {
+		t.Fatal("Root has no complex type definition view")
+	}
+	sequence, ok := definition.Particle().(goxsd9.SequenceParticle)
+	if !ok {
+		t.Fatalf("Root particle = %T, want SequenceParticle", definition.Particle())
+	}
+	elements := sequence.Elements()
+	if len(elements) != 2 {
+		t.Fatalf("sequence elements = %d, want two", len(elements))
+	}
+	sequenceTokenName, err := goxsd9.NewQName(validationSequenceNamespace, "SequenceToken")
+	if err != nil {
+		t.Fatalf("NewQName SequenceToken: %v", err)
+	}
+	tokenComponents := schema.FindKind(goxsd9.ComponentKindSimpleTypeDefinition, sequenceTokenName)
+	if len(tokenComponents) != 1 {
+		t.Fatalf("SequenceToken definitions = %d, want one", len(tokenComponents))
+	}
+	tokenDefinition, ok := tokenComponents[0].SimpleTypeDefinition()
+	if !ok {
+		t.Fatal("SequenceToken has no simple type definition view")
+	}
+	enumerationLocations := tokenDefinition.StringEnumerationFacets().Locations()
+	related := make([]goxsd9.Loc, 0, 5+len(enumerationLocations))
+	related = append(related, rootComponents[0].Loc(), typeComponents[0].Loc(), sequence.Loc(), elements[0].Loc(), tokenComponents[0].Loc())
+	return append(related, enumerationLocations...)
+}
+
+type validationSequenceStructureProfile struct {
+	name        string
+	firstName   string
+	secondName  string
+	firstType   string
+	secondType  string
+	firstValue  string
+	secondValue string
+	invalid     string
+	extra       string
+	schemaExtra string
+	lexicalCode string
+	lexicalSpec func(goxsd9.LanguagePolicy) string
+}
+
+type validationSequenceStructureCase struct {
+	name       string
+	input      string
+	wantCode   string
+	wantClass  goxsd9.FailureClass
+	wantMarker string
+	lexical    bool
+}
+
+func validationSequenceStructureProfiles() []validationSequenceStructureProfile {
+	return []validationSequenceStructureProfile{
+		{
+			name:        "numeric",
+			firstName:   "integer",
+			secondName:  "decimal",
+			firstType:   "xs:integer",
+			secondType:  "xs:decimal",
+			firstValue:  "1",
+			secondValue: "1.25",
+			invalid:     "1.0",
+			extra:       "2",
+			lexicalCode: goxsd9.InvalidIntegerLexicalCode,
+		},
+		{
+			name:        "Boolean",
+			firstName:   "first",
+			secondName:  "second",
+			firstType:   "xs:boolean",
+			secondType:  "xs:boolean",
+			firstValue:  "true",
+			secondValue: "false",
+			invalid:     "maybe",
+			extra:       "1",
+			lexicalCode: goxsd9.InvalidBooleanLexicalCode,
+			lexicalSpec: func(policy goxsd9.LanguagePolicy) string {
+				if policy == goxsd9.Strict10 {
+					return "xsd10-datatypes#boolean-lexical-representation"
+				}
+				return "xsd11-datatypes#boolean-lexical-mapping"
+			},
+		},
+		{
+			name:        "token",
+			firstName:   "first",
+			secondName:  "second",
+			firstType:   "r:SequenceToken",
+			secondType:  "xs:token",
+			firstValue:  "\t first ",
+			secondValue: " free token ",
+			invalid:     "not allowed",
+			schemaExtra: `<xs:simpleType name="SequenceToken"><xs:restriction base="xs:token"><xs:enumeration value=" first "/></xs:restriction></xs:simpleType>`,
+			lexicalCode: goxsd9.EnumerationValueViolationCode,
+			lexicalSpec: func(policy goxsd9.LanguagePolicy) string {
+				if policy == goxsd9.Strict10 {
+					return "xsd10-datatypes#cvc-enumeration-valid"
+				}
+				return "xsd11-datatypes#cvc-enumeration-valid"
+			},
+		},
+		{
+			name:        "NMTOKEN",
+			firstName:   "first",
+			secondName:  "second",
+			firstType:   "r:SequenceNMTOKEN",
+			secondType:  "xs:NMTOKEN",
+			firstValue:  "\tfirst ",
+			secondValue: "free-nmtoken",
+			invalid:     "bad/value",
+			schemaExtra: `<xs:simpleType name="SequenceNMTOKEN"><xs:restriction base="xs:NMTOKEN"><xs:enumeration value=" first "/></xs:restriction></xs:simpleType>`,
+			lexicalCode: goxsd9.InvalidNMTOKENLexicalCode,
+			lexicalSpec: func(policy goxsd9.LanguagePolicy) string {
+				version := goxsd9.XSDVersion11
+				if policy == goxsd9.Strict10 {
+					version = goxsd9.XSDVersion10
+				}
+				return validationNMTOKENDatatypeSpecRef(version)
+			},
+		},
+	}
+}
+
+func validationSequenceStructureCases() []validationSequenceStructureCase {
+	return []validationSequenceStructureCase{
 		{
 			name:      "missing required child",
-			input:     `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns="">1</integer></root>`,
+			input:     `<root xmlns="` + validationSequenceNamespace + `"><{{firstName}} xmlns="">{{firstValue}}</{{firstName}}></root>`,
 			wantCode:  goxsd9.InvalidInstanceSequenceCode,
 			wantClass: goxsd9.FailureInvalid,
 		},
 		{
 			name:       "wrong order",
-			input:      `<root xmlns="` + validationSequenceNamespace + `"><decimal xmlns="">1.25</decimal><integer xmlns="">1</integer></root>`,
+			input:      `<root xmlns="` + validationSequenceNamespace + `"><{{secondName}} xmlns="">{{secondValue}}</{{secondName}}><{{firstName}} xmlns="">{{firstValue}}</{{firstName}}></root>`,
 			wantCode:   goxsd9.InvalidInstanceSequenceCode,
 			wantClass:  goxsd9.FailureInvalid,
-			wantMarker: "<decimal",
+			wantMarker: "<{{secondName}}",
 		},
 		{
 			name:       "wrong namespace",
-			input:      `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns="urn:other">1</integer><decimal xmlns="">1.25</decimal></root>`,
+			input:      `<root xmlns="` + validationSequenceNamespace + `"><{{firstName}} xmlns="urn:other">{{firstValue}}</{{firstName}}><{{secondName}} xmlns="">{{secondValue}}</{{secondName}}></root>`,
 			wantCode:   goxsd9.InvalidInstanceSequenceCode,
 			wantClass:  goxsd9.FailureInvalid,
-			wantMarker: `<integer xmlns="urn:other">`,
+			wantMarker: `<{{firstName}} xmlns="urn:other">`,
 		},
 		{
 			name:       "unexpected extra child",
-			input:      `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns="">1</integer><decimal xmlns="">1.25</decimal><extra xmlns="">2</extra></root>`,
+			input:      `<root xmlns="` + validationSequenceNamespace + `"><{{firstName}} xmlns="">{{firstValue}}</{{firstName}}><{{secondName}} xmlns="">{{secondValue}}</{{secondName}}><extra xmlns="">{{extra}}</extra></root>`,
 			wantCode:   goxsd9.InvalidInstanceSequenceCode,
 			wantClass:  goxsd9.FailureInvalid,
 			wantMarker: "<extra",
 		},
 		{
 			name:       "non-whitespace parent text",
-			input:      `<root xmlns="` + validationSequenceNamespace + `">text<integer xmlns="">1</integer><decimal xmlns="">1.25</decimal></root>`,
+			input:      `<root xmlns="` + validationSequenceNamespace + `">text<{{firstName}} xmlns="">{{firstValue}}</{{firstName}}><{{secondName}} xmlns="">{{secondValue}}</{{secondName}}></root>`,
 			wantCode:   goxsd9.InvalidInstanceSequenceCode,
 			wantClass:  goxsd9.FailureInvalid,
 			wantMarker: "text",
 		},
 		{
 			name:       "nested content",
-			input:      `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns=""><nested/></integer><decimal xmlns="">1.25</decimal></root>`,
+			input:      `<root xmlns="` + validationSequenceNamespace + `"><{{firstName}} xmlns=""><nested/></{{firstName}}><{{secondName}} xmlns="">{{secondValue}}</{{secondName}}></root>`,
 			wantCode:   goxsd9.InvalidInstanceSequenceCode,
 			wantClass:  goxsd9.FailureInvalid,
 			wantMarker: "<nested",
 		},
 		{
 			name:       "root attribute",
-			input:      `<root xmlns="` + validationSequenceNamespace + `" id="1"><integer xmlns="">1</integer><decimal xmlns="">1.25</decimal></root>`,
+			input:      `<root xmlns="` + validationSequenceNamespace + `" id="1"><{{firstName}} xmlns="">{{firstValue}}</{{firstName}}><{{secondName}} xmlns="">{{secondValue}}</{{secondName}}></root>`,
 			wantCode:   goxsd9.UnsupportedInstanceValidationCode,
 			wantClass:  goxsd9.FailureUnsupported,
 			wantMarker: `id="1"`,
 		},
 		{
 			name:       "child attribute",
-			input:      `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns="" id="1">1</integer><decimal xmlns="">1.25</decimal></root>`,
+			input:      `<root xmlns="` + validationSequenceNamespace + `"><{{firstName}} xmlns="" id="1">{{firstValue}}</{{firstName}}><{{secondName}} xmlns="">{{secondValue}}</{{secondName}}></root>`,
 			wantCode:   goxsd9.UnsupportedInstanceValidationCode,
 			wantClass:  goxsd9.FailureUnsupported,
 			wantMarker: `id="1"`,
 		},
 		{
-			name:       "malformed integer",
-			input:      `<root xmlns="` + validationSequenceNamespace + `"><integer xmlns="">1.0</integer><decimal xmlns="">1.25</decimal></root>`,
-			wantCode:   goxsd9.InvalidIntegerLexicalCode,
+			name:       "invalid lexical value",
+			input:      `<root xmlns="` + validationSequenceNamespace + `"><{{firstName}} xmlns="">{{invalid}}</{{firstName}}><{{secondName}} xmlns="">{{secondValue}}</{{secondName}}></root>`,
 			wantClass:  goxsd9.FailureInvalid,
-			wantMarker: "1.0",
+			wantMarker: "{{invalid}}",
+			lexical:    true,
 		},
 	}
-	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
-		t.Run(string(policy), func(t *testing.T) {
-			schema := validationSequenceSchema(t, policy, false)
-			before := schema.Components()
-			for _, test := range cases {
-				t.Run(test.name, func(t *testing.T) {
-					diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(test.input))))
-					if diagnostic.Class() != test.wantClass || diagnostic.Code() != test.wantCode {
-						t.Fatalf("diagnostic = %s/%q, want %s/%q", diagnostic, diagnostic.Code(), test.wantClass, test.wantCode)
-					}
-					if test.wantMarker != "" && diagnostic.Loc() != validationSequenceMarkerLoc(t, test.input, test.wantMarker) {
-						t.Fatalf("diagnostic Loc() = %s, want marker %q", diagnostic.Loc(), test.wantMarker)
-					}
-					if diagnostic.SpecRef() == "" {
-						t.Fatalf("diagnostic SpecRef() is empty")
-					}
-					if test.wantCode != goxsd9.InvalidIntegerLexicalCode && diagnostic.Unwrap() == nil {
-						t.Fatalf("diagnostic lost its structural cause")
-					}
-				})
-			}
-			if !reflect.DeepEqual(before, schema.Components()) {
-				t.Fatal("sequence validation mutated the completed schema")
-			}
-		})
+}
+
+func renderValidationSequenceStructureText(input string, profile validationSequenceStructureProfile) string {
+	return strings.NewReplacer(
+		"{{firstName}}", profile.firstName,
+		"{{secondName}}", profile.secondName,
+		"{{firstValue}}", profile.firstValue,
+		"{{secondValue}}", profile.secondValue,
+		"{{invalid}}", profile.invalid,
+		"{{extra}}", profile.extra,
+	).Replace(input)
+}
+
+func validationSequenceStructureSchema(t *testing.T, policy goxsd9.LanguagePolicy, profile validationSequenceStructureProfile) goxsd9.Schema {
+	t.Helper()
+	version := "1.1"
+	if policy == goxsd9.Strict10 {
+		version = "1.0"
 	}
+	root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationSequenceNamespace + `" targetNamespace="` + validationSequenceNamespace + `" version="` + version + `">
+  <xs:element name="root" type="r:Root"/>
+  <xs:complexType name="Root"><xs:sequence>
+    <xs:element name="` + profile.firstName + `" type="` + profile.firstType + `"/>
+    <xs:element name="` + profile.secondName + `" type="` + profile.secondType + `"/>
+  </xs:sequence></xs:complexType>` + profile.schemaExtra + `
+</xs:schema>`
+	return validationTestSchemaWithPolicy(t, root, nil, policy)
 }
 
 func validationSequenceSchema(t *testing.T, policy goxsd9.LanguagePolicy, qualified bool) goxsd9.Schema {
@@ -319,16 +746,16 @@ func TestValidateInstanceKeepsDirectSequenceExclusionsExplicit(t *testing.T) {
 		body string
 	}{
 		{
-			name: "built-in boolean",
-			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="value" type="xs:boolean"/></xs:sequence></xs:complexType>`,
-		},
-		{
-			name: "named boolean",
-			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="value" type="r:Flag"/></xs:sequence></xs:complexType><xs:simpleType name="Flag"><xs:restriction base="xs:boolean"/></xs:simpleType>`,
-		},
-		{
 			name: "nillable local",
 			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="value" type="xs:integer" nillable="true"/></xs:sequence></xs:complexType>`,
+		},
+		{
+			name: "mixed NMTOKEN and integer",
+			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="nmtoken" type="xs:NMTOKEN"/><xs:element name="count" type="xs:integer"/></xs:sequence></xs:complexType>`,
+		},
+		{
+			name: "mixed token and integer",
+			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="token" type="xs:token"/><xs:element name="count" type="xs:integer"/></xs:sequence></xs:complexType>`,
 		},
 		{
 			name: "element reference",
@@ -341,6 +768,18 @@ func TestValidateInstanceKeepsDirectSequenceExclusionsExplicit(t *testing.T) {
 		{
 			name: "attribute wildcard",
 			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:anyAttribute/></xs:complexType>`,
+		},
+		{
+			name: "lax any attribute wildcard",
+			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:anyAttribute processContents="lax"/></xs:complexType>`,
+		},
+		{
+			name: "skip any attribute wildcard",
+			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:anyAttribute processContents="skip"/></xs:complexType>`,
+		},
+		{
+			name: "other skip attribute wildcard",
+			body: `<xs:complexType name="Root"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:anyAttribute processContents="skip" namespace="##other"/></xs:complexType>`,
 		},
 	}
 	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
@@ -362,6 +801,32 @@ func TestValidateInstanceKeepsDirectSequenceExclusionsExplicit(t *testing.T) {
 						t.Fatalf("diagnostic evidence = %s/%q/%v, want located specification-backed unsupported", diagnostic.Loc(), diagnostic.SpecRef(), diagnostic.Unwrap())
 					}
 				})
+			}
+		})
+	}
+}
+
+func TestValidateInstanceRejectsMixedBooleanAndNumericSequence(t *testing.T) {
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict10, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			version := "1.1"
+			wantSpec := "xsd11-structures#cvc-elt"
+			if policy == goxsd9.Strict10 {
+				version = "1.0"
+				wantSpec = "xsd10-structures#cvc-elt"
+			}
+			root := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + validationSequenceNamespace + `" targetNamespace="` + validationSequenceNamespace + `" version="` + version + `">` +
+				`<xs:element name="root" type="r:Root"/><xs:complexType name="Root"><xs:sequence>` +
+				`<xs:element name="flag" type="xs:boolean"/><xs:element name="count" type="xs:integer"/>` +
+				`</xs:sequence></xs:complexType></xs:schema>`
+			schema := validationTestSchemaWithPolicy(t, root, nil, policy)
+			input := `<root xmlns="` + validationSequenceNamespace + `"><flag xmlns="">true</flag><count xmlns="">1</count></root>`
+			diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+			if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedInstanceValidationCode {
+				t.Fatalf("diagnostic = %s/%q, want unsupported instance validation", diagnostic, diagnostic.Code())
+			}
+			if diagnostic.SpecRef() != wantSpec || !errors.Is(diagnostic, goxsd9.ErrUnsupported) || diagnostic.Loc() != validationTestLoc(t, "instance.xml", 1, 1) {
+				t.Fatalf("diagnostic evidence = %s/%q/%v, want root-located unsupported", diagnostic.Loc(), diagnostic.SpecRef(), diagnostic)
 			}
 		})
 	}

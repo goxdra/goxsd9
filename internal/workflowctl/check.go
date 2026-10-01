@@ -1,9 +1,12 @@
 package workflowctl
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/goxdra/goxsd9/internal/feature"
@@ -61,8 +64,33 @@ func (a app) qualityChecks(root string, skipLint bool) []qualityCheck {
 	}
 	return append(checks, qualityCheck{
 		name: "golangci-lint",
-		run:  func() error { return a.runQuiet(root, "golangci-lint", "run") },
+		run:  func() error { return a.runGolangCILint(root) },
 	})
+}
+
+func (a app) runGolangCILint(root string) error {
+	cache, err := a.command(root, "git", "rev-parse", "--path-format=absolute", "--git-path", "golangci-lint-cache")
+	if err != nil {
+		return fmt.Errorf("resolve golangci-lint cache: %w", err)
+	}
+	cache = strings.TrimSpace(cache)
+	if cache == "" {
+		return errors.New("resolve golangci-lint cache: git returned an empty path")
+	}
+	if strings.ContainsAny(cache, "\r\n\x00") {
+		return errors.New("resolve golangci-lint cache: git returned an invalid path")
+	}
+	if !filepath.IsAbs(cache) {
+		return fmt.Errorf("resolve golangci-lint cache: git returned non-absolute path %q", cache)
+	}
+	cache = filepath.Clean(cache)
+	if err := os.MkdirAll(cache, 0o700); err != nil {
+		return fmt.Errorf("create golangci-lint cache %q: %w", cache, err)
+	}
+	if err := a.runWithEnv(root, []string{"GOLANGCI_LINT_CACHE=" + cache}, "golangci-lint", "run"); err != nil {
+		return fmt.Errorf("run golangci-lint: %w", err)
+	}
+	return nil
 }
 
 func (a app) checkGofmt(root string) error {
@@ -86,5 +114,10 @@ func (a app) checkGofmt(root string) error {
 
 func (a app) runQuiet(dir, name string, args ...string) error {
 	_, err := a.command(dir, name, args...)
+	return err
+}
+
+func (a app) runWithEnv(dir string, env []string, name string, args ...string) error {
+	_, err := a.commandWithEnv(dir, env, name, args...)
 	return err
 }
