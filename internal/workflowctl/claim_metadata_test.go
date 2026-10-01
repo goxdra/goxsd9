@@ -12,6 +12,11 @@ const (
 )
 
 func fakeClaimMarkerGit(command string, input []byte, head string, issue int, runID string, lease time.Time) (string, bool) {
+	for _, state := range []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "rebase-apply", "rebase-merge", "sequencer"} {
+		if command == "rev-parse --git-path "+state {
+			return "/repo/.git/" + state, true
+		}
+	}
 	message := claimMessage(issue, runID, lease)
 	switch command {
 	case "log --first-parent --format=%H%x00%B%x00 " + head:

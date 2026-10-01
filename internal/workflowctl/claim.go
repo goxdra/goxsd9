@@ -268,17 +268,25 @@ func (a app) renewClaim() error {
 	if proofErr := a.validateRenewClaimHeads(root, local, remote); proofErr != nil {
 		return proofErr
 	}
-	lease, runID, err := a.proveClaimLeaseAndLocalMarkers(root, localBranch, number, local, remote)
+	existingLease, runID, err := a.proveClaimLeaseAndLocalMarkers(root, localBranch, number, local, remote)
 	if err != nil {
 		return err
 	}
 	now := time.Now().UTC()
-	if freshnessErr := validateClaimDeadline(number, lease, now); freshnessErr != nil {
+	if freshnessErr := validateClaimDeadline(number, existingLease, now); freshnessErr != nil {
 		return freshnessErr
+	}
+	existingLease, err = a.renewClaimLeaseFloor(root, local, remote, number, existingLease)
+	if err != nil {
+		return err
 	}
 	commit, lease, _, err := a.newClaimCommitWithRunID(root, number, "HEAD", runID)
 	if err != nil {
 		return err
+	}
+	if !lease.After(now) || !lease.After(existingLease) {
+		return stateError("claim #%d renewal lease %s does not advance existing lease %s; no ref or remote mutation performed", number,
+			lease.Format(time.RFC3339), existingLease.Format(time.RFC3339))
 	}
 	if _, err := a.command(root, "git", "update-ref", "refs/heads/"+localBranch, commit, local); err != nil {
 		return fmt.Errorf("advance local claim: %w", err)
@@ -292,6 +300,20 @@ func (a app) renewClaim() error {
 		return stateError("renew claim: remote branch changed: %v", err)
 	}
 	return writeLine(a.stdout, "claim #%d renewed until %s", number, lease.Format(time.RFC3339))
+}
+
+func (a app) renewClaimLeaseFloor(root, local, remote string, number int, remoteLease time.Time) (time.Time, error) {
+	if local == remote {
+		return remoteLease, nil
+	}
+	localMarker, err := a.readAuthoritativeClaimMarker(root, local, number)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read local claim lease before renewal: %w", err)
+	}
+	if localMarker.lease.After(remoteLease) {
+		return localMarker.lease, nil
+	}
+	return remoteLease, nil
 }
 
 func (a app) validateRenewClaimHeads(root, local, remote string) error {
@@ -322,6 +344,9 @@ func (a app) verifyClaim() error {
 	local, remote, err := a.claimHeads(root, branch)
 	if err != nil {
 		return retryableOperationIfRecoverable("read claim heads", fmt.Errorf("read claim heads: %w", err))
+	}
+	if operationErr := a.validateResumeOperationState(root); operationErr != nil {
+		return fmt.Errorf("verify claim worktree: %w", operationErr)
 	}
 	if local != remote {
 		if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); ancestorErr != nil {

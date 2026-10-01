@@ -174,13 +174,18 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	if ancestryErr := a.validateResumeLocalAncestry(root, local, expectedHead); ancestryErr != nil {
 		return resumeProof{}, ancestryErr
 	}
+	localClaim := claim
 	if local != expectedHead {
-		localClaim, claimErr := a.readResumeExpectedClaim(root, local, issue)
+		validatedLocal, claimErr := a.readResumeExpectedClaim(root, local, issue)
 		if claimErr != nil {
 			return resumeProof{}, fmt.Errorf("prove unpublished local claim lineage: %w", claimErr)
 		}
-		if localClaim.runID != runID {
-			return resumeProof{}, stateError("unpublished local head %s belongs to run %s, expected %s", local, localClaim.runID, runID)
+		if validatedLocal.runID != runID {
+			return resumeProof{}, stateError("unpublished local head %s belongs to run %s, expected %s", local, validatedLocal.runID, runID)
+		}
+		localClaim, claimErr = a.readResumeLocalAuthority(root, local, issue, claim)
+		if claimErr != nil {
+			return resumeProof{}, fmt.Errorf("prove unpublished local claim authority: %w", claimErr)
 		}
 	}
 	runLocal, err := a.inspectResumeClaimConflicts(root, issue, branch, remote, localBranch, runID,
@@ -202,9 +207,24 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 			return resumeProof{}, ancestryErr
 		}
 		pending = !integrated
+		if pending {
+			renewal, renewalErr := a.readCanonicalClaimCommit(root, remote, issue, runID, expectedHead)
+			if renewalErr != nil {
+				return resumeProof{}, fmt.Errorf("read renewed claim lease before local integration: %w", renewalErr)
+			}
+			if localClaim.lease.After(renewal.lease) {
+				return resumeProof{}, stateError("local claim lease %s exceeds remote renewal lease %s; preserve claim artifacts before integration",
+					localClaim.lease.Format(time.RFC3339), renewal.lease.Format(time.RFC3339))
+			}
+		}
 	}
 	if !already && view.HeadRefOID != expectedHead {
 		return resumeProof{}, stateError("resume heads moved: expected=%s PR=%s remote=%s local=%s", expectedHead, view.HeadRefOID, remote, local)
+	}
+	if !pending {
+		if operationErr := a.validateResumeOperationState(root); operationErr != nil {
+			return resumeProof{}, fmt.Errorf("verify integrated claim worktree: %w", operationErr)
+		}
 	}
 	if pending && !issueNeedsHuman(status) {
 		return resumeProof{}, stateError("issue #%d must be labeled needs-human before stale PR recovery", issue)
@@ -309,6 +329,34 @@ func (a app) readResumeExpectedClaim(root, expectedHead string, issue int) (cano
 		return selected, nil
 	}
 	return canonicalClaimCommit{}, stateError("expected PR head %s ancestry has no canonical claim marker for issue #%d; preserve claim artifacts", expectedHead, issue)
+}
+
+// readResumeLocalAuthority uses the first-parent marker when one exists. A
+// source branch may carry the expected claim only on a side parent.
+func (a app) readResumeLocalAuthority(root, head string, issue int, expected canonicalClaimCommit) (canonicalClaimCommit, error) {
+	history, err := a.command(root, "git", "log", "--first-parent", "--format=%H%x00%B%x00", head)
+	if err != nil {
+		return canonicalClaimCommit{}, fmt.Errorf("read local first-parent claim history: %w", err)
+	}
+	records, err := splitRunLocalHistory(history, claimBranch(issue))
+	if err != nil {
+		return canonicalClaimCommit{}, err
+	}
+	for _, record := range records {
+		if !isCanonicalClaimMarkerShape(record.message) && !isClaimRenewalIntegrationShape(record.message) {
+			continue
+		}
+		marker, markerErr := a.readAuthoritativeClaimMarker(root, head, issue)
+		if markerErr != nil {
+			return canonicalClaimCommit{}, markerErr
+		}
+		if marker.runID != expected.runID {
+			return canonicalClaimCommit{}, stateError("local first-parent claim run %s conflicts with expected run %s; preserve claim artifacts",
+				marker.runID, expected.runID)
+		}
+		return marker, nil
+	}
+	return expected, nil
 }
 
 //nolint:gocognit // Ref inventory and evaluated-lineage filtering are one fail-closed proof boundary.
@@ -821,9 +869,21 @@ func (a app) mutatePullRequestResume(proof, fresh resumeProof) (resumeProof, err
 		return resumeProof{}, stateError("issue #%d must remain open and labeled needs-human immediately before PR #%d resume mutation; no mutation performed. "+resumeRecoveryTemplate,
 			fresh.issue, fresh.pr, fresh.pr, fresh.expectedHead)
 	}
-	commit, _, _, createErr := a.newClaimCommitWithRunID(fresh.root, fresh.issue, fresh.observedHead, fresh.runID)
+	commit, renewalLease, _, createErr := a.newClaimCommitWithRunID(fresh.root, fresh.issue, fresh.observedHead, fresh.runID)
 	if createErr != nil {
 		return resumeProof{}, retryableOperationIfRecoverable("PR resume renewal commit", createErr)
+	}
+	expectedClaim, claimErr := a.readResumeExpectedClaim(fresh.root, fresh.expectedHead, fresh.issue)
+	if claimErr != nil {
+		return resumeProof{}, fmt.Errorf("prove expected claim lease before PR renewal push: %w", claimErr)
+	}
+	localClaim, claimErr := a.readResumeLocalAuthority(fresh.root, fresh.localHead, fresh.issue, expectedClaim)
+	if claimErr != nil {
+		return resumeProof{}, fmt.Errorf("prove local claim lease before PR renewal push: %w", claimErr)
+	}
+	if localClaim.lease.After(renewalLease) {
+		return resumeProof{}, stateError("local claim lease %s exceeds new remote renewal lease %s; no remote mutation performed",
+			localClaim.lease.Format(time.RFC3339), renewalLease.Format(time.RFC3339))
 	}
 	lease := "--force-with-lease=refs/heads/" + claimBranch(fresh.issue) + ":" + fresh.observedHead
 	refspec := commit + ":refs/heads/" + claimBranch(fresh.issue)

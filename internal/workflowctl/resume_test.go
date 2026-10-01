@@ -626,7 +626,9 @@ func TestPRResumePublishedIntegrationWithExpectedHeadOnLocalSideParent(t *testin
 	if err := application.run(resumeArgs(fixture.expected)); err != nil {
 		t.Fatalf("remote renewal with side-parent expected head: %v", err)
 	}
-	marker := resumeRemoteHead(t, fixture)
+	marker := createResumeTestCommit(t, fixture.worktree, fixture.expected,
+		claimMessage(14, fixture.runID, time.Now().UTC().Add(2*time.Hour).Truncate(time.Second)))
+	runGitTest(t, fixture.primary, "push", "--force", "origin", marker+":refs/heads/agent/issue-14")
 	if err := application.run(append(resumeArgs(fixture.expected), "--integrate")); err != nil {
 		t.Fatalf("integrate renewal with side-parent expected head: %v", err)
 	}
@@ -1183,13 +1185,179 @@ func TestPRResumePushGuardRejectsUnfinishedMergeAfterIntegration(t *testing.T) {
 	runGitTest(t, fixture.worktree, "merge", "--no-commit", "--no-ff", "push-side")
 	paths := resumePreservedPaths(t, fixture.worktree)
 	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	mutations := backend.mutations
 	err := application.verifyClaimForPush(fixture.worktree, "agent/issue-14-"+fixture.runID, 14)
 	if err == nil || !strings.Contains(err.Error(), "MERGE_HEAD") {
 		t.Fatalf("push guard during unfinished merge = %v", err)
 	}
+	for _, gate := range []struct {
+		name string
+		run  func() error
+	}{
+		{name: "claim verify", run: application.verifyClaim},
+		{name: "ordinary PR resume", run: func() error { return application.run(resumeArgs(fixture.expected)) }},
+	} {
+		if err := gate.run(); err == nil || !strings.Contains(err.Error(), "MERGE_HEAD") {
+			t.Fatalf("%s during unfinished merge = %v", gate.name, err)
+		}
+	}
 	assertResumeSnapshot(t, fixture.worktree, paths, before)
 	if got := resumeRemoteHead(t, fixture); got != marker {
 		t.Fatalf("push guard changed remote marker to %s", got)
+	}
+	if backend.needsHuman || backend.projectStatus != "Picked" || backend.mutations != mutations {
+		t.Fatalf("unfinished merge changed issue state: needs-human=%t Project=%s mutations=%d, want %d", backend.needsHuman, backend.projectStatus, backend.mutations, mutations)
+	}
+}
+
+func TestClaimRenewRejectsLeaseRegressionBeforeRefMutation(t *testing.T) {
+	fixture := newResumeFixture(t)
+	future := createResumeTestCommit(t, fixture.worktree, fixture.expected,
+		claimMessage(14, fixture.runID, time.Now().UTC().Add(6*time.Hour).Truncate(time.Second)))
+	runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, future, fixture.expected)
+	runGitTest(t, fixture.primary, "push", "origin", future+":refs/heads/agent/issue-14")
+	paths := resumePreservedPaths(t, fixture.worktree)
+	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.renewClaim(); err == nil || !strings.Contains(err.Error(), "does not advance existing lease") {
+		t.Fatalf("future-lease claim renewal = %v", err)
+	}
+	assertResumeSnapshot(t, fixture.worktree, paths, before)
+	if got := resumeRemoteHead(t, fixture); got != future {
+		t.Fatalf("future-lease renewal moved remote head to %s", got)
+	}
+	if countResumeCalls(backend.calls, "git update-ref ") != 0 || countResumeCalls(backend.calls, "git push ") != 0 {
+		t.Fatalf("future-lease renewal mutated a claim ref: %v", backend.calls)
+	}
+}
+
+func TestClaimRenewRejectsLocalAheadLeaseRegressionBeforeRefMutation(t *testing.T) {
+	fixture := newActiveResumeClaimFixture(t)
+	remote := resumeRemoteHead(t, fixture)
+	local := createResumeTestCommit(t, fixture.worktree, remote,
+		claimMessage(14, fixture.runID, time.Now().UTC().Add(6*time.Hour).Truncate(time.Second)))
+	runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, local, remote)
+	paths := resumePreservedPaths(t, fixture.worktree)
+	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.renewClaim(); err == nil || !strings.Contains(err.Error(), "does not advance existing lease") {
+		t.Fatalf("local-ahead future-lease claim renewal = %v", err)
+	}
+	assertResumeSnapshot(t, fixture.worktree, paths, before)
+	if got := resumeRemoteHead(t, fixture); got != remote {
+		t.Fatalf("local-ahead future-lease renewal moved remote head to %s", got)
+	}
+	if countResumeCalls(backend.calls, "git update-ref ") != 0 || countResumeCalls(backend.calls, "git push ") != 0 {
+		t.Fatalf("local-ahead future-lease renewal mutated a claim ref: %v", backend.calls)
+	}
+}
+
+func TestPRResumeRejectsLocalLeaseBeyondRemoteRenewalBeforeMutation(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		already bool
+	}{
+		{name: "initial renewal"},
+		{name: "existing remote renewal", already: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			testPRResumeRejectsLocalLeaseBeyondRemoteRenewalBeforeMutation(t, test.already)
+		})
+	}
+}
+
+func testPRResumeRejectsLocalLeaseBeyondRemoteRenewalBeforeMutation(t *testing.T, already bool) {
+	fixture := newResumeFixture(t)
+	local := createResumeTestCommit(t, fixture.worktree, fixture.expected,
+		claimMessage(14, fixture.runID, time.Now().UTC().Add(6*time.Hour).Truncate(time.Second)))
+	runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, local, fixture.expected)
+	remote := fixture.expected
+	if already {
+		remote = createResumeTestCommit(t, fixture.worktree, fixture.expected,
+			claimMessage(14, fixture.runID, time.Now().UTC().Add(2*time.Hour).Truncate(time.Second)))
+		runGitTest(t, fixture.primary, "push", "origin", remote+":refs/heads/agent/issue-14")
+	}
+	paths := resumePreservedPaths(t, fixture.worktree)
+	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	commands := [][]string{resumeArgs(fixture.expected)}
+	if already {
+		commands = append(commands, append(resumeArgs(fixture.expected), "--integrate"))
+	}
+	for _, args := range commands {
+		if err := application.run(args); err == nil || !strings.Contains(err.Error(), "local claim lease") {
+			t.Fatalf("resume %v with later local marker = %v", args, err)
+		}
+	}
+	assertResumeSnapshot(t, fixture.worktree, paths, before)
+	if got := resumeRemoteHead(t, fixture); got != remote {
+		t.Fatalf("later local marker moved remote head to %s", got)
+	}
+	if backend.projectStatus != "Backlog" || !backend.needsHuman {
+		t.Fatalf("later local marker changed issue state: needs-human=%t Project=%s", backend.needsHuman, backend.projectStatus)
+	}
+	if countResumeCalls(backend.calls, "git update-ref ") != 0 || countResumeCalls(backend.calls, "git push ") != 0 {
+		t.Fatalf("later local marker mutated claim refs: %v", backend.calls)
+	}
+}
+
+func TestPRResumeUsesFirstParentLocalLeaseBeforeMutation(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		already bool
+	}{
+		{name: "initial renewal"},
+		{name: "existing remote renewal", already: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			testPRResumeUsesFirstParentLocalLeaseBeforeMutation(t, test.already)
+		})
+	}
+}
+
+func testPRResumeUsesFirstParentLocalLeaseBeforeMutation(t *testing.T, already bool) {
+	fixture := newResumeFixture(t)
+	tree := runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^{tree}")
+	firstLease := time.Now().UTC().Add(6 * time.Hour).Truncate(time.Second)
+	sideLease := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
+	first := createResumeCommitTreeAt(t, fixture.worktree, tree, []string{fixture.expected},
+		claimMessage(14, fixture.runID, firstLease), "2020-01-01T00:00:00+00:00")
+	side := createResumeCommitTreeAt(t, fixture.worktree, tree, []string{fixture.expected},
+		claimMessage(14, fixture.runID, sideLease), "2030-01-01T00:00:00+00:00")
+	local := createResumeCommitTreeAt(t, fixture.worktree, tree, []string{first, side},
+		"Merge local and side claim history\n", "2031-01-01T00:00:00+00:00")
+	runGitTest(t, fixture.worktree, "update-ref", "refs/heads/agent/issue-14-"+fixture.runID, local, fixture.expected)
+	remote := fixture.expected
+	if already {
+		remote = createResumeTestCommit(t, fixture.worktree, fixture.expected,
+			claimMessage(14, fixture.runID, time.Now().UTC().Add(3*time.Hour).Truncate(time.Second)))
+		runGitTest(t, fixture.primary, "push", "origin", remote+":refs/heads/agent/issue-14")
+	}
+	backend := newResumeBackend(t, fixture)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	selected, err := application.readResumeExpectedClaim(fixture.worktree, local, 14)
+	if err != nil {
+		t.Fatalf("read all-parent local marker: %v", err)
+	}
+	if selected.lease != sideLease {
+		t.Fatalf("all-parent fixture selected %s, want side-parent %s", selected.lease, sideLease)
+	}
+	paths := resumePreservedPaths(t, fixture.worktree)
+	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	if err := application.run(resumeArgs(fixture.expected)); err == nil || !strings.Contains(err.Error(), "local claim lease") {
+		t.Fatalf("resume with later first-parent lease = %v", err)
+	}
+	assertResumeSnapshot(t, fixture.worktree, paths, before)
+	if got := resumeRemoteHead(t, fixture); got != remote {
+		t.Fatalf("first-parent lease rejection moved remote head to %s", got)
+	}
+	if backend.projectStatus != "Backlog" || !backend.needsHuman ||
+		countResumeCalls(backend.calls, "git update-ref ") != 0 || countResumeCalls(backend.calls, "git push ") != 0 {
+		t.Fatalf("first-parent lease rejection mutated refs or issue: calls=%v needs-human=%t Project=%s",
+			backend.calls, backend.needsHuman, backend.projectStatus)
 	}
 }
 
@@ -2016,6 +2184,10 @@ func makeConflictingClaimMarkersResumeHead(t *testing.T, fixture *resumeFixture)
 }
 
 func createResumeCommitTree(t *testing.T, root, tree string, parents []string, message string) string {
+	return createResumeCommitTreeAt(t, root, tree, parents, message, "")
+}
+
+func createResumeCommitTreeAt(t *testing.T, root, tree string, parents []string, message, date string) string {
 	t.Helper()
 	args := make([]string, 0, 2+2*len(parents))
 	args = append(args, "commit-tree", tree)
@@ -2026,6 +2198,9 @@ func createResumeCommitTree(t *testing.T, root, tree string, parents []string, m
 	command := exec.CommandContext(context.Background(), "git", args...)
 	command.Dir = root
 	command.Stdin = strings.NewReader(message)
+	if date != "" {
+		command.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
+	}
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("create test commit tree: %v: %s", err, output)
