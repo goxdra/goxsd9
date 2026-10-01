@@ -273,14 +273,16 @@
 // references to unconstrained built-in or named global Boolean/integer/decimal
 // targets. ValidateInstance also admits bounded direct-sequence references to
 // global inline or named complex targets with local precisionDecimal uses
-// or precisionDecimal simpleContent without uses; GenerateGo rejects those sequences. Constrained
+// or precisionDecimal simpleContent without uses, including repeated refs with
+// supported child occurrence ranges; GenerateGo rejects those sequences. Constrained
 // targets remain queryable: validation rejects at the instance use Loc with
 // the first constraint Loc related; generation returns nil output.
 // References to global `nonNegativeInteger` remain queryable without target-type
 // gating; direct-choice and sequence consumers reject them with located
 // unsupported diagnostics and nil GenerateGo output.
-// Other sequence, anonymous-target, repeated, nested, recursive, and broader
-// element-reference forms are consumer exclusions; query references retain their
+// Other sequence, anonymous-target, nested, recursive, and broader
+// element-reference forms are consumer exclusions. Repeated refs outside the
+// selected attribute sequences remain excluded; query references retain their
 // resolved facts. Model-group references are a separate top-level direct query
 // boundary with ordered facts and TargetID; nested, local, recursive, and broader
 // model-group references remain unsupported.
