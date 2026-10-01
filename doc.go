@@ -80,7 +80,8 @@
 // inline complex types, and atomic xs:string particles for named global
 // complex types, global element inline complex types, and supported bounded
 // attribute-free extensions. Inline complexes retain anonymous IDs and query facts
-// outside the global walk; their consumers reject. The model also admits
+// outside the global walk; supported precisionDecimal attribute roots and
+// sequence targets validate, while their other consumers reject. The model also admits
 // built-in/named/inline xs:negativeInteger and built-in or supported
 // named-effective xs:long/xs:int/xs:short/xs:byte/xs:unsignedLong/
 // xs:nonNegativeInteger particles in
@@ -94,8 +95,9 @@
 // That target keeps its ordered attribute uses; string/Boolean/integer/decimal
 // bases work under every policy, while precisionDecimal requires Compatibility
 // or Strict11. Unsupported bases or attribute forms fail schema construction;
-// bounded precisionDecimal attribute sequences validate these named targets,
-// while generation rejects them. The model
+// bounded attribute sequences validate named targets with selected local
+// precisionDecimal uses and empty or supported simpleContent; a string
+// simpleContent base must be built-in. Generation rejects them. The model
 // exposes local inline anonymous atomic
 // Boolean, integer, decimal, and
 // negativeInteger restrictions
@@ -261,21 +263,23 @@
 // value/default/fixed/inheritable semantics and attributeGroup expansion remain
 // unsupported. Validation supports local precisionDecimal uses on bounded
 // direct empty-content roots and sequences of global inline or named local
-// attribute-bearing targets. Supported simpleContent text has string or
-// precisionDecimal atomic bases. Generation of these forms remains unsupported.
+// attribute-bearing targets. SimpleContent text uses built-in string only
+// with selected local precisionDecimal uses, or built-in/named effective
+// precisionDecimal. Named effective string remains excluded. Generation rejects these forms.
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.
-// ValidateInstance and GenerateGo consume only supported non-extension
-// default-occurrence direct-choice references to built-in or named global
-// Boolean, integer, or decimal targets without identity constraints; constrained
-// targets remain queryable but validation rejects at the instance use Loc with
-// the first constraint Loc related. GenerateGo rejects at that constraint Loc
-// with no output.
+// Both consumers admit supported non-extension default-occurrence direct-choice
+// references to unconstrained built-in or named global Boolean/integer/decimal
+// targets. ValidateInstance also admits bounded direct-sequence references to
+// global inline or named attribute-bearing complex targets with local
+// precisionDecimal uses; GenerateGo rejects those sequences. Constrained
+// targets remain queryable: validation rejects at the instance use Loc with
+// the first constraint Loc related; generation returns nil output.
 // References to global `nonNegativeInteger` remain queryable without target-type
 // gating; direct-choice and sequence consumers reject them with located
 // unsupported diagnostics and nil GenerateGo output.
-// Sequence, anonymous-target, repetition, nested, recursive, and broader
+// Other sequence, anonymous-target, repeated, nested, recursive, and broader
 // element-reference forms are consumer exclusions; query references retain their
 // resolved facts. Model-group references are a separate top-level direct query
 // boundary with ordered facts and TargetID; nested, local, recursive, and broader
@@ -341,7 +345,11 @@
 // xs:string atomic kind, or built-in/named xs:boolean/xs:token/xs:NMTOKEN/
 // xs:integer/xs:nonNegativeInteger/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
-// or Strict11, or as a named global complex type with one direct
+// or Strict11, or as a supported local-attribute complex root or bounded
+// direct sequence of global complex refs or named local complex targets.
+// Selected local uses have precisionDecimal atomic types; simpleContent text
+// uses built-in string with those uses or built-in/named precisionDecimal.
+// Other supported named global complex types have one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
 // restriction elements, one direct integer/decimal sequence of local built-in or
 // named elements, one homogeneous token/NMTOKEN sequence of local built-in or
@@ -358,9 +366,7 @@
 // and Strict11. Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
 // remain explicit unsupported behavior. Local long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger particles are
 // query-only and remain explicit unsupported behavior in both consumers.
-// Direct-choice reference consumers exclude precisionDecimal and anonymous
-// targets; bounded precisionDecimal attribute sequences validate global inline
-// empty-content reference targets.
+// Direct-choice reference consumers exclude precisionDecimal and anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
 // wildcard-bearing particles are explicit unsupported
 // behavior in both consumers; absent 0/0 wildcard terms do not enter those
@@ -423,8 +429,8 @@
 // AttributeValueConstraint; type-only declarations return no value constraint.
 // ValueConstraint() copies kind, collapsed lexical spelling, source Loc, and
 // exact defensive StrictPrecisionDecimal through PrecisionDecimalValue only
-// when present. Attribute validation and generation remain unsupported
-// consumers; global inline-attribute declarations are separate, while supported
+// when present. Global attribute-declaration validation and generation remain
+// unsupported; global inline-attribute declarations are separate, while supported
 // local anonymous atomic AttributeUse facts remain queryable.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named-typed nonNegativeInteger element declarations and
