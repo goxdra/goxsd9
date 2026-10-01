@@ -17,7 +17,8 @@ Supported global elements retain ordered `xs:unique`, `xs:key`, and `xs:keyref` 
 with XPath, namespaces, and resolved keyref targets. Validation and generation reject
 them until identity semantics are implemented.
 
-`ValidateInstance(schema, sourceID, reader)` checks one XML instance;
+`ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
+bounded precisionDecimal lists/unions;
 `GenerateGo(schema, packageName)` returns Go source. A component can be
 queryable even when one or both consumers reject it.
 Grouped complex-content extensions resolve an opaque group reference and ordered local
