@@ -65,9 +65,9 @@ Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline
 `negativeInteger`, and built-in/named `long`, `int`, `short`, `byte`, `unsignedLong`,
 `nonNegativeInteger`. Built-in `positiveInteger`: direct globals only.
-Direct built-in/named `integer` supports consumers; derivatives/extensions are
-query-only. Built-in `long` retains bounds; named effective-long retains identity,
-facets, QName, occurrences, and order.
+Built-in/named `integer` validates; anonymous `integer`/`negativeInteger` validate
+beside bounded list/union. Other derivatives/extensions are query-only.
+Built-in `long` retains bounds; named effective-long retains identity/facets/order.
 SimpleContent excludes local derivatives; failures locate offending terms.
 Syntax/occurrence/reference/policy gates precede mapping and `0/0` omission;
 errors retain cause/`Loc` without a `Schema`. Sequences resolve children first;
@@ -101,7 +101,8 @@ Local attribute lists require atomic precisionDecimal items; unions require
 precisionDecimal then negativeInteger members. Strict10 rejects precisionDecimal.
 Other mapped varieties remain explicit schema or consumer exclusions.
 Element refs retain targets/occurrences; nonzero local inline forms reject.
-Built-in/named `string` particles are query-only. `normalizedString` supports
+String particles validate beside bounded list/union; otherwise query-only.
+`normalizedString` supports
 replace whitespace, lexical facets, and restriction/list/union references.
 Facet-free `QName` restriction/list/union and global refs retain datatype/use
 locations and identity. Nonzero QName locals, attributes, facets, and values
@@ -120,15 +121,15 @@ precisionDecimal facets, and Boolean whitespace; broader facets/temporal values 
 direct/named/anonymous `xs:string`-atomic roots, and Compatibility/Strict11
 precisionDecimal roots. Named/inline global precisionDecimal lists and bounded
 unions validate; lists split XML whitespace into ordered items, unions try members
-in declaration order. Selected local variety attributes validate on empty roots
-and direct-sequence complex targets. Direct sequences of local variety elements
-and global variety refs require default outer occurrences and honor exact child
-ranges. Item/member and ordered-content errors retain instance and schema `Loc`s;
-GenerateGo rejects these varieties with nil output. Strict10 rejects their
+in declaration order. Selected variety attributes validate on empty/sequence roots.
+Bounded list/union sequences admit typed string/integer/negativeInteger/
+precisionDecimal locals, anonymous integer/negativeInteger locals, and global refs
+(including anonymous targets). Outer occurrences default; child ranges are exact.
+Errors retain instance/schema `Loc`s; GenerateGo rejects varieties with nil output. Strict10 rejects their
 precisionDecimal facts before schema publication. Identity-constrained roots
 reject at instance use `Loc`, relating the first constraint `Loc`.
 Local Boolean/integer/decimal sequences/default choices honor ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
-Other local anonymous/mixed-family/extension consumers reject; nonzero `xs:any` is
+Other anonymous/mixed/extension consumers reject outside bounded sequences; nonzero `xs:any` is
 query-only. Default direct-choice refs to unconstrained global
 Boolean/integer/decimal validate; constrained targets reject with related `Loc`.
 SimpleContent uses built-in string with selected precisionDecimal attributes, or built-in/named effective precisionDecimal; named effective string excludes.

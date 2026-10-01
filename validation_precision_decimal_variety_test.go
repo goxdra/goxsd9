@@ -86,6 +86,38 @@ func TestPrecisionDecimalListUnionPublicValueAndCopiedFacts(t *testing.T) {
 	}
 }
 
+// The bounded variety planner also validates atomic siblings in lexical order.
+func TestPrecisionDecimalVarietySequenceAtomicSiblings(t *testing.T) {
+	for _, tc := range []struct {
+		name, global, particle, value string
+	}{
+		{"local string", "", `<xs:element name="s" type="xs:string"/>`, "text"},
+		{"local negativeInteger", "", `<xs:element name="s" type="xs:negativeInteger"/>`, "-1"},
+		{"local anonymous integer", "", `<xs:element name="s"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>`, "3"},
+		{"local anonymous negativeInteger", "", `<xs:element name="s"><xs:simpleType><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:element>`, "-2"},
+		{"global negativeInteger ref", `<xs:element name="s" type="xs:negativeInteger"/>`, `<xs:element ref="s"/>`, "-1"},
+		{"global anonymous integer ref", `<xs:element name="s"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>`, `<xs:element ref="s"/>`, "3"},
+		{"global anonymous precisionDecimal ref", `<xs:element name="s"><xs:simpleType><xs:restriction base="xs:precisionDecimal"/></xs:simpleType></xs:element>`, `<xs:element ref="s"/>`, "1.5"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" version="1.1">` +
+				`<xs:simpleType name="List"><xs:list itemType="xs:precisionDecimal"/></xs:simpleType>` +
+				`<xs:simpleType name="Union"><xs:union memberTypes="xs:precisionDecimal xs:negativeInteger"/></xs:simpleType>` +
+				tc.global + `<xs:element name="root"><xs:complexType><xs:sequence>` +
+				`<xs:element name="list" type="List"/>` + tc.particle +
+				`<xs:element name="choice" type="Union"/>` +
+				`</xs:sequence></xs:complexType></xs:element></xs:schema>`
+			input := `<root><list>1 2</list><s>` + tc.value + `</s><choice>-3</choice></root>`
+			for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+				schema := validationTestSchemaWithPolicy(t, source, nil, policy)
+				if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+					t.Fatalf("%s: %v", policy, err)
+				}
+			}
+		})
+	}
+}
+
 //nolint:gocognit // Assert independent list, union, and ordered-content exits.
 func TestPrecisionDecimalListUnionLocatedFailuresAndOrderedContent(t *testing.T) {
 	schema := validationTestSchemaWithPolicy(t, precisionVarietySchema, nil, goxsd9.Strict11)

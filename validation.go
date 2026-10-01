@@ -208,7 +208,9 @@ type instanceChoiceProgram struct {
 // only local built-in or named NMTOKEN elements. Selected attribute sequences
 // contain global complex references or named local complex targets with local
 // precisionDecimal uses or precisionDecimal simpleContent without uses.
-// Modeled anonymous local inline atomic references
+// Bounded list/union direct sequences validate anonymous integer and
+// negativeInteger siblings, including global anonymous integer/precisionDecimal
+// reference targets. Other modeled anonymous local inline atomic references
 // remain schema-queryable only: ordinary direct choice/sequence target checks
 // return a located FailureUnsupported/ErrUnsupported diagnostic with
 // element/particle locations and may include the anonymous type location in
