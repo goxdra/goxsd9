@@ -661,20 +661,26 @@ func TestSchemaPositiveIntegerExcludedSchemaShapes(t *testing.T) {
 			body     string
 			marker   string
 			specKind string
+			cause    error
+			related  string
 		}{
 			{name: "local direct", body: `<xs:complexType name="Root"><xs:sequence><xs:element name="item" type="xs:positiveInteger"/></xs:sequence></xs:complexType>`, marker: `type="xs:positiveInteger"`},
 			{name: "local named", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:complexType name="Root"><xs:sequence><xs:element name="item" type="t:Alias"/></xs:sequence></xs:complexType>`, marker: `type="t:Alias"`},
 			{name: "local inline", body: `<xs:complexType name="Root"><xs:sequence><xs:element name="item"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:element></xs:sequence></xs:complexType>`, marker: `<xs:simpleType>`},
-			{name: "global attribute direct", specKind: "attribute", body: `<xs:attribute name="item" type="xs:positiveInteger"/>`, marker: `type="xs:positiveInteger"`},
-			{name: "global attribute named", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias"/>`, marker: `type="t:Alias"`},
 			{name: "global attribute inline", specKind: "inline", body: `<xs:attribute name="item"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, marker: `<xs:simpleType>`},
-			{name: "attribute value direct", specKind: "attribute", body: `<xs:attribute name="item" type="xs:positiveInteger" default="1"/>`, marker: `type="xs:positiveInteger"`},
-			{name: "attribute value named", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias" fixed="1"/>`, marker: `type="t:Alias"`},
+			{name: "global attribute unrelated integer kind", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:nonNegativeInteger"><xs:minInclusive value="1"/></xs:restriction></xs:simpleType><xs:attribute name="item" type="t:Alias"/>`, marker: `type="t:Alias"`, cause: errSchemaAttributeTypeUnsupported},
+			{name: "global attribute list variety", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:list itemType="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias"/>`, marker: `type="t:Alias"`, cause: errSchemaAttributeTypeUnsupported},
+			{name: "global attribute union variety", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:union memberTypes="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias"/>`, marker: `type="t:Alias"`, cause: errSchemaAttributeTypeUnsupported},
+			{name: "attribute value direct", specKind: "value", body: `<xs:attribute name="item" type="xs:positiveInteger" default="1"/>`, marker: `default="1"`, cause: errSchemaAttributeValueConstraintUnsupported},
+			{name: "attribute fixed direct", specKind: "value", body: `<xs:attribute name="item" type="xs:positiveInteger" fixed="not-an-integer"/>`, marker: `fixed="not-an-integer"`, cause: errSchemaAttributeValueConstraintUnsupported},
+			{name: "attribute value named", specKind: "value", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias" fixed="1"/>`, marker: `fixed="1"`, cause: errSchemaAttributeValueConstraintUnsupported},
+			{name: "attribute default named", specKind: "value", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias" default="not-an-integer"/>`, marker: `default="not-an-integer"`, cause: errSchemaAttributeValueConstraintUnsupported},
 			{name: "attribute value inline", specKind: "inline", body: `<xs:attribute name="item" default="1"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, marker: `<xs:simpleType>`},
-			{name: "local attribute direct", specKind: "attribute", body: `<xs:complexType name="Root"><xs:attribute name="item" type="xs:positiveInteger"/></xs:complexType>`, marker: `type="xs:positiveInteger"`},
-			{name: "local attribute named", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:complexType name="Root"><xs:attribute name="item" type="t:Alias"/></xs:complexType>`, marker: `type="t:Alias"`},
+			{name: "local attribute direct", specKind: "attribute", body: `<xs:complexType name="Root"><xs:attribute name="item" type="xs:positiveInteger"/></xs:complexType>`, marker: `type="xs:positiveInteger"`, cause: errSchemaAttributeUseUnsupported},
+			{name: "local attribute named", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:complexType name="Root"><xs:attribute name="item" type="t:Alias"/></xs:complexType>`, marker: `type="t:Alias"`, cause: errSchemaAttributeUseUnsupported},
 			{name: "local attribute inline", specKind: "attribute", body: `<xs:complexType name="Root"><xs:attribute name="item"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute></xs:complexType>`, marker: `<xs:simpleType>`},
-			{name: "local attribute ref target", specKind: "attribute", body: `<xs:attribute name="item" type="xs:positiveInteger"/><xs:complexType name="Root"><xs:attribute ref="t:item"/></xs:complexType>`, marker: `type="xs:positiveInteger"`},
+			{name: "local attribute ref target", specKind: "attributeUse", body: `<xs:attribute name="item" type="xs:positiveInteger"/><xs:complexType name="Root"><xs:attribute ref="t:item"/></xs:complexType>`, marker: `ref="t:item"`, cause: errSchemaAttributeReferenceUnsupported, related: `<xs:attribute name="item"`},
+			{name: "local attribute ref named target", specKind: "attributeUse", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias"/><xs:complexType name="Root"><xs:attribute ref="t:item"/></xs:complexType>`, marker: `ref="t:item"`, cause: errSchemaAttributeReferenceUnsupported, related: `<xs:attribute name="item"`},
 			{name: "simpleContent direct", specKind: "simpleContent", body: `<xs:complexType name="Root"><xs:simpleContent><xs:extension base="xs:positiveInteger"/></xs:simpleContent></xs:complexType>`, marker: `base="xs:positiveInteger"`},
 			{name: "simpleContent named", specKind: "simpleContent", body: `<xs:complexType name="Root"><xs:simpleContent><xs:extension base="t:Alias"/></xs:simpleContent></xs:complexType><xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType>`, marker: `base="t:Alias"`},
 			{name: "wider family", body: `<xs:element name="item" type="xs:unsignedInt"/>`, marker: `type="xs:unsignedInt"`},
@@ -694,6 +700,10 @@ func TestSchemaPositiveIntegerExcludedSchemaShapes(t *testing.T) {
 				switch test.specKind {
 				case "attribute":
 					wantSpec = schemaAttributeTypeSpecRef(profile.version)
+				case "value":
+					wantSpec = schemaAttributeValueConstraintSpecRef(profile.version)
+				case "attributeUse":
+					wantSpec = schemaAttributeUseSpecRef(profile.version)
 				case "inline":
 					wantSpec = "xsd10-structures#schema-document"
 				case "simpleContent":
@@ -701,6 +711,18 @@ func TestSchemaPositiveIntegerExcludedSchemaShapes(t *testing.T) {
 				}
 				if diagnostic.SpecRef() != wantSpec {
 					t.Fatalf("spec ref = %q, want selected schema syntax reference", diagnostic.SpecRef())
+				}
+				if test.cause != nil && !errors.Is(err, test.cause) {
+					t.Fatalf("diagnostic lost cause %v: %v", test.cause, err)
+				}
+				if test.related != "" {
+					wantRelated := elementReferenceTestAttributeLoc(t, root, test.related)
+					if !reflect.DeepEqual(diagnostic.Related(), []Loc{wantRelated}) {
+						t.Fatalf("related locations = %v, want [%s]", diagnostic.Related(), wantRelated)
+					}
+				}
+				if test.related == "" && len(diagnostic.Related()) != 0 {
+					t.Fatalf("unexpected related locations = %v", diagnostic.Related())
 				}
 			})
 		}
