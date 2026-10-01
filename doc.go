@@ -232,9 +232,10 @@
 // generation.
 // Global inline complex types expose stable anonymous ComplexTypeID nodes,
 // exact ordered sequence/reference particles, and attribute uses without
-// entering the global component walk. Direct non-extension precisionDecimal
-// list/union sequence links without QName and anonymous global precisionDecimal
-// restrictions are query-only.
+// entering the global component walk. Named or inline global precisionDecimal
+// list/union elements and direct-sequence local/ref links retain immutable
+// variety and ordered item/member facts; bounded forms validate. Anonymous
+// global precisionDecimal atomic restrictions remain query-only.
 // Particle-plus-use bodies, direct model-group references, grouped extensions,
 // attribute-only bodies, and scalar simpleContent extensions expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
@@ -242,8 +243,10 @@
 // extension composes a direct opaque named-group reference, ordered local uses,
 // and the supported named empty base; broader attribute-bearing extensions
 // remain unsupported. Local and referenced
-// global targets admit only Boolean/integer/decimal plus policy-gated precisionDecimal;
-// explicit xs:int and other scalar kinds are unsupported, and Strict10 rejects
+// global targets admit Boolean/integer/decimal plus policy-gated precisionDecimal.
+// Local named/inline lists with atomic precisionDecimal items and two-member
+// unions of precisionDecimal then negativeInteger are also admitted; other
+// local varieties and explicit xs:int remain unsupported. Strict10 rejects
 // precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
 // and effective use. Explicit form or attributeFormDefault selects qualified or
 // unqualified local names; XSD 1.1 local targetNamespace selects a namespace only
@@ -261,9 +264,10 @@
 // admits Boolean/string/integer/decimal bases plus policy-gated precisionDecimal,
 // retaining base, type, and ordered-use locations with a nil particle. Local
 // value/default/fixed/inheritable semantics and attributeGroup expansion remain
-// unsupported. Validation supports local precisionDecimal uses on bounded
-// direct empty-content roots and direct sequences of global element references
-// to inline or named complex targets or named local complex targets.
+// unsupported. Validation supports local precisionDecimal atomic and bounded
+// variety uses on direct empty-content roots and direct sequences of global
+// element references to inline or named complex targets or named local complex
+// targets; grouped extensions remain consumer-unsupported.
 // SimpleContent text uses built-in string only
 // with selected local precisionDecimal uses, or built-in/named effective
 // precisionDecimal. Named effective string remains excluded. Generation rejects these forms.
@@ -277,9 +281,11 @@
 // to global built-in or named integer and decimal targets. It retains the
 // sequence's lexical order and omits standalone wrappers for referenced elements.
 // ValidateInstance also admits bounded direct-sequence references to global
-// inline or named complex targets with local precisionDecimal uses or
-// precisionDecimal simpleContent without uses, including repeated refs with
-// supported child occurrence ranges; GenerateGo rejects those sequences.
+// inline or named complex targets with local precisionDecimal atomic/variety
+// uses or precisionDecimal simpleContent without uses, including repeated refs
+// with supported child occurrence ranges. Direct-sequence references to
+// admitted global precisionDecimal list/union elements validate under their
+// separate variety gate; GenerateGo rejects both sequence families.
 // Constrained targets remain queryable; validation rejects at the instance use
 // Loc with the first constraint Loc related. GenerateGo rejects target
 // classification at the reference Loc; identity-constrained global elements
@@ -355,8 +361,11 @@
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
 // or Strict11, or as a supported local-attribute complex root or bounded
 // direct sequence of global complex refs or named local complex targets.
-// Selected local uses have precisionDecimal atomic types; simpleContent text
-// uses built-in string with those uses or built-in/named precisionDecimal.
+// Named/inline global precisionDecimal lists and bounded unions validate under
+// Compatibility/Strict11. Selected local uses admit precisionDecimal atomic,
+// precisionDecimal-item list, or precisionDecimal/negativeInteger union types;
+// simpleContent text uses built-in string with those uses or built-in/named
+// precisionDecimal.
 // Other supported named global complex types have one direct
 // Boolean-only sequence of local built-in xs:boolean or facet-free named Boolean
 // restriction elements, one direct integer/decimal sequence of local built-in or
@@ -370,9 +379,15 @@
 // the first constraint Loc.
 // Scalar direct local sequences match expanded names in lexical declaration
 // order and honor exact finite, unbounded, and above-`uint64` outer and child
-// occurrence ranges under Compatibility, Strict10, and Strict11. Selected local
-// precisionDecimal attribute sequences honor child ranges and require default
-// outer occurrences; other outer ranges return a located unsupported diagnostic.
+// occurrence ranges under Compatibility, Strict10, and Strict11. Direct
+// list/union sequences admit local typed elements and global element refs,
+// require default outer occurrences, and honor exact child ranges. Selected
+// local precisionDecimal atomic/variety attribute sequences likewise honor
+// child ranges and require default outer occurrences; other outer ranges
+// return a located unsupported diagnostic. List items split collapsed XML
+// whitespace, including an empty list; union members run in declared order
+// and retain the selected value semantics. Structure errors precede value
+// errors; failures retain instance and related schema locations.
 // Mixed scalar-family sequences, direct-choice repetition, and excluded particle/target shapes
 // remain explicit unsupported behavior. Local long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger particles are
 // query-only and remain explicit unsupported behavior in both consumers.
@@ -394,8 +409,8 @@
 // particles retain their written
 // QName, resolved named identity, immutable type/facet facts, locations, and exact
 // occurrences in direct choices, sequences, and supported bounded extensions, but
-// remain unsupported to consumers. Lists/unions,
-// broader particles, and other semantics remain explicit unsupported behavior.
+// remain unsupported to consumers. Other list/union shapes, broader particles,
+// and unimplemented semantics remain explicit unsupported behavior.
 // Supported global attribute declarations are a separate query-only capability.
 // Type admission under
 // Compatibility, Strict10, and Strict11 is limited to built-in or supported
@@ -482,9 +497,10 @@
 // exclusions for admitted global `nonNegativeInteger` references include
 // repetition/non-default occurrences, nested/recursive/broader references,
 // and anonymous targets; they are explicit unsupported behavior with located
-// diagnostics and no GenerateGo output. Admitted lists/unions and other
-// integer-derived declarations retain query facts while their consumers remain
-// unsupported. `nonNegativeInteger` attributes/value constraints are
+// diagnostics and no GenerateGo output. Admitted precisionDecimal lists/unions
+// validate only on the bounded paths above; GenerateGo rejects every variety
+// with a located diagnostic and nil output. Other integer-derived declarations
+// remain query-only. `nonNegativeInteger` attributes/value constraints are
 // schema-admission exclusions with located diagnostics and no schema. Global inline/anonymous
 // `nonNegativeInteger` element/type declarations retain schema/query facts; GenerateGo and
 // ValidateInstance reject them with their existing diagnostics.
