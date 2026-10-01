@@ -150,11 +150,13 @@ func TestSchemaPositiveIntegerGlobalAttributeReferenceDiagnostics(t *testing.T) 
 			code                        string
 			cause                       error
 			base                        bool
+			bound                       bool
 		}{
 			{name: "unresolved type", body: `<xs:attribute name="item" type="t:Missing"/>`, marker: `type="t:Missing"`, code: diagnosticSchemaAttributeTypeUnresolvedCode, cause: errSchemaAttributeTypeUnresolved},
 			{name: "wrong kind", body: `<xs:element name="Other" type="xs:positiveInteger"/><xs:attribute name="item" type="t:Other"/>`, marker: `type="t:Other"`, related: `<xs:element name="Other"`, code: diagnosticSchemaAttributeTypeWrongKindCode, cause: errSchemaAttributeTypeWrongKind},
 			{name: "unresolved base", body: `<xs:attribute name="item" type="t:Alias"/><xs:simpleType name="Alias"><xs:restriction base="t:Missing"/></xs:simpleType>`, marker: `base="t:Missing"`, code: diagnosticSchemaSimpleTypeUnresolvedCode, cause: errSchemaSimpleTypeBaseUnresolved, base: true},
 			{name: "wrong kind base", body: `<xs:element name="Other" type="xs:positiveInteger"/><xs:attribute name="item" type="t:Alias"/><xs:simpleType name="Alias"><xs:restriction base="t:Other"/></xs:simpleType>`, marker: `base="t:Other"`, related: `<xs:element name="Other"`, code: diagnosticSchemaSimpleTypeWrongKindCode, cause: errSchemaSimpleTypeBaseWrongKind, base: true},
+			{name: "malformed bound", body: `<xs:attribute name="item" type="t:Alias"/><xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"><xs:minInclusive value="bad"/></xs:restriction></xs:simpleType>`, marker: `value="bad"`, code: InvalidBoundCode, cause: errInvalidBoundValue, bound: true},
 			{name: "cycle", body: `<xs:attribute name="item" type="t:A"/><xs:simpleType name="A"><xs:restriction base="t:B"/></xs:simpleType><xs:simpleType name="B"><xs:restriction base="t:A"/></xs:simpleType>`, marker: `type="t:A"`, code: diagnosticSchemaAttributeTypeCycleCode, cause: errSchemaSimpleTypeBaseCycle},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
@@ -165,6 +167,9 @@ func TestSchemaPositiveIntegerGlobalAttributeReferenceDiagnostics(t *testing.T) 
 				wantSpec := schemaAttributeTypeSpecRef(profile.version)
 				if test.base {
 					wantSpec = schemaSimpleTypeSpecRef(profile.version)
+				}
+				if test.bound {
+					wantSpec = boundSpecRef(profile.version, BoundMinInclusive, boundDefinitionRule)
 				}
 				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, test.marker) || diagnostic.SpecRef() != wantSpec || !errors.Is(err, test.cause) {
 					t.Fatalf("diagnostic = %s, want %s at %s with cause %v", diagnostic, test.code, test.marker, test.cause)
