@@ -155,6 +155,8 @@ var (
 	errSchemaAttributeTypeWrongKind              = errors.New("attribute type has the wrong kind")
 	errSchemaAttributeTypeAmbiguous              = errors.New("attribute type is ambiguous")
 	errSchemaAttributeTypeUnsupported            = errors.New("attribute type is unsupported")
+	errSchemaAttributeInlineTypeConflict         = errors.New("global attribute combines type attribute with inline simple type")
+	errSchemaAttributeInlineTypeDuplicate        = errors.New("global attribute has duplicate inline simple types")
 	errSchemaAttributeUseUnsupported             = errors.New("attribute use is unsupported")
 	errSchemaAttributeReferenceUnresolved        = errors.New("attribute reference is unresolved")
 	errSchemaAttributeReferenceWrongKind         = errors.New("attribute reference has the wrong target kind")
@@ -1310,7 +1312,7 @@ func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, 
 		declaration.element = elementType
 	}
 	if kind == ComponentKindAttributeDeclaration {
-		attributeType, attributeErr := schemaAttributeTypeInput(element, version)
+		attributeType, attributeErr := schemaAttributeTypeInput(element, facts.simpleTypeFinalDefault, version)
 		if attributeErr != nil {
 			return schemaComponentInput{}, attributeErr
 		}
@@ -1348,7 +1350,8 @@ func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, 
 	return declaration, nil
 }
 
-func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*schemaAttributeInput, error) {
+//nolint:gocognit // Keep mutually exclusive global attribute type sources and value facts together.
+func schemaAttributeTypeInput(element *syntaxElement, defaultFinal schemaSimpleTypeFinalPolicy, version XSDVersion) (*schemaAttributeInput, error) {
 	if element == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "construct attribute type input from a nil element")
 	}
@@ -1362,7 +1365,7 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 		return nil, newSchemaCompositionDiagnostic(attributes[1].loc, "attribute type attribute must be unique")
 	}
 	if len(attributes) == 1 && inline != nil {
-		return nil, newSchemaCompositionDiagnostic(inline.loc, "attribute cannot combine type attribute with an inline simpleType")
+		return nil, newSchemaAttributeTypeDiagnostic(invalidSchemaCompositionCode, inline.loc, "attribute cannot combine type attribute with an inline simpleType", []Loc{attributes[0].loc}, version, errSchemaAttributeInlineTypeConflict)
 	}
 	if len(attributes) == 0 {
 		if inline == nil {
@@ -1371,14 +1374,24 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 			}
 			return &schemaAttributeInput{valueConstraint: valueConstraint}, nil
 		}
-		if inlineErr := validateInlineSchemaType(inline, version); inlineErr != nil {
+		if inlineErr := validateInlineSchemaTypeWithFacetBridge(inline, version, true); inlineErr != nil {
 			return nil, inlineErr
 		}
-		return nil, newSchemaSyntaxUnsupportedForVersion(
-			inline.loc,
-			"inline anonymous simple types in global attributes are not implemented",
-			version,
-		)
+		simpleType, simpleTypeErr := schemaSimpleTypeInputFromElementWithDefault(inline, version, defaultFinal)
+		if simpleTypeErr != nil {
+			return nil, simpleTypeErr
+		}
+		inheritSchemaAttributeInlineFinal(simpleType, defaultFinal)
+		inheritable, inheritableErr := schemaAttributeInheritableValue(element)
+		if inheritableErr != nil {
+			return nil, inheritableErr
+		}
+		return &schemaAttributeInput{
+			typeLoc:          inline.loc,
+			inlineSimpleType: simpleType,
+			inheritable:      inheritable,
+			valueConstraint:  valueConstraint,
+		}, nil
 	}
 	inheritable, err := schemaAttributeInheritableValue(element)
 	if err != nil {
@@ -1394,6 +1407,16 @@ func schemaAttributeTypeInput(element *syntaxElement, version XSDVersion) (*sche
 		inheritable:     inheritable,
 		valueConstraint: valueConstraint,
 	}, nil
+}
+
+func inheritSchemaAttributeInlineFinal(input *schemaSimpleTypeInput, defaultFinal schemaSimpleTypeFinalPolicy) {
+	for _, reference := range schemaSimpleTypeReferences(input) {
+		if reference.kind != schemaSimpleTypeAnonymousReferenceInput || reference.anonymous == nil {
+			continue
+		}
+		reference.anonymous.final = defaultFinal
+		inheritSchemaAttributeInlineFinal(reference.anonymous, defaultFinal)
+	}
 }
 
 func schemaAttributeInheritableValue(element *syntaxElement) (bool, error) {
@@ -3657,8 +3680,14 @@ func resolveSchemaElementSimpleTypes(resolver *schemaSimpleTypeResolver, records
 	return nil
 }
 
+//nolint:gocognit // Resolve inline declaration and local-use inputs in record order.
 func resolveSchemaAttributeSimpleTypes(resolver *schemaSimpleTypeResolver, records []schemaComponentRecord, version XSDVersion) error {
 	for _, record := range records {
+		if record.attribute != nil && record.attribute.inlineSimpleType != nil {
+			if _, err := resolver.resolveInput(record.attribute.inlineSimpleType, record.attribute.typeLoc, true, record.id.Source(), version); err != nil {
+				return err
+			}
+		}
 		if _, grouped := record.complexTypeBody().(*schemaComplexTypeGroupedExtensionBodyInput); grouped {
 			continue
 		}
@@ -3832,6 +3861,7 @@ func resolveSchemaAttributeTypes(
 	return results, nil
 }
 
+//nolint:gocognit // Keep type-source and value-constraint gates at one publication boundary.
 func resolveSchemaAttributeType(
 	record schemaComponentRecord,
 	resolver *schemaSimpleTypeResolver,
@@ -3844,22 +3874,39 @@ func resolveSchemaAttributeType(
 	if resolver == nil {
 		return schemaAttributeTypeResult{}, newSchemaBridgeInvariant(input.typeLoc, "attribute type resolution has no simple type resolver")
 	}
-	if input.valueConstraint != nil && input.declaredType.IsZero() {
+	if input.valueConstraint != nil && input.inlineSimpleType != nil {
 		return schemaAttributeTypeResult{}, unsupportedSchemaAttributeValueConstraint(
 			input,
 			version,
-			"global attribute value constraints require a declared supported type",
+			"global attribute inline type value constraints are not implemented",
 		)
 	}
-	reference, err := resolver.resolveReference(schemaSimpleTypeReferenceInput{
-		kind: schemaSimpleTypeQNameReferenceInput,
-		name: input.declaredType,
-		loc:  input.typeLoc,
-	}, record.id.Source(), version)
+	if input.valueConstraint != nil && input.declaredType.IsZero() {
+		return schemaAttributeTypeResult{}, unsupportedSchemaAttributeValueConstraint(input, version, "global attribute value constraints require a declared supported type")
+	}
+	referenceInput := schemaSimpleTypeReferenceInput{kind: schemaSimpleTypeQNameReferenceInput, name: input.declaredType, loc: input.typeLoc}
+	if input.inlineSimpleType != nil {
+		referenceInput = schemaSimpleTypeReferenceInput{kind: schemaSimpleTypeAnonymousReferenceInput, anonymous: input.inlineSimpleType, loc: input.typeLoc}
+	}
+	reference, err := resolver.resolveReference(referenceInput, record.id.Source(), version)
 	if err != nil {
 		return schemaAttributeTypeResult{}, reframeSchemaAttributeReferenceError(input, err, version)
 	}
-	if !schemaAttributeTypeReferenceSupported(reference) {
+	if input.inlineSimpleType != nil {
+		unsupportedLoc, memberErr := schemaInlineAttributeUnsupportedMember(reference, resolver, version, true)
+		if memberErr != nil {
+			return schemaAttributeTypeResult{}, memberErr
+		}
+		if !unsupportedLoc.IsZero() {
+			diagnostic := unsupportedSchemaAttributeType(input, version, "global attribute inline type contains an unsupported datatype")
+			diagnostic.loc = unsupportedLoc
+			if unsupportedLoc != input.typeLoc {
+				diagnostic.related = []Loc{input.typeLoc}
+			}
+			return schemaAttributeTypeResult{}, diagnostic
+		}
+	}
+	if input.inlineSimpleType == nil && !schemaAttributeTypeReferenceSupported(reference) {
 		return schemaAttributeTypeResult{}, unsupportedSchemaAttributeType(
 			input,
 			version,
@@ -4140,6 +4187,59 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 	default:
 		return false
 	}
+}
+
+//nolint:gocognit // Walk resolved list and union members in their lexical order.
+func schemaInlineAttributeUnsupportedMember(reference schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver, version XSDVersion, top bool) (Loc, error) {
+	switch reference.variety {
+	case SimpleTypeVarietyAtomicRestriction:
+		if schemaAttributeTypeReferenceSupported(reference) || !top && reference.atomicKind == schemaSimpleTypeAtomicString {
+			return Loc{}, nil
+		}
+		return reference.loc, nil
+	case SimpleTypeVarietyList:
+		item, err := schemaInlineAttributeListItem(reference, resolver, version)
+		if err != nil {
+			return Loc{}, err
+		}
+		return schemaInlineAttributeUnsupportedMember(item, resolver, version, false)
+	case SimpleTypeVarietyUnion:
+		members, err := resolver.simpleTypeUnionMembers(reference, version)
+		if err != nil {
+			return Loc{}, err
+		}
+		for _, member := range members {
+			loc, err := schemaInlineAttributeUnsupportedMember(member, resolver, version, false)
+			if err != nil || !loc.IsZero() {
+				return loc, err
+			}
+		}
+		return Loc{}, nil
+	default:
+		return reference.loc, nil
+	}
+}
+
+func schemaInlineAttributeListItem(reference schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+	if reference.kind == SimpleTypeReferenceAnonymous && reference.anonymous != nil && reference.anonymous.hasItemType {
+		return reference.anonymous.itemType, nil
+	}
+	if reference.kind == SimpleTypeReferenceNamed && reference.hasID {
+		for index, record := range resolver.records {
+			if record.id != reference.id {
+				continue
+			}
+			result, err := resolver.resolve(index, version)
+			if err != nil {
+				return schemaSimpleTypeReferenceComponent{}, err
+			}
+			if result.hasItemType {
+				return result.itemType, nil
+			}
+			break
+		}
+	}
+	return schemaSimpleTypeReferenceComponent{}, newSchemaBridgeInvariant(reference.loc, "inline attribute list has no resolved item type")
 }
 
 func reframeSchemaAttributeReferenceError(input *schemaAttributeInput, err error, version XSDVersion) error {
@@ -4468,6 +4568,7 @@ func reframeSchemaAttributeTypeCycleForRecord(
 			loc:          record.loc,
 			declaredType: record.attribute.declaredType,
 			typeLoc:      record.attribute.typeLoc,
+			inlineSimple: record.attribute.inlineSimpleType,
 		}
 		if diagnostic, ok := reframeSchemaAttributeTypeCycleForUse(input, records, byName, cycleDiagnostic, err, version); ok {
 			return diagnostic, true
@@ -8965,7 +9066,7 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 			version,
 		)
 	}
-	if finalErr := resolver.rejectNamedSimpleTypeFinal(base, schemaSimpleTypeFinalRestriction, "restriction base", model.base.loc, version); finalErr != nil {
+	if finalErr := resolver.rejectSchemaSimpleTypeFinal(base, schemaSimpleTypeFinalRestriction, "restriction base", model.base.loc, version); finalErr != nil {
 		return schemaSimpleTypeResult{}, finalErr
 	}
 	facets, err := restrictSchemaSimpleTypeFacets(base.facets, base.atomicKind, model.facets, version)
@@ -9031,7 +9132,7 @@ func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTy
 			return schemaSimpleTypeResult{}, err
 		}
 	}
-	if err := resolver.rejectNamedSimpleTypeFinal(itemType, schemaSimpleTypeFinalList, "list item type", model.itemType.loc, version); err != nil {
+	if err := resolver.rejectSchemaSimpleTypeFinal(itemType, schemaSimpleTypeFinalList, "list item type", model.itemType.loc, version); err != nil {
 		return schemaSimpleTypeResult{}, err
 	}
 	return schemaSimpleTypeResult{
@@ -9204,7 +9305,7 @@ func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleT
 				version,
 			)
 		}
-		if err := resolver.rejectNamedSimpleTypeFinal(resolved, schemaSimpleTypeFinalUnion, "union member type", member.loc, version); err != nil {
+		if err := resolver.rejectSchemaSimpleTypeFinal(resolved, schemaSimpleTypeFinalUnion, "union member type", member.loc, version); err != nil {
 			return schemaSimpleTypeResult{}, err
 		}
 		members = append(members, resolved)
@@ -9593,13 +9694,16 @@ func (resolver *schemaSimpleTypeResolver) resolveNamedSchemaSimpleTypeReference(
 	}, nil
 }
 
-func (resolver *schemaSimpleTypeResolver) rejectNamedSimpleTypeFinal(
+func (resolver *schemaSimpleTypeResolver) rejectSchemaSimpleTypeFinal(
 	reference schemaSimpleTypeReferenceComponent,
 	derivation schemaSimpleTypeFinalSet,
 	useDescription string,
 	useLoc Loc,
 	version XSDVersion,
 ) error {
+	if reference.kind == SimpleTypeReferenceAnonymous {
+		return rejectAnonymousSchemaSimpleTypeFinal(reference, derivation, useDescription, useLoc, version)
+	}
 	if reference.kind != SimpleTypeReferenceNamed {
 		return nil
 	}
@@ -9633,6 +9737,21 @@ func (resolver *schemaSimpleTypeResolver) rejectNamedSimpleTypeFinal(
 		)
 	}
 	return newSchemaBridgeInvariant(useLoc, "named simple type final check has an unresolved component identity")
+}
+
+func rejectAnonymousSchemaSimpleTypeFinal(reference schemaSimpleTypeReferenceComponent, derivation schemaSimpleTypeFinalSet, useDescription string, useLoc Loc, version XSDVersion) error {
+	if reference.anonymous == nil {
+		return newSchemaBridgeInvariant(useLoc, "anonymous simple type final check has no model")
+	}
+	final := reference.anonymous.final
+	if final.set&derivation == 0 {
+		return nil
+	}
+	value, ok := schemaSimpleTypeFinalValue(derivation)
+	if !ok || final.loc.IsZero() {
+		return newSchemaBridgeInvariant(useLoc, "anonymous simple type final check has invalid policy")
+	}
+	return newSchemaSimpleTypeFinalDiagnostic(useLoc, fmt.Sprintf("anonymous simple type %s prohibits %s derivation", useDescription, value), final.loc, value, version)
 }
 
 func schemaSimpleTypeFinalValue(derivation schemaSimpleTypeFinalSet) (string, bool) {

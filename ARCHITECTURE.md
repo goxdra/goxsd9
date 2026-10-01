@@ -2,7 +2,7 @@
 
 ## Boundaries
 
-goxsd9 parses schemas into immutable query models; validation/generation are leaves.
+goxsd9 parses immutable schema models; validation/generation follow.
 
 ## Deterministic phase pipeline
 
@@ -18,14 +18,13 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Phases do not backpatch. Identities intern before discovery; repeats/cycles close.
-Acyclic dependencies use stable topological order; slices order walks/output.
+Phases never backpatch. Identities intern before discovery; repeats/cycles close.
+Stable topological order resolves dependencies; slices order walks/output.
 
 ## Input and resolution
 
-Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. The caller selects
-graph language policy; resolvers acquire sources under their resolution policy.
-Streams close; identities decode once; repeats/cycles close.
+`ParseSchema(root ResolvedSource, resolver Resolver)` receives caller-selected
+language policy; resolvers acquire sources. Streams close; identities decode once.
 
 ```go
 type Resolver interface {
@@ -37,17 +36,17 @@ type Resolver interface {
 }
 ```
 
-Sources carry opaque identity, reader-closer, child context; resolvers may keep private
-base-location state. FIFO discovery preserves context. Parser leaves identities/locations uninterpreted,
-opens no paths/network resources, and resolves sequentially.
+Sources carry opaque identity, reader-closer, and child context. FIFO discovery
+preserves context; resolvers may track bases. Parser opens no resources, interprets
+no identities/locations, and resolves sequentially.
 
 `Loc` uses one-based lines and Unicode-code-point columns.
 
 ## Diagnostics
 
-Diagnostics classify invalid/unsupported/resolution/internal failures; retain codes,
-primary `Loc`, related/specification references, and causes; errors prevent schema
-return. Unsupported features have stable report IDs.
+Diagnostics classify invalid/unsupported/resolution/internal failures with codes,
+primary `Loc`, related/spec references, and causes. Errors prevent schema return;
+unsupported features have stable IDs.
 
 ## Schema model
 
@@ -85,13 +84,13 @@ references retain QName/RefLoc/TargetID/use. Forms select names; XSD 1.1
 `targetNamespace` must match the container; chameleon adopts; prohibited uses omit.
 Local values/inheritable, attributeGroup/broader extensions, and consumers are
 unsupported; refs located; no schema.
-Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/
-NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
-Default/fixed: built-in/named Boolean/integer/decimal/token/negativeInteger/long/int/short/unsignedLong; policy-gated `precisionDecimal`.
-Integer values/facets exact; unsignedLong lexical: digits-only XSD 1.0, signed/-0 XSD 1.1.
-Unsupported types/local/inline: located `FailureUnsupported`; unsupported values: constraint `Loc`;
-invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixed/default; type-only
-unconstrained; attribute consumers reject.
+Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` is policy-gated.
+Inline global restriction/list/union: supported atomics/members (`string` nested only); anonymous IDs, ordered refs, `Loc`s, facets, `finalDefault`.
+`language`/`NCName`/`anyURI`/`ID` identity-only; inline `precisionDecimal` policy-gated.
+Default/fixed: built-in/named Boolean/integer/decimal/token/negativeInteger/
+long/int/short/unsignedLong and policy-gated `precisionDecimal`; integer values/facets
+are exact. UnsignedLong lexical: digits-only XSD 1.0, signed/-0 XSD 1.1.
+Excluded types/inline values/local list/union refs: located diagnostics/no schema; invalid values retain causes/related `Loc`s; consumers reject.
 
 Complexes retain non-inherited `IsAbstract`, `finalDefault` provenance, ordered groups/extensions,
 and wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip

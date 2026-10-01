@@ -171,7 +171,6 @@ func TestSchemaShortGlobalAttributeExclusionsAcrossPolicies(t *testing.T) {
 			{"above maximum", `<xs:attribute name="a" type="r:T"/><xs:simpleType name="T"><xs:restriction base="xs:short"><xs:maxInclusive value="32768"/></xs:restriction></xs:simpleType>`, `value="32768"`, FailureInvalid, errInvalidBoundRestriction},
 			{"malformed bound", `<xs:attribute name="a" type="r:T"/><xs:simpleType name="T"><xs:restriction base="xs:short"><xs:minInclusive value="oops"/></xs:restriction></xs:simpleType>`, `value="oops"`, FailureInvalid, errInvalidBoundValue},
 			{"local", `<xs:complexType name="T"><xs:attribute name="a" type="xs:short"/></xs:complexType>`, `type="xs:short"`, FailureUnsupported, errSchemaAttributeTypeUnsupported},
-			{"inline", `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:attribute>`, `<xs:simpleType>`, FailureUnsupported, ErrUnsupported},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:r" targetNamespace="urn:r" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
