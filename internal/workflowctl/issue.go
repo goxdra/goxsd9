@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -118,7 +119,7 @@ func (a app) runIssue(args []string) error {
 }
 
 func (a app) createIssue(args []string) error {
-	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+	if slices.Equal(args, []string{"-h"}) || slices.Equal(args, []string{"--help"}) {
 		return writeLine(a.stdout, "%s", issueCreateHelpText())
 	}
 	flags := flag.NewFlagSet("issue create", flag.ContinueOnError)
