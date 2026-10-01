@@ -66,7 +66,8 @@
 // global attribute-declaration validation remain unsupported. Selected local
 // precisionDecimal AttributeUse values validate under admitting policies;
 // GenerateGo rejects them and global attribute declarations. Global built-in/named
-// roots validate, while global inline anonymous element targets remain excluded.
+// and bounded inline list/union precisionDecimal roots validate, while global
+// inline anonymous atomic precisionDecimal restrictions remain excluded.
 // Paths and URLs are never opened by this package. Parsing closes
 // the root and every resolved source, but drains and decodes only unseen
 // identities; repeated and cyclic identities are closed without decoding.
@@ -226,10 +227,11 @@
 // Boolean/integer/decimal/negativeInteger restrictions remain queryable but direct
 // validation and generation reject them;
 // mapped local anonymous string/token/NMTOKEN/precisionDecimal restrictions remain
-// schema-unsupported when nonzero. Global inline-element precisionDecimal remains a query
-// target only under Compatibility/Strict11; Strict10 rejects it before validation,
-// and every anonymous precisionDecimal element target is excluded from validation and
-// generation.
+// schema-unsupported when nonzero. Global inline-element atomic precisionDecimal
+// restrictions remain query targets only under Compatibility/Strict11; Strict10
+// rejects them before validation. Anonymous atomic precisionDecimal element targets
+// are excluded from validation and generation; bounded inline list/union roots
+// validate under admitting policies and remain generation exclusions.
 // Global inline complex types expose stable anonymous ComplexTypeID nodes,
 // exact ordered sequence/reference particles, and attribute uses without
 // entering the global component walk. Named or inline global precisionDecimal
@@ -518,8 +520,9 @@
 // available only under Compatibility/Strict11; Strict10 returns the located
 // FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
 // before validation at the typed reference or type location. Global built-in/named
-// roots validate under those policies, while inline precisionDecimal is an
-// anonymous target rejected by validation. GenerateGo rejects every global,
+// roots and bounded inline precisionDecimal list/union roots validate under those
+// policies, while inline atomic precisionDecimal restrictions are anonymous targets
+// rejected by validation. GenerateGo rejects every global,
 // explicitly typed local (including named effective), inline, anonymous, and
 // schema-admitted extension precisionDecimal target. Local built-in/named
 // Boolean/integer/decimal particles generate only in default-occurrence
