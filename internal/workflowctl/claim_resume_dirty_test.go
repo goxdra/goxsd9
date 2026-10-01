@@ -178,6 +178,95 @@ func TestClaimResumeNestedTrackedDeletionPreservedThroughRetry(t *testing.T) {
 	}
 }
 
+//nolint:gocognit,funlen // The combined historical claim and dirty-state proof spans each recovery boundary.
+func TestClaimResumeDirtyPriorRenewalArchivedSiblingProjectRetry(t *testing.T) {
+	f := newArchivedClaimFixture(t)
+	acquisition := f.current.expected
+	priorLease := f.current.lease.Add(30 * time.Minute)
+	priorRenewal := createResumeTestCommit(t, f.current.primary, acquisition,
+		claimMessage(f.current.issue, f.current.runID, priorLease))
+	setClaimResumeFixtureHead(t, &f.current, priorRenewal)
+	f.backend.fixture = f.current
+	writeFixtureFile(t, f.current.worktree, "README", "staged bytes\n")
+	runGitTest(t, f.current.worktree, "add", "README")
+	writeFixtureFile(t, f.current.worktree, "README", "unstaged bytes\n")
+	writeFixtureFile(t, f.current.worktree, "new.go", "untracked bytes\n")
+	state := dirtyClaimResumeSnapshot(t, f.current.worktree)
+	if !state.dirty || f.current.lease.Equal(priorLease) {
+		t.Fatal("fixture lacks dirty bytes or distinct acquisition and renewal leases")
+	}
+	f.current.handoffBody = dirtyClaimResumeHandoffBody(f.current, state.digest)
+	f.backend.comments[1].Body = f.current.handoffBody
+	if handoff, err := parseDirtyClaimResumeHandoff(f.current.handoffBody, f.current.issue); err != nil ||
+		handoff.original != priorRenewal || handoff.current != priorRenewal {
+		t.Fatalf("dirty handoff heads = %+v, error %v, want prior renewal %s", handoff, err, priorRenewal)
+	}
+	indexBefore := claimResumeRawIndexBytes(t, f.current.worktree)
+	if err := archivedClaimCallerApp(f, io.Discard).run(archivedClaimArgs(f, false)); err != nil {
+		t.Fatalf("release archived sibling beside dirty current claim: %v", err)
+	}
+	if _, err := os.Lstat(f.oldPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("archived sibling worktree remains after release: %v", err)
+	}
+	application := archivedClaimApp(f, io.Discard)
+	if err := application.run(claimResumeArgs(f.current, true)); err != nil {
+		t.Fatalf("dry-run dirty prior renewal with released archive: %v", err)
+	}
+	if after := claimResumeRawIndexBytes(t, f.current.worktree); !bytes.Equal(after, indexBefore) {
+		t.Fatal("dry-run changed raw index bytes")
+	}
+	if after := dirtyClaimResumeSnapshot(t, f.current.worktree); after != state {
+		t.Fatalf("dry-run changed local state: before %+v, after %+v", state, after)
+	}
+
+	projectFailure := errors.New("simulated Project write failure")
+	f.backend.projectFailure = projectFailure
+	err := application.run(claimResumeArgs(f.current, false))
+	if err == nil || operationDispositionOf(err) != operationDispositionRetryable || !errors.Is(err, projectFailure) {
+		t.Fatalf("Project failure = %v, disposition %d, want retryable preserved cause", err, operationDispositionOf(err))
+	}
+	partialHead := runGitTest(t, f.current.worktree, "rev-parse", "HEAD")
+	if partialHead == priorRenewal || runGitTest(t, f.current.worktree, "rev-parse", "HEAD^") != priorRenewal {
+		t.Fatalf("partial recovery head %s is not the unique child of %s", partialHead, priorRenewal)
+	}
+	if f.backend.needsHuman || f.backend.projectStatus != "Backlog" {
+		t.Fatalf("partial Project state = needs-human %t, status %s", f.backend.needsHuman, f.backend.projectStatus)
+	}
+	if after := claimResumeRawIndexBytes(t, f.current.worktree); !bytes.Equal(after, indexBefore) {
+		t.Fatal("Project failure changed raw index bytes")
+	}
+	if after := dirtyClaimResumeSnapshot(t, f.current.worktree); after != state {
+		t.Fatalf("Project failure changed local state: before %+v, after %+v", state, after)
+	}
+	if err := application.run(claimResumeArgs(f.current, false)); err != nil {
+		t.Fatalf("retry dirty prior renewal after Project failure: %v", err)
+	}
+	assertClaimResumeRenewed(t, f.current, f.backend)
+	if head := runGitTest(t, f.current.worktree, "rev-parse", "HEAD"); head != partialHead {
+		t.Fatalf("Project retry created another marker: %s, want %s", head, partialHead)
+	}
+	mutations := f.backend.mutations
+	if err := application.run(claimResumeArgs(f.current, false)); err != nil {
+		t.Fatalf("idempotent dirty prior renewal retry: %v", err)
+	}
+	if f.backend.mutations != mutations || !bytes.Equal(claimResumeRawIndexBytes(t, f.current.worktree), indexBefore) ||
+		dirtyClaimResumeSnapshot(t, f.current.worktree) != state {
+		t.Fatal("idempotent retry changed marker, raw index, or dirty bytes")
+	}
+	assertDirtyClaimResumeFile(t, f.current.worktree, "README", "unstaged bytes\n")
+	assertDirtyClaimResumeFile(t, f.current.worktree, "new.go", "untracked bytes\n")
+	if staged := runGitTest(t, f.current.worktree, "show", ":README"); staged != "staged bytes" {
+		t.Fatalf("staged README bytes = %q", staged)
+	}
+	if got := runGitTest(t, f.current.primary, "for-each-ref", "--format=%(objectname)",
+		"refs/heads/"+claimLocalBranch(f.current.issue, f.oldRun)); got != f.oldHead {
+		t.Fatalf("released archived local ref = %s, want %s", got, f.oldHead)
+	}
+	if got := runGitTest(t, f.current.primary, "ls-remote", "origin", "refs/heads/"+f.archive); !strings.HasPrefix(got, f.oldHead+"\t") {
+		t.Fatalf("released archived remote ref = %q, want %s", got, f.oldHead)
+	}
+}
+
 func TestClaimResumeLocalStateDistinguishesIndexBytesModeTypeAndDeletion(t *testing.T) {
 	fixture := newDirtyClaimResumeFixture(t, 309, "run-309-dirty", []string{"source.go"})
 	baseline := dirtyClaimResumeSnapshot(t, fixture.worktree).digest
