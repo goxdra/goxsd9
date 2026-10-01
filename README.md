@@ -24,14 +24,14 @@ queryable even when one or both consumers reject it.
 Grouped complex-content extensions resolve one opaque group reference and
 ordered local attribute uses over a supported named empty base. Validated
 `0/0` omits the particle, and prohibited uses may leave no effective uses.
-See the [package contract](doc.go) for public behavior and current limits, the
+See the [package contract](doc.go) for public behavior and limits, the
 [architecture](ARCHITECTURE.md#schema-model) for admission and consumer
 boundaries, and [decision 0007](docs/decisions/0007-particle-occurrence.md)
 for exact particle occurrences and `0/0` omission.
 
 Direct choices/sequences/bounded attribute-free extensions expose local `xs:long`
 and supported named effective-long particles as query-only facts.
-Direct strict XSD 1.1 `xs:any` exposes explicit `notQName`.
+Compatibility/Strict11 direct strict `xs:any` exposes QName-only `notQName`; ValidateInstance/GenerateGo reject.
 
 ## CLI
 

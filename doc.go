@@ -181,8 +181,8 @@
 // strict, lax, or skip processing; Strict10 reports a located edition mismatch. Positive sets contain
 // included namespaces; negative sets contain excluded namespaces. Both retain sorted,
 // unique owner-relative values, normalized lexical forms, and exact attribute locations
-// in lexical order with element and reference terms. notQName,
-// explicit QName exclusions are supported on direct strict wildcards under
+// in lexical order with element and reference terms.
+// Explicit QName exclusions are supported on direct strict wildcards under
 // Compatibility and Strict11. Their normalized token order, in-scope bindings,
 // and sorted expanded names remain separate facts; special tokens, lax/skip
 // notQName forms, notNamespace combinations, wildcard algebra, and broader
