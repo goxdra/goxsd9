@@ -1,5 +1,5 @@
 // Package goxsd9 provides a supported vertical slice for parsing XML Schema
-// documents into immutable schema components and validating scalar XML
+// documents into immutable schema components and validating supported XML
 // instances.
 //
 // ParseSchema accepts a caller-created ResolvedSource and a Resolver. The
