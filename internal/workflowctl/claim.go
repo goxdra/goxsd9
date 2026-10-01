@@ -16,7 +16,7 @@ const (
 
 func (a app) runClaim(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl claim acquire ISSUE | resume ISSUE [flags] | renew | verify | prune ISSUE")
+		return usageError("usage: workflowctl claim acquire ISSUE | resume ISSUE [flags] | resume-state | release-archived ISSUE [flags] | renew | verify | prune ISSUE")
 	}
 	switch args[0] {
 	case "acquire":
@@ -30,6 +30,10 @@ func (a app) runClaim(args []string) error {
 		return a.acquireClaim(number)
 	case "resume":
 		return a.resumeClaimCommand(args[1:])
+	case "resume-state":
+		return a.resumeClaimStateCommand(args[1:])
+	case "release-archived":
+		return a.releaseArchivedClaimCommand(args[1:])
 	case "renew":
 		if len(args) != 1 {
 			return usageError("usage: workflowctl claim renew")

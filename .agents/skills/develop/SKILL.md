@@ -108,6 +108,7 @@ and under 50% effective root context before review are optimization signals, nev
 gates. Quality must not regress; require no sessions or telemetry.
 ## Failure behavior
 
-- No-PR recovery requires trusted evidence; never infer.
-- Preserve incomplete worktrees; never force-push claim or bypass checks. After
-  one bounded reselection, do not backlog-loop or widen scope.
+- Dirty no-PR: run `go tool workflowctl claim resume-state`; follow
+  `docs/operations.md`. Clean proof stays strict; never infer.
+- Preserve worktrees; never force-push/bypass checks. One bounded reselection;
+  no widening.

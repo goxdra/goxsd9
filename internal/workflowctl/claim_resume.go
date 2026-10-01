@@ -1,11 +1,18 @@
 package workflowctl
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"hash"
 	"io"
+	"os"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,6 +49,7 @@ type claimResumePreflight struct {
 	projectItemID    string
 	projectStatus    string
 	needsHuman       bool
+	localState       string
 }
 
 // claimResumeRenewalPlan is a closed set of proof states. A missing renewal
@@ -75,11 +83,6 @@ type claimResumeLocalRenewal struct {
 // claimResumeRenewalResult is the verified local and remote renewal result.
 type claimResumeRenewalResult struct {
 	head string
-}
-
-type claimResumeCommitMetadata struct {
-	lease time.Time
-	runID string
 }
 
 // canonicalClaimCommit is the immutable shape emitted by commit-tree for a
@@ -129,6 +132,30 @@ type claimResumeAgentRefs struct {
 
 type openPullRequestNumber struct {
 	Number int `json:"number"`
+}
+
+// resumeClaimStateCommand prints the read-only local state digest used by the
+// exact dirty handoff. The command routing lives with the claim CLI.
+func (a app) resumeClaimStateCommand(args []string) error {
+	if len(args) != 0 {
+		return usageError("usage: workflowctl claim resume-state")
+	}
+	root, branch, issue, err := a.currentClaim()
+	if err != nil {
+		return err
+	}
+	if !validRunID(strings.TrimPrefix(branch, claimBranch(issue)+"-")) || !strings.HasPrefix(branch, claimBranch(issue)+"-") {
+		return stateError("branch %q is not a run-local issue claim", branch)
+	}
+	state, err := a.claimResumeLocalState(root)
+	if err != nil {
+		return fmt.Errorf("read claim resume state: %w", err)
+	}
+	condition := "clean"
+	if state.dirty {
+		condition = "dirty"
+	}
+	return writeLine(a.stdout, "issue #%d branch %s local state %s SHA-256 %s", issue, branch, condition, state.digest)
 }
 
 func (a app) resumeClaimCommand(args []string) error {
@@ -216,18 +243,14 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 	if !validExactCommitSHA(remoteHead) {
 		return claimResumeProof{}, stateError("remote fixed claim branch %s has malformed head %q; preserve claim artifacts", fixedBranch, remoteHead)
 	}
-	metadata, err := a.readExactClaimResumeMetadata(root, expectedHead, issue, runID)
-	if err != nil {
-		return claimResumeProof{}, err
-	}
 	evidence, err := a.readClaimResumeEvidence(root, issue, handoffCommentID, claimLocalBranch(issue, runID), runID)
 	if err != nil {
 		return claimResumeProof{}, err
 	}
-	if evidence.claimLease != metadata.lease || evidence.claimCommentID < 1 {
-		return claimResumeProof{}, stateError("handoff comment %d is not bound to the exact expired claim lease; preserve evidence", handoffCommentID)
+	if chainErr := a.readClaimResumeMarkerChain(root, expectedHead, issue, runID, evidence.claimLease); chainErr != nil {
+		return claimResumeProof{}, chainErr
 	}
-	if bindingErr := validateClaimResumeHandoffBindings(evidence.handoffBody, issue, expectedHead, fixedBranch, localBranch, root, runID, metadata.lease); bindingErr != nil {
+	if bindingErr := validateClaimResumeHandoffBindings(evidence.handoffBody, issue, expectedHead, fixedBranch, localBranch, root, runID, evidence.claimLease); bindingErr != nil {
 		return claimResumeProof{}, stateError("handoff comment %d is not bound to the exact claim artifacts; preserve evidence: %w", handoffCommentID, bindingErr)
 	}
 	if prErr := a.validateNoOpenClaimResumePR(root, fixedBranch, issue); prErr != nil {
@@ -245,11 +268,21 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 	if worktreeErr := validateResumeWorktreeHeads(layout, root, localBranch, issue, localHead, protectedHeads); worktreeErr != nil {
 		return claimResumeProof{}, worktreeErr
 	}
-	statusOutput, err := a.command(root, "git", "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none")
+	localState, err := a.claimResumeLocalState(root)
 	if err != nil {
-		return claimResumeProof{}, fmt.Errorf("inspect claim worktree cleanliness: %w", err)
+		return claimResumeProof{}, fmt.Errorf("inspect claim worktree state: %w", err)
 	}
-	if strings.TrimSpace(statusOutput) != "" {
+	dirtyHandoff := strings.HasPrefix(evidence.handoffBody, dirtyClaimResumeTitlePrefix)
+	if dirtyHandoff {
+		handoff, parseErr := parseDirtyClaimResumeHandoff(evidence.handoffBody, issue)
+		if parseErr != nil {
+			return claimResumeProof{}, stateError("dirty claim handoff is malformed: %w", parseErr)
+		}
+		if !localState.dirty || handoff.localState != localState.digest {
+			return claimResumeProof{}, stateError("claim worktree local state does not match the preserved dirty handoff; no mutation performed")
+		}
+	}
+	if !dirtyHandoff && localState.dirty {
 		return claimResumeProof{}, stateError("claim worktree %s is dirty; preserve its staged, unstaged, and untracked changes", localBranch)
 	}
 	if refErr := a.validateClaimResumeRefs(root, inventory, issue, fixedBranch, localBranch, runID, expectedHead, localHead, remoteHead); refErr != nil {
@@ -283,8 +316,8 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 			expectedHead: expectedHead, localHead: localHead, remoteHead: remoteHead,
 			runID: runID, issue: issue, handoffCommentID: handoffCommentID,
 			claimCommentID: evidence.claimCommentID, handoffBody: evidence.handoffBody,
-			claimLease: metadata.lease, projectItemID: item.ID, projectStatus: item.Status,
-			needsHuman: needsHuman,
+			claimLease: evidence.claimLease, projectItemID: item.ID, projectStatus: item.Status,
+			needsHuman: needsHuman, localState: localState.digest,
 		},
 		renewal: renewal,
 	}, nil
@@ -309,15 +342,148 @@ func claimResumeFixedHead(inventory agentRefInventory, issue int, fixedBranch st
 	return head, nil
 }
 
-func (a app) readExactClaimResumeMetadata(root, head string, issue int, runID string) (claimResumeCommitMetadata, error) {
-	commit, err := a.readCanonicalClaimCommit(root, head, issue, runID, "")
+type claimResumeHistoryCommit struct {
+	head   string
+	object commitObject
+}
+
+// readClaimResumeMarkerChain binds the oldest same-run marker to the acquired
+// lease, then proves every commit between that marker and the current head.
+//
+//nolint:gocognit // The proof keeps the ordered marker and merge gates together.
+func (a app) readClaimResumeMarkerChain(root, head string, issue int, runID string, acquisitionLease time.Time) error {
+	history, err := a.readClaimResumeFirstParentHistory(root, head)
 	if err != nil {
-		return claimResumeCommitMetadata{}, err
+		return err
 	}
-	if commit.lease.After(time.Now().UTC()) {
-		return claimResumeCommitMetadata{}, stateError("claim #%d is active until %s; use claim renew", issue, commit.lease.Format(time.RFC3339))
+	if hiddenErr := a.validateNoHiddenClaimResumeMarker(root, head, history, runID); hiddenErr != nil {
+		return hiddenErr
 	}
-	return claimResumeCommitMetadata{lease: commit.lease, runID: commit.runID}, nil
+	anchor := claimResumeAcquisitionIndex(history, runID)
+	if anchor < 0 {
+		return stateError("claim head %s has no original marker for issue #%d run %s; preserve claim artifacts", head, issue, runID)
+	}
+	for index := 0; index <= anchor; index++ {
+		current := history[index]
+		if len(current.object.parents) != 1 {
+			return stateError("claim ancestry commit %s has %d parents; merge ancestry is ambiguous and artifacts are preserved", current.head, len(current.object.parents))
+		}
+		if index != 0 && !claimResumeMarkerCandidate(history, index) {
+			continue
+		}
+		marker, markerErr := a.readCanonicalClaimCommit(root, current.head, issue, runID, "")
+		if markerErr != nil {
+			return markerErr
+		}
+		if index == 0 && marker.lease.After(time.Now().UTC()) {
+			return stateError("claim #%d is active until %s; use claim renew", issue, marker.lease.Format(time.RFC3339))
+		}
+		if index == anchor && !marker.lease.Equal(acquisitionLease) {
+			return stateError("original claim marker %s lease %s does not match generated acquisition lease %s; preserve evidence", current.head, marker.lease.Format(time.RFC3339), acquisitionLease.Format(time.RFC3339))
+		}
+	}
+	return nil
+}
+
+func (a app) readClaimResumeFirstParentHistory(root, head string) ([]claimResumeHistoryCommit, error) {
+	history := make([]claimResumeHistoryCommit, 0, 4)
+	for current := head; current != ""; {
+		object, err := a.gitRaw(root, "cat-file", "commit", current)
+		if err != nil {
+			return nil, fmt.Errorf("read claim ancestry commit %s: %w", current, err)
+		}
+		parsed, err := parseCommitObject(object)
+		if err != nil {
+			return nil, stateError("claim ancestry commit %s is malformed; preserve claim artifacts: %w", current, err)
+		}
+		history = append(history, claimResumeHistoryCommit{head: current, object: parsed})
+		if len(parsed.parents) == 0 {
+			break
+		}
+		current = parsed.parents[0]
+	}
+	return history, nil
+}
+
+func (a app) validateNoHiddenClaimResumeMarker(root, head string, history []claimResumeHistoryCommit, runID string) error {
+	firstParents := make(map[string]bool, len(history))
+	for _, commit := range history {
+		firstParents[commit.head] = true
+	}
+	output, err := a.command(root, "git", "rev-list", head)
+	if err != nil {
+		return fmt.Errorf("inspect claim ancestry graph at %s: %w", head, err)
+	}
+	for _, candidate := range strings.Split(output, "\n") {
+		if candidate == "" || firstParents[candidate] {
+			continue
+		}
+		if !validExactCommitSHA(candidate) {
+			return stateError("claim ancestry graph has malformed head %q; preserve artifacts", candidate)
+		}
+		object, readErr := a.gitRaw(root, "cat-file", "commit", candidate)
+		if readErr != nil {
+			return fmt.Errorf("read claim ancestry side commit %s: %w", candidate, readErr)
+		}
+		parsed, parseErr := parseCommitObject(object)
+		if parseErr != nil {
+			return stateError("claim ancestry side commit %s is malformed; preserve artifacts: %w", candidate, parseErr)
+		}
+		if claimResumeMarkerRun(parsed.message) == runID {
+			return stateError("claim head %s has same-run marker %s outside first-parent ancestry; merge ancestry is ambiguous", head, candidate)
+		}
+	}
+	return nil
+}
+
+func claimResumeAcquisitionIndex(history []claimResumeHistoryCommit, runID string) int {
+	anchor := -1
+	for index := range history {
+		if !claimResumeMarkerCandidate(history, index) {
+			continue
+		}
+		if claimResumeMarkerRun(history[index].object.message) != runID {
+			continue
+		}
+		anchor = index
+	}
+	return anchor
+}
+
+func claimResumeMarkerCandidate(history []claimResumeHistoryCommit, index int) bool {
+	if claimResumeLooksLikeMarker(history[index].object.message) {
+		return true
+	}
+	if index+1 >= len(history) {
+		return false
+	}
+	return history[index].object.tree == history[index+1].object.tree
+}
+
+func claimResumeMarkerRun(message string) string {
+	for _, line := range strings.Split(message, "\n") {
+		if strings.HasPrefix(line, "Agent-Run-ID: ") {
+			return strings.TrimPrefix(line, "Agent-Run-ID: ")
+		}
+	}
+	return ""
+}
+
+func claimResumeLooksLikeMarker(message string) bool {
+	lines := strings.Split(message, "\n")
+	if len(lines) == 0 {
+		return false
+	}
+	if strings.HasPrefix(lines[0], "chore(workflow): claim issue #") {
+		return true
+	}
+	for _, line := range lines[1:] {
+		if strings.HasPrefix(line, "Agent-Persona: ") || strings.HasPrefix(line, "Agent-Run-ID: ") ||
+			strings.HasPrefix(line, "Agent-Lease-Until: ") || strings.HasPrefix(line, "Agent-Issue: ") {
+			return true
+		}
+	}
+	return false
 }
 
 // readCanonicalClaimCommit proves the exact bytes and graph shape of a claim
@@ -599,8 +765,385 @@ func exactBacktickField(line, prefix string) (string, error) {
 	return value, nil
 }
 
+const dirtyClaimResumeTitlePrefix = "# Dirty no-PR claim handoff: issue #"
+
+type dirtyClaimResumeHandoff struct {
+	runID       string
+	original    string
+	current     string
+	fixedBranch string
+	localBranch string
+	worktree    string
+	localState  string
+}
+
+// parseDirtyClaimResumeHandoff accepts one finite, authenticated form. The
+// current head is the head when the handoff was written; retry may see its
+// verified canonical renewal child.
+func parseDirtyClaimResumeHandoff(body string, issue int) (dirtyClaimResumeHandoff, error) {
+	lines := strings.Split(body, "\n")
+	if len(lines) != 11 || lines[0] != dirtyClaimResumeTitlePrefix+strconv.Itoa(issue) || lines[1] != "" ||
+		lines[9] != "No source commit or PR was published." || lines[10] != "" {
+		return dirtyClaimResumeHandoff{}, errors.New("body does not match the exact dirty no-PR handoff form")
+	}
+	fields := []string{"Run: ", "Original claim head: ", "Current claim head: ", "Fixed branch: ",
+		"Local branch: ", "Worktree: ", "Preserved state SHA-256: "}
+	values := make([]string, len(fields))
+	for index, field := range fields {
+		value, err := exactBacktickField(lines[index+2], field)
+		if err != nil {
+			return dirtyClaimResumeHandoff{}, fmt.Errorf("dirty handoff %s: %w", strings.TrimSpace(field), err)
+		}
+		values[index] = value
+	}
+	if !validRunID(values[0]) || !validExactCommitSHA(values[1]) || !validExactCommitSHA(values[2]) ||
+		!validSHA256Digest(values[6]) {
+		return dirtyClaimResumeHandoff{}, errors.New("dirty handoff has malformed run, head, or state digest")
+	}
+	return dirtyClaimResumeHandoff{runID: values[0], original: values[1], current: values[2],
+		fixedBranch: values[3], localBranch: values[4], worktree: values[5], localState: values[6]}, nil
+}
+
+func validSHA256Digest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, digit := range value {
+		if digit >= '0' && digit <= '9' || digit >= 'a' && digit <= 'f' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+type claimResumeLocalSnapshot struct {
+	digest string
+	dirty  bool
+}
+
+func (a app) verifyClaimResumeLocalState(proof claimResumeProof) error {
+	state, err := a.claimResumeLocalState(proof.preflight.root)
+	if err != nil {
+		return err
+	}
+	if state.digest != proof.preflight.localState {
+		return stateError("claim worktree local state changed during renewal; preserve its staged, unstaged, and untracked changes")
+	}
+	return nil
+}
+
+// claimResumeLocalState seals index identities and local bytes independently
+// of the claim commit. Git's index identity covers staged blobs, while the
+// path records cover all tracked files and nonignored untracked file contents
+// and types, even when Git's stat cache reports a tracked file as clean.
+//
+//nolint:gocognit,funlen // A single snapshot checks every Git and filesystem observation before return.
+func (a app) claimResumeLocalState(root string) (claimResumeLocalSnapshot, error) {
+	status, err := a.claimResumeReadOnlyStatus(root)
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("read claim worktree status: %w", err)
+	}
+	index, err := a.gitRaw(root, "ls-files", "--stage", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("read claim index: %w", err)
+	}
+	unmerged, err := a.gitRaw(root, "ls-files", "--unmerged", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("read claim unmerged index: %w", err)
+	}
+	if unmerged != "" {
+		return claimResumeLocalSnapshot{}, stateError("claim index contains unmerged entries; preserve local state")
+	}
+	flags, err := a.gitRaw(root, "ls-files", "-v", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("read claim index flags: %w", err)
+	}
+	if flags != "" && !strings.HasSuffix(flags, "\x00") {
+		return claimResumeLocalSnapshot{}, stateError("claim index flags listing is malformed; preserve local state")
+	}
+	for _, entry := range strings.Split(strings.TrimSuffix(flags, "\x00"), "\x00") {
+		if entry == "" {
+			continue
+		}
+		if len(entry) < 3 || entry[1] != ' ' {
+			return claimResumeLocalSnapshot{}, stateError("claim index flags entry is malformed; preserve local state")
+		}
+		if entry[0] == 'S' || entry[0] >= 'a' && entry[0] <= 'z' {
+			return claimResumeLocalSnapshot{}, stateError("claim index has skip-worktree or assume-unchanged entries; preserve local state")
+		}
+	}
+	trackedPaths, validateErr := validateClaimResumeIndex(index, status)
+	if validateErr != nil {
+		return claimResumeLocalSnapshot{}, validateErr
+	}
+	paths, err := a.gitRaw(root, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("list untracked claim paths: %w", err)
+	}
+	pathList, err := parseClaimResumePathList(strings.Join(trackedPaths, "\x00") + claimResumePathSeparator(trackedPaths) + paths)
+	if err != nil {
+		return claimResumeLocalSnapshot{}, err
+	}
+	h := sha256.New()
+	for _, record := range [][]byte{[]byte("goxsd9/dirty-claim-state/v1"), []byte(status), []byte(index), []byte(flags)} {
+		if recordErr := writeClaimResumeSnapshotRecord(h, record); recordErr != nil {
+			return claimResumeLocalSnapshot{}, recordErr
+		}
+	}
+	for _, path := range pathList {
+		if pathErr := hashClaimResumeLocalPath(h, root, path); pathErr != nil {
+			return claimResumeLocalSnapshot{}, pathErr
+		}
+	}
+	statusAfter, err := a.claimResumeReadOnlyStatus(root)
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("reread claim worktree status: %w", err)
+	}
+	indexAfter, err := a.gitRaw(root, "ls-files", "--stage", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("reread claim index: %w", err)
+	}
+	flagsAfter, err := a.gitRaw(root, "ls-files", "-v", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("reread claim index flags: %w", err)
+	}
+	pathsAfter, err := a.gitRaw(root, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("reread untracked claim paths: %w", err)
+	}
+	if statusAfter != status || indexAfter != index || flagsAfter != flags || pathsAfter != paths {
+		return claimResumeLocalSnapshot{}, stateError("claim local state changed while sealing its snapshot; preserve local changes")
+	}
+	return claimResumeLocalSnapshot{digest: hex.EncodeToString(h.Sum(nil)), dirty: status != ""}, nil
+}
+
+func (a app) claimResumeReadOnlyStatus(root string) (string, error) {
+	return a.gitRaw(root, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
+}
+
+func claimResumePathSeparator(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	return "\x00"
+}
+
+//nolint:gocognit // Index mode, stage, and gitlink checks share one ordered parse.
+func validateClaimResumeIndex(index, status string) ([]string, error) {
+	statusPaths, err := parseClaimResumeStatusPaths(status)
+	if err != nil {
+		return nil, err
+	}
+	if index == "" {
+		return nil, nil
+	}
+	if !strings.HasSuffix(index, "\x00") {
+		return nil, stateError("claim index listing is malformed; preserve local state")
+	}
+	paths := make([]string, 0)
+	for _, entry := range strings.Split(strings.TrimSuffix(index, "\x00"), "\x00") {
+		fields := strings.SplitN(entry, "\t", 2)
+		if len(fields) != 2 || fields[1] == "" {
+			return nil, stateError("claim index entry is malformed; preserve local state")
+		}
+		meta := strings.Fields(fields[0])
+		if len(meta) != 3 || !validExactCommitSHA(meta[1]) || meta[2] != "0" {
+			return nil, stateError("claim index entry has invalid mode, blob, or stage; preserve local state")
+		}
+		if meta[0] == "160000" {
+			if slices.Contains(statusPaths, fields[1]) {
+				return nil, stateError("claim has a modified submodule; preserve local state")
+			}
+			continue
+		}
+		if meta[0] != "100644" && meta[0] != "100755" && meta[0] != "120000" {
+			return nil, stateError("claim index entry has unsupported file mode %q; preserve local state", meta[0])
+		}
+		paths = append(paths, fields[1])
+	}
+	return paths, nil
+}
+
+func parseClaimResumeStatusPaths(status string) ([]string, error) {
+	if status == "" {
+		return nil, nil
+	}
+	if !strings.HasSuffix(status, "\x00") {
+		return nil, stateError("claim status listing is malformed; preserve local state")
+	}
+	records := strings.Split(strings.TrimSuffix(status, "\x00"), "\x00")
+	paths := make([]string, 0, len(records))
+	for index := 0; index < len(records); index++ {
+		record := records[index]
+		if len(record) < 4 || record[2] != ' ' || record[3:] == "" {
+			return nil, stateError("claim status entry is malformed; preserve local state")
+		}
+		paths = append(paths, record[3:])
+		if !strings.ContainsAny(record[:2], "RC") {
+			continue
+		}
+		index++
+		if index >= len(records) || records[index] == "" {
+			return nil, stateError("claim status rename/copy source is malformed; preserve local state")
+		}
+		paths = append(paths, records[index])
+	}
+	return paths, nil
+}
+
+func parseClaimResumePathList(output string) ([]string, error) {
+	if output == "" {
+		return nil, nil
+	}
+	if !strings.HasSuffix(output, "\x00") {
+		return nil, stateError("claim path listing is malformed; preserve local state")
+	}
+	paths := strings.Split(strings.TrimSuffix(output, "\x00"), "\x00")
+	sort.Strings(paths)
+	for index, path := range paths {
+		if path == "" || filepath.IsAbs(path) || filepath.Clean(path) != path || path == ".." || strings.HasPrefix(path, ".."+string(filepath.Separator)) {
+			return nil, stateError("claim path %q escapes the worktree; preserve local state", path)
+		}
+		if index > 0 && path == paths[index-1] {
+			return nil, stateError("claim path %q is duplicated; preserve local state", path)
+		}
+	}
+	return paths, nil
+}
+
+func writeClaimResumeSnapshotRecord(h hash.Hash, record []byte) error {
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(len(record)))
+	if _, err := h.Write(length[:]); err != nil {
+		return fmt.Errorf("hash claim record length: %w", err)
+	}
+	if _, err := h.Write(record); err != nil {
+		return fmt.Errorf("hash claim record: %w", err)
+	}
+	return nil
+}
+
+func writeClaimResumeSnapshotLength(h hash.Hash, size int64) error {
+	if size < 0 {
+		return stateError("claim file has a negative length; preserve local state")
+	}
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(size))
+	if _, err := h.Write(length[:]); err != nil {
+		return fmt.Errorf("hash claim file length: %w", err)
+	}
+	return nil
+}
+
+//nolint:gocognit,funlen // Every file type, read result, and race check is part of one path record.
+func hashClaimResumeLocalPath(h hash.Hash, root, path string) error {
+	if err := writeClaimResumeSnapshotRecord(h, []byte(path)); err != nil {
+		return err
+	}
+	worktreeRoot := root
+	for _, part := range strings.Split(filepath.Dir(path), string(filepath.Separator)) {
+		if part == "." {
+			continue
+		}
+		root = filepath.Join(root, part)
+		info, err := os.Lstat(root)
+		if errors.Is(err, os.ErrNotExist) {
+			return writeClaimResumeSnapshotRecord(h, []byte("missing"))
+		}
+		if err != nil {
+			return fmt.Errorf("inspect claim path parent %s: %w", root, err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return stateError("claim path parent %s is not a plain directory; preserve local state", root)
+		}
+	}
+	fullPath := filepath.Join(root, filepath.Base(path))
+	info, err := os.Lstat(fullPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return writeClaimResumeSnapshotRecord(h, []byte("missing"))
+	}
+	if err != nil {
+		return fmt.Errorf("inspect claim path %s: %w", fullPath, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, readErr := os.Readlink(fullPath)
+		if readErr != nil {
+			return fmt.Errorf("read claim symlink %s: %w", fullPath, readErr)
+		}
+		after, statErr := os.Lstat(fullPath)
+		if statErr != nil || !os.SameFile(info, after) || info.Mode() != after.Mode() || info.ModTime() != after.ModTime() {
+			return stateError("claim symlink %s changed while sealing snapshot; preserve local state", fullPath)
+		}
+		if recordErr := writeClaimResumeSnapshotRecord(h, []byte("symlink:"+info.Mode().String())); recordErr != nil {
+			return recordErr
+		}
+		return writeClaimResumeSnapshotRecord(h, []byte(target))
+	}
+	if !info.Mode().IsRegular() {
+		return stateError("claim path %s has unsupported file type; preserve local state", fullPath)
+	}
+	rooted, err := os.OpenRoot(worktreeRoot)
+	if err != nil {
+		return fmt.Errorf("open claim worktree root %s: %w", worktreeRoot, err)
+	}
+	file, openErr := rooted.Open(path)
+	rootCloseErr := rooted.Close()
+	if openErr != nil || rootCloseErr != nil {
+		if file != nil {
+			return errors.Join(openErr, rootCloseErr, file.Close())
+		}
+		return errors.Join(fmt.Errorf("open claim path %s: %w", fullPath, openErr), rootCloseErr)
+	}
+	opened, err := file.Stat()
+	if err != nil {
+		return errors.Join(fmt.Errorf("stat open claim path %s: %w", fullPath, err), file.Close())
+	}
+	if !os.SameFile(info, opened) {
+		return errors.Join(stateError("claim path %s changed while sealing snapshot; preserve local state", fullPath), file.Close())
+	}
+	if recordErr := writeClaimResumeSnapshotRecord(h, []byte("regular:"+info.Mode().String())); recordErr != nil {
+		return errors.Join(recordErr, file.Close())
+	}
+	if lengthErr := writeClaimResumeSnapshotLength(h, info.Size()); lengthErr != nil {
+		return errors.Join(lengthErr, file.Close())
+	}
+	count, readErr := io.CopyN(h, file, info.Size())
+	var extra [1]byte
+	extraCount, eofErr := file.Read(extra[:])
+	closeErr := file.Close()
+	if readErr != nil || count != info.Size() || extraCount != 0 || !errors.Is(eofErr, io.EOF) || closeErr != nil {
+		return errors.Join(stateError("claim path %s changed while sealing snapshot; preserve local state", fullPath), readErr, eofErr, closeErr)
+	}
+	after, err := os.Lstat(fullPath)
+	if err != nil || !os.SameFile(info, after) || info.Size() != after.Size() || info.Mode() != after.Mode() ||
+		!info.ModTime().Equal(after.ModTime()) {
+		return stateError("claim path %s changed while sealing snapshot; preserve local state", fullPath)
+	}
+	return nil
+}
+
 //nolint:gocognit,funlen // Each recorded handoff identity is checked before recovery.
 func validateClaimResumeHandoffBindings(body string, issue int, expectedHead, fixedBranch, localBranch, root, runID string, lease time.Time) error {
+	if strings.HasPrefix(body, dirtyClaimResumeTitlePrefix) {
+		handoff, err := parseDirtyClaimResumeHandoff(body, issue)
+		if err != nil {
+			return err
+		}
+		rootPath, err := absoluteCleanPath(root)
+		if err != nil {
+			return fmt.Errorf("resolve claim worktree root: %w", err)
+		}
+		worktree, err := absoluteCleanPath(handoff.worktree)
+		if err != nil || !samePath(worktree, rootPath) {
+			return fmt.Errorf("dirty handoff worktree %q does not match %q", handoff.worktree, rootPath)
+		}
+		if handoff.runID != runID || handoff.original != expectedHead || handoff.current != expectedHead ||
+			handoff.fixedBranch != fixedBranch || handoff.localBranch != localBranch {
+			return errors.New("dirty handoff claim, run, or branch identity does not match preserved claim")
+		}
+		return nil
+	}
 	if strings.HasPrefix(body, "# Handoff: issue #") {
 		handoff, err := parseIssue305TerminalHandoff(body, issue)
 		if err != nil {
@@ -941,6 +1484,9 @@ func parseHandoffHeadQuotedValue(remainder string) (string, handoffHeadBindingKi
 	if tail == "" {
 		return value, handoffHeadValid
 	}
+	if tail == ". Local and remote fixed heads match. The head is the generated empty claim renewal child of the generated acquisition commit." {
+		return value, handoffHeadValid
+	}
 	tailStart := strings.TrimLeftFunc(rawTail, unicode.IsSpace)
 	if strings.ContainsAny(tail, "`\"'") {
 		return "", handoffHeadAmbiguous
@@ -1176,6 +1722,10 @@ func validateTerminalClaimHandoffBody(body string, issue int) error {
 				return errors.New("body contains control bytes")
 			}
 		}
+	}
+	if strings.HasPrefix(body, dirtyClaimResumeTitlePrefix) {
+		_, err := parseDirtyClaimResumeHandoff(body, issue)
+		return err
 	}
 	lines := strings.Split(body, "\n")
 	if len(lines) < 2 {
@@ -1896,6 +2446,13 @@ func (a app) validateClaimResumeRefs(root string, remoteInventory agentRefInvent
 			continue
 		}
 		if ref.branch != localBranch || ref.sha != localHead {
+			archived, err := a.archivedRunLocalRef(root, remoteInventory, ref)
+			if err != nil {
+				return fmt.Errorf("prove archived local ref %s: %w", ref.branch, err)
+			}
+			if archived {
+				continue
+			}
 			return stateError("issue #%d has a moved or conflicting local run-local ref %s; preserve it before recovery", issue, ref.branch)
 		}
 		localRuns++
@@ -1953,7 +2510,8 @@ func sameClaimResumeProof(before, after claimResumeProof) error {
 		beforePreflight.handoffCommentID != afterPreflight.handoffCommentID || beforePreflight.claimCommentID != afterPreflight.claimCommentID ||
 		beforePreflight.handoffBody != afterPreflight.handoffBody || !beforePreflight.claimLease.Equal(afterPreflight.claimLease) ||
 		beforePreflight.projectItemID != afterPreflight.projectItemID || beforePreflight.projectStatus != afterPreflight.projectStatus ||
-		beforePreflight.needsHuman != afterPreflight.needsHuman || !sameClaimResumeRenewalPlan(before.renewal, after.renewal) {
+		beforePreflight.needsHuman != afterPreflight.needsHuman || beforePreflight.localState != afterPreflight.localState ||
+		!sameClaimResumeRenewalPlan(before.renewal, after.renewal) {
 		return stateError("bound issue, handoff, ref, claim, Project, or worktree proof no longer matches")
 	}
 	return nil
@@ -1998,9 +2556,15 @@ func (a app) applyClaimResume(proof claimResumeProof) error {
 	if err != nil {
 		return err
 	}
+	if stateErr := a.verifyClaimResumeLocalState(fresh); stateErr != nil {
+		return claimResumeProofFailure(fresh, "local state changed after renewal adoption; preserve claim artifacts", stateErr)
+	}
 	renewal, err := a.pushClaimResumeRenewal(fresh, localRenewal)
 	if err != nil {
 		return err
+	}
+	if stateErr := a.verifyClaimResumeLocalState(fresh); stateErr != nil {
+		return claimResumeProofFailure(fresh, "local state changed after renewal push; preserve claim artifacts", stateErr)
 	}
 	if err := a.verifyClaimResumeRenewal(fresh, renewal); err != nil {
 		verificationErr := retryableOperationIfRecoverable("claim resume renewal verification", err)
@@ -2120,12 +2684,8 @@ func (a app) verifyClaimResumeRenewal(proof claimResumeProof, renewal claimResum
 	if currentHead != renewal.head {
 		return stateError("renewed worktree head moved: expected %s, found %s; preserve artifacts", renewal.head, currentHead)
 	}
-	status, err := a.command(proof.preflight.root, "git", "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none")
-	if err != nil {
-		return fmt.Errorf("inspect renewed claim worktree: %w", err)
-	}
-	if strings.TrimSpace(status) != "" {
-		return stateError("claim worktree became dirty during renewal; preserve its changes")
+	if stateErr := a.verifyClaimResumeLocalState(proof); stateErr != nil {
+		return stateErr
 	}
 	if metadataErr := a.validateExistingResumeCommit(proof.preflight.root, renewal.head, proof.preflight.expectedHead, proof.preflight.issue, proof.preflight.runID); metadataErr != nil {
 		return metadataErr
@@ -2189,6 +2749,9 @@ func (state claimResumeReconciliationState) afterLabel() claimResumeReconciliati
 // no-open-PR condition, and canonical Project identity/status together.
 func (a app) readClaimResumeReconciliationTarget(state claimResumeReconciliationState) (claimResumeReconciliationTarget, error) {
 	proof := state.proof
+	if stateErr := a.verifyClaimResumeLocalState(proof); stateErr != nil {
+		return claimResumeReconciliationTarget{}, stateErr
+	}
 	status, err := a.readIssueStatus(proof.preflight.root, proof.preflight.issue)
 	if err != nil {
 		return claimResumeReconciliationTarget{}, claimResumeRetry(proof, "issue state read", err)
@@ -2266,7 +2829,7 @@ func (a app) reconcileClaimResumeIssue(proof claimResumeProof, renewal claimResu
 				readErr = stateError("issue #%d still has needs-human; Project status will not be changed", proof.preflight.issue)
 			}
 			if readErr == nil {
-				readErr = stateError("issue #%d Project Picked response was not verified; preserve renewed artifacts", proof.preflight.issue)
+				return claimResumeRetry(proof, "Project Picked", fmt.Errorf("%w; Project remains %s", err, latest.item.Status))
 			}
 		}
 		return claimResumeMutationFailure(proof, "Project Picked", err, readErr)
