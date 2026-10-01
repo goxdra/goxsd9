@@ -521,6 +521,15 @@ func (declaration AttributeDeclaration) TypeReference() (SimpleTypeReference, bo
 	return SimpleTypeReference{facts: &declaration.facts.typeReference}, true
 }
 
+// InlineSimpleType returns the anonymous simple type owned by the attribute.
+func (declaration AttributeDeclaration) InlineSimpleType() (SimpleTypeDefinition, bool) {
+	reference, ok := declaration.TypeReference()
+	if !ok {
+		return SimpleTypeDefinition{}, false
+	}
+	return reference.AnonymousType()
+}
+
 // TypeID returns the identity of a named declared type. Built-in datatypes do
 // not have synthetic component identities and return the zero ID.
 func (declaration AttributeDeclaration) TypeID() (ComponentID, bool) {
@@ -837,7 +846,7 @@ func (definition SimpleTypeDefinition) VarietyLoc() Loc {
 // Final returns the effective non-empty final derivation controls in
 // specification order. The returned slice is independent of the schema.
 func (definition SimpleTypeDefinition) Final() []string {
-	if definition.facts == nil || definition.facts.anonymous {
+	if definition.facts == nil {
 		return nil
 	}
 	return definition.facts.final.set.values()
@@ -846,7 +855,7 @@ func (definition SimpleTypeDefinition) Final() []string {
 // FinalLoc returns the location of the effective final declaration or
 // document default.
 func (definition SimpleTypeDefinition) FinalLoc() Loc {
-	if definition.facts == nil || definition.facts.anonymous {
+	if definition.facts == nil {
 		return Loc{}
 	}
 	return definition.facts.final.loc
@@ -2558,10 +2567,11 @@ type schemaElementSubstitutionGroupInput struct {
 }
 
 type schemaAttributeInput struct {
-	declaredType    QName
-	typeLoc         Loc
-	inheritable     bool
-	valueConstraint *schemaAttributeValueConstraintInput
+	declaredType     QName
+	typeLoc          Loc
+	inlineSimpleType *schemaSimpleTypeInput
+	inheritable      bool
+	valueConstraint  *schemaAttributeValueConstraintInput
 }
 
 type schemaNotationInput struct {
@@ -4005,10 +4015,11 @@ func cloneSchemaAttributeInput(input *schemaAttributeInput) *schemaAttributeInpu
 		return nil
 	}
 	return &schemaAttributeInput{
-		declaredType:    input.declaredType,
-		typeLoc:         input.typeLoc,
-		inheritable:     input.inheritable,
-		valueConstraint: cloneSchemaAttributeValueConstraintInput(input.valueConstraint),
+		declaredType:     input.declaredType,
+		typeLoc:          input.typeLoc,
+		inlineSimpleType: cloneSchemaSimpleTypeInput(input.inlineSimpleType),
+		inheritable:      input.inheritable,
+		valueConstraint:  cloneSchemaAttributeValueConstraintInput(input.valueConstraint),
 	}
 }
 
@@ -4108,6 +4119,11 @@ func allocateSchemaSimpleTypeNodeIDsForRecord(
 	}
 	if record.element != nil && record.element.inlineSimpleType != nil {
 		if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
+			return err
+		}
+	}
+	if record.attribute != nil && record.attribute.inlineSimpleType != nil {
+		if err := allocateSchemaSimpleTypeNodeID(record.attribute.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
 			return err
 		}
 	}

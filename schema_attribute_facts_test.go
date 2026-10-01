@@ -312,10 +312,6 @@ func TestSchemaBridgeGlobalAttributeInheritableExcludedShapesRemainUnsupported(t
 			name: "generic",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" inheritable="true"/></xs:schema>`,
 		},
-		{
-			name: "inline anonymous type",
-			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" inheritable="true"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:attribute></xs:schema>`,
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1268,15 +1264,6 @@ func testSchemaBridgeGlobalAttributeExcludedShapes(t *testing.T) {
 			class:       FailureUnsupported,
 			code:        UnsupportedSchemaSyntaxCode,
 			primary:     "fixed=",
-			wantFeature: FeatureSchemaSyntax,
-		},
-		{
-			name:        "inline type",
-			policy:      Strict11,
-			root:        `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:attribute></xs:schema>`,
-			class:       FailureUnsupported,
-			code:        UnsupportedSchemaSyntaxCode,
-			primary:     "<xs:simpleType>",
 			wantFeature: FeatureSchemaSyntax,
 		},
 		{

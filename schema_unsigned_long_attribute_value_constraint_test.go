@@ -252,7 +252,7 @@ func TestUnsignedLongAttributeConstraintExcludedShapes(t *testing.T) {
 			{"local direct", `<xs:complexType name="T"><xs:attribute name="a" type="xs:unsignedLong" default="1"/></xs:complexType>`, `default="1"`},
 			{"local named", `<xs:simpleType name="L"><xs:restriction base="xs:unsignedLong"/></xs:simpleType><xs:complexType name="T"><xs:attribute name="a" type="r:L" fixed="1"/></xs:complexType>`, `fixed="1"`},
 			{"local inline", `<xs:complexType name="T"><xs:attribute name="a" default="1"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:attribute></xs:complexType>`, `default="1"`},
-			{"global inline", `<xs:attribute name="a" fixed="1"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:attribute>`, "<xs:simpleType>"},
+			{"global inline", `<xs:attribute name="a" fixed="1"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:attribute>`, `fixed="1"`},
 			{"element direct", `<xs:element name="e" type="xs:unsignedLong" default="1"/>`, `default="1"`},
 			{"element named", `<xs:element name="e" type="r:L" fixed="1"/><xs:simpleType name="L"><xs:restriction base="xs:unsignedLong"/></xs:simpleType>`, `fixed="1"`},
 			{"element inline", `<xs:element name="e" default="1"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:element>`, `default="1"`},

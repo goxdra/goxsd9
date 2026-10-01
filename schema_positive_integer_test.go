@@ -667,10 +667,10 @@ func TestSchemaPositiveIntegerExcludedSchemaShapes(t *testing.T) {
 			{name: "local inline", body: `<xs:complexType name="Root"><xs:sequence><xs:element name="item"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:element></xs:sequence></xs:complexType>`, marker: `<xs:simpleType>`},
 			{name: "global attribute direct", specKind: "attribute", body: `<xs:attribute name="item" type="xs:positiveInteger"/>`, marker: `type="xs:positiveInteger"`},
 			{name: "global attribute named", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias"/>`, marker: `type="t:Alias"`},
-			{name: "global attribute inline", specKind: "inline", body: `<xs:attribute name="item"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, marker: `<xs:simpleType>`},
+			{name: "global attribute inline", specKind: "attribute", body: `<xs:attribute name="item"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, marker: `<xs:simpleType>`},
 			{name: "attribute value direct", specKind: "attribute", body: `<xs:attribute name="item" type="xs:positiveInteger" default="1"/>`, marker: `type="xs:positiveInteger"`},
 			{name: "attribute value named", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias" fixed="1"/>`, marker: `type="t:Alias"`},
-			{name: "attribute value inline", specKind: "inline", body: `<xs:attribute name="item" default="1"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, marker: `<xs:simpleType>`},
+			{name: "attribute value inline", specKind: "value", body: `<xs:attribute name="item" default="1"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, marker: `default="1"`},
 			{name: "local attribute direct", specKind: "attribute", body: `<xs:complexType name="Root"><xs:attribute name="item" type="xs:positiveInteger"/></xs:complexType>`, marker: `type="xs:positiveInteger"`},
 			{name: "local attribute named", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:complexType name="Root"><xs:attribute name="item" type="t:Alias"/></xs:complexType>`, marker: `type="t:Alias"`},
 			{name: "local attribute inline", specKind: "attribute", body: `<xs:complexType name="Root"><xs:attribute name="item"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute></xs:complexType>`, marker: `<xs:simpleType>`},
@@ -694,8 +694,8 @@ func TestSchemaPositiveIntegerExcludedSchemaShapes(t *testing.T) {
 				switch test.specKind {
 				case "attribute":
 					wantSpec = schemaAttributeTypeSpecRef(profile.version)
-				case "inline":
-					wantSpec = "xsd10-structures#schema-document"
+				case "value":
+					wantSpec = schemaAttributeValueConstraintSpecRef(profile.version)
 				case "simpleContent":
 					wantSpec = schemaSimpleContentSpecRef(profile.version)
 				}
