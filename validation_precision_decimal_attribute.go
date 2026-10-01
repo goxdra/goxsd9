@@ -66,11 +66,11 @@ type instanceAttributeSequenceProgram struct {
 	children    []instanceAttributeChildPlan
 }
 
-// The on-demand plan selects only sequences whose children contain local
-// precisionDecimal uses. Other sequence consumers retain their existing gates.
+// The on-demand plan selects sequences whose children have local precisionDecimal
+// uses or precisionDecimal simpleContent. Other sequence consumers keep their gates.
 //
 //nolint:gocognit // Selection keeps ordered schema shape and consumer gates together.
-func instanceAttributeSequenceProgramFor(schema Schema, declaration ElementDeclaration) (instanceAttributeSequenceProgram, bool, error) {
+func instanceAttributeSequenceProgramFor(schema Schema, declaration ElementDeclaration, loc Loc) (instanceAttributeSequenceProgram, bool, error) {
 	definition, ok := declaration.InlineComplexType()
 	if !ok {
 		id, hasID := declaration.TypeID()
@@ -111,6 +111,9 @@ func instanceAttributeSequenceProgramFor(schema Schema, declaration ElementDecla
 	if !selected {
 		return instanceAttributeSequenceProgram{}, false, nil
 	}
+	if err := rejectUnsupportedAttributeSequenceRoot(definition, declaration, sequence, loc, program.version); err != nil {
+		return program, true, err
+	}
 	for _, child := range program.children {
 		if len(child.leaf.uses) == 0 && !instanceAttributeContentIsPrecision(child.leaf) {
 			return program, true, newInstanceValidationUnsupported(child.leaf.loc, "mixed attribute sequence is outside instance validation", []Loc{declaration.Loc(), definition.Loc()}, program.version, errInstanceSequenceParticle)
@@ -120,6 +123,37 @@ func instanceAttributeSequenceProgramFor(schema Schema, declaration ElementDecla
 		return program, true, newInstanceValidationUnsupported(sequence.Loc(), "outer attribute sequence occurrences are outside instance validation", []Loc{declaration.Loc(), definition.Loc()}, program.version, errInstanceSequenceParticle)
 	}
 	return program, true, nil
+}
+
+func rejectUnsupportedAttributeSequenceRoot(definition ComplexTypeDefinition, declaration ElementDeclaration, sequence SequenceParticle, loc Loc, version XSDVersion) error {
+	related := []Loc{declaration.Loc(), definition.Loc(), sequence.Loc()}
+	if body := definition.extensionBody(); body != nil {
+		related = appendInstanceRelated(related, body.complexContentLoc)
+		related = appendInstanceRelated(related, body.extensionLoc)
+		related = appendInstanceRelated(related, body.base.loc)
+		return newInstanceValidationUnsupported(loc, "attribute sequence complex-content extension is outside instance validation", related, version, errInstanceComplexContentExtension)
+	}
+	if definition.facts == nil {
+		return newInstanceValidationInternal(loc, "attribute sequence has incomplete complex type facts", related, errInstanceValidationInvariant)
+	}
+	if _, direct := definition.facts.body.(*schemaComplexTypeDirectBodyComponent); !direct {
+		return newInstanceValidationUnsupported(loc, "attribute sequence complex type body is outside instance validation", related, version, errInstanceSequenceParticle)
+	}
+	uses := definition.AttributeUses()
+	if len(uses) > 0 {
+		for _, use := range uses {
+			related = appendInstanceRelated(related, use.Loc())
+		}
+		return newInstanceValidationUnsupported(uses[0].Loc(), "root attribute uses are outside attribute sequence validation", related, version, errInstanceAttributes)
+	}
+	if wildcard, ok := definition.AnyAttribute(); ok {
+		related = appendInstanceRelated(related, wildcard.Loc())
+		return newInstanceValidationUnsupported(loc, "root attribute wildcard is outside attribute sequence validation", related, version, errInstanceAttributes)
+	}
+	if definition.IsAbstract() {
+		return newInstanceAbstractComplexTypeUnsupported(definition, loc, related, version)
+	}
+	return nil
 }
 
 //nolint:gocognit // Both local and referenced target identities resolve in one phase.
@@ -324,15 +358,15 @@ func validateAttributeSequenceInstance(root *instanceElement, program instanceAt
 	for _, planned := range program.children {
 		count := 0
 		for index < len(children) && instanceNameMatches(children[index].name, planned.leaf.name) {
+			if maximum, finite := planned.occurrences.Maximum().Finite(); finite && integerFromCount(count).Compare(maximum) >= 0 {
+				break
+			}
 			matched = append(matched, struct {
 				child *instanceElement
 				leaf  instanceAttributeLeafPlan
 			}{children[index], planned.leaf})
 			index++
 			count++
-			if maximum, finite := planned.occurrences.Maximum().Finite(); finite && integerFromCount(count).Compare(maximum) > 0 {
-				return newInstanceValidationInvalid(InvalidInstanceSequenceCode, children[index-1].loc, "too many sequence children", appendInstanceRelated(relCopy(related), planned.leaf.loc), instanceValidationSpecRef(program.version), errInstanceAttributeSequence)
-			}
 		}
 		if integerFromCount(count).Compare(planned.occurrences.Minimum()) < 0 {
 			return newInstanceValidationInvalid(InvalidInstanceSequenceCode, root.loc, "missing required sequence child", appendInstanceRelated(relCopy(related), planned.leaf.loc), instanceValidationSpecRef(program.version), errInstanceAttributeSequence)

@@ -96,7 +96,7 @@
 // bases work under every policy, while precisionDecimal requires Compatibility
 // or Strict11. Unsupported bases or attribute forms fail schema construction;
 // bounded attribute sequences validate named targets with selected local
-// precisionDecimal uses and empty or supported simpleContent; a string
+// precisionDecimal uses or precisionDecimal simpleContent without uses; a string
 // simpleContent base must be built-in. Generation rejects them. The model
 // exposes local inline anonymous atomic
 // Boolean, integer, decimal, and
@@ -263,7 +263,7 @@
 // value/default/fixed/inheritable semantics and attributeGroup expansion remain
 // unsupported. Validation supports local precisionDecimal uses on bounded
 // direct empty-content roots and sequences of global inline or named local
-// attribute-bearing targets. SimpleContent text uses built-in string only
+// targets. SimpleContent text uses built-in string only
 // with selected local precisionDecimal uses, or built-in/named effective
 // precisionDecimal. Named effective string remains excluded. Generation rejects these forms.
 // Element-reference matrix: element-reference particles in local content and
@@ -272,8 +272,8 @@
 // Both consumers admit supported non-extension default-occurrence direct-choice
 // references to unconstrained built-in or named global Boolean/integer/decimal
 // targets. ValidateInstance also admits bounded direct-sequence references to
-// global inline or named attribute-bearing complex targets with local
-// precisionDecimal uses; GenerateGo rejects those sequences. Constrained
+// global inline or named complex targets with local precisionDecimal uses
+// or precisionDecimal simpleContent without uses; GenerateGo rejects those sequences. Constrained
 // targets remain queryable: validation rejects at the instance use Loc with
 // the first constraint Loc related; generation returns nil output.
 // References to global `nonNegativeInteger` remain queryable without target-type

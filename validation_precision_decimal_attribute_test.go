@@ -285,3 +285,137 @@ func TestPrecisionDecimalAttributeSequenceRejectsNondefaultOuterOccurrences(t *t
 		})
 	}
 }
+
+//nolint:gocognit // Assert every enclosing type gate and its public diagnostic together.
+func TestPrecisionDecimalAttributeSequenceKeepsRootComplexTypeGates(t *testing.T) {
+	cases := []struct {
+		name, typeStart, body, input, cause, spec string
+	}{
+		{"missing root use", `<xs:complexType name="R">`, `<xs:sequence><xs:element ref="e"/></xs:sequence><xs:attribute name="required" type="xs:precisionDecimal" use="required"/>`, `<r><e v="1"/></r>`, "attributes are outside", "xsd11-structures#cvc-elt"},
+		{"present root use", `<xs:complexType name="R">`, `<xs:sequence><xs:element ref="e"/></xs:sequence><xs:attribute name="required" type="xs:precisionDecimal" use="required"/>`, `<r required="1"><e v="1"/></r>`, "attributes are outside", "xsd11-structures#cvc-elt"},
+		{"abstract", `<xs:complexType name="R" abstract="true">`, `<xs:sequence><xs:element ref="e"/></xs:sequence>`, `<r><e v="1"/></r>`, "abstract complex type", "xsd11-structures#sec-cvc-type"},
+		{"extension", `<xs:complexType name="R">`, `<xs:complexContent><xs:extension base="Base"><xs:sequence><xs:element ref="e"/></xs:sequence></xs:extension></xs:complexContent>`, `<r><e v="1"/></r>`, "complex-content extension", "xsd11-structures#cvc-elt"},
+		{"wildcard", `<xs:complexType name="R">`, `<xs:sequence><xs:element ref="e"/></xs:sequence><xs:anyAttribute namespace="##any" processContents="strict"/>`, `<r><e v="1"/></r>`, "attributes are outside", "xsd11-structures#cvc-elt"},
+	}
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+		for _, tc := range cases {
+			t.Run(string(policy)+"/"+tc.name, func(t *testing.T) {
+				source := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" version="1.1"><xs:complexType name="Base"/>` + tc.typeStart + tc.body + `</xs:complexType><xs:element name="r" type="R"/><xs:complexType name="E"><xs:sequence/><xs:attribute name="v" type="xs:precisionDecimal" use="required"/></xs:complexType><xs:element name="e" type="E"/></xs:schema>`
+				schema := validationTestSchemaWithPolicy(t, source, nil, policy)
+				root := precisionAttributeTestElement(t, schema, "r")
+				id, hasID := root.TypeID()
+				if !hasID {
+					t.Fatal("root type ID missing")
+				}
+				component, found := schema.Lookup(id)
+				if !found {
+					t.Fatal("root type missing")
+				}
+				definition, found := component.ComplexTypeDefinition()
+				if !found {
+					t.Fatal("root complex type missing")
+				}
+				sequence, found := definition.Particle().(goxsd9.SequenceParticle)
+				if !found || len(sequence.Particles()) != 1 {
+					t.Fatalf("root sequence = %T", definition.Particle())
+				}
+				wantLoc := precisionAttributeInstanceLoc(t, tc.input, `<r`)
+				var extraRelated goxsd9.Loc
+				switch tc.name {
+				case "missing root use", "present root use":
+					uses := definition.AttributeUses()
+					if len(uses) != 1 {
+						t.Fatalf("root uses = %d", len(uses))
+					}
+					wantLoc, extraRelated = uses[0].Loc(), uses[0].Loc()
+				case "wildcard":
+					wildcard, ok := definition.AnyAttribute()
+					if !ok {
+						t.Fatal("root wildcard missing")
+					}
+					extraRelated = wildcard.Loc()
+				case "extension":
+					extraRelated = definition.Loc()
+				}
+				err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(tc.input)))
+				d := validationTestDiagnostic(t, err)
+				if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != wantLoc || d.SpecRef() != tc.spec || !validationTestHasRelated(d.Related(), root.Loc()) || !validationTestHasRelated(d.Related(), definition.Loc()) || !validationTestHasRelated(d.Related(), sequence.Loc()) || d.Unwrap() == nil || !strings.Contains(d.Unwrap().Error(), tc.cause) || !errors.Is(err, goxsd9.ErrUnsupported) {
+					t.Fatalf("root gate diagnostic = %s related=%v", d, d.Related())
+				}
+				if !extraRelated.IsZero() && !validationTestHasRelated(d.Related(), extraRelated) {
+					t.Fatalf("missing related root fact %v: %v", extraRelated, d.Related())
+				}
+				output, err := goxsd9.GenerateGo(schema, "excluded")
+				generated := validationTestDiagnostic(t, err)
+				if output != nil || generated.Class() != goxsd9.FailureUnsupported || generated.Code() != "GOXSD9029" {
+					t.Fatalf("GenerateGo = %d bytes, %s", len(output), generated)
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Cover the adjacent-particle structural outcomes under both supported policies.
+func TestPrecisionDecimalAttributeSequenceAdjacentSameNameParticles(t *testing.T) {
+	const source = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" version="1.1"><xs:element name="r"><xs:complexType><xs:sequence><xs:element ref="e" maxOccurs="1"/><xs:element ref="e" maxOccurs="1"/></xs:sequence></xs:complexType></xs:element><xs:complexType name="E"><xs:sequence/><xs:attribute name="v" type="xs:precisionDecimal" use="required"/></xs:complexType><xs:element name="e" type="E"/></xs:schema>`
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema := validationTestSchemaWithPolicy(t, source, nil, policy)
+			root := precisionAttributeTestElement(t, schema, "r")
+			definition, ok := root.InlineComplexType()
+			if !ok {
+				t.Fatal("inline root complex type missing")
+			}
+			sequence, ok := definition.Particle().(goxsd9.SequenceParticle)
+			if !ok || len(sequence.Particles()) != 2 {
+				t.Fatalf("sequence = %T", definition.Particle())
+			}
+			for _, input := range []string{`<r><e v="1"/><e v="2"/></r>`} {
+				if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+					t.Fatalf("valid adjacent particles: %v", err)
+				}
+			}
+			for _, tc := range []struct {
+				input, primary string
+				related        goxsd9.Loc
+			}{
+				{`<r><e v="1"/></r>`, `<r`, sequence.Particles()[1].Loc()},
+				{`<r><e v="1e+"/></r>`, `<r`, sequence.Particles()[1].Loc()},
+				{`<r><e v="1"/><e v="2"/><e v="3"/></r>`, `<e v="3"`, sequence.Loc()},
+			} {
+				err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(tc.input)))
+				d := validationTestDiagnostic(t, err)
+				if d.Class() != goxsd9.FailureInvalid || d.Code() != goxsd9.InvalidInstanceSequenceCode || d.Loc() != precisionAttributeInstanceLoc(t, tc.input, tc.primary) || d.SpecRef() != "xsd11-structures#cvc-elt" || !validationTestHasRelated(d.Related(), tc.related) || d.Unwrap() == nil || !strings.Contains(d.Unwrap().Error(), "invalid attribute-bearing sequence") {
+					t.Fatalf("invalid adjacent particles = %s related=%v", d, d.Related())
+				}
+			}
+		})
+	}
+}
+
+func TestPrecisionDecimalAttributeSequenceSimpleContentWithoutUses(t *testing.T) {
+	const source = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" version="1.1"><xs:element name="r"><xs:complexType><xs:sequence><xs:element ref="e"/></xs:sequence></xs:complexType></xs:element><xs:complexType name="E"><xs:simpleContent><xs:extension base="xs:precisionDecimal"/></xs:simpleContent></xs:complexType><xs:element name="e" type="E"/></xs:schema>`
+	schema := validationTestSchemaWithPolicy(t, source, nil, goxsd9.Strict11)
+	e := precisionAttributeTestElement(t, schema, "e")
+	id, hasID := e.TypeID()
+	if !hasID {
+		t.Fatal("simpleContent type ID missing")
+	}
+	component, found := schema.Lookup(id)
+	if !found {
+		t.Fatal("simpleContent type missing")
+	}
+	definition, found := component.ComplexTypeDefinition()
+	if !found || len(definition.AttributeUses()) != 0 {
+		t.Fatalf("simpleContent uses = %d", len(definition.AttributeUses()))
+	}
+	if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<r><e>1.20e2</e></r>`))); err != nil {
+		t.Fatalf("precisionDecimal simpleContent without uses: %v", err)
+	}
+	input := `<r><e>1e+</e></r>`
+	err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+	d := validationTestDiagnostic(t, err)
+	if d.Class() != goxsd9.FailureInvalid || d.Code() != "XSD2010" || d.Loc() != precisionAttributeInstanceLoc(t, input, `1e+</`) || d.SpecRef() != "xsd-precisionDecimal#f-precDecLexmap" || !validationTestHasRelated(d.Related(), definition.Loc()) {
+		t.Fatalf("simpleContent lexical diagnostic = %s related=%v", d, d.Related())
+	}
+}

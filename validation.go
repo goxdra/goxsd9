@@ -316,7 +316,7 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 		}
 		return validateAttributeLeafValues(root, leaf, instanceSchemaValidationVersion(schema))
 	}
-	if program, selected, planErr := instanceAttributeSequenceProgramFor(schema, declaration); selected {
+	if program, selected, planErr := instanceAttributeSequenceProgramFor(schema, declaration, root.loc); selected {
 		if planErr != nil {
 			return planErr
 		}
