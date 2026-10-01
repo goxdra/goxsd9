@@ -85,12 +85,12 @@ references retain QName/RefLoc/TargetID/use. Forms select names; XSD 1.1
 Local values/inheritable, attributeGroup/broader extensions, and consumers are
 unsupported; refs located; no schema.
 Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/language/NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` is policy-gated.
-Inline global restriction/list/union retains anonymous IDs, ordered item/member refs, `Loc`s, `finalDefault`, facets.
-`language`/`NCName`/`anyURI`/`ID` remain identity-only.
-Default/fixed supports built-in/named Boolean/integer/decimal/token/negativeInteger/
+Inline global restriction/list/union: supported atomics/members (`string` nested only); anonymous IDs, ordered refs, `Loc`s, facets, `finalDefault`.
+`language`/`NCName`/`anyURI`/`ID` identity-only; inline `precisionDecimal` policy-gated.
+Default/fixed: built-in/named Boolean/integer/decimal/token/negativeInteger/
 long/int/short/unsignedLong and policy-gated `precisionDecimal`; integer values/facets
-are exact. UnsignedLong lexical accepts digits only in XSD 1.0, signed/-0 in XSD 1.1.
-Unsupported types/local uses/inline global values have located diagnostics; invalid values retain causes/related `Loc`s; consumers reject.
+are exact. UnsignedLong lexical: digits-only XSD 1.0, signed/-0 XSD 1.1.
+Excluded types/inline values/local list/union refs: located diagnostics/no schema; invalid values retain causes/related `Loc`s; consumers reject.
 
 Complexes retain non-inherited `IsAbstract`, `finalDefault` provenance, ordered groups/extensions,
 and wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip
