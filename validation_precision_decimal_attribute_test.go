@@ -419,3 +419,73 @@ func TestPrecisionDecimalAttributeSequenceSimpleContentWithoutUses(t *testing.T)
 		t.Fatalf("simpleContent lexical diagnostic = %s related=%v", d, d.Related())
 	}
 }
+
+//nolint:gocognit // Assert policy and root/ref shapes with structural precedence.
+func TestPrecisionDecimalEmptyContentRejectsWhitespaceBeforeAttributeValues(t *testing.T) {
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema := validationTestSchemaWithPolicy(t, attributePrecisionSchema, nil, policy)
+			for _, input := range []string{
+				`<direct value="1"/>`,
+				`<named value="1"/>`,
+				`<inline value="1"/>`,
+				`<refRoot><leaf value="1"/></refRoot>`,
+			} {
+				if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+					t.Errorf("self-closing empty content %q: %v", input, err)
+				}
+			}
+			for _, tc := range []struct{ input, marker, relatedElement string }{
+				{`<direct value="1e+"> </direct>`, ` </direct>`, "direct"},
+				{`<named value="1e+">	</named>`, "\t</named>", "named"},
+				{`<inline value="1e+"> </inline>`, ` </inline>`, "inline"},
+				{`<refRoot><leaf value="1e+"> </leaf></refRoot>`, ` </leaf>`, "leaf"},
+			} {
+				t.Run(tc.relatedElement, func(t *testing.T) {
+					err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(tc.input)))
+					d := validationTestDiagnostic(t, err)
+					declaration := precisionAttributeTestElement(t, schema, tc.relatedElement)
+					if d.Class() != goxsd9.FailureInvalid || d.Code() != goxsd9.InvalidInstanceAttributeCode || d.Loc() != precisionAttributeInstanceLoc(t, tc.input, tc.marker) || d.SpecRef() != "xsd11-structures#cvc-attribute" || !validationTestHasRelated(d.Related(), declaration.Loc()) || d.Unwrap() == nil || !strings.Contains(d.Unwrap().Error(), "invalid attribute-bearing element content") {
+						t.Fatalf("empty-content diagnostic = %s related=%v", d, d.Related())
+					}
+				})
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Compare XML whitespace and Unicode-only spaces with located diagnostics.
+func TestPrecisionDecimalAttributeSequenceUsesXMLWhitespace(t *testing.T) {
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+		t.Run(string(policy), func(t *testing.T) {
+			schema := validationTestSchemaWithPolicy(t, attributePrecisionSchema, nil, policy)
+			root := precisionAttributeTestElement(t, schema, "refRoot")
+			definition, ok := root.InlineComplexType()
+			if !ok {
+				t.Fatal("sequence root type missing")
+			}
+			sequence, ok := definition.Particle().(goxsd9.SequenceParticle)
+			if !ok {
+				t.Fatalf("sequence root particle = %T", definition.Particle())
+			}
+			for _, input := range []string{
+				"<refRoot> \t\r\n<leaf value=\"1\"/> \t\r\n</refRoot>",
+				`<refRoot>&#x20;&#x9;&#xA;<leaf value="1"/></refRoot>`,
+			} {
+				if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+					t.Errorf("XML whitespace %q: %v", input, err)
+				}
+			}
+			for _, tc := range []struct{ input, marker string }{
+				{`<refRoot>&#160;<leaf value="1e+"/></refRoot>`, `&#160;`},
+				{`<refRoot>&#x2003;<leaf value="1e+"/></refRoot>`, `&#x2003;`},
+			} {
+				err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(tc.input)))
+				d := validationTestDiagnostic(t, err)
+				if d.Class() != goxsd9.FailureInvalid || d.Code() != goxsd9.InvalidInstanceSequenceCode || d.Loc() != precisionAttributeInstanceLoc(t, tc.input, tc.marker) || d.SpecRef() != "xsd11-structures#cvc-elt" || !validationTestHasRelated(d.Related(), definition.Loc()) || !validationTestHasRelated(d.Related(), sequence.Loc()) || d.Unwrap() == nil || !strings.Contains(d.Unwrap().Error(), "invalid attribute-bearing sequence") {
+					t.Fatalf("non-XML whitespace diagnostic = %s related=%v", d, d.Related())
+				}
+			}
+		})
+	}
+}

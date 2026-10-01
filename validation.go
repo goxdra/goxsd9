@@ -198,10 +198,12 @@ type instanceChoiceProgram struct {
 // precisionDecimal elements whose type references are built-in or named, and
 // default-occurrence references to global Boolean, integer, and decimal
 // elements other than nonNegativeInteger.
-// Direct sequences contain only
+// Scalar direct sequences contain only
 // local built-in or named Boolean elements, only local built-in or named
 // integer/decimal elements, only local built-in or named token elements, or
-// only local built-in or named NMTOKEN elements.
+// only local built-in or named NMTOKEN elements. Selected attribute sequences
+// contain global complex references or named local complex targets with local
+// precisionDecimal uses or precisionDecimal simpleContent without uses.
 // Modeled anonymous local inline atomic references
 // remain schema-queryable only: ordinary direct choice/sequence target checks
 // return a located FailureUnsupported/ErrUnsupported diagnostic with

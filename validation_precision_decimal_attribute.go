@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"strings"
 )
 
 const (
@@ -346,7 +345,7 @@ func validateAttributeSequenceInstance(root *instanceElement, program instanceAt
 		if !isText {
 			return newInstanceValidationInternal(root.loc, "unknown attribute sequence node", related, errInstanceValidationInvariant)
 		}
-		if strings.TrimSpace(text.data) != "" {
+		if !xmlWhitespace([]byte(text.data)) {
 			return newInstanceValidationInvalid(InvalidInstanceSequenceCode, text.loc, "non-whitespace sequence text", related, instanceValidationSpecRef(program.version), errInstanceAttributeSequence)
 		}
 	}
@@ -423,7 +422,7 @@ func validateAttributeLeafStructure(child *instanceElement, leaf instanceAttribu
 		if !isText {
 			return newInstanceValidationInternal(child.loc, "unknown attribute leaf node", related, errInstanceValidationInvariant)
 		}
-		if leaf.content == nil && strings.TrimSpace(text.data) != "" {
+		if leaf.content == nil && text.data != "" {
 			return newInstanceAttributeInvalid(text.loc, "attribute-bearing empty content has text", related, version, errInstanceAttributeContent)
 		}
 	}
