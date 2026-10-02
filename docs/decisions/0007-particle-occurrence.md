@@ -52,7 +52,11 @@ sentinels.
 | XSD 1.0 | A direct `all` has minimum 0 or 1 and fixed maximum 1. Element members have minimum and maximum 0 or 1, including omitted `0/0` terms. |
 | XSD 1.1 | An `all` model group has `minOccurs` and `maxOccurs` each in `0/1`. It has the permitted model-group-definition/content-type placements, and an `all` term may also occur as a `1/1` particle inside an `all` group. Its member terms that are model groups must themselves be `all`; a group-reference member is fixed at `1/1`. Element and wildcard members use the exact general occurrence model. The XML representation permits element, wildcard, and group children. |
 
-These constrain construction; broader particles, direct-choice repetition validation, and repeated-field generation remain unsupported.
+These constrain construction. An XML `<all>` directly nested inside `<all>` is
+invalid in both editions; the XSD 1.1 `all` group-term allowance uses a group
+reference instead. Otherwise valid XSD 1.1 wildcard and group-reference members
+remain unsupported, as do direct-choice repetition validation and repeated-field
+generation.
 
 ## Representation and phase boundaries
 

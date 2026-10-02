@@ -76,7 +76,8 @@ Non-`0/0` inline long-family locals fail at type/simpleType `Loc`; valid `0/0` o
 Direct named-complex `all` retains ordered integer/decimal/Boolean locals and
 refs, exact bounds, gated `0/0` omission, and duplicate-name locations. XSD 1.0
 maxima are at most one; XSD 1.1 permits repeated members and outer `0/0`.
-Anonymous/broader terms and consumers reject.
+Anonymous `0/0` member/outer terms omit after gates; surviving anonymous/broader
+terms reject. Both consumers reject `all`.
 AttributeUse preserves order, ownership, locations, and reference targets across
 bodies. Grouped extensions resolve group/uses/base; `0/0` omits group.
 Forms select local names; XSD 1.1 `targetNamespace` must match the container;

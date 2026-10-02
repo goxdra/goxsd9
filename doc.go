@@ -151,11 +151,13 @@
 // long/int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
-// exclusions use the nested-particle Loc. Ordinary 0/0 is admitted after
-// applicable gates and remains absent.
+// exclusions use the nested-particle Loc. Where occurrence grammar permits it,
+// a resolved 0/0 local term omits after applicable gates.
 // Inline/anonymous long/int/short/byte/unsignedLong/nonNegativeInteger are mapped schema exclusions at their
-// type/simpleType Loc; built-in and named-effective long/int/short/byte/unsignedLong/nonNegativeInteger are admitted
-// query-only forms. The written base QName/base Loc, use-site/type/facet Locs,
+// type/simpleType Loc; supported direct choices, direct sequences, and bounded
+// attribute-free extensions admit built-in and named-effective
+// long/int/short/byte/unsignedLong/nonNegativeInteger as query-only forms.
+// The written base QName/base Loc, use-site/type/facet Locs,
 // named ID versus built-in zero identity, ownership, and resolved facts remain
 // separate. Built-in int retains intrinsic inclusive bounds
 // [-2147483648,2147483647] without synthetic bound locations or component IDs;
