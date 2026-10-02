@@ -509,6 +509,74 @@ func TestDirectAllOmittedOwnerSkipsResolvedUnsupportedMembers(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Exercise the excluded inline-complex shape at live and both omission boundaries.
+func TestDirectAllInlineComplexRejectsBeforeZeroOmission(t *testing.T) {
+	bodies := []struct {
+		name, inline string
+	}{
+		{"empty", `<xs:complexType/>`},
+		{"unresolved simpleContent base", `<xs:complexType><xs:simpleContent><xs:extension base="r:Missing"/></xs:simpleContent></xs:complexType>`},
+		{"wrong-kind simpleContent base", `<xs:complexType><xs:simpleContent><xs:extension base="r:Record"/></xs:simpleContent></xs:complexType>`},
+		{"unresolved complexContent base", `<xs:complexType><xs:complexContent><xs:extension base="r:Missing"/></xs:complexContent></xs:complexType>`},
+		{"policy-gated simpleContent base", `<xs:complexType><xs:simpleContent><xs:extension base="xs:precisionDecimal"/></xs:simpleContent></xs:complexType>`},
+	}
+	shapes := []struct {
+		name, allOpen, elementOpen string
+		policy                     LanguagePolicy
+		version                    XSDVersion
+		live                       bool
+	}{
+		{"live", `<xs:all>`, `<xs:element name="v">`, Strict11, XSDVersion11, true},
+		{"zero member XSD 1.0", `<xs:all>`, `<xs:element name="v" minOccurs="0" maxOccurs="0">`, Strict10, XSDVersion10, false},
+		{"zero member XSD 1.1", `<xs:all>`, `<xs:element name="v" minOccurs="0" maxOccurs="0">`, Strict11, XSDVersion11, false},
+		{"zero owner XSD 1.1", `<xs:all minOccurs="0" maxOccurs="0">`, `<xs:element name="v">`, Strict11, XSDVersion11, false},
+		{"zero owner compatibility", `<xs:all minOccurs="0" maxOccurs="0">`, `<xs:element name="v">`, Compatibility, XSDVersion11, false},
+	}
+	for _, body := range bodies {
+		for _, shape := range shapes {
+			t.Run(body.name+"/"+shape.name, func(t *testing.T) {
+				root := allParticleTestRoot(shape.allOpen+shape.elementOpen+body.inline+`</xs:element></xs:all>`, "")
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, shape.policy)
+				if err == nil {
+					t.Fatal("inline complex all member returned a schema")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				wantSpec := schemaAllLimitedSpecRef(shape.version)
+				if shape.live {
+					wantSpec = newSchemaSyntaxUnsupportedForVersion(Loc{}, "", shape.version).SpecRef()
+				}
+				wantLoc := allParticleTestTokenLoc(t, "root.xsd", root, `<xs:complexType`, 2)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != wantSpec || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("inline complex diagnostic = %s, want unsupported at %s with spec %q", diagnostic, wantLoc, wantSpec)
+				}
+				if !shape.live && !errors.Is(err, errSchemaAllMemberInlineComplex) {
+					t.Fatalf("zero inline complex diagnostic lost cause: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestDirectAllZeroInlineComplexKeepsInvalidSyntax(t *testing.T) {
+	for _, model := range []string{
+		`<xs:all><xs:element name="v" minOccurs="0" maxOccurs="0"><xs:complexType name="Bad"/></xs:element></xs:all>`,
+		`<xs:all minOccurs="0" maxOccurs="0"><xs:element name="v"><xs:complexType name="Bad"/></xs:element></xs:all>`,
+	} {
+		root := allParticleTestRoot(model, "")
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+		if err == nil {
+			t.Fatal("invalid inline complex all member returned a schema")
+		}
+		assertZeroSchema(t, schema)
+		diagnostic := requireDiagnostic(t, err)
+		wantLoc := allParticleTestTokenLoc(t, "root.xsd", root, `name="Bad"`, 1)
+		if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != wantLoc {
+			t.Fatalf("invalid inline complex diagnostic = %s, want invalid composition at %s", diagnostic, wantLoc)
+		}
+	}
+}
+
 func TestDirectAllZeroOccurrencePreservesReferenceTypeAndPolicyFailures(t *testing.T) {
 	tests := []struct {
 		name, model, primary, code string

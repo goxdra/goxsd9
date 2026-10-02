@@ -148,6 +148,7 @@ var (
 	errSchemaElementReferenceDuplicate           = errors.New("element reference particle is duplicated")
 	errSchemaAllMemberDuplicate                  = errors.New("all particle member has a duplicate expanded name")
 	errSchemaAllMemberScalar                     = errors.New("all particle member has an unsupported scalar type")
+	errSchemaAllMemberInlineComplex              = errors.New("all particle member has an unsupported inline complex type")
 	errSchemaElementReferenceBlock               = errors.New("element reference cannot specify block")
 	errSchemaModelGroupReferenceUnresolved       = errors.New("model-group reference is unresolved")
 	errSchemaModelGroupReferenceWrongKind        = errors.New("model-group reference has the wrong target kind")
@@ -2230,6 +2231,13 @@ func schemaAllComplexTypeInput(model *syntaxElement, occurrences particleOccurre
 		}
 		if child.name.local != "element" {
 			return nil, newSchemaBridgeInvariant(child.loc, "unsupported all child reached component construction")
+		}
+		// The local particle bridge cannot retain an inline complex type or its base.
+		if inlineComplex := inlineComplexTypeChild(child); inlineComplex != nil {
+			diagnostic := newSchemaSyntaxUnsupportedForVersion(inlineComplex.loc, "all member inline complex types are not implemented", version)
+			diagnostic.specRef = schemaAllLimitedSpecRef(version)
+			diagnostic.cause = errSchemaAllMemberInlineComplex
+			return nil, diagnostic
 		}
 		member, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, true, !occurrences.mapsToParticle())
 		if err != nil {

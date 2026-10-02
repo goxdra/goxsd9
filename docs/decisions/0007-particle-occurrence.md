@@ -68,11 +68,12 @@ The private kernel in `particle_occurrence.go` defines the phase boundary:
    constructs a tagged finite or max-only unbounded bound. The range
    constructor owns copies and rejects an unbounded minimum or finite
    `min > max`.
-3. After syntax, occurrence, reference, and policy gates, mapping resolves inline
-   bases and supported facets for each affected owner/term before exact `0/0`
-   absence. Unsupported inline syntax waits for this resolution; only resolved
-   unsupported forms may omit. Invalid/unresolved/cyclic/wrong-kind/
-   value-constraint/policy failures retain causes and locations.
+3. After syntax, occurrence, reference, and policy gates, mapping resolves
+   supported inline simple-type bases and facets before exact `0/0` absence.
+   Only resolved unsupported forms may omit. Direct `all` anonymous complex
+   members remain unsupported even at `0/0` while their semantic gates are
+   unavailable. Invalid/unresolved/cyclic/wrong-kind/value-constraint/policy
+   failures retain causes and locations.
    `mapsToParticle` derives from bounds.
 4. The completed schema phase copies the range into an immutable public
    occurrence view. Its minimum is an owned `StrictInteger`; its maximum is a

@@ -113,10 +113,11 @@
 // preserve their causes/Locs and return no Schema. Ordinary local named/inline
 // type mapping is not universal for non-reference 0/0 terms. For every affected
 // local owner or term, syntax and exact occurrences precede inline semantic
-// resolution. At 0/0, unsupported inline syntax waits for its base and supported
-// facets to resolve; invalid, unresolved, cyclic, wrong-kind, value-constraint,
+// resolution. At 0/0, supported inline simple-type forms resolve bases and facets
+// before omission; invalid, unresolved, cyclic, wrong-kind, value-constraint,
 // and policy failures retain their diagnostics and prevent a Schema. Resolved
-// unsupported forms may omit.
+// unsupported forms may omit. Direct-all anonymous complex members remain
+// located unsupported at every occurrence because their semantic gates are unavailable.
 // Direct sequences resolve children before owner omission; direct choices resolve
 // child refs without duplicate checks before child omission; named groups
 // resolve/check duplicate refs before owner/child omission; child refs resolve
@@ -131,8 +132,9 @@
 // AllParticle member view of local integer/decimal/Boolean declarations and
 // element references. Member order is lexical for queries; matching remains
 // unsupported. XSD 1.0 limits outer and member occurrences; XSD 1.1 permits
-// exact general member bounds. Validated 0/0 terms omit after their gates;
-// surviving duplicate names, anonymous types, excluded member shapes, and
+// exact general member bounds. Resolved 0/0 terms omit after their gates;
+// inline complex members reject even at 0/0. Surviving duplicate names,
+// anonymous simple types, excluded member shapes, and
 // scalars outside those three families return located diagnostics and no Schema.
 // ValidateInstance rejects modeled all
 // particles; GenerateGo returns nil output with an unsupported diagnostic.
