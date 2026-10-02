@@ -4800,7 +4800,6 @@ func validateAllParticleChildWithOptions(node syntaxNode, version XSDVersion, an
 	return validateAllParticleContentChildWithOptions(child, version, candidate, supported, ownerOmitted)
 }
 
-//nolint:gocognit // Keep edition-specific all child classification and candidate ordering together.
 func validateAllParticleContentChildWithOptions(child *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate, supported, ownerOmitted bool) error {
 	switch child.name.local {
 	case "element":
@@ -4832,17 +4831,6 @@ func validateAllParticleContentChildWithOptions(child *syntaxElement, version XS
 		return nil
 	case "group":
 		return validateAllParticleUnsupportedChild(child, version, candidate)
-	case "all":
-		if version == XSDVersion10 {
-			return schemaInvalidWithSpecRef(newSchemaCompositionDiagnostic(child.loc, "XSD 1.0 all cannot contain an all group"), schemaAllLimitedSpecRef(version))
-		}
-		if err := validateAllParticle(child, version); err != nil {
-			if !candidate.considerError(err) {
-				return err
-			}
-		}
-		candidate.considerAtVersion(child.loc, "nested all groups are not implemented", version)
-		return nil
 	default:
 		return schemaInvalidWithSpecRef(newSchemaCompositionDiagnostic(child.loc, "all particle contains a forbidden child"), schemaAllLimitedSpecRef(version))
 	}

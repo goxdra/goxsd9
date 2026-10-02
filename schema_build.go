@@ -8038,6 +8038,7 @@ func resolveSchemaAllParticle(
 	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 ) (Particle, error) {
+	ownerOmitted := !input.occurrences.mapsToParticle()
 	members := make([]Particle, 0, len(input.members))
 	seen := make(map[QName]Loc)
 	for _, termInput := range input.members {
@@ -8047,12 +8048,15 @@ func resolveSchemaAllParticle(
 		}
 		member, err := resolveSchemaElementParticle(memberInput, owner, records, byName, visibleSources, simpleTypes, version, "all")
 		if err != nil {
-			if !input.occurrences.mapsToParticle() && schemaZeroOccurrenceMayOmitUnsupported(err) {
+			if ownerOmitted && schemaZeroOccurrenceMayOmitUnsupported(err) {
 				continue
 			}
 			return nil, err
 		}
 		if member == nil {
+			continue
+		}
+		if ownerOmitted {
 			continue
 		}
 		if declaration, ok := member.(ElementParticle); ok && (declaration.facts.typeReference.kind == SimpleTypeReferenceAnonymous || !schemaAllScalarAllowed(declaration.facts.typeReference)) {
@@ -8077,7 +8081,7 @@ func resolveSchemaAllParticle(
 		seen[name] = loc
 		members = append(members, member)
 	}
-	if !input.occurrences.mapsToParticle() {
+	if ownerOmitted {
 		return nil, nil
 	}
 	return AllParticle{facts: &schemaAllParticle{loc: input.loc, occurrences: input.occurrences.clone(), members: members}}, nil

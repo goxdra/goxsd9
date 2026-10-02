@@ -394,7 +394,6 @@ func TestDirectAllReferenceResolutionAndOccurrenceFailuresReturnNoSchema(t *test
 		{"invalid bound lexical", `<xs:all><xs:element name="v" type="xs:integer" maxOccurs="maybe"/></xs:all>`, "", `maxOccurs="maybe"`, invalidSchemaCompositionCode, Strict11, FailureInvalid, nil},
 		{"member min greater than max", `<xs:all><xs:element name="v" type="xs:integer" minOccurs="2" maxOccurs="1"/></xs:all>`, "", `<xs:element name="v"`, invalidSchemaCompositionCode, Strict11, FailureInvalid, errParticleOccurrenceMinimumExceedsMaximum},
 		{"nested choice", `<xs:all><xs:choice><xs:element name="v" type="xs:integer"/></xs:choice></xs:all>`, "", `<xs:choice>`, invalidSchemaCompositionCode, Strict11, FailureInvalid, nil},
-		{"nested all", `<xs:all><xs:all><xs:element name="v" type="xs:integer"/></xs:all></xs:all>`, "", `<xs:all>`, UnsupportedSchemaSyntaxCode, Strict11, FailureUnsupported, nil},
 		{"wildcard", `<xs:all><xs:any/></xs:all>`, "", `<xs:any`, UnsupportedSchemaSyntaxCode, Strict11, FailureUnsupported, nil},
 		{"strict10 wildcard", `<xs:all><xs:any/></xs:all>`, "", `<xs:any`, UnsupportedSchemaSyntaxCode, Strict10, FailureUnsupported, errLanguagePolicyMismatch},
 	}
@@ -407,11 +406,7 @@ func TestDirectAllReferenceResolutionAndOccurrenceFailuresReturnNoSchema(t *test
 			}
 			assertZeroSchema(t, schema)
 			diagnostic := requireDiagnostic(t, err)
-			occurrence := 1
-			if test.name == "nested all" {
-				occurrence = 2
-			}
-			primary := allParticleTestTokenLoc(t, "root.xsd", root, test.primary, occurrence)
+			primary := allParticleTestTokenLoc(t, "root.xsd", root, test.primary, 1)
 			if diagnostic.Class() != test.class || diagnostic.Code() != test.code || diagnostic.Loc() != primary {
 				t.Fatalf("diagnostic = %s, want %s/%s at %s", diagnostic, test.class, test.code, primary)
 			}
@@ -419,6 +414,98 @@ func TestDirectAllReferenceResolutionAndOccurrenceFailuresReturnNoSchema(t *test
 				t.Fatalf("diagnostic lost cause %v: %v", test.cause, err)
 			}
 		})
+	}
+}
+
+func TestDirectNestedAllIsInvalidInEveryPolicy(t *testing.T) {
+	root := allParticleTestRoot(`<xs:all><xs:all/></xs:all>`, "")
+	for _, profile := range []struct {
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{Compatibility, XSDVersion11},
+		{Strict10, XSDVersion10},
+		{Strict11, XSDVersion11},
+	} {
+		t.Run(string(profile.policy), func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err == nil {
+				t.Fatal("direct nested all returned a schema")
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			wantLoc := allParticleTestTokenLoc(t, "root.xsd", root, `<xs:all`, 2)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != schemaAllLimitedSpecRef(profile.version) {
+				t.Fatalf("nested all diagnostic = %s, want invalid composition at %s for %s", diagnostic, wantLoc, profile.policy)
+			}
+		})
+	}
+}
+
+func TestDirectAllXSD11GroupReferenceRemainsUnsupported(t *testing.T) {
+	root := allParticleTestRoot(`<xs:all><xs:group ref="r:G"/></xs:all>`, `<xs:group name="G"><xs:all/></xs:group>`)
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+	if err == nil {
+		t.Fatal("excluded XSD 1.1 all group reference returned a schema")
+	}
+	assertZeroSchema(t, schema)
+	diagnostic := requireDiagnostic(t, err)
+	wantLoc := allParticleTestTokenLoc(t, "root.xsd", root, `ref="r:G"`, 1)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc {
+		t.Fatalf("all group reference diagnostic = %s, want located unsupported at %s", diagnostic, wantLoc)
+	}
+}
+
+//nolint:gocognit // Compare live, omitted-member, and omitted-owner all terms under both 1.1 profiles.
+func TestDirectAllOmittedOwnerSkipsResolvedUnsupportedMembers(t *testing.T) {
+	tests := []struct {
+		name, member, zeroMember, primary string
+	}{
+		{"anonymous integer", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>`, `<xs:element name="v" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>`, `<xs:simpleType>`},
+		{"string", `<xs:element name="v" type="xs:string"/>`, `<xs:element name="v" type="xs:string" minOccurs="0" maxOccurs="0"/>`, `type="xs:string"`},
+		{"precisionDecimal", `<xs:element name="v" type="xs:precisionDecimal"/>`, `<xs:element name="v" type="xs:precisionDecimal" minOccurs="0" maxOccurs="0"/>`, `type="xs:precisionDecimal"`},
+	}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, test := range tests {
+			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
+				live := allParticleTestRoot(`<xs:all>`+test.member+`</xs:all>`, "")
+				schema, err := discoverTestSchemaWithPolicy(t, live, nil, policy)
+				if err == nil {
+					t.Fatal("live excluded all member returned a schema")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != allParticleTestTokenLoc(t, "root.xsd", live, test.primary, 1) || diagnostic.SpecRef() != schemaAllLimitedSpecRef(XSDVersion11) || !errors.Is(err, errSchemaAllMemberScalar) {
+					t.Fatalf("live all member diagnostic = %s, want located unsupported scalar with cause", diagnostic)
+				}
+
+				memberOmitted := allParticleTestRoot(`<xs:all>`+test.zeroMember+`</xs:all>`, "")
+				schema, err = discoverTestSchemaWithPolicy(t, memberOmitted, nil, policy)
+				if err != nil {
+					t.Fatalf("parse omitted member: %v", err)
+				}
+				if members := directAllFromSchema(t, schema).Members(); len(members) != 0 {
+					t.Fatalf("omitted all member count = %d, want zero", len(members))
+				}
+
+				ownerOmitted := allParticleTestRoot(`<xs:all minOccurs="0" maxOccurs="0">`+test.member+`</xs:all>`, "")
+				schema, err = discoverTestSchemaWithPolicy(t, ownerOmitted, nil, policy)
+				if err != nil {
+					t.Fatalf("parse omitted owner: %v", err)
+				}
+				definitions := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:all", "Record"))
+				if len(definitions) != 1 {
+					t.Fatalf("Record definition count = %d, want one", len(definitions))
+				}
+				definition, ok := definitions[0].ComplexTypeDefinition()
+				if !ok {
+					t.Fatal("Record complex type facts missing")
+				}
+				if definition.Particle() != nil {
+					t.Fatalf("omitted all owner particle = %v, want nil", definition.Particle())
+				}
+			})
+		}
 	}
 }
 
