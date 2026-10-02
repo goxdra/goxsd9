@@ -380,6 +380,7 @@ func instanceSequenceProgramFor(
 			true,
 			false,
 			false,
+			false,
 			version,
 		)
 		if err != nil {

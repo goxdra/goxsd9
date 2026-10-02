@@ -366,7 +366,7 @@
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as direct xs:string or a named/anonymous restriction with effective
 // xs:string atomic kind, or built-in/named xs:boolean/xs:token/xs:NMTOKEN/
-// xs:integer/xs:nonNegativeInteger/xs:decimal
+// xs:integer/xs:nonNegativeInteger/xs:byte/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
 // or Strict11, or as a supported local-attribute complex root or bounded
 // direct sequence of global complex refs or named local complex targets.
@@ -518,9 +518,12 @@
 // retain schema/query facts; GenerateGo and ValidateInstance reject them with
 // their existing diagnostics.
 // Standalone global inline-element Boolean/integer/decimal declarations and global
-// element/type int/long/short/byte/unsignedLong/negativeInteger/nonPositiveInteger/positiveInteger and
+// element/type int/long/short/unsignedLong/negativeInteger/nonPositiveInteger/positiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their root
 // validation and generation consumers reject.
+// Direct built-in and supported named atomic-byte global roots validate;
+// global inline byte roots and admitted local/reference byte uses reject validation.
+// Local inline byte particles reject schema admission; GenerateGo rejects byte-bearing components.
 // This consumer boundary does not widen the global attribute type or
 // value-constraint model described above.
 // Built-in xs:short has inclusive [-32768,32767] bounds without a component ID
