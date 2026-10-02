@@ -132,18 +132,21 @@
 // element references. Member order is lexical for queries; matching remains
 // unsupported. XSD 1.0 limits outer and member occurrences; XSD 1.1 permits
 // exact general member bounds. Validated 0/0 terms omit after their gates;
-// surviving duplicate names, anonymous types, excluded member shapes, and scalar types return
-// located diagnostics and no Schema. ValidateInstance rejects modeled all
+// surviving duplicate names, anonymous types, excluded member shapes, and
+// scalars outside those three families return located diagnostics and no Schema.
+// ValidateInstance rejects modeled all
 // particles; GenerateGo returns nil output with an unsupported diagnostic.
-// Local declared, named, inline, and anonymous restrictions in the
+// In supported direct choices, direct sequences, and bounded attribute-free
+// extensions, local declared, named, inline, and anonymous restrictions in the
 // integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
 // when their effective atomic kind is integer or negativeInteger through named,
-// forward, imported, included, and chameleon chains. Explicit built-in and
-// supported named nonNegativeInteger particles are also admitted. Direct built-in,
-// named-effective, and anonymous-inline negativeInteger forms are admitted as query
-// facts. Bounded list/union direct sequences validate them as atomic siblings;
-// other validation paths and GenerateGo reject those consumers. Built-in
-// and named effective-long particles remain query-only and consumer-rejected.
+// forward, imported, included, and chameleon chains. Those shapes also admit
+// explicit built-in and supported named nonNegativeInteger particles. Built-in,
+// named-effective, and anonymous-inline negativeInteger forms in those shapes
+// remain queryable. Bounded list/union direct sequences validate negativeInteger
+// as an atomic sibling; other validation paths and GenerateGo reject it. Built-in
+// and named effective-long particles in those shapes remain query-only and
+// consumer-rejected.
 // Local nonPositiveInteger/positiveInteger and inline/anonymous
 // long/int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
