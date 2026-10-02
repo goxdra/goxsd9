@@ -1,9 +1,8 @@
 # goxsd9
 
-goxsd9 parses XML Schema documents into an immutable component model. You can
-query the model, validate supported XML instances, or generate Go for supported
-schema components. Unsupported features return located diagnostics rather than
-partial schemas or output.
+goxsd9 parses XML Schema into an immutable component model. Query it, validate
+supported instances, or generate Go. Unsupported features return located
+diagnostics rather than partial schemas or output.
 
 ## Library
 
@@ -18,7 +17,8 @@ with XPath, namespaces, and resolved keyref targets. Validation and generation r
 them until identity semantics are implemented.
 
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
-bounded precisionDecimal lists/unions;
+global built-in and supported named `xs:short` values and bounded
+precisionDecimal lists/unions;
 `GenerateGo(schema, packageName)` returns Go source. A component can be
 queryable even when one or both consumers reject it.
 Grouped extensions retain refs/attributes over named empty bases; `0/0` omits.
