@@ -21,14 +21,15 @@ them until identity semantics are implemented.
 bounded precisionDecimal lists/unions;
 `GenerateGo(schema, packageName)` returns Go source. A component can be
 queryable even when one or both consumers reject it.
-Grouped complex-content extensions resolve an opaque group reference and ordered local
-attributes over a named empty base. Validated `0/0` omits particles; prohibited uses
-may leave no uses. See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
+Grouped extensions retain refs/attributes over named empty bases; `0/0` omits.
+See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
 and [decision 0007](docs/decisions/0007-particle-occurrence.md) for behavior and exact occurrences.
 
 Direct choices, sequences, and bounded attribute-free extensions retain local built-in
 `xs:long` and supported named effective-long particles as query-only immutable facts.
-GenerateGo supports default sequence refs to global built-in/named integer/decimal elements, preserving order and omitting wrappers; other targets/occurrences return located unsupported diagnostics.
+GenerateGo supports ordered default integer/decimal sequence refs; others reject.
+Direct named-complex `xs:all` retains ordered built-in/named integer, decimal,
+Boolean locals and element refs with exact bounds. Validation/generation reject it.
 
 ## CLI
 

@@ -577,6 +577,15 @@ func instanceChoiceParticleFor(
 	version XSDVersion,
 ) (ChoiceParticle, []Loc, error) {
 	particle := definition.Particle()
+	if all, ok := particle.(AllParticle); ok {
+		return ChoiceParticle{}, nil, newInstanceValidationUnsupported(
+			all.Loc(),
+			fmt.Sprintf("named complex type %q uses an all particle outside instance validation", definition.Name()),
+			appendInstanceRelated(related, all.Loc()),
+			version,
+			errInstanceChoiceParticle,
+		)
+	}
 	if groupReference, ok := modelGroupReferenceParticleValue(particle); ok {
 		return ChoiceParticle{}, related, instanceModelGroupReferenceUnsupported(definition, groupReference, related, version)
 	}

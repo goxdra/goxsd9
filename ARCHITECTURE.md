@@ -62,20 +62,21 @@ over named empty bases and restrictions over `xs:anyType` retain refs, base
 IDs/`Loc`s, inherited `##other`/`lax` wildcards. Scalar simpleContent retains
 base/type/use `Loc`s and nil particle; restrictions reject. Bases:
 Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
-Direct/extension choices/sequences admit `integer`, built-in/named/anonymous-inline
+Direct/extension choices and sequences admit `integer`, built-in/named/anonymous-inline
 `negativeInteger`, and built-in/named `long`, `int`, `short`, `byte`, `unsignedLong`,
-`nonNegativeInteger`. Built-in `positiveInteger`: direct globals only.
+`nonNegativeInteger`. Built-in `positiveInteger` works for direct globals only.
 Built-in/named `integer` validates; anonymous `integer`/`negativeInteger` validate
-beside bounded list/union. Other derivatives/extensions are query-only.
-Built-in `long` retains bounds; named effective-long retains identity/facets/order.
-SimpleContent excludes local derivatives; failures locate offending terms.
+beside bounded list/union. Other derivatives/extensions are query-only. Built-in
+`long` retains bounds; named effective-long retains identity/facets/order. SimpleContent excludes local derivatives; failures locate offending terms.
 Syntax/occurrence/reference/policy gates precede mapping and `0/0` omission;
 errors retain cause/`Loc` without a `Schema`. Sequences resolve children first;
-choices resolve refs once; named groups resolve/check before omission.
-Element/model-group refs retain QName/RefLoc/TargetID/order without expansion;
-nested/local/recursive/broader forms reject or exclude consumers. Non-`0/0` local inline/anonymous
-`long`/`int`/`short`/`byte`/`unsignedLong`/`nonNegativeInteger` fail at type/
-simpleType `Loc`; applicable `0/0` forms omit after gates.
+choices resolve refs once; named groups resolve/check before omission. Refs retain
+QName/RefLoc/TargetID/order without expansion; broader forms reject consumers.
+Non-`0/0` inline long-family locals fail at type/simpleType `Loc`; valid `0/0` omits.
+Direct named-complex `all` retains ordered integer/decimal/Boolean locals and
+refs, exact bounds, gated `0/0` omission, and duplicate-name locations. XSD 1.0
+maxima are at most one; XSD 1.1 permits repeated members and outer `0/0`.
+Anonymous/broader terms and consumers reject.
 AttributeUse preserves order, ownership, locations, and reference targets across
 bodies. Grouped extensions resolve group/uses/base; `0/0` omits group.
 Forms select local names; XSD 1.1 `targetNamespace` must match the container;
@@ -94,19 +95,13 @@ wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip
 `notNamespace`;
 chameleon markers expand. Consumers reject wildcards; `0/0` omits.
 `openContent=none` works except under Strict10; named groups retain refs/ranges.
-Inline complexes retain IDs/order outside walks. Named/inline global list/union
-elements, named/local sequence links, and bounded local attribute uses retain
-variety, ordered member/item references, facets, identities, and locations.
-Local attribute lists require atomic precisionDecimal items; unions require
-precisionDecimal then negativeInteger members. Strict10 rejects precisionDecimal.
-Other mapped varieties remain explicit schema or consumer exclusions.
-Element refs retain targets/occurrences; nonzero local inline forms reject.
-String particles validate beside bounded list/union; otherwise query-only.
-`normalizedString` supports
-replace whitespace, lexical facets, and restriction/list/union references.
-Facet-free `QName` restriction/list/union and global refs retain datatype/use
-locations and identity. Nonzero QName locals, attributes, facets, and values
-reject; `0/0` omits after gates. QName consumers reject.
+Inline complexes retain IDs outside walks. Global lists/unions, sequence links,
+and bounded local attributes retain ordered refs, facets, identities, locations.
+Local attribute lists need precisionDecimal; unions need precisionDecimal then
+negativeInteger; Strict10 rejects precisionDecimal. Element refs retain ranges.
+Strings validate beside bounded varieties; `normalizedString` supports replace
+whitespace/facets. Facet-free `QName` varieties/global refs retain context;
+QName locals/attributes/facets/values and consumers reject. Gated `0/0` omits.
 
 ## Datatypes
 

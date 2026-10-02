@@ -127,6 +127,14 @@
 // built-in or named-effective and inline anonymous `precisionDecimal` forms,
 // including zero-occurrence cases. Ordinary `int`/`short`/`unsignedLong` and other long-family 0/0
 // forms use the admission-then-absence rule under every policy.
+// A direct xs:all on a named complex type retains one immutable ordered
+// AllParticle member view of local integer/decimal/Boolean declarations and
+// element references. Member order is lexical for queries; matching remains
+// unsupported. XSD 1.0 limits outer and member occurrences; XSD 1.1 permits
+// exact general member bounds. Validated 0/0 terms omit after their gates;
+// surviving duplicate names, anonymous types, excluded member shapes, and scalar types return
+// located diagnostics and no Schema. ValidateInstance rejects modeled all
+// particles; GenerateGo returns nil output with an unsupported diagnostic.
 // Local declared, named, inline, and anonymous restrictions in the
 // integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
 // when their effective atomic kind is integer or negativeInteger through named,
