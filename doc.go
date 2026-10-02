@@ -129,13 +129,13 @@
 // including zero-occurrence cases. Ordinary `int`/`short`/`unsignedLong` and other long-family 0/0
 // forms use the admission-then-absence rule under every policy.
 // A direct xs:all on a named complex type retains one immutable ordered
-// AllParticle member view of local integer/decimal/Boolean declarations and
-// element references. Member order is lexical for queries; matching remains
-// unsupported. XSD 1.0 limits outer and member occurrences; XSD 1.1 permits
+// AllParticle member view of local integer/decimal/Boolean declarations,
+// built-in token declarations, and element references. Member order is lexical
+// for queries; matching remains unsupported. XSD 1.0 limits outer and member occurrences; XSD 1.1 permits
 // exact general member bounds. Resolved 0/0 terms omit after their gates;
 // inline complex members reject even at 0/0. Surviving duplicate names,
-// anonymous simple types, excluded member shapes, and
-// scalars outside those three families return located diagnostics and no Schema.
+// anonymous simple types, excluded member shapes, and other scalar types
+// return located diagnostics and no Schema.
 // ValidateInstance rejects modeled all
 // particles; GenerateGo returns nil output with an unsupported diagnostic.
 // In supported direct choices, direct sequences, and bounded attribute-free
@@ -182,7 +182,9 @@
 // anonymous restrictions fail at the local type location with no schema.
 // Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
 // named local particles in direct choices, sequences, and bounded attribute-free
-// extensions are modeled and queryable; only non-extension default-occurrence
+// extensions are modeled and queryable. Direct named-complex xs:all also models
+// built-in token locals; named and inline token locals remain excluded there,
+// and both consumers reject xs:all. Only non-extension default-occurrence
 // homogeneous direct choices made entirely of local token or NMTOKEN
 // alternatives validate. Homogeneous direct sequences made entirely of local
 // built-in or supported named token or NMTOKEN particles also validate with exact
