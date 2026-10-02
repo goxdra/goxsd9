@@ -204,6 +204,15 @@ func collectCodegenDirectParticles(
 			)
 		}
 		particle := definition.Particle()
+		if all, ok := particle.(AllParticle); ok {
+			return nil, newCodegenDirectParticleUnsupported(
+				all.Loc(),
+				fmt.Sprintf("complex type %q uses an all particle outside Go generation", component.Name()),
+				[]Loc{definition.Loc()},
+				fmt.Errorf("%w: all particle", errCodegenUnsupported),
+				version,
+			)
+		}
 		if particle == nil {
 			return nil, newCodegenDirectParticleUnsupported(
 				component.Loc(),

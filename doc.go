@@ -113,10 +113,11 @@
 // preserve their causes/Locs and return no Schema. Ordinary local named/inline
 // type mapping is not universal for non-reference 0/0 terms. For every affected
 // local owner or term, syntax and exact occurrences precede inline semantic
-// resolution. At 0/0, unsupported inline syntax waits for its base and supported
-// facets to resolve; invalid, unresolved, cyclic, wrong-kind, value-constraint,
+// resolution. At 0/0, supported inline simple-type forms resolve bases and facets
+// before omission; invalid, unresolved, cyclic, wrong-kind, value-constraint,
 // and policy failures retain their diagnostics and prevent a Schema. Resolved
-// unsupported forms may omit.
+// unsupported forms may omit. Direct-all anonymous complex members remain
+// located unsupported at every occurrence because their semantic gates are unavailable.
 // Direct sequences resolve children before owner omission; direct choices resolve
 // child refs without duplicate checks before child omission; named groups
 // resolve/check duplicate refs before owner/child omission; child refs resolve
@@ -127,24 +128,38 @@
 // built-in or named-effective and inline anonymous `precisionDecimal` forms,
 // including zero-occurrence cases. Ordinary `int`/`short`/`unsignedLong` and other long-family 0/0
 // forms use the admission-then-absence rule under every policy.
-// Local declared, named, inline, and anonymous restrictions in the
+// A direct xs:all on a named complex type retains one immutable ordered
+// AllParticle member view of local integer/decimal/Boolean declarations and
+// element references. Member order is lexical for queries; matching remains
+// unsupported. XSD 1.0 limits outer and member occurrences; XSD 1.1 permits
+// exact general member bounds. Resolved 0/0 terms omit after their gates;
+// inline complex members reject even at 0/0. Surviving duplicate names,
+// anonymous simple types, excluded member shapes, and
+// scalars outside those three families return located diagnostics and no Schema.
+// ValidateInstance rejects modeled all
+// particles; GenerateGo returns nil output with an unsupported diagnostic.
+// In supported direct choices, direct sequences, and bounded attribute-free
+// extensions, local declared, named, inline, and anonymous restrictions in the
 // integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
 // when their effective atomic kind is integer or negativeInteger through named,
-// forward, imported, included, and chameleon chains. Explicit built-in and
-// supported named nonNegativeInteger particles are also admitted. Direct built-in,
-// named-effective, and anonymous-inline negativeInteger forms are admitted as query
-// facts. Bounded list/union direct sequences validate them as atomic siblings;
-// other validation paths and GenerateGo reject those consumers. Built-in
-// and named effective-long particles remain query-only and consumer-rejected.
+// forward, imported, included, and chameleon chains. Those shapes also admit
+// explicit built-in and supported named nonNegativeInteger particles. Built-in,
+// named-effective, and anonymous-inline negativeInteger forms in those shapes
+// remain queryable. Bounded list/union direct sequences validate negativeInteger
+// as an atomic sibling; other validation paths and GenerateGo reject it. Built-in
+// and named effective-long particles in those shapes remain query-only and
+// consumer-rejected.
 // Local nonPositiveInteger/positiveInteger and inline/anonymous
 // long/int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
-// exclusions use the nested-particle Loc. Ordinary 0/0 is admitted after
-// applicable gates and remains absent.
+// exclusions use the nested-particle Loc. Where occurrence grammar permits it,
+// a resolved 0/0 local term omits after applicable gates.
 // Inline/anonymous long/int/short/byte/unsignedLong/nonNegativeInteger are mapped schema exclusions at their
-// type/simpleType Loc; built-in and named-effective long/int/short/byte/unsignedLong/nonNegativeInteger are admitted
-// query-only forms. The written base QName/base Loc, use-site/type/facet Locs,
+// type/simpleType Loc; supported direct choices, direct sequences, and bounded
+// attribute-free extensions admit built-in and named-effective
+// long/int/short/byte/unsignedLong/nonNegativeInteger as query-only forms.
+// The written base QName/base Loc, use-site/type/facet Locs,
 // named ID versus built-in zero identity, ownership, and resolved facts remain
 // separate. Built-in int retains intrinsic inclusive bounds
 // [-2147483648,2147483647] without synthetic bound locations or component IDs;
