@@ -182,7 +182,9 @@
 // anonymous restrictions fail at the local type location with no schema.
 // Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
 // named local particles in direct choices, sequences, and bounded attribute-free
-// extensions are modeled and queryable; only non-extension default-occurrence
+// extensions are modeled and queryable. Direct named-complex xs:all also models
+// built-in token locals; named and inline token locals remain excluded there,
+// and both consumers reject xs:all. Only non-extension default-occurrence
 // homogeneous direct choices made entirely of local token or NMTOKEN
 // alternatives validate. Homogeneous direct sequences made entirely of local
 // built-in or supported named token or NMTOKEN particles also validate with exact
