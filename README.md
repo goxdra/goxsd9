@@ -30,7 +30,7 @@ Direct choices, sequences, and bounded attribute-free extensions retain local bu
 `GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
 default integer/decimal sequence refs; other reference targets or occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named integer, decimal,
-Boolean locals, built-in `xs:token` locals, and element refs with exact bounds.
+Boolean locals, built-in `xs:token`/`xs:NMTOKEN` locals, and element refs with exact bounds.
 Validation/generation reject it.
 
 ## CLI

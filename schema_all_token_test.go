@@ -90,7 +90,8 @@ func TestDirectAllTokenAdmissionExclusions(t *testing.T) {
 	}{
 		{"named token", `<xs:element name="word" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:token"/></xs:simpleType>`, `type="r:Named"`},
 		{"inline token", `<xs:element name="word"><xs:simpleType><xs:restriction base="xs:token"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`},
-		{"built-in NMTOKEN", `<xs:element name="word" type="xs:NMTOKEN"/>`, "", `type="xs:NMTOKEN"`},
+		{"named NMTOKEN", `<xs:element name="word" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:NMTOKEN"/></xs:simpleType>`, `type="r:Named"`},
+		{"inline NMTOKEN", `<xs:element name="word"><xs:simpleType><xs:restriction base="xs:NMTOKEN"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`},
 		{"built-in string", `<xs:element name="word" type="xs:string"/>`, "", `type="xs:string"`},
 	}
 	for _, test := range tests {
@@ -107,13 +108,13 @@ func TestDirectAllTokenAdmissionExclusions(t *testing.T) {
 				assertZeroSchema(t, schema)
 				diagnostic := requireDiagnostic(t, err)
 				wantSpec := schemaAllLimitedSpecRef(profile.version)
-				if test.name == "inline token" {
+				if test.name == "inline token" || test.name == "inline NMTOKEN" {
 					wantSpec = newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef()
 				}
 				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, test.primary, 1) || diagnostic.SpecRef() != wantSpec || !errors.Is(err, ErrUnsupported) {
 					t.Fatalf("excluded member diagnostic = %s, want located unsupported with spec %s", diagnostic, wantSpec)
 				}
-				if test.name != "inline token" && !errors.Is(err, errSchemaAllMemberScalar) {
+				if test.name != "inline token" && test.name != "inline NMTOKEN" && !errors.Is(err, errSchemaAllMemberScalar) {
 					t.Fatalf("excluded member lost scalar cause: %v", err)
 				}
 			})
@@ -121,21 +122,87 @@ func TestDirectAllTokenAdmissionExclusions(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Attribute type forms must remain outside the all-member admission change.
+func TestDirectAllNMTOKENAttributeFormsRemainUnsupported(t *testing.T) {
+	tests := []struct {
+		name, attribute, extra, primary string
+	}{
+		{"local direct", `<xs:attribute name="a" type="xs:NMTOKEN"/>`, "", `type="xs:NMTOKEN"`},
+		{"local named", `<xs:attribute name="a" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:NMTOKEN"/></xs:simpleType>`, `type="r:Named"`},
+		{"local inline", `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:NMTOKEN"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType>`},
+		{"global ref", `<xs:attribute ref="r:a"/>`, `<xs:attribute name="a" type="xs:NMTOKEN"/>`, `type="xs:NMTOKEN"`},
+	}
+	for _, profile := range []struct {
+		policy  LanguagePolicy
+		version XSDVersion
+	}{{Compatibility, XSDVersion11}, {Strict10, XSDVersion10}, {Strict11, XSDVersion11}} {
+		for _, test := range tests {
+			t.Run(string(profile.policy)+"/"+test.name, func(t *testing.T) {
+				root := allParticleTestRoot(`<xs:all><xs:element name="word" type="xs:NMTOKEN"/></xs:all>`+test.attribute, test.extra)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("excluded NMTOKEN attribute returned a schema")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				primaryOccurrence := 1
+				if test.name == "local direct" || test.name == "global ref" {
+					primaryOccurrence = 2
+				}
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, test.primary, primaryOccurrence) || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("attribute diagnostic = %s, want located unsupported", diagnostic)
+				}
+				wantSpec := schemaAttributeTypeSpecRef(profile.version)
+				if diagnostic.SpecRef() != wantSpec {
+					t.Fatalf("attribute spec = %q, want %q", diagnostic.SpecRef(), wantSpec)
+				}
+				if !errors.Is(err, errSchemaAttributeTypeUnsupported) {
+					t.Fatalf("attribute failure lost type cause: %v", err)
+				}
+				if test.name != "global ref" && !errors.Is(err, errSchemaAttributeUseUnsupported) {
+					t.Fatalf("local attribute failure lost use cause: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestDirectAllTokenReferenceRetainsReferenceShape(t *testing.T) {
-	root := allParticleTestRoot(`<xs:all><xs:element ref="r:word"/></xs:all>`, `<xs:element name="word" type="xs:token"/><xs:element name="root" type="r:Record"/>`)
-	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-	if err != nil {
-		t.Fatalf("parse token reference: %v", err)
+	for _, scalar := range []string{"token", "NMTOKEN"} {
+		t.Run(scalar, func(t *testing.T) {
+			root := allParticleTestRoot(`<xs:all><xs:element ref="r:word"/></xs:all>`, `<xs:element name="word" type="xs:`+scalar+`"/><xs:element name="root" type="r:Record"/>`)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+			if err != nil {
+				t.Fatalf("parse %s reference: %v", scalar, err)
+			}
+			member := directAllFromSchema(t, schema).Members()[0]
+			reference, ok := member.(ElementReferenceParticle)
+			if !ok || reference.RefLoc() != allParticleTestTokenLoc(t, "root.xsd", root, `ref="r:word"`, 1) {
+				t.Fatalf("%s reference = %#v, want located reference particle", scalar, member)
+			}
+			if reference.TargetID() != schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:all", "word"))[0].ID() {
+				t.Fatalf("%s reference lost target identity", scalar)
+			}
+			assertDirectAllConsumerRejection(t, schema, directAllFromSchema(t, schema), XSDVersion11)
+		})
 	}
-	member := directAllFromSchema(t, schema).Members()[0]
-	reference, ok := member.(ElementReferenceParticle)
-	if !ok || reference.RefLoc() != allParticleTestTokenLoc(t, "root.xsd", root, `ref="r:word"`, 1) {
-		t.Fatalf("token reference = %#v, want located reference particle", member)
+}
+
+func TestDirectAllBuiltinNMTOKENConsumersReject(t *testing.T) {
+	root := allParticleTestRoot(`<xs:all><xs:element name="word" type="xs:NMTOKEN"/></xs:all>`, `<xs:element name="root" type="r:Record"/>`)
+	for _, profile := range []struct {
+		policy  LanguagePolicy
+		version XSDVersion
+	}{{Compatibility, XSDVersion11}, {Strict10, XSDVersion10}, {Strict11, XSDVersion11}} {
+		t.Run(string(profile.policy), func(t *testing.T) {
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err != nil {
+				t.Fatalf("parse direct all NMTOKEN: %v", err)
+			}
+			all := directAllFromSchema(t, schema)
+			assertDirectAllConsumerRejection(t, schema, all, profile.version)
+		})
 	}
-	if reference.TargetID() != schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:all", "word"))[0].ID() {
-		t.Fatal("token reference lost target identity")
-	}
-	assertDirectAllConsumerRejection(t, schema, directAllFromSchema(t, schema), XSDVersion11)
 }
 
 //nolint:gocognit // Check both omission boundaries and same-boundary alternate failures.
@@ -144,34 +211,38 @@ func TestDirectAllTokenOmissionAndFailures(t *testing.T) {
 		policy  LanguagePolicy
 		version XSDVersion
 	}{{Compatibility, XSDVersion11}, {Strict10, XSDVersion10}, {Strict11, XSDVersion11}} {
-		t.Run(string(profile.policy)+"/zero member", func(t *testing.T) {
-			root := allParticleTestRoot(`<xs:all><xs:element name="word" type="xs:token" minOccurs="0" maxOccurs="0"/><xs:element name="keep" type="xs:boolean"/></xs:all>`, "")
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			if err != nil {
-				t.Fatalf("parse omitted token: %v", err)
-			}
-			members := directAllFromSchema(t, schema).Members()
-			if len(members) != 1 {
-				t.Fatalf("omitted token members = %#v, want keep only", members)
-			}
-			keep, ok := members[0].(ElementParticle)
-			if !ok || keep.Name().Local() != "keep" {
-				t.Fatalf("omitted token members = %#v, want keep only", members)
-			}
-		})
+		for _, scalar := range []string{"token", "NMTOKEN"} {
+			t.Run(string(profile.policy)+"/zero "+scalar+" member", func(t *testing.T) {
+				root := allParticleTestRoot(`<xs:all><xs:element name="word" type="xs:`+scalar+`" minOccurs="0" maxOccurs="0"/><xs:element name="keep" type="xs:boolean"/></xs:all>`, "")
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatalf("parse omitted %s: %v", scalar, err)
+				}
+				members := directAllFromSchema(t, schema).Members()
+				if len(members) != 1 {
+					t.Fatalf("omitted %s members = %#v, want keep only", scalar, members)
+				}
+				keep, ok := members[0].(ElementParticle)
+				if !ok || keep.Name().Local() != "keep" {
+					t.Fatalf("omitted %s members = %#v, want keep only", scalar, members)
+				}
+			})
+		}
 	}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
-		t.Run(string(policy)+"/zero owner", func(t *testing.T) {
-			root := allParticleTestRoot(`<xs:all minOccurs="0" maxOccurs="0"><xs:element name="word" type="xs:token"/></xs:all>`, "")
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-			if err != nil {
-				t.Fatalf("parse omitted all: %v", err)
-			}
-			definition, _ := schema.Components()[0].ComplexTypeDefinition()
-			if definition.Particle() != nil {
-				t.Fatalf("omitted owner particle = %T, want nil", definition.Particle())
-			}
-		})
+		for _, scalar := range []string{"token", "NMTOKEN"} {
+			t.Run(string(policy)+"/zero "+scalar+" owner", func(t *testing.T) {
+				root := allParticleTestRoot(`<xs:all minOccurs="0" maxOccurs="0"><xs:element name="word" type="xs:`+scalar+`"/></xs:all>`, "")
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err != nil {
+					t.Fatalf("parse omitted all: %v", err)
+				}
+				definition, _ := schema.Components()[0].ComplexTypeDefinition()
+				if definition.Particle() != nil {
+					t.Fatalf("omitted owner particle = %T, want nil", definition.Particle())
+				}
+			})
+		}
 	}
 	failures := []struct {
 		name, model, primary, code, spec string
@@ -181,9 +252,13 @@ func TestDirectAllTokenOmissionAndFailures(t *testing.T) {
 		related                          []string
 	}{
 		{"strict10 repeated token", `<xs:all><xs:element name="word" type="xs:token" maxOccurs="2"/></xs:all>`, `maxOccurs="2"`, diagnosticSchemaAllOccurrenceVersionCode, "xsd11-structures#cSchemaDocument", Strict10, FailureUnsupported, errLanguagePolicyMismatch, nil},
+		{"strict10 repeated NMTOKEN", `<xs:all><xs:element name="word" type="xs:NMTOKEN" maxOccurs="2"/></xs:all>`, `maxOccurs="2"`, diagnosticSchemaAllOccurrenceVersionCode, "xsd11-structures#cSchemaDocument", Strict10, FailureUnsupported, errLanguagePolicyMismatch, nil},
 		{"invalid token bound", `<xs:all><xs:element name="word" type="xs:token" maxOccurs="maybe"/></xs:all>`, `maxOccurs="maybe"`, invalidSchemaCompositionCode, "xsd11-datatypes#nonNegativeInteger", Strict11, FailureInvalid, nil, nil},
+		{"invalid NMTOKEN bound", `<xs:all><xs:element name="word" type="xs:NMTOKEN" maxOccurs="maybe"/></xs:all>`, `maxOccurs="maybe"`, invalidSchemaCompositionCode, "xsd11-datatypes#nonNegativeInteger", Strict11, FailureInvalid, nil, nil},
 		{"token reversed bounds", `<xs:all><xs:element name="word" type="xs:token" minOccurs="2" maxOccurs="1"/></xs:all>`, `<xs:element name="word"`, invalidSchemaCompositionCode, "xsd11-structures#coss-particle", Strict11, FailureInvalid, errParticleOccurrenceMinimumExceedsMaximum, []string{`minOccurs="2"`, `maxOccurs="1"`}},
+		{"NMTOKEN reversed bounds", `<xs:all><xs:element name="word" type="xs:NMTOKEN" minOccurs="2" maxOccurs="1"/></xs:all>`, `<xs:element name="word"`, invalidSchemaCompositionCode, "xsd11-structures#coss-particle", Strict11, FailureInvalid, errParticleOccurrenceMinimumExceedsMaximum, []string{`minOccurs="2"`, `maxOccurs="1"`}},
 		{"duplicate token", `<xs:all><xs:element name="word" type="xs:token"/><xs:element name="word" type="xs:token"/></xs:all>`, `<xs:element name="word" type="xs:token"`, diagnosticSchemaElementReferenceDuplicateCode, schemaAllLimitedSpecRef(XSDVersion11), Strict11, FailureInvalid, errSchemaAllMemberDuplicate, []string{`<xs:element name="word" type="xs:token"`}},
+		{"duplicate NMTOKEN", `<xs:all><xs:element name="word" type="xs:NMTOKEN"/><xs:element name="word" type="xs:NMTOKEN"/></xs:all>`, `<xs:element name="word" type="xs:NMTOKEN"`, diagnosticSchemaElementReferenceDuplicateCode, schemaAllLimitedSpecRef(XSDVersion11), Strict11, FailureInvalid, errSchemaAllMemberDuplicate, []string{`<xs:element name="word" type="xs:NMTOKEN"`}},
 	}
 	for _, test := range failures {
 		t.Run(test.name, func(t *testing.T) {
@@ -195,14 +270,14 @@ func TestDirectAllTokenOmissionAndFailures(t *testing.T) {
 			assertZeroSchema(t, schema)
 			diagnostic := requireDiagnostic(t, err)
 			occurrence := 1
-			if test.name == "duplicate token" {
+			if test.name == "duplicate token" || test.name == "duplicate NMTOKEN" {
 				occurrence = 2
 			}
 			primary := allParticleTestTokenLoc(t, "root.xsd", root, test.primary, occurrence)
 			if diagnostic.Class() != test.class || diagnostic.Code() != test.code || diagnostic.Loc() != primary || diagnostic.SpecRef() != test.spec || test.cause != nil && !errors.Is(err, test.cause) {
 				t.Fatalf("token failure = %s, want %s/%s at %s with %s and cause %v", diagnostic, test.class, test.code, primary, test.spec, test.cause)
 			}
-			if test.name == "invalid token bound" {
+			if test.name == "invalid token bound" || test.name == "invalid NMTOKEN bound" {
 				var inner Diagnostic
 				if !errors.As(errors.Unwrap(diagnostic), &inner) || inner.Code() != InvalidIntegerLexicalCode || inner.Loc() != primary {
 					t.Fatalf("invalid token occurrence lost lexical cause: %v", errors.Unwrap(diagnostic))
