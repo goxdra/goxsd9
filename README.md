@@ -27,7 +27,8 @@ and [decision 0007](docs/decisions/0007-particle-occurrence.md) for behavior and
 
 Direct choices, sequences, and bounded attribute-free extensions retain local built-in
 `xs:long` and supported named effective-long particles as query-only immutable facts.
-GenerateGo supports ordered default integer/decimal sequence refs; others reject.
+`GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
+default integer/decimal sequence refs; other reference targets or occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named integer, decimal,
 Boolean locals and element refs with exact bounds. Validation/generation reject it.
 
