@@ -117,7 +117,7 @@ precisionDecimal facets, and Boolean whitespace; broader facets/temporal values 
 
 ## Validation and code generation
 
-`ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal,
+`ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal and built-in/named byte roots,
 direct/named/anonymous `xs:string`-atomic roots, and Compatibility/Strict11
 precisionDecimal roots. Named/inline global precisionDecimal lists and bounded
 unions validate; lists split XML whitespace into ordered items, unions try members
@@ -133,7 +133,7 @@ Other anonymous/mixed/extension consumers reject outside bounded sequences; nonz
 query-only. Default direct-choice refs to unconstrained global
 Boolean/integer/decimal validate; constrained targets reject with related `Loc`.
 SimpleContent uses built-in string with selected precisionDecimal attributes, or built-in/named effective precisionDecimal; named effective string excludes.
-Structure precedes facets; failures retain source/schema locations. Other uses and generation reject.
+Structure precedes facets; failures retain source/schema locations. Other byte uses and generation reject.
 QName globals/refs reject validation and generation with located diagnostics and nil output.
 
 Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic

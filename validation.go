@@ -49,6 +49,8 @@ const (
 	instanceNegativeIntegerXSD11SpecRef    = "xsd11-datatypes#negativeInteger"
 	instanceNonNegativeIntegerXSD10SpecRef = "xsd10-datatypes#nonNegativeInteger"
 	instanceNonNegativeIntegerXSD11SpecRef = "xsd11-datatypes#nonNegativeInteger"
+	instanceByteXSD10SpecRef               = "xsd10-datatypes#byte"
+	instanceByteXSD11SpecRef               = "xsd11-datatypes#byte"
 	instanceDecimalXSD10SpecRef            = "xsd10-datatypes#decimal"
 	instanceDecimalXSD11SpecRef            = "xsd11-datatypes#decimal"
 	instanceTokenXSD10SpecRef              = "xsd10-datatypes#token"
@@ -191,7 +193,7 @@ type instanceChoiceProgram struct {
 // validates one XML instance against schema. The supported semantic slice is
 // a single global root of built-in xs:string, a named/anonymous restriction
 // with effective xs:string atomic kind, built-in/named Boolean, token, NMTOKEN,
-// integer, nonNegativeInteger, decimal, or precisionDecimal, or a named complex
+// integer, nonNegativeInteger, byte, decimal, or precisionDecimal, or a named complex
 // type with one direct choice or sequence. Bounded precisionDecimal list/union
 // varieties validate on global simple roots, selected local attributes, and
 // ordered direct sequences with local or referenced simple children. Local precisionDecimal uses also
@@ -232,7 +234,7 @@ type instanceChoiceProgram struct {
 //
 // Built-in element views do not retain a document version, so this entrypoint
 // uses the repository's compatibility/default XSD 1.1-compatible datatype
-// rules for built-in integer and decimal values. Built-in nonNegativeInteger
+// rules for built-in integer and decimal values. Built-in nonNegativeInteger and byte
 // values use the selected graph-wide policy for their versioned datatype
 // diagnostics. Boolean values use the
 // selected graph-wide policy for their versioned datatype diagnostics. Built-in
@@ -1142,6 +1144,7 @@ func instanceChoiceReferenceScalarFor(
 		false,
 		false,
 		false,
+		false,
 		version,
 	)
 }
@@ -1178,6 +1181,7 @@ func instanceChoiceAlternativeFor(
 		true,
 		true,
 		true,
+		false,
 		false,
 		false,
 		version,
@@ -1433,6 +1437,9 @@ func validateDigitScalarValue(name syntaxName, lexical string, valueLoc Loc, sca
 
 func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, typed instanceDigitScalar) error {
 	specRef := instanceIntegerSpecRef(scalar.version)
+	if typed.integerKind == schemaSimpleTypeAtomicByte {
+		specRef = instanceByteSpecRef(scalar.version)
+	}
 	if typed.integerKind == schemaSimpleTypeAtomicNonNegativeInteger {
 		specRef = instanceNonNegativeIntegerSpecRef(scalar.version)
 	}
@@ -1642,6 +1649,7 @@ func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Lo
 		true,
 		true,
 		true,
+		true,
 		version,
 	)
 }
@@ -1660,6 +1668,7 @@ func instanceScalarTypeForTarget(
 	allowNMTOKEN bool,
 	allowString bool,
 	allowNonNegativeInteger bool,
+	allowByte bool,
 	booleanVersion XSDVersion,
 ) (instanceScalarType, error) {
 	if declaredType.IsZero() {
@@ -1672,7 +1681,7 @@ func instanceScalarTypeForTarget(
 		)
 	}
 	if declaredType.Namespace() == xsdNamespaceURI {
-		return instanceBuiltInScalarType(declaredType, related, loc, fallbackVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger, booleanVersion)
+		return instanceBuiltInScalarType(declaredType, related, loc, fallbackVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger, allowByte, booleanVersion)
 	}
 	if !hasTypeID || typeID.IsZero() {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
@@ -1787,7 +1796,10 @@ func instanceScalarTypeForTarget(
 			errInstanceUnsupportedType,
 		)
 	}
-	if atomicKind != schemaSimpleTypeAtomicInteger && atomicKind != schemaSimpleTypeAtomicNonNegativeInteger && atomicKind != schemaSimpleTypeAtomicDecimal && atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
+	if atomicKind == schemaSimpleTypeAtomicByte && !allowByte {
+		return instanceScalarType{}, newInstanceValidationUnsupported(loc, fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()), related, fallbackVersion, errInstanceUnsupportedType)
+	}
+	if atomicKind != schemaSimpleTypeAtomicInteger && atomicKind != schemaSimpleTypeAtomicNonNegativeInteger && atomicKind != schemaSimpleTypeAtomicByte && atomicKind != schemaSimpleTypeAtomicDecimal && atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", definition.Name()),
@@ -1955,7 +1967,7 @@ func instanceNMTOKENScalarValue(enumeration StringEnumerationFacets) instanceSca
 	return instanceNMTOKENScalar{enumeration: enumeration}
 }
 
-func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger bool, booleanVersion XSDVersion) (instanceScalarType, error) {
+func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger, allowByte bool, booleanVersion XSDVersion) (instanceScalarType, error) {
 	switch declaredType.Local() {
 	case "integer":
 		return instanceBuiltInIntegerScalarType(related, loc)
@@ -1964,6 +1976,11 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 			return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
 		}
 		return instanceBuiltInNonNegativeIntegerScalarType(related, loc, booleanVersion)
+	case "byte":
+		if !allowByte {
+			return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
+		}
+		return instanceBuiltInByteScalarType(related, loc, booleanVersion)
 	case "decimal":
 		return instanceBuiltInDecimalScalarType(related, loc)
 	case "precisionDecimal":
@@ -2020,6 +2037,30 @@ func instanceBuiltInNonNegativeIntegerScalarType(related []Loc, loc Loc, version
 	}
 	return instanceScalarType{
 		value:   instanceDigitScalar{facets: facets, integerKind: schemaSimpleTypeAtomicNonNegativeInteger, integerBounds: bounds},
+		version: version,
+		related: related,
+	}, nil
+}
+
+func instanceBuiltInByteScalarType(related []Loc, loc Loc, version XSDVersion) (instanceScalarType, error) {
+	facets, err := NewIntegerDigitFacets(nil, version)
+	if err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in byte digit facets", related, err)
+	}
+	minimum, err := ParseIntegerMinInclusiveFacet("-128", Loc{}, version)
+	if err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in byte lower bound", related, err)
+	}
+	maximum, err := ParseIntegerMaxInclusiveFacet("127", Loc{}, version)
+	if err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in byte upper bound", related, err)
+	}
+	bounds, err := NewIntegerBoundFacets([]IntegerBoundFacet{minimum, maximum}, version)
+	if err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in byte bounds", related, err)
+	}
+	return instanceScalarType{
+		value:   instanceDigitScalar{facets: facets, integerKind: schemaSimpleTypeAtomicByte, integerBounds: bounds},
 		version: version,
 		related: related,
 	}, nil
@@ -2151,6 +2192,13 @@ func instanceNonNegativeIntegerSpecRef(version XSDVersion) string {
 		return instanceNonNegativeIntegerXSD10SpecRef
 	}
 	return instanceNonNegativeIntegerXSD11SpecRef
+}
+
+func instanceByteSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceByteXSD10SpecRef
+	}
+	return instanceByteXSD11SpecRef
 }
 
 func instanceDecimalSpecRef(version XSDVersion) string {
