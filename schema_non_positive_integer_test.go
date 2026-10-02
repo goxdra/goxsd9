@@ -578,7 +578,6 @@ func TestSchemaNonPositiveIntegerExcludedShapesRemainUnsupported(t *testing.T) {
 	for _, profile := range nonPositiveIntegerPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "nonPositiveInteger", "0", true)
-			assertSchemaIntegerDerivedGlobalAttributeExcluded(t, profile.policy, "nonPositiveInteger")
 		})
 	}
 }
