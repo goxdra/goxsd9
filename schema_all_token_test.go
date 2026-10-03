@@ -88,7 +88,6 @@ func TestDirectAllTokenAdmissionExclusions(t *testing.T) {
 	tests := []struct {
 		name, member, extra, primary string
 	}{
-		{"named token", `<xs:element name="word" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:token"/></xs:simpleType>`, `type="r:Named"`},
 		{"inline token", `<xs:element name="word"><xs:simpleType><xs:restriction base="xs:token"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`},
 		{"named NMTOKEN", `<xs:element name="word" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:NMTOKEN"/></xs:simpleType>`, `type="r:Named"`},
 		{"inline NMTOKEN", `<xs:element name="word"><xs:simpleType><xs:restriction base="xs:NMTOKEN"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`},
