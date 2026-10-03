@@ -3946,7 +3946,7 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		return true
 	}
 	switch reference.atomicKind {
-	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
 		switch facets := reference.facets.(type) {
 		case schemaDigitFacetVariant:
 			return facets.value.Kind() == DigitDatatypeInteger
@@ -3976,7 +3976,6 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
-		schemaSimpleTypeAtomicPositiveInteger,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
@@ -4013,7 +4012,7 @@ func resolveSchemaAttributeValueConstraint(
 		return constraint, nil
 	}
 	switch reference.atomicKind {
-	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
 		if reference.atomicKind == schemaSimpleTypeAtomicUnsignedLong && version == XSDVersion10 && !schemaUnsignedLong10Lexical(lexical) {
 			return nil, invalidSchemaAttributeValueConstraint(input, version, newDiagnostic(
 				FailureInvalid,
@@ -4054,7 +4053,6 @@ func resolveSchemaAttributeValueConstraint(
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
-		schemaSimpleTypeAtomicPositiveInteger,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
