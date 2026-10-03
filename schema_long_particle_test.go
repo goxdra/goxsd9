@@ -652,9 +652,7 @@ func assertLongParticleConsumersUnsupported(t *testing.T, schema Schema, root st
 	if named {
 		wantGenerationRelated = []Loc{
 			schemaLongGraphLoc(t, root, nil, "root.xsd", `<xs:simpleType name="NamedLong"`),
-			schemaLongGraphLoc(t, root, nil, "root.xsd", `base="xs:long"`),
 		}
-		wantGenerationSpec = schemaSimpleTypeSpecRef(version)
 	}
 	if owner.extension {
 		wantGenerationPrimary = extensionLoc

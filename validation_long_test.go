@@ -176,36 +176,24 @@ func TestValidateLongUsesCopiedExactBounds(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Check each global long representation against the generation gate.
-func TestValidateLongGlobalGenerationRemainsUnsupported(t *testing.T) {
+func TestValidateLongInlineGenerationRemainsUnsupported(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
-		for _, shape := range []struct {
-			name, declaration, definition string
-		}{
-			{"direct", `<xs:element name="value" type="xs:long"/>`, ""},
-			{"named", `<xs:element name="value" type="t:Alias"/>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:long"/></xs:simpleType>`},
-			{"inline", `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:element>`, ""},
-		} {
-			t.Run(profile.name+"/"+shape.name, func(t *testing.T) {
-				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test">` + shape.declaration + shape.definition + `</xs:schema>`
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err != nil {
-					t.Fatalf("discover %s long schema: %v", shape.name, err)
-				}
-				declaration := boundedIntegerElementIn(t, schema, "urn:test", "value")
-				output, err := GenerateGo(schema, "generated")
-				if output != nil || err == nil {
-					t.Fatalf("GenerateGo = (%q, %v), want nil output and diagnostic", output, err)
-				}
-				d := requireDiagnostic(t, err)
-				wantSpec := schemaElementTypeSpecRef(profile.version)
-				if shape.name == "named" {
-					wantSpec = schemaSimpleTypeSpecRef(profile.version)
-				}
-				if d.Class() != FailureUnsupported || d.Code() != diagnosticCodegenUnsupported || d.Loc() != declaration.Loc() || d.SpecRef() != wantSpec || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
-					t.Fatalf("%s long generation diagnostic = %s", shape.name, d)
-				}
-			})
-		}
+		t.Run(profile.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:element name="value"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:element></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err != nil {
+				t.Fatalf("discover inline long schema: %v", err)
+			}
+			declaration := boundedIntegerElementIn(t, schema, "urn:test", "value")
+			output, err := GenerateGo(schema, "generated")
+			if output != nil || err == nil {
+				t.Fatalf("GenerateGo = (%q, %v), want nil output and diagnostic", output, err)
+			}
+			d := requireDiagnostic(t, err)
+			wantSpec := schemaElementTypeSpecRef(profile.version)
+			if d.Class() != FailureUnsupported || d.Code() != diagnosticCodegenUnsupported || d.Loc() != declaration.Loc() || d.SpecRef() != wantSpec || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errCodegenUnsupported) {
+				t.Fatalf("inline long generation diagnostic = %s", d)
+			}
+		})
 	}
 }

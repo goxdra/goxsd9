@@ -19,14 +19,14 @@ them until identity semantics are implemented.
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
 global built-in and supported named `xs:short`, `xs:int`, and `xs:long` values and bounded
 precisionDecimal lists/unions;
-`GenerateGo(schema, packageName)` returns Go source. A component can be
-queryable even when one or both consumers reject it.
+`GenerateGo(schema, packageName)` emits global `xs:long`: built-in fields use
+`StrictInteger`; named fields use generated types backed by it. Global long attributes are query-only.
 Grouped extensions retain refs/attributes over named empty bases; `0/0` omits.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
-and [decision 0007](docs/decisions/0007-particle-occurrence.md) for behavior and exact occurrences.
+and [decision 0007](docs/decisions/0007-particle-occurrence.md) for details.
 
-Direct choices, sequences, and bounded attribute-free extensions retain local built-in
-`xs:long` and supported named effective-long particles as query-only immutable facts.
+Direct choices, sequences, and bounded attribute-free extensions admit
+built-in/named long locals as query-only; valid inline `0/0` omits, nonzero rejects admission.
 `GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
 default integer/decimal sequence refs; other reference targets or occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named integer, decimal,
