@@ -130,12 +130,12 @@ Other anonymous/mixed/extension consumers reject outside bounded sequences; nonz
 query-only. Default direct-choice refs to unconstrained global
 Boolean/integer/decimal validate; constrained targets reject with related `Loc`.
 SimpleContent uses built-in string with selected precisionDecimal attributes, or built-in/named effective precisionDecimal; named effective string excludes.
-Structure precedes facets; failures retain source/schema locations. Other byte/short/int/long uses and generation reject.
+Structure precedes facets; failures retain locations. Other byte/short/int/long validation uses reject.
 QName globals/refs reject validation and generation with located diagnostics and nil output.
 
 Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
 types, global built-in/named elements of those types, inline global string/token/NMTOKEN, and
-named/global `nonNegativeInteger`. Standalone `normalizedString` rejects. Global elements require
+named/global `nonNegativeInteger` and `long`. Standalone `normalizedString` rejects. Global elements require
 `abstract=false,nillable=false`; violations yield `GOXSD9029` and nil output.
 Identity constraints yield `FailureUnsupported`/`GOXSD9029` at first constraint `Loc`; no output.
 Default integer/decimal sequence refs preserve TargetID/order; others unsupported.
@@ -144,7 +144,7 @@ Default integer/decimal sequence refs preserve TargetID/order; others unsupporte
 Unsupported final/variety/effective-facet states yield `GOXSD9029`; malformed
 facts yield `GOXSD9030`; nil output. Nonzero inline
 `nonNegativeInteger` has no schema; built-in/named locals query-only, `0/0`
-absent. Global `int`/`long`/`short`/`byte`/`unsignedLong`/`positiveInteger`
+absent. Global `int`/`short`/`byte`/`unsignedLong`/`positiveInteger`
 and `nonNegativeInteger` refs are query-only. `IntegerBounds()` copies
 built-in/named bounds; negativeInteger max=-1, positiveInteger min=1, named
 restrictions retain provenance. Local generation admits default

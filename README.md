@@ -19,8 +19,8 @@ them until identity semantics are implemented.
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
 global built-in and supported named `xs:short`, `xs:int`, and `xs:long` values and bounded
 precisionDecimal lists/unions;
-`GenerateGo(schema, packageName)` returns Go source. A component can be
-queryable even when one or both consumers reject it.
+`GenerateGo(schema, packageName)` emits Go, including global built-in and named
+atomic `xs:long` as `StrictInteger`; long particles and attributes remain query-only.
 Grouped extensions retain refs/attributes over named empty bases; `0/0` omits.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
 and [decision 0007](docs/decisions/0007-particle-occurrence.md) for behavior and exact occurrences.
