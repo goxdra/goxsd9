@@ -21,10 +21,6 @@ func shortValidationSchema(t *testing.T, profile longPolicyProfile) Schema {
 	return schema
 }
 
-func shortInstance(local, namespace, value string) string {
-	return `<` + local + ` xmlns="` + namespace + `">` + value + `</` + local + `>`
-}
-
 func shortTextLoc(t *testing.T, input string) Loc {
 	t.Helper()
 	return mustTestLoc(t, "instance.xml", 1, strings.IndexByte(input, '>')+2)
@@ -56,7 +52,7 @@ func TestValidateShortGlobalScalarValuesAndDiagnostics(t *testing.T) {
 				{"forward", "-100"}, {"narrowed", "2"}, {"named", "+00100"},
 				{"enum", "-032768"}, {"digits", "-99"},
 			} {
-				input := shortInstance(test.local, "urn:test", test.value)
+				input := boundedIntegerInstance(test.local, "urn:test", test.value)
 				for range 2 {
 					if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
 						t.Fatalf("valid %s=%q: %v", test.local, test.value, err)
@@ -66,11 +62,7 @@ func TestValidateShortGlobalScalarValuesAndDiagnostics(t *testing.T) {
 			if !reflect.DeepEqual(before, schema.Components()) {
 				t.Fatal("short validation mutated completed schema facts")
 			}
-			for _, test := range []struct {
-				local, value, code, spec string
-				facet                    Loc
-				cause                    bool
-			}{
+			for _, test := range []boundedIntegerDiagnosticCase{
 				{"direct", "-32769", BoundValueViolationCode, shortFacetSpec(profile.version, "minInclusive"), Loc{}, true},
 				{"direct", "32768", BoundValueViolationCode, shortFacetSpec(profile.version, "maxInclusive"), Loc{}, true},
 				{"direct", shortValidationHuge, BoundValueViolationCode, shortFacetSpec(profile.version, "maxInclusive"), Loc{}, true},
@@ -86,26 +78,7 @@ func TestValidateShortGlobalScalarValuesAndDiagnostics(t *testing.T) {
 				{"enum", "0", EnumerationValueViolationCode, shortFacetSpec(profile.version, "enumeration"), requireShortDefinition(t, schema, "Enumerated").IntegerEnumerationFacets().Locations()[0], true},
 				{"digits", "100", DigitFacetValueViolationCode, shortFacetSpec(profile.version, "totalDigits"), shortDigitLoc(t, schema), true},
 			} {
-				input := shortInstance(test.local, "urn:test", test.value)
-				err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
-				d := requireDiagnostic(t, err)
-				wantRelated := []Loc{requireShortElement(t, schema, test.local, "urn:test").Loc()}
-				if test.local != "direct" {
-					definitionName := map[string]string{"forward": "Later", "narrowed": "Tight", "enum": "Enumerated", "digits": "Digits"}[test.local]
-					wantRelated = append(wantRelated, requireShortDefinition(t, schema, definitionName).Loc())
-				}
-				if test.local == "enum" {
-					wantRelated = append(wantRelated, requireShortDefinition(t, schema, "Enumerated").IntegerEnumerationFacets().Locations()...)
-				}
-				if test.local != "enum" && !test.facet.IsZero() {
-					wantRelated = append(wantRelated, test.facet)
-				}
-				if d.Class() != FailureInvalid || d.Code() != test.code || d.Loc() != shortTextLoc(t, input) || d.SpecRef() != test.spec || !reflect.DeepEqual(d.Related(), wantRelated) {
-					t.Fatalf("%s=%q: %s; code=%s loc=%s spec=%s related=%v; want %s/%s/%s/%v", test.local, test.value, d, d.Code(), d.Loc(), d.SpecRef(), d.Related(), test.code, shortTextLoc(t, input), test.spec, wantRelated)
-				}
-				if test.cause && d.Unwrap() == nil {
-					t.Fatalf("%s=%q lost facet cause", test.local, test.value)
-				}
+				assertBoundedIntegerDiagnosticCase(t, schema, test)
 			}
 		})
 	}
@@ -140,7 +113,6 @@ func shortDigitLoc(t *testing.T, schema Schema) Loc {
 	return loc
 }
 
-//nolint:gocognit // Graph roots exercise included, chameleon, imported, named, and cyclic discovery facts.
 func TestValidateShortComposedGraphRoots(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		root, fixtures := shortGraphFixtures(profile.version)
@@ -150,52 +122,18 @@ func TestValidateShortComposedGraphRoots(t *testing.T) {
 		}
 		for _, entry := range shortGraphElementCases() {
 			t.Run(profile.name+"/"+entry.local, func(t *testing.T) {
-				declaration := shortElementIn(t, schema, entry.namespace, entry.local)
-				input := shortInstance(entry.local, entry.namespace, "32767")
-				if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
-					t.Fatalf("graph short valid value: %v", err)
-				}
-				input = shortInstance(entry.local, entry.namespace, "32768")
-				d := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
-				wantRelated := []Loc{declaration.Loc()}
-				if entry.named {
-					typeID, ok := declaration.TypeID()
-					if !ok {
-						t.Fatal("named graph root has no type ID")
-					}
-					target, ok := schema.Lookup(typeID)
-					if !ok {
-						t.Fatal("named graph root target missing")
-					}
-					wantRelated = append(wantRelated, target.Loc())
-				}
-				if d.Class() != FailureInvalid || d.Code() != BoundValueViolationCode || d.Loc() != shortTextLoc(t, input) || d.SpecRef() != shortFacetSpec(profile.version, "maxInclusive") || !reflect.DeepEqual(d.Related(), wantRelated) || d.Unwrap() == nil {
-					t.Fatalf("graph short diagnostic = %s, related %v, want %v", d, d.Related(), wantRelated)
-				}
+				assertBoundedIntegerGraphRoot(t, schema, entry.namespace, entry.local, entry.named, "32767", "32768", profile.version)
 			})
 		}
 	}
 }
 
-func shortElementIn(t *testing.T, schema Schema, namespace, local string) ElementDeclaration {
-	t.Helper()
-	matches := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, namespace, local))
-	if len(matches) != 1 {
-		t.Fatalf("element %s:%s count = %d", namespace, local, len(matches))
-	}
-	declaration, ok := matches[0].ElementDeclaration()
-	if !ok {
-		t.Fatal("element declaration missing")
-	}
-	return declaration
-}
-
-//nolint:gocognit // Compare empty lexical exits and structure precedence under each policy.
+//nolint:gocognit // Keep policy-specific lexical and structural precedence exits together.
 func TestValidateShortEmptyAndStructureExits(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		schema := shortValidationSchema(t, profile)
 		declaration := requireShortElement(t, schema, "direct", "urn:test")
-		for _, input := range []string{`<direct xmlns="urn:test"/>`, shortInstance("direct", "urn:test", " \t\n ")} {
+		for _, input := range []string{`<direct xmlns="urn:test"/>`, boundedIntegerInstance("direct", "urn:test", " \t\n ")} {
 			d := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
 			want := shortTextLoc(t, input)
 			if strings.HasSuffix(input, "/>") {
@@ -214,66 +152,8 @@ func TestValidateShortEmptyAndStructureExits(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Each admitted local type shape and both consumers retain the existing unsupported gate.
 func TestValidateShortLocalAndReferenceConsumersRemainUnsupported(t *testing.T) {
-	shapes := []struct{ name, local, global string }{
-		{"direct", `<xs:element name="v" type="xs:short"/>`, ""},
-		{"named", `<xs:element name="v" type="r:Alias"/>`, ""},
-		{"ref direct", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:short"/>`},
-		{"ref named", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="r:Alias"/>`},
-		{"ref inline", `<xs:element ref="r:target"/>`, `<xs:element name="target"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:element>`},
-	}
-	for _, profile := range longPolicyProfiles() {
-		for _, consumer := range []string{"choice", "sequence"} {
-			for _, shape := range shapes {
-				t.Run(profile.name+"/"+consumer+"/"+shape.name, func(t *testing.T) {
-					body := `<xs:element name="root" type="r:Record"/>` + shape.global + `<xs:complexType name="Record"><xs:` + consumer + `>` + shape.local + `</xs:` + consumer + `></xs:complexType><xs:simpleType name="Alias"><xs:restriction base="xs:short"/></xs:simpleType>`
-					source := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:short-local" targetNamespace="urn:short-local" version="` + string(profile.version) + `">` + body + `</xs:schema>`
-					schema, err := discoverTestSchemaWithPolicy(t, source, nil, profile.policy)
-					if err != nil {
-						t.Fatal(err)
-					}
-					root := shortElementIn(t, schema, "urn:short-local", "root")
-					definitions := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:short-local", "Record"))
-					if len(definitions) != 1 {
-						t.Fatalf("Record count = %d", len(definitions))
-					}
-					definition, ok := definitions[0].ComplexTypeDefinition()
-					if !ok {
-						t.Fatal("Record view missing")
-					}
-					var groupLoc, particleLoc Loc
-					if choice, ok := definition.Particle().(ChoiceParticle); ok {
-						groupLoc, particleLoc = choice.Loc(), choice.Alternatives()[0].Loc()
-					}
-					if sequence, ok := definition.Particle().(SequenceParticle); ok {
-						groupLoc, particleLoc = sequence.Loc(), sequence.Particles()[0].Loc()
-					}
-					if groupLoc.IsZero() || particleLoc.IsZero() {
-						t.Fatal("local particle locations missing")
-					}
-					child := "v"
-					if strings.HasPrefix(shape.name, "ref") {
-						child = "target"
-					}
-					input := shortInstance("root", "urn:short-local", "<"+child+">0</"+child+">")
-					wantPrimary := mustTestLoc(t, "instance.xml", 1, 1)
-					if consumer == "choice" && !strings.HasPrefix(shape.name, "ref") {
-						wantPrimary = particleLoc
-					}
-					d := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
-					if d.Class() != FailureUnsupported || d.Code() != UnsupportedInstanceValidationCode || d.Loc() != wantPrimary || d.SpecRef() != instanceValidationSpecRef(profile.version) || !errors.Is(d, ErrUnsupported) {
-						t.Fatalf("local short diagnostic = %s", d)
-					}
-					for _, loc := range []Loc{root.Loc(), definition.Loc(), groupLoc, particleLoc} {
-						if !hasRelatedLoc(d.Related(), loc) {
-							t.Fatalf("local short related = %v, missing %s", d.Related(), loc)
-						}
-					}
-				})
-			}
-		}
-	}
+	assertBoundedIntegerLocalConsumersRemainUnsupported(t, "short", "urn:short-local")
 }
 
 func hasRelatedLoc(related []Loc, want Loc) bool {
@@ -285,38 +165,9 @@ func hasRelatedLoc(related []Loc, want Loc) bool {
 	return false
 }
 
-//nolint:gocognit // Check public bound copies and subsequent validation for each root shape.
 func TestValidateShortUsesCopiedExactBounds(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		schema := shortValidationSchema(t, profile)
-		for _, test := range []struct{ element, lower, upper string }{
-			{"direct", "-32768", "32767"},
-			{"forward", "-100", "100"},
-			{"narrowed", "-100", "2"},
-		} {
-			declaration := requireShortElement(t, schema, test.element, "urn:test")
-			reference, ok := declaration.TypeReference()
-			if !ok {
-				t.Fatal("short type reference missing")
-			}
-			bounds, ok := reference.IntegerBounds()
-			if !ok {
-				t.Fatal("short exact bounds missing")
-			}
-			first := bounds.Bounds()
-			if len(first) != 2 || first[0].Value().Canonical() != test.lower || first[1].Value().Canonical() != test.upper {
-				t.Fatalf("%s bounds = %v, want %s..%s", test.element, first, test.lower, test.upper)
-			}
-			first[0] = IntegerBoundFacet{}
-			bounds.lower.loc = Loc{}
-			again, ok := reference.IntegerBounds()
-			if !ok || len(again.Bounds()) != 2 || again.Bounds()[0].Value().Canonical() != test.lower {
-				t.Fatal("mutating copied short bounds changed reference facts")
-			}
-			input := shortInstance(test.element, "urn:test", test.lower)
-			if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
-				t.Fatalf("copied bound mutation affected validation: %v", err)
-			}
-		}
+		assertBoundedIntegerCopiedBounds(t, schema, "-32768", "32767")
 	}
 }

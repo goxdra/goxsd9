@@ -535,7 +535,7 @@
 // retain schema/query facts; GenerateGo and ValidateInstance reject them with
 // their existing diagnostics.
 // Standalone global inline-element Boolean/integer/decimal declarations and global
-// element/type int/long/unsignedLong/negativeInteger/nonPositiveInteger/positiveInteger and
+// element/type long/unsignedLong/negativeInteger/nonPositiveInteger/positiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their root
 // validation and generation consumers reject.
 // Direct built-in and supported named atomic-byte global roots validate;
@@ -544,6 +544,9 @@
 // Direct built-in and supported named atomic-short global roots validate;
 // global inline short roots and admitted local/reference short uses reject validation.
 // Local inline short particles reject schema admission; GenerateGo rejects short-bearing components.
+// Direct built-in and supported named atomic-int global roots validate;
+// global inline int roots and admitted local/reference int uses reject validation.
+// Local inline int particles reject schema admission; GenerateGo rejects int-bearing components.
 // This consumer boundary does not widen the global attribute type or
 // value-constraint model described above.
 // Built-in xs:short has inclusive [-32768,32767] bounds without a component ID

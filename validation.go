@@ -53,6 +53,8 @@ const (
 	instanceByteXSD11SpecRef               = "xsd11-datatypes#byte"
 	instanceShortXSD10SpecRef              = "xsd10-datatypes#short"
 	instanceShortXSD11SpecRef              = "xsd11-datatypes#short"
+	instanceIntXSD10SpecRef                = "xsd10-datatypes#int"
+	instanceIntXSD11SpecRef                = "xsd11-datatypes#int"
 	instanceDecimalXSD10SpecRef            = "xsd10-datatypes#decimal"
 	instanceDecimalXSD11SpecRef            = "xsd11-datatypes#decimal"
 	instanceTokenXSD10SpecRef              = "xsd10-datatypes#token"
@@ -195,7 +197,7 @@ type instanceChoiceProgram struct {
 // validates one XML instance against schema. The supported semantic slice is
 // a single global root of built-in xs:string, a named/anonymous restriction
 // with effective xs:string atomic kind, built-in/named Boolean, token, NMTOKEN,
-// integer, nonNegativeInteger, byte, short, decimal, or precisionDecimal, or a named complex
+// integer, nonNegativeInteger, byte, short, int, decimal, or precisionDecimal, or a named complex
 // type with one direct choice or sequence. Bounded precisionDecimal list/union
 // varieties validate on global simple roots, selected local attributes, and
 // ordered direct sequences with local or referenced simple children. Local precisionDecimal uses also
@@ -236,7 +238,7 @@ type instanceChoiceProgram struct {
 //
 // Built-in element views do not retain a document version, so this entrypoint
 // uses the repository's compatibility/default XSD 1.1-compatible datatype
-// rules for built-in integer and decimal values. Built-in nonNegativeInteger, byte, and short
+// rules for built-in integer and decimal values. Built-in nonNegativeInteger, byte, short, and int
 // values use the selected graph-wide policy for their versioned datatype
 // diagnostics. Boolean values use the
 // selected graph-wide policy for their versioned datatype diagnostics. Built-in
@@ -1454,6 +1456,9 @@ func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceSca
 	if typed.integerKind == schemaSimpleTypeAtomicShort {
 		specRef = instanceShortSpecRef(scalar.version)
 	}
+	if typed.integerKind == schemaSimpleTypeAtomicInt {
+		specRef = instanceIntSpecRef(scalar.version)
+	}
 	if typed.integerKind == schemaSimpleTypeAtomicNonNegativeInteger {
 		specRef = instanceNonNegativeIntegerSpecRef(scalar.version)
 	}
@@ -1816,7 +1821,10 @@ func instanceScalarTypeForTarget(
 	if atomicKind == schemaSimpleTypeAtomicShort && !allowBoundedIntegerRoot {
 		return instanceScalarType{}, newInstanceValidationUnsupported(loc, fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()), related, fallbackVersion, errInstanceUnsupportedType)
 	}
-	if atomicKind != schemaSimpleTypeAtomicInteger && atomicKind != schemaSimpleTypeAtomicNonNegativeInteger && atomicKind != schemaSimpleTypeAtomicByte && atomicKind != schemaSimpleTypeAtomicShort && atomicKind != schemaSimpleTypeAtomicDecimal && atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
+	if atomicKind == schemaSimpleTypeAtomicInt && !allowBoundedIntegerRoot {
+		return instanceScalarType{}, newInstanceValidationUnsupported(loc, fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()), related, fallbackVersion, errInstanceUnsupportedType)
+	}
+	if atomicKind != schemaSimpleTypeAtomicInteger && atomicKind != schemaSimpleTypeAtomicNonNegativeInteger && atomicKind != schemaSimpleTypeAtomicByte && atomicKind != schemaSimpleTypeAtomicShort && atomicKind != schemaSimpleTypeAtomicInt && atomicKind != schemaSimpleTypeAtomicDecimal && atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", definition.Name()),
@@ -2003,6 +2011,11 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 			return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
 		}
 		return instanceBuiltInShortScalarType(related, loc, booleanVersion)
+	case "int":
+		if !allowBoundedIntegerRoot {
+			return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
+		}
+		return instanceBuiltInIntScalarType(related, loc, booleanVersion)
 	case "decimal":
 		return instanceBuiltInDecimalScalarType(related, loc)
 	case "precisionDecimal":
@@ -2021,7 +2034,7 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 		return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
 	case "positiveInteger":
 		return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
-	case "int", "language", "NCName", "anyURI", "ID":
+	case "language", "NCName", "anyURI", "ID":
 		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
 	default:
 		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
@@ -2070,6 +2083,10 @@ func instanceBuiltInByteScalarType(related []Loc, loc Loc, version XSDVersion) (
 
 func instanceBuiltInShortScalarType(related []Loc, loc Loc, version XSDVersion) (instanceScalarType, error) {
 	return instanceBuiltInBoundedIntegerScalarType(related, loc, version, schemaSimpleTypeAtomicShort, "short", "-32768", "32767")
+}
+
+func instanceBuiltInIntScalarType(related []Loc, loc Loc, version XSDVersion) (instanceScalarType, error) {
+	return instanceBuiltInBoundedIntegerScalarType(related, loc, version, schemaSimpleTypeAtomicInt, "int", "-2147483648", "2147483647")
 }
 
 func instanceBuiltInBoundedIntegerScalarType(related []Loc, loc Loc, version XSDVersion, kind schemaSimpleTypeAtomicKind, name, lower, upper string) (instanceScalarType, error) {
@@ -2236,6 +2253,13 @@ func instanceShortSpecRef(version XSDVersion) string {
 		return instanceShortXSD10SpecRef
 	}
 	return instanceShortXSD11SpecRef
+}
+
+func instanceIntSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceIntXSD10SpecRef
+	}
+	return instanceIntXSD11SpecRef
 }
 
 func instanceDecimalSpecRef(version XSDVersion) string {
