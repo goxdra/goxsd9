@@ -25,6 +25,34 @@ func boundedIntegerInstance(local, namespace, value string) string {
 	return `<` + local + ` xmlns="` + namespace + `">` + value + `</` + local + `>`
 }
 
+func assertBoundedIntegerEmptyAndStructureExits(t *testing.T, schema Schema, version XSDVersion, datatypeSpec, outside string) {
+	t.Helper()
+	declaration := boundedIntegerElementIn(t, schema, "urn:test", "direct")
+	for _, input := range []string{`<direct xmlns="urn:test"/>`, boundedIntegerInstance("direct", "urn:test", " \t\n ")} {
+		d := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+		want := mustTestLoc(t, "instance.xml", 1, strings.IndexByte(input, '>')+2)
+		if strings.HasSuffix(input, "/>") {
+			want = mustTestLoc(t, "instance.xml", 1, 1)
+		}
+		if d.Class() != FailureInvalid || d.Code() != InvalidIntegerLexicalCode || d.Loc() != want || d.SpecRef() != datatypeSpec || !reflect.DeepEqual(d.Related(), []Loc{declaration.Loc()}) {
+			t.Fatalf("empty bounded integer diagnostic = %s, related=%v", d, d.Related())
+		}
+	}
+	for _, test := range []struct {
+		input, marker string
+		cause         error
+	}{
+		{`<direct xmlns="urn:test" flag="x">` + outside + `</direct>`, `flag=`, errInstanceAttributes},
+		{`<direct xmlns="urn:test">` + outside + `<child/></direct>`, `<child`, errInstanceChildElements},
+	} {
+		d := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(test.input))))
+		want := mustTestLoc(t, "instance.xml", 1, strings.Index(test.input, test.marker)+1)
+		if d.Class() != FailureUnsupported || d.Code() != UnsupportedInstanceValidationCode || d.Loc() != want || d.SpecRef() != instanceValidationSpecRef(version) || !reflect.DeepEqual(d.Related(), []Loc{declaration.Loc()}) || !errors.Is(d, test.cause) || !errors.Is(d, ErrUnsupported) {
+			t.Fatalf("bounded integer structure diagnostic = %s", d)
+		}
+	}
+}
+
 func assertBoundedIntegerGraphRoot(t *testing.T, schema Schema, namespace, local string, named bool, upper, outside string, version XSDVersion) {
 	t.Helper()
 	declaration := boundedIntegerElementIn(t, schema, namespace, local)
@@ -72,7 +100,7 @@ func assertBoundedIntegerDiagnosticCase(t *testing.T, schema Schema, test bounde
 	d := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
 	wantRelated := []Loc{boundedIntegerElementIn(t, schema, "urn:test", test.local).Loc()}
 	if test.local != "direct" {
-		definitionName := map[string]string{"forward": "Later", "narrowed": "Tight", "enum": "Enumerated", "digits": "Digits"}[test.local]
+		definitionName := map[string]string{"forward": "Later", "narrowed": "Tight", "enum": "Enumerated", "digits": "Digits", "exclusive": "Exclusive"}[test.local]
 		matches := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:test", definitionName))
 		if len(matches) != 1 {
 			t.Fatalf("simple type %q count = %d", definitionName, len(matches))
@@ -95,6 +123,23 @@ func assertBoundedIntegerDiagnosticCase(t *testing.T, schema Schema, test bounde
 	}
 	if test.cause && d.Unwrap() == nil {
 		t.Fatalf("%s=%q lost facet cause", test.local, test.value)
+	}
+	cause := boundedIntegerDiagnosticCause(test.code)
+	if test.cause && cause != nil && !errors.Is(d, cause) {
+		t.Fatalf("%s=%q lost %v: %s", test.local, test.value, cause, d)
+	}
+}
+
+func boundedIntegerDiagnosticCause(code string) error {
+	switch code {
+	case BoundValueViolationCode:
+		return errBoundValueViolation
+	case EnumerationValueViolationCode:
+		return errEnumerationValueViolation
+	case DigitFacetValueViolationCode:
+		return errDigitFacetValueViolation
+	default:
+		return nil
 	}
 }
 

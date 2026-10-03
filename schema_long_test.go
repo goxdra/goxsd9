@@ -496,7 +496,7 @@ func assertLongInvalidNoPartialSchema(t *testing.T, schema Schema, err error, ca
 	}
 }
 
-func TestSchemaLongConsumersRemainUnsupported(t *testing.T) {
+func TestSchemaLongGenerationRemainsUnsupported(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="xs:long"/></xs:schema>`
@@ -504,7 +504,13 @@ func TestSchemaLongConsumersRemainUnsupported(t *testing.T) {
 			if err != nil {
 				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
 			}
-			assertIntegerDerivedConsumersUnsupported(t, schema)
+			output, generationErr := GenerateGo(schema, "generated")
+			if output != nil || generationErr == nil {
+				t.Fatalf("GenerateGo result = (%q, %v), want no output", output, generationErr)
+			}
+			if diagnostic := requireDiagnostic(t, generationErr); diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported || !errors.Is(generationErr, ErrUnsupported) {
+				t.Fatalf("GenerateGo diagnostic = %s", diagnostic)
+			}
 		})
 	}
 }

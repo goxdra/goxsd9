@@ -628,7 +628,6 @@ func schemaLongConsumerRoot(version XSDVersion, owner schemaLongGraphOwner, type
 </xs:schema>`
 }
 
-//nolint:gocognit // Keep each consumer's located boundary in one matrix.
 func assertLongParticleConsumersUnsupported(t *testing.T, schema Schema, root string, owner schemaLongGraphOwner, typeName string, version XSDVersion) {
 	t.Helper()
 	rootLoc := schemaLongGraphLoc(t, root, nil, "root.xsd", `<xs:element name="root"`)
@@ -689,10 +688,7 @@ func assertLongParticleConsumersUnsupported(t *testing.T, schema Schema, root st
 	if validationErr == nil {
 		t.Fatal("local long ValidateInstance unexpectedly succeeded")
 	}
-	wantValidationSpec := "xsd11-structures#cvc-elt"
-	if version == XSDVersion10 && (named || owner.extension) {
-		wantValidationSpec = "xsd10-structures#cvc-elt"
-	}
+	wantValidationSpec := instanceValidationSpecRef(version)
 	assertLongParticleConsumerDiagnostic(t, validationErr, FeatureInstanceValidation, UnsupportedInstanceValidationCode, wantValidationPrimary, wantValidationRelated, wantValidationSpec)
 }
 
