@@ -17,7 +17,7 @@ with XPath, namespaces, and resolved keyref targets. Validation and generation r
 them until identity semantics are implemented.
 
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
-global built-in and supported named `xs:short` values and bounded
+global built-in and supported named `xs:short` and `xs:int` values and bounded
 precisionDecimal lists/unions;
 `GenerateGo(schema, packageName)` returns Go source. A component can be
 queryable even when one or both consumers reject it.
