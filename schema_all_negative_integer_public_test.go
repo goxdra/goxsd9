@@ -41,7 +41,7 @@ func TestPublicParseAllBuiltinNegativeIntegerIsQueryable(t *testing.T) {
 	}
 	bounds, ok := reference.IntegerBounds()
 	maximum, hasMaximum := bounds.MaxInclusiveFacet()
-	if !ok || !hasMaximum || maximum.Value().Canonical() != "-1" {
+	if !ok || !hasMaximum || maximum.Value().Canonical() != "-1" || !maximum.Loc().IsZero() {
 		t.Fatalf("maxInclusive = %v/%t", maximum, hasMaximum)
 	}
 }

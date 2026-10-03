@@ -169,7 +169,7 @@
 // [0,18446744073709551615]; built-in nonNegativeInteger retains intrinsic
 // minInclusive=0 without a source Loc; built-in positiveInteger retains
 // minInclusive=1 without a source Loc or component ID; built-in negativeInteger retains
-// maxInclusive=-1 at its type Loc with no component ID; named-effective particles retain exact narrowed,
+// maxInclusive=-1 with no source facet Loc or component ID; named-effective particles retain exact narrowed,
 // inclusive/exclusive bounds, integer enumeration/digit facets, source locations,
 // identities, graph provenance, and exact occurrences. Outside bounded list/union
 // direct sequences, validation rejects negativeInteger and long-family particles;

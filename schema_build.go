@@ -9477,7 +9477,7 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		if err != nil {
 			return schemaSimpleTypeReferenceComponent{}, err
 		}
-		maxInclusive, err := ParseIntegerMaxInclusiveFacet("-1", input.loc, version)
+		maxInclusive, err := ParseIntegerMaxInclusiveFacet("-1", Loc{}, version)
 		if err != nil {
 			return schemaSimpleTypeReferenceComponent{}, err
 		}

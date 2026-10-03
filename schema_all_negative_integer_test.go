@@ -63,8 +63,8 @@ func TestDirectAllBuiltinNegativeIntegerFacts(t *testing.T) {
 			}
 			bounds, ok := reference.IntegerBounds()
 			maximum, hasMaximum := bounds.MaxInclusiveFacet()
-			if !ok || !hasMaximum || bounds.Version() != profile.version || maximum.Kind() != BoundMaxInclusive || maximum.Value().Canonical() != "-1" || maximum.Loc() != wantTypeLoc {
-				t.Fatalf("intrinsic bound = %v/%t, type loc %s", maximum, hasMaximum, wantTypeLoc)
+			if !ok || !hasMaximum || bounds.Version() != profile.version || maximum.Kind() != BoundMaxInclusive || maximum.Value().Canonical() != "-1" || !maximum.Loc().IsZero() {
+				t.Fatalf("intrinsic bound = %v/%t, want -1 with no facet Loc", maximum, hasMaximum)
 			}
 			minimum := debt.Occurrences().Minimum()
 			minimum.value.SetInt64(99)
