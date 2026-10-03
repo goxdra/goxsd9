@@ -130,7 +130,7 @@
 // forms use the admission-then-absence rule under every policy.
 // A direct xs:all on a named complex type retains one immutable ordered
 // AllParticle member view of local integer/decimal/Boolean declarations,
-// built-in token/NMTOKEN declarations, and element references. Member order is lexical
+// built-in token/NMTOKEN/negativeInteger declarations, and element references. Member order is lexical
 // for queries; matching remains unsupported. XSD 1.0 limits outer and member occurrences; XSD 1.1 permits
 // exact general member bounds. Resolved 0/0 terms omit after their gates;
 // inline complex members reject even at 0/0. Surviving duplicate names,
@@ -169,7 +169,7 @@
 // [0,18446744073709551615]; built-in nonNegativeInteger retains intrinsic
 // minInclusive=0 without a source Loc; built-in positiveInteger retains
 // minInclusive=1 without a source Loc or component ID; built-in negativeInteger retains
-// maxInclusive=-1 at its type Loc with no component ID; named-effective particles retain exact narrowed,
+// maxInclusive=-1 with no source facet Loc or component ID; named-effective particles retain exact narrowed,
 // inclusive/exclusive bounds, integer enumeration/digit facets, source locations,
 // identities, graph provenance, and exact occurrences. Outside bounded list/union
 // direct sequences, validation rejects negativeInteger and long-family particles;

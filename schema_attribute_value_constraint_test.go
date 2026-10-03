@@ -193,9 +193,9 @@ func TestSchemaBridgeGlobalNegativeIntegerAttributeConstraintDiagnostics(t *test
 		cause     error
 		related   string
 	}{
-		{name: "zero", typeName: "xs:negativeInteger", kind: AttributeValueConstraintDefault, lexical: "0", innerCode: BoundValueViolationCode, cause: errBoundValueViolation, related: `type="xs:negativeInteger"`},
-		{name: "negative zero", typeName: "xs:negativeInteger", kind: AttributeValueConstraintFixed, lexical: "-0", innerCode: BoundValueViolationCode, cause: errBoundValueViolation, related: `type="xs:negativeInteger"`},
-		{name: "positive", typeName: "xs:negativeInteger", kind: AttributeValueConstraintDefault, lexical: "+1", innerCode: BoundValueViolationCode, cause: errBoundValueViolation, related: `type="xs:negativeInteger"`},
+		{name: "zero", typeName: "xs:negativeInteger", kind: AttributeValueConstraintDefault, lexical: "0", innerCode: BoundValueViolationCode, cause: errBoundValueViolation},
+		{name: "negative zero", typeName: "xs:negativeInteger", kind: AttributeValueConstraintFixed, lexical: "-0", innerCode: BoundValueViolationCode, cause: errBoundValueViolation},
+		{name: "positive", typeName: "xs:negativeInteger", kind: AttributeValueConstraintDefault, lexical: "+1", innerCode: BoundValueViolationCode, cause: errBoundValueViolation},
 		{name: "malformed", typeName: "xs:negativeInteger", kind: AttributeValueConstraintFixed, lexical: "--2", innerCode: InvalidIntegerLexicalCode},
 		{name: "narrowed inherited bound", typeName: "r:Narrowed", typeDecl: `<xs:simpleType name="Base"><xs:restriction base="xs:negativeInteger"><xs:maxInclusive value="-10"/></xs:restriction></xs:simpleType><xs:simpleType name="Narrowed"><xs:restriction base="r:Base"/></xs:simpleType>`, kind: AttributeValueConstraintFixed, lexical: "-9", innerCode: BoundValueViolationCode, cause: errBoundValueViolation, related: `value="-10"`},
 		{name: "total digits", typeName: "r:Digit", typeDecl: `<xs:simpleType name="Digit"><xs:restriction base="xs:negativeInteger"><xs:totalDigits value="2"/></xs:restriction></xs:simpleType>`, kind: AttributeValueConstraintDefault, lexical: "-123", innerCode: DigitFacetValueViolationCode, cause: errDigitFacetValueViolation, related: `value="2"`},
@@ -223,6 +223,9 @@ func TestSchemaBridgeGlobalNegativeIntegerAttributeConstraintDiagnostics(t *test
 					t.Fatalf("nested diagnostic = %s/%s, want %s at %s", inner, inner.Loc(), test.innerCode, valueLoc)
 				}
 				if test.related == "" {
+					if len(diagnostic.Related()) != 0 || len(inner.Related()) != 0 {
+						t.Fatalf("unlocated intrinsic bound gained related location: %v/%v", diagnostic.Related(), inner.Related())
+					}
 					return
 				}
 				facetLoc := elementReferenceTestAttributeLoc(t, root, test.related)
