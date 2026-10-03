@@ -21,11 +21,6 @@ func intValidationSchema(t *testing.T, profile longPolicyProfile) Schema {
 	return schema
 }
 
-func intTextLoc(t *testing.T, input string) Loc {
-	t.Helper()
-	return mustTestLoc(t, "instance.xml", 1, strings.IndexByte(input, '>')+2)
-}
-
 func intDatatypeSpec(version XSDVersion) string {
 	if version == XSDVersion10 {
 		return instanceIntXSD10SpecRef
@@ -130,34 +125,9 @@ func TestValidateIntComposedGraphRoots(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Keep policy-specific lexical and structural precedence exits together.
 func TestValidateIntEmptyAndStructureExits(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
-		schema := intValidationSchema(t, profile)
-		declaration := requireIntElement(t, schema, "direct", "urn:test")
-		for _, input := range []string{`<direct xmlns="urn:test"/>`, boundedIntegerInstance("direct", "urn:test", " \t\n ")} {
-			d := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
-			want := intTextLoc(t, input)
-			if strings.HasSuffix(input, "/>") {
-				want = mustTestLoc(t, "instance.xml", 1, 1)
-			}
-			if d.Class() != FailureInvalid || d.Code() != InvalidIntegerLexicalCode || d.Loc() != want || d.SpecRef() != intDatatypeSpec(profile.version) || !reflect.DeepEqual(d.Related(), []Loc{declaration.Loc()}) {
-				t.Fatalf("empty int diagnostic = %s, related=%v", d, d.Related())
-			}
-		}
-		for _, test := range []struct {
-			input, marker string
-			cause         error
-		}{
-			{`<direct xmlns="urn:test" flag="x">2147483648</direct>`, `flag=`, errInstanceAttributes},
-			{`<direct xmlns="urn:test">2147483648<child/></direct>`, `<child`, errInstanceChildElements},
-		} {
-			d := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(test.input))))
-			wantLoc := mustTestLoc(t, "instance.xml", 1, strings.Index(test.input, test.marker)+1)
-			if d.Class() != FailureUnsupported || d.Code() != UnsupportedInstanceValidationCode || d.Loc() != wantLoc || d.SpecRef() != instanceValidationSpecRef(profile.version) || !reflect.DeepEqual(d.Related(), []Loc{declaration.Loc()}) || !errors.Is(d, test.cause) || !errors.Is(d, ErrUnsupported) {
-				t.Fatalf("int structure diagnostic = %s", d)
-			}
-		}
+		assertBoundedIntegerEmptyAndStructureExits(t, intValidationSchema(t, profile), profile.version, intDatatypeSpec(profile.version), "2147483648")
 	}
 }
 
