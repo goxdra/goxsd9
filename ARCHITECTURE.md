@@ -23,8 +23,8 @@ Acyclic dependencies use stable topological order; slices order walks/output.
 
 ## Input and resolution
 
-Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. The caller selects
-graph language policy; resolvers acquire sources under their resolution policy.
+Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Callers select
+graph policy; resolvers acquire sources under their resolution policy.
 Streams close; identities decode once; repeats/cycles close.
 
 ```go
@@ -73,8 +73,8 @@ errors retain cause/`Loc` without a `Schema`. Sequences resolve children first;
 choices resolve refs once; named groups resolve/check before omission. Refs retain
 QName/RefLoc/TargetID/order without expansion; broader forms reject consumers.
 Non-`0/0` inline long-family locals fail at type/simpleType `Loc`; valid `0/0` omits.
-Direct named-complex `all` retains ordered integer/decimal/Boolean locals,
-built-in `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger` locals, and refs, with exact bounds, gated `0/0` omission, and
+Direct named-complex `all` retains ordered integer/decimal/Boolean,
+built-in/named effective `token`, built-in `NMTOKEN`/`negativeInteger`/`nonNegativeInteger` locals, and refs with exact bounds, `0/0` omission, and
 duplicate locations. XSD 1.0 caps maxima at one; XSD 1.1 permits repeats
 and outer `0/0`.
 Resolved anonymous simple-type `0/0` terms omit; inline complexes always reject.
