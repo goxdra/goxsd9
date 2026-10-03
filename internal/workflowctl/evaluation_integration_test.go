@@ -2534,6 +2534,7 @@ type workflowBackend struct {
 	branch                           string
 	localBranch                      string
 	head                             string
+	claimLease                       time.Time
 	title                            string
 	body                             string
 	summary                          string
@@ -2603,6 +2604,7 @@ func newWorkflowBackend(t *testing.T) *workflowBackend {
 	body += "\n" + string(block)
 	return &workflowBackend{
 		t: t, root: root, primaryRoot: primaryRoot, branch: "agent/issue-13", localBranch: "agent/issue-13", head: "evaluated-head",
+		claimLease:        time.Now().UTC().Add(claimDuration).Truncate(time.Second),
 		body:              body,
 		summary:           summary,
 		summaryFile:       summaryFile,
@@ -2662,7 +2664,7 @@ func (b *workflowBackend) execute(dir string, input io.Reader, name string, args
 		}
 	}
 	if name == "git" {
-		return b.executeGit(dir, args)
+		return b.executeGit(dir, args, data)
 	}
 	if name == "gh" {
 		return b.executeGitHub(data, args)
@@ -2670,12 +2672,12 @@ func (b *workflowBackend) execute(dir string, input io.Reader, name string, args
 	return "", fmt.Errorf("unexpected command in %s: %s %s", dir, name, strings.Join(args, " "))
 }
 
-func (b *workflowBackend) executeGit(dir string, args []string) (string, error) {
+func (b *workflowBackend) executeGit(dir string, args []string, input []byte) (string, error) {
 	command := strings.Join(args, " ")
 	if output, ok := b.executeGitBase(dir, command); ok {
 		return output, nil
 	}
-	return b.executeGitClaim(dir, command)
+	return b.executeGitClaim(dir, command, input)
 }
 
 func (b *workflowBackend) executeGitBase(dir, command string) (string, bool) {
@@ -2794,7 +2796,10 @@ func (b *workflowBackend) workflowDiffNameStatus() string {
 	return changes.String()
 }
 
-func (b *workflowBackend) executeGitClaim(dir, command string) (string, error) {
+func (b *workflowBackend) executeGitClaim(dir, command string, input []byte) (string, error) {
+	if output, ok := fakeClaimMarkerGit(command, input, b.head, 13, "run-test", b.claimLease); ok {
+		return output, nil
+	}
 	switch command {
 	case "fetch origin refs/heads/agent/issue-13:refs/remotes/origin/agent/issue-13":
 		return "", nil
@@ -2804,9 +2809,6 @@ func (b *workflowBackend) executeGitClaim(dir, command string) (string, error) {
 		return b.head, nil
 	case "rev-parse --verify --end-of-options base-sha^{commit}":
 		return "base-sha", nil
-	case "log -100 --format=%B":
-		lease := time.Now().UTC().Add(claimDuration).Truncate(time.Second)
-		return claimMessage(13, "run-test", lease), nil
 	case "log --format=%x00%B%x00 origin/main.." + b.head:
 		return b.workCommitLog, nil
 	default:

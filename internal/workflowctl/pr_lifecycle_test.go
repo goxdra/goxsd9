@@ -315,6 +315,7 @@ func runOpenLifecycleCommand(t *testing.T, body string) (createPullRequestReques
 	}
 	var posted createPullRequestRequest
 	mutations := []string{}
+	claimLease := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
 	application := app{
 		ctx:    context.Background(),
 		stdout: new(bytes.Buffer),
@@ -329,6 +330,9 @@ func runOpenLifecycleCommand(t *testing.T, body string) (createPullRequestReques
 				}
 				data = readData
 			}
+			if output, ok := fakeClaimMarkerGit(strings.TrimPrefix(command, "git "), data, "head", 13, "run-test", claimLease); ok {
+				return output, nil
+			}
 			switch command {
 			case "git rev-parse --show-toplevel":
 				return "/repo", nil
@@ -342,8 +346,6 @@ func runOpenLifecycleCommand(t *testing.T, body string) (createPullRequestReques
 				return "", nil
 			case "git rev-parse HEAD", "git rev-parse origin/agent/issue-13":
 				return "head", nil
-			case "git log -100 --format=%B":
-				return claimMessage(13, "run-test", time.Now().UTC().Add(time.Hour)), nil
 			case "git push origin HEAD:refs/heads/agent/issue-13":
 				mutations = append(mutations, command)
 				return "", nil

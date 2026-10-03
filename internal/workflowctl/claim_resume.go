@@ -89,6 +89,7 @@ type claimResumeRenewalResult struct {
 // claim marker.  A marker is deliberately an empty, single-parent commit;
 // source changes and merge history are never part of claim ownership state.
 type canonicalClaimCommit struct {
+	head    string
 	parent  string
 	tree    string
 	message string
@@ -550,7 +551,7 @@ func (a app) readCanonicalClaimIdentity(root, head, expectedParent string) (cano
 	if parseErr != nil {
 		return canonicalClaimCommit{}, stateError("claim marker %s has non-canonical metadata; preserve claim artifacts: %w", head, parseErr)
 	}
-	return canonicalClaimCommit{parent: parsed.parent, tree: tree, message: parsed.message, issue: observedIssue, runID: observedRunID, lease: lease}, nil
+	return canonicalClaimCommit{head: head, parent: parsed.parent, tree: tree, message: parsed.message, issue: observedIssue, runID: observedRunID, lease: lease}, nil
 }
 
 func parseCanonicalCommitObject(object, head string) (canonicalCommitObject, error) {
