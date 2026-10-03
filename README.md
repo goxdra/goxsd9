@@ -20,13 +20,13 @@ them until identity semantics are implemented.
 global built-in and supported named `xs:short`, `xs:int`, and `xs:long` values and bounded
 precisionDecimal lists/unions;
 `GenerateGo(schema, packageName)` emits Go, including global built-in and named
-atomic `xs:long` as `StrictInteger`; long particles and attributes remain query-only.
+atomic `xs:long` as `StrictInteger`; global long attributes remain query-only.
 Grouped extensions retain refs/attributes over named empty bases; `0/0` omits.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
 and [decision 0007](docs/decisions/0007-particle-occurrence.md) for behavior and exact occurrences.
 
-Direct choices, sequences, and bounded attribute-free extensions retain local built-in
-`xs:long` and supported named effective-long particles as query-only immutable facts.
+Choices, sequences, and bounded attribute-free extensions retain built-in/named
+long locals as query-only facts; inline local long types reject schema admission.
 `GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
 default integer/decimal sequence refs; other reference targets or occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named integer, decimal,

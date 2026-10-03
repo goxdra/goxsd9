@@ -508,6 +508,14 @@
 // malformed/stale built-in or named facts fail closed as FailureInternal/GOXSD9030
 // with nil output. Named final, atomic-restriction-variety, and effective-facet
 // gates reject unsupported forms with FailureUnsupported/GOXSD9029 and no output.
+// Standalone named atomic-long simple types and direct or named global long
+// elements generate under Compatibility, Strict10, and Strict11. Built-in
+// element fields and standalone named declarations use StrictInteger; named
+// element fields use their generated named type. Effective long bounds and
+// facets retain exact values, locations, and named type identities. Built-in
+// bounds are inclusive [-9223372036854775808,9223372036854775807], with fixed
+// fractionDigits=0. Malformed or stale long facts yield FailureInternal/GOXSD9030
+// and nil output.
 // Supported global built-in/named Boolean/integer/decimal and effective
 // xs:string-atomic/token/NMTOKEN simple-type components and global element
 // declarations generate, as do global inline-element string/token/NMTOKEN
@@ -549,7 +557,11 @@
 // Local inline int particles reject schema admission; GenerateGo rejects int-bearing components.
 // Direct built-in and supported named atomic-long global roots validate;
 // global inline long roots and admitted local/reference long uses reject validation.
-// Local inline long particles reject schema admission; GenerateGo rejects long-bearing components.
+// Nonzero inline local long particles reject schema admission; valid 0/0 omits.
+// Built-in/named local long particles remain query-only; choice/sequence and
+// reference consumers reject them. Global long attributes remain query-only;
+// GenerateGo rejects those and global inline long elements with located
+// unsupported diagnostics and nil output.
 // This consumer boundary does not widen the global attribute type or
 // value-constraint model described above.
 // Built-in xs:short has inclusive [-32768,32767] bounds without a component ID
