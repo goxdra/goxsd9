@@ -56,6 +56,9 @@ func validateCodegenLongFacts(loc Loc, context string, facets schemaSimpleTypeFa
 			if err := bounds.ValidateInteger(value, enumeration.Loc()); err != nil {
 				return newCodegenLongInternal(loc, context+" has enumeration outside effective bounds", appendCodegenRelated(related, enumeration.Loc()), codegenSchemaInvariantCause(err), version)
 			}
+			if err := typed.digits.ValidateInteger(value, enumeration.Loc()); err != nil {
+				return newCodegenLongInternal(loc, context+" has enumeration outside effective digit facets", appendCodegenRelated(related, enumeration.Loc()), codegenSchemaInvariantCause(err), version)
+			}
 		}
 	}
 	return nil
@@ -96,6 +99,11 @@ func codegenLongInternalFrom(err error, version XSDVersion) error {
 }
 
 func newCodegenLongInternal(loc Loc, message string, related []Loc, cause error, version XSDVersion) Diagnostic {
+	var causeDiagnostic Diagnostic
+	if errors.As(cause, &causeDiagnostic) {
+		related = appendCodegenRelated(related, causeDiagnostic.Loc())
+		related = mergeCodegenRelated(related, causeDiagnostic.Related())
+	}
 	diagnostic := newCodegenInternal(loc, message, related, cause)
 	diagnostic.specRef = codegenLongSpecRef(version)
 	return diagnostic
