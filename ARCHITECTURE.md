@@ -133,21 +133,22 @@ SimpleContent uses built-in string with selected precisionDecimal attributes, or
 Structure precedes facets; failures retain locations. Other byte/short/int/long/unsignedLong validation uses reject.
 QName globals/refs reject validation and generation with located diagnostics and nil output.
 
-Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
-types, global built-in/named elements of those types, inline global string/token/NMTOKEN, and
-named/global `nonNegativeInteger` and `long`. Standalone `normalizedString` rejects. Global elements require
+Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-string types,
+their global built-in/named elements, inline global string/token/NMTOKEN, and
+named/global `nonNegativeInteger`, `long`, and `byte`. `normalizedString` rejects. Globals require
 `abstract=false,nillable=false`; violations yield `GOXSD9029` and nil output.
-Identity constraints yield `FailureUnsupported`/`GOXSD9029` at first constraint `Loc`; no output.
-Default integer/decimal sequence refs preserve TargetID/order; others unsupported.
+Identity constraints yield `GOXSD9029` at first constraint `Loc`; no output.
+Integer/decimal sequence refs preserve TargetID/order.
 `nonNegativeInteger` uses `StrictInteger`; canonical built-in integer facts have
 `fractionDigits=0` and `minInclusive=0`; named bounds/facets survive.
-Unsupported final/variety/effective-facet states yield `GOXSD9029`; malformed
+Unsupported final/variety/facets yield `GOXSD9029`; malformed
 facts yield `GOXSD9030`; nil output. Nonzero inline
 `nonNegativeInteger` has no schema; built-in/named locals query-only, `0/0`
-absent. Global `int`/`short`/`byte`/`unsignedLong`/`positiveInteger`
+absent. Global `int`/`short`/`unsignedLong`/`positiveInteger`
 and `nonNegativeInteger`/`long` refs are query-only. `IntegerBounds()` copies
 built-in/named bounds; negativeInteger max=-1, positiveInteger min=1, named
-restrictions retain provenance. Local generation admits default
+restrictions retain provenance. Byte bounds are [-128,127]; named facets survive.
+Local generation admits default
 Boolean/integer/decimal choices/sequences and all-token choices; other local
 shapes and attributes reject.
 

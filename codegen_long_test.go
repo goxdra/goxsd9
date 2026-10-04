@@ -3,7 +3,6 @@ package goxsd9_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"go/format"
 	"strings"
 	"testing"
@@ -215,78 +214,12 @@ func useLongScalars() {
 	}
 }
 
-//nolint:gocognit // Keep the policy, type form, and declaration-flag matrix together.
 func TestGenerateGoGlobalLongRejectsNonOrdinaryDeclarationsAcrossPolicies(t *testing.T) {
-	policies := []struct {
-		name    string
-		policy  goxsd9.LanguagePolicy
-		version string
-		wantRef string
-	}{
-		{name: "Compatibility", policy: goxsd9.Compatibility, wantRef: "xsd11-structures#Element_Declaration_details"},
-		{name: "Strict10", policy: goxsd9.Strict10, version: "1.0", wantRef: "xsd10-structures#Element_Declaration_details"},
-		{name: "Strict11", policy: goxsd9.Strict11, version: "1.1", wantRef: "xsd11-structures#Element_Declaration_details"},
-	}
-	flags := []struct {
-		name      string
-		attribute string
-		message   string
-	}{
-		{name: "abstract", attribute: ` abstract="true"`, message: "abstract=true"},
-		{name: "nillable", attribute: ` nillable="true"`, message: "nillable=true"},
-	}
-	for _, policy := range policies {
-		for _, flag := range flags {
-			for _, shape := range []struct {
-				name, typeName, definition string
-			}{
-				{"direct", "xs:long", ""},
-				{"named", "t:Value", `<xs:simpleType name="Value"><xs:restriction base="xs:long"/></xs:simpleType>`},
-			} {
-				t.Run(policy.name+"/"+flag.name+"/"+shape.name, func(t *testing.T) {
-					version := ""
-					if policy.version != "" {
-						version = ` version="` + policy.version + `"`
-					}
-					root := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"` + version + `><xs:element name="value" type="` + shape.typeName + `"` + flag.attribute + `/>` + shape.definition + `</xs:schema>`
-					schema, err := parsePublicNonNegativeIntegerSchema(t, root, policy.policy)
-					if err != nil {
-						t.Fatalf("ParseSchemaWithPolicy: %v", err)
-					}
-					components := schema.FindKind(goxsd9.ComponentKindElementDeclaration, mustPublicNonNegativeIntegerQName(t, "urn:test", "value"))
-					if len(components) != 1 {
-						t.Fatalf("value declarations = %d, want one", len(components))
-					}
-					declaration, ok := components[0].ElementDeclaration()
-					if !ok {
-						t.Fatal("value declaration view is missing")
-					}
-					if flag.name == "abstract" && !declaration.IsAbstract() {
-						t.Fatal("value declaration lost abstract=true")
-					}
-					if flag.name == "nillable" && !declaration.IsNillable() {
-						t.Fatal("value declaration lost nillable=true")
-					}
-
-					output, generationErr := goxsd9.GenerateGo(schema, "generated")
-					if output != nil || generationErr == nil {
-						t.Fatalf("GenerateGo result = (%q, %v), want unsupported with nil output", output, generationErr)
-					}
-					diagnostic := publicNonNegativeIntegerDiagnostic(t, generationErr)
-					if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode || diagnostic.Feature() != goxsd9.FeatureCodegen || diagnostic.SpecRef() != policy.wantRef || diagnostic.Loc() != declaration.Loc() || !strings.Contains(diagnostic.Message(), flag.message) || !errors.Is(generationErr, goxsd9.ErrUnsupported) {
-						t.Fatalf("GenerateGo diagnostic = %s, want unsupported %s at %s with %s", diagnostic, flag.message, declaration.Loc(), policy.wantRef)
-					}
-				})
-			}
-		}
-	}
+	testGenerateGoGlobalBoundedIntegerRejectsNonOrdinaryDeclarationsAcrossPolicies(t, "long")
 }
 
-//nolint:gocognit // Keep excluded generation shapes in one diagnostic matrix.
 func TestGenerateGoLongExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testing.T) {
-	tests := []struct {
-		name, body, marker, related string
-	}{
+	tests := []codegenBoundedIntegerExclusionCase{
 		{"inline global", `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:element>`, `<xs:element name="value"`, ""},
 		{"local sequence", `<xs:complexType name="Container"><xs:sequence><xs:element name="value" type="xs:long"/></xs:sequence></xs:complexType>`, `<xs:element name="value"`, ""},
 		{"local choice", `<xs:complexType name="Container"><xs:choice><xs:element name="value" type="xs:long"/></xs:choice></xs:complexType>`, `<xs:element name="value"`, ""},
@@ -296,52 +229,7 @@ func TestGenerateGoLongExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testin
 		{"named final", `<xs:simpleType name="Value" final="restriction"><xs:restriction base="xs:long"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `final="restriction"`},
 		{"named union", `<xs:simpleType name="Value"><xs:union memberTypes="xs:long"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `<xs:union`},
 	}
-	for _, profile := range []struct {
-		name, version, specPrefix string
-		policy                    goxsd9.LanguagePolicy
-	}{
-		{"Compatibility", "", "xsd11-", goxsd9.Compatibility},
-		{"Strict10", ` version="1.0"`, "xsd10-", goxsd9.Strict10},
-		{"Strict11", ` version="1.1"`, "xsd11-", goxsd9.Strict11},
-	} {
-		for _, test := range tests {
-			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
-				root := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"` + profile.version + `>` + test.body + `</xs:schema>`
-				schema, err := parsePublicNonNegativeIntegerSchema(t, root, profile.policy)
-				if err != nil {
-					t.Fatalf("ParseSchemaWithPolicy: %v", err)
-				}
-				output, err := goxsd9.GenerateGo(schema, "generated")
-				if output != nil || err == nil {
-					t.Fatalf("GenerateGo = (%q, %v), want nil unsupported output", output, err)
-				}
-				diagnostic := publicNonNegativeIntegerDiagnostic(t, err)
-				index := strings.Index(root, test.marker)
-				if index < 0 {
-					t.Fatalf("missing location marker %q", test.marker)
-				}
-				wantLoc, err := goxsd9.NewLoc("root.xsd", 1, index+1)
-				if err != nil {
-					t.Fatalf("NewLoc: %v", err)
-				}
-				if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != codegenUnsupportedCode || diagnostic.Loc() != wantLoc || diagnostic.Unwrap() == nil || !strings.HasPrefix(diagnostic.SpecRef(), profile.specPrefix) {
-					t.Fatalf("diagnostic = %s, want GOXSD9029 at %s with a preserved cause", diagnostic, wantLoc)
-				}
-				if test.related != "" {
-					wantRelated := publicLongMarkerLoc(t, root, test.related)
-					found := false
-					for _, related := range diagnostic.Related() {
-						if related == wantRelated {
-							found = true
-						}
-					}
-					if !found {
-						t.Fatalf("related locations = %v, want %s", diagnostic.Related(), wantRelated)
-					}
-				}
-			})
-		}
-	}
+	testGenerateGoBoundedIntegerExclusions(t, tests)
 }
 
 func publicLongMarkerLoc(t *testing.T, source, marker string) goxsd9.Loc {

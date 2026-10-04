@@ -16,11 +16,11 @@ Supported global elements retain ordered `xs:unique`, `xs:key`, and `xs:keyref` 
 with XPath, namespaces, and resolved keyref targets. Validation and generation reject
 them until identity semantics are implemented.
 
-`ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
-built-in and supported named `xs:short`, `xs:int`, `xs:long`, and `xs:unsignedLong` values and bounded
+`ValidateInstance(schema, sourceID, reader)` checks an instance, including
+built-in/named `xs:short`, `xs:int`, `xs:long`, and `xs:unsignedLong` values and bounded
 precisionDecimal lists/unions;
-`GenerateGo(schema, packageName)` emits global `xs:long`: built-in fields use
-`StrictInteger`; named fields use generated types backed by it. Global long attributes are query-only.
+`GenerateGo(schema, packageName)` emits global `xs:byte` and `xs:long`: built-in
+fields use `StrictInteger`; named fields use generated types backed by it. Global byte and long attributes are query-only.
 Grouped extensions retain refs/attributes over named empty bases; `0/0` omits.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
 and [decision 0007](docs/decisions/0007-particle-occurrence.md) for details.
