@@ -17,7 +17,7 @@ with XPath, namespaces, and resolved keyref targets. Validation and generation r
 them until identity semantics are implemented.
 
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
-global built-in and supported named `xs:short`, `xs:int`, and `xs:long` values and bounded
+built-in and supported named `xs:short`, `xs:int`, `xs:long`, and `xs:unsignedLong` values and bounded
 precisionDecimal lists/unions;
 `GenerateGo(schema, packageName)` emits global `xs:long`: built-in fields use
 `StrictInteger`; named fields use generated types backed by it. Global long attributes are query-only.

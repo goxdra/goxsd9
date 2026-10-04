@@ -193,7 +193,7 @@ func assertBoundedIntegerLocalConsumersRemainUnsupported(t *testing.T, datatype,
 					}
 					d := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
 					if d.Class() != FailureUnsupported || d.Code() != UnsupportedInstanceValidationCode || d.Loc() != wantPrimary || d.SpecRef() != instanceValidationSpecRef(profile.version) || !errors.Is(d, ErrUnsupported) {
-						t.Fatalf("local %s diagnostic = %s", datatype, d)
+						t.Fatalf("local %s diagnostic = %s, loc %s want %s, spec %q want %q", datatype, d, d.Loc(), wantPrimary, d.SpecRef(), instanceValidationSpecRef(profile.version))
 					}
 					for _, loc := range []Loc{root.Loc(), definition.Loc(), groupLoc, particleLoc} {
 						if !hasRelatedLoc(d.Related(), loc) {
