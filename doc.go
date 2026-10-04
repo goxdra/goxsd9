@@ -384,10 +384,14 @@
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as direct xs:string or a named/anonymous restriction with effective
 // xs:string atomic kind, or built-in/named xs:boolean/xs:token/xs:NMTOKEN/
-// xs:integer/xs:nonNegativeInteger/xs:byte/xs:short/xs:int/xs:long/xs:decimal
+// xs:integer/xs:nonNegativeInteger/xs:byte/xs:short/xs:int/xs:long/xs:unsignedLong/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
 // or Strict11, or as a supported local-attribute complex root or bounded
 // direct sequence of global complex refs or named local complex targets.
+// Global unsignedLong roots apply exact bounds and facets; Strict10 requires
+// digits-only lexical values, while Compatibility and Strict11 admit leading
+// plus signs and signed zero.
+// Global inline unsignedLong roots reject validation.
 // Named/inline global precisionDecimal lists and bounded unions validate under
 // Compatibility/Strict11. Selected local uses admit precisionDecimal atomic,
 // precisionDecimal-item list, or precisionDecimal/negativeInteger union types;
@@ -420,8 +424,11 @@
 // errors; failures retain instance and related schema locations.
 // Outside bounded list/union sequences, mixed scalar-family sequences,
 // direct-choice repetition, and excluded particle/target shapes remain unsupported.
-// Local long/int/short/byte/unsignedLong/nonNegativeInteger particles are query-only
-// to both consumers; negativeInteger also validates as a bounded variety sibling.
+// Admitted local built-in/named long/int/short/byte/unsignedLong/
+// nonNegativeInteger particles remain query-only; validation and generation
+// reject them. Global unsignedLong refs remain query-only; nonzero inline
+// unsignedLong locals fail schema admission. NegativeInteger also validates as
+// a bounded variety sibling.
 // Direct-choice reference consumers exclude precisionDecimal and anonymous targets.
 // Mixed local Boolean/numeric, token/non-token, or NMTOKEN/non-NMTOKEN choices or sequences are unsupported. Nonzero
 // wildcard-bearing particles are explicit unsupported
@@ -544,7 +551,7 @@
 // retain schema/query facts; GenerateGo and ValidateInstance reject them with
 // their existing diagnostics.
 // Standalone global inline-element Boolean/integer/decimal declarations and global
-// element/type unsignedLong/negativeInteger/nonPositiveInteger/positiveInteger and
+// element/type negativeInteger/nonPositiveInteger/positiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their root
 // validation and generation consumers reject.
 // Direct built-in and supported named atomic-byte global roots validate;
