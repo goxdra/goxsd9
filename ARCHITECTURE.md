@@ -145,9 +145,9 @@ Unsupported final/variety/facets yield `GOXSD9029`; malformed
 facts yield `GOXSD9030`; nil output. Nonzero inline
 `nonNegativeInteger` has no schema; built-in/named locals query-only, `0/0`
 absent. Global `int`/`short`/`unsignedLong`/`positiveInteger`
-and `nonNegativeInteger`/`long` refs are query-only. `IntegerBounds()` copies
+and `nonNegativeInteger`/`long`/`byte` refs are query-only. `IntegerBounds()` copies
 built-in/named bounds; negativeInteger max=-1, positiveInteger min=1, named
-restrictions retain provenance. Byte bounds are [-128,127]; named facets survive.
+restrictions retain provenance. Byte bounds: [-128,127]; named facets survive.
 Local generation admits default
 Boolean/integer/decimal choices/sequences and all-token choices; other local
 shapes and attributes reject.
