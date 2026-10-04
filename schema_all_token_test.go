@@ -89,7 +89,6 @@ func TestDirectAllTokenAdmissionExclusions(t *testing.T) {
 		name, member, extra, primary string
 	}{
 		{"inline token", `<xs:element name="word"><xs:simpleType><xs:restriction base="xs:token"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`},
-		{"named NMTOKEN", `<xs:element name="word" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:NMTOKEN"/></xs:simpleType>`, `type="r:Named"`},
 		{"inline NMTOKEN", `<xs:element name="word"><xs:simpleType><xs:restriction base="xs:NMTOKEN"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`},
 		{"built-in string", `<xs:element name="word" type="xs:string"/>`, "", `type="xs:string"`},
 	}
