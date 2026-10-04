@@ -90,7 +90,6 @@ func TestDirectAllTokenAdmissionExclusions(t *testing.T) {
 	}{
 		{"inline token", `<xs:element name="word"><xs:simpleType><xs:restriction base="xs:token"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`},
 		{"inline NMTOKEN", `<xs:element name="word"><xs:simpleType><xs:restriction base="xs:NMTOKEN"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`},
-		{"built-in string", `<xs:element name="word" type="xs:string"/>`, "", `type="xs:string"`},
 	}
 	for _, test := range tests {
 		for _, profile := range []struct {
