@@ -73,10 +73,10 @@ errors retain cause/`Loc` without a `Schema`. Sequences resolve children first;
 choices resolve refs once; named groups resolve/check before omission. Refs retain
 QName/RefLoc/TargetID/order without expansion; broader forms reject consumers.
 Non-`0/0` inline long-family locals fail at type/simpleType `Loc`; valid `0/0` omits.
-Direct named-complex `all` retains ordered integer/decimal/Boolean,
+Direct named-complex `all` retains ordered integer/decimal/Boolean, built-in `string`,
 built-in/named effective `token`/`NMTOKEN`, built-in `negativeInteger`/`nonNegativeInteger` locals, and refs with exact bounds, `0/0` omission, and
-duplicate locations. XSD 1.0 caps maxima at one; XSD 1.1 permits repeats
-and outer `0/0`.
+duplicate locations. XSD 1.0 caps maxima at one; XSD 1.1 permits repeats,
+outer `0/0`.
 Resolved anonymous simple-type `0/0` terms omit; inline complexes always reject.
 Consumers reject `all`.
 AttributeUse preserves order, ownership, locations, and reference targets across

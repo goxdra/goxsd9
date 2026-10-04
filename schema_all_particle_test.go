@@ -213,7 +213,6 @@ func TestDirectAllScalarGateAndReferenceTargetSeparation(t *testing.T) {
 		extra   string
 		primary string
 	}{
-		{"direct string", `<xs:all><xs:element name="v" type="xs:string"/></xs:all>`, "", `type="xs:string"`},
 		{"named string", `<xs:all><xs:element name="v" type="r:Text"/></xs:all>`, `<xs:simpleType name="Text"><xs:restriction base="xs:string"/></xs:simpleType>`, `type="r:Text"`},
 		{"inline string", `<xs:all><xs:element name="v"><xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType></xs:element></xs:all>`, "", `<xs:simpleType>`},
 		{"inline integer", `<xs:all><xs:element name="v"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element></xs:all>`, "", `<xs:simpleType>`},
@@ -462,7 +461,6 @@ func TestDirectAllOmittedOwnerSkipsResolvedUnsupportedMembers(t *testing.T) {
 		name, member, zeroMember, primary string
 	}{
 		{"anonymous integer", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>`, `<xs:element name="v" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>`, `<xs:simpleType>`},
-		{"string", `<xs:element name="v" type="xs:string"/>`, `<xs:element name="v" type="xs:string" minOccurs="0" maxOccurs="0"/>`, `type="xs:string"`},
 		{"precisionDecimal", `<xs:element name="v" type="xs:precisionDecimal"/>`, `<xs:element name="v" type="xs:precisionDecimal" minOccurs="0" maxOccurs="0"/>`, `type="xs:precisionDecimal"`},
 	}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {

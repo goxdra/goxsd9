@@ -29,9 +29,9 @@ Direct choices, sequences, and bounded attribute-free extensions admit
 built-in/named long locals as query-only; valid inline `0/0` omits, nonzero rejects admission.
 `GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
 default integer/decimal sequence refs; other reference targets or occurrences reject.
-Direct named-complex `xs:all` retains ordered built-in/named integer/decimal/Boolean,
-built-in/named effective `xs:token`/`xs:NMTOKEN`, built-in `xs:negativeInteger`/`xs:nonNegativeInteger` locals,
-and element refs with exact bounds; consumers reject it.
+Direct named-complex `xs:all` retains ordered built-in/named integer/decimal/Boolean, built-in `xs:string`,
+built-in/named effective `xs:token`/`xs:NMTOKEN`, built-in `xs:negativeInteger`/`xs:nonNegativeInteger`,
+and refs with exact bounds; consumers reject it.
 
 ## CLI
 
