@@ -56,13 +56,13 @@ func TestValidateUnsignedLongGlobalValuesAndDiagnostics(t *testing.T) {
 				{"direct", unsignedLongOverflow, BoundValueViolationCode, boundedIntegerFacetSpec(profile.version, "maxInclusive"), Loc{}, true},
 				{"direct", strings.Repeat("9", 90), BoundValueViolationCode, boundedIntegerFacetSpec(profile.version, "maxInclusive"), Loc{}, true},
 				{"direct", "-1", BoundValueViolationCode, boundedIntegerFacetSpec(profile.version, "minInclusive"), Loc{}, true},
-				{"direct", "+", InvalidIntegerLexicalCode, lexical, Loc{}, false},
-				{"direct", "1.0", InvalidIntegerLexicalCode, lexical, Loc{}, false},
-				{"direct", "1e2", InvalidIntegerLexicalCode, lexical, Loc{}, false},
-				{"direct", "١", InvalidIntegerLexicalCode, lexical, Loc{}, false},
-				{"direct", "1 2", InvalidIntegerLexicalCode, lexical, Loc{}, false},
-				{"direct", "\u00a01", InvalidIntegerLexicalCode, lexical, Loc{}, false},
-				{"forward", "1.0", InvalidIntegerLexicalCode, lexical, Loc{}, false},
+				{"direct", "+", InvalidIntegerLexicalCode, lexical, Loc{}, true},
+				{"direct", "1.0", InvalidIntegerLexicalCode, lexical, Loc{}, true},
+				{"direct", "1e2", InvalidIntegerLexicalCode, lexical, Loc{}, true},
+				{"direct", "١", InvalidIntegerLexicalCode, lexical, Loc{}, true},
+				{"direct", "1 2", InvalidIntegerLexicalCode, lexical, Loc{}, true},
+				{"direct", "\u00a01", InvalidIntegerLexicalCode, lexical, Loc{}, true},
+				{"forward", "1.0", InvalidIntegerLexicalCode, lexical, Loc{}, true},
 				{"narrowed", "3", BoundValueViolationCode, boundedIntegerFacetSpec(profile.version, "maxInclusive"), longFacetLoc(t, schema, "Tight", "maxInclusive"), true},
 				{"enum", "1", EnumerationValueViolationCode, boundedIntegerFacetSpec(profile.version, "enumeration"), Loc{}, true},
 				{"digits", "100", DigitFacetValueViolationCode, boundedIntegerFacetSpec(profile.version, "totalDigits"), longDigitLoc(t, schema), true},
@@ -70,13 +70,36 @@ func TestValidateUnsignedLongGlobalValuesAndDiagnostics(t *testing.T) {
 				{"exclusive", "5", BoundValueViolationCode, boundedIntegerFacetSpec(profile.version, "maxExclusive"), longExclusiveFacetLoc(t, schema, true), true},
 			}
 			if profile.version == XSDVersion10 {
-				cases[2] = boundedIntegerDiagnosticCase{"direct", "-1", InvalidIntegerLexicalCode, lexical, Loc{}, false}
-				cases = append(cases, boundedIntegerDiagnosticCase{"direct", "+0", InvalidIntegerLexicalCode, lexical, Loc{}, false}, boundedIntegerDiagnosticCase{"direct", "-0", InvalidIntegerLexicalCode, lexical, Loc{}, false}, boundedIntegerDiagnosticCase{"forward", "+1", InvalidIntegerLexicalCode, lexical, Loc{}, false})
+				cases[2] = boundedIntegerDiagnosticCase{"direct", "-1", InvalidIntegerLexicalCode, lexical, Loc{}, true}
+				cases = append(cases, boundedIntegerDiagnosticCase{"direct", "+0", InvalidIntegerLexicalCode, lexical, Loc{}, true}, boundedIntegerDiagnosticCase{"direct", "-0", InvalidIntegerLexicalCode, lexical, Loc{}, true}, boundedIntegerDiagnosticCase{"forward", "+1", InvalidIntegerLexicalCode, lexical, Loc{}, true})
 			}
 			for _, test := range cases {
-				t.Run(test.local+"/"+test.value, func(t *testing.T) { assertBoundedIntegerDiagnosticCase(t, schema, test) })
+				t.Run(test.local+"/"+test.value, func(t *testing.T) {
+					assertBoundedIntegerDiagnosticCase(t, schema, test)
+					if test.code == InvalidIntegerLexicalCode {
+						assertUnsignedLongLexicalCause(t, schema, test.local, test.value, profile.version)
+					}
+				})
 			}
 		})
+	}
+}
+
+func assertUnsignedLongLexicalCause(t *testing.T, schema Schema, local, lexical string, version XSDVersion) {
+	t.Helper()
+	input := boundedIntegerInstance(local, "urn:test", lexical)
+	d := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+	wantLoc := mustTestLoc(t, "instance.xml", 1, strings.IndexByte(input, '>')+2)
+	_, parseErr := ParseStrictInteger(lexical, wantLoc)
+	if parseErr != nil {
+		var underlying Diagnostic
+		if !errors.As(d.Unwrap(), &underlying) || underlying.Code() != InvalidIntegerLexicalCode || underlying.Loc() != wantLoc {
+			t.Fatalf("%s=%q lexical cause = %v, want original located integer lexical diagnostic", local, lexical, d.Unwrap())
+		}
+		return
+	}
+	if version != XSDVersion10 || !errors.Is(d, errInstanceUnsignedLong10Lexical) {
+		t.Fatalf("%s=%q lexical cause = %v, want XSD 1.0 unsignedLong spelling failure", local, lexical, d.Unwrap())
 	}
 }
 
@@ -130,9 +153,37 @@ func TestValidateUnsignedLongCompatibilityMixedGraphUsesGraphPolicy(t *testing.T
 	}
 }
 
+//nolint:gocognit // Check both empty lexical shapes, owners, and located causes across policies.
 func TestValidateUnsignedLongEmptyAndStructureExits(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {
-		assertBoundedIntegerEmptyAndStructureExits(t, unsignedLongValidationSchema(t, profile), profile.version, unsignedLongDatatypeSpec(profile.version), unsignedLongOverflow)
+		schema := unsignedLongValidationSchema(t, profile)
+		assertBoundedIntegerEmptyAndStructureExits(t, schema, profile.version, unsignedLongDatatypeSpec(profile.version), unsignedLongOverflow)
+		for _, local := range []string{"direct", "forward"} {
+			declaration := boundedIntegerElementIn(t, schema, "urn:test", local)
+			wantRelated := []Loc{declaration.Loc()}
+			if local == "forward" {
+				typeID, ok := declaration.TypeID()
+				if !ok {
+					t.Fatal("named unsignedLong type ID missing")
+				}
+				target, ok := schema.Lookup(typeID)
+				if !ok {
+					t.Fatal("named unsignedLong type missing")
+				}
+				wantRelated = append(wantRelated, target.Loc())
+			}
+			for _, input := range []string{`<` + local + ` xmlns="urn:test"/>`, boundedIntegerInstance(local, "urn:test", " \t\r\n ")} {
+				d := requireDiagnostic(t, ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))))
+				wantLoc := mustTestLoc(t, "instance.xml", 1, 1)
+				if !strings.HasSuffix(input, "/>") {
+					wantLoc = mustTestLoc(t, "instance.xml", 1, strings.IndexByte(input, '>')+2)
+				}
+				var underlying Diagnostic
+				if d.Class() != FailureInvalid || d.Code() != InvalidIntegerLexicalCode || d.Loc() != wantLoc || d.SpecRef() != unsignedLongDatatypeSpec(profile.version) || !reflect.DeepEqual(d.Related(), wantRelated) || !errors.As(d.Unwrap(), &underlying) || underlying.Code() != InvalidIntegerLexicalCode || underlying.Loc() != wantLoc {
+					t.Fatalf("%s empty lexical diagnostic = %s, related %v, cause %v", local, d, d.Related(), d.Unwrap())
+				}
+			}
+		}
 	}
 }
 

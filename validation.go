@@ -111,6 +111,7 @@ var (
 	errInstanceIdentityConstraints     = errors.New("identity constraints are outside instance validation")
 	errInstanceLocalElementFacts       = errors.New("local element nillable facts are outside instance validation")
 	errInstanceElementSubstitution     = errors.New("referenced global element substitution is outside instance validation")
+	errInstanceUnsignedLong10Lexical   = errors.New("XSD 1.0 unsignedLong lexical representation requires digits only")
 	errInstanceValidationInvariant     = errors.New("scalar validation invariant is broken")
 )
 
@@ -1469,9 +1470,6 @@ func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceSca
 	}
 	if typed.integerKind == schemaSimpleTypeAtomicUnsignedLong {
 		specRef = instanceUnsignedLongSpecRef(scalar.version)
-		if scalar.version == XSDVersion10 && !schemaUnsignedLong10Lexical(collapseXMLWhitespace(lexical)) {
-			return newInstanceValidationInvalid(InvalidIntegerLexicalCode, valueLoc, "invalid XSD 1.0 xs:unsignedLong lexical representation", scalar.related, specRef, nil)
-		}
 	}
 	if typed.integerKind == schemaSimpleTypeAtomicNonNegativeInteger {
 		specRef = instanceNonNegativeIntegerSpecRef(scalar.version)
@@ -1481,7 +1479,13 @@ func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceSca
 	}
 	value, parseErr := ParseStrictInteger(lexical, valueLoc)
 	if parseErr != nil {
+		if typed.integerKind == schemaSimpleTypeAtomicUnsignedLong {
+			return newInstanceValidationInvalid(InvalidIntegerLexicalCode, valueLoc, "invalid xs:unsignedLong lexical representation", scalar.related, specRef, parseErr)
+		}
 		return instanceDecorateDiagnostic(parseErr, scalar.related, specRef, valueLoc)
+	}
+	if typed.integerKind == schemaSimpleTypeAtomicUnsignedLong && scalar.version == XSDVersion10 && !schemaUnsignedLong10Lexical(collapseXMLWhitespace(lexical)) {
+		return newInstanceValidationInvalid(InvalidIntegerLexicalCode, valueLoc, "invalid XSD 1.0 xs:unsignedLong lexical representation", scalar.related, specRef, errInstanceUnsignedLong10Lexical)
 	}
 	if facetErr := typed.facets.ValidateInteger(value, valueLoc); facetErr != nil {
 		return instanceDecorateDiagnostic(facetErr, scalar.related, specRef, valueLoc)
