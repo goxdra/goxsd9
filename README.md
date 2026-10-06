@@ -10,11 +10,11 @@ Create a root with `NewResolvedSource`, then call `ParseSchema` with a caller
 supplied `Resolver` for includes and imports. The resolver receives namespace
 URNs and lexical schema locations; the library does not open paths or URLs.
 `ParseSchema` uses the Compatibility policy for mixed XSD 1.0/1.1 graphs;
-`ParseSchemaWithPolicy` selects a graph-wide language policy. Schema queries
-and walks return immutable, deterministic views.
-Supported global elements retain ordered `xs:unique`, `xs:key`, and `xs:keyref` facts
-with XPath, namespaces, and resolved keyref targets. Validation and generation reject
-them until identity semantics are implemented.
+`ParseSchemaWithPolicy` selects a graph-wide policy. Schema queries and walks return
+immutable, deterministic views.
+Global-element `ComplexTypeReference` queries expose explicit named targets; inline types stay anonymous.
+Global elements retain ordered identity facts (`xs:unique`, `xs:key`, `xs:keyref`), XPath,
+namespaces, resolved keyref targets; validation/generation reject them.
 
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
 built-in/named `xs:short`/`xs:int`/`xs:long`/`xs:unsignedLong` and bounded precisionDecimal lists/unions;
