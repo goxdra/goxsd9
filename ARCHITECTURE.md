@@ -98,12 +98,13 @@ and chameleon adoption; `0/0` omits. Compatibility/Strict11 direct strict
 `xs:any` retains normalized `notQName` tokens, bindings, `Loc`, and sorted names.
 Inconsistent exclusions fail before omission; consumers/broader forms reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
-Inline complexes retain IDs outside walks. Lists/unions, sequences, and bounded
-attributes retain ordered facts. List attributes need precisionDecimal; unions
-also admit negativeInteger. Strict10 rejects precisionDecimal. Element refs retain
-ranges. Strings validate with bounded varieties; `normalizedString` supports
-replace whitespace/facets. Facet-free `QName` varieties/global refs retain
-context; QName locals/attributes/facets/values and consumers reject.
+Inline complexes retain IDs outside walks; precisionDecimal ordered sequences
+validate. Lists, unions, sequences, and attributes retain ordered facts.
+Attribute lists need precisionDecimal; unions also admit negativeInteger;
+Strict10 rejects precisionDecimal. Element refs retain ranges. Strings validate
+with bounded varieties; `normalizedString` replaces whitespace and checks facets.
+Facet-free `QName` varieties/global refs retain context; QName locals/attributes/
+facets/values and consumers reject.
 
 ## Datatypes
 
@@ -114,24 +115,25 @@ precisionDecimal facets, and Boolean whitespace; broader facets/temporal values 
 
 ## Validation and code generation
 
-`ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal and built-in/named byte/short/int/long/unsignedLong roots,
-direct/named/anonymous `xs:string`-atomic roots, and Compatibility/Strict11
-precisionDecimal roots. Named/inline global precisionDecimal lists and bounded
-unions validate; lists split XML whitespace into ordered items, unions try members
-in declaration order. Selected variety attributes validate on empty/sequence roots.
-Bounded list/union sequences admit typed string/integer/negativeInteger/
-precisionDecimal locals, anonymous integer/negativeInteger locals, and global refs
-(including anonymous targets). Outer occurrences default; child ranges are exact.
-Errors retain instance/schema `Loc`s; GenerateGo rejects varieties with nil output. Strict10 rejects their
-precisionDecimal facts before schema publication. Identity-constrained roots
-reject at instance use `Loc`, relating the first constraint `Loc`.
-Local Boolean/integer/decimal sequences/default choices honor ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
-Other anonymous/mixed/extension consumers reject outside bounded sequences; nonzero `xs:any` is
-query-only. Default direct-choice refs to unconstrained global
-Boolean/integer/decimal validate; constrained targets reject with related `Loc`.
-SimpleContent uses built-in string with selected precisionDecimal attributes, or built-in/named effective precisionDecimal; named effective string excludes.
-Structure precedes facets; failures retain locations. Other byte/short/int/long/unsignedLong validation uses reject.
-QName globals/refs reject validation and generation with located diagnostics and nil output.
+`ValidateInstance` supports built-in/named Boolean, token, NMTOKEN, integer,
+nonNegativeInteger, decimal, byte, short, int, long, unsignedLong, and
+direct/named/anonymous atomic string roots. Compatibility/Strict11 admit
+precisionDecimal roots, lists/unions, and ordered sequences of typed locals or
+global refs, including anonymous targets and inline roots; Strict10 rejects
+precisionDecimal before publication. Lists split XML whitespace; unions try
+members in declaration order. Selected variety attributes validate on
+empty/sequence roots. Bounded variety sequences admit typed string/integer/
+negativeInteger/precisionDecimal locals, anonymous integer/negativeInteger
+locals, and global refs; outer occurrences default, child ranges are exact.
+Boolean/integer/decimal sequences and default choices honor ranges; homogeneous
+token/NMTOKEN sequences honor exact large/unbounded occurrences. Default choice
+refs to unconstrained Boolean/integer/decimal validate. SimpleContent admits
+built-in string with selected precisionDecimal attributes or effective
+precisionDecimal. Other anonymous/mixed/extension consumers and nonzero
+`xs:any` reject. Identity constraints and QName consumers reject with located
+diagnostics; GenerateGo returns nil output. At each child frontier, structure
+precedes facets; the first failure retains instance and related schema locations.
+Occurrence and scalar failures differ. `xsi:schemaLocation` never resolves.
 
 Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
 types, global built-in/named elements of those types, inline global string/token/NMTOKEN, and
