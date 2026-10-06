@@ -495,13 +495,43 @@ func TestSchemaModelGroupReferenceParticleExtensionIsRejectedByValidationAndGene
 	if err != nil {
 		t.Fatalf("discover extension consumer-gate schema: %v", err)
 	}
+	declarationLoc := complexContentTestLoc(t, root, `<xs:element name="root"`)
+	definitionLoc := complexContentTestLoc(t, root, `<xs:complexType name="Extended"`)
+	complexContentLoc := complexContentTestLoc(t, root, "<xs:complexContent")
+	extensionLoc := complexContentTestLoc(t, root, "<xs:extension")
+	baseLoc := complexContentTestLoc(t, root, `base="r:Empty"`)
+	groupLoc := complexContentTestLoc(t, root, "<xs:group ref=")
+	groupRefLoc := complexContentTestLoc(t, root, `ref="r:G"`)
+	targetLoc := complexContentTestLoc(t, root, `<xs:group name="G"`)
 	validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:group-ref"><item>1</item></root>`)))
 	if validationErr == nil || !errors.Is(validationErr, errInstanceModelGroupReference) {
 		t.Fatalf("extension validation error = %v, want explicit unsupported model-group reference", validationErr)
 	}
+	validationDiagnostic := requireDiagnostic(t, validationErr)
+	if validationDiagnostic.Class() != FailureUnsupported || !errors.Is(validationErr, ErrUnsupported) {
+		t.Fatalf("extension validation diagnostic = %s, want FailureUnsupported/ErrUnsupported", validationDiagnostic)
+	}
+	if validationDiagnostic.Loc() != groupRefLoc {
+		t.Fatalf("extension validation primary location = %s, want group reference %s", validationDiagnostic.Loc(), groupRefLoc)
+	}
+	wantValidationRelated := []Loc{declarationLoc, definitionLoc, complexContentLoc, extensionLoc, baseLoc, groupLoc}
+	if !reflect.DeepEqual(validationDiagnostic.Related(), wantValidationRelated) {
+		t.Fatalf("extension validation related locations = %v, want %v", validationDiagnostic.Related(), wantValidationRelated)
+	}
 	output, generationErr := GenerateGo(schema, "generated")
 	if output != nil || generationErr == nil || !errors.Is(generationErr, errCodegenDirectModelGroupReference) {
 		t.Fatalf("extension generation result = (%q, %v), want explicit rejection", output, generationErr)
+	}
+	generationDiagnostic := requireDiagnostic(t, generationErr)
+	if generationDiagnostic.Class() != FailureUnsupported || !errors.Is(generationErr, ErrUnsupported) {
+		t.Fatalf("extension generation diagnostic = %s, want FailureUnsupported/ErrUnsupported", generationDiagnostic)
+	}
+	if generationDiagnostic.Loc() != groupRefLoc {
+		t.Fatalf("extension generation primary location = %s, want group reference %s", generationDiagnostic.Loc(), groupRefLoc)
+	}
+	wantGenerationRelated := []Loc{definitionLoc, groupLoc, groupRefLoc, targetLoc}
+	if !reflect.DeepEqual(generationDiagnostic.Related(), wantGenerationRelated) {
+		t.Fatalf("extension generation related locations = %v, want %v", generationDiagnostic.Related(), wantGenerationRelated)
 	}
 }
 

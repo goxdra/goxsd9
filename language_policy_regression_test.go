@@ -1923,11 +1923,12 @@ func TestAllChildOccurrenceMismatchDoesNotHideMalformedChildren(t *testing.T) {
 //nolint:gocognit // Keep paired all-particle profile fixtures and diagnostics together.
 func TestAllChildRepeatedOccurrencesRemainVersionAware(t *testing.T) {
 	tests := []struct {
-		name  string
-		child string
+		name      string
+		child     string
+		wantRange string
 	}{
-		{name: "element finite", child: `<xs:element name="value" type="xs:integer" maxOccurs="2"/>`},
-		{name: "element unbounded", child: `<xs:element name="value" type="xs:integer" maxOccurs="unbounded"/>`},
+		{name: "element finite", child: `<xs:element name="value" type="xs:integer" maxOccurs="2"/>`, wantRange: "1/2"},
+		{name: "element unbounded", child: `<xs:element name="value" type="xs:integer" maxOccurs="unbounded"/>`, wantRange: "1/unbounded"},
 		{name: "wildcard finite", child: `<xs:any namespace="##any" maxOccurs="2"/>`},
 		{name: "wildcard unbounded", child: `<xs:any namespace="##any" maxOccurs="unbounded"/>`},
 	}
@@ -1945,6 +1946,20 @@ func TestAllChildRepeatedOccurrencesRemainVersionAware(t *testing.T) {
 			} {
 				t.Run(profile.name, func(t *testing.T) {
 					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if !profile.wantStrict && test.wantRange != "" {
+						if err != nil {
+							t.Fatalf("supported XSD 1.1 all member: %v", err)
+						}
+						definition, ok := schema.Components()[0].ComplexTypeDefinition()
+						if !ok {
+							t.Fatal("all complex type facts missing")
+						}
+						all, ok := definition.Particle().(AllParticle)
+						if !ok || len(all.Members()) != 1 || all.Members()[0].Occurrences().String() != test.wantRange {
+							t.Fatalf("all particle = %#v, want one member with %s", definition.Particle(), test.wantRange)
+						}
+						return
+					}
 					if err == nil || schema.storage != nil {
 						t.Fatal("all child occurrence unexpectedly produced a schema")
 					}

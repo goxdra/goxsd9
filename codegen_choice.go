@@ -66,6 +66,7 @@ type codegenDirectChoiceScalarFamily uint8
 const (
 	codegenDirectChoiceScalarInvalid codegenDirectChoiceScalarFamily = iota
 	codegenDirectChoiceScalarBoolean
+	codegenDirectChoiceScalarToken
 	codegenDirectChoiceScalarInteger
 	codegenDirectChoiceScalarDecimal
 )
@@ -83,10 +84,12 @@ func codegenDirectChoiceScalarFamilyFromDigit(kind DigitDatatype) (codegenDirect
 
 func codegenDirectChoiceScalarFamilyFromSourceKind(kind codegenSourceScalarKind) (codegenDirectChoiceScalarFamily, bool) {
 	switch kind {
-	case codegenSourceScalarInvalid, codegenSourceScalarString, codegenSourceScalarToken, codegenSourceScalarNMTOKEN:
+	case codegenSourceScalarInvalid, codegenSourceScalarString, codegenSourceScalarNMTOKEN, codegenSourceScalarNonNegativeInteger, codegenSourceScalarLong:
 		return codegenDirectChoiceScalarInvalid, false
 	case codegenSourceScalarBoolean:
 		return codegenDirectChoiceScalarBoolean, true
+	case codegenSourceScalarToken:
+		return codegenDirectChoiceScalarToken, true
 	case codegenSourceScalarInteger:
 		return codegenDirectChoiceScalarInteger, true
 	case codegenSourceScalarDecimal:
@@ -108,6 +111,11 @@ func codegenDirectChoiceSourceScalarKind(
 			return codegenSourceScalarInvalid, false
 		}
 		return codegenSourceScalarBoolean, true
+	case codegenDirectChoiceScalarToken:
+		if kind != "" {
+			return codegenSourceScalarInvalid, false
+		}
+		return codegenSourceScalarToken, true
 	case codegenDirectChoiceScalarInteger:
 		if kind != DigitDatatypeInteger {
 			return codegenSourceScalarInvalid, false
@@ -125,7 +133,7 @@ func codegenDirectChoiceSourceScalarKind(
 
 func codegenDirectChoiceDigitKind(family codegenDirectChoiceScalarFamily) DigitDatatype {
 	switch family {
-	case codegenDirectChoiceScalarInvalid, codegenDirectChoiceScalarBoolean:
+	case codegenDirectChoiceScalarInvalid, codegenDirectChoiceScalarBoolean, codegenDirectChoiceScalarToken:
 		return ""
 	case codegenDirectChoiceScalarInteger:
 		return DigitDatatypeInteger
@@ -218,7 +226,7 @@ func planCodegenDirectChoices(schema Schema, packageName string) (codegenDirectC
 	return plan, nil
 }
 
-//nolint:gocognit // Keep direct-choice collection and shape dispatch together.
+//nolint:gocognit,funlen // Keep direct-choice collection and shape dispatch together.
 func collectCodegenDirectChoices(
 	schema Schema,
 	components []Component,
@@ -236,6 +244,21 @@ func collectCodegenDirectChoices(
 				fmt.Sprintf("complex type %q has no completed complex-type facts", component.Name()),
 				nil,
 				errCodegenDirectChoiceParticle,
+			)
+		}
+		attributeUses := definition.AttributeUses()
+		if len(attributeUses) > 0 {
+			related := appendCodegenRelated(nil, definition.Loc())
+			for _, use := range attributeUses {
+				related = appendCodegenRelated(related, use.Loc())
+			}
+			return nil, newCodegenDirectChoiceUnsupported(
+				attributeUses[0].Loc(),
+				fmt.Sprintf("complex type %q attribute uses are outside direct choice generation", component.Name()),
+				related,
+				fmt.Errorf("%w: complex type attribute uses", errCodegenUnsupported),
+				version,
+				codegenDirectChoiceParticlesReference,
 			)
 		}
 		if body := definition.extensionBody(); body != nil {
@@ -523,7 +546,9 @@ func validateCodegenDirectChoiceScalarFamilies(
 				errCodegenDirectChoiceTarget,
 			)
 		}
-		if family == firstFamily || firstFamily != codegenDirectChoiceScalarBoolean && family != codegenDirectChoiceScalarBoolean {
+		if family == firstFamily ||
+			firstFamily != codegenDirectChoiceScalarBoolean && family != codegenDirectChoiceScalarBoolean &&
+				firstFamily != codegenDirectChoiceScalarToken && family != codegenDirectChoiceScalarToken {
 			continue
 		}
 		related := make([]Loc, 0, len(owner.alternatives)+1)
@@ -533,7 +558,7 @@ func validateCodegenDirectChoiceScalarFamilies(
 		}
 		return newCodegenDirectChoiceUnsupported(
 			alternative.loc,
-			"direct choice mixes Boolean and non-Boolean scalar alternatives outside Go code generation",
+			"direct choice mixes incompatible scalar alternatives outside Go code generation",
 			related,
 			fmt.Errorf("%w: mixed direct-choice scalar families at alternative %d", errCodegenUnsupported, index+1),
 			version,
@@ -733,7 +758,17 @@ func validateCodegenDirectChoiceReferenceTarget(
 			errCodegenDirectChoiceTarget,
 		)
 	}
-	if err := validateCodegenDirectChoiceReferenceSubstitution(schema, declaration, loc, related, version); err != nil {
+	if err := validateCodegenDirectReferenceSubstitution(
+		schema,
+		declaration,
+		loc,
+		related,
+		version,
+		errCodegenDirectChoiceTarget,
+		codegenDirectChoiceSubstitutionDisallowed,
+		newCodegenDirectChoiceReferenceTargetUnsupported,
+		"direct choice",
+	); err != nil {
 		return nil, err
 	}
 	typeReference, hasTypeReference := declaration.TypeReference()
@@ -831,6 +866,8 @@ func validateCodegenDirectChoiceReferenceTarget(
 		var kind DigitDatatype
 		var scalarKind codegenSourceScalarKind
 		switch declaredType.Local() {
+		case "boolean":
+			scalarKind = codegenSourceScalarBoolean
 		case "integer":
 			kind = DigitDatatypeInteger
 			scalarKind = codegenSourceScalarInteger
@@ -846,11 +883,11 @@ func validateCodegenDirectChoiceReferenceTarget(
 				version,
 			)
 		}
-		family, familyOK := codegenDirectChoiceScalarFamilyFromDigit(kind)
+		family, familyOK := codegenDirectChoiceScalarFamilyFromSourceKind(scalarKind)
 		if !familyOK {
 			return nil, newCodegenInternal(
 				loc,
-				fmt.Sprintf("built-in referenced global element %q has an unknown numeric scalar family", declaration.Name()),
+				fmt.Sprintf("built-in referenced global element %q has an unknown scalar family", declaration.Name()),
 				related,
 				errCodegenDirectChoiceTarget,
 			)
@@ -924,6 +961,48 @@ func validateCodegenDirectChoiceReferenceTarget(
 				errCodegenDirectChoiceTarget,
 			)
 		}
+		if definition.IsBoolean() {
+			scalarTarget, scalarErr := codegenNamedScalarTarget(schema, typeComponent, version)
+			if scalarErr != nil {
+				var diagnostic Diagnostic
+				if errors.As(scalarErr, &diagnostic) && diagnostic.Class() == FailureUnsupported {
+					return nil, newCodegenDirectChoiceReferenceTargetUnsupported(
+						loc,
+						fmt.Sprintf("named referenced global element type %q is outside scalar generation", declaredType),
+						mergeCodegenRelated(related, codegenSimpleTypeRelatedLocations(definition, definition.DigitFacets())),
+						fmt.Errorf("%w: %w", errCodegenUnsupported, scalarErr),
+						version,
+					)
+				}
+				return nil, decorateCodegenDirectChoiceError(scalarErr, loc, related)
+			}
+			if scalarTarget.scalarKind != codegenSourceScalarBoolean {
+				return nil, newCodegenInternal(
+					loc,
+					fmt.Sprintf("named referenced global element %q has an inconsistent Boolean scalar plan", declaration.Name()),
+					related,
+					errCodegenDirectChoiceTarget,
+				)
+			}
+			sourceTarget := codegenSourceTarget{
+				form:         codegenSourceTargetNamed,
+				declaredType: declaredType,
+				typeID:       typeID,
+				hasTypeID:    true,
+				scalarKind:   scalarTarget.scalarKind,
+			}
+			if err := validateCodegenElementTypeReference(declaration, sourceTarget, loc, version); err != nil {
+				return nil, decorateCodegenDirectChoiceError(err, loc, related)
+			}
+			return codegenDirectChoiceNamedTarget{
+				declaredType: declaredType,
+				id:           typeID,
+				family:       codegenDirectChoiceScalarBoolean,
+				elementID:    targetID,
+				hasElementID: true,
+			}, nil
+		}
+
 		kind, kindErr := codegenNamedScalarKind(typeComponent, version)
 		if kindErr != nil {
 			var diagnostic Diagnostic
@@ -1002,62 +1081,6 @@ func newCodegenDirectChoiceReferenceTargetUnsupported(
 	)
 }
 
-func validateCodegenDirectChoiceReferenceSubstitution(
-	schema Schema,
-	declaration ElementDeclaration,
-	loc Loc,
-	related []Loc,
-	version XSDVersion,
-) error {
-	affiliationIDs := declaration.SubstitutionGroupAffiliations()
-	affiliationLocs := declaration.SubstitutionGroupAffiliationLocations()
-	if len(affiliationIDs) != len(affiliationLocs) {
-		return newCodegenInternal(
-			loc,
-			fmt.Sprintf("referenced global element %q has mismatched substitution-group facts", declaration.Name()),
-			related,
-			errCodegenDirectChoiceTarget,
-		)
-	}
-	if len(affiliationIDs) != 0 {
-		substitutionRelated := mergeCodegenRelated(nil, related)
-		for _, affiliationLoc := range affiliationLocs {
-			substitutionRelated = appendCodegenRelated(substitutionRelated, affiliationLoc)
-		}
-		return newCodegenDirectChoiceUnsupported(
-			loc,
-			fmt.Sprintf("referenced global element %q uses substitution-group affiliations outside direct choice generation", declaration.Name()),
-			substitutionRelated,
-			fmt.Errorf("%w: referenced element substitution group", errCodegenUnsupported),
-			version,
-			codegenDirectChoiceElementChoiceReference,
-		)
-	}
-	if codegenDirectChoiceSubstitutionDisallowed(declaration) {
-		return nil
-	}
-	member, path, memberErr := codegenDirectChoiceSubstitutionMember(schema, declaration)
-	if memberErr != nil {
-		return memberErr
-	}
-	if member.ID().IsZero() {
-		return nil
-	}
-	substitutionRelated := mergeCodegenRelated(nil, related)
-	substitutionRelated = appendCodegenRelated(substitutionRelated, member.Loc())
-	for _, affiliationLoc := range path {
-		substitutionRelated = appendCodegenRelated(substitutionRelated, affiliationLoc)
-	}
-	return newCodegenDirectChoiceUnsupported(
-		loc,
-		fmt.Sprintf("referenced global element %q has substitution-group members outside direct choice generation", declaration.Name()),
-		substitutionRelated,
-		fmt.Errorf("%w: reachable referenced element substitution group", errCodegenUnsupported),
-		version,
-		codegenDirectChoiceElementChoiceReference,
-	)
-}
-
 func codegenDirectChoiceSubstitutionDisallowed(declaration ElementDeclaration) bool {
 	for _, method := range declaration.DisallowedSubstitutions() {
 		if method == "substitution" {
@@ -1065,99 +1088,6 @@ func codegenDirectChoiceSubstitutionDisallowed(declaration ElementDeclaration) b
 		}
 	}
 	return false
-}
-
-func codegenDirectChoiceSubstitutionMember(schema Schema, head ElementDeclaration) (ElementDeclaration, []Loc, error) {
-	for _, component := range schema.Components() {
-		if component.Kind() != ComponentKindElementDeclaration || component.ID() == head.ID() {
-			continue
-		}
-		member, ok := component.ElementDeclaration()
-		if !ok || member.IsAbstract() {
-			continue
-		}
-		path, found, err := codegenDirectChoiceSubstitutionPath(schema, member, head.ID(), make(map[ComponentID]struct{}))
-		if err != nil {
-			return ElementDeclaration{}, nil, err
-		}
-		if found {
-			return member, path, nil
-		}
-	}
-	return ElementDeclaration{}, nil, nil
-}
-
-//nolint:gocognit // Keep ordered substitution identity checks and path replay together.
-func codegenDirectChoiceSubstitutionPath(
-	schema Schema,
-	member ElementDeclaration,
-	headID ComponentID,
-	visited map[ComponentID]struct{},
-) ([]Loc, bool, error) {
-	if member.ID() == headID {
-		return nil, true, nil
-	}
-	if _, seen := visited[member.ID()]; seen {
-		return nil, false, nil
-	}
-	visited[member.ID()] = struct{}{}
-	affiliationIDs := member.SubstitutionGroupAffiliations()
-	affiliationLocs := member.SubstitutionGroupAffiliationLocations()
-	if len(affiliationIDs) != len(affiliationLocs) {
-		return nil, false, newCodegenInternal(
-			member.Loc(),
-			fmt.Sprintf("global element %q has mismatched substitution-group facts", member.Name()),
-			nil,
-			errCodegenDirectChoiceTarget,
-		)
-	}
-	for index, affiliationID := range affiliationIDs {
-		if affiliationID.IsZero() || affiliationID.Source() == "" || affiliationID.Ordinal() == 0 {
-			return nil, false, newCodegenInternal(
-				member.Loc(),
-				fmt.Sprintf("global element %q has an invalid substitution-group target identity", member.Name()),
-				appendCodegenRelated(nil, affiliationLocs[index]),
-				errCodegenDirectChoiceTarget,
-			)
-		}
-		parentComponent, ok := schema.Lookup(affiliationID)
-		if !ok {
-			return nil, false, newCodegenInternal(
-				member.Loc(),
-				fmt.Sprintf("global element %q substitution-group target identity is absent from the completed schema", member.Name()),
-				appendCodegenRelated(nil, affiliationLocs[index]),
-				errCodegenDirectChoiceTarget,
-			)
-		}
-		if parentComponent.Kind() != ComponentKindElementDeclaration {
-			return nil, false, newCodegenInternal(
-				member.Loc(),
-				fmt.Sprintf("global element %q substitution-group target has component kind %q", member.Name(), parentComponent.Kind()),
-				appendCodegenRelated(nil, affiliationLocs[index]),
-				errCodegenDirectChoiceTarget,
-			)
-		}
-		parent, ok := parentComponent.ElementDeclaration()
-		if !ok || parent.facts == nil || parent.ID() != affiliationID {
-			return nil, false, newCodegenInternal(
-				member.Loc(),
-				fmt.Sprintf("global element %q substitution-group target has incomplete declaration facts", member.Name()),
-				appendCodegenRelated(nil, affiliationLocs[index]),
-				errCodegenDirectChoiceTarget,
-			)
-		}
-		if parent.ID() == headID {
-			return []Loc{affiliationLocs[index]}, true, nil
-		}
-		path, found, err := codegenDirectChoiceSubstitutionPath(schema, parent, headID, visited)
-		if err != nil {
-			return nil, false, err
-		}
-		if found {
-			return append([]Loc{affiliationLocs[index]}, path...), true, nil
-		}
-	}
-	return nil, false, nil
 }
 
 func directChoiceNestedChoice(particle Particle) (ChoiceParticle, bool) {
@@ -1224,6 +1154,7 @@ func validateCodegenDirectChoiceTarget(
 ) (codegenDirectChoiceTarget, error) {
 	declaredType := element.DeclaredType()
 	typeID, hasTypeID := element.TypeID()
+	typeReference, hasTypeReference := element.TypeReference()
 	if declaredType.IsZero() {
 		if hasTypeID || !typeID.IsZero() {
 			return nil, newCodegenInternal(
@@ -1231,6 +1162,16 @@ func validateCodegenDirectChoiceTarget(
 				"anonymous direct-choice type has a synthetic component identity",
 				nil,
 				errCodegenDirectChoiceTarget,
+			)
+		}
+		if hasTypeReference && typeReference.Kind() == SimpleTypeReferenceAnonymous {
+			return nil, newCodegenDirectChoiceUnsupported(
+				element.Loc(),
+				"anonymous direct-choice element types are outside direct choice generation",
+				appendCodegenRelated(nil, typeReference.Loc()),
+				fmt.Errorf("%w: anonymous element type", errCodegenUnsupported),
+				version,
+				codegenDirectChoiceElementChoiceReference,
 			)
 		}
 		return nil, newCodegenDirectChoiceUnsupported(
@@ -1259,6 +1200,11 @@ func validateCodegenDirectChoiceTarget(
 			return codegenDirectChoiceBuiltinTarget{
 				declaredType: declaredType,
 				family:       codegenDirectChoiceScalarBoolean,
+			}, nil
+		case "token":
+			return codegenDirectChoiceBuiltinTarget{
+				declaredType: declaredType,
+				family:       codegenDirectChoiceScalarToken,
 			}, nil
 		case "integer":
 			return codegenDirectChoiceBuiltinTarget{
@@ -2400,6 +2346,10 @@ func validateCodegenDirectChoicePlanTarget(schema Schema, names codegenNaming, t
 		case "boolean":
 			if concrete.family != codegenDirectChoiceScalarBoolean {
 				return newCodegenInternal(loc, "direct-choice plan built-in Boolean target family is inconsistent", nil, errCodegenDirectChoicePlan)
+			}
+		case "token":
+			if concrete.family != codegenDirectChoiceScalarToken || concrete.kind != "" {
+				return newCodegenInternal(loc, "direct-choice plan built-in token target family is inconsistent", nil, errCodegenDirectChoicePlan)
 			}
 		case "integer":
 			if concrete.family != codegenDirectChoiceScalarInteger || concrete.kind != DigitDatatypeInteger {

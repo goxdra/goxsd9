@@ -1,0 +1,2894 @@
+package workflowctl
+
+import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"hash"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+)
+
+const claimResumeRecoveryTemplate = "Run `go tool workflowctl claim resume %d --expected-head %s --run-id %s --handoff-comment %d --acknowledge-needs-human` again"
+
+// claimResumeProof is the sealed preflight proof plus its explicit renewal
+// state. It is passed by value through each phase and never mutated.
+type claimResumeProof struct {
+	preflight claimResumePreflight
+	renewal   claimResumeRenewalPlan
+}
+
+// claimResumePreflight is the immutable read-only proof sealed before any
+// local-ref or GitHub mutation. The claim worktree is the proof root, so it is
+// represented once rather than duplicated as a second worktree field.
+type claimResumePreflight struct {
+	root             string
+	localBranch      string
+	fixedBranch      string
+	expectedHead     string
+	localHead        string
+	remoteHead       string
+	runID            string
+	issue            int
+	handoffCommentID int64
+	claimCommentID   int64
+	handoffBody      string
+	claimLease       time.Time
+	projectItemID    string
+	projectStatus    string
+	needsHuman       bool
+	localState       string
+}
+
+// claimResumeRenewalPlan is a closed set of proof states. A missing renewal
+// and a verified existing renewal cannot be represented by parallel booleans.
+type claimResumeRenewalPlan interface {
+	claimResumeRenewalPlan()
+}
+
+type claimResumeNoRenewal struct{}
+
+func (claimResumeNoRenewal) claimResumeRenewalPlan() {}
+
+type claimResumeExistingRenewal struct {
+	head string
+}
+
+func (claimResumeExistingRenewal) claimResumeRenewalPlan() {}
+
+// claimResumeRenewalProof is a canonical commit proven as the renewal child
+// of the expected claim. It is the input to local adoption.
+type claimResumeRenewalProof struct {
+	head string
+}
+
+// claimResumeLocalRenewal is the same canonical child after the local run
+// branch is known to point at it. It is the input to remote push/convergence.
+type claimResumeLocalRenewal struct {
+	head string
+}
+
+// claimResumeRenewalResult is the verified local and remote renewal result.
+type claimResumeRenewalResult struct {
+	head string
+}
+
+// canonicalClaimCommit is the immutable shape emitted by commit-tree for a
+// claim marker.  A marker is deliberately an empty, single-parent commit;
+// source changes and merge history are never part of claim ownership state.
+type canonicalClaimCommit struct {
+	parent  string
+	tree    string
+	message string
+	issue   int
+	runID   string
+	lease   time.Time
+}
+
+type canonicalCommitObject struct {
+	parent  string
+	tree    string
+	message string
+}
+
+type commitObject struct {
+	parents []string
+	tree    string
+	message string
+}
+
+type claimResumeCommentEvidence struct {
+	claimCommentID int64
+	claimLease     time.Time
+	handoffBody    string
+}
+
+type claimResumeClaimComment struct {
+	branch      string
+	localBranch string
+	worktree    string
+	runID       string
+	lease       time.Time
+}
+
+type claimResumeAgentRefs struct {
+	claims    []remoteClaim
+	runLocals []runLocalRef
+	malformed []agentRef
+}
+
+type openPullRequestNumber struct {
+	Number int `json:"number"`
+}
+
+// resumeClaimStateCommand prints the read-only local state digest used by the
+// exact dirty handoff. The command routing lives with the claim CLI.
+func (a app) resumeClaimStateCommand(args []string) error {
+	if len(args) != 0 {
+		return usageError("usage: workflowctl claim resume-state")
+	}
+	root, branch, issue, err := a.currentClaim()
+	if err != nil {
+		return err
+	}
+	if !validRunID(strings.TrimPrefix(branch, claimBranch(issue)+"-")) || !strings.HasPrefix(branch, claimBranch(issue)+"-") {
+		return stateError("branch %q is not a run-local issue claim", branch)
+	}
+	state, err := a.claimResumeLocalState(root)
+	if err != nil {
+		return fmt.Errorf("read claim resume state: %w", err)
+	}
+	condition := "clean"
+	if state.dirty {
+		condition = "dirty"
+	}
+	return writeLine(a.stdout, "issue #%d branch %s local state %s SHA-256 %s", issue, branch, condition, state.digest)
+}
+
+func (a app) resumeClaimCommand(args []string) error {
+	if len(args) == 0 {
+		return usageError("usage: workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]")
+	}
+	issue, err := positiveNumber(args[0])
+	if err != nil {
+		return usageError("claim resume: %v", err)
+	}
+	flags := flag.NewFlagSet("claim resume", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	expected := flags.String("expected-head", "", "expected fixed-branch SHA")
+	runID := flags.String("run-id", "", "exact expired claim run ID")
+	handoffComment := flags.String("handoff-comment", "", "exact terminal handoff comment ID")
+	acknowledged := flags.Bool("acknowledge-needs-human", false, "acknowledge needs-human recovery")
+	dryRun := flags.Bool("dry-run", false, "print the proof without mutation")
+	if parseErr := flags.Parse(args[1:]); parseErr != nil {
+		return usageError("claim resume: %v", parseErr)
+	}
+	if flags.NArg() != 0 {
+		return usageError("usage: workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]")
+	}
+	if !*acknowledged {
+		return stateError("issue #%d claim recovery requires --acknowledge-needs-human", issue)
+	}
+	if !validExactCommitSHA(*expected) {
+		return usageError("claim resume: --expected-head must be a full 40-character commit SHA")
+	}
+	if !validRunID(*runID) {
+		return usageError("claim resume: --run-id must be a valid run ID")
+	}
+	commentID, parseErr := strconv.ParseInt(*handoffComment, 10, 64)
+	if parseErr != nil || commentID < 1 || strconv.FormatInt(commentID, 10) != *handoffComment {
+		return usageError("claim resume: --handoff-comment must be a positive decimal comment ID")
+	}
+	proof, err := a.readClaimResumeProof(issue, *expected, *runID, commentID)
+	if err != nil {
+		return retryableOperationIfRecoverable("claim resume proof", err)
+	}
+	if err := writeLine(a.stdout, "claim resume proof: issue #%d branch %s run %s expected %s handoff-comment %d",
+		proof.preflight.issue, proof.preflight.fixedBranch, proof.preflight.runID, proof.preflight.expectedHead, proof.preflight.handoffCommentID); err != nil {
+		return fmt.Errorf("write claim resume proof: %w", err)
+	}
+	if *dryRun {
+		return writeLine(a.stdout, "dry-run: preflight complete; no mutation performed")
+	}
+	return a.applyClaimResume(proof)
+}
+
+// readClaimResumeProof is the read-only proof for an acknowledged terminal
+// no-PR handoff. A valid renewal child is accepted only for retry convergence.
+//
+//nolint:gocognit,funlen // The proof intentionally keeps every authority in one ordered seal.
+func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoffCommentID int64) (claimResumeProof, error) {
+	root, localBranch, currentIssue, err := a.currentClaim()
+	if err != nil {
+		return claimResumeProof{}, err
+	}
+	if currentIssue != issue {
+		return claimResumeProof{}, stateError("current claim issue #%d does not match requested issue #%d; no mutation performed", currentIssue, issue)
+	}
+	if localBranch != claimLocalBranch(issue, runID) {
+		return claimResumeProof{}, stateError("local branch %q does not match issue #%d run %s; preserve the claim worktree", localBranch, issue, runID)
+	}
+	fixedBranch := claimBranch(issue)
+	localHead, err := a.command(root, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return claimResumeProof{}, fmt.Errorf("read local claim head: %w", err)
+	}
+	if !validExactCommitSHA(localHead) {
+		return claimResumeProof{}, stateError("local claim head %q is not a full commit SHA; preserve the claim worktree", localHead)
+	}
+	if validateErr := a.validateLocalAgentCommit(root, localHead, "local claim head"); validateErr != nil {
+		return claimResumeProof{}, validateErr
+	}
+	inventory, err := a.strictRemoteAgentRefInventory(root)
+	if err != nil {
+		return claimResumeProof{}, err
+	}
+	remoteHead, err := claimResumeFixedHead(inventory, issue, fixedBranch)
+	if err != nil {
+		return claimResumeProof{}, err
+	}
+	if !validExactCommitSHA(remoteHead) {
+		return claimResumeProof{}, stateError("remote fixed claim branch %s has malformed head %q; preserve claim artifacts", fixedBranch, remoteHead)
+	}
+	evidence, err := a.readClaimResumeEvidence(root, issue, handoffCommentID, claimLocalBranch(issue, runID), runID)
+	if err != nil {
+		return claimResumeProof{}, err
+	}
+	if chainErr := a.readClaimResumeMarkerChain(root, expectedHead, issue, runID, evidence.claimLease); chainErr != nil {
+		return claimResumeProof{}, chainErr
+	}
+	if bindingErr := validateClaimResumeHandoffBindings(evidence.handoffBody, issue, expectedHead, fixedBranch, localBranch, root, runID, evidence.claimLease); bindingErr != nil {
+		return claimResumeProof{}, stateError("handoff comment %d is not bound to the exact claim artifacts; preserve evidence: %w", handoffCommentID, bindingErr)
+	}
+	if prErr := a.validateNoOpenClaimResumePR(root, fixedBranch, issue); prErr != nil {
+		return claimResumeProof{}, prErr
+	}
+	renewal, err := a.claimResumeRenewalPlan(root, expectedHead, localHead, remoteHead, issue, runID)
+	if err != nil {
+		return claimResumeProof{}, err
+	}
+	layout, err := a.repositoryLayout(root)
+	if err != nil {
+		return claimResumeProof{}, err
+	}
+	protectedHeads := claimResumeProtectedHeads(expectedHead, renewal)
+	if worktreeErr := validateResumeWorktreeHeads(layout, root, localBranch, issue, localHead, protectedHeads); worktreeErr != nil {
+		return claimResumeProof{}, worktreeErr
+	}
+	localState, err := a.claimResumeLocalState(root)
+	if err != nil {
+		return claimResumeProof{}, fmt.Errorf("inspect claim worktree state: %w", err)
+	}
+	dirtyHandoff := strings.HasPrefix(evidence.handoffBody, dirtyClaimResumeTitlePrefix)
+	if dirtyHandoff {
+		handoff, parseErr := parseDirtyClaimResumeHandoff(evidence.handoffBody, issue)
+		if parseErr != nil {
+			return claimResumeProof{}, stateError("dirty claim handoff is malformed: %w", parseErr)
+		}
+		if !localState.dirty || handoff.localState != localState.digest {
+			return claimResumeProof{}, stateError("claim worktree local state does not match the preserved dirty handoff; no mutation performed")
+		}
+	}
+	if !dirtyHandoff && localState.dirty {
+		return claimResumeProof{}, stateError("claim worktree %s is dirty; preserve its staged, unstaged, and untracked changes", localBranch)
+	}
+	if refErr := a.validateClaimResumeRefs(root, inventory, issue, fixedBranch, localBranch, runID, expectedHead, localHead, remoteHead); refErr != nil {
+		return claimResumeProof{}, refErr
+	}
+	issueStatus, err := a.readIssueStatus(root, issue)
+	if err != nil {
+		return claimResumeProof{}, err
+	}
+	if issueStatus.State != "OPEN" {
+		return claimResumeProof{}, stateError("issue #%d is %s; claim recovery requires OPEN and no mutation was performed", issue, issueStatus.State)
+	}
+	items, err := a.projectItems(root)
+	if err != nil {
+		return claimResumeProof{}, err
+	}
+	item, err := canonicalClaimResumeProjectItem(items, issue)
+	if err != nil {
+		return claimResumeProof{}, err
+	}
+	if item.Status != "Backlog" && item.Status != "Picked" {
+		return claimResumeProof{}, stateError("issue #%d Project status %q is not a resumable Backlog/Picked state; preserve external state", issue, item.Status)
+	}
+	needsHuman := issueNeedsHuman(issueStatus)
+	if _, existing := renewal.(claimResumeExistingRenewal); !existing && (!needsHuman || item.Status != "Backlog") {
+		return claimResumeProof{}, stateError("issue #%d requires needs-human and Project Backlog before no-PR claim recovery; no mutation performed", issue)
+	}
+	return claimResumeProof{
+		preflight: claimResumePreflight{
+			root: root, localBranch: localBranch, fixedBranch: fixedBranch,
+			expectedHead: expectedHead, localHead: localHead, remoteHead: remoteHead,
+			runID: runID, issue: issue, handoffCommentID: handoffCommentID,
+			claimCommentID: evidence.claimCommentID, handoffBody: evidence.handoffBody,
+			claimLease: evidence.claimLease, projectItemID: item.ID, projectStatus: item.Status,
+			needsHuman: needsHuman, localState: localState.digest,
+		},
+		renewal: renewal,
+	}, nil
+}
+
+func claimResumeFixedHead(inventory agentRefInventory, issue int, fixedBranch string) (string, error) {
+	count := 0
+	var head string
+	for _, claim := range inventory.claims {
+		if claim.number != issue {
+			continue
+		}
+		if claim.branch != fixedBranch {
+			return "", stateError("issue #%d has conflicting remote claim ref %s; preserve claim artifacts", issue, claim.branch)
+		}
+		count++
+		head = claim.sha
+	}
+	if count != 1 {
+		return "", stateError("issue #%d fixed claim ref inventory is ambiguous; preserve claim artifacts", issue)
+	}
+	return head, nil
+}
+
+type claimResumeHistoryCommit struct {
+	head   string
+	object commitObject
+}
+
+// readClaimResumeMarkerChain binds the oldest same-run marker to the acquired
+// lease, then proves every commit between that marker and the current head.
+//
+//nolint:gocognit // The proof keeps the ordered marker and merge gates together.
+func (a app) readClaimResumeMarkerChain(root, head string, issue int, runID string, acquisitionLease time.Time) error {
+	history, err := a.readClaimResumeFirstParentHistory(root, head)
+	if err != nil {
+		return err
+	}
+	if hiddenErr := a.validateNoHiddenClaimResumeMarker(root, head, history, runID); hiddenErr != nil {
+		return hiddenErr
+	}
+	anchor := claimResumeAcquisitionIndex(history, runID)
+	if anchor < 0 {
+		return stateError("claim head %s has no original marker for issue #%d run %s; preserve claim artifacts", head, issue, runID)
+	}
+	for index := 0; index <= anchor; index++ {
+		current := history[index]
+		if len(current.object.parents) != 1 {
+			return stateError("claim ancestry commit %s has %d parents; merge ancestry is ambiguous and artifacts are preserved", current.head, len(current.object.parents))
+		}
+		if index != 0 && !claimResumeMarkerCandidate(history, index) {
+			continue
+		}
+		marker, markerErr := a.readCanonicalClaimCommit(root, current.head, issue, runID, "")
+		if markerErr != nil {
+			return markerErr
+		}
+		if index == 0 && marker.lease.After(time.Now().UTC()) {
+			return stateError("claim #%d is active until %s; use claim renew", issue, marker.lease.Format(time.RFC3339))
+		}
+		if index == anchor && !marker.lease.Equal(acquisitionLease) {
+			return stateError("original claim marker %s lease %s does not match generated acquisition lease %s; preserve evidence", current.head, marker.lease.Format(time.RFC3339), acquisitionLease.Format(time.RFC3339))
+		}
+	}
+	return nil
+}
+
+func (a app) readClaimResumeFirstParentHistory(root, head string) ([]claimResumeHistoryCommit, error) {
+	history := make([]claimResumeHistoryCommit, 0, 4)
+	for current := head; current != ""; {
+		object, err := a.gitRaw(root, "cat-file", "commit", current)
+		if err != nil {
+			return nil, fmt.Errorf("read claim ancestry commit %s: %w", current, err)
+		}
+		parsed, err := parseCommitObject(object)
+		if err != nil {
+			return nil, stateError("claim ancestry commit %s is malformed; preserve claim artifacts: %w", current, err)
+		}
+		history = append(history, claimResumeHistoryCommit{head: current, object: parsed})
+		if len(parsed.parents) == 0 {
+			break
+		}
+		current = parsed.parents[0]
+	}
+	return history, nil
+}
+
+func (a app) validateNoHiddenClaimResumeMarker(root, head string, history []claimResumeHistoryCommit, runID string) error {
+	firstParents := make(map[string]bool, len(history))
+	for _, commit := range history {
+		firstParents[commit.head] = true
+	}
+	output, err := a.command(root, "git", "rev-list", head)
+	if err != nil {
+		return fmt.Errorf("inspect claim ancestry graph at %s: %w", head, err)
+	}
+	for _, candidate := range strings.Split(output, "\n") {
+		if candidate == "" || firstParents[candidate] {
+			continue
+		}
+		if !validExactCommitSHA(candidate) {
+			return stateError("claim ancestry graph has malformed head %q; preserve artifacts", candidate)
+		}
+		object, readErr := a.gitRaw(root, "cat-file", "commit", candidate)
+		if readErr != nil {
+			return fmt.Errorf("read claim ancestry side commit %s: %w", candidate, readErr)
+		}
+		parsed, parseErr := parseCommitObject(object)
+		if parseErr != nil {
+			return stateError("claim ancestry side commit %s is malformed; preserve artifacts: %w", candidate, parseErr)
+		}
+		if claimResumeMarkerRun(parsed.message) == runID {
+			return stateError("claim head %s has same-run marker %s outside first-parent ancestry; merge ancestry is ambiguous", head, candidate)
+		}
+	}
+	return nil
+}
+
+func claimResumeAcquisitionIndex(history []claimResumeHistoryCommit, runID string) int {
+	anchor := -1
+	for index := range history {
+		if !claimResumeMarkerCandidate(history, index) {
+			continue
+		}
+		if claimResumeMarkerRun(history[index].object.message) != runID {
+			continue
+		}
+		anchor = index
+	}
+	return anchor
+}
+
+func claimResumeMarkerCandidate(history []claimResumeHistoryCommit, index int) bool {
+	if claimResumeLooksLikeMarker(history[index].object.message) {
+		return true
+	}
+	if index+1 >= len(history) {
+		return false
+	}
+	return history[index].object.tree == history[index+1].object.tree
+}
+
+func claimResumeMarkerRun(message string) string {
+	for _, line := range strings.Split(message, "\n") {
+		if strings.HasPrefix(line, "Agent-Run-ID: ") {
+			return strings.TrimPrefix(line, "Agent-Run-ID: ")
+		}
+	}
+	return ""
+}
+
+func claimResumeLooksLikeMarker(message string) bool {
+	lines := strings.Split(message, "\n")
+	if len(lines) == 0 {
+		return false
+	}
+	if strings.HasPrefix(lines[0], "chore(workflow): claim issue #") {
+		return true
+	}
+	for _, line := range lines[1:] {
+		if strings.HasPrefix(line, "Agent-Persona: ") || strings.HasPrefix(line, "Agent-Run-ID: ") ||
+			strings.HasPrefix(line, "Agent-Lease-Until: ") || strings.HasPrefix(line, "Agent-Issue: ") {
+			return true
+		}
+	}
+	return false
+}
+
+// readCanonicalClaimCommit proves the exact bytes and graph shape of a claim
+// marker.  The raw message is intentionally read without command-output
+// trimming: a missing final LF, trailing bytes, source-bearing tree, or merge
+// parent is a terminal artifact failure.
+func (a app) readCanonicalClaimCommit(root, head string, issue int, runID, expectedParent string) (canonicalClaimCommit, error) {
+	commit, err := a.readCanonicalClaimIdentity(root, head, expectedParent)
+	if err != nil {
+		return canonicalClaimCommit{}, err
+	}
+	if commit.issue != issue || commit.runID != runID {
+		return canonicalClaimCommit{}, stateError("claim marker %s metadata binds issue #%d run %s, not issue #%d run %s; preserve claim artifacts", head, commit.issue, commit.runID, issue, runID)
+	}
+	return commit, nil
+}
+
+// readCanonicalClaimIdentity proves a generated claim marker without assuming
+// which issue or run it should identify. Callers bind the returned identity to
+// their phase-specific expected values.
+func (a app) readCanonicalClaimIdentity(root, head, expectedParent string) (canonicalClaimCommit, error) {
+	if !validExactCommitSHA(head) {
+		return canonicalClaimCommit{}, stateError("claim marker head %q is not a full commit SHA; preserve claim artifacts", head)
+	}
+	if err := a.validateLocalAgentCommit(root, head, "claim marker "+head); err != nil {
+		return canonicalClaimCommit{}, err
+	}
+	object, err := a.gitRaw(root, "cat-file", "commit", head)
+	if err != nil {
+		return canonicalClaimCommit{}, fmt.Errorf("read claim marker object at %s: %w", head, err)
+	}
+	parsed, err := parseCanonicalCommitObject(object, head)
+	if err != nil {
+		return canonicalClaimCommit{}, stateError("claim marker %s has non-canonical parent shape; preserve claim artifacts: %w", head, err)
+	}
+	if expectedParent != "" && parsed.parent != expectedParent {
+		return canonicalClaimCommit{}, stateError("claim marker %s has parent %s, expected %s; preserve claim artifacts", head, parsed.parent, expectedParent)
+	}
+	if validateErr := a.validateLocalAgentCommit(root, parsed.parent, "claim marker parent "+parsed.parent); validateErr != nil {
+		return canonicalClaimCommit{}, validateErr
+	}
+	treeOutput, err := a.gitRaw(root, "rev-parse", head+"^{tree}")
+	if err != nil {
+		return canonicalClaimCommit{}, fmt.Errorf("read claim marker tree at %s: %w", head, err)
+	}
+	tree, err := parseCanonicalSHA(treeOutput, "claim marker tree")
+	if err != nil {
+		return canonicalClaimCommit{}, stateError("claim marker %s has malformed tree identity; preserve claim artifacts: %w", head, err)
+	}
+	if parsed.tree != tree {
+		return canonicalClaimCommit{}, stateError("claim marker %s tree header %s disagrees with resolved tree %s; preserve claim artifacts", head, parsed.tree, tree)
+	}
+	parentTreeOutput, err := a.gitRaw(root, "rev-parse", parsed.parent+"^{tree}")
+	if err != nil {
+		return canonicalClaimCommit{}, fmt.Errorf("read claim marker parent tree at %s: %w", parsed.parent, err)
+	}
+	parentTree, err := parseCanonicalSHA(parentTreeOutput, "claim marker parent tree")
+	if err != nil {
+		return canonicalClaimCommit{}, stateError("claim marker %s parent has malformed tree identity; preserve claim artifacts: %w", head, err)
+	}
+	if tree != parentTree {
+		return canonicalClaimCommit{}, stateError("claim marker %s is source-bearing (tree %s differs from parent tree %s); preserve claim artifacts", head, tree, parentTree)
+	}
+	observedIssue, observedRunID, lease, parseErr := parseCanonicalClaimMessage(parsed.message)
+	if parseErr != nil {
+		return canonicalClaimCommit{}, stateError("claim marker %s has non-canonical metadata; preserve claim artifacts: %w", head, parseErr)
+	}
+	return canonicalClaimCommit{parent: parsed.parent, tree: tree, message: parsed.message, issue: observedIssue, runID: observedRunID, lease: lease}, nil
+}
+
+func parseCanonicalCommitObject(object, head string) (canonicalCommitObject, error) {
+	parsed, err := parseCommitObject(object)
+	if err != nil {
+		return canonicalCommitObject{}, err
+	}
+	if !strings.HasSuffix(parsed.message, "\n") || strings.HasSuffix(parsed.message, "\n\n") || strings.Contains(parsed.message, "\r") {
+		return canonicalCommitObject{}, errors.New("commit message is not an exact LF-terminated payload")
+	}
+	if len(parsed.parents) != 1 {
+		return canonicalCommitObject{}, fmt.Errorf("want exactly one parent for %s, found %d", head, len(parsed.parents))
+	}
+	return canonicalCommitObject{parent: parsed.parents[0], tree: parsed.tree, message: parsed.message}, nil
+}
+
+func parseCommitObject(object string) (commitObject, error) {
+	separator := strings.Index(object, "\n\n")
+	if separator < 0 {
+		return commitObject{}, errors.New("commit object has no header/message separator")
+	}
+	header := object[:separator]
+	message := object[separator+2:]
+	var tree string
+	parents := make([]string, 0, 2)
+	for _, line := range strings.Split(header, "\n") {
+		switch {
+		case strings.HasPrefix(line, "tree "):
+			if tree != "" {
+				return commitObject{}, errors.New("commit object has duplicate tree headers")
+			}
+			value := strings.TrimPrefix(line, "tree ")
+			if !validExactCommitSHA(value) {
+				return commitObject{}, errors.New("commit object has malformed tree header")
+			}
+			tree = value
+		case strings.HasPrefix(line, "parent "):
+			value := strings.TrimPrefix(line, "parent ")
+			if !validExactCommitSHA(value) {
+				return commitObject{}, errors.New("commit object has malformed parent header")
+			}
+			parents = append(parents, value)
+		}
+	}
+	if tree == "" {
+		return commitObject{}, errors.New("commit object has no tree header")
+	}
+	return commitObject{parents: parents, tree: tree, message: message}, nil
+}
+
+func parseCanonicalSHA(output, label string) (string, error) {
+	if !strings.HasSuffix(output, "\n") || strings.Contains(output, "\r") {
+		return "", fmt.Errorf("%s is not LF-terminated", label)
+	}
+	value := strings.TrimSuffix(output, "\n")
+	if !validExactCommitSHA(value) {
+		return "", fmt.Errorf("%s %q is not a full commit SHA", label, value)
+	}
+	return value, nil
+}
+
+func parseCanonicalClaimMessage(message string) (int, string, time.Time, error) {
+	if !strings.HasSuffix(message, "\n") || strings.Contains(message, "\r") {
+		return 0, "", time.Time{}, errors.New("message is not LF-terminated")
+	}
+	lines := strings.Split(message, "\n")
+	if len(lines) != 7 || lines[1] != "" || lines[2] != "Agent-Persona: Smith" || lines[6] != "" {
+		return 0, "", time.Time{}, errors.New("message bytes do not match generated claim format")
+	}
+	if !strings.HasPrefix(lines[0], "chore(workflow): claim issue #") ||
+		!strings.HasPrefix(lines[3], "Agent-Run-ID: ") ||
+		!strings.HasPrefix(lines[4], "Agent-Lease-Until: ") ||
+		!strings.HasPrefix(lines[5], "Agent-Issue: ") {
+		return 0, "", time.Time{}, errors.New("message fields do not match generated claim format")
+	}
+	issueValue := strings.TrimPrefix(lines[0], "chore(workflow): claim issue #")
+	issue, err := positiveNumber(issueValue)
+	if err != nil || strconv.Itoa(issue) != issueValue {
+		return 0, "", time.Time{}, errors.New("message has malformed issue identity")
+	}
+	runID := strings.TrimPrefix(lines[3], "Agent-Run-ID: ")
+	if !validRunID(runID) {
+		return 0, "", time.Time{}, errors.New("message has malformed run identity")
+	}
+	leaseValue := strings.TrimPrefix(lines[4], "Agent-Lease-Until: ")
+	lease, err := time.Parse(time.RFC3339, leaseValue)
+	if err != nil || lease.Format(time.RFC3339) != leaseValue {
+		return 0, "", time.Time{}, errors.New("message has malformed lease")
+	}
+	if strings.TrimPrefix(lines[5], "Agent-Issue: ") != issueValue {
+		return 0, "", time.Time{}, errors.New("message issue trailers disagree")
+	}
+	return issue, runID, lease, nil
+}
+
+//nolint:gocognit // Paginated evidence, author, ordering, and path bindings form one authentication check.
+func (a app) readClaimResumeEvidence(root string, issue int, handoffCommentID int64, localBranch, runID string) (claimResumeCommentEvidence, error) {
+	comments, err := a.readIssueComments(root, issue)
+	if err != nil {
+		return claimResumeCommentEvidence{}, err
+	}
+	handoffIndex := -1
+	handoffCount := 0
+	var handoffBody string
+	claimIndex := -1
+	var claim claimResumeClaimComment
+	claimCount := 0
+	fixedBranch := claimBranch(issue)
+	for index, comment := range comments {
+		if comment.ID == handoffCommentID {
+			handoffCount++
+			if comment.User.Login != trustedActor {
+				return claimResumeCommentEvidence{}, stateError("handoff comment %d is authored by %q, not trusted API actor %q; preserve evidence", handoffCommentID, comment.User.Login, trustedActor)
+			}
+			if bodyErr := validateTerminalClaimHandoffBody(comment.Body, issue); bodyErr != nil {
+				return claimResumeCommentEvidence{}, stateError("handoff comment %d is not an exact terminal no-PR handoff: %w; preserve evidence", handoffCommentID, bodyErr)
+			}
+			handoffIndex = index
+			handoffBody = comment.Body
+		}
+		if comment.User.Login != trustedActor {
+			continue
+		}
+		parsed, parseErr := parseClaimAcquiredComment(comment.Body)
+		if parseErr != nil {
+			continue
+		}
+		if parsed.branch != fixedBranch || parsed.localBranch != localBranch {
+			continue
+		}
+		claimCount++
+		claimIndex = index
+		claim = parsed
+	}
+	if handoffCount != 1 {
+		return claimResumeCommentEvidence{}, stateError("exact terminal handoff comment %d is absent or duplicated in paginated issue history; preserve evidence", handoffCommentID)
+	}
+	if claimCount != 1 {
+		return claimResumeCommentEvidence{}, stateError("issue #%d has %d trusted generated claim comments bound to local branch %s; preserve evidence", issue, claimCount, localBranch)
+	}
+	if claim.runID != runID {
+		return claimResumeCommentEvidence{}, stateError("generated claim comment run %s does not match requested run %s; preserve evidence", claim.runID, runID)
+	}
+	if claimIndex >= handoffIndex {
+		return claimResumeCommentEvidence{}, stateError("terminal handoff comment %d does not follow the exact generated claim comment; preserve evidence", handoffCommentID)
+	}
+	claimPath, err := absoluteCleanPath(claim.worktree)
+	if err != nil {
+		return claimResumeCommentEvidence{}, stateError("generated claim comment has malformed worktree path; preserve evidence")
+	}
+	rootPath, err := absoluteCleanPath(root)
+	if err != nil {
+		return claimResumeCommentEvidence{}, fmt.Errorf("resolve claim worktree root: %w", err)
+	}
+	if !samePath(claimPath, rootPath) {
+		return claimResumeCommentEvidence{}, stateError("generated claim worktree %q does not match current worktree %q; preserve evidence", claim.worktree, root)
+	}
+	if !containsExactPath(handoffBody, claim.worktree) {
+		return claimResumeCommentEvidence{}, stateError("terminal handoff comment %d does not name the exact claim worktree; preserve evidence", handoffCommentID)
+	}
+	return claimResumeCommentEvidence{claimCommentID: comments[claimIndex].ID, claimLease: claim.lease, handoffBody: handoffBody}, nil
+}
+
+func parseClaimAcquiredComment(body string) (claimResumeClaimComment, error) {
+	lines := strings.Split(body, "\n")
+	if len(lines) != 8 || lines[0] != "Claim acquired." || lines[1] != "" || lines[7] != "" {
+		return claimResumeClaimComment{}, errors.New("generated claim comment has unexpected bytes")
+	}
+	branch, err := exactBacktickField(lines[2], "- Branch: ")
+	if err != nil {
+		return claimResumeClaimComment{}, err
+	}
+	localBranch, err := exactBacktickField(lines[3], "- Local branch: ")
+	if err != nil {
+		return claimResumeClaimComment{}, err
+	}
+	worktree, err := exactBacktickField(lines[4], "- Worktree: ")
+	if err != nil {
+		return claimResumeClaimComment{}, err
+	}
+	runID, err := exactBacktickField(lines[5], "- Run: ")
+	if err != nil {
+		return claimResumeClaimComment{}, err
+	}
+	leaseValue, err := exactBacktickField(lines[6], "- Lease until: ")
+	if err != nil {
+		return claimResumeClaimComment{}, err
+	}
+	if !validRunID(runID) {
+		return claimResumeClaimComment{}, errors.New("generated claim comment has invalid run ID")
+	}
+	lease, err := time.Parse(time.RFC3339, leaseValue)
+	if err != nil || lease.Format(time.RFC3339) != leaseValue {
+		return claimResumeClaimComment{}, errors.New("generated claim comment has invalid lease")
+	}
+	return claimResumeClaimComment{branch: branch, localBranch: localBranch, worktree: worktree, runID: runID, lease: lease}, nil
+}
+
+func exactBacktickField(line, prefix string) (string, error) {
+	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, "`") {
+		return "", fmt.Errorf("generated claim comment field %q is malformed", prefix)
+	}
+	value := strings.TrimPrefix(line, prefix)
+	if len(value) < 2 || value[0] != '`' || strings.Count(value, "`") != 2 {
+		return "", fmt.Errorf("generated claim comment field %q is malformed", prefix)
+	}
+	value = strings.TrimSuffix(strings.TrimPrefix(value, "`"), "`")
+	if value == "" || strings.ContainsAny(value, "\r\n") {
+		return "", fmt.Errorf("generated claim comment field %q is empty", prefix)
+	}
+	return value, nil
+}
+
+const dirtyClaimResumeTitlePrefix = "# Dirty no-PR claim handoff: issue #"
+
+type dirtyClaimResumeHandoff struct {
+	runID       string
+	original    string
+	current     string
+	fixedBranch string
+	localBranch string
+	worktree    string
+	localState  string
+}
+
+// parseDirtyClaimResumeHandoff accepts one finite, authenticated form. The
+// current head is the head when the handoff was written; retry may see its
+// verified canonical renewal child.
+func parseDirtyClaimResumeHandoff(body string, issue int) (dirtyClaimResumeHandoff, error) {
+	lines := strings.Split(body, "\n")
+	if len(lines) != 11 || lines[0] != dirtyClaimResumeTitlePrefix+strconv.Itoa(issue) || lines[1] != "" ||
+		lines[9] != "No source commit or PR was published." || lines[10] != "" {
+		return dirtyClaimResumeHandoff{}, errors.New("body does not match the exact dirty no-PR handoff form")
+	}
+	fields := []string{"Run: ", "Original claim head: ", "Current claim head: ", "Fixed branch: ",
+		"Local branch: ", "Worktree: ", "Preserved state SHA-256: "}
+	values := make([]string, len(fields))
+	for index, field := range fields {
+		value, err := exactBacktickField(lines[index+2], field)
+		if err != nil {
+			return dirtyClaimResumeHandoff{}, fmt.Errorf("dirty handoff %s: %w", strings.TrimSpace(field), err)
+		}
+		values[index] = value
+	}
+	if !validRunID(values[0]) || !validExactCommitSHA(values[1]) || !validExactCommitSHA(values[2]) ||
+		!validSHA256Digest(values[6]) {
+		return dirtyClaimResumeHandoff{}, errors.New("dirty handoff has malformed run, head, or state digest")
+	}
+	return dirtyClaimResumeHandoff{runID: values[0], original: values[1], current: values[2],
+		fixedBranch: values[3], localBranch: values[4], worktree: values[5], localState: values[6]}, nil
+}
+
+func validSHA256Digest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, digit := range value {
+		if digit >= '0' && digit <= '9' || digit >= 'a' && digit <= 'f' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+type claimResumeLocalSnapshot struct {
+	digest string
+	dirty  bool
+}
+
+func (a app) verifyClaimResumeLocalState(proof claimResumeProof) error {
+	state, err := a.claimResumeLocalState(proof.preflight.root)
+	if err != nil {
+		return err
+	}
+	if state.digest != proof.preflight.localState {
+		return stateError("claim worktree local state changed during renewal; preserve its staged, unstaged, and untracked changes")
+	}
+	return nil
+}
+
+// claimResumeLocalState seals index identities and local bytes independently
+// of the claim commit. Git's index identity covers staged blobs, while the
+// path records cover all tracked files and nonignored untracked file contents
+// and types, even when Git's stat cache reports a tracked file as clean.
+//
+//nolint:gocognit,funlen // A single snapshot checks every Git and filesystem observation before return.
+func (a app) claimResumeLocalState(root string) (claimResumeLocalSnapshot, error) {
+	status, err := a.claimResumeReadOnlyStatus(root)
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("read claim worktree status: %w", err)
+	}
+	index, err := a.gitRaw(root, "ls-files", "--stage", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("read claim index: %w", err)
+	}
+	unmerged, err := a.gitRaw(root, "ls-files", "--unmerged", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("read claim unmerged index: %w", err)
+	}
+	if unmerged != "" {
+		return claimResumeLocalSnapshot{}, stateError("claim index contains unmerged entries; preserve local state")
+	}
+	flags, err := a.gitRaw(root, "ls-files", "-v", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("read claim index flags: %w", err)
+	}
+	if flags != "" && !strings.HasSuffix(flags, "\x00") {
+		return claimResumeLocalSnapshot{}, stateError("claim index flags listing is malformed; preserve local state")
+	}
+	for _, entry := range strings.Split(strings.TrimSuffix(flags, "\x00"), "\x00") {
+		if entry == "" {
+			continue
+		}
+		if len(entry) < 3 || entry[1] != ' ' {
+			return claimResumeLocalSnapshot{}, stateError("claim index flags entry is malformed; preserve local state")
+		}
+		if entry[0] == 'S' || entry[0] >= 'a' && entry[0] <= 'z' {
+			return claimResumeLocalSnapshot{}, stateError("claim index has skip-worktree or assume-unchanged entries; preserve local state")
+		}
+	}
+	trackedPaths, validateErr := validateClaimResumeIndex(index, status)
+	if validateErr != nil {
+		return claimResumeLocalSnapshot{}, validateErr
+	}
+	paths, err := a.gitRaw(root, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("list untracked claim paths: %w", err)
+	}
+	pathList, err := parseClaimResumePathList(strings.Join(trackedPaths, "\x00") + claimResumePathSeparator(trackedPaths) + paths)
+	if err != nil {
+		return claimResumeLocalSnapshot{}, err
+	}
+	h := sha256.New()
+	for _, record := range [][]byte{[]byte("goxsd9/dirty-claim-state/v1"), []byte(status), []byte(index), []byte(flags)} {
+		if recordErr := writeClaimResumeSnapshotRecord(h, record); recordErr != nil {
+			return claimResumeLocalSnapshot{}, recordErr
+		}
+	}
+	for _, path := range pathList {
+		if pathErr := hashClaimResumeLocalPath(h, root, path); pathErr != nil {
+			return claimResumeLocalSnapshot{}, pathErr
+		}
+	}
+	statusAfter, err := a.claimResumeReadOnlyStatus(root)
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("reread claim worktree status: %w", err)
+	}
+	indexAfter, err := a.gitRaw(root, "ls-files", "--stage", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("reread claim index: %w", err)
+	}
+	flagsAfter, err := a.gitRaw(root, "ls-files", "-v", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("reread claim index flags: %w", err)
+	}
+	pathsAfter, err := a.gitRaw(root, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return claimResumeLocalSnapshot{}, fmt.Errorf("reread untracked claim paths: %w", err)
+	}
+	if statusAfter != status || indexAfter != index || flagsAfter != flags || pathsAfter != paths {
+		return claimResumeLocalSnapshot{}, stateError("claim local state changed while sealing its snapshot; preserve local changes")
+	}
+	return claimResumeLocalSnapshot{digest: hex.EncodeToString(h.Sum(nil)), dirty: status != ""}, nil
+}
+
+func (a app) claimResumeReadOnlyStatus(root string) (string, error) {
+	return a.gitRaw(root, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
+}
+
+func claimResumePathSeparator(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	return "\x00"
+}
+
+//nolint:gocognit // Index mode, stage, and gitlink checks share one ordered parse.
+func validateClaimResumeIndex(index, status string) ([]string, error) {
+	statusPaths, err := parseClaimResumeStatusPaths(status)
+	if err != nil {
+		return nil, err
+	}
+	if index == "" {
+		return nil, nil
+	}
+	if !strings.HasSuffix(index, "\x00") {
+		return nil, stateError("claim index listing is malformed; preserve local state")
+	}
+	paths := make([]string, 0)
+	for _, entry := range strings.Split(strings.TrimSuffix(index, "\x00"), "\x00") {
+		fields := strings.SplitN(entry, "\t", 2)
+		if len(fields) != 2 || fields[1] == "" {
+			return nil, stateError("claim index entry is malformed; preserve local state")
+		}
+		meta := strings.Fields(fields[0])
+		if len(meta) != 3 || !validExactCommitSHA(meta[1]) || meta[2] != "0" {
+			return nil, stateError("claim index entry has invalid mode, blob, or stage; preserve local state")
+		}
+		if meta[0] == "160000" {
+			if slices.Contains(statusPaths, fields[1]) {
+				return nil, stateError("claim has a modified submodule; preserve local state")
+			}
+			continue
+		}
+		if meta[0] != "100644" && meta[0] != "100755" && meta[0] != "120000" {
+			return nil, stateError("claim index entry has unsupported file mode %q; preserve local state", meta[0])
+		}
+		paths = append(paths, fields[1])
+	}
+	return paths, nil
+}
+
+func parseClaimResumeStatusPaths(status string) ([]string, error) {
+	if status == "" {
+		return nil, nil
+	}
+	if !strings.HasSuffix(status, "\x00") {
+		return nil, stateError("claim status listing is malformed; preserve local state")
+	}
+	records := strings.Split(strings.TrimSuffix(status, "\x00"), "\x00")
+	paths := make([]string, 0, len(records))
+	for index := 0; index < len(records); index++ {
+		record := records[index]
+		if len(record) < 4 || record[2] != ' ' || record[3:] == "" {
+			return nil, stateError("claim status entry is malformed; preserve local state")
+		}
+		paths = append(paths, record[3:])
+		if !strings.ContainsAny(record[:2], "RC") {
+			continue
+		}
+		index++
+		if index >= len(records) || records[index] == "" {
+			return nil, stateError("claim status rename/copy source is malformed; preserve local state")
+		}
+		paths = append(paths, records[index])
+	}
+	return paths, nil
+}
+
+func parseClaimResumePathList(output string) ([]string, error) {
+	if output == "" {
+		return nil, nil
+	}
+	if !strings.HasSuffix(output, "\x00") {
+		return nil, stateError("claim path listing is malformed; preserve local state")
+	}
+	paths := strings.Split(strings.TrimSuffix(output, "\x00"), "\x00")
+	sort.Strings(paths)
+	for index, path := range paths {
+		if path == "" || filepath.IsAbs(path) || filepath.Clean(path) != path || path == ".." || strings.HasPrefix(path, ".."+string(filepath.Separator)) {
+			return nil, stateError("claim path %q escapes the worktree; preserve local state", path)
+		}
+		if index > 0 && path == paths[index-1] {
+			return nil, stateError("claim path %q is duplicated; preserve local state", path)
+		}
+	}
+	return paths, nil
+}
+
+func writeClaimResumeSnapshotRecord(h hash.Hash, record []byte) error {
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(len(record)))
+	if _, err := h.Write(length[:]); err != nil {
+		return fmt.Errorf("hash claim record length: %w", err)
+	}
+	if _, err := h.Write(record); err != nil {
+		return fmt.Errorf("hash claim record: %w", err)
+	}
+	return nil
+}
+
+func writeClaimResumeSnapshotLength(h hash.Hash, size int64) error {
+	if size < 0 {
+		return stateError("claim file has a negative length; preserve local state")
+	}
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(size))
+	if _, err := h.Write(length[:]); err != nil {
+		return fmt.Errorf("hash claim file length: %w", err)
+	}
+	return nil
+}
+
+//nolint:gocognit,funlen // Every file type, read result, and race check is part of one path record.
+func hashClaimResumeLocalPath(h hash.Hash, root, path string) error {
+	if err := writeClaimResumeSnapshotRecord(h, []byte(path)); err != nil {
+		return err
+	}
+	worktreeRoot := root
+	for _, part := range strings.Split(filepath.Dir(path), string(filepath.Separator)) {
+		if part == "." {
+			continue
+		}
+		root = filepath.Join(root, part)
+		info, err := os.Lstat(root)
+		if errors.Is(err, os.ErrNotExist) {
+			return writeClaimResumeSnapshotRecord(h, []byte("missing"))
+		}
+		if err != nil {
+			return fmt.Errorf("inspect claim path parent %s: %w", root, err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return stateError("claim path parent %s is not a plain directory; preserve local state", root)
+		}
+	}
+	fullPath := filepath.Join(root, filepath.Base(path))
+	info, err := os.Lstat(fullPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return writeClaimResumeSnapshotRecord(h, []byte("missing"))
+	}
+	if err != nil {
+		return fmt.Errorf("inspect claim path %s: %w", fullPath, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, readErr := os.Readlink(fullPath)
+		if readErr != nil {
+			return fmt.Errorf("read claim symlink %s: %w", fullPath, readErr)
+		}
+		after, statErr := os.Lstat(fullPath)
+		if statErr != nil || !os.SameFile(info, after) || info.Mode() != after.Mode() || info.ModTime() != after.ModTime() {
+			return stateError("claim symlink %s changed while sealing snapshot; preserve local state", fullPath)
+		}
+		if recordErr := writeClaimResumeSnapshotRecord(h, []byte("symlink:"+info.Mode().String())); recordErr != nil {
+			return recordErr
+		}
+		return writeClaimResumeSnapshotRecord(h, []byte(target))
+	}
+	if !info.Mode().IsRegular() {
+		return stateError("claim path %s has unsupported file type; preserve local state", fullPath)
+	}
+	rooted, err := os.OpenRoot(worktreeRoot)
+	if err != nil {
+		return fmt.Errorf("open claim worktree root %s: %w", worktreeRoot, err)
+	}
+	file, openErr := rooted.Open(path)
+	rootCloseErr := rooted.Close()
+	if openErr != nil || rootCloseErr != nil {
+		if file != nil {
+			return errors.Join(openErr, rootCloseErr, file.Close())
+		}
+		return errors.Join(fmt.Errorf("open claim path %s: %w", fullPath, openErr), rootCloseErr)
+	}
+	opened, err := file.Stat()
+	if err != nil {
+		return errors.Join(fmt.Errorf("stat open claim path %s: %w", fullPath, err), file.Close())
+	}
+	if !os.SameFile(info, opened) {
+		return errors.Join(stateError("claim path %s changed while sealing snapshot; preserve local state", fullPath), file.Close())
+	}
+	if recordErr := writeClaimResumeSnapshotRecord(h, []byte("regular:"+info.Mode().String())); recordErr != nil {
+		return errors.Join(recordErr, file.Close())
+	}
+	if lengthErr := writeClaimResumeSnapshotLength(h, info.Size()); lengthErr != nil {
+		return errors.Join(lengthErr, file.Close())
+	}
+	count, readErr := io.CopyN(h, file, info.Size())
+	var extra [1]byte
+	extraCount, eofErr := file.Read(extra[:])
+	closeErr := file.Close()
+	if readErr != nil || count != info.Size() || extraCount != 0 || !errors.Is(eofErr, io.EOF) || closeErr != nil {
+		return errors.Join(stateError("claim path %s changed while sealing snapshot; preserve local state", fullPath), readErr, eofErr, closeErr)
+	}
+	after, err := os.Lstat(fullPath)
+	if err != nil || !os.SameFile(info, after) || info.Size() != after.Size() || info.Mode() != after.Mode() ||
+		!info.ModTime().Equal(after.ModTime()) {
+		return stateError("claim path %s changed while sealing snapshot; preserve local state", fullPath)
+	}
+	return nil
+}
+
+//nolint:gocognit,funlen // Each recorded handoff identity is checked before recovery.
+func validateClaimResumeHandoffBindings(body string, issue int, expectedHead, fixedBranch, localBranch, root, runID string, lease time.Time) error {
+	if strings.HasPrefix(body, dirtyClaimResumeTitlePrefix) {
+		handoff, err := parseDirtyClaimResumeHandoff(body, issue)
+		if err != nil {
+			return err
+		}
+		rootPath, err := absoluteCleanPath(root)
+		if err != nil {
+			return fmt.Errorf("resolve claim worktree root: %w", err)
+		}
+		worktree, err := absoluteCleanPath(handoff.worktree)
+		if err != nil || !samePath(worktree, rootPath) {
+			return fmt.Errorf("dirty handoff worktree %q does not match %q", handoff.worktree, rootPath)
+		}
+		if handoff.runID != runID || handoff.original != expectedHead || handoff.current != expectedHead ||
+			handoff.fixedBranch != fixedBranch || handoff.localBranch != localBranch {
+			return errors.New("dirty handoff claim, run, or branch identity does not match preserved claim")
+		}
+		return nil
+	}
+	if strings.HasPrefix(body, "# Handoff: issue #") {
+		handoff, err := parseIssue305TerminalHandoff(body, issue)
+		if err != nil {
+			return err
+		}
+		rootPath, err := absoluteCleanPath(root)
+		if err != nil {
+			return fmt.Errorf("resolve claim worktree root: %w", err)
+		}
+		worktree, err := absoluteCleanPath(handoff.worktree)
+		if err != nil || !samePath(worktree, rootPath) {
+			return fmt.Errorf("handoff records worktree path %q, not %q", handoff.worktree, rootPath)
+		}
+		if handoff.branch != localBranch {
+			return fmt.Errorf("handoff records branch %q, not local branch %q", handoff.branch, localBranch)
+		}
+		if localBranch != claimLocalBranch(issue, runID) {
+			return fmt.Errorf("local branch %q does not match issue #%d run %s", localBranch, issue, runID)
+		}
+		for _, path := range handoffAbsolutePaths(body) {
+			if path != handoff.worktree {
+				return fmt.Errorf("handoff records conflicting worktree path %q", path)
+			}
+		}
+		for _, branch := range handoffBranches(body) {
+			if branch != handoff.branch {
+				return fmt.Errorf("handoff records conflicting branch %q", branch)
+			}
+		}
+		return nil
+	}
+	if err := validateExactIssueMentions(body, issue); err != nil {
+		return err
+	}
+	rootPath, err := absoluteCleanPath(root)
+	if err != nil {
+		return fmt.Errorf("resolve claim worktree root: %w", err)
+	}
+	paths := handoffAbsolutePaths(body)
+	if len(paths) == 0 {
+		return errors.New("handoff does not record the claim worktree path")
+	}
+	for _, path := range paths {
+		cleanPath, pathErr := absoluteCleanPath(path)
+		if pathErr != nil || !samePath(cleanPath, rootPath) {
+			return fmt.Errorf("handoff records worktree path %q, not %q", path, rootPath)
+		}
+	}
+	for _, branch := range handoffBranches(body) {
+		if branch != fixedBranch && branch != localBranch {
+			return fmt.Errorf("handoff records conflicting branch %q", branch)
+		}
+	}
+	for _, observed := range handoffRunIDs(body) {
+		if observed != runID {
+			return fmt.Errorf("handoff records run %q, not %q", observed, runID)
+		}
+	}
+	leases := handoffLeases(body)
+	for _, observed := range leases {
+		if !observed.Equal(lease) {
+			return fmt.Errorf("handoff records lease %s, not %s", observed.Format(time.RFC3339), lease.Format(time.RFC3339))
+		}
+	}
+	if handoffHasLeaseMarker(body) && len(leases) == 0 {
+		return errors.New("handoff records a malformed lease")
+	}
+	headBinding := parseHandoffHeadBinding(body)
+	switch headBinding.kind {
+	case handoffHeadAbsent:
+		// The generic handoff head binding is optional when absent.
+	case handoffHeadValid:
+		if headBinding.value != expectedHead {
+			return fmt.Errorf("handoff records head %q, not expected head %s", headBinding.value, expectedHead)
+		}
+	case handoffHeadMalformed:
+		return errors.New("handoff contains a malformed recognized head/SHA/commit label")
+	case handoffHeadAmbiguous:
+		return errors.New("handoff contains ambiguous recognized head/SHA/commit labels")
+	}
+	return nil
+}
+
+//nolint:gocognit // Every issue token is checked in one pass to prevent substring spoofing.
+func validateExactIssueMentions(body string, issue int) error {
+	lower := strings.ToLower(body)
+	count := 0
+	for offset := 0; offset < len(lower); {
+		relative := strings.Index(lower[offset:], "issue #")
+		if relative < 0 {
+			break
+		}
+		start := offset + relative + len("issue #")
+		if start >= len(lower) || lower[start] < '0' || lower[start] > '9' {
+			return errors.New("handoff contains a malformed issue identity")
+		}
+		end := start
+		for end < len(lower) && lower[end] >= '0' && lower[end] <= '9' {
+			end++
+		}
+		if end < len(lower) && isIssueTokenContinuation(lower[end]) {
+			return errors.New("handoff contains a malformed issue identity")
+		}
+		offset = end
+	}
+	for offset := 0; offset < len(lower); {
+		relative := strings.IndexByte(lower[offset:], '#')
+		if relative < 0 {
+			break
+		}
+		start := offset + relative + 1
+		if start >= len(lower) || lower[start] < '0' || lower[start] > '9' {
+			offset = start
+			continue
+		}
+		end := start
+		for end < len(lower) && lower[end] >= '0' && lower[end] <= '9' {
+			end++
+		}
+		if end < len(lower) && isIssueTokenContinuation(lower[end]) {
+			return errors.New("handoff contains a malformed issue identity")
+		}
+		observed, err := strconv.Atoi(lower[start:end])
+		if err != nil || observed != issue {
+			return fmt.Errorf("handoff mentions issue #%s, not issue #%d", lower[start:end], issue)
+		}
+		count++
+		offset = end
+	}
+	if count == 0 {
+		return fmt.Errorf("handoff does not identify issue #%d", issue)
+	}
+	return nil
+}
+
+func isIssueTokenContinuation(value byte) bool {
+	return value >= '0' && value <= '9' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value == '_'
+}
+
+func handoffBacktickValues(body string) []string {
+	values := make([]string, 0, 4)
+	for offset := 0; offset < len(body); {
+		start := strings.IndexByte(body[offset:], '`')
+		if start < 0 {
+			break
+		}
+		start += offset + 1
+		end := strings.IndexByte(body[start:], '`')
+		if end < 0 {
+			break
+		}
+		end += start
+		values = append(values, body[start:end])
+		offset = end + 1
+	}
+	return values
+}
+
+func handoffTokens(body string) []string {
+	values := make([]string, 0, len(strings.Fields(body)))
+	for _, value := range strings.Fields(body) {
+		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+func handoffAbsolutePaths(body string) []string {
+	paths := make([]string, 0, 2)
+	appendPath := func(value string) {
+		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
+		if strings.HasPrefix(value, "/") {
+			paths = append(paths, value)
+		}
+	}
+	for _, value := range handoffBacktickValues(body) {
+		appendPath(value)
+	}
+	for _, value := range handoffTokens(body) {
+		appendPath(value)
+	}
+	return paths
+}
+
+func handoffBranches(body string) []string {
+	branches := make([]string, 0, 2)
+	appendBranch := func(value string) {
+		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
+		if strings.HasPrefix(value, "agent/issue-") {
+			branches = append(branches, value)
+		}
+	}
+	for _, value := range handoffBacktickValues(body) {
+		appendBranch(value)
+	}
+	for _, value := range handoffTokens(body) {
+		appendBranch(value)
+	}
+	return branches
+}
+
+func handoffRunIDs(body string) []string {
+	runs := make([]string, 0, 1)
+	appendRun := func(value string) {
+		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
+		if strings.HasPrefix(value, "run-") {
+			runs = append(runs, value)
+		}
+	}
+	for _, value := range handoffBacktickValues(body) {
+		appendRun(value)
+	}
+	for _, value := range handoffTokens(body) {
+		if strings.Contains(value, "/") {
+			continue
+		}
+		appendRun(value)
+	}
+	return runs
+}
+
+func handoffLeases(body string) []time.Time {
+	leases := make([]time.Time, 0, 1)
+	appendLease := func(value string) {
+		value = strings.Trim(value, "`\"'()[]{}<>,.;:")
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil || parsed.Format(time.RFC3339) != value {
+			return
+		}
+		leases = append(leases, parsed)
+	}
+	for _, value := range handoffBacktickValues(body) {
+		appendLease(value)
+	}
+	for _, value := range handoffTokens(body) {
+		appendLease(value)
+	}
+	return leases
+}
+
+func handoffHasLeaseMarker(body string) bool {
+	lower := strings.ToLower(body)
+	for _, marker := range []string{"lease until", "agent-lease-until", "valid through", "expires"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+type handoffHeadBindingKind uint8
+
+const (
+	handoffHeadAbsent handoffHeadBindingKind = iota
+	handoffHeadValid
+	handoffHeadMalformed
+	handoffHeadAmbiguous
+)
+
+type handoffHeadBinding struct {
+	kind  handoffHeadBindingKind
+	value string
+}
+
+// parseHandoffHeadBinding reads each recognized generic head label once. It
+// does not combine independent backtick and token scans, so one lexical value
+// cannot be counted twice. A second label or value is ambiguous even when it
+// repeats the same SHA.
+func parseHandoffHeadBinding(body string) handoffHeadBinding {
+	binding := handoffHeadBinding{kind: handoffHeadAbsent}
+	recognized := 0
+	for _, rawLine := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(strings.TrimPrefix(rawLine, "- "))
+		label, found := handoffHeadLabel(line)
+		if !found {
+			continue
+		}
+		recognized++
+		if recognized > 1 {
+			binding.kind = handoffHeadAmbiguous
+			continue
+		}
+		remainder := strings.TrimSpace(line[len(label):])
+		if strings.HasPrefix(remainder, ":") {
+			remainder = strings.TrimSpace(remainder[1:])
+		}
+		value, kind := parseHandoffHeadValue(remainder)
+		binding = handoffHeadBinding{kind: kind, value: value}
+	}
+	if recognized > 1 {
+		binding.kind = handoffHeadAmbiguous
+	}
+	return binding
+}
+
+func parseHandoffHeadValue(remainder string) (string, handoffHeadBindingKind) {
+	if remainder == "" {
+		return "", handoffHeadMalformed
+	}
+	if strings.ContainsAny(remainder, "\r\n") {
+		return "", handoffHeadMalformed
+	}
+	if isHandoffHeadQuote(remainder[0]) {
+		return parseHandoffHeadQuotedValue(remainder)
+	}
+	if strings.ContainsAny(remainder, "`\"'") {
+		return "", handoffHeadMalformed
+	}
+	fields := strings.Fields(remainder)
+	if len(fields) == 0 {
+		return "", handoffHeadMalformed
+	}
+	if len(fields) != 1 {
+		return "", handoffHeadAmbiguous
+	}
+	value := strings.Trim(fields[0], "`\"'()[]{}<>,.;:")
+	return validateHandoffHeadValue(value)
+}
+
+func parseHandoffHeadQuotedValue(remainder string) (string, handoffHeadBindingKind) {
+	quote := remainder[0]
+	closeIndex := strings.IndexByte(remainder[1:], quote)
+	if closeIndex < 0 {
+		return "", handoffHeadMalformed
+	}
+	closeIndex++
+	value := remainder[1:closeIndex]
+	if value == "" || strings.ContainsAny(value, " \t`\"'") {
+		return "", handoffHeadMalformed
+	}
+	if _, kind := validateHandoffHeadValue(value); kind != handoffHeadValid {
+		return "", kind
+	}
+	rawTail := remainder[closeIndex+1:]
+	tail := strings.TrimSpace(rawTail)
+	if tail == "" {
+		return value, handoffHeadValid
+	}
+	if tail == ". Local and remote fixed heads match. The head is the generated empty claim renewal child of the generated acquisition commit." {
+		return value, handoffHeadValid
+	}
+	tailStart := strings.TrimLeftFunc(rawTail, unicode.IsSpace)
+	if strings.ContainsAny(tail, "`\"'") {
+		return "", handoffHeadAmbiguous
+	}
+	if tailStart == "" || !isHandoffHeadTailPunctuation(tailStart[0]) {
+		return "", handoffHeadMalformed
+	}
+	if strings.Trim(tail, "()[]{}<>,.;:") != "" {
+		return "", handoffHeadAmbiguous
+	}
+	return value, handoffHeadValid
+}
+
+func validateHandoffHeadValue(value string) (string, handoffHeadBindingKind) {
+	if value == "" || !validExactCommitSHA(value) {
+		return "", handoffHeadMalformed
+	}
+	return value, handoffHeadValid
+}
+
+func isHandoffHeadQuote(value byte) bool {
+	return value == '`' || value == '"' || value == '\''
+}
+
+func isHandoffHeadTailPunctuation(value byte) bool {
+	return value == '(' || value == ')' || value == '[' || value == ']' || value == '{' || value == '}' ||
+		value == '<' || value == '>' || value == ',' || value == '.' || value == ';' || value == ':' ||
+		value == ' ' || value == '\t'
+}
+
+func handoffHeadLabel(line string) (string, bool) {
+	for _, label := range []string{
+		"expected head", "claim head", "fixed head",
+		"expected sha", "claim sha", "fixed sha",
+		"expected commit", "claim commit", "fixed commit",
+		"commit sha", "commit-sha", "head", "sha", "commit",
+	} {
+		if len(line) < len(label) || !strings.EqualFold(line[:len(label)], label) {
+			continue
+		}
+		if len(line) == len(label) {
+			return line, true
+		}
+		separator := line[len(label)]
+		if separator == ':' || separator == ' ' || separator == '\t' {
+			return line[:len(label)], true
+		}
+	}
+	return "", false
+}
+
+func isHexString(value string) bool {
+	for _, current := range value {
+		if (current < '0' || current > '9') && (current < 'a' || current > 'f') && (current < 'A' || current > 'F') {
+			return false
+		}
+	}
+	return value != ""
+}
+
+func containsExactPath(body, path string) bool {
+	for _, observed := range handoffAbsolutePaths(body) {
+		if observed == path {
+			return true
+		}
+	}
+	return false
+}
+
+type issue305TerminalHandoff struct {
+	worktree string
+	branch   string
+}
+
+// parseIssue305TerminalHandoff accepts the one authenticated legacy handoff
+// grammar. Its evidence is intentionally section- and field-shaped: arbitrary
+// prose must not be allowed to manufacture a no-PR recovery proof.
+//
+//nolint:gocognit,funlen // The approved legacy grammar is intentionally explicit and fail-closed.
+func parseIssue305TerminalHandoff(body string, issue int) (issue305TerminalHandoff, error) {
+	if issue != 305 {
+		return issue305TerminalHandoff{}, fmt.Errorf("titled terminal handoff grammar is approved only for issue #305, not issue #%d", issue)
+	}
+	if !utf8.ValidString(body) || body == "" || !strings.HasSuffix(body, "\n") || strings.HasSuffix(body, "\n\n") {
+		return issue305TerminalHandoff{}, errors.New("body is not an exact UTF-8 LF-terminated comment")
+	}
+	lines := strings.Split(body, "\n")
+	if len(lines) < 2 || lines[0] != "# Handoff: issue #305" {
+		return issue305TerminalHandoff{}, errors.New("body has a malformed issue #305 handoff title")
+	}
+	for _, line := range lines {
+		if strings.TrimRight(line, " \t") != line {
+			return issue305TerminalHandoff{}, errors.New("body contains trailing whitespace")
+		}
+		for _, value := range line {
+			if value == '\r' || (value < 0x20 && value != '\t') {
+				return issue305TerminalHandoff{}, errors.New("body contains control bytes")
+			}
+		}
+	}
+	wantHeadings := []string{"## Block", "## Decisions and evidence", "## Risks", "## Next actions"}
+	headings := make([]string, 0, len(wantHeadings))
+	headingIndexes := make([]int, 0, len(wantHeadings))
+	for index, line := range lines {
+		if !strings.HasPrefix(line, "## ") {
+			continue
+		}
+		headings = append(headings, line)
+		headingIndexes = append(headingIndexes, index)
+	}
+	if len(headings) != len(wantHeadings) {
+		return issue305TerminalHandoff{}, errors.New("body headings do not match the approved issue #305 handoff")
+	}
+	for index, heading := range wantHeadings {
+		if headings[index] != heading {
+			return issue305TerminalHandoff{}, errors.New("body headings do not match the approved issue #305 handoff")
+		}
+		sectionEnd := len(lines) - 1
+		if index+1 < len(headingIndexes) {
+			sectionEnd = headingIndexes[index+1]
+		}
+		nonEmpty := false
+		for _, sectionLine := range lines[headingIndexes[index]+1 : sectionEnd] {
+			if strings.TrimSpace(sectionLine) != "" {
+				nonEmpty = true
+				break
+			}
+		}
+		if !nonEmpty {
+			return issue305TerminalHandoff{}, fmt.Errorf("issue #305 handoff section %q is empty", heading)
+		}
+	}
+	if err := validateExactIssueMentions(body, issue); err != nil {
+		return issue305TerminalHandoff{}, err
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
+		for _, label := range []string{"head", "sha", "commit", "lease", "run"} {
+			if strings.HasPrefix(strings.ToLower(trimmed), label+":") {
+				return issue305TerminalHandoff{}, fmt.Errorf("body contains an unapproved %s binding field", label)
+			}
+		}
+	}
+	for _, phrase := range []string{"expected head", "claim head", "fixed head", "expected sha", "claim sha", "expected commit", "commit sha", "head is", "sha is", "commit is", "lease until", "lease is", "agent-run-id", "run id", "run is"} {
+		if containsHandoffWords(body, phrase) {
+			return issue305TerminalHandoff{}, fmt.Errorf("body contains an unapproved %s binding", phrase)
+		}
+	}
+	if len(handoffLeases(body)) != 0 || len(handoffRunIDs(body)) != 0 {
+		return issue305TerminalHandoff{}, errors.New("body contains an unapproved lease or run binding")
+	}
+	for _, token := range handoffTokens(strings.ToLower(body)) {
+		if len(token) == 40 && isHexString(token) {
+			return issue305TerminalHandoff{}, errors.New("body contains an unapproved full commit binding")
+		}
+	}
+	if !containsHandoffWords(body, "claimed packet could not reach implementation") ||
+		!containsHandoffWords(body, "worktree remained clean throughout") ||
+		!containsHandoffWords(body, "no implementation changes") {
+		return issue305TerminalHandoff{}, errors.New("body lacks the approved issue #305 blocker and no-source evidence")
+	}
+	decisionStart := headingIndexes[1] + 1
+	decisionEnd := headingIndexes[2]
+	var worktree string
+	var branch string
+	for index := decisionStart; index < decisionEnd; index++ {
+		line := strings.TrimSpace(lines[index])
+		if line == "- The preserved issue worktree is" {
+			if worktree != "" || index+1 >= decisionEnd {
+				return issue305TerminalHandoff{}, errors.New("body has an ambiguous preserved issue worktree field")
+			}
+			value := strings.TrimSpace(lines[index+1])
+			if !strings.HasPrefix(value, "`") || !strings.HasSuffix(value, "`.") || strings.Count(value, "`") != 2 {
+				return issue305TerminalHandoff{}, errors.New("body has a malformed preserved issue worktree field")
+			}
+			worktree = value[1 : len(value)-2]
+			if !strings.HasPrefix(worktree, "/") {
+				return issue305TerminalHandoff{}, errors.New("body preserved issue worktree is not absolute")
+			}
+			index++
+			continue
+		}
+		if strings.HasPrefix(line, "Its branch is `") {
+			if branch != "" {
+				return issue305TerminalHandoff{}, errors.New("body has an ambiguous preserved issue branch field")
+			}
+			const prefix = "Its branch is `"
+			value := strings.TrimPrefix(line, prefix)
+			closeIndex := strings.IndexByte(value, '`')
+			const suffix = ", with no diff, commit,"
+			if closeIndex <= 0 || !strings.HasSuffix(value, suffix) || closeIndex+1 > len(value)-len(suffix) {
+				return issue305TerminalHandoff{}, errors.New("body has a malformed preserved issue branch field")
+			}
+			if value[closeIndex+1:] != suffix {
+				return issue305TerminalHandoff{}, errors.New("body has a malformed preserved issue branch field")
+			}
+			branch = value[:closeIndex]
+			if !strings.HasPrefix(branch, "agent/issue-305-run-") {
+				return issue305TerminalHandoff{}, errors.New("body preserved issue branch is not a run-local branch")
+			}
+		}
+	}
+	if worktree == "" || branch == "" {
+		return issue305TerminalHandoff{}, errors.New("body lacks the preserved issue worktree and branch fields")
+	}
+	if err := validateIssue305PRMentions(body, branch); err != nil {
+		return issue305TerminalHandoff{}, err
+	}
+	for _, path := range handoffAbsolutePaths(body) {
+		if path != worktree {
+			return issue305TerminalHandoff{}, fmt.Errorf("body contains an unapproved worktree path %q", path)
+		}
+	}
+	for _, observed := range handoffBranches(body) {
+		if observed != branch {
+			return issue305TerminalHandoff{}, fmt.Errorf("body contains an unapproved branch %q", observed)
+		}
+	}
+	return issue305TerminalHandoff{worktree: worktree, branch: branch}, nil
+}
+
+//nolint:funlen,gocognit // Exact historical handoff grammar is deliberately fail-closed.
+func validateTerminalClaimHandoffBody(body string, issue int) error {
+	if !utf8.ValidString(body) || body == "" || !strings.HasSuffix(body, "\n") || strings.HasSuffix(body, "\n\n") {
+		return errors.New("body is not an exact UTF-8 LF-terminated comment")
+	}
+	for _, line := range strings.Split(body, "\n") {
+		if strings.TrimRight(line, " \t") != line {
+			return errors.New("body contains trailing whitespace")
+		}
+		for _, value := range line {
+			if value == '\r' || (value < 0x20 && value != '\t') {
+				return errors.New("body contains control bytes")
+			}
+		}
+	}
+	if strings.HasPrefix(body, dirtyClaimResumeTitlePrefix) {
+		_, err := parseDirtyClaimResumeHandoff(body, issue)
+		return err
+	}
+	lines := strings.Split(body, "\n")
+	if len(lines) < 2 {
+		return errors.New("body has no terminal handoff sections")
+	}
+	hasTitle := strings.HasPrefix(lines[0], "# Handoff: issue #")
+	if hasTitle {
+		titleIssue, titleErr := strconv.Atoi(strings.TrimPrefix(lines[0], "# Handoff: issue #"))
+		if titleErr != nil || titleIssue < 1 || strconv.Itoa(titleIssue) != strings.TrimPrefix(lines[0], "# Handoff: issue #") {
+			return errors.New("body has a malformed handoff issue title")
+		}
+		if titleIssue != issue {
+			return fmt.Errorf("body handoff title identifies issue #%d, not issue #%d", titleIssue, issue)
+		}
+	}
+	if !hasTitle && (!strings.HasPrefix(body, "## Blocker\n\n") || !strings.Contains(body, "\n## Evidence\n\n")) {
+		return errors.New("body must contain the exact Blocker and Evidence sections")
+	}
+	headings := make([]string, 0, 4)
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "## ") {
+			continue
+		}
+		headings = append(headings, line)
+	}
+	wantHeadings := [][]string{{"## Blocker", "## Evidence", "## Decisions and risks", "## Next action"}, {"## Blocker", "## Evidence", "## Risk and next action"}}
+	if hasTitle {
+		wantHeadings = [][]string{{"## Block", "## Decisions and evidence", "## Risks", "## Next actions"}}
+	}
+	headingMatch := false
+	for _, want := range wantHeadings {
+		if len(headings) != len(want) {
+			continue
+		}
+		match := true
+		for index := range want {
+			if headings[index] != want[index] {
+				match = false
+				break
+			}
+		}
+		if match {
+			headingMatch = true
+			break
+		}
+	}
+	if !headingMatch {
+		return errors.New("body headings do not match a terminal blocker handoff")
+	}
+	if hasTitle {
+		_, err := parseIssue305TerminalHandoff(body, issue)
+		return err
+	}
+	if err := validateExactIssueMentions(body, issue); err != nil {
+		return err
+	}
+	lower := strings.ToLower(body)
+	if !strings.Contains(lower, "claim") {
+		return errors.New("body lacks claim-state evidence")
+	}
+	folded := strings.Join(strings.Fields(lower), " ")
+	cleanEvidence := containsHandoffWords(folded, "worktree was clean") || containsHandoffWords(folded, "clean worktree") ||
+		containsHandoffWords(folded, "worktree clean") || containsHandoffWords(folded, "only the generated claim commit") ||
+		containsHandoffWords(folded, "only the generated workflow claim commit") ||
+		containsHandoffWords(folded, "worktree preserved") || containsHandoffWords(folded, "worktree remained clean") ||
+		containsHandoffWords(folded, "clean throughout")
+	noSourceEvidence := containsHandoffWords(folded, "no implementation") || containsHandoffWords(folded, "no source")
+	if !cleanEvidence || !noSourceEvidence {
+		return errors.New("body lacks preserved worktree/no-source evidence")
+	}
+	if containsHandoffWords(folded, "unclean worktree") || containsHandoffWords(folded, "worktree was unclean") ||
+		containsHandoffWords(folded, "dirty worktree") || containsHandoffWords(folded, "worktree was dirty") ||
+		containsHandoffWords(folded, "worktree is dirty") || containsHandoffWords(folded, "worktree is unclean") {
+		return errors.New("body contradicts the clean worktree evidence")
+	}
+	return validateGenericHandoffPRGrammar(body, issue)
+}
+
+type terminalLexemeKind uint8
+
+const (
+	terminalWordLexeme terminalLexemeKind = iota
+	terminalPunctuationLexeme
+)
+
+type terminalRawLexeme struct {
+	kind  terminalLexemeKind
+	text  string
+	start int
+	end   int
+}
+
+type terminalSpan struct {
+	start int
+	end   int
+}
+
+const (
+	terminalGenericFormOne   = "No implementation, tests, commit, push, PR, or evaluation record was made."
+	terminalGenericFormTwo   = "No implementation, tests, documentation, commit, push, PR, or evaluation record was made."
+	terminalGenericFormThree = "No source or test files were changed, no checks, push, PR, challenge, or evaluation record was made."
+	terminalIssue240Form     = "No implementation, tests, documentation, commit, push, PR, evidence, challenge, or Examiner review was attempted after the Smith blocker."
+	terminalIssue240Workflow = "Human intervention is required to restore or rerun the Smith implementation context. Preserve the claimed issue worktree and its claim commit; do not widen the issue or backlog-loop. After implementation, run `go tool workflowctl check` and resume the normal PR/evidence/Curator/Examiner/finish workflow."
+	terminalIssue305Workflow = "Resume from the preserved claim/worktree with a fresh Smith implementation agent, using the completed Scribe/Mason decisions above. Re-run focused tests, `go tool workflowctl check`, and the full PR/evidence/Curator/Examiner workflow only after implementation exists. Do not widen issue #305 or infer completion from the clean worktree."
+)
+
+// validateGenericHandoffPRGrammar authenticates only complete, ordered forms.
+// The raw lexeme sequence retains punctuation and spans, so every PR-like
+// mention must be covered by an approved form for this issue.
+func validateGenericHandoffPRGrammar(body string, issue int) error {
+	lexemes := terminalRawLexemes(body)
+	mentions := terminalPRMentionSpans(body, lexemes)
+	if len(mentions) == 0 {
+		return errors.New("body lacks an explicit no-PR statement")
+	}
+	if issue == 240 {
+		historical := terminalCompleteFormSpans(body, lexemes, terminalIssue240Form)
+		workflow := terminalCompleteFormSpans(body, lexemes, terminalIssue240Workflow)
+		if len(historical) != 1 || len(workflow) != 1 {
+			return errors.New("issue #240 compatibility requires exactly one approved evidence sentence and action paragraph")
+		}
+	}
+	approved := terminalApprovedFormSpans(body, lexemes, issue)
+	if len(approved) == 0 {
+		return errors.New("body lacks an approved complete no-PR form")
+	}
+	if err := terminalRequireCoveredMentions(mentions, approved); err != nil {
+		return err
+	}
+	return nil
+}
+
+func terminalApprovedFormSpans(body string, lexemes []terminalRawLexeme, issue int) []terminalSpan {
+	forms := []string{terminalGenericFormOne, terminalGenericFormTwo, terminalGenericFormThree}
+	if issue == 240 {
+		forms = []string{terminalIssue240Form}
+	}
+	spans := make([]terminalSpan, 0, len(forms))
+	for _, form := range forms {
+		spans = append(spans, terminalCompleteFormSpans(body, lexemes, form)...)
+	}
+	if issue == 240 {
+		spans = append(spans, terminalCompleteFormSpans(body, lexemes, terminalIssue240Workflow)...)
+	}
+	return spans
+}
+
+func terminalRequireCoveredMentions(mentions, approved []terminalSpan) error {
+	for _, mention := range mentions {
+		covered := false
+		for _, form := range approved {
+			if mention.start >= form.start && mention.end <= form.end {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return errors.New("body contains an unapproved PR assertion")
+		}
+	}
+	return nil
+}
+
+func terminalRawLexemes(body string) []terminalRawLexeme {
+	lexemes := make([]terminalRawLexeme, 0, len(body)/2)
+	for index := 0; index < len(body); {
+		value, size := utf8.DecodeRuneInString(body[index:])
+		if unicode.IsSpace(value) {
+			index += size
+			continue
+		}
+		start := index
+		if unicode.IsLetter(value) || unicode.IsDigit(value) {
+			index += size
+			for index < len(body) {
+				next, nextSize := utf8.DecodeRuneInString(body[index:])
+				if !unicode.IsLetter(next) && !unicode.IsDigit(next) {
+					break
+				}
+				index += nextSize
+			}
+			lexemes = append(lexemes, terminalRawLexeme{kind: terminalWordLexeme, text: body[start:index], start: start, end: index})
+			continue
+		}
+		index += size
+		lexemes = append(lexemes, terminalRawLexeme{kind: terminalPunctuationLexeme, text: body[start:index], start: start, end: index})
+	}
+	return lexemes
+}
+
+func terminalCompleteFormSpans(body string, bodyLexemes []terminalRawLexeme, form string) []terminalSpan {
+	formLexemes := terminalRawLexemes(form)
+	if len(formLexemes) == 0 || len(bodyLexemes) < len(formLexemes) {
+		return nil
+	}
+	spans := make([]terminalSpan, 0, 1)
+	for start := 0; start+len(formLexemes) <= len(bodyLexemes); start++ {
+		if !terminalFormLexemesMatch(body, form, bodyLexemes, start, formLexemes) {
+			continue
+		}
+		span := terminalSpan{start: bodyLexemes[start].start, end: bodyLexemes[start+len(formLexemes)-1].end}
+		if !terminalFormBoundaryAllowed(body, span, strings.HasSuffix(form, ".")) {
+			continue
+		}
+		spans = append(spans, span)
+	}
+	return spans
+}
+
+func terminalFormLexemesMatch(body, form string, bodyLexemes []terminalRawLexeme, bodyStart int, formLexemes []terminalRawLexeme) bool {
+	for offset, want := range formLexemes {
+		observed := bodyLexemes[bodyStart+offset]
+		if observed.kind != want.kind || !terminalLexemeEqual(observed, want) {
+			return false
+		}
+		if offset == 0 {
+			continue
+		}
+		if !terminalFormSeparatorAllowed(body, form, formLexemes[offset-1], want, bodyLexemes[bodyStart+offset-1], observed) {
+			return false
+		}
+	}
+	return true
+}
+
+func terminalLexemeEqual(observed, want terminalRawLexeme) bool {
+	if observed.kind != terminalWordLexeme {
+		return observed.text == want.text
+	}
+	return strings.EqualFold(observed.text, want.text)
+}
+
+func terminalFormSeparatorAllowed(body, form string, formPrevious, formCurrent, bodyPrevious, bodyCurrent terminalRawLexeme) bool {
+	formSeparator := form[formPrevious.end:formCurrent.start]
+	bodySeparator := body[bodyPrevious.end:bodyCurrent.start]
+	if formSeparator == "" {
+		return bodySeparator == ""
+	}
+	if formSeparator != " " {
+		return bodySeparator == formSeparator
+	}
+	if bodySeparator == " " {
+		return true
+	}
+	return terminalLineWrapWhitespace(bodySeparator)
+}
+
+func terminalLineWrapWhitespace(value string) bool {
+	if strings.Count(value, "\n") != 1 {
+		return false
+	}
+	for _, current := range value {
+		if current != '\n' && current != ' ' && current != '\t' {
+			return false
+		}
+	}
+	return true
+}
+
+func terminalFormBoundaryAllowed(body string, span terminalSpan, sentence bool) bool {
+	return terminalFormStartBoundaryAllowed(body, span.start, sentence) && terminalFormEndBoundaryAllowed(body, span.end, sentence)
+}
+
+func terminalFormStartBoundaryAllowed(body string, start int, sentence bool) bool {
+	if start == 0 {
+		return true
+	}
+	previous, _ := utf8.DecodeLastRuneInString(body[:start])
+	if unicode.IsLetter(previous) || unicode.IsDigit(previous) || previous == '_' {
+		return false
+	}
+	return !sentence || terminalSentencePrefixAllowed(body, start)
+}
+
+func terminalFormEndBoundaryAllowed(body string, end int, sentence bool) bool {
+	if end >= len(body) {
+		return true
+	}
+	next, _ := utf8.DecodeRuneInString(body[end:])
+	if unicode.IsLetter(next) || unicode.IsDigit(next) || next == '_' || !unicode.IsSpace(next) {
+		return false
+	}
+	if !sentence {
+		return true
+	}
+	last, _ := utf8.DecodeLastRuneInString(body[:end])
+	if last != '.' {
+		return true
+	}
+	return terminalSentenceSuffixAllowed(body, end)
+}
+
+func terminalSentenceSuffixAllowed(body string, end int) bool {
+	for index := end; index < len(body); {
+		value, size := utf8.DecodeRuneInString(body[index:])
+		if value == '\n' {
+			return true
+		}
+		if !unicode.IsSpace(value) {
+			return false
+		}
+		index += size
+	}
+	return true
+}
+
+func terminalSentencePrefixAllowed(body string, start int) bool {
+	lineStart := strings.LastIndexByte(body[:start], '\n') + 1
+	prefix := body[lineStart:start]
+	trimmed := strings.TrimRight(prefix, " \t")
+	if trimmed == "" {
+		return true
+	}
+	marker := trimmed[len(trimmed)-1]
+	if (marker == '-' || marker == '*' || marker == '+') && strings.TrimSpace(trimmed[:len(trimmed)-1]) == "" {
+		return true
+	}
+	if marker != '.' {
+		return false
+	}
+	return len(prefix) > len(trimmed)
+}
+
+func terminalPRMentionSpans(body string, lexemes []terminalRawLexeme) []terminalSpan {
+	mentions := make([]terminalSpan, 0, 2)
+	for index := range lexemes {
+		mention, ok := terminalWordPRMention(lexemes, index)
+		if ok && !terminalSpanInsideAbsolutePath(body, mention) {
+			mentions = append(mentions, mention)
+		}
+	}
+	for _, mention := range terminalPRPathMentionSpans(body, lexemes) {
+		if !terminalSpanInsideAbsolutePath(body, mention) {
+			mentions = append(mentions, mention)
+		}
+	}
+	for _, mention := range terminalObfuscatedPRMentionSpans(lexemes) {
+		if !terminalSpanInsideAbsolutePath(body, mention) {
+			mentions = append(mentions, mention)
+		}
+	}
+	return mentions
+}
+
+func terminalWordPRMention(lexemes []terminalRawLexeme, index int) (terminalSpan, bool) {
+	if index >= len(lexemes) || lexemes[index].kind != terminalWordLexeme {
+		return terminalSpan{}, false
+	}
+	lexeme := lexemes[index]
+	if terminalWordEqual(lexeme.text, "pr") || terminalWordEqual(lexeme.text, "prs") || terminalWordHasAttachedPR(lexeme.text) || terminalWordContainsPullRequest(lexeme.text) {
+		return terminalSpan{start: lexeme.start, end: lexeme.end}, true
+	}
+	return terminalPullRequestMention(lexemes, index)
+}
+
+func terminalPullRequestMention(lexemes []terminalRawLexeme, index int) (terminalSpan, bool) {
+	if index >= len(lexemes) || lexemes[index].kind != terminalWordLexeme || !terminalWordEqual(lexemes[index].text, "pull") {
+		return terminalSpan{}, false
+	}
+	next := index + 1
+	for next < len(lexemes) && lexemes[next].kind == terminalPunctuationLexeme {
+		next++
+	}
+	if next >= len(lexemes) || lexemes[next].kind != terminalWordLexeme ||
+		(!terminalWordEqual(lexemes[next].text, "request") && !terminalWordEqual(lexemes[next].text, "requests")) {
+		return terminalSpan{}, false
+	}
+	return terminalSpan{start: lexemes[index].start, end: lexemes[next].end}, true
+}
+
+func terminalWordEqual(value, want string) bool {
+	return strings.EqualFold(value, want)
+}
+
+func terminalWordContainsPullRequest(value string) bool {
+	lower := strings.ToLower(value)
+	return strings.Contains(lower, "pullrequest")
+}
+
+func terminalWordHasAttachedPR(value string) bool {
+	lower := strings.ToLower(value)
+	if !strings.HasPrefix(lower, "pr") && !strings.HasSuffix(lower, "pr") {
+		return false
+	}
+	if strings.EqualFold(value, "pr") || strings.EqualFold(value, "prs") {
+		return false
+	}
+	// These words occur in the preserved historical handoffs and are ordinary
+	// prose, not attached PR mentions. Every other attached boundary is unsafe.
+	switch lower {
+	case "preallocation", "preserve", "preserved", "preserving", "previous", "primary", "producing", "proceeding", "project", "proof", "provenance", "protocol":
+		return false
+	default:
+		return true
+	}
+}
+
+func terminalPRPathMentionSpans(body string, lexemes []terminalRawLexeme) []terminalSpan {
+	mentions := make([]terminalSpan, 0, 1)
+	for index := range lexemes {
+		if mention, ok := terminalPRPathMentionSpan(body, lexemes, index); ok {
+			mentions = append(mentions, mention)
+		}
+	}
+	return mentions
+}
+
+func terminalPRPathMentionSpan(body string, lexemes []terminalRawLexeme, index int) (terminalSpan, bool) {
+	if index >= len(lexemes) || lexemes[index].kind != terminalWordLexeme || !terminalWordEqual(lexemes[index].text, "pr") || index+1 >= len(lexemes) {
+		return terminalSpan{}, false
+	}
+	pathStart := lexemes[index]
+	slash := lexemes[index+1]
+	if slash.kind != terminalPunctuationLexeme || slash.text != "/" || body[pathStart.end:slash.start] != "" {
+		return terminalSpan{}, false
+	}
+	end := slash.end
+	for end < len(body) {
+		value, size := utf8.DecodeRuneInString(body[end:])
+		if unicode.IsSpace(value) {
+			break
+		}
+		end += size
+	}
+	for end > slash.end {
+		value, size := utf8.DecodeLastRuneInString(body[:end])
+		if !terminalPathTrailingPunctuation(value) {
+			break
+		}
+		end -= size
+	}
+	if end <= slash.end {
+		return terminalSpan{}, false
+	}
+	return terminalSpan{start: pathStart.start, end: end}, true
+}
+
+func terminalPathTrailingPunctuation(value rune) bool {
+	switch value {
+	case '.', ',', ';', ':', '!', '?', ')', ']', '}', '`', '"', '\'':
+		return true
+	default:
+		return false
+	}
+}
+
+func terminalObfuscatedPRMentionSpans(lexemes []terminalRawLexeme) []terminalSpan {
+	mentions := make([]terminalSpan, 0, 1)
+	for index := 0; index+1 < len(lexemes); index++ {
+		if lexemes[index].kind != terminalWordLexeme || !terminalWordEqual(lexemes[index].text, "p") {
+			continue
+		}
+		next := index + 1
+		for next < len(lexemes) && lexemes[next].kind == terminalPunctuationLexeme {
+			next++
+		}
+		if next >= len(lexemes) || lexemes[next].kind != terminalWordLexeme || !terminalWordEqual(lexemes[next].text, "r") {
+			continue
+		}
+		mentions = append(mentions, terminalSpan{start: lexemes[index].start, end: lexemes[next].end})
+	}
+	return mentions
+}
+
+func terminalSpanInsideAbsolutePath(body string, span terminalSpan) bool {
+	start := span.start
+	for start > 0 {
+		value, size := utf8.DecodeLastRuneInString(body[:start])
+		if unicode.IsSpace(value) {
+			break
+		}
+		start -= size
+	}
+	end := span.end
+	for end < len(body) {
+		value, size := utf8.DecodeRuneInString(body[end:])
+		if unicode.IsSpace(value) {
+			break
+		}
+		end += size
+	}
+	token := strings.Trim(body[start:end], "`\"'()[]{}<>,.;:")
+	// Test and worktree paths may contain PR-like directory names without
+	// asserting a pull-request lifecycle.
+	return strings.HasPrefix(token, "/")
+}
+
+func validateIssue305PRMentions(body, branch string) error {
+	lexemes := terminalRawLexemes(body)
+	mentions := terminalPRMentionSpans(body, lexemes)
+	branchForm := "Its branch is `" + branch + "`, with no diff, commit, push, PR, check, evidence, challenge, or Examiner receipt."
+	branchSpans := terminalCompleteFormSpans(body, lexemes, branchForm)
+	if len(branchSpans) != 1 {
+		return errors.New("body lacks exactly one approved issue #305 PR branch sentence")
+	}
+	lifecycleSpans := terminalCompleteFormSpans(body, lexemes, "No PR or review lifecycle has started, so there is no stale evidence to reuse.")
+	if len(lifecycleSpans) != 1 {
+		return errors.New("body lacks exactly one approved issue #305 PR lifecycle sentence")
+	}
+	workflowSpans := terminalCompleteFormSpans(body, lexemes, terminalIssue305Workflow)
+	if len(workflowSpans) != 1 {
+		return errors.New("body lacks exactly one approved issue #305 action paragraph")
+	}
+	approved := append(append(append([]terminalSpan{}, branchSpans...), lifecycleSpans...), workflowSpans...)
+	return terminalRequireCoveredMentions(mentions, approved)
+}
+
+func containsHandoffWords(text, phrase string) bool {
+	observed := handoffTokens(strings.ToLower(text))
+	want := strings.Fields(strings.ToLower(phrase))
+	if len(want) == 0 || len(observed) < len(want) {
+		return false
+	}
+	for start := 0; start+len(want) <= len(observed); start++ {
+		match := true
+		for index := range want {
+			if observed[start+index] != want[index] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+func (a app) validateNoOpenClaimResumePR(root, fixedBranch string, issue int) error {
+	output, err := a.command(root, "gh", "pr", "list", "--repo", repositoryKey, "--head", fixedBranch, "--state", "open", "--json", "number")
+	if err != nil {
+		return retryableOperation("claim resume open-PR read", fmt.Errorf("check open PRs for issue #%d: %w", issue, err))
+	}
+	var prs []openPullRequestNumber
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" || trimmed == "null" {
+		return stateError("decode open PRs for issue #%d: empty or null response; preserve claim artifacts", issue)
+	}
+	if err := json.Unmarshal([]byte(trimmed), &prs); err != nil {
+		return stateError("decode open PRs for issue #%d: %w; preserve claim artifacts", issue, err)
+	}
+	if len(prs) != 0 {
+		return stateError("issue #%d fixed claim branch %s has %d open PR(s); no-PR recovery is blocked and artifacts are preserved", issue, fixedBranch, len(prs))
+	}
+	return nil
+}
+
+func canonicalClaimResumeProjectItem(list projectList, issue int) (projectItem, error) {
+	matches := make([]projectItem, 0, 1)
+	for _, item := range list.Items {
+		if item.Content.Number != issue || item.Content.Repository != repositoryKey {
+			continue
+		}
+		if item.Content.Type != "Issue" || strings.TrimSpace(item.ID) == "" {
+			return projectItem{}, stateError("issue #%d has a malformed or non-Issue canonical Project item; preserve external state", issue)
+		}
+		matches = append(matches, item)
+	}
+	if len(matches) != 1 {
+		return projectItem{}, stateError("issue #%d has %d canonical Project items; expected exactly one and preserved external state", issue, len(matches))
+	}
+	return matches[0], nil
+}
+
+func (a app) claimResumeRenewalPlan(root, expectedHead, localHead, remoteHead string, issue int, runID string) (claimResumeRenewalPlan, error) {
+	if localHead == expectedHead && remoteHead == expectedHead {
+		return claimResumeNoRenewal{}, nil
+	}
+	renewal := ""
+	if localHead != expectedHead {
+		if err := a.validateExistingResumeCommit(root, localHead, expectedHead, issue, runID); err != nil {
+			return nil, retryableOperationIfRecoverable("claim resume local renewal proof",
+				fmt.Errorf("local claim head %s is moved or not the unique renewal child; preserve it: %w", localHead, err))
+		}
+		renewal = localHead
+	}
+	if remoteHead != expectedHead {
+		if err := a.validateExistingResumeCommit(root, remoteHead, expectedHead, issue, runID); err != nil {
+			return nil, retryableOperationIfRecoverable("claim resume remote renewal proof",
+				fmt.Errorf("remote fixed claim head %s is moved or not the unique renewal child; preserve it: %w", remoteHead, err))
+		}
+		if renewal != "" && renewal != remoteHead {
+			return nil, stateError("local and remote renewal children disagree (%s versus %s); preserve both artifacts", renewal, remoteHead)
+		}
+		renewal = remoteHead
+	}
+	if !validExactCommitSHA(renewal) {
+		return nil, stateError("claim resume renewal head %q is malformed; preserve claim artifacts", renewal)
+	}
+	return claimResumeExistingRenewal{head: renewal}, nil
+}
+
+func claimResumeProtectedHeads(expected string, plan claimResumeRenewalPlan) []string {
+	heads := []string{expected}
+	if existing, ok := plan.(claimResumeExistingRenewal); ok {
+		heads = append(heads, existing.head)
+	}
+	return heads
+}
+
+//nolint:gocognit // Ref parsing and deterministic partitioning are one artifact check.
+func (a app) claimResumeAgentRefs(root, namespace string, source claimRefSource) (claimResumeAgentRefs, error) {
+	output, err := a.command(root, "git", "for-each-ref", "--format=%(refname:short) %(objectname)", namespace)
+	if err != nil {
+		return claimResumeAgentRefs{}, retryableOperation("list "+sourceName(source)+" claim refs", fmt.Errorf("list %s claim refs: %w", sourceName(source), err))
+	}
+	refs := claimResumeAgentRefs{}
+	for _, line := range strings.Split(output, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			return claimResumeAgentRefs{}, terminalOperation("list "+sourceName(source)+" claim refs", stateError("%s claim ref listing contains malformed entry %q; preserve artifacts", sourceName(source), line))
+		}
+		branch, namespaceErr := agentRefBranchForSource(fields[0], source)
+		if namespaceErr != nil {
+			return claimResumeAgentRefs{}, terminalOperation("list "+sourceName(source)+" claim refs", namespaceErr)
+		}
+		if err := a.validateLocalAgentCommit(root, fields[1], sourceName(source)+" claim ref "+fields[0]); err != nil {
+			return claimResumeAgentRefs{}, err
+		}
+		kind, number, runID := classifyAgentRef(branch)
+		switch kind {
+		case agentRefClaim:
+			refs.claims = append(refs.claims, remoteClaim{branch: branch, number: number, sha: fields[1], source: source})
+		case agentRefRunLocal:
+			refs.runLocals = append(refs.runLocals, runLocalRef{branch: branch, number: number, runID: runID, sha: fields[1], source: source})
+		case agentRefMalformed:
+			refs.malformed = append(refs.malformed, agentRef{branch: branch, sha: fields[1]})
+		case agentRefArchive, agentRefUnrelated:
+			continue
+		}
+	}
+	sort.Slice(refs.claims, func(left, right int) bool {
+		if refs.claims[left].branch != refs.claims[right].branch {
+			return refs.claims[left].branch < refs.claims[right].branch
+		}
+		return refs.claims[left].sha < refs.claims[right].sha
+	})
+	sort.Slice(refs.runLocals, func(left, right int) bool {
+		if refs.runLocals[left].branch != refs.runLocals[right].branch {
+			return refs.runLocals[left].branch < refs.runLocals[right].branch
+		}
+		return refs.runLocals[left].sha < refs.runLocals[right].sha
+	})
+	sort.Slice(refs.malformed, func(left, right int) bool {
+		if refs.malformed[left].branch != refs.malformed[right].branch {
+			return refs.malformed[left].branch < refs.malformed[right].branch
+		}
+		return refs.malformed[left].sha < refs.malformed[right].sha
+	})
+	return refs, nil
+}
+
+func sourceName(source claimRefSource) string {
+	switch source {
+	case claimRefRemote:
+		return "remote"
+	case claimRefLocal:
+		return "local"
+	case claimRefTracking:
+		return "remote-tracking"
+	default:
+		return "remote"
+	}
+}
+
+//nolint:gocognit,funlen // Ref sources must be checked as one immutable proof.
+func (a app) validateClaimResumeRefs(root string, remoteInventory agentRefInventory, issue int, fixedBranch, localBranch, runID, expectedHead, localHead, remoteHead string) error {
+	if len(remoteInventory.malformed) != 0 {
+		return stateError("remote agent ref %s is malformed; preserve all claim artifacts", remoteInventory.malformed[0].branch)
+	}
+	remoteRuns := 0
+	for _, ref := range remoteInventory.runLocals {
+		if ref.number != issue {
+			continue
+		}
+		if ref.branch != localBranch || (ref.sha != localHead && ref.sha != remoteHead) {
+			return stateError("issue #%d has conflicting remote run-local ref %s; preserve it before recovery", issue, ref.branch)
+		}
+		remoteRuns++
+	}
+	if remoteRuns > 1 {
+		return stateError("issue #%d has duplicate remote run-local refs for %s; preserve artifacts", issue, localBranch)
+	}
+	local, err := a.claimResumeAgentRefs(root, "refs/heads/agent/issue-*", claimRefLocal)
+	if err != nil {
+		return err
+	}
+	tracking, err := a.claimResumeAgentRefs(root, "refs/remotes/origin/agent/issue-*", claimRefTracking)
+	if err != nil {
+		return err
+	}
+	if len(local.malformed) != 0 || len(tracking.malformed) != 0 {
+		refs := local.malformed
+		if len(refs) == 0 {
+			refs = tracking.malformed
+		}
+		source := claimRefLocal
+		if len(local.malformed) == 0 {
+			source = claimRefTracking
+		}
+		return stateError("%s agent ref %s is malformed; preserve all claim artifacts", sourceName(source), refs[0].branch)
+	}
+	localClaims := 0
+	for _, ref := range local.claims {
+		if ref.number == issue {
+			localClaims++
+		}
+	}
+	if localClaims != 0 {
+		return stateError("issue #%d has a local fixed claim ref; preserve the ambiguous artifact before recovery", issue)
+	}
+	localRuns := 0
+	for _, ref := range local.runLocals {
+		if ref.number != issue {
+			continue
+		}
+		if ref.branch != localBranch || ref.sha != localHead {
+			archived, err := a.archivedRunLocalRef(root, remoteInventory, ref)
+			if err != nil {
+				return fmt.Errorf("prove archived local ref %s: %w", ref.branch, err)
+			}
+			if archived {
+				continue
+			}
+			return stateError("issue #%d has a moved or conflicting local run-local ref %s; preserve it before recovery", issue, ref.branch)
+		}
+		localRuns++
+	}
+	if localRuns != 1 {
+		return stateError("issue #%d has %d local run-local refs for %s; expected one unique ref", issue, localRuns, localBranch)
+	}
+	trackingClaims := 0
+	for _, ref := range tracking.claims {
+		if ref.number != issue {
+			continue
+		}
+		if ref.branch != fixedBranch || ref.sha != remoteHead {
+			return stateError("issue #%d remote-tracking fixed claim ref moved; preserve it before recovery", issue)
+		}
+		trackingClaims++
+	}
+	if trackingClaims > 1 {
+		return stateError("issue #%d has duplicate remote-tracking fixed claim refs; preserve artifacts", issue)
+	}
+	for _, ref := range tracking.runLocals {
+		if ref.number != issue {
+			continue
+		}
+		if ref.branch != localBranch || ref.sha != localHead {
+			return stateError("issue #%d has a moved remote-tracking run-local ref %s; preserve it before recovery", issue, ref.branch)
+		}
+	}
+	if remoteHead == expectedHead && localHead != expectedHead {
+		if err := a.validateExistingResumeCommit(root, localHead, expectedHead, issue, runID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validExactCommitSHA(value string) bool {
+	if len(value) != 40 {
+		return false
+	}
+	for _, current := range value {
+		if (current < '0' || current > '9') && (current < 'a' || current > 'f') && (current < 'A' || current > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+func sameClaimResumeProof(before, after claimResumeProof) error {
+	beforePreflight, afterPreflight := before.preflight, after.preflight
+	if beforePreflight.root != afterPreflight.root || beforePreflight.localBranch != afterPreflight.localBranch ||
+		beforePreflight.fixedBranch != afterPreflight.fixedBranch || beforePreflight.expectedHead != afterPreflight.expectedHead ||
+		beforePreflight.localHead != afterPreflight.localHead || beforePreflight.remoteHead != afterPreflight.remoteHead ||
+		beforePreflight.runID != afterPreflight.runID || beforePreflight.issue != afterPreflight.issue ||
+		beforePreflight.handoffCommentID != afterPreflight.handoffCommentID || beforePreflight.claimCommentID != afterPreflight.claimCommentID ||
+		beforePreflight.handoffBody != afterPreflight.handoffBody || !beforePreflight.claimLease.Equal(afterPreflight.claimLease) ||
+		beforePreflight.projectItemID != afterPreflight.projectItemID || beforePreflight.projectStatus != afterPreflight.projectStatus ||
+		beforePreflight.needsHuman != afterPreflight.needsHuman || beforePreflight.localState != afterPreflight.localState ||
+		!sameClaimResumeRenewalPlan(before.renewal, after.renewal) {
+		return stateError("bound issue, handoff, ref, claim, Project, or worktree proof no longer matches")
+	}
+	return nil
+}
+
+func sameClaimResumeRenewalPlan(before, after claimResumeRenewalPlan) bool {
+	switch beforePlan := before.(type) {
+	case claimResumeNoRenewal:
+		_, ok := after.(claimResumeNoRenewal)
+		return ok
+	case claimResumeExistingRenewal:
+		afterPlan, ok := after.(claimResumeExistingRenewal)
+		return ok && beforePlan.head == afterPlan.head
+	default:
+		return false
+	}
+}
+
+func (a app) applyClaimResume(proof claimResumeProof) error {
+	// This is the fresh read-only seal. No ref or GitHub mutation precedes it.
+	fresh, err := a.readClaimResumeProof(proof.preflight.issue, proof.preflight.expectedHead, proof.preflight.runID, proof.preflight.handoffCommentID)
+	if err != nil {
+		err = retryableOperationIfRecoverable("claim resume fresh proof", err)
+		return claimResumeProofFailure(proof, "claim resume proof changed before renewal; no mutation performed", err)
+	}
+	if proofErr := sameClaimResumeProof(proof, fresh); proofErr != nil {
+		return stateError("issue #%d claim resume proof changed before renewal; no mutation performed: %w", proof.preflight.issue, proofErr)
+	}
+	var renewalProof claimResumeRenewalProof
+	switch plan := fresh.renewal.(type) {
+	case claimResumeNoRenewal:
+		renewalProof, err = a.createClaimResumeRenewal(fresh)
+	case claimResumeExistingRenewal:
+		renewalProof = claimResumeRenewalProof(plan)
+	default:
+		err = stateError("issue #%d has an invalid renewal proof state; preserve claim artifacts", fresh.preflight.issue)
+	}
+	if err != nil {
+		return err
+	}
+	localRenewal, err := a.adoptClaimResumeLocalRenewal(fresh, renewalProof)
+	if err != nil {
+		return err
+	}
+	if stateErr := a.verifyClaimResumeLocalState(fresh); stateErr != nil {
+		return claimResumeProofFailure(fresh, "local state changed after renewal adoption; preserve claim artifacts", stateErr)
+	}
+	renewal, err := a.pushClaimResumeRenewal(fresh, localRenewal)
+	if err != nil {
+		return err
+	}
+	if stateErr := a.verifyClaimResumeLocalState(fresh); stateErr != nil {
+		return claimResumeProofFailure(fresh, "local state changed after renewal push; preserve claim artifacts", stateErr)
+	}
+	if err := a.verifyClaimResumeRenewal(fresh, renewal); err != nil {
+		verificationErr := retryableOperationIfRecoverable("claim resume renewal verification", err)
+		return claimResumeProofFailure(fresh, "claim renewal needs reconciliation", fmt.Errorf("%w. "+claimResumeRecoveryTemplate,
+			verificationErr, fresh.preflight.issue, fresh.preflight.expectedHead, fresh.preflight.runID, fresh.preflight.handoffCommentID))
+	}
+	if err := a.reconcileClaimResumeIssue(fresh, renewal); err != nil {
+		return err
+	}
+	return writeLine(a.stdout, "issue #%d claim resumed; claim verified, needs-human removed, Project Picked", proof.preflight.issue)
+}
+
+func claimResumeProofFailure(proof claimResumeProof, message string, err error) error {
+	issue := proof.preflight.issue
+	if err == nil {
+		return stateError("issue #%d %s", issue, message)
+	}
+	if operationDispositionOf(err) == operationDispositionRetryable {
+		return fmt.Errorf("issue #%d %s: %w", issue, message, err)
+	}
+	return stateError("issue #%d %s: %w", issue, message, err)
+}
+
+func (a app) createClaimResumeRenewal(proof claimResumeProof) (claimResumeRenewalProof, error) {
+	if _, ok := proof.renewal.(claimResumeNoRenewal); !ok {
+		return claimResumeRenewalProof{}, stateError("issue #%d already has a renewal proof; preserve its canonical child", proof.preflight.issue)
+	}
+	commit, _, _, err := a.newClaimCommitWithRunID(proof.preflight.root, proof.preflight.issue, proof.preflight.expectedHead, proof.preflight.runID)
+	if err != nil {
+		return claimResumeRenewalProof{}, claimResumeProofFailure(proof, "could not create the renewal commit; retry", claimResumeRetry(proof, "renewal commit", err))
+	}
+	if !validExactCommitSHA(commit) {
+		return claimResumeRenewalProof{}, stateError("issue #%d renewal commit returned malformed head %q; preserve claim artifacts", proof.preflight.issue, commit)
+	}
+	if _, validateErr := a.readCanonicalClaimCommit(proof.preflight.root, commit, proof.preflight.issue, proof.preflight.runID, proof.preflight.expectedHead); validateErr != nil {
+		return claimResumeRenewalProof{}, retryableOperationIfRecoverable("claim resume renewal commit validation", validateErr)
+	}
+	return claimResumeRenewalProof{head: commit}, nil
+}
+
+func (a app) adoptClaimResumeLocalRenewal(proof claimResumeProof, renewal claimResumeRenewalProof) (claimResumeLocalRenewal, error) {
+	if proof.preflight.localHead == renewal.head {
+		return claimResumeLocalRenewal(renewal), nil
+	}
+	if proof.preflight.localHead != proof.preflight.expectedHead {
+		return claimResumeLocalRenewal{}, stateError("local claim head moved before renewal adoption: expected %s or child %s, found %s; preserve artifacts", proof.preflight.expectedHead, renewal.head, proof.preflight.localHead)
+	}
+	if _, err := a.command(proof.preflight.root, "git", "update-ref", "refs/heads/"+proof.preflight.localBranch, renewal.head, proof.preflight.expectedHead); err != nil {
+		observed, readErr := a.readClaimResumeLocalHead(proof.preflight.root, proof.preflight.localBranch)
+		if readErr == nil && observed == renewal.head {
+			if validateErr := a.validateExistingResumeCommit(proof.preflight.root, observed, proof.preflight.expectedHead, proof.preflight.issue, proof.preflight.runID); validateErr == nil {
+				return claimResumeLocalRenewal(renewal), nil
+			}
+		}
+		if readErr != nil && operationDispositionOf(readErr) == operationDispositionTerminal {
+			return claimResumeLocalRenewal{}, stateError("issue #%d local renewal CAS response was ambiguous; preserve artifacts: %w", proof.preflight.issue, readErr)
+		}
+		return claimResumeLocalRenewal{}, claimResumeRetry(proof, "local renewal CAS", errors.Join(err, readErr))
+	}
+	return claimResumeLocalRenewal(renewal), nil
+}
+
+func (a app) readClaimResumeLocalHead(root, branch string) (string, error) {
+	head, err := a.command(root, "git", "rev-parse", "refs/heads/"+branch)
+	if err != nil {
+		return "", fmt.Errorf("read local claim ref %s: %w", branch, err)
+	}
+	if !validExactCommitSHA(head) {
+		return "", stateError("local claim ref %s returned malformed head %q", branch, head)
+	}
+	if err := a.validateLocalAgentCommit(root, head, "local claim ref "+branch); err != nil {
+		return "", err
+	}
+	return head, nil
+}
+
+func (a app) pushClaimResumeRenewal(proof claimResumeProof, renewal claimResumeLocalRenewal) (claimResumeRenewalResult, error) {
+	if proof.preflight.remoteHead == renewal.head {
+		return claimResumeRenewalResult(renewal), nil
+	}
+	if proof.preflight.remoteHead != proof.preflight.expectedHead {
+		return claimResumeRenewalResult{}, stateError("remote fixed claim branch moved before renewal push: expected %s, found %s; preserve artifacts", proof.preflight.expectedHead, proof.preflight.remoteHead)
+	}
+	lease := "--force-with-lease=refs/heads/" + proof.preflight.fixedBranch + ":" + proof.preflight.expectedHead
+	refspec := renewal.head + ":refs/heads/" + proof.preflight.fixedBranch
+	pushOutput, pushErr := a.command(proof.preflight.root, "git", "push", lease, "origin", refspec)
+	remote, readErr := a.remoteClaimHead(proof.preflight.root, proof.preflight.fixedBranch)
+	if readErr == nil && remote == renewal.head {
+		return claimResumeRenewalResult(renewal), nil
+	}
+	if readErr != nil {
+		failure := retryableOperationIfRecoverable("claim resume renewal push", errors.Join(pushErr, readErr))
+		return claimResumeRenewalResult{}, claimResumeProofFailure(proof, "renewal push response was ambiguous; reread failed", failure)
+	}
+	if remote != proof.preflight.expectedHead {
+		return claimResumeRenewalResult{}, stateError("remote fixed claim branch moved during renewal push: expected %s or valid child %s, found %s; preserve artifacts", proof.preflight.expectedHead, renewal.head, remote)
+	}
+	if pushErr == nil {
+		pushErr = errors.New("push returned without advancing the fixed claim branch")
+	}
+	failure := claimResumeRetry(proof, "renewal push", pushErr)
+	return claimResumeRenewalResult{}, claimResumeProofFailure(proof, fmt.Sprintf("renewal push response was ambiguous; remote remains at expected head; %v", pushOutput), failure)
+}
+
+func (a app) verifyClaimResumeRenewal(proof claimResumeProof, renewal claimResumeRenewalResult) error {
+	local, err := a.readClaimResumeLocalHead(proof.preflight.root, proof.preflight.localBranch)
+	if err != nil {
+		return err
+	}
+	if local != renewal.head {
+		return stateError("local renewal ref moved: expected %s, found %s; preserve artifacts", renewal.head, local)
+	}
+	currentHead, err := a.command(proof.preflight.root, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("read renewed worktree head: %w", err)
+	}
+	if currentHead != renewal.head {
+		return stateError("renewed worktree head moved: expected %s, found %s; preserve artifacts", renewal.head, currentHead)
+	}
+	if stateErr := a.verifyClaimResumeLocalState(proof); stateErr != nil {
+		return stateErr
+	}
+	if metadataErr := a.validateExistingResumeCommit(proof.preflight.root, renewal.head, proof.preflight.expectedHead, proof.preflight.issue, proof.preflight.runID); metadataErr != nil {
+		return metadataErr
+	}
+	layout, err := a.repositoryLayout(proof.preflight.root)
+	if err != nil {
+		return err
+	}
+	if worktreeErr := validateResumeWorktreeHeads(layout, proof.preflight.root, proof.preflight.localBranch, proof.preflight.issue, renewal.head,
+		claimResumeProtectedHeads(proof.preflight.expectedHead, claimResumeExistingRenewal(renewal))); worktreeErr != nil {
+		return worktreeErr
+	}
+	inventory, err := a.strictRemoteAgentRefInventory(proof.preflight.root)
+	if err != nil {
+		return err
+	}
+	remote, err := claimResumeFixedHead(inventory, proof.preflight.issue, proof.preflight.fixedBranch)
+	if err != nil {
+		return err
+	}
+	if remote != renewal.head {
+		return stateError("remote fixed claim branch is not the verified renewal child: expected %s, found %s", renewal.head, remote)
+	}
+	if err := a.validateNoOpenClaimResumePR(proof.preflight.root, proof.preflight.fixedBranch, proof.preflight.issue); err != nil {
+		return err
+	}
+	return a.validateClaimResumeRefs(proof.preflight.root, inventory, proof.preflight.issue, proof.preflight.fixedBranch, proof.preflight.localBranch, proof.preflight.runID,
+		proof.preflight.expectedHead, renewal.head, renewal.head)
+}
+
+type claimResumeReconciliationTarget struct {
+	status issueStatus
+	item   projectItem
+}
+
+type claimResumeReconciliationPhase uint8
+
+const (
+	claimResumeLabelPhase claimResumeReconciliationPhase = iota
+	claimResumeProjectPhase
+)
+
+// claimResumeReconciliationState keeps the immutable recovery proof and the
+// verified renewal result together with the current ordered mutation phase.
+type claimResumeReconciliationState struct {
+	proof   claimResumeProof
+	renewal claimResumeRenewalResult
+	phase   claimResumeReconciliationPhase
+}
+
+func newClaimResumeReconciliationState(proof claimResumeProof, renewal claimResumeRenewalResult) claimResumeReconciliationState {
+	return claimResumeReconciliationState{proof: proof, renewal: renewal, phase: claimResumeLabelPhase}
+}
+
+func (state claimResumeReconciliationState) afterLabel() claimResumeReconciliationState {
+	return claimResumeReconciliationState{proof: state.proof, renewal: state.renewal, phase: claimResumeProjectPhase}
+}
+
+// readClaimResumeReconciliationTarget is the immutable read-only target used
+// immediately before every GitHub mutation.  It binds issue state, the
+// no-open-PR condition, and canonical Project identity/status together.
+func (a app) readClaimResumeReconciliationTarget(state claimResumeReconciliationState) (claimResumeReconciliationTarget, error) {
+	proof := state.proof
+	if stateErr := a.verifyClaimResumeLocalState(proof); stateErr != nil {
+		return claimResumeReconciliationTarget{}, stateErr
+	}
+	status, err := a.readIssueStatus(proof.preflight.root, proof.preflight.issue)
+	if err != nil {
+		return claimResumeReconciliationTarget{}, claimResumeRetry(proof, "issue state read", err)
+	}
+	if status.State != "OPEN" {
+		return claimResumeReconciliationTarget{}, stateError("issue #%d changed to %s during claim recovery; preserve renewed artifacts", proof.preflight.issue, status.State)
+	}
+	if noPRErr := a.validateNoOpenClaimResumePR(proof.preflight.root, proof.preflight.fixedBranch, proof.preflight.issue); noPRErr != nil {
+		return claimResumeReconciliationTarget{}, noPRErr
+	}
+	items, err := a.projectItems(proof.preflight.root)
+	if err != nil {
+		return claimResumeReconciliationTarget{}, claimResumeRetry(proof, "Project read", err)
+	}
+	item, err := canonicalClaimResumeProjectItem(items, proof.preflight.issue)
+	if err != nil {
+		return claimResumeReconciliationTarget{}, err
+	}
+	if item.ID != proof.preflight.projectItemID {
+		return claimResumeReconciliationTarget{}, stateError("issue #%d canonical Project item changed from %s to %s; preserve renewed artifacts", proof.preflight.issue, proof.preflight.projectItemID, item.ID)
+	}
+	if item.Status != "Backlog" && item.Status != "Picked" {
+		return claimResumeReconciliationTarget{}, stateError("issue #%d Project status moved to %q during recovery; preserve renewed artifacts", proof.preflight.issue, item.Status)
+	}
+	if state.phase == claimResumeLabelPhase {
+		if _, initial := proof.renewal.(claimResumeNoRenewal); initial && (!issueNeedsHuman(status) || item.Status != "Backlog") {
+			return claimResumeReconciliationTarget{}, stateError("issue #%d must remain OPEN+needs-human with Project Backlog before first recovery mutation", proof.preflight.issue)
+		}
+	}
+	return claimResumeReconciliationTarget{status: status, item: item}, nil
+}
+
+//nolint:gocognit // Label and Project convergence are ordered mutation boundaries.
+func (a app) reconcileClaimResumeIssue(proof claimResumeProof, renewal claimResumeRenewalResult) error {
+	state := newClaimResumeReconciliationState(proof, renewal)
+	target, err := a.readClaimResumeReconciliationTarget(state)
+	if err != nil {
+		return err
+	}
+	if issueNeedsHuman(target.status) {
+		if _, reconcileErr := a.reconcileClaimResumeNeedsHuman(proof, target.status); reconcileErr != nil {
+			return reconcileErr
+		}
+		state = state.afterLabel()
+		target, err = a.readClaimResumeReconciliationTarget(state)
+		if err != nil {
+			return err
+		}
+	}
+	if issueNeedsHuman(target.status) {
+		return stateError("issue #%d still has needs-human; Project status will not be changed", proof.preflight.issue)
+	}
+	if target.item.Status == "Picked" {
+		return nil
+	}
+	// Reread the whole target after label convergence so a Project/PR race
+	// cannot turn a partially reconciled claim into a picked issue.
+	target, err = a.readClaimResumeReconciliationTarget(state.afterLabel())
+	if err != nil {
+		return err
+	}
+	if issueNeedsHuman(target.status) {
+		return stateError("issue #%d still has needs-human; Project status will not be changed", proof.preflight.issue)
+	}
+	if target.item.Status == "Picked" {
+		return nil
+	}
+	if err := a.setProjectField(proof.preflight.root, target.item.ID, "Status", "Picked"); err != nil {
+		latest, readErr := a.readClaimResumeReconciliationTarget(state.afterLabel())
+		if readErr == nil {
+			if !issueNeedsHuman(latest.status) && latest.item.Status == "Picked" {
+				return nil
+			}
+			if issueNeedsHuman(latest.status) {
+				readErr = stateError("issue #%d still has needs-human; Project status will not be changed", proof.preflight.issue)
+			}
+			if readErr == nil {
+				return claimResumeRetry(proof, "Project Picked", fmt.Errorf("%w; Project remains %s", err, latest.item.Status))
+			}
+		}
+		return claimResumeMutationFailure(proof, "Project Picked", err, readErr)
+	}
+	latest, readErr := a.readClaimResumeReconciliationTarget(state.afterLabel())
+	if readErr != nil {
+		return readErr
+	}
+	if issueNeedsHuman(latest.status) || latest.item.Status != "Picked" {
+		return stateError("issue #%d Project Picked response was not verified; preserve renewed artifacts", proof.preflight.issue)
+	}
+	return nil
+}
+
+func (a app) reconcileClaimResumeNeedsHuman(proof claimResumeProof, status issueStatus) (issueStatus, error) {
+	if !issueNeedsHuman(status) {
+		return status, nil
+	}
+	_, editErr := a.command(proof.preflight.root, "gh", "issue", "edit", strconv.Itoa(proof.preflight.issue), "--repo", repositoryKey,
+		"--remove-label", "needs-human")
+	if editErr == nil {
+		latest, readErr := a.readIssueStatus(proof.preflight.root, proof.preflight.issue)
+		if readErr != nil {
+			return status, claimResumeProofFailure(proof, "needs-human label removal needs reconciliation; retry", claimResumeRetry(proof, "needs-human label", readErr))
+		}
+		if latest.State != "OPEN" {
+			return status, stateError("issue #%d changed to %s after label removal; preserve renewed artifacts", proof.preflight.issue, latest.State)
+		}
+		if issueNeedsHuman(latest) {
+			return status, claimResumeProofFailure(proof, "still has needs-human after label removal response; retry", claimResumeRetry(proof, "needs-human label", errors.New("label remains present")))
+		}
+		return latest, nil
+	}
+	latest, readErr := a.readIssueStatus(proof.preflight.root, proof.preflight.issue)
+	if readErr == nil {
+		if latest.State != "OPEN" {
+			return status, stateError("issue #%d changed to %s after ambiguous label response; preserve renewed artifacts", proof.preflight.issue, latest.State)
+		}
+		if !issueNeedsHuman(latest) {
+			return latest, nil
+		}
+	}
+	if readErr != nil && operationDispositionOf(readErr) == operationDispositionTerminal {
+		return status, stateError("issue #%d needs-human label response could not be trusted; preserve renewed artifacts: %w", proof.preflight.issue, readErr)
+	}
+	return status, claimResumeRetry(proof, "needs-human label", errors.Join(editErr, readErr))
+}
+
+func claimResumeMutationFailure(proof claimResumeProof, operation string, mutationErr, readErr error) error {
+	if readErr != nil && operationDispositionOf(readErr) == operationDispositionTerminal {
+		return stateError("issue #%d %s response could not be trusted; preserve renewed artifacts: %w", proof.preflight.issue, operation, readErr)
+	}
+	return claimResumeRetry(proof, operation, errors.Join(mutationErr, readErr))
+}
+
+func claimResumeRetry(proof claimResumeProof, operation string, err error) error {
+	if err == nil {
+		err = errors.New("external response was ambiguous")
+	}
+	message := fmt.Errorf("issue #%d claim resume %s needs reconciliation: %w. "+claimResumeRecoveryTemplate,
+		proof.preflight.issue, operation, err, proof.preflight.issue, proof.preflight.expectedHead, proof.preflight.runID, proof.preflight.handoffCommentID)
+	return retryableOperationIfRecoverable("claim resume "+operation, message)
+}

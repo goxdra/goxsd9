@@ -105,6 +105,231 @@ func schemaBuiltinAttributeReferenceRoot(version XSDVersion) string {
 </xs:schema>`
 }
 
+//nolint:gocognit,funlen // Keep the direct global element model and consumer boundary together.
+func TestSchemaBuiltinGlobalElementReferencesPreserveModelBoundary(t *testing.T) {
+	for _, policy := range []struct {
+		name    string
+		value   LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "Compatibility", value: Compatibility, version: XSDVersion11},
+		{name: "XSD 1.0", value: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", value: Strict11, version: XSDVersion11},
+	} {
+		t.Run(policy.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(policy.version) + `">
+  <xs:element name="language" type="xs:language"/>
+  <xs:element name="NCName" type="xs:NCName"/>
+  <xs:element name="anyURI" type="xs:anyURI"/>
+  <xs:element name="ID" type="xs:ID"/>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.value)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+			components := schema.Components()
+			if len(components) != len(schemaBuiltinReferenceCases) {
+				t.Fatalf("component count = %d, want %d", len(components), len(schemaBuiltinReferenceCases))
+			}
+			for index, test := range schemaBuiltinReferenceCases {
+				declaration, ok := components[index].ElementDeclaration()
+				if !ok {
+					t.Fatalf("component %d has no element declaration view", index)
+				}
+				wantName := mustTestQName(t, "urn:root", test.local)
+				wantType := mustTestQName(t, testXSDNamespace, test.local)
+				if declaration.Name() != wantName || declaration.DeclaredType() != wantType {
+					t.Fatalf("component %d name/type = %q/%q, want %q/%q", index, declaration.Name(), declaration.DeclaredType(), wantName, wantType)
+				}
+				if declaration.Loc() != mustTestLoc(t, "root.xsd", index+2, 3) {
+					t.Fatalf("component %d declaration location = %s, want name location", index, declaration.Loc())
+				}
+				reference, ok := declaration.TypeReference()
+				if !ok || !reference.IsBuiltin() || reference.Kind() != SimpleTypeReferenceBuiltin {
+					t.Fatalf("component %d type reference = %#v/%t, want built-in", index, reference, ok)
+				}
+				if reference.Name() != wantType || reference.QName() != wantType {
+					t.Fatalf("component %d reference name = %q/%q, want %q", index, reference.Name(), reference.QName(), wantType)
+				}
+				wantLoc := elementReferenceTestAttributeLoc(t, root, `type="xs:`+test.local+`"`)
+				if reference.Loc() != wantLoc || reference.VarietyLoc() != wantLoc {
+					t.Fatalf("component %d reference locations = %s/%s, want %s", index, reference.Loc(), reference.VarietyLoc(), wantLoc)
+				}
+				if reference.Variety() != SimpleTypeVarietyAtomicRestriction || reference.facts == nil || reference.facts.atomicKind != test.atomicKind {
+					t.Fatalf("component %d reference variety/category = %q/%v, want atomic/%v", index, reference.Variety(), reference.facts, test.atomicKind)
+				}
+				if _, ok := reference.facts.facets.(schemaAtomicFacetVariant); !ok {
+					t.Fatalf("component %d reference facets = %T, want opaque atomic variant", index, reference.facts.facets)
+				}
+				if typeID, hasTypeID := declaration.TypeID(); hasTypeID || !typeID.IsZero() {
+					t.Fatalf("component %d declaration type ID = %v/%t, want zero/false", index, typeID, hasTypeID)
+				}
+				if typeID, hasTypeID := reference.ComponentID(); hasTypeID || !typeID.IsZero() {
+					t.Fatalf("component %d reference type ID = %v/%t, want zero/false", index, typeID, hasTypeID)
+				}
+			}
+
+			before := schema.Components()
+			before[0] = Component{}
+			if schema.Components()[0].Name() != mustTestQName(t, "urn:root", "language") {
+				t.Fatal("Components returned a mutable schema view")
+			}
+			walked := make([]ComponentID, 0, len(components))
+			if walkErr := schema.Walk(func(component Component) error {
+				walked = append(walked, component.ID())
+				return nil
+			}); walkErr != nil {
+				t.Fatalf("Walk: %v", walkErr)
+			}
+			for index, component := range schema.Components() {
+				if walked[index] != component.ID() {
+					t.Fatalf("Walk ID %d = %v, want %v", index, walked[index], component.ID())
+				}
+			}
+
+			output, err := GenerateGo(schema, "generated")
+			if output != nil || err == nil {
+				t.Fatalf("GenerateGo result = (%q, %v), want unsupported with no source", output, err)
+			}
+			codegenDiagnostic := requireDiagnostic(t, err)
+			if codegenDiagnostic.Class() != FailureUnsupported || codegenDiagnostic.Code() != diagnosticCodegenUnsupported {
+				t.Fatalf("GenerateGo diagnostic = %s, want explicit unsupported", codegenDiagnostic)
+			}
+			for _, test := range schemaBuiltinReferenceCases {
+				instance := `<` + test.local + ` xmlns="urn:root">value</` + test.local + `>`
+				validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(instance)))
+				if validationErr == nil {
+					t.Fatalf("ValidateInstance(%s): unexpectedly succeeded", test.local)
+				}
+				validationDiagnostic := requireDiagnostic(t, validationErr)
+				if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode {
+					t.Fatalf("ValidateInstance(%s) diagnostic = %s, want explicit unsupported", test.local, validationDiagnostic)
+				}
+			}
+		})
+	}
+}
+
+//nolint:gocognit,funlen // Keep graph composition and the immutable model contract together.
+func TestSchemaBuiltinGlobalElementReferencesComposeGraphs(t *testing.T) {
+	for _, policy := range []struct {
+		name    string
+		value   LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "Compatibility", value: Compatibility, version: XSDVersion11},
+		{name: "XSD 1.0", value: Strict10, version: XSDVersion10},
+		{name: "XSD 1.1", value: Strict11, version: XSDVersion11},
+	} {
+		t.Run(policy.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(policy.version) + `">
+  <xs:include schemaLocation="ordinary.xsd"/>
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:imported" schemaLocation="imported.xsd"/>
+  <xs:element name="language" type="xs:language"/>
+</xs:schema>`
+			fixtures := map[string]discoveryFixture{
+				"ordinary.xsd": {
+					id:       "ordinary.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:element name="NCName" type="xs:NCName"/></xs:schema>`,
+				},
+				"chameleon.xsd": {
+					id:       "chameleon.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="anyURI" type="xs:anyURI"/></xs:schema>`,
+				},
+				"imported.xsd": {
+					id:       "imported.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:imported"><xs:element name="ID" type="xs:ID"/></xs:schema>`,
+				},
+			}
+			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy.value)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+			components := schema.Components()
+			if len(components) != len(schemaBuiltinReferenceCases) {
+				t.Fatalf("component count = %d, want %d", len(components), len(schemaBuiltinReferenceCases))
+			}
+			wantSources := []SourceID{"root.xsd", "ordinary.xsd", "chameleon.xsd", "imported.xsd"}
+			wantNamespaces := []string{"urn:root", "urn:root", "urn:root", "urn:imported"}
+			for index, test := range schemaBuiltinReferenceCases {
+				component := components[index]
+				if component.Document() != wantSources[index] {
+					t.Fatalf("component %d document = %q, want %q", index, component.Document(), wantSources[index])
+				}
+				declaration, ok := component.ElementDeclaration()
+				if !ok {
+					t.Fatalf("component %d has no element declaration view", index)
+				}
+				wantName := mustTestQName(t, wantNamespaces[index], test.local)
+				wantType := mustTestQName(t, testXSDNamespace, test.local)
+				if declaration.Name() != wantName || declaration.DeclaredType() != wantType {
+					t.Fatalf("component %d name/type = %q/%q, want %q/%q", index, declaration.Name(), declaration.DeclaredType(), wantName, wantType)
+				}
+				if declaration.Loc() != schemaBuiltinReferenceAttributeLoc(t, wantSources[index], `<xs:element`, root, fixtures) {
+					t.Fatalf("component %d declaration location = %s, want element location", index, declaration.Loc())
+				}
+				reference, ok := declaration.TypeReference()
+				if !ok || !reference.IsBuiltin() || reference.Kind() != SimpleTypeReferenceBuiltin || reference.Name() != wantType || reference.QName() != wantType {
+					t.Fatalf("component %d type reference = %#v/%t, want built-in %q", index, reference, ok, wantType)
+				}
+				if reference.Loc() != schemaBuiltinReferenceAttributeLoc(t, wantSources[index], `type="xs:`+test.local+`"`, root, fixtures) || reference.VarietyLoc() != reference.Loc() {
+					t.Fatalf("component %d reference locations = %s/%s, want type attribute location", index, reference.Loc(), reference.VarietyLoc())
+				}
+				if reference.Variety() != SimpleTypeVarietyAtomicRestriction || reference.facts == nil || reference.facts.atomicKind != test.atomicKind {
+					t.Fatalf("component %d reference variety/category = %q/%v, want atomic/%v", index, reference.Variety(), reference.facts, test.atomicKind)
+				}
+				if typeID, hasTypeID := declaration.TypeID(); hasTypeID || !typeID.IsZero() {
+					t.Fatalf("component %d declaration type ID = %v/%t, want zero/false", index, typeID, hasTypeID)
+				}
+				if typeID, hasTypeID := reference.ComponentID(); hasTypeID || !typeID.IsZero() {
+					t.Fatalf("component %d reference type ID = %v/%t, want zero/false", index, typeID, hasTypeID)
+				}
+			}
+
+			before := schema.Components()
+			before[0] = Component{}
+			if schema.Components()[0].Name() != mustTestQName(t, "urn:root", "language") {
+				t.Fatal("Components returned a mutable schema view")
+			}
+			walked := make([]ComponentID, 0, len(components))
+			if err := schema.Walk(func(component Component) error {
+				walked = append(walked, component.ID())
+				return nil
+			}); err != nil {
+				t.Fatalf("Walk: %v", err)
+			}
+			for index, component := range schema.Components() {
+				if walked[index] != component.ID() {
+					t.Fatalf("Walk ID %d = %v, want %v", index, walked[index], component.ID())
+				}
+			}
+		})
+	}
+}
+
+func schemaBuiltinReferenceAttributeLoc(t *testing.T, source SourceID, needle, root string, fixtures map[string]discoveryFixture) Loc {
+	t.Helper()
+	input := root
+	if source != "root.xsd" {
+		input = fixtures[string(source)].contents
+	}
+	offset := strings.Index(input, needle)
+	if offset < 0 {
+		t.Fatalf("%s does not contain %q", source, needle)
+	}
+	line, column := 1, 1
+	for _, character := range input[:offset] {
+		if character == '\n' {
+			line++
+			column = 1
+			continue
+		}
+		column++
+	}
+	return mustTestLoc(t, source, line, column)
+}
+
 //nolint:gocognit,funlen // Keep named, forward, imported, list, and union facts ordered.
 func TestSchemaBuiltinReferencesCoverNamedForwardImportedListAndUnion(t *testing.T) {
 	for _, policy := range []struct {

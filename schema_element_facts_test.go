@@ -391,6 +391,7 @@ func TestSchemaBridgeKeepsGlobalElementTypeReferencesMutuallyExclusive(t *testin
   <xs:element name="builtin" type="xs:integer"/>
   <xs:element name="namedSimple" type="r:Simple"/>
   <xs:element name="inlineSimple"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>
+  <xs:element name="inlineComplex"><xs:complexType><xs:sequence/></xs:complexType></xs:element>
   <xs:element name="untyped"/>
   <xs:simpleType name="Simple"><xs:restriction base="xs:integer"/></xs:simpleType>
 </xs:schema>`
@@ -413,6 +414,23 @@ func TestSchemaBridgeKeepsGlobalElementTypeReferencesMutuallyExclusive(t *testin
 					t.Fatalf("%s references = simple %#v/%t, complex %#v/%t, want simple-only", name, simple, simpleOK, complexReference, complexOK)
 				}
 			}
+			inlineComplex := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:root", "inlineComplex"))
+			if len(inlineComplex) != 1 {
+				t.Fatalf("inlineComplex element count = %d, want 1", len(inlineComplex))
+			}
+			inlineComplexDeclaration, ok := inlineComplex[0].ElementDeclaration()
+			if !ok {
+				t.Fatal("inlineComplex element view is missing")
+			}
+			if _, ok := inlineComplexDeclaration.ComplexTypeReference(); ok {
+				t.Fatal("inline complex element fabricated a named complex reference")
+			}
+			if _, ok := inlineComplexDeclaration.InlineComplexType(); !ok {
+				t.Fatal("inline complex element lost its anonymous complex type")
+			}
+			if typeID, ok := inlineComplexDeclaration.TypeID(); ok || !typeID.IsZero() {
+				t.Fatalf("inline complex element TypeID = %v/%t, want zero,false", typeID, ok)
+			}
 			untyped := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:root", "untyped"))
 			if len(untyped) != 1 {
 				t.Fatalf("untyped element count = %d, want 1", len(untyped))
@@ -425,6 +443,51 @@ func TestSchemaBridgeKeepsGlobalElementTypeReferencesMutuallyExclusive(t *testin
 				t.Fatalf("zero declaration complex reference = %#v/%t, want zero,false", reference, ok)
 			}
 		})
+	}
+}
+
+func TestSchemaBridgeRejectsGlobalElementAnyTypeReference(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "Compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "Strict10", policy: Strict10, version: XSDVersion10},
+		{name: "Strict11", policy: Strict11, version: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + string(profile.version) + `">
+  <xs:element name="item" type="xs:anyType"/>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			assertUnsupportedGlobalElementAnyType(t, schema, err, root, profile.version)
+		})
+	}
+}
+
+func assertUnsupportedGlobalElementAnyType(t *testing.T, schema Schema, err error, root string, version XSDVersion) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("discoverSchema accepted unsupported global xs:anyType")
+	}
+	if schema.storage != nil || len(schema.Components()) != 0 {
+		t.Fatal("discoverSchema returned a partial schema for unsupported global xs:anyType")
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("global xs:anyType diagnostic does not match ErrUnsupported: %v", err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("global xs:anyType diagnostic = %s/%q/%q, want schema syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Feature())
+	}
+	wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, 2, `type="xs:anyType"`)
+	if diagnostic.Loc() != wantLoc {
+		t.Fatalf("global xs:anyType diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+	}
+	if diagnostic.SpecRef() != schemaSyntaxSpecRefForVersion(version) {
+		t.Fatalf("global xs:anyType diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), schemaSyntaxSpecRefForVersion(version))
 	}
 }
 

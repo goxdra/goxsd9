@@ -85,6 +85,15 @@ func (observer *instanceValidationObserver) startElement(name syntaxName, loc Lo
 	if err != nil {
 		return true, err
 	}
+	if _, selected := instanceAttributeRootPlanFor(observer.schema, declaration); selected {
+		return true, nil
+	}
+	if _, selected, planErr := instanceAttributeSequenceProgramFor(observer.schema, declaration, loc); selected {
+		return true, planErr
+	}
+	if _, selected, planErr := instanceVarietySequenceProgramFor(observer.schema, declaration, loc); selected {
+		return true, planErr
+	}
 	definition, sequence, hasSequence, err := instanceSequenceDefinitionFor(observer.schema, declaration, loc)
 	if err != nil {
 		return false, err
@@ -198,6 +207,19 @@ func instanceSequenceProgramFor(
 			related,
 			version,
 			errInstanceOpenAttrsType,
+		)
+	}
+	attributeUses := definition.AttributeUses()
+	if len(attributeUses) > 0 {
+		for _, use := range attributeUses {
+			related = appendInstanceRelated(related, use.Loc())
+		}
+		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+			attributeUses[0].Loc(),
+			fmt.Sprintf("named complex type %q attribute uses are outside direct sequence validation", definition.Name()),
+			related,
+			version,
+			errInstanceAttributes,
 		)
 	}
 	if anyAttribute, ok := definition.AnyAttribute(); ok {
@@ -333,6 +355,17 @@ func instanceSequenceProgramFor(
 				errInstanceLocalElementFacts,
 			)
 		}
+		typeReference, hasTypeReference := element.TypeReference()
+		if hasTypeReference && typeReference.Kind() == SimpleTypeReferenceAnonymous {
+			anonymousRelated := appendInstanceRelated(relCopy(childRelated), typeReference.Loc())
+			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+				element.Loc(),
+				fmt.Sprintf("local sequence element %q uses an anonymous simple type outside instance validation", element.Name()),
+				anonymousRelated,
+				version,
+				errInstanceSequenceTarget,
+			)
+		}
 		typeID, hasTypeID := element.TypeID()
 		scalar, err := instanceScalarTypeForTarget(
 			schema,
@@ -342,6 +375,8 @@ func instanceSequenceProgramFor(
 			childRelated,
 			loc,
 			version,
+			false,
+			true,
 			true,
 			false,
 			false,
@@ -360,15 +395,40 @@ func instanceSequenceProgramFor(
 	}
 	if len(particles) > 0 {
 		booleanCount := 0
+		tokenCount := 0
+		nmtokenCount := 0
 		for _, particle := range particles {
-			if _, ok := particle.scalar.value.(instanceBooleanScalar); ok {
+			switch particle.scalar.value.(type) {
+			case instanceBooleanScalar:
 				booleanCount++
+			case instanceTokenScalar:
+				tokenCount++
+			case instanceNMTOKENScalar:
+				nmtokenCount++
 			}
 		}
 		if booleanCount > 0 && booleanCount != len(particles) {
 			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
 				loc,
 				"direct sequence mixes Boolean and non-Boolean local declarations",
+				related,
+				version,
+				errInstanceSequenceMixed,
+			)
+		}
+		if tokenCount > 0 && tokenCount != len(particles) {
+			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+				loc,
+				"direct sequence mixes token and non-token local declarations",
+				related,
+				version,
+				errInstanceSequenceMixed,
+			)
+		}
+		if nmtokenCount > 0 && nmtokenCount != len(particles) {
+			return instanceSequenceProgram{}, newInstanceValidationUnsupported(
+				loc,
+				"direct sequence mixes NMTOKEN and non-NMTOKEN local declarations",
 				related,
 				version,
 				errInstanceSequenceMixed,

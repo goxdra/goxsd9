@@ -70,6 +70,8 @@ type codegenDirectSequenceField struct {
 	name            QName
 	fieldIdentifier string
 	target          codegenSourceTarget
+	elementID       ComponentID
+	hasElementID    bool
 }
 
 type codegenDirectSequenceCollectedOwner struct {
@@ -81,10 +83,12 @@ type codegenDirectSequenceCollectedOwner struct {
 }
 
 type codegenDirectSequenceCollectedField struct {
-	path   []uint32
-	loc    Loc
-	name   QName
-	target codegenSourceTarget
+	path         []uint32
+	loc          Loc
+	name         QName
+	target       codegenSourceTarget
+	elementID    ComponentID
+	hasElementID bool
 }
 
 type codegenDirectParticleCollectedOwner struct {
@@ -173,6 +177,20 @@ func collectCodegenDirectParticles(
 				version,
 			)
 		}
+		attributeUses := definition.AttributeUses()
+		if len(attributeUses) > 0 {
+			related := appendCodegenRelated(nil, definition.Loc())
+			for _, use := range attributeUses {
+				related = appendCodegenRelated(related, use.Loc())
+			}
+			return nil, newCodegenDirectParticleUnsupported(
+				attributeUses[0].Loc(),
+				fmt.Sprintf("complex type %q attribute uses are outside direct particle generation", component.Name()),
+				related,
+				fmt.Errorf("%w: complex type attribute uses", errCodegenUnsupported),
+				version,
+			)
+		}
 		if body := definition.extensionBody(); body != nil {
 			if groupReference, groupReferenceOK := modelGroupReferenceParticleValue(body.particle); groupReferenceOK {
 				return nil, newCodegenDirectModelGroupReferenceUnsupported(schema, component, groupReference, version)
@@ -186,6 +204,15 @@ func collectCodegenDirectParticles(
 			)
 		}
 		particle := definition.Particle()
+		if all, ok := particle.(AllParticle); ok {
+			return nil, newCodegenDirectParticleUnsupported(
+				all.Loc(),
+				fmt.Sprintf("complex type %q uses an all particle outside Go generation", component.Name()),
+				[]Loc{definition.Loc()},
+				fmt.Errorf("%w: all particle", errCodegenUnsupported),
+				version,
+			)
+		}
 		if particle == nil {
 			return nil, newCodegenDirectParticleUnsupported(
 				component.Loc(),
@@ -356,7 +383,37 @@ func collectCodegenDirectSequenceOwner(
 					errCodegenDirectSequenceParticle,
 				)
 			}
-			return codegenDirectSequenceCollectedOwner{}, codegenDirectSequenceReferenceUnsupported(schema, reference, version)
+			path, pathErr := codegenDirectSequencePath(index)
+			if pathErr != nil {
+				return codegenDirectSequenceCollectedOwner{}, newCodegenInternal(
+					sequence.Loc(),
+					"construct direct-sequence child path",
+					nil,
+					pathErr,
+				)
+			}
+			if err := validateCodegenDirectSequenceBounds(
+				reference.facts.occurrences,
+				reference.Occurrences(),
+				codegenDirectSequenceReferenceLoc(reference),
+				"sequence element reference",
+				version,
+			); err != nil {
+				return codegenDirectSequenceCollectedOwner{}, err
+			}
+			target, elementID, targetErr := validateCodegenDirectSequenceReferenceTarget(schema, reference, version)
+			if targetErr != nil {
+				return codegenDirectSequenceCollectedOwner{}, targetErr
+			}
+			owner.fields = append(owner.fields, codegenDirectSequenceCollectedField{
+				path:         cloneCodegenPath(path),
+				loc:          reference.Loc(),
+				name:         reference.Name(),
+				target:       target,
+				elementID:    elementID,
+				hasElementID: true,
+			})
+			continue
 		}
 		path, pathErr := codegenDirectSequencePath(index)
 		if pathErr != nil {
@@ -535,6 +592,13 @@ func validateCodegenDirectSequenceElementName(name QName, loc Loc) error {
 	return nil
 }
 
+func codegenDirectSequenceReferenceLoc(reference ElementReferenceParticle) Loc {
+	if loc := reference.RefLoc(); !loc.IsZero() {
+		return loc
+	}
+	return reference.Loc()
+}
+
 func newCodegenDirectSequenceWildcardUnsupported(sequence SequenceParticle, wildcard WildcardParticle, version XSDVersion) error {
 	loc := wildcard.Loc()
 	if loc.IsZero() {
@@ -552,6 +616,361 @@ func newCodegenDirectSequenceWildcardUnsupported(sequence SequenceParticle, wild
 	)
 }
 
+//nolint:gocognit,funlen // Keep immutable reference identity and numeric target classification together.
+func validateCodegenDirectSequenceReferenceTarget(
+	schema Schema,
+	reference ElementReferenceParticle,
+	version XSDVersion,
+) (codegenSourceTarget, ComponentID, error) {
+	loc := codegenDirectSequenceReferenceLoc(reference)
+	related := appendCodegenRelated(nil, reference.Loc())
+	targetID := reference.TargetID()
+	if reference.Name().IsZero() || !utf8.ValidString(reference.Name().Namespace()) || !utf8.ValidString(reference.Name().Local()) || reference.Name().Local() == "" {
+		return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+			loc,
+			"direct-sequence element reference has malformed name facts",
+			related,
+			errCodegenDirectSequenceTarget,
+		)
+	}
+	if targetID.IsZero() || targetID.Source() == "" || targetID.Ordinal() == 0 {
+		return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+			loc,
+			fmt.Sprintf("direct-sequence element reference %q has an invalid target identity", reference.Name()),
+			related,
+			errCodegenDirectSequenceTarget,
+		)
+	}
+	target, ok := schema.Lookup(targetID)
+	if !ok {
+		return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+			loc,
+			fmt.Sprintf("direct-sequence element reference target identity %v is absent from the completed schema", targetID),
+			related,
+			errCodegenDirectSequenceTarget,
+		)
+	}
+	related = appendCodegenRelated(related, target.Loc())
+	if target.ID() != targetID || target.Kind() != ComponentKindElementDeclaration || target.Name() != reference.Name() {
+		return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+			loc,
+			fmt.Sprintf("direct-sequence element reference target identity does not match %q", reference.Name()),
+			related,
+			errCodegenDirectSequenceTarget,
+		)
+	}
+	declaration, ok := target.ElementDeclaration()
+	if !ok || declaration.facts == nil || declaration.ID() != targetID || declaration.Name() != target.Name() {
+		return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+			loc,
+			fmt.Sprintf("direct-sequence element reference target %q has incomplete declaration facts", reference.Name()),
+			related,
+			errCodegenDirectSequenceTarget,
+		)
+	}
+	if err := validateCodegenDirectReferenceSubstitution(
+		schema,
+		declaration,
+		loc,
+		related,
+		version,
+		errCodegenDirectSequenceTarget,
+		codegenDirectSequenceSubstitutionDisallowed,
+		newCodegenDirectSequenceReferenceSubstitutionUnsupported,
+		"direct sequence",
+	); err != nil {
+		return codegenSourceTarget{}, ComponentID{}, err
+	}
+	typeReference, hasTypeReference := declaration.TypeReference()
+	if !hasTypeReference {
+		return codegenSourceTarget{}, ComponentID{}, newCodegenDirectSequenceReferenceTargetUnsupported(
+			schema,
+			reference,
+			fmt.Sprintf("referenced global element %q has no resolved type reference", declaration.Name()),
+			nil,
+			fmt.Errorf("%w: missing referenced element type", errCodegenUnsupported),
+			version,
+		)
+	}
+	if typeReference.facts == nil {
+		return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+			loc,
+			fmt.Sprintf("referenced global element %q has incomplete type-reference facts", declaration.Name()),
+			mergeCodegenRelated(related, []Loc{typeReference.Loc()}),
+			errCodegenDirectSequenceTarget,
+		)
+	}
+	declaredType := declaration.DeclaredType()
+	if typeReference.Kind() == SimpleTypeReferenceAnonymous {
+		if !declaredType.IsZero() {
+			return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+				loc,
+				fmt.Sprintf("referenced global element %q has an inconsistent anonymous declared type", declaration.Name()),
+				mergeCodegenRelated(related, []Loc{typeReference.Loc()}),
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		anonymousID, hasAnonymousID := typeReference.AnonymousID()
+		anonymous, anonymousOK := typeReference.AnonymousType()
+		nodeID, hasNodeID := anonymous.NodeID()
+		if !hasAnonymousID || anonymousID.Source() == "" || anonymousID.Ordinal() == 0 || !anonymousOK || anonymous.facts == nil || !hasNodeID || nodeID != anonymousID {
+			return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+				loc,
+				fmt.Sprintf("referenced global element %q has incomplete anonymous type facts", declaration.Name()),
+				mergeCodegenRelated(related, []Loc{typeReference.Loc(), anonymous.Loc()}),
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		return codegenSourceTarget{}, ComponentID{}, newCodegenDirectSequenceReferenceTargetUnsupported(
+			schema,
+			reference,
+			fmt.Sprintf("referenced global element %q uses an anonymous simple type outside direct sequence generation", declaration.Name()),
+			mergeCodegenRelated(related, []Loc{typeReference.Loc(), anonymous.Loc()}),
+			fmt.Errorf("%w: anonymous referenced element type", errCodegenUnsupported),
+			version,
+		)
+	}
+	if declaredType.IsZero() || !utf8.ValidString(declaredType.Namespace()) || !utf8.ValidString(declaredType.Local()) || declaredType.Local() == "" {
+		return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+			loc,
+			fmt.Sprintf("referenced global element %q has malformed declared type facts", declaration.Name()),
+			mergeCodegenRelated(related, []Loc{typeReference.Loc()}),
+			errCodegenDirectSequenceTarget,
+		)
+	}
+	if typeReference.Name() != declaredType {
+		return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+			loc,
+			fmt.Sprintf("referenced global element %q has inconsistent declared type reference", declaration.Name()),
+			mergeCodegenRelated(related, []Loc{typeReference.Loc()}),
+			errCodegenDirectSequenceTarget,
+		)
+	}
+	if typeReference.Variety() != SimpleTypeVarietyAtomicRestriction {
+		return codegenSourceTarget{}, ComponentID{}, newCodegenDirectSequenceReferenceTargetUnsupported(
+			schema,
+			reference,
+			fmt.Sprintf("referenced global element %q uses simple type variety %q outside direct sequence generation", declaration.Name(), typeReference.Variety()),
+			mergeCodegenRelated(related, []Loc{typeReference.Loc(), typeReference.VarietyLoc()}),
+			fmt.Errorf("%w: referenced element simple type variety %q", errCodegenUnsupported, typeReference.Variety()),
+			version,
+		)
+	}
+	switch typeReference.Kind() {
+	case SimpleTypeReferenceBuiltin:
+		if !typeReference.IsBuiltin() {
+			return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+				loc,
+				fmt.Sprintf("referenced global element %q has inconsistent built-in type-reference facts", declaration.Name()),
+				mergeCodegenRelated(related, []Loc{typeReference.Loc()}),
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		typeID, hasTypeID := declaration.TypeID()
+		if hasTypeID || !typeID.IsZero() || declaredType.Namespace() != xsdNamespaceURI {
+			return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+				loc,
+				fmt.Sprintf("referenced built-in global element %q has inconsistent type identity facts", declaration.Name()),
+				related,
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		var scalarKind codegenSourceScalarKind
+		switch declaredType.Local() {
+		case "integer":
+			scalarKind = codegenSourceScalarInteger
+		case "decimal":
+			scalarKind = codegenSourceScalarDecimal
+		default:
+			return codegenSourceTarget{}, ComponentID{}, newCodegenDirectSequenceReferenceTargetUnsupported(
+				schema,
+				reference,
+				fmt.Sprintf("built-in referenced global element type %q is outside numeric sequence generation", declaredType),
+				nil,
+				fmt.Errorf("%w: built-in referenced element type %q", errCodegenUnsupported, declaredType),
+				version,
+			)
+		}
+		sourceTarget := codegenSourceTarget{
+			form:         codegenSourceTargetBuiltin,
+			declaredType: declaredType,
+			scalarKind:   scalarKind,
+		}
+		if err := validateCodegenElementTypeReference(declaration, sourceTarget, loc, version); err != nil {
+			return codegenSourceTarget{}, ComponentID{}, decorateCodegenDirectSequenceElementError(err, loc, related)
+		}
+		return sourceTarget, targetID, nil
+	case SimpleTypeReferenceNamed:
+		if !typeReference.IsNamed() || declaredType.Namespace() == xsdNamespaceURI {
+			return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+				loc,
+				fmt.Sprintf("referenced named global element %q has inconsistent named type-reference facts", declaration.Name()),
+				mergeCodegenRelated(related, []Loc{typeReference.Loc()}),
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		typeID, hasTypeID := declaration.TypeID()
+		referencedTypeID, hasReferencedTypeID := typeReference.ComponentID()
+		if !hasTypeID || typeID.Source() == "" || typeID.Ordinal() == 0 || !hasReferencedTypeID || referencedTypeID != typeID {
+			return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+				loc,
+				fmt.Sprintf("referenced named global element %q has inconsistent scalar type identity facts", declaration.Name()),
+				mergeCodegenRelated(related, []Loc{typeReference.Loc()}),
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		typeComponent, typeOK := schema.Lookup(typeID)
+		if !typeOK {
+			return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+				loc,
+				fmt.Sprintf("referenced named global element %q scalar type identity is absent from the completed schema", declaration.Name()),
+				related,
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		related = appendCodegenRelated(related, typeComponent.Loc())
+		if typeComponent.ID() != typeID || typeComponent.Kind() != ComponentKindSimpleTypeDefinition || typeComponent.Name() != declaredType {
+			return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+				loc,
+				fmt.Sprintf("referenced named global element %q scalar type identity does not match its declared QName", declaration.Name()),
+				related,
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		definition, definitionOK := typeComponent.SimpleTypeDefinition()
+		if !definitionOK || definition.facts == nil || definition.IsAnonymous() || definition.Name() != declaredType {
+			return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+				loc,
+				fmt.Sprintf("referenced named global element %q scalar type has incomplete definition facts", declaration.Name()),
+				related,
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		if definition.Variety() != typeReference.Variety() {
+			return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+				loc,
+				fmt.Sprintf("referenced named global element %q scalar type variety is inconsistent", declaration.Name()),
+				mergeCodegenRelated(related, []Loc{definition.VarietyLoc(), typeReference.VarietyLoc()}),
+				errCodegenDirectSequenceTarget,
+			)
+		}
+		sourceTarget, scalarErr := codegenNamedScalarTarget(schema, typeComponent, version)
+		if scalarErr != nil {
+			var diagnostic Diagnostic
+			if errors.As(scalarErr, &diagnostic) && diagnostic.Class() == FailureUnsupported {
+				return codegenSourceTarget{}, ComponentID{}, newCodegenDirectSequenceReferenceTargetUnsupported(
+					schema,
+					reference,
+					fmt.Sprintf("named referenced global element type %q is outside numeric sequence generation", declaredType),
+					mergeCodegenRelated(related, codegenSimpleTypeRelatedLocations(definition, definition.DigitFacets())),
+					fmt.Errorf("%w: %w", errCodegenUnsupported, scalarErr),
+					version,
+				)
+			}
+			return codegenSourceTarget{}, ComponentID{}, decorateCodegenDirectSequenceElementError(scalarErr, loc, related)
+		}
+		if sourceTarget.scalarKind != codegenSourceScalarInteger && sourceTarget.scalarKind != codegenSourceScalarDecimal {
+			return codegenSourceTarget{}, ComponentID{}, newCodegenDirectSequenceReferenceTargetUnsupported(
+				schema,
+				reference,
+				fmt.Sprintf("named referenced global element type %q is outside numeric sequence generation", declaredType),
+				mergeCodegenRelated(related, codegenSimpleTypeRelatedLocations(definition, definition.DigitFacets())),
+				fmt.Errorf("%w: named scalar kind %q", errCodegenUnsupported, sourceTarget.scalarKind),
+				version,
+			)
+		}
+		sourceTarget.form = codegenSourceTargetNamed
+		sourceTarget.declaredType = declaredType
+		sourceTarget.typeID = typeID
+		sourceTarget.hasTypeID = true
+		if err := validateCodegenElementTypeReference(declaration, sourceTarget, loc, version); err != nil {
+			return codegenSourceTarget{}, ComponentID{}, decorateCodegenDirectSequenceElementError(err, loc, related)
+		}
+		return sourceTarget, targetID, nil
+	case SimpleTypeReferenceAnonymous:
+		return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+			loc,
+			fmt.Sprintf("referenced global element %q has an unclassified anonymous type-reference kind", declaration.Name()),
+			mergeCodegenRelated(related, []Loc{typeReference.Loc()}),
+			errCodegenDirectSequenceTarget,
+		)
+	default:
+		return codegenSourceTarget{}, ComponentID{}, newCodegenInternal(
+			loc,
+			fmt.Sprintf("referenced global element %q has unknown type-reference kind %q", declaration.Name(), typeReference.Kind()),
+			mergeCodegenRelated(related, []Loc{typeReference.Loc()}),
+			errCodegenDirectSequenceTarget,
+		)
+	}
+}
+
+func decorateCodegenDirectSequenceElementError(err error, loc Loc, related []Loc) error {
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) {
+		return newCodegenInternal(
+			loc,
+			"classify direct-sequence scalar target failure",
+			related,
+			fmt.Errorf("%w: %w", errCodegenDirectSequenceTarget, err),
+		)
+	}
+	decorated := diagnostic
+	decorated.loc = loc
+	decorated.related = mergeCodegenRelated(related, diagnostic.related)
+	if errors.Is(err, errCodegenDirectSequenceTarget) {
+		return decorated
+	}
+	if decorated.cause == nil {
+		decorated.cause = errCodegenDirectSequenceTarget
+		return decorated
+	}
+	decorated.cause = fmt.Errorf("%w: %w", errCodegenDirectSequenceTarget, decorated.cause)
+	return decorated
+}
+
+func codegenDirectSequenceSubstitutionDisallowed(declaration ElementDeclaration) bool {
+	for _, method := range declaration.DisallowedSubstitutions() {
+		if method == "substitution" {
+			return true
+		}
+	}
+	return false
+}
+
+func newCodegenDirectSequenceReferenceSubstitutionUnsupported(
+	loc Loc,
+	message string,
+	related []Loc,
+	cause error,
+	version XSDVersion,
+) error {
+	return newCodegenDirectSequenceUnsupported(
+		loc,
+		message,
+		related,
+		cause,
+		version,
+		codegenDirectSequenceElementReference,
+	)
+}
+
+func newCodegenDirectSequenceReferenceTargetUnsupported(
+	schema Schema,
+	reference ElementReferenceParticle,
+	message string,
+	additionalRelated []Loc,
+	cause error,
+	version XSDVersion,
+) error {
+	primary := codegenDirectSequenceReferenceLoc(reference)
+	related := appendCodegenRelated(nil, reference.Loc())
+	if target, ok := schema.Lookup(reference.TargetID()); ok {
+		related = appendCodegenRelated(related, target.Loc())
+	}
+	related = mergeCodegenRelated(related, additionalRelated)
+	return newCodegenDirectSequenceUnsupported(primary, message, related, cause, version, codegenDirectSequenceElementReference)
+}
+
 //nolint:gocognit,funlen // Keep scalar identity and named-target validation together.
 func validateCodegenDirectSequenceTarget(
 	schema Schema,
@@ -560,6 +979,7 @@ func validateCodegenDirectSequenceTarget(
 ) (codegenSourceTarget, error) {
 	declaredType := element.DeclaredType()
 	typeID, hasTypeID := element.TypeID()
+	typeReference, hasTypeReference := element.TypeReference()
 	if declaredType.IsZero() {
 		if hasTypeID || !typeID.IsZero() {
 			return codegenSourceTarget{}, newCodegenInternal(
@@ -567,6 +987,16 @@ func validateCodegenDirectSequenceTarget(
 				"anonymous direct-sequence type has a synthetic component identity",
 				nil,
 				errCodegenDirectSequenceTarget,
+			)
+		}
+		if hasTypeReference && typeReference.Kind() == SimpleTypeReferenceAnonymous {
+			return codegenSourceTarget{}, newCodegenDirectSequenceUnsupported(
+				element.Loc(),
+				"anonymous or inline direct-sequence element types are outside direct sequence generation",
+				appendCodegenRelated(nil, typeReference.Loc()),
+				fmt.Errorf("%w: anonymous element type", errCodegenUnsupported),
+				version,
+				codegenDirectSequenceElementReference,
 			)
 		}
 		return codegenSourceTarget{}, newCodegenDirectSequenceUnsupported(
@@ -709,25 +1139,6 @@ func validateCodegenDirectSequenceQName(name QName, loc Loc, context string) err
 		return newCodegenInternal(loc, context+" QName has an empty local name", nil, errCodegenDirectSequenceQName)
 	}
 	return nil
-}
-
-func codegenDirectSequenceReferenceUnsupported(schema Schema, reference ElementReferenceParticle, version XSDVersion) error {
-	primary := reference.RefLoc()
-	if primary.IsZero() {
-		primary = reference.Loc()
-	}
-	related := appendCodegenRelated(nil, reference.Loc())
-	if target, ok := schema.Lookup(reference.TargetID()); ok {
-		related = appendCodegenRelated(related, target.Loc())
-	}
-	return newCodegenDirectSequenceUnsupported(
-		primary,
-		"direct sequence element reference particles are outside Go code generation",
-		related,
-		fmt.Errorf("%w: element reference particle", errCodegenUnsupported),
-		version,
-		codegenDirectSequenceElementReference,
-	)
 }
 
 func codegenDirectSequenceSpecReference(version XSDVersion, reference codegenDirectSequenceReference) string {
@@ -996,6 +1407,8 @@ func materializeCodegenDirectSequenceOwner(
 			name:            collectedField.name,
 			fieldIdentifier: fieldIdentifier,
 			target:          collectedField.target,
+			elementID:       collectedField.elementID,
+			hasElementID:    collectedField.hasElementID,
 		})
 	}
 	return owner, nil
@@ -1127,7 +1540,7 @@ func compareCodegenDirectSequenceOwner(actual, expected *codegenDirectSequenceOw
 	}
 	for index, expectedField := range expected.fields {
 		actualField := actual.fields[index]
-		if !equalCodegenPath(actualField.path, expectedField.path) || actualField.loc != expectedField.loc || actualField.name != expectedField.name || actualField.fieldIdentifier != expectedField.fieldIdentifier || actualField.target != expectedField.target {
+		if !equalCodegenPath(actualField.path, expectedField.path) || actualField.loc != expectedField.loc || actualField.name != expectedField.name || actualField.fieldIdentifier != expectedField.fieldIdentifier || actualField.target != expectedField.target || actualField.elementID != expectedField.elementID || actualField.hasElementID != expectedField.hasElementID {
 			return newCodegenInternal(expectedField.loc, "direct-particle sequence field facts do not match the schema", nil, errCodegenDirectParticlePlan)
 		}
 	}

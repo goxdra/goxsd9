@@ -87,7 +87,11 @@ This is a product restriction, not a conformance claim. In an instance,
 Because the schema operand is explicit, the CLI never uses them to select or
 open another schema. It passes the instance unchanged to current
 `ValidateInstance`; current scalar validation reports these attributes as
-explicit unsupported behavior. The CLI does not filter them semantically.
+explicit unsupported behavior. Selected direct attribute-sequence and bounded
+list/union sequence roots ignore root `xsi:schemaLocation` and reject root
+`xsi:noNamespaceSchemaLocation` and `xsi:type` as unsupported.
+Selected attribute-bearing leaves reject both hints as unsupported.
+The CLI does not filter either hint semantically or dereference it.
 
 ## Source identities and language policy
 
@@ -305,34 +309,10 @@ boundary. The generated shape comes from the public `goxsd9.GenerateGo` API.
 The CLI owns schema path resolution, diagnostics, output limits, and the
 atomic file transaction; it does not expose private naming or rendering state.
 
-## Bounded follow-up packets
-
-The linked GitHub issues are the canonical work packets; this decision records
-only their dependency order and responsibility boundaries:
-
-- [#136 — parse](https://github.com/goxdra/goxsd9/issues/136) (XS) owns the
-  shared schema-source boundary and first-slice parse command.
-- [#137 — validate](https://github.com/goxdra/goxsd9/issues/137) (S) follows
-  #136 and owns the schema-first instance-validation command while preserving
-  current scalar validation's explicit unsupported treatment of instance
-  attributes, including schema-location hints.
-- [#138 — generate](https://github.com/goxdra/goxsd9/issues/138) (M) follows
-  #136 and the scalar emitter work. It owns the CLI generate boundary and
-  output transaction while using the deliberate public `GenerateGo` API;
-  private naming tables and filesystem policy remain internal to their layers.
-
-The linked issues retain the complete scope, dependencies, and acceptance
-proofs for each packet.
-
-The current codegen emitter and naming kernel remain private behind
-`GenerateGo`. No packet here claims broader generation, broad validation,
-network access, catalogs, environment lookup, XML Base interpretation, strict
-edition flags, or W3C conformance.
-
 ## Repository and specification evidence
 
 This decision changes no library boundary or current architecture. The
-[README schema-parsing contract](../../README.md),
+[package parsing contract](../../doc.go),
 [ARCHITECTURE input/resolution rules](../../ARCHITECTURE.md#input-and-resolution),
 [0004 language-policy decision](0004-xsd-language-policy.md), and
 [0005 naming decision](0005-codegen-naming.md) are the repository evidence.

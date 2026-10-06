@@ -334,19 +334,13 @@ func TestParticleOccurrenceEditionRules(t *testing.T) {
 		wantLocation string
 	}{
 		{
-			name:         "xsd10 all member reports fixed maximum zero as edition mismatch",
-			version:      XSDVersion10,
-			rule:         particleOccurrenceAllMemberRule,
-			minPresent:   true,
-			min:          "0",
-			maxPresent:   true,
-			max:          "0",
-			wantError:    true,
-			wantClass:    FailureUnsupported,
-			wantCode:     diagnosticSchemaAllOccurrenceVersionCode,
-			wantMismatch: true,
-			wantMessage:  "all element maxOccurs=0 is an XSD 1.1-only construct",
-			wantLocation: "maxOccurs",
+			name:       "xsd10 all member zero-zero omits a term",
+			version:    XSDVersion10,
+			rule:       particleOccurrenceAllMemberRule,
+			minPresent: true,
+			min:        "0",
+			maxPresent: true,
+			max:        "0",
 		},
 		{
 			name:       "xsd11 all accepts zero-zero",

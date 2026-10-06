@@ -16,6 +16,10 @@ the default; idiomatic and caller-defined implementations share its extension
 contract. Validator-specific derived structures are calculated on demand and
 are not stored in the schema.
 
+The strict-default policy clause above is superseded by
+[decision 0004](0004-xsd-language-policy.md): `ParseSchema` defaults to
+Compatibility, with `Strict10` and `Strict11` selected explicitly.
+
 ## Consequences
 
 - Repeated workflows become Go tooling rather than copied commands.
