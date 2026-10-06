@@ -98,9 +98,13 @@ func TestGenerateGoGlobalByteScalarsAcrossPolicies(t *testing.T) {
 			if !hasTotalDigits || totalDigits.Canonical() != "2" {
 				t.Fatalf("Narrowed totalDigits = %q/%t, want 2/true", totalDigits.Canonical(), hasTotalDigits)
 			}
+			totalDigitsLoc, hasTotalDigitsLoc := narrowed.DigitFacets().TotalDigitsLoc()
+			if !hasTotalDigitsLoc || totalDigitsLoc != publicByteFacetValueLoc(t, rootContents, "Narrowed", "totalDigits", "2") {
+				t.Fatalf("Narrowed totalDigits location = %s/%t", totalDigitsLoc, hasTotalDigitsLoc)
+			}
 			minimumLoc, hasMinimumLoc := bounds.MinInclusiveLoc()
 			maximumLoc, hasMaximumLoc := bounds.MaxInclusiveLoc()
-			if !hasMinimumLoc || minimumLoc != publicByteMarkerLoc(t, rootContents, `value="2"`) || !hasMaximumLoc || maximumLoc != publicByteMarkerLoc(t, rootContents, `value="9"`) {
+			if !hasMinimumLoc || minimumLoc != publicByteFacetValueLoc(t, rootContents, "Narrowed", "minInclusive", "2") || !hasMaximumLoc || maximumLoc != publicByteFacetValueLoc(t, rootContents, "Narrowed", "maxInclusive", "9") {
 				t.Fatalf("Narrowed bound locations = %s/%t, %s/%t", minimumLoc, hasMinimumLoc, maximumLoc, hasMaximumLoc)
 			}
 			copied := bounds.Bounds()
@@ -112,7 +116,7 @@ func TestGenerateGoGlobalByteScalarsAcrossPolicies(t *testing.T) {
 			enumeration := narrowed.IntegerEnumerationFacets()
 			values := enumeration.Values()
 			locations := enumeration.Locations()
-			if len(values) != 1 || values[0].Canonical() != "3" || len(locations) != 1 || locations[0] != publicByteMarkerLoc(t, rootContents, `<xs:enumeration value="3"`) {
+			if len(values) != 1 || values[0].Canonical() != "3" || len(locations) != 1 || locations[0] != publicByteFacetElementLoc(t, rootContents, "Narrowed", "enumeration", "3") {
 				t.Fatalf("Narrowed enumeration = %v at %v, want 3 at source location", values, locations)
 			}
 			values[0] = goxsd9.StrictInteger{}
@@ -154,9 +158,9 @@ func TestGenerateGoGlobalByteScalarsAcrossPolicies(t *testing.T) {
 			inheritedDigits, hasInheritedDigits := inherited.DigitFacets().TotalDigits()
 			inheritedDigitsLoc, hasInheritedDigitsLoc := inherited.DigitFacets().TotalDigitsLoc()
 			if !hasInheritedMinimum || inheritedMinimum.Canonical() != "-10" || !hasInheritedMaximum || inheritedMaximum.Canonical() != "10" ||
-				!hasInheritedMinimumLoc || inheritedMinimumLoc != publicByteMarkerLoc(t, rootContents, `value="-10"`) ||
-				!hasInheritedMaximumLoc || inheritedMaximumLoc != publicByteMarkerLoc(t, rootContents, `value="10"`) ||
-				!hasInheritedDigits || inheritedDigits.Canonical() != "2" || !hasInheritedDigitsLoc || inheritedDigitsLoc != publicByteMarkerLoc(t, rootContents, `value="2"`) {
+				!hasInheritedMinimumLoc || inheritedMinimumLoc != publicByteFacetValueLoc(t, rootContents, "Named", "minInclusive", "-10") ||
+				!hasInheritedMaximumLoc || inheritedMaximumLoc != publicByteFacetValueLoc(t, rootContents, "Named", "maxInclusive", "10") ||
+				!hasInheritedDigits || inheritedDigits.Canonical() != "2" || !hasInheritedDigitsLoc || inheritedDigitsLoc != publicByteFacetValueLoc(t, rootContents, "Named", "totalDigits", "2") {
 				t.Fatalf("Inherited effective byte facets lost base values or locations: bounds=%v digits=%v", inheritedBounds.Bounds(), inherited.DigitFacets())
 			}
 			inheritedElements := schema.FindKind(goxsd9.ComponentKindElementDeclaration, mustPublicNonNegativeIntegerQName(t, "urn:root", "inheritedElement"))
@@ -176,8 +180,25 @@ func TestGenerateGoGlobalByteScalarsAcrossPolicies(t *testing.T) {
 			if !ok || len(inheritedReferenceFacets) != 2 || inheritedReferenceFacets[0].Value().Canonical() != "-10" || inheritedReferenceFacets[1].Value().Canonical() != "10" {
 				t.Fatal("inheritedElement lost its effective byte bounds")
 			}
-			inheritedReferenceDigits, hasInheritedReferenceDigits := inheritedReference.DigitFacets().TotalDigits()
-			inheritedReferenceDigitsLoc, hasInheritedReferenceDigitsLoc := inheritedReference.DigitFacets().TotalDigitsLoc()
+			inheritedReferenceMinimumLoc, hasInheritedReferenceMinimumLoc := inheritedReferenceBounds.MinInclusiveLoc()
+			inheritedReferenceMaximumLoc, hasInheritedReferenceMaximumLoc := inheritedReferenceBounds.MaxInclusiveLoc()
+			if !hasInheritedReferenceMinimumLoc || inheritedReferenceMinimumLoc != inheritedMinimumLoc || !hasInheritedReferenceMaximumLoc || inheritedReferenceMaximumLoc != inheritedMaximumLoc {
+				t.Fatal("inheritedElement lost its effective byte bound provenance")
+			}
+			inheritedReferenceID, ok := inheritedReference.ComponentID()
+			if !ok || inheritedReferenceID != inherited.ID() {
+				t.Fatal("inheritedElement reference lost its named component identity")
+			}
+			inheritedReferenceComponent, ok := schema.Lookup(inheritedReferenceID)
+			if !ok {
+				t.Fatal("inheritedElement named component is missing")
+			}
+			inheritedReferencedDefinition, ok := inheritedReferenceComponent.SimpleTypeDefinition()
+			if !ok || inheritedReferencedDefinition.ID() != inherited.ID() {
+				t.Fatal("inheritedElement resolved to a different type definition")
+			}
+			inheritedReferenceDigits, hasInheritedReferenceDigits := inheritedReferencedDefinition.DigitFacets().TotalDigits()
+			inheritedReferenceDigitsLoc, hasInheritedReferenceDigitsLoc := inheritedReferencedDefinition.DigitFacets().TotalDigitsLoc()
 			if !hasInheritedReferenceDigits || inheritedReferenceDigits.Canonical() != "2" || !hasInheritedReferenceDigitsLoc || inheritedReferenceDigitsLoc != inheritedDigitsLoc {
 				t.Fatal("inheritedElement lost its effective byte digit facet provenance")
 			}
@@ -452,6 +473,44 @@ func publicByteMarkerLoc(t *testing.T, source, marker string) goxsd9.Loc {
 	if index < 0 {
 		t.Fatalf("missing location marker %q", marker)
 	}
+	return publicByteOffsetLoc(t, source, index)
+}
+
+func publicByteFacetValueLoc(t *testing.T, source, typeName, facet, value string) goxsd9.Loc {
+	t.Helper()
+	return publicByteFacetLoc(t, source, typeName, facet, value, true)
+}
+
+func publicByteFacetElementLoc(t *testing.T, source, typeName, facet, value string) goxsd9.Loc {
+	t.Helper()
+	return publicByteFacetLoc(t, source, typeName, facet, value, false)
+}
+
+func publicByteFacetLoc(t *testing.T, source, typeName, facet, value string, atValue bool) goxsd9.Loc {
+	t.Helper()
+	declarationMarker := `<xs:simpleType name="` + typeName + `">`
+	if strings.Count(source, declarationMarker) != 1 {
+		t.Fatalf("expected one %s declaration in byte fixture", typeName)
+	}
+	declarationStart := strings.Index(source, declarationMarker)
+	declarationEnd := strings.Index(source[declarationStart:], `</xs:simpleType>`)
+	if declarationEnd < 0 {
+		t.Fatalf("missing closing %s declaration in byte fixture", typeName)
+	}
+	declaration := source[declarationStart : declarationStart+declarationEnd]
+	facetMarker := `<xs:` + facet + ` value="` + value + `"/>`
+	if strings.Count(declaration, facetMarker) != 1 {
+		t.Fatalf("expected one %s=%q facet in %s declaration", facet, value, typeName)
+	}
+	index := declarationStart + strings.Index(declaration, facetMarker)
+	if atValue {
+		index += len(`<xs:` + facet + ` `)
+	}
+	return publicByteOffsetLoc(t, source, index)
+}
+
+func publicByteOffsetLoc(t *testing.T, source string, index int) goxsd9.Loc {
+	t.Helper()
 	before := source[:index]
 	line := strings.Count(before, "\n") + 1
 	column := len(before) - strings.LastIndex(before, "\n")
