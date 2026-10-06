@@ -215,7 +215,7 @@ func TestSchemaShortAttributeConstraintExcludedShapes(t *testing.T) {
 		}{
 			{"local direct", `<xs:complexType name="C"><xs:attribute name="a" type="xs:short" default="1"/></xs:complexType>`, `default="1"`, errSchemaAttributeUseUnsupported},
 			{"local named", `<xs:complexType name="C"><xs:attribute name="a" type="r:Short" fixed="1"/></xs:complexType><xs:simpleType name="Short"><xs:restriction base="xs:short"/></xs:simpleType>`, `fixed="1"`, errSchemaAttributeUseUnsupported},
-			{"global inline", `<xs:attribute name="a" default="1"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:attribute>`, `<xs:simpleType>`, ErrUnsupported},
+			{"global inline", `<xs:attribute name="a" default="1"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:attribute>`, `default="1"`, errSchemaAttributeValueConstraintUnsupported},
 			{"local inline", `<xs:complexType name="C"><xs:attribute name="a" fixed="1"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:attribute></xs:complexType>`, `fixed="1"`, errSchemaAttributeUseUnsupported},
 			{"local ref", `<xs:attribute name="a" type="xs:short" default="1"/><xs:complexType name="C"><xs:attribute ref="r:a"/></xs:complexType>`, `ref="r:a"`, errSchemaAttributeReferenceUnsupported},
 		} {

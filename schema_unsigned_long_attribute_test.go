@@ -451,11 +451,6 @@ func TestSchemaUnsignedLongGlobalAttributeUnsupportedBoundaries(t *testing.T) {
 			cause     error
 		}{
 			{
-				name:      "local inline",
-				root:      `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:attribute></xs:schema>`,
-				locNeedle: "<xs:simpleType>",
-			},
-			{
 				name:      "narrower unsigned builtin",
 				root:      `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:unsignedInt"/></xs:schema>`,
 				locNeedle: "type=",

@@ -223,7 +223,7 @@ func TestLongAttributeConstraintExcludedShapes(t *testing.T) {
 			{"local direct", `<xs:complexType name="T"><xs:attribute name="a" type="xs:long" default="1"/></xs:complexType>`, `default="1"`, UnsupportedSchemaSyntaxCode, ErrUnsupported},
 			{"local named", `<xs:simpleType name="L"><xs:restriction base="xs:long"/></xs:simpleType><xs:complexType name="T"><xs:attribute name="a" type="r:L" fixed="1"/></xs:complexType>`, `fixed="1"`, UnsupportedSchemaSyntaxCode, ErrUnsupported},
 			{"local inline", `<xs:complexType name="T"><xs:attribute name="a" default="1"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:attribute></xs:complexType>`, `default="1"`, UnsupportedSchemaSyntaxCode, ErrUnsupported},
-			{"global inline", `<xs:attribute name="a" fixed="1"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:attribute>`, `<xs:simpleType>`, UnsupportedSchemaSyntaxCode, ErrUnsupported},
+			{"global inline", `<xs:attribute name="a" fixed="1"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:attribute>`, `fixed="1"`, UnsupportedSchemaSyntaxCode, ErrUnsupported},
 			{"element direct", `<xs:element name="e" type="xs:long" default="1"/>`, `default="1"`, UnsupportedSchemaSyntaxCode, ErrUnsupported},
 			{"element named", `<xs:element name="e" type="r:L" fixed="1"/><xs:simpleType name="L"><xs:restriction base="xs:long"/></xs:simpleType>`, `fixed="1"`, UnsupportedSchemaSyntaxCode, ErrUnsupported},
 			{"element inline", `<xs:element name="e" default="1"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:element>`, `default="1"`, UnsupportedSchemaSyntaxCode, ErrUnsupported},

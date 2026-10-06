@@ -18,7 +18,8 @@
 // Restrictions, list items, and union members may reference it. Direct,
 // named-typed, and inline atomic-restriction global elements are queryable;
 // list/union-typed global elements reject. Mapped nonzero local typed particles
-// and global attributes reject at schema admission; applicable 0/0 local forms
+// and xs:normalizedString-typed global attributes reject at schema admission;
+// applicable 0/0 local forms
 // omit after reference, facet, and policy gates. Element-ref particles to
 // admitted global elements query; ValidateInstance and GenerateGo reject them.
 // xs:QName references are distinct context-sensitive atomics in facet-free
@@ -62,9 +63,9 @@
 // ValueConstraint() exposes its kind, collapsed lexical spelling, source Loc,
 // and exact defensive StrictPrecisionDecimal through PrecisionDecimalValue
 // only when a default or fixed value is present. Strict10 rejects at the
-// resolved type Loc before conversion. Global inline-attribute declarations and
-// global attribute-declaration validation remain unsupported. Selected local
-// precisionDecimal AttributeUse values validate under admitting policies;
+// resolved type Loc before conversion. Inline global attribute default/fixed
+// constraints and global attribute-declaration validation remain unsupported.
+// Selected local precisionDecimal AttributeUse values validate under admitting policies;
 // GenerateGo rejects them and global attribute declarations. Built-in/named
 // precisionDecimal roots validate; standalone inline anonymous roots reject,
 // while precisionDecimal-only sequence references validate those targets.
@@ -471,19 +472,26 @@
 // They validate beside bounded list/union in direct sequences; other consumer
 // paths reject them. Other list/union shapes, broader particles,
 // and unimplemented semantics remain explicit unsupported behavior.
-// Supported global attribute declarations are a separate query-only capability.
-// Type admission under
-// Compatibility, Strict10, and Strict11 is limited to built-in or supported
-// named atomic xs:boolean, xs:integer, xs:decimal, xs:token, xs:negativeInteger,
+// Supported global attribute declarations are query-only. Compatibility,
+// Strict10, and Strict11 admit built-in or supported named atomic xs:boolean,
+// xs:integer, xs:decimal, xs:token, xs:negativeInteger,
 // xs:positiveInteger, xs:nonPositiveInteger, xs:language, xs:NCName, xs:anyURI, xs:ID,
 // xs:long, xs:int, xs:short, xs:byte, and xs:unsignedLong. Integer-derived
-// types retain copied exact bounds. Built-in or
-// supported named xs:precisionDecimal is admitted for type/value queries only under
+// types retain copied exact bounds. One inline simpleType may instead declare a
+// restriction, list, or union. Its named and anonymous item/member references
+// retain lexical order; atomic leaves use supported attribute kinds, with
+// xs:string admitted only below the top type. InlineSimpleType() and
+// TypeReference() expose immutable anonymous identities, source/variety/facet
+// locations, copied facets, ordered references, and effective final/FinalLoc
+// including the containing document's finalDefault. Built-in or supported named
+// xs:precisionDecimal is admitted for type/value queries only under
 // Compatibility or Strict11; Strict10 rejects it at the type Loc with the
 // FeatureDatatypeFacets/FailureUnsupported/XSD3030/ErrUnsupported policy
-// diagnostic. Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger,
-// other excluded built-ins, list/union
-// forms remain explicit unsupported behavior. Unsupported local attribute types
+// diagnostic; inline precisionDecimal leaves are type-only under those policies.
+// A type attribute and inline child conflict. Unresolved, invisible, ambiguous,
+// wrong-kind, and cyclic member references report located errors without a Schema.
+// Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger, other excluded built-ins,
+// and named list/union attribute types remain unsupported. Unsupported local attribute types
 // without default/fixed report FailureUnsupported/UnsupportedSchemaSyntaxCode/
 // ErrUnsupported at type Loc. Local default/fixed reports at value Loc before
 // type mapping. A typeless local declaration reports at declaration Loc unless
@@ -515,9 +523,10 @@
 // AttributeValueConstraint; type-only declarations return no value constraint.
 // ValueConstraint() copies kind, collapsed lexical spelling, source Loc, and
 // exact defensive StrictPrecisionDecimal through PrecisionDecimalValue only
-// when present. Global attribute-declaration validation and generation remain
-// unsupported; global inline-attribute declarations are separate, while supported
-// local anonymous atomic AttributeUse facts remain queryable.
+// when present. Inline global restriction/list/union facts have no default/fixed;
+// either constraint is unsupported at its source Loc. Global attribute-declaration
+// validation and generation remain unsupported; supported local anonymous atomic
+// AttributeUse facts remain queryable.
 // GenerateGo matrix: under Compatibility, Strict10, and Strict11, global
 // built-in and named-typed nonNegativeInteger element declarations and
 // standalone named atomic nonNegativeInteger simple-type components in the
