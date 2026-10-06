@@ -1544,6 +1544,115 @@ func testPRResumeRejectsLocalLeaseBeyondRemoteRenewalBeforeMutation(t *testing.T
 	}
 }
 
+type resumeExpectedMergeCase struct {
+	name          string
+	firstOffset   time.Duration
+	sideOffset    time.Duration
+	sideIssue     int
+	sideRun       string
+	malformedSide bool
+	wantError     string
+	wantCause     string
+	verifyFirst   bool
+}
+
+func TestPRResumeExpectedMergeHeadUsesExpiredFirstParentAuthority(t *testing.T) {
+	for _, test := range []resumeExpectedMergeCase{
+		{name: "active same-run side marker", firstOffset: -time.Hour, sideOffset: time.Hour, sideIssue: 14, verifyFirst: true},
+		{name: "active first-parent marker", firstOffset: time.Hour, sideOffset: -time.Hour, sideIssue: 14, wantError: "claim #14 is active", verifyFirst: true},
+		{name: "conflicting side run", firstOffset: -time.Hour, sideOffset: time.Hour, sideIssue: 14, sideRun: "run-other", wantError: "conflicting canonical claim markers"},
+		{name: "foreign side issue", firstOffset: -time.Hour, sideOffset: time.Hour, sideIssue: 15, wantError: "claims issue #15"},
+		{name: "malformed side metadata", firstOffset: -time.Hour, sideOffset: time.Hour, sideIssue: 14, malformedSide: true,
+			wantError: "non-canonical parent shape", wantCause: "LF-terminated"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			testPRResumeExpectedMergeHeadAuthority(t, test)
+		})
+	}
+}
+
+func makeResumeExpectedMergeHead(t *testing.T, test resumeExpectedMergeCase) (resumeFixture, time.Time) {
+	t.Helper()
+	fixture := newResumeFixture(t)
+	base := runGitTest(t, fixture.worktree, "rev-parse", fixture.expected+"^")
+	tree := runGitTest(t, fixture.worktree, "rev-parse", base+"^{tree}")
+	now := time.Now().UTC()
+	firstLease := now.Add(test.firstOffset).Truncate(time.Second)
+	sideLease := now.Add(test.sideOffset).Truncate(time.Second)
+	first := createResumeCommitTreeAt(t, fixture.worktree, tree, []string{base},
+		claimMessage(14, fixture.runID, firstLease), "2020-01-01T00:00:00+00:00")
+	sideRun := fixture.runID
+	if test.sideRun != "" {
+		sideRun = test.sideRun
+	}
+	sideMessage := claimMessage(test.sideIssue, sideRun, sideLease)
+	if test.malformedSide {
+		sideMessage = strings.TrimSuffix(sideMessage, "\n")
+	}
+	side := createResumeCommitTreeAt(t, fixture.worktree, tree, []string{base},
+		sideMessage, "2030-01-01T00:00:00+00:00")
+	expected := createResumeCommitTreeAt(t, fixture.worktree, tree, []string{first, side},
+		"Merge original PR claim head\n", "2031-01-01T00:00:00+00:00")
+	if got := runGitTest(t, fixture.worktree, "rev-parse", expected+"^1"); got != first {
+		t.Fatalf("original PR head first parent = %s, want claim marker %s", got, first)
+	}
+	if got := runGitTest(t, fixture.worktree, "rev-parse", expected+"^2"); got != side {
+		t.Fatalf("original PR head second parent = %s, want side marker %s", got, side)
+	}
+	runGitTest(t, fixture.worktree, "reset", "--hard", expected)
+	runGitTest(t, fixture.primary, "push", "--force", "origin", expected+":refs/heads/agent/issue-14")
+	fixture.expected = expected
+	if got := runGitTest(t, fixture.worktree, "rev-parse", "HEAD"); got != expected {
+		t.Fatalf("local head = %s, want original PR head %s", got, expected)
+	}
+	if got := resumeRemoteHead(t, fixture); got != expected {
+		t.Fatalf("remote head = %s, want original PR head %s", got, expected)
+	}
+	return fixture, firstLease
+}
+
+func testPRResumeExpectedMergeHeadAuthority(t *testing.T, test resumeExpectedMergeCase) {
+	t.Helper()
+	fixture, firstLease := makeResumeExpectedMergeHead(t, test)
+	expected := fixture.expected
+	backend := newResumeBackend(t, fixture)
+	backend.prHead = expected
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	paths := resumePreservedPaths(t, fixture.worktree)
+	before := snapshotResumeLocal(t, fixture.worktree, paths)
+	err := application.run(append(resumeArgs(expected), "--dry-run"))
+	assertResumeExpectedMergeDryRunPreserved(t, fixture, backend, paths, before)
+	if test.wantError != "" {
+		if err == nil || operationDispositionOf(err) != operationDispositionTerminal || !strings.Contains(err.Error(), test.wantError) {
+			t.Fatalf("expected-head dry-run = %v, disposition %d, want terminal %q", err, operationDispositionOf(err), test.wantError)
+		}
+		if test.wantCause != "" && !strings.Contains(err.Error(), test.wantCause) {
+			t.Fatalf("expected-head dry-run = %v, want preserved cause %q", err, test.wantCause)
+		}
+		if !test.verifyFirst {
+			return
+		}
+	}
+	if test.wantError == "" && err != nil {
+		t.Fatalf("expired first-parent authority dry-run: %v", err)
+	}
+	claim, claimErr := application.readResumeExpectedClaim(fixture.worktree, expected, 14)
+	if claimErr != nil || claim.lease != firstLease {
+		t.Fatalf("expected authority lease = %s, error %v, want first-parent %s", claim.lease, claimErr, firstLease)
+	}
+}
+
+func assertResumeExpectedMergeDryRunPreserved(t *testing.T, fixture resumeFixture, backend *resumeBackend, paths []string, before resumeLocalSnapshot) {
+	t.Helper()
+	assertResumeSnapshot(t, fixture.worktree, paths, before)
+	if got := resumeRemoteHead(t, fixture); got != fixture.expected {
+		t.Fatalf("dry-run moved remote head to %s, want %s", got, fixture.expected)
+	}
+	if backend.mutations != 0 || countResumeCalls(backend.calls, "git commit-tree ")+countResumeCalls(backend.calls, "git update-ref ")+countResumeCalls(backend.calls, "git push ") != 0 {
+		t.Fatalf("dry-run mutated refs or issue: calls=%v mutations=%d", backend.calls, backend.mutations)
+	}
+}
+
 func TestPRResumeUsesFirstParentLocalLeaseBeforeMutation(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -1582,8 +1691,8 @@ func testPRResumeUsesFirstParentLocalLeaseBeforeMutation(t *testing.T, already b
 	if err != nil {
 		t.Fatalf("read all-parent local marker: %v", err)
 	}
-	if selected.lease != sideLease {
-		t.Fatalf("all-parent fixture selected %s, want side-parent %s", selected.lease, sideLease)
+	if selected.lease != firstLease {
+		t.Fatalf("local first-parent authority = %s, want %s despite later-dated side marker %s", selected.lease, firstLease, sideLease)
 	}
 	paths := resumePreservedPaths(t, fixture.worktree)
 	before := snapshotResumeLocal(t, fixture.worktree, paths)

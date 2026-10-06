@@ -263,13 +263,8 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	return proof, nil
 }
 
-// readResumeExpectedClaim validates the complete expected PR-head object,
-// then binds recovery to the nearest canonical claim marker in its ancestry.
-// A PR head may contain source changes or merge parents; only the marker that
-// establishes claim ownership is required to have the empty, single-parent
-// shape.
-//
-//nolint:gocognit // The expected-head proof keeps object, ancestry, and claim binding ordered.
+// readResumeExpectedClaim validates all-parent ownership, then uses proven
+// first-parent authority when present. A side-parent-only claim is the fallback.
 func (a app) readResumeExpectedClaim(root, expectedHead string, issue int) (canonicalClaimCommit, error) {
 	if !validExactCommitSHA(expectedHead) {
 		return canonicalClaimCommit{}, stateError("expected PR head %q is not a full commit SHA; preserve claim artifacts", expectedHead)
@@ -300,31 +295,36 @@ func (a app) readResumeExpectedClaim(root, expectedHead string, issue int) (cano
 	if err != nil {
 		return canonicalClaimCommit{}, err
 	}
-	if err := a.verifyRunLocalHistoryRecords(root, branch, records); err != nil {
+	if verifyErr := a.verifyRunLocalHistoryRecords(root, branch, records); verifyErr != nil {
+		return canonicalClaimCommit{}, verifyErr
+	}
+	selected, err := selectResumeExpectedClaimRecord(records, expectedHead, issue)
+	if err != nil {
 		return canonicalClaimCommit{}, err
 	}
+	authority, err := a.readResumeLocalAuthority(root, expectedHead, issue, selected)
+	if err != nil {
+		return canonicalClaimCommit{}, fmt.Errorf("prove expected PR head first-parent authority: %w", err)
+	}
+	return authority, nil
+}
+
+func selectResumeExpectedClaimRecord(records []runLocalHistoryRecord, expectedHead string, issue int) (canonicalClaimCommit, error) {
 	selected := canonicalClaimCommit{}
 	selectedCommit := ""
 	for _, record := range records {
-		identity, canonical, parseErr := parseCanonicalRunLocalClaim(record.message, issue)
-		if parseErr != nil {
-			return canonicalClaimCommit{}, terminalRunLocalHistoryError(stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr))
+		marker, canonical, markerErr := parseResumeExpectedClaimRecord(record, expectedHead, issue)
+		if markerErr != nil {
+			return canonicalClaimCommit{}, markerErr
 		}
-		if !canonical || identity.issue != issue {
+		if !canonical {
 			continue
 		}
-		observedIssue, observedRunID, lease, parseErr := parseCanonicalClaimMessage(record.message)
-		if parseErr != nil {
-			return canonicalClaimCommit{}, terminalRunLocalHistoryError(stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr))
-		}
-		if observedIssue != issue {
-			return canonicalClaimCommit{}, stateError("expected PR head %s ancestry marker %s claims issue #%d, not issue #%d; preserve claim artifacts", expectedHead, record.commit, observedIssue, issue)
-		}
-		if selectedCommit != "" && selected.runID != observedRunID {
-			return canonicalClaimCommit{}, stateError("expected PR head %s ancestry has conflicting canonical claim markers %s (run %s) and %s (run %s); preserve claim artifacts", expectedHead, selectedCommit, selected.runID, record.commit, observedRunID)
+		if selectedCommit != "" && selected.runID != marker.runID {
+			return canonicalClaimCommit{}, stateError("expected PR head %s ancestry has conflicting canonical claim markers %s (run %s) and %s (run %s); preserve claim artifacts", expectedHead, selectedCommit, selected.runID, record.commit, marker.runID)
 		}
 		if selectedCommit == "" {
-			selected = canonicalClaimCommit{message: record.message, issue: observedIssue, runID: observedRunID, lease: lease}
+			selected = marker
 			selectedCommit = record.commit
 		}
 	}
@@ -332,6 +332,34 @@ func (a app) readResumeExpectedClaim(root, expectedHead string, issue int) (cano
 		return selected, nil
 	}
 	return canonicalClaimCommit{}, stateError("expected PR head %s ancestry has no canonical claim marker for issue #%d; preserve claim artifacts", expectedHead, issue)
+}
+
+func parseResumeExpectedClaimRecord(record runLocalHistoryRecord, expectedHead string, issue int) (canonicalClaimCommit, bool, error) {
+	identity, canonical, parseErr := parseCanonicalRunLocalClaim(record.message, issue)
+	if parseErr != nil {
+		return canonicalClaimCommit{}, false, terminalRunLocalHistoryError(stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr))
+	}
+	if !canonical {
+		if !isCanonicalClaimMarkerShape(record.message) {
+			return canonicalClaimCommit{}, false, nil
+		}
+		observedIssue, _, _, identityErr := parseCanonicalClaimMessage(record.message)
+		if identityErr != nil {
+			return canonicalClaimCommit{}, false, terminalRunLocalHistoryError(stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, identityErr))
+		}
+		return canonicalClaimCommit{}, false, stateError("expected PR head %s ancestry marker %s claims issue #%d, not issue #%d; preserve claim artifacts", expectedHead, record.commit, observedIssue, issue)
+	}
+	if identity.issue != issue {
+		return canonicalClaimCommit{}, false, stateError("expected PR head %s ancestry marker %s claims issue #%d, not issue #%d; preserve claim artifacts", expectedHead, record.commit, identity.issue, issue)
+	}
+	observedIssue, observedRunID, lease, parseErr := parseCanonicalClaimMessage(record.message)
+	if parseErr != nil {
+		return canonicalClaimCommit{}, false, terminalRunLocalHistoryError(stateError("preserve resume proof: history commit %s has malformed canonical claim marker: %w", record.commit, parseErr))
+	}
+	if observedIssue != issue {
+		return canonicalClaimCommit{}, false, stateError("expected PR head %s ancestry marker %s claims issue #%d, not issue #%d; preserve claim artifacts", expectedHead, record.commit, observedIssue, issue)
+	}
+	return canonicalClaimCommit{message: record.message, issue: observedIssue, runID: observedRunID, lease: lease}, true, nil
 }
 
 // readResumeLocalAuthority uses the first-parent marker when one exists. A
