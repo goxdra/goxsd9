@@ -18,16 +18,16 @@ validation and generation reject them pending identity semantics.
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
 precisionDecimal lists/unions. Compatibility/Strict11 validate ordered
 precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
-never resolves. `GenerateGo(schema, packageName)` emits global `xs:long`:
-built-in fields use `StrictInteger`, named fields use generated types; global
-long attributes remain query-only. Grouped extensions retain refs/attributes
+never resolves. `GenerateGo` emits ordinary global `xs:short`/`xs:long` elements:
+built-in fields use `StrictInteger`, named fields use generated types; their
+global attributes remain query-only. Grouped extensions retain refs/attributes
 over named empty bases; valid `0/0` omits particles and prohibited uses may
 leave no effective uses.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
-and [decision 0007](docs/decisions/0007-particle-occurrence.md) for details.
+and [decision 0007](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices, sequences, and bounded attribute-free extensions admit
-built-in/named long locals for queries; valid inline `0/0` omits, nonzero rejects.
+built-in/named short/long locals only for queries; valid inline `0/0` omits, nonzero rejects.
 `GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
 default integer/decimal sequence refs; other targets or occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named integer/decimal/

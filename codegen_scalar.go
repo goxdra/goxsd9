@@ -115,6 +115,7 @@ const (
 	codegenSourceScalarDecimal
 	codegenSourceScalarNonNegativeInteger
 	codegenSourceScalarLong
+	codegenSourceScalarShort
 )
 
 type codegenSourceTarget struct {
@@ -1114,7 +1115,8 @@ func codegenSourceScalarStringFamily(kind codegenSourceScalarKind) (schemaSimple
 		codegenSourceScalarInteger,
 		codegenSourceScalarDecimal,
 		codegenSourceScalarNonNegativeInteger,
-		codegenSourceScalarLong:
+		codegenSourceScalarLong,
+		codegenSourceScalarShort:
 		return schemaSimpleTypeAtomicUnknown, false
 	}
 	return schemaSimpleTypeAtomicUnknown, false
@@ -1274,6 +1276,19 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 			typeID:       component.ID(),
 			hasTypeID:    true,
 			scalarKind:   codegenSourceScalarBoolean,
+		}, nil
+	}
+	if definition.facts.atomicKind == schemaSimpleTypeAtomicShort {
+		if err := validateCodegenShortFacts(
+			component.Loc(), fmt.Sprintf("named simple type %q", component.Name()),
+			definition.facts.facets, version,
+			codegenSimpleTypeRelatedLocations(definition, definition.DigitFacets()), false,
+		); err != nil {
+			return codegenSourceTarget{}, err
+		}
+		return codegenSourceTarget{
+			form: codegenSourceTargetDefinition, declaredType: component.Name(),
+			typeID: component.ID(), hasTypeID: true, scalarKind: codegenSourceScalarShort,
 		}, nil
 	}
 	if definition.facts.atomicKind == schemaSimpleTypeAtomicLong {
@@ -1833,7 +1848,7 @@ func codegenSourceTargetFieldType(
 		case codegenSourceScalarNonNegativeInteger:
 			fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeInteger, loc)
 			return fieldType, true, err
-		case codegenSourceScalarLong:
+		case codegenSourceScalarLong, codegenSourceScalarShort:
 			fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeInteger, loc)
 			return fieldType, true, err
 		case codegenSourceScalarDecimal:
@@ -2166,9 +2181,11 @@ func codegenBuiltinElementFieldType(
 		target.scalarKind = codegenSourceScalarNonNegativeInteger
 	case "long":
 		target.scalarKind = codegenSourceScalarLong
+	case "short":
+		target.scalarKind = codegenSourceScalarShort
 	case "decimal":
 		target.scalarKind = codegenSourceScalarDecimal
-	case "int", "short", "byte", "language", "NCName", "anyURI", "ID":
+	case "int", "byte", "language", "NCName", "anyURI", "ID":
 		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element type %q is outside scalar Go generation", declaration.DeclaredType()),
@@ -2281,6 +2298,11 @@ func codegenNamedElementFieldType(
 	sourceTarget.declaredType = declaredType
 	sourceTarget.typeID = typeID
 	sourceTarget.hasTypeID = true
+	if sourceTarget.scalarKind == codegenSourceScalarShort {
+		if shortErr := validateCodegenNamedShortReferenceFacts(component, declaration, target, version, related); shortErr != nil {
+			return codegenSourceTarget{}, "", false, shortErr
+		}
+	}
 	if sourceTarget.scalarKind == codegenSourceScalarLong {
 		if longErr := validateCodegenNamedLongReferenceFacts(component, declaration, target, version, related); longErr != nil {
 			return codegenSourceTarget{}, "", false, longErr
@@ -2544,6 +2566,15 @@ func validateCodegenElementTypeReference(
 			nil,
 			target.form == codegenSourceTargetBuiltin,
 		)
+	case codegenSourceScalarShort:
+		if reference.facts.atomicKind != schemaSimpleTypeAtomicShort {
+			return newCodegenShortInternal(loc, "global element short type reference has inconsistent primitive facts", nil, errCodegenSchemaInvariant, version)
+		}
+		if target.form == codegenSourceTargetBuiltin &&
+			(reference.Name().Namespace() != xsdNamespaceURI || reference.Name().Local() != "short") {
+			return newCodegenShortInternal(loc, "built-in global element short type reference does not identify xs:short", nil, errCodegenSchemaInvariant, version)
+		}
+		return validateCodegenShortFacts(loc, "global element short type reference", reference.facts.facets, version, nil, target.form == codegenSourceTargetBuiltin)
 	case codegenSourceScalarLong:
 		if reference.facts.atomicKind != schemaSimpleTypeAtomicLong {
 			return newCodegenInternalWithSpec(loc, "global element long type reference has inconsistent primitive facts", nil, errCodegenSchemaInvariant, version)

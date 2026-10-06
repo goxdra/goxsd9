@@ -151,7 +151,7 @@
 // named-effective, and anonymous-inline negativeInteger forms in those shapes
 // remain queryable. Bounded list/union direct sequences validate negativeInteger
 // as an atomic sibling; other validation paths and GenerateGo reject it. Built-in
-// and named effective-long particles in those shapes remain query-only and
+// and named effective-short/long particles in those shapes remain query-only and
 // consumer-rejected.
 // Local nonPositiveInteger/positiveInteger and inline/anonymous
 // long/int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located
@@ -546,13 +546,14 @@
 // malformed/stale built-in or named facts fail closed as FailureInternal/GOXSD9030
 // with nil output. Named final, atomic-restriction-variety, and effective-facet
 // gates reject unsupported forms with FailureUnsupported/GOXSD9029 and no output.
-// Standalone named atomic-long simple types and direct or named global long
+// Standalone named atomic-short/atomic-long simple types and direct or named global short/long
 // elements generate under Compatibility, Strict10, and Strict11. Built-in
 // element fields and standalone named declarations use StrictInteger; named
-// element fields use their generated named type. Effective long bounds and
+// element fields use their generated named type. Effective short/long bounds and
 // facets retain exact values, locations, and named type identities. Built-in
-// bounds are inclusive [-9223372036854775808,9223372036854775807], with fixed
-// fractionDigits=0. Malformed or stale long facts yield FailureInternal/GOXSD9030
+// long bounds are inclusive [-9223372036854775808,9223372036854775807];
+// short bounds are inclusive [-32768,32767], both with fixed
+// fractionDigits=0. Malformed or stale short/long facts yield FailureInternal/GOXSD9030
 // and nil output.
 // Supported global built-in/named Boolean/integer/decimal and effective
 // xs:string-atomic/token/NMTOKEN simple-type components and global element
@@ -586,13 +587,18 @@
 // validation and generation consumers reject.
 // Direct built-in and supported named atomic-byte global roots validate;
 // global inline byte roots and admitted local/reference byte uses reject validation.
-// Local inline byte particles reject schema admission; GenerateGo rejects byte-bearing components.
+// Nonzero local inline byte particles reject schema admission; valid 0/0 omits
+// after applicable gates. GenerateGo rejects byte-bearing components.
 // Direct built-in and supported named atomic-short global roots validate;
 // global inline short roots and admitted local/reference short uses reject validation.
-// Local inline short particles reject schema admission; GenerateGo rejects short-bearing components.
+// Nonzero local inline short particles reject schema admission; valid 0/0 omits
+// after applicable gates. GenerateGo emits ordinary
+// direct and named global short scalars but rejects local/reference/attribute
+// consumers and global inline short elements with located diagnostics.
 // Direct built-in and supported named atomic-int global roots validate;
 // global inline int roots and admitted local/reference int uses reject validation.
-// Local inline int particles reject schema admission; GenerateGo rejects int-bearing components.
+// Nonzero local inline int particles reject schema admission; valid 0/0 omits
+// after applicable gates. GenerateGo rejects int-bearing components.
 // Direct built-in and supported named atomic-long global roots validate;
 // global inline long roots and admitted local/reference long uses reject validation.
 // Nonzero inline local long particles reject schema admission; valid 0/0 omits.

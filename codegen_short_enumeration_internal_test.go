@@ -8,17 +8,17 @@ import (
 	"testing"
 )
 
-//nolint:gocognit,funlen // Exercise every enumeration exit at the named-long integrity gate.
-func TestGenerateGoNamedLongRejectsStaleEnumerationFacetsAcrossPolicies(t *testing.T) {
+//nolint:gocognit,funlen // Exercise every enumeration exit at the named-short integrity gate.
+func TestGenerateGoNamedShortRejectsStaleEnumerationFacetsAcrossPolicies(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		for _, consumer := range []string{"standalone", "named element"} {
-			for _, failure := range []string{"long range", "effective bounds", "totalDigits"} {
+			for _, failure := range []string{"short range", "effective bounds", "totalDigits"} {
 				t.Run(profile.name+"/"+consumer+"/"+failure, func(t *testing.T) {
 					element := ""
 					if consumer == "named element" {
 						element = `<xs:element name="value" type="t:Value"/>`
 					}
-					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + element + `<xs:simpleType name="Value"><xs:restriction base="xs:long"><xs:totalDigits value="2"/><xs:maxInclusive value="20"/><xs:enumeration value="12"/></xs:restriction></xs:simpleType><xs:simpleType name="Digits"><xs:restriction base="xs:long"><xs:totalDigits value="1"/></xs:restriction></xs:simpleType></xs:schema>`
+					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + element + `<xs:simpleType name="Value"><xs:restriction base="xs:short"><xs:totalDigits value="2"/><xs:maxInclusive value="20"/><xs:enumeration value="12"/></xs:restriction></xs:simpleType><xs:simpleType name="Digits"><xs:restriction base="xs:short"><xs:totalDigits value="1"/></xs:restriction></xs:simpleType></xs:schema>`
 					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 					if err != nil {
 						t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
@@ -42,14 +42,14 @@ func TestGenerateGoNamedLongRejectsStaleEnumerationFacetsAcrossPolicies(t *testi
 					baseLoc := valueDefinition.BaseLoc()
 					var extraRelated Loc
 					switch failure {
-					case "long range":
-						outside, parseErr := ParseStrictInteger("9223372036854775808", Loc{})
+					case "short range":
+						outside, parseErr := ParseStrictInteger("32768", Loc{})
 						if parseErr != nil {
 							t.Fatal(parseErr)
 						}
 						valueFacts.enumeration.values[0].value = outside
 					case "effective bounds":
-						minimum, minErr := ParseIntegerMinInclusiveFacet(codegenLongMinimum, Loc{}, profile.version)
+						minimum, minErr := ParseIntegerMinInclusiveFacet(codegenShortMinimum, Loc{}, profile.version)
 						if minErr != nil {
 							t.Fatal(minErr)
 						}
@@ -91,8 +91,8 @@ func TestGenerateGoNamedLongRejectsStaleEnumerationFacetsAcrossPolicies(t *testi
 					if consumer == "named element" {
 						primary = components[0].Loc()
 					}
-					if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant || diagnostic.Loc() != primary || diagnostic.SpecRef() != codegenLongSpecRef(profile.version) || !errors.Is(generationErr, errCodegenSchemaInvariant) {
-						t.Fatalf("diagnostic = %s, want GOXSD9030 at %s with long SpecRef and cause", diagnostic, primary)
+					if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant || diagnostic.Loc() != primary || diagnostic.SpecRef() != codegenShortSpecRef(profile.version) || !errors.Is(generationErr, errCodegenSchemaInvariant) {
+						t.Fatalf("diagnostic = %s, want GOXSD9030 at %s with short SpecRef and cause", diagnostic, primary)
 					}
 					digitLoc, hasDigitLoc := valueFacts.digits.TotalDigitsLoc()
 					if !hasDigitLoc {

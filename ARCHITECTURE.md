@@ -134,23 +134,22 @@ located diagnostics. Structure precedes facets; first failure retains instance/
 schema `Loc`s. Occurrence and scalar failures differ. `xsi:schemaLocation` never
 resolves. Other byte/short/int/long/unsignedLong validation uses reject.
 
-Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-atomic-
-`xs:string` types, their built-in/named global elements, inline global string/token/NMTOKEN,
-and named/global `nonNegativeInteger`/`long`. Standalone `normalizedString` rejects.
-Globals require `abstract=false,nillable=false`; violations yield `GOXSD9029`.
-Identity constraints yield `FailureUnsupported`/`GOXSD9029` at first constraint `Loc`.
-Rejections return nil output.
-Default integer/decimal sequence refs preserve TargetID/order; others unsupported.
-`nonNegativeInteger` uses `StrictInteger`; canonical built-in integer facts have
-`fractionDigits=0` and `minInclusive=0`; named bounds/facets survive.
-Unsupported final/variety/effective facets yield `GOXSD9029`; malformed facts
-yield `GOXSD9030`. Nonzero inline
-`nonNegativeInteger` has no schema; built-in/named locals query-only, `0/0`
-absent. Global `int`/`short`/`byte`/`unsignedLong`/`positiveInteger`
-and `nonNegativeInteger`/`long` refs are query-only. `IntegerBounds()` copies
-built-in/named bounds; negativeInteger max=-1, positiveInteger min=1; named
-restrictions retain provenance. Local generation admits Boolean/integer/decimal
-default choices/sequences and all-token choices; other locals/attributes reject.
+Generation admits named Boolean/integer/decimal/token/NMTOKEN and effective
+atomic `xs:string` types, built-in/named global elements, inline
+string/token/NMTOKEN globals, and named/global `nonNegativeInteger`/`short`/`long`.
+`normalizedString` rejects. Abstract/nillable globals and identity constraints
+reject with `GOXSD9029`; constraints locate first `Loc`. Default integer/decimal
+sequence refs preserve TargetID/order; others unsupported.
+`nonNegativeInteger`, `short`, and `long` use `StrictInteger`; built-in
+`nonNegativeInteger` has fixed `fractionDigits=0`, `minInclusive=0`. Short bounds:
+[-32768,32767]; named bounds/facets survive. Unsupported final/variety/
+effective facets yield `GOXSD9029`; malformed facts yield `GOXSD9030`; nil
+output. Nonzero inline `nonNegativeInteger` has no schema; built-in/named
+locals and global `nonNegativeInteger`/`short`/`long` refs remain query-only;
+`0/0` omits. Global `int`/`byte`/`unsignedLong`/`positiveInteger` remain
+query-only. `IntegerBounds()` copies bounds; negativeInteger max=-1,
+positiveInteger min=1. Local generation admits default Boolean/integer/decimal
+choices/sequences and all-token choices; other locals/attributes reject.
 
 ## Conformance
 

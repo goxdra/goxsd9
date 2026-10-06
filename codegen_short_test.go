@@ -12,7 +12,7 @@ import (
 )
 
 //nolint:gocognit,funlen // Keep graph, exact facts, output order, and compile evidence together.
-func TestGenerateGoGlobalLongScalarsAcrossPolicies(t *testing.T) {
+func TestGenerateGoGlobalShortScalarsAcrossPolicies(t *testing.T) {
 	tests := []struct {
 		name    string
 		policy  goxsd9.LanguagePolicy
@@ -30,9 +30,10 @@ func TestGenerateGoGlobalLongScalarsAcrossPolicies(t *testing.T) {
 			}
 			rootContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root"` + version + `>
   <xs:include schemaLocation="ordinary.xsd"/>
+  <xs:include schemaLocation="ordinary.xsd"/>
   <xs:include schemaLocation="chameleon.xsd"/>
   <xs:import namespace="urn:other" schemaLocation="other.xsd"/>
-  <xs:element name="direct" type="xs:long"/>
+  <xs:element name="direct" type="xs:short"/>
   <xs:element name="namedElement" type="r:Named"/>
   <xs:element name="narrowedElement" type="r:Narrowed"/>
   <xs:element name="inheritedElement" type="r:Inherited"/>
@@ -41,19 +42,20 @@ func TestGenerateGoGlobalLongScalarsAcrossPolicies(t *testing.T) {
   <xs:element name="importedElement" type="o:Imported"/>
   <xs:simpleType name="Inherited"><xs:restriction base="r:Named"/></xs:simpleType>
   <xs:simpleType name="Forward"><xs:restriction base="r:Later"/></xs:simpleType>
-  <xs:simpleType name="Named"><xs:restriction base="xs:long"/></xs:simpleType>
-  <xs:simpleType name="Later"><xs:restriction base="xs:long"/></xs:simpleType>
-  <xs:simpleType name="runtime"><xs:restriction base="xs:long"/></xs:simpleType>
-	<xs:simpleType name="Narrowed"><xs:restriction base="xs:long"><xs:minInclusive value="2"/><xs:maxInclusive value="9"/><xs:totalDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="Named"><xs:restriction base="xs:short"/></xs:simpleType>
+  <xs:simpleType name="Later"><xs:restriction base="xs:short"/></xs:simpleType>
+  <xs:simpleType name="runtime"><xs:restriction base="xs:short"/></xs:simpleType>
+	<xs:simpleType name="Narrowed"><xs:restriction base="xs:short"><xs:minInclusive value="2"/><xs:maxInclusive value="9"/><xs:totalDigits value="2"/><xs:enumeration value="+02"/><xs:enumeration value="9"/></xs:restriction></xs:simpleType>
 </xs:schema>`
 			ordinaryContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">
-  <xs:simpleType name="Included"><xs:restriction base="xs:long"/></xs:simpleType>
+  <xs:include schemaLocation="root.xsd"/>
+  <xs:simpleType name="Included"><xs:restriction base="xs:short"/></xs:simpleType>
 </xs:schema>`
 			chameleonContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `">
-  <xs:element name="chameleonDirect" type="xs:long"/>
+  <xs:element name="chameleonDirect" type="xs:short"/>
 </xs:schema>`
 			otherContents := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:o="urn:other" targetNamespace="urn:other"` + version + `>
-  <xs:simpleType name="Imported"><xs:restriction base="xs:long"/></xs:simpleType>
+  <xs:simpleType name="Imported"><xs:restriction base="xs:short"/></xs:simpleType>
 </xs:schema>`
 			root, err := goxsd9.NewResolvedSource(context.Background(), "root.xsd", newParseTestReader(rootContents))
 			if err != nil {
@@ -61,6 +63,7 @@ func TestGenerateGoGlobalLongScalarsAcrossPolicies(t *testing.T) {
 			}
 			schema, err := goxsd9.ParseSchemaWithPolicy(root, &publicCodegenResolver{
 				contents: map[string]string{
+					"root.xsd":      rootContents,
 					"ordinary.xsd":  ordinaryContents,
 					"chameleon.xsd": chameleonContents,
 					"other.xsd":     otherContents,
@@ -90,16 +93,26 @@ func TestGenerateGoGlobalLongScalarsAcrossPolicies(t *testing.T) {
 			if !hasTotalDigits || totalDigits.Canonical() != "2" {
 				t.Fatalf("Narrowed totalDigits = %q/%t, want 2/true", totalDigits.Canonical(), hasTotalDigits)
 			}
+			enumeration := narrowed.IntegerEnumerationFacets()
+			values := enumeration.Values()
+			locations := enumeration.Locations()
+			if len(values) != 2 || values[0].Canonical() != "2" || values[1].Canonical() != "9" || len(locations) != 2 || locations[0] != publicShortMarkerLoc(t, rootContents, `<xs:enumeration value="+02"`) || locations[1] != publicShortMarkerLoc(t, rootContents, `<xs:enumeration value="9"`) {
+				t.Fatalf("Narrowed enumeration = %v at %v", values, locations)
+			}
 			minimumLoc, hasMinimumLoc := bounds.MinInclusiveLoc()
 			maximumLoc, hasMaximumLoc := bounds.MaxInclusiveLoc()
-			if !hasMinimumLoc || minimumLoc != publicLongMarkerLoc(t, rootContents, `value="2"`) || !hasMaximumLoc || maximumLoc != publicLongMarkerLoc(t, rootContents, `value="9"`) {
+			if !hasMinimumLoc || minimumLoc != publicShortMarkerLoc(t, rootContents, `value="2"`) || !hasMaximumLoc || maximumLoc != publicShortMarkerLoc(t, rootContents, `value="9"`) {
 				t.Fatalf("Narrowed bound locations = %s/%t, %s/%t", minimumLoc, hasMinimumLoc, maximumLoc, hasMaximumLoc)
 			}
 			copied := bounds.Bounds()
 			copied[0] = goxsd9.IntegerBoundFacet{}
 			repeated, ok := narrowed.IntegerBounds()
 			if !ok || repeated.Bounds()[0].Value().Canonical() != "2" {
-				t.Fatal("mutating copied bounds changed named long facts")
+				t.Fatal("mutating copied bounds changed named short facts")
+			}
+			values[0] = goxsd9.StrictInteger{}
+			if narrowed.IntegerEnumerationFacets().Values()[0].Canonical() != "2" {
+				t.Fatal("mutating copied enumeration changed named short facts")
 			}
 			directComponents := schema.FindKind(goxsd9.ComponentKindElementDeclaration, mustPublicNonNegativeIntegerQName(t, "urn:root", "direct"))
 			if len(directComponents) != 1 {
@@ -110,17 +123,17 @@ func TestGenerateGoGlobalLongScalarsAcrossPolicies(t *testing.T) {
 				t.Fatal("direct element view is missing")
 			}
 			directReference, ok := direct.TypeReference()
-			if !ok || directReference.Loc() != publicLongMarkerLoc(t, rootContents, `type="xs:long"`) {
-				t.Fatalf("direct type reference = %#v/%t, want located built-in long", directReference, ok)
+			if !ok || directReference.Loc() != publicShortMarkerLoc(t, rootContents, `type="xs:short"`) {
+				t.Fatalf("direct type reference = %#v/%t, want located built-in short", directReference, ok)
 			}
 			directBounds, ok := directReference.IntegerBounds()
 			if !ok {
-				t.Fatal("direct long bounds are missing")
+				t.Fatal("direct short bounds are missing")
 			}
 			directMinimum, hasDirectMinimum := directBounds.MinInclusive()
 			directMaximum, hasDirectMaximum := directBounds.MaxInclusive()
-			if !hasDirectMinimum || directMinimum.Canonical() != "-9223372036854775808" || !hasDirectMaximum || directMaximum.Canonical() != "9223372036854775807" {
-				t.Fatalf("direct long bounds = %s/%t, %s/%t", directMinimum, hasDirectMinimum, directMaximum, hasDirectMaximum)
+			if !hasDirectMinimum || directMinimum.Canonical() != "-32768" || !hasDirectMaximum || directMaximum.Canonical() != "32767" {
+				t.Fatalf("direct short bounds = %s/%t, %s/%t", directMinimum, hasDirectMinimum, directMaximum, hasDirectMaximum)
 			}
 
 			first, err := goxsd9.GenerateGo(schema, "generated")
@@ -132,14 +145,14 @@ func TestGenerateGoGlobalLongScalarsAcrossPolicies(t *testing.T) {
 				t.Fatalf("GenerateGo second: %v", err)
 			}
 			if !bytes.Equal(first, second) {
-				t.Fatalf("repeated long output differs:\nfirst:\n%s\nsecond:\n%s", first, second)
+				t.Fatalf("repeated short output differs:\nfirst:\n%s\nsecond:\n%s", first, second)
 			}
 			formatted, err := format.Source(first)
 			if err != nil {
-				t.Fatalf("format generated long source: %v\n%s", err, first)
+				t.Fatalf("format generated short source: %v\n%s", err, first)
 			}
 			if !bytes.Equal(first, formatted) {
-				t.Fatalf("generated long source is not complete go/format output:\n%s", first)
+				t.Fatalf("generated short source is not complete go/format output:\n%s", first)
 			}
 
 			source := string(first)
@@ -163,11 +176,11 @@ func TestGenerateGoGlobalLongScalarsAcrossPolicies(t *testing.T) {
 				"type Imported struct {\n\tValue Runtime2.StrictInteger\n}",
 			} {
 				if !strings.Contains(source, fragment) {
-					t.Fatalf("generated long source is missing %q:\n%s", fragment, first)
+					t.Fatalf("generated short source is missing %q:\n%s", fragment, first)
 				}
 			}
 			if strings.Contains(source, "int64") || strings.Contains(source, "uint64") || strings.Contains(source, "const ") || strings.Contains(source, "xml:") {
-				t.Fatalf("generated long source narrowed or added runtime/value helpers:\n%s", source)
+				t.Fatalf("generated short source narrowed or added runtime/value helpers:\n%s", source)
 			}
 			if strings.Count(source, `"github.com/goxdra/goxsd9"`) != 1 {
 				t.Fatalf("runtime import count = %d, want one:\n%s", strings.Count(source, `"github.com/goxdra/goxsd9"`), source)
@@ -180,8 +193,11 @@ func TestGenerateGoGlobalLongScalarsAcrossPolicies(t *testing.T) {
 			last := -1
 			for _, name := range orderedNames {
 				position := strings.Index(source, "type "+name+" ")
+				if strings.Count(source, "type "+name+" ") != 1 {
+					t.Fatalf("generated short declaration %s was not emitted once:\n%s", name, source)
+				}
 				if position <= last {
-					t.Fatalf("generated long declarations do not preserve schema order at %s:\n%s", name, source)
+					t.Fatalf("generated short declarations do not preserve schema order at %s:\n%s", name, source)
 				}
 				last = position
 			}
@@ -192,7 +208,7 @@ import (
 	runtime "github.com/goxdra/goxsd9"
 )
 
-func useLongScalars() {
+func useShortScalars() {
 	var direct generated.Direct
 	var named generated.NamedElement
 	var narrowed generated.NarrowedElement
@@ -216,7 +232,7 @@ func useLongScalars() {
 }
 
 //nolint:gocognit,dupl // Keep each datatype policy and declaration-flag matrix explicit.
-func TestGenerateGoGlobalLongRejectsNonOrdinaryDeclarationsAcrossPolicies(t *testing.T) {
+func TestGenerateGoGlobalShortRejectsNonOrdinaryDeclarationsAcrossPolicies(t *testing.T) {
 	policies := []struct {
 		name    string
 		policy  goxsd9.LanguagePolicy
@@ -240,8 +256,8 @@ func TestGenerateGoGlobalLongRejectsNonOrdinaryDeclarationsAcrossPolicies(t *tes
 			for _, shape := range []struct {
 				name, typeName, definition string
 			}{
-				{"direct", "xs:long", ""},
-				{"named", "t:Value", `<xs:simpleType name="Value"><xs:restriction base="xs:long"/></xs:simpleType>`},
+				{"direct", "xs:short", ""},
+				{"named", "t:Value", `<xs:simpleType name="Value"><xs:restriction base="xs:short"/></xs:simpleType>`},
 			} {
 				t.Run(policy.name+"/"+flag.name+"/"+shape.name, func(t *testing.T) {
 					version := ""
@@ -283,18 +299,26 @@ func TestGenerateGoGlobalLongRejectsNonOrdinaryDeclarationsAcrossPolicies(t *tes
 }
 
 //nolint:gocognit,dupl // Keep each datatype exclusion matrix explicit.
-func TestGenerateGoLongExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testing.T) {
+func TestGenerateGoShortExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testing.T) {
 	tests := []struct {
 		name, body, marker, related string
 	}{
-		{"inline global", `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:element>`, `<xs:element name="value"`, ""},
-		{"local sequence", `<xs:complexType name="Container"><xs:sequence><xs:element name="value" type="xs:long"/></xs:sequence></xs:complexType>`, `<xs:element name="value"`, ""},
-		{"local choice", `<xs:complexType name="Container"><xs:choice><xs:element name="value" type="xs:long"/></xs:choice></xs:complexType>`, `<xs:element name="value"`, ""},
-		{"choice reference", `<xs:element name="value" type="xs:long"/><xs:complexType name="Container"><xs:choice><xs:element ref="t:value"/></xs:choice></xs:complexType>`, `ref="t:value"`, ""},
-		{"sequence reference", `<xs:element name="value" type="xs:long"/><xs:complexType name="Container"><xs:sequence><xs:element ref="t:value"/></xs:sequence></xs:complexType>`, `ref="t:value"`, ""},
-		{"global attribute", `<xs:attribute name="value" type="xs:long"/>`, `<xs:attribute name="value"`, ""},
-		{"named final", `<xs:simpleType name="Value" final="restriction"><xs:restriction base="xs:long"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `final="restriction"`},
-		{"named union", `<xs:simpleType name="Value"><xs:union memberTypes="xs:long"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `<xs:union`},
+		{"inline global", `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:element>`, `<xs:element name="value"`, ""},
+		{"inline global named base", `<xs:simpleType name="Value"><xs:restriction base="xs:short"/></xs:simpleType><xs:element name="value"><xs:simpleType><xs:restriction base="t:Value"/></xs:simpleType></xs:element>`, `<xs:element name="value"`, ""},
+		{"local sequence", `<xs:complexType name="Container"><xs:sequence><xs:element name="value" type="xs:short"/></xs:sequence></xs:complexType>`, `<xs:element name="value"`, ""},
+		{"local choice", `<xs:complexType name="Container"><xs:choice><xs:element name="value" type="xs:short"/></xs:choice></xs:complexType>`, `<xs:element name="value"`, ""},
+		{"named local sequence", `<xs:simpleType name="Value"><xs:restriction base="xs:short"/></xs:simpleType><xs:complexType name="Container"><xs:sequence><xs:element name="value" type="t:Value"/></xs:sequence></xs:complexType>`, `<xs:element name="value"`, ""},
+		{"named local choice", `<xs:simpleType name="Value"><xs:restriction base="xs:short"/></xs:simpleType><xs:complexType name="Container"><xs:choice><xs:element name="value" type="t:Value"/></xs:choice></xs:complexType>`, `<xs:element name="value"`, ""},
+		{"choice reference", `<xs:element name="value" type="xs:short"/><xs:complexType name="Container"><xs:choice><xs:element ref="t:value"/></xs:choice></xs:complexType>`, `ref="t:value"`, ""},
+		{"sequence reference", `<xs:element name="value" type="xs:short"/><xs:complexType name="Container"><xs:sequence><xs:element ref="t:value"/></xs:sequence></xs:complexType>`, `ref="t:value"`, ""},
+		{"named choice reference", `<xs:element name="value" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:short"/></xs:simpleType><xs:complexType name="Container"><xs:choice><xs:element ref="t:value"/></xs:choice></xs:complexType>`, `ref="t:value"`, ""},
+		{"named sequence reference", `<xs:element name="value" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:short"/></xs:simpleType><xs:complexType name="Container"><xs:sequence><xs:element ref="t:value"/></xs:sequence></xs:complexType>`, `ref="t:value"`, ""},
+		{"global attribute", `<xs:attribute name="value" type="xs:short"/>`, `<xs:attribute name="value"`, ""},
+		{"named global attribute", `<xs:attribute name="value" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:short"/></xs:simpleType>`, `<xs:attribute name="value"`, ""},
+		{"named final", `<xs:simpleType name="Value" final="restriction"><xs:restriction base="xs:short"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `final="restriction"`},
+		{"named union", `<xs:simpleType name="Value"><xs:union memberTypes="xs:short"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `<xs:union`},
+		{"built-in byte", `<xs:element name="value" type="xs:byte"/>`, `<xs:element name="value"`, ""},
+		{"named effective int", `<xs:element name="value" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:int"><xs:minInclusive value="-10"/><xs:maxInclusive value="10"/></xs:restriction></xs:simpleType>`, `<xs:element name="value"`, ""},
 	}
 	for _, profile := range []struct {
 		name, version, specPrefix string
@@ -328,7 +352,7 @@ func TestGenerateGoLongExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testin
 					t.Fatalf("diagnostic = %s, want GOXSD9029 at %s with a preserved cause", diagnostic, wantLoc)
 				}
 				if test.related != "" {
-					wantRelated := publicLongMarkerLoc(t, root, test.related)
+					wantRelated := publicShortMarkerLoc(t, root, test.related)
 					found := false
 					for _, related := range diagnostic.Related() {
 						if related == wantRelated {
@@ -344,7 +368,7 @@ func TestGenerateGoLongExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testin
 	}
 }
 
-func publicLongMarkerLoc(t *testing.T, source, marker string) goxsd9.Loc {
+func publicShortMarkerLoc(t *testing.T, source, marker string) goxsd9.Loc {
 	t.Helper()
 	index := strings.Index(source, marker)
 	if index < 0 {
@@ -358,4 +382,39 @@ func publicLongMarkerLoc(t *testing.T, source, marker string) goxsd9.Loc {
 		t.Fatalf("NewLoc: %v", err)
 	}
 	return loc
+}
+
+func TestShortExcludedAttributeAndInlineParticleAdmission(t *testing.T) {
+	cases := []struct {
+		name, body, marker string
+	}{
+		{"local direct attribute", `<xs:complexType name="Container"><xs:attribute name="value" type="xs:short"/></xs:complexType>`, `type="xs:short"`},
+		{"local named attribute", `<xs:simpleType name="Value"><xs:restriction base="xs:short"/></xs:simpleType><xs:complexType name="Container"><xs:attribute name="value" type="t:Value"/></xs:complexType>`, `type="t:Value"`},
+		{"attribute reference", `<xs:attribute name="value" type="xs:short"/><xs:complexType name="Container"><xs:attribute ref="t:value"/></xs:complexType>`, `ref="t:value"`},
+		{"inline local sequence", `<xs:complexType name="Container"><xs:sequence><xs:element name="value"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:element></xs:sequence></xs:complexType>`, `<xs:simpleType>`},
+		{"inline local choice", `<xs:complexType name="Container"><xs:choice><xs:element name="value"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:element></xs:choice></xs:complexType>`, `<xs:simpleType>`},
+	}
+	for _, profile := range []struct {
+		name, version string
+		policy        goxsd9.LanguagePolicy
+	}{
+		{"Compatibility", "", goxsd9.Compatibility},
+		{"Strict10", ` version="1.0"`, goxsd9.Strict10},
+		{"Strict11", ` version="1.1"`, goxsd9.Strict11},
+	} {
+		for _, test := range cases {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + parseTestXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"` + profile.version + `>` + test.body + `</xs:schema>`
+				schema, err := parsePublicNonNegativeIntegerSchema(t, root, profile.policy)
+				if err == nil || len(schema.Components()) != 0 {
+					t.Fatalf("ParseSchemaWithPolicy = (%v, %v), want nil schema and unsupported", schema, err)
+				}
+				diagnostic := publicNonNegativeIntegerDiagnostic(t, err)
+				want := publicShortMarkerLoc(t, root, test.marker)
+				if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != "XSD3003" || diagnostic.Loc() != want || !errors.Is(err, goxsd9.ErrUnsupported) {
+					t.Fatalf("diagnostic = %s, want XSD3003 at %s", diagnostic, want)
+				}
+			})
+		}
+	}
 }
