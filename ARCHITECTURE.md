@@ -24,7 +24,7 @@ Acyclic dependencies use stable topological order; slices order walks/output.
 ## Input and resolution
 
 Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Callers select
-graph policy; resolvers acquire sources under their resolution policy.
+graph policy; resolvers acquire sources.
 Streams close; identities decode once; repeats/cycles close.
 
 ```go
@@ -92,16 +92,19 @@ Unsupported types/local/inline: located `FailureUnsupported`; unsupported values
 invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixed/default; type-only
 unconstrained; global attribute consumers reject.
 
-Complexes retain abstract/final provenance, groups, extensions, and wildcards.
-`xs:any` supports positive sets and XSD 1.1 `notNamespace`; chameleons expand.
-Consumers reject wildcards; `0/0` omits; `openContent=none` excludes Strict10.
-Named groups retain refs/ranges. Inline complexes retain IDs outside walks;
-precisionDecimal-only ordered sequences validate. Lists, unions, sequence
-links, and local attributes retain ordered refs, facets, IDs, and locations.
-Attribute lists need precisionDecimal; unions need it then negativeInteger;
-Strict10 rejects it. Element refs retain ranges. Strings validate beside
-varieties; `normalizedString` replaces whitespace. Facet-free `QName` varieties
-and global refs retain context; QName locals, facets, values, and consumers reject.
+Complexes retain abstract/final provenance, ordered groups/extensions, and
+wildcards. `xs:any` admits positive sets, XSD 1.1 strict/lax/skip `notNamespace`,
+and chameleon adoption; `0/0` omits. Compatibility/Strict11 direct strict
+`xs:any` retains normalized `notQName` tokens, bindings, `Loc`, and sorted names.
+Inconsistent exclusions fail before omission; consumers/broader forms reject.
+`openContent=none` excludes Strict10; named groups retain refs/ranges.
+Inline complexes retain IDs outside walks; precisionDecimal ordered sequences
+validate. Lists, unions, sequences, and attributes retain ordered facts.
+Attribute lists need precisionDecimal; unions also admit negativeInteger;
+Strict10 rejects precisionDecimal. Element refs retain ranges. Strings validate
+with bounded varieties; `normalizedString` replaces whitespace and checks facets.
+Facet-free `QName` varieties/global refs retain context; QName locals/attributes/
+facets/values and consumers reject.
 
 ## Datatypes
 

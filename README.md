@@ -21,7 +21,7 @@ precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:long`:
 built-in fields use `StrictInteger`, named fields use generated types; global
 long attributes remain query-only. Grouped extensions retain refs/attributes
-over named empty bases; valid `0/0` omits particles, and prohibited uses may
+over named empty bases; valid `0/0` omits particles and prohibited uses may
 leave no effective uses.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
 and [decision 0007](docs/decisions/0007-particle-occurrence.md) for details.
@@ -33,6 +33,7 @@ default integer/decimal sequence refs; other targets or occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named integer/decimal/
 Boolean, built-in string, effective token/NMTOKEN, negativeInteger/
 nonNegativeInteger, and refs with exact bounds; consumers reject it.
+Compatibility/Strict11 expose QName `notQName` on direct strict `xs:any`; consumers reject wildcards.
 
 ## CLI
 
@@ -61,9 +62,8 @@ go tool workflowctl doctor
 go tool workflowctl check
 ```
 
-The [plan](PLAN.md) gives project phases. [Issues](https://github.com/goxdra/goxsd9/issues),
-the [roadmap](https://github.com/orgs/goxdra/projects/1), and [operations](docs/operations.md)
-cover ongoing work. See [AGENTS.md](AGENTS.md) for repository rules.
+[Plan](PLAN.md), [issues](https://github.com/goxdra/goxsd9/issues), [roadmap](https://github.com/orgs/goxdra/projects/1), and
+[operations](docs/operations.md) cover work; [AGENTS.md](AGENTS.md) gives repository rules.
 
 ## License
 
