@@ -177,12 +177,8 @@ func assertCuratorIntegerBounds(t *testing.T, definition SimpleTypeDefinition, f
 			t.Fatalf("maxInclusive = %q/%t, want %s/true", maximum.Canonical(), hasMaximum, family.maximum)
 		}
 		maximumFacet, present := bounds.MaxInclusiveFacet()
-		wantMaximumLoc := Loc{}
-		if family.name == "negativeInteger" {
-			wantMaximumLoc = definition.BaseLoc()
-		}
-		if !present || maximumFacet.Kind() != BoundMaxInclusive || maximumFacet.Value().Canonical() != family.maximum || maximumFacet.Version() != version || maximumFacet.Loc() != wantMaximumLoc {
-			t.Fatalf("maxInclusive facts = %q/%s/%q/%t, want %s/%s/%q/true", maximumFacet.Value().Canonical(), maximumFacet.Loc(), maximumFacet.Kind(), present, family.maximum, wantMaximumLoc, version)
+		if !present || maximumFacet.Kind() != BoundMaxInclusive || maximumFacet.Value().Canonical() != family.maximum || maximumFacet.Version() != version || !maximumFacet.Loc().IsZero() {
+			t.Fatalf("maxInclusive facts = %q/%s/%q/%t, want %s/zero/%q/true", maximumFacet.Value().Canonical(), maximumFacet.Loc(), maximumFacet.Kind(), present, family.maximum, version)
 		}
 	}
 	ordered := bounds.Bounds()

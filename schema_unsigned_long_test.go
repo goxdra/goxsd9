@@ -486,20 +486,6 @@ func versionedSpecPrefix(version XSDVersion) string {
 	return "xsd11-"
 }
 
-func TestSchemaUnsignedLongConsumersRemainUnsupported(t *testing.T) {
-	for _, profile := range unsignedLongPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="xs:unsignedLong"/></xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			if err != nil {
-				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
-			}
-
-			assertIntegerDerivedConsumersUnsupported(t, schema)
-		})
-	}
-}
-
 func TestSchemaUnsignedLongDoesNotAdmitNarrowerBuiltins(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {

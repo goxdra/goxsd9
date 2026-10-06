@@ -2669,12 +2669,16 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
 			}
 			modelSeen = true
-			if err := validateUnsupportedModelParticle(child, version); err != nil {
+			allErr := validateSupportedAllParticle(child, version)
+			if len(syntaxAttributesByLocal(parent, "name")) != 1 {
+				allErr = validateUnsupportedModelParticle(child, version)
+			}
+			if err := allErr; err != nil {
 				if !candidate.considerError(err) {
 					return err
 				}
 			}
-			if !candidate.present {
+			if len(syntaxAttributesByLocal(parent, "name")) != 1 && !candidate.present {
 				candidate.consider(child, parent.name.local)
 			}
 		case "sequence":
@@ -3796,7 +3800,7 @@ func validateWildcardNotNamespace(attribute syntaxAttribute) error {
 func validateWildcardNotQName(element *syntaxElement, attribute syntaxAttribute, allowDefinedSibling bool) error {
 	lexeme := collapseXMLWhitespace(attribute.value)
 	if lexeme == "" {
-		return newSchemaCompositionDiagnostic(attribute.loc, "attribute \"notQName\" has an invalid wildcard value")
+		return nil
 	}
 	for _, token := range strings.Split(lexeme, " ") {
 		if token == "##defined" || allowDefinedSibling && token == "##definedSibling" {
@@ -3807,11 +3811,17 @@ func validateWildcardNotQName(element *syntaxElement, attribute syntaxAttribute,
 		}
 		prefix, local, ok := splitConditionalQName(token)
 		if !ok || !validNCName(local) || prefix != "" && !validNCName(prefix) {
-			return newDiagnostic(FailureInvalid, invalidSchemaConditionalCode, attribute.loc, "attribute \"notQName\" has a malformed QName", nil)
+			return schemaInvalidWithSpecRef(
+				newDiagnostic(FailureInvalid, invalidSchemaConditionalCode, attribute.loc, "attribute \"notQName\" has a malformed QName", nil),
+				schemaWildcardQNameDatatypeXSD11SpecRef,
+			)
 		}
 		if prefix != "" {
 			if _, bound := element.scope.lookup(prefix); !bound {
-				return newDiagnostic(FailureInvalid, invalidSchemaConditionalCode, attribute.loc, "attribute \"notQName\" has an unbound QName prefix", nil)
+				return schemaInvalidWithSpecRef(
+					newDiagnostic(FailureInvalid, invalidSchemaConditionalCode, attribute.loc, "attribute \"notQName\" has an unbound QName prefix", nil),
+					schemaWildcardQNameDatatypeXSD11SpecRef,
+				)
 			}
 		}
 	}
@@ -4544,7 +4554,12 @@ func validateLocalElementParticle(element *syntaxElement, version XSDVersion, al
 			}
 			typeChildSeen = true
 			if mapsToParticle && !ownerOmitted && !candidate.present && (child.name.local != "simpleType" || !localInlineSimpleTypeAtomicRestriction(child)) {
-				candidate.considerAt(child.loc, fmt.Sprintf("local element child <%s> is not implemented", child.name.local))
+				message := fmt.Sprintf("local element child <%s> is not implemented", child.name.local)
+				if model == "all" {
+					candidate.considerAtVersion(child.loc, message, version)
+					continue
+				}
+				candidate.considerAt(child.loc, message)
 			}
 		case "alternative":
 			if refSeen || constraintPhase {
@@ -4726,33 +4741,46 @@ func validateSupportedGroupParticle(element *syntaxElement, version XSDVersion) 
 }
 
 func validateAllParticle(element *syntaxElement, version XSDVersion) error {
+	return validateAllParticleWithOptions(element, version, false)
+}
+
+func validateSupportedAllParticle(element *syntaxElement, version XSDVersion) error {
+	return validateAllParticleWithOptions(element, version, true)
+}
+
+func validateAllParticleWithOptions(element *syntaxElement, version XSDVersion, supported bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateAllParticleOccurrences(element, "all particle", version); err != nil {
 		if !candidate.considerError(err) {
 			return err
 		}
 	}
-	if err := validateSchemaParticleAttributes(element, &candidate, version); err != nil {
+	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, supported); err != nil {
 		return err
 	}
-	if err := validateAllParticleChildren(element, version, &candidate); err != nil {
+	if err := validateAllParticleChildrenWithOptions(element, version, &candidate, supported); err != nil {
 		return err
 	}
 	return candidate.err()
 }
 
-func validateAllParticleChildren(element *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate) error {
+func validateAllParticleChildrenWithOptions(element *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate, supported bool) error {
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
+	if err != nil {
+		return err
+	}
+	ownerOmitted := !occurrences.mapsToParticle()
 	annotationSeen := false
 	contentSeen := false
 	for _, node := range element.children {
-		if err := validateAllParticleChild(node, version, &annotationSeen, &contentSeen, candidate); err != nil {
+		if err := validateAllParticleChildWithOptions(node, version, &annotationSeen, &contentSeen, candidate, supported, ownerOmitted); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateAllParticleChild(node syntaxNode, version XSDVersion, annotationSeen, contentSeen *bool, candidate *schemaChildUnsupportedCandidate) error {
+func validateAllParticleChildWithOptions(node syntaxNode, version XSDVersion, annotationSeen, contentSeen *bool, candidate *schemaChildUnsupportedCandidate, supported, ownerOmitted bool) error {
 	textNode, ok := node.(syntaxText)
 	if ok {
 		if !xmlWhitespace([]byte(textNode.data)) {
@@ -4775,13 +4803,13 @@ func validateAllParticleChild(node syntaxNode, version XSDVersion, annotationSee
 		return stageSchemaCandidateError(candidate, validateSchemaAnnotationElement(child))
 	}
 	*contentSeen = true
-	return validateAllParticleContentChild(child, version, candidate)
+	return validateAllParticleContentChildWithOptions(child, version, candidate, supported, ownerOmitted)
 }
 
-func validateAllParticleContentChild(child *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate) error {
+func validateAllParticleContentChildWithOptions(child *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate, supported, ownerOmitted bool) error {
 	switch child.name.local {
 	case "element":
-		localCandidate, err := validateLocalElementParticle(child, version, false, "all", false, false)
+		localCandidate, err := validateLocalElementParticle(child, version, supported, "all", supported, ownerOmitted)
 		if err != nil {
 			if !localCandidate.considerError(err) {
 				return err
@@ -4810,7 +4838,7 @@ func validateAllParticleContentChild(child *syntaxElement, version XSDVersion, c
 	case "group":
 		return validateAllParticleUnsupportedChild(child, version, candidate)
 	default:
-		return newSchemaCompositionDiagnostic(child.loc, "all particle contains a forbidden child")
+		return schemaInvalidWithSpecRef(newSchemaCompositionDiagnostic(child.loc, "all particle contains a forbidden child"), schemaAllLimitedSpecRef(version))
 	}
 }
 
@@ -4853,7 +4881,7 @@ func validateAllParticleUnsupportedChild(child *syntaxElement, version XSDVersio
 		))
 		return nil
 	}
-	candidate.considerAt(child.loc, fmt.Sprintf("all child <%s> is not implemented", child.name.local))
+	candidate.considerAtVersion(child.loc, fmt.Sprintf("all child <%s> is not implemented", child.name.local), version)
 	return nil
 }
 
@@ -4887,11 +4915,11 @@ func validateAllParticleOccurrences(element *syntaxElement, owner string, versio
 		return newSchemaBridgeInvariant(element.loc, "all particle minimum occurrence is not finite")
 	}
 	if minimumValue.Compare(one) > 0 {
-		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "minOccurs"), owner+" minOccurs must be 0 or 1")
+		return schemaInvalidWithSpecRef(newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "minOccurs"), owner+" minOccurs must be 0 or 1"), schemaAllLimitedSpecRef(version))
 	}
 	maximumOccurrence := occurrences.maximumOccurrence()
 	if maximumOccurrence.isUnbounded() {
-		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "maxOccurs"), owner+" maxOccurs must be 1")
+		return schemaInvalidWithSpecRef(newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "maxOccurs"), owner+" maxOccurs must be 1"), schemaAllLimitedSpecRef(version))
 	}
 	maximumValue, ok := maximumOccurrence.finiteValue()
 	if !ok {
@@ -4909,7 +4937,7 @@ func validateAllParticleOccurrences(element *syntaxElement, owner string, versio
 		return nil
 	}
 	if maximumValue.Compare(one) != 0 {
-		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "maxOccurs"), owner+" maxOccurs must be 1")
+		return schemaInvalidWithSpecRef(newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "maxOccurs"), owner+" maxOccurs must be 1"), schemaAllLimitedSpecRef(version))
 	}
 	return nil
 }
@@ -4927,8 +4955,13 @@ func validateAllChildParticleOccurrences(element *syntaxElement, owner string, v
 	if !ok {
 		return newSchemaBridgeInvariant(element.loc, "all child minimum occurrence is not finite")
 	}
-	if minimumValue.Compare(one) > 0 {
-		return newSchemaCompositionDiagnostic(schemaParticleOccurrenceLoc(element, "minOccurs"), owner+" minOccurs must be 0 or 1")
+	if version == XSDVersion10 && minimumValue.Compare(one) > 0 {
+		return newXSD11FeatureMismatch(
+			FeatureSchemaSyntax,
+			diagnosticSchemaAllOccurrenceVersionCode,
+			schemaParticleOccurrenceLoc(element, "minOccurs"),
+			owner+" minOccurs greater than 1 is an XSD 1.1-only construct",
+		)
 	}
 	maximumOccurrence := occurrences.maximumOccurrence()
 	if maximumOccurrence.isUnbounded() {
@@ -4942,9 +4975,6 @@ func validateAllChildParticleOccurrences(element *syntaxElement, owner string, v
 		return newSchemaBridgeInvariant(element.loc, "all child maximum occurrence is not finite")
 	}
 	if maximumValue.Compare(one) <= 0 {
-		if maximumValue.IsZero() && minimumValue.IsZero() && version == XSDVersion10 {
-			return newAllChildOccurrenceVersionMismatch(element, owner, "maxOccurs=0")
-		}
 		return nil
 	}
 	if version == XSDVersion10 {
@@ -5153,6 +5183,9 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 			}
 			if version != XSDVersion10 {
 				if allowDefault {
+					if isSupportedDirectAnyNotQName(element) {
+						continue
+					}
 					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard notQName constraints are not implemented", version))
 					continue
 				}
@@ -5189,6 +5222,32 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 		}
 	}
 	return candidate.err()
+}
+
+func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
+	if !isSupportedDirectAnyParticle(element) {
+		return false
+	}
+	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 {
+		return false
+	}
+	processContents := "strict"
+	if attributes := syntaxAttributesByLocal(element, "processContents"); len(attributes) == 1 {
+		processContents = collapseXMLWhitespace(attributes[0].value)
+	}
+	if processContents != "strict" {
+		return false
+	}
+	attributes := syntaxAttributesByLocal(element, "notQName")
+	if len(attributes) != 1 {
+		return false
+	}
+	for _, token := range strings.Split(collapseXMLWhitespace(attributes[0].value), " ") {
+		if token == "##defined" || token == "##definedSibling" {
+			return false
+		}
+	}
+	return true
 }
 
 //nolint:gocognit // Keep global group model grammar and candidate staging together.

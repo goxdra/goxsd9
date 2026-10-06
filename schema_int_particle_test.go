@@ -297,3 +297,24 @@ func TestSchemaIntLocalParticleGatesAndConsumers(t *testing.T) {
 		})
 	}
 }
+
+func TestSchemaIntLocalInlineConsumerGates(t *testing.T) {
+	for _, profile := range intParticleProfiles() {
+		for _, model := range []string{"choice", "sequence"} {
+			t.Run(profile.name+"/"+model, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + string(profile.version) + `"><xs:complexType name="Record"><xs:` + model + `><xs:element name="value"><xs:simpleType><xs:restriction base="xs:int"/></xs:simpleType></xs:element></xs:` + model + `></xs:complexType></xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				d := requireDiagnostic(t, err)
+				wantLoc := complexContentTestLoc(t, root, `<xs:simpleType>`)
+				diagnosticVersion := profile.version
+				if profile.policy == Compatibility {
+					diagnosticVersion = XSDVersion11
+				}
+				if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != wantLoc || d.SpecRef() != schemaSyntaxSpecRefForVersion(diagnosticVersion) || len(d.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("%s inline int exclusion = %s, related %v; want %s", model, d, d.Related(), wantLoc)
+				}
+			})
+		}
+	}
+}

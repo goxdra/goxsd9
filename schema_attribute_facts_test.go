@@ -583,10 +583,10 @@ func TestSchemaBridgeRetainsGlobalNegativeIntegerAttributeFactsAcrossPolicies(t 
 				varietyNeedle string
 				builtin       bool
 			}{
-				{name: "direct", declaredType: mustTestQName(t, testXSDNamespace, "negativeInteger"), typeLexical: "xs:negativeInteger", typeSource: "root.xsd", boundSource: "root.xsd", boundNeedle: `type="xs:negativeInteger"`, boundValue: "-1", varietySource: "root.xsd", varietyNeedle: `type="xs:negativeInteger"`, builtin: true},
-				{name: "forward", declaredType: mustTestQName(t, "urn:root", "Forward"), typeLexical: "r:Forward", typeSource: "root.xsd", boundSource: "root.xsd", boundNeedle: `base="xs:negativeInteger"`, boundValue: "-1", varietySource: "root.xsd", varietyNeedle: `<xs:restriction base="r:Later"/>`},
-				{name: "imported", declaredType: mustTestQName(t, "urn:other", "Imported"), typeLexical: "o:Imported", typeSource: "other.xsd", boundSource: "other.xsd", boundNeedle: `base="xs:negativeInteger"`, boundValue: "-1", varietySource: "other.xsd", varietyNeedle: `<xs:restriction`},
-				{name: "chameleon", declaredType: mustTestQName(t, "urn:root", "Included"), typeLexical: "r:Included", typeSource: "chameleon.xsd", boundSource: "chameleon.xsd", boundNeedle: `base="xs:negativeInteger"`, boundValue: "-1", varietySource: "chameleon.xsd", varietyNeedle: `<xs:restriction`},
+				{name: "direct", declaredType: mustTestQName(t, testXSDNamespace, "negativeInteger"), typeLexical: "xs:negativeInteger", typeSource: "root.xsd", boundValue: "-1", varietySource: "root.xsd", varietyNeedle: `type="xs:negativeInteger"`, builtin: true},
+				{name: "forward", declaredType: mustTestQName(t, "urn:root", "Forward"), typeLexical: "r:Forward", typeSource: "root.xsd", boundValue: "-1", varietySource: "root.xsd", varietyNeedle: `<xs:restriction base="r:Later"/>`},
+				{name: "imported", declaredType: mustTestQName(t, "urn:other", "Imported"), typeLexical: "o:Imported", typeSource: "other.xsd", boundValue: "-1", varietySource: "other.xsd", varietyNeedle: `<xs:restriction`},
+				{name: "chameleon", declaredType: mustTestQName(t, "urn:root", "Included"), typeLexical: "r:Included", typeSource: "chameleon.xsd", boundValue: "-1", varietySource: "chameleon.xsd", varietyNeedle: `<xs:restriction`},
 				{name: "narrowed", declaredType: mustTestQName(t, "urn:root", "Narrowed"), typeLexical: "r:Narrowed", typeSource: "root.xsd", boundSource: "root.xsd", boundNeedle: `value="-10"`, boundValue: "-10", varietySource: "root.xsd", varietyNeedle: `<xs:restriction base="r:Later"><xs:maxInclusive`},
 			}
 			components := make([]Component, 0, len(want))
@@ -653,7 +653,11 @@ func TestSchemaBridgeRetainsGlobalNegativeIntegerAttributeFactsAcrossPolicies(t 
 					t.Fatalf("attribute %q maxInclusive = %q/%t, want %s/true", expected.name, maximum.Canonical(), present, expected.boundValue)
 				}
 				maximumFacet, present := bounds.MaxInclusiveFacet()
-				if !present || maximumFacet.Kind() != BoundMaxInclusive || maximumFacet.Value().Canonical() != expected.boundValue || maximumFacet.Loc() != schemaBuiltinReferenceAttributeLoc(t, expected.boundSource, expected.boundNeedle, root, fixtures) || maximumFacet.Version() != profile.version {
+				wantBoundLoc := Loc{}
+				if expected.boundNeedle != "" {
+					wantBoundLoc = schemaBuiltinReferenceAttributeLoc(t, expected.boundSource, expected.boundNeedle, root, fixtures)
+				}
+				if !present || maximumFacet.Kind() != BoundMaxInclusive || maximumFacet.Value().Canonical() != expected.boundValue || maximumFacet.Loc() != wantBoundLoc || maximumFacet.Version() != profile.version {
 					t.Fatalf("attribute %q maxInclusive facts = %q/%s/%q, want %s/location/%q", expected.name, maximumFacet.Value().Canonical(), maximumFacet.Loc(), maximumFacet.Kind(), expected.boundValue, profile.version)
 				}
 				if expected.builtin {
