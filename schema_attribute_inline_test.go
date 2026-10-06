@@ -139,29 +139,41 @@ func TestGlobalAttributeInlineIntegratedIntegerDerivatives(t *testing.T) {
 				if err != nil {
 					t.Fatalf("inline %s attribute: %v", test.name, err)
 				}
-				if len(schema.Components()) != 1 {
-					t.Fatalf("inline %s components = %d, want 1", test.name, len(schema.Components()))
-				}
-				declaration, ok := schema.Components()[0].AttributeDeclaration()
-				inline, hasInline := declaration.InlineSimpleType()
-				base, hasBase := inline.BaseReference()
-				bounds, hasBounds := inline.IntegerBounds()
-				if !ok || !hasInline || !hasBase || !hasBounds || !base.IsBuiltin() || base.Name() != mustTestQName(t, testXSDNamespace, test.name) || base.Loc() != elementReferenceTestAttributeLoc(t, root, `base="xs:`+test.name+`"`) {
-					t.Fatalf("inline %s facts = %#v/%#v/%#v", test.name, declaration, base, bounds)
-				}
-				if test.minimum {
-					minimum, hasMinimum := bounds.MinInclusive()
-					if !hasMinimum || minimum.Canonical() != test.bound || bounds.HasMaxInclusive() {
-						t.Fatalf("inline %s bounds = %#v", test.name, bounds)
-					}
-					return
-				}
-				maximum, hasMaximum := bounds.MaxInclusive()
-				if !hasMaximum || maximum.Canonical() != test.bound || bounds.HasMinInclusive() {
-					t.Fatalf("inline %s bounds = %#v", test.name, bounds)
-				}
+				bounds := globalAttributeInlineIntegerBounds(t, schema, root, test.name)
+				assertGlobalAttributeInlineIntegerBound(t, bounds, test.name, test.bound, test.minimum)
 			})
 		}
+	}
+}
+
+func globalAttributeInlineIntegerBounds(t *testing.T, schema Schema, root, name string) IntegerBoundFacets {
+	t.Helper()
+	components := schema.Components()
+	if len(components) != 1 {
+		t.Fatalf("inline %s components = %d, want 1", name, len(components))
+	}
+	declaration, ok := components[0].AttributeDeclaration()
+	inline, hasInline := declaration.InlineSimpleType()
+	base, hasBase := inline.BaseReference()
+	bounds, hasBounds := inline.IntegerBounds()
+	if !ok || !hasInline || !hasBase || !hasBounds || !base.IsBuiltin() || base.Name() != mustTestQName(t, testXSDNamespace, name) || base.Loc() != elementReferenceTestAttributeLoc(t, root, `base="xs:`+name+`"`) {
+		t.Fatalf("inline %s facts = %#v/%#v/%#v", name, declaration, base, bounds)
+	}
+	return bounds
+}
+
+func assertGlobalAttributeInlineIntegerBound(t *testing.T, bounds IntegerBoundFacets, name, bound string, minimum bool) {
+	t.Helper()
+	if minimum {
+		value, present := bounds.MinInclusive()
+		if !present || value.Canonical() != bound || bounds.HasMaxInclusive() {
+			t.Fatalf("inline %s bounds = %#v", name, bounds)
+		}
+		return
+	}
+	value, present := bounds.MaxInclusive()
+	if !present || value.Canonical() != bound || bounds.HasMinInclusive() {
+		t.Fatalf("inline %s bounds = %#v", name, bounds)
 	}
 }
 
@@ -264,17 +276,22 @@ func TestGlobalAttributeInlineMalformedChildrenAcrossPolicies(t *testing.T) {
 				if err == nil || schema.storage != nil {
 					t.Fatal("malformed inline child returned a schema or no error")
 				}
-				wantLoc := elementReferenceTestAttributeLoc(t, root, test.marker)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != wantLoc || len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != schemaSimpleTypeSpecRef(profile.version) || !errors.Is(err, errSchemaAttributeInlineTypeMalformed) {
-					t.Fatalf("malformed inline diagnostic = %s related %v, want invalid composition at %s with edition reference and cause", diagnostic, diagnostic.Related(), wantLoc)
-				}
-				var original Diagnostic
-				if !errors.As(diagnostic.Unwrap(), &original) || original.Code() != diagnostic.Code() || original.Loc() != wantLoc || original.Message() != diagnostic.Message() || original.SpecRef() != "" {
-					t.Fatalf("original located composition error was not preserved: %v", diagnostic.Unwrap())
-				}
+				assertGlobalAttributeInlineMalformedDiagnostic(t, err, root, test.marker, profile.version)
 			})
 		}
+	}
+}
+
+func assertGlobalAttributeInlineMalformedDiagnostic(t *testing.T, err error, root, marker string, version XSDVersion) {
+	t.Helper()
+	wantLoc := elementReferenceTestAttributeLoc(t, root, marker)
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != wantLoc || len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != schemaSimpleTypeSpecRef(version) || !errors.Is(err, errSchemaAttributeInlineTypeMalformed) {
+		t.Fatalf("malformed inline diagnostic = %s related %v, want invalid composition at %s with edition reference and cause", diagnostic, diagnostic.Related(), wantLoc)
+	}
+	var original Diagnostic
+	if !errors.As(diagnostic.Unwrap(), &original) || original.Code() != diagnostic.Code() || original.Loc() != wantLoc || original.Message() != diagnostic.Message() || original.SpecRef() != "" {
+		t.Fatalf("original located composition error was not preserved: %v", diagnostic.Unwrap())
 	}
 }
 
