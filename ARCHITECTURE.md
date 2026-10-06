@@ -24,7 +24,7 @@ Acyclic dependencies use stable topological order; slices order walks/output.
 ## Input and resolution
 
 Entrypoint: `ParseSchema(root ResolvedSource, resolver Resolver)`. Callers select
-graph policy; resolvers acquire sources under their resolution policy.
+graph policy; resolvers acquire sources.
 Streams close; identities decode once; repeats/cycles close.
 
 ```go
@@ -93,17 +93,17 @@ invalid values retain lexical/facet causes/related `Loc`s. Conflicts locate fixe
 unconstrained; global attribute consumers reject.
 
 Complexes retain abstract/final provenance, ordered groups/extensions, and
-wildcards. `xs:any` supports positive sets and XSD 1.1 strict/lax/skip
-`notNamespace`;
-chameleon markers expand. Consumers reject wildcards; `0/0` omits.
-`openContent=none` works except under Strict10; named groups retain refs/ranges.
-Inline complexes retain IDs outside walks. Global lists/unions, sequence links,
-and bounded local attributes retain ordered refs, facets, identities, locations.
-Local attribute lists need precisionDecimal; unions need precisionDecimal then
-negativeInteger; Strict10 rejects precisionDecimal. Element refs retain ranges.
-Strings validate beside bounded varieties; `normalizedString` supports replace
-whitespace/facets. Facet-free `QName` varieties/global refs retain context;
-QName locals/attributes/facets/values and consumers reject. Gated `0/0` omits.
+wildcards. `xs:any` admits positive sets, XSD 1.1 strict/lax/skip `notNamespace`,
+and chameleon adoption; `0/0` omits. Compatibility/Strict11 direct strict
+`xs:any` retains normalized `notQName` tokens, bindings, `Loc`, and sorted names.
+Inconsistent exclusions fail before omission; consumers/broader forms reject.
+`openContent=none` excludes Strict10; named groups retain refs/ranges.
+Inline complexes retain IDs outside walks. Lists/unions, sequences, and bounded
+attributes retain ordered facts. List attributes need precisionDecimal; unions
+also admit negativeInteger. Strict10 rejects precisionDecimal. Element refs retain
+ranges. Strings validate with bounded varieties; `normalizedString` supports
+replace whitespace/facets. Facet-free `QName` varieties/global refs retain
+context; QName locals/attributes/facets/values and consumers reject.
 
 ## Datatypes
 

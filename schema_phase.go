@@ -3800,7 +3800,7 @@ func validateWildcardNotNamespace(attribute syntaxAttribute) error {
 func validateWildcardNotQName(element *syntaxElement, attribute syntaxAttribute, allowDefinedSibling bool) error {
 	lexeme := collapseXMLWhitespace(attribute.value)
 	if lexeme == "" {
-		return newSchemaCompositionDiagnostic(attribute.loc, "attribute \"notQName\" has an invalid wildcard value")
+		return nil
 	}
 	for _, token := range strings.Split(lexeme, " ") {
 		if token == "##defined" || allowDefinedSibling && token == "##definedSibling" {
@@ -3811,11 +3811,17 @@ func validateWildcardNotQName(element *syntaxElement, attribute syntaxAttribute,
 		}
 		prefix, local, ok := splitConditionalQName(token)
 		if !ok || !validNCName(local) || prefix != "" && !validNCName(prefix) {
-			return newDiagnostic(FailureInvalid, invalidSchemaConditionalCode, attribute.loc, "attribute \"notQName\" has a malformed QName", nil)
+			return schemaInvalidWithSpecRef(
+				newDiagnostic(FailureInvalid, invalidSchemaConditionalCode, attribute.loc, "attribute \"notQName\" has a malformed QName", nil),
+				schemaWildcardQNameDatatypeXSD11SpecRef,
+			)
 		}
 		if prefix != "" {
 			if _, bound := element.scope.lookup(prefix); !bound {
-				return newDiagnostic(FailureInvalid, invalidSchemaConditionalCode, attribute.loc, "attribute \"notQName\" has an unbound QName prefix", nil)
+				return schemaInvalidWithSpecRef(
+					newDiagnostic(FailureInvalid, invalidSchemaConditionalCode, attribute.loc, "attribute \"notQName\" has an unbound QName prefix", nil),
+					schemaWildcardQNameDatatypeXSD11SpecRef,
+				)
 			}
 		}
 	}
@@ -5177,6 +5183,9 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 			}
 			if version != XSDVersion10 {
 				if allowDefault {
+					if isSupportedDirectAnyNotQName(element) {
+						continue
+					}
 					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard notQName constraints are not implemented", version))
 					continue
 				}
@@ -5213,6 +5222,32 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 		}
 	}
 	return candidate.err()
+}
+
+func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
+	if !isSupportedDirectAnyParticle(element) {
+		return false
+	}
+	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 {
+		return false
+	}
+	processContents := "strict"
+	if attributes := syntaxAttributesByLocal(element, "processContents"); len(attributes) == 1 {
+		processContents = collapseXMLWhitespace(attributes[0].value)
+	}
+	if processContents != "strict" {
+		return false
+	}
+	attributes := syntaxAttributesByLocal(element, "notQName")
+	if len(attributes) != 1 {
+		return false
+	}
+	for _, token := range strings.Split(collapseXMLWhitespace(attributes[0].value), " ") {
+		if token == "##defined" || token == "##definedSibling" {
+			return false
+		}
+	}
+	return true
 }
 
 //nolint:gocognit // Keep global group model grammar and candidate staging together.
