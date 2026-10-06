@@ -100,6 +100,17 @@ func TestRenewClaimPreservesRunIDAndAdvancesFixedRemoteRef(t *testing.T) {
 		executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 			command := name + " " + strings.Join(args, " ")
 			commands = append(commands, command)
+			var data []byte
+			if input != nil {
+				readData, err := io.ReadAll(input)
+				if err != nil {
+					return "", err
+				}
+				data = readData
+			}
+			if output, ok := fakeClaimMarkerGit(strings.TrimPrefix(command, "git "), data, oldHead, issue, "run-test", lease); ok {
+				return output, nil
+			}
 			switch command {
 			case "git rev-parse --show-toplevel":
 				return "/repo", nil
@@ -109,15 +120,9 @@ func TestRenewClaimPreservesRunIDAndAdvancesFixedRemoteRef(t *testing.T) {
 				return "", nil
 			case "git rev-parse HEAD", "git rev-parse origin/agent/issue-70":
 				return oldHead, nil
-			case "git log -100 --format=%B":
-				return claimMessage(issue, "run-test", lease), nil
 			case "git rev-parse HEAD^{tree}":
 				return "tree", nil
 			case "git commit-tree tree -p HEAD":
-				data, err := io.ReadAll(input)
-				if err != nil {
-					return "", err
-				}
 				commitMessage = string(data)
 				return newHead, nil
 			case "git update-ref refs/heads/agent/issue-70-run-test new-head old-head":

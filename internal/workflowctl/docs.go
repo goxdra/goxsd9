@@ -43,6 +43,7 @@ var documentRules = []documentRule{
 }
 
 func (a app) runDocs(args []string) error {
+	command, remaining := splitFirstArg(args)
 	if slices.Equal(args, []string{"check"}) {
 		root, err := a.root()
 		if err != nil {
@@ -50,14 +51,14 @@ func (a app) runDocs(args []string) error {
 		}
 		return a.checkDocs(root, true)
 	}
-	if len(args) == 0 || args[0] != "audit" {
+	if command != "audit" {
 		return usageError("usage: workflowctl docs check | docs audit --base REF [--format text|json]")
 	}
 	flags := flag.NewFlagSet("docs audit", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	base := flags.String("base", "", "Git base reference")
 	format := flags.String("format", "text", "output format: text or json")
-	if err := flags.Parse(args[1:]); err != nil {
+	if err := flags.Parse(remaining); err != nil {
 		return usageError("docs audit: %v", err)
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*base) == "" || (*format != "text" && *format != "json") {
