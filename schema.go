@@ -582,6 +582,15 @@ func (declaration ElementDeclaration) TypeReference() (SimpleTypeReference, bool
 	return SimpleTypeReference{facts: &declaration.facts.typeReference}, true
 }
 
+// ComplexTypeReference returns the resolved named complex-type reference used
+// by the declaration, when it has one.
+func (declaration ElementDeclaration) ComplexTypeReference() (ComplexTypeReference, bool) {
+	if declaration.facts == nil || !declaration.facts.hasComplexTypeReference {
+		return ComplexTypeReference{}, false
+	}
+	return ComplexTypeReference{facts: &declaration.facts.complexTypeReference}, true
+}
+
 // InlineSimpleType returns the anonymous simple type declared inside the
 // element, when it has one.
 func (declaration ElementDeclaration) InlineSimpleType() (SimpleTypeDefinition, bool) {
@@ -2419,6 +2428,8 @@ type schemaElementComponent struct {
 	hasTypeID               bool
 	typeReference           schemaSimpleTypeReferenceComponent
 	hasTypeReference        bool
+	complexTypeReference    schemaComplexTypeReferenceComponent
+	hasComplexTypeReference bool
 	abstract                bool
 	nillable                bool
 	disallowedSubstitutions schemaBlockPolicy
@@ -2885,12 +2896,17 @@ func completeSchemaComponent(
 		loc:  record.loc,
 	}
 	if element.present {
+		if element.hasTypeReference && element.hasComplexTypeReference {
+			return Component{}, newSchemaBridgeInvariant(record.loc, "element type result has mutually exclusive simple and complex references")
+		}
 		component.element = &schemaElementComponent{
 			declaredType:            element.declaredType,
 			typeID:                  element.typeID,
 			hasTypeID:               element.hasTypeID,
 			typeReference:           element.typeReference,
 			hasTypeReference:        element.hasTypeReference,
+			complexTypeReference:    element.complexTypeReference,
+			hasComplexTypeReference: element.hasComplexTypeReference,
 			abstract:                element.abstract,
 			nillable:                element.nillable,
 			disallowedSubstitutions: element.block,
