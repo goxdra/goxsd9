@@ -231,6 +231,309 @@ func TestSchemaBridgePreservesGlobalElementFactsAcrossForwardAndCrossDocumentTyp
 	}
 }
 
+//nolint:gocognit,funlen // Keep graph provenance and the policy matrix together.
+func TestSchemaBridgeExposesGlobalElementComplexTypeReferences(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10, version: "1.0"},
+		{name: "Strict11", policy: Strict11, version: "1.1"},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			version := ""
+			if profile.version != "" {
+				version = ` version="` + profile.version + `"`
+			}
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" xmlns:o="urn:other" targetNamespace="urn:root"` + version + `>
+  <xs:include schemaLocation="included.xsd"/>
+  <xs:include schemaLocation="chameleon.xsd"/>
+  <xs:import namespace="urn:other" schemaLocation="imported.xsd"/>
+  <xs:element name="forward" type="r:Forward"/>
+  <xs:element name="included" type="r:Included"/>
+  <xs:element name="imported" type="o:Imported"/>
+  <xs:element name="chameleon" type="r:Chameleon"/>
+  <xs:complexType name="Forward"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:complexType>
+</xs:schema>`
+			fixtures := map[string]discoveryFixture{
+				"included.xsd": {
+					id: "included.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root">
+  <xs:complexType name="Included"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:complexType>
+</xs:schema>`,
+				},
+				"chameleon.xsd": {
+					id: "chameleon.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
+  <xs:complexType name="Chameleon"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:complexType>
+</xs:schema>`,
+				},
+				"imported.xsd": {
+					id: "imported.xsd",
+					contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other">
+  <xs:complexType name="Imported"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:complexType>
+</xs:schema>`,
+				},
+			}
+			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+			cases := []struct {
+				name      string
+				declared  QName
+				target    QName
+				targetSrc SourceID
+				typeLine  int
+			}{
+				{name: "forward", declared: mustTestQName(t, "urn:root", "Forward"), target: mustTestQName(t, "urn:root", "Forward"), targetSrc: "root.xsd", typeLine: 5},
+				{name: "included", declared: mustTestQName(t, "urn:root", "Included"), target: mustTestQName(t, "urn:root", "Included"), targetSrc: "included.xsd", typeLine: 6},
+				{name: "imported", declared: mustTestQName(t, "urn:other", "Imported"), target: mustTestQName(t, "urn:other", "Imported"), targetSrc: "imported.xsd", typeLine: 7},
+				{name: "chameleon", declared: mustTestQName(t, "urn:root", "Chameleon"), target: mustTestQName(t, "urn:root", "Chameleon"), targetSrc: "chameleon.xsd", typeLine: 8},
+			}
+			for _, test := range cases {
+				components := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:root", test.name))
+				if len(components) != 1 {
+					t.Fatalf("%s element count = %d, want 1", test.name, len(components))
+				}
+				declaration, ok := components[0].ElementDeclaration()
+				if !ok {
+					t.Fatalf("%s element view is missing", test.name)
+				}
+				if declaration.DeclaredType() != test.declared {
+					t.Fatalf("%s declared type = %q, want %q", test.name, declaration.DeclaredType(), test.declared)
+				}
+				if simple, simpleOK := declaration.TypeReference(); simpleOK || simple.Kind() != "" {
+					t.Fatalf("%s simple reference = %#v/%t, want absent", test.name, simple, simpleOK)
+				}
+				reference, referenceOK := declaration.ComplexTypeReference()
+				if !referenceOK || !reference.IsNamed() || reference.IsBuiltin() {
+					t.Fatalf("%s complex reference = %#v/%t, want named", test.name, reference, referenceOK)
+				}
+				if reference.Name() != test.declared || reference.QName() != test.declared {
+					t.Fatalf("%s reference name = %q/%q, want %q", test.name, reference.Name(), reference.QName(), test.declared)
+				}
+				wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, test.typeLine, "type")
+				if reference.Loc() != wantLoc {
+					t.Fatalf("%s reference location = %s, want %s", test.name, reference.Loc(), wantLoc)
+				}
+				targets := schema.FindKind(ComponentKindComplexTypeDefinition, test.target)
+				if len(targets) != 1 || targets[0].ID().Source() != test.targetSrc {
+					t.Fatalf("%s target = %#v, want one target from %q", test.name, targets, test.targetSrc)
+				}
+				declarationTypeID, declarationTypeIDOK := declaration.TypeID()
+				if !declarationTypeIDOK || declarationTypeID != targets[0].ID() {
+					t.Fatalf("%s TypeID = %v/%t, want %v/true", test.name, declarationTypeID, declarationTypeIDOK, targets[0].ID())
+				}
+				if referenceID, referenceIDOK := reference.ComponentID(); !referenceIDOK || referenceID != declarationTypeID || referenceID != targets[0].ID() {
+					t.Fatalf("%s reference ComponentID = %v/%t, want TypeID and target ID %v", test.name, referenceID, referenceIDOK, targets[0].ID())
+				}
+			}
+
+			var firstWalk []ComponentID
+			for iteration := 0; iteration < 3; iteration++ {
+				var walk []ComponentID
+				if err := schema.Walk(func(component Component) error {
+					walk = append(walk, component.ID())
+					return nil
+				}); err != nil {
+					t.Fatalf("Walk iteration %d: %v", iteration, err)
+				}
+				if iteration == 0 {
+					firstWalk = walk
+					continue
+				}
+				if !reflect.DeepEqual(walk, firstWalk) {
+					t.Fatalf("Walk iteration %d = %v, want %v", iteration, walk, firstWalk)
+				}
+			}
+			returned := schema.Components()
+			returned[0] = Component{}
+			if len(schema.Components()) == 0 {
+				t.Fatal("mutating returned components removed schema components")
+			}
+			forward := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:root", "forward"))
+			if len(forward) != 1 {
+				t.Fatal("repeated forward lookup changed after returned-slice mutation")
+			}
+			reference, ok := forward[0].ElementDeclaration()
+			if !ok {
+				t.Fatal("repeated forward element view is missing")
+			}
+			if got, ok := reference.ComplexTypeReference(); !ok || got.Name() != mustTestQName(t, "urn:root", "Forward") || got.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 5, "type") {
+				t.Fatalf("repeated forward complex reference = %#v/%t, want unchanged facts", got, ok)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Keep typed, inline, untyped, and zero-value exclusivity together.
+func TestSchemaBridgeKeepsGlobalElementTypeReferencesMutuallyExclusive(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version string
+	}{
+		{name: "Compatibility", policy: Compatibility},
+		{name: "Strict10", policy: Strict10, version: "1.0"},
+		{name: "Strict11", policy: Strict11, version: "1.1"},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			version := ""
+			if profile.version != "" {
+				version = ` version="` + profile.version + `"`
+			}
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"` + version + `>
+  <xs:element name="builtin" type="xs:integer"/>
+  <xs:element name="namedSimple" type="r:Simple"/>
+  <xs:element name="inlineSimple"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>
+  <xs:element name="inlineComplex"><xs:complexType><xs:sequence/></xs:complexType></xs:element>
+  <xs:element name="untyped"/>
+  <xs:simpleType name="Simple"><xs:restriction base="xs:integer"/></xs:simpleType>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err != nil {
+				t.Fatalf("discoverSchema: %v", err)
+			}
+			for _, name := range []string{"builtin", "namedSimple", "inlineSimple"} {
+				components := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:root", name))
+				if len(components) != 1 {
+					t.Fatalf("%s element count = %d, want 1", name, len(components))
+				}
+				declaration, ok := components[0].ElementDeclaration()
+				if !ok {
+					t.Fatalf("%s element view is missing", name)
+				}
+				simple, simpleOK := declaration.TypeReference()
+				complexReference, complexOK := declaration.ComplexTypeReference()
+				if !simpleOK || complexOK {
+					t.Fatalf("%s references = simple %#v/%t, complex %#v/%t, want simple-only", name, simple, simpleOK, complexReference, complexOK)
+				}
+			}
+			inlineComplex := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:root", "inlineComplex"))
+			if len(inlineComplex) != 1 {
+				t.Fatalf("inlineComplex element count = %d, want 1", len(inlineComplex))
+			}
+			inlineComplexDeclaration, ok := inlineComplex[0].ElementDeclaration()
+			if !ok {
+				t.Fatal("inlineComplex element view is missing")
+			}
+			if _, ok := inlineComplexDeclaration.ComplexTypeReference(); ok {
+				t.Fatal("inline complex element fabricated a named complex reference")
+			}
+			if _, ok := inlineComplexDeclaration.InlineComplexType(); !ok {
+				t.Fatal("inline complex element lost its anonymous complex type")
+			}
+			if typeID, ok := inlineComplexDeclaration.TypeID(); ok || !typeID.IsZero() {
+				t.Fatalf("inline complex element TypeID = %v/%t, want zero,false", typeID, ok)
+			}
+			untyped := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:root", "untyped"))
+			if len(untyped) != 1 {
+				t.Fatalf("untyped element count = %d, want 1", len(untyped))
+			}
+			if _, ok := untyped[0].ElementDeclaration(); ok {
+				t.Fatal("untyped global element unexpectedly has a completed declaration view")
+			}
+			var zero ElementDeclaration
+			if reference, ok := zero.ComplexTypeReference(); ok || reference.Kind() != "" || !reference.Name().IsZero() || !reference.Loc().IsZero() {
+				t.Fatalf("zero declaration complex reference = %#v/%t, want zero,false", reference, ok)
+			}
+		})
+	}
+}
+
+func TestSchemaBridgeRejectsGlobalElementAnyTypeReference(t *testing.T) {
+	profiles := []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "Compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "Strict10", policy: Strict10, version: XSDVersion10},
+		{name: "Strict11", policy: Strict11, version: XSDVersion11},
+	}
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + string(profile.version) + `">
+  <xs:element name="item" type="xs:anyType"/>
+</xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			assertUnsupportedGlobalElementAnyType(t, schema, err, root, profile.version)
+		})
+	}
+}
+
+func assertUnsupportedGlobalElementAnyType(t *testing.T, schema Schema, err error, root string, version XSDVersion) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("discoverSchema accepted unsupported global xs:anyType")
+	}
+	if schema.storage != nil || len(schema.Components()) != 0 {
+		t.Fatal("discoverSchema returned a partial schema for unsupported global xs:anyType")
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("global xs:anyType diagnostic does not match ErrUnsupported: %v", err)
+	}
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+		t.Fatalf("global xs:anyType diagnostic = %s/%q/%q, want schema syntax unsupported", diagnostic, diagnostic.Class(), diagnostic.Feature())
+	}
+	wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, 2, `type="xs:anyType"`)
+	if diagnostic.Loc() != wantLoc {
+		t.Fatalf("global xs:anyType diagnostic location = %s, want %s", diagnostic.Loc(), wantLoc)
+	}
+	if diagnostic.SpecRef() != schemaSyntaxSpecRefForVersion(version) {
+		t.Fatalf("global xs:anyType diagnostic spec ref = %q, want %q", diagnostic.SpecRef(), schemaSyntaxSpecRefForVersion(version))
+	}
+}
+
+func TestSchemaBridgeLeavesLocalAndReferencedElementParticlesUnchangedByComplexFacts(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root">
+  <xs:complexType name="Container"><xs:sequence><xs:element name="local" type="xs:integer"/><xs:element ref="r:global"/></xs:sequence></xs:complexType>
+  <xs:complexType name="Record"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:complexType>
+  <xs:element name="global" type="r:Record"/>
+</xs:schema>`
+	schema, err := discoverTestSchema(t, root, nil)
+	if err != nil {
+		t.Fatalf("discoverSchema: %v", err)
+	}
+	container := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:root", "Container"))
+	if len(container) != 1 {
+		t.Fatalf("Container count = %d, want 1", len(container))
+	}
+	definition, ok := container[0].ComplexTypeDefinition()
+	if !ok {
+		t.Fatal("Container complex type view is missing")
+	}
+	sequence, ok := definition.Particle().(SequenceParticle)
+	particles := sequence.Particles()
+	if !ok || len(particles) != 2 {
+		t.Fatalf("Container particle = %T with %d particles, want two-element sequence", definition.Particle(), len(particles))
+	}
+	local, ok := particles[0].(ElementParticle)
+	if !ok {
+		t.Fatalf("local particle = %T, want ElementParticle", particles[0])
+	}
+	if reference, referenceOK := local.TypeReference(); !referenceOK || !reference.IsBuiltin() {
+		t.Fatalf("local simple reference = %#v/%t, want built-in reference", reference, referenceOK)
+	}
+	ref, ok := particles[1].(ElementReferenceParticle)
+	if !ok {
+		t.Fatalf("referenced particle = %T, want ElementReferenceParticle", particles[1])
+	}
+	global := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:root", "global"))
+	if len(global) != 1 {
+		t.Fatalf("global element count = %d, want 1", len(global))
+	}
+	if ref.TargetID() != global[0].ID() {
+		t.Fatalf("referenced particle target ID = %v, want global element ID %v", ref.TargetID(), global[0].ID())
+	}
+}
+
 //nolint:gocognit,funlen // Keep global string identity, order, and facet facts together.
 func TestSchemaBridgeBuildsGlobalStringElementsAcrossSupportedGraphs(t *testing.T) {
 	for _, policy := range []struct {

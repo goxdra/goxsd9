@@ -263,9 +263,16 @@
 // sequences and in precisionDecimal-only direct sequences. Generation rejects
 // both. Bounded inline list/union roots
 // validate under admitting policies and remain generation exclusions.
-// Global inline complex types expose stable anonymous ComplexTypeID nodes,
-// exact ordered sequence/reference particles, and attribute uses without
-// entering the global component walk. Named or inline global precisionDecimal
+// Only supported explicit named complex types on global elements expose
+// ElementDeclaration.ComplexTypeReference: the expanded QName from the written
+// type, its type-attribute Loc, and target ComponentID equal to TypeID. Simple
+// and complex references are exclusive. Anonymous inline complex types retain
+// separate immutable ComplexTypeDefinition facts, stable ComplexTypeID nodes, and
+// exact ordered sequence/reference particles and attribute uses outside the global
+// component walk; they have no named reference. Built-in xs:anyType and unsupported
+// or empty named complex targets remain unsupported at the type location with no
+// Schema; ValidateInstance and GenerateGo do not consume this query fact. Named or
+// inline global precisionDecimal
 // list/union elements and direct-sequence local/ref links retain immutable
 // variety, ordered item/member facts, locations, and identities. Global inline
 // anonymous precisionDecimal atomic declarations retain query facts and identities.

@@ -4942,16 +4942,18 @@ func appendSchemaRelatedLocation(related []Loc, candidate, primary Loc) []Loc {
 }
 
 type schemaElementTypeResult struct {
-	present           bool
-	declaredType      QName
-	typeID            ComponentID
-	hasTypeID         bool
-	typeReference     schemaSimpleTypeReferenceComponent
-	hasTypeReference  bool
-	abstract          bool
-	nillable          bool
-	block             schemaBlockPolicy
-	substitutionGroup []schemaElementSubstitutionGroup
+	present                 bool
+	declaredType            QName
+	typeID                  ComponentID
+	hasTypeID               bool
+	typeReference           schemaSimpleTypeReferenceComponent
+	hasTypeReference        bool
+	complexTypeReference    schemaComplexTypeReferenceComponent
+	hasComplexTypeReference bool
+	abstract                bool
+	nillable                bool
+	block                   schemaBlockPolicy
+	substitutionGroup       []schemaElementSubstitutionGroup
 }
 
 func resolvedSchemaElementTypeResult(input *schemaElementInput, typeID ComponentID, hasTypeID bool) schemaElementTypeResult {
@@ -4975,6 +4977,22 @@ func resolvedSchemaElementTypeResultWithReference(
 	result := resolvedSchemaElementTypeResult(input, typeID, hasTypeID)
 	result.typeReference = reference
 	result.hasTypeReference = true
+	return result
+}
+
+func resolvedSchemaElementTypeResultWithComplexReference(
+	input *schemaElementInput,
+	typeID ComponentID,
+) schemaElementTypeResult {
+	result := resolvedSchemaElementTypeResult(input, typeID, true)
+	result.complexTypeReference = schemaComplexTypeReferenceComponent{
+		kind:  ComplexTypeReferenceNamed,
+		name:  input.declaredType,
+		loc:   input.typeLoc,
+		id:    typeID,
+		hasID: true,
+	}
+	result.hasComplexTypeReference = true
 	return result
 }
 
@@ -5718,7 +5736,7 @@ func resolveSchemaElementType(
 				version,
 			)
 		}
-		return resolvedSchemaElementTypeResult(input, records[candidate].id, true), nil
+		return resolvedSchemaElementTypeResultWithComplexReference(input, records[candidate].id), nil
 	}
 	if !simpleTypes.results[candidate].present {
 		return schemaElementTypeResult{}, newSchemaBridgeInvariant(

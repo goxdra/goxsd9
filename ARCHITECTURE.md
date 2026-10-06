@@ -51,11 +51,12 @@ return. Unsupported features have stable report IDs.
 
 ## Schema model
 
-Immutable components; ordered walks; scoped particles. Global elements retain
-ordered identity constraints, XPath, namespace scopes, locations, and resolved
-keyref targets. IDs/duplicates precede refer resolution; unresolved/invisible/
-ambiguous targets yield `FailureResolution` at `refer`, wrong-kind/field-count
-yield `FailureInvalid`. Publication is atomic.
+Immutable components; ordered walks; scoped particles. Global elements retain ordered
+identity constraints, XPath, namespace scopes/locations, resolved keyref targets, plus
+immutable named references: expanded QName, type-use `Loc`, target `ComponentID`=`TypeID`;
+simple/complex references exclusive; inline types separate. IDs/duplicates precede `refer`;
+unresolved/invisible/ambiguous targets yield `FailureResolution` at `refer`,
+wrong-kind/field-count `FailureInvalid`. Atomic publication; `ValidateInstance`/`GenerateGo` remain bounded.
 
 `DeclaredType` is primitive. Bounded attribute-free complexContent extensions
 over named empty bases and restrictions over `xs:anyType` retain refs, base
@@ -99,12 +100,12 @@ and chameleon adoption; `0/0` omits. Compatibility/Strict11 direct strict
 Inconsistent exclusions fail before omission; consumers/broader forms reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline complexes retain IDs outside walks; precisionDecimal ordered sequences
-validate. Lists, unions, sequences, and attributes retain ordered facts.
-Attribute lists need precisionDecimal; unions also admit negativeInteger;
+validate. Lists, unions, sequences, attributes retain ordered facts.
+Attribute lists need precisionDecimal; unions admit negativeInteger;
 Strict10 rejects precisionDecimal. Element refs retain ranges. Strings validate
 with bounded varieties; `normalizedString` replaces whitespace and checks facets.
 Facet-free `QName` varieties/global refs retain context; QName locals/attributes/
-facets/values and consumers reject.
+facets/values/consumers reject.
 
 ## Datatypes
 

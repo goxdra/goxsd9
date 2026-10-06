@@ -655,6 +655,15 @@ func (declaration ElementDeclaration) TypeReference() (SimpleTypeReference, bool
 	return SimpleTypeReference{facts: &declaration.facts.typeReference}, true
 }
 
+// ComplexTypeReference returns the resolved named complex-type reference used
+// by the declaration, when it has one.
+func (declaration ElementDeclaration) ComplexTypeReference() (ComplexTypeReference, bool) {
+	if declaration.facts == nil || !declaration.facts.hasComplexTypeReference {
+		return ComplexTypeReference{}, false
+	}
+	return ComplexTypeReference{facts: &declaration.facts.complexTypeReference}, true
+}
+
 // InlineSimpleType returns the anonymous simple type declared inside the
 // element, when it has one.
 func (declaration ElementDeclaration) InlineSimpleType() (SimpleTypeDefinition, bool) {
@@ -3038,6 +3047,8 @@ type schemaElementComponent struct {
 	hasTypeID               bool
 	typeReference           schemaSimpleTypeReferenceComponent
 	hasTypeReference        bool
+	complexTypeReference    schemaComplexTypeReferenceComponent
+	hasComplexTypeReference bool
 	inlineComplexType       *schemaComplexTypeComponent
 	abstract                bool
 	nillable                bool
@@ -3685,12 +3696,17 @@ func completeSchemaComponent(
 		if err != nil {
 			return Component{}, err
 		}
+		if err := validateSchemaElementTypeReferences(record.loc, element); err != nil {
+			return Component{}, err
+		}
 		component.element = &schemaElementComponent{
 			declaredType:            element.declaredType,
 			typeID:                  element.typeID,
 			hasTypeID:               element.hasTypeID,
 			typeReference:           element.typeReference,
 			hasTypeReference:        element.hasTypeReference,
+			complexTypeReference:    element.complexTypeReference,
+			hasComplexTypeReference: element.hasComplexTypeReference,
 			inlineComplexType:       inlineComplexType,
 			abstract:                element.abstract,
 			nillable:                element.nillable,
@@ -3757,6 +3773,20 @@ func completeSchemaComponent(
 		component.modelGroup = &schemaModelGroupComponent{particle: modelGroup.particle}
 	}
 	return component, nil
+}
+
+func validateSchemaElementTypeReferences(loc Loc, element schemaElementTypeResult) error {
+	if element.hasTypeReference && element.hasComplexTypeReference {
+		return newSchemaBridgeInvariant(loc, "element type result has mutually exclusive simple and complex references")
+	}
+	if !element.hasComplexTypeReference {
+		return nil
+	}
+	reference := element.complexTypeReference
+	if reference.kind != ComplexTypeReferenceNamed || !reference.hasID || reference.id.IsZero() || !element.hasTypeID || element.typeID.IsZero() || reference.id != element.typeID {
+		return newSchemaBridgeInvariant(loc, "element complex type reference has an invalid target identity")
+	}
+	return nil
 }
 
 func completeSchemaInlineComplexType(input *schemaElementInput, result schemaComplexTypeResult) (*schemaComplexTypeComponent, error) {

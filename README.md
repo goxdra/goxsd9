@@ -5,12 +5,13 @@ and Go generation. Unsupported features return located diagnostics and no partia
 
 ## Library
 
-Create a root with `NewResolvedSource` and call `ParseSchema` with a
+Create root with `NewResolvedSource`; call `ParseSchema` with
 caller-supplied `Resolver` for includes/imports. It receives namespace URNs and
-lexical schema locations; the library opens no paths or URLs. `ParseSchema`
-defaults to Compatibility for mixed XSD 1.0/1.1 graphs;
-`ParseSchemaWithPolicy` selects graph-wide policy. Queries and walks are
-immutable and deterministic. Global elements retain ordered `xs:unique`,
+lexical schema locations; library opens no paths or URLs. `ParseSchema` defaults
+to Compatibility for mixed XSD 1.0/1.1 graphs; `ParseSchemaWithPolicy` selects
+graph-wide policy. Schema queries and walks are immutable, deterministic.
+Global-element `ComplexTypeReference` queries expose supported explicit named
+targets; inline types stay anonymous. Global elements retain ordered `xs:unique`,
 `xs:key`, and `xs:keyref` facts with XPath, namespaces, and resolved targets;
 validation and generation reject them pending identity semantics.
 
@@ -26,10 +27,10 @@ leave no effective uses.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
 and [decision 0007](docs/decisions/0007-particle-occurrence.md) for details.
 
-Direct choices, sequences, and bounded attribute-free extensions admit
+Direct choices, sequences, bounded attribute-free extensions admit
 built-in/named long locals for queries; valid inline `0/0` omits, nonzero rejects.
 `GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
-default integer/decimal sequence refs; other targets or occurrences reject.
+default integer/decimal sequence refs; other targets/occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named integer/decimal/
 Boolean, built-in string, effective token/NMTOKEN, negativeInteger/
 nonNegativeInteger, and refs with exact bounds; consumers reject it.
@@ -45,12 +46,10 @@ go run ./cmd/goxsd9 validate schema.xsd instance.xml
 go run ./cmd/goxsd9 generate --package generated schema.xsd
 ```
 
-`parse` prints a schema summary, successful `validate` is silent, and
-`generate` writes Go to standard output unless `--output` names a file. Use
-`--schema-root DIR` to set the local resolution boundary; it is required when
-reading a schema from standard input. `--diagnostics json` selects
-machine-readable errors; input/processing failures exit 1 and usage failures
-exit 2.
+`parse` prints a summary; successful `validate` is silent; `generate` writes
+Go to stdout unless `--output` names a file. `--schema-root DIR` sets the local
+resolution boundary and is required for schema stdin. `--diagnostics json` selects
+machine-readable errors; input/processing failures exit 1, usage failures exit 2.
 
 ## Development
 
