@@ -29,6 +29,8 @@ type resumeProof struct {
 	runLocalPresent bool
 	already         bool
 	pending         bool
+	renewalExpired  bool
+	priorIntegrated bool
 	needsHuman      bool
 	projectStatus   string
 }
@@ -195,23 +197,24 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	}
 	already := remote != expectedHead
 	pending := true
+	renewalExpired := false
+	priorIntegrated := false
 	if already {
-		if renewalErr := a.validateExistingResumeCommit(root, remote, expectedHead, issue, runID); renewalErr != nil {
-			return resumeProof{}, renewalErr
+		renewal, renewalErr := a.readPRResumeRenewalChain(root, remote, expectedHead, issue, runID)
+		if renewalErr != nil {
+			return resumeProof{}, retryableOperationIfRecoverable("resume canonical renewal proof", renewalErr)
 		}
+		renewalExpired = !renewal.lease.After(time.Now().UTC())
 		if view.HeadRefOID != remote {
 			return resumeProof{}, stateError("PR #%d head %s does not match renewed remote head %s", pr, view.HeadRefOID, remote)
 		}
-		integrated, ancestryErr := a.resumeMarkerInLocalAncestry(root, remote, local)
-		if ancestryErr != nil {
-			return resumeProof{}, ancestryErr
+		integrated, prior, integrationErr := a.claimRenewalIntegrationState(root, local, remote, issue)
+		if integrationErr != nil {
+			return resumeProof{}, integrationErr
 		}
 		pending = !integrated
+		priorIntegrated = prior
 		if pending {
-			renewal, renewalErr := a.readCanonicalClaimCommit(root, remote, issue, runID, expectedHead)
-			if renewalErr != nil {
-				return resumeProof{}, fmt.Errorf("read renewed claim lease before local integration: %w", renewalErr)
-			}
 			if localClaim.lease.After(renewal.lease) {
 				return resumeProof{}, stateError("local claim lease %s exceeds remote renewal lease %s; preserve claim artifacts before integration",
 					localClaim.lease.Format(time.RFC3339), renewal.lease.Format(time.RFC3339))
@@ -226,7 +229,7 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 			return resumeProof{}, fmt.Errorf("verify integrated claim worktree: %w", operationErr)
 		}
 	}
-	if pending && !issueNeedsHuman(status) {
+	if pending && !issueNeedsHuman(status) && !priorIntegrated {
 		return resumeProof{}, stateError("issue #%d must be labeled needs-human before stale PR recovery", issue)
 	}
 	items, err := a.projectItems(root)
@@ -237,7 +240,7 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	if err != nil {
 		return resumeProof{}, err
 	}
-	if pending && item.Status != "Backlog" {
+	if pending && item.Status != "Backlog" && !priorIntegrated {
 		return resumeProof{}, stateError("issue #%d Project status %q must be Backlog while PR renewal is pending", issue, item.Status)
 	}
 	protectedHeads := resumeProtectedHeads(expectedHead, remote)
@@ -249,7 +252,7 @@ func (a app) readPullRequestResumeProof(pr int, expectedHead string) (resumeProo
 	}
 	proof := resumeProof{root: root, localBranch: localBranch, issue: issue, pr: pr, expectedHead: expectedHead,
 		observedHead: remote, renewalHead: local, localHead: local, runID: runID, runLocalHead: runLocal.sha, runLocalPresent: runLocal.present,
-		already: already, pending: pending,
+		already: already, pending: pending, renewalExpired: renewalExpired, priorIntegrated: priorIntegrated,
 		needsHuman: issueNeedsHuman(status), projectStatus: item.Status}
 	if already {
 		proof.renewalHead = remote
@@ -683,6 +686,36 @@ func (a app) validateExistingResumeCommit(root, head, expected string, issue int
 	return nil
 }
 
+// readPRResumeRenewalChain keeps the original expired head as the anchor for
+// every remote-only retry. Each link is a canonical empty same-run commit.
+func (a app) readPRResumeRenewalChain(root, head, expected string, issue int, runID string) (canonicalClaimCommit, error) {
+	current := head
+	latest := canonicalClaimCommit{}
+	newer := canonicalClaimCommit{}
+	for current != expected {
+		marker, err := a.readCanonicalClaimIdentity(root, current, "")
+		if err != nil {
+			return canonicalClaimCommit{}, fmt.Errorf("prove PR renewal chain at %s: %w", current, err)
+		}
+		if marker.issue != issue || marker.runID != runID {
+			return canonicalClaimCommit{}, stateError("PR renewal marker %s binds issue #%d run %s, not issue #%d run %s; preserve claim artifacts",
+				current, marker.issue, marker.runID, issue, runID)
+		}
+		if newer.head != "" && newer.lease.Before(marker.lease) {
+			return canonicalClaimCommit{}, stateError("PR renewal chain lease regresses at %s; preserve claim artifacts", newer.head)
+		}
+		if latest.head == "" {
+			latest = marker
+		}
+		newer = marker
+		current = marker.parent
+	}
+	if latest.head == "" {
+		return canonicalClaimCommit{}, stateError("PR renewal head %s has no canonical marker after original head %s", head, expected)
+	}
+	return latest, nil
+}
+
 func (a app) applyPullRequestResume(proof resumeProof) error {
 	// This is the final read-only proof. No ref or GitHub mutation may precede it.
 	fresh, readErr := a.readPullRequestResumeProof(proof.pr, proof.expectedHead)
@@ -694,7 +727,7 @@ func (a app) applyPullRequestResume(proof resumeProof) error {
 		proofErr = retryableOperationIfRecoverable("PR resume proof comparison", proofErr)
 		return fmt.Errorf("PR #%d resume proof changed after preflight; no mutation performed: %w", proof.pr, proofErr)
 	}
-	if !fresh.already {
+	if !fresh.already || fresh.renewalExpired {
 		var mutationErr error
 		fresh, mutationErr = a.mutatePullRequestResume(proof, fresh)
 		if mutationErr != nil {
@@ -712,7 +745,7 @@ func (a app) applyPullRequestResume(proof resumeProof) error {
 	if !fresh.pending {
 		return writeLine(a.stdout, "PR #%d local renewal marker is integrated for issue #%d; status reconciliation pending; rerun with --integrate and original expected head", fresh.pr, fresh.issue)
 	}
-	return writeLine(a.stdout, "PR #%d remote claim renewed for issue #%d; local integration pending; needs-human and Project status preserved", fresh.pr, fresh.issue)
+	return writeLine(a.stdout, "PR #%d remote claim renewed for issue #%d; local integration pending; issue and Project status preserved", fresh.pr, fresh.issue)
 }
 
 func (a app) integratePullRequestResume(proof resumeProof) error {
@@ -726,7 +759,7 @@ func (a app) integratePullRequestResume(proof resumeProof) error {
 	if worktreeErr := a.prepareResumeLocalIntegration(fresh); worktreeErr != nil {
 		return worktreeErr
 	}
-	integrated, err := a.resumeMarkerInLocalAncestry(fresh.root, fresh.renewalHead, fresh.localHead)
+	integrated, _, err := a.claimRenewalIntegrationState(fresh.root, fresh.localHead, fresh.renewalHead, fresh.issue)
 	if err != nil {
 		return err
 	}
@@ -745,6 +778,9 @@ func (a app) prepareResumeLocalIntegration(proof resumeProof) error {
 	if !proof.already {
 		return stateError("PR #%d has no remote renewal marker to integrate; run pr resume without --integrate first", proof.pr)
 	}
+	if proof.renewalExpired {
+		return stateError("PR #%d remote renewal expired; run pr resume without --integrate using original expected head before local integration", proof.pr)
+	}
 	return a.validateResumeIntegrationWorktree(proof.root)
 }
 
@@ -760,24 +796,17 @@ func (a app) advanceResumeLocalIntegration(proof resumeProof) error {
 	if err != nil {
 		return fmt.Errorf("create local renewal integration: %w", err)
 	}
+	adopted, err := a.readAuthoritativeClaimMarker(proof.root, commit, proof.issue)
+	if err != nil {
+		return fmt.Errorf("prove local renewal integration before ref update: %w", err)
+	}
+	if adopted.head != proof.renewalHead {
+		return stateError("local integration %s adopts claim %s, expected %s; no ref mutation performed", commit, adopted.head, proof.renewalHead)
+	}
 	if _, err := a.command(proof.root, "git", "update-ref", "refs/heads/"+proof.localBranch, commit, proof.localHead); err != nil {
 		return fmt.Errorf("advance local integration with expected head %s: %w", proof.localHead, err)
 	}
 	return nil
-}
-
-func (a app) resumeMarkerInLocalAncestry(root, marker, local string) (bool, error) {
-	if marker == local {
-		return true, nil
-	}
-	_, err := a.command(root, "git", "merge-base", "--is-ancestor", marker, local)
-	if err == nil {
-		return true, nil
-	}
-	if isGitNonAncestor(err) {
-		return false, nil
-	}
-	return false, fmt.Errorf("prove local ancestry of remote marker %s: %w", marker, err)
 }
 
 func (a app) validateResumeIntegrationWorktree(root string) error {
@@ -822,14 +851,14 @@ func (a app) finishPullRequestResume(proof resumeProof) error {
 	if err != nil {
 		return fmt.Errorf("read integrated claim head: %w", err)
 	}
-	integrated, err := a.resumeMarkerInLocalAncestry(proof.root, proof.renewalHead, local)
+	integrated, _, err := a.claimRenewalIntegrationState(proof.root, local, proof.renewalHead, proof.issue)
 	if err != nil {
 		return err
 	}
 	if !integrated {
 		return stateError("local head %s does not include remote renewal %s", local, proof.renewalHead)
 	}
-	claim, err := a.readCanonicalClaimCommit(proof.root, proof.renewalHead, proof.issue, proof.runID, proof.expectedHead)
+	claim, err := a.readPRResumeRenewalChain(proof.root, proof.renewalHead, proof.expectedHead, proof.issue, proof.runID)
 	if err != nil {
 		return err
 	}
@@ -865,7 +894,7 @@ func (a app) mutatePullRequestResume(proof, fresh resumeProof) (resumeProof, err
 		return resumeProof{}, fmt.Errorf("PR #%d issue proof failed immediately before mutation; no mutation performed: %w. "+resumeRecoveryTemplate,
 			fresh.pr, statusErr, fresh.pr, fresh.expectedHead)
 	}
-	if status.State != "OPEN" || !issueNeedsHuman(status) {
+	if status.State != "OPEN" || (!issueNeedsHuman(status) && !fresh.priorIntegrated) {
 		return resumeProof{}, stateError("issue #%d must remain open and labeled needs-human immediately before PR #%d resume mutation; no mutation performed. "+resumeRecoveryTemplate,
 			fresh.issue, fresh.pr, fresh.pr, fresh.expectedHead)
 	}
@@ -877,13 +906,20 @@ func (a app) mutatePullRequestResume(proof, fresh resumeProof) (resumeProof, err
 	if claimErr != nil {
 		return resumeProof{}, fmt.Errorf("prove expected claim lease before PR renewal push: %w", claimErr)
 	}
+	remoteClaim := expectedClaim
+	if fresh.already {
+		remoteClaim, claimErr = a.readPRResumeRenewalChain(fresh.root, fresh.observedHead, fresh.expectedHead, fresh.issue, fresh.runID)
+		if claimErr != nil {
+			return resumeProof{}, fmt.Errorf("prove remote claim lease before PR renewal push: %w", claimErr)
+		}
+	}
 	localClaim, claimErr := a.readResumeLocalAuthority(fresh.root, fresh.localHead, fresh.issue, expectedClaim)
 	if claimErr != nil {
 		return resumeProof{}, fmt.Errorf("prove local claim lease before PR renewal push: %w", claimErr)
 	}
-	if localClaim.lease.After(renewalLease) {
-		return resumeProof{}, stateError("local claim lease %s exceeds new remote renewal lease %s; no remote mutation performed",
-			localClaim.lease.Format(time.RFC3339), renewalLease.Format(time.RFC3339))
+	if !renewalLease.After(remoteClaim.lease) || renewalLease.Before(localClaim.lease) {
+		return resumeProof{}, stateError("new PR renewal lease %s does not advance remote claim lease %s or cover local claim lease %s; no remote mutation performed",
+			renewalLease.Format(time.RFC3339), remoteClaim.lease.Format(time.RFC3339), localClaim.lease.Format(time.RFC3339))
 	}
 	lease := "--force-with-lease=refs/heads/" + claimBranch(fresh.issue) + ":" + fresh.observedHead
 	refspec := commit + ":refs/heads/" + claimBranch(fresh.issue)
@@ -897,6 +933,9 @@ func (a app) mutatePullRequestResume(proof, fresh resumeProof) (resumeProof, err
 		}
 	}
 	fresh.renewalHead = commit
+	fresh.already = true
+	fresh.pending = true
+	fresh.renewalExpired = false
 	return fresh, nil
 }
 
@@ -906,6 +945,7 @@ func sameResumeProof(before, after resumeProof) error {
 		before.renewalHead != after.renewalHead || before.localHead != after.localHead || before.runID != after.runID ||
 		before.runLocalHead != after.runLocalHead ||
 		before.runLocalPresent != after.runLocalPresent || before.already != after.already || before.pending != after.pending ||
+		before.renewalExpired != after.renewalExpired || before.priorIntegrated != after.priorIntegrated ||
 		before.needsHuman != after.needsHuman || before.projectStatus != after.projectStatus {
 		return stateError("bound PR/ref/local/worktree/issue proof no longer matches")
 	}
@@ -925,5 +965,9 @@ func (a app) verifyResumePush(proof resumeProof) error {
 		view.HeadRefOID != proof.renewalHead || remote != proof.renewalHead {
 		return stateError("post-push heads disagree: renewed=%s PR=%s remote=%s", proof.renewalHead, view.HeadRefOID, remote)
 	}
-	return a.validateExistingResumeCommit(proof.root, proof.renewalHead, proof.expectedHead, proof.issue, proof.runID)
+	claim, err := a.readPRResumeRenewalChain(proof.root, proof.renewalHead, proof.expectedHead, proof.issue, proof.runID)
+	if err != nil {
+		return err
+	}
+	return validateClaimDeadline(proof.issue, claim.lease, time.Now().UTC())
 }

@@ -7,12 +7,11 @@ description: Autonomously select, claim, implement, evaluate, merge one goxsd9 p
 
 ## Control plane
 
-Root owns claim/decomposition/lifecycle; do not repeat delegated research,
-source inspection, implementation, or test diagnosis absent ambiguity.
+Root owns claim/decomposition/lifecycle; avoid duplicate delegated work.
 
-Children use exact `.codex/agents/` roles, `fork_turns: "none"`, task-local context.
-Scribe/Mason default fresh read-only; exemption requires recorded narrow mechanical
-reason. Smith writes source/tests/remediation; root writing needs the same exemption.
+Children use `.codex/agents/` roles, `fork_turns: "none"`, task-local context.
+Scribe/Mason default fresh read-only; record narrow mechanical exemptions.
+Smith writes source/tests/remediation; root writing needs an exemption.
 Curator is fresh per-head; Examiner fresh/challenge-bound.
 
 Handoffs state decisions, evidence locations, risks, next actions; Smith
@@ -35,13 +34,14 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
 5. Decompose packet; give Smith issue contract, files, affected phase axes, and
    expected evidence. Mark unaffected axes N/A with rationale; never widen.
    Smith implements/tests/fixes; reports paths/tests. Follow `AGENTS.md`;
-   mechanize. Unfinished boundaries need unsupported feature ID, `Loc`, and
-   versioned SpecRef; issue actionable discoveries, not TODOs.
+   mechanize. Unfinished boundaries need unsupported feature ID, `Loc`,
+   versioned SpecRef; issue discoveries, not TODOs.
 6. Renew at boundaries/pushes with `claim renew`; no polling.
    Expired PR: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human`
-   renews remotely. Finish Git operations; commit/clean local work.
-   Rerun `--integrate` with original `--expected-head SHA`;
-   restore Picked; push.
+   renews remotely. Retry expired pending markers with the original SHA; exact
+   CAS extends their remote chain. Finish Git operations; commit/clean locally.
+   Use `--integrate` with the original SHA to adopt the latest marker, remove
+   needs-human, restore Picked, then push.
 7. Run `go tool workflowctl check`; fix failures and update docs.
 8. Commit/push under `AGENTS.md`; open draft PR with `go tool workflowctl pr
    open ISSUE --title TITLE --body-file FILE` and outcome, consultation,
@@ -51,17 +51,16 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    `BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`.
    Save `develop-signals --base "$BASE_SHA" --format json` and `docs audit
    --base "$BASE_SHA" --format json` before evidence update; report JSON
-   coverage deltas/targets. Policy
-   fuzz follows changed boundaries; validate optional repeatable
+   coverage deltas/targets. Policy fuzz follows changed boundaries; validate
    `--additional-fuzz PACKAGE:TARGET` at head. Request bounded offline
-   single-worker corpus replay. Unlock claim: name exact construct/public
+   single-worker corpus replay. Unlock claim: name construct/public
    observable; same fixture at REST base (unsupported/assertion fails) and head
    (passes). If API changed, use stable observable/diagnostic or mark differential
    unmeasured. W3C claim needs executed edition/set/case; otherwise `not-measured`.
    A fragment alone is a Go regression.
    `no-relevant-target` is valid; fuzz is health, not conformance.
    Evidence status: `pending`/`evidence-ready`. Before evidence update,
-   challenge, or finish, workflowctl matches exact REST base/head to local
+   challenge, or finish, workflowctl matches REST base/head to local
    commits and recomputes v2 signals/policy. Managed changes OR
    triggers require read-only Curator with exact head/runID/pass/no-findings
    before evidence update/challenge/finish/challenge-history convergence. Canonical PR block
@@ -74,11 +73,11 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    `internal/workflowctl/`, and `cmd/workflowctl/` alone have no trigger and
    retain exact audited `not-required` Curator. Legacy omissions allowed only
    for exact fresh no-trigger diff. Repeat after remediation.
-10. Before every challenge, reconcile full PR body with head/evidence/implementation, including
+10. Before each challenge, reconcile PR body with head/evidence/implementation, including
     historical claims; preserve Examiner identity. After edits rerun exact-base
     evidence/audit and fresh Curator when applicable. Same-head retries retain
     newer Curator JSON bytes; recompute evidence/body, then challenge anew.
-    Head/runID cannot prove round freshness; binding does not prove prose.
+    Head/runID cannot prove freshness; binding does not prove prose.
     Run `go tool workflowctl evaluation challenge PR`; give fresh read-only
     Examiner canonical audit/Curator JSON, challenge/state/tests/rubric. Examiner
     inspects source/audit, rejects stale Curator, returns exact

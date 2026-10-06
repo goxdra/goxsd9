@@ -268,6 +268,9 @@ func (a app) renewClaim() error {
 	if proofErr := a.validateRenewClaimHeads(root, local, remote); proofErr != nil {
 		return proofErr
 	}
+	if integrationErr := a.requireClaimRenewalIntegration(root, local, remote, number); integrationErr != nil {
+		return integrationErr
+	}
 	existingLease, runID, err := a.proveClaimLeaseAndLocalMarkers(root, localBranch, number, local, remote)
 	if err != nil {
 		return err
@@ -355,6 +358,9 @@ func (a app) verifyClaim() error {
 			}
 			return fmt.Errorf("verify remote claim ancestry: %w", ancestorErr)
 		}
+		if integrationErr := a.requireClaimRenewalIntegration(root, local, remote, number); integrationErr != nil {
+			return integrationErr
+		}
 	}
 	lease, _, err := a.proveClaimLeaseAndLocalMarkers(root, localBranch, number, local, remote)
 	if err != nil {
@@ -382,8 +388,13 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 			}
 			return fmt.Errorf("verify claim ancestry for push: %w", ancestorErr)
 		}
-		if operationErr := a.validateResumeOperationState(root); operationErr != nil {
-			return fmt.Errorf("verify claim worktree for push: %w", operationErr)
+	}
+	if operationErr := a.validateResumeOperationState(root); operationErr != nil {
+		return fmt.Errorf("verify claim worktree for push: %w", operationErr)
+	}
+	if local != remote {
+		if integrationErr := a.requireClaimRenewalIntegration(root, local, remote, number); integrationErr != nil {
+			return integrationErr
 		}
 	}
 	lease, _, err := a.proveClaimLeaseAndLocalMarkers(root, branch, number, local, remote)
@@ -391,6 +402,58 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 		return fmt.Errorf("verify claim #%d for push: %w", number, err)
 	}
 	return validateClaimDeadline(number, lease, time.Now().UTC())
+}
+
+// requireClaimRenewalIntegration proves adoption when the remote claim marker
+// enters local history through a side parent rather than the first-parent path.
+func (a app) requireClaimRenewalIntegration(root, local, remote string, number int) error {
+	if local == remote {
+		return nil
+	}
+	integrated, _, err := a.claimRenewalIntegrationState(root, local, remote, number)
+	if err != nil {
+		return err
+	}
+	if integrated {
+		return nil
+	}
+	return stateError("remote claim renewal %s lacks authenticated local first-parent integration; integrate pending PR renewal before pushing", remote)
+}
+
+func (a app) claimRenewalIntegrationState(root, local, remote string, number int) (bool, bool, error) {
+	history, err := a.command(root, "git", "log", "--first-parent", "--format=%H%x00%B%x00", local)
+	if err != nil {
+		return false, false, fmt.Errorf("read local claim integration history: %w", err)
+	}
+	records, err := splitRunLocalHistory(history, claimBranch(number))
+	if err != nil {
+		return false, false, err
+	}
+	prior := false
+	for _, record := range records {
+		if record.commit == remote {
+			return true, true, nil
+		}
+		if !isClaimRenewalIntegrationShape(record.message) {
+			continue
+		}
+		marker, markerErr := a.readAuthoritativeClaimMarker(root, record.commit, number)
+		if markerErr != nil {
+			return false, false, fmt.Errorf("verify local claim integration %s: %w", record.commit, markerErr)
+		}
+		if marker.head == remote {
+			return true, true, nil
+		}
+		_, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", marker.head, remote)
+		if ancestorErr == nil {
+			prior = true
+			continue
+		}
+		if !isGitNonAncestor(ancestorErr) {
+			return false, false, fmt.Errorf("prove local claim integration %s against remote %s: %w", record.commit, remote, ancestorErr)
+		}
+	}
+	return false, prior, nil
 }
 
 func (a app) proveClaimLeaseAndLocalMarkers(root, branch string, number int, local, remote string) (time.Time, string, error) {
@@ -430,7 +493,7 @@ type claimAuthorityProof struct {
 	visiting map[string]bool
 }
 
-//nolint:gocognit // Recursion state and exact first-parent marker selection share one proof boundary.
+//nolint:gocognit // Recursion state and chronological first-parent authority share one proof boundary.
 func (a app) readAuthoritativeClaimMarkerCached(root, head string, number int, proof *claimAuthorityProof) (canonicalClaimCommit, error) {
 	if marker, ok := proof.proven[head]; ok {
 		return marker, nil
@@ -448,31 +511,44 @@ func (a app) readAuthoritativeClaimMarkerCached(root, head string, number int, p
 	if err != nil {
 		return canonicalClaimCommit{}, err
 	}
-	for index, record := range records {
+	selected := canonicalClaimCommit{}
+	for index := len(records) - 1; index >= 0; index-- {
+		record := records[index]
+		var marker canonicalClaimCommit
 		if isClaimRenewalIntegrationShape(record.message) {
-			marker, markerErr := a.readAdoptedClaimMarker(root, records[index:], number, proof)
-			if markerErr == nil {
-				proof.proven[head] = marker
+			marker, err = a.readAdoptedClaimMarker(root, records[index:], number, proof)
+			if err != nil {
+				return canonicalClaimCommit{}, err
 			}
-			return marker, markerErr
 		}
-		if !isCanonicalClaimMarkerShape(record.message) {
+		if !isClaimRenewalIntegrationShape(record.message) && isCanonicalClaimMarkerShape(record.message) {
+			marker, err = a.readCanonicalClaimIdentity(root, record.commit, "")
+			if err != nil {
+				return canonicalClaimCommit{}, fmt.Errorf("verify authoritative claim marker %s: %w", record.commit, err)
+			}
+			if marker.message != record.message {
+				return canonicalClaimCommit{}, stateError("claim marker %s history disagrees with its Git object; preserve claim artifacts", record.commit)
+			}
+			if marker.issue != number {
+				return canonicalClaimCommit{}, stateError("claim marker %s binds issue #%d, not claim issue #%d; preserve claim artifacts", record.commit, marker.issue, number)
+			}
+		}
+		if marker.head == "" {
 			continue
 		}
-		marker, err := a.readCanonicalClaimIdentity(root, record.commit, "")
-		if err != nil {
-			return canonicalClaimCommit{}, fmt.Errorf("verify authoritative claim marker %s: %w", record.commit, err)
+		if selected.head != "" && marker.runID != selected.runID {
+			return canonicalClaimCommit{}, stateError("claim marker %s is a conflicting first-parent marker after %s: run %s conflicts with %s; preserve claim artifacts", record.commit, selected.head, marker.runID, selected.runID)
 		}
-		if marker.message != record.message {
-			return canonicalClaimCommit{}, stateError("claim marker %s history disagrees with its Git object; preserve claim artifacts", record.commit)
+		if selected.head != "" && marker.lease.Before(selected.lease) {
+			return canonicalClaimCommit{}, stateError("claim marker %s regresses first-parent run or lease after %s; preserve claim artifacts", record.commit, selected.head)
 		}
-		if marker.issue != number {
-			return canonicalClaimCommit{}, stateError("claim marker %s binds issue #%d, not claim issue #%d; preserve claim artifacts", record.commit, marker.issue, number)
-		}
-		proof.proven[head] = marker
-		return marker, nil
+		selected = marker
 	}
-	return canonicalClaimCommit{}, stateError("claim head %s has no canonical first-parent marker for issue #%d; preserve claim artifacts", head, number)
+	if selected.head == "" {
+		return canonicalClaimCommit{}, stateError("claim head %s has no canonical first-parent marker for issue #%d; preserve claim artifacts", head, number)
+	}
+	proof.proven[head] = selected
+	return selected, nil
 }
 
 func isClaimRenewalIntegrationShape(message string) bool {
@@ -480,8 +556,8 @@ func isClaimRenewalIntegrationShape(message string) bool {
 }
 
 // readAdoptedClaimMarker accepts the second parent only for the exact empty
-// integration commit emitted by pr resume --integrate. The renewed marker's
-// parent must be in source ancestry with no conflicting first-parent marker.
+// integration commit emitted by pr resume --integrate. The renewal chain must
+// reach source ancestry without a conflicting first-parent marker.
 //
 //nolint:gocognit // The independent commit, parent, tree, and authority proofs must all fail closed.
 func (a app) readAdoptedClaimMarker(root string, records []runLocalHistoryRecord, number int, proof *claimAuthorityProof) (canonicalClaimCommit, error) {
@@ -509,28 +585,18 @@ func (a app) readAdoptedClaimMarker(root string, records []runLocalHistoryRecord
 	if tree, parseErr := parseCanonicalSHA(firstTree, "claim integration source tree"); parseErr != nil || tree != parsed.tree {
 		return canonicalClaimCommit{}, stateError("claim integration %s changes its source parent's tree; preserve claim artifacts: %v", integration.commit, parseErr)
 	}
-	marker, err := a.readCanonicalClaimIdentity(root, parsed.parents[1], "")
+	marker, anchor, err := a.readAdoptedRenewalChain(root, parsed.parents[1], parsed.parents[0], number)
 	if err != nil {
 		return canonicalClaimCommit{}, fmt.Errorf("verify claim integration renewal %s: %w", parsed.parents[1], err)
 	}
-	if marker.issue != number {
-		return canonicalClaimCommit{}, stateError("claim integration %s renews issue #%d, not issue #%d; preserve claim artifacts", integration.commit, marker.issue, number)
-	}
-	_, err = a.command(root, "git", "merge-base", "--is-ancestor", marker.parent, parsed.parents[0])
+	baseMarker, err := a.readAuthoritativeClaimMarkerCached(root, anchor, number, proof)
 	if err != nil {
-		if isGitNonAncestor(err) {
-			return canonicalClaimCommit{}, stateError("claim integration %s renewal parent %s is outside local source ancestry; preserve claim artifacts", integration.commit, marker.parent)
-		}
-		return canonicalClaimCommit{}, fmt.Errorf("prove claim integration source ancestry: %w", err)
-	}
-	baseMarker, err := a.readAuthoritativeClaimMarkerCached(root, marker.parent, number, proof)
-	if err != nil {
-		return canonicalClaimCommit{}, fmt.Errorf("verify claim integration original authority at %s: %w", marker.parent, err)
+		return canonicalClaimCommit{}, fmt.Errorf("verify claim integration original authority at %s: %w", anchor, err)
 	}
 	if baseMarker.runID != marker.runID {
 		return canonicalClaimCommit{}, stateError("claim integration %s renewal run %s conflicts with original run %s; preserve claim artifacts", integration.commit, marker.runID, baseMarker.runID)
 	}
-	if pathErr := a.verifyClaimIntegrationSourcePath(root, integration.commit, marker.parent, records[1:], number, marker.runID, proof); pathErr != nil {
+	if pathErr := a.verifyClaimIntegrationSourcePath(root, integration.commit, anchor, records[1:], number, marker.runID, proof); pathErr != nil {
 		return canonicalClaimCommit{}, pathErr
 	}
 	sourceMarker := baseMarker
@@ -551,6 +617,46 @@ func (a app) readAdoptedClaimMarker(root string, records []runLocalHistoryRecord
 		return canonicalClaimCommit{}, stateError("claim integration %s renewal lease regresses proven authority; preserve claim artifacts", integration.commit)
 	}
 	return marker, nil
+}
+
+func (a app) readAdoptedRenewalChain(root, head, source string, number int) (canonicalClaimCommit, string, error) {
+	current := head
+	latest := canonicalClaimCommit{}
+	newer := canonicalClaimCommit{}
+	for {
+		marker, err := a.readCanonicalClaimIdentity(root, current, "")
+		if err != nil {
+			if latest.head != "" {
+				return canonicalClaimCommit{}, "", stateError("claim renewal parent %s is outside local source ancestry; preserve claim artifacts: %w", current, err)
+			}
+			return canonicalClaimCommit{}, "", err
+		}
+		if linkErr := validateAdoptedRenewalLink(marker, latest, newer, number); linkErr != nil {
+			return canonicalClaimCommit{}, "", linkErr
+		}
+		if latest.head == "" {
+			latest = marker
+		}
+		newer = marker
+		_, err = a.command(root, "git", "merge-base", "--is-ancestor", marker.parent, source)
+		if err == nil {
+			return latest, marker.parent, nil
+		}
+		if !isGitNonAncestor(err) {
+			return canonicalClaimCommit{}, "", fmt.Errorf("prove claim renewal chain source ancestry: %w", err)
+		}
+		current = marker.parent
+	}
+}
+
+func validateAdoptedRenewalLink(marker, latest, newer canonicalClaimCommit, number int) error {
+	if marker.issue != number {
+		return stateError("claim integration renews issue #%d, not issue #%d; preserve claim artifacts", marker.issue, number)
+	}
+	if latest.head != "" && (marker.runID != latest.runID || (newer.head != "" && newer.lease.Before(marker.lease))) {
+		return stateError("claim renewal chain at %s regresses run or lease; preserve claim artifacts", marker.head)
+	}
+	return nil
 }
 
 //nolint:gocognit // The source path must reject each marker before the shared first-parent boundary.
@@ -601,7 +707,13 @@ func (a app) verifyUnpublishedClaimMarkers(root, branch string, number int, remo
 				return fmt.Errorf("verify unpublished claim integration %s: %w", record.commit, markerErr)
 			}
 			if marker.head != remoteMarker.head {
-				return stateError("unpublished claim integration %s adopts marker %s, not remote authoritative marker %s; preserve claim artifacts", record.commit, marker.head, remoteMarker.head)
+				_, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", marker.head, remoteMarker.head)
+				if isGitNonAncestor(ancestorErr) {
+					return stateError("unpublished claim integration %s adopts marker %s, not remote authoritative marker %s (outside its renewal chain); preserve claim artifacts", record.commit, marker.head, remoteMarker.head)
+				}
+				if ancestorErr != nil {
+					return fmt.Errorf("prove earlier unpublished claim integration %s against remote %s: %w", record.commit, remoteMarker.head, ancestorErr)
+				}
 			}
 			continue
 		}
@@ -618,6 +730,9 @@ func (a app) verifyUnpublishedClaimMarkers(root, branch string, number int, remo
 		if marker.issue != number || marker.runID != remoteMarker.runID {
 			return stateError("unpublished claim marker %s binds issue #%d run %s, not remote claim issue #%d run %s; preserve claim artifacts",
 				record.commit, marker.issue, marker.runID, number, remoteMarker.runID)
+		}
+		if marker.lease.Before(remoteMarker.lease) {
+			return stateError("unpublished claim marker %s regresses remote issue #%d lease; preserve claim artifacts", record.commit, number)
 		}
 	}
 	return nil
