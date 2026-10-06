@@ -1418,7 +1418,10 @@ func schemaAttributeTypeInput(element *syntaxElement, defaultFinal schemaSimpleT
 
 func decorateMalformedSchemaAttributeInlineType(err error, version XSDVersion) error {
 	var diagnostic Diagnostic
-	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.SpecRef() != "" {
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureInvalid || diagnostic.SpecRef() != "" {
+		return err
+	}
+	if diagnostic.Code() != invalidSchemaCompositionCode && diagnostic.Code() != invalidSchemaConditionalCode {
 		return err
 	}
 	return newSchemaSimpleTypeDiagnostic(

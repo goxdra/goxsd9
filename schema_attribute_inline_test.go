@@ -295,6 +295,46 @@ func assertGlobalAttributeInlineMalformedDiagnostic(t *testing.T, err error, roo
 	}
 }
 
+func TestGlobalAttributeInlineQNameDiagnosticsAcrossPolicies(t *testing.T) {
+	models := []struct{ name, attribute string }{
+		{name: "restriction", attribute: "base"},
+		{name: "list", attribute: "itemType"},
+		{name: "union", attribute: "memberTypes"},
+	}
+	values := []struct{ name, qname string }{
+		{name: "malformed", qname: "bad::Name"},
+		{name: "unbound", qname: "missing:T"},
+	}
+	for _, profile := range curatorPolicyProfiles() {
+		for _, model := range models {
+			for _, value := range values {
+				t.Run(profile.name+"/"+model.name+"/"+value.name, func(t *testing.T) {
+					marker := model.attribute + `="` + value.qname + `"`
+					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="a"><xs:simpleType><xs:` + model.name + ` ` + marker + `/></xs:simpleType></xs:attribute></xs:schema>`
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err == nil || schema.storage != nil {
+						t.Fatalf("inline %s QName returned a schema or no error: %v", model.name, err)
+					}
+					assertGlobalAttributeInlineQNameDiagnostic(t, err, root, marker, profile.version)
+				})
+			}
+		}
+	}
+}
+
+func assertGlobalAttributeInlineQNameDiagnostic(t *testing.T, err error, root, marker string, version XSDVersion) {
+	t.Helper()
+	wantLoc := elementReferenceTestAttributeLoc(t, root, marker)
+	diagnostic := requireDiagnostic(t, err)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaConditionalCode || diagnostic.Loc() != wantLoc || len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != schemaSimpleTypeSpecRef(version) || !errors.Is(err, errSchemaAttributeInlineTypeMalformed) {
+		t.Fatalf("inline QName diagnostic = %s related %v, want XSD3012 at %s with effective edition and cause", diagnostic, diagnostic.Related(), wantLoc)
+	}
+	var original Diagnostic
+	if !errors.As(diagnostic.Unwrap(), &original) || original.Class() != diagnostic.Class() || original.Code() != diagnostic.Code() || original.Loc() != wantLoc || original.Message() != diagnostic.Message() || len(original.Related()) != 0 || original.SpecRef() != "" || original.Unwrap() != nil {
+		t.Fatalf("original inline QName diagnostic was not preserved: %v", diagnostic.Unwrap())
+	}
+}
+
 //nolint:gocognit // The graph fixture checks both imported and chameleon type identity at public use sites.
 func TestGlobalAttributeInlineTypesResolveGraphMembers(t *testing.T) {
 	for _, profile := range curatorPolicyProfiles() {
