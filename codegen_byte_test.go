@@ -47,7 +47,7 @@ func TestGenerateGoGlobalByteScalarsAcrossPolicies(t *testing.T) {
   <xs:element name="importedElement" type="o:Imported"/>
   <xs:simpleType name="Inherited"><xs:restriction base="r:Named"/></xs:simpleType>
   <xs:simpleType name="Forward"><xs:restriction base="r:Later"/></xs:simpleType>
-  <xs:simpleType name="Named"><xs:restriction base="xs:byte"/></xs:simpleType>
+  <xs:simpleType name="Named"><xs:restriction base="xs:byte"><xs:minInclusive value="-10"/><xs:maxInclusive value="10"/><xs:totalDigits value="2"/></xs:restriction></xs:simpleType>
   <xs:simpleType name="Later"><xs:restriction base="xs:byte"/></xs:simpleType>
   <xs:simpleType name="runtime"><xs:restriction base="xs:byte"/></xs:simpleType>
 	<xs:simpleType name="Narrowed"><xs:restriction base="xs:byte"><xs:minInclusive value="2"/><xs:maxInclusive value="9"/><xs:totalDigits value="2"/><xs:enumeration value="3"/></xs:restriction></xs:simpleType>
@@ -134,6 +134,52 @@ func TestGenerateGoGlobalByteScalarsAcrossPolicies(t *testing.T) {
 			narrowedReferenceBounds, ok := narrowedReference.IntegerBounds()
 			if !ok || narrowedReferenceBounds.Bounds()[0].Value().Canonical() != "2" {
 				t.Fatal("narrowed named reference lost effective byte bounds")
+			}
+			inheritedTypes := schema.FindKind(goxsd9.ComponentKindSimpleTypeDefinition, mustPublicNonNegativeIntegerQName(t, "urn:root", "Inherited"))
+			if len(inheritedTypes) != 1 {
+				t.Fatalf("Inherited definitions = %d, want one", len(inheritedTypes))
+			}
+			inherited, ok := inheritedTypes[0].SimpleTypeDefinition()
+			if !ok {
+				t.Fatal("Inherited definition view is missing")
+			}
+			inheritedBounds, ok := inherited.IntegerBounds()
+			if !ok {
+				t.Fatal("Inherited bounds are missing")
+			}
+			inheritedMinimum, hasInheritedMinimum := inheritedBounds.MinInclusive()
+			inheritedMaximum, hasInheritedMaximum := inheritedBounds.MaxInclusive()
+			inheritedMinimumLoc, hasInheritedMinimumLoc := inheritedBounds.MinInclusiveLoc()
+			inheritedMaximumLoc, hasInheritedMaximumLoc := inheritedBounds.MaxInclusiveLoc()
+			inheritedDigits, hasInheritedDigits := inherited.DigitFacets().TotalDigits()
+			inheritedDigitsLoc, hasInheritedDigitsLoc := inherited.DigitFacets().TotalDigitsLoc()
+			if !hasInheritedMinimum || inheritedMinimum.Canonical() != "-10" || !hasInheritedMaximum || inheritedMaximum.Canonical() != "10" ||
+				!hasInheritedMinimumLoc || inheritedMinimumLoc != publicByteMarkerLoc(t, rootContents, `value="-10"`) ||
+				!hasInheritedMaximumLoc || inheritedMaximumLoc != publicByteMarkerLoc(t, rootContents, `value="10"`) ||
+				!hasInheritedDigits || inheritedDigits.Canonical() != "2" || !hasInheritedDigitsLoc || inheritedDigitsLoc != publicByteMarkerLoc(t, rootContents, `value="2"`) {
+				t.Fatalf("Inherited effective byte facets lost base values or locations: bounds=%v digits=%v", inheritedBounds.Bounds(), inherited.DigitFacets())
+			}
+			inheritedElements := schema.FindKind(goxsd9.ComponentKindElementDeclaration, mustPublicNonNegativeIntegerQName(t, "urn:root", "inheritedElement"))
+			if len(inheritedElements) != 1 {
+				t.Fatalf("inheritedElement declarations = %d, want one", len(inheritedElements))
+			}
+			inheritedElement, ok := inheritedElements[0].ElementDeclaration()
+			if !ok {
+				t.Fatal("inheritedElement declaration view is missing")
+			}
+			inheritedReference, ok := inheritedElement.TypeReference()
+			if !ok || inheritedReference.Loc() != publicByteMarkerLoc(t, rootContents, `type="r:Inherited"`) {
+				t.Fatal("inheritedElement lost its located named reference")
+			}
+			inheritedReferenceBounds, ok := inheritedReference.IntegerBounds()
+			inheritedReferenceFacets := inheritedReferenceBounds.Bounds()
+			if !ok || len(inheritedReferenceFacets) != 2 || inheritedReferenceFacets[0].Value().Canonical() != "-10" || inheritedReferenceFacets[1].Value().Canonical() != "10" {
+				t.Fatal("inheritedElement lost its effective byte bounds")
+			}
+			inheritedReferenceDigits, hasInheritedReferenceDigits := inheritedReference.DigitFacets().TotalDigits()
+			inheritedReferenceDigitsLoc, hasInheritedReferenceDigitsLoc := inheritedReference.DigitFacets().TotalDigitsLoc()
+			if !hasInheritedReferenceDigits || inheritedReferenceDigits.Canonical() != "2" || !hasInheritedReferenceDigitsLoc || inheritedReferenceDigitsLoc != inheritedDigitsLoc {
+				t.Fatal("inheritedElement lost its effective byte digit facet provenance")
 			}
 			directComponents := schema.FindKind(goxsd9.ComponentKindElementDeclaration, mustPublicNonNegativeIntegerQName(t, "urn:root", "direct"))
 			if len(directComponents) != 1 {
@@ -329,11 +375,14 @@ func TestGenerateGoByteExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testin
 		{"named local choice", `<xs:complexType name="Container"><xs:choice><xs:element name="value" type="t:Value"/></xs:choice></xs:complexType><xs:simpleType name="Value"><xs:restriction base="xs:byte"/></xs:simpleType>`, `<xs:element name="value"`, ""},
 		{"choice reference", `<xs:element name="value" type="xs:byte"/><xs:complexType name="Container"><xs:choice><xs:element ref="t:value"/></xs:choice></xs:complexType>`, `ref="t:value"`, ""},
 		{"named choice reference", `<xs:element name="value" type="t:Value"/><xs:complexType name="Container"><xs:choice><xs:element ref="t:value"/></xs:choice></xs:complexType><xs:simpleType name="Value"><xs:restriction base="xs:byte"/></xs:simpleType>`, `ref="t:value"`, ""},
+		{"inline choice reference", `<xs:complexType name="Container"><xs:choice><xs:element ref="t:value"/></xs:choice></xs:complexType><xs:element name="value"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element>`, `ref="t:value"`, `<xs:element name="value"`},
 		{"sequence reference", `<xs:element name="value" type="xs:byte"/><xs:complexType name="Container"><xs:sequence><xs:element ref="t:value"/></xs:sequence></xs:complexType>`, `ref="t:value"`, ""},
 		{"named sequence reference", `<xs:element name="value" type="t:Value"/><xs:complexType name="Container"><xs:sequence><xs:element ref="t:value"/></xs:sequence></xs:complexType><xs:simpleType name="Value"><xs:restriction base="xs:byte"/></xs:simpleType>`, `ref="t:value"`, ""},
+		{"inline sequence reference", `<xs:complexType name="Container"><xs:sequence><xs:element ref="t:value"/></xs:sequence></xs:complexType><xs:element name="value"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element>`, `ref="t:value"`, `<xs:element name="value"`},
 		{"global attribute", `<xs:attribute name="value" type="xs:byte"/>`, `<xs:attribute name="value"`, ""},
 		{"named global attribute", `<xs:attribute name="value" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:byte"/></xs:simpleType>`, `<xs:attribute name="value"`, ""},
 		{"named final", `<xs:simpleType name="Value" final="restriction"><xs:restriction base="xs:byte"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `final="restriction"`},
+		{"named list", `<xs:simpleType name="Value"><xs:list itemType="xs:byte"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `<xs:list`},
 		{"named union", `<xs:simpleType name="Value"><xs:union memberTypes="xs:byte"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `<xs:union`},
 		{"short direct stays excluded", `<xs:element name="value" type="xs:short"/>`, `<xs:element name="value"`, ""},
 		{"short named stays excluded", `<xs:element name="value" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:short"/></xs:simpleType>`, `<xs:element name="value"`, ""},

@@ -17,11 +17,10 @@ with XPath, namespaces, and resolved keyref targets. Validation and generation r
 them until identity semantics are implemented.
 
 `ValidateInstance(schema, sourceID, reader)` checks an instance, including
-built-in/named `xs:short`, `xs:int`, `xs:long`, and `xs:unsignedLong` values and bounded
-precisionDecimal lists/unions;
+built-in/named `xs:short`/`xs:int`/`xs:long`/`xs:unsignedLong` and bounded precisionDecimal lists/unions;
 `GenerateGo(schema, packageName)` emits global `xs:byte` and `xs:long`: built-in
-fields use `StrictInteger`; named fields use generated types backed by it. Global byte and long attributes are query-only.
-Grouped extensions retain refs/attributes over named empty bases; `0/0` omits.
+fields use `StrictInteger`; named fields use generated types backed by it. Byte/long attributes are query-only.
+Grouped extensions retain refs/attributes; `0/0` omits.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
 and [decision 0007](docs/decisions/0007-particle-occurrence.md) for details.
 
@@ -32,6 +31,7 @@ default integer/decimal sequence refs; other reference targets or occurrences re
 Direct named-complex `xs:all` retains ordered built-in/named integer/decimal/Boolean, built-in `xs:string`,
 built-in/named effective `xs:token`/`xs:NMTOKEN`, built-in `xs:negativeInteger`/`xs:nonNegativeInteger`,
 and refs with exact bounds; consumers reject it.
+Compatibility/Strict11 expose QName-only `notQName` on direct strict `xs:any`; consumers reject nonzero wildcards.
 
 ## CLI
 

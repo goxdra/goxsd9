@@ -2,6 +2,7 @@ package goxsd9
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -125,6 +126,16 @@ func testCodegenBoundedIntegerRejectsStaleMalformedFactsAcrossPolicies(t *testin
 				if test.name != "stale scalar plan" && diagnostic.SpecRef() != codegenBoundedIntegerSpecRef(profile.version, kind) {
 					t.Fatalf("SpecRef = %q, want %q", diagnostic.SpecRef(), codegenBoundedIntegerSpecRef(profile.version, kind))
 				}
+				var wantRelated []Loc
+				switch test.name {
+				case "named relaxed lower bound", "named malformed digit facts":
+					wantRelated = []Loc{schema.Components()[1].Loc(), elementReferenceTestAttributeLoc(t, root, `base="xs:`+kind.name+`"`)}
+				case "named reference facets diverge":
+					wantRelated = []Loc{schema.Components()[1].Loc(), elementReferenceTestAttributeLoc(t, root, `type="t:Value"`)}
+				}
+				if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+					t.Fatalf("Related = %v, want %v", diagnostic.Related(), wantRelated)
+				}
 			})
 		}
 	}
@@ -132,4 +143,62 @@ func testCodegenBoundedIntegerRejectsStaleMalformedFactsAcrossPolicies(t *testin
 
 func TestCodegenByteRejectsStaleAndMalformedFactsAcrossPolicies(t *testing.T) {
 	testCodegenBoundedIntegerRejectsStaleMalformedFactsAcrossPolicies(t, codegenByteKind(), "-129")
+}
+
+//nolint:gocognit // Verify both named consumers at the shared bounded-facet boundary.
+func testCodegenBoundedIntegerRejectsNamedDigitVariantAcrossPolicies(t *testing.T, kind codegenBoundedIntegerKind) {
+	for _, profile := range longPolicyProfiles() {
+		for _, consumer := range []string{"standalone", "named element"} {
+			t.Run(profile.name+"/"+consumer, func(t *testing.T) {
+				element := ""
+				if consumer == "named element" {
+					element = `<xs:element name="value" type="t:Value"/>`
+				}
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + element + `<xs:simpleType name="Value"><xs:restriction base="xs:` + kind.name + `"><xs:totalDigits value="2"/><xs:enumeration value="12"/></xs:restriction></xs:simpleType></xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatal(err)
+				}
+				components := schema.Components()
+				valueIndex := 0
+				if consumer == "named element" {
+					valueIndex = 1
+				}
+				value := components[valueIndex]
+				facets, ok := value.simpleType.facets.(schemaIntegerFacetVariant)
+				if !ok {
+					t.Fatalf("named %s facets = %T, want integer facet variant", kind.name, value.simpleType.facets)
+				}
+				malformed := schemaDigitFacetVariant{value: facets.digits, integerBounds: facets.bounds}
+				value.simpleType.facets = malformed
+				if consumer == "named element" {
+					components[0].element.typeReference.facets = malformed
+				}
+				output, generationErr := GenerateGo(schema, "generated")
+				if output != nil || generationErr == nil {
+					t.Fatalf("GenerateGo = (%q, %v), want nil output and malformed-fact error", output, generationErr)
+				}
+				diagnostic := requireDiagnostic(t, generationErr)
+				primary := value.Loc()
+				wantRelated := []Loc{
+					elementReferenceTestAttributeLoc(t, root, `base="xs:`+kind.name+`"`),
+					elementReferenceTestAttributeLoc(t, root, `value="2"`),
+				}
+				if consumer == "named element" {
+					primary = components[0].Loc()
+					wantRelated = append([]Loc{value.Loc()}, wantRelated...)
+				}
+				if diagnostic.Class() != FailureInternal || diagnostic.Code() != diagnosticCodegenInvariant || diagnostic.Loc() != primary || diagnostic.SpecRef() != codegenBoundedIntegerSpecRef(profile.version, kind) || !errors.Is(generationErr, errCodegenSchemaInvariant) {
+					t.Fatalf("diagnostic = %s, want located GOXSD9030 with preserved cause and edition SpecRef", diagnostic)
+				}
+				if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+					t.Fatalf("Related = %v, want %v", diagnostic.Related(), wantRelated)
+				}
+			})
+		}
+	}
+}
+
+func TestCodegenByteRejectsNamedDigitVariantAcrossPolicies(t *testing.T) {
+	testCodegenBoundedIntegerRejectsNamedDigitVariantAcrossPolicies(t, codegenByteKind())
 }

@@ -13,6 +13,10 @@ type codegenBoundedIntegerKind struct {
 
 //nolint:gocognit // Exact bounds and enumeration facts share one integrity gate.
 func validateCodegenBoundedIntegerFacts(loc Loc, context string, facets schemaSimpleTypeFacetVariant, version XSDVersion, related []Loc, builtin bool, kind codegenBoundedIntegerKind) error {
+	namedFacets, named := facets.(schemaIntegerFacetVariant)
+	if !builtin && !named {
+		return newCodegenBoundedIntegerInternal(loc, context+" has inconsistent named integer facet facts", related, errCodegenSchemaInvariant, version, kind)
+	}
 	if err := validateCodegenNamedNonNegativeIntegerDigitFacts(loc, context, facets, version, related); err != nil {
 		return codegenBoundedIntegerInternalFrom(err, version, kind)
 	}
@@ -48,18 +52,16 @@ func validateCodegenBoundedIntegerFacts(loc Loc, context string, facets schemaSi
 	if builtin {
 		return validateCodegenBuiltinBoundedIntegerFacts(loc, context, facets, bounds, version, related, kind)
 	}
-	if typed, ok := facets.(schemaIntegerFacetVariant); ok {
-		for _, enumeration := range typed.enumeration.Declarations() {
-			value := enumeration.Value()
-			if value.Compare(intrinsicMinimum) < 0 || value.Compare(intrinsicMaximum) > 0 {
-				return newCodegenBoundedIntegerInternal(loc, context+" has enumeration outside xs:"+kind.name, appendCodegenRelated(related, enumeration.Loc()), errCodegenSchemaInvariant, version, kind)
-			}
-			if err := bounds.ValidateInteger(value, enumeration.Loc()); err != nil {
-				return newCodegenBoundedIntegerInternal(loc, context+" has enumeration outside effective bounds", appendCodegenRelated(related, enumeration.Loc()), codegenSchemaInvariantCause(err), version, kind)
-			}
-			if err := typed.digits.ValidateInteger(value, enumeration.Loc()); err != nil {
-				return newCodegenBoundedIntegerInternal(loc, context+" has enumeration outside effective digit facets", appendCodegenRelated(related, enumeration.Loc()), codegenSchemaInvariantCause(err), version, kind)
-			}
+	for _, enumeration := range namedFacets.enumeration.Declarations() {
+		value := enumeration.Value()
+		if value.Compare(intrinsicMinimum) < 0 || value.Compare(intrinsicMaximum) > 0 {
+			return newCodegenBoundedIntegerInternal(loc, context+" has enumeration outside xs:"+kind.name, appendCodegenRelated(related, enumeration.Loc()), errCodegenSchemaInvariant, version, kind)
+		}
+		if err := bounds.ValidateInteger(value, enumeration.Loc()); err != nil {
+			return newCodegenBoundedIntegerInternal(loc, context+" has enumeration outside effective bounds", appendCodegenRelated(related, enumeration.Loc()), codegenSchemaInvariantCause(err), version, kind)
+		}
+		if err := namedFacets.digits.ValidateInteger(value, enumeration.Loc()); err != nil {
+			return newCodegenBoundedIntegerInternal(loc, context+" has enumeration outside effective digit facets", appendCodegenRelated(related, enumeration.Loc()), codegenSchemaInvariantCause(err), version, kind)
 		}
 	}
 	return nil
