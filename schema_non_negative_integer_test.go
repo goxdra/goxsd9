@@ -737,25 +737,6 @@ func TestSchemaNonNegativeIntegerGlobalInlineConsumersRemainUnsupported(t *testi
 	}
 }
 
-func assertIntegerDerivedConsumersUnsupported(t *testing.T, schema Schema) {
-	t.Helper()
-	output, err := GenerateGo(schema, "generated")
-	if output != nil || err == nil {
-		t.Fatalf("GenerateGo result = (%q, %v), want unsupported with no source", output, err)
-	}
-	codegenDiagnostic := requireDiagnostic(t, err)
-	if codegenDiagnostic.Class() != FailureUnsupported || codegenDiagnostic.Code() != diagnosticCodegenUnsupported || !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("GenerateGo diagnostic = %s, want explicit unsupported", codegenDiagnostic)
-	}
-	declaration := requireSchemaElementDeclaration(t, schema, "value", "urn:test")
-	assertIntegerDerivedValidationUnsupported(t, schema, declaration)
-}
-
-func assertIntegerDerivedValidationUnsupported(t *testing.T, schema Schema, declaration ElementDeclaration) {
-	t.Helper()
-	assertGlobalIntegerDerivedValidationUnsupported(t, schema, "value", []Loc{declaration.Loc()})
-}
-
 func assertGlobalIntegerDerivedValidationUnsupported(t *testing.T, schema Schema, rootElement string, wantRelated []Loc) {
 	t.Helper()
 	input := `<` + rootElement + ` xmlns="urn:test">0</` + rootElement + `>`

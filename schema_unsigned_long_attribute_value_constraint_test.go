@@ -315,13 +315,8 @@ func TestUnsignedLongAttributeConstraintConsumersRemainUnsupported(t *testing.T)
 				if d.Class() != FailureUnsupported || d.Code() != diagnosticCodegenUnsupported || d.Loc() != attribute.Loc() || !errors.Is(err, errCodegenUnsupported) {
 					t.Fatalf("GenerateGo diagnostic = %s", d)
 				}
-				err = ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:root">1</root>`)))
-				if err == nil {
-					t.Fatal("ValidateInstance accepted unsignedLong element")
-				}
-				d = requireDiagnostic(t, err)
-				if d.Class() != FailureUnsupported || d.Code() != UnsupportedInstanceValidationCode || d.Loc() != mustTestLoc(t, "instance.xml", 1, 1) || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("ValidateInstance diagnostic = %s", d)
+				if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:root">1</root>`))); err != nil {
+					t.Fatalf("ValidateInstance rejected supported unsignedLong root: %v", err)
 				}
 			})
 		}

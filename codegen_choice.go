@@ -84,7 +84,7 @@ func codegenDirectChoiceScalarFamilyFromDigit(kind DigitDatatype) (codegenDirect
 
 func codegenDirectChoiceScalarFamilyFromSourceKind(kind codegenSourceScalarKind) (codegenDirectChoiceScalarFamily, bool) {
 	switch kind {
-	case codegenSourceScalarInvalid, codegenSourceScalarString, codegenSourceScalarNMTOKEN, codegenSourceScalarNonNegativeInteger:
+	case codegenSourceScalarInvalid, codegenSourceScalarString, codegenSourceScalarNMTOKEN, codegenSourceScalarNonNegativeInteger, codegenSourceScalarLong:
 		return codegenDirectChoiceScalarInvalid, false
 	case codegenSourceScalarBoolean:
 		return codegenDirectChoiceScalarBoolean, true
@@ -758,7 +758,17 @@ func validateCodegenDirectChoiceReferenceTarget(
 			errCodegenDirectChoiceTarget,
 		)
 	}
-	if err := validateCodegenDirectChoiceReferenceSubstitution(schema, declaration, loc, related, version); err != nil {
+	if err := validateCodegenDirectReferenceSubstitution(
+		schema,
+		declaration,
+		loc,
+		related,
+		version,
+		errCodegenDirectChoiceTarget,
+		codegenDirectChoiceSubstitutionDisallowed,
+		newCodegenDirectChoiceReferenceTargetUnsupported,
+		"direct choice",
+	); err != nil {
 		return nil, err
 	}
 	typeReference, hasTypeReference := declaration.TypeReference()
@@ -1071,62 +1081,6 @@ func newCodegenDirectChoiceReferenceTargetUnsupported(
 	)
 }
 
-func validateCodegenDirectChoiceReferenceSubstitution(
-	schema Schema,
-	declaration ElementDeclaration,
-	loc Loc,
-	related []Loc,
-	version XSDVersion,
-) error {
-	affiliationIDs := declaration.SubstitutionGroupAffiliations()
-	affiliationLocs := declaration.SubstitutionGroupAffiliationLocations()
-	if len(affiliationIDs) != len(affiliationLocs) {
-		return newCodegenInternal(
-			loc,
-			fmt.Sprintf("referenced global element %q has mismatched substitution-group facts", declaration.Name()),
-			related,
-			errCodegenDirectChoiceTarget,
-		)
-	}
-	if len(affiliationIDs) != 0 {
-		substitutionRelated := mergeCodegenRelated(nil, related)
-		for _, affiliationLoc := range affiliationLocs {
-			substitutionRelated = appendCodegenRelated(substitutionRelated, affiliationLoc)
-		}
-		return newCodegenDirectChoiceUnsupported(
-			loc,
-			fmt.Sprintf("referenced global element %q uses substitution-group affiliations outside direct choice generation", declaration.Name()),
-			substitutionRelated,
-			fmt.Errorf("%w: referenced element substitution group", errCodegenUnsupported),
-			version,
-			codegenDirectChoiceElementChoiceReference,
-		)
-	}
-	if codegenDirectChoiceSubstitutionDisallowed(declaration) {
-		return nil
-	}
-	member, path, memberErr := codegenDirectChoiceSubstitutionMember(schema, declaration)
-	if memberErr != nil {
-		return memberErr
-	}
-	if member.ID().IsZero() {
-		return nil
-	}
-	substitutionRelated := mergeCodegenRelated(nil, related)
-	substitutionRelated = appendCodegenRelated(substitutionRelated, member.Loc())
-	for _, affiliationLoc := range path {
-		substitutionRelated = appendCodegenRelated(substitutionRelated, affiliationLoc)
-	}
-	return newCodegenDirectChoiceUnsupported(
-		loc,
-		fmt.Sprintf("referenced global element %q has substitution-group members outside direct choice generation", declaration.Name()),
-		substitutionRelated,
-		fmt.Errorf("%w: reachable referenced element substitution group", errCodegenUnsupported),
-		version,
-		codegenDirectChoiceElementChoiceReference,
-	)
-}
-
 func codegenDirectChoiceSubstitutionDisallowed(declaration ElementDeclaration) bool {
 	for _, method := range declaration.DisallowedSubstitutions() {
 		if method == "substitution" {
@@ -1134,99 +1088,6 @@ func codegenDirectChoiceSubstitutionDisallowed(declaration ElementDeclaration) b
 		}
 	}
 	return false
-}
-
-func codegenDirectChoiceSubstitutionMember(schema Schema, head ElementDeclaration) (ElementDeclaration, []Loc, error) {
-	for _, component := range schema.Components() {
-		if component.Kind() != ComponentKindElementDeclaration || component.ID() == head.ID() {
-			continue
-		}
-		member, ok := component.ElementDeclaration()
-		if !ok || member.IsAbstract() {
-			continue
-		}
-		path, found, err := codegenDirectChoiceSubstitutionPath(schema, member, head.ID(), make(map[ComponentID]struct{}))
-		if err != nil {
-			return ElementDeclaration{}, nil, err
-		}
-		if found {
-			return member, path, nil
-		}
-	}
-	return ElementDeclaration{}, nil, nil
-}
-
-//nolint:gocognit // Keep ordered substitution identity checks and path replay together.
-func codegenDirectChoiceSubstitutionPath(
-	schema Schema,
-	member ElementDeclaration,
-	headID ComponentID,
-	visited map[ComponentID]struct{},
-) ([]Loc, bool, error) {
-	if member.ID() == headID {
-		return nil, true, nil
-	}
-	if _, seen := visited[member.ID()]; seen {
-		return nil, false, nil
-	}
-	visited[member.ID()] = struct{}{}
-	affiliationIDs := member.SubstitutionGroupAffiliations()
-	affiliationLocs := member.SubstitutionGroupAffiliationLocations()
-	if len(affiliationIDs) != len(affiliationLocs) {
-		return nil, false, newCodegenInternal(
-			member.Loc(),
-			fmt.Sprintf("global element %q has mismatched substitution-group facts", member.Name()),
-			nil,
-			errCodegenDirectChoiceTarget,
-		)
-	}
-	for index, affiliationID := range affiliationIDs {
-		if affiliationID.IsZero() || affiliationID.Source() == "" || affiliationID.Ordinal() == 0 {
-			return nil, false, newCodegenInternal(
-				member.Loc(),
-				fmt.Sprintf("global element %q has an invalid substitution-group target identity", member.Name()),
-				appendCodegenRelated(nil, affiliationLocs[index]),
-				errCodegenDirectChoiceTarget,
-			)
-		}
-		parentComponent, ok := schema.Lookup(affiliationID)
-		if !ok {
-			return nil, false, newCodegenInternal(
-				member.Loc(),
-				fmt.Sprintf("global element %q substitution-group target identity is absent from the completed schema", member.Name()),
-				appendCodegenRelated(nil, affiliationLocs[index]),
-				errCodegenDirectChoiceTarget,
-			)
-		}
-		if parentComponent.Kind() != ComponentKindElementDeclaration {
-			return nil, false, newCodegenInternal(
-				member.Loc(),
-				fmt.Sprintf("global element %q substitution-group target has component kind %q", member.Name(), parentComponent.Kind()),
-				appendCodegenRelated(nil, affiliationLocs[index]),
-				errCodegenDirectChoiceTarget,
-			)
-		}
-		parent, ok := parentComponent.ElementDeclaration()
-		if !ok || parent.facts == nil || parent.ID() != affiliationID {
-			return nil, false, newCodegenInternal(
-				member.Loc(),
-				fmt.Sprintf("global element %q substitution-group target has incomplete declaration facts", member.Name()),
-				appendCodegenRelated(nil, affiliationLocs[index]),
-				errCodegenDirectChoiceTarget,
-			)
-		}
-		if parent.ID() == headID {
-			return []Loc{affiliationLocs[index]}, true, nil
-		}
-		path, found, err := codegenDirectChoiceSubstitutionPath(schema, parent, headID, visited)
-		if err != nil {
-			return nil, false, err
-		}
-		if found {
-			return append([]Loc{affiliationLocs[index]}, path...), true, nil
-		}
-	}
-	return nil, false, nil
 }
 
 func directChoiceNestedChoice(particle Particle) (ChoiceParticle, bool) {

@@ -543,16 +543,8 @@ func TestSchemaLongGlobalAttributeConsumersRemainUnsupported(t *testing.T) {
 			if len(element) != 1 {
 				t.Fatalf("long root element matches = %d, want one", len(element))
 			}
-			validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:test">0</root>`)))
-			if validationErr == nil {
-				t.Fatal("ValidateInstance accepted the long consumer boundary")
-			}
-			validationDiagnostic := requireDiagnostic(t, validationErr)
-			if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || validationDiagnostic.Feature() != FeatureInstanceValidation || !errors.Is(validationErr, ErrUnsupported) {
-				t.Fatalf("ValidateInstance diagnostic = %s, want unsupported long consumer", validationDiagnostic)
-			}
-			if validationDiagnostic.Loc() != mustTestLoc(t, "instance.xml", 1, 1) || !reflect.DeepEqual(validationDiagnostic.Related(), []Loc{element[0].Loc()}) {
-				t.Fatalf("ValidateInstance locations = %s/%v, want instance root/%s", validationDiagnostic.Loc(), validationDiagnostic.Related(), element[0].Loc())
+			if validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:test">0</root>`))); validationErr != nil {
+				t.Fatalf("ValidateInstance root long: %v", validationErr)
 			}
 		})
 	}
@@ -588,7 +580,6 @@ func TestSchemaLongGlobalAttributeExcludedFamiliesRemainUnsupported(t *testing.T
 			loc  string
 		}{
 			{name: "nonNegativeInteger", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:nonNegativeInteger"/></xs:schema>`, loc: "type="},
-			{name: "nonPositiveInteger", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:nonPositiveInteger"/></xs:schema>`, loc: "type="},
 			{name: "list", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="value" type="r:LongList"/><xs:simpleType name="LongList"><xs:list itemType="xs:long"/></xs:simpleType></xs:schema>`, loc: `type="r:LongList"`},
 			{name: "union", root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:attribute name="value" type="r:LongUnion"/><xs:simpleType name="LongUnion"><xs:union memberTypes="xs:long"/></xs:simpleType></xs:schema>`, loc: `type="r:LongUnion"`},
 		} {

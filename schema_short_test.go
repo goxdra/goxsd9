@@ -2,6 +2,7 @@ package goxsd9
 
 import (
 	"errors"
+	"io"
 	"os"
 	"reflect"
 	"strings"
@@ -290,16 +291,39 @@ func assertShortInvalidNoPartialSchema(t *testing.T, schema Schema, err error, c
 	}
 }
 
-func TestSchemaShortConsumersRemainUnsupported(t *testing.T) {
+//nolint:gocognit // Check each admitted global type shape at both consumer boundaries.
+func TestSchemaShortGlobalConsumersByTypeShape(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="p:short"/></xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			if err != nil {
-				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
-			}
-			assertIntegerDerivedConsumersUnsupported(t, schema)
-		})
+		for _, test := range []struct{ name, body string }{
+			{"direct", `<xs:element name="value" type="xs:short"/>`},
+			{"named", `<xs:element name="value" type="t:Alias"/><xs:simpleType name="Alias"><xs:restriction base="xs:short"/></xs:simpleType>`},
+			{"inline", `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:element>`},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
+				}
+				output, err := GenerateGo(schema, "generated")
+				if output != nil || err == nil {
+					t.Fatalf("GenerateGo result = (%q, %v), want unsupported with no source", output, err)
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:element name="value"`) || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("GenerateGo diagnostic = %s, want explicit unsupported", diagnostic)
+				}
+				declaration := requireShortElement(t, schema, "value", "urn:test")
+				if test.name == "inline" {
+					assertGlobalIntegerDerivedValidationUnsupported(t, schema, "value", []Loc{declaration.Loc()})
+					return
+				}
+				input := `<value xmlns="urn:test">32767</value>`
+				if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+					t.Fatalf("ValidateInstance(%s): %v", test.name, err)
+				}
+			})
+		}
 	}
 }
 

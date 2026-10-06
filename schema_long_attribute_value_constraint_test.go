@@ -260,12 +260,8 @@ func TestLongAttributeConstraintConsumersRemainUnsupported(t *testing.T) {
 			t.Fatalf("GenerateGo = %s", diagnostic)
 		}
 		err = ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:root">1</root>`)))
-		if err == nil {
-			t.Fatalf("%s ValidateInstance accepted long", profile.name)
-		}
-		diagnostic = requireDiagnostic(t, err)
-		if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedInstanceValidationCode || diagnostic.Loc() != mustTestLoc(t, "instance.xml", 1, 1) || !errors.Is(err, ErrUnsupported) {
-			t.Fatalf("ValidateInstance = %s", diagnostic)
+		if err != nil {
+			t.Fatalf("%s ValidateInstance root long: %v", profile.name, err)
 		}
 	}
 }

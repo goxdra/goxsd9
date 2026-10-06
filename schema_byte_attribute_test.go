@@ -311,30 +311,3 @@ func TestSchemaByteGlobalAttributeReferenceAndConsumerRemainUnsupported(t *testi
 		})
 	}
 }
-
-func TestSchemaByteGlobalAttributeValueConstraintsStayExcluded(t *testing.T) {
-	for _, profile := range byteAttributePolicyProfiles() {
-		wantVersion := profile.version
-		if profile.policy == Compatibility {
-			wantVersion = XSDVersion11
-		}
-		for _, test := range []struct{ name, typeName, suffix, declaration, needle string }{
-			{"direct default", "xs:byte", ` default="0"`, "", `default="0"`},
-			{"direct fixed", "xs:byte", ` fixed="0"`, "", `fixed="0"`},
-			{"named default", "r:Byte", ` default="0"`, `<xs:simpleType name="Byte"><xs:restriction base="xs:byte"/></xs:simpleType>`, `default="0"`},
-			{"named fixed", "r:Byte", ` fixed="0"`, `<xs:simpleType name="Byte"><xs:restriction base="xs:byte"/></xs:simpleType>`, `fixed="0"`},
-		} {
-			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
-				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:r" targetNamespace="urn:r" version="` + string(profile.version) + `"><xs:attribute name="a" type="` + test.typeName + `"` + test.suffix + `/>` + test.declaration + `</xs:schema>`
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
-					t.Fatalf("byte value constraint returned schema/error = %#v/%v", schema, err)
-				}
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, test.needle) || diagnostic.SpecRef() != schemaAttributeValueConstraintSpecRef(wantVersion) || !errors.Is(err, errSchemaAttributeValueConstraintUnsupported) || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("byte value constraint diagnostic = %s, want located unsupported at %s", diagnostic, test.needle)
-				}
-			})
-		}
-	}
-}

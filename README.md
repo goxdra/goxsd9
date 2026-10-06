@@ -1,9 +1,8 @@
 # goxsd9
 
-goxsd9 parses XML Schema documents into an immutable component model. You can
-query the model, validate supported XML instances, or generate Go for supported
-schema components. Unsupported features return located diagnostics rather than
-partial schemas or output.
+goxsd9 parses XML Schema into an immutable component model. Query it, validate
+supported instances, or generate Go. Unsupported features return located
+diagnostics rather than partial schemas or output.
 
 ## Library
 
@@ -13,28 +12,30 @@ URNs and lexical schema locations; the library does not open paths or URLs.
 `ParseSchema` uses the Compatibility policy for mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects a graph-wide language policy. Schema queries
 and walks return immutable, deterministic views.
-Supported global elements retain ordered `xs:unique`, `xs:key`, and `xs:keyref`
-facts, including raw XPath expressions, namespace context, and resolved keyref
-targets. Instance validation and Go generation reject these declarations until
-identity semantics are implemented.
+Supported global elements retain ordered `xs:unique`, `xs:key`, and `xs:keyref` facts
+with XPath, namespaces, and resolved keyref targets. Validation and generation reject
+them until identity semantics are implemented.
 
-`ValidateInstance(schema, sourceID, reader)` checks one XML instance;
-`GenerateGo(schema, packageName)` returns Go source. A component can be
-queryable even when one or both consumers reject it.
-Grouped complex-content extensions resolve one opaque group reference and
-ordered local attribute uses over a supported named empty base. Validated
-`0/0` omits the particle, and prohibited uses may leave no effective uses.
-See the [package contract](doc.go) for public behavior and current limits, the
-[architecture](ARCHITECTURE.md#schema-model) for admission and consumer
-boundaries, and [decision 0007](docs/decisions/0007-particle-occurrence.md)
-for exact particle occurrences and `0/0` omission.
+`ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
+built-in/named `xs:short`/`xs:int`/`xs:long`/`xs:unsignedLong` and bounded precisionDecimal lists/unions;
+`GenerateGo(schema, packageName)` emits global `xs:long`: built-in fields use
+`StrictInteger`; named fields use generated types backed by it. Global long attributes are query-only.
+Grouped extensions retain refs/attributes; `0/0` omits.
+See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model),
+and [decision 0007](docs/decisions/0007-particle-occurrence.md) for details.
 
-Direct choices, sequences, and bounded attribute-free extensions retain local built-in
-`xs:long` and supported named effective-long particles as query-only immutable facts.
+Direct choices, sequences, and bounded attribute-free extensions admit
+built-in/named long locals as query-only; valid inline `0/0` omits, nonzero rejects admission.
+`GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
+default integer/decimal sequence refs; other reference targets or occurrences reject.
+Direct named-complex `xs:all` retains ordered built-in/named integer/decimal/Boolean, built-in `xs:string`,
+built-in/named effective `xs:token`/`xs:NMTOKEN`, built-in `xs:negativeInteger`/`xs:nonNegativeInteger`,
+and refs with exact bounds; consumers reject it.
+Compatibility/Strict11 expose QName-only `notQName` on direct strict `xs:any`; consumers reject nonzero wildcards.
 
 ## CLI
 
-The `goxsd9` command provides `parse`, `validate`, and `generate`:
+`goxsd9` provides `parse`, `validate`, and `generate`:
 
 ```sh
 go run ./cmd/goxsd9 parse schema.xsd
