@@ -105,6 +105,7 @@ QName locals/attributes/facets/values and consumers reject.
 
 ## Datatypes
 
+Lexical/value forms differ.
 QName value conversion needs namespace context and remains unsupported.
 Datatypes map string enumeration, arbitrary precision, exact Compatibility/Strict11
 precisionDecimal facets, Boolean whitespace; broader facets/temporal values reject.
@@ -126,7 +127,7 @@ reject at instance use `Loc`, relating the first constraint.
 Local Boolean/integer/decimal sequences/default choices honor ranges; homogeneous
 token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
 Anonymous/mixed/extension consumers reject outside bounded sequences; nonzero
-`xs:any` is query-only. Direct-choice refs to unconstrained global
+`xs:any` is query-only. Default direct-choice refs to unconstrained global
 Boolean/integer/decimal validate; constrained targets reject with related `Loc`.
 SimpleContent uses built-in string with selected precisionDecimal attributes, or
 built-in/named effective precisionDecimal; named effective string excludes.
@@ -138,6 +139,7 @@ Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-atomic-
 and named/global `nonNegativeInteger`/`long`. Standalone `normalizedString` rejects.
 Globals require `abstract=false,nillable=false`; violations yield `GOXSD9029`.
 Identity constraints yield `FailureUnsupported`/`GOXSD9029` at first constraint `Loc`.
+Rejections return nil output.
 Default integer/decimal sequence refs preserve TargetID/order; others unsupported.
 `nonNegativeInteger` uses `StrictInteger`; canonical built-in integer facts have
 `fractionDigits=0` and `minInclusive=0`; named bounds/facets survive.
