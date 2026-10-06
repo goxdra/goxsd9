@@ -306,17 +306,27 @@ func TestSchemaShortGlobalConsumersByTypeShape(t *testing.T) {
 					t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
 				}
 				output, err := GenerateGo(schema, "generated")
-				if output != nil || err == nil {
-					t.Fatalf("GenerateGo result = (%q, %v), want unsupported with no source", output, err)
-				}
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:element name="value"`) || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("GenerateGo diagnostic = %s, want explicit unsupported", diagnostic)
-				}
 				declaration := requireShortElement(t, schema, "value", "urn:test")
 				if test.name == "inline" {
+					if output != nil || err == nil {
+						t.Fatalf("GenerateGo inline = (%q, %v), want nil unsupported output", output, err)
+					}
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported || diagnostic.Loc() != declaration.Loc() || !errors.Is(err, ErrUnsupported) {
+						t.Fatalf("GenerateGo diagnostic = %s, want explicit unsupported", diagnostic)
+					}
 					assertGlobalIntegerDerivedValidationUnsupported(t, schema, "value", []Loc{declaration.Loc()})
 					return
+				}
+				if err != nil || len(output) == 0 {
+					t.Fatalf("GenerateGo %s = (%q, %v), want source", test.name, output, err)
+				}
+				field := "Runtime.StrictInteger"
+				if test.name == "named" {
+					field = "Alias"
+				}
+				if !strings.Contains(string(output), "Value "+field) {
+					t.Fatalf("GenerateGo %s lost field type %s: %s", test.name, field, output)
 				}
 				input := `<value xmlns="urn:test">32767</value>`
 				if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {

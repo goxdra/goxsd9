@@ -136,18 +136,19 @@ precedes facets; the first failure retains instance and related schema locations
 Occurrence and scalar failures differ. `xsi:schemaLocation` never resolves.
 
 Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
-types, global built-in/named elements of those types, inline global string/token/NMTOKEN, and
-named/global `nonNegativeInteger` and `long`. Standalone `normalizedString` rejects. Global elements require
-`abstract=false,nillable=false`; violations yield `GOXSD9029` and nil output.
-Identity constraints yield `FailureUnsupported`/`GOXSD9029` at first constraint `Loc`; no output.
+types, global built-in/named elements of those types, inline global string/token/NMTOKEN,
+and named/global `nonNegativeInteger`/`short`/`long`. `normalizedString` rejects.
+Globals require `abstract=false,nillable=false`; violations yield `GOXSD9029` and nil output.
+Identity constraints yield `GOXSD9029` at first `Loc`; no output.
 Default integer/decimal sequence refs preserve TargetID/order; others unsupported.
 `nonNegativeInteger` uses `StrictInteger`; canonical built-in integer facts have
 `fractionDigits=0` and `minInclusive=0`; named bounds/facets survive.
-Unsupported final/variety/effective-facet states yield `GOXSD9029`; malformed
+Short bounds: [-32768,32767]; named facets persist. Both use `StrictInteger`;
+malformed facts yield `GOXSD9030`, nil output. Unsupported final/variety/effective-facet states yield `GOXSD9029`; malformed
 facts yield `GOXSD9030`; nil output. Nonzero inline
 `nonNegativeInteger` has no schema; built-in/named locals query-only, `0/0`
-absent. Global `int`/`short`/`byte`/`unsignedLong`/`positiveInteger`
-and `nonNegativeInteger`/`long` refs are query-only. `IntegerBounds()` copies
+absent. Global `int`/`byte`/`unsignedLong`/`positiveInteger` and
+`nonNegativeInteger`/`short`/`long` refs are query-only. `IntegerBounds()` copies
 built-in/named bounds; negativeInteger max=-1, positiveInteger min=1, named
 restrictions retain provenance. Local generation admits default
 Boolean/integer/decimal choices/sequences and all-token choices; other local
