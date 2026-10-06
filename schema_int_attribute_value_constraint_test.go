@@ -202,7 +202,7 @@ func TestSchemaIntAttributeConstraintExcludedShapes(t *testing.T) {
 		}{
 			{"local direct", `<xs:complexType name="C"><xs:attribute name="a" type="xs:int" default="1"/></xs:complexType>`, `default="1"`, errSchemaAttributeUseUnsupported},
 			{"local named", `<xs:complexType name="C"><xs:attribute name="a" type="r:Int" fixed="1"/></xs:complexType><xs:simpleType name="Int"><xs:restriction base="xs:int"/></xs:simpleType>`, `fixed="1"`, errSchemaAttributeUseUnsupported},
-			{"global inline", `<xs:attribute name="a" default="1"><xs:simpleType><xs:restriction base="xs:int"/></xs:simpleType></xs:attribute>`, `<xs:simpleType>`, ErrUnsupported},
+			{"global inline", `<xs:attribute name="a" default="1"><xs:simpleType><xs:restriction base="xs:int"/></xs:simpleType></xs:attribute>`, `default="1"`, errSchemaAttributeValueConstraintUnsupported},
 			{"local inline", `<xs:complexType name="C"><xs:attribute name="a" fixed="1"><xs:simpleType><xs:restriction base="xs:int"/></xs:simpleType></xs:attribute></xs:complexType>`, `fixed="1"`, errSchemaAttributeUseUnsupported},
 			{"local ref", `<xs:attribute name="a" type="xs:int" default="1"/><xs:complexType name="C"><xs:attribute ref="r:a"/></xs:complexType>`, `ref="r:a"`, errSchemaAttributeReferenceUnsupported},
 			{"local named ref", `<xs:attribute name="a" type="r:Int" fixed="1"/><xs:simpleType name="Int"><xs:restriction base="xs:int"/></xs:simpleType><xs:complexType name="C"><xs:attribute ref="r:a"/></xs:complexType>`, `ref="r:a"`, errSchemaAttributeReferenceUnsupported},
@@ -216,7 +216,7 @@ func TestSchemaIntAttributeConstraintExcludedShapes(t *testing.T) {
 				diagnostic := requireDiagnostic(t, err)
 				wantSpecRef := schemaAttributeUseSpecRef(profile.version)
 				if test.name == "global inline" {
-					wantSpecRef = "xsd10-structures#schema-document"
+					wantSpecRef = schemaAttributeValueConstraintSpecRef(profile.version)
 				}
 				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, test.marker) || diagnostic.SpecRef() != wantSpecRef || !errors.Is(err, ErrUnsupported) || !errors.Is(err, test.cause) {
 					t.Fatalf("excluded shape diagnostic = %s with SpecRef %q, want unsupported at %s with %v and SpecRef %q", diagnostic, diagnostic.SpecRef(), test.marker, test.cause, wantSpecRef)
