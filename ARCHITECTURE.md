@@ -85,10 +85,10 @@ are leaves; `string` only occurs inside a list/union. Forward/imported named
 members resolve before publication.
 Default/fixed: built-in/named Boolean/integer/decimal/token/negativeInteger/nonPositiveInteger/positiveInteger/long/int/short/byte/unsignedLong; policy-gated `precisionDecimal`.
 Integer values/facets exact; unsignedLong lexical: digits-only XSD 1.0, signed/-0 XSD 1.1.
-Unsupported types/local list/union attribute uses have located diagnostics;
-inline global value constraints fail at their `Loc` without schema. Invalid values
-retain lexical/facet causes and related `Loc`s; conflicts locate fixed/default.
-Type-only remains unconstrained; global attribute consumers reject.
+Unsupported types/local refs to global inline lists/unions have located diagnostics;
+local refs to inline atomics stay query-only. Global inline defaults/fixed fail
+at value `Loc` without schema; invalid values retain lexical/facet causes/related
+`Loc`s. Conflicts locate fixed/default; type-only unconstrained; global attribute consumers reject.
 
 Complexes retain abstract/final provenance, ordered groups/extensions, and
 wildcards. `xs:any` admits positive sets, XSD 1.1 strict/lax/skip `notNamespace`,
@@ -97,8 +97,8 @@ chameleon adoption, and `0/0` omission. Compatibility/Strict11 direct strict
 Inconsistent exclusions fail before omission; consumers/broader forms reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline complexes retain IDs outside walks; lists/unions, sequences, bounded
-attributes retain order. List attributes need precisionDecimal; unions also admit
-negativeInteger. Strict10 rejects precisionDecimal. Element refs retain ranges.
+attributes retain order. Bounded local lists use precisionDecimal; unions pair
+precisionDecimal/negativeInteger. Strict10 rejects precisionDecimal. Element refs retain ranges.
 Strings validate with bounded varieties; `normalizedString` supports replace
 whitespace/facets. Facet-free `QName` varieties/global refs retain context;
 QName locals/attributes/facets/values and consumers reject.
