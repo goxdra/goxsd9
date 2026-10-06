@@ -34,6 +34,15 @@ const (
 	// InvalidInstanceSequenceCode identifies invalid direct-sequence content in
 	// an XML instance.
 	InvalidInstanceSequenceCode = "XSD4006"
+	// InvalidInstanceSequenceOrderCode identifies an out-of-order element in a
+	// precisionDecimal direct sequence.
+	InvalidInstanceSequenceOrderCode = "XSD4010"
+	// InvalidInstanceSequenceOccurrenceCode identifies a violated occurrence
+	// bound in a precisionDecimal direct sequence.
+	InvalidInstanceSequenceOccurrenceCode = "XSD4012"
+	// InvalidInstanceSequenceUnexpectedCode identifies an undeclared child of a
+	// precisionDecimal direct sequence.
+	InvalidInstanceSequenceUnexpectedCode = "XSD4011"
 	// InvalidInstanceAttributeCode identifies invalid local attribute structure.
 	InvalidInstanceAttributeCode = "XSD4007"
 )
@@ -101,6 +110,8 @@ var (
 	errInstanceSequenceTarget          = errors.New("sequence particle has an unsupported target")
 	errInstanceSequenceMixed           = errors.New("sequence type mixes unsupported particle forms")
 	errInstanceSequenceMissing         = errors.New("sequence instance is missing a required element")
+	errInstanceSequenceOrder           = errors.New("sequence instance has an out-of-order element")
+	errInstanceSequenceOccurrence      = errors.New("sequence instance exceeds an occurrence bound")
 	errInstanceSequenceUnexpected      = errors.New("sequence instance has an unexpected element")
 	errInstanceSequenceText            = errors.New("sequence instance has non-whitespace parent text")
 	errInstanceSequenceNested          = errors.New("sequence scalar element has nested content")
@@ -208,7 +219,8 @@ type instanceChoiceProgram struct {
 // ordered direct sequences with local or referenced simple children. Local precisionDecimal uses also
 // validate on supported empty-content roots and direct sequences of
 // attribute-bearing children; simpleContent text accepts supported string or
-// precisionDecimal atomic bases. Direct choices accept
+// precisionDecimal atomic bases. Inline complex roots admit direct
+// precisionDecimal-only sequences. Direct choices accept
 // default-occurrence local Boolean, token, NMTOKEN, integer, decimal, or
 // precisionDecimal elements whose type references are built-in or named, and
 // default-occurrence references to global Boolean, integer, and decimal
@@ -221,7 +233,9 @@ type instanceChoiceProgram struct {
 // precisionDecimal uses or precisionDecimal simpleContent without uses.
 // Bounded list/union direct sequences validate anonymous integer and
 // negativeInteger siblings, including global anonymous integer/precisionDecimal
-// reference targets. Other modeled anonymous local inline atomic references
+// reference targets. PrecisionDecimal-only direct sequences admit either
+// built-in/named locals or global refs, with exact occurrences. Other modeled
+// anonymous local inline atomic references
 // remain schema-queryable only: ordinary direct choice/sequence target checks
 // return a located FailureUnsupported/ErrUnsupported diagnostic with
 // element/particle locations and may include the anonymous type location in
