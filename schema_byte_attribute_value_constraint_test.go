@@ -239,8 +239,12 @@ func TestSchemaByteAttributeConstraintExcludedShapes(t *testing.T) {
 				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, test.marker) || diagnostic.SpecRef() == "" || !errors.Is(err, ErrUnsupported) || !errors.Is(err, test.cause) {
 					t.Fatalf("excluded shape diagnostic = %s, want unsupported at %s with %v", diagnostic, test.marker, test.cause)
 				}
-				if test.name == "global inline" && diagnostic.SpecRef() != schemaAttributeValueConstraintSpecRef(profile.version) {
-					t.Fatalf("inline value SpecRef = %q", diagnostic.SpecRef())
+				version := profile.version
+				if profile.policy == Compatibility {
+					version = XSDVersion11
+				}
+				if test.name == "global inline" && diagnostic.SpecRef() != schemaAttributeValueConstraintSpecRef(version) {
+					t.Fatalf("inline value SpecRef = %q, want edition %s", diagnostic.SpecRef(), version)
 				}
 				if test.name == "local ref" && !reflect.DeepEqual(diagnostic.Related(), []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="a"`)}) {
 					t.Fatalf("local ref related = %v", diagnostic.Related())
