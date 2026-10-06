@@ -114,36 +114,53 @@ func TestWildcardQNameValidatedZeroZeroOmitsBeforeConsumers(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse validated 0/0: %v", err)
 			}
-			definition := directWildcardDefinition(t, schema)
-			var terms []Particle
-			switch typed := definition.Particle().(type) {
-			case ChoiceParticle:
-				terms = typed.Alternatives()
-			case SequenceParticle:
-				terms = typed.Particles()
-			default:
-				t.Fatalf("particle = %T, want direct model", definition.Particle())
-			}
-			for _, term := range terms {
-				if _, ok := wildcardParticleValue(term); ok {
-					t.Fatal("0/0 wildcard remained in public particle")
-				}
-			}
-			instance := `<root xmlns="urn:root"><first xmlns="">1</first></root>`
-			if model == "sequence" {
-				instance = `<root xmlns="urn:root"><first xmlns="">1</first><last xmlns="">2</last></root>`
-			}
-			if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(instance))); err != nil {
-				t.Fatalf("validate after 0/0 omission: %v", err)
-			}
-			if generated, err := GenerateGo(schema, "generated"); err != nil || len(generated) == 0 {
-				t.Fatalf("generation after 0/0 omission = (%d bytes, %v)", len(generated), err)
-			}
+			assertWildcardQNameOmittedTerm(t, directWildcardDefinition(t, schema).Particle())
+			assertWildcardQNameOmittedConsumers(t, schema, model)
 		})
 	}
 }
 
-//nolint:gocognit // Keep discovery order, graph cycle, provenance, and copied public facts together.
+func assertWildcardQNameOmittedTerm(t *testing.T, particle Particle) {
+	t.Helper()
+	var terms []Particle
+	switch typed := particle.(type) {
+	case ChoiceParticle:
+		terms = typed.Alternatives()
+	case SequenceParticle:
+		terms = typed.Particles()
+	default:
+		t.Fatalf("particle = %T, want direct model", particle)
+	}
+	for _, term := range terms {
+		if _, ok := wildcardParticleValue(term); ok {
+			t.Fatal("0/0 wildcard remained in public particle")
+		}
+	}
+}
+
+func assertWildcardQNameOmittedConsumers(t *testing.T, schema Schema, model string) {
+	t.Helper()
+	instance := `<root xmlns="urn:root"><first xmlns="">1</first></root>`
+	if model == "sequence" {
+		instance = `<root xmlns="urn:root"><first xmlns="">1</first><last xmlns="">2</last></root>`
+	}
+	if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(instance))); err != nil {
+		t.Fatalf("validate after 0/0 omission: %v", err)
+	}
+	if generated, err := GenerateGo(schema, "generated"); err != nil || len(generated) == 0 {
+		t.Fatalf("generation after 0/0 omission = (%d bytes, %v)", len(generated), err)
+	}
+}
+
+type wildcardQNameGraphWant struct {
+	name       QName
+	source     SourceID
+	document   string
+	lexical    string
+	names      []QName
+	defaultURI string
+}
+
 func TestWildcardQNameComposedGraphProvenance(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`
 	child := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="urn:p"><xs:complexType name="Included"><xs:choice><xs:any namespace="##targetNamespace urn:p" notQName="local p:item local"/></xs:choice></xs:complexType></xs:schema>`
@@ -158,82 +175,94 @@ func TestWildcardQNameComposedGraphProvenance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("run %d: parse composed graph: %v", run, err)
 		}
-		documents := schema.Documents()
-		if len(documents) != 3 {
-			t.Fatalf("run %d: documents = %d, want 3 unique identities", run, len(documents))
+		assertWildcardQNameGraphDocuments(t, schema.Documents(), run)
+		assertWildcardQNameGraphComponents(t, schema, child, other, run)
+	}
+}
+
+func assertWildcardQNameGraphDocuments(t *testing.T, documents []SchemaDocument, run int) {
+	t.Helper()
+	if len(documents) != 3 {
+		t.Fatalf("run %d: documents = %d, want 3 unique identities", run, len(documents))
+	}
+	for index, want := range []SourceID{"root.xsd", "child.xsd", "other.xsd"} {
+		if documents[index].Source() != want {
+			t.Fatalf("run %d: document %d source = %q, want %q", run, index, documents[index].Source(), want)
 		}
-		for index, want := range []SourceID{"root.xsd", "child.xsd", "other.xsd"} {
-			if documents[index].Source() != want {
-				t.Fatalf("run %d: document %d source = %q, want %q", run, index, documents[index].Source(), want)
+	}
+}
+
+func assertWildcardQNameGraphComponents(t *testing.T, schema Schema, child, other string, run int) {
+	t.Helper()
+	components := schema.Components()
+	if len(components) != 2 {
+		t.Fatalf("run %d: components = %d, want 2", run, len(components))
+	}
+	wantComponents := []wildcardQNameGraphWant{
+		{mustTestQName(t, "urn:root", "Included"), "child.xsd", child, "local p:item local", []QName{mustTestQName(t, "urn:p", "item"), mustTestQName(t, "urn:root", "local")}, ""},
+		{mustTestQName(t, "urn:other", "Imported"), "other.xsd", other, "local", []QName{mustTestQName(t, "urn:other", "local")}, "urn:other"},
+	}
+	walked := make([]ComponentID, 0, len(components))
+	if err := schema.Walk(func(component Component) error {
+		walked = append(walked, component.ID())
+		return nil
+	}); err != nil {
+		t.Fatalf("run %d: walk schema: %v", run, err)
+	}
+	for index, want := range wantComponents {
+		component := components[index]
+		if component.Name() != want.name || component.ID() != walked[index] {
+			t.Fatalf("run %d: component %d = %s/%v, want %s/%v", run, index, component.Name(), component.ID(), want.name, walked[index])
+		}
+		assertWildcardQNameGraphComponent(t, component, want, run, index)
+	}
+}
+
+func assertWildcardQNameGraphComponent(t *testing.T, component Component, want wildcardQNameGraphWant, run, index int) {
+	t.Helper()
+	definition, ok := component.ComplexType()
+	if !ok {
+		t.Fatalf("run %d: component %d is not a complex type", run, index)
+	}
+	wildcard := directWildcardFromParticle(t, definition.Particle())
+	constraint := wildcard.QNameConstraint()
+	wantLoc := wildcardQNameDocumentLoc(t, want.source, want.document, `notQName="`+want.lexical+`"`)
+	if !constraint.Present() || constraint.LexicalForm() != want.lexical || constraint.Loc() != wantLoc ||
+		wildcard.Loc().Source() != want.source || !reflect.DeepEqual(constraint.Names(), want.names) {
+		t.Fatalf("run %d: component %d QName facts = %#v, wildcard %s", run, index, constraint, wildcard.Loc())
+	}
+	if got := constraint.Tokens(); len(got) == 0 || got[0] != "local" {
+		t.Fatalf("run %d: component %d lexical tokens = %v", run, index, got)
+	}
+	bindings := constraint.NamespaceBindings()
+	assertWildcardQNameGraphDefaultBinding(t, bindings, want.defaultURI, run, index)
+	if len(bindings) > 0 {
+		bindings[0].Namespace = "changed"
+	}
+	tokens := constraint.Tokens()
+	tokens[0] = "changed"
+	names := constraint.Names()
+	names[0] = QName{}
+	again := wildcard.QNameConstraint()
+	if again.Tokens()[0] != "local" || !reflect.DeepEqual(again.Names(), want.names) ||
+		len(bindings) > 0 && again.NamespaceBindings()[0].Namespace == "changed" {
+		t.Fatalf("run %d: component %d leaked mutable QName facts", run, index)
+	}
+}
+
+func assertWildcardQNameGraphDefaultBinding(t *testing.T, bindings []IdentityNamespaceBinding, wantURI string, run, index int) {
+	t.Helper()
+	foundDefault := false
+	for _, binding := range bindings {
+		if binding.Prefix == "" {
+			foundDefault = true
+			if binding.Namespace != wantURI {
+				t.Fatalf("run %d: component %d default binding = %q, want %q", run, index, binding.Namespace, wantURI)
 			}
 		}
-		components := schema.Components()
-		if len(components) != 2 {
-			t.Fatalf("run %d: components = %d, want 2", run, len(components))
-		}
-		wantComponents := []struct {
-			name       QName
-			source     SourceID
-			document   string
-			lexical    string
-			names      []QName
-			defaultURI string
-		}{
-			{mustTestQName(t, "urn:root", "Included"), "child.xsd", child, "local p:item local", []QName{mustTestQName(t, "urn:p", "item"), mustTestQName(t, "urn:root", "local")}, ""},
-			{mustTestQName(t, "urn:other", "Imported"), "other.xsd", other, "local", []QName{mustTestQName(t, "urn:other", "local")}, "urn:other"},
-		}
-		walked := make([]ComponentID, 0, len(components))
-		if err := schema.Walk(func(component Component) error {
-			walked = append(walked, component.ID())
-			return nil
-		}); err != nil {
-			t.Fatalf("run %d: walk schema: %v", run, err)
-		}
-		for index, want := range wantComponents {
-			component := components[index]
-			if component.Name() != want.name || component.ID() != walked[index] {
-				t.Fatalf("run %d: component %d = %s/%v, want %s/%v", run, index, component.Name(), component.ID(), want.name, walked[index])
-			}
-			definition, ok := component.ComplexType()
-			if !ok {
-				t.Fatalf("run %d: component %d is not a complex type", run, index)
-			}
-			wildcard := directWildcardFromParticle(t, definition.Particle())
-			constraint := wildcard.QNameConstraint()
-			wantLoc := wildcardQNameDocumentLoc(t, want.source, want.document, `notQName="`+want.lexical+`"`)
-			if !constraint.Present() || constraint.LexicalForm() != want.lexical || constraint.Loc() != wantLoc ||
-				wildcard.Loc().Source() != want.source || !reflect.DeepEqual(constraint.Names(), want.names) {
-				t.Fatalf("run %d: component %d QName facts = %#v, wildcard %s", run, index, constraint, wildcard.Loc())
-			}
-			if got := constraint.Tokens(); len(got) == 0 || got[0] != "local" {
-				t.Fatalf("run %d: component %d lexical tokens = %v", run, index, got)
-			}
-			bindings := constraint.NamespaceBindings()
-			foundDefault := false
-			for _, binding := range bindings {
-				if binding.Prefix == "" {
-					foundDefault = true
-					if binding.Namespace != want.defaultURI {
-						t.Fatalf("run %d: component %d default binding = %q, want %q", run, index, binding.Namespace, want.defaultURI)
-					}
-				}
-			}
-			if want.defaultURI != "" && !foundDefault {
-				t.Fatalf("run %d: component %d missing default binding", run, index)
-			}
-			if len(bindings) > 0 {
-				bindings[0].Namespace = "changed"
-			}
-			tokens := constraint.Tokens()
-			tokens[0] = "changed"
-			names := constraint.Names()
-			names[0] = QName{}
-			again := wildcard.QNameConstraint()
-			if again.Tokens()[0] != "local" || !reflect.DeepEqual(again.Names(), want.names) ||
-				len(bindings) > 0 && again.NamespaceBindings()[0].Namespace == "changed" {
-				t.Fatalf("run %d: component %d leaked mutable QName facts", run, index)
-			}
-		}
+	}
+	if wantURI != "" && !foundDefault {
+		t.Fatalf("run %d: component %d missing default binding", run, index)
 	}
 }
 
