@@ -124,6 +124,47 @@ func TestGlobalAttributeInlineSimpleTypeFactsAcrossPolicies(t *testing.T) {
 	}
 }
 
+func TestGlobalAttributeInlineIntegratedIntegerDerivatives(t *testing.T) {
+	for _, profile := range curatorPolicyProfiles() {
+		for _, test := range []struct {
+			name, bound string
+			minimum     bool
+		}{
+			{name: "positiveInteger", bound: "1", minimum: true},
+			{name: "nonPositiveInteger", bound: "0"},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:` + test.name + `"/></xs:simpleType></xs:attribute></xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatalf("inline %s attribute: %v", test.name, err)
+				}
+				if len(schema.Components()) != 1 {
+					t.Fatalf("inline %s components = %d, want 1", test.name, len(schema.Components()))
+				}
+				declaration, ok := schema.Components()[0].AttributeDeclaration()
+				inline, hasInline := declaration.InlineSimpleType()
+				base, hasBase := inline.BaseReference()
+				bounds, hasBounds := inline.IntegerBounds()
+				if !ok || !hasInline || !hasBase || !hasBounds || !base.IsBuiltin() || base.Name() != mustTestQName(t, testXSDNamespace, test.name) || base.Loc() != elementReferenceTestAttributeLoc(t, root, `base="xs:`+test.name+`"`) {
+					t.Fatalf("inline %s facts = %#v/%#v/%#v", test.name, declaration, base, bounds)
+				}
+				if test.minimum {
+					minimum, hasMinimum := bounds.MinInclusive()
+					if !hasMinimum || minimum.Canonical() != test.bound || bounds.HasMaxInclusive() {
+						t.Fatalf("inline %s bounds = %#v", test.name, bounds)
+					}
+					return
+				}
+				maximum, hasMaximum := bounds.MaxInclusive()
+				if !hasMaximum || maximum.Canonical() != test.bound || bounds.HasMinInclusive() {
+					t.Fatalf("inline %s bounds = %#v", test.name, bounds)
+				}
+			})
+		}
+	}
+}
+
 //nolint:gocognit // Each diagnostic exit asserts public code, location, cause, and edition reference.
 func TestGlobalAttributeInlineTypeExitsAcrossPolicies(t *testing.T) {
 	for _, profile := range curatorPolicyProfiles() {
@@ -135,8 +176,8 @@ func TestGlobalAttributeInlineTypeExitsAcrossPolicies(t *testing.T) {
 			{name: "type conflict", body: `<xs:attribute name="a" type="xs:integer"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:attribute>`, marker: `<xs:simpleType`, related: `type="xs:integer"`, code: invalidSchemaCompositionCode, spec: schemaAttributeTypeSpecRef(profile.version), class: FailureInvalid, cause: errSchemaAttributeInlineTypeConflict},
 			{name: "duplicate child", body: `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:attribute>`, marker: `<xs:simpleType`, related: `<xs:simpleType`, code: invalidSchemaCompositionCode, spec: schemaAttributeTypeSpecRef(profile.version), class: FailureInvalid, cause: errSchemaAttributeInlineTypeDuplicate},
 			{name: "unsupported value", body: `<xs:attribute name="a" fixed="2"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:attribute>`, marker: `fixed="2"`, code: UnsupportedSchemaSyntaxCode, spec: schemaAttributeValueConstraintSpecRef(profile.version), class: FailureUnsupported, cause: errSchemaAttributeValueConstraintUnsupported},
-			{name: "excluded builtin", body: `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, marker: `<xs:simpleType`, code: UnsupportedSchemaSyntaxCode, spec: schemaAttributeTypeSpecRef(profile.version), class: FailureUnsupported, cause: errSchemaAttributeTypeUnsupported},
-			{name: "excluded list member", body: `<xs:attribute name="a"><xs:simpleType><xs:list itemType="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, marker: `itemType="xs:positiveInteger"`, related: `<xs:simpleType`, code: UnsupportedSchemaSyntaxCode, spec: schemaAttributeTypeSpecRef(profile.version), class: FailureUnsupported, cause: errSchemaAttributeTypeUnsupported},
+			{name: "excluded builtin", body: `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType></xs:attribute>`, marker: `<xs:simpleType`, code: UnsupportedSchemaSyntaxCode, spec: schemaAttributeTypeSpecRef(profile.version), class: FailureUnsupported, cause: errSchemaAttributeTypeUnsupported},
+			{name: "excluded list member", body: `<xs:attribute name="a"><xs:simpleType><xs:list itemType="xs:nonNegativeInteger"/></xs:simpleType></xs:attribute>`, marker: `itemType="xs:nonNegativeInteger"`, related: `<xs:simpleType`, code: UnsupportedSchemaSyntaxCode, spec: schemaAttributeTypeSpecRef(profile.version), class: FailureUnsupported, cause: errSchemaAttributeTypeUnsupported},
 			{name: "excluded union member", body: `<xs:attribute name="a"><xs:simpleType><xs:union memberTypes="xs:QName"/></xs:simpleType></xs:attribute>`, marker: `memberTypes="xs:QName"`, related: `<xs:simpleType`, code: UnsupportedSchemaSyntaxCode, spec: schemaAttributeTypeSpecRef(profile.version), class: FailureUnsupported, cause: errSchemaAttributeTypeUnsupported},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
@@ -161,6 +202,76 @@ func TestGlobalAttributeInlineTypeExitsAcrossPolicies(t *testing.T) {
 				}
 				if test.related != "" && !reflect.DeepEqual(diagnostic.Related(), []Loc{elementReferenceTestAttributeLoc(t, root, test.related)}) {
 					t.Fatalf("related locations = %v, want inline owner", diagnostic.Related())
+				}
+				if test.related == "" && len(diagnostic.Related()) != 0 {
+					t.Fatalf("unexpected related locations = %v", diagnostic.Related())
+				}
+			})
+		}
+	}
+}
+
+func TestGlobalAttributeInlineMalformedChildrenAcrossPolicies(t *testing.T) {
+	tests := []struct {
+		name, body, marker string
+	}{
+		{
+			name:   "missing model",
+			body:   `<xs:attribute name="a"><xs:simpleType/></xs:attribute>`,
+			marker: `<xs:simpleType/>`,
+		},
+		{
+			name:   "restriction without base",
+			body:   `<xs:attribute name="a"><xs:simpleType><xs:restriction/></xs:simpleType></xs:attribute>`,
+			marker: `<xs:restriction/>`,
+		},
+		{
+			name:   "list without item",
+			body:   `<xs:attribute name="a"><xs:simpleType><xs:list/></xs:simpleType></xs:attribute>`,
+			marker: `<xs:list/>`,
+		},
+		{
+			name:   "union without members",
+			body:   `<xs:attribute name="a"><xs:simpleType><xs:union/></xs:simpleType></xs:attribute>`,
+			marker: `<xs:union/>`,
+		},
+		{
+			name:   "restriction with two bases",
+			body:   `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:integer"><xs:simpleType><xs:list itemType="xs:integer"/></xs:simpleType></xs:restriction></xs:simpleType></xs:attribute>`,
+			marker: `<xs:simpleType><xs:list`,
+		},
+		{
+			name:   "list with two item sources",
+			body:   `<xs:attribute name="a"><xs:simpleType><xs:list itemType="xs:integer"><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:list></xs:simpleType></xs:attribute>`,
+			marker: `itemType="xs:integer"`,
+		},
+		{
+			name:   "inline final",
+			body:   `<xs:attribute name="a"><xs:simpleType final="restriction"><xs:restriction base="xs:integer"/></xs:simpleType></xs:attribute>`,
+			marker: `final="restriction"`,
+		},
+		{
+			name:   "duplicate model",
+			body:   `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:integer"/><xs:list itemType="xs:integer"/></xs:simpleType></xs:attribute>`,
+			marker: `<xs:list itemType=`,
+		},
+	}
+	for _, profile := range curatorPolicyProfiles() {
+		for _, test := range tests {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `">` + test.body + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil || schema.storage != nil {
+					t.Fatal("malformed inline child returned a schema or no error")
+				}
+				wantLoc := elementReferenceTestAttributeLoc(t, root, test.marker)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != wantLoc || len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != schemaSimpleTypeSpecRef(profile.version) || !errors.Is(err, errSchemaAttributeInlineTypeMalformed) {
+					t.Fatalf("malformed inline diagnostic = %s related %v, want invalid composition at %s with edition reference and cause", diagnostic, diagnostic.Related(), wantLoc)
+				}
+				var original Diagnostic
+				if !errors.As(diagnostic.Unwrap(), &original) || original.Code() != diagnostic.Code() || original.Loc() != wantLoc || original.Message() != diagnostic.Message() || original.SpecRef() != "" {
+					t.Fatalf("original located composition error was not preserved: %v", diagnostic.Unwrap())
 				}
 			})
 		}
@@ -255,6 +366,36 @@ func TestGlobalAttributeInlineMemberResolutionDiagnostics(t *testing.T) {
 				}
 				if test.related != "" && !reflect.DeepEqual(diagnostic.Related(), []Loc{elementReferenceTestAttributeLoc(t, root, test.related)}) {
 					t.Fatalf("member related = %v, want target declaration", diagnostic.Related())
+				}
+				if test.related == "" && len(diagnostic.Related()) != 0 {
+					t.Fatalf("unexpected member related locations = %v", diagnostic.Related())
+				}
+			})
+		}
+	}
+}
+
+func TestGlobalAttributeInlineMembersRespectGraphVisibility(t *testing.T) {
+	for _, profile := range curatorPolicyProfiles() {
+		for _, model := range []struct {
+			name, body, marker string
+		}{
+			{"list", `<xs:list itemType="f:Hidden"/>`, `itemType="f:Hidden"`},
+			{"union", `<xs:union memberTypes="f:Hidden"/>`, `memberTypes="f:Hidden"`},
+		} {
+			t.Run(profile.name+"/"+model.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:f="urn:foreign" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd"/><xs:attribute name="a"><xs:simpleType>` + model.body + `</xs:simpleType></xs:attribute></xs:schema>`
+				fixtures := map[string]discoveryFixture{
+					"child.xsd":   {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:import namespace="urn:foreign" schemaLocation="foreign.xsd"/></xs:schema>`},
+					"foreign.xsd": {id: "foreign.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:foreign"><xs:simpleType name="Hidden"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`},
+				}
+				schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+				if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
+					t.Fatalf("invisible inline member published schema: %v", err)
+				}
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaSimpleTypeUnresolvedCode || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, model.marker) || diagnostic.SpecRef() != schemaSimpleTypeSpecRef(profile.version) || len(diagnostic.Related()) != 0 || !errors.Is(err, errSchemaSimpleTypeBaseUnresolved) {
+					t.Fatalf("invisible inline member diagnostic = %s related %v", diagnostic, diagnostic.Related())
 				}
 			})
 		}

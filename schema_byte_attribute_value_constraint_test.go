@@ -225,7 +225,7 @@ func TestSchemaByteAttributeConstraintExcludedShapes(t *testing.T) {
 		}{
 			{"local direct", `<xs:complexType name="C"><xs:attribute name="a" type="xs:byte" default="1"/></xs:complexType>`, `default="1"`, errSchemaAttributeUseUnsupported},
 			{"local named", `<xs:complexType name="C"><xs:attribute name="a" type="r:Byte" fixed="1"/></xs:complexType><xs:simpleType name="Byte"><xs:restriction base="xs:byte"/></xs:simpleType>`, `fixed="1"`, errSchemaAttributeUseUnsupported},
-			{"global inline", `<xs:attribute name="a" default="1"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:attribute>`, `<xs:simpleType>`, ErrUnsupported},
+			{"global inline", `<xs:attribute name="a" default="1"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:attribute>`, `default="1"`, errSchemaAttributeValueConstraintUnsupported},
 			{"local inline", `<xs:complexType name="C"><xs:attribute name="a" fixed="1"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:attribute></xs:complexType>`, `fixed="1"`, errSchemaAttributeUseUnsupported},
 			{"local ref", `<xs:attribute name="a" type="xs:byte" default="1"/><xs:complexType name="C"><xs:attribute ref="r:a"/></xs:complexType>`, `ref="r:a"`, errSchemaAttributeReferenceUnsupported},
 		} {
@@ -238,6 +238,9 @@ func TestSchemaByteAttributeConstraintExcludedShapes(t *testing.T) {
 				diagnostic := requireDiagnostic(t, err)
 				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, test.marker) || diagnostic.SpecRef() == "" || !errors.Is(err, ErrUnsupported) || !errors.Is(err, test.cause) {
 					t.Fatalf("excluded shape diagnostic = %s, want unsupported at %s with %v", diagnostic, test.marker, test.cause)
+				}
+				if test.name == "global inline" && diagnostic.SpecRef() != schemaAttributeValueConstraintSpecRef(profile.version) {
+					t.Fatalf("inline value SpecRef = %q", diagnostic.SpecRef())
 				}
 				if test.name == "local ref" && !reflect.DeepEqual(diagnostic.Related(), []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="a"`)}) {
 					t.Fatalf("local ref related = %v", diagnostic.Related())

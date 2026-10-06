@@ -226,7 +226,7 @@ func TestPositiveIntegerConstrainedAttributeExclusions(t *testing.T) {
 			{"local direct", `<xs:complexType name="T"><xs:attribute name="a" type="xs:positiveInteger" default="1"/></xs:complexType>`, `default="1"`, ""},
 			{"local named", `<xs:simpleType name="L"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:complexType name="T"><xs:attribute name="a" type="r:L" fixed="1"/></xs:complexType>`, `fixed="1"`, ""},
 			{"local inline", `<xs:complexType name="T"><xs:attribute name="a" default="1"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute></xs:complexType>`, `default="1"`, ""},
-			{"global inline", `<xs:attribute name="a" fixed="1"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, "<xs:simpleType>", ""},
+			{"global inline", `<xs:attribute name="a" fixed="1"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, `fixed="1"`, ""},
 			{"ref direct", `<xs:attribute name="a" type="xs:positiveInteger" fixed="1"/><xs:complexType name="T"><xs:attribute ref="r:a"/></xs:complexType>`, `ref="r:a"`, `<xs:attribute name="a"`},
 			{"ref named", `<xs:simpleType name="L"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:attribute name="a" type="r:L" default="1"/><xs:complexType name="T"><xs:attribute ref="r:a"/></xs:complexType>`, `ref="r:a"`, `<xs:attribute name="a"`},
 		} {
@@ -249,6 +249,9 @@ func TestPositiveIntegerConstrainedAttributeExclusions(t *testing.T) {
 				}
 				if test.related == "" && d.SpecRef() != positiveIntegerExcludedAttributeSpecRef(profile.version, test.name) {
 					t.Fatalf("excluded SpecRef = %q", d.SpecRef())
+				}
+				if test.name == "global inline" && !errors.Is(err, errSchemaAttributeValueConstraintUnsupported) {
+					t.Fatalf("inline value diagnostic lost cause: %v", err)
 				}
 			})
 		}
@@ -287,7 +290,7 @@ func TestPositiveIntegerConstrainedAttributeExclusions(t *testing.T) {
 
 func positiveIntegerExcludedAttributeSpecRef(version XSDVersion, name string) string {
 	if name == "global inline" {
-		return "xsd10-structures#schema-document"
+		return schemaAttributeValueConstraintSpecRef(version)
 	}
 	return schemaAttributeUseSpecRef(version)
 }

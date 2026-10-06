@@ -162,6 +162,7 @@ var (
 	errSchemaAttributeTypeUnsupported            = errors.New("attribute type is unsupported")
 	errSchemaAttributeInlineTypeConflict         = errors.New("global attribute combines type attribute with inline simple type")
 	errSchemaAttributeInlineTypeDuplicate        = errors.New("global attribute has duplicate inline simple types")
+	errSchemaAttributeInlineTypeMalformed        = errors.New("global attribute inline simple type is malformed")
 	errSchemaAttributeUseUnsupported             = errors.New("attribute use is unsupported")
 	errSchemaAttributeReferenceUnresolved        = errors.New("attribute reference is unresolved")
 	errSchemaAttributeReferenceWrongKind         = errors.New("attribute reference has the wrong target kind")
@@ -1381,11 +1382,11 @@ func schemaAttributeTypeInput(element *syntaxElement, defaultFinal schemaSimpleT
 			return &schemaAttributeInput{valueConstraint: valueConstraint}, nil
 		}
 		if inlineErr := validateInlineSchemaTypeWithFacetBridge(inline, version, true); inlineErr != nil {
-			return nil, inlineErr
+			return nil, decorateMalformedSchemaAttributeInlineType(inlineErr, version)
 		}
 		simpleType, simpleTypeErr := schemaSimpleTypeInputFromElementWithDefault(inline, version, defaultFinal)
 		if simpleTypeErr != nil {
-			return nil, simpleTypeErr
+			return nil, decorateMalformedSchemaAttributeInlineType(simpleTypeErr, version)
 		}
 		inheritSchemaAttributeInlineFinal(simpleType, defaultFinal)
 		inheritable, inheritableErr := schemaAttributeInheritableValue(element)
@@ -1413,6 +1414,21 @@ func schemaAttributeTypeInput(element *syntaxElement, defaultFinal schemaSimpleT
 		inheritable:     inheritable,
 		valueConstraint: valueConstraint,
 	}, nil
+}
+
+func decorateMalformedSchemaAttributeInlineType(err error, version XSDVersion) error {
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.SpecRef() != "" {
+		return err
+	}
+	return newSchemaSimpleTypeDiagnostic(
+		diagnostic.Code(),
+		diagnostic.Loc(),
+		diagnostic.Message(),
+		diagnostic.Related(),
+		version,
+		errors.Join(errSchemaAttributeInlineTypeMalformed, err),
+	)
 }
 
 func inheritSchemaAttributeInlineFinal(input *schemaSimpleTypeInput, defaultFinal schemaSimpleTypeFinalPolicy) {

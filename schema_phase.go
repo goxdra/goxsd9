@@ -1713,7 +1713,7 @@ func validateAttributeGlobalChildren(parent *syntaxElement, children []*syntaxEl
 			simpleTypeSeen = true
 			firstSimpleTypeLoc = child.loc
 			if err := validateInlineSchemaTypeWithFacetBridge(child, version, true); err != nil && !candidate.considerError(err) {
-				return err
+				return decorateMalformedSchemaAttributeInlineType(err, version)
 			}
 			continue
 		}
