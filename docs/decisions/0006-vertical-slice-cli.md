@@ -90,6 +90,9 @@ open another schema. It passes the instance unchanged to current
 explicit unsupported behavior. Selected direct attribute-sequence and bounded
 list/union sequence roots ignore root `xsi:schemaLocation` and reject root
 `xsi:noNamespaceSchemaLocation` and `xsi:type` as unsupported.
+PrecisionDecimal-only direct sequence roots and scalar children ignore the
+expanded-name `xsi:schemaLocation` hint; `xsi:noNamespaceSchemaLocation`,
+`xsi:type`, and ordinary attributes reject there at their own locations.
 Selected attribute-bearing leaves reject both hints as unsupported.
 The CLI does not filter either hint semantically or dereference it.
 
