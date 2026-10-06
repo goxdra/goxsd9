@@ -385,10 +385,15 @@
 // It preserves arbitrary precision, schema-owned bounds, enumeration, and their
 // located diagnostic causes.
 //
+// Global built-in and named effective xs:negativeInteger roots use the same
+// on-demand exact integer plan, with intrinsic maxInclusive=-1 and effective
+// named facets. Their lexical form requires a leading minus; XSD 1.0 treats
+// -0 as a bound violation, while Compatibility and Strict11 reject it lexically.
+//
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as direct xs:string or a named/anonymous restriction with effective
 // xs:string atomic kind, or built-in/named xs:boolean/xs:token/xs:NMTOKEN/
-// xs:integer/xs:nonNegativeInteger/xs:byte/xs:short/xs:int/xs:long/xs:unsignedLong/xs:decimal
+// xs:integer/xs:negativeInteger/xs:nonNegativeInteger/xs:byte/xs:short/xs:int/xs:long/xs:unsignedLong/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
 // or Strict11, or as a supported local-attribute complex root or bounded
 // direct sequence of global complex refs or named local complex targets.

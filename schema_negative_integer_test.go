@@ -100,12 +100,8 @@ func TestSchemaGlobalNegativeIntegerElementAcrossPolicies(t *testing.T) {
 			}
 
 			validationErr := ValidateInstance(first, "instance.xml", io.NopCloser(strings.NewReader(`<value xmlns="urn:test">-1</value>`)))
-			if validationErr == nil {
-				t.Fatal("ValidateInstance accepted a negativeInteger global element")
-			}
-			validationDiagnostic := requireDiagnostic(t, validationErr)
-			if validationDiagnostic.Class() != FailureUnsupported || validationDiagnostic.Code() != UnsupportedInstanceValidationCode || !errors.Is(validationErr, ErrUnsupported) {
-				t.Fatalf("ValidateInstance diagnostic = %s, want explicit unsupported", validationDiagnostic)
+			if validationErr != nil {
+				t.Fatalf("ValidateInstance(-1): %v", validationErr)
 			}
 		})
 	}

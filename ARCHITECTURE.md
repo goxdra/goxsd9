@@ -114,24 +114,26 @@ precisionDecimal facets, and Boolean whitespace; broader facets/temporal values 
 
 ## Validation and code generation
 
-`ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/nonNegativeInteger/decimal and built-in/named byte/short/int/long/unsignedLong roots,
+`ValidateInstance` supports built-in/named Boolean/token/NMTOKEN/integer/negativeInteger/nonNegativeInteger/decimal and built-in/named byte/short/int/long/unsignedLong roots,
 direct/named/anonymous `xs:string`-atomic roots, and Compatibility/Strict11
-precisionDecimal roots. Named/inline global precisionDecimal lists and bounded
-unions validate; lists split XML whitespace into ordered items, unions try members
-in declaration order. Selected variety attributes validate on empty/sequence roots.
+precisionDecimal roots. Named/inline precisionDecimal lists and bounded unions
+validate; lists split XML whitespace, unions try members in declaration order.
+Selected variety attributes validate on empty/sequence roots.
 Bounded list/union sequences admit typed string/integer/negativeInteger/
 precisionDecimal locals, anonymous integer/negativeInteger locals, and global refs
-(including anonymous targets). Outer occurrences default; child ranges are exact.
-Errors retain instance/schema `Loc`s; GenerateGo rejects varieties with nil output. Strict10 rejects their
-precisionDecimal facts before schema publication. Identity-constrained roots
-reject at instance use `Loc`, relating the first constraint `Loc`.
-Local Boolean/integer/decimal sequences/default choices honor ranges; homogeneous token/NMTOKEN sequences honor exact above-`uint64`/unbounded occurrences/value space.
-Other anonymous/mixed/extension consumers reject outside bounded sequences; nonzero `xs:any` is
-query-only. Default direct-choice refs to unconstrained global
+(including anonymous targets). Child ranges are exact.
+Errors retain instance/schema `Loc`s; GenerateGo rejects varieties with nil output.
+Strict10 rejects precisionDecimal before publication. Identity constraints
+reject at use `Loc`, relating the first constraint.
+Local Boolean/integer/decimal sequences/choices honor ranges; token/NMTOKEN sequences honor exact occurrences/value space.
+Global negativeInteger roots apply intrinsic maxInclusive=-1 and edition-selected
+lexical rules: XSD 1.0 `-0` fails the bound, while Compatibility/Strict11 reject
+it lexically. Other anonymous/mixed/extension uses and nonzero `xs:any` reject.
+Default direct-choice refs to unconstrained global
 Boolean/integer/decimal validate; constrained targets reject with related `Loc`.
-SimpleContent uses built-in string with selected precisionDecimal attributes, or built-in/named effective precisionDecimal; named effective string excludes.
+SimpleContent admits built-in string with selected precisionDecimal attributes or built-in/named effective precisionDecimal.
 Structure precedes facets; failures retain locations. Other byte/short/int/long/unsignedLong validation uses reject.
-QName globals/refs reject validation and generation with located diagnostics and nil output.
+QName globals/refs reject both consumers with located diagnostics and nil output.
 
 Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
 types, global built-in/named elements of those types, inline global string/token/NMTOKEN, and
