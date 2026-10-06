@@ -150,7 +150,7 @@
 // named-effective, and anonymous-inline negativeInteger forms in those shapes
 // remain queryable. Bounded list/union direct sequences validate negativeInteger
 // as an atomic sibling; other validation paths and GenerateGo reject it. Built-in
-// and named effective-long particles in those shapes remain query-only and
+// and named effective-short/long particles in those shapes remain query-only and
 // consumer-rejected.
 // Local nonPositiveInteger/positiveInteger and inline/anonymous
 // long/int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located

@@ -143,9 +143,9 @@ Identity constraints yield `GOXSD9029` at first `Loc`; no output.
 Default integer/decimal sequence refs preserve TargetID/order; others unsupported.
 `nonNegativeInteger` uses `StrictInteger`; canonical built-in integer facts have
 `fractionDigits=0` and `minInclusive=0`; named bounds/facets survive.
-Short bounds: [-32768,32767]; named facets persist. Both use `StrictInteger`;
-malformed facts yield `GOXSD9030`, nil output. Unsupported final/variety/effective-facet states yield `GOXSD9029`; malformed
-facts yield `GOXSD9030`; nil output. Nonzero inline
+Short bounds are [-32768,32767]; short/long use `StrictInteger` and retain named facets.
+Unsupported final/variety/effective-facet states yield `GOXSD9029`; malformed
+facts yield `GOXSD9030`; either returns nil output. Nonzero inline
 `nonNegativeInteger` has no schema; built-in/named locals query-only, `0/0`
 absent. Global `int`/`byte`/`unsignedLong`/`positiveInteger` and
 `nonNegativeInteger`/`short`/`long` refs are query-only. `IntegerBounds()` copies
