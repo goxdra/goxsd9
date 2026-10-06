@@ -2535,23 +2535,6 @@ func schemaWildcardQNameConstraintFromElement(element *syntaxElement, facts sche
 		}
 		constraint.names = append(constraint.names, name)
 	}
-	sort.Slice(constraint.names, func(left, right int) bool {
-		if constraint.names[left].Namespace() != constraint.names[right].Namespace() {
-			return constraint.names[left].Namespace() < constraint.names[right].Namespace()
-		}
-		return constraint.names[left].Local() < constraint.names[right].Local()
-	})
-	if len(constraint.names) < 2 {
-		return constraint, nil
-	}
-	unique := constraint.names[:1]
-	for _, name := range constraint.names[1:] {
-		if name == unique[len(unique)-1] {
-			continue
-		}
-		unique = append(unique, name)
-	}
-	constraint.names = unique
 	return constraint, nil
 }
 
@@ -8355,11 +8338,28 @@ func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner sche
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
+	qnameConstraint := cloneSchemaWildcardQNameConstraint(input.qnameConstraint)
+	sort.Slice(qnameConstraint.names, func(left, right int) bool {
+		if qnameConstraint.names[left].Namespace() != qnameConstraint.names[right].Namespace() {
+			return qnameConstraint.names[left].Namespace() < qnameConstraint.names[right].Namespace()
+		}
+		return qnameConstraint.names[left].Local() < qnameConstraint.names[right].Local()
+	})
+	if len(qnameConstraint.names) > 1 {
+		unique := qnameConstraint.names[:1]
+		for _, name := range qnameConstraint.names[1:] {
+			if name == unique[len(unique)-1] {
+				continue
+			}
+			unique = append(unique, name)
+		}
+		qnameConstraint.names = unique
+	}
 	return WildcardParticle{facts: &schemaWildcardParticle{
 		loc:                 input.loc,
 		occurrences:         input.occurrences.clone(),
 		namespaceConstraint: constraint,
-		qnameConstraint:     cloneSchemaWildcardQNameConstraint(input.qnameConstraint),
+		qnameConstraint:     qnameConstraint,
 		processContents:     input.processContents,
 		processContentsLoc:  input.processContentsLoc,
 	}}, nil
