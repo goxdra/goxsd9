@@ -247,7 +247,8 @@
 // list/union sequences also admit anonymous atomic precisionDecimal ref targets.
 // Non-extension default-occurrence typed direct choices validate. Extension
 // choices and other local anonymous consumers remain query-only or rejected;
-// generation rejects precisionDecimal targets.
+// GenerateGo rejects global and local precisionDecimal targets, including
+// named-effective, inline, anonymous, and admitted extension shapes.
 // The supported local element anonymous model is limited to atomic
 // Boolean/integer/decimal/negativeInteger restrictions in the direct choice/sequence
 // and bounded attribute-free extension shapes above. Local anonymous
@@ -435,11 +436,12 @@
 // child ranges and require default outer occurrences; other outer ranges
 // return a located unsupported diagnostic. List items split collapsed XML
 // whitespace, including an empty list; union members run in declared order
-// and retain the selected value semantics. Structure errors precede value
-// errors; failures retain instance and related schema locations.
+// and retain the selected value semantics. Each child's structure check
+// precedes its scalar text check; the first encountered failure retains
+// instance and related schema locations.
 // PrecisionDecimal-only sequences accept expanded-name xsi:schemaLocation as
-// a non-resolving hint. Order, unexpected-child, and occurrence diagnostics
-// differ from scalar lexical and facet failures.
+// a non-resolving hint. Order XSD4010, unexpected-child XSD4011, and occurrence
+// XSD4012 diagnostics differ from scalar lexical and facet failures.
 // Outside bounded list/union sequences, mixed scalar-family sequences,
 // direct-choice repetition, and excluded particle/target shapes remain unsupported.
 // Admitted local built-in/named long/int/short/byte/unsignedLong/
@@ -595,17 +597,9 @@
 // or bound Loc; named restrictions retain exact effective bounds.
 // Built-in xs:byte has inclusive [-128,127] bounds without a component ID
 // or bound Loc; named restrictions retain exact effective bounds.
-// Global built-in, named, and inline precisionDecimal element/type schema/query facts are
-// available only under Compatibility/Strict11; Strict10 returns the located
-// FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported policy diagnostic
-// before validation at the typed reference or type location. Global built-in/named
-// roots validate under those policies; direct precisionDecimal-only sequences
-// also validate references to global inline anonymous restrictions. Standalone
-// inline precisionDecimal roots remain unsupported. GenerateGo rejects every global,
-// explicitly typed local (including named effective), inline, anonymous, and
-// schema-admitted extension precisionDecimal target. Local built-in/named
-// Boolean/integer/decimal particles generate only in default-occurrence
-// all-Boolean/numeric direct choices and default-bounded direct sequences.
+// Local built-in/named Boolean/integer/decimal particles generate only in
+// default-occurrence all-Boolean/numeric direct choices and default-bounded
+// direct sequences.
 // All-token direct choices also generate: built-in alternatives use string and
 // supported named restrictions use their generated type. Local
 // long/int/short/byte/unsignedLong/nonNegativeInteger/negativeInteger, string,

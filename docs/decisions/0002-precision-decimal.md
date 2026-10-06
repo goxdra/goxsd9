@@ -108,7 +108,8 @@ conformance claim or a substitute for the per-call resource contract.
 
 ## Integration and corpus evidence
 
-The exact value/facet model supplies schema facts and atomic instance validation;
+The exact value/facet model supplies schema facts and atomic instance validation,
+including ordered direct-sequence local and referenced precisionDecimal children;
 assertions remain separate.
 
 Pinned [`extra-suite.xml`](../../testdata/w3c/xsdtests/extra-suite.xml) references auxiliary PDecimal groups; the catalog remains provenance, and auxiliary results stay outside headline conformance.

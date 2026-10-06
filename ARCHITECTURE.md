@@ -131,8 +131,9 @@ refs to unconstrained Boolean/integer/decimal validate. SimpleContent admits
 built-in string with selected precisionDecimal attributes or effective
 precisionDecimal. Other anonymous/mixed/extension consumers and nonzero
 `xs:any` reject. Identity constraints and QName consumers reject with located
-diagnostics; GenerateGo returns nil output. Structure precedes facets;
-occurrence and scalar failures differ. `xsi:schemaLocation` never resolves.
+diagnostics; GenerateGo returns nil output. At each child frontier, structure
+precedes facets; the first failure retains instance and related schema locations.
+Occurrence and scalar failures differ. `xsi:schemaLocation` never resolves.
 
 Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-`xs:string`-atomic
 types, global built-in/named elements of those types, inline global string/token/NMTOKEN, and
