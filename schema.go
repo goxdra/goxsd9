@@ -2289,6 +2289,57 @@ type SequenceParticle struct {
 	facts *schemaSequenceParticle
 }
 
+// AllParticle is a direct all group with members in lexical declaration order.
+type AllParticle struct {
+	facts *schemaAllParticle
+}
+
+func (AllParticle) particle() {}
+
+// Loc returns the location of the all group.
+func (particle AllParticle) Loc() Loc {
+	if particle.facts == nil {
+		return Loc{}
+	}
+	return particle.facts.loc
+}
+
+// Occurrences returns the exact immutable occurrence range.
+func (particle AllParticle) Occurrences() ParticleOccurrenceRange {
+	if particle.facts == nil {
+		return ParticleOccurrenceRange{}
+	}
+	return newPublicParticleOccurrenceRange(particle.facts.occurrences)
+}
+
+// MinOccurs returns 1 only for the default occurrence range.
+//
+// Deprecated: use Occurrences().Minimum().
+func (particle AllParticle) MinOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// MaxOccurs returns 1 only for the default occurrence range.
+//
+// Deprecated: use Occurrences().Maximum().
+func (particle AllParticle) MaxOccurs() uint64 {
+	if particle.facts == nil || !particle.facts.occurrences.isDefault() {
+		return 0
+	}
+	return 1
+}
+
+// Members returns an independent slice in lexical declaration order.
+func (particle AllParticle) Members() []Particle {
+	if particle.facts == nil || len(particle.facts.members) == 0 {
+		return nil
+	}
+	return append([]Particle(nil), particle.facts.members...)
+}
+
 func (SequenceParticle) particle() {}
 
 // Loc returns the location of the sequence particle.
@@ -2856,6 +2907,14 @@ type schemaChoiceParticleInput struct {
 	alternatives []schemaParticleTermInput
 }
 
+type schemaAllParticleInput struct {
+	loc         Loc
+	occurrences particleOccurrenceRange
+	members     []schemaParticleTermInput
+}
+
+func (*schemaAllParticleInput) schemaComplexTypeParticleInput() {}
+
 func (*schemaChoiceParticleInput) schemaComplexTypeParticleInput() {}
 func (*schemaChoiceParticleInput) schemaModelGroupParticleInput()  {}
 
@@ -3096,6 +3155,12 @@ type schemaChoiceParticle struct {
 	loc          Loc
 	occurrences  particleOccurrenceRange
 	alternatives []Particle
+}
+
+type schemaAllParticle struct {
+	loc         Loc
+	occurrences particleOccurrenceRange
+	members     []Particle
 }
 
 type schemaElementParticle struct {
@@ -3880,6 +3945,15 @@ func cloneSchemaAttributeUses(uses []AttributeUse) []AttributeUse {
 
 func cloneSchemaComplexTypeParticleInput(input schemaComplexTypeParticleInput) schemaComplexTypeParticleInput {
 	switch particle := input.(type) {
+	case *schemaAllParticleInput:
+		if particle == nil {
+			return (*schemaAllParticleInput)(nil)
+		}
+		return &schemaAllParticleInput{
+			loc:         particle.loc,
+			occurrences: particle.occurrences.clone(),
+			members:     cloneSchemaParticleTermInputs(particle.members),
+		}
 	case *schemaChoiceParticleInput:
 		if particle == nil {
 			return (*schemaChoiceParticleInput)(nil)
@@ -4172,6 +4246,11 @@ func allocateSchemaSimpleTypeNodeIDsInComplexParticle(
 	seen map[*schemaSimpleTypeInput]SimpleTypeID,
 ) error {
 	switch particle := input.(type) {
+	case *schemaAllParticleInput:
+		if particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "all simple type allocation has a nil particle input")
+		}
+		return allocateSchemaSimpleTypeNodeIDsInParticleTerms(particle.members, source, nextBySource, seen)
 	case *schemaChoiceParticleInput:
 		if particle == nil {
 			return newSchemaBridgeInvariant(Loc{}, "choice simple type allocation has a nil particle input")

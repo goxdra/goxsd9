@@ -66,8 +66,41 @@ func TestValidatePrecisionDecimalOrderedLocalAndReferencedElements(t *testing.T)
 	}
 }
 
-//nolint:gocognit // Check ordered local and referenced facts through the public component views.
+func TestValidatePrecisionDecimalSequenceReferencesBuiltInAndNamedTargets(t *testing.T) {
+	const inlineTarget = `<xs:element name="referenced"><xs:simpleType><xs:restriction base="p:Equal"/></xs:simpleType></xs:element>`
+	for _, policy := range []goxsd9.LanguagePolicy{goxsd9.Compatibility, goxsd9.Strict11} {
+		for _, test := range []struct {
+			name, target, invalid, code, spec string
+		}{
+			{"built-in", `<xs:element name="referenced" type="xs:precisionDecimal"/>`, "1e+", "XSD2010", "xsd-precisionDecimal#f-precDecLexmap"},
+			{"named", `<xs:element name="referenced" type="p:Equal"/>`, "1002", goxsd9.PrecisionDecimalFacetValueViolationCode, "xsd11-datatypes#cvc-enumeration-valid"},
+		} {
+			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
+				schemaText := strings.Replace(validationPrecisionSequenceSchema, inlineTarget, test.target, 1)
+				schema := validationTestSchemaWithPolicy(t, schemaText, nil, policy)
+				valid := precisionSequenceInstance("refs", `<referenced>1.001e3</referenced><referenced>1001</referenced>`)
+				if err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(valid))); err != nil {
+					t.Fatalf("referenced target valid instance: %v", err)
+				}
+				invalid := precisionSequenceInstance("refs", `<referenced>`+test.invalid+`</referenced>`)
+				diagnostic := validationTestDiagnostic(t, goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(invalid))))
+				if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != test.code ||
+					diagnostic.Loc() != validationChoiceMarkerLoc(t, invalid, test.invalid) || diagnostic.SpecRef() != test.spec ||
+					!validationTestHasRelated(diagnostic.Related(), precisionSequenceRootLoc(t, schema, "refs")) {
+					t.Fatalf("reference diagnostic = %s, want %s at instance value with root relation and %s", diagnostic, test.code, test.spec)
+				}
+			})
+		}
+	}
+}
+
 func assertPrecisionSequenceCopiedFacts(t *testing.T, schema goxsd9.Schema) {
+	t.Helper()
+	assertPrecisionSequenceLocalCopiedFacts(t, schema)
+	assertPrecisionSequenceReferenceCopiedFacts(t, schema)
+}
+
+func assertPrecisionSequenceLocalCopiedFacts(t *testing.T, schema goxsd9.Schema) {
 	t.Helper()
 	inlineQName, err := goxsd9.NewQName(validationPrecisionSequenceNamespace, "inline")
 	if err != nil {
@@ -89,16 +122,24 @@ func assertPrecisionSequenceCopiedFacts(t *testing.T, schema goxsd9.Schema) {
 	if !ok {
 		t.Fatalf("inline particle = %T, want sequence", inlineType.Particle())
 	}
+	if sequence.Loc() != validationTestLoc(t, "root.xsd", 4, 45) {
+		t.Fatalf("inline sequence Loc() = %s, want root.xsd:4:45", sequence.Loc())
+	}
 	parts := sequence.Particles()
 	if len(parts) != 2 {
 		t.Fatalf("inline sequence has %d particles, want two", len(parts))
 	}
 	for index, local := range []string{"a", "b"} {
 		part, elementOK := parts[index].(goxsd9.ElementParticle)
-		if !elementOK || part.Name().Local() != local || !part.Occurrences().IsDefault() || part.Loc().IsZero() {
-			t.Fatalf("particle %d = %#v, want ordered local %s with exact default occurrences and location", index, parts[index], local)
+		if !elementOK || part.Name().Local() != local || !part.Occurrences().IsDefault() ||
+			part.Loc() != validationTestLoc(t, "root.xsd", 5+index, 5) {
+			t.Fatalf("particle %d = %#v, want ordered local %s with default bounds at root.xsd:%d:5", index, parts[index], local, 5+index)
 		}
 	}
+}
+
+func assertPrecisionSequenceReferenceCopiedFacts(t *testing.T, schema goxsd9.Schema) {
+	t.Helper()
 	refsQName, err := goxsd9.NewQName(validationPrecisionSequenceNamespace, "refs")
 	if err != nil {
 		t.Fatalf("NewQName refs: %v", err)
@@ -202,28 +243,38 @@ func TestValidatePrecisionDecimalSequenceOuterMaximumOverflow(t *testing.T) {
 				t.Fatalf("maximum two repetitions: %v", err)
 			}
 			for _, test := range []struct {
-				name, input, marker, code string
+				name, input, marker, code, message, cause string
 			}{
-				{"third repetition", `<root><a>1</a><b>2</b><a>3</a><b>4</b><a>5</a></root>`, `<a>5</a>`, goxsd9.InvalidInstanceSequenceOccurrenceCode},
-				{"wrong order", `<root><b>2</b></root>`, `<b>2</b>`, goxsd9.InvalidInstanceSequenceOrderCode},
-				{"extra child", `<root><a>1</a><b>2</b><c>3</c></root>`, `<c>3</c>`, goxsd9.InvalidInstanceSequenceUnexpectedCode},
+				{"third repetition", `<root><a>1</a><b>2</b><a>3</a><b>4</b><a>5</a></root>`, `<a>5</a>`, "XSD4012", "occurrence bound", "occurrence bound"},
+				{"wrong order", `<root><b>2</b></root>`, `<b>2</b>`, "XSD4010", "out of order", "out-of-order"},
+				{"extra child", `<root><a>1</a><b>2</b><c>3</c></root>`, `<c>3</c>`, "XSD4011", "unexpected", "unexpected"},
 			} {
 				t.Run(test.name, func(t *testing.T) {
-					assertPrecisionSequenceStructuralDiagnostic(t, schema, test.input, test.marker, test.code, rootLoc)
+					assertPrecisionSequenceStructuralDiagnostic(t, schema, test.input, test.marker, test.code, test.message, test.cause, rootLoc)
 				})
 			}
+			t.Run("optional leading child overflow", func(t *testing.T) {
+				optionalSchema := validationTestSchemaWithPolicy(t, strings.Replace(schemaText, `name="a" type=`, `name="a" minOccurs="0" type=`, 1), nil, policy)
+				valid := `<root><b>1</b><b>2</b></root>`
+				if err := goxsd9.ValidateInstance(optionalSchema, "instance.xml", io.NopCloser(strings.NewReader(valid))); err != nil {
+					t.Fatalf("two repetitions with optional leading child: %v", err)
+				}
+				input := `<root><b>1</b><b>2</b><b>3</b></root>`
+				assertPrecisionSequenceStructuralDiagnostic(t, optionalSchema, input, `<b>3</b>`, "XSD4012", "occurrence bound", "occurrence bound", precisionSequenceUnqualifiedRootLoc(t, optionalSchema))
+			})
 		})
 	}
 }
 
-func assertPrecisionSequenceStructuralDiagnostic(t *testing.T, schema goxsd9.Schema, input, marker, code string, rootLoc goxsd9.Loc) {
+func assertPrecisionSequenceStructuralDiagnostic(t *testing.T, schema goxsd9.Schema, input, marker, code, message, cause string, rootLoc goxsd9.Loc) {
 	t.Helper()
 	err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
 	diagnostic := validationTestDiagnostic(t, err)
 	if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != code ||
 		diagnostic.Loc() != validationChoiceMarkerLoc(t, input, marker) ||
 		diagnostic.SpecRef() != "xsd11-structures#sec-cvc-accept" ||
-		diagnostic.Unwrap() == nil || errors.Is(err, goxsd9.ErrUnsupported) {
+		diagnostic.Unwrap() == nil || !strings.Contains(diagnostic.Message(), message) ||
+		!strings.Contains(diagnostic.Unwrap().Error(), cause) || errors.Is(err, goxsd9.ErrUnsupported) {
 		t.Fatalf("diagnostic = %s, want located %s with cause", diagnostic, code)
 	}
 	if related := diagnostic.Related(); len(related) == 0 || related[0] != rootLoc {
@@ -240,6 +291,21 @@ func precisionSequenceUnqualifiedRootLoc(t *testing.T, schema goxsd9.Schema) gox
 	roots := schema.FindKind(goxsd9.ComponentKindElementDeclaration, name)
 	if len(roots) != 1 {
 		t.Fatalf("root declarations = %d, want one", len(roots))
+	}
+	if roots[0].Loc() != validationTestLoc(t, "root.xsd", 2, 3) {
+		t.Fatalf("root Loc() = %s, want root.xsd:2:3", roots[0].Loc())
+	}
+	element, ok := roots[0].ElementDeclaration()
+	if !ok {
+		t.Fatal("root has no element view")
+	}
+	inline, ok := element.InlineComplexType()
+	if !ok {
+		t.Fatal("root has no inline complex view")
+	}
+	sequence, ok := inline.Particle().(goxsd9.SequenceParticle)
+	if !ok || sequence.Loc() != validationTestLoc(t, "root.xsd", 2, 43) || sequence.Occurrences().String() != "1/2" {
+		t.Fatalf("root sequence = %#v, want maxOccurs=2 at root.xsd:2:43", inline.Particle())
 	}
 	return roots[0].Loc()
 }

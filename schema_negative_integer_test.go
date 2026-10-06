@@ -86,8 +86,8 @@ func TestSchemaGlobalNegativeIntegerElementAcrossPolicies(t *testing.T) {
 				t.Fatalf("global value maxInclusive = %q/%t, want -1/true", maximum.Canonical(), present)
 			}
 			maximumFacet, present := facets.integerBounds.MaxInclusiveFacet()
-			if !present || maximumFacet.Kind() != BoundMaxInclusive || maximumFacet.Value().Canonical() != "-1" || maximumFacet.Loc() != wantTypeLoc || maximumFacet.Version() != profile.version {
-				t.Fatalf("global value maxInclusive facts = %q/%s/%q/%t, want -1/%s/%q/true", maximumFacet.Value().Canonical(), maximumFacet.Loc(), maximumFacet.Kind(), present, wantTypeLoc, profile.version)
+			if !present || maximumFacet.Kind() != BoundMaxInclusive || maximumFacet.Value().Canonical() != "-1" || !maximumFacet.Loc().IsZero() || maximumFacet.Version() != profile.version {
+				t.Fatalf("global value maxInclusive facts = %q/%s/%q/%t, want -1/zero/%q/true", maximumFacet.Value().Canonical(), maximumFacet.Loc(), maximumFacet.Kind(), present, profile.version)
 			}
 
 			output, err := GenerateGo(first, "generated")

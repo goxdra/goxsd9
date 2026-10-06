@@ -36,13 +36,15 @@ const (
 	InvalidInstanceSequenceCode = "XSD4006"
 	// InvalidInstanceSequenceOrderCode identifies an out-of-order element in a
 	// precisionDecimal direct sequence.
-	InvalidInstanceSequenceOrderCode = "XSD4007"
+	InvalidInstanceSequenceOrderCode = "XSD4010"
 	// InvalidInstanceSequenceOccurrenceCode identifies a violated occurrence
 	// bound in a precisionDecimal direct sequence.
-	InvalidInstanceSequenceOccurrenceCode = "XSD4008"
+	InvalidInstanceSequenceOccurrenceCode = "XSD4012"
 	// InvalidInstanceSequenceUnexpectedCode identifies an undeclared child of a
 	// precisionDecimal direct sequence.
-	InvalidInstanceSequenceUnexpectedCode = "XSD4009"
+	InvalidInstanceSequenceUnexpectedCode = "XSD4011"
+	// InvalidInstanceAttributeCode identifies invalid local attribute structure.
+	InvalidInstanceAttributeCode = "XSD4007"
 )
 
 const (
@@ -52,8 +54,20 @@ const (
 	instanceComplexTypeXSD11SpecRef        = "xsd11-structures#sec-cvc-type"
 	instanceIntegerXSD10SpecRef            = "xsd10-datatypes#integer"
 	instanceIntegerXSD11SpecRef            = "xsd11-datatypes#integer"
+	instanceNegativeIntegerXSD10SpecRef    = "xsd10-datatypes#negativeInteger"
+	instanceNegativeIntegerXSD11SpecRef    = "xsd11-datatypes#negativeInteger"
 	instanceNonNegativeIntegerXSD10SpecRef = "xsd10-datatypes#nonNegativeInteger"
 	instanceNonNegativeIntegerXSD11SpecRef = "xsd11-datatypes#nonNegativeInteger"
+	instanceByteXSD10SpecRef               = "xsd10-datatypes#byte"
+	instanceByteXSD11SpecRef               = "xsd11-datatypes#byte"
+	instanceShortXSD10SpecRef              = "xsd10-datatypes#short"
+	instanceShortXSD11SpecRef              = "xsd11-datatypes#short"
+	instanceIntXSD10SpecRef                = "xsd10-datatypes#int"
+	instanceIntXSD11SpecRef                = "xsd11-datatypes#int"
+	instanceLongXSD10SpecRef               = "xsd10-datatypes#long"
+	instanceLongXSD11SpecRef               = "xsd11-datatypes#long"
+	instanceUnsignedLongXSD10SpecRef       = "xsd10-datatypes#unsignedLong"
+	instanceUnsignedLongXSD11SpecRef       = "xsd11-datatypes#unsignedLong"
 	instanceDecimalXSD10SpecRef            = "xsd10-datatypes#decimal"
 	instanceDecimalXSD11SpecRef            = "xsd11-datatypes#decimal"
 	instanceTokenXSD10SpecRef              = "xsd10-datatypes#token"
@@ -96,6 +110,8 @@ var (
 	errInstanceSequenceTarget          = errors.New("sequence particle has an unsupported target")
 	errInstanceSequenceMixed           = errors.New("sequence type mixes unsupported particle forms")
 	errInstanceSequenceMissing         = errors.New("sequence instance is missing a required element")
+	errInstanceSequenceOrder           = errors.New("sequence instance has an out-of-order element")
+	errInstanceSequenceOccurrence      = errors.New("sequence instance exceeds an occurrence bound")
 	errInstanceSequenceUnexpected      = errors.New("sequence instance has an unexpected element")
 	errInstanceSequenceText            = errors.New("sequence instance has non-whitespace parent text")
 	errInstanceSequenceNested          = errors.New("sequence scalar element has nested content")
@@ -106,6 +122,7 @@ var (
 	errInstanceIdentityConstraints     = errors.New("identity constraints are outside instance validation")
 	errInstanceLocalElementFacts       = errors.New("local element nillable facts are outside instance validation")
 	errInstanceElementSubstitution     = errors.New("referenced global element substitution is outside instance validation")
+	errInstanceUnsignedLong10Lexical   = errors.New("XSD 1.0 unsignedLong lexical representation requires digits only")
 	errInstanceValidationInvariant     = errors.New("scalar validation invariant is broken")
 )
 
@@ -196,17 +213,29 @@ type instanceChoiceProgram struct {
 // validates one XML instance against schema. The supported semantic slice is
 // a single global root of built-in xs:string, a named/anonymous restriction
 // with effective xs:string atomic kind, built-in/named Boolean, token, NMTOKEN,
-// integer, nonNegativeInteger, decimal, or precisionDecimal, or a named complex
-// type with one direct choice or sequence. Inline complex roots admit direct
+// integer, nonNegativeInteger, byte, short, int, long, unsignedLong, decimal, or precisionDecimal, or a named complex
+// type with one direct choice or sequence. Bounded precisionDecimal list/union
+// varieties validate on global simple roots, selected local attributes, and
+// ordered direct sequences with local or referenced simple children. Local precisionDecimal uses also
+// validate on supported empty-content roots and direct sequences of
+// attribute-bearing children; simpleContent text accepts supported string or
+// precisionDecimal atomic bases. Inline complex roots admit direct
 // precisionDecimal-only sequences. Direct choices accept
 // default-occurrence local Boolean, token, NMTOKEN, integer, decimal, or
 // precisionDecimal elements whose type references are built-in or named, and
 // default-occurrence references to global Boolean, integer, and decimal
 // elements other than nonNegativeInteger.
-// Direct sequences contain only local built-in/named Boolean, integer/decimal,
-// token, or NMTOKEN elements, or only built-in/named precisionDecimal locals, or
-// only global precisionDecimal references, each with exact occurrences.
-// Modeled anonymous local inline atomic references
+// Scalar direct sequences contain only
+// local built-in or named Boolean elements, only local built-in or named
+// integer/decimal elements, only local built-in or named token elements, or
+// only local built-in or named NMTOKEN elements. Selected attribute sequences
+// contain global complex references or named local complex targets with local
+// precisionDecimal uses or precisionDecimal simpleContent without uses.
+// Bounded list/union direct sequences validate anonymous integer and
+// negativeInteger siblings, including global anonymous integer/precisionDecimal
+// reference targets. PrecisionDecimal-only direct sequences admit either
+// built-in/named locals or global refs, with exact occurrences. Other modeled
+// anonymous local inline atomic references
 // remain schema-queryable only: ordinary direct choice/sequence target checks
 // return a located FailureUnsupported/ErrUnsupported diagnostic with
 // element/particle locations and may include the anonymous type location in
@@ -228,9 +257,10 @@ type instanceChoiceProgram struct {
 //
 // Built-in element views do not retain a document version, so this entrypoint
 // uses the repository's compatibility/default XSD 1.1-compatible datatype
-// rules for built-in integer and decimal values. Built-in nonNegativeInteger
-// values use the selected graph-wide policy for their versioned datatype
-// diagnostics. Boolean values use the
+// rules for built-in integer and decimal values. Built-in nonNegativeInteger,
+// byte, short, int, and long values use the selected graph-wide policy for
+// their versioned datatype diagnostics. Built-in unsignedLong uses the
+// completed type reference's graph-policy version. Boolean values use the
 // selected graph-wide policy for their versioned datatype diagnostics. Built-in
 // NMTOKEN values also use that selected policy. Named numeric types use the
 // version retained by their completed effective facets; named boolean types use
@@ -288,7 +318,7 @@ func ValidateInstance(schema Schema, sourceID SourceID, reader io.ReadCloser) er
 	return validateScalarInstance(schema, document.root)
 }
 
-//nolint:gocognit // Keep root dispatch, target resolution, and scalar fallback together.
+//nolint:gocognit,funlen // Keep root dispatch, target resolution, and scalar fallback together.
 func validateScalarInstance(schema Schema, root *instanceElement) error {
 	if root == nil {
 		return newInstanceValidationInternal(
@@ -313,6 +343,36 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 	}
 	if factsErr := rejectUnsupportedInstanceElementFacts(schema, declaration, root.loc); factsErr != nil {
 		return factsErr
+	}
+	if leaf, selected := instanceAttributeRootPlanFor(schema, declaration); selected {
+		if structureErr := validateAttributeLeafStructure(root, leaf, instanceSchemaValidationVersion(schema)); structureErr != nil {
+			return structureErr
+		}
+		return validateAttributeLeafValues(root, leaf, instanceSchemaValidationVersion(schema))
+	}
+	if program, selected, planErr := instanceAttributeSequenceProgramFor(schema, declaration, root.loc); selected {
+		if planErr != nil {
+			return planErr
+		}
+		return validateAttributeSequenceInstance(root, program)
+	}
+	if program, selected, planErr := instanceVarietySequenceProgramFor(schema, declaration, root.loc); selected {
+		if planErr != nil {
+			return planErr
+		}
+		return validateVarietySequenceInstance(root, program)
+	}
+	if reference, ok := declaration.TypeReference(); ok && (reference.Variety() == SimpleTypeVarietyList || reference.Variety() == SimpleTypeVarietyUnion) {
+		plan, planErr := instanceVarietyPlanFor(schema, reference, []Loc{declaration.Loc()}, root.loc, instanceSchemaValidationVersion(schema))
+		if planErr != nil {
+			return planErr
+		}
+		if structureErr := validateScalarStructure(root, instanceScalarType{related: plan.related, version: plan.version}); structureErr != nil {
+			return structureErr
+		}
+		lexical, valueLoc := instanceScalarText(root)
+		_, valueErr := validateInstanceVarietyValue(root.name, lexical, valueLoc, plan)
+		return valueErr
 	}
 	if !declaration.DeclaredType().IsZero() && declaration.DeclaredType().Namespace() != xsdNamespaceURI {
 		typeID, hasTypeID := declaration.TypeID()
@@ -541,6 +601,15 @@ func instanceChoiceParticleFor(
 	version XSDVersion,
 ) (ChoiceParticle, []Loc, error) {
 	particle := definition.Particle()
+	if all, ok := particle.(AllParticle); ok {
+		return ChoiceParticle{}, nil, newInstanceValidationUnsupported(
+			all.Loc(),
+			fmt.Sprintf("named complex type %q uses an all particle outside instance validation", definition.Name()),
+			appendInstanceRelated(related, all.Loc()),
+			version,
+			errInstanceChoiceParticle,
+		)
+	}
 	if groupReference, ok := modelGroupReferenceParticleValue(particle); ok {
 		return ChoiceParticle{}, related, instanceModelGroupReferenceUnsupported(definition, groupReference, related, version)
 	}
@@ -1108,6 +1177,7 @@ func instanceChoiceReferenceScalarFor(
 		false,
 		false,
 		false,
+		false,
 		version,
 	)
 }
@@ -1144,6 +1214,7 @@ func instanceChoiceAlternativeFor(
 		true,
 		true,
 		true,
+		false,
 		false,
 		false,
 		version,
@@ -1399,21 +1470,45 @@ func validateDigitScalarValue(name syntaxName, lexical string, valueLoc Loc, sca
 
 func validateIntegerScalarValue(lexical string, valueLoc Loc, scalar instanceScalarType, typed instanceDigitScalar) error {
 	specRef := instanceIntegerSpecRef(scalar.version)
+	if typed.integerKind == schemaSimpleTypeAtomicByte {
+		specRef = instanceByteSpecRef(scalar.version)
+	}
+	if typed.integerKind == schemaSimpleTypeAtomicShort {
+		specRef = instanceShortSpecRef(scalar.version)
+	}
+	if typed.integerKind == schemaSimpleTypeAtomicInt {
+		specRef = instanceIntSpecRef(scalar.version)
+	}
+	if typed.integerKind == schemaSimpleTypeAtomicLong {
+		specRef = instanceLongSpecRef(scalar.version)
+	}
+	if typed.integerKind == schemaSimpleTypeAtomicUnsignedLong {
+		specRef = instanceUnsignedLongSpecRef(scalar.version)
+	}
 	if typed.integerKind == schemaSimpleTypeAtomicNonNegativeInteger {
 		specRef = instanceNonNegativeIntegerSpecRef(scalar.version)
 	}
+	if typed.integerKind == schemaSimpleTypeAtomicNegativeInteger {
+		specRef = instanceNegativeIntegerSpecRef(scalar.version)
+	}
 	value, parseErr := ParseStrictInteger(lexical, valueLoc)
 	if parseErr != nil {
+		if typed.integerKind == schemaSimpleTypeAtomicUnsignedLong {
+			return newInstanceValidationInvalid(InvalidIntegerLexicalCode, valueLoc, "invalid xs:unsignedLong lexical representation", scalar.related, specRef, parseErr)
+		}
 		return instanceDecorateDiagnostic(parseErr, scalar.related, specRef, valueLoc)
 	}
+	if typed.integerKind == schemaSimpleTypeAtomicUnsignedLong && scalar.version == XSDVersion10 && !schemaUnsignedLong10Lexical(collapseXMLWhitespace(lexical)) {
+		return newInstanceValidationInvalid(InvalidIntegerLexicalCode, valueLoc, "invalid XSD 1.0 xs:unsignedLong lexical representation", scalar.related, specRef, errInstanceUnsignedLong10Lexical)
+	}
 	if facetErr := typed.facets.ValidateInteger(value, valueLoc); facetErr != nil {
-		return instanceDecorateDiagnostic(facetErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+		return instanceDecorateDiagnostic(facetErr, scalar.related, specRef, valueLoc)
 	}
 	if boundErr := typed.integerBounds.ValidateInteger(value, valueLoc); boundErr != nil {
-		return instanceDecorateDiagnostic(boundErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+		return instanceDecorateDiagnostic(boundErr, scalar.related, specRef, valueLoc)
 	}
 	if enumerationErr := validateIntegerEnumerationValue(value, valueLoc, scalar); enumerationErr != nil {
-		return instanceDecorateDiagnostic(enumerationErr, scalar.related, instanceIntegerSpecRef(scalar.version), valueLoc)
+		return instanceDecorateDiagnostic(enumerationErr, scalar.related, specRef, valueLoc)
 	}
 	return nil
 }
@@ -1588,6 +1683,9 @@ func validateNMTOKENEnumerationValue(facets StringEnumerationFacets, normalized 
 
 func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Loc) (instanceScalarType, error) {
 	version := instanceSchemaValidationVersion(schema)
+	if declaration.DeclaredType().Namespace() == xsdNamespaceURI && declaration.DeclaredType().Local() == "unsignedLong" {
+		return instanceBuiltInUnsignedLongScalarType(declaration, loc)
+	}
 	if inline, ok := declaration.InlineSimpleType(); ok && inline.facts != nil && inline.facts.atomicKind == schemaSimpleTypeAtomicString {
 		return instanceStringScalarFor(inline, []Loc{declaration.Loc(), inline.Loc()}, loc, version)
 	}
@@ -1600,6 +1698,7 @@ func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Lo
 		[]Loc{declaration.Loc()},
 		loc,
 		version,
+		true,
 		true,
 		true,
 		true,
@@ -1623,6 +1722,7 @@ func instanceScalarTypeForTarget(
 	allowNMTOKEN bool,
 	allowString bool,
 	allowNonNegativeInteger bool,
+	allowBoundedIntegerRoot bool,
 	booleanVersion XSDVersion,
 ) (instanceScalarType, error) {
 	if declaredType.IsZero() {
@@ -1635,7 +1735,7 @@ func instanceScalarTypeForTarget(
 		)
 	}
 	if declaredType.Namespace() == xsdNamespaceURI {
-		return instanceBuiltInScalarType(declaredType, related, loc, fallbackVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger, booleanVersion)
+		return instanceBuiltInScalarType(declaredType, related, loc, fallbackVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger, allowBoundedIntegerRoot, booleanVersion)
 	}
 	if !hasTypeID || typeID.IsZero() {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
@@ -1750,7 +1850,22 @@ func instanceScalarTypeForTarget(
 			errInstanceUnsupportedType,
 		)
 	}
-	if atomicKind != schemaSimpleTypeAtomicInteger && atomicKind != schemaSimpleTypeAtomicNonNegativeInteger && atomicKind != schemaSimpleTypeAtomicDecimal && atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
+	if atomicKind == schemaSimpleTypeAtomicByte && !allowBoundedIntegerRoot {
+		return instanceScalarType{}, newInstanceValidationUnsupported(loc, fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()), related, fallbackVersion, errInstanceUnsupportedType)
+	}
+	if atomicKind == schemaSimpleTypeAtomicShort && !allowBoundedIntegerRoot {
+		return instanceScalarType{}, newInstanceValidationUnsupported(loc, fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()), related, fallbackVersion, errInstanceUnsupportedType)
+	}
+	if atomicKind == schemaSimpleTypeAtomicInt && !allowBoundedIntegerRoot {
+		return instanceScalarType{}, newInstanceValidationUnsupported(loc, fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()), related, fallbackVersion, errInstanceUnsupportedType)
+	}
+	if atomicKind == schemaSimpleTypeAtomicLong && !allowBoundedIntegerRoot {
+		return instanceScalarType{}, newInstanceValidationUnsupported(loc, fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()), related, fallbackVersion, errInstanceUnsupportedType)
+	}
+	if atomicKind == schemaSimpleTypeAtomicUnsignedLong && !allowBoundedIntegerRoot {
+		return instanceScalarType{}, newInstanceValidationUnsupported(loc, fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()), related, fallbackVersion, errInstanceUnsupportedType)
+	}
+	if atomicKind != schemaSimpleTypeAtomicInteger && atomicKind != schemaSimpleTypeAtomicNonNegativeInteger && atomicKind != schemaSimpleTypeAtomicByte && atomicKind != schemaSimpleTypeAtomicShort && atomicKind != schemaSimpleTypeAtomicInt && atomicKind != schemaSimpleTypeAtomicLong && atomicKind != schemaSimpleTypeAtomicUnsignedLong && atomicKind != schemaSimpleTypeAtomicDecimal && atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", definition.Name()),
@@ -1918,7 +2033,7 @@ func instanceNMTOKENScalarValue(enumeration StringEnumerationFacets) instanceSca
 	return instanceNMTOKENScalar{enumeration: enumeration}
 }
 
-func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger bool, booleanVersion XSDVersion) (instanceScalarType, error) {
+func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger, allowBoundedIntegerRoot bool, booleanVersion XSDVersion) (instanceScalarType, error) {
 	switch declaredType.Local() {
 	case "integer":
 		return instanceBuiltInIntegerScalarType(related, loc)
@@ -1927,6 +2042,28 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 			return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
 		}
 		return instanceBuiltInNonNegativeIntegerScalarType(related, loc, booleanVersion)
+	case "byte":
+		if !allowBoundedIntegerRoot {
+			return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
+		}
+		return instanceBuiltInByteScalarType(related, loc, booleanVersion)
+	case "short":
+		if !allowBoundedIntegerRoot {
+			return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
+		}
+		return instanceBuiltInShortScalarType(related, loc, booleanVersion)
+	case "int":
+		if !allowBoundedIntegerRoot {
+			return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
+		}
+		return instanceBuiltInIntScalarType(related, loc, booleanVersion)
+	case "long":
+		if !allowBoundedIntegerRoot {
+			return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
+		}
+		return instanceBuiltInLongScalarType(related, loc, booleanVersion)
+	case "unsignedLong":
+		return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
 	case "decimal":
 		return instanceBuiltInDecimalScalarType(related, loc)
 	case "precisionDecimal":
@@ -1945,7 +2082,7 @@ func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallb
 		return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
 	case "positiveInteger":
 		return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
-	case "int", "short", "language", "NCName", "anyURI", "ID":
+	case "language", "NCName", "anyURI", "ID":
 		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
 	default:
 		return instanceBuiltInUnsupportedScalarType(declaredType, related, loc)
@@ -1983,6 +2120,67 @@ func instanceBuiltInNonNegativeIntegerScalarType(related []Loc, loc Loc, version
 	}
 	return instanceScalarType{
 		value:   instanceDigitScalar{facets: facets, integerKind: schemaSimpleTypeAtomicNonNegativeInteger, integerBounds: bounds},
+		version: version,
+		related: related,
+	}, nil
+}
+
+func instanceBuiltInByteScalarType(related []Loc, loc Loc, version XSDVersion) (instanceScalarType, error) {
+	return instanceBuiltInBoundedIntegerScalarType(related, loc, version, schemaSimpleTypeAtomicByte, "byte", "-128", "127")
+}
+
+func instanceBuiltInShortScalarType(related []Loc, loc Loc, version XSDVersion) (instanceScalarType, error) {
+	return instanceBuiltInBoundedIntegerScalarType(related, loc, version, schemaSimpleTypeAtomicShort, "short", "-32768", "32767")
+}
+
+func instanceBuiltInIntScalarType(related []Loc, loc Loc, version XSDVersion) (instanceScalarType, error) {
+	return instanceBuiltInBoundedIntegerScalarType(related, loc, version, schemaSimpleTypeAtomicInt, "int", "-2147483648", "2147483647")
+}
+
+func instanceBuiltInLongScalarType(related []Loc, loc Loc, version XSDVersion) (instanceScalarType, error) {
+	return instanceBuiltInBoundedIntegerScalarType(related, loc, version, schemaSimpleTypeAtomicLong, "long", "-9223372036854775808", "9223372036854775807")
+}
+
+func instanceBuiltInUnsignedLongScalarType(declaration ElementDeclaration, loc Loc) (instanceScalarType, error) {
+	related := []Loc{declaration.Loc()}
+	reference, ok := declaration.TypeReference()
+	if !ok || !reference.IsBuiltin() || reference.Name() != declaration.DeclaredType() || reference.facts.atomicKind != schemaSimpleTypeAtomicUnsignedLong {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "built-in unsignedLong reference is incomplete", related, errInstanceValidationInvariant)
+	}
+	facets, ok := reference.facts.facets.(schemaDigitFacetVariant)
+	if !ok || facets.value.Kind() != DigitDatatypeInteger {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "built-in unsignedLong digit facts are incomplete", related, errInstanceValidationInvariant)
+	}
+	bounds, ok := reference.IntegerBounds()
+	if !ok || (bounds.Version() != XSDVersion10 && bounds.Version() != XSDVersion11) || bounds.Version() != facets.value.Version() {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "built-in unsignedLong bounds are incomplete", related, errInstanceValidationInvariant)
+	}
+	return instanceScalarType{
+		value:   instanceDigitScalar{facets: facets.value, integerKind: schemaSimpleTypeAtomicUnsignedLong, integerBounds: bounds},
+		version: bounds.Version(),
+		related: related,
+	}, nil
+}
+
+func instanceBuiltInBoundedIntegerScalarType(related []Loc, loc Loc, version XSDVersion, kind schemaSimpleTypeAtomicKind, name, lower, upper string) (instanceScalarType, error) {
+	facets, err := NewIntegerDigitFacets(nil, version)
+	if err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in "+name+" digit facets", related, err)
+	}
+	minimum, err := ParseIntegerMinInclusiveFacet(lower, Loc{}, version)
+	if err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in "+name+" lower bound", related, err)
+	}
+	maximum, err := ParseIntegerMaxInclusiveFacet(upper, Loc{}, version)
+	if err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in "+name+" upper bound", related, err)
+	}
+	bounds, err := NewIntegerBoundFacets([]IntegerBoundFacet{minimum, maximum}, version)
+	if err != nil {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "construct built-in "+name+" bounds", related, err)
+	}
+	return instanceScalarType{
+		value:   instanceDigitScalar{facets: facets, integerKind: kind, integerBounds: bounds},
 		version: version,
 		related: related,
 	}, nil
@@ -2102,11 +2300,53 @@ func instanceIntegerSpecRef(version XSDVersion) string {
 	return instanceIntegerXSD11SpecRef
 }
 
+func instanceNegativeIntegerSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceNegativeIntegerXSD10SpecRef
+	}
+	return instanceNegativeIntegerXSD11SpecRef
+}
+
 func instanceNonNegativeIntegerSpecRef(version XSDVersion) string {
 	if version == XSDVersion10 {
 		return instanceNonNegativeIntegerXSD10SpecRef
 	}
 	return instanceNonNegativeIntegerXSD11SpecRef
+}
+
+func instanceByteSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceByteXSD10SpecRef
+	}
+	return instanceByteXSD11SpecRef
+}
+
+func instanceShortSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceShortXSD10SpecRef
+	}
+	return instanceShortXSD11SpecRef
+}
+
+func instanceIntSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceIntXSD10SpecRef
+	}
+	return instanceIntXSD11SpecRef
+}
+
+func instanceLongSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceLongXSD10SpecRef
+	}
+	return instanceLongXSD11SpecRef
+}
+
+func instanceUnsignedLongSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return instanceUnsignedLongXSD10SpecRef
+	}
+	return instanceUnsignedLongXSD11SpecRef
 }
 
 func instanceDecimalSpecRef(version XSDVersion) string {

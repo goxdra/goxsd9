@@ -342,7 +342,7 @@ func assertIntegerDerivedGraphElement(t *testing.T, schema Schema, root string, 
 	assertIntegerReferenceFacts(t, reference.facts, version, kind, kindName, minimum, maximum)
 }
 
-func TestSchemaByteConsumersRemainUnsupported(t *testing.T) {
+func TestSchemaByteGenerationRemainsUnsupported(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="p:byte"/></xs:schema>`
@@ -350,7 +350,14 @@ func TestSchemaByteConsumersRemainUnsupported(t *testing.T) {
 			if err != nil {
 				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
 			}
-			assertIntegerDerivedConsumersUnsupported(t, schema)
+			output, err := GenerateGo(schema, "generated")
+			if output != nil || err == nil {
+				t.Fatalf("GenerateGo = (%q, %v), want unsupported and no output", output, err)
+			}
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != diagnosticCodegenUnsupported || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:element name="value"`) || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("byte generation diagnostic = %s", diagnostic)
+			}
 		})
 	}
 }
@@ -398,6 +405,7 @@ func TestSchemaByteExcludedAdmissionShapes(t *testing.T) {
 	for _, profile := range longPolicyProfiles() {
 		for _, test := range []struct{ name, body, needle string }{
 			{"local inline", `<xs:complexType name="T"><xs:sequence><xs:element name="v"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element></xs:sequence></xs:complexType>`, `<xs:simpleType>`},
+			{"choice inline", `<xs:complexType name="T"><xs:choice><xs:element name="v"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element></xs:choice></xs:complexType>`, `<xs:simpleType>`},
 			{"global attribute inline", `<xs:attribute name="v"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:attribute>`, `<xs:simpleType>`},
 			{"local attribute direct", `<xs:complexType name="T"><xs:attribute name="v" type="xs:byte"/></xs:complexType>`, `type="xs:byte"`},
 			{"local attribute named", `<xs:complexType name="T"><xs:attribute name="v" type="t:Alias"/></xs:complexType><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `type="t:Alias"`},
@@ -408,8 +416,6 @@ func TestSchemaByteExcludedAdmissionShapes(t *testing.T) {
 			{"global element default", `<xs:element name="v" type="xs:byte" default="0"/>`, `default="0"`},
 			{"global element fixed named", `<xs:element name="v" type="t:Alias" fixed="0"/><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `fixed="0"`},
 			{"global element fixed inline", `<xs:element name="v" fixed="0"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element>`, `fixed="0"`},
-			{"global attribute default", `<xs:attribute name="v" type="xs:byte" default="0"/>`, `default="0"`},
-			{"global attribute fixed named", `<xs:attribute name="v" type="t:Alias" fixed="0"/><xs:simpleType name="Alias"><xs:restriction base="xs:byte"/></xs:simpleType>`, `fixed="0"`},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
@@ -454,7 +460,14 @@ func TestSchemaByteGlobalConsumersByTypeShape(t *testing.T) {
 				if test.name == "named" {
 					related = append(related, elementReferenceTestAttributeLoc(t, root, `<xs:simpleType name="Alias"`))
 				}
-				assertGlobalIntegerDerivedValidationUnsupported(t, schema, "value", related)
+				if test.name == "inline" {
+					assertGlobalIntegerDerivedValidationUnsupported(t, schema, "value", related)
+					return
+				}
+				input := `<value xmlns="urn:test">127</value>`
+				if err := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input))); err != nil {
+					t.Fatalf("ValidateInstance(%s): %v", test.name, err)
+				}
 			})
 		}
 	}

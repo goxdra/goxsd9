@@ -86,6 +86,15 @@ func (observer *instanceValidationObserver) startElement(name syntaxName, loc Lo
 	if err != nil {
 		return true, err
 	}
+	if _, selected := instanceAttributeRootPlanFor(observer.schema, declaration); selected {
+		return true, nil
+	}
+	if _, selected, planErr := instanceAttributeSequenceProgramFor(observer.schema, declaration, loc); selected {
+		return true, planErr
+	}
+	if _, selected, planErr := instanceVarietySequenceProgramFor(observer.schema, declaration, loc); selected {
+		return true, planErr
+	}
 	definition, sequence, hasSequence, err := instanceSequenceDefinitionFor(observer.schema, declaration, loc)
 	if err != nil {
 		return false, err
@@ -210,9 +219,15 @@ func instanceSequenceProgramFor(
 		for _, use := range attributeUses {
 			related = appendInstanceRelated(related, use.Loc())
 		}
+		primary := attributeUses[0].Loc()
+		message := fmt.Sprintf("named complex type %q attribute uses are outside direct sequence validation", definition.Name())
+		if _, inline := declaration.InlineComplexType(); inline {
+			primary = loc
+			message = "inline complex type attribute uses are outside direct sequence validation"
+		}
 		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
-			attributeUses[0].Loc(),
-			fmt.Sprintf("named complex type %q attribute uses are outside direct sequence validation", definition.Name()),
+			primary,
+			message,
 			related,
 			version,
 			errInstanceAttributes,
@@ -375,6 +390,7 @@ func instanceSequenceProgramFor(
 			true,
 			false,
 			false,
+			false,
 			version,
 		)
 		if err != nil {
@@ -505,7 +521,22 @@ func instancePrecisionDecimalSequenceReferenceFor(schema Schema, declaration Ele
 	}
 	if scalar.value == nil {
 		typeID, hasTypeID := target.TypeID()
-		scalar, err = instanceScalarTypeForTarget(schema, target.DeclaredType(), typeID, hasTypeID, targetRelated, loc, version, true, false, false, false, false, version)
+		scalar, err = instanceScalarTypeForTarget(
+			schema,
+			target.DeclaredType(),
+			typeID,
+			hasTypeID,
+			targetRelated,
+			loc,
+			version,
+			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+			version,
+		)
 		if err != nil {
 			return instanceSequenceParticle{}, err
 		}
@@ -578,15 +609,15 @@ func (validator *instanceSequenceValidator) startElement(name syntaxName, loc Lo
 		validator.depth = 2
 		validator.open = child
 		if len(child.paths) == 0 {
-			failureCode := validator.sequenceChildFailureCode(childName)
+			failureCode, message, cause := validator.sequenceChildFailure(name, childName)
 			validator.frontier = nil
 			return newInstanceSequenceStructuralInvalid(
 				validator.program,
 				loc,
-				fmt.Sprintf("direct sequence child %q is unexpected at this position", renderSyntaxName(name)),
+				message,
 				validator.program.related,
 				failureCode,
-				errInstanceSequenceUnexpected,
+				cause,
 			)
 		}
 		return validateInstanceSequenceAttributes(attrs, instanceSequenceOpenRelated(validator.program, child), validator.program.version, instanceSequencePrecisionOnly(validator.program))
@@ -651,6 +682,18 @@ func (validator *instanceSequenceValidator) sequenceChildFailureCode(name QName)
 		}
 	}
 	return InvalidInstanceSequenceUnexpectedCode
+}
+
+func (validator *instanceSequenceValidator) sequenceChildFailure(name syntaxName, qualified QName) (string, string, error) {
+	code := validator.sequenceChildFailureCode(qualified)
+	switch code {
+	case InvalidInstanceSequenceOccurrenceCode:
+		return code, fmt.Sprintf("direct sequence child %q exceeds an occurrence bound", renderSyntaxName(name)), errInstanceSequenceOccurrence
+	case InvalidInstanceSequenceOrderCode:
+		return code, fmt.Sprintf("direct sequence child %q is out of order", renderSyntaxName(name)), errInstanceSequenceOrder
+	default:
+		return code, fmt.Sprintf("direct sequence child %q is unexpected at this position", renderSyntaxName(name)), errInstanceSequenceUnexpected
+	}
 }
 
 func (validator *instanceSequenceValidator) sequenceOuterMaximumReached() bool {
