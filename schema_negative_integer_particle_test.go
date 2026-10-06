@@ -95,7 +95,7 @@ func TestSchemaNegativeIntegerDirectParticlesAcrossPolicies(t *testing.T) {
 					}
 					bounds, hasBounds := reference.IntegerBounds()
 					maximum, hasMaximum := bounds.MaxInclusiveFacet()
-					if !hasBounds || !hasMaximum || bounds.Version() != negativeIntegerParticleFactVersion(profile) || maximum.Kind() != BoundMaxInclusive || maximum.Value().Canonical() != "-1" || maximum.Loc() != wantTypeLoc {
+					if !hasBounds || !hasMaximum || bounds.Version() != negativeIntegerParticleFactVersion(profile) || maximum.Kind() != BoundMaxInclusive || maximum.Value().Canonical() != "-1" || !maximum.Loc().IsZero() {
 						t.Fatalf("%s child %d bound = %v/%t", owner.name, index, maximum, hasMaximum)
 					}
 				}

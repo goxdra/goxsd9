@@ -148,6 +148,9 @@ var (
 	errSchemaElementReferenceAmbiguous           = errors.New("element reference is ambiguous")
 	errSchemaElementReferenceNamespace           = errors.New("element reference namespace is not imported")
 	errSchemaElementReferenceDuplicate           = errors.New("element reference particle is duplicated")
+	errSchemaAllMemberDuplicate                  = errors.New("all particle member has a duplicate expanded name")
+	errSchemaAllMemberScalar                     = errors.New("all particle member has an unsupported scalar type")
+	errSchemaAllMemberInlineComplex              = errors.New("all particle member has an unsupported inline complex type")
 	errSchemaElementReferenceBlock               = errors.New("element reference cannot specify block")
 	errSchemaModelGroupReferenceUnresolved       = errors.New("model-group reference is unresolved")
 	errSchemaModelGroupReferenceWrongKind        = errors.New("model-group reference has the wrong target kind")
@@ -1792,6 +1795,13 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 		}
 		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, hasExplicitFinal, final), nil
 	}
+	if model.name.local == "all" {
+		input, inputErr := schemaAllComplexTypeInput(model, occurrences, attributeUses, facts, version, block, anyAttribute)
+		if inputErr != nil {
+			return nil, inputErr
+		}
+		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, hasExplicitFinal, final), nil
+	}
 	input, inputErr := schemaSequenceComplexTypeInput(model, occurrences, attributeUses, facts, version, block, anyAttribute)
 	if inputErr != nil {
 		return nil, inputErr
@@ -2203,12 +2213,49 @@ func schemaComplexContentExtensionChild(element *syntaxElement) *syntaxElement {
 func schemaComplexTypeModel(element *syntaxElement) *syntaxElement {
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
-		if !ok || child.name.local != "choice" && child.name.local != "sequence" && child.name.local != "group" {
+		if !ok || child.name.local != "all" && child.name.local != "choice" && child.name.local != "sequence" && child.name.local != "group" {
 			continue
 		}
 		return child
 	}
 	return nil
+}
+
+func schemaAllComplexTypeInput(model *syntaxElement, occurrences particleOccurrenceRange, attributeUses []schemaAttributeUseInput, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy, anyAttribute *schemaAnyAttributeInput) (*schemaComplexTypeInput, error) {
+	input := &schemaAllParticleInput{
+		loc:         model.loc,
+		occurrences: occurrences,
+		members:     make([]schemaParticleTermInput, 0),
+	}
+	for _, node := range model.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local == "annotation" {
+			continue
+		}
+		if child.name.local != "element" {
+			return nil, newSchemaBridgeInvariant(child.loc, "unsupported all child reached component construction")
+		}
+		// The local particle bridge cannot retain an inline complex type or its base.
+		if inlineComplex := inlineComplexTypeChild(child); inlineComplex != nil {
+			diagnostic := newSchemaSyntaxUnsupportedForVersion(inlineComplex.loc, "all member inline complex types are not implemented", version)
+			diagnostic.specRef = schemaAllLimitedSpecRef(version)
+			diagnostic.cause = errSchemaAllMemberInlineComplex
+			return nil, diagnostic
+		}
+		member, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, true, !occurrences.mapsToParticle())
+		if err != nil {
+			return nil, err
+		}
+		input.members = append(input.members, member)
+	}
+	return &schemaComplexTypeInput{
+		body: &schemaComplexTypeDirectBodyInput{
+			particle:      input,
+			attributeUses: attributeUses,
+			anyAttribute:  anyAttribute,
+		},
+		prohibitedSubstitutions: block,
+	}, nil
 }
 
 func schemaModelGroupModel(element *syntaxElement) *syntaxElement {
@@ -3851,6 +3898,11 @@ func resolveSchemaSimpleTypeInputsInComplexParticle(
 	version XSDVersion,
 ) error {
 	switch particle := input.(type) {
+	case *schemaAllParticleInput:
+		if particle == nil {
+			return newSchemaBridgeInvariant(Loc{}, "all simple type resolution has a nil particle input")
+		}
+		return resolveSchemaSimpleTypeInputsInParticleTerms(particle.members, !particle.occurrences.mapsToParticle(), source, resolver, version)
 	case *schemaChoiceParticleInput:
 		if particle == nil {
 			return newSchemaBridgeInvariant(Loc{}, "choice simple type resolution has a nil particle input")
@@ -4005,7 +4057,7 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		return true
 	}
 	switch reference.atomicKind {
-	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicUnsignedLong:
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicNonPositiveInteger, schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
 		switch facets := reference.facets.(type) {
 		case schemaDigitFacetVariant:
 			return facets.value.Kind() == DigitDatatypeInteger
@@ -4034,9 +4086,6 @@ func schemaAttributeValueConstraintReferenceSupported(reference schemaSimpleType
 		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
-		schemaSimpleTypeAtomicNonPositiveInteger,
-		schemaSimpleTypeAtomicPositiveInteger,
-		schemaSimpleTypeAtomicByte,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
@@ -4073,7 +4122,7 @@ func resolveSchemaAttributeValueConstraint(
 		return constraint, nil
 	}
 	switch reference.atomicKind {
-	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicUnsignedLong:
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicNonPositiveInteger, schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
 		if reference.atomicKind == schemaSimpleTypeAtomicUnsignedLong && version == XSDVersion10 && !schemaUnsignedLong10Lexical(lexical) {
 			return nil, invalidSchemaAttributeValueConstraint(input, version, newDiagnostic(
 				FailureInvalid,
@@ -4113,9 +4162,6 @@ func resolveSchemaAttributeValueConstraint(
 		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
-		schemaSimpleTypeAtomicNonPositiveInteger,
-		schemaSimpleTypeAtomicPositiveInteger,
-		schemaSimpleTypeAtomicByte,
 		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
@@ -4237,6 +4283,7 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID, schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicPrecisionDecimal, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt,
 		schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
 		return true
@@ -4245,7 +4292,6 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
-		schemaSimpleTypeAtomicNonPositiveInteger, schemaSimpleTypeAtomicPositiveInteger,
 		schemaSimpleTypeAtomicQName:
 		return false
 	default:
@@ -5698,7 +5744,7 @@ func resolveSchemaElementType(
 			"element type resolution has an incomplete simple type result",
 		)
 	}
-	if err := rejectUnsupportedSchemaSimpleTypeVariety(input, simpleTypes.results[candidate], version, "for global elements"); err != nil {
+	if err := rejectUnsupportedSchemaSimpleTypeVariety(input, simpleTypes.results[candidate], version, "for global elements"); err != nil && !schemaPrecisionDecimalListOrUnion(simpleTypes.results[candidate]) {
 		return schemaElementTypeResult{}, err
 	}
 	reference := schemaNamedSimpleTypeReferenceFromResult(input, records[candidate].id, simpleTypes.results[candidate])
@@ -6632,7 +6678,7 @@ func resolveSchemaAttributeUseType(
 	if err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if !schemaLocalAttributeSimpleTypeSupported(reference) {
+	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
 			name = reference.name
@@ -6741,6 +6787,39 @@ func schemaLocalAttributeSimpleTypeSupported(reference schemaSimpleTypeReference
 	default:
 		return false
 	}
+}
+
+func schemaLocalAttributeBoundedPrecisionVariety(reference schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver) bool {
+	var definition *schemaSimpleTypeComponent
+	if reference.kind == SimpleTypeReferenceAnonymous {
+		definition = reference.anonymous
+	}
+	if reference.kind == SimpleTypeReferenceNamed && resolver != nil {
+		for index, record := range resolver.records {
+			if record.id == reference.id && resolver.results[index].present {
+				definition = schemaSimpleTypeComponentFromResult(resolver.results[index], false)
+				break
+			}
+		}
+	}
+	if definition == nil {
+		return false
+	}
+	if reference.variety == SimpleTypeVarietyList {
+		item := definition.itemType
+		_, precision := item.facets.(schemaPrecisionDecimalFacetVariant)
+		return definition.hasItemType && item.variety == SimpleTypeVarietyAtomicRestriction && precision
+	}
+	if reference.variety != SimpleTypeVarietyUnion {
+		return false
+	}
+	members := definition.memberTypes
+	if len(members) != 2 {
+		return false
+	}
+	_, precision := members[0].facets.(schemaPrecisionDecimalFacetVariant)
+	return precision && members[0].variety == SimpleTypeVarietyAtomicRestriction &&
+		members[1].variety == SimpleTypeVarietyAtomicRestriction && members[1].atomicKind == schemaSimpleTypeAtomicNegativeInteger
 }
 
 func resolveSchemaContextScalarType(
@@ -7887,6 +7966,11 @@ func resolveSchemaComplexTypeParticle(
 	version XSDVersion,
 ) (Particle, error) {
 	switch particle := input.(type) {
+	case *schemaAllParticleInput:
+		if particle == nil {
+			return nil, newSchemaBridgeInvariant(Loc{}, "all particle input is nil")
+		}
+		return resolveSchemaAllParticle(particle, owner, records, byName, visibleSources, simpleTypes, version)
 	case *schemaChoiceParticleInput:
 		if particle == nil {
 			return nil, newSchemaBridgeInvariant(Loc{}, "choice particle input is nil")
@@ -8054,6 +8138,118 @@ func resolveSchemaSequenceParticle(
 		particles:   particles,
 	}
 	return SequenceParticle{facts: sequence}, nil
+}
+
+// resolveSchemaAllParticle resolves every member before omission and publishes one
+// completed ordered view only after all surviving names are unique.
+//
+//nolint:gocognit // Keep all-member resolution, omission, and duplicate checks in lexical order.
+func resolveSchemaAllParticle(
+	input *schemaAllParticleInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	simpleTypes schemaSimpleTypeResolution,
+	version XSDVersion,
+) (Particle, error) {
+	ownerOmitted := !input.occurrences.mapsToParticle()
+	members := make([]Particle, 0, len(input.members))
+	seen := make(map[QName]Loc)
+	for _, termInput := range input.members {
+		memberInput, ok := schemaElementParticleInputValue(termInput)
+		if !ok {
+			return nil, newSchemaBridgeInvariant(input.loc, "all member input is not an element")
+		}
+		member, err := resolveSchemaElementParticle(memberInput, owner, records, byName, visibleSources, simpleTypes, version, "all")
+		if err != nil {
+			if ownerOmitted && schemaZeroOccurrenceMayOmitUnsupported(err) {
+				continue
+			}
+			return nil, err
+		}
+		if member == nil {
+			continue
+		}
+		if ownerOmitted {
+			continue
+		}
+		if declaration, ok := member.(ElementParticle); ok && (declaration.facts.typeReference.kind == SimpleTypeReferenceAnonymous || !schemaAllScalarAllowed(declaration.facts.typeReference)) {
+			loc := memberInput.loc
+			if memberInput.typeInput != nil {
+				loc = memberInput.typeInput.typeLoc
+			}
+			diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, "all member type is anonymous or outside supported integer, decimal, boolean, built-in string, built-in/named token/NMTOKEN, and built-in negativeInteger/nonNegativeInteger scalars", version)
+			diagnostic.specRef = schemaAllLimitedSpecRef(version)
+			diagnostic.cause = errSchemaAllMemberScalar
+			return nil, diagnostic
+		}
+		name, loc := schemaAllMemberNameAndLoc(member)
+		if first, duplicate := seen[name]; duplicate {
+			return nil, Diagnostic{
+				class: FailureInvalid, code: diagnosticSchemaElementReferenceDuplicateCode, loc: loc,
+				message: fmt.Sprintf("all member %q duplicates an earlier member", name),
+				related: []Loc{first}, specRef: schemaAllLimitedSpecRef(version),
+				cause: fmt.Errorf("%w: %q", errSchemaAllMemberDuplicate, name),
+			}
+		}
+		seen[name] = loc
+		members = append(members, member)
+	}
+	if ownerOmitted {
+		return nil, nil
+	}
+	return AllParticle{facts: &schemaAllParticle{loc: input.loc, occurrences: input.occurrences.clone(), members: members}}, nil
+}
+
+func schemaAllScalarAllowed(reference schemaSimpleTypeReferenceComponent) bool {
+	if reference.variety != SimpleTypeVarietyAtomicRestriction {
+		return false
+	}
+	switch reference.atomicKind {
+	case schemaSimpleTypeAtomicString:
+		return reference.kind == SimpleTypeReferenceBuiltin
+	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicDecimal:
+		return true
+	case schemaSimpleTypeAtomicUnknown:
+		_, ok := reference.facets.(schemaBooleanFacetVariant)
+		return ok
+	case schemaSimpleTypeAtomicToken:
+		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
+	case schemaSimpleTypeAtomicNMTOKEN:
+		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
+	case schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicNonNegativeInteger:
+		return reference.kind == SimpleTypeReferenceBuiltin
+	case schemaSimpleTypeAtomicNormalizedString,
+		schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt,
+		schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte,
+		schemaSimpleTypeAtomicUnsignedLong,
+		schemaSimpleTypeAtomicNonPositiveInteger,
+		schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicPrecisionDecimal,
+		schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID,
+		schemaSimpleTypeAtomicQName:
+		return false
+	}
+	return false
+}
+
+func schemaAllMemberNameAndLoc(member Particle) (QName, Loc) {
+	switch typed := member.(type) {
+	case ElementParticle:
+		return typed.Name(), typed.Loc()
+	case ElementReferenceParticle:
+		return typed.Name(), typed.RefLoc()
+	default:
+		return QName{}, Loc{}
+	}
+}
+
+func schemaAllLimitedSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return "xsd10-structures#cos-all-limited"
+	}
+	return "xsd11-structures#cos-all-limited"
 }
 
 func schemaParticleTermInputOccurrences(input schemaParticleTermInput) (particleOccurrenceRange, error) {
@@ -9405,7 +9601,7 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		if err != nil {
 			return schemaSimpleTypeReferenceComponent{}, err
 		}
-		maxInclusive, err := ParseIntegerMaxInclusiveFacet("-1", input.loc, version)
+		maxInclusive, err := ParseIntegerMaxInclusiveFacet("-1", Loc{}, version)
 		if err != nil {
 			return schemaSimpleTypeReferenceComponent{}, err
 		}
