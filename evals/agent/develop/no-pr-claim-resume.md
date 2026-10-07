@@ -52,5 +52,6 @@ retain their original retryable disposition and cause; malformed successful
 API/ref/history data is terminal. Agent, checkout, transport, and challenge
 failures remain retryable;
 exactly three authenticated Examiner `fail` receipts trigger escalation.
-Keep `needs-human` until renewal is verified, then reconcile label and Project
-`Picked`, rereading after every ambiguous response and preserving artifacts.
+Keep `needs-human` until verified renewal for no-source claims or verified local
+integration for unpublished source; then reconcile label and Project `Picked`,
+rereading ambiguous responses and preserving artifacts.

@@ -14,7 +14,7 @@ repeat after remediation. Renew four-hour claims at durable boundaries/pushes
 only. Preserve no-PR worktrees; archive expired PR-free claims; escalate
 open-PR expirations.
 Claim resume:
-`go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]`.
+`go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--unpublished-local-head SHA] [--integrate] [--dry-run]`.
 Archived sibling: current claimant runs `go tool workflowctl claim release-archived ISSUE --run-id RUN --expected-head SHA [--dry-run]`; exact clean/unlocked proof including submodules preserves refs/comments.
 PR resume: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]`.
 Agent/checkout/transport/challenge failures remain retryable. Three
@@ -23,7 +23,7 @@ blocker/evidence Markdown; run
 `go tool workflowctl handoff ISSUE --body-file FILE --needs-human`; it proves
 OPEN/Project identity, applies `needs-human`/Backlog, then posts last.
 Reread incomplete/ambiguous phases.
-Resume binds handoff/run/head, lease, no-PR, Project, worktree. Unpublished source uses `--unpublished-local-head SHA`: empty remote renewal; `--integrate` creates a two-parent local commit before reconciliation, preserving staged merge.
+Resume binds handoff/run/head, lease, no-PR, Project. Unpublished renews remotely; `--integrate` preserves merge.
 Clean no-source/no-PR forms cover all PR/pull-request/workflow-path mentions; exceptions are issue-scoped.
 Head labels: one full SHA. Same-run markers: exact messages, unchanged trees,
 one parent, valid refs to oldest acquisition lease. Reject source-bearing
@@ -32,7 +32,7 @@ Dirty handoff: `# Dirty no-PR claim handoff: issue #N`, blank, then `Run:`,
 `Original claim head:`, `Current claim head:`, `Fixed branch:`, `Local branch:`,
 `Worktree:`, `Preserved state SHA-256:` with backticked values; both heads equal
 `--expected-head`; end `No source commit or PR was published.` and LF.
-`claim resume-state` digests index, tracked and untracked bytes; recheck before mutation. Require OPEN+needs-human+Backlog; reconcile after verified renewal and integration. Retry converges.
+`claim resume-state` seals index, tracked, nonignored untracked bytes; recheck before mutation. Initial recovery requires OPEN+needs-human+Backlog; unpublished claims retain it until integration. Verified retries may be Picked without needs-human; no-source reconciles after renewal.
 `workflowctl sync` updates Project status/claim refs, not `main`/submodules;
 run-local refs are inventory-only. `base-sync` fast-forwards `main`/pins; never
 resets/rebases/stashes/discards.
